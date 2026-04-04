@@ -2,6 +2,7 @@
 
 - 원문: `AMEA Product Manual.docx`
 - 목적: 고객 문의 이메일 답변 시 빠르게 근거를 찾기 위한 내부 요약본
+- 원문 발췌본: `AMEA_product_manual_extracted_metabolomics.md` (요약보다 원문 표현 우선 확인 시 사용)
 - 주의: 본 문서는 **내부 참고용**이며, 외부 전달 전 원문 재확인 필요
 
 ---
