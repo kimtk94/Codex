@@ -186,6 +186,70 @@
 
 ---
 
+## 실전 메일 레퍼런스(사용자 제공)
+아래는 실제 회신에 사용한 문구/구성 예시다.  
+동일/유사 문의가 들어오면 아래 구조와 톤을 우선 참고해 작성한다.
+
+### 1) 소병훈 선생님 (Shotgun Metagenome + BI)
+- 인사/서명 톤:
+  - "안녕하세요, 소병훈 선생님. 노보진 코리아 김태훈 입니다."
+  - "추가로 요청해주실 부분 있으시면 언제든지 연락 부탁드립니다."
+  - "감사합니다. 김태훈 드림"
+- 안내 항목 구조:
+  1. Shotgun Metagenome 견적
+  2. BI 분석 옵션 비교(Reads-Mapping vs Assembly-based)
+  3. Sample Prep 할인 조건(DNA 추출 제공 시 Prep 비용 할인)
+  4. 샘플 준비 일정 확인 요청
+- 반영할 수치(해당 케이스 기준):
+  - Prep 비용: 샘플당 6만원
+  - DNA QC + Library QC + Sequencing(10Gb): 샘플당 18만원
+  - Cloud: 100Gb당 3.5만원 (300Gb 총 10.5만원)
+  - Reads-Mapping(Kraken2): 샘플당 8만원
+  - Assembly-based: 샘플당 20만원
+
+### 2) 윤정웅 선생님 (scRNA-Seq + scATAC-Seq)
+- 인사/서명 톤:
+  - "안녕하세요, 윤정웅 선생님. 노보진 코리아 김태훈 입니다."
+  - "홈페이지로 문의주신 내용 안내 드립니다."
+  - "샘플 준비 시점과 수량 한번 확인해주시면 감사하겠습니다."
+- 안내 항목 구조:
+  1. Sample 준비
+  2. 서비스 범위(scRNA-Seq / scATAC-Seq)
+  3. BI content 구분 안내
+  4. 견적
+  5. TAT(소요 기간)
+- 반영할 수치(해당 케이스 기준):
+  - scRNA-Seq: Sample QC + Library 제작 + Sequencing(100Gb, 150PE) 470만원
+  - scRNA-Seq BI 분석: 30만원
+  - scATAC-Seq: Nuclei isolation + Library 제작 + Sequencing(200M reads, 50PE) 900만원
+  - scATAC-Seq BI 분석: 30만원
+  - TAT:
+    - scRNA-Seq 실험 3~4주, BI 분석 1주
+    - scATAC-Seq 실험 6~7주, BI 분석 1주
+- BI content 표기 예시:
+  - scRNA-Seq: Cell Ranger 결과(Alignment, Clustering 등), High Variable Gene Identification, Marker Gene Detection, Enrichment Analysis(GO, KEGG, Reactome 등)
+
+### 3) 이진아 선생님 (PCR Product 기반 시퀀싱 문의)
+- 인사/서명 톤:
+  - "안녕하세요, 이진아 선생님. 노보진 코리아 김태훈 입니다."
+  - "준비중이신 샘플 일정 확인해주시면 감사하겠습니다."
+  - "괜찮으시면 방문드려 미팅하는 것도 가능하니 편하게 말씀 부탁드립니다."
+- 안내 항목 구조:
+  1. 문의 내용 재확인 질문(타깃 증폭 PCR product 여부)
+  2. Library 전략 제안(PCR-Free 가능 여부 확인)
+  3. 용량별 견적 제시(30Gb / 100Gb)
+  4. 일정 확인 + 미팅 제안
+- 반영할 수치(해당 케이스 기준):
+  - DNA QC + Library 제작(PCR Free) + Sequencing(30Gb): 50만원
+  - DNA QC + Library 제작(PCR Free) + Sequencing(100Gb): 130만원
+
+### 실전 레퍼런스 사용 규칙
+- 위 금액/일정은 **해당 사례 기준 레퍼런스**로 사용한다.
+- 같은 품목이라도 프로젝트 조건(샘플 상태, read 수, 분석 범위, 장비 스케줄)에 따라 달라질 수 있으므로, 메일에는 필요 시 "최종 견적은 샘플/요구사항 확인 후 확정" 문구를 포함한다.
+- 사용자(김태훈) 서명 톤과 문장 리듬은 유지하되, 고객명/기관명/문의 항목은 반드시 케이스별로 치환한다.
+
+---
+
 ## 참고용 QC 범주
 아래 항목은 문서에 해당 내용이 있을 때 우선 반영한다.
 
