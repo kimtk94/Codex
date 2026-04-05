@@ -199,6 +199,102 @@
 
 ## 견적 회신 예시 템플릿 (사용자 제공안 반영)
 
+### 0) 2025 AMEA Sales price list 기준 단가 산정 원칙 (WON)
+- `<WON-2025 AMEA price list-Sales.xlsx>`의 **Sales Price(WON)-2025**를 기준으로만 금액을 산정한다.
+- 아래 문구는 **형식 예시**이며, 금액은 고정값으로 쓰지 않는다.
+  - `DNA Extraction + DNA QC + Library 제작 + Sequencing(10Gb) : [Sales Price 합계]`
+  - `DNA Extraction + DNA QC + Library 제작 + Sequencing(10Gb) + BI 분석 : [Sales Price 합계]`
+  - `RNA QC + Library 제작 + Sequencing(6Gb) : [Sales Price 합계]`
+- 구성 항목별 단가를 더해 계산식으로 제시한다.
+  - 예: `총액 = DNA Extraction + (DNA/RNA) QC + Library + (Gb 단가 × 데이터량) [+ BI]`
+- 견적 메일에는 가능하면 **구성 항목별 금액 + 총액 + VAT 별도/포함 여부**를 함께 명시한다.
+
+### 0-1) 서비스별 추천 output 기준 단가 정리 (Sales Price 기준)
+- 아래 표는 `<WON-2025 AMEA price list-Sales.xlsx>`의 **Sales Price(WON)-2025**와 제품 가이드의 추천 output(remark)을 묶어 정리한 기준이다.
+- 기본 원칙:
+  - 일반 NGS 서비스: `Library 제작 + Sequencing + Analysis`
+  - PML/PMP: `Library QC + Sequencing` (analysis 별도 옵션)
+
+| 서비스 | 추천 output (manual/remark) | Sales Price 기준 단가 |
+|---|---|---|
+| **mRNA-seq (Eukaryotic)** | 6Gb(정량) / 12Gb(저발현·구조) 권장 | Library 108,000 + Seq 7,500/Gb + Analysis 82,500 |
+| **lncRNA-seq** | 최소 10Gb, 권장 15Gb | Library 216,000 + Seq 7,500/Gb + Analysis 180,000 |
+| **circRNA-seq** | 9Gb 이상 권장 | Library 360,000 + Seq 7,500/Gb + Analysis 225,000 |
+| **WES (Agilent V6/V8)** | 6Gb(50X) / 12Gb(100X) 권장 | V6 Library 180,000 / V8 Library 228,000 + Seq 9,000/Gb + Analysis 52,500 |
+| **WES (TWIST 2.0)** | 5Gb(50X) / 10Gb(100X) 권장 | Library 228,000 + Seq 9,000/Gb + Analysis 52,500 |
+| **WGBS** | Human 90Gb 또는 140Gb 권장 | Library 300,000 + Seq 10,800/Gb + Analysis(90Gb) 444,000 / Analysis(140Gb) 636,000 |
+| **EM-seq** | 20–30X 권장 | Library 384,000 + Seq 10,800/Gb + Analysis 444,000(90Gb 기준) 또는 12,000/Gb |
+| **RRBS-seq** | 10Gb/sample 권장 | Library 348,000 + Seq 10,800/Gb + Analysis 240,000 |
+| **ChIP-seq** | 6Gb 또는 12Gb 권장 (IP/Input 2샘플 기준 안내) | Library 132,000 + Seq 9,000/Gb + Analysis 165,000 |
+| **RIP-seq** | 6Gb 또는 12Gb 권장 (IP/Input 2샘플 기준 안내) | Library 216,000 + Seq 9,000/Gb + Analysis 180,000 |
+| **Ribo-seq (SE50)** | 50M reads/sample 권장 | Library 744,000(+Tissue lysis 240,000) + Seq 12,000/M reads + Analysis 480,000 |
+| **Amplicon (Illumina)** | 100K tags 권장 | 100K tags(with analysis) 72,000 |
+| **Full-length 16S (PacBio)** | 20K HiFi reads 권장 | Library 24,000 + Seq(20K HiFi) 96,000 + Analysis 48,000 |
+| **Metagenomics (Nanopore)** | Illumina metagenomics 10Gb 동시 진행 권장 | Nanopore Library 576,000 + Seq 54,000/Gb + Analysis 504,000 (+Illumina 10Gb는 별도 합산) |
+
+- 상기 항목 외 서비스도 동일하게 **Sales Price 단가 합산 방식**으로 계산한다.
+- **PML/PMP 별도 기준**
+  - `PML`: Library QC 19,500 + (Lane/FC sequencing 단가 적용)
+    - 예: NovaSeq X Plus 10B Lane 2,430,000 / FC 18,900,000
+  - `PMP`: Library QC 19,500 + (프로젝트 데이터량 구간 단가 적용)
+    - 예: NovaSeq X Plus PE150 기준 D<50Gb는 12,150/Gb, 50≤D<350Gb는 9,450/Gb
+- 견적 표기 예시:
+  - `RNA QC + Library 제작 + Sequencing(6Gb) : [RNA QC + Library + (Seq 단가×6)]`
+  - `DNA Extraction + DNA QC + Library 제작 + Sequencing(10Gb) + BI 분석 : [Extraction + QC + Library + (Seq 단가×10) + Analysis]`
+
+### 0-2) 엑셀 전체 서비스 목록 (누락 방지용)
+- 아래 목록은 `WON-2025 AMEA price list-Sales.xlsx`의 모든 시트 기준 서비스명을 정리한 것이다.
+- 실제 견적은 각 서비스의 `Sales Price(WON)-2025`를 사용한다.
+- **전체 서비스 가격표(서비스/스펙/List/Sales/Remark) 원본 표는 `AMEA_sales_price_all_services.md`를 직접 확인**한다.
+
+#### 1.1 PML
+- Library QC/library (Illumina/MGI), Novaseq X plus-10B/25B PE150, NovaSeq 6000-S4 PE150, DNBSEQ-T7 PE150/150cycle/PE100, NovaSeq PE250/SE50/PE50, Data trim QC, Clean data release, Data demultiplexing
+
+#### 1.2 PMP
+- Library QC/library (Illumina/MGI), Novaseq X plus PE150, DNBSEQ-T7 PE150, NovaSeq 6000 PE150, Novaseq PE250/SE50, Data trim QC, Clean data release, Data demultiplexing
+
+#### 2 mRNA-seq
+- Eukaryotic mRNA-Seq, Directional mRNA-Seq, Low input RNA-Seq, Blood-derived RNA library prep (globin removal), Prokaryotic RNA-Seq, Dual RNA-seq, Novogene RNA Ambient Tube
+
+#### 3 ncRNA-seq
+- LncRNA-seq, Blood-derived total RNA library prep (globin+rRNA removal), Exosome lncRNA-seq, Small RNA-seq, Exosome Small RNA-seq, CircRNA-seq, FFPE RNA-seq in CAP lab
+
+#### 4 Whole Genome Sequencing
+- Human WGS (일반/PCR-free/PCR product), Plant & Animal resequencing (일반/PCR-free/PCR product), GBS, De novo survey, Microbial WGS (bacteria/fungal resequencing, draft map, fungal survey, microbial PCR product WGS)
+
+#### 5 Whole Exome Sequencing
+- Human WES (Agilent V6/V8, TWIST 2.0), Mouse WES, Clinical WES SKU (AMEA00400, AMEA00100, AMEA00303, AMEA00313)
+
+#### 6 Metagenomics
+- Meta-transcriptome sequencing, Shotgun metagenomics, Reads-mapping metagenomics, Metagenomics (PacBio), Metagenomics (Nanopore)
+
+#### 7 Amplicon
+- Amplicon metagenomics sequencing (Illumina), Full-length 16S amplification (PacBio), Customized/PCR product amplicon metagenomics
+
+#### 8 Epigenetics
+- WGBS, EM-seq, RRBS, ChIP-seq, RIP-seq, MeRIP-seq/m6A, Ribo-seq, ATAC-seq, Hi-C, CRISPR screen, Illumina EPIC V2.0 array, ASA, GSA
+
+#### 9 Pacbio DNA RNA sequencing
+- Human/Plant/Animal WGS (PacBio), Full-length RNA-seq, Bacteria/Fungal sequencing, Bacterial complete map, Fungal fine map, Pre-made library sequencing
+
+#### 10 Nanopore DNA RNA seq
+- Direct RNA sequencing, Human/Plant/Animal WGS, Bacteria sequencing, Bacterial complete map, Ultra-long DNA sequencing
+
+#### 11 Single Cell 10x genomics
+- 10x Single Cell Gene Expression, 10x Single Cell Universal 5’ Gene Expression, 10x Single Cell + Nanopore, 10x Single Cell ATAC
+
+#### 12 Spatial Transcriptome
+- FFPE Spatial Transcriptomics-Visium, FFPE Spatial Transcriptomics-Visium HD, FFPE Stereo-seq transcriptomics, Stereo-seq transcriptomics
+
+#### 13 Olink and mass spectrum
+- Olink Explore HT/Reveal, short-read cycles products (NovaSeq X plus/NovaSeq 6000), Untargeted/targeted metabolomics, lipidomics, 다중 targeted panel(AA/CCM/SCFA/FA/Tryptophan/Bile acid), quantitative proteomics/deep DIA/rapid DIA, PTM proteomics(Phospho/Acetyl/Ubiquitin/O-glyco/N-glyco)
+
+#### 14 Samples extraction
+- Regular DNA/RNA QC, DNA/RNA purification, DNA extraction (Singapore/China/Outsource) 및 sample type별 extraction (Whole blood, PBMC, Buccal swab, Saliva, Bacterial solution, Bacteria pellet, Stool, FFPE, tissue, soil, fungi 등), RNA extraction(FFPE/animal tissue)
+
+#### 15 Data release and logistics
+- Cloud/Hard disk data release, Clean data release, Cloud storage, Special shipment, sample return, 지역별 return logistics (HK/JP/KR, ANZ, SEA, China 등)
+
 ### 템플릿 A: Bacterial WGS 단가 안내
 안녕하세요, [고객명] 선생님.  
 노보진 코리아 [담당자]입니다.
