@@ -458,6 +458,92 @@ BI 분석은 원하시는 분석 수준 확인 후 별도 제안드리겠습니�
 - 같은 품목이라도 프로젝트 조건(샘플 상태, read 수, 분석 범위, 장비 스케줄)에 따라 달라질 수 있으므로, 메일에는 필요 시 "최종 견적은 샘플/요구사항 확인 후 확정" 문구를 포함한다.
 - 사용자(김태훈) 서명 톤과 문장 리듬은 유지하되, 고객명/기관명/문의 항목은 반드시 케이스별로 치환한다.
 
+### 4) Untargeted Metabolomics (LC-MS, mouse brain / 일반 안내)
+- 핵심 답변 구조:
+  1. 분석 가능 여부(pos/neg mode 동시 가능 여부, sample type 가능 여부)
+  2. Platform 명시(Thermo Q Exactive HF-X/HF)
+  3. Plus/Pro 옵션별 단가
+  4. 샘플 준비 기준(Tissue 기준량, snap freezing, -80℃)
+  5. 데모 리포트/Flyer 링크 제공
+  6. 샘플 수량/일정 확인 + 픽업 가능 안내
+- 반영 수치(해당 케이스 레퍼런스):
+  - Untargeted Metabolomics Plus(C18): 샘플당 45만원
+  - Untargeted Metabolomics Pro(C18+HILIC): 샘플당 50만원
+  - Tissue: 200 mg 이상
+  - Snap freezing: 최소 15분 후 -80℃ 보관
+- 문구 포인트:
+  - "저희는 기본적으로 positive와 negative를 모두 사용"
+  - "추출 및 BI 분석 추가 비용 없음" 또는 "BI 포함/미포함 견적 동일"을 명시해 고객 혼선을 줄인다.
+
+### 5) Untargeted Metabolomics (혈장 케이스/기존 프로모션 단가 레퍼런스)
+- 안내 항목 구조:
+  1. Platform
+  2. Plus/Pro 가격
+  3. 샘플 요구량(Plasma 기준)
+  4. TAT
+  5. 미팅 제안(필요 시)
+- 반영 수치(해당 케이스 레퍼런스):
+  - Plus(C18): 샘플당 30만원
+  - Pro(C18+HILIC): 샘플당 35만원
+  - Plasma: 200 uL 이상
+  - 분석 기간: 약 5주
+- 사용 규칙:
+  - 위 단가는 과거/조건부 케이스일 수 있으므로, 현재 견적 회신에는 2025 Sales Price 기준 재확인 문구를 함께 넣는다.
+
+### 6) Exosomal small RNA-Seq
+- 안내 항목 구조:
+  1. Exosome 유래 샘플은 Total RNA 추출본 수령 원칙
+  2. 추천 extraction kit 제안
+  3. BI 포함/미포함 견적 분리 제시
+  4. 대량 의뢰(예: 100개 이상) 할인 가능성 안내
+- 반영 수치(해당 케이스 레퍼런스):
+  - RNA QC + Library + Sequencing(10M reads): 45만원
+  - 위 구성 + BI 분석: 65만원
+- 추천 kit 표기:
+  - exoRNeasy Serum/Plasma Maxi Kit (Qiagen)
+  - miRNeasy Serum/Plasma Kit (Qiagen)
+  - miRNeasy Serum/Plasma Advanced Kit
+
+### 7) Untargeted Proteomics (Exosome, Deep DIA)
+- 안내 항목 구조:
+  1. 서비스 타입(Deep DIA) + 단가
+  2. 최소 비교 디자인/배치 기준
+  3. 샘플 요구량 및 전처리 금지/권장 조건
+  4. TAT
+- 반영 수치(해당 케이스 레퍼런스):
+  - 샘플당 60만원
+  - 배치당 최소 6개(최소 비교군 3 vs 3)
+  - 분석 기간: 약 5주
+  - 샘플 요구량: 100 μg 또는 1×10^12 pre-isolated exosomes
+  - 권장 buffer: 6M Urea, 농도 ≥ 0.5 μg/μL
+- 주의 문구:
+  - Exosome isolation 전에 RNA preservation reagent 사용 금지 확인
+  - Cell culture 유래 샘플은 serum-free medium 조건 확인
+
+### 8) EM-Seq 견적 안내 문구
+- 견적 작성 시 아래 포맷을 우선 사용:
+  - `cfDNA QC + Library 제작 + Sequencing(90Gb) : [금액]`
+  - `cfDNA QC + Library 제작 + Sequencing(30Gb) : [금액]`
+  - `Cloud 릴리즈 : 100Gb당 [금액]`
+- 반영 수치(해당 케이스 레퍼런스):
+  - 90Gb: 150만원
+  - 30Gb: 85만원
+  - Cloud: 100Gb당 3만원
+  - cfDNA library는 gDNA 대비 +15만원
+- 사용 규칙:
+  - cfDNA/gDNA library 단가 차이를 본문에 명시해 재견적 커뮤니케이션을 줄인다.
+
+### 9) WES 견적 회신(데이터 전달 옵션 포함)
+- 안내 항목 구조:
+  1. 캡처 키트 버전 명시(예: Agilent V6)
+  2. 데이터량 기준 단가
+  3. 데이터 전달 방식(Cloud/HDD)과 추가 비용
+- 반영 수치(해당 케이스 레퍼런스):
+  - Human WES(Agilent V6) 7Gb: 25만원 (VAT 별도)
+  - Customer HDD: 7.5만원 (VAT 별도)
+- 문구 포인트:
+  - 고객 HDD 동봉 시 해당 매체로 데이터 전달 가능함을 함께 안내
+
 ---
 
 ## 참고용 QC 범주
