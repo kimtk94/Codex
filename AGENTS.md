@@ -165,6 +165,8 @@
 - 금액은 항목별로 분리해 명확히 적는다.
   - 예: `DNA QC + Library + Sequencing(1Gb) : 10만원`
   - 예: `Cloud 데이터 릴리즈 : 3.5만원`
+- QC 항목 명칭은 기존 표기대로 `DNA QC` 또는 `RNA QC`를 사용한다. (`Sample QC`로 바꾸지 않음)
+- 일반 견적에서는 QC 항목을 계산 시 0원으로 반영하고, 추가/예외 QC가 필요한 경우에만 해당 금액을 더해 계산한다.
 - 총액은 반드시 **기준 수량**과 함께 계산식 형태로 보여준다.
   - 예: `50개 기준, 500만원 + 3.5만원 = 503.5만원 (VAT 별도)`
 - VAT 포함/별도 여부를 누락하지 않는다.
@@ -221,7 +223,7 @@
   - `DNA Extraction + DNA QC + Library 제작 + Sequencing(10Gb) + BI 분석 : [Sales Price 합계]`
   - `RNA QC + Library 제작 + Sequencing(6Gb) : [Sales Price 합계]`
 - 구성 항목별 단가를 더해 계산식으로 제시한다.
-  - 예: `총액 = DNA Extraction + (DNA/RNA) QC + Library + (Gb 단가 × 데이터량) [+ BI]`
+  - 예: `총액 = DNA Extraction + (DNA/RNA QC: 기본 0 반영, 예외 시 실제 단가 적용) + Library + (Gb 단가 × 데이터량) [+ BI]`
 - 견적 메일에는 가능하면 **구성 항목별 금액 + 총액 + VAT 별도/포함 여부**를 함께 명시한다.
 
 ### 0-1) 서비스별 추천 output 기준 단가 정리 (Sales Price 기준)
