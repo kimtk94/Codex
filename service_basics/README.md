@@ -1,7 +1,7 @@
 # 서비스별 기본 내용 파일 목록
 
 - `service_basics/metabolomics.md`: Metabolomics Service
-- `service_basics/lc_ms_submission.md`: LC-MS Sample Submission Guideline 요약 (LC-MS 문의 시에만 확인)
+- `service_basics/lc_ms_submission.md`: LC-MS 문의 분기 메모 (상세 내용은 `submission_LCMS.md` 확인)
 - `service_basics/proteomics.md`: Proteomics Service
 - `service_basics/pre_made_library_sequencing.md`: Pre-made Library Sequencing
 - `service_basics/mrna_seq.md`: mRNA Sequencing
