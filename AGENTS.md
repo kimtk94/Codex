@@ -11,6 +11,11 @@
 2. `AMEA_product_manual_extracted_all_services.md` (원문 근거 확인)
 3. `AMEA_sales_price_all_services.md` (가격 세부 확인)
 
+추가 규칙:
+- `service_basics/lc_ms_submission.md`는 LC-MS 서비스 문의일 때만 확인한다.
+- `submission_LCMS.md`는 `submission_LCMS.docx` 원문 변환본으로, LC-MS 서비스 문의일 때만 확인한다.
+- LC-MS 외 문의에는 기본 우선순위 문서만 사용한다.
+
 > 원칙: `context.md`에는 운영 규칙과 파일 매핑만 유지하고, 서비스별 상세 수치/표/템플릿은 중복 기재하지 않는다.
 ---
 
@@ -387,6 +392,8 @@ Shotgun Metagenome (Sample type: Stool)
 | 서비스 | 우선 참고 파일 |
 |---|---|
 | Metabolomics | `service_basics/metabolomics.md` |
+| LC-MS Sample Submission | `service_basics/lc_ms_submission.md` (LC-MS 문의 시에만 확인) |
+| LC-MS Submission 원문 변환본 | `submission_LCMS.md` (LC-MS 문의 시에만 확인) |
 | Proteomics | `service_basics/proteomics.md` |
 | Pre-made Library Sequencing (PML/PMP) | `service_basics/pre_made_library_sequencing.md` |
 | mRNA Sequencing | `service_basics/mrna_seq.md` |
