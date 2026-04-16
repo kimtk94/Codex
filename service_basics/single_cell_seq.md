@@ -1,5 +1,9 @@
 # Single Cell Sequencing 기본 정보
 
+## 중요 우선 참고 (tissue type별 권장)
+- `service_basics/single_cell_tissue_recommendation.md`를 Single Cell 서비스의 tissue type별 Single Cell/Single Nuclei 선택 기준으로 우선 참고합니다.
+- 기존 single cell manual과 충돌 시, tissue type 선택 관련 내용은 위 권장 가이드를 우선 적용합니다.
+
 ## 1) Sample Requirement (manual)
 - ## Sample Requirements (SG/Japan lab)7
 - Single Cell or Nuclei Concentration and Cell Recovery Target8
