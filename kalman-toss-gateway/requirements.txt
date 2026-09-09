@@ -2,3 +2,14 @@ fastapi==0.116.1
 uvicorn[standard]==0.35.0
 httpx==0.28.1
 pydantic-settings==2.10.1
+python-dotenv>=1.0
+psycopg[binary]>=3.2
+pandas>=2.2
+numpy>=2.0
+requests>=2.32
+pyarrow>=17
+exchange-calendars>=4.7
+pykrx>=1.2.8
+packaging>=24
+gspread>=6.1
+google-auth>=2.35

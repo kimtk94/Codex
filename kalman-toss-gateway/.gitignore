@@ -9,3 +9,6 @@ __pycache__/
 secrets/
 .venv/
 venv/
+state/*.sqlite3*
+logs/*.log
+data/

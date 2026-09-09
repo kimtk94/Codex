@@ -1,0 +1,16 @@
+# Kalman server schedule. Install for root or a dedicated kalman user with /opt/kalman permissions.
+CRON_TZ=Asia/Seoul
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Crypto: refresh each hour. CRYPTO_GLOBAL also rebuilds cross-market summary.
+5 * * * * /opt/kalman/app/scripts/run_pipeline.sh CRYPTO_GLOBAL >> /opt/kalman/logs/crypto.log 2>&1
+
+# KR: after regular market close on weekdays. Exchange-calendar QC inside the pipeline remains fail-closed.
+20 16 * * 1-5 /opt/kalman/app/scripts/run_pipeline.sh KR_GLOBAL >> /opt/kalman/logs/kr.log 2>&1
+
+# US: hourly worker. The current US Daily Ops lineage performs its own freshness/preflight checks.
+15 * * * 1-5 /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
+
+# Live executor poll. Safe by default: AUTO_TRADE_ENABLED=false and SHADOW signals are rejected.
+25 * * * 1-5 /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1

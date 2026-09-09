@@ -1,101 +1,133 @@
-# Kalman Toss Gateway
+# Kalman Server + Toss Gateway
 
-Private trading gateway for `kalman-investment-hub-v2` → Toss Securities Open API.
+Server runtime for the existing Investment Hub Unified Colab lineage plus a guarded Toss Securities execution gateway.
 
-## Safety state
+## Architecture
 
-This initial version is intentionally **read-only**.
+`cron -> engine/unified_runner.py -> Neon PostgreSQL -> Vercel viewers`
 
-- `TRADING_ENABLED=false` by default
-- No live order submission code is included yet
-- `/api/order-probe` only validates LIVE MICRO risk rules; it never sends an order
-- Real secrets and the full static IP must stay in the server `.env`, never in Git
+Live orders are a separate path:
 
-## LIVE MICRO limits
+`signal/intent -> /api/order-preview -> risk gates -> /api/orders/live -> Toss Open API`
 
-- Total capital limit: 30,000 KRW
-- Per-symbol cap: QQQ 10,000 / NVDA 10,000 / IONQ 10,000 KRW
-- Single-order cap: 5,000 KRW
-- Allowed symbols only: QQQ, NVDA, IONQ
+The model pipeline itself still has `trade_enabled=False`. This is deliberate: calculation promotion and broker execution stay separate.
 
-## Server setup
+The server also persists the current US selector into Neon `strategy_signal` as `SHADOW / entry_allowed=false / risk_gate=SHADOW_ONLY`. The automated trading worker refuses these rows. It only accepts an explicitly promoted `BUY / true / PASS` row.
 
-1. Register the server's full public static IP in Toss WTS → Settings → Open API → Allowed IP.
-2. Copy `.env.example` to `.env` on the server.
-3. Fill the server-side `.env` with `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`, `HUB_GATEWAY_SECRET`, and `EXPECTED_EGRESS_IP`.
-4. Leave `TOSS_ACCOUNT` blank initially if you do not know the Toss `accountSeq` yet.
-5. Keep `TRADING_ENABLED=false` for the first smoke tests.
+## What changed from Colab
 
-`TOSS_ACCOUNT` is the Toss `accountSeq` (for example `1`), not the full brokerage account number. Discover it using `/api/accounts` after OAuth succeeds.
+- `google.colab.userdata` is mapped to normal environment variables.
+- `/content/drive/MyDrive` is a compatibility symlink to `KALMAN_DATA_ROOT` (default `/opt/kalman/data`).
+- Colab `!pip` setup moved into `requirements.txt`.
+- `RUN_MODE` is an environment variable, so cron can call `KR_GLOBAL`, `US`, or `CRYPTO_GLOBAL`.
+- Google Sheets uses normal Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS`).
+- Neon DB contract and the validated KR/US/CRYPTO/GLOBAL calculation code are preserved.
 
-## Docker
+## Install
 
 ```bash
-docker build -t kalman-toss-gateway .
-docker run --rm --env-file .env -p 8787:8787 kalman-toss-gateway
+git clone https://github.com/kimtk94/Codex.git
+cd Codex/kalman-toss-gateway
+sudo bash scripts/install_server.sh
+sudo nano /opt/kalman/.env
 ```
 
-## Smoke tests
+Seed the former Drive folders into:
 
-Health check:
+```text
+/opt/kalman/data/Finance_KR
+/opt/kalman/data/Upbit_BTC
+```
+
+Then smoke-test the pipeline with trading OFF:
 
 ```bash
+/opt/kalman/app/scripts/run_pipeline.sh KR_GLOBAL
+/opt/kalman/app/scripts/run_pipeline.sh US
+/opt/kalman/app/scripts/run_pipeline.sh CRYPTO_GLOBAL
+```
+
+Install `config/kalman.cron` only after those runs pass.
+
+## Gateway smoke test
+
+```bash
+sudo systemctl restart kalman-toss-gateway
 curl http://127.0.0.1:8787/health
 ```
 
-Expected: `tradingEnabled: false`.
+The expected initial state is:
 
-Discover Toss accountSeq (does not require `TOSS_ACCOUNT`):
-
-```bash
-curl http://127.0.0.1:8787/api/accounts \
-  -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET"
+```json
+{"tradingEnabled":false,"liveGateOpen":false}
 ```
 
-Copy the returned `accountSeq` into `.env` as `TOSS_ACCOUNT=<accountSeq>`, then restart the container.
-
-Authenticated market data:
+Discover `accountSeq`:
 
 ```bash
-curl http://127.0.0.1:8787/api/prices \
-  -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET"
+curl http://127.0.0.1:8787/api/accounts -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET"
 ```
 
-Holdings:
+Buying power now requires an explicit currency and the gateway sends it correctly:
 
 ```bash
-curl http://127.0.0.1:8787/api/holdings \
-  -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET"
+curl 'http://127.0.0.1:8787/api/buying-power?currency=USD' -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET"
 ```
 
-Buying power:
+## Live-order safety gates
+
+A live order is submitted only when **all** of these pass:
+
+1. `TRADING_ENABLED=true`
+2. `LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING`
+3. symbol is in `ALLOW_SYMBOLS`
+4. per-order cap passes
+5. per-symbol cap passes
+6. persistent KST daily budget passes
+7. Toss buying power / sellable quantity passes
+8. `clientOrderId` has never been reserved locally
+9. for cron execution, Neon `strategy_signal` is `BUY + entry_allowed=true + risk_gate=PASS` and the matching snapshot is still fresh
+
+The local order guard is stored in `/opt/kalman/state/trading.sqlite3`.
+
+Preview first:
 
 ```bash
-curl http://127.0.0.1:8787/api/buying-power \
-  -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET"
-```
-
-Risk-only order probe (does not execute):
-
-```bash
-curl -X POST http://127.0.0.1:8787/api/order-probe \
-  -H "Content-Type: application/json" \
+curl -X POST http://127.0.0.1:8787/api/order-preview \
+  -H 'Content-Type: application/json' \
   -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET" \
-  -d '{"symbol":"IONQ","amount_krw":3000}'
+  -d '{"client_order_id":"kalman-test-001","symbol":"IONQ","side":"BUY","order_type":"MARKET","order_amount":"2"}'
 ```
 
-## Activation gate before live orders
+Only after end-to-end parity and a deliberate live promotion, set:
 
-Do not add live order execution until all of the following pass:
+```env
+TRADING_ENABLED=true
+LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING
+```
 
-1. Static outbound IP confirmed from the server.
-2. Toss IP allowlist confirmed.
-3. OAuth token issuance succeeds.
-4. Account list query succeeds and `accountSeq` is configured.
-5. QQQ/NVDA/IONQ price query succeeds.
-6. Holdings query succeeds.
-7. Buying-power query succeeds.
-8. Investment Hub → Gateway authentication succeeds over HTTPS.
-9. LIVE MICRO limits are verified with rejection tests.
+Then `/api/orders/live` uses the same request body as preview and can submit a real order.
 
-Only after that should `POST /api/v1/orders` integration be added behind an explicit trading-enable switch and idempotency protection.
+## Important
+
+Do not put real API keys, account identifiers, static IPs, or service-account JSON in Git. All real secrets belong only in `/opt/kalman/.env` or `/opt/kalman/secrets/`.
+
+## Automated execution worker
+
+`config/kalman.cron` includes an hourly `run_auto_trade.sh` poll, but it is inert until all live gates are deliberately opened. Current Unified US runs write only SHADOW signals, so no live order can be generated from the present model state.
+
+```env
+AUTO_TRADE_ENABLED=false
+AUTO_TRADE_ORDER_USD=2
+AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES=90
+```
+
+A future live promotion must be explicit in the strategy layer. The executor itself does not reinterpret model scores or convert a Shadow selector into a BUY.
+
+## Unified source integrity
+
+`engine/_unified_payload_*.b64` is the LZMA+base64 representation of the validated
+`Investment_Hub_Unified_Colab_v1` server port. `engine/unified_runner.py` verifies
+the decoded SHA-256 before executing it, so a partial or edited payload fails closed.
+The Drive notebook remains the research/source lineage; the server payload is the
+production runtime copy with Colab APIs shimmed through `engine.colab_compat`.

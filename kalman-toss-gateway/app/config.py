@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,13 +12,17 @@ class Settings(BaseSettings):
     hub_gateway_secret: str = ''
     expected_egress_ip: str = ''
 
+    # Two-key live gate. Both must be satisfied.
     trading_enabled: bool = False
+    live_trading_confirm: str = ''
+
     live_micro_total_limit_krw: int = 30000
     max_single_order_krw: int = 5000
     qqq_limit_krw: int = 10000
     nvda_limit_krw: int = 10000
     ionq_limit_krw: int = 10000
     allow_symbols: str = 'QQQ,NVDA,IONQ'
+    trading_state_db: str = '/opt/kalman/state/trading.sqlite3'
 
     host: str = '0.0.0.0'
     port: int = 8787
@@ -25,6 +30,14 @@ class Settings(BaseSettings):
     @property
     def allowed_symbols(self) -> set[str]:
         return {s.strip().upper() for s in self.allow_symbols.split(',') if s.strip()}
+
+    @property
+    def live_gate_open(self) -> bool:
+        return self.trading_enabled and self.live_trading_confirm == 'CONFIRM_LIVE_TRADING'
+
+    @property
+    def state_db_path(self) -> Path:
+        return Path(self.trading_state_db).expanduser()
 
     def symbol_limit_krw(self, symbol: str) -> int:
         limits = {
