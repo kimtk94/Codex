@@ -5,7 +5,7 @@ from .config import Settings, get_settings
 from .risk import validate_order
 from .toss_client import TossClient
 
-app = FastAPI(title='Kalman Toss Gateway', version='0.1.0')
+app = FastAPI(title='Kalman Toss Gateway', version='0.1.1')
 
 
 class OrderProbe(BaseModel):
@@ -28,6 +28,7 @@ async def health(settings: Settings = Depends(get_settings)):
     return {
         'status': 'ok',
         'service': 'kalman-toss-gateway',
+        'version': '0.1.1',
         'tradingEnabled': settings.trading_enabled,
         'allowedSymbols': sorted(settings.allowed_symbols),
         'limits': {
@@ -35,6 +36,12 @@ async def health(settings: Settings = Depends(get_settings)):
             'singleOrderKrw': settings.max_single_order_krw,
         },
     }
+
+
+@app.get('/api/accounts', dependencies=[Depends(authorize_gateway)])
+async def accounts(settings: Settings = Depends(get_settings)):
+    client = TossClient(settings)
+    return await client.accounts()
 
 
 @app.get('/api/prices', dependencies=[Depends(authorize_gateway)])
