@@ -33,7 +33,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/kalman/app
-EnvironmentFile=/opt/kalman/.env
+Environment=KALMAN_ENV_FILE=/opt/kalman/.env
 ExecStart=/opt/kalman/app/scripts/run_gateway.sh
 Restart=on-failure
 RestartSec=5
@@ -45,6 +45,10 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
 systemctl enable kalman-toss-gateway.service
-echo "Installed. Fill /opt/kalman/.env, seed /opt/kalman/data, then run:"
-echo "  sudo systemctl restart kalman-toss-gateway"
-echo "  sudo crontab -e   # paste config/kalman.cron after reviewing paths"
+printf '\nInstalled Kalman runtime. Live trading has NOT been enabled.\n'
+printf 'Next:\n'
+printf '  1) sudo nano /opt/kalman/.env\n'
+printf '  2) copy legacy data to /opt/kalman/data/{Finance_KR,Upbit_BTC}\n'
+printf '  3) sudo /opt/kalman/app/scripts/preflight.sh\n'
+printf '  4) sudo /opt/kalman/app/scripts/smoke_test.sh --pipelines\n'
+printf '  5) sudo /opt/kalman/app/scripts/install_cron.sh\n'

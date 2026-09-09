@@ -2,8 +2,7 @@
 set -euo pipefail
 APP_ROOT="${KALMAN_APP_ROOT:-/opt/kalman/app}"
 ENV_FILE="${KALMAN_ENV_FILE:-/opt/kalman/.env}"
-set -a
-[ -f "$ENV_FILE" ] && source "$ENV_FILE"
-set +a
+PY="${KALMAN_PYTHON:-/opt/kalman/.venv/bin/python}"
+export KALMAN_ENV_FILE="$ENV_FILE"
 cd "$APP_ROOT"
-exec /opt/kalman/.venv/bin/uvicorn app.main:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8787}"
+exec "$PY" -m app.serve
