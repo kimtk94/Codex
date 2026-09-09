@@ -22,13 +22,11 @@ This initial version is intentionally **read-only**.
 
 1. Register the server's full public static IP in Toss WTS → Settings → Open API → Allowed IP.
 2. Copy `.env.example` to `.env` on the server.
-3. Fill only the server-side `.env` with:
-   - `TOSS_CLIENT_ID`
-   - `TOSS_CLIENT_SECRET`
-   - `TOSS_ACCOUNT`
-   - `HUB_GATEWAY_SECRET`
-   - `EXPECTED_EGRESS_IP`
-4. Keep `TRADING_ENABLED=false` for the first smoke tests.
+3. Fill the server-side `.env` with `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`, `HUB_GATEWAY_SECRET`, and `EXPECTED_EGRESS_IP`.
+4. Leave `TOSS_ACCOUNT` blank initially if you do not know the Toss `accountSeq` yet.
+5. Keep `TRADING_ENABLED=false` for the first smoke tests.
+
+`TOSS_ACCOUNT` is the Toss `accountSeq` (for example `1`), not the full brokerage account number. Discover it using `/api/accounts` after OAuth succeeds.
 
 ## Docker
 
@@ -46,6 +44,15 @@ curl http://127.0.0.1:8787/health
 ```
 
 Expected: `tradingEnabled: false`.
+
+Discover Toss accountSeq (does not require `TOSS_ACCOUNT`):
+
+```bash
+curl http://127.0.0.1:8787/api/accounts \
+  -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET"
+```
+
+Copy the returned `accountSeq` into `.env` as `TOSS_ACCOUNT=<accountSeq>`, then restart the container.
 
 Authenticated market data:
 
@@ -84,10 +91,11 @@ Do not add live order execution until all of the following pass:
 1. Static outbound IP confirmed from the server.
 2. Toss IP allowlist confirmed.
 3. OAuth token issuance succeeds.
-4. QQQ/NVDA/IONQ price query succeeds.
-5. Holdings query succeeds.
-6. Buying-power query succeeds.
-7. Investment Hub → Gateway authentication succeeds over HTTPS.
-8. LIVE MICRO limits are verified with rejection tests.
+4. Account list query succeeds and `accountSeq` is configured.
+5. QQQ/NVDA/IONQ price query succeeds.
+6. Holdings query succeeds.
+7. Buying-power query succeeds.
+8. Investment Hub → Gateway authentication succeeds over HTTPS.
+9. LIVE MICRO limits are verified with rejection tests.
 
 Only after that should `POST /api/v1/orders` integration be added behind an explicit trading-enable switch and idempotency protection.
