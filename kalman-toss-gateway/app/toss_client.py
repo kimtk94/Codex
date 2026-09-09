@@ -44,9 +44,18 @@ class TossClient:
         headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/json'}
         if account_required:
             if not self.settings.toss_account:
-                raise RuntimeError('TOSS_ACCOUNT is not configured')
+                raise RuntimeError('TOSS_ACCOUNT (accountSeq) is not configured')
             headers['X-Tossinvest-Account'] = self.settings.toss_account
         return headers
+
+    async def accounts(self) -> Any:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f'{BASE_URL}/api/v1/accounts',
+                headers=await self._headers(False),
+            )
+            response.raise_for_status()
+            return response.json()
 
     async def prices(self, symbols: list[str]) -> Any:
         async with httpx.AsyncClient(timeout=10.0) as client:
