@@ -1,29 +1,20 @@
 # Kalman Server + Toss Gateway
 
-Server runtime for the existing Investment Hub Unified Colab lineage plus a guarded Toss Securities execution gateway.
+Server runtime for the Investment Hub Unified lineage plus a guarded Toss Securities execution gateway.
 
 ## Architecture
 
+Pipeline:
+
 `cron -> engine/unified_runner.py -> Neon PostgreSQL -> Vercel viewers`
 
-Live orders are a separate path:
+Automated trading is a separate stateful path:
 
-`signal/intent -> /api/order-preview -> risk gates -> /api/orders/live -> Toss Open API`
+`strategy_signal -> position_manager(reconcile/exit) -> auto_trade(entry) -> Toss Open API`
 
-The model pipeline itself still has `trade_enabled=False`. This is deliberate: calculation promotion and broker execution stay separate.
+The model pipeline and broker execution remain separated. Current Unified US output is still written to Neon as SHADOW; the execution layer never rewrites the frozen model artifact or silently promotes the database signal.
 
-The server also persists the current US selector into Neon `strategy_signal` as `SHADOW / entry_allowed=false / risk_gate=SHADOW_ONLY`. The automated trading worker refuses these rows. It only accepts an explicitly promoted `BUY / true / PASS` row.
-
-## What changed from Colab
-
-- `google.colab.userdata` is mapped to normal environment variables.
-- `/content/drive/MyDrive` is a compatibility symlink to `KALMAN_DATA_ROOT` (default `/opt/kalman/data`).
-- Colab `!pip` setup moved into `requirements.txt`.
-- `RUN_MODE` is an environment variable, so cron can call `KR_GLOBAL`, `US`, or `CRYPTO_GLOBAL`.
-- Google Sheets uses normal Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS`).
-- Neon DB contract and the validated KR/US/CRYPTO/GLOBAL calculation code are preserved.
-
-## Install
+## Install / update
 
 ```bash
 git clone https://github.com/kimtk94/Codex.git
@@ -32,102 +23,159 @@ sudo bash scripts/install_server.sh
 sudo nano /opt/kalman/.env
 ```
 
-Seed the former Drive folders into:
-
-```text
-/opt/kalman/data/Finance_KR
-/opt/kalman/data/Upbit_BTC
-```
-
-Then smoke-test the pipeline with trading OFF:
+For an existing server:
 
 ```bash
-/opt/kalman/app/scripts/run_pipeline.sh KR_GLOBAL
-/opt/kalman/app/scripts/run_pipeline.sh US
-/opt/kalman/app/scripts/run_pipeline.sh CRYPTO_GLOBAL
+cd ~/Codex
+git pull origin main
+cd kalman-toss-gateway
+sudo bash scripts/install_server.sh
 ```
 
-Install `config/kalman.cron` only after those runs pass.
+Google Drive is mounted at `/mnt/gdrive` by `kalman-gdrive.service`; `/content/drive/MyDrive` is the compatibility symlink used by the former Colab lineage.
 
-## Gateway smoke test
+## Pipeline smoke test
+
+Keep trading OFF while validating the research/data pipeline:
+
+```bash
+sudo /opt/kalman/app/scripts/preflight.sh
+sudo /opt/kalman/app/scripts/smoke_test.sh --pipelines
+```
+
+The frozen sklearn models require `scikit-learn==1.6.1`; this is pinned in `requirements.txt`.
+
+## Toss gateway smoke test
 
 ```bash
 sudo systemctl restart kalman-toss-gateway
 curl http://127.0.0.1:8787/health
 ```
 
-The expected initial state is:
+Expected deployment state:
 
 ```json
 {"tradingEnabled":false,"liveGateOpen":false}
 ```
 
-Discover `accountSeq`:
+Real credentials and account identifiers belong only in `/opt/kalman/.env`, never in Git.
+
+## Automated trade lifecycle
+
+`run_auto_trade.sh` takes one exclusive lock and always runs the position manager before the entry worker:
+
+```text
+ENTRY_RESERVED
+  -> ENTRY_SUBMITTED
+  -> OPEN
+  -> hold for 4 distinct US canonical signal buckets
+  -> EXIT_RESERVED
+  -> EXIT_SUBMITTED
+  -> CLOSED
+```
+
+The bot does not treat an accepted order as a filled position. It queries Toss order detail and records `execution.filledQuantity` before moving to `OPEN`. A terminal partial exit reduces `remaining_quantity`; the residual is retried only on a later scheduled cycle.
+
+Unexpected broker/local quantity mismatches, ambiguous POST outcomes, and unresolved order states go to a manual-reconcile state and block new entries instead of guessing or duplicating an order.
+
+By default the bot manages one position at a time. `AUTO_TRADE_REQUIRE_ACCOUNT_FLAT=true` also requires the brokerage account to have no holdings and no open orders before the first automated entry. This is intended for the clean handoff after any legacy holdings are manually liquidated.
+
+Read-only status:
 
 ```bash
-curl http://127.0.0.1:8787/api/accounts -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET"
+sudo /opt/kalman/app/scripts/trading_status.sh
 ```
 
-Buying power now requires an explicit currency and the gateway sends it correctly:
+## DRY_RUN first
 
-```bash
-curl 'http://127.0.0.1:8787/api/buying-power?currency=USD' -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET"
-```
-
-## Live-order safety gates
-
-A live order is submitted only when **all** of these pass:
-
-1. `TRADING_ENABLED=true`
-2. `LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING`
-3. symbol is in `ALLOW_SYMBOLS`
-4. per-order cap passes
-5. per-symbol cap passes
-6. persistent KST daily budget passes
-7. Toss buying power / sellable quantity passes
-8. `clientOrderId` has never been reserved locally
-9. for cron execution, Neon `strategy_signal` is `BUY + entry_allowed=true + risk_gate=PASS` and the matching snapshot is still fresh
-
-The local order guard is stored in `/opt/kalman/state/trading.sqlite3`.
-
-Preview first:
-
-```bash
-curl -X POST http://127.0.0.1:8787/api/order-preview \
-  -H 'Content-Type: application/json' \
-  -H "X-Gateway-Secret: $HUB_GATEWAY_SECRET" \
-  -d '{"client_order_id":"kalman-test-001","symbol":"IONQ","side":"BUY","order_type":"MARKET","order_amount":"2"}'
-```
-
-Only after end-to-end parity and a deliberate live promotion, set:
-
-```env
-TRADING_ENABLED=true
-LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING
-```
-
-Then `/api/orders/live` uses the same request body as preview and can submit a real order.
-
-## Important
-
-Do not put real API keys, account identifiers, static IPs, or service-account JSON in Git. All real secrets belong only in `/opt/kalman/.env` or `/opt/kalman/secrets/`.
-
-## Automated execution worker
-
-`config/kalman.cron` includes an hourly `run_auto_trade.sh` poll, but it is inert until all live gates are deliberately opened. Current Unified US runs write only SHADOW signals, so no live order can be generated from the present model state.
+Repository defaults never submit an order:
 
 ```env
 AUTO_TRADE_ENABLED=false
-AUTO_TRADE_ORDER_USD=2
-AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES=90
+AUTO_TRADE_EXECUTION_MODE=DRY_RUN
+TRADING_ENABLED=false
+LIVE_TRADING_CONFIRM=
 ```
 
-A future live promotion must be explicit in the strategy layer. The executor itself does not reinterpret model scores or convert a Shadow selector into a BUY.
+To exercise the read-only broker/account path while keeping live orders impossible:
+
+```env
+AUTO_TRADE_ENABLED=true
+AUTO_TRADE_EXECUTION_MODE=DRY_RUN
+TRADING_ENABLED=false
+LIVE_TRADING_CONFIRM=
+```
+
+DRY_RUN reports the latest eligible signal, broker holdings/open orders, USD `cashBuyingPower`, market window, proposed size, and managed-position state.
+
+## Signal policies
+
+`APPROVED_ONLY` is the default and requires all of:
+
+```text
+signal=BUY
+entry_allowed=true
+risk_gate=PASS
+position_state=FLAT
+payload.live_execution=true
+```
+
+`SHADOW_CANARY` is an explicit external canary path. It does not alter the frozen DB signal and additionally requires:
+
+```text
+signal=SHADOW
+payload.allow_trade_shadow=true
+payload.shadow_entry_this_signal=true
+AUTO_TRADE_SHADOW_CONFIRM=CONFIRM_SHADOW_CANARY
+```
+
+Current research governance still controls whether a signal is actually eligible; the execution layer does not manufacture one.
+
+## Entry sizing
+
+The safe default remains a fixed USD canary:
+
+```env
+AUTO_TRADE_SIZING_MODE=FIXED_USD
+AUTO_TRADE_ORDER_USD=2
+AUTO_TRADE_MAX_ORDER_USD=2
+```
+
+Cash-proportional sizing is available but still clamped by `AUTO_TRADE_MAX_ORDER_USD` and the KRW entry risk limits:
+
+```env
+AUTO_TRADE_SIZING_MODE=CASH_FRACTION
+AUTO_TRADE_CASH_FRACTION=0.10
+AUTO_TRADE_CASH_RESERVE_USD=0
+AUTO_TRADE_MIN_ORDER_USD=1
+AUTO_TRADE_MAX_ORDER_USD=2
+```
+
+`ALLOW_SYMBOLS` is restrictive by default. `*` is supported for a deliberately approved full model universe; non-special symbols use `DEFAULT_SYMBOL_LIMIT_KRW`.
+
+## Live safety gates
+
+A new automated BUY needs, at minimum:
+
+1. exact `AUTO_TRADE_STRATEGY_VERSION` lock;
+2. an eligible signal under the selected signal policy;
+3. fresh READY Neon snapshot;
+4. allowed symbol;
+5. account/bot-position reconciliation;
+6. Toss US fractional-order session window;
+7. positive broker USD buying power;
+8. per-order, per-symbol and daily BUY caps;
+9. persistent local `clientOrderId` idempotency;
+10. `TRADING_ENABLED=true` and `LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING`.
+
+Managed SELL exits are treated as risk-reducing: they still require both global live gates and Toss sellable quantity/session checks, but a later allowlist/cap change cannot trap an already-managed position.
+
+The local order/position state is stored in `/opt/kalman/state/trading.sqlite3`. Gateway and workers share one Toss OAuth token cache under `/opt/kalman/state/toss_oauth_token.json`.
+
+## Important
+
+Do not place real API keys, full account numbers, static IPs, OAuth tokens, or service-account JSON in Git. Keep them only in `/opt/kalman/.env` or `/opt/kalman/secrets/`.
 
 ## Unified source integrity
 
-`engine/_unified_payload_*.b64` is the LZMA+base64 representation of the validated
-`Investment_Hub_Unified_Colab_v1` server port. `engine/unified_runner.py` verifies
-the decoded SHA-256 before executing it, so a partial or edited payload fails closed.
-The Drive notebook remains the research/source lineage; the server payload is the
-production runtime copy with Colab APIs shimmed through `engine.colab_compat`.
+`engine/_unified_payload_*.b64` is the LZMA+base64 representation of the validated `Investment_Hub_Unified_Colab_v1` server port. `engine/unified_runner.py` verifies the decoded SHA-256 before executing it, so a partial or edited payload fails closed. The Drive notebook remains the research/source lineage; the server payload is the runtime copy with Colab APIs shimmed through `engine.colab_compat`.
