@@ -6,10 +6,37 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 BASE="${KALMAN_BASE:-/opt/kalman}"
 APP_ROOT="${KALMAN_APP_ROOT:-$BASE/app}"
+ENV_FILE="${KALMAN_ENV_FILE:-$BASE/.env}"
+PY="${KALMAN_PYTHON:-$BASE/.venv/bin/python}"
 STAMP="$BASE/state/smoke.ok"
 FORCE="${1:-}"
 
 "$APP_ROOT/scripts/preflight.sh"
+
+DATA_ROOT="$($PY - <<'PY'
+import os
+from dotenv import dotenv_values
+v = dotenv_values(os.environ.get('KALMAN_ENV_FILE', '/opt/kalman/.env'))
+print(v.get('KALMAN_DATA_ROOT') or '/opt/kalman/data')
+PY
+)"
+
+case "$DATA_ROOT" in
+  /mnt/gdrive|/mnt/gdrive/*)
+    if ! systemctl is-active --quiet kalman-gdrive.service; then
+      echo 'Refusing cron install: kalman-gdrive.service is not active.' >&2
+      exit 4
+    fi
+    if ! mountpoint -q /mnt/gdrive; then
+      echo 'Refusing cron install: /mnt/gdrive is not mounted.' >&2
+      exit 5
+    fi
+    if ! timeout 20 ls "$DATA_ROOT" >/dev/null; then
+      echo "Refusing cron install: Drive data root is unreadable: $DATA_ROOT" >&2
+      exit 6
+    fi
+    ;;
+esac
 
 if [ "$FORCE" != "--force" ]; then
   if [ ! -f "$STAMP" ]; then
