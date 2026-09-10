@@ -19,7 +19,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          import base64, binascii, hashlib, lzma, re
+          import base64, binascii, hashlib, itertools, lzma, string
 
           root = Path('kalman-toss-gateway/engine')
           parts = sorted(root.glob('_unified_payload_*.b64'))
@@ -28,30 +28,87 @@ jobs:
           if names != expected_names:
               raise SystemExit(f'payload file set mismatch: {names}')
 
-          encoded_parts = []
+          expected_lengths = {name: 5000 for name in expected_names}
+          expected_lengths[expected_names[-1]] = 688
+          compact_by_name = {}
+          deficits = []
+
           for p in parts:
               text = p.read_text(encoding='ascii')
               compact = ''.join(text.split())
-              bad = sorted(set(re.sub(r'[A-Za-z0-9+/=]', '', compact)))
-              if bad:
-                  raise SystemExit(f'{p.name}: invalid base64 characters: {bad!r}')
-              if len(compact) % 4 != 0:
-                  raise SystemExit(f'{p.name}: base64 length {len(compact)} is not divisible by 4')
-              encoded_parts.append(compact)
-              print(f'{p.name}: {len(compact)} chars')
+              compact_by_name[p.name] = compact
+              whitespace_positions = [i for i, ch in enumerate(text) if ch.isspace()]
+              invalid = [(i, ch) for i, ch in enumerate(text) if (not ch.isspace()) and ch not in (string.ascii_letters + string.digits + '+/=')]
+              expected_len = expected_lengths[p.name]
+              deficit = expected_len - len(compact)
+              if deficit:
+                  deficits.append((p.name, deficit, whitespace_positions, repr(text[-24:])))
+              print(f'{p.name}: raw={len(text)} compact={len(compact)} expected={expected_len} whitespace={whitespace_positions} tail={text[-16:]!r}')
+              if invalid:
+                  print(f'INVALID {p.name}: {invalid!r}')
 
-          encoded = ''.join(encoded_parts)
-          if len(encoded) != 70688:
-              raise SystemExit(f'encoded length mismatch: {len(encoded)} != 70688')
-          try:
+          if not deficits:
+              encoded = ''.join(compact_by_name[name] for name in expected_names)
+              if len(encoded) != 70688:
+                  raise SystemExit(f'encoded length mismatch: {len(encoded)} != 70688')
               packed = base64.b64decode(encoded, validate=True)
-          except binascii.Error as exc:
-              raise SystemExit(f'base64 decode failed: {exc}') from exc
-          source = lzma.decompress(packed)
-          sha = hashlib.sha256(source).hexdigest()
-          expected = 'e1d68ef0744b1083be8c4ba32908f090e0f0b70742cb224df75c9596d06540f8'
-          if sha != expected:
-              raise SystemExit(f'Unified payload SHA mismatch: {sha} != {expected}')
-          compile(source.decode('utf-8'), 'Investment_Hub_Unified_Colab_v1.server.py', 'exec')
-          print(f'OK payload bytes={len(source)} sha256={sha}')
+              source = lzma.decompress(packed)
+              sha = hashlib.sha256(source).hexdigest()
+              expected_sha = 'e1d68ef0744b1083be8c4ba32908f090e0f0b70742cb224df75c9596d06540f8'
+              if sha != expected_sha:
+                  raise SystemExit(f'Unified payload SHA mismatch: {sha} != {expected_sha}')
+              compile(source.decode('utf-8'), 'Investment_Hub_Unified_Colab_v1.server.py', 'exec')
+              print(f'OK payload bytes={len(source)} sha256={sha}')
+              raise SystemExit(0)
+
+          print('DEFICITS:', deficits)
+          if len(deficits) != 1 or deficits[0][1] != 1:
+              raise SystemExit('payload has more than one missing Base64 character; automatic single-character recovery not applicable')
+
+          broken_name, _, whitespace_positions, _ = deficits[0]
+          broken = compact_by_name[broken_name]
+          # The original Git write preserved a trailing newline on this chunk while losing one data character.
+          # Try inserting one Base64 character at the end of the compact chunk first. This is the expected failure mode.
+          alphabet = string.ascii_uppercase + string.ascii_lowercase + string.digits + '+/'
+          expected_sha = 'e1d68ef0744b1083be8c4ba32908f090e0f0b70742cb224df75c9596d06540f8'
+
+          candidates = []
+          for ch in alphabet:
+              repaired_parts = dict(compact_by_name)
+              repaired_parts[broken_name] = broken + ch
+              encoded = ''.join(repaired_parts[name] for name in expected_names)
+              try:
+                  packed = base64.b64decode(encoded, validate=True)
+                  source = lzma.decompress(packed)
+              except Exception:
+                  continue
+              sha = hashlib.sha256(source).hexdigest()
+              if sha == expected_sha:
+                  candidates.append((ch, len(source)))
+
+          if candidates:
+              print(f'RECOVERY {broken_name}: append candidate(s)={candidates!r}')
+              raise SystemExit('single-character recovery identified; patch the chunk with the reported candidate')
+
+          # If the missing character was replaced by whitespace inside the file, infer the insertion point
+          # from the first whitespace position and brute-force that position.
+          if whitespace_positions:
+              raw_text = (root / broken_name).read_text(encoding='ascii')
+              pos_raw = whitespace_positions[0]
+              insert_at = sum(1 for ch in raw_text[:pos_raw] if not ch.isspace())
+              for ch in alphabet:
+                  repaired_parts = dict(compact_by_name)
+                  repaired_parts[broken_name] = broken[:insert_at] + ch + broken[insert_at:]
+                  encoded = ''.join(repaired_parts[name] for name in expected_names)
+                  try:
+                      packed = base64.b64decode(encoded, validate=True)
+                      source = lzma.decompress(packed)
+                  except Exception:
+                      continue
+                  sha = hashlib.sha256(source).hexdigest()
+                  if sha == expected_sha:
+                      print(f'RECOVERY {broken_name}: insert {ch!r} at compact index {insert_at}')
+                      raise SystemExit('single-character recovery identified; patch the chunk with the reported candidate')
+
+          raise SystemExit('could not recover the single missing Base64 character automatically')
           PY
