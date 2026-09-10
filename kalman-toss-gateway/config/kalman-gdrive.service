@@ -1,0 +1,28 @@
+[Unit]
+Description=Kalman Google Drive rclone mount
+Wants=network-online.target
+After=network-online.target
+Before=kalman-toss-gateway.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/mkdir -p /mnt/gdrive /var/cache/rclone
+ExecStart=/usr/bin/rclone mount gdrive: /mnt/gdrive \
+  --config=/etc/rclone/rclone.conf \
+  --vfs-cache-mode=full \
+  --vfs-cache-max-size=10G \
+  --vfs-cache-max-age=24h \
+  --cache-dir=/var/cache/rclone \
+  --dir-cache-time=5m \
+  --poll-interval=1m \
+  --buffer-size=32M \
+  --umask=022 \
+  --log-level=INFO \
+  --log-file=/var/log/kalman-rclone.log
+ExecStop=/usr/bin/fusermount3 -uz /mnt/gdrive
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
