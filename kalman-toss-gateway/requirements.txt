@@ -13,3 +13,5 @@ pykrx>=1.2.8
 packaging>=24
 gspread>=6.1
 google-auth>=2.35
+scikit-learn>=1.4,<2
+joblib>=1.3
