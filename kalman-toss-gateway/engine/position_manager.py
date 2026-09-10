@@ -271,7 +271,14 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
     try:
         result = await execute_order(settings, request, risk_reducing_exit=True)
     except Exception as exc:
-        store.release_exit(position['position_id'], f'{type(exc).__name__}: {exc}')
+        guard = TradeLedger(settings.state_db_path).get(client_order_id)
+        if guard and guard.get('status') == 'AMBIGUOUS':
+            store.mark_manual_reconcile(
+                position['position_id'],
+                f"broker exit submission ambiguous: {guard.get('error') or exc}",
+            )
+        else:
+            store.release_exit(position['position_id'], f'{type(exc).__name__}: {exc}')
         raise
 
     if not result.get('allowed'):
@@ -330,8 +337,10 @@ async def main_async() -> int:
 
         if state == 'EXIT_SUBMITTED':
             reports.append(await _reconcile_exit(store, client, position))
-            position = store.get(position['position_id']) or position
-            state = position['state']
+            # Never submit a second exit in the same invocation after reconciling
+            # a terminal/partial order. Let broker holdings settle, then retry on
+            # the next scheduled cycle if quantity remains.
+            continue
 
         if state == 'OPEN':
             reports.append(await _manage_open_position(settings, store, client, position, mode))
