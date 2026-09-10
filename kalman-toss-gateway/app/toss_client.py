@@ -10,7 +10,6 @@ import httpx
 
 from .config import Settings
 
-
 BASE_URL = 'https://openapi.tossinvest.com'
 
 
@@ -66,9 +65,7 @@ class TossClient:
             )
             response.raise_for_status()
             payload = response.json()
-        token = payload['access_token']
-        expires_at = time.time() + int(payload.get('expires_in', 3600))
-        return token, expires_at
+        return payload['access_token'], time.time() + int(payload.get('expires_in', 3600))
 
     async def _get_token(self) -> str:
         if self._token and time.time() < self._token_expires_at - 60:
@@ -175,11 +172,25 @@ class TossClient:
             r.raise_for_status()
             return r.json()
 
-    async def orders(self, status: str = 'OPEN') -> Any:
+    async def orders(self, status: str = 'OPEN', symbol: str | None = None) -> Any:
+        params = {'status': status.upper()}
+        if symbol:
+            params['symbol'] = symbol.upper()
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
                 f'{BASE_URL}/api/v1/orders',
-                params={'status': status.upper()},
+                params=params,
+                headers=await self._headers(True),
+            )
+            r.raise_for_status()
+            return r.json()
+
+    async def order(self, order_id: str) -> Any:
+        if not order_id:
+            raise ValueError('order_id is required')
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f'{BASE_URL}/api/v1/orders/{order_id}',
                 headers=await self._headers(True),
             )
             r.raise_for_status()
