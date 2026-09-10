@@ -13,5 +13,7 @@ pykrx>=1.2.8
 packaging>=24
 gspread>=6.1
 google-auth>=2.35
-scikit-learn>=1.4,<2
+# Frozen R4/R5.1 sklearn artifacts were serialized with scikit-learn 1.6.1.
+# Keep this exact: newer sklearn releases can fail to unpickle HGB internals (e.g. _loss).
+scikit-learn==1.6.1
 joblib>=1.3
