@@ -128,25 +128,49 @@ async def _us_amount_order_window(client: TossClient) -> tuple[bool, dict]:
     return False, {'nowKst': now.isoformat(), 'activeWindow': None, 'windows': windows}
 
 
-async def _broker_position_quantity(client: TossClient, symbol: str) -> Decimal:
-    data = _unwrap(await client.holdings(symbol)) or {}
+def _holding_items(payload) -> list[dict]:
+    data = _unwrap(payload) or {}
+    return list(data.get('items') or []) if isinstance(data, dict) else []
+
+
+def _open_order_items(payload) -> list[dict]:
+    data = _unwrap(payload) or {}
+    if isinstance(data, dict):
+        return list(data.get('orders') or data.get('items') or [])
+    return list(data or [])
+
+
+def _nonzero_holdings(items: list[dict]) -> list[dict]:
+    out = []
+    for item in items:
+        try:
+            qty = Decimal(str(item.get('quantity') or '0'))
+        except Exception:
+            qty = Decimal('0')
+        if qty != 0:
+            out.append({
+                'symbol': str(item.get('symbol') or '').upper(),
+                'marketCountry': item.get('marketCountry'),
+                'currency': item.get('currency'),
+                'quantity': str(qty),
+            })
+    return out
+
+
+def _symbol_position_quantity(items: list[dict], symbol: str) -> Decimal:
     total = Decimal('0')
-    for item in data.get('items') or []:
+    for item in items:
         if str(item.get('symbol', '')).upper() == symbol.upper():
             total += Decimal(str(item.get('quantity') or '0'))
     return total
 
 
-async def _has_open_buy_order(client: TossClient, symbol: str) -> bool:
-    data = _unwrap(await client.orders('OPEN')) or {}
-    orders = data.get('orders') if isinstance(data, dict) else data
-    for order in orders or []:
-        if (
-            str(order.get('symbol', '')).upper() == symbol.upper()
-            and str(order.get('side', '')).upper() == 'BUY'
-        ):
-            return True
-    return False
+def _has_open_buy_order(items: list[dict], symbol: str) -> bool:
+    return any(
+        str(order.get('symbol', '')).upper() == symbol.upper()
+        and str(order.get('side', '')).upper() == 'BUY'
+        for order in items
+    )
 
 
 async def main_async():
@@ -172,7 +196,8 @@ async def main_async():
         return 0
 
     symbol = signal['symbol'].upper()
-    if symbol not in settings.allowed_symbols:
+    live_symbol_allowed = symbol in settings.allowed_symbols
+    if mode == 'LIVE' and not live_symbol_allowed:
         print('SIGNAL_SYMBOL_NOT_ALLOWED', symbol)
         return 0
 
@@ -190,8 +215,12 @@ async def main_async():
 
     client = TossClient(settings)
     window_open, window_info = await _us_amount_order_window(client)
-    position_qty = await _broker_position_quantity(client, symbol)
-    open_buy = await _has_open_buy_order(client, symbol)
+    holdings_items = _holding_items(await client.holdings())
+    open_order_items = _open_order_items(await client.orders('OPEN'))
+    nonzero_holdings = _nonzero_holdings(holdings_items)
+    position_qty = _symbol_position_quantity(holdings_items, symbol)
+    open_buy = _has_open_buy_order(open_order_items, symbol)
+    account_flat = len(nonzero_holdings) == 0 and len(open_order_items) == 0
 
     if mode == 'DRY_RUN':
         prepared = await prepare_order(settings, request)
@@ -213,10 +242,14 @@ async def main_async():
             'positionState': signal['position_state'],
             'liveSignalShapeOk': _live_signal_shape_ok(signal),
             'symbol': symbol,
+            'liveSymbolAllowed': live_symbol_allowed,
             'clientOrderId': request.client_order_id,
             'orderAmountUsd': str(order_usd),
             'estimatedNotionalKrw': prepared.estimated_notional_krw,
             'cashBuyingPower': buying_power.get('cashBuyingPower'),
+            'accountFlat': account_flat,
+            'nonzeroHoldings': nonzero_holdings,
+            'openOrderCount': len(open_order_items),
             'brokerHoldingQuantity': str(position_qty),
             'openBuyOrderExists': open_buy,
             'usAmountOrderWindowOpen': window_open,
@@ -234,6 +267,10 @@ async def main_async():
         return 2
     if not window_open:
         print('US_AMOUNT_ORDER_WINDOW_CLOSED')
+        return 0
+    if os.environ.get('AUTO_TRADE_REQUIRE_ACCOUNT_FLAT', 'true').lower() == 'true' and not account_flat:
+        print('BROKER_ACCOUNT_NOT_FLAT')
+        print(json.dumps({'nonzeroHoldings': nonzero_holdings, 'openOrderCount': len(open_order_items)}, ensure_ascii=False))
         return 0
     if position_qty > 0:
         print('BROKER_POSITION_NOT_FLAT', symbol, position_qty)
