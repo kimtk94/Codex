@@ -53,7 +53,14 @@ def load_signal(mode: str, strategy_version: str | None):
     db_url = os.environ.get('DATABASE_URL_WRITER')
     if not db_url:
         raise RuntimeError('DATABASE_URL_WRITER is missing')
-    max_age = int(os.environ.get('AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES', '90'))
+
+    # LIVE keeps the strict freshness gate. DRY_RUN gets a separate, wider
+    # inspection window so broker plumbing can be tested before the US session
+    # without weakening any live-execution condition.
+    if mode == 'LIVE':
+        max_age = int(os.environ.get('AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES', '90'))
+    else:
+        max_age = int(os.environ.get('AUTO_TRADE_DRY_RUN_MAX_SIGNAL_AGE_MINUTES', '1440'))
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age)
 
     where = [
@@ -189,12 +196,18 @@ async def main_async():
     if mode == 'DRY_RUN':
         prepared = await prepare_order(settings, request)
         buying_power = _unwrap(await client.buying_power(prepared.currency)) or {}
+        now_utc = datetime.now(timezone.utc)
+        as_of = signal['as_of']
+        if as_of.tzinfo is None:
+            as_of = as_of.replace(tzinfo=timezone.utc)
         report = {
             'executionMode': 'DRY_RUN',
             'executionAttempted': False,
             'wouldSubmit': False,
             'strategyVersion': signal['strategy_version'],
             'signal': signal['signal'],
+            'signalAsOf': signal['as_of'],
+            'signalAgeMinutes': round((now_utc - as_of).total_seconds() / 60.0, 1),
             'entryAllowed': signal['entry_allowed'],
             'riskGate': signal['risk_gate'],
             'positionState': signal['position_state'],
