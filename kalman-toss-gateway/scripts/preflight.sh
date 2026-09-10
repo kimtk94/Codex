@@ -25,7 +25,7 @@ done
 if [ -x "$PY" ] && [ -f "$ENV_FILE" ] && [ -d "$APP_ROOT/engine" ]; then
   "$PY" - <<'PY' || FAIL=1
 from __future__ import annotations
-import base64, hashlib, lzma, os
+import base64, binascii, hashlib, lzma, os, re
 from pathlib import Path
 from dotenv import dotenv_values
 
@@ -47,15 +47,48 @@ if env.get('LIVE_TRADING_CONFIRM'):
     fail('LIVE_TRADING_CONFIRM is set; clear it during deployment')
 ok('live trading gates are closed')
 
-parts = sorted((app / 'engine').glob('_unified_payload_*.b64'))
-if len(parts) != 15:
-    fail(f'expected 15 Unified payload chunks, found {len(parts)}')
-raw = lzma.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+root = app / 'engine'
+parts = sorted(root.glob('_unified_payload_*.b64'))
+expected_names = [f'_unified_payload_{i:02d}.b64' for i in range(15)]
+names = [p.name for p in parts]
+if names != expected_names:
+    fail(f'payload file set mismatch: expected={expected_names!r}, actual={names!r}')
+
+encoded_parts = []
+for p in parts:
+    try:
+        text = p.read_text(encoding='ascii')
+    except UnicodeDecodeError:
+        fail(f'{p.name}: payload is not ASCII')
+    compact = ''.join(text.split())
+    bad = sorted(set(re.sub(r'[A-Za-z0-9+/=]', '', compact)))
+    if bad:
+        fail(f'{p.name}: invalid Base64 characters: {bad!r}')
+    if len(compact) % 4 != 0:
+        fail(f'{p.name}: Base64 length {len(compact)} is not divisible by 4')
+    encoded_parts.append(compact)
+    print(f'[OK]   {p.name}: {len(compact)} Base64 chars')
+
+encoded = ''.join(encoded_parts)
+if len(encoded) != 70688:
+    fail(f'Unified payload encoded length mismatch: {len(encoded)} != 70688')
+try:
+    packed = base64.b64decode(encoded, validate=True)
+except binascii.Error as exc:
+    fail(f'Unified payload Base64 decode failed: {exc}')
+try:
+    raw = lzma.decompress(packed)
+except lzma.LZMAError as exc:
+    fail(f'Unified payload LZMA decompression failed: {exc}')
 sha = hashlib.sha256(raw).hexdigest()
 expected = 'e1d68ef0744b1083be8c4ba32908f090e0f0b70742cb224df75c9596d06540f8'
 if sha != expected:
-    fail(f'Unified payload SHA mismatch: {sha}')
-ok('Unified payload integrity verified')
+    fail(f'Unified payload SHA mismatch: {sha} != {expected}')
+try:
+    compile(raw.decode('utf-8'), 'Investment_Hub_Unified_Colab_v1.server.py', 'exec')
+except Exception as exc:
+    fail(f'Unified source compile failed: {type(exc).__name__}: {exc}')
+ok(f'Unified payload integrity verified: bytes={len(raw)} sha256={sha}')
 
 if not env.get('DATABASE_URL_WRITER'):
     fail('DATABASE_URL_WRITER is empty')
