@@ -10,70 +10,69 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify-payload:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify or repair Unified payload
+      - name: Verify Unified payload
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          import base64, hashlib, lzma, string
+          import base64, binascii, hashlib, lzma, re
 
           root = Path('kalman-toss-gateway/engine')
           names = [f'_unified_payload_{i:02d}.b64' for i in range(15)]
           parts = [root / name for name in names]
           if not all(p.is_file() for p in parts):
-              raise SystemExit('payload file set mismatch')
+              actual = sorted(p.name for p in root.glob('_unified_payload_*.b64'))
+              raise SystemExit(f'payload file set mismatch: {actual!r}')
 
           expected_lengths = [5000] * 14 + [688]
-          compact = [''.join(p.read_text(encoding='ascii').split()) for p in parts]
-          deficits = [(i, expected_lengths[i] - len(compact[i])) for i in range(15) if len(compact[i]) != expected_lengths[i]]
-          expected_sha = 'e1d68ef0744b1083be8c4ba32908f090e0f0b70742cb224df75c9596d06540f8'
+          encoded_parts = []
+          for i, p in enumerate(parts):
+              try:
+                  text = p.read_text(encoding='ascii')
+              except UnicodeDecodeError as exc:
+                  raise SystemExit(f'{p.name}: payload is not ASCII') from exc
+              compact = ''.join(text.split())
+              bad = sorted(set(re.sub(r'[A-Za-z0-9+/=]', '', compact)))
+              if bad:
+                  raise SystemExit(f'{p.name}: invalid Base64 characters: {bad!r}')
+              if len(compact) != expected_lengths[i]:
+                  raise SystemExit(
+                      f'{p.name}: compact length {len(compact)} != {expected_lengths[i]}'
+                  )
+              encoded_parts.append(compact)
+              print(f'{p.name}: {len(compact)} chars OK')
 
-          def verify(strings):
-              encoded = ''.join(strings)
-              if len(encoded) != 70688:
-                  return None
+          encoded = ''.join(encoded_parts)
+          if len(encoded) != 70688:
+              raise SystemExit(f'encoded length mismatch: {len(encoded)} != 70688')
+
+          try:
               packed = base64.b64decode(encoded, validate=True)
+          except binascii.Error as exc:
+              raise SystemExit(f'Base64 decode failed: {exc}') from exc
+          try:
               source = lzma.decompress(packed)
-              sha = hashlib.sha256(source).hexdigest()
-              if sha != expected_sha:
-                  return None
-              compile(source.decode('utf-8'), 'Investment_Hub_Unified_Colab_v1.server.py', 'exec')
-              return len(source)
+          except lzma.LZMAError as exc:
+              raise SystemExit(f'LZMA decompression failed: {exc}') from exc
 
-          if not deficits:
-              size = verify(compact)
-              if size is None:
-                  raise SystemExit('payload decodes but source SHA does not match')
-              print(f'OK payload bytes={size} sha256={expected_sha}')
-              raise SystemExit(0)
+          sha = hashlib.sha256(source).hexdigest()
+          expected_sha = 'e1d68ef0744b1083be8c4ba32908f090e0f0b70742cb224df75c9596d06540f8'
+          if sha != expected_sha:
+              raise SystemExit(f'Unified payload SHA mismatch: {sha} != {expected_sha}')
+          if len(source) != 252111:
+              raise SystemExit(f'Unified source size mismatch: {len(source)} != 252111')
 
-          if deficits != [(2, 1)]:
-              raise SystemExit(f'unexpected payload deficits: {deficits!r}')
-
-          # Recovery established by exhaustive source-SHA search:
-          # _unified_payload_02.b64, compact index 593, missing char 'D'.
-          repaired = compact[2][:593] + 'D' + compact[2][593:]
-          repaired_parts = list(compact)
-          repaired_parts[2] = repaired
-          size = verify(repaired_parts)
-          if size is None:
-              raise SystemExit('known payload repair did not reproduce the validated source SHA')
-
-          parts[2].write_text(repaired + '\n', encoding='ascii')
-          print(f'REPAIRED {names[2]} index=593 char=D bytes={size} sha256={expected_sha}')
+          compile(
+              source.decode('utf-8'),
+              'Investment_Hub_Unified_Colab_v1.server.py',
+              'exec',
+          )
+          print(f'OK payload bytes={len(source)} sha256={sha}')
           PY
-
-          if ! git diff --quiet -- kalman-toss-gateway/engine/_unified_payload_02.b64; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add kalman-toss-gateway/engine/_unified_payload_02.b64
-            git commit -m 'fix(kalman): repair Unified payload chunk 02'
-            git push origin HEAD:main
-          fi
