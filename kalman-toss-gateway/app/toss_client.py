@@ -72,9 +72,25 @@ class TossClient:
             r.raise_for_status()
             return r.json()
 
-    async def holdings(self) -> Any:
+    async def market_calendar_us(self, date: str | None = None) -> Any:
+        params = {'date': date} if date else None
         async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(f'{BASE_URL}/api/v1/holdings', headers=await self._headers(True))
+            r = await client.get(
+                f'{BASE_URL}/api/v1/market-calendar/US',
+                params=params,
+                headers=await self._headers(False),
+            )
+            r.raise_for_status()
+            return r.json()
+
+    async def holdings(self, symbol: str | None = None) -> Any:
+        params = {'symbol': symbol.upper()} if symbol else None
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f'{BASE_URL}/api/v1/holdings',
+                params=params,
+                headers=await self._headers(True),
+            )
             r.raise_for_status()
             return r.json()
 
