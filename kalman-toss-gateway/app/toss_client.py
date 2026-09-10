@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import fcntl
+import json
+import os
 import time
 from typing import Any
+
 import httpx
 
 from .config import Settings
@@ -16,9 +20,38 @@ class TossClient:
         self._token: str | None = None
         self._token_expires_at = 0.0
 
-    async def _get_token(self) -> str:
-        if self._token and time.time() < self._token_expires_at - 60:
-            return self._token
+    def _read_shared_token(self) -> tuple[str | None, float]:
+        path = self.settings.toss_token_cache_path
+        try:
+            payload = json.loads(path.read_text(encoding='utf-8'))
+            token = str(payload.get('access_token') or '')
+            expires_at = float(payload.get('expires_at') or 0)
+            if token and time.time() < expires_at - 60:
+                return token, expires_at
+        except (FileNotFoundError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+        return None, 0.0
+
+    def _write_shared_token(self, token: str, expires_at: float) -> None:
+        path = self.settings.toss_token_cache_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + '.tmp')
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump({'access_token': token, 'expires_at': expires_at}, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+            os.chmod(path, 0o600)
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except FileNotFoundError:
+                    pass
+
+    async def _issue_token(self) -> tuple[str, float]:
         if not self.settings.toss_client_id or not self.settings.toss_client_secret:
             raise RuntimeError('Toss credentials are not configured')
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -33,9 +66,34 @@ class TossClient:
             )
             response.raise_for_status()
             payload = response.json()
-        self._token = payload['access_token']
-        self._token_expires_at = time.time() + int(payload.get('expires_in', 3600))
-        return self._token
+        token = payload['access_token']
+        expires_at = time.time() + int(payload.get('expires_in', 3600))
+        return token, expires_at
+
+    async def _get_token(self) -> str:
+        if self._token and time.time() < self._token_expires_at - 60:
+            return self._token
+
+        token, expires_at = self._read_shared_token()
+        if token:
+            self._token, self._token_expires_at = token, expires_at
+            return token
+
+        cache_path = self.settings.toss_token_cache_path
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = cache_path.with_suffix(cache_path.suffix + '.lock')
+        with open(lock_path, 'a+', encoding='utf-8') as lock_file:
+            os.chmod(lock_path, 0o600)
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                token, expires_at = self._read_shared_token()
+                if not token:
+                    token, expires_at = await self._issue_token()
+                    self._write_shared_token(token, expires_at)
+                self._token, self._token_expires_at = token, expires_at
+                return token
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     async def _headers(self, account_required: bool = False) -> dict[str, str]:
         token = await self._get_token()
