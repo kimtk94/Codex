@@ -21,7 +21,7 @@ import psycopg
 from dotenv import load_dotenv
 
 from app.config import Settings
-from app.executor import execute_order, prepare_order
+from app.executor import TradeLedger, execute_order, prepare_order
 from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
@@ -347,7 +347,14 @@ async def main_async() -> int:
     try:
         result = await execute_order(settings, request)
     except Exception as exc:
-        store.mark_entry_aborted(position['position_id'], f'{type(exc).__name__}: {exc}')
+        guard = TradeLedger(settings.state_db_path).get(client_order_id)
+        if guard and guard.get('status') == 'AMBIGUOUS':
+            store.mark_ambiguous_entry(
+                position['position_id'],
+                f"broker submission ambiguous: {guard.get('error') or exc}",
+            )
+        else:
+            store.mark_entry_aborted(position['position_id'], f'{type(exc).__name__}: {exc}')
         raise
 
     if not result.get('allowed'):
