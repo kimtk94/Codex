@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+
+import httpx
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, ROUND_CEILING
@@ -54,6 +56,7 @@ class TradeLedger:
 
     def reserve(self, client_order_id: str, symbol: str, side: str, amount_krw: int, daily_limit: int) -> tuple[bool, str, int]:
         today = datetime.now(KST).date().isoformat()
+        side = side.upper()
         with self._connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
             dup = conn.execute('SELECT status FROM order_guard WHERE client_order_id=?', (client_order_id,)).fetchone()
@@ -61,10 +64,13 @@ class TradeLedger:
                 conn.rollback()
                 return False, 'DUPLICATE_CLIENT_ORDER_ID', 0
             used = conn.execute(
-                "SELECT COALESCE(SUM(estimated_notional_krw),0) FROM order_guard WHERE trade_date_kst=? AND status IN ('RESERVED','SUBMITTED')",
+                """SELECT COALESCE(SUM(estimated_notional_krw),0)
+                   FROM order_guard
+                   WHERE trade_date_kst=? AND side='BUY'
+                     AND status IN ('RESERVED','SUBMITTED','AMBIGUOUS')""",
                 (today,),
             ).fetchone()[0]
-            if int(used) + amount_krw > daily_limit:
+            if side == 'BUY' and int(used) + amount_krw > daily_limit:
                 conn.rollback()
                 return False, 'DAILY_TOTAL_LIMIT_EXCEEDED', int(used)
             conn.execute(
@@ -85,10 +91,19 @@ class TradeLedger:
         today = datetime.now(KST).date().isoformat()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT COALESCE(SUM(estimated_notional_krw),0) FROM order_guard WHERE trade_date_kst=? AND status IN ('RESERVED','SUBMITTED')",
+                """SELECT COALESCE(SUM(estimated_notional_krw),0)
+                   FROM order_guard
+                   WHERE trade_date_kst=? AND side='BUY'
+                     AND status IN ('RESERVED','SUBMITTED','AMBIGUOUS')""",
                 (today,),
             ).fetchone()
         return int(row[0])
+
+    def get(self, client_order_id: str) -> dict | None:
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute('SELECT * FROM order_guard WHERE client_order_id=?', (client_order_id,)).fetchone()
+            return dict(row) if row else None
 
 
 async def prepare_order(settings: Settings, request) -> PreparedOrder:
@@ -157,21 +172,22 @@ async def prepare_order(settings: Settings, request) -> PreparedOrder:
         if price_payload is not None:
             payload['price'] = price_payload
 
-    return PreparedOrder(
-        payload=payload,
-        estimated_notional_krw=krw,
-        currency=currency,
-        source_notional=source_notional,
-    )
+    return PreparedOrder(payload=payload, estimated_notional_krw=krw, currency=currency, source_notional=source_notional)
 
 
-async def execute_order(settings: Settings, request):
+async def execute_order(settings: Settings, request, *, risk_reducing_exit: bool = False):
     if not request.client_order_id:
         raise ValueError('client_order_id is required for live execution')
     prepared = await prepare_order(settings, request)
     ledger = TradeLedger(settings.state_db_path)
     used = ledger.daily_committed()
-    decision = validate_order(settings, request.symbol, prepared.estimated_notional_krw, used)
+    decision = validate_order(
+        settings,
+        request.symbol,
+        prepared.estimated_notional_krw,
+        used,
+        risk_reducing_exit=risk_reducing_exit,
+    )
     if not decision.allowed:
         return {
             'allowed': False,
@@ -219,21 +235,38 @@ async def execute_order(settings: Settings, request):
 
     try:
         result = await client.place_order(prepared.payload)
-        inner = _result(result) or {}
-        order_id = inner.get('orderId') if isinstance(inner, dict) else None
-        ledger.finish(request.client_order_id, 'SUBMITTED', order_id)
-        return {
-            'allowed': True,
-            'reason': 'SUBMITTED',
-            'executionAttempted': True,
-            'estimatedNotionalKrw': prepared.estimated_notional_krw,
-            'clientOrderId': request.client_order_id,
-            'order': result,
-        }
-    except Exception as exc:
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
         ledger.finish(
             request.client_order_id,
-            'FAILED',
-            error=f'{type(exc).__name__}: {exc}',
+            'FAILED' if 400 <= status < 500 else 'AMBIGUOUS',
+            error=f'{type(exc).__name__}: HTTP {status}: {exc}',
         )
         raise
+    except (httpx.TransportError, TimeoutError) as exc:
+        ledger.finish(request.client_order_id, 'AMBIGUOUS', error=f'{type(exc).__name__}: {exc}')
+        raise
+    except Exception as exc:
+        ledger.finish(request.client_order_id, 'AMBIGUOUS', error=f'{type(exc).__name__}: {exc}')
+        raise
+
+    inner = _result(result) or {}
+    order_id = inner.get('orderId') if isinstance(inner, dict) else None
+    if not order_id:
+        ledger.finish(
+            request.client_order_id,
+            'AMBIGUOUS',
+            error='Toss returned success without orderId; manual reconciliation required',
+        )
+        raise RuntimeError('Toss order response missing orderId')
+
+    ledger.finish(request.client_order_id, 'SUBMITTED', order_id)
+    return {
+        'allowed': True,
+        'reason': 'SUBMITTED',
+        'executionAttempted': True,
+        'estimatedNotionalKrw': prepared.estimated_notional_krw,
+        'clientOrderId': request.client_order_id,
+        'orderId': order_id,
+        'order': result,
+    }
