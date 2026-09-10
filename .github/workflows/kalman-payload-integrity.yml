@@ -9,12 +9,15 @@ on:
       - '.github/workflows/kalman-payload-integrity.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   verify-payload:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify or recover Unified payload
+      - name: Verify or repair Unified payload
         shell: bash
         run: |
           python - <<'PY'
@@ -30,13 +33,12 @@ jobs:
           expected_lengths = [5000] * 14 + [688]
           compact = [''.join(p.read_text(encoding='ascii').split()) for p in parts]
           deficits = [(i, expected_lengths[i] - len(compact[i])) for i in range(15) if len(compact[i]) != expected_lengths[i]]
-          for i, s in enumerate(compact):
-              print(f'{names[i]} compact={len(s)} expected={expected_lengths[i]}')
-
           expected_sha = 'e1d68ef0744b1083be8c4ba32908f090e0f0b70742cb224df75c9596d06540f8'
 
           def verify(strings):
               encoded = ''.join(strings)
+              if len(encoded) != 70688:
+                  return None
               packed = base64.b64decode(encoded, validate=True)
               source = lzma.decompress(packed)
               sha = hashlib.sha256(source).hexdigest()
@@ -55,29 +57,23 @@ jobs:
           if deficits != [(2, 1)]:
               raise SystemExit(f'unexpected payload deficits: {deficits!r}')
 
-          broken = compact[2]
-          alphabet = string.ascii_uppercase + string.ascii_lowercase + string.digits + '+/'
+          # Recovery established by exhaustive source-SHA search:
+          # _unified_payload_02.b64, compact index 593, missing char 'D'.
+          repaired = compact[2][:593] + 'D' + compact[2][593:]
+          repaired_parts = list(compact)
+          repaired_parts[2] = repaired
+          size = verify(repaired_parts)
+          if size is None:
+              raise SystemExit('known payload repair did not reproduce the validated source SHA')
 
-          # Every intended chunk boundary is Base64 aligned (5000 % 4 == 0), so
-          # decode all known-good chunks once. Only chunk 02 needs brute-force repair.
-          prefix_packed = b''.join(base64.b64decode(s, validate=True) for s in compact[:2])
-          suffix_packed = b''.join(base64.b64decode(s, validate=True) for s in compact[3:])
-
-          for pos in range(len(broken) + 1):
-              if pos % 500 == 0:
-                  print(f'search position {pos}/{len(broken)}')
-              left, right = broken[:pos], broken[pos:]
-              for ch in alphabet:
-                  candidate = left + ch + right
-                  try:
-                      mid = base64.b64decode(candidate, validate=True)
-                      source = lzma.decompress(prefix_packed + mid + suffix_packed)
-                  except Exception:
-                      continue
-                  if hashlib.sha256(source).hexdigest() == expected_sha:
-                      compile(source.decode('utf-8'), 'Investment_Hub_Unified_Colab_v1.server.py', 'exec')
-                      print(f'RECOVERY_FOUND file={names[2]} compact_index={pos} char={ch!r} bytes={len(source)} sha256={expected_sha}')
-                      raise SystemExit(3)
-
-          raise SystemExit('recovery search exhausted without matching source SHA')
+          parts[2].write_text(repaired + '\n', encoding='ascii')
+          print(f'REPAIRED {names[2]} index=593 char=D bytes={size} sha256={expected_sha}')
           PY
+
+          if ! git diff --quiet -- kalman-toss-gateway/engine/_unified_payload_02.b64; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add kalman-toss-gateway/engine/_unified_payload_02.b64
+            git commit -m 'fix(kalman): repair Unified payload chunk 02'
+            git push origin HEAD:main
+          fi
