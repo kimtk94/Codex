@@ -1,0 +1,57 @@
+name: Kalman Payload Integrity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'kalman-toss-gateway/engine/**'
+      - 'kalman-toss-gateway/scripts/preflight.sh'
+      - '.github/workflows/kalman-payload-integrity.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-payload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Unified payload
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64, binascii, hashlib, lzma, re
+
+          root = Path('kalman-toss-gateway/engine')
+          parts = sorted(root.glob('_unified_payload_*.b64'))
+          expected_names = [f'_unified_payload_{i:02d}.b64' for i in range(15)]
+          names = [p.name for p in parts]
+          if names != expected_names:
+              raise SystemExit(f'payload file set mismatch: {names}')
+
+          encoded_parts = []
+          for p in parts:
+              text = p.read_text(encoding='ascii')
+              compact = ''.join(text.split())
+              bad = sorted(set(re.sub(r'[A-Za-z0-9+/=]', '', compact)))
+              if bad:
+                  raise SystemExit(f'{p.name}: invalid base64 characters: {bad!r}')
+              if len(compact) % 4 != 0:
+                  raise SystemExit(f'{p.name}: base64 length {len(compact)} is not divisible by 4')
+              encoded_parts.append(compact)
+              print(f'{p.name}: {len(compact)} chars')
+
+          encoded = ''.join(encoded_parts)
+          if len(encoded) != 70688:
+              raise SystemExit(f'encoded length mismatch: {len(encoded)} != 70688')
+          try:
+              packed = base64.b64decode(encoded, validate=True)
+          except binascii.Error as exc:
+              raise SystemExit(f'base64 decode failed: {exc}') from exc
+          source = lzma.decompress(packed)
+          sha = hashlib.sha256(source).hexdigest()
+          expected = 'e1d68ef0744b1083be8c4ba32908f090e0f0b70742cb224df75c9596d06540f8'
+          if sha != expected:
+              raise SystemExit(f'Unified payload SHA mismatch: {sha} != {expected}')
+          compile(source.decode('utf-8'), 'Investment_Hub_Unified_Colab_v1.server.py', 'exec')
+          print(f'OK payload bytes={len(source)} sha256={sha}')
+          PY
