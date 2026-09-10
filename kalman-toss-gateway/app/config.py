@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     toss_account: str = ''
     hub_gateway_secret: str = ''
     expected_egress_ip: str = ''
+    toss_token_cache: str = '/opt/kalman/state/toss_oauth_token.json'
 
     # Two-key live gate. Both must be satisfied.
     trading_enabled: bool = False
@@ -38,6 +39,10 @@ class Settings(BaseSettings):
     @property
     def state_db_path(self) -> Path:
         return Path(self.trading_state_db).expanduser()
+
+    @property
+    def toss_token_cache_path(self) -> Path:
+        return Path(self.toss_token_cache).expanduser()
 
     def symbol_limit_krw(self, symbol: str) -> int:
         limits = {
