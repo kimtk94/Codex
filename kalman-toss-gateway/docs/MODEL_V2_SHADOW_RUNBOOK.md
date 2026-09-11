@@ -1,8 +1,8 @@
 # Kalman Model V2 — Feature Matrix, Candidate Model, SHADOW Runbook
 
-Status: research / file-only SHADOW
+Status: research / file SHADOW + optional guarded Neon mirror
 
-Neon write: none
+Neon write: disabled by default; SHADOW mirror only when explicitly enabled
 
 Toss execution: none
 
@@ -219,7 +219,7 @@ To use the existing model without retraining:
 
 This performs latest matrix rebuild and existing model.json scoring only.
 
-It does not retrain, insert into Neon, call Toss, or promote a strategy.
+It does not retrain, call Toss, or promote a strategy. The base run remains file-only; Neon mirroring is a separate guarded wrapper.
 
 ## 16. SHADOW output
 
@@ -252,8 +252,7 @@ execution permission.
 The existing SHADOW_CANARY policy additionally requires
 payload.allow_trade_shadow=true plus explicit AUTO_TRADE_SHADOW_CONFIRM.
 
-V2_001 hard-codes allow_trade_shadow=false and does not write the database.
-Therefore this file output alone cannot generate a Toss order.
+V2_001 hard-codes allow_trade_shadow=false. The optional Neon mirror preserves that value, writes no dashboard_snapshot, and records pipeline_run as ABORTED so v_latest_successful_run is unchanged. Therefore the V2 mirror is not visible to the current auto-trade join.
 
 ## 19. Data-quality gate
 
@@ -300,7 +299,7 @@ fixed-model run_shadow_v2.sh should be considered first.
 
 ## 23. Promotion gate
 
-Do not add or enable a Neon writer before all of the following are reviewed:
+Do not promote the Neon mirror beyond research-only storage before all of the following are reviewed:
 
 - actual server provider smoke
 - matrix lineage
@@ -327,3 +326,77 @@ authorized Seeking Alpha features, FRED macro data, ECOS KR 3Y/10Y yields,
 regime features, calibration, and non-linear candidate models.
 
 V2_001 is intentionally a reproducible leakage-controlled baseline.
+
+
+## 25. Optional Neon SHADOW mirror
+
+The production Neon schema was verified against project `investment-hub-data`,
+database `investment_hub`, branch `production`.
+
+The existing schema is sufficient; no new table or migration is required.
+
+The mirror uses:
+
+    model_registry
+      role = SHADOW
+
+    pipeline_run
+      status = ABORTED
+      metadata.research_status = SUCCESS
+      metadata.operational_commit = ABORTED_SHADOW_ONLY
+
+    model_output
+      score/probability = probability_up
+
+    strategy_signal
+      signal = SHADOW
+      entry_allowed = false
+      payload.allow_trade_shadow = false
+      payload.live_execution = false
+
+It intentionally does not write:
+
+    dashboard_snapshot
+    strategy_ledger
+
+This matters because v_latest_successful_run selects only pipeline_run rows with
+status=SUCCESS, and auto_trade joins strategy_signal to a READY dashboard_snapshot.
+The V2 mirror therefore remains outside both production surfaces.
+
+BTC model records map to the existing database market enum:
+
+    BTC -> CRYPTO
+
+### Enablement
+
+Defaults:
+
+    KALMAN_MODEL_V2_NEON_ENABLED=false
+    KALMAN_MODEL_V2_NEON_CONFIRM=
+
+To intentionally enable the mirror on the server:
+
+    KALMAN_MODEL_V2_NEON_ENABLED=true
+    KALMAN_MODEL_V2_NEON_CONFIRM=CONFIRM_NEON_SHADOW_MIRROR
+
+Then run:
+
+    sudo /opt/kalman/app/scripts/run_neon_shadow_v2.sh
+
+The wrapper first regenerates the canonical file SHADOW, then validates model
+artifact SHA-256 values and safety flags, and only then opens a Neon transaction.
+
+Status is saved to:
+
+    /mnt/gdrive/Market_Model_V2/shadow/neon_mirror_status.json
+
+The writer fails closed when:
+
+- any V2 signal allows SHADOW trading
+- live_execution or production_promotion is true
+- artifact SHA does not match the file signal
+- a model version already exists with a different artifact SHA
+- a run_id collides with a different pipeline/model
+- any matching dashboard_snapshot already exists
+
+This is a research evidence mirror, not production promotion.
