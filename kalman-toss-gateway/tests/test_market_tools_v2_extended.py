@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from engine.features_v2.talib_features import build_talib_features, compare_legacy_rsi
+from engine.market_data.cli import Settings as MarketSettings, build_specs, load_universe
 from engine.screeners.finviz_snapshot import (
     FinvizSettings,
     build_candidate_universe,
@@ -84,6 +85,23 @@ class ExtendedMarketToolsV2Tests(unittest.TestCase):
         passes = candidates.set_index("ticker")["passes_local_filter"].to_dict()
         self.assertTrue(passes["AAA"])
         self.assertFalse(passes["BBB"])
+
+    def test_config_driven_universe_contains_all_groups(self) -> None:
+        path = Path("config/market-data-v2-universe.json")
+        universe = load_universe(path)
+        settings = MarketSettings(
+            output_dir=Path("/tmp/unused"),
+            start_date="2026-01-01",
+            end_date=None,
+            universe_path=path,
+        )
+        specs = build_specs(settings, universe)
+        groups = {spec.group for spec in specs}
+        keys = {spec.key for spec in specs}
+
+        self.assertTrue({"US", "KR", "BTC", "COMMON"}.issubset(groups))
+        self.assertTrue({"yf_spy", "yf_btc", "yf_ionq", "yf_mu", "yf_vix", "yf_kospi"}.issubset(keys))
+        self.assertGreaterEqual(len(specs), 30)
 
 
 if __name__ == "__main__":
