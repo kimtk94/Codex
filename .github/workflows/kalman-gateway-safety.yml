@@ -1,0 +1,49 @@
+name: Kalman Gateway Safety
+
+on:
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/app/**"
+      - "kalman-toss-gateway/engine/auto_trade.py"
+      - "kalman-toss-gateway/tests/test_gateway_risk.py"
+      - ".github/workflows/kalman-gateway-safety.yml"
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/app/**"
+      - "kalman-toss-gateway/engine/auto_trade.py"
+      - "kalman-toss-gateway/tests/test_gateway_risk.py"
+      - ".github/workflows/kalman-gateway-safety.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  gateway-safety:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: kalman-toss-gateway/requirements.txt
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile gateway code
+        run: |
+          python -m compileall app engine/auto_trade.py tests/test_gateway_risk.py
+
+      - name: Run gateway safety tests
+        env:
+          PYTHONPATH: .
+        run: python -m unittest tests.test_gateway_risk -v
