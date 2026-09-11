@@ -210,14 +210,18 @@ def build(settings: Settings) -> tuple[dict[str, Any], int]:
         key for key, item in sources.items()
         if item.get("required") and item.get("status") != "READY"
     ]
-    optional_failures = [
+    optional_issues = [
         key for key, item in sources.items()
-        if not item.get("required") and item.get("status") == "FAIL"
+        if not item.get("required") and item.get("status") != "READY"
+    ]
+    comparison_failures = [
+        key for key, item in comparisons.items()
+        if item.get("status") == "FAIL"
     ]
 
     if required_failures:
         overall, exit_code = "FAIL", 2
-    elif optional_failures:
+    elif optional_issues or comparison_failures:
         overall, exit_code = "DEGRADED", 0
     else:
         overall, exit_code = "READY", 0
@@ -231,7 +235,8 @@ def build(settings: Settings) -> tuple[dict[str, Any], int]:
         "end_date": settings.end_date,
         "output_dir": str(settings.output_dir),
         "required_failures": required_failures,
-        "optional_failures": optional_failures,
+        "optional_issues": optional_issues,
+        "comparison_failures": comparison_failures,
         "sources": sources,
         "comparisons": comparisons,
     }
