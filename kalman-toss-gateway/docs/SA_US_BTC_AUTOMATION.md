@@ -1,64 +1,136 @@
-# Seeking Alpha × US × BTC server feature worker
+# Seeking Alpha × US × BTC server automation
 
-The reviewed Colab feature builder is integrated as a server worker at:
+This integration has two independent stages:
 
 ```text
+authorized SA source
+  -> engine.sa_collector
+  -> SeekingAlpha/seeking_alpha_daily.csv
+  -> engine.sa_us_btc_features
+  -> Market_Features/sa_us_btc/*
+```
+
+The collector is deliberately not a website scraper. Use only an authorized/licensed API/data feed or a CSV/export you are permitted to process.
+
+## Components
+
+```text
+engine/sa_collector.py
 engine/sa_us_btc_features.py
+scripts/run_sa_collector.sh
 scripts/run_sa_us_btc_features.sh
+scripts/run_sa_us_btc_refresh.sh
 ```
 
-It is intentionally independent from the live-trading pipeline. Installing this worker does not enable trading, and its cron line is disabled by default.
+`run_sa_us_btc_refresh.sh` is the normal automation entry point: it runs the collector first, then rebuilds the US/BTC features.
 
-## Data flow
+The integration does not enable live trading and does not modify the KR/US/CRYPTO pipeline entry points.
+
+## Collector modes
+
+### 1. disabled
+
+Default.
+
+```env
+KALMAN_SA_COLLECTOR_MODE=disabled
+KALMAN_SA_REQUIRED=false
+```
+
+The feature worker still runs in market-only mode.
+
+### 2. drop_csv
+
+Use this when an authorized export/file is placed in the incoming directory.
+
+```env
+KALMAN_SA_COLLECTOR_MODE=drop_csv
+KALMAN_SA_DROP_CSV=/mnt/gdrive/SeekingAlpha/incoming/seeking_alpha_latest.csv
+```
+
+The collector validates and normalizes the file, appends it to canonical history, deduplicates by `date,ticker`, archives the source file, and atomically writes:
 
 ```text
-Yahoo market data ─┐
-                   ├─> engine.sa_us_btc_features
-SA CSV adapter ────┘          │
-                              ├─ X feature matrix
-                              ├─ y forward targets
-                              ├─ latest JSON
-                              ├─ schema
-                              └─ run status
+/mnt/gdrive/SeekingAlpha/seeking_alpha_daily.csv
 ```
 
-The worker keeps BTC calendar-day observations separate from US trading-day observations, uses 365-day volatility annualization for BTC and 252 for US-listed assets, excludes missing tickers from breadth denominators, and separates SA stock factors from SA ETF factors.
+### 3. licensed_http
 
-## Seeking Alpha input
+Use this only with an API/data-feed endpoint you are authorized to automate.
 
-This module is an adapter, not a scraper.
+```env
+KALMAN_SA_COLLECTOR_MODE=licensed_http
+KALMAN_SA_FEED_URL='https://licensed-provider.example/...'
+KALMAN_SA_FEED_TOKEN='...'
+KALMAN_SA_FEED_AUTH_HEADER=Authorization
+KALMAN_SA_FEED_AUTH_SCHEME=Bearer
+KALMAN_SA_FEED_FORMAT=auto
+KALMAN_SA_FEED_JSON_PATH=
+```
 
-Default path:
+The HTTP collector supports retry/backoff, redirects, ETag, Last-Modified, JSON/CSV payloads, and source archives.
+
+Keep the real URL/token only in `/opt/kalman/.env`; never commit them.
+
+If the licensed schema differs, map source fields with:
+
+```env
+KALMAN_SA_FIELD_MAP_JSON='{"symbol":"ticker","asOfDate":"date","quantScore":"quant_rating"}'
+```
+
+For JSON payloads nested under a known path:
+
+```env
+KALMAN_SA_FEED_JSON_PATH=data.rows
+```
+
+## Canonical SA schema
+
+Minimum:
 
 ```text
-$KALMAN_DATA_ROOT/SeekingAlpha/seeking_alpha_daily.csv
+date
+ticker
 ```
 
-Minimum columns:
-
-```csv
-date,ticker
-```
-
-Recommended stock fields:
+Canonical fields:
 
 ```text
-asset_type,quant_rating,value,growth,profitability,momentum,eps_revision,
-sa_analyst_rating,wall_street_rating,news_sentiment
+date
+ticker
+asset_type
+quant_rating
+value
+growth
+profitability
+momentum
+eps_revision
+expenses
+dividends
+risk
+liquidity
+sa_analyst_rating
+wall_street_rating
+news_sentiment
 ```
 
-Recommended ETF fields:
+Stock-oriented fields and ETF-oriented fields can coexist in the same history; irrelevant fields can be blank.
 
-```text
-asset_type,quant_rating,momentum,expenses,dividends,risk,liquidity,
-sa_analyst_rating,news_sentiment
-```
+## Feature semantics
 
-Use `asset_type=STOCK` or `asset_type=ETF`. If it is absent, IBIT/FBTC are inferred as ETF and other tickers as STOCK.
+The feature worker:
+
+- keeps BTC calendar-day observations separate from US trading-day observations;
+- annualizes BTC volatility with 365 and US-listed assets with 252;
+- excludes missing tickers from breadth denominators;
+- separates SA stock factors from SA ETF factors;
+- keeps X features separate from forward y targets;
+- writes atomically;
+- uses an independent flock lock to prevent overlapping runs.
 
 ## Environment
 
-The server-owned `/opt/kalman/.env` is authoritative.
+Core settings:
 
 ```env
 KALMAN_SA_INPUT_CSV=/mnt/gdrive/SeekingAlpha/seeking_alpha_daily.csv
@@ -67,13 +139,18 @@ KALMAN_SA_START_DATE=2022-01-01
 KALMAN_SA_END_DATE=
 KALMAN_SA_ASOF_LAG_BDAYS=0
 KALMAN_SA_REQUIRED=false
+
+KALMAN_SA_COLLECTOR_MODE=disabled
+KALMAN_SA_DROP_CSV=/mnt/gdrive/SeekingAlpha/incoming/seeking_alpha_latest.csv
+KALMAN_SA_ARCHIVE_DIR=/mnt/gdrive/SeekingAlpha/archive
+KALMAN_SA_COLLECTOR_STATE=/opt/kalman/state/sa_collector.json
 ```
 
-Use `KALMAN_SA_ASOF_LAG_BDAYS=0` only when the snapshot is available before the market session being modeled. Set it to `1` when the snapshot is produced after the close and should become usable on the next business day.
+Use `KALMAN_SA_ASOF_LAG_BDAYS=0` only when the snapshot is available before the market session being modeled. If it is only available after the close, use `1`.
 
-Keep `KALMAN_SA_REQUIRED=false` while the SA feed is not connected. The worker will then produce market-only features. Switch it to `true` once the production SA input is mandatory.
+Keep `KALMAN_SA_REQUIRED=false` while SA is optional. Once production must fail without SA data, switch it to `true`.
 
-## Install/update on the Linux server
+## Server install/update
 
 ```bash
 cd ~/Codex
@@ -82,67 +159,78 @@ cd kalman-toss-gateway
 sudo bash scripts/install_server.sh
 ```
 
-The installer copies the new worker into `/opt/kalman/app`, makes all shell runners executable, and installs the pinned yfinance dependency.
+The installer recreates the virtual environment dependencies, copies the engine/scripts/config into `/opt/kalman/app`, and makes shell runners executable.
 
-## Manual run first
+## Manual validation
+
+Collector only:
+
+```bash
+sudo /opt/kalman/app/scripts/run_sa_collector.sh
+```
+
+Feature worker only:
 
 ```bash
 sudo /opt/kalman/app/scripts/run_sa_us_btc_features.sh
 ```
 
-Optional overrides:
+Full refresh:
 
 ```bash
-sudo /opt/kalman/app/scripts/run_sa_us_btc_features.sh \
-  --start-date 2024-01-01 \
-  --sa-asof-lag-bdays 1
+sudo /opt/kalman/app/scripts/run_sa_us_btc_refresh.sh
 ```
 
-## Outputs
+Inspect:
 
-Default output directory:
+```bash
+cat /opt/kalman/state/sa_collector.json
+cat /mnt/gdrive/Market_Features/sa_us_btc/us_btc_sa_run_status.json
+```
+
+The collector runner checks the Google Drive mount before writing to any configured `/mnt/gdrive` SA path, so a failed mount does not silently create local replacement files.
+
+## Output files
 
 ```text
-$KALMAN_DATA_ROOT/Market_Features/sa_us_btc/
+/mnt/gdrive/SeekingAlpha/
+├── seeking_alpha_daily.csv
+├── incoming/
+└── archive/
+
+/mnt/gdrive/Market_Features/sa_us_btc/
+├── us_btc_sa_features_X_daily.csv
+├── us_btc_targets_y_daily.csv
+├── us_btc_sa_dataset_combined_daily.csv
+├── us_btc_sa_feature_schema.csv
+├── us_btc_sa_features_latest.json
+└── us_btc_sa_run_status.json
 ```
-
-Files:
-
-```text
-us_btc_sa_features_X_daily.csv
-us_btc_targets_y_daily.csv
-us_btc_sa_dataset_combined_daily.csv
-us_btc_sa_feature_schema.csv
-us_btc_sa_features_latest.json
-us_btc_sa_run_status.json
-```
-
-X and y are intentionally separate to reduce accidental target leakage.
-
-Writes use a temporary file plus atomic replace. The shell wrapper also uses a dedicated flock lock, so overlapping cron runs do not write concurrently.
 
 ## Cron
 
-A disabled template is included in `config/kalman.cron.d`:
+The repo contains a disabled template:
 
 ```cron
-# 45 7 * * * root /opt/kalman/app/scripts/run_sa_us_btc_features.sh >> /opt/kalman/logs/sa-us-btc.log 2>&1
+# 45 7 * * * root /opt/kalman/app/scripts/run_sa_us_btc_refresh.sh >> /opt/kalman/logs/sa-us-btc.log 2>&1
 ```
 
-Do not uncomment it until:
+Do not enable it until:
 
-1. a manual run succeeds;
-2. the output path is verified;
-3. the actual SA snapshot availability time is known;
-4. `KALMAN_SA_ASOF_LAG_BDAYS` matches that timing.
+1. a full manual refresh succeeds;
+2. the authorized SA input mode is configured;
+3. the source snapshot delivery time is known;
+4. `KALMAN_SA_ASOF_LAG_BDAYS` matches that delivery time;
+5. the output files and run-state JSON have been checked.
 
-The 07:45 KST schedule is only a template, not a production timing recommendation.
+07:45 KST is a placeholder only, not a recommended production time.
 
 ## Monitoring
 
 ```bash
 tail -f /opt/kalman/logs/sa-us-btc.log
+cat /opt/kalman/state/sa_collector.json
 cat /mnt/gdrive/Market_Features/sa_us_btc/us_btc_sa_run_status.json
 ```
 
-This worker does not alter `TRADING_ENABLED`, `LIVE_TRADING_CONFIRM`, `AUTO_TRADE_ENABLED`, or any live-order path.
+This automation does not alter `TRADING_ENABLED`, `LIVE_TRADING_CONFIRM`, `AUTO_TRADE_ENABLED`, or any live-order path.
