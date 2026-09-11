@@ -7,12 +7,13 @@ on:
       - "kalman-toss-gateway/config/market-data-v2-universe.json"
       - "kalman-toss-gateway/engine/screeners/**"
       - "kalman-toss-gateway/engine/features_v2/**"
+      - "kalman-toss-gateway/engine/model_v2_neon_writer.py"
       - "kalman-toss-gateway/research/market_tools/**"
       - "kalman-toss-gateway/research/model_v2/**"
       - "kalman-toss-gateway/config/model-v2-spec.json"
       - "kalman-toss-gateway/scripts/*v2.sh"
       - "kalman-toss-gateway/tests/test_market*_v2*.py"
-      - "kalman-toss-gateway/tests/test_model_v2.py"
+      - "kalman-toss-gateway/tests/test_model_v2*.py"
       - ".github/workflows/kalman-market-data-v2.yml"
   push:
     paths:
@@ -20,12 +21,13 @@ on:
       - "kalman-toss-gateway/config/market-data-v2-universe.json"
       - "kalman-toss-gateway/engine/screeners/**"
       - "kalman-toss-gateway/engine/features_v2/**"
+      - "kalman-toss-gateway/engine/model_v2_neon_writer.py"
       - "kalman-toss-gateway/research/market_tools/**"
       - "kalman-toss-gateway/research/model_v2/**"
       - "kalman-toss-gateway/config/model-v2-spec.json"
       - "kalman-toss-gateway/scripts/*v2.sh"
       - "kalman-toss-gateway/tests/test_market*_v2*.py"
-      - "kalman-toss-gateway/tests/test_model_v2.py"
+      - "kalman-toss-gateway/tests/test_model_v2*.py"
       - ".github/workflows/kalman-market-data-v2.yml"
 
 jobs:
@@ -54,6 +56,7 @@ jobs:
           python -m compileall engine/market_data
           python -m compileall engine/screeners
           python -m compileall engine/features_v2
+          python -m compileall engine/model_v2_neon_writer.py
           python -m compileall tests/test_market_data_v2.py tests/test_market_tools_v2_extended.py
 
       - name: Check V2 shell syntax
@@ -67,6 +70,7 @@ jobs:
           bash -n scripts/run_research_v2.sh
           bash -n scripts/run_model_v2_research.sh
           bash -n scripts/run_shadow_v2.sh
+          bash -n scripts/run_neon_shadow_v2.sh
 
       - name: Run offline Market V2 unit tests
         env:
@@ -97,12 +101,12 @@ jobs:
         run: |
           python -m compileall research/market_tools
           python -m compileall research/model_v2
-          python -m compileall tests/test_model_v2.py
+          python -m compileall tests/test_model_v2.py tests/test_model_v2_neon_writer.py
 
       - name: Run V2 model contract tests
         env:
           PYTHONPATH: .
-        run: python -m unittest tests.test_model_v2 -v
+        run: python -m unittest tests.test_model_v2 tests.test_model_v2_neon_writer -v
 
       - name: vectorbt API smoke test
         run: |
