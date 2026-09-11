@@ -4,3 +4,4 @@ vectorbt==1.1.0
 plotly<7
 pyarrow>=17
 python-dotenv>=1.0
+scikit-learn>=1.8,<2
