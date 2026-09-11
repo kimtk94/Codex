@@ -9,3 +9,7 @@
 # 50 7 * * 2-6 root /opt/kalman/app/scripts/run_shadow_v2.sh >> /opt/kalman/logs/model-v2-shadow.log 2>&1
 #
 # This template does not write Neon and cannot submit Toss orders.
+
+# Optional Neon mirror is intentionally NOT scheduled by default.
+# After a separate forward-shadow review, replace the file-only runner with:
+# 50 7 * * 2-6 root /opt/kalman/app/scripts/run_neon_shadow_v2.sh >> /opt/kalman/logs/model-v2-neon-shadow.log 2>&1
