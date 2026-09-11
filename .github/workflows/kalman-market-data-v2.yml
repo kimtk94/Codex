@@ -1,0 +1,105 @@
+name: Kalman Market Tools V2
+
+on:
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/engine/market_data/**"
+      - "kalman-toss-gateway/config/market-data-v2-universe.json"
+      - "kalman-toss-gateway/engine/screeners/**"
+      - "kalman-toss-gateway/engine/features_v2/**"
+      - "kalman-toss-gateway/research/market_tools/**"
+      - "kalman-toss-gateway/scripts/*v2.sh"
+      - "kalman-toss-gateway/tests/test_market*_v2*.py"
+      - ".github/workflows/kalman-market-data-v2.yml"
+  push:
+    paths:
+      - "kalman-toss-gateway/engine/market_data/**"
+      - "kalman-toss-gateway/engine/screeners/**"
+      - "kalman-toss-gateway/engine/features_v2/**"
+      - "kalman-toss-gateway/research/market_tools/**"
+      - "kalman-toss-gateway/scripts/*v2.sh"
+      - "kalman-toss-gateway/tests/test_market*_v2*.py"
+      - ".github/workflows/kalman-market-data-v2.yml"
+
+jobs:
+  market-v2:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: kalman-toss-gateway/engine/market_data/requirements.txt
+
+      - name: Install isolated Market V2 dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r engine/market_data/requirements.txt
+
+      - name: Compile Market V2 Python
+        run: |
+          python -m compileall engine/market_data
+          python -m compileall engine/screeners
+          python -m compileall engine/features_v2
+          python -m compileall tests/test_market_data_v2.py tests/test_market_tools_v2_extended.py
+
+      - name: Check V2 shell syntax
+        run: |
+          bash -n scripts/install_market_tools_v2.sh
+          bash -n scripts/run_market_data_v2.sh
+          bash -n scripts/run_finviz_v2.sh
+          bash -n scripts/run_features_v2.sh
+          bash -n scripts/run_market_tools_v2.sh
+          bash -n scripts/install_market_research_v2.sh
+          bash -n scripts/run_research_v2.sh
+
+      - name: Run offline Market V2 unit tests
+        env:
+          PYTHONPATH: .
+        run: python -m unittest discover -s tests -p "test_market*_v2*.py" -v
+
+  research-v2:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: kalman-toss-gateway/research/market_tools/requirements.txt
+
+      - name: Install isolated vectorbt research dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r research/market_tools/requirements.txt
+
+      - name: Compile research tools
+        run: python -m compileall research/market_tools
+
+      - name: vectorbt API smoke test
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          import vectorbt as vbt
+
+          idx = pd.date_range("2026-01-01", periods=30, freq="D")
+          price = pd.Series(range(100, 130), index=idx, dtype=float)
+          entries = pd.Series([False] * 30, index=idx)
+          exits = pd.Series([False] * 30, index=idx)
+          entries.iloc[1] = True
+          exits.iloc[20] = True
+          pf = vbt.Portfolio.from_signals(price, entries, exits, init_cash=1000, freq="1D")
+          assert pf.total_return() is not None
+          print("vectorbt smoke: OK")
+          PY

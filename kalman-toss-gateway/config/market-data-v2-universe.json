@@ -1,0 +1,53 @@
+{
+  "version": "market_data_v2_universe_001",
+  "assets": [
+    {"key":"yf_spy","group":"US","provider":"yfinance","symbol":"SPY","provider_symbol":"SPY","market":"US","currency":"USD","kind":"etf","required":true},
+    {"key":"yf_sp500","group":"US","provider":"yfinance","symbol":"S&P500","provider_symbol":"^GSPC","market":"US","currency":"USD","kind":"index"},
+    {"key":"yf_qqq","group":"US","provider":"yfinance","symbol":"QQQ","provider_symbol":"QQQ","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_iwm","group":"US","provider":"yfinance","symbol":"IWM","provider_symbol":"IWM","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_dia","group":"US","provider":"yfinance","symbol":"DIA","provider_symbol":"DIA","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_soxx","group":"US","provider":"yfinance","symbol":"SOXX","provider_symbol":"SOXX","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_smh","group":"US","provider":"yfinance","symbol":"SMH","provider_symbol":"SMH","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_ixic","group":"US","provider":"yfinance","symbol":"NASDAQ","provider_symbol":"^IXIC","market":"US","currency":"USD","kind":"index"},
+    {"key":"yf_mu","group":"US","provider":"yfinance","symbol":"MU","provider_symbol":"MU","market":"US","currency":"USD","kind":"equity"},
+    {"key":"yf_ionq","group":"US","provider":"yfinance","symbol":"IONQ","provider_symbol":"IONQ","market":"US","currency":"USD","kind":"equity"},
+
+    {"key":"yf_btc","group":"BTC","provider":"yfinance","symbol":"BTC-USD","provider_symbol":"BTC-USD","market":"CRYPTO","currency":"USD","kind":"crypto","required":true},
+    {"key":"yf_ibit","group":"BTC","provider":"yfinance","symbol":"IBIT","provider_symbol":"IBIT","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_fbtc","group":"BTC","provider":"yfinance","symbol":"FBTC","provider_symbol":"FBTC","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_coin","group":"BTC","provider":"yfinance","symbol":"COIN","provider_symbol":"COIN","market":"US","currency":"USD","kind":"equity"},
+    {"key":"yf_mstr","group":"BTC","provider":"yfinance","symbol":"MSTR","provider_symbol":"MSTR","market":"US","currency":"USD","kind":"equity"},
+
+    {"key":"yf_vix","group":"COMMON","provider":"yfinance","symbol":"VIX","provider_symbol":"^VIX","market":"US","currency":"USD","kind":"index"},
+    {"key":"yf_tnx","group":"COMMON","provider":"yfinance","symbol":"US10Y","provider_symbol":"^TNX","market":"US","currency":"PCT","kind":"yield"},
+    {"key":"yf_dxy","group":"COMMON","provider":"yfinance","symbol":"DXY","provider_symbol":"DX-Y.NYB","market":"FX","currency":"INDEX","kind":"index"},
+    {"key":"yf_hyg","group":"COMMON","provider":"yfinance","symbol":"HYG","provider_symbol":"HYG","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_lqd","group":"COMMON","provider":"yfinance","symbol":"LQD","provider_symbol":"LQD","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_tlt","group":"COMMON","provider":"yfinance","symbol":"TLT","provider_symbol":"TLT","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_gld","group":"COMMON","provider":"yfinance","symbol":"GLD","provider_symbol":"GLD","market":"US","currency":"USD","kind":"etf"},
+    {"key":"yf_usdkrw","group":"COMMON","provider":"yfinance","symbol":"USD/KRW","provider_symbol":"KRW=X","market":"FX","currency":"KRW","kind":"fx"},
+
+    {"key":"yf_kospi","group":"KR","provider":"yfinance","symbol":"KOSPI","provider_symbol":"^KS11","market":"KR","currency":"KRW","kind":"index"},
+    {"key":"yf_kosdaq","group":"KR","provider":"yfinance","symbol":"KOSDAQ","provider_symbol":"^KQ11","market":"KR","currency":"KRW","kind":"index"},
+
+    {"key":"fdr_btc","group":"BTC","provider":"fdr","symbol":"BTC-USD","provider_symbol":"BTC/USD","market":"CRYPTO","currency":"USD","kind":"crypto"},
+    {"key":"fdr_usdkrw","group":"COMMON","provider":"fdr","symbol":"USD/KRW","provider_symbol":"USD/KRW","market":"FX","currency":"KRW","kind":"fx"},
+    {"key":"fdr_kospi","group":"KR","provider":"fdr","symbol":"KOSPI","provider_symbol":"KS11","market":"KR","currency":"KRW","kind":"index"},
+    {"key":"fdr_kosdaq","group":"KR","provider":"fdr","symbol":"KOSDAQ","provider_symbol":"KQ11","market":"KR","currency":"KRW","kind":"index"},
+    {"key":"fdr_sp500","group":"US","provider":"fdr","symbol":"S&P500","provider_symbol":"US500","market":"US","currency":"USD","kind":"index"},
+    {"key":"fdr_ixic","group":"US","provider":"fdr","symbol":"NASDAQ","provider_symbol":"IXIC","market":"US","currency":"USD","kind":"index"},
+    {"key":"fdr_vix","group":"COMMON","provider":"fdr","symbol":"VIX","provider_symbol":"VIX","market":"US","currency":"USD","kind":"index"},
+
+    {"key":"pykrx_kospi","group":"KR","provider":"pykrx","symbol":"KOSPI","provider_symbol":"1001","market":"KR","currency":"KRW","kind":"index"}
+  ],
+  "comparisons": [
+    {"name":"btc_yf_vs_fdr","primary":"yf_btc","secondary":"fdr_btc"},
+    {"name":"usdkrw_yf_vs_fdr","primary":"yf_usdkrw","secondary":"fdr_usdkrw"},
+    {"name":"kospi_yf_vs_fdr","primary":"yf_kospi","secondary":"fdr_kospi"},
+    {"name":"kospi_pykrx_vs_fdr","primary":"pykrx_kospi","secondary":"fdr_kospi"},
+    {"name":"kosdaq_yf_vs_fdr","primary":"yf_kosdaq","secondary":"fdr_kosdaq"},
+    {"name":"sp500_yf_vs_fdr","primary":"yf_sp500","secondary":"fdr_sp500"},
+    {"name":"nasdaq_yf_vs_fdr","primary":"yf_ixic","secondary":"fdr_ixic"},
+    {"name":"vix_yf_vs_fdr","primary":"yf_vix","secondary":"fdr_vix"}
+  ]
+}

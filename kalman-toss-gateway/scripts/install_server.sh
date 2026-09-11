@@ -26,6 +26,9 @@ python3 -m venv "$BASE/.venv"
 rm -rf "$BASE/app"
 install -d -m 0755 "$BASE/app"
 cp -a "$SRC/app" "$SRC/engine" "$SRC/scripts" "$SRC/config" "$BASE/app/"
+if [ -d "$SRC/research" ]; then
+  cp -a "$SRC/research" "$BASE/app/"
+fi
 chmod +x "$BASE/app/scripts/"*.sh
 
 if [ ! -f "$BASE/.env" ]; then
@@ -93,3 +96,6 @@ printf '  2) sudo /opt/kalman/app/scripts/install_gdrive.sh   # if not already a
 printf '  3) sudo /opt/kalman/app/scripts/preflight.sh\n'
 printf '  4) sudo /opt/kalman/app/scripts/smoke_test.sh --pipelines\n'
 printf '  5) sudo /opt/kalman/app/scripts/install_cron.sh\n'
+printf 'Optional V2 shadow/research:\n'
+printf '  6) sudo /opt/kalman/app/scripts/install_market_tools_v2.sh\n'
+printf '  7) sudo /opt/kalman/app/scripts/install_market_research_v2.sh\n'
