@@ -23,30 +23,38 @@ class Settings:
     output_dir: Path
     start_date: str
     end_date: str | None
+    universe_path: Path
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "Settings":
         data_root = Path(os.environ.get("KALMAN_DATA_ROOT", "/opt/kalman/data")).expanduser()
-        output = Path(
-            args.output_dir
-            or os.environ.get(
-                "KALMAN_MARKET_V2_OUTPUT_DIR",
-                str(data_root / "Market_Data" / "v2"),
-            )
-        ).expanduser()
+        default_universe = (
+            Path(__file__).resolve().parents[2] / "config" / "market-data-v2-universe.json"
+        )
         return cls(
-            output_dir=output,
+            output_dir=Path(
+                args.output_dir
+                or os.environ.get(
+                    "KALMAN_MARKET_V2_OUTPUT_DIR",
+                    str(data_root / "Market_Data" / "v2"),
+                )
+            ).expanduser(),
             start_date=args.start_date
             or os.environ.get("KALMAN_MARKET_V2_START_DATE", "2024-01-01"),
             end_date=args.end_date
             or os.environ.get("KALMAN_MARKET_V2_END_DATE")
             or None,
+            universe_path=Path(
+                args.universe
+                or os.environ.get("KALMAN_MARKET_V2_UNIVERSE", str(default_universe))
+            ).expanduser(),
         )
 
 
 @dataclass(frozen=True)
 class FetchSpec:
     key: str
+    group: str
     provider: MarketDataProvider
     request: ProviderRequest
     required: bool = False
@@ -57,6 +65,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-date")
     parser.add_argument("--end-date")
     parser.add_argument("--output-dir")
+    parser.add_argument("--universe")
     return parser.parse_args()
 
 
@@ -66,80 +75,58 @@ def load_server_env() -> None:
         load_dotenv(env_file, override=True)
 
 
-def fetch_specs(settings: Settings) -> list[FetchSpec]:
-    yf = YFinanceProvider()
-    fdr = FinanceDataReaderProvider()
-    krx = PyKrxProvider()
-    common = {"start": settings.start_date, "end": settings.end_date}
+def load_universe(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise FileNotFoundError(f"Market V2 universe file missing: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("assets"), list):
+        raise ValueError("Market V2 universe must contain an assets list")
+    return payload
 
-    return [
-        FetchSpec(
-            "yf_spy",
-            yf,
-            ProviderRequest(
-                symbol="SPY", provider_symbol="SPY", market="US", currency="USD",
-                kind="etf", **common,
-            ),
-            required=True,
-        ),
-        FetchSpec(
-            "yf_btc",
-            yf,
-            ProviderRequest(
-                symbol="BTC-USD", provider_symbol="BTC-USD", market="CRYPTO",
-                currency="USD", kind="crypto", **common,
-            ),
-            required=True,
-        ),
-        FetchSpec(
-            "yf_usdkrw",
-            yf,
-            ProviderRequest(
-                symbol="USD/KRW", provider_symbol="KRW=X", market="FX",
-                currency="KRW", kind="fx", **common,
-            ),
-        ),
-        FetchSpec(
-            "yf_kospi",
-            yf,
-            ProviderRequest(
-                symbol="KOSPI", provider_symbol="^KS11", market="KR",
-                currency="KRW", kind="index", **common,
-            ),
-        ),
-        FetchSpec(
-            "fdr_btc",
-            fdr,
-            ProviderRequest(
-                symbol="BTC-USD", provider_symbol="BTC/USD", market="CRYPTO",
-                currency="USD", kind="crypto", **common,
-            ),
-        ),
-        FetchSpec(
-            "fdr_usdkrw",
-            fdr,
-            ProviderRequest(
-                symbol="USD/KRW", provider_symbol="USD/KRW", market="FX",
-                currency="KRW", kind="fx", **common,
-            ),
-        ),
-        FetchSpec(
-            "fdr_kospi",
-            fdr,
-            ProviderRequest(
-                symbol="KOSPI", provider_symbol="KS11", market="KR",
-                currency="KRW", kind="index", **common,
-            ),
-        ),
-        FetchSpec(
-            "pykrx_kospi",
-            krx,
-            ProviderRequest(
-                symbol="KOSPI", provider_symbol="1001", market="KR",
-                currency="KRW", kind="index", **common,
-            ),
-        ),
-    ]
+
+def build_specs(settings: Settings, universe: dict[str, Any]) -> list[FetchSpec]:
+    providers: dict[str, MarketDataProvider] = {
+        "yfinance": YFinanceProvider(),
+        "fdr": FinanceDataReaderProvider(),
+        "pykrx": PyKrxProvider(),
+    }
+    specs: list[FetchSpec] = []
+    seen_keys: set[str] = set()
+
+    for item in universe["assets"]:
+        if not isinstance(item, dict):
+            raise ValueError("every universe asset must be an object")
+        key = str(item["key"])
+        if key in seen_keys:
+            raise ValueError(f"duplicate universe key: {key}")
+        seen_keys.add(key)
+
+        provider_name = str(item["provider"]).lower()
+        if provider_name not in providers:
+            raise ValueError(f"unknown provider {provider_name!r} for {key}")
+
+        request = ProviderRequest(
+            symbol=str(item["symbol"]),
+            provider_symbol=str(item.get("provider_symbol") or item["symbol"]),
+            market=str(item.get("market") or "UNKNOWN"),
+            currency=str(item.get("currency") or ""),
+            kind=str(item.get("kind") or "equity"),
+            start=settings.start_date,
+            end=settings.end_date,
+            interval=str(item.get("interval") or "1d"),
+            adjusted=bool(item.get("adjusted", False)),
+            extra={"group": str(item.get("group") or "UNGROUPED")},
+        )
+        specs.append(
+            FetchSpec(
+                key=key,
+                group=str(item.get("group") or "UNGROUPED").upper(),
+                provider=providers[provider_name],
+                request=request,
+                required=bool(item.get("required", False)),
+            )
+        )
+    return specs
 
 
 def _safe_provider_dir(name: str) -> str:
@@ -147,11 +134,14 @@ def _safe_provider_dir(name: str) -> str:
 
 
 def build(settings: Settings) -> tuple[dict[str, Any], int]:
+    universe = load_universe(settings.universe_path)
+    specs = build_specs(settings, universe)
+
     settings.output_dir.mkdir(parents=True, exist_ok=True)
     frames: dict[str, pd.DataFrame] = {}
     sources: dict[str, dict[str, Any]] = {}
 
-    for spec in fetch_specs(settings):
+    for spec in specs:
         try:
             result = spec.provider.fetch(spec.request)
             snapshot_path = (
@@ -166,31 +156,33 @@ def build(settings: Settings) -> tuple[dict[str, Any], int]:
                 metadata={
                     **result.metadata,
                     "dataset_layer": "market_data_v2_shadow",
+                    "universe_version": universe.get("version"),
                     "fetch_key": spec.key,
+                    "group": spec.group,
                     "required": spec.required,
                 },
             )
             frames[spec.key] = result.data
             sources[spec.key] = {
                 "status": result.metadata.get("status", "READY"),
+                "group": spec.group,
                 "required": spec.required,
                 "manifest": manifest,
             }
         except Exception as exc:
             sources[spec.key] = {
                 "status": "FAIL",
+                "group": spec.group,
                 "required": spec.required,
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             }
 
     comparisons: dict[str, dict[str, Any]] = {}
-    for name, primary_key, secondary_key in [
-        ("btc_yf_vs_fdr", "yf_btc", "fdr_btc"),
-        ("usdkrw_yf_vs_fdr", "yf_usdkrw", "fdr_usdkrw"),
-        ("kospi_yf_vs_fdr", "yf_kospi", "fdr_kospi"),
-        ("kospi_pykrx_vs_fdr", "pykrx_kospi", "fdr_kospi"),
-    ]:
+    for comparison in universe.get("comparisons", []):
+        name = str(comparison["name"])
+        primary_key = str(comparison["primary"])
+        secondary_key = str(comparison["secondary"])
         if primary_key not in frames or secondary_key not in frames:
             comparisons[name] = {
                 "status": "SKIPPED",
@@ -207,17 +199,27 @@ def build(settings: Settings) -> tuple[dict[str, Any], int]:
         )
 
     required_failures = [
-        key for key, item in sources.items()
+        key
+        for key, item in sources.items()
         if item.get("required") and item.get("status") != "READY"
     ]
     optional_issues = [
-        key for key, item in sources.items()
+        key
+        for key, item in sources.items()
         if not item.get("required") and item.get("status") != "READY"
     ]
     comparison_failures = [
-        key for key, item in comparisons.items()
-        if item.get("status") == "FAIL"
+        key for key, item in comparisons.items() if item.get("status") == "FAIL"
     ]
+
+    group_summary: dict[str, dict[str, int]] = {}
+    for item in sources.values():
+        group = str(item.get("group") or "UNGROUPED")
+        bucket = group_summary.setdefault(group, {"ready": 0, "issue": 0})
+        if item.get("status") == "READY":
+            bucket["ready"] += 1
+        else:
+            bucket["issue"] += 1
 
     if required_failures:
         overall, exit_code = "FAIL", 2
@@ -234,6 +236,10 @@ def build(settings: Settings) -> tuple[dict[str, Any], int]:
         "start_date": settings.start_date,
         "end_date": settings.end_date,
         "output_dir": str(settings.output_dir),
+        "universe_path": str(settings.universe_path),
+        "universe_version": universe.get("version"),
+        "asset_count": len(specs),
+        "group_summary": group_summary,
         "required_failures": required_failures,
         "optional_issues": optional_issues,
         "comparison_failures": comparison_failures,
@@ -243,7 +249,11 @@ def build(settings: Settings) -> tuple[dict[str, Any], int]:
 
     atomic_json(
         settings.output_dir / "validation" / "provider_comparison.json",
-        {"built_at": run_status["built_at"], "comparisons": comparisons},
+        {
+            "built_at": run_status["built_at"],
+            "universe_version": universe.get("version"),
+            "comparisons": comparisons,
+        },
     )
     atomic_json(settings.output_dir / "market_data_v2_run_status.json", run_status)
     return run_status, exit_code
