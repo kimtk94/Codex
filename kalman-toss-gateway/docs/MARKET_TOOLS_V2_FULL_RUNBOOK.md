@@ -85,7 +85,7 @@ No component above writes strategy_signal or submits Toss orders.
 - pandas 3 계열
 - research/report
 
-vectorbt 1.1.0은 현재 pandas 3.0.3 이상과 NumPy 2.4.6 이상을 요구하므로 Market V2 환경과 분리한다.
+vectorbt 1.1.0은 현재 pandas 3.0.3 이상과 NumPy 2.4.6 이상을 요구하므로 Market V2 환경과 분리한다. 또한 vectorbt 1.1.0의 theme 설정이 Plotly 7에서 제거된 `scattermapbox`를 참조하므로 research requirements는 `plotly<7`로 compatibility pin한다.
 
 ---
 
@@ -146,14 +146,41 @@ PY
 sudo /opt/kalman/app/scripts/run_market_data_v2.sh
 ```
 
-기본 provider map:
+기본 universe는 `config/market-data-v2-universe.json`에서 관리한다.
 
-| Logical asset | Provider |
-|---|---|
-| SPY | yfinance SPY |
-| BTC-USD | yfinance BTC-USD + FDR BTC/USD |
-| USD/KRW | yfinance KRW=X + FDR USD/KRW |
-| KOSPI | yfinance ^KS11 + FDR KS11 + pykrx 1001 |
+### US
+
+- SPY / S&P500
+- QQQ / IWM / DIA
+- SOXX / SMH
+- Nasdaq
+- MU
+- IONQ
+
+### BTC
+
+- BTC-USD
+- IBIT / FBTC
+- COIN / MSTR
+
+### COMMON
+
+- VIX
+- US10Y
+- DXY
+- HYG / LQD
+- TLT
+- GLD
+- USD/KRW
+
+### KR
+
+- KOSPI
+- KOSDAQ
+
+FDR과 pykrx는 가능한 항목에서 cross-provider 검증에 사용한다.
+
+SPY와 BTC-USD yfinance source만 required로 두고, 나머지는 shadow 단계에서 optional source로 유지한다.
 
 기본 output:
 
@@ -183,6 +210,10 @@ cat /mnt/gdrive/Market_Data/v2/validation/provider_comparison.json
 - USD/KRW: yfinance vs FDR
 - KOSPI: yfinance vs FDR
 - KOSPI: pykrx vs FDR
+- KOSDAQ: yfinance vs FDR
+- S&P500: yfinance vs FDR
+- Nasdaq: yfinance vs FDR
+- VIX: yfinance vs FDR
 
 현재는 차이 threshold가 투자 로직에 연결되지 않는다.
 
@@ -275,7 +306,9 @@ output:
     └── kospi.parquet
 ```
 
-현재 V2 feature:
+현재 V2 feature는 저장된 모든 yfinance universe snapshot에 자동 적용된다.
+
+Feature set:
 
 - RSI14
 - MACD
