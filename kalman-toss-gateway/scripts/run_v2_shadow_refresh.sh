@@ -24,7 +24,7 @@ Scheduled fixed-model SHADOW refresh:
   5. Neon SHADOW validation
   6. optional Neon SHADOW mirror
 
-This runner never calls run_model_v2_research.sh.
+This runner never retrains Model V2.
 EOF
 }
 
