@@ -14,11 +14,7 @@ from .registry import FEATURE_SET, registry_payload
 from .talib_features import build_talib_features, compare_legacy_rsi
 
 
-ASSETS = {
-    "SPY": "yf_spy.parquet",
-    "BTC-USD": "yf_btc.parquet",
-    "KOSPI": "yf_kospi.parquet",
-}
+REQUIRED_FETCH_KEYS = {"yf_spy", "yf_btc"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,6 +22,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--input-dir")
     p.add_argument("--output-dir")
     return p.parse_args()
+
+
+def _safe_symbol(symbol: str) -> str:
+    safe = "".join(c.lower() if c.isalnum() else "_" for c in symbol).strip("_")
+    while "__" in safe:
+        safe = safe.replace("__", "_")
+    return safe or "unknown"
 
 
 def main() -> int:
@@ -50,32 +53,48 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     atomic_json(output_dir / "feature_registry.json", registry_payload())
 
+    source_files = sorted(input_dir.glob("*.parquet"))
+    if not source_files:
+        status = {
+            "status": "FAIL",
+            "feature_set": FEATURE_SET,
+            "shadow_only": True,
+            "production_writes": False,
+            "input_dir": str(input_dir),
+            "error": "no yfinance Market V2 snapshots found",
+        }
+        atomic_json(output_dir / "features_v2_run_status.json", status)
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+        return 2
+
     assets: dict[str, Any] = {}
     required_failures: list[str] = []
+    output_symbols: set[str] = set()
 
-    for symbol, filename in ASSETS.items():
-        required = symbol in {"SPY", "BTC-USD"}
-        source_path = input_dir / filename
-        if not source_path.exists():
-            assets[symbol] = {
-                "status": "MISSING",
-                "required": required,
-                "source_path": str(source_path),
-            }
-            if required:
-                required_failures.append(symbol)
-            continue
-
+    for source_path in source_files:
+        fetch_key = source_path.stem
+        required = fetch_key in REQUIRED_FETCH_KEYS
         try:
             frame = pd.read_parquet(source_path)
+            if frame.empty or "symbol" not in frame.columns:
+                raise ValueError("snapshot missing symbol rows")
+            symbols = frame["symbol"].dropna().astype(str).unique().tolist()
+            if len(symbols) != 1:
+                raise ValueError(f"expected one logical symbol, found {symbols}")
+            symbol = symbols[0]
+            safe_symbol = _safe_symbol(symbol)
+            if safe_symbol in output_symbols:
+                raise ValueError(f"duplicate feature output symbol: {safe_symbol}")
+            output_symbols.add(safe_symbol)
+
             features = build_talib_features(frame)
             comparison = compare_legacy_rsi(frame, features)
-            safe_symbol = symbol.replace("/", "_").replace("-", "_").lower()
             manifest = write_snapshot(
                 features,
                 output_dir / "talib" / f"{safe_symbol}.parquet",
                 metadata={
                     "feature_set": FEATURE_SET,
+                    "fetch_key": fetch_key,
                     "symbol": symbol,
                     "source_snapshot": str(source_path),
                     "shadow_only": True,
@@ -83,15 +102,16 @@ def main() -> int:
                     "legacy_rsi_comparison": comparison,
                 },
             )
-            assets[symbol] = {
+            assets[fetch_key] = {
                 "status": "READY",
                 "required": required,
+                "symbol": symbol,
                 "rows": int(len(features)),
                 "legacy_rsi_comparison": comparison,
                 "manifest": manifest,
             }
         except Exception as exc:
-            assets[symbol] = {
+            assets[fetch_key] = {
                 "status": "FAIL",
                 "required": required,
                 "source_path": str(source_path),
@@ -99,7 +119,10 @@ def main() -> int:
                 "error": str(exc),
             }
             if required:
-                required_failures.append(symbol)
+                required_failures.append(fetch_key)
+
+    missing_required = sorted(REQUIRED_FETCH_KEYS - {p.stem for p in source_files})
+    required_failures.extend(x for x in missing_required if x not in required_failures)
 
     status_name = "FAIL" if required_failures else (
         "DEGRADED" if any(x.get("status") != "READY" for x in assets.values()) else "READY"
@@ -112,6 +135,7 @@ def main() -> int:
         "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
         "input_dir": str(input_dir),
         "output_dir": str(output_dir),
+        "source_file_count": len(source_files),
         "required_failures": required_failures,
         "assets": assets,
     }
