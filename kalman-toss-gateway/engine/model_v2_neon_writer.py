@@ -255,6 +255,31 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
+def latest_success_map(cur: Any, markets: list[str]) -> dict[str, tuple[Any, ...]]:
+    cur.execute(
+        """SELECT market, run_id, pipeline_version, data_as_of, model_version, completed_at
+           FROM v_latest_successful_run
+           WHERE market = ANY(%s)
+           ORDER BY market""",
+        (markets,),
+    )
+    return {
+        row[0]: tuple(row[1:])
+        for row in cur.fetchall()
+    }
+
+
+def assert_latest_success_unchanged(
+    before: dict[str, tuple[Any, ...]],
+    after: dict[str, tuple[Any, ...]],
+) -> None:
+    if before != after:
+        raise RuntimeError(
+            "V2 Neon mirror would change v_latest_successful_run: "
+            f"before={before!r} after={after!r}"
+        )
+
+
 def write_records(database_url: str, records: list[dict[str, Any]]) -> dict[str, Any]:
     try:
         import psycopg
@@ -262,10 +287,12 @@ def write_records(database_url: str, records: list[dict[str, Any]]) -> dict[str,
         raise RuntimeError("psycopg is missing from the production Kalman environment") from exc
 
     run_ids = [r["run_id"] for r in records]
+    markets = sorted({r["db_market"] for r in records})
     now = datetime.now(timezone.utc)
 
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
+            latest_success_before = latest_success_map(cur, markets)
             cur.execute(
                 "SELECT run_id FROM dashboard_snapshot WHERE run_id = ANY(%s)",
                 (run_ids,),
@@ -469,6 +496,71 @@ def write_records(database_url: str, records: list[dict[str, Any]]) -> dict[str,
                     ),
                 )
 
+            # Transaction-level production invariants. Any failure raises before commit,
+            # so psycopg rolls the transaction back.
+            latest_success_after = latest_success_map(cur, markets)
+            assert_latest_success_unchanged(
+                latest_success_before,
+                latest_success_after,
+            )
+
+            cur.execute(
+                """SELECT count(*)
+                   FROM dashboard_snapshot
+                   WHERE run_id = ANY(%s)""",
+                (run_ids,),
+            )
+            dashboard_count = int(cur.fetchone()[0])
+            if dashboard_count != 0:
+                raise RuntimeError(
+                    f"V2 Neon mirror created or exposed {dashboard_count} dashboard_snapshot rows"
+                )
+
+            cur.execute(
+                """SELECT count(*)
+                   FROM strategy_signal s
+                   JOIN dashboard_snapshot d
+                     ON d.run_id=s.run_id AND d.market=s.market
+                   WHERE s.run_id = ANY(%s)""",
+                (run_ids,),
+            )
+            auto_trade_join_count = int(cur.fetchone()[0])
+            if auto_trade_join_count != 0:
+                raise RuntimeError(
+                    f"V2 Neon mirror became visible to auto_trade join: {auto_trade_join_count} rows"
+                )
+
+            cur.execute(
+                """SELECT count(*)
+                   FROM pipeline_run
+                   WHERE run_id = ANY(%s) AND status <> %s""",
+                (run_ids, PIPELINE_DB_STATUS),
+            )
+            wrong_status_count = int(cur.fetchone()[0])
+            if wrong_status_count != 0:
+                raise RuntimeError(
+                    f"V2 Neon mirror contains {wrong_status_count} non-{PIPELINE_DB_STATUS} pipeline rows"
+                )
+
+            cur.execute(
+                """SELECT count(*)
+                   FROM strategy_signal
+                   WHERE run_id = ANY(%s)
+                     AND (
+                         signal <> 'SHADOW'
+                         OR entry_allowed IS DISTINCT FROM false
+                         OR lower(COALESCE(payload->>'allow_trade_shadow','false')) <> 'false'
+                         OR lower(COALESCE(payload->>'live_execution','false')) <> 'false'
+                         OR lower(COALESCE(payload->>'production_promotion','false')) <> 'false'
+                     )""",
+                (run_ids,),
+            )
+            unsafe_signal_count = int(cur.fetchone()[0])
+            if unsafe_signal_count != 0:
+                raise RuntimeError(
+                    f"V2 Neon mirror contains {unsafe_signal_count} unsafe strategy_signal rows"
+                )
+
         conn.commit()
 
     return {
@@ -480,9 +572,11 @@ def write_records(database_url: str, records: list[dict[str, Any]]) -> dict[str,
         "model_ids": [r["model_id"] for r in records],
         "pipeline_db_status": PIPELINE_DB_STATUS,
         "latest_successful_run_eligible": False,
+        "latest_successful_run_unchanged": True,
         "dashboard_snapshot_created": False,
         "strategy_ledger_written": False,
         "auto_trade_visible": False,
+        "transaction_invariants_verified": True,
         "mirrored_at": datetime.now(timezone.utc).isoformat(),
     }
 
