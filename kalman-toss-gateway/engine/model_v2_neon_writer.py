@@ -18,6 +18,7 @@ MARKET_MAP = {
     "CRYPTO": "CRYPTO",
 }
 PIPELINE_VERSION = "market-tools-v2/model-shadow-v2_001"
+PIPELINE_DB_STATUS = "ABORTED"
 MODEL_NAME_PREFIX = "kalman_v2_logit"
 CONFIRM_VALUE = "CONFIRM_NEON_SHADOW_MIRROR"
 
@@ -361,6 +362,8 @@ def write_records(database_url: str, records: list[dict[str, Any]]) -> dict[str,
                     "artifact_sha256": record["artifact_sha256"],
                     "dashboard_snapshot_created": False,
                     "auto_trade_visible": False,
+                    "research_status": "SUCCESS",
+                    "operational_commit": "ABORTED_SHADOW_ONLY",
                 }
                 cur.execute(
                     """INSERT INTO pipeline_run (
@@ -368,7 +371,7 @@ def write_records(database_url: str, records: list[dict[str, Any]]) -> dict[str,
                            feature_version, model_version, git_sha,
                            started_at, completed_at, status, metadata
                        ) VALUES (
-                           %s,%s,%s,%s,%s,%s,%s,%s,%s,'SUCCESS',%s::jsonb
+                           %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb
                        )
                        ON CONFLICT (run_id) DO UPDATE SET
                            data_as_of=EXCLUDED.data_as_of,
@@ -376,7 +379,7 @@ def write_records(database_url: str, records: list[dict[str, Any]]) -> dict[str,
                            model_version=EXCLUDED.model_version,
                            git_sha=EXCLUDED.git_sha,
                            completed_at=EXCLUDED.completed_at,
-                           status='SUCCESS',
+                           status=EXCLUDED.status,
                            error_message=NULL,
                            metadata=EXCLUDED.metadata""",
                     (
@@ -389,6 +392,7 @@ def write_records(database_url: str, records: list[dict[str, Any]]) -> dict[str,
                         os.environ.get("KALMAN_GIT_SHA") or None,
                         now,
                         now,
+                        PIPELINE_DB_STATUS,
                         _json(run_metadata),
                     ),
                 )
@@ -474,6 +478,8 @@ def write_records(database_url: str, records: list[dict[str, Any]]) -> dict[str,
         "run_ids": run_ids,
         "markets": [r["db_market"] for r in records],
         "model_ids": [r["model_id"] for r in records],
+        "pipeline_db_status": PIPELINE_DB_STATUS,
+        "latest_successful_run_eligible": False,
         "dashboard_snapshot_created": False,
         "strategy_ledger_written": False,
         "auto_trade_visible": False,
@@ -500,6 +506,8 @@ def main() -> int:
                 r["original_market"]: r["db_market"] for r in records
             },
             "model_ids": [r["model_id"] for r in records],
+            "pipeline_db_status": PIPELINE_DB_STATUS,
+            "latest_successful_run_eligible": False,
             "dashboard_snapshot_created": False,
             "strategy_ledger_written": False,
             "auto_trade_visible": False,
@@ -537,6 +545,8 @@ def main() -> int:
             "status": "FAIL",
             "error_type": type(exc).__name__,
             "error": str(exc),
+            "pipeline_db_status": PIPELINE_DB_STATUS,
+            "latest_successful_run_eligible": False,
             "dashboard_snapshot_created": False,
             "strategy_ledger_written": False,
             "auto_trade_visible": False,
