@@ -29,7 +29,6 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_CASH_RESERVE_USD=0
     export CFG_AUTO_TRADE_MIN_ORDER_USD=1
     export CFG_AUTO_TRADE_MAX_ORDER_USD=2
-    export CFG_DEFAULT_SYMBOL_LIMIT_KRW=5000
     export CFG_TRADING_ENABLED=false
     export CFG_LIVE_TRADING_CONFIRM=
     ;;
@@ -47,7 +46,6 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_CASH_RESERVE_USD="${AUTO_TRADE_CASH_RESERVE_USD:-100}"
     export CFG_AUTO_TRADE_MIN_ORDER_USD="${AUTO_TRADE_MIN_ORDER_USD:-1}"
     export CFG_AUTO_TRADE_MAX_ORDER_USD="${AUTO_TRADE_MAX_ORDER_USD:-50}"
-    export CFG_DEFAULT_SYMBOL_LIMIT_KRW="${DEFAULT_SYMBOL_LIMIT_KRW:-75000}"
     export CFG_TRADING_ENABLED=false
     export CFG_LIVE_TRADING_CONFIRM=
     ;;
@@ -65,7 +63,6 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_CASH_RESERVE_USD=0
     export CFG_AUTO_TRADE_MIN_ORDER_USD=1
     export CFG_AUTO_TRADE_MAX_ORDER_USD=2
-    export CFG_DEFAULT_SYMBOL_LIMIT_KRW=5000
     export CFG_TRADING_ENABLED=false
     export CFG_LIVE_TRADING_CONFIRM=
     ;;
@@ -102,7 +99,6 @@ keys = [
     'AUTO_TRADE_CASH_RESERVE_USD',
     'AUTO_TRADE_MIN_ORDER_USD',
     'AUTO_TRADE_MAX_ORDER_USD',
-    'DEFAULT_SYMBOL_LIMIT_KRW',
     'TRADING_ENABLED',
     'LIVE_TRADING_CONFIRM',
 ]
@@ -145,7 +141,7 @@ printf 'Updated %s using profile: %s\n' "$ENV_FILE" "$PROFILE"
 printf 'Backup: %s\n\n' "$BACKUP"
 
 printf '%s\n' '--- auto-trade settings ---'
-grep -E '^(AUTO_TRADE_|DEFAULT_SYMBOL_LIMIT_KRW|TRADING_ENABLED|LIVE_TRADING_CONFIRM)=' "$ENV_FILE" || true
+grep -E '^(AUTO_TRADE_|TRADING_ENABLED|LIVE_TRADING_CONFIRM)=' "$ENV_FILE" || true
 
 printf '\n%s\n' 'Secrets and unrelated env values were preserved.'
 printf '%s\n' 'LIVE trading remains disabled in every profile provided by this script.'
