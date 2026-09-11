@@ -1,0 +1,9 @@
+# Dedicated Market Tools V2 environment.
+# Do not merge these dependencies into the production Toss gateway venv.
+pandas>=2.2,<3
+numpy>=2.0,<3
+pyarrow>=17
+python-dotenv>=1.0
+yfinance==1.7.0
+pykrx>=1.2.8
+finance-datareader>=0.9
