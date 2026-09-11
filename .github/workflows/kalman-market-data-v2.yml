@@ -17,11 +17,15 @@ on:
   push:
     paths:
       - "kalman-toss-gateway/engine/market_data/**"
+      - "kalman-toss-gateway/config/market-data-v2-universe.json"
       - "kalman-toss-gateway/engine/screeners/**"
       - "kalman-toss-gateway/engine/features_v2/**"
       - "kalman-toss-gateway/research/market_tools/**"
+      - "kalman-toss-gateway/research/model_v2/**"
+      - "kalman-toss-gateway/config/model-v2-spec.json"
       - "kalman-toss-gateway/scripts/*v2.sh"
       - "kalman-toss-gateway/tests/test_market*_v2*.py"
+      - "kalman-toss-gateway/tests/test_model_v2.py"
       - ".github/workflows/kalman-market-data-v2.yml"
 
 jobs:
