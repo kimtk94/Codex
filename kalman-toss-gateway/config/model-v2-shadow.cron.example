@@ -1,0 +1,11 @@
+# Kalman V2 model shadow cron template — DISABLED.
+# Enable only after server data smoke, model review, and forward-shadow approval.
+# CRON_TZ=Asia/Seoul
+#
+# Research/retraining is manual only:
+#   /opt/kalman/app/scripts/run_model_v2_research.sh
+#
+# Fixed-model SHADOW scoring example after Market Tools V2 refresh:
+# 50 7 * * 2-6 root /opt/kalman/app/scripts/run_shadow_v2.sh >> /opt/kalman/logs/model-v2-shadow.log 2>&1
+#
+# This template does not write Neon and cannot submit Toss orders.
