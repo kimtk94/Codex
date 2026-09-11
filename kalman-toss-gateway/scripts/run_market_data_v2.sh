@@ -22,7 +22,25 @@ mkdir -p "$LOCK_DIR"
 export KALMAN_ENV_FILE="$ENV_FILE"
 export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
-OUTPUT_DIR="$("$PY" - <<'PY'
+OUTPUT_OVERRIDE=""
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+  case "${args[$i]}" in
+    --output-dir)
+      if (( i + 1 < ${#args[@]} )); then
+        OUTPUT_OVERRIDE="${args[$((i + 1))]}"
+      fi
+      ;;
+    --output-dir=*)
+      OUTPUT_OVERRIDE="${args[$i]#--output-dir=}"
+      ;;
+  esac
+done
+
+if [ -n "$OUTPUT_OVERRIDE" ]; then
+  OUTPUT_DIR="$OUTPUT_OVERRIDE"
+else
+  OUTPUT_DIR="$("$PY" - <<'PY'
 import os
 from pathlib import Path
 from dotenv import dotenv_values
@@ -33,6 +51,7 @@ root = values.get("KALMAN_DATA_ROOT") or "/opt/kalman/data"
 print(values.get("KALMAN_MARKET_V2_OUTPUT_DIR") or f"{root}/Market_Data/v2")
 PY
 )"
+fi
 
 case "$OUTPUT_DIR" in
   "$GDRIVE_MOUNT"|"$GDRIVE_MOUNT"/*)
