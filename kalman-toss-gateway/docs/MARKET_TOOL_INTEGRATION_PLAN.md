@@ -1,6 +1,6 @@
 # Kalman Market Tools V2 통합 설계서
 
-> 상태: **설계 확정 전 / 구현 미착수**
+> 상태: **Phase 1A 구현 완료 / 서버 실데이터 검증 전**
 >
 > 목적: Kalman의 현재 production lineage와 Toss 실거래 경로를 보존하면서, 주식 검색·시장 데이터·기술지표·백테스트 기능을 V2 research/shadow layer로 단계적으로 추가한다.
 >
@@ -1199,578 +1199,101 @@ scripts/run_market_data_v2.sh
 - cross-provider report
 - atomic snapshot
 
-### Production 영향
-
-```text
-없음
-```
-
-### 금지
-
-- 기존 `sa_us_btc_features.py` download 경로 교체 금지
-- Neon signal write 금지
-- trading write 금지
-
 ---
 
-## Phase 2 — Finviz Screener
+# 38. Phase 1A 실제 구현 결과
 
-### 신규 파일
-
-```text
-engine/screeners/__init__.py
-engine/screeners/finviz_screener.py
-scripts/run_finviz_snapshot.sh
-```
-
-### output
-
-```text
-Market_Screeners/finviz/YYYY-MM-DD/
-```
-
-### 목표
-
-- daily raw snapshot
-- liquidity filters
-- candidate universe
-- metadata
-
-### Production 영향
-
-```text
-없음
-```
-
----
-
-## Phase 3 — TA-Lib Feature V2
-
-### 신규 파일
-
-```text
-engine/features_v2/__init__.py
-engine/features_v2/talib_features.py
-engine/features_v2/registry.py
-scripts/run_features_v2.sh
-```
-
-### 목표
-
-- technical feature set
-- legacy RSI comparison
-- schema manifest
-
-### Production 영향
-
-```text
-없음
-```
-
----
-
-## Phase 4 — vectorbt
-
-### 신규 디렉터리
-
-```text
-research/market_tools/
-```
-
-### 목표
-
-- V2 dataset loading
-- baseline comparison
-- walk-forward
-- transaction cost sensitivity
-- report generation
-
-### Production 영향
-
-```text
-없음
-```
-
----
-
-## Phase 5 — New Kalman Model
-
-이 단계부터 model 변경 가능.
-
-반드시 새로운 version을 사용한다.
-
-예:
-
-```text
-KALMAN_US_V2_001
-KALMAN_KR_V2_001
-KALMAN_BTC_V2_001
-```
-
-기존 model 이름/artifact 덮어쓰기 금지.
-
----
-
-## Phase 6 — SHADOW to Canary
-
-순서:
-
-```text
-Research
- -> Backtest
- -> Out-of-sample
- -> SHADOW
- -> paper/dry-run
- -> canary
- -> production
-```
-
-기존 Toss safety gate는 제거하지 않는다.
-
----
-
-# 22. Cron 전략
-
-V2 job은 초기에는 cron에 등록하지 않는다.
-
-순서:
-
-1. manual run
-2. output 검증
-3. repeated manual run
-4. idempotency 확인
-5. mount failure 확인
-6. network failure 확인
-7. cron template 생성
-8. disabled 상태 유지
-9. 필요 시 enable
-
-현재 SA automation과 같은 안전 철학을 사용한다.
-
----
-
-# 23. Failure Policy
-
-## Provider failure
-
-Primary 실패:
-
-```text
-SHADOW job = DEGRADED 또는 FAIL
-```
-
-Secondary가 있다고 primary를 조용히 대체하지 않는다.
-
-Fallback을 사용할 경우:
-
-```text
-source
-fallback_reason
-primary_error
-```
-
-를 반드시 metadata에 남긴다.
-
----
-
-## Finviz failure
-
-Screener가 실패했다고 trading pipeline이 실패하면 안 된다.
-
-Phase 2 기준:
-
-```text
-Finviz failure
--> screener snapshot FAIL
--> production unaffected
-```
-
----
-
-## TA-Lib failure
-
-V2 feature build FAIL.
-
-Legacy feature pipeline으로 자동 overwrite/fallback하지 않는다.
-
----
-
-# 24. Look-ahead / Leakage Rules
-
-절대 금지:
-
-- 오늘의 Finviz 데이터를 과거 row에 삽입
-- future earnings revision을 과거에 사용
-- target column을 feature normalization에 포함
-- 전체 기간 mean/std로 train/test 모두 scaling
-- 다음날 종가를 당일 close 시점 decision에 사용
-- after-close data를 same-day pre-close signal에 사용
-
----
-
-# 25. Calendar Rules
-
-## US
-
-trading-day 기준.
-
-가능하면 exchange calendar를 source of truth로 사용한다.
-
----
-
-## BTC
-
-24/7 calendar.
-
-현재 코드와 동일하게 annualizer 365 유지 가능.
-
----
-
-## KR
-
-KRX trading calendar 기준.
-
----
-
-## Mixed feature
-
-예:
-
-```text
-BTC date
-+
-latest available US observation
-```
-
-사용 가능하나:
-
-```text
-us_data_age_days
-```
-
-같은 freshness flag를 반드시 보존한다.
-
----
-
-# 26. Security
-
-현재 원칙:
-
-- API key Git 저장 금지
-- account number Git 저장 금지
-- OAuth token Git 저장 금지
-- static IP 등 민감 운영정보 최소화
-- `.env`는 서버에만
-- `.env.example`은 blank placeholder만
-
----
-
-# 27. Repository 분리 권고
-
-현재 `kimtk94/Codex`는 public이며 Kalman 외 업무 문서도 함께 존재한다.
-
-장기 권장:
-
-```text
-kalman-investment
-  -> Kalman code
-
-novogene-work
-  -> 업무 자료
-  -> PRIVATE
-```
-
-또는 현재 Codex 자체를 private으로 전환 검토.
-
-이 작업은 Market Tools V2 구현과 별개로 진행 가능하다.
-
----
-
-# 28. Unified Payload 개선 방향
-
-현재:
-
-```text
-_unified_payload_00.b64
-...
-_unified_payload_14.b64
-```
-
-장점:
-
-- checksum verification
-- frozen artifact 보존
-
-단점:
-
-- code review 어려움
-- diff 어려움
-- 유지보수 어려움
-
-현재 lineage는 수정하지 않는다.
-
-다음 model generation부터 권장:
-
-```text
-models/
-└── KALMAN_US_V2_001/
-    ├── model.joblib
-    ├── feature_schema.json
-    ├── source.py
-    ├── manifest.json
-    └── checksums.sha256
-```
-
----
-
-# 29. Model Manifest
-
-향후 new model artifact는 최소 다음을 저장한다.
-
-```json
-{
-  "model_version": "KALMAN_US_V2_001",
-  "trained_at": "...",
-  "git_commit": "...",
-  "dataset_version": "...",
-  "feature_set": "...",
-  "train_start": "...",
-  "train_end": "...",
-  "validation_start": "...",
-  "validation_end": "...",
-  "sklearn_version": "...",
-  "status": "SHADOW"
-}
-```
-
----
-
-# 30. Promotion Gate
-
-새로운 V2 모델이 production 후보가 되려면 모두 통과해야 한다.
-
-## Data
-
-- [ ] provider provenance 기록
-- [ ] point-in-time 검증
-- [ ] publication lag 검증
-- [ ] source freshness 검증
-- [ ] missing data policy 검증
-- [ ] adjusted/unadjusted policy 확정
-
-## Feature
-
-- [ ] feature schema frozen
-- [ ] legacy/V2 indicator 차이 측정
-- [ ] leakage 검사
-- [ ] correlation/collinearity 검토
-- [ ] feature importance stability 검토
-
-## Backtest
-
-- [ ] walk-forward
-- [ ] out-of-sample
-- [ ] commission
-- [ ] slippage
-- [ ] spread
-- [ ] turnover
-- [ ] survivorship bias
-- [ ] regime robustness
-
-## Runtime
-
-- [ ] shadow runtime 안정
-- [ ] retry 검증
-- [ ] lock 검증
-- [ ] atomic write 검증
-- [ ] Drive mount failure 검증
-- [ ] network failure 검증
-
-## Trading
-
-- [ ] 기존 Toss execution contract 유지
-- [ ] strategy_version 분리
-- [ ] DRY_RUN
-- [ ] SHADOW
-- [ ] canary
-- [ ] live gate fail-closed
-
----
-
-# 31. Rollback 원칙
-
-V2가 문제를 일으켜도 기존 production에 영향이 없어야 한다.
-
-따라서 Phase 1~4에서는 rollback이 단순해야 한다.
-
-```text
-disable V2 job
-+
-ignore V2 outputs
-```
-
-기존:
-
-```text
-run_pipeline.sh
-unified_runner.py
-Neon signal
-auto_trade.py
-```
-
-는 그대로 동작해야 한다.
-
----
-
-# 32. 구현 우선순위
-
-실제 코드 구현 순서는 다음으로 확정한다.
-
-```text
-1. FinanceDataReader 설치 분리
-2. canonical schema
-3. yfinance provider wrapper
-4. FDR provider
-5. pykrx provider
-6. provider comparison
-7. V2 snapshot writer
-8. Finviz screener
-9. point-in-time archive
-10. TA-Lib V2
-11. feature registry
-12. vectorbt
-13. V2 model
-14. SHADOW
-15. canary
-```
-
----
-
-# 33. Phase 1 완료 조건
-
-Phase 1은 다음이 모두 가능할 때 완료로 본다.
-
-```text
-python -m engine.market_data...
-```
-
-또는 runner script를 통해:
-
-- SPY
-- BTC-USD
-- USD/KRW
-- KOSPI
-
-를 canonical 형태로 저장할 수 있어야 한다.
-
-동시에:
-
-- provider metadata 존재
-- atomic save
-- source 값 비교 report
-- 기존 production 코드 미변경
-
-조건을 만족해야 한다.
-
----
-
-# 34. 이번 작업에서 하지 않는 것
-
-이번 Market Tools V2 초기 작업에서 하지 않는다.
-
-- Toss live trading 활성화
-- 기존 strategy signal 수정
-- frozen model 재학습
-- 기존 RSI 교체
-- OpenBB production 설치
-- Freqtrade 연결
-- 자동 종목매수
-- Finviz 결과 직접 매수
-- 기존 cron 수정
-- 기존 Unified payload 수정
-
----
-
-# 35. 다음 구현 작업
-
-이 문서 승인 후 가장 먼저 수행할 작업:
-
-## Phase 1A
+구현 브랜치에서 다음 파일이 추가되었다.
 
 ```text
 engine/market_data/
+├── __init__.py
+├── base.py
+├── schema.py
+├── yfinance_provider.py
+├── fdr_provider.py
+├── pykrx_provider.py
+├── validation.py
+├── snapshot.py
+├── cli.py
+└── requirements.txt
+
+scripts/
+├── install_market_tools_v2.sh
+└── run_market_data_v2.sh
+
+docs/
+└── MARKET_DATA_V2_RUNBOOK.md
+
+tests/
+└── test_market_data_v2.py
 ```
 
-생성.
-
-우선:
-
-1. canonical schema
-2. provider base interface
-3. yfinance provider
-4. FinanceDataReader provider
-5. pykrx provider
-6. cross-provider validation
-
-까지만 구현한다.
-
-### Phase 1A 완료 후 확인할 것
-
-- 실제 sample output
-- SPY 비교
-- BTC 비교
-- KOSPI 비교
-- USD/KRW 비교
-- error handling
-- metadata
-- dependency 영향
-
-이 검증이 끝난 뒤 Finviz로 넘어간다.
-
----
-
-# 36. 상태표
-
-| 단계 | 상태 | Production 영향 |
-|---|---|---|
-| Architecture review | 완료 | 없음 |
-| Tool selection | 완료 | 없음 |
-| Integration plan MD | 완료 | 없음 |
-| Provider layer | 미착수 | 없음 예정 |
-| Finviz snapshot | 미착수 | 없음 예정 |
-| TA-Lib V2 | 미착수 | 없음 예정 |
-| vectorbt | 미착수 | 없음 예정 |
-| New model | 미착수 | 별도 version |
-| SHADOW | 미착수 | 주문 없음 |
-| Canary | 미착수 | 추후 승인 |
-| Production promotion | 미착수 | 최종 단계 |
-
----
-
-# 37. 최종 원칙
-
-Kalman Market Tools V2의 목적은 라이브러리를 많이 붙이는 것이 아니다.
-
-목적은 다음 흐름을 만드는 것이다.
+## Runtime isolation
 
 ```text
-Reliable Data
-   ↓
-Point-in-Time Snapshot
-   ↓
-Versioned Features
-   ↓
-Reproducible Backtest
-   ↓
-Versioned Model
-   ↓
-Shadow Validation
-   ↓
-Guarded Execution
+Production:
+/opt/kalman/.venv
+
+Market Tools V2:
+/opt/kalman/.venv-market-v2
 ```
 
-즉:
+따라서 FinanceDataReader 도입으로 production의 고정 sklearn artifact dependency가 변경되지 않는다.
 
-> **데이터 수집 Tool은 교체 가능해야 하고, feature는 versioning되어야 하며, backtest는 재현 가능해야 하고, trading은 마지막까지 분리되어야 한다.**
+## Phase 1A 현재 provider map
 
-이 원칙을 유지하면서 Phase 1부터 순차적으로 구현한다.
+```text
+SPY
+  -> yfinance SPY
+
+BTC-USD
+  -> yfinance BTC-USD
+  -> FinanceDataReader BTC/USD
+
+USD/KRW
+  -> yfinance KRW=X
+  -> FinanceDataReader USD/KRW
+
+KOSPI
+  -> yfinance ^KS11
+  -> FinanceDataReader KS11
+  -> pykrx index 1001
+```
+
+## Required / Optional source
+
+Required:
+
+- yfinance SPY
+- yfinance BTC-USD
+
+Optional cross-check:
+
+- yfinance USD/KRW
+- yfinance KOSPI
+- FDR BTC
+- FDR USD/KRW
+- FDR KOSPI
+- pykrx KOSPI
+
+Required source가 실패하면 V2 runner는 FAIL/non-zero로 종료한다.
+
+Optional source만 실패하면 DEGRADED로 기록하되 production pipeline에는 영향이 없다.
+
+## 다음 검증
+
+코드 구현만으로 Phase 1 전체 완료로 보지 않는다.
+
+서버에서 다음을 확인해야 한다.
+
+1. V2 전용 venv 설치
+2. unit test
+3. 실제 provider download
+4. snapshot 생성
+5. provider comparison 값 검토
+6. Drive mount fail-closed
+7. 기존 pipeline smoke test
+8. production venv package 변화 없음
+
+모두 통과한 뒤 Phase 1을 완료 상태로 변경한다.
