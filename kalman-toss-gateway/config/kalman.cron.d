@@ -19,6 +19,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 25 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
 25 0-6 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
 
-# SA x US x BTC feature worker (DISABLED BY DEFAULT).
-# Enable only after a successful manual run and after confirming SA snapshot timing.
-# 45 7 * * * root /opt/kalman/app/scripts/run_sa_us_btc_features.sh >> /opt/kalman/logs/sa-us-btc.log 2>&1
+# Seeking Alpha collector -> US/BTC feature refresh (DISABLED BY DEFAULT).
+# Enable only after the authorized SA input method and snapshot timing are verified.
+# 45 7 * * * root /opt/kalman/app/scripts/run_sa_us_btc_refresh.sh >> /opt/kalman/logs/sa-us-btc.log 2>&1
