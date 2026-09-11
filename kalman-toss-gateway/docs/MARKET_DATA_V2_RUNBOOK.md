@@ -60,10 +60,9 @@ PY
 KALMAN_MARKET_V2_OUTPUT_DIR=/mnt/gdrive/Market_Data/v2
 KALMAN_MARKET_V2_START_DATE=2024-01-01
 KALMAN_MARKET_V2_END_DATE=
-KALMAN_MARKET_V2_VENV=/opt/kalman/.venv-market-v2
 ```
 
-`END_DATE`는 비워두면 provider가 가능한 최신 구간까지 조회한다.
+`END_DATE`는 비워두면 provider가 가능한 최신 구간까지 조회한다. V2 venv 경로를 바꿔야 하는 특수한 경우에만 shell 환경변수 `KALMAN_MARKET_V2_VENV`를 export한다. 이 값은 `/opt/kalman/.env` 설정이 아니다.
 
 ## 5. Manual run
 
@@ -167,7 +166,7 @@ required provider가 정상이고 optional provider도 정상.
 
 ### DEGRADED
 
-required provider는 정상이나 하나 이상의 optional cross-check provider가 실패.
+required provider는 정상이나 하나 이상의 optional cross-check provider가 FAIL/DEGRADED이거나 provider comparison 자체가 실패.
 
 이 경우에도 production에는 영향이 없다.
 
