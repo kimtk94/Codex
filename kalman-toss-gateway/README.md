@@ -151,7 +151,7 @@ AUTO_TRADE_MIN_ORDER_USD=1
 AUTO_TRADE_MAX_ORDER_USD=2
 ```
 
-`ALLOW_SYMBOLS` is restrictive by default. `*` is supported for a deliberately approved full model universe; non-special symbols use `DEFAULT_SYMBOL_LIMIT_KRW`.
+The execution layer no longer maintains a symbol allowlist. Existing global live gates, broker/account checks, per-order limits, and daily limits remain in force.
 
 ## Live safety gates
 
@@ -160,15 +160,14 @@ A new automated BUY needs, at minimum:
 1. exact `AUTO_TRADE_STRATEGY_VERSION` lock;
 2. an eligible signal under the selected signal policy;
 3. fresh READY Neon snapshot;
-4. allowed symbol;
-5. account/bot-position reconciliation;
-6. Toss US fractional-order session window;
-7. positive broker USD buying power;
-8. per-order, per-symbol and daily BUY caps;
-9. persistent local `clientOrderId` idempotency;
-10. `TRADING_ENABLED=true` and `LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING`.
+4. account/bot-position reconciliation;
+5. Toss US fractional-order session window;
+6. positive broker USD buying power;
+7. per-order and daily BUY caps;
+8. persistent local `clientOrderId` idempotency;
+9. `TRADING_ENABLED=true` and `LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING`.
 
-Managed SELL exits are treated as risk-reducing: they still require both global live gates and Toss sellable quantity/session checks, but a later allowlist/cap change cannot trap an already-managed position.
+Managed SELL exits are treated as risk-reducing: they still require both global live gates and Toss sellable quantity/session checks, while entry notional caps do not block an already-managed exit.
 
 The local order/position state is stored in `/opt/kalman/state/trading.sqlite3`. Gateway and workers share one Toss OAuth token cache under `/opt/kalman/state/toss_oauth_token.json`.
 

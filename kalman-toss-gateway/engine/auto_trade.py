@@ -227,10 +227,6 @@ async def main_async() -> int:
         return 0
 
     symbol = signal['symbol'].upper()
-    live_symbol_allowed = settings.symbol_allowed(symbol)
-    if mode == 'LIVE' and not live_symbol_allowed:
-        print('SIGNAL_SYMBOL_NOT_ALLOWED', symbol)
-        return 0
 
     store = ManagedPositionStore(settings.state_db_path)
     active_positions = store.active()
@@ -269,7 +265,6 @@ async def main_async() -> int:
         'positionState': signal['position_state'],
         'liveSignalShapeOk': _signal_shape_ok(signal, policy),
         'symbol': symbol,
-        'liveSymbolAllowed': live_symbol_allowed,
         'accountFlat': account_flat,
         'requireAccountFlat': require_flat,
         'nonzeroHoldings': nonzero_holdings,

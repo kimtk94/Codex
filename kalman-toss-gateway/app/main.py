@@ -83,7 +83,6 @@ async def health(settings: Settings = Depends(get_settings)):
         'version': '0.2.0',
         'tradingEnabled': settings.trading_enabled,
         'liveGateOpen': settings.live_gate_open,
-        'allowedSymbols': sorted(settings.allowed_symbols),
         'limits': {
             'dailyTotalKrw': settings.live_micro_total_limit_krw,
             'singleOrderKrw': settings.max_single_order_krw,

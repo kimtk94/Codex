@@ -25,18 +25,13 @@ def validate_order(
     if amount_krw <= 0:
         return RiskDecision(False, 'INVALID_AMOUNT')
 
-    # Managed exits may reduce risk even after an entry symbol is removed from
-    # the allowlist or its value grows above an entry cap. Global live gates
-    # still apply, and sellable quantity is verified by the broker API.
+    # Managed exits may reduce risk regardless of entry notional caps. Global
+    # live gates still apply, and sellable quantity is verified by the broker API.
     if risk_reducing_exit:
         return RiskDecision(True, 'OK_RISK_REDUCING_EXIT')
 
-    if not settings.symbol_allowed(symbol):
-        return RiskDecision(False, 'SYMBOL_NOT_ALLOWED')
     if amount_krw > settings.max_single_order_krw:
         return RiskDecision(False, 'MAX_SINGLE_ORDER_EXCEEDED')
-    if amount_krw > settings.symbol_limit_krw(symbol):
-        return RiskDecision(False, 'SYMBOL_LIMIT_EXCEEDED')
     if daily_committed_krw + amount_krw > settings.live_micro_total_limit_krw:
         return RiskDecision(False, 'DAILY_TOTAL_LIMIT_EXCEEDED')
 
