@@ -18,3 +18,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # It remains inert unless AUTO_TRADE_ENABLED plus both live trading gates are explicitly opened.
 25 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
 25 0-6 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
+
+# SA x US x BTC feature worker (DISABLED BY DEFAULT).
+# Enable only after a successful manual run and after confirming SA snapshot timing.
+# 45 7 * * * root /opt/kalman/app/scripts/run_sa_us_btc_features.sh >> /opt/kalman/logs/sa-us-btc.log 2>&1
