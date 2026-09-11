@@ -1,6 +1,6 @@
 # Kalman Market Tools V2 통합 설계서
 
-> 상태: **Phase 1A 구현 및 CI 검증 완료 / 서버 실데이터 검증 전**
+> 상태: **Phase 1~4 전체 shadow/research 구성 구현 / 통합 CI·서버 실데이터 검증 진행 전**
 >
 > 목적: Kalman의 현재 production lineage와 Toss 실거래 경로를 보존하면서, 주식 검색·시장 데이터·기술지표·백테스트 기능을 V2 research/shadow layer로 단계적으로 추가한다.
 >
@@ -1737,9 +1737,9 @@ engine/market_data/
 | Tool selection | 완료 | 없음 |
 | Integration plan MD | 완료 | 없음 |
 | Provider layer | Phase 1A 구현 완료 / 실검증 전 | 없음 |
-| Finviz snapshot | 미착수 | 없음 예정 |
-| TA-Lib V2 | 미착수 | 없음 예정 |
-| vectorbt | 미착수 | 없음 예정 |
+| Finviz snapshot | 구현 완료 / network smoke 전 | 없음 |
+| TA-Lib V2 | 구현 완료 / 실데이터 parity 전 | 없음 |
+| vectorbt | 별도 research 환경 구현 완료 / report smoke 전 | 없음 |
 | New model | 미착수 | 별도 version |
 | SHADOW | 미착수 | 주문 없음 |
 | Canary | 미착수 | 추후 승인 |
@@ -1874,3 +1874,138 @@ Optional source만 실패하면 DEGRADED로 기록하되 production pipeline에�
 8. production venv package 변화 없음
 
 모두 통과한 뒤 Phase 1을 완료 상태로 변경한다.
+
+
+---
+
+# 39. Phase 2~4 Full Stack 구현 결과
+
+`feature/kalman-market-tools-v2-full-stack` 브랜치에서 Market Tools V2의 shadow/research 구성을 확장했다.
+
+## Phase 2 — Finviz
+
+추가:
+
+```text
+engine/screeners/
+├── __init__.py
+├── finviz_snapshot.py
+└── cli.py
+
+scripts/run_finviz_v2.sh
+```
+
+원칙:
+
+- 기본 disabled
+- manual `--force` 지원
+- 날짜별 point-in-time snapshot
+- Overview / Valuation / Financial / Performance / Technical view 원본 보존
+- merged snapshot과 candidate universe 별도 저장
+- Finviz 장애는 production과 Market Data core를 막지 않음
+
+## Phase 3 — TA-Lib V2
+
+추가:
+
+```text
+engine/features_v2/
+├── __init__.py
+├── registry.py
+├── talib_features.py
+└── cli.py
+
+scripts/run_features_v2.sh
+```
+
+Feature set:
+
+```text
+market_tools_v2_001
+```
+
+현재 신규 feature:
+
+- RSI14
+- MACD / signal / histogram
+- ADX14
+- ATR14
+- NATR14
+- ROC10
+- OBV
+- Bollinger upper/mid/lower/%B
+
+Legacy RSI와 TA-Lib RSI의 parity report를 asset별 metadata에 기록한다.
+
+## Phase 4 — vectorbt
+
+추가:
+
+```text
+research/market_tools/
+├── README.md
+├── requirements.txt
+├── build_dataset.py
+├── run_vectorbt.py
+├── walk_forward.py
+└── configs/rsi_threshold_v1.json
+
+scripts/install_market_research_v2.sh
+scripts/run_research_v2.sh
+```
+
+vectorbt 1.1.0은 현재 pandas 3 / newer NumPy를 요구하므로 별도 venv로 분리한다.
+
+```text
+/opt/kalman/.venv             production
+/opt/kalman/.venv-market-v2   collection + Finviz + TA-Lib
+/opt/kalman/.venv-research-v2 vectorbt research
+```
+
+## 전체 orchestration
+
+```text
+scripts/run_market_tools_v2.sh
+```
+
+순서:
+
+```text
+Market Data
+ -> TA-Lib V2
+ -> Finviz point-in-time snapshot
+```
+
+Research는 별도로 수동 실행한다.
+
+## Cron
+
+```text
+config/market-tools-v2.cron.example
+```
+
+만 추가했다.
+
+실제 cron에는 아직 등록하지 않는다.
+
+## 배포
+
+`install_server.sh`는 `research/` 소스만 `/opt/kalman/app`으로 복사한다.
+
+vectorbt dependency는 production venv에 설치하지 않는다.
+
+## 다음 gate
+
+전체 코드가 CI를 통과한 뒤 서버에서 다음을 확인한다.
+
+1. 기존 production preflight
+2. Market V2 venv 설치
+3. Research V2 venv 설치
+4. 실제 Market Data provider download
+5. TA-Lib feature + RSI parity
+6. Finviz manual network snapshot
+7. SPY/BTC/KOSPI vectorbt report
+8. GDrive mount fail-closed
+9. 기존 production pipeline 재검증
+
+이 gate가 끝날 때까지 cron, Neon SHADOW model, Toss execution에는 연결하지 않는다.
