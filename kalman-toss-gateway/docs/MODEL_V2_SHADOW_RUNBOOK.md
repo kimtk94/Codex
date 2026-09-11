@@ -399,4 +399,14 @@ The writer fails closed when:
 - a run_id collides with a different pipeline/model
 - any matching dashboard_snapshot already exists
 
+Immediately before commit, the same database transaction re-checks:
+
+- v_latest_successful_run is byte-for-byte equivalent for affected markets
+- zero dashboard_snapshot rows exist for V2 run_ids
+- zero V2 rows can satisfy the strategy_signal -> dashboard_snapshot auto-trade join
+- every V2 pipeline_run remains ABORTED
+- every mirrored strategy_signal remains SHADOW with all trade flags false
+
+Any invariant failure raises before commit, causing the transaction to roll back.
+
 This is a research evidence mirror, not production promotion.
