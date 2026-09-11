@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "kalman-toss-gateway/engine/market_data/**"
+      - "kalman-toss-gateway/config/market-data-v2-universe.json"
       - "kalman-toss-gateway/engine/screeners/**"
       - "kalman-toss-gateway/engine/features_v2/**"
       - "kalman-toss-gateway/research/market_tools/**"
