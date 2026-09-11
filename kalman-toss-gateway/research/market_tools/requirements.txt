@@ -1,3 +1,4 @@
-# Isolated research environment. Never install into the Toss production venv.
+# Isolated research environment. Never install into the Toss production or Market Data V2 venvs.
 vectorbt==1.1.0
 pyarrow>=17
+python-dotenv>=1.0
