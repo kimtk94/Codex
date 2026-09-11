@@ -1,0 +1,8 @@
+# Market Tools V2 cron template — intentionally disabled.
+# Enable only after manual server smoke tests and point-in-time review.
+# CRON_TZ=Asia/Seoul
+#
+# Market data + TA-Lib + optional Finviz snapshot:
+# 30 7 * * 2-6 root /opt/kalman/app/scripts/run_market_tools_v2.sh >> /opt/kalman/logs/market-tools-v2.log 2>&1
+#
+# Research backtests should generally remain manual and are NOT scheduled here.
