@@ -1,6 +1,6 @@
 # Kalman Market Tools V2 통합 설계서
 
-> 상태: **Phase 1A 구현 완료 / 서버 실데이터 검증 전**
+> 상태: **Phase 1A 구현 및 CI 검증 완료 / 서버 실데이터 검증 전**
 >
 > 목적: Kalman의 현재 production lineage와 Toss 실거래 경로를 보존하면서, 주식 검색·시장 데이터·기술지표·백테스트 기능을 V2 research/shadow layer로 단계적으로 추가한다.
 >
@@ -1860,12 +1860,12 @@ Optional source만 실패하면 DEGRADED로 기록하되 production pipeline에�
 
 ## 다음 검증
 
-코드 구현만으로 Phase 1 전체 완료로 보지 않는다.
+코드 구현과 GitHub Actions CI는 통과했다. 다만 Phase 1 전체 완료로 보려면 서버 실데이터 검증이 추가로 필요하다.
 
 서버에서 다음을 확인해야 한다.
 
 1. V2 전용 venv 설치
-2. unit test
+2. GitHub Actions CI 통과 (완료)
 3. 실제 provider download
 4. snapshot 생성
 5. provider comparison 값 검토
