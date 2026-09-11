@@ -6,16 +6,19 @@
 
 ## 1. 범위
 
-현재 Phase 1A는 다음 provider를 같은 canonical schema로 저장한다.
+Market Data V2는 `config/market-data-v2-universe.json`을 source of truth로 사용한다.
 
-| 논리 자산 | yfinance | FinanceDataReader | pykrx |
-|---|---|---|---|
-| SPY | SPY | - | - |
-| BTC-USD | BTC-USD | BTC/USD | - |
-| USD/KRW | KRW=X | USD/KRW | - |
-| KOSPI | ^KS11 | KS11 | index 1001 |
+기본 그룹:
 
-yfinance의 SPY와 BTC-USD는 현재 shadow run의 required source다. 다른 source는 cross-check용 optional source다.
+- US: SPY, S&P500, QQQ, IWM, DIA, SOXX, SMH, Nasdaq, MU, IONQ
+- BTC: BTC-USD, IBIT, FBTC, COIN, MSTR
+- COMMON: VIX, US10Y, DXY, HYG, LQD, TLT, GLD, USD/KRW
+- KR: KOSPI, KOSDAQ
+- Cross-check: FinanceDataReader 및 pykrx
+
+yfinance의 SPY와 BTC-USD는 required source다. 그 외 provider는 현재 shadow 단계에서 optional/cross-check source다.
+
+Universe 변경은 Python 코드를 수정하지 않고 JSON config에서 수행한다.
 
 ## 2. Production 격리
 
@@ -60,6 +63,7 @@ PY
 KALMAN_MARKET_V2_OUTPUT_DIR=/mnt/gdrive/Market_Data/v2
 KALMAN_MARKET_V2_START_DATE=2024-01-01
 KALMAN_MARKET_V2_END_DATE=
+KALMAN_MARKET_V2_UNIVERSE=/opt/kalman/app/config/market-data-v2-universe.json
 ```
 
 `END_DATE`는 비워두면 provider가 가능한 최신 구간까지 조회한다. V2 venv 경로를 바꿔야 하는 특수한 경우에만 shell 환경변수 `KALMAN_MARKET_V2_VENV`를 export한다. 이 값은 `/opt/kalman/.env` 설정이 아니다.
