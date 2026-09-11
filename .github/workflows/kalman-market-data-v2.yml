@@ -71,6 +71,7 @@ jobs:
           bash -n scripts/run_model_v2_research.sh
           bash -n scripts/run_shadow_v2.sh
           bash -n scripts/run_neon_shadow_v2.sh
+          bash -n scripts/run_v2_shadow_stack.sh
 
       - name: Run offline Market V2 unit tests
         env:
