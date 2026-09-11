@@ -83,6 +83,7 @@ jobs:
           bash -n scripts/run_shadow_v2.sh
           bash -n scripts/run_neon_shadow_v2.sh
           bash -n scripts/run_v2_shadow_stack.sh
+          bash -n scripts/run_v2_shadow_refresh.sh
 
       - name: Run offline Market V2 unit tests
         env:
@@ -118,7 +119,7 @@ jobs:
       - name: Run V2 model contract tests
         env:
           PYTHONPATH: .
-        run: python -m unittest tests.test_model_v2 tests.test_model_v2_neon_writer -v
+        run: python -m unittest tests.test_model_v2 tests.test_model_v2_neon_writer tests.test_v2_shadow_schedule -v
 
       - name: vectorbt API smoke test
         run: |
