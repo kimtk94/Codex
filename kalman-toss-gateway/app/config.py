@@ -19,23 +19,10 @@ class Settings(BaseSettings):
 
     live_micro_total_limit_krw: int = 30000
     max_single_order_krw: int = 5000
-    default_symbol_limit_krw: int = 5000
-    qqq_limit_krw: int = 10000
-    nvda_limit_krw: int = 10000
-    ionq_limit_krw: int = 10000
-    allow_symbols: str = 'QQQ,NVDA,IONQ'
     trading_state_db: str = '/opt/kalman/state/trading.sqlite3'
 
     host: str = '0.0.0.0'
     port: int = 8787
-
-    @property
-    def allowed_symbols(self) -> set[str]:
-        return {s.strip().upper() for s in self.allow_symbols.split(',') if s.strip()}
-
-    def symbol_allowed(self, symbol: str) -> bool:
-        allowed = self.allowed_symbols
-        return '*' in allowed or symbol.strip().upper() in allowed
 
     @property
     def live_gate_open(self) -> bool:
@@ -48,15 +35,6 @@ class Settings(BaseSettings):
     @property
     def toss_token_cache_path(self) -> Path:
         return Path(self.toss_token_cache).expanduser()
-
-    def symbol_limit_krw(self, symbol: str) -> int:
-        limits = {
-            'QQQ': self.qqq_limit_krw,
-            'NVDA': self.nvda_limit_krw,
-            'IONQ': self.ionq_limit_krw,
-        }
-        return limits.get(symbol.upper(), self.default_symbol_limit_krw)
-
 
 @lru_cache
 def get_settings() -> Settings:
