@@ -1,0 +1,56 @@
+{
+  "version": "kalman_model_v2_001",
+  "feature_set": "market_tools_v2_001",
+  "dataset_version": "kalman_feature_matrix_v2_001",
+  "max_ffill_observations": 3,
+  "minimum_feature_coverage": 0.80,
+  "maximum_features": 96,
+  "train_fraction": 0.60,
+  "validation_fraction": 0.20,
+  "candidate_c": [0.01, 0.1, 1.0],
+  "threshold_grid": [0.50, 0.55, 0.60, 0.65],
+  "markets": {
+    "US": {
+      "anchor_key": "yf_spy",
+      "symbol": "SPY",
+      "horizon_observations": 5,
+      "positive_return_threshold": 0.0,
+      "include_groups": ["US", "COMMON", "BTC", "KR"],
+      "group_lag_observations": {
+        "US": 0,
+        "COMMON": 0,
+        "BTC": 1,
+        "KR": 0
+      },
+      "strategy_version": "KALMAN_V2_US_LOGIT_001"
+    },
+    "KR": {
+      "anchor_key": "yf_kospi",
+      "symbol": "KOSPI",
+      "horizon_observations": 5,
+      "positive_return_threshold": 0.0,
+      "include_groups": ["KR", "COMMON", "US", "BTC"],
+      "group_lag_observations": {
+        "KR": 0,
+        "COMMON": 1,
+        "US": 1,
+        "BTC": 0
+      },
+      "strategy_version": "KALMAN_V2_KR_LOGIT_001"
+    },
+    "BTC": {
+      "anchor_key": "yf_btc",
+      "symbol": "BTC-USD",
+      "horizon_observations": 7,
+      "positive_return_threshold": 0.0,
+      "include_groups": ["BTC", "COMMON", "US", "KR"],
+      "group_lag_observations": {
+        "BTC": 0,
+        "COMMON": 1,
+        "US": 1,
+        "KR": 0
+      },
+      "strategy_version": "KALMAN_V2_BTC_LOGIT_001"
+    }
+  }
+}
