@@ -1,6 +1,6 @@
 # Kalman Market Data V2 — Phase 1A Runbook
 
-> 상태: 구현 브랜치에서 사용 가능 / production 미연결
+> 상태: 구현 및 GitHub Actions CI 검증 완료 / 서버 실데이터 smoke test 전 / production 미연결
 >
 > 이 runner는 Market Tools V2의 shadow data collector다. Neon strategy signal, frozen model, Toss 주문 상태를 읽거나 쓰지 않는다.
 
@@ -234,7 +234,7 @@ Phase 1A에서는 다음을 하지 않는다.
 - [ ] SHA-256 존재
 - [ ] provider comparison JSON 생성
 - [ ] Google Drive mount failure 시 fail-closed
-- [ ] unit tests 통과
+- [x] unit tests 통과 (GitHub Actions)
 - [ ] 기존 US/KR/CRYPTO pipeline smoke test 영향 없음
 
 이 체크가 끝난 뒤 Phase 2 Finviz screener snapshot 구현으로 넘어간다.
