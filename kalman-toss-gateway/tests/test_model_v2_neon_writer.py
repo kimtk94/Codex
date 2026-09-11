@@ -8,6 +8,7 @@ from pathlib import Path
 
 from engine.model_v2_neon_writer import (
     PIPELINE_DB_STATUS,
+    assert_latest_success_unchanged,
     build_record,
     load_records,
     normalize_market,
@@ -95,6 +96,25 @@ class ModelV2NeonWriterTests(unittest.TestCase):
         self.assertEqual(normalize_market("KR"), "KR")
         self.assertEqual(normalize_market("BTC"), "CRYPTO")
         self.assertEqual(PIPELINE_DB_STATUS, "ABORTED")
+
+
+    def test_latest_success_invariant_helper(self) -> None:
+        before = {
+            "US": ("US-prod", "unified-v1", "2026-09-10", "R5.1", "2026-09-11"),
+            "KR": ("KR-prod", "unified-v1", "2026-09-09", "KR-v0.8", "2026-09-10"),
+        }
+        assert_latest_success_unchanged(before, dict(before))
+
+        after = dict(before)
+        after["US"] = (
+            "v2-us-unsafe",
+            "market-tools-v2/model-shadow-v2_001",
+            "2026-09-11",
+            "kalman_model_v2_001",
+            "2026-09-11",
+        )
+        with self.assertRaisesRegex(RuntimeError, "v_latest_successful_run"):
+            assert_latest_success_unchanged(before, after)
 
     def test_record_preserves_hard_shadow_gates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
