@@ -5,14 +5,20 @@ on:
     paths:
       - "kalman-toss-gateway/app/**"
       - "kalman-toss-gateway/engine/auto_trade.py"
+      - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
+      - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
+      - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - ".github/workflows/kalman-gateway-safety.yml"
   push:
     branches: [main]
     paths:
       - "kalman-toss-gateway/app/**"
       - "kalman-toss-gateway/engine/auto_trade.py"
+      - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
+      - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
+      - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - ".github/workflows/kalman-gateway-safety.yml"
 
 permissions:
@@ -41,9 +47,9 @@ jobs:
 
       - name: Compile gateway code
         run: |
-          python -m compileall app engine/auto_trade.py tests/test_gateway_risk.py
+          python -m compileall app engine/auto_trade.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py
 
       - name: Run gateway safety tests
         env:
           PYTHONPATH: .
-        run: python -m unittest tests.test_gateway_risk -v
+        run: python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist -v
