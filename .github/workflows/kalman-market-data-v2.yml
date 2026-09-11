@@ -51,6 +51,17 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r engine/market_data/requirements.txt
 
+      - name: Verify yfinance repair dependencies
+        run: |
+          python - <<'PY'
+          import scipy
+          import sklearn
+          import yfinance
+          print("scipy", scipy.__version__)
+          print("sklearn", sklearn.__version__)
+          print("yfinance", yfinance.__version__)
+          PY
+
       - name: Compile Market V2 Python
         run: |
           python -m compileall engine/market_data
