@@ -80,7 +80,17 @@ class ModelV2Tests(unittest.TestCase):
         f1 = rng.normal(size=n)
         f2 = rng.normal(size=n)
         f3 = rng.normal(size=n)
-        latent = 0.9 * f1 - 0.5 * f2 + 0.2 * f3 + rng.normal(scale=0.8, size=n)
+        f4 = rng.normal(size=n)
+        f5 = rng.normal(size=n)
+        f6 = rng.normal(size=n)
+        latent = (
+            0.9 * f1
+            - 0.5 * f2
+            + 0.2 * f3
+            + 0.1 * f4
+            - 0.1 * f5
+            + rng.normal(scale=0.8, size=n)
+        )
         label = (latent > 0).astype(float)
         forward_return = np.where(label > 0, 0.02, -0.015) + rng.normal(scale=0.01, size=n)
 
@@ -91,6 +101,9 @@ class ModelV2Tests(unittest.TestCase):
                 "yf_test__f1": f1,
                 "yf_test__f2": f2,
                 "group_us__f3": f3,
+                "group_common__f4": f4,
+                "group_btc__f5": f5,
+                "group_kr__f6": f6,
                 "mostly_missing": np.where(np.arange(n) < 450, np.nan, rng.normal(size=n)),
                 "target_forward_return": forward_return,
                 "target_label": label,
