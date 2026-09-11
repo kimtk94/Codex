@@ -1,6 +1,6 @@
 # Kalman Market Tools V2 통합 설계서
 
-> 상태: **Phase 1~4 전체 shadow/research 구성 구현 / 통합 CI·서버 실데이터 검증 진행 전**
+> 상태: **Phase 1~4 전체 shadow/research 구성 구현 + 통합 CI 완료 / 서버 실데이터 smoke 전**
 >
 > 목적: Kalman의 현재 production lineage와 Toss 실거래 경로를 보존하면서, 주식 검색·시장 데이터·기술지표·백테스트 기능을 V2 research/shadow layer로 단계적으로 추가한다.
 >
@@ -1737,9 +1737,9 @@ engine/market_data/
 | Tool selection | 완료 | 없음 |
 | Integration plan MD | 완료 | 없음 |
 | Provider layer | Phase 1A 구현 완료 / 실검증 전 | 없음 |
-| Finviz snapshot | 구현 완료 / network smoke 전 | 없음 |
-| TA-Lib V2 | 구현 완료 / 실데이터 parity 전 | 없음 |
-| vectorbt | 별도 research 환경 구현 완료 / report smoke 전 | 없음 |
+| Finviz snapshot | 구현 + offline CI 완료 / network smoke 전 | 없음 |
+| TA-Lib V2 | 구현 + CI 완료 / 실데이터 parity 전 | 없음 |
+| vectorbt | 별도 research 환경 구현 + API smoke CI 완료 / 서버 report 전 | 없음 |
 | New model | 미착수 | 별도 version |
 | SHADOW | 미착수 | 주문 없음 |
 | Canary | 미착수 | 추후 승인 |
@@ -2009,3 +2009,29 @@ vectorbt dependency는 production venv에 설치하지 않는다.
 9. 기존 production pipeline 재검증
 
 이 gate가 끝날 때까지 cron, Neon SHADOW model, Toss execution에는 연결하지 않는다.
+
+
+## Full Stack CI 결과
+
+GitHub Actions `Kalman Market Tools V2` run #26:
+
+```text
+market-v2   SUCCESS
+research-v2 SUCCESS
+overall     SUCCESS
+```
+
+검증 항목:
+
+- FinanceDataReader / finvizfinance / TA-Lib dependency install
+- US/KR/BTC/Common universe config test
+- Python compile
+- V2 shell syntax
+- canonical/provider/snapshot unit tests
+- Finviz merge/local filter offline test
+- TA-Lib feature + legacy RSI comparison test
+- isolated vectorbt 1.1.0 install
+- Plotly compatibility pin
+- vectorbt Portfolio API smoke
+
+남은 검증은 외부 network/GDrive가 필요한 서버 smoke test다.
