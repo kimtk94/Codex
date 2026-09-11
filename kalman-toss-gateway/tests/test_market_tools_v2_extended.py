@@ -74,7 +74,7 @@ class ExtendedMarketToolsV2Tests(unittest.TestCase):
         )
         merged = merge_views({"overview": overview, "technical": technical})
         settings = FinvizSettings(
-            output_dir=pd.Path if False else __import__("pathlib").Path("/tmp/unused"),
+            output_dir=Path("/tmp/unused"),
             min_price=5,
             min_market_cap=1_000_000_000,
             min_volume=500_000,
