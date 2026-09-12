@@ -29,6 +29,38 @@ market_price / market_feature_store
 Qlib does not replace Neon. vectorbt does not define production execution
 semantics.
 
+## Qlib Recorder integration
+
+Qlib is now connected as an **optional experiment recorder** only.
+
+Install it into the research environment:
+
+```bash
+/opt/kalman/.venv-research-v2/bin/pip install \
+  -r /opt/kalman/app/research/quant_stack/requirements-qlib.txt
+```
+
+Enable it for historical runs:
+
+```bash
+export KALMAN_QLIB_ENABLED=true
+sudo -E /opt/kalman/app/scripts/run_historical_quant_v1.sh
+```
+
+Default local server paths:
+
+```text
+/opt/kalman/state/qlib_mlruns
+/opt/kalman/state/qlib_provider
+```
+
+Qlib records experiment parameters, numeric performance metrics and a compact
+artifact manifest. Kalman remains authoritative for source data, fold outputs,
+signals, fills, ledger and PnL.
+
+The adapter intentionally uses a controlled working directory plus a relative
+MLflow file URI to avoid the Qlib 0.9.7 absolute-file-URI lock-path issue.
+
 ## Historical backfill
 
 The historical engine deliberately reuses the current Model V2 rules:
@@ -101,7 +133,14 @@ explicit smoke tests.
 From `kalman-toss-gateway`:
 
 ```bash
-pytest -q tests/test_quant_stack.py tests/test_historical_backfill.py
+pytest -q \
+  tests/test_quant_stack.py \
+  tests/test_historical_backfill.py \
+  tests/test_quant_artifact_validation.py
+
+# optional Qlib integration smoke test
+pip install -r research/quant_stack/requirements-qlib.txt
+pytest -q tests/test_qlib_recorder.py
 ```
 
 GitHub Actions also runs these tests on the quant-stack feature branch.
