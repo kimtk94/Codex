@@ -12,12 +12,14 @@ on:
       - "kalman-toss-gateway/tests/test_qlib_recorder.py"
       - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
       - "kalman-toss-gateway/tests/test_riskfolio_benchmarks.py"
+      - "kalman-toss-gateway/tests/test_lean_execution_contract.py"
       - ".github/workflows/kalman-quant-stack-tests.yml"
   push:
     branches:
       - feature/quant-stack-v1-20260912
       - feature/pypfopt-portfolio-target-v1-20260912
       - feature/riskfolio-benchmark-v1-20260912
+      - feature/lean-execution-contract-v1-20260912
     paths:
       - "kalman-toss-gateway/research/quant_stack/**"
       - "kalman-toss-gateway/tests/test_quant_stack.py"
@@ -25,6 +27,7 @@ on:
       - "kalman-toss-gateway/tests/test_quant_artifact_validation.py"
       - "kalman-toss-gateway/tests/test_qlib_recorder.py"
       - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
+      - "kalman-toss-gateway/tests/test_lean_execution_contract.py"
       - ".github/workflows/kalman-quant-stack-tests.yml"
   workflow_dispatch:
 
@@ -131,3 +134,27 @@ jobs:
         run: |
           python -m compileall -q research/quant_stack
           pytest -q tests/test_riskfolio_benchmarks.py
+
+
+  lean-execution-contract-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install execution contract test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas pyarrow pytest
+
+      - name: LEAN-inspired execution contract smoke
+        run: |
+          python -m compileall -q research/quant_stack
+          pytest -q tests/test_lean_execution_contract.py
