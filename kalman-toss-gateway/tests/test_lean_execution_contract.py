@@ -15,6 +15,7 @@ from research.quant_stack.lean_execution import (
     ExecutionState,
     PortfolioTargetContract,
     apply_execution_fills,
+    cash_constrain_shadow_fills,
     risk_adjust_portfolio_targets,
     run_shadow_rebalance,
 )
@@ -188,3 +189,71 @@ def test_execution_price_points_are_strictly_prospective():
     assert planning_ts == pd.Timestamp("2026-09-09T00:00:00Z")
     assert fill_ts == pd.Timestamp("2026-09-10T00:00:00Z")
     assert planning_ts < fill_ts
+
+
+def test_gap_up_buy_is_cash_constrained_to_partial_fill():
+    policy = ExecutionPolicy(
+        max_symbol_weight=1.0,
+        max_gross_weight=1.0,
+        min_order_notional=0.01,
+        max_single_order_fraction=1.0,
+        max_total_turnover_fraction=2.0,
+        slippage_bps=0.0,
+        commission_bps=0.0,
+    )
+    cycle = run_shadow_rebalance(
+        [_target("US", 1.0)],
+        state=ExecutionState(cash=10_000.0, positions={}),
+        planning_prices={"US": 100.0},
+        fill_prices={"US": 125.0},
+        fill_ts="2026-09-11T00:00:00+00:00",
+        policy=policy,
+        mode=Mode.SHADOW,
+    )
+    assert len(cycle.fills) == 1
+    assert cycle.fills[0].status == "PARTIALLY_FILLED"
+    assert abs(cycle.fills[0].quantity - 80.0) < 1e-10
+    assert cycle.state.cash == 0.0
+    assert abs(cycle.state.positions["US"] - 80.0) < 1e-10
+
+
+def test_cash_constraint_uses_sell_proceeds_before_buys():
+    from research.quant_stack.lean_execution import ExecutionFill
+
+    state = ExecutionState(cash=0.0, positions={"US": 1.0})
+    fills = [
+        ExecutionFill(
+            fill_id="buy",
+            broker_order_id="bo-buy",
+            intent_id="oi-buy",
+            symbol="KR",
+            side="BUY",
+            quantity=2.0,
+            fill_price=60.0,
+            fee=0.0,
+            fill_ts="2026-09-11T00:00:00+00:00",
+            broker="SHADOW",
+            status="FILLED",
+        ),
+        ExecutionFill(
+            fill_id="sell",
+            broker_order_id="bo-sell",
+            intent_id="oi-sell",
+            symbol="US",
+            side="SELL",
+            quantity=1.0,
+            fill_price=100.0,
+            fee=0.0,
+            fill_ts="2026-09-11T00:00:00+00:00",
+            broker="SHADOW",
+            status="FILLED",
+        ),
+    ]
+    constrained = cash_constrain_shadow_fills(state, fills)
+    buy = next(fill for fill in constrained if fill.side == "BUY")
+    assert buy.status == "PARTIALLY_FILLED"
+    assert abs(buy.quantity - (100.0 / 60.0)) < 1e-10
+    final_state = apply_execution_fills(state, constrained)
+    assert final_state.cash == 0.0
+    assert "US" not in final_state.positions
+    assert abs(final_state.positions["KR"] - (100.0 / 60.0)) < 1e-10
