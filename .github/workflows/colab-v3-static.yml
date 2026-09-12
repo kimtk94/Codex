@@ -1,0 +1,54 @@
+name: Colab v3 Static Validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "notebooks/Kalman_Historical_Quant_2017_Colab_v3.ipynb"
+      - "scripts/check_colab_v3.py"
+      - ".github/workflows/colab-v3-static.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install static checker
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyflakes
+
+      - name: Notebook JSON / syntax / invariant checks
+        run: |
+          python scripts/check_colab_v3.py
+
+      - name: Extract one-cell notebook
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("notebooks/Kalman_Historical_Quant_2017_Colab_v3.ipynb")
+          nb = json.loads(p.read_text(encoding="utf-8"))
+          source = "".join(nb["cells"][0]["source"])
+          Path("/tmp/kalman_colab_v3.py").write_text(source, encoding="utf-8")
+          PY
+
+      - name: Compile extracted Python
+        run: |
+          python -m py_compile /tmp/kalman_colab_v3.py
+
+      - name: Pyflakes undefined-name/import audit
+        run: |
+          pyflakes /tmp/kalman_colab_v3.py
