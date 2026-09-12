@@ -93,7 +93,7 @@ def riskfolio_weights(
         raise ValueError("Riskfolio benchmark requires at least two sleeves")
 
     port = rp.Portfolio(returns=clean)
-    port.assets_stats(method_mu="hist", method_cov="hist", d=0.94)
+    port.assets_stats(method_mu="hist", method_cov="hist")
 
     method = method.strip().lower()
     if method == "cvar_minrisk":
