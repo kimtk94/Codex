@@ -62,20 +62,16 @@ def load_sleeve_returns(
 
 
 def _rebalance_dates(index: pd.DatetimeIndex, frequency: str) -> list[pd.Timestamp]:
+    naive = index.tz_convert(None) if index.tz is not None else index
     if frequency.upper() == "M":
-        periods = index.to_period("M")
+        periods = naive.to_period("M")
     elif frequency.upper() == "Q":
-        periods = index.to_period("Q")
+        periods = naive.to_period("Q")
     else:
         raise ValueError("frequency must be M or Q")
 
-    first_dates = (
-        pd.Series(index=index, data=index)
-        .groupby(periods)
-        .first()
-        .tolist()
-    )
-    return [pd.Timestamp(x) for x in first_dates]
+    first_mask = ~periods.duplicated()
+    return [pd.Timestamp(x) for x in index[first_mask]]
 
 
 def build_rolling_portfolio_targets(
