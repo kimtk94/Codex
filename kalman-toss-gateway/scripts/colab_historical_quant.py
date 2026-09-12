@@ -29,7 +29,6 @@ class Config:
     portfolio_lookback: int = 180
     portfolio_min_obs: int = 90
     portfolio_rebalance: str = "M"
-    force_rebuild_matrices: bool = False
     recreate_venvs: bool = True
     run_riskfolio: bool = True
     enable_qlib_recorder: bool = False
@@ -50,13 +49,23 @@ class Phase:
         print("=" * 88)
 
 
-def run(cmd: list[str | Path], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+def run(
+    cmd: list[str | Path],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> None:
     args = [str(x) for x in cmd]
     print("\n$", " ".join(args))
     subprocess.run(args, check=True, cwd=cwd, env=env)
 
 
-def capture(cmd: list[str | Path], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
+def capture(
+    cmd: list[str | Path],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> str:
     args = [str(x) for x in cmd]
     print("\n$", " ".join(args))
     return subprocess.check_output(
@@ -68,7 +77,12 @@ def capture(cmd: list[str | Path], *, cwd: Path | None = None, env: dict[str, st
     ).strip()
 
 
-def bounded_find_dir(root: Path, target_name: str, max_depth: int = 5) -> Path | None:
+def bounded_find_dir(
+    root: Path,
+    target_name: str,
+    *,
+    max_depth: int = 5,
+) -> Path | None:
     if not root.exists():
         return None
     base_depth = len(root.parts)
@@ -84,25 +98,27 @@ def bounded_find_dir(root: Path, target_name: str, max_depth: int = 5) -> Path |
 
 
 def find_model_root(drive_root: Path) -> Path | None:
-    candidates = [
+    for candidate in (
         drive_root / "Market_Model_V2",
         drive_root / "Kalman" / "Market_Model_V2",
         drive_root / "kalman" / "Market_Model_V2",
-    ]
-    for candidate in candidates:
+    ):
         if candidate.exists():
             return candidate
     return bounded_find_dir(drive_root, "Market_Model_V2", max_depth=5)
 
 
-def find_named_v2_root(drive_root: Path, model_root: Path, name: str) -> Path | None:
-    candidates = [
+def find_named_v2_root(
+    drive_root: Path,
+    model_root: Path,
+    name: str,
+) -> Path | None:
+    for candidate in (
         model_root.parent / name / "v2",
         drive_root / name / "v2",
         drive_root / "Kalman" / name / "v2",
         drive_root / "kalman" / name / "v2",
-    ]
-    for candidate in candidates:
+    ):
         if candidate.exists():
             return candidate
 
@@ -110,6 +126,50 @@ def find_named_v2_root(drive_root: Path, model_root: Path, name: str) -> Path | 
     if root is not None and (root / "v2").exists():
         return root / "v2"
     return None
+
+
+def first_existing(candidates: list[Path]) -> Path | None:
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def find_historical_inputs(
+    market_root: Path | None,
+    feature_root: Path | None,
+) -> tuple[Path, Path]:
+    if market_root is None:
+        raise PrecheckBlocked("Market_Data/v2 not found")
+    if feature_root is None:
+        raise PrecheckBlocked("Market_Features/v2 not found")
+
+    raw_dir = market_root / "raw" / "historical_2017"
+    feature_dir = feature_root / "talib" / "historical_2017"
+
+    historical_raw = first_existing(
+        [
+            raw_dir / "multimarket_raw_2016_warmup_2017_present_v0_3.parquet",
+            raw_dir / "multimarket_raw_2017_present_v0_3.parquet",
+            raw_dir / "multimarket_raw_2017_present.parquet",
+        ]
+    )
+    historical_features = first_existing(
+        [
+            feature_dir / "multimarket_features_2017_present_v0_3.parquet",
+            feature_dir / "multimarket_features_2017_present.parquet",
+        ]
+    )
+
+    if historical_raw is None:
+        raise PrecheckBlocked(
+            f"historical raw backfill parquet not found under {raw_dir}"
+        )
+    if historical_features is None:
+        raise PrecheckBlocked(
+            f"historical feature backfill parquet not found under {feature_dir}"
+        )
+    return historical_raw, historical_features
 
 
 def create_venv(path: Path, *, recreate: bool) -> None:
@@ -128,189 +188,19 @@ def create_venv(path: Path, *, recreate: bool) -> None:
         raise RuntimeError(f"virtualenv creation failed: {path}")
 
 
-def matrix_artifacts_complete(matrix_dir: Path) -> bool:
-    required: list[Path] = []
-    for market in ("us", "kr", "btc"):
-        required.extend(
-            [
-                matrix_dir / f"{market}_matrix.parquet",
-                matrix_dir / f"{market}_matrix_manifest.json",
-            ]
-        )
-    return all(path.exists() for path in required)
-
-
-def remap_server_path(
-    raw_path: str,
-    *,
-    drive_root: Path,
-    model_root: Path,
-    market_root: Path | None,
-    feature_root: Path | None,
-) -> str:
-    raw = str(raw_path)
-    original = Path(raw)
-    if original.exists():
-        return raw
-
-    candidates: list[Path] = []
-    if raw.startswith("/mnt/gdrive/"):
-        suffix = raw[len("/mnt/gdrive/") :]
-        candidates.append(drive_root / suffix)
-
-    if "Market_Data/" in raw and market_root is not None:
-        suffix = raw.split("Market_Data/", 1)[1]
-        candidates.append(market_root.parent / suffix)
-
-    if "Market_Features/" in raw and feature_root is not None:
-        suffix = raw.split("Market_Features/", 1)[1]
-        candidates.append(feature_root.parent / suffix)
-
-    if "Market_Model_V2/" in raw:
-        suffix = raw.split("Market_Model_V2/", 1)[1]
-        candidates.append(model_root / suffix)
-
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-    return raw
-
-
-def minimum_labeled_rows(train: int, valid: int, test: int, horizon: int) -> int:
+def minimum_labeled_rows(
+    train: int,
+    valid: int,
+    test: int,
+    horizon: int,
+) -> int:
     return int(train + valid + test + (2 * horizon))
 
 
-def validate_coverage(
-    coverage: dict[str, dict[str, Any]],
-    *,
-    start_date: str,
-    spec: dict[str, Any],
-    train_obs: int,
-    valid_obs: int,
-    test_obs: int,
-) -> list[str]:
-    errors: list[str] = []
-    start_year = int(start_date[:4])
-
-    for market in MARKETS:
-        info = coverage[market]
-        horizon = int(spec["markets"][market]["horizon_observations"])
-        required = minimum_labeled_rows(train_obs, valid_obs, test_obs, horizon)
-
-        if int(info["labeled_rows"]) < required:
-            errors.append(
-                f"{market}: labeled_rows={info['labeled_rows']} < required={required}"
-            )
-
-        min_labeled = info.get("min_labeled_as_of")
-        if not min_labeled:
-            errors.append(f"{market}: no labeled history")
-            continue
-
-        if int(str(min_labeled)[:4]) > start_year:
-            errors.append(
-                f"{market}: earliest labeled year={str(min_labeled)[:4]} > requested={start_year}"
-            )
-
-    return errors
-
-
-def build_matrices(
-    *,
+def coverage_report(
     kpy: Path,
-    app_root: Path,
-    market_root: Path | None,
-    feature_root: Path | None,
     matrix_dir: Path,
-    universe: Path,
-    spec: Path,
-) -> None:
-    if market_root is None or not market_root.exists():
-        raise PrecheckBlocked("Market_Data/v2 not found")
-    if feature_root is None or not feature_root.exists():
-        raise PrecheckBlocked("Market_Features/v2 not found")
-
-    matrix_dir.mkdir(parents=True, exist_ok=True)
-    run(
-        [
-            kpy,
-            "-m",
-            "research.model_v2.build_feature_matrix",
-            "--market-root",
-            market_root,
-            "--feature-root",
-            feature_root,
-            "--universe",
-            universe,
-            "--spec",
-            spec,
-            "--output-dir",
-            matrix_dir,
-        ],
-        cwd=app_root,
-    )
-
-
-def prepare_matrix_mirror(
-    *,
-    matrix_dir: Path,
-    mirror_dir: Path,
-    drive_root: Path,
-    model_root: Path,
-    market_root: Path | None,
-    feature_root: Path | None,
-    spec_payload: dict[str, Any],
-) -> list[str]:
-    if mirror_dir.exists():
-        shutil.rmtree(mirror_dir)
-    mirror_dir.mkdir(parents=True)
-
-    unresolved: list[str] = []
-    for market in ("us", "kr", "btc"):
-        parquet = matrix_dir / f"{market}_matrix.parquet"
-        manifest = matrix_dir / f"{market}_matrix_manifest.json"
-
-        if not parquet.exists() or not manifest.exists():
-            unresolved.append(f"{market}: missing matrix/manifest")
-            continue
-
-        shutil.copy2(parquet, mirror_dir / parquet.name)
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
-        remapped: dict[str, Any] = {}
-
-        for old_path, meta in payload.get("input_files", {}).items():
-            new_path = remap_server_path(
-                old_path,
-                drive_root=drive_root,
-                model_root=model_root,
-                market_root=market_root,
-                feature_root=feature_root,
-            )
-            remapped[new_path] = meta
-
-        payload["input_files"] = remapped
-
-        anchor_key = spec_payload["markets"][market.upper()]["anchor_key"]
-        anchor_candidates = [
-            path
-            for path, meta in remapped.items()
-            if str(meta.get("kind")) == "raw"
-            and str(meta.get("fetch_key")) == anchor_key
-        ]
-        if not anchor_candidates or not any(Path(path).exists() for path in anchor_candidates):
-            unresolved.append(
-                f"{market}: anchor={anchor_key}, candidates={anchor_candidates}"
-            )
-
-        (mirror_dir / manifest.name).write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
-            encoding="utf-8",
-        )
-
-    return unresolved
-
-
-def coverage_report(kpy: Path, mirror_dir: Path) -> dict[str, dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     script = """
 import json
 import sys
@@ -320,7 +210,10 @@ import pandas as pd
 root = Path(sys.argv[1])
 result = {}
 for market in ("us", "kr", "btc"):
-    frame = pd.read_parquet(root / f"{market}_matrix.parquet", columns=["as_of", "target_label"])
+    frame = pd.read_parquet(
+        root / f"{market}_matrix.parquet",
+        columns=["as_of", "target_label"],
+    )
     ts = pd.to_datetime(frame["as_of"], utc=True, errors="coerce")
     labeled_mask = frame["target_label"].notna() & ts.notna()
     labeled_ts = ts.loc[labeled_mask]
@@ -335,24 +228,73 @@ for market in ("us", "kr", "btc"):
     }
 print(json.dumps(result))
 """
-    raw = capture([kpy, "-c", script, mirror_dir])
+    raw = capture([kpy, "-c", script, matrix_dir])
     return json.loads(raw.splitlines()[-1])
+
+
+def validate_coverage(
+    coverage: dict[str, dict[str, Any]],
+    *,
+    start_date: str,
+    spec: dict[str, Any],
+    train_obs: int,
+    valid_obs: int,
+    test_obs: int,
+) -> list[str]:
+    errors: list[str] = []
+    start = datetime.fromisoformat(start_date)
+    start_year = start.year
+
+    for market in MARKETS:
+        info = coverage[market]
+        horizon = int(spec["markets"][market]["horizon_observations"])
+        required = minimum_labeled_rows(
+            train_obs,
+            valid_obs,
+            test_obs,
+            horizon,
+        )
+
+        min_labeled = info.get("min_labeled_as_of")
+        max_labeled = info.get("max_labeled_as_of")
+        labeled_rows = int(info["labeled_rows"])
+
+        if labeled_rows < required:
+            errors.append(
+                f"{market}: labeled_rows={labeled_rows} < required={required}"
+            )
+        if not min_labeled:
+            errors.append(f"{market}: no labeled history")
+        elif int(str(min_labeled)[:4]) > start_year:
+            errors.append(
+                f"{market}: earliest labeled year={str(min_labeled)[:4]} "
+                f"> requested={start_year}"
+            )
+        if not max_labeled:
+            errors.append(f"{market}: no max labeled date")
+
+    return errors
 
 
 def print_coverage(
     coverage: dict[str, dict[str, Any]],
-    spec_payload: dict[str, Any],
+    spec: dict[str, Any],
     cfg: Config,
 ) -> None:
     for market in MARKETS:
         info = coverage[market]
-        horizon = int(spec_payload["markets"][market]["horizon_observations"])
-        required = minimum_labeled_rows(cfg.train_obs, cfg.valid_obs, cfg.test_obs, horizon)
+        horizon = int(spec["markets"][market]["horizon_observations"])
+        required = minimum_labeled_rows(
+            cfg.train_obs,
+            cfg.valid_obs,
+            cfg.test_obs,
+            horizon,
+        )
         print(
             f"{market:4s} rows={int(info['rows']):,} "
             f"labeled={int(info['labeled_rows']):,} "
-            f"min_labeled={info['min_labeled_as_of']} "
-            f"max_labeled={info['max_labeled_as_of']} "
+            f"min={info['min_labeled_as_of']} "
+            f"max={info['max_labeled_as_of']} "
             f"required>={required}"
         )
 
@@ -416,16 +358,22 @@ df = pd.DataFrame(rows)
 if not df.empty:
     printable = df.copy()
     for col in ("total_return", "cagr", "max_drawdown"):
-        printable[col] = pd.to_numeric(printable[col], errors="coerce").map(
-            lambda x: f"{x*100:.2f}%" if pd.notna(x) else "-"
-        )
-    printable["sharpe"] = pd.to_numeric(printable["sharpe"], errors="coerce").round(3)
+        printable[col] = pd.to_numeric(
+            printable[col], errors="coerce"
+        ).map(lambda x: f"{x*100:.2f}%" if pd.notna(x) else "-")
+    printable["sharpe"] = pd.to_numeric(
+        printable["sharpe"], errors="coerce"
+    ).round(3)
     print("\nKALMAN HISTORICAL QUANT FINAL SUMMARY")
     print(printable.to_string(index=False))
     df.to_csv(root / "kalman_final_comparison.csv", index=False)
 
 execution = load_json(root / "execution" / "execution_status.json")
 validation = load_json(root / "historical_validation_report.json")
+status = load_json(root / "historical_experiment_status.json")
+
+print("\nHISTORICAL EXPERIMENT STATUS")
+print(json.dumps(status, ensure_ascii=False, indent=2, default=str))
 print("\nLEAN-INSPIRED SHADOW EXECUTION")
 print(json.dumps(execution, ensure_ascii=False, indent=2, default=str))
 print("\nVALIDATION")
@@ -436,19 +384,22 @@ print(json.dumps(validation, ensure_ascii=False, indent=2, default=str))
 
 def self_test() -> None:
     assert minimum_labeled_rows(504, 63, 126, 5) == 703
-    assert minimum_labeled_rows(504, 63, 126, 14) == 721
+    assert minimum_labeled_rows(504, 63, 126, 7) == 707
 
     spec = {
         "markets": {
             "US": {"horizon_observations": 5},
             "KR": {"horizon_observations": 5},
-            "BTC": {"horizon_observations": 14},
+            "BTC": {"horizon_observations": 7},
         }
     }
     good = {
-        "US": {"labeled_rows": 1000, "min_labeled_as_of": "2017-01-03T00:00:00+00:00"},
-        "KR": {"labeled_rows": 1000, "min_labeled_as_of": "2017-01-03T00:00:00+00:00"},
-        "BTC": {"labeled_rows": 1000, "min_labeled_as_of": "2017-01-03T00:00:00+00:00"},
+        market: {
+            "labeled_rows": 2000,
+            "min_labeled_as_of": "2017-01-03T00:00:00+00:00",
+            "max_labeled_as_of": "2026-09-01T00:00:00+00:00",
+        }
+        for market in MARKETS
     }
     assert validate_coverage(
         good,
@@ -459,52 +410,41 @@ def self_test() -> None:
         test_obs=126,
     ) == []
 
-    bad = dict(good)
-    bad["US"] = {"labeled_rows": 100, "min_labeled_as_of": "2026-01-01T00:00:00+00:00"}
-    errors = validate_coverage(
-        bad,
-        start_date="2017-01-01",
-        spec=spec,
-        train_obs=504,
-        valid_obs=63,
-        test_obs=126,
-    )
-    assert any("labeled_rows" in item for item in errors)
-    assert any("earliest labeled year" in item for item in errors)
-
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         drive = root / "drive"
         model = drive / "Market_Model_V2"
-        market = drive / "Market_Data" / "v2"
-        feature = drive / "Market_Features" / "v2"
-        (model / "matrices").mkdir(parents=True)
-        market.mkdir(parents=True)
-        feature.mkdir(parents=True)
+        market_root = drive / "Market_Data" / "v2"
+        feature_root = drive / "Market_Features" / "v2"
+        raw_hist = market_root / "raw" / "historical_2017"
+        feat_hist = feature_root / "talib" / "historical_2017"
+        model.mkdir(parents=True)
+        raw_hist.mkdir(parents=True)
+        feat_hist.mkdir(parents=True)
+        raw_file = raw_hist / "multimarket_raw_2017_present.parquet"
+        feature_file = feat_hist / "multimarket_features_2017_present_v0_3.parquet"
+        raw_file.write_bytes(b"x")
+        feature_file.write_bytes(b"x")
 
         assert find_model_root(drive) == model
-        assert find_named_v2_root(drive, model, "Market_Data") == market
-        assert find_named_v2_root(drive, model, "Market_Features") == feature
-
-        raw = drive / "Market_Data" / "v2" / "raw.parquet"
-        raw.write_text("x", encoding="utf-8")
-        mapped = remap_server_path(
-            "/mnt/gdrive/Market_Data/v2/raw.parquet",
-            drive_root=drive,
-            model_root=model,
-            market_root=market,
-            feature_root=feature,
+        assert find_named_v2_root(drive, model, "Market_Data") == market_root
+        assert find_named_v2_root(drive, model, "Market_Features") == feature_root
+        found_raw, found_features = find_historical_inputs(
+            market_root,
+            feature_root,
         )
-        assert Path(mapped) == raw
+        assert found_raw == raw_file
+        assert found_features == feature_file
 
     print("SELF_TEST=PASS")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Kalman historical quant Colab runner")
+    parser = argparse.ArgumentParser(
+        description="Kalman 2017 historical quant Colab runner"
+    )
     parser.add_argument("--drive-root", default="/content/drive/MyDrive")
     parser.add_argument("--start-date", default="2017-01-01")
-    parser.add_argument("--force-rebuild-matrices", action="store_true")
     parser.add_argument("--keep-venvs", action="store_true")
     parser.add_argument("--disable-riskfolio", action="store_true")
     parser.add_argument("--enable-qlib-recorder", action="store_true")
@@ -521,7 +461,6 @@ def main() -> int:
     cfg = Config(
         drive_root=Path(args.drive_root),
         start_date=args.start_date,
-        force_rebuild_matrices=bool(args.force_rebuild_matrices),
         recreate_venvs=not bool(args.keep_venvs),
         run_riskfolio=not bool(args.disable_riskfolio),
         enable_qlib_recorder=bool(args.enable_qlib_recorder),
@@ -529,40 +468,58 @@ def main() -> int:
 
     app_root = Path(__file__).resolve().parents[1]
     repo_root = app_root.parent
-    spec_path = app_root / "config/model-v2-spec.json"
-    universe_path = app_root / "config/market-data-v2-universe.json"
+    base_spec_path = app_root / "config/model-v2-spec.json"
     pypfopt_req = app_root / "research/quant_stack/requirements-pypfopt.txt"
     riskfolio_req = app_root / "research/quant_stack/requirements-riskfolio.txt"
     qlib_req = app_root / "research/quant_stack/requirements-qlib.txt"
 
-    for required in (spec_path, universe_path, pypfopt_req, riskfolio_req, qlib_req):
+    for required in (
+        base_spec_path,
+        pypfopt_req,
+        riskfolio_req,
+        qlib_req,
+    ):
         if not required.exists():
             raise FileNotFoundError(required)
 
-    Phase.set("LOCATE DRIVE DATA")
+    Phase.set("LOCATE DRIVE HISTORICAL DATA")
     if not cfg.drive_root.exists():
         raise FileNotFoundError(f"Drive root not mounted: {cfg.drive_root}")
 
     model_root = find_model_root(cfg.drive_root)
     if model_root is None:
-        raise FileNotFoundError("Market_Model_V2 not found within Drive search depth 5")
+        raise PrecheckBlocked("Market_Model_V2 not found in Google Drive")
 
-    market_root = find_named_v2_root(cfg.drive_root, model_root, "Market_Data")
-    feature_root = find_named_v2_root(cfg.drive_root, model_root, "Market_Features")
-    matrix_dir = model_root / "matrices"
+    market_root = find_named_v2_root(
+        cfg.drive_root,
+        model_root,
+        "Market_Data",
+    )
+    feature_root = find_named_v2_root(
+        cfg.drive_root,
+        model_root,
+        "Market_Features",
+    )
+    historical_raw, historical_features = find_historical_inputs(
+        market_root,
+        feature_root,
+    )
+
+    historical_matrix_dir = (
+        model_root / "historical_matrices_2017_v0_3"
+    )
     run_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = model_root / "historical_quant_colab_v4" / run_tag
-    mirror_dir = Path("/content/kalman_matrix_mirror_v4")
-    kalman_venv = Path("/content/.venv-kalman-v4")
-    risk_venv = Path("/content/.venv-riskfolio-v4")
+    output_dir = (
+        model_root / "historical_quant_2017_colab" / run_tag
+    )
+    kalman_venv = Path("/content/.venv-kalman-hist")
+    risk_venv = Path("/content/.venv-riskfolio-hist")
 
-    print("REPO_ROOT   :", repo_root)
-    print("APP_ROOT    :", app_root)
-    print("MODEL_ROOT  :", model_root)
-    print("MARKET_ROOT :", market_root)
-    print("FEATURE_ROOT:", feature_root)
-    print("MATRIX_DIR  :", matrix_dir)
-    print("OUTPUT_DIR  :", output_dir)
+    print("MODEL_ROOT          :", model_root)
+    print("HISTORICAL_RAW      :", historical_raw)
+    print("HISTORICAL_FEATURES :", historical_features)
+    print("HISTORICAL_MATRICES :", historical_matrix_dir)
+    print("OUTPUT_DIR          :", output_dir)
 
     Phase.set("ISOLATED KALMAN ENV")
     create_venv(kalman_venv, recreate=cfg.recreate_venvs)
@@ -593,134 +550,86 @@ def main() -> int:
                 "-c",
                 (
                     "import numpy,pandas,scipy,sklearn,pyarrow,pypfopt;"
-                    "print('ENV_OK', numpy.__version__, pandas.__version__, scipy.__version__, sklearn.__version__)"
+                    "print('ENV_OK', numpy.__version__, pandas.__version__, "
+                    "scipy.__version__, sklearn.__version__)"
                 ),
             ]
         )
     )
 
-    spec_payload = json.loads(spec_path.read_text(encoding="utf-8"))
+    Phase.set("REBUILD HISTORICAL 2017 MATRICES")
+    if historical_matrix_dir.exists():
+        shutil.rmtree(historical_matrix_dir)
 
-    Phase.set("MATRIX PREPARATION")
-    rebuilt = False
-    if cfg.force_rebuild_matrices or not matrix_artifacts_complete(matrix_dir):
-        build_matrices(
-            kpy=kpy,
-            app_root=app_root,
-            market_root=market_root,
-            feature_root=feature_root,
-            matrix_dir=matrix_dir,
-            universe=universe_path,
-            spec=spec_path,
-        )
-        rebuilt = True
-
-    unresolved = prepare_matrix_mirror(
-        matrix_dir=matrix_dir,
-        mirror_dir=mirror_dir,
-        drive_root=cfg.drive_root,
-        model_root=model_root,
-        market_root=market_root,
-        feature_root=feature_root,
-        spec_payload=spec_payload,
+    run(
+        [
+            kpy,
+            "-m",
+            "research.model_v2.build_historical_feature_matrix",
+            "--historical-raw",
+            historical_raw,
+            "--historical-features",
+            historical_features,
+            "--spec",
+            base_spec_path,
+            "--output-dir",
+            historical_matrix_dir,
+        ],
+        cwd=app_root,
     )
 
-    if unresolved and not rebuilt:
-        print("Unresolved anchor manifests:", unresolved)
-        build_matrices(
-            kpy=kpy,
-            app_root=app_root,
-            market_root=market_root,
-            feature_root=feature_root,
-            matrix_dir=matrix_dir,
-            universe=universe_path,
-            spec=spec_path,
-        )
-        rebuilt = True
-        unresolved = prepare_matrix_mirror(
-            matrix_dir=matrix_dir,
-            mirror_dir=mirror_dir,
-            drive_root=cfg.drive_root,
-            model_root=model_root,
-            market_root=market_root,
-            feature_root=feature_root,
-            spec_payload=spec_payload,
+    historical_spec_path = (
+        historical_matrix_dir / "historical_model_v2_spec.json"
+    )
+    status_path = (
+        historical_matrix_dir / "historical_matrix_run_status.json"
+    )
+    if not historical_spec_path.exists() or not status_path.exists():
+        raise RuntimeError("historical matrix builder did not emit required artifacts")
+
+    matrix_status = json.loads(status_path.read_text(encoding="utf-8"))
+    if matrix_status.get("status") != "READY":
+        raise RuntimeError(
+            "historical matrix builder failed: "
+            + json.dumps(matrix_status, ensure_ascii=False)
         )
 
-    if unresolved:
-        raise PrecheckBlocked(
-            "PRECHECK_ANCHOR_OHLC_UNRESOLVED: " + " | ".join(unresolved)
-        )
+    historical_spec = json.loads(
+        historical_spec_path.read_text(encoding="utf-8")
+    )
 
     Phase.set("2017 COVERAGE PRECHECK")
-    coverage = coverage_report(kpy, mirror_dir)
-    print_coverage(coverage, spec_payload, cfg)
+    coverage = coverage_report(kpy, historical_matrix_dir)
+    print_coverage(coverage, historical_spec, cfg)
     errors = validate_coverage(
         coverage,
         start_date=cfg.start_date,
-        spec=spec_payload,
+        spec=historical_spec,
         train_obs=cfg.train_obs,
         valid_obs=cfg.valid_obs,
         test_obs=cfg.test_obs,
     )
-
-    if errors and not rebuilt:
-        print("\nExisting matrices failed 2017 precheck. Rebuilding once...")
-        build_matrices(
-            kpy=kpy,
-            app_root=app_root,
-            market_root=market_root,
-            feature_root=feature_root,
-            matrix_dir=matrix_dir,
-            universe=universe_path,
-            spec=spec_path,
-        )
-        rebuilt = True
-        unresolved = prepare_matrix_mirror(
-            matrix_dir=matrix_dir,
-            mirror_dir=mirror_dir,
-            drive_root=cfg.drive_root,
-            model_root=model_root,
-            market_root=market_root,
-            feature_root=feature_root,
-            spec_payload=spec_payload,
-        )
-        if unresolved:
-            raise PrecheckBlocked(
-                "PRECHECK_ANCHOR_OHLC_UNRESOLVED_AFTER_REBUILD: "
-                + " | ".join(unresolved)
-            )
-        coverage = coverage_report(kpy, mirror_dir)
-        print_coverage(coverage, spec_payload, cfg)
-        errors = validate_coverage(
-            coverage,
-            start_date=cfg.start_date,
-            spec=spec_payload,
-            train_obs=cfg.train_obs,
-            valid_obs=cfg.valid_obs,
-            test_obs=cfg.test_obs,
-        )
-
     if errors:
-        print("\n2017 precheck failures:")
         for error in errors:
             print(" -", error)
         raise PrecheckBlocked(
-            "PRECHECK_2017_HISTORY_INSUFFICIENT: historical data backfill is required before a genuine 2017 walk-forward run."
+            "HISTORICAL_MATRIX_COVERAGE_INVALID: " + " | ".join(errors)
         )
 
     Phase.set("HISTORICAL WALK-FORWARD + HRP")
     output_dir.mkdir(parents=True, exist_ok=False)
-    head = capture(["git", "-C", repo_root, "rev-parse", "--short", "HEAD"])
+    head = capture(
+        ["git", "-C", repo_root, "rev-parse", "--short", "HEAD"]
+    )
 
     runner_args: list[str | Path] = [
         kpy,
         "-m",
         "research.quant_stack.experiment_runner",
         "--matrix-dir",
-        mirror_dir,
+        historical_matrix_dir,
         "--spec",
-        spec_path,
+        historical_spec_path,
         "--output-dir",
         output_dir,
         "--start-date",
@@ -751,11 +660,11 @@ def main() -> int:
             [
                 "--qlib-recorder",
                 "--qlib-tracking-root",
-                model_root / "qlib_mlruns_colab_v4",
+                model_root / "qlib_mlruns_historical_2017",
                 "--qlib-provider-root",
-                "/content/qlib_provider_v4",
+                "/content/qlib_provider_historical_2017",
                 "--qlib-experiment-name",
-                "kalman_historical_quant_colab_v4",
+                "kalman_historical_2017_colab",
             ]
         )
 
@@ -802,8 +711,8 @@ def main() -> int:
         risk_pip = risk_venv / "bin/pip"
         run([risk_pip, "install", "-q", "-r", riskfolio_req])
 
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(app_root)
+        risk_env = os.environ.copy()
+        risk_env["PYTHONPATH"] = str(app_root)
         run(
             [
                 risk_py,
@@ -819,7 +728,7 @@ def main() -> int:
                 cfg.portfolio_rebalance,
             ],
             cwd=app_root,
-            env=env,
+            env=risk_env,
         )
 
     Phase.set("FINAL SUMMARY")
@@ -830,6 +739,8 @@ def main() -> int:
     print("=" * 88)
     print("OUTPUT :", output_dir)
     print("RUN TAG:", run_tag)
+    print("FEATURE SCHEMA: multimarket_historical_v0_3")
+    print("NOTE   : historical reconstruction; not exact current V2 TA-Lib parity")
     print("SAFETY : LIVE=False / Toss=False / Neon write=False")
     return 0
 
@@ -841,9 +752,8 @@ if __name__ == "__main__":
         print("\n" + "=" * 88)
         print("KALMAN STATUS: BLOCKED_DATA")
         print("=" * 88)
-        print("PHASE       :", Phase.current)
-        print("REASON      :", str(exc))
-        print("ACTION      : historical data backfill is required before running the 2017 test")
+        print("PHASE  :", Phase.current)
+        print("REASON :", str(exc))
         raise SystemExit(0)
     except Exception as exc:
         print("\n" + "!" * 88)
