@@ -10,6 +10,7 @@ import pandas as pd
 from .contracts import BacktestConfig, ExperimentSpec, Mode
 from .historical_backfill import run_historical_backfill, write_backfill_artifacts
 from .native_ledger import run_backtest
+from .qlib_recorder import record_market_experiment
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,6 +27,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--test", type=int, default=126)
     p.add_argument("--max-hold-bars", type=int, default=20)
     p.add_argument("--git-sha")
+    p.add_argument(
+        "--qlib-recorder",
+        action="store_true",
+        help="Record completed market experiments with Qlib Recorder",
+    )
+    p.add_argument("--qlib-tracking-root")
+    p.add_argument("--qlib-provider-root")
+    p.add_argument(
+        "--qlib-experiment-name",
+        default="kalman_historical_quant_v1",
+    )
     p.add_argument(
         "--allow-close-fallback",
         action="store_true",
@@ -108,6 +120,10 @@ def run_market(
     max_hold_bars: int,
     git_sha: str | None,
     allow_close_fallback: bool,
+    qlib_recorder: bool,
+    qlib_tracking_root: Path | None,
+    qlib_provider_root: Path | None,
+    qlib_experiment_name: str,
 ) -> dict[str, Any]:
     market_spec = global_spec["markets"][market_name]
     matrix_path = matrix_dir / f"{market_name.lower()}_matrix.parquet"
@@ -186,6 +202,53 @@ def run_market(
             else "RAW_ANCHOR_OHLC"
         ),
     }
+    if qlib_recorder:
+        if qlib_tracking_root is None or qlib_provider_root is None:
+            raise ValueError("Qlib recorder roots must be configured when enabled")
+
+        qlib_result = record_market_experiment(
+            experiment_name=qlib_experiment_name,
+            tracking_root=qlib_tracking_root,
+            provider_root=qlib_provider_root,
+            params={
+                "market": market_name,
+                "mode": "BACKTEST",
+                "experiment_hash": result.experiment["experiment_hash"],
+                "feature_version": str(global_spec["feature_set"]),
+                "model_version": str(global_spec["version"]),
+                "start_date": start_date,
+                "train_observations": train_observations,
+                "validation_observations": valid_observations,
+                "test_observations": test_observations,
+                "completed_folds": result.experiment["completed_folds"],
+                "price_source": summary["price_source"],
+                "git_sha": git_sha or "",
+            },
+            metrics=backtest.metrics,
+            artifact_manifest={
+                "market": market_name,
+                "output_dir": str(market_output),
+                "experiment_file": str(market_output / "experiment.json"),
+                "fold_metrics_file": str(market_output / "fold_metrics.json"),
+                "model_output_file": str(
+                    market_output / "historical_model_output.parquet"
+                ),
+                "strategy_signal_file": str(
+                    market_output / "historical_strategy_signal.parquet"
+                ),
+                "trades_file": str(market_output / "historical_trades.parquet"),
+                "equity_file": str(market_output / "historical_equity.parquet"),
+                "performance_file": str(
+                    market_output / "historical_performance.json"
+                ),
+                "research_only": True,
+                "live_execution": False,
+                "neon_write": False,
+                "toss_execution": False,
+            },
+        )
+        summary["qlib_recorder"] = qlib_result
+
     _json_write(market_output / "run_summary.json", summary)
     return summary
 
@@ -197,11 +260,23 @@ def main() -> int:
     global_spec = json.loads(Path(args.spec).expanduser().read_text(encoding="utf-8"))
     markets = args.market or ["US", "KR", "BTC"]
 
+    qlib_tracking_root = (
+        Path(args.qlib_tracking_root).expanduser()
+        if args.qlib_tracking_root
+        else output_root.parent / "qlib_mlruns"
+    )
+    qlib_provider_root = (
+        Path(args.qlib_provider_root).expanduser()
+        if args.qlib_provider_root
+        else output_root.parent / "qlib_provider"
+    )
+
     status: dict[str, Any] = {
         "status": "READY",
         "research_only": True,
         "live_execution": False,
         "neon_write": False,
+        "qlib_recorder_enabled": bool(args.qlib_recorder),
         "markets": {},
     }
 
@@ -221,6 +296,10 @@ def main() -> int:
                     max_hold_bars=args.max_hold_bars,
                     git_sha=args.git_sha,
                     allow_close_fallback=args.allow_close_fallback,
+                    qlib_recorder=args.qlib_recorder,
+                    qlib_tracking_root=qlib_tracking_root,
+                    qlib_provider_root=qlib_provider_root,
+                    qlib_experiment_name=args.qlib_experiment_name,
                 ),
             }
         except Exception as exc:
