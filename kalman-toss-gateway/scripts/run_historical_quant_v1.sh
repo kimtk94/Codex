@@ -40,6 +40,10 @@ VALID="${KALMAN_WF_VALID:-63}"
 TEST="${KALMAN_WF_TEST:-126}"
 MAX_HOLD="${KALMAN_WF_MAX_HOLD_BARS:-20}"
 START_DATE="${KALMAN_WF_START_DATE:-2017-01-01}"
+QLIB_ENABLED="${KALMAN_QLIB_ENABLED:-false}"
+QLIB_TRACKING_ROOT="${KALMAN_QLIB_TRACKING_ROOT:-$LOCK_DIR/qlib_mlruns}"
+QLIB_PROVIDER_ROOT="${KALMAN_QLIB_PROVIDER_ROOT:-$LOCK_DIR/qlib_provider}"
+QLIB_EXPERIMENT_NAME="${KALMAN_QLIB_EXPERIMENT_NAME:-kalman_historical_quant_v1}"
 
 cd "$APP_ROOT"
 exec 9>"$LOCK_DIR/historical-quant-v1.lock"
@@ -66,8 +70,18 @@ if [ -n "$GIT_SHA" ]; then
   ARGS+=(--git-sha "$GIT_SHA")
 fi
 
+if [ "${QLIB_ENABLED,,}" = "true" ]; then
+  ARGS+=(
+    --qlib-recorder
+    --qlib-tracking-root "$QLIB_TRACKING_ROOT"
+    --qlib-provider-root "$QLIB_PROVIDER_ROOT"
+    --qlib-experiment-name "$QLIB_EXPERIMENT_NAME"
+  )
+fi
+
 "$PY" "${ARGS[@]}"
 
 "$PY" -m research.quant_stack.validate_artifacts   --output-dir "$OUTPUT_DIR"
 
-printf 'HISTORICAL_QUANT_V1_COMPLETE root=%s start=%s validation=READY\n' "$OUTPUT_DIR" "$START_DATE"
+printf 'HISTORICAL_QUANT_V1_COMPLETE root=%s start=%s validation=READY qlib=%s\n' \
+  "$OUTPUT_DIR" "$START_DATE" "$QLIB_ENABLED"
