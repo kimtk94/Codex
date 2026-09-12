@@ -65,6 +65,7 @@ def generate_walk_forward_folds(
             valid_start_i = train_end_i
             valid_end_i = train_end_i
             test_start_i = cursor + purge_observations
+            test_end_i = test_start_i + test_observations - 1
 
         if test_end_i >= len(idx):
             break
