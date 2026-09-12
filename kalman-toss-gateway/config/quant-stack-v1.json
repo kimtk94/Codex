@@ -85,5 +85,33 @@
     "transitive_dependency_observed": "vectorbt>=0.28.0",
     "transitive_dependency_ci_observed_version": "vectorbt==1.1.0",
     "isolation_reason": "RISKFOLIO_DEPENDENCY_TREE_INCLUDES_VECTORBT"
+  },
+  "lean_execution": {
+    "enabled_by_default": true,
+    "architecture_reference": "QUANTCONNECT_LEAN_ALGORITHM_FRAMEWORK",
+    "dependency_policy": "REFERENCE_ARCHITECTURE_ONLY_NO_LEAN_RUNTIME_DEPENDENCY",
+    "flow": [
+      "PORTFOLIO_TARGET",
+      "PORTFOLIO_RISK_ADJUSTMENT",
+      "ORDER_INTENT",
+      "ORDER_SAFETY_GATE",
+      "BROKER_ORDER",
+      "EXECUTION_FILL",
+      "LEDGER"
+    ],
+    "mode": "SHADOW",
+    "broker": "SHADOW",
+    "max_symbol_weight": 0.75,
+    "max_gross_weight": 1,
+    "min_order_notional": 10,
+    "max_single_order_fraction": 0.8,
+    "max_total_turnover_fraction": 2,
+    "slippage_bps": 0,
+    "commission_bps": 0,
+    "planning_price_policy": "STRICTLY_BEFORE_EFFECTIVE_TS",
+    "fill_price_policy": "FIRST_NAV_ON_OR_AFTER_EFFECTIVE_TS",
+    "live_execution": false,
+    "toss_execution": false,
+    "neon_write": false
   }
 }
