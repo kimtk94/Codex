@@ -42,8 +42,9 @@
     "role": "EXPERIMENT_RECORDER_ONLY",
     "authoritative_data_source": "KALMAN",
     "authoritative_execution_engine": "KALMAN_NATIVE_LEDGER",
-    "tracking_uri_policy": "RELATIVE_FILE_URI_UNDER_CONTROLLED_CWD",
+    "tracking_uri_policy": "SQLITE_LOCAL_BACKEND",
     "server_tracking_root_env": "KALMAN_QLIB_TRACKING_ROOT",
-    "server_provider_root_env": "KALMAN_QLIB_PROVIDER_ROOT"
+    "server_provider_root_env": "KALMAN_QLIB_PROVIDER_ROOT",
+    "tracking_database_filename": "qlib_mlflow.db"
   }
 }
