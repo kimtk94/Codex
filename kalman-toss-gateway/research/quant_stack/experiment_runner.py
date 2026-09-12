@@ -26,12 +26,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--test", type=int, default=126)
     p.add_argument("--max-hold-bars", type=int, default=20)
     p.add_argument("--git-sha")
+    p.add_argument(
+        "--allow-close-fallback",
+        action="store_true",
+        help="Allow anchor_close to stand in for OHLC only for smoke tests",
+    )
     return p.parse_args()
 
 
 def _load_anchor_prices(
     manifest: dict[str, Any],
     matrix: pd.DataFrame,
+    *,
+    allow_close_fallback: bool = False,
 ) -> pd.DataFrame:
     anchor_key = str(manifest["anchor_key"])
     input_files = manifest.get("input_files", {})
@@ -61,8 +68,12 @@ def _load_anchor_prices(
         )
         return out.dropna().sort_values("ts").drop_duplicates("ts", keep="last")
 
-    # Fallback is explicit and conservative: use next observed anchor close as both
-    # open and close only when the original raw artifact is unavailable.
+    if not allow_close_fallback:
+        raise FileNotFoundError(
+            f"raw anchor OHLC artifact unavailable for {anchor_key}; "
+            "refusing synthetic close-as-open fills"
+        )
+
     out = pd.DataFrame(
         {
             "symbol": str(manifest["symbol"]),
@@ -96,6 +107,7 @@ def run_market(
     test_observations: int,
     max_hold_bars: int,
     git_sha: str | None,
+    allow_close_fallback: bool,
 ) -> dict[str, Any]:
     market_spec = global_spec["markets"][market_name]
     matrix_path = matrix_dir / f"{market_name.lower()}_matrix.parquet"
@@ -134,7 +146,11 @@ def run_market(
     market_output = output_root / market_name.lower()
     write_backfill_artifacts(result, market_output)
 
-    prices = _load_anchor_prices(manifest, matrix)
+    prices = _load_anchor_prices(
+        manifest,
+        matrix,
+        allow_close_fallback=allow_close_fallback,
+    )
     signals = result.strategy_signal[
         ["symbol", "signal_ts", "signal", "entry_allowed"]
     ].copy()
@@ -204,6 +220,7 @@ def main() -> int:
                     test_observations=args.test,
                     max_hold_bars=args.max_hold_bars,
                     git_sha=args.git_sha,
+                    allow_close_fallback=args.allow_close_fallback,
                 ),
             }
         except Exception as exc:
