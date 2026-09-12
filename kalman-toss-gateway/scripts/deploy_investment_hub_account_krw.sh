@@ -51,33 +51,65 @@ vercel whoami >/dev/null
 echo "[PASS] Vercel CLI authenticated"
 
 echo
-echo "[1/8] Restore known-good full production first"
-# This restores the full 12-function application before any new candidate work.
-vercel promote "${GOOD_URL}" --yes --scope "${TEAM_SLUG}" >/dev/null
+echo "[1/8] Ensure known-good full production"
 
-for i in $(seq 1 30); do
-  if curl -fsS --max-time 10 "${PROD_URL}/api/health" >"${WORK}/restored-health.json" 2>/dev/null; then
-    if python3 - "${WORK}/restored-health.json" <<'PY'
+health_ok() {
+  local file="$1"
+  python3 - "$file" <<'PY' >/dev/null 2>&1
 import json, sys
-x=json.load(open(sys.argv[1], encoding="utf-8"))
-assert x.get("account_gateway_configured") is True
-assert x.get("account_gateway_secret_configured") is True
-assert x.get("account_trade_execution") is False
-assert x.get("trade_enabled") is False
+from pathlib import Path
+p=Path(sys.argv[1])
+try:
+    raw=p.read_text(encoding="utf-8").strip()
+    if not raw:
+        raise SystemExit(1)
+    x=json.loads(raw)
+except Exception:
+    raise SystemExit(1)
+
+required = (
+    x.get("investment_hub_version") == "vNext.7.4.9"
+    and x.get("account_gateway_configured") is True
+    and x.get("account_gateway_secret_configured") is True
+    and x.get("account_trade_execution") is False
+    and x.get("trade_enabled") is False
+)
 routes=x.get("required_routes") or []
-assert "/api/dashboard" in routes
-assert "/api/account" in routes
-print("[PASS] known-good production restored")
+required = required and "/api/dashboard" in routes and "/api/account" in routes
+raise SystemExit(0 if required else 1)
 PY
-    then
+}
+
+# Avoid unnecessary alias churn when Production is already the healthy
+# 12-function vNext.7.4.9 base.
+CURRENT_HEALTH="${WORK}/current-health.json"
+if curl -fsS --max-time 10 "${PROD_URL}/api/health" >"${CURRENT_HEALTH}" 2>/dev/null \
+   && health_ok "${CURRENT_HEALTH}"; then
+  echo "[PASS] healthy vNext.7.4.9 full production already active; promotion skipped"
+else
+  echo "[INFO] restoring known-good 12-function production"
+  vercel promote "${GOOD_URL}" --yes --scope "${TEAM_SLUG}" >/dev/null
+
+  RESTORED=false
+  for i in $(seq 1 45); do
+    # During Vercel alias propagation the canonical host can briefly return
+    # an empty/non-JSON body. Treat that as 'not ready yet', never as a fatal
+    # JSON parsing error.
+    : >"${WORK}/restored-health.json"
+    curl -fsS --max-time 10 "${PROD_URL}/api/health" \
+      >"${WORK}/restored-health.json" 2>/dev/null || true
+
+    if health_ok "${WORK}/restored-health.json"; then
+      RESTORED=true
       break
     fi
-  fi
-  sleep 2
-  if [ "$i" -eq 30 ]; then
-    fail "known-good production restore verification failed"
-  fi
-done
+
+    sleep 2
+  done
+
+  [ "${RESTORED}" = true ] || fail "known-good production restore verification failed"
+  echo "[PASS] known-good production restored"
+fi
 
 curl -fsS --max-time 20 "${PROD_URL}/api/account" >"${WORK}/restored-account.json"
 python3 - "${WORK}/restored-account.json" <<'PY'
