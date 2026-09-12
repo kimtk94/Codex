@@ -99,3 +99,96 @@ CREATE INDEX IF NOT EXISTS idx_quant_experiment_market_created
 
 CREATE INDEX IF NOT EXISTS idx_strategy_backtest_run_experiment
     ON strategy_backtest_run (experiment_id, created_at DESC);
+
+
+-- LEAN-inspired execution contract proposal.
+-- These tables are research/shadow schema only and are not applied automatically.
+
+CREATE TABLE IF NOT EXISTS portfolio_target (
+    target_id text PRIMARY KEY,
+    run_id text NOT NULL,
+    strategy_version text NOT NULL,
+    symbol text NOT NULL,
+    decision_ts timestamptz NOT NULL,
+    effective_ts timestamptz NOT NULL,
+    original_weight double precision NOT NULL,
+    adjusted_weight double precision NOT NULL,
+    risk_reason text NOT NULL,
+    source text NOT NULL,
+    mode text NOT NULL DEFAULT 'SHADOW',
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS order_intent (
+    intent_id text PRIMARY KEY,
+    target_id text NOT NULL REFERENCES portfolio_target(target_id),
+    run_id text NOT NULL,
+    strategy_version text NOT NULL,
+    symbol text NOT NULL,
+    side text NOT NULL CHECK (side IN ('BUY', 'SELL')),
+    quantity double precision NOT NULL,
+    current_quantity double precision NOT NULL,
+    target_quantity double precision NOT NULL,
+    reference_price double precision NOT NULL,
+    notional double precision NOT NULL,
+    risk_reducing boolean NOT NULL DEFAULT false,
+    status text NOT NULL,
+    risk_reason text NOT NULL,
+    mode text NOT NULL,
+    effective_ts timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS broker_order (
+    broker_order_id text PRIMARY KEY,
+    intent_id text NOT NULL REFERENCES order_intent(intent_id),
+    client_order_id text NOT NULL UNIQUE,
+    broker text NOT NULL,
+    symbol text NOT NULL,
+    side text NOT NULL CHECK (side IN ('BUY', 'SELL')),
+    quantity double precision NOT NULL,
+    order_type text NOT NULL,
+    time_in_force text NOT NULL,
+    status text NOT NULL,
+    mode text NOT NULL,
+    effective_ts timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS execution_fill (
+    fill_id text PRIMARY KEY,
+    broker_order_id text NOT NULL REFERENCES broker_order(broker_order_id),
+    intent_id text NOT NULL REFERENCES order_intent(intent_id),
+    broker text NOT NULL,
+    symbol text NOT NULL,
+    side text NOT NULL CHECK (side IN ('BUY', 'SELL')),
+    quantity double precision NOT NULL,
+    fill_price double precision NOT NULL,
+    fee double precision NOT NULL DEFAULT 0,
+    fill_ts timestamptz NOT NULL,
+    status text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS execution_ledger_snapshot (
+    snapshot_id bigserial PRIMARY KEY,
+    effective_ts timestamptz NOT NULL,
+    planning_price_ts timestamptz NOT NULL,
+    fill_ts timestamptz NOT NULL,
+    cash double precision NOT NULL,
+    equity double precision NOT NULL,
+    positions jsonb NOT NULL DEFAULT '{}'::jsonb,
+    broker text NOT NULL DEFAULT 'SHADOW',
+    mode text NOT NULL DEFAULT 'SHADOW',
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_intent_target
+    ON order_intent (target_id, effective_ts);
+
+CREATE INDEX IF NOT EXISTS idx_broker_order_intent
+    ON broker_order (intent_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_execution_fill_order
+    ON execution_fill (broker_order_id, fill_ts);
