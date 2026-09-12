@@ -35,6 +35,10 @@ class Config:
     enable_qlib_recorder: bool = False
 
 
+class PrecheckBlocked(RuntimeError):
+    pass
+
+
 class Phase:
     current = "BOOTSTRAP"
 
@@ -644,7 +648,9 @@ def main() -> int:
         )
 
     if unresolved:
-        raise RuntimeError("PRECHECK_ANCHOR_OHLC_UNRESOLVED: " + " | ".join(unresolved))
+        raise PrecheckBlocked(
+            "PRECHECK_ANCHOR_OHLC_UNRESOLVED: " + " | ".join(unresolved)
+        )
 
     Phase.set("2017 COVERAGE PRECHECK")
     coverage = coverage_report(kpy, mirror_dir)
@@ -680,8 +686,9 @@ def main() -> int:
             spec_payload=spec_payload,
         )
         if unresolved:
-            raise RuntimeError(
-                "PRECHECK_ANCHOR_OHLC_UNRESOLVED_AFTER_REBUILD: " + " | ".join(unresolved)
+            raise PrecheckBlocked(
+                "PRECHECK_ANCHOR_OHLC_UNRESOLVED_AFTER_REBUILD: "
+                + " | ".join(unresolved)
             )
         coverage = coverage_report(kpy, mirror_dir)
         print_coverage(coverage, spec_payload, cfg)
@@ -698,7 +705,7 @@ def main() -> int:
         print("\n2017 precheck failures:")
         for error in errors:
             print(" -", error)
-        raise RuntimeError(
+        raise PrecheckBlocked(
             "PRECHECK_2017_HISTORY_INSUFFICIENT: historical data backfill is required before a genuine 2017 walk-forward run."
         )
 
@@ -830,6 +837,14 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
+    except PrecheckBlocked as exc:
+        print("\n" + "=" * 88)
+        print("KALMAN STATUS: BLOCKED_DATA")
+        print("=" * 88)
+        print("PHASE       :", Phase.current)
+        print("REASON      :", str(exc))
+        print("ACTION      : historical data backfill is required before running the 2017 test")
+        raise SystemExit(0)
     except Exception as exc:
         print("\n" + "!" * 88)
         print("KALMAN COLAB RUNNER FAILED")
