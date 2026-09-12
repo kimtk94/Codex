@@ -81,6 +81,9 @@
     "rebalance_frequency": "M",
     "live_execution": false,
     "neon_write": false,
-    "toss_execution": false
+    "toss_execution": false,
+    "transitive_dependency_observed": "vectorbt>=0.28.0",
+    "transitive_dependency_ci_observed_version": "vectorbt==1.1.0",
+    "isolation_reason": "RISKFOLIO_DEPENDENCY_TREE_INCLUDES_VECTORBT"
   }
 }
