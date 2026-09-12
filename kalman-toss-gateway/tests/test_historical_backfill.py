@@ -11,6 +11,10 @@ sys.path.insert(0, str(ROOT))
 
 from research.quant_stack.contracts import ExperimentSpec, Mode
 from research.quant_stack.historical_backfill import run_historical_backfill
+from research.model_v2.build_historical_feature_matrix import (
+    align_indicator_block,
+    build_market_historical_matrix,
+)
 
 
 def _synthetic_matrix(rows: int = 900) -> pd.DataFrame:
@@ -109,3 +113,97 @@ def test_signal_output_has_no_duplicate_timestamp():
     )
 
     assert not result.model_output.duplicated(["market", "symbol", "as_of"]).any()
+
+
+
+def test_historical_feature_availability_is_prospective_only():
+    anchors = pd.DatetimeIndex(
+        pd.to_datetime(
+            [
+                "2020-01-01T00:00:00Z",
+                "2020-01-02T00:00:00Z",
+                "2020-01-03T00:00:00Z",
+                "2020-01-04T00:00:00Z",
+            ],
+            utc=True,
+        )
+    )
+    features = pd.DataFrame(
+        {
+            "event_time": pd.to_datetime(
+                ["2020-01-02T00:00:00Z"],
+                utc=True,
+            ),
+            "available_time": pd.to_datetime(
+                ["2020-01-02T12:00:00Z"],
+                utc=True,
+            ),
+            "RET_1D": [0.25],
+        }
+    )
+
+    aligned = align_indicator_block(
+        features,
+        anchor_index=anchors,
+        max_ffill=1,
+        lag_observations=0,
+    )
+
+    assert np.isnan(aligned.loc[anchors[1], "RET_1D"])
+    assert aligned.loc[anchors[2], "RET_1D"] == 0.25
+    assert aligned.loc[anchors[3], "RET_1D"] == 0.25
+
+
+def test_historical_market_matrix_builds_2017_anchor_rows():
+    dates = pd.date_range("2017-01-01", periods=20, freq="D", tz="UTC")
+    raw = pd.DataFrame(
+        {
+            "event_time": dates,
+            "available_time": dates,
+            "market": ["US"] * len(dates),
+            "indicator_id": ["US_SPY"] * len(dates),
+            "timeframe": ["1D"] * len(dates),
+            "open": np.arange(100, 120, dtype=float),
+            "high": np.arange(101, 121, dtype=float),
+            "low": np.arange(99, 119, dtype=float),
+            "close": np.arange(100, 120, dtype=float),
+        }
+    )
+    features = pd.DataFrame(
+        {
+            "event_time": dates,
+            "available_time": dates,
+            "market": ["US"] * len(dates),
+            "indicator_id": ["US_SPY"] * len(dates),
+            "timeframe": ["1D"] * len(dates),
+            "feature_family": ["PRICE"] * len(dates),
+            "RET_1D": np.linspace(0.0, 0.19, len(dates)),
+            "Z20": np.linspace(-1.0, 1.0, len(dates)),
+        }
+    )
+
+    matrix, anchor, manifest = build_market_historical_matrix(
+        raw,
+        features,
+        market_name="US",
+        market_spec={
+            "anchor_key": "yf_spy",
+            "historical_anchor_indicator_id": "US_SPY",
+            "symbol": "SPY",
+            "horizon_observations": 5,
+            "positive_return_threshold": 0.0,
+            "include_groups": ["US"],
+            "group_lag_observations": {"US": 0},
+        },
+        start_date="2017-01-01",
+        max_ffill=3,
+    )
+
+    assert len(matrix) == 20
+    assert len(anchor) == 20
+    assert matrix["target_label"].notna().sum() == 15
+    assert manifest["historical_anchor_indicator_id"] == "US_SPY"
+    assert manifest["availability_policy"] == (
+        "FIRST_ANCHOR_AT_OR_AFTER_AVAILABLE_TIME"
+    )
+    assert "us_spy__ret_1d" in matrix.columns
