@@ -1,0 +1,6 @@
+# Research-only dependencies. Do not install in the Toss production venv.
+pyportfolioopt==1.6.0
+
+# Qlib is connected through a separate optional dependency set so the base
+# Kalman research environment stays lightweight.
+# See: research/quant_stack/requirements-qlib.txt
