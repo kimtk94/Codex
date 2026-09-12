@@ -1,0 +1,6 @@
+# Research-only dependencies. Do not install in the Toss production venv.
+pyportfolioopt==1.6.0
+
+# Qlib is deliberately optional in v1. We adopt its experiment/rolling semantics
+# first and keep Neon as Kalman's source of truth.
+# pyqlib==0.9.7
