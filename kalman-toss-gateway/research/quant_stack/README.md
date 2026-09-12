@@ -63,6 +63,56 @@ the configured tracking root. This avoids the MLflow 3.x filesystem-tracking
 maintenance mode and also avoids the Qlib 0.9.7 absolute file-URI lock-path
 issue.
 
+## PyPortfolioOpt portfolio targets
+
+PyPortfolioOpt is connected above the market-level Kalman-native ledgers.
+
+```text
+US historical_equity
+KR historical_equity
+BTC historical_equity
+        ↓
+daily sleeve returns
+        ↓
+rolling lookback (default 180 days)
+        ↓
+PyPortfolioOpt HRP
+        ↓
+monthly portfolio_target
+        ↓
+combined portfolio equity
+```
+
+Install the research dependency:
+
+```bash
+/opt/kalman/.venv-research-v2/bin/pip install \
+  -r /opt/kalman/app/research/quant_stack/requirements-pypfopt.txt
+```
+
+The server runner enables this research portfolio layer by default. Configure it
+with:
+
+```bash
+export KALMAN_PORTFOLIO_ENABLED=true
+export KALMAN_PORTFOLIO_METHOD=hrp
+export KALMAN_PORTFOLIO_LOOKBACK_DAYS=180
+export KALMAN_PORTFOLIO_MIN_OBSERVATIONS=90
+export KALMAN_PORTFOLIO_REBALANCE=M
+```
+
+Outputs:
+
+```text
+historical_quant_v1/portfolio/
+  portfolio_target.parquet
+  portfolio_equity.parquet
+  portfolio_performance.json
+```
+
+Portfolio weights are research targets only. They never call Toss and are not
+written to Neon production tables by this runner.
+
 ## Historical backfill
 
 The historical engine deliberately reuses the current Model V2 rules:
@@ -143,6 +193,10 @@ pytest -q \
 # optional Qlib integration smoke test
 pip install -r research/quant_stack/requirements-qlib.txt
 pytest -q tests/test_qlib_recorder.py
+
+# PyPortfolioOpt portfolio target smoke test
+pip install -r research/quant_stack/requirements-pypfopt.txt
+pytest -q tests/test_pypfopt_portfolio_targets.py
 ```
 
 GitHub Actions also runs these tests on the quant-stack feature branch.

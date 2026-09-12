@@ -11,6 +11,7 @@ from .contracts import BacktestConfig, ExperimentSpec, Mode
 from .historical_backfill import run_historical_backfill, write_backfill_artifacts
 from .native_ledger import run_backtest
 from .qlib_recorder import record_market_experiment
+from .portfolio_targets import run_portfolio_target_layer
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,6 +38,23 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--qlib-experiment-name",
         default="kalman_historical_quant_v1",
+    )
+    p.add_argument(
+        "--portfolio-targets",
+        action="store_true",
+        help="Build cross-market portfolio targets after market backtests",
+    )
+    p.add_argument(
+        "--portfolio-method",
+        choices=["hrp", "max_sharpe", "inverse_volatility", "equal_weight"],
+        default="hrp",
+    )
+    p.add_argument("--portfolio-lookback-days", type=int, default=180)
+    p.add_argument("--portfolio-min-observations", type=int, default=90)
+    p.add_argument(
+        "--portfolio-rebalance",
+        choices=["M", "Q"],
+        default="M",
     )
     p.add_argument(
         "--allow-close-fallback",
@@ -277,6 +295,7 @@ def main() -> int:
         "live_execution": False,
         "neon_write": False,
         "qlib_recorder_enabled": bool(args.qlib_recorder),
+        "portfolio_targets_enabled": bool(args.portfolio_targets),
         "markets": {},
     }
 
@@ -309,6 +328,59 @@ def main() -> int:
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             }
+
+    if args.portfolio_targets:
+        ready_markets = [
+            market
+            for market, market_status in status["markets"].items()
+            if market_status.get("status") == "READY"
+        ]
+        if status["status"] != "READY":
+            status["portfolio"] = {
+                "status": "SKIPPED",
+                "reason": "one or more market runs failed",
+            }
+        elif len(ready_markets) < 2:
+            status["status"] = "FAIL"
+            status["portfolio"] = {
+                "status": "FAIL",
+                "error_type": "RuntimeError",
+                "error": "portfolio layer requires at least two READY market sleeves",
+            }
+        else:
+            try:
+                portfolio = run_portfolio_target_layer(
+                    output_root,
+                    markets=ready_markets,
+                    method=args.portfolio_method,
+                    lookback_days=args.portfolio_lookback_days,
+                    min_observations=args.portfolio_min_observations,
+                    rebalance_frequency=args.portfolio_rebalance,
+                )
+                status["portfolio"] = {
+                    "status": "READY",
+                    "method": args.portfolio_method,
+                    "markets": ready_markets,
+                    "target_rows": int(len(portfolio.targets)),
+                    "rebalance_count": int(
+                        portfolio.targets["effective_ts"].nunique()
+                    ),
+                    "performance": portfolio.metrics,
+                    "source": (
+                        "PYPFOPT"
+                        if args.portfolio_method in {"hrp", "max_sharpe"}
+                        else "KALMAN"
+                    ),
+                    "live_execution": False,
+                    "neon_write": False,
+                }
+            except Exception as exc:
+                status["status"] = "FAIL"
+                status["portfolio"] = {
+                    "status": "FAIL",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
 
     _json_write(output_root / "historical_experiment_status.json", status)
     print(json.dumps(status, ensure_ascii=False, indent=2, default=str))

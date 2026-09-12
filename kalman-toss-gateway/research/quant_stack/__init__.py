@@ -6,6 +6,7 @@ Research modules are isolated from production execution.
 from .contracts import BacktestConfig, ExperimentSpec, Mode, WalkForwardFold
 from .native_ledger import BacktestResult, run_backtest
 from .portfolio import allocate
+from .portfolio_targets import PortfolioTargetResult, run_portfolio_target_layer
 from .walk_forward import generate_walk_forward_folds
 
 __all__ = [
@@ -16,5 +17,7 @@ __all__ = [
     "BacktestResult",
     "run_backtest",
     "allocate",
+    "PortfolioTargetResult",
+    "run_portfolio_target_layer",
     "generate_walk_forward_folds",
 ]

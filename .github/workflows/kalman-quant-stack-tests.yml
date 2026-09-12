@@ -1,15 +1,28 @@
 name: Kalman Quant Stack Tests
 
 on:
-  push:
+  pull_request:
     branches:
-      - feature/quant-stack-v1-20260912
+      - main
     paths:
       - "kalman-toss-gateway/research/quant_stack/**"
       - "kalman-toss-gateway/tests/test_quant_stack.py"
       - "kalman-toss-gateway/tests/test_historical_backfill.py"
       - "kalman-toss-gateway/tests/test_quant_artifact_validation.py"
       - "kalman-toss-gateway/tests/test_qlib_recorder.py"
+      - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
+      - ".github/workflows/kalman-quant-stack-tests.yml"
+  push:
+    branches:
+      - feature/quant-stack-v1-20260912
+      - feature/pypfopt-portfolio-target-v1-20260912
+    paths:
+      - "kalman-toss-gateway/research/quant_stack/**"
+      - "kalman-toss-gateway/tests/test_quant_stack.py"
+      - "kalman-toss-gateway/tests/test_historical_backfill.py"
+      - "kalman-toss-gateway/tests/test_quant_artifact_validation.py"
+      - "kalman-toss-gateway/tests/test_qlib_recorder.py"
+      - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
       - ".github/workflows/kalman-quant-stack-tests.yml"
   workflow_dispatch:
 
@@ -68,3 +81,27 @@ jobs:
       - name: Qlib recorder round-trip
         run: |
           pytest -q tests/test_qlib_recorder.py
+
+
+  pypfopt-portfolio-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyPortfolioOpt dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyarrow -r research/quant_stack/requirements-pypfopt.txt
+
+      - name: PyPortfolioOpt HRP portfolio target round-trip
+        run: |
+          python -m compileall -q research/quant_stack
+          pytest -q tests/test_pypfopt_portfolio_targets.py

@@ -1,0 +1,4 @@
+# Optional portfolio optimisation integration for Kalman research only.
+pyportfolioopt==1.6.0
+# PyPortfolioOpt HRP currently has an open compatibility issue with scipy >=1.18.
+scipy<1.18
