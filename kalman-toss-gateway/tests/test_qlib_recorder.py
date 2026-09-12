@@ -34,6 +34,7 @@ def test_qlib_recorder_roundtrip(tmp_path):
     )
 
     assert result["status"] == "RECORDED"
-    assert result["backend"] == "QLIB_RECORDER_MLFLOW"
+    assert result["backend"] == "QLIB_RECORDER_MLFLOW_SQLITE"
     assert result["recorder_id"]
     assert (tmp_path / "mlruns").exists()
+    assert (tmp_path / "mlruns" / "qlib_mlflow.db").exists()
