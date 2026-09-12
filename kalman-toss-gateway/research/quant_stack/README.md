@@ -118,6 +118,11 @@ written to Neon production tables by this runner.
 Riskfolio-Lib is connected as an isolated **benchmark-only** layer. It does not
 replace the PyPortfolioOpt HRP target and it never creates broker orders.
 
+CI installation of Riskfolio-Lib 7.3.0 confirmed that its current dependency
+tree pulls `vectorbt>=0.28.0` (the tested environment resolved vectorbt 1.1.0).
+For that reason Riskfolio stays in a separate venv and neither Riskfolio nor
+vectorbt defines Kalman's production execution semantics.
+
 Benchmarks:
 
 ```text
