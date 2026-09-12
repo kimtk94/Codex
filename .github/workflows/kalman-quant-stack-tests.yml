@@ -8,6 +8,7 @@ on:
       - "kalman-toss-gateway/research/quant_stack/**"
       - "kalman-toss-gateway/tests/test_quant_stack.py"
       - "kalman-toss-gateway/tests/test_historical_backfill.py"
+      - "kalman-toss-gateway/tests/test_quant_artifact_validation.py"
       - ".github/workflows/kalman-quant-stack-tests.yml"
   workflow_dispatch:
 
@@ -39,4 +40,7 @@ jobs:
 
       - name: Run quant stack tests
         run: |
-          pytest -q tests/test_quant_stack.py tests/test_historical_backfill.py
+          pytest -q \
+            tests/test_quant_stack.py \
+            tests/test_historical_backfill.py \
+            tests/test_quant_artifact_validation.py
