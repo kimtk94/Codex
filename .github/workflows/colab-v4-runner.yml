@@ -1,0 +1,77 @@
+name: Colab v4 Runner Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "notebooks/Kalman_Historical_Quant_2017_Colab_v4.ipynb"
+      - "kalman-toss-gateway/scripts/colab_historical_quant.py"
+      - "kalman-toss-gateway/tests/test_colab_historical_quant.py"
+      - ".github/workflows/colab-v4-runner.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "notebooks/Kalman_Historical_Quant_2017_Colab_v4.ipynb"
+      - "kalman-toss-gateway/scripts/colab_historical_quant.py"
+      - "kalman-toss-gateway/tests/test_colab_historical_quant.py"
+      - ".github/workflows/colab-v4-runner.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Static compile
+        run: |
+          python -m py_compile scripts/colab_historical_quant.py
+
+      - name: Install test tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pyflakes
+
+      - name: Undefined-name audit
+        run: |
+          pyflakes scripts/colab_historical_quant.py
+
+      - name: Runner self-test
+        run: |
+          python scripts/colab_historical_quant.py --self-test
+
+      - name: Unit tests
+        run: |
+          pytest -q tests/test_colab_historical_quant.py
+
+      - name: Notebook JSON and launcher audit
+        working-directory: ..
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("notebooks/Kalman_Historical_Quant_2017_Colab_v4.ipynb")
+          nb = json.loads(p.read_text(encoding="utf-8"))
+          assert len(nb["cells"]) == 1
+          assert nb["cells"][0]["cell_type"] == "code"
+          src = "".join(nb["cells"][0]["source"])
+          compile(src, str(p), "exec")
+          assert "--self-test" in src
+          assert "--start-date" in src
+          assert "2017-01-01" in src
+          assert "toss" not in src.lower()
+          print("NOTEBOOK_LAUNCHER_AUDIT=PASS")
+          PY
