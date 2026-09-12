@@ -46,5 +46,23 @@
     "server_tracking_root_env": "KALMAN_QLIB_TRACKING_ROOT",
     "server_provider_root_env": "KALMAN_QLIB_PROVIDER_ROOT",
     "tracking_database_filename": "qlib_mlflow.db"
+  },
+  "portfolio": {
+    "enabled_by_default": true,
+    "package": "pyportfolioopt==1.6.0",
+    "scipy_constraint": "<1.18",
+    "role": "PORTFOLIO_TARGET_ONLY",
+    "method": "hrp",
+    "sleeves": [
+      "US",
+      "KR",
+      "BTC"
+    ],
+    "lookback_days": 180,
+    "min_observations": 90,
+    "rebalance_frequency": "M",
+    "target_source": "PYPFOPT",
+    "live_execution": false,
+    "neon_write": false
   }
 }
