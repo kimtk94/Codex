@@ -1,0 +1,3 @@
+# Optional Qlib recorder integration for Kalman research only.
+# Do NOT install into the Toss production execution venv.
+pyqlib==0.9.7
