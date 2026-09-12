@@ -226,9 +226,9 @@ def build_matrices(
     spec: Path,
 ) -> None:
     if market_root is None or not market_root.exists():
-        raise FileNotFoundError("Market_Data/v2 not found")
+        raise PrecheckBlocked("Market_Data/v2 not found")
     if feature_root is None or not feature_root.exists():
-        raise FileNotFoundError("Market_Features/v2 not found")
+        raise PrecheckBlocked("Market_Features/v2 not found")
 
     matrix_dir.mkdir(parents=True, exist_ok=True)
     run(
