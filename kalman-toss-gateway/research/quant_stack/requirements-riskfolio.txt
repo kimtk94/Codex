@@ -1,0 +1,9 @@
+# Isolated Riskfolio benchmark environment.
+# Install in /opt/kalman/.venv-riskfolio, not the shared research venv.
+#
+# CI with riskfolio-lib 7.3.0 currently resolves vectorbt>=0.28.0 transitively
+# (observed vectorbt 1.1.0). Keep this dependency tree isolated from Kalman's
+# production and shared research execution environments.
+riskfolio-lib==7.3.0
+pytest>=8,<9
+pyarrow>=17

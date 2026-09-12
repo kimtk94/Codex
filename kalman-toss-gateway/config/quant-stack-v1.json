@@ -64,5 +64,26 @@
     "target_source": "PYPFOPT",
     "live_execution": false,
     "neon_write": false
+  },
+  "riskfolio": {
+    "enabled_by_default": "auto_if_isolated_venv_present",
+    "package": "riskfolio-lib==7.3.0",
+    "license": "BSD-3-Clause",
+    "role": "BENCHMARK_ONLY",
+    "isolated_venv": "/opt/kalman/.venv-riskfolio",
+    "methods": [
+      "cvar_minrisk",
+      "risk_parity",
+      "cdar_minrisk"
+    ],
+    "lookback_days": 180,
+    "min_observations": 90,
+    "rebalance_frequency": "M",
+    "live_execution": false,
+    "neon_write": false,
+    "toss_execution": false,
+    "transitive_dependency_observed": "vectorbt>=0.28.0",
+    "transitive_dependency_ci_observed_version": "vectorbt==1.1.0",
+    "isolation_reason": "RISKFOLIO_DEPENDENCY_TREE_INCLUDES_VECTORBT"
   }
 }

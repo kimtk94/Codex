@@ -49,6 +49,12 @@ PORTFOLIO_METHOD="${KALMAN_PORTFOLIO_METHOD:-hrp}"
 PORTFOLIO_LOOKBACK_DAYS="${KALMAN_PORTFOLIO_LOOKBACK_DAYS:-180}"
 PORTFOLIO_MIN_OBSERVATIONS="${KALMAN_PORTFOLIO_MIN_OBSERVATIONS:-90}"
 PORTFOLIO_REBALANCE="${KALMAN_PORTFOLIO_REBALANCE:-M}"
+RISKFOLIO_ENABLED="${KALMAN_RISKFOLIO_ENABLED:-auto}"
+RISKFOLIO_VENV="${KALMAN_RISKFOLIO_VENV:-/opt/kalman/.venv-riskfolio}"
+RISKFOLIO_PY="${RISKFOLIO_VENV}/bin/python"
+RISKFOLIO_LOOKBACK_DAYS="${KALMAN_RISKFOLIO_LOOKBACK_DAYS:-180}"
+RISKFOLIO_MIN_OBSERVATIONS="${KALMAN_RISKFOLIO_MIN_OBSERVATIONS:-90}"
+RISKFOLIO_REBALANCE="${KALMAN_RISKFOLIO_REBALANCE:-M}"
 
 cd "$APP_ROOT"
 exec 9>"$LOCK_DIR/historical-quant-v1.lock"
@@ -100,7 +106,36 @@ fi
 
 "$PY" "${ARGS[@]}"
 
-"$PY" -m research.quant_stack.validate_artifacts   --output-dir "$OUTPUT_DIR"
+"$PY" -m research.quant_stack.validate_artifacts --output-dir "$OUTPUT_DIR"
 
-printf 'HISTORICAL_QUANT_V1_COMPLETE root=%s start=%s validation=READY qlib=%s portfolio=%s method=%s\n' \
-  "$OUTPUT_DIR" "$START_DATE" "$QLIB_ENABLED" "$PORTFOLIO_ENABLED" "$PORTFOLIO_METHOD"
+RISKFOLIO_RAN=false
+if [ "${RISKFOLIO_ENABLED,,}" = "true" ]; then
+  [ -x "$RISKFOLIO_PY" ] || {
+    echo "[FAIL] Riskfolio Python missing: $RISKFOLIO_PY" >&2
+    exit 12
+  }
+  "$RISKFOLIO_PY" -c 'import riskfolio' >/dev/null 2>&1 || {
+    echo "[FAIL] riskfolio-lib missing in $RISKFOLIO_VENV" >&2
+    exit 13
+  }
+  "$RISKFOLIO_PY" -m research.quant_stack.riskfolio_benchmark_runner \
+    --output-dir "$OUTPUT_DIR" \
+    --lookback-days "$RISKFOLIO_LOOKBACK_DAYS" \
+    --min-observations "$RISKFOLIO_MIN_OBSERVATIONS" \
+    --rebalance "$RISKFOLIO_REBALANCE"
+  RISKFOLIO_RAN=true
+elif [ "${RISKFOLIO_ENABLED,,}" = "auto" ]; then
+  if [ -x "$RISKFOLIO_PY" ] && "$RISKFOLIO_PY" -c 'import riskfolio' >/dev/null 2>&1; then
+    "$RISKFOLIO_PY" -m research.quant_stack.riskfolio_benchmark_runner \
+      --output-dir "$OUTPUT_DIR" \
+      --lookback-days "$RISKFOLIO_LOOKBACK_DAYS" \
+      --min-observations "$RISKFOLIO_MIN_OBSERVATIONS" \
+      --rebalance "$RISKFOLIO_REBALANCE"
+    RISKFOLIO_RAN=true
+  else
+    echo "RISKFOLIO_BENCHMARK_SKIPPED isolated venv not ready"
+  fi
+fi
+
+printf 'HISTORICAL_QUANT_V1_COMPLETE root=%s start=%s validation=READY qlib=%s portfolio=%s method=%s riskfolio=%s\n' \
+  "$OUTPUT_DIR" "$START_DATE" "$QLIB_ENABLED" "$PORTFOLIO_ENABLED" "$PORTFOLIO_METHOD" "$RISKFOLIO_RAN"

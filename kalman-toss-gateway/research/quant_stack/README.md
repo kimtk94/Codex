@@ -113,6 +113,63 @@ historical_quant_v1/portfolio/
 Portfolio weights are research targets only. They never call Toss and are not
 written to Neon production tables by this runner.
 
+## Riskfolio-Lib benchmark layer
+
+Riskfolio-Lib is connected as an isolated **benchmark-only** layer. It does not
+replace the PyPortfolioOpt HRP target and it never creates broker orders.
+
+CI installation of Riskfolio-Lib 7.3.0 confirmed that its current dependency
+tree pulls `vectorbt>=0.28.0` (the tested environment resolved vectorbt 1.1.0).
+For that reason Riskfolio stays in a separate venv and neither Riskfolio nor
+vectorbt defines Kalman's production execution semantics.
+
+Benchmarks:
+
+```text
+CVaR MinRisk
+MV Risk Parity
+CDaR MinRisk
+```
+
+Install into its own environment:
+
+```bash
+python3 -m venv /opt/kalman/.venv-riskfolio
+/opt/kalman/.venv-riskfolio/bin/pip install \
+  -r /opt/kalman/app/research/quant_stack/requirements-riskfolio.txt
+```
+
+Server behavior defaults to `auto`: when the isolated venv exists and can
+import `riskfolio`, benchmarks run after the historical experiment and
+validation. Otherwise the benchmark is skipped without breaking the main
+research pipeline.
+
+Configuration:
+
+```bash
+export KALMAN_RISKFOLIO_ENABLED=auto   # auto / true / false
+export KALMAN_RISKFOLIO_VENV=/opt/kalman/.venv-riskfolio
+export KALMAN_RISKFOLIO_LOOKBACK_DAYS=180
+export KALMAN_RISKFOLIO_MIN_OBSERVATIONS=90
+export KALMAN_RISKFOLIO_REBALANCE=M
+```
+
+Outputs:
+
+```text
+historical_quant_v1/riskfolio/
+  portfolio_target_cvar_minrisk.parquet
+  portfolio_target_risk_parity.parquet
+  portfolio_target_cdar_minrisk.parquet
+  portfolio_equity_*.parquet
+  portfolio_performance_*.json
+  riskfolio_comparison.csv
+  riskfolio_summary.json
+```
+
+The comparison file also includes the PyPortfolioOpt HRP baseline when its
+performance artifact exists.
+
 ## Historical backfill
 
 The historical engine deliberately reuses the current Model V2 rules:
@@ -197,6 +254,10 @@ pytest -q tests/test_qlib_recorder.py
 # PyPortfolioOpt portfolio target smoke test
 pip install -r research/quant_stack/requirements-pypfopt.txt
 pytest -q tests/test_pypfopt_portfolio_targets.py
+
+# Riskfolio isolated benchmark smoke test
+pip install -r research/quant_stack/requirements-riskfolio.txt
+pytest -q tests/test_riskfolio_benchmarks.py
 ```
 
 GitHub Actions also runs these tests on the quant-stack feature branch.
