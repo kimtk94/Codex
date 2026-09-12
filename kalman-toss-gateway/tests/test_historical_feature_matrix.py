@@ -7,7 +7,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]\nsys.path.insert(0, str(ROOT))\n\nfrom research.model_v2.build_historical_feature_matrix import (
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from research.model_v2.build_historical_feature_matrix import (
     ANCHOR_INDICATOR_BY_KEY,
     HISTORICAL_DATASET_VERSION,
     HISTORICAL_FEATURE_SET,
@@ -17,11 +20,11 @@ ROOT = Path(__file__).resolve().parents[1]\nsys.path.insert(0, str(ROOT))\n\nfro
 )
 
 
-def _days(n=900):
+def _days(n: int = 900) -> pd.DatetimeIndex:
     return pd.date_range("2016-12-01", periods=n, freq="D", tz="UTC")
 
 
-def _raw_frame():
+def _raw_frame() -> pd.DataFrame:
     days = _days()
     rows = []
     anchors = {
@@ -31,7 +34,7 @@ def _raw_frame():
     }
     for indicator, base in anchors.items():
         for i, ts in enumerate(days):
-            close = base + i * 0.5 + np.sin(i / 13.0)
+            close = base * (1.0 + 0.04 * np.sin(i / 11.0)) + i * 0.01
             rows.append(
                 {
                     "event_time": ts,
@@ -49,7 +52,7 @@ def _raw_frame():
     return pd.DataFrame(rows)
 
 
-def _feature_frame():
+def _feature_frame() -> pd.DataFrame:
     days = _days()
     definitions = [
         ("US", "US_SPY", 1.0),
@@ -71,24 +74,24 @@ def _feature_frame():
                     "timeframe": "1D",
                     "feature_family": "PRICE",
                     "RAW_VALUE": value,
-                    "CHG_1": i / 10000.0,
-                    "CHG_5": i / 9000.0,
-                    "CHG_20": i / 8000.0,
+                    "CHG_1": np.sin(i / 7.0) / 100.0,
+                    "CHG_5": np.sin(i / 13.0) / 100.0,
+                    "CHG_20": np.sin(i / 29.0) / 100.0,
                     "Z20": np.sin(i / 20.0),
-                    "RET_1D": i / 10000.0,
-                    "RET_5D": i / 9000.0,
-                    "RET_20D": i / 8000.0,
+                    "RET_1D": np.sin(i / 7.0) / 100.0,
+                    "RET_5D": np.sin(i / 13.0) / 100.0,
+                    "RET_20D": np.sin(i / 29.0) / 100.0,
                     "MA20_DIST": np.sin(i / 30.0),
                     "MA50_DIST": np.sin(i / 50.0),
                     "RSI14": 50 + 10 * np.sin(i / 14.0),
-                    "RV20": 0.2,
-                    "ATR14_PCT": 0.01,
+                    "RV20": 0.2 + 0.01 * np.cos(i / 17.0),
+                    "ATR14_PCT": 0.01 + 0.001 * np.sin(i / 19.0),
                 }
             )
     return pd.DataFrame(rows)
 
 
-def _spec():
+def _spec() -> dict:
     return {
         "version": "model",
         "feature_set": "current",
@@ -105,7 +108,12 @@ def _spec():
                 "horizon_observations": 5,
                 "positive_return_threshold": 0.0,
                 "include_groups": ["US", "COMMON", "BTC", "KR"],
-                "group_lag_observations": {"US": 0, "COMMON": 0, "BTC": 1, "KR": 0},
+                "group_lag_observations": {
+                    "US": 0,
+                    "COMMON": 0,
+                    "BTC": 1,
+                    "KR": 0,
+                },
                 "strategy_version": "US",
             },
             "KR": {
@@ -114,7 +122,12 @@ def _spec():
                 "horizon_observations": 5,
                 "positive_return_threshold": 0.0,
                 "include_groups": ["KR", "COMMON", "US", "BTC"],
-                "group_lag_observations": {"KR": 0, "COMMON": 1, "US": 1, "BTC": 0},
+                "group_lag_observations": {
+                    "KR": 0,
+                    "COMMON": 1,
+                    "US": 1,
+                    "BTC": 0,
+                },
                 "strategy_version": "KR",
             },
             "BTC": {
@@ -123,7 +136,12 @@ def _spec():
                 "horizon_observations": 7,
                 "positive_return_threshold": 0.0,
                 "include_groups": ["BTC", "COMMON", "US", "KR"],
-                "group_lag_observations": {"BTC": 0, "COMMON": 1, "US": 1, "KR": 0},
+                "group_lag_observations": {
+                    "BTC": 0,
+                    "COMMON": 1,
+                    "US": 1,
+                    "KR": 0,
+                },
                 "strategy_version": "BTC",
             },
         },
@@ -167,16 +185,16 @@ def test_build_market_matrix_uses_historical_anchor_and_lag(tmp_path):
     anchor = pd.read_parquet(anchor_path)
     assert {"timestamp", "open", "close"}.issubset(anchor.columns)
 
-    # BTC is lagged one observation for the US model.
     btc_col = "BTC_BTCUSD__RAW_VALUE"
     source = features.loc[
-        features["indicator_id"].eq("BTC_BTCUSD"), "RAW_VALUE"
+        features["indicator_id"].eq("BTC_BTCUSD"),
+        "RAW_VALUE",
     ].reset_index(drop=True)
     assert pd.isna(matrix.loc[0, btc_col])
     assert matrix.loc[1, btc_col] == source.iloc[0]
 
 
-def test_build_all_writes_three_2017_ready_matrices(tmp_path):
+def test_build_all_writes_three_ready_historical_matrices(tmp_path):
     raw_path = tmp_path / "raw.parquet"
     feature_path = tmp_path / "features.parquet"
     spec_path = tmp_path / "spec.json"
@@ -198,5 +216,6 @@ def test_build_all_writes_three_2017_ready_matrices(tmp_path):
         assert status["markets"][market]["labeled_rows"] > 700
         assert (output_dir / f"{market.lower()}_matrix.parquet").exists()
         assert (output_dir / f"{market.lower()}_matrix_manifest.json").exists()
+        assert (output_dir / f"{market.lower()}_anchor_raw.parquet").exists()
 
     assert (output_dir / "historical_model_v2_spec.json").exists()
