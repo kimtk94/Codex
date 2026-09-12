@@ -204,7 +204,7 @@ def _test_metrics(
     }
 
 
-def _stateful_signals(
+def _decision_signals(
     model_output: pd.DataFrame,
     *,
     symbol: str,
@@ -225,21 +225,20 @@ def _stateful_signals(
         )
 
     rows: list[dict[str, Any]] = []
-    in_position = False
 
     for row in model_output.sort_values("as_of").to_dict("records"):
         probability = float(row["probability"])
         entry_threshold = float(row["probability_threshold"])
         exit_threshold = max(0.0, min(1.0, 1.0 - entry_threshold))
 
-        if not in_position and probability >= entry_threshold:
+        # Stateless decision layer. Position state belongs only to the ledger.
+        # Repeated BUY/SELL decisions are safely de-duplicated by run_backtest().
+        if probability >= entry_threshold:
             signal = "BUY"
             entry_allowed = True
-            in_position = True
-        elif in_position and probability <= exit_threshold:
+        elif probability <= exit_threshold:
             signal = "SELL"
             entry_allowed = False
-            in_position = False
         else:
             signal = "HOLD"
             entry_allowed = False
@@ -427,7 +426,7 @@ def run_historical_backfill(
         .drop_duplicates(["market", "symbol", "as_of"], keep="last")
         .reset_index(drop=True)
     )
-    strategy_signal = _stateful_signals(
+    strategy_signal = _decision_signals(
         model_output,
         symbol=str(market_spec["symbol"]),
     )
