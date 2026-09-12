@@ -17,11 +17,11 @@
   },
   "execution": {
     "fill": "STRICT_NEXT_BAR_OPEN",
-    "initial_cash": 1000000.0,
+    "initial_cash": 1000000,
     "position_fraction": 0.1,
     "max_open_positions": 1,
-    "commission_bps": 5.0,
-    "slippage_bps": 5.0,
+    "commission_bps": 5,
+    "slippage_bps": 5,
     "max_hold_bars": 20,
     "allow_fractional": true
   },
@@ -35,5 +35,15 @@
     "live_execution": false,
     "toss_execution": false,
     "require_raw_anchor_ohlc": true
+  },
+  "qlib": {
+    "enabled_by_default": false,
+    "package": "pyqlib==0.9.7",
+    "role": "EXPERIMENT_RECORDER_ONLY",
+    "authoritative_data_source": "KALMAN",
+    "authoritative_execution_engine": "KALMAN_NATIVE_LEDGER",
+    "tracking_uri_policy": "RELATIVE_FILE_URI_UNDER_CONTROLLED_CWD",
+    "server_tracking_root_env": "KALMAN_QLIB_TRACKING_ROOT",
+    "server_provider_root_env": "KALMAN_QLIB_PROVIDER_ROOT"
   }
 }
