@@ -479,6 +479,97 @@ def simulate_shadow_fills(
     return fills
 
 
+def cash_constrain_shadow_fills(
+    state: ExecutionState,
+    fills: Sequence[ExecutionFill],
+) -> list[ExecutionFill]:
+    """Apply available-cash constraints after fill prices are known.
+
+    Planning uses pre-effective prices while fills can occur at a different NAV.
+    Risk-reducing SELL fills are applied first to release cash. BUY fills are then
+    truncated deterministically when their fill-price cost exceeds remaining
+    cash. This prevents a gap move from creating negative cash in SHADOW mode.
+    """
+    cash = float(state.cash)
+    positions = {
+        symbol.upper(): float(quantity)
+        for symbol, quantity in state.positions.items()
+    }
+    constrained: list[ExecutionFill] = []
+
+    sells = sorted(
+        (fill for fill in fills if fill.side == "SELL"),
+        key=lambda fill: fill.fill_id,
+    )
+    buys = sorted(
+        (fill for fill in fills if fill.side == "BUY"),
+        key=lambda fill: fill.fill_id,
+    )
+    unknown = [fill for fill in fills if fill.side not in {"BUY", "SELL"}]
+    if unknown:
+        raise ValueError(f"unsupported fill side: {unknown[0].side}")
+
+    for fill in sells:
+        symbol = fill.symbol.upper()
+        current = float(positions.get(symbol, 0.0))
+        quantity = float(fill.quantity)
+        if quantity > current + 1e-9:
+            raise RuntimeError(
+                f"shadow fill would oversell {symbol}: {quantity} > {current}"
+            )
+        positions[symbol] = current - quantity
+        if abs(positions[symbol]) <= 1e-10:
+            positions.pop(symbol, None)
+        cash += quantity * float(fill.fill_price) - float(fill.fee)
+        constrained.append(fill)
+
+    for fill in buys:
+        desired_quantity = float(fill.quantity)
+        price = float(fill.fill_price)
+        desired_notional = desired_quantity * price
+        fee_rate = (
+            float(fill.fee) / desired_notional
+            if desired_notional > 0
+            else 0.0
+        )
+        unit_cost = price * (1.0 + fee_rate)
+        affordable_quantity = cash / unit_cost if unit_cost > 0 else 0.0
+        actual_quantity = min(desired_quantity, max(0.0, affordable_quantity))
+
+        if actual_quantity <= 1e-12:
+            continue
+
+        actual_fee = actual_quantity * price * fee_rate
+        status = (
+            "FILLED"
+            if math.isclose(actual_quantity, desired_quantity, rel_tol=1e-12, abs_tol=1e-12)
+            else "PARTIALLY_FILLED"
+        )
+        payload = {
+            "broker_order_id": fill.broker_order_id,
+            "fill_ts": fill.fill_ts,
+            "quantity": actual_quantity,
+            "fill_price": price,
+            "status": status,
+        }
+        actual_fill = replace(
+            fill,
+            fill_id=_stable_id("fill", payload),
+            quantity=float(actual_quantity),
+            fee=float(actual_fee),
+            status=status,
+        )
+        constrained.append(actual_fill)
+        cash -= actual_quantity * price + actual_fee
+        if abs(cash) <= 1e-7:
+            cash = 0.0
+
+    return sorted(
+        constrained,
+        key=lambda fill: (fill.side != "SELL", fill.fill_id),
+    )
+
+
 def apply_execution_fills(
     state: ExecutionState,
     fills: Sequence[ExecutionFill],
@@ -556,12 +647,13 @@ def run_shadow_rebalance(
         )
 
     orders = plan_shadow_broker_orders(gated, policy=cfg)
-    fills = simulate_shadow_fills(
+    raw_fills = simulate_shadow_fills(
         orders,
         fill_prices=fill_prices,
         fill_ts=fill_ts,
         policy=cfg,
     )
+    fills = cash_constrain_shadow_fills(state, raw_fills)
     new_state = apply_execution_fills(state, fills)
 
     return ExecutionCycleResult(
