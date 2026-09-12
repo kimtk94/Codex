@@ -1,6 +1,17 @@
 name: Kalman Quant Stack Tests
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "kalman-toss-gateway/research/quant_stack/**"
+      - "kalman-toss-gateway/tests/test_quant_stack.py"
+      - "kalman-toss-gateway/tests/test_historical_backfill.py"
+      - "kalman-toss-gateway/tests/test_quant_artifact_validation.py"
+      - "kalman-toss-gateway/tests/test_qlib_recorder.py"
+      - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
+      - ".github/workflows/kalman-quant-stack-tests.yml"
   push:
     branches:
       - feature/quant-stack-v1-20260912
