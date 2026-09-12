@@ -15,6 +15,12 @@ market_price / market_feature_store
 -> Kalman-native next-bar ledger
 -> daily equity / metrics
 -> portfolio allocation
+-> portfolio risk adjustment
+-> order_intent
+-> order safety gate
+-> SHADOW broker_order
+-> execution_fill
+-> execution ledger snapshot
 ```
 
 ## Tool policy
@@ -23,7 +29,7 @@ market_price / market_feature_store
 2. Kalman-native strategy ledger
 3. PyPortfolioOpt
 4. Riskfolio-Lib isolated evaluation
-5. LEAN architecture reference
+5. LEAN-inspired execution contract (architecture reference only)
 6. vectorbt research-only cross-check
 
 Qlib does not replace Neon. vectorbt does not define production execution
@@ -170,6 +176,67 @@ historical_quant_v1/riskfolio/
 The comparison file also includes the PyPortfolioOpt HRP baseline when its
 performance artifact exists.
 
+## LEAN-inspired execution contract
+
+Kalman now uses the **separation-of-concerns pattern** from QuantConnect LEAN's
+Algorithm Framework as an architecture reference. LEAN itself is not installed
+or imported by this package.
+
+The research flow is:
+
+```text
+PortfolioTarget
+    ↓
+portfolio risk adjustment
+    ↓
+OrderIntent
+    ↓
+order safety gate
+    ↓
+BrokerOrder (SHADOW only)
+    ↓
+ExecutionFill (SHADOW NAV fill)
+    ↓
+execution ledger snapshot
+```
+
+This preserves two distinct risk layers:
+
+1. Portfolio-level risk changes requested target weights before execution.
+2. Order-level safety gates approve or reject the resulting intents immediately
+   before a broker order can exist.
+
+The v1 broker is intentionally hard-coded to `SHADOW`. LIVE mode is rejected
+before broker-order creation, and there is no Toss import or network call in
+the research execution module. The existing Toss Gateway remains a separate
+production boundary.
+
+No-lookahead semantics are explicit:
+
+- planning/reference NAV: latest observation **strictly before** `effective_ts`
+- shadow fill NAV: first observation **on or after** `effective_ts`
+
+Enable or disable the post-portfolio execution-contract runner with:
+
+```bash
+export KALMAN_LEAN_EXECUTION_ENABLED=true
+```
+
+Outputs:
+
+```text
+historical_quant_v1/execution/
+  portfolio_target_risk_adjusted.parquet
+  order_intent.parquet
+  broker_order.parquet
+  execution_fill.parquet
+  execution_ledger.parquet
+  execution_status.json
+```
+
+These artifacts are research-only. They do not write to Neon and do not submit
+orders to Toss.
+
 ## Historical backfill
 
 The historical engine deliberately reuses the current Model V2 rules:
@@ -258,6 +325,9 @@ pytest -q tests/test_pypfopt_portfolio_targets.py
 # Riskfolio isolated benchmark smoke test
 pip install -r research/quant_stack/requirements-riskfolio.txt
 pytest -q tests/test_riskfolio_benchmarks.py
+
+# LEAN-inspired execution contract smoke test
+pytest -q tests/test_lean_execution_contract.py
 ```
 
 GitHub Actions also runs these tests on the quant-stack feature branch.
