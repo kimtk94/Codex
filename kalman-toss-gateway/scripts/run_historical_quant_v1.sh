@@ -68,4 +68,6 @@ fi
 
 "$PY" "${ARGS[@]}"
 
-printf 'HISTORICAL_QUANT_V1_COMPLETE root=%s start=%s\n' "$OUTPUT_DIR" "$START_DATE"
+"$PY" -m research.quant_stack.validate_artifacts   --output-dir "$OUTPUT_DIR"
+
+printf 'HISTORICAL_QUANT_V1_COMPLETE root=%s start=%s validation=READY\n' "$OUTPUT_DIR" "$START_DATE"
