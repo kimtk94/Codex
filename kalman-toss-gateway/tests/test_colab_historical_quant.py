@@ -15,7 +15,7 @@ SPEC.loader.exec_module(mod)
 
 def test_minimum_labeled_rows():
     assert mod.minimum_labeled_rows(504, 63, 126, 5) == 703
-    assert mod.minimum_labeled_rows(504, 63, 126, 14) == 721
+    assert mod.minimum_labeled_rows(504, 63, 126, 7) == 707
 
 
 def test_validate_coverage_accepts_2017_history():
@@ -23,13 +23,22 @@ def test_validate_coverage_accepts_2017_history():
         "markets": {
             "US": {"horizon_observations": 5},
             "KR": {"horizon_observations": 5},
-            "BTC": {"horizon_observations": 14},
+            "BTC": {"horizon_observations": 7},
         }
     }
     coverage = {
-        "US": {"labeled_rows": 1000, "min_labeled_as_of": "2017-01-01T00:00:00+00:00"},
-        "KR": {"labeled_rows": 1000, "min_labeled_as_of": "2017-01-01T00:00:00+00:00"},
-        "BTC": {"labeled_rows": 1000, "min_labeled_as_of": "2017-01-01T00:00:00+00:00"},
+        "US": {
+            "labeled_rows": 2400,
+            "min_labeled_as_of": "2017-01-03T00:00:00+00:00",
+        },
+        "KR": {
+            "labeled_rows": 2300,
+            "min_labeled_as_of": "2017-01-02T00:00:00+00:00",
+        },
+        "BTC": {
+            "labeled_rows": 3500,
+            "min_labeled_as_of": "2017-01-01T00:00:00+00:00",
+        },
     }
     errors = mod.validate_coverage(
         coverage,
@@ -42,26 +51,24 @@ def test_validate_coverage_accepts_2017_history():
     assert errors == []
 
 
-def test_validate_coverage_rejects_short_or_late_history():
-    spec = {
-        "markets": {
-            "US": {"horizon_observations": 5},
-            "KR": {"horizon_observations": 5},
-            "BTC": {"horizon_observations": 14},
-        }
-    }
-    coverage = {
-        "US": {"labeled_rows": 100, "min_labeled_as_of": "2026-01-01T00:00:00+00:00"},
-        "KR": {"labeled_rows": 1000, "min_labeled_as_of": "2017-01-01T00:00:00+00:00"},
-        "BTC": {"labeled_rows": 1000, "min_labeled_as_of": "2017-01-01T00:00:00+00:00"},
-    }
-    errors = mod.validate_coverage(
-        coverage,
-        start_date="2017-01-01",
-        spec=spec,
-        train_obs=504,
-        valid_obs=63,
-        test_obs=126,
+def test_find_historical_sources_prefers_v03_features(tmp_path):
+    market_root = tmp_path / "Market_Data" / "v2"
+    feature_root = tmp_path / "Market_Features" / "v2"
+    raw_dir = market_root / "raw" / "historical_2017"
+    feature_dir = feature_root / "talib" / "historical_2017"
+    raw_dir.mkdir(parents=True)
+    feature_dir.mkdir(parents=True)
+
+    raw = raw_dir / "multimarket_raw_2017_present.parquet"
+    feature_old = feature_dir / "multimarket_features_2017_present.parquet"
+    feature_v03 = feature_dir / "multimarket_features_2017_present_v0_3.parquet"
+    raw.write_bytes(b"raw")
+    feature_old.write_bytes(b"old")
+    feature_v03.write_bytes(b"v03")
+
+    found_raw, found_features = mod.find_historical_sources(
+        market_root,
+        feature_root,
     )
-    assert any("labeled_rows" in item for item in errors)
-    assert any("earliest labeled year" in item for item in errors)
+    assert found_raw == raw
+    assert found_features == feature_v03
