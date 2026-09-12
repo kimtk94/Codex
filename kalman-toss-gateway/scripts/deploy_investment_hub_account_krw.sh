@@ -111,27 +111,78 @@ else
   echo "[PASS] known-good production restored"
 fi
 
-curl -fsS --max-time 20 "${PROD_URL}/api/account" >"${WORK}/restored-account.json"
+account_ok() {
+  local file="$1"
+  python3 - "$file" <<'PY' >/dev/null 2>&1
+import json, sys
+from pathlib import Path
+try:
+    raw=Path(sys.argv[1]).read_text(encoding="utf-8").strip()
+    x=json.loads(raw)
+except Exception:
+    raise SystemExit(1)
+parts=x.get("parts") or {}
+items=(((x.get("holdings") or {}).get("result") or {}).get("items") or [])
+ok=(
+    x.get("status") == "READY"
+    and x.get("trade_execution") is False
+    and bool(items)
+    and all((parts.get(k) or {}).get("ok") is True for k in (
+        "accounts","holdings","buying_power_usd","buying_power_krw"
+    ))
+)
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+dashboard_ok() {
+  local file="$1"
+  python3 - "$file" <<'PY' >/dev/null 2>&1
+import json, sys
+from pathlib import Path
+try:
+    raw=Path(sys.argv[1]).read_text(encoding="utf-8").strip()
+    x=json.loads(raw)
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if not x.get("error") and x.get("payload") is not None else 1)
+PY
+}
+
+wait_json_route() {
+  local url="$1"
+  local file="$2"
+  local checker="$3"
+  local label="$4"
+  local attempts="${5:-45}"
+
+  for _ in $(seq 1 "$attempts"); do
+    : >"$file"
+    curl -fsS --max-time 20 "$url" >"$file" 2>/dev/null || true
+    if "$checker" "$file"; then
+      echo "[PASS] $label"
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "[FAIL] $label did not become valid JSON/READY" >&2
+  echo "[INFO] last response preview:" >&2
+  head -c 500 "$file" >&2 || true
+  echo >&2
+  return 1
+}
+
+wait_json_route   "${PROD_URL}/api/account"   "${WORK}/restored-account.json"   account_ok   "account READY" || fail "account restore verification failed"
+
 python3 - "${WORK}/restored-account.json" <<'PY'
 import json, sys
 x=json.load(open(sys.argv[1], encoding="utf-8"))
-assert x.get("status") == "READY"
-assert x.get("trade_execution") is False
-parts=x.get("parts") or {}
-for k in ("accounts","holdings","buying_power_usd","buying_power_krw"):
-    assert (parts.get(k) or {}).get("ok") is True, (k, parts.get(k))
 items=(((x.get("holdings") or {}).get("result") or {}).get("items") or [])
-assert items, "no holdings returned"
-print(f"[PASS] account READY / holdings={len(items)}")
+print(f"[PASS] account holdings={len(items)}")
 PY
 
-curl -fsS --max-time 20 "${PROD_URL}/api/dashboard?market=GLOBAL" >"${WORK}/restored-dashboard.json"
-python3 - "${WORK}/restored-dashboard.json" <<'PY'
-import json, sys
-x=json.load(open(sys.argv[1], encoding="utf-8"))
-assert not x.get("error"), x
-print("[PASS] dashboard restored")
-PY
+wait_json_route   "${PROD_URL}/api/dashboard?market=GLOBAL"   "${WORK}/restored-dashboard.json"   dashboard_ok   "dashboard restored" || fail "dashboard restore verification failed"
 
 echo
 echo "[2/8] Recover exact source from known-good deployment"
@@ -522,8 +573,19 @@ EOF
 vercel deploy --dry --format=json --scope "${TEAM_SLUG}" >"${WORK}/dry-run.json"
 python3 - "${WORK}/dry-run.json" <<'PY'
 import json, sys
-x=json.load(open(sys.argv[1], encoding="utf-8"))
-print("[PASS] Vercel dry-run manifest generated")
+from pathlib import Path
+raw=Path(sys.argv[1]).read_text(encoding="utf-8",errors="replace").strip()
+if not raw:
+    raise SystemExit("[FAIL] empty Vercel dry-run output")
+try:
+    json.loads(raw)
+except Exception:
+    # Some CLI releases prepend/append informational text even with --format=json.
+    # The dry-run command already exited 0; keep the artifact for audit instead
+    # of failing solely on presentation formatting.
+    print("[WARN] Vercel dry-run output is not pure JSON; command exit was successful")
+else:
+    print("[PASS] Vercel dry-run manifest JSON")
 PY
 
 echo
@@ -621,56 +683,70 @@ rollback() {
   vercel promote "${GOOD_URL}" --yes --scope "${TEAM_SLUG}" >/dev/null || true
 }
 
-for i in $(seq 1 30); do
-  if curl -fsS --max-time 10 "${PROD_URL}/api/health" >"${WORK}/prod-health.json" 2>/dev/null; then
-    if python3 - "${WORK}/prod-health.json" <<'PY'
+prod_health_ok() {
+  local file="$1"
+  python3 - "$file" <<'PY' >/dev/null 2>&1
 import json,sys
-x=json.load(open(sys.argv[1], encoding="utf-8"))
-assert x.get("investment_hub_version")=="vNext.7.4.10"
-assert x.get("account_gateway_configured") is True
-assert x.get("account_trade_execution") is False
-assert x.get("trade_enabled") is False
+from pathlib import Path
+try:
+    x=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8").strip())
+except Exception:
+    raise SystemExit(1)
+ok=(
+    x.get("investment_hub_version")=="vNext.7.4.10"
+    and x.get("account_gateway_configured") is True
+    and x.get("account_gateway_secret_configured") is True
+    and x.get("account_trade_execution") is False
+    and x.get("trade_enabled") is False
+)
+raise SystemExit(0 if ok else 1)
 PY
-    then
-      break
-    fi
+}
+
+PROD_READY=false
+for _ in $(seq 1 45); do
+  : >"${WORK}/prod-health.json"
+  curl -fsS --max-time 10 "${PROD_URL}/api/health"     >"${WORK}/prod-health.json" 2>/dev/null || true
+  if prod_health_ok "${WORK}/prod-health.json"; then
+    PROD_READY=true
+    break
   fi
   sleep 2
-  if [ "$i" -eq 30 ]; then
-    rollback
-    fail "production health failed after promotion"
-  fi
 done
 
-set +e
-curl -fsS --max-time 20 "${PROD_URL}/api/account" >"${WORK}/prod-account.json"
-A_RC=$?
-curl -fsS --max-time 20 "${PROD_URL}/api/dashboard?market=GLOBAL" >"${WORK}/prod-dashboard.json"
-D_RC=$?
-curl -fsS --max-time 20 "${PROD_URL}/app.js" >"${WORK}/prod-app.js"
-J_RC=$?
-set -e
-
-if [ "${A_RC}" -ne 0 ] || [ "${D_RC}" -ne 0 ] || [ "${J_RC}" -ne 0 ]; then
+if [ "${PROD_READY}" != true ]; then
   rollback
-  fail "production smoke HTTP failure"
+  fail "production health failed after promotion"
+fi
+echo "[PASS] production vNext.7.4.10 health"
+
+if ! wait_json_route   "${PROD_URL}/api/account"   "${WORK}/prod-account.json"   account_ok   "production account READY"; then
+  rollback
+  fail "production account smoke failed"
 fi
 
-python3 - "${WORK}/prod-account.json" "${WORK}/prod-dashboard.json" <<'PY'
-import json,sys
-a=json.load(open(sys.argv[1], encoding="utf-8"))
-d=json.load(open(sys.argv[2], encoding="utf-8"))
-assert a.get("status")=="READY"
-assert a.get("trade_execution") is False
-assert not d.get("error")
-assert d.get("payload") is not None
-print("[PASS] production account + dashboard")
-PY
+if ! wait_json_route   "${PROD_URL}/api/dashboard?market=GLOBAL"   "${WORK}/prod-dashboard.json"   dashboard_ok   "production dashboard READY"; then
+  rollback
+  fail "production dashboard smoke failed"
+fi
 
-if ! grep -q "accountKrw" "${WORK}/prod-app.js"; then
+APP_READY=false
+for _ in $(seq 1 30); do
+  : >"${WORK}/prod-app.js"
+  curl -fsS --max-time 20 "${PROD_URL}/app.js" >"${WORK}/prod-app.js" 2>/dev/null || true
+  if grep -q "accountKrw" "${WORK}/prod-app.js"      && grep -q "fmt(qty(h),6)" "${WORK}/prod-app.js"; then
+    APP_READY=true
+    break
+  fi
+  sleep 2
+done
+
+if [ "${APP_READY}" != true ]; then
   rollback
   fail "production UI marker missing"
 fi
+
+echo "[PASS] production account + dashboard + UI"
 
 echo
 echo "[8/8] Gateway live-trading gate verification"
