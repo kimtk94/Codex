@@ -8,6 +8,8 @@ on:
       - "notebooks/Kalman_Historical_Quant_2017_Colab_v4.ipynb"
       - "kalman-toss-gateway/scripts/colab_historical_quant.py"
       - "kalman-toss-gateway/tests/test_colab_historical_quant.py"
+      - "kalman-toss-gateway/research/model_v2/build_historical_feature_matrix.py"
+      - "kalman-toss-gateway/tests/test_historical_feature_matrix.py"
       - ".github/workflows/colab-v4-runner.yml"
   push:
     branches:
@@ -16,6 +18,8 @@ on:
       - "notebooks/Kalman_Historical_Quant_2017_Colab_v4.ipynb"
       - "kalman-toss-gateway/scripts/colab_historical_quant.py"
       - "kalman-toss-gateway/tests/test_colab_historical_quant.py"
+      - "kalman-toss-gateway/research/model_v2/build_historical_feature_matrix.py"
+      - "kalman-toss-gateway/tests/test_historical_feature_matrix.py"
       - ".github/workflows/colab-v4-runner.yml"
 
 permissions:
@@ -38,15 +42,17 @@ jobs:
       - name: Static compile
         run: |
           python -m py_compile scripts/colab_historical_quant.py
+          python -m py_compile research/model_v2/build_historical_feature_matrix.py
 
       - name: Install test tools
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pyflakes
+          pip install pytest pyflakes pandas numpy pyarrow
 
       - name: Undefined-name audit
         run: |
           pyflakes scripts/colab_historical_quant.py
+          pyflakes research/model_v2/build_historical_feature_matrix.py
 
       - name: Runner self-test
         run: |
@@ -54,7 +60,9 @@ jobs:
 
       - name: Unit tests
         run: |
-          pytest -q tests/test_colab_historical_quant.py
+          pytest -q \
+            tests/test_colab_historical_quant.py \
+            tests/test_historical_feature_matrix.py
 
       - name: Notebook JSON and launcher audit
         run: |
