@@ -57,13 +57,12 @@ jobs:
           pytest -q tests/test_colab_historical_quant.py
 
       - name: Notebook JSON and launcher audit
-        working-directory: ..
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
-          p = Path("notebooks/Kalman_Historical_Quant_2017_Colab_v4.ipynb")
+          p = Path("../notebooks/Kalman_Historical_Quant_2017_Colab_v4.ipynb")
           nb = json.loads(p.read_text(encoding="utf-8"))
           assert len(nb["cells"]) == 1
           assert nb["cells"][0]["cell_type"] == "code"
