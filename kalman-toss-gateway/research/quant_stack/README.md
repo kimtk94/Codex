@@ -58,8 +58,10 @@ Qlib records experiment parameters, numeric performance metrics and a compact
 artifact manifest. Kalman remains authoritative for source data, fold outputs,
 signals, fills, ledger and PnL.
 
-The adapter intentionally uses a controlled working directory plus a relative
-MLflow file URI to avoid the Qlib 0.9.7 absolute-file-URI lock-path issue.
+The adapter uses an SQLite MLflow tracking backend (`qlib_mlflow.db`) inside
+the configured tracking root. This avoids the MLflow 3.x filesystem-tracking
+maintenance mode and also avoids the Qlib 0.9.7 absolute file-URI lock-path
+issue.
 
 ## Historical backfill
 
