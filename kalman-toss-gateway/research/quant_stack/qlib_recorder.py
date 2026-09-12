@@ -60,9 +60,9 @@ def record_market_experiment(
     Qlib is used only as an experiment/recorder layer. Kalman remains the
     authoritative source for data, model outputs, execution semantics and PnL.
 
-    Qlib 0.9.7 has a known MLflowExpManager absolute file-URI lock-path issue.
-    To avoid it, this adapter runs Qlib Recorder inside a controlled working
-    directory and uses a relative file URI.
+    Qlib 0.9.7 is paired here with an SQLite MLflow tracking backend.
+    This avoids MLflow 3.x filesystem-tracking deprecation/maintenance mode
+    and also avoids Qlib's absolute file-URI lock-path issue.
     """
     if not qlib_available():
         raise RuntimeError(
@@ -80,17 +80,20 @@ def record_market_experiment(
     from qlib.constant import REG_US
     from qlib.workflow import R
 
+    db_name = "qlib_mlflow.db"
+    tracking_db = tracking_root / db_name
     exp_manager = {
         "class": "MLflowExpManager",
         "module_path": "qlib.workflow.expm",
         "kwargs": {
-            # Relative on purpose. See adapter docstring.
-            "uri": f"file:./{tracking_root.name}",
+            # Keep the SQLite URI relative to the controlled working directory.
+            # This is portable across server/CI paths and avoids file-store mode.
+            "uri": f"sqlite:///{db_name}",
             "default_exp_name": experiment_name,
         },
     }
 
-    with _working_directory(tracking_root.parent):
+    with _working_directory(tracking_root):
         qlib.init(
             provider_uri=str(provider_root),
             region=REG_US,
@@ -108,10 +111,11 @@ def record_market_experiment(
 
     return {
         "status": "RECORDED",
-        "backend": "QLIB_RECORDER_MLFLOW",
+        "backend": "QLIB_RECORDER_MLFLOW_SQLITE",
         "experiment_name": experiment_name,
         "recorder_id": recorder_id,
         "tracking_root": str(tracking_root),
+        "tracking_db": str(tracking_db),
         "authoritative_data_source": "KALMAN",
         "authoritative_execution_engine": "KALMAN_NATIVE_LEDGER",
     }
