@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 
@@ -8,6 +9,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "colab_historical_qua
 SPEC = importlib.util.spec_from_file_location("colab_historical_quant", SCRIPT)
 assert SPEC and SPEC.loader
 mod = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = mod
 SPEC.loader.exec_module(mod)
 
 
