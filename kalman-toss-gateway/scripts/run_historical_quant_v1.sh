@@ -44,6 +44,11 @@ QLIB_ENABLED="${KALMAN_QLIB_ENABLED:-false}"
 QLIB_TRACKING_ROOT="${KALMAN_QLIB_TRACKING_ROOT:-$LOCK_DIR/qlib_mlruns}"
 QLIB_PROVIDER_ROOT="${KALMAN_QLIB_PROVIDER_ROOT:-$LOCK_DIR/qlib_provider}"
 QLIB_EXPERIMENT_NAME="${KALMAN_QLIB_EXPERIMENT_NAME:-kalman_historical_quant_v1}"
+PORTFOLIO_ENABLED="${KALMAN_PORTFOLIO_ENABLED:-true}"
+PORTFOLIO_METHOD="${KALMAN_PORTFOLIO_METHOD:-hrp}"
+PORTFOLIO_LOOKBACK_DAYS="${KALMAN_PORTFOLIO_LOOKBACK_DAYS:-180}"
+PORTFOLIO_MIN_OBSERVATIONS="${KALMAN_PORTFOLIO_MIN_OBSERVATIONS:-90}"
+PORTFOLIO_REBALANCE="${KALMAN_PORTFOLIO_REBALANCE:-M}"
 
 cd "$APP_ROOT"
 exec 9>"$LOCK_DIR/historical-quant-v1.lock"
@@ -70,6 +75,20 @@ if [ -n "$GIT_SHA" ]; then
   ARGS+=(--git-sha "$GIT_SHA")
 fi
 
+if [ "${PORTFOLIO_ENABLED,,}" = "true" ]; then
+  "$PY" -c 'import pypfopt' >/dev/null 2>&1 || {
+    echo "[FAIL] PyPortfolioOpt missing. Install research/quant_stack/requirements-pypfopt.txt" >&2
+    exit 11
+  }
+  ARGS+=(
+    --portfolio-targets
+    --portfolio-method "$PORTFOLIO_METHOD"
+    --portfolio-lookback-days "$PORTFOLIO_LOOKBACK_DAYS"
+    --portfolio-min-observations "$PORTFOLIO_MIN_OBSERVATIONS"
+    --portfolio-rebalance "$PORTFOLIO_REBALANCE"
+  )
+fi
+
 if [ "${QLIB_ENABLED,,}" = "true" ]; then
   ARGS+=(
     --qlib-recorder
@@ -83,5 +102,5 @@ fi
 
 "$PY" -m research.quant_stack.validate_artifacts   --output-dir "$OUTPUT_DIR"
 
-printf 'HISTORICAL_QUANT_V1_COMPLETE root=%s start=%s validation=READY qlib=%s\n' \
-  "$OUTPUT_DIR" "$START_DATE" "$QLIB_ENABLED"
+printf 'HISTORICAL_QUANT_V1_COMPLETE root=%s start=%s validation=READY qlib=%s portfolio=%s method=%s\n' \
+  "$OUTPUT_DIR" "$START_DATE" "$QLIB_ENABLED" "$PORTFOLIO_ENABLED" "$PORTFOLIO_METHOD"
