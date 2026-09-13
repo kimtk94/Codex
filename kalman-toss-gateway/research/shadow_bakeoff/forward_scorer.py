@@ -138,11 +138,18 @@ def score_v2_forward(
     )
 
     latest = frame.iloc[[-1]].copy()
-    max_missing_feature_ratio = 1.0 - float(
-        spec.get(
-            "minimum_feature_coverage",
-            DEFAULT_MINIMUM_FEATURE_COVERAGE,
-        )
+    max_missing_feature_ratio = min(
+        0.20,
+        max(
+            0.0,
+            1.0
+            - float(
+                spec.get(
+                    "minimum_feature_coverage",
+                    DEFAULT_MINIMUM_FEATURE_COVERAGE,
+                )
+            ),
+        ),
     )
     missing_feature_ratio = _validate_forward_row(
         latest,
@@ -315,11 +322,18 @@ def score_v3_forward(
     )
 
     latest = frame.iloc[[-1]].copy()
-    max_missing_feature_ratio = 1.0 - float(
-        spec.get(
-            "minimum_feature_coverage",
-            DEFAULT_MINIMUM_FEATURE_COVERAGE,
-        )
+    max_missing_feature_ratio = min(
+        0.20,
+        max(
+            0.0,
+            1.0
+            - float(
+                spec.get(
+                    "minimum_feature_coverage",
+                    DEFAULT_MINIMUM_FEATURE_COVERAGE,
+                )
+            ),
+        ),
     )
     missing_feature_ratio = _validate_forward_row(
         latest,
