@@ -66,6 +66,40 @@ def _weight_series(raw: Any, columns: list[str]) -> pd.Series:
     )
 
 
+def _fallback_weights(
+    clean: pd.DataFrame,
+    original_columns: list[str],
+    *,
+    reason: str,
+) -> pd.Series:
+    out = pd.Series(0.0, index=original_columns, dtype=float)
+    if clean.empty:
+        out[:] = 1.0 / len(original_columns)
+    else:
+        vol = clean.std(ddof=0)
+        active = [
+            column
+            for column in clean.columns
+            if np.isfinite(float(vol[column])) and float(vol[column]) > 1e-12
+        ]
+        if not active:
+            out[:] = 1.0 / len(original_columns)
+        elif len(active) == 1:
+            out.loc[active[0]] = 1.0
+        else:
+            inv = 1.0 / vol.loc[active]
+            inv = inv.replace([np.inf, -np.inf], np.nan).dropna()
+            if inv.empty or float(inv.sum()) <= 0:
+                out.loc[active] = 1.0 / len(active)
+            else:
+                out.loc[inv.index] = inv / float(inv.sum())
+
+    out = _normalize(out, original_columns)
+    out.attrs["optimization_status"] = "FALLBACK"
+    out.attrs["fallback_reason"] = reason
+    return out
+
+
 def riskfolio_weights(
     returns: pd.DataFrame,
     *,
@@ -81,6 +115,7 @@ def riskfolio_weights(
             "in the isolated Riskfolio venv."
         ) from exc
 
+    original_columns = [str(column) for column in returns.columns]
     clean = (
         returns.copy()
         .replace([np.inf, -np.inf], np.nan)
@@ -88,49 +123,90 @@ def riskfolio_weights(
         .astype(float)
     )
     if clean.empty:
-        raise ValueError("returns are empty after cleaning")
-    if clean.shape[1] < 2:
-        raise ValueError("Riskfolio benchmark requires at least two sleeves")
+        return _fallback_weights(
+            clean,
+            original_columns,
+            reason="EMPTY_AFTER_CLEANING",
+        )
 
-    port = rp.Portfolio(returns=clean)
-    port.assets_stats(method_mu="hist", method_cov="hist")
+    vol = clean.std(ddof=0)
+    active_columns = [
+        column
+        for column in clean.columns
+        if np.isfinite(float(vol[column])) and float(vol[column]) > 1e-12
+    ]
+    if len(active_columns) < 2:
+        return _fallback_weights(
+            clean[active_columns] if active_columns else clean.iloc[:, 0:0],
+            original_columns,
+            reason="INSUFFICIENT_NONZERO_VARIANCE_SLEEVES",
+        )
 
+    active = clean[active_columns]
     method = method.strip().lower()
-    if method == "cvar_minrisk":
-        raw = port.optimization(
-            model="Classic",
-            rm="CVaR",
-            obj="MinRisk",
-            rf=0,
-            l=0,
-            hist=True,
-        )
-    elif method == "risk_parity":
-        raw = port.rp_optimization(
-            model="Classic",
-            rm="MV",
-            rf=0,
-            b=None,
-            hist=True,
-        )
-    elif method == "cdar_minrisk":
-        raw = port.optimization(
-            model="Classic",
-            rm="CDaR",
-            obj="MinRisk",
-            rf=0,
-            l=0,
-            hist=True,
-        )
-    else:
-        raise ValueError(f"unsupported Riskfolio method: {method}")
 
-    weights = _weight_series(raw, list(clean.columns))
-    if not np.isclose(float(weights.sum()), 1.0, atol=1e-7):
-        raise RuntimeError("Riskfolio weights do not sum to 1")
-    if (weights < -1e-10).any():
-        raise RuntimeError("Riskfolio long-only benchmark produced negative weights")
-    return weights
+    try:
+        port = rp.Portfolio(returns=active)
+        # Historical covariance becomes singular for long flat/collinear
+        # sleeve windows. Ledoit-Wolf shrinkage is supported by Riskfolio
+        # and is materially more stable for this benchmark use case.
+        port.assets_stats(method_mu="hist", method_cov="ledoit")
+
+        if method == "cvar_minrisk":
+            raw = port.optimization(
+                model="Classic",
+                rm="CVaR",
+                obj="MinRisk",
+                rf=0,
+                l=0,
+                hist=True,
+            )
+        elif method == "risk_parity":
+            raw = port.rp_optimization(
+                model="Classic",
+                rm="MV",
+                rf=0,
+                b=None,
+                hist=True,
+            )
+        elif method == "cdar_minrisk":
+            raw = port.optimization(
+                model="Classic",
+                rm="CDaR",
+                obj="MinRisk",
+                rf=0,
+                l=0,
+                hist=True,
+            )
+        else:
+            raise ValueError(f"unsupported Riskfolio method: {method}")
+
+        active_weights = _weight_series(raw, list(active.columns))
+        weights = _normalize(
+            active_weights.reindex(original_columns).fillna(0.0),
+            original_columns,
+        )
+        if not np.isclose(float(weights.sum()), 1.0, atol=1e-7):
+            raise RuntimeError("Riskfolio weights do not sum to 1")
+        if (weights < -1e-10).any():
+            raise RuntimeError(
+                "Riskfolio long-only benchmark produced negative weights"
+            )
+        weights.attrs["optimization_status"] = "READY"
+        weights.attrs["fallback_reason"] = None
+        return weights
+    except ValueError:
+        # Unsupported method is a caller error and should not be hidden by a
+        # numerical fallback.
+        if method not in RISKFOLIO_METHODS:
+            raise
+        raise
+    except Exception as exc:
+        return _fallback_weights(
+            active,
+            original_columns,
+            reason=f"{type(exc).__name__}: {exc}",
+        )
 
 
 def _rebalance_dates(index: pd.DatetimeIndex, frequency: str) -> list[pd.Timestamp]:
@@ -169,6 +245,10 @@ def build_riskfolio_targets(
             continue
 
         weights = riskfolio_weights(history, method=method)
+        optimization_status = str(
+            weights.attrs.get("optimization_status", "READY")
+        )
+        fallback_reason = weights.attrs.get("fallback_reason")
         for sleeve, weight in weights.items():
             rows.append(
                 {
@@ -181,6 +261,8 @@ def build_riskfolio_targets(
                     "lookback_end": history.index[-1],
                     "observations": int(len(history)),
                     "source": "RISKFOLIO",
+                    "optimization_status": optimization_status,
+                    "fallback_reason": fallback_reason,
                 }
             )
 
@@ -255,6 +337,12 @@ def run_riskfolio_benchmarks(
             "markets": markets,
             "rebalance_count": int(targets["effective_ts"].nunique()),
             "target_rows": int(len(targets)),
+            "fallback_rebalance_count": int(
+                targets.loc[
+                    targets["optimization_status"] == "FALLBACK",
+                    "effective_ts",
+                ].nunique()
+            ),
             "performance": metrics,
             "live_execution": False,
             "neon_write": False,
