@@ -49,13 +49,18 @@ def run(cmd: list[str | Path], *, cwd: Path | None = None, env=None) -> None:
 def capture(cmd: list[str | Path], *, cwd: Path | None = None, env=None) -> str:
     args = [str(x) for x in cmd]
     print("\n$", " ".join(args))
-    output = subprocess.check_output(
-        args,
-        cwd=cwd,
-        env=env,
-        text=True,
-        stderr=subprocess.STDOUT,
-    )
+    try:
+        output = subprocess.check_output(
+            args,
+            cwd=cwd,
+            env=env,
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
+    except subprocess.CalledProcessError as exc:
+        if exc.output:
+            print(exc.output, end="" if exc.output.endswith("\n") else "\n")
+        raise
     print(output, end="" if output.endswith("\n") else "\n")
     return output.strip()
 
@@ -195,7 +200,7 @@ def main() -> int:
         smoke = """
 import numpy as np
 import pandas as pd
-from research.quant_stack.portfolio import hierarchical_risk_parity
+from research.quant_stack.portfolio import allocate
 
 idx = pd.date_range("2024-01-01", periods=120, freq="D", tz="UTC")
 returns = pd.DataFrame({
@@ -203,7 +208,7 @@ returns = pd.DataFrame({
     "KR": np.sin(np.arange(len(idx)) / 7.0) * 0.01,
     "BTC": np.cos(np.arange(len(idx)) / 5.0) * 0.02,
 }, index=idx)
-weights = hierarchical_risk_parity(returns)
+weights = allocate(returns, method="hrp")
 assert np.isfinite(weights.to_numpy(dtype=float)).all()
 assert abs(float(weights.sum()) - 1.0) < 1e-8
 assert float(weights["US"]) == 0.0
