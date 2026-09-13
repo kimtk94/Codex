@@ -138,6 +138,7 @@ def test_forward_row_quality_gate_rejects_training_or_missing() -> None:
             same,
             trained_through=pd.Timestamp("2026-09-11", tz="UTC"),
             features=["a", "b"],
+            max_missing_feature_ratio=0.20,
         )
 
     missing = pd.DataFrame(
@@ -148,4 +149,5 @@ def test_forward_row_quality_gate_rejects_training_or_missing() -> None:
             missing,
             trained_through=pd.Timestamp("2026-09-11", tz="UTC"),
             features=["a", "b"],
+            max_missing_feature_ratio=0.20,
         )
