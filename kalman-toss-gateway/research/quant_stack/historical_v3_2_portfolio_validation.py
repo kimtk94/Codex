@@ -272,8 +272,10 @@ def portfolio_equity_with_costs(
         weights = pd.Series(0.0, index=frame.columns, dtype=float)
         for item in group.itertuples(index=False):
             weights.loc[str(item.sleeve)] = float(item.target_weight)
-        weights = _normalize(weights, [str(x) for x in frame.columns])
-        target_map[pd.Timestamp(ts)] = weights
+        target_map[pd.Timestamp(ts)] = _normalize(
+            weights,
+            [str(x) for x in frame.columns],
+        )
 
     if not target_map:
         raise RuntimeError("no portfolio weights")
@@ -289,6 +291,10 @@ def portfolio_equity_with_costs(
     rows: list[dict[str, Any]] = []
 
     for ts, daily_returns in active_frame.iterrows():
+        daily_returns = pd.to_numeric(
+            daily_returns,
+            errors="coerce",
+        ).fillna(0.0)
         pre_equity = float(cash + sleeve_values.sum())
         if pre_equity <= 0:
             raise RuntimeError("portfolio equity became non-positive")
@@ -301,15 +307,19 @@ def portfolio_equity_with_costs(
 
         if is_rebalance:
             target = target_map[ts]
-            if float(sleeve_values.sum()) > 0:
-                prior_weights = sleeve_values / float(sleeve_values.sum())
+            invested = float(sleeve_values.sum())
+            if invested > 0:
+                prior_weights = sleeve_values / invested
             else:
                 prior_weights = pd.Series(
-                    0.0, index=sleeve_values.index, dtype=float
+                    0.0,
+                    index=sleeve_values.index,
+                    dtype=float,
                 )
 
-            delta = target - prior_weights
-            traded_notional_ratio = float(np.abs(delta).sum())
+            traded_notional_ratio = float(
+                np.abs(target - prior_weights).sum()
+            )
             if (
                 prior_weights.abs().sum() <= 1e-12
                 and not charge_initial_allocation
@@ -326,66 +336,27 @@ def portfolio_equity_with_costs(
             sleeve_values = investable * target
             cash = 0.0
 
-        invested_before_return = float(sleeve_values.sum())
-        cash_before_return = float(cash)
-
+        pre_return_values = sleeve_values.copy()
+        invested_before_return = float(pre_return_values.sum())
         if invested_before_return > 0:
-            sleeve_values = sleeve_values * (
-                1.0 + pd.to_numeric(daily_returns, errors="coerce").fillna(0.0)
-            )
-
-        end_equity = float(cash + sleeve_values.sum())
-        gross_end_equity = pre_equity - rebalance_cost_value
-        if invested_before_return > 0:
-            gross_end_equity = cash_before_return + float(
-                (
-                    (pre_equity - rebalance_cost_value)
-                    * (
-                        (
-                            sleeve_values
-                            / float(sleeve_values.sum())
-                            if float(sleeve_values.sum()) > 0
-                            else pd.Series(
-                                0.0,
-                                index=sleeve_values.index,
-                                dtype=float,
-                            )
-                        )
-                    )
-                ).sum()
-            )
-            # Recompute gross return directly from the pre-return sleeve
-            # composition to avoid using post-return drifted weights.
-            if is_rebalance:
-                pre_return_weights = target_map[ts]
-            else:
-                pre_return_total = pre_equity
-                pre_return_weights = (
-                    (sleeve_values / (1.0 + pd.to_numeric(
-                        daily_returns, errors="coerce"
-                    ).fillna(0.0)))
-                    / invested_before_return
-                    if invested_before_return > 0
-                    else pd.Series(
-                        0.0, index=sleeve_values.index, dtype=float
-                    )
-                )
+            pre_return_weights = pre_return_values / invested_before_return
             gross_portfolio_return = float(
-                (
-                    pd.to_numeric(daily_returns, errors="coerce").fillna(0.0)
-                    * pre_return_weights
-                ).sum()
+                (pre_return_weights * daily_returns).sum()
             )
+            sleeve_values = pre_return_values * (1.0 + daily_returns)
         else:
             gross_portfolio_return = 0.0
 
+        end_equity = float(cash + sleeve_values.sum())
         net_portfolio_return = end_equity / pre_equity - 1.0
 
+        invested_end = float(sleeve_values.sum())
         end_weights = (
-            sleeve_values / float(sleeve_values.sum())
-            if float(sleeve_values.sum()) > 0
+            sleeve_values / invested_end
+            if invested_end > 0
             else pd.Series(0.0, index=sleeve_values.index, dtype=float)
         )
+
         row: dict[str, Any] = {
             "ts": ts,
             "gross_portfolio_return": gross_portfolio_return,
