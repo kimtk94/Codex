@@ -46,6 +46,20 @@ def run(cmd: list[str | Path], *, cwd: Path | None = None, env=None) -> None:
         raise subprocess.CalledProcessError(code, args)
 
 
+def capture(cmd: list[str | Path], *, cwd: Path | None = None, env=None) -> str:
+    args = [str(x) for x in cmd]
+    print("\n$", " ".join(args))
+    output = subprocess.check_output(
+        args,
+        cwd=cwd,
+        env=env,
+        text=True,
+        stderr=subprocess.STDOUT,
+    )
+    print(output, end="" if output.endswith("\n") else "\n")
+    return output.strip()
+
+
 def create_venv(path: Path, *, recreate: bool) -> None:
     if recreate and path.exists():
         shutil.rmtree(path)
@@ -124,14 +138,24 @@ def main() -> int:
     pypfopt_req = app_root / "research/quant_stack/requirements-pypfopt.txt"
     riskfolio_req = app_root / "research/quant_stack/requirements-riskfolio.txt"
 
+    for required in (pypfopt_req, riskfolio_req):
+        if not required.exists():
+            raise FileNotFoundError(required)
+
+    current_branch = capture(
+        ["git", "-C", repo_root, "branch", "--show-current"]
+    )
+    if current_branch != "main":
+        raise RuntimeError(f"resume notebook must run from main, got {current_branch!r}")
+
     print("OUTPUT_ROOT:", output_root)
     print("HISTORICAL : REUSED / NOT RERUN")
 
-    core_venv = Path("/content/.venv-kalman-resume-v1")
-    risk_venv = Path("/content/.venv-riskfolio-resume-v1")
+    core_venv = Path("/content/.venv-kalman-resume-v2")
+    risk_venv = Path("/content/.venv-riskfolio-resume-v2")
 
     try:
-        write_status("RUNNING", phase="CORE_ENV", output_root=str(output_root))
+        write_status("RUNNING", phase="CORE_ENV_INSTALL", output_root=str(output_root))
         create_venv(core_venv, recreate=not args.keep_venvs)
         core_py = core_venv / "bin/python"
         core_pip = core_venv / "bin/pip"
@@ -150,7 +174,61 @@ def main() -> int:
             ]
         )
 
-        write_status("RUNNING", phase="HRP_VALIDATION_LEAN", output_root=str(output_root))
+        write_status("RUNNING", phase="CORE_ENV_VERIFY", output_root=str(output_root))
+        run([core_pip, "check"])
+        capture(
+            [
+                core_py,
+                "-c",
+                (
+                    "import packaging,pandas,numpy,scipy,sklearn,pyarrow,pypfopt;"
+                    "print('CORE_IMPORTS_OK', packaging.__version__, pandas.__version__, "
+                    "numpy.__version__, scipy.__version__, sklearn.__version__, "
+                    "pyarrow.__version__)"
+                ),
+            ],
+            cwd=app_root,
+        )
+
+        # Reproduce the exact flat-sleeve class of failure under the actual
+        # Colab environment before touching real outputs.
+        smoke = """
+import numpy as np
+import pandas as pd
+from research.quant_stack.portfolio import hierarchical_risk_parity
+
+idx = pd.date_range("2024-01-01", periods=120, freq="D", tz="UTC")
+returns = pd.DataFrame({
+    "US": np.zeros(len(idx)),
+    "KR": np.sin(np.arange(len(idx)) / 7.0) * 0.01,
+    "BTC": np.cos(np.arange(len(idx)) / 5.0) * 0.02,
+}, index=idx)
+weights = hierarchical_risk_parity(returns)
+assert np.isfinite(weights.to_numpy(dtype=float)).all()
+assert abs(float(weights.sum()) - 1.0) < 1e-8
+assert float(weights["US"]) == 0.0
+print("FLAT_HRP_SMOKE_OK", weights.to_dict())
+"""
+        capture([core_py, "-c", smoke], cwd=app_root)
+
+        write_status("RUNNING", phase="ACTUAL_PREFLIGHT", output_root=str(output_root))
+        run(
+            [
+                core_py,
+                "-m",
+                "research.quant_stack.resume_postprocess",
+                "--output-dir",
+                output_root,
+                "--preflight-only",
+            ],
+            cwd=app_root,
+        )
+
+        write_status(
+            "RUNNING",
+            phase="HRP_VALIDATION_LEAN",
+            output_root=str(output_root),
+        )
         run(
             [
                 core_py,
@@ -172,12 +250,35 @@ def main() -> int:
 
         riskfolio_status = "SKIPPED"
         if not args.disable_riskfolio:
-            write_status("RUNNING", phase="RISKFOLIO", output_root=str(output_root))
-            shutil.rmtree(output_root / "riskfolio", ignore_errors=True)
+            write_status(
+                "RUNNING",
+                phase="RISKFOLIO_ENV_VERIFY",
+                output_root=str(output_root),
+            )
             create_venv(risk_venv, recreate=not args.keep_venvs)
             risk_py = risk_venv / "bin/python"
             risk_pip = risk_venv / "bin/pip"
             run([risk_pip, "install", "-q", "-r", riskfolio_req])
+            run([risk_pip, "check"])
+            capture(
+                [
+                    risk_py,
+                    "-c",
+                    (
+                        "import riskfolio,pandas,numpy,scipy,pyarrow;"
+                        "print('RISKFOLIO_IMPORTS_OK', pandas.__version__, "
+                        "numpy.__version__, scipy.__version__, pyarrow.__version__)"
+                    ),
+                ],
+                cwd=app_root,
+            )
+
+            write_status(
+                "RUNNING",
+                phase="RISKFOLIO",
+                output_root=str(output_root),
+            )
+            shutil.rmtree(output_root / "riskfolio", ignore_errors=True)
             env = os.environ.copy()
             env["PYTHONPATH"] = str(app_root)
             run(
@@ -199,10 +300,7 @@ def main() -> int:
             )
             riskfolio_status = "READY"
 
-        head = subprocess.check_output(
-            ["git", "-C", repo_root, "rev-parse", "--short", "HEAD"],
-            text=True,
-        ).strip()
+        head = capture(["git", "-C", repo_root, "rev-parse", "--short", "HEAD"])
         complete = {
             "status": "COMPLETE",
             "run_tag": args.run_tag,
@@ -210,6 +308,7 @@ def main() -> int:
             "git_sha": head,
             "historical_reused": True,
             "market_backtests_rerun": False,
+            "preflight": "READY",
             "hrp": "READY",
             "validation": "READY",
             "lean_shadow": "READY",
