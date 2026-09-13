@@ -125,3 +125,27 @@ def test_signal_history_duplicate_timestamp_keeps_latest(tmp_path) -> None:
     assert len(out) == 1
     assert out.iloc[0]["run_id"] == "us-v2-forward-new"
     assert out.iloc[0]["signal"] == "SELL"
+
+
+def test_forward_row_quality_gate_rejects_training_or_missing() -> None:
+    from research.shadow_bakeoff.forward_scorer import _validate_forward_row
+
+    same = pd.DataFrame(
+        [{"as_of": pd.Timestamp("2026-09-11", tz="UTC"), "a": 1.0, "b": 2.0}]
+    )
+    with pytest.raises(RuntimeError):
+        _validate_forward_row(
+            same,
+            trained_through=pd.Timestamp("2026-09-11", tz="UTC"),
+            features=["a", "b"],
+        )
+
+    missing = pd.DataFrame(
+        [{"as_of": pd.Timestamp("2026-09-12", tz="UTC"), "a": None, "b": 2.0}]
+    )
+    with pytest.raises(RuntimeError):
+        _validate_forward_row(
+            missing,
+            trained_through=pd.Timestamp("2026-09-11", tz="UTC"),
+            features=["a", "b"],
+        )
