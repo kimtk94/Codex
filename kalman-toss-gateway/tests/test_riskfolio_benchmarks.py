@@ -53,3 +53,52 @@ def test_riskfolio_targets_are_prospective_only():
     assert (targets["decision_ts"] < targets["effective_ts"]).all()
     for _, group in targets.groupby("effective_ts"):
         assert abs(float(group["target_weight"].sum()) - 1.0) < 1e-7
+
+
+
+def test_riskfolio_handles_flat_sleeve_without_failure():
+    returns = _returns().iloc[:180].copy()
+    returns["US"] = 0.0
+
+    for method in RISKFOLIO_METHODS:
+        weights = riskfolio_weights(returns, method=method)
+        assert np.isfinite(weights.to_numpy(dtype=float)).all()
+        assert (weights >= -1e-10).all()
+        assert abs(float(weights.sum()) - 1.0) < 1e-7
+        assert float(weights["US"]) == 0.0
+
+
+def test_riskfolio_handles_perfect_collinearity_without_failure():
+    idx = pd.date_range("2024-01-01", periods=180, freq="D", tz="UTC")
+    base = np.sin(np.arange(len(idx)) / 9.0) * 0.01
+    returns = pd.DataFrame(
+        {
+            "US": base,
+            "KR": base * 2.0,
+            "BTC": base * -0.5,
+        },
+        index=idx,
+    )
+
+    for method in RISKFOLIO_METHODS:
+        weights = riskfolio_weights(returns, method=method)
+        assert np.isfinite(weights.to_numpy(dtype=float)).all()
+        assert (weights >= -1e-10).all()
+        assert abs(float(weights.sum()) - 1.0) < 1e-7
+
+
+def test_riskfolio_all_flat_uses_deterministic_equal_weight_fallback():
+    idx = pd.date_range("2024-01-01", periods=180, freq="D", tz="UTC")
+    returns = pd.DataFrame(
+        0.0,
+        index=idx,
+        columns=["US", "KR", "BTC"],
+    )
+
+    for method in RISKFOLIO_METHODS:
+        weights = riskfolio_weights(returns, method=method)
+        assert weights.attrs["optimization_status"] == "FALLBACK"
+        assert np.isfinite(weights.to_numpy(dtype=float)).all()
+        assert abs(float(weights.sum()) - 1.0) < 1e-7
+        for sleeve in ("US", "KR", "BTC"):
+            assert abs(float(weights[sleeve]) - (1.0 / 3.0)) < 1e-7

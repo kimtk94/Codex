@@ -230,3 +230,31 @@ jobs:
       - name: Resume preflight regression tests
         run: |
           pytest -q tests/test_resume_postprocess.py
+
+
+  riskfolio-colab-py313-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Riskfolio Colab-version dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r research/quant_stack/requirements-riskfolio.txt
+
+      - name: Compile Riskfolio benchmark
+        run: |
+          python -m py_compile research/quant_stack/riskfolio_benchmarks.py
+          python -m py_compile research/quant_stack/riskfolio_benchmark_runner.py
+
+      - name: Run flat and singular covariance regression tests
+        run: |
+          pytest -q tests/test_riskfolio_benchmarks.py
