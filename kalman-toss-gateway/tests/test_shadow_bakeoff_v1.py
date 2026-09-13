@@ -151,3 +151,23 @@ def test_forward_row_quality_gate_rejects_training_or_missing() -> None:
             features=["a", "b"],
             max_missing_feature_ratio=0.20,
         )
+
+
+def test_forward_row_quality_gate_allows_spec_compliant_imputation() -> None:
+    from research.shadow_bakeoff.forward_scorer import _validate_forward_row
+
+    row = pd.DataFrame(
+        [
+            {
+                "as_of": pd.Timestamp("2026-09-12", tz="UTC"),
+                **{f"f{i}": (None if i < 3 else float(i)) for i in range(17)},
+            }
+        ]
+    )
+    ratio = _validate_forward_row(
+        row,
+        trained_through=pd.Timestamp("2026-09-11", tz="UTC"),
+        features=[f"f{i}" for i in range(17)],
+        max_missing_feature_ratio=0.20,
+    )
+    assert ratio == pytest.approx(3 / 17)
