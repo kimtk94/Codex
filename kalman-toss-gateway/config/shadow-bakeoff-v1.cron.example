@@ -1,24 +1,28 @@
-# Kalman forward SHADOW bake-off cron template — DISABLED.
-# Install only after bootstrap smoke passes and the historical source files are
-# confirmed to refresh through the current session.
+# Kalman Forward SHADOW Bake-off V1 cron template
+# Canonical installer:
+#   sudo /bin/bash /opt/kalman/app/scripts/install_shadow_bakeoff_v1_cron.sh --install
 #
 # CRON_TZ=Asia/Seoul
+# SHELL=/bin/bash
+# PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 #
-# Suggested daily cadence after the existing morning US/model refresh:
-# 10 8 * * 2-6 root /bin/bash /opt/kalman/app/scripts/run_shadow_bakeoff_v1.sh >> /opt/kalman/logs/shadow-bakeoff-v1.log 2>&1
+# Tue-Sat 08:10 KST:
+# 10 8 * * 2-6 root /bin/bash /opt/kalman/app/scripts/run_shadow_bakeoff_daily.sh >> /opt/kalman/logs/shadow-bakeoff-v1.log 2>&1
 #
-# The runner is file-only. It:
-# - refuses to run while TRADING_ENABLED=true
-# - refuses to run while LIVE_TRADING_CONFIRM is set
-# - does not write Neon
-# - does not create dashboard_snapshot rows
-# - cannot submit Toss orders
+# Flow:
+#   current V2 Market Data / Features refresh
+#     -> historical integrated source freshness gate
+#       -> if stale: WAITING_SOURCE_REFRESH, exit 0
+#       -> if fresh: matrix refresh + A/B/C forward bakeoff
 #
-# Required upstream data:
-#   Market_Data/v2/raw/historical_2017/multimarket_raw_2017_present.parquet
-#   Market_Features/v2/talib/historical_2017/multimarket_features_2017_present_v0_3.parquet
-#   Market_Model_V2/historical_matrices_v1/*
+# Safety:
+#   production_write=false
+#   neon_write=false
+#   toss_execution=false
+#   live_execution=false
+#   dashboard visibility=false
 #
 # IMPORTANT:
-# This cron should remain disabled until the historical integrated raw/features
-# are confirmed to be refreshed automatically beyond the 2026-09-11 seed end.
+# Current Market Data V2 refresh does NOT itself rewrite the historical_2017
+# integrated raw/features lineage. The freshness gate intentionally prevents
+# stale seed data from being presented as new forward evidence.
