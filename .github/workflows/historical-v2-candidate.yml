@@ -11,6 +11,7 @@ on:
       - "kalman-toss-gateway/config/model-v2-historical-candidate-spec.json"
       - "kalman-toss-gateway/tests/test_historical_v2_candidate.py"
       - ".github/workflows/historical-v2-candidate.yml"
+      - "notebooks/Kalman_Historical_V2_Nested_Candidate_20260913.ipynb"
   workflow_dispatch:
 
 permissions:
@@ -67,3 +68,31 @@ jobs:
       - name: Qlib recorder smoke
         run: |
           pytest -q tests/test_qlib_recorder.py
+
+  notebook-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile pinned Colab cell
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("notebooks/Kalman_Historical_V2_Nested_Candidate_20260913.ipynb")
+          nb = json.loads(path.read_text(encoding="utf-8"))
+          assert nb["nbformat"] == 4
+          assert len(nb["cells"]) == 2
+          cell = nb["cells"][1]
+          assert cell["cell_type"] == "code"
+          source = "".join(cell["source"])
+          compile(source, str(path), "exec")
+          assert "19c1b489e39b4ce18920bbf7597e567f6d56382a" in source
+          assert "colab_historical_v2_candidate.py" in source
+          assert "historical_v2_candidate_bootstrap_status.json" in source
+          assert "--pinned-code-sha" in source
+          print("NOTEBOOK_COMPILE_OK")
+          PY
