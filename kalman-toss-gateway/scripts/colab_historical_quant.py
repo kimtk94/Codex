@@ -16,6 +16,68 @@ from typing import Any
 
 MARKETS = ("US", "KR", "BTC")
 
+DIAGNOSTIC_STATUS_PATH: Path | None = None
+DIAGNOSTIC_LOG_PATH: Path | None = None
+_DIAGNOSTIC_HANDLE = None
+_ORIGINAL_STDOUT = sys.stdout
+_ORIGINAL_STDERR = sys.stderr
+
+
+class Tee:
+    def __init__(self, *streams: Any) -> None:
+        self.streams = streams
+
+    def write(self, data: str) -> int:
+        for stream in self.streams:
+            stream.write(data)
+            stream.flush()
+        return len(data)
+
+    def flush(self) -> None:
+        for stream in self.streams:
+            stream.flush()
+
+
+def write_diagnostic_status(status: str, **extra: Any) -> None:
+    if DIAGNOSTIC_STATUS_PATH is None:
+        return
+    payload = {
+        "status": status,
+        "phase": Phase.current if "Phase" in globals() else "BOOTSTRAP",
+        "updated_at": datetime.now().astimezone().isoformat(),
+        **extra,
+    }
+    tmp = DIAGNOSTIC_STATUS_PATH.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, DIAGNOSTIC_STATUS_PATH)
+
+
+def init_diagnostics(drive_root: Path) -> None:
+    global DIAGNOSTIC_STATUS_PATH, DIAGNOSTIC_LOG_PATH, _DIAGNOSTIC_HANDLE
+
+    if not drive_root.exists():
+        return
+
+    diag_dir = drive_root / "Kalman_Diagnostics"
+    diag_dir.mkdir(parents=True, exist_ok=True)
+    DIAGNOSTIC_STATUS_PATH = diag_dir / "historical_colab_last_status.json"
+    DIAGNOSTIC_LOG_PATH = diag_dir / "historical_colab_last.log"
+
+    _DIAGNOSTIC_HANDLE = DIAGNOSTIC_LOG_PATH.open(
+        "w",
+        encoding="utf-8",
+        buffering=1,
+    )
+    sys.stdout = Tee(_ORIGINAL_STDOUT, _DIAGNOSTIC_HANDLE)
+    sys.stderr = Tee(_ORIGINAL_STDERR, _DIAGNOSTIC_HANDLE)
+    write_diagnostic_status(
+        "RUNNING",
+        log_path=str(DIAGNOSTIC_LOG_PATH),
+    )
+
 
 @dataclass(frozen=True)
 class Config:
@@ -44,6 +106,7 @@ class Phase:
     @classmethod
     def set(cls, value: str) -> None:
         cls.current = value
+        write_diagnostic_status("RUNNING")
         print("\n" + "=" * 88)
         print(f"PHASE: {value}")
         print("=" * 88)
@@ -57,7 +120,21 @@ def run(
 ) -> None:
     args = [str(x) for x in cmd]
     print("\n$", " ".join(args))
-    subprocess.run(args, check=True, cwd=cwd, env=env)
+    proc = subprocess.Popen(
+        args,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        print(line, end="")
+    return_code = proc.wait()
+    if return_code != 0:
+        raise subprocess.CalledProcessError(return_code, args)
 
 
 def capture(
@@ -68,13 +145,21 @@ def capture(
 ) -> str:
     args = [str(x) for x in cmd]
     print("\n$", " ".join(args))
-    return subprocess.check_output(
-        args,
-        cwd=cwd,
-        env=env,
-        text=True,
-        stderr=subprocess.STDOUT,
-    ).strip()
+    try:
+        output = subprocess.check_output(
+            args,
+            cwd=cwd,
+            env=env,
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
+    except subprocess.CalledProcessError as exc:
+        if exc.output:
+            print(exc.output, end="" if exc.output.endswith("\n") else "\n")
+        raise
+    if output:
+        print(output, end="" if output.endswith("\n") else "\n")
+    return output.strip()
 
 
 def bounded_find_dir(root: Path, target_name: str, max_depth: int = 5) -> Path | None:
@@ -515,6 +600,7 @@ def main() -> int:
         run_riskfolio=not bool(args.disable_riskfolio),
         enable_qlib_recorder=bool(args.enable_qlib_recorder),
     )
+    init_diagnostics(cfg.drive_root)
 
     app_root = Path(__file__).resolve().parents[1]
     repo_root = app_root.parent
@@ -581,25 +667,18 @@ def main() -> int:
             "scikit-learn",
             "pyarrow",
             "python-dotenv",
-            "-r",
-            pypfopt_req,
         ]
     )
-    if cfg.enable_qlib_recorder:
-        run([kpip, "install", "-q", "-r", qlib_req])
-
-    print(
-        capture(
-            [
-                kpy,
-                "-c",
-                (
-                    "import numpy,pandas,scipy,sklearn,pyarrow,pypfopt;"
-                    "print('ENV_OK', numpy.__version__, pandas.__version__, "
-                    "scipy.__version__, sklearn.__version__)"
-                ),
-            ]
-        )
+    capture(
+        [
+            kpy,
+            "-c",
+            (
+                "import numpy,pandas,sklearn,pyarrow;"
+                "print('BASE_ENV_OK', numpy.__version__, pandas.__version__, "
+                "sklearn.__version__, pyarrow.__version__)"
+            ),
+        ]
     )
 
     spec_payload = json.loads(spec_path.read_text(encoding="utf-8"))
@@ -634,6 +713,21 @@ def main() -> int:
             "HISTORICAL_MATRIX_COVERAGE_INSUFFICIENT: "
             + " | ".join(errors)
         )
+
+    Phase.set("PORTFOLIO / MODEL DEPENDENCIES")
+    run([kpip, "install", "-q", "-r", pypfopt_req])
+    if cfg.enable_qlib_recorder:
+        run([kpip, "install", "-q", "-r", qlib_req])
+    capture(
+        [
+            kpy,
+            "-c",
+            (
+                "import scipy,pypfopt;"
+                "print('PORTFOLIO_ENV_OK', scipy.__version__)"
+            ),
+        ]
+    )
 
     Phase.set("HISTORICAL WALK-FORWARD + HRP")
     output_dir.mkdir(parents=True, exist_ok=False)
@@ -757,6 +851,11 @@ def main() -> int:
     print("OUTPUT :", output_dir)
     print("RUN TAG:", run_tag)
     print("SAFETY : LIVE=False / Toss=False / Neon write=False")
+    write_diagnostic_status(
+        "COMPLETE",
+        output_dir=str(output_dir),
+        matrix_dir=str(matrix_dir),
+    )
     return 0
 
 
@@ -764,6 +863,11 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except PrecheckBlocked as exc:
+        write_diagnostic_status(
+            "BLOCKED_DATA",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
         print("\n" + "=" * 88)
         print("KALMAN STATUS: BLOCKED_DATA")
         print("=" * 88)
@@ -771,6 +875,11 @@ if __name__ == "__main__":
         print("REASON      :", str(exc))
         raise SystemExit(0)
     except Exception as exc:
+        write_diagnostic_status(
+            "FAIL",
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
         print("\n" + "!" * 88)
         print("KALMAN COLAB RUNNER FAILED")
         print("!" * 88)
