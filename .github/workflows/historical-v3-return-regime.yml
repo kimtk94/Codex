@@ -1,0 +1,84 @@
+name: Historical V3 Return-Regime Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/research/quant_stack/historical_v3_return_regime.py"
+      - "kalman-toss-gateway/research/quant_stack/historical_v3_qlib.py"
+      - "kalman-toss-gateway/scripts/colab_historical_v3_return_regime.py"
+      - "kalman-toss-gateway/config/model-v3-historical-return-regime-spec.json"
+      - "kalman-toss-gateway/tests/test_historical_v3_return_regime.py"
+      - "notebooks/Kalman_Historical_V3_Return_Regime_20260913.ipynb"
+      - ".github/workflows/historical-v3-return-regime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pandas numpy scikit-learn pyarrow
+      - name: Compile V3 stack
+        run: |
+          python -m py_compile research/quant_stack/historical_v3_return_regime.py
+          python -m py_compile research/quant_stack/historical_v3_qlib.py
+          python -m py_compile scripts/colab_historical_v3_return_regime.py
+      - name: Run V3 regression tests
+        run: |
+          pytest -q tests/test_historical_v3_return_regime.py
+
+  qlib-python312:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Qlib
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest -r research/quant_stack/requirements-qlib.txt
+      - name: Qlib recorder smoke
+        run: |
+          python -c "import sys, qlib; assert sys.version_info[:2] == (3, 12); print(getattr(qlib, '__version__', 'unknown'))"
+          pytest -q tests/test_qlib_recorder.py
+
+  source-bundle:
+    needs: [core, qlib-python312]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage source bundle
+        run: |
+          mkdir -p Kalman_Historical_V3_Return_Regime
+          cp kalman-toss-gateway/config/model-v3-historical-return-regime-spec.json Kalman_Historical_V3_Return_Regime/
+          cp kalman-toss-gateway/research/quant_stack/historical_v3_return_regime.py Kalman_Historical_V3_Return_Regime/
+          cp kalman-toss-gateway/research/quant_stack/historical_v3_qlib.py Kalman_Historical_V3_Return_Regime/
+          cp kalman-toss-gateway/scripts/colab_historical_v3_return_regime.py Kalman_Historical_V3_Return_Regime/
+          cp kalman-toss-gateway/tests/test_historical_v3_return_regime.py Kalman_Historical_V3_Return_Regime/
+          if [ -f notebooks/Kalman_Historical_V3_Return_Regime_20260913.ipynb ]; then
+            cp notebooks/Kalman_Historical_V3_Return_Regime_20260913.ipynb Kalman_Historical_V3_Return_Regime/
+          fi
+          printf '%s\n' "Research only. No Toss execution. No Neon writes." > Kalman_Historical_V3_Return_Regime/README.txt
+          printf '%s\n' "$GITHUB_SHA" > Kalman_Historical_V3_Return_Regime/VALIDATED_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kalman_Historical_V3_Return_Regime
+          path: Kalman_Historical_V3_Return_Regime/
+          if-no-files-found: error
