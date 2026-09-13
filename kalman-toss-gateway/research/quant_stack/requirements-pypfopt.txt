@@ -1,4 +1,6 @@
 # Optional portfolio optimisation integration for Kalman research only.
 pyportfolioopt==1.6.0
+# Required by skbase on Colab/Python 3.13; virtualenv seed may not include it.
+packaging>=24,<26
 # PyPortfolioOpt HRP currently has an open compatibility issue with scipy >=1.18.
 scipy<1.18
