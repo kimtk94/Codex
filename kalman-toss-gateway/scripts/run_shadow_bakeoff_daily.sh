@@ -43,8 +43,31 @@ OUTPUT_DIR="${KALMAN_SHADOW_BAKEOFF_OUTPUT_DIR:-$MODEL_ROOT/shadow_bakeoff/v1}"
 SOURCE_STATUS="$OUTPUT_DIR/latest/source_freshness.json"
 BAKEOFF_STATUS="$OUTPUT_DIR/latest/bakeoff_status.json"
 SEED_END="${KALMAN_SHADOW_BAKEOFF_SEED_END:-2026-09-11T00:00:00+00:00}"
-REFRESH_CURRENT_V2="${KALMAN_SHADOW_BAKEOFF_REFRESH_CURRENT_V2:-true}"
+
+REFRESH_CURRENT_V2="${KALMAN_SHADOW_BAKEOFF_REFRESH_CURRENT_V2:-}"
 SOURCE_REFRESH_SCRIPT="${KALMAN_SHADOW_BAKEOFF_SOURCE_REFRESH_SCRIPT:-}"
+
+if [ -z "$REFRESH_CURRENT_V2" ]; then
+  REFRESH_CURRENT_V2="$("$PY" - "$ENV_FILE" <<'PY'
+from pathlib import Path
+from dotenv import dotenv_values
+import sys
+v = dotenv_values(Path(sys.argv[1]))
+print(str(v.get("KALMAN_SHADOW_BAKEOFF_REFRESH_CURRENT_V2") or "true").strip().lower())
+PY
+)"
+fi
+
+if [ -z "$SOURCE_REFRESH_SCRIPT" ]; then
+  SOURCE_REFRESH_SCRIPT="$("$PY" - "$ENV_FILE" <<'PY'
+from pathlib import Path
+from dotenv import dotenv_values
+import sys
+v = dotenv_values(Path(sys.argv[1]))
+print(str(v.get("KALMAN_SHADOW_BAKEOFF_SOURCE_REFRESH_SCRIPT") or "").strip())
+PY
+)"
+fi
 
 mkdir -p "$OUTPUT_DIR/latest"
 
