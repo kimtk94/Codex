@@ -640,8 +640,16 @@ def summarize_robustness(
         fallback_median = float(fallback.median()) if len(fallback) else None
         fallback_max = float(fallback.max()) if len(fallback) else None
 
+        expected_configs = (
+            len(LOOKBACKS)
+            * len(COST_BPS)
+            * len(REBALANCE_FREQUENCIES)
+        )
         robust = (
-            full_sharpe is not None
+            len(full) == expected_configs
+            and len(recent) == expected_configs
+            and len(stress) == expected_configs
+            and full_sharpe is not None
             and full_return is not None
             and recent_sharpe is not None
             and stress_sharpe is not None
