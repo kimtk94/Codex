@@ -92,3 +92,36 @@ def test_rank_forward_waits_when_no_post_seed_metrics() -> None:
     )
     assert status == "WAITING_FOR_FORWARD_DATA"
     assert all(row["status"] == "WAITING_FOR_FORWARD_DATA" for row in rows)
+
+
+def test_signal_history_duplicate_timestamp_keeps_latest(tmp_path) -> None:
+    from research.shadow_bakeoff.forward_scorer import append_signal_history
+
+    path = tmp_path / "signals.parquet"
+    base = {
+        "market": "US",
+        "symbol": "SPY",
+        "as_of": "2026-09-11T00:00:00+00:00",
+        "entry_allowed": True,
+        "model_family": "V2_NESTED_FINAL_REFIT",
+    }
+    first = {
+        **base,
+        "run_id": "us-v2-forward-old",
+        "signal": "BUY",
+        "parameter_hash": "old",
+    }
+    second = {
+        **base,
+        "run_id": "us-v2-forward-new",
+        "signal": "SELL",
+        "entry_allowed": False,
+        "parameter_hash": "new",
+    }
+
+    append_signal_history(path, first)
+    out = append_signal_history(path, second)
+
+    assert len(out) == 1
+    assert out.iloc[0]["run_id"] == "us-v2-forward-new"
+    assert out.iloc[0]["signal"] == "SELL"
