@@ -65,6 +65,11 @@ OUTPUT_DIR="${KALMAN_SHADOW_BAKEOFF_OUTPUT_DIR:-$MODEL_ROOT/shadow_bakeoff/v1}"
 V2_SPEC="${KALMAN_SHADOW_BAKEOFF_V2_SPEC:-$APP_ROOT/config/model-v2-historical-candidate-spec.json}"
 V3_SPEC="${KALMAN_SHADOW_BAKEOFF_V3_SPEC:-$APP_ROOT/config/model-v3-historical-return-regime-spec.json}"
 
+HIST_RAW="${KALMAN_SHADOW_BAKEOFF_HIST_RAW:-$DATA_ROOT/Market_Data/v2/raw/historical_2017/multimarket_raw_2017_present.parquet}"
+HIST_FEATURES="${KALMAN_SHADOW_BAKEOFF_HIST_FEATURES:-$DATA_ROOT/Market_Features/v2/talib/historical_2017/multimarket_features_2017_present_v0_3.parquet}"
+HIST_SPEC="${KALMAN_SHADOW_BAKEOFF_HIST_SPEC:-$APP_ROOT/config/model-v2-historical-spec.json}"
+REFRESH_MATRIX="${KALMAN_SHADOW_BAKEOFF_REFRESH_MATRIX:-auto}"
+
 for f in   "$V2_ROOT/historical_v2_candidate_summary.json"   "$V3_ROOT/historical_v3_candidate_summary.json"   "$V34_SUMMARY"   "$V2_SPEC"   "$V3_SPEC"
 do
   [ -f "$f" ] || { echo "[FAIL] missing prerequisite: $f" >&2; exit 30; }
@@ -81,6 +86,32 @@ flock -n 9 || {
   echo "SHADOW_BAKEOFF_V1_ALREADY_RUNNING" >&2
   exit 40
 }
+
+if [ "$REFRESH_MATRIX" != "false" ] && [ -f "$HIST_RAW" ] && [ -f "$HIST_FEATURES" ]; then
+  MATRIX_STATUS="$MATRIX_DIR/historical_feature_matrix_run_status.json"
+  DO_REFRESH=false
+  if [ "$REFRESH_MATRIX" = "true" ]; then
+    DO_REFRESH=true
+  elif [ ! -f "$MATRIX_STATUS" ]; then
+    DO_REFRESH=true
+  elif [ "$HIST_RAW" -nt "$MATRIX_STATUS" ] || [ "$HIST_FEATURES" -nt "$MATRIX_STATUS" ]; then
+    DO_REFRESH=true
+  fi
+
+  if [ "$DO_REFRESH" = "true" ]; then
+    echo "[INFO] Refreshing historical matrices from integrated raw/features"
+    "$PY" -m research.model_v2.build_historical_feature_matrix \
+      --raw-parquet "$HIST_RAW" \
+      --feature-parquet "$HIST_FEATURES" \
+      --spec "$HIST_SPEC" \
+      --output-dir "$MATRIX_DIR" \
+      --start-date 2017-01-01
+  else
+    echo "[INFO] Historical matrices already current relative to integrated sources"
+  fi
+else
+  echo "[WARN] Matrix refresh skipped; integrated historical sources unavailable or refresh disabled" >&2
+fi
 
 GIT_SHA="${KALMAN_GIT_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 
