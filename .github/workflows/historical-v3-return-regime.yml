@@ -1,6 +1,9 @@
 name: Historical V3 Return-Regime Validation
 
 on:
+  push:
+    branches:
+      - feature/historical-v3-return-regime-20260913
   pull_request:
     branches: [main]
     paths:
