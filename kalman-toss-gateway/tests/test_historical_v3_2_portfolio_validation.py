@@ -187,3 +187,31 @@ def test_vectorbt_order_price_array_is_writable_and_uses_close_for_max_hold() ->
     assert np.isclose(execution_price[0], 100.0)
     assert np.isclose(execution_price[1], 101.5)
     assert reasons[1] == "MAX_HOLD_CLOSE"
+
+
+def test_vectorbt_owned_array_smoke() -> None:
+    import vectorbt as vbt
+
+    close = np.array([100.0, 101.0, 102.0, 103.0], dtype=float, copy=True)
+    entries = np.array([True, False, False, False], dtype=bool, copy=True)
+    exits = np.array([False, False, True, False], dtype=bool, copy=True)
+    price = np.array([100.0, 101.0, 102.5, 103.0], dtype=float, copy=True)
+
+    assert close.flags.writeable
+    assert entries.flags.writeable
+    assert exits.flags.writeable
+    assert price.flags.writeable
+
+    pf = vbt.Portfolio.from_signals(
+        close,
+        entries,
+        exits,
+        price=price,
+        init_cash=1_000_000.0,
+        size=0.10,
+        size_type="percent",
+        fees=0.0005,
+        slippage=0.0005,
+        freq="1D",
+    )
+    assert int(pf.trades.count()) == 1
