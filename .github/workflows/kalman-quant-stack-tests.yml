@@ -188,13 +188,12 @@ jobs:
           python -m py_compile research/quant_stack/resume_postprocess.py
 
       - name: Compile Colab notebook cell
-        working-directory: ..
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
-          path = Path("notebooks/Kalman_Historical_Resume_20260913_042850.ipynb")
+          path = Path("../notebooks/Kalman_Historical_Resume_20260913_042850.ipynb")
           nb = json.loads(path.read_text(encoding="utf-8"))
           assert nb["nbformat"] == 4
           assert len(nb["cells"]) == 1
