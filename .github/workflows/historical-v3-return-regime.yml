@@ -62,8 +62,33 @@ jobs:
           python -c "import sys, qlib; assert sys.version_info[:2] == (3, 12); print(getattr(qlib, '__version__', 'unknown'))"
           pytest -q tests/test_qlib_recorder.py
 
+  notebook-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile pinned Colab
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("notebooks/Kalman_Historical_V3_Return_Regime_20260913.ipynb")
+          nb = json.loads(path.read_text(encoding="utf-8"))
+          assert nb["nbformat"] == 4
+          assert len(nb["cells"]) == 2
+          source = "".join(nb["cells"][1]["source"])
+          compile(source, str(path), "exec")
+          assert "6d5598594e101c03abe5780654c99ecf22bd7ccc" in source
+          assert "colab_historical_v3_return_regime.py" in source
+          assert "historical_v3_return_regime_bootstrap_status.json" in source
+          print("NOTEBOOK_COMPILE_OK")
+          PY
+
   source-bundle:
-    needs: [core, qlib-python312]
+    needs: [core, qlib-python312, notebook-static]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
