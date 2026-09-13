@@ -789,17 +789,26 @@ def validate_vectorbt_market_v32(
     )
 
     index = pd.DatetimeIndex(prices["ts"])
-    close_series = pd.Series(
-        pd.to_numeric(prices["close"], errors="coerce").to_numpy(dtype=float),
-        index=index,
+
+    # pandas 3 Copy-on-Write exposes many backing arrays as read-only views.
+    # Keep vectorbt completely on owned NumPy buffers for this validator.
+    close_array = np.array(
+        pd.to_numeric(prices["close"], errors="coerce"),
+        dtype=float,
+        copy=True,
     )
-    exec_series = pd.Series(execution_price, index=index)
+    entry_array = np.array(entries, dtype=bool, copy=True)
+    exit_array = np.array(exits, dtype=bool, copy=True)
+    exec_array = np.array(execution_price, dtype=float, copy=True)
+    for array in (close_array, entry_array, exit_array, exec_array):
+        if not array.flags.writeable:
+            array.setflags(write=True)
 
     pf = vbt.Portfolio.from_signals(
-        close_series,
-        pd.Series(entries, index=index),
-        pd.Series(exits, index=index),
-        price=exec_series,
+        close_array,
+        entry_array,
+        exit_array,
+        price=exec_array,
         init_cash=1_000_000.0,
         size=0.10,
         size_type="percent",
