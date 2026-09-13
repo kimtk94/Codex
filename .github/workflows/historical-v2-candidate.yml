@@ -1,0 +1,69 @@
+name: Historical V2 Candidate Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/research/quant_stack/historical_v2_candidate.py"
+      - "kalman-toss-gateway/research/quant_stack/historical_v2_candidate_riskfolio.py"
+      - "kalman-toss-gateway/research/quant_stack/historical_v2_candidate_qlib.py"
+      - "kalman-toss-gateway/scripts/colab_historical_v2_candidate.py"
+      - "kalman-toss-gateway/config/model-v2-historical-candidate-spec.json"
+      - "kalman-toss-gateway/tests/test_historical_v2_candidate.py"
+      - ".github/workflows/historical-v2-candidate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pandas numpy scikit-learn pyarrow python-dotenv -r research/quant_stack/requirements-pypfopt.txt
+      - name: Compile candidate stack
+        run: |
+          python -m py_compile research/quant_stack/historical_v2_candidate.py
+          python -m py_compile research/quant_stack/historical_v2_candidate_riskfolio.py
+          python -m py_compile research/quant_stack/historical_v2_candidate_qlib.py
+          python -m py_compile scripts/colab_historical_v2_candidate.py
+      - name: Run candidate regression tests
+        run: |
+          pytest -q tests/test_historical_v2_candidate.py
+
+  qlib-python312:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Qlib 0.9.7
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest -r research/quant_stack/requirements-qlib.txt
+      - name: Confirm interpreter and Qlib import
+        run: |
+          python - <<'PY'
+          import sys
+          import qlib
+          assert sys.version_info[:2] == (3, 12)
+          print("PYTHON", sys.version)
+          print("QLIB", getattr(qlib, "__version__", "unknown"))
+          PY
+      - name: Qlib recorder smoke
+        run: |
+          pytest -q tests/test_qlib_recorder.py
