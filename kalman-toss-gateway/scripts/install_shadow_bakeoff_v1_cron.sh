@@ -25,10 +25,24 @@ case "$ACTION" in
 esac
 
 RUNNER="$APP_ROOT/scripts/run_shadow_bakeoff_daily.sh"
-[ -f "$RUNNER" ] || {
-  echo "[FAIL] runner missing: $RUNNER" >&2
-  exit 10
+HEALTH="$APP_ROOT/scripts/check_shadow_bakeoff_v1.sh"
+SOURCE_MODULE="$APP_ROOT/research/shadow_bakeoff/source_freshness.py"
+BAKEOFF_MODULE="$APP_ROOT/research/shadow_bakeoff/runner.py"
+RESEARCH_PY="${KALMAN_RESEARCH_V2_VENV:-/opt/kalman/.venv-research-v2}/bin/python"
+
+for required in "$RUNNER" "$HEALTH" "$SOURCE_MODULE" "$BAKEOFF_MODULE"; do
+  [ -f "$required" ] || {
+    echo "[FAIL] required file missing: $required" >&2
+    exit 10
+  }
+done
+
+[ -x "$RESEARCH_PY" ] || {
+  echo "[FAIL] research python missing: $RESEARCH_PY" >&2
+  exit 12
 }
+
+"$RESEARCH_PY" -m py_compile "$SOURCE_MODULE" "$BAKEOFF_MODULE"
 
 if [ "$ACTION" = "--show" ]; then
   if [ -f "$CRON_FILE" ]; then
@@ -83,3 +97,6 @@ echo "  live_execution   = FALSE"
 echo
 echo "Manual smoke:"
 echo "  /bin/bash $RUNNER"
+echo
+echo "Health:"
+echo "  /bin/bash $HEALTH"
