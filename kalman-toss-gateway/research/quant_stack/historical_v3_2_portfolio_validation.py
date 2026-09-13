@@ -756,7 +756,7 @@ def validate_vectorbt_market_v32(
         price=exec_series,
         init_cash=1_000_000.0,
         size=0.10,
-        size_type="percent",
+        size_type="targetpercent",
         fees=0.0005,
         slippage=0.0005,
         freq="1D",
