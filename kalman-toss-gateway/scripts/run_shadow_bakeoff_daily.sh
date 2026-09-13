@@ -44,6 +44,7 @@ SOURCE_STATUS="$OUTPUT_DIR/latest/source_freshness.json"
 BAKEOFF_STATUS="$OUTPUT_DIR/latest/bakeoff_status.json"
 SEED_END="${KALMAN_SHADOW_BAKEOFF_SEED_END:-2026-09-11T00:00:00+00:00}"
 REFRESH_CURRENT_V2="${KALMAN_SHADOW_BAKEOFF_REFRESH_CURRENT_V2:-true}"
+SOURCE_REFRESH_SCRIPT="${KALMAN_SHADOW_BAKEOFF_SOURCE_REFRESH_SCRIPT:-}"
 
 mkdir -p "$OUTPUT_DIR/latest"
 
@@ -67,13 +68,24 @@ if confirm:
 PY
 
 if [ "$REFRESH_CURRENT_V2" = "true" ]; then
-  echo "[1/3] Refresh current Market Data / Features V2"
+  echo "[1/4] Refresh current Market Data / Features V2"
   /bin/bash "$APP_ROOT/scripts/run_v2_shadow_refresh.sh" --skip-finviz
 else
-  echo "[1/3] Current V2 refresh skipped by configuration"
+  echo "[1/4] Current V2 refresh skipped by configuration"
 fi
 
-echo "[2/3] Historical integrated source freshness gate"
+if [ -n "$SOURCE_REFRESH_SCRIPT" ]; then
+  [ -x "$SOURCE_REFRESH_SCRIPT" ] || {
+    echo "[FAIL] historical source refresh hook is not executable: $SOURCE_REFRESH_SCRIPT" >&2
+    exit 30
+  }
+  echo "[2/4] Refresh historical integrated sources"
+  "$SOURCE_REFRESH_SCRIPT"
+else
+  echo "[2/4] Historical integrated source refresh hook: NOT CONFIGURED"
+fi
+
+echo "[3/4] Historical integrated source freshness gate"
 set +e
 "$PY" -m research.shadow_bakeoff.source_freshness   --raw "$RAW"   --features "$FEATURES"   --seed-end "$SEED_END"   --output "$SOURCE_STATUS"
 SOURCE_RC=$?
@@ -89,7 +101,7 @@ if [ "$SOURCE_RC" -ne 0 ]; then
   exit "$SOURCE_RC"
 fi
 
-echo "[3/3] Run file-only A/B/C forward SHADOW bakeoff"
+echo "[4/4] Run file-only A/B/C forward SHADOW bakeoff"
 /bin/bash "$APP_ROOT/scripts/run_shadow_bakeoff_v1.sh"
 
 [ -f "$BAKEOFF_STATUS" ] || {
