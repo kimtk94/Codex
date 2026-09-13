@@ -162,3 +162,28 @@ def test_weights_drift_between_monthly_targets() -> None:
         expected_gross_day2,
     )
     assert not np.isclose(second["gross_portfolio_return"], 0.01)
+
+
+def test_vectorbt_order_price_array_is_writable_and_uses_close_for_max_hold() -> None:
+    from research.quant_stack.historical_v3_2_portfolio_validation import (
+        _stateful_vectorbt_orders,
+    )
+
+    bars = pd.DataFrame(
+        {
+            "open": [100.0, 101.0, 102.0],
+            "close": [100.5, 101.5, 102.5],
+        }
+    )
+    event_map = {0: ["BUY"]}
+    entries, exits, execution_price, reasons = _stateful_vectorbt_orders(
+        event_map,
+        bars,
+        max_hold_bars=2,
+    )
+
+    assert bool(entries[0])
+    assert bool(exits[1])
+    assert np.isclose(execution_price[0], 100.0)
+    assert np.isclose(execution_price[1], 101.5)
+    assert reasons[1] == "MAX_HOLD_CLOSE"
