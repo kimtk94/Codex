@@ -256,78 +256,153 @@ def portfolio_equity_with_costs(
     rebalance_cost_bps: float = 10.0,
     charge_initial_allocation: bool = True,
 ) -> pd.DataFrame:
+    """Simulate sleeve allocations with drift between target rebalance dates.
+
+    Targets are applied only on their effective timestamps. Between those dates,
+    sleeve notionals evolve with their own returns; there is no hidden daily
+    rebalancing back to target weights.
+    """
     frame = returns.copy().sort_index()
     frame.index = pd.DatetimeIndex(
         pd.to_datetime(frame.index, utc=True, errors="raise")
     )
 
-    weight_rows: list[dict[str, Any]] = []
+    target_map: dict[pd.Timestamp, pd.Series] = {}
     for ts, group in targets.groupby("effective_ts"):
-        row: dict[str, Any] = {str(sleeve): 0.0 for sleeve in frame.columns}
+        weights = pd.Series(0.0, index=frame.columns, dtype=float)
         for item in group.itertuples(index=False):
-            row[str(item.sleeve)] = float(item.target_weight)
-        row["effective_ts"] = pd.Timestamp(ts)
-        weight_rows.append(row)
+            weights.loc[str(item.sleeve)] = float(item.target_weight)
+        weights = _normalize(weights, [str(x) for x in frame.columns])
+        target_map[pd.Timestamp(ts)] = weights
 
-    if not weight_rows:
+    if not target_map:
         raise RuntimeError("no portfolio weights")
 
-    target_weights = (
-        pd.DataFrame(weight_rows)
-        .set_index("effective_ts")
-        .sort_index()
-        .reindex(columns=frame.columns)
-    )
-    weight_frame = target_weights.reindex(frame.index).ffill()
-    active = weight_frame.notna().all(axis=1)
-    if not active.any():
+    first_effective = min(target_map)
+    active_frame = frame.loc[frame.index >= first_effective].copy()
+    if active_frame.empty:
         raise RuntimeError("portfolio targets never became active")
 
-    frame = frame.loc[active, weight_frame.columns]
-    weight_frame = weight_frame.loc[active].fillna(0.0)
-
-    effective_set = set(pd.DatetimeIndex(target_weights.index))
-    previous_target = pd.Series(0.0, index=weight_frame.columns, dtype=float)
-    current_equity = float(initial_equity)
+    sleeve_values = pd.Series(0.0, index=frame.columns, dtype=float)
+    cash = float(initial_equity)
     fee_rate = float(rebalance_cost_bps) / 10_000.0
     rows: list[dict[str, Any]] = []
 
-    for ts in frame.index:
-        weights = weight_frame.loc[ts].astype(float)
-        gross_return = float((frame.loc[ts] * weights).sum())
+    for ts, daily_returns in active_frame.iterrows():
+        pre_equity = float(cash + sleeve_values.sum())
+        if pre_equity <= 0:
+            raise RuntimeError("portfolio equity became non-positive")
 
         half_l1_turnover = 0.0
         traded_notional_ratio = 0.0
         rebalance_cost_rate = 0.0
-        is_rebalance = ts in effective_set
+        rebalance_cost_value = 0.0
+        is_rebalance = ts in target_map
 
         if is_rebalance:
-            delta = weights - previous_target
-            l1 = float(np.abs(delta).sum())
-            if previous_target.abs().sum() <= 1e-12 and not charge_initial_allocation:
-                l1 = 0.0
-            traded_notional_ratio = l1
-            half_l1_turnover = 0.5 * l1
-            rebalance_cost_rate = traded_notional_ratio * fee_rate
-            previous_target = weights.copy()
+            target = target_map[ts]
+            if float(sleeve_values.sum()) > 0:
+                prior_weights = sleeve_values / float(sleeve_values.sum())
+            else:
+                prior_weights = pd.Series(
+                    0.0, index=sleeve_values.index, dtype=float
+                )
 
-        net_return = (1.0 - rebalance_cost_rate) * (1.0 + gross_return) - 1.0
-        current_equity *= 1.0 + net_return
-        rows.append(
-            {
-                "ts": ts,
-                "gross_portfolio_return": gross_return,
-                "rebalance_cost_rate": rebalance_cost_rate,
-                "net_portfolio_return": net_return,
-                "half_l1_turnover": half_l1_turnover,
-                "traded_notional_ratio": traded_notional_ratio,
-                "equity": current_equity,
-                "is_rebalance": is_rebalance,
-            }
+            delta = target - prior_weights
+            traded_notional_ratio = float(np.abs(delta).sum())
+            if (
+                prior_weights.abs().sum() <= 1e-12
+                and not charge_initial_allocation
+            ):
+                traded_notional_ratio = 0.0
+
+            half_l1_turnover = 0.5 * traded_notional_ratio
+            rebalance_cost_rate = traded_notional_ratio * fee_rate
+            rebalance_cost_value = pre_equity * rebalance_cost_rate
+            investable = pre_equity - rebalance_cost_value
+            if investable <= 0:
+                raise RuntimeError("rebalance costs consumed portfolio equity")
+
+            sleeve_values = investable * target
+            cash = 0.0
+
+        invested_before_return = float(sleeve_values.sum())
+        cash_before_return = float(cash)
+
+        if invested_before_return > 0:
+            sleeve_values = sleeve_values * (
+                1.0 + pd.to_numeric(daily_returns, errors="coerce").fillna(0.0)
+            )
+
+        end_equity = float(cash + sleeve_values.sum())
+        gross_end_equity = pre_equity - rebalance_cost_value
+        if invested_before_return > 0:
+            gross_end_equity = cash_before_return + float(
+                (
+                    (pre_equity - rebalance_cost_value)
+                    * (
+                        (
+                            sleeve_values
+                            / float(sleeve_values.sum())
+                            if float(sleeve_values.sum()) > 0
+                            else pd.Series(
+                                0.0,
+                                index=sleeve_values.index,
+                                dtype=float,
+                            )
+                        )
+                    )
+                ).sum()
+            )
+            # Recompute gross return directly from the pre-return sleeve
+            # composition to avoid using post-return drifted weights.
+            if is_rebalance:
+                pre_return_weights = target_map[ts]
+            else:
+                pre_return_total = pre_equity
+                pre_return_weights = (
+                    (sleeve_values / (1.0 + pd.to_numeric(
+                        daily_returns, errors="coerce"
+                    ).fillna(0.0)))
+                    / invested_before_return
+                    if invested_before_return > 0
+                    else pd.Series(
+                        0.0, index=sleeve_values.index, dtype=float
+                    )
+                )
+            gross_portfolio_return = float(
+                (
+                    pd.to_numeric(daily_returns, errors="coerce").fillna(0.0)
+                    * pre_return_weights
+                ).sum()
+            )
+        else:
+            gross_portfolio_return = 0.0
+
+        net_portfolio_return = end_equity / pre_equity - 1.0
+
+        end_weights = (
+            sleeve_values / float(sleeve_values.sum())
+            if float(sleeve_values.sum()) > 0
+            else pd.Series(0.0, index=sleeve_values.index, dtype=float)
         )
+        row: dict[str, Any] = {
+            "ts": ts,
+            "gross_portfolio_return": gross_portfolio_return,
+            "rebalance_cost_rate": rebalance_cost_rate,
+            "rebalance_cost_value": rebalance_cost_value,
+            "net_portfolio_return": net_portfolio_return,
+            "half_l1_turnover": half_l1_turnover,
+            "traded_notional_ratio": traded_notional_ratio,
+            "equity": end_equity,
+            "is_rebalance": is_rebalance,
+        }
+        for sleeve in frame.columns:
+            row[f"end_weight_{sleeve}"] = float(end_weights.loc[sleeve])
+            row[f"end_value_{sleeve}"] = float(sleeve_values.loc[sleeve])
+        rows.append(row)
 
     return pd.DataFrame(rows)
-
 
 def corrected_portfolio_metrics(
     equity: pd.DataFrame,
