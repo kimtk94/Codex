@@ -207,6 +207,26 @@ jobs:
           print("NOTEBOOK_COMPILE_OK")
           PY
 
+      - name: Resume flat-HRP exact smoke
+        run: |
+          python - <<'PY'
+          import numpy as np
+          import pandas as pd
+          from research.quant_stack.portfolio import allocate
+
+          idx = pd.date_range("2024-01-01", periods=120, freq="D", tz="UTC")
+          returns = pd.DataFrame({
+              "US": np.zeros(len(idx)),
+              "KR": np.sin(np.arange(len(idx)) / 7.0) * 0.01,
+              "BTC": np.cos(np.arange(len(idx)) / 5.0) * 0.02,
+          }, index=idx)
+          weights = allocate(returns, method="hrp")
+          assert np.isfinite(weights.to_numpy(dtype=float)).all()
+          assert abs(float(weights.sum()) - 1.0) < 1e-8
+          assert float(weights["US"]) == 0.0
+          print("FLAT_HRP_SMOKE_OK", weights.to_dict())
+          PY
+
       - name: Resume preflight regression tests
         run: |
           pytest -q tests/test_resume_postprocess.py
