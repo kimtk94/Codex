@@ -404,6 +404,16 @@ def main() -> int:
             )
         score_payloads[market] = payload
 
+        diagnostic_date = pd.Timestamp(payload["as_of"]).strftime("%Y-%m-%d")
+        _write_json(
+            output_root
+            / "diagnostics"
+            / market.lower()
+            / diagnostic_date
+            / "forward_model.json",
+            payload,
+        )
+
         history_path = signal_root / market.lower() / "signal_history.parquet"
         history = append_signal_history(
             history_path,
