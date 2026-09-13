@@ -82,10 +82,19 @@ def test_rebalance_cost_uses_traded_notional_l1() -> None:
     assert np.isclose(first["traded_notional_ratio"], 1.0)
     assert np.isclose(first["rebalance_cost_rate"], 0.001)
 
-    # 50/50 -> 25/75: abs(delta) sums to 50%.
-    assert np.isclose(third["traded_notional_ratio"], 0.5)
-    assert np.isclose(third["half_l1_turnover"], 0.25)
-    assert np.isclose(third["rebalance_cost_rate"], 0.0005)
+    # The sleeves drift before the second rebalance, so turnover must be
+    # measured against drifted weights rather than stale 50/50 targets.
+    second = equity.iloc[1]
+    expected_l1 = (
+        abs(0.25 - second["end_weight_US"])
+        + abs(0.75 - second["end_weight_BTC"])
+    )
+    assert np.isclose(third["traded_notional_ratio"], expected_l1)
+    assert np.isclose(third["half_l1_turnover"], 0.5 * expected_l1)
+    assert np.isclose(
+        third["rebalance_cost_rate"],
+        expected_l1 * 0.001,
+    )
 
 
 def test_balanced_champion_prefers_lower_vol_inside_95pct_sharpe_band() -> None:
@@ -127,3 +136,29 @@ def test_balanced_champion_prefers_lower_vol_inside_95pct_sharpe_band() -> None:
     assert champions["overall_champion"]["method"] == "equal_weight"
     assert champions["balanced_champion"]["method"] == "hrp"
     assert champions["defensive_champion"]["method"] == "cvar_minrisk"
+
+
+def test_weights_drift_between_monthly_targets() -> None:
+    equity = portfolio_equity_with_costs(
+        _returns(),
+        _targets(),
+        initial_equity=1_000_000.0,
+        rebalance_cost_bps=0.0,
+    )
+    first = equity.iloc[0]
+    second = equity.iloc[1]
+
+    assert first["end_weight_US"] > 0.5
+    expected_day2 = second["end_weight_BTC"]  # post-return weight, sanity only
+    assert expected_day2 > 0.5
+
+    # Day 2 starts from the drifted day-1 weights, not a hidden daily 50/50 reset.
+    day1_us_end = 500_000.0 * 1.01
+    day1_btc_end = 500_000.0
+    btc_weight_before_day2 = day1_btc_end / (day1_us_end + day1_btc_end)
+    expected_gross_day2 = btc_weight_before_day2 * 0.02
+    assert np.isclose(
+        second["gross_portfolio_return"],
+        expected_gross_day2,
+    )
+    assert not np.isclose(second["gross_portfolio_return"], 0.01)
