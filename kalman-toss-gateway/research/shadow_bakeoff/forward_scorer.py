@@ -58,7 +58,7 @@ def _load_matrix(matrix_dir: Path, market: str) -> pd.DataFrame:
     return frame
 
 
-MAX_MISSING_FEATURE_RATIO = 0.15
+DEFAULT_MINIMUM_FEATURE_COVERAGE = 0.80
 
 
 def _development_tail(
@@ -81,6 +81,7 @@ def _validate_forward_row(
     *,
     trained_through: pd.Timestamp,
     features: list[str],
+    max_missing_feature_ratio: float,
 ) -> float:
     as_of = pd.Timestamp(latest["as_of"].iloc[0])
     trained = pd.Timestamp(trained_through)
@@ -94,10 +95,11 @@ def _validate_forward_row(
         errors="coerce",
     ).isna()
     ratio = float(missing.sum(axis=1).iloc[0]) / max(len(features), 1)
-    if ratio > MAX_MISSING_FEATURE_RATIO:
+    limit = float(max_missing_feature_ratio)
+    if ratio > limit:
         raise RuntimeError(
             f"latest selected-feature missing ratio too high: "
-            f"{ratio:.4f} > {MAX_MISSING_FEATURE_RATIO:.4f}"
+            f"{ratio:.4f} > {limit:.4f}"
         )
     return ratio
 
@@ -136,10 +138,17 @@ def score_v2_forward(
     )
 
     latest = frame.iloc[[-1]].copy()
+    max_missing_feature_ratio = 1.0 - float(
+        spec.get(
+            "minimum_feature_coverage",
+            DEFAULT_MINIMUM_FEATURE_COVERAGE,
+        )
+    )
     missing_feature_ratio = _validate_forward_row(
         latest,
         trained_through=pd.Timestamp(development["as_of"].max()),
         features=features,
+        max_missing_feature_ratio=max_missing_feature_ratio,
     )
     probability = float(
         _predict_probability(
@@ -205,7 +214,7 @@ def score_v2_forward(
         ).isoformat(),
         "selected_feature_count": len(features),
         "missing_feature_ratio": missing_feature_ratio,
-        "max_missing_feature_ratio": MAX_MISSING_FEATURE_RATIO,
+        "max_missing_feature_ratio": max_missing_feature_ratio,
         "selected_features": features,
         "feature_consensus": ranking,
         "best_c": float(best_c),
@@ -306,10 +315,17 @@ def score_v3_forward(
     )
 
     latest = frame.iloc[[-1]].copy()
+    max_missing_feature_ratio = 1.0 - float(
+        spec.get(
+            "minimum_feature_coverage",
+            DEFAULT_MINIMUM_FEATURE_COVERAGE,
+        )
+    )
     missing_feature_ratio = _validate_forward_row(
         latest,
         trained_through=pd.Timestamp(development["as_of"].max()),
         features=features,
+        max_missing_feature_ratio=max_missing_feature_ratio,
     )
     predicted_return = float(
         _predict_return(latest, features, return_bundle)[0]
@@ -385,7 +401,7 @@ def score_v3_forward(
         ).isoformat(),
         "selected_feature_count": len(features),
         "missing_feature_ratio": missing_feature_ratio,
-        "max_missing_feature_ratio": MAX_MISSING_FEATURE_RATIO,
+        "max_missing_feature_ratio": max_missing_feature_ratio,
         "selected_features": features,
         "feature_consensus": feature_ranking,
         "model_type": model_type,
