@@ -117,8 +117,6 @@ def _blend_alpha_for_risk_cap(
         if vol <= cap + 1e-12:
             best_alpha = float(alpha)
             best_vol = float(vol)
-        else:
-            break
     return best_alpha, ew_vol, ms_vol, best_vol
 
 
