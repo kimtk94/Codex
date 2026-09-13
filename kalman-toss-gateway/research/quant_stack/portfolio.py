@@ -41,9 +41,48 @@ def pypfopt_hrp(returns: pd.DataFrame) -> pd.Series:
             "Install research/quant_stack/requirements.txt in the research venv."
         ) from exc
 
-    optimizer = HRPOpt(returns=returns.dropna(how="all"))
+    clean = (
+        returns.copy()
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna(how="all")
+        .fillna(0.0)
+    )
+    if clean.empty:
+        return equal_weight(returns)
+
+    # HRP requires a finite correlation-distance matrix. A sleeve that is
+    # completely flat inside the rolling lookback has zero variance, which
+    # makes its correlation undefined and causes scipy linkage to fail.
+    vol = clean.std(ddof=0)
+    active_columns = [
+        column
+        for column in clean.columns
+        if np.isfinite(float(vol[column])) and float(vol[column]) > 1e-12
+    ]
+
+    if not active_columns:
+        return equal_weight(returns)
+
+    if len(active_columns) == 1:
+        single = pd.Series(0.0, index=returns.columns, dtype=float)
+        single.loc[active_columns[0]] = 1.0
+        return single
+
+    active = clean[active_columns]
+    corr = active.corr()
+    if not np.isfinite(corr.to_numpy(dtype=float)).all():
+        fallback = inverse_volatility(active)
+        return _normalize(
+            fallback.reindex(returns.columns).fillna(0.0)
+        )
+
+    optimizer = HRPOpt(returns=active)
     weights = optimizer.optimize()
-    return _normalize(pd.Series(weights, dtype=float).reindex(returns.columns).fillna(0.0))
+    return _normalize(
+        pd.Series(weights, dtype=float)
+        .reindex(returns.columns)
+        .fillna(0.0)
+    )
 
 
 def pypfopt_max_sharpe(returns: pd.DataFrame) -> pd.Series:
