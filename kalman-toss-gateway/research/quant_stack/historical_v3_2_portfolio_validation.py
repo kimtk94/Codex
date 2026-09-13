@@ -685,7 +685,7 @@ def _stateful_vectorbt_orders(
     exits = np.zeros(n, dtype=bool)
     execution_price = pd.to_numeric(
         bars["open"], errors="coerce"
-    ).to_numpy(dtype=float)
+    ).to_numpy(dtype=float, copy=True)
     reasons: list[str | None] = [None] * n
 
     in_position = False
