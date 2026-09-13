@@ -58,7 +58,7 @@ def _pairwise_fixture() -> pd.DataFrame:
     rows = []
     periods = ("FULL_COMMON", "RECENT", "WORST_126D", "RISK_OFF_2022")
     for source in SOURCE_SETS:
-        for i in range(12):
+        for i in range(24):
             for period in periods:
                 rows.append(
                     {
