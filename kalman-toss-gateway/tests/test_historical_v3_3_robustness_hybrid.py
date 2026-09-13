@@ -142,3 +142,34 @@ def test_recommendation_prefers_best_robust_source() -> None:
     assert rec["recommended_source_set"] == "HYBRID_USV2_KRV3_BTCV2"
     assert rec["recommended_allocator"] == "max_sharpe"
     assert rec["shadow_gate"] == "PASS"
+
+
+def test_max_sharpe_optimizer_smoke_generates_valid_targets() -> None:
+    from research.quant_stack.historical_v3_2_portfolio_validation import (
+        build_pypfopt_targets_v32,
+    )
+
+    idx = pd.date_range("2025-01-01", periods=240, freq="D", tz="UTC")
+    t = np.arange(len(idx), dtype=float)
+    returns = pd.DataFrame(
+        {
+            "US": 0.0006 + 0.0040 * np.sin(t / 9.0),
+            "KR": 0.0004 + 0.0035 * np.cos(t / 11.0),
+            "BTC": 0.0008 + 0.0070 * np.sin(t / 7.0 + 0.5),
+        },
+        index=idx,
+    )
+
+    targets = build_pypfopt_targets_v32(
+        returns,
+        method="max_sharpe",
+        lookback_days=90,
+        min_observations=60,
+        rebalance_frequency="M",
+        annualization_days=365,
+    )
+
+    assert not targets.empty
+    grouped = targets.groupby("effective_ts")["target_weight"].sum()
+    assert np.allclose(grouped.to_numpy(dtype=float), 1.0, atol=1e-8)
+    assert set(targets["sleeve"]) == {"US", "KR", "BTC"}
