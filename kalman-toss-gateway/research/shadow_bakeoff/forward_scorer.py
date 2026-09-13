@@ -58,6 +58,9 @@ def _load_matrix(matrix_dir: Path, market: str) -> pd.DataFrame:
     return frame
 
 
+MAX_MISSING_FEATURE_RATIO = 0.15
+
+
 def _development_tail(
     frame: pd.DataFrame,
     *,
@@ -71,6 +74,32 @@ def _development_tail(
             f"{len(labeled)} < {observations}"
         )
     return labeled.tail(observations).reset_index(drop=True)
+
+
+def _validate_forward_row(
+    latest: pd.DataFrame,
+    *,
+    trained_through: pd.Timestamp,
+    features: list[str],
+) -> float:
+    as_of = pd.Timestamp(latest["as_of"].iloc[0])
+    trained = pd.Timestamp(trained_through)
+    if as_of <= trained:
+        raise RuntimeError(
+            f"latest row is not forward of training window: "
+            f"latest={as_of} trained_through={trained}"
+        )
+    missing = latest[features].apply(
+        pd.to_numeric,
+        errors="coerce",
+    ).isna()
+    ratio = float(missing.sum(axis=1).iloc[0]) / max(len(features), 1)
+    if ratio > MAX_MISSING_FEATURE_RATIO:
+        raise RuntimeError(
+            f"latest selected-feature missing ratio too high: "
+            f"{ratio:.4f} > {MAX_MISSING_FEATURE_RATIO:.4f}"
+        )
+    return ratio
 
 
 def score_v2_forward(
@@ -107,6 +136,11 @@ def score_v2_forward(
     )
 
     latest = frame.iloc[[-1]].copy()
+    missing_feature_ratio = _validate_forward_row(
+        latest,
+        trained_through=pd.Timestamp(development["as_of"].max()),
+        features=features,
+    )
     probability = float(
         _predict_probability(
             latest,
@@ -170,6 +204,8 @@ def score_v2_forward(
             development["as_of"].max()
         ).isoformat(),
         "selected_feature_count": len(features),
+        "missing_feature_ratio": missing_feature_ratio,
+        "max_missing_feature_ratio": MAX_MISSING_FEATURE_RATIO,
         "selected_features": features,
         "feature_consensus": ranking,
         "best_c": float(best_c),
@@ -270,6 +306,11 @@ def score_v3_forward(
     )
 
     latest = frame.iloc[[-1]].copy()
+    missing_feature_ratio = _validate_forward_row(
+        latest,
+        trained_through=pd.Timestamp(development["as_of"].max()),
+        features=features,
+    )
     predicted_return = float(
         _predict_return(latest, features, return_bundle)[0]
     )
@@ -343,6 +384,8 @@ def score_v3_forward(
             development["as_of"].max()
         ).isoformat(),
         "selected_feature_count": len(features),
+        "missing_feature_ratio": missing_feature_ratio,
+        "max_missing_feature_ratio": MAX_MISSING_FEATURE_RATIO,
         "selected_features": features,
         "feature_consensus": feature_ranking,
         "model_type": model_type,
