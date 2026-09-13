@@ -5,7 +5,7 @@
 # CRON_TZ=Asia/Seoul
 #
 # Suggested daily cadence after the existing morning US/model refresh:
-# 10 8 * * 2-6 root /opt/kalman/app/scripts/run_shadow_bakeoff_v1.sh >> /opt/kalman/logs/shadow-bakeoff-v1.log 2>&1
+# 10 8 * * 2-6 root /bin/bash /opt/kalman/app/scripts/run_shadow_bakeoff_v1.sh >> /opt/kalman/logs/shadow-bakeoff-v1.log 2>&1
 #
 # The runner is file-only. It:
 # - refuses to run while TRADING_ENABLED=true
