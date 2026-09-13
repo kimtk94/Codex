@@ -144,6 +144,8 @@ def riskfolio_weights(
 
     active = clean[active_columns]
     method = method.strip().lower()
+    if method not in RISKFOLIO_METHODS:
+        raise ValueError(f"unsupported Riskfolio method: {method}")
 
     try:
         port = rp.Portfolio(returns=active)
@@ -179,7 +181,7 @@ def riskfolio_weights(
                 hist=True,
             )
         else:
-            raise ValueError(f"unsupported Riskfolio method: {method}")
+            raise AssertionError(f"unreachable Riskfolio method: {method}")
 
         active_weights = _weight_series(raw, list(active.columns))
         weights = _normalize(
@@ -195,12 +197,6 @@ def riskfolio_weights(
         weights.attrs["optimization_status"] = "READY"
         weights.attrs["fallback_reason"] = None
         return weights
-    except ValueError:
-        # Unsupported method is a caller error and should not be hidden by a
-        # numerical fallback.
-        if method not in RISKFOLIO_METHODS:
-            raise
-        raise
     except Exception as exc:
         return _fallback_weights(
             active,
