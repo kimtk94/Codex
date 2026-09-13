@@ -376,6 +376,7 @@ def append_signal_history(
                 "entry_allowed": signal["entry_allowed"],
                 "model_family": signal["model_family"],
                 "parameter_hash": signal["parameter_hash"],
+                "recorded_at": pd.Timestamp.now(tz="UTC"),
             }
         ]
     )
@@ -395,8 +396,19 @@ def append_signal_history(
         utc=True,
         errors="raise",
     )
+    if "recorded_at" not in out.columns:
+        out["recorded_at"] = pd.NaT
+    out["recorded_at"] = pd.to_datetime(
+        out["recorded_at"],
+        utc=True,
+        errors="coerce",
+    )
     out = (
-        out.sort_values(["signal_ts", "run_id"])
+        out.sort_values(
+            ["signal_ts", "recorded_at"],
+            kind="stable",
+            na_position="first",
+        )
         .drop_duplicates(
             ["market", "symbol", "signal_ts"],
             keep="last",
