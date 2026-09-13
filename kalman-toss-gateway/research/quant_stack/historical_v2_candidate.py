@@ -507,7 +507,15 @@ def _buy_hold_equity(
     entry_fee = entry_notional * fee_rate
     cash = initial_cash - entry_notional - entry_fee
 
-    rows: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = [
+        {
+            "ts": pd.Timestamp(p.iloc[0]["ts"]) - pd.Timedelta(days=1),
+            "cash": initial_cash,
+            "position_value": 0.0,
+            "equity": initial_cash,
+            "open_positions": 0,
+        }
+    ]
     for i, row in p.iterrows():
         close = float(row["close"])
         position_value = qty * close
