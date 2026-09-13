@@ -13,6 +13,9 @@ on:
       - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
       - "kalman-toss-gateway/tests/test_riskfolio_benchmarks.py"
       - "kalman-toss-gateway/tests/test_lean_execution_contract.py"
+      - "kalman-toss-gateway/tests/test_resume_postprocess.py"
+      - "kalman-toss-gateway/scripts/colab_resume_historical.py"
+      - "notebooks/Kalman_Historical_Resume_20260913_042850.ipynb"
       - ".github/workflows/kalman-quant-stack-tests.yml"
   push:
     branches:
@@ -62,7 +65,8 @@ jobs:
           pytest -q \
             tests/test_quant_stack.py \
             tests/test_historical_backfill.py \
-            tests/test_quant_artifact_validation.py
+            tests/test_quant_artifact_validation.py \
+            tests/test_resume_postprocess.py
 
 
   qlib-recorder-smoke:
@@ -158,3 +162,52 @@ jobs:
         run: |
           python -m compileall -q research/quant_stack
           pytest -q tests/test_lean_execution_contract.py
+
+
+  resume-colab-basic-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install resume dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pandas numpy scikit-learn pyarrow python-dotenv -r research/quant_stack/requirements-pypfopt.txt
+
+      - name: Compile resume runner
+        run: |
+          python -m py_compile scripts/colab_resume_historical.py
+          python -m py_compile research/quant_stack/resume_postprocess.py
+
+      - name: Compile Colab notebook cell
+        working-directory: ..
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("notebooks/Kalman_Historical_Resume_20260913_042850.ipynb")
+          nb = json.loads(path.read_text(encoding="utf-8"))
+          assert nb["nbformat"] == 4
+          assert len(nb["cells"]) == 1
+          cell = nb["cells"][0]
+          assert cell["cell_type"] == "code"
+          source = "".join(cell["source"])
+          assert "\\n" not in source, "literal backslash-n found in notebook source"
+          compile(source, str(path), "exec")
+          assert "--branch', 'main'" in source
+          assert "colab_resume_historical.py" in source
+          print("NOTEBOOK_COMPILE_OK")
+          PY
+
+      - name: Resume preflight regression tests
+        run: |
+          pytest -q tests/test_resume_postprocess.py
