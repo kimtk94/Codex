@@ -1,0 +1,58 @@
+{
+  "version": "kalman_model_v3_hist_001_return_regime",
+  "feature_set": "multimarket_feature_v0_3_return_regime_2017_v3",
+  "dataset_version": "kalman_historical_feature_matrix_v1_001",
+  "minimum_feature_coverage": 0.80,
+  "maximum_features": 24,
+  "excluded_feature_suffixes": ["__coverage"],
+  "near_zero_variance_threshold": 1e-12,
+  "max_pairwise_feature_correlation": 0.90,
+  "stability_blocks": 4,
+  "outer_development_observations": 756,
+  "outer_test_observations": 126,
+  "inner_train_observations": 504,
+  "inner_validation_observations": 63,
+  "entry_quantile_grid": [0.60, 0.70, 0.80],
+  "regime_probability_grid": [0.50, 0.55, 0.60],
+  "regime_c_grid": [0.01, 0.10],
+  "turnover_penalty": 0.25,
+  "return_proxy_weight": 0.25,
+  "commission_bps": 5.0,
+  "slippage_bps": 5.0,
+  "position_fractions": [0.10, 1.00],
+  "markets": {
+    "US": {
+      "symbol": "SPY",
+      "horizon_observations": 5,
+      "model_type": "RIDGE",
+      "model_candidates": [
+        {"alpha": 10.0},
+        {"alpha": 100.0}
+      ],
+      "regime_return_threshold": 0.0,
+      "max_hold_bars": 20
+    },
+    "KR": {
+      "symbol": "KOSPI",
+      "horizon_observations": 5,
+      "model_type": "ELASTIC_NET",
+      "model_candidates": [
+        {"alpha": 0.001, "l1_ratio": 0.25},
+        {"alpha": 0.01, "l1_ratio": 0.75}
+      ],
+      "regime_return_threshold": 0.0,
+      "max_hold_bars": 20
+    },
+    "BTC": {
+      "symbol": "BTC-USD",
+      "horizon_observations": 7,
+      "model_type": "HIST_GRADIENT_BOOSTING",
+      "model_candidates": [
+        {"learning_rate": 0.03, "max_leaf_nodes": 7, "l2_regularization": 1.0},
+        {"learning_rate": 0.05, "max_leaf_nodes": 15, "l2_regularization": 1.0}
+      ],
+      "regime_return_threshold": 0.005,
+      "max_hold_bars": 14
+    }
+  }
+}
