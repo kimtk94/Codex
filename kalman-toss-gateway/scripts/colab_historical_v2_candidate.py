@@ -237,10 +237,12 @@ def main() -> int:
                 shutil.rmtree(qlib_venv)
             run([uv, "venv", "--python", "3.12", qlib_venv])
             qlib_py = qlib_venv / "bin/python"
-            qlib_pip = qlib_venv / "bin/pip"
             run([
-                qlib_pip,
+                uv,
+                "pip",
                 "install",
+                "--python",
+                qlib_py,
                 "-q",
                 "pandas",
                 "numpy",
@@ -249,7 +251,7 @@ def main() -> int:
                 "-r",
                 qlib_req,
             ])
-            run([qlib_pip, "check"])
+            run([uv, "pip", "check", "--python", qlib_py])
             py_version = capture([
                 qlib_py,
                 "-c",
