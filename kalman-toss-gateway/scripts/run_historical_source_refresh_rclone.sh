@@ -122,7 +122,7 @@ copy_current() {
   local rel="$1"
   local dest="$MARKET/$rel"
   mkdir -p "$(dirname "$dest")"
-  if "${RCLONE[@]}" copyto "$MARKET_REMOTE_ROOT/${rel#raw/}" "$dest" >/dev/null 2>&1; then
+  if "${RCLONE[@]}" copyto "$MARKET_REMOTE_ROOT/$rel" "$dest" >/dev/null 2>&1; then
     echo "CURRENT_SOURCE=FOUND $rel"
     return 0
   fi
