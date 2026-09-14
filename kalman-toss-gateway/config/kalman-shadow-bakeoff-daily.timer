@@ -1,0 +1,11 @@
+[Unit]
+Description=Kalman daily SHADOW refresh timer
+
+[Timer]
+OnCalendar=Tue..Sat *-*-* 09:15:00 Asia/Seoul
+Persistent=true
+AccuracySec=1min
+Unit=kalman-shadow-bakeoff-daily.service
+
+[Install]
+WantedBy=timers.target

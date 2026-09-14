@@ -1,0 +1,21 @@
+[Unit]
+Description=Kalman daily market refresh, historical bridge, and SHADOW bake-off
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/kalman/app
+Environment=KALMAN_APP_ROOT=/opt/kalman/app
+Environment=KALMAN_ENV_FILE=/opt/kalman/.env
+Environment=KALMAN_RCLONE_CONFIG=/etc/rclone/rclone.conf
+Environment=KALMAN_SHADOW_BAKEOFF_SOURCE_REFRESH_SCRIPT=/opt/kalman/app/scripts/run_historical_source_refresh_rclone.sh
+ExecStart=/bin/bash /opt/kalman/app/scripts/run_shadow_bakeoff_daily.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+CPUQuota=75%
+MemoryMax=1536M
+MemorySwapMax=512M
+TimeoutStartSec=2h
