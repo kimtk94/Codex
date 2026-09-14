@@ -423,6 +423,12 @@ def _blank_like_row(template: pd.Series, columns: list[str]) -> dict[str, Any]:
         "low",
         "close",
         "volume",
+        "raw_value",
+        "source_updated_at",
+        "is_complete",
+        "is_stale",
+        "quality_flag",
+        "RAW_VALUE",
         *HISTORICAL_NUMERIC_FEATURES,
     }
     for col in columns:
@@ -516,10 +522,25 @@ def _append_indicator(
         for col in ("open", "high", "low", "close", "volume"):
             if col in raw.columns and col in src.index:
                 row[col] = src[col]
+        if "raw_value" in raw.columns:
+            row["raw_value"] = src["close"]
         if "source" in raw.columns and "source" in src.index:
             row["source"] = src["source"]
+        if "source_updated_at" in raw.columns:
+            retrieved = src.get("retrieved_at")
+            row["source_updated_at"] = (
+                _timestamp(retrieved)
+                if retrieved is not None and not pd.isna(retrieved)
+                else now
+            )
         if "retrieved_at" in raw.columns and "retrieved_at" in src.index:
             row["retrieved_at"] = src["retrieved_at"]
+        if "is_complete" in raw.columns:
+            row["is_complete"] = True
+        if "is_stale" in raw.columns:
+            row["is_stale"] = False
+        if "quality_flag" in raw.columns:
+            row["quality_flag"] = "HIST_REFRESH_V1"
         raw_rows.append(row)
 
     new_raw_frame = pd.DataFrame(raw_rows, columns=raw.columns)
@@ -576,6 +597,12 @@ def _append_indicator(
         row["indicator_id"] = mapping.indicator_id
         if "timeframe" in row:
             row["timeframe"] = "1D"
+        if "RAW_VALUE" in features.columns:
+            row["RAW_VALUE"] = src["close"]
+        if "source" in features.columns:
+            row["source"] = f"DERIVED:{mapping.indicator_id}:HIST_REFRESH_V1"
+        if "quality_flag" in features.columns:
+            row["quality_flag"] = "HIST_REFRESH_V1"
         for feature, values in feature_values.items():
             if feature in features.columns:
                 row[feature] = values.iloc[idx]
