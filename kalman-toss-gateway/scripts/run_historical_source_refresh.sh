@@ -67,11 +67,34 @@ print(v.get("KALMAN_DATA_ROOT") or "/opt/kalman/data")
 PY
 )"
 
-MARKET_ROOT="${KALMAN_MARKET_V2_OUTPUT_DIR:-$DATA_ROOT/Market_Data/v2}"
-RAW="${KALMAN_SHADOW_BAKEOFF_HIST_RAW:-$DATA_ROOT/Market_Data/v2/raw/historical_2017/multimarket_raw_2017_present.parquet}"
-FEATURES="${KALMAN_SHADOW_BAKEOFF_HIST_FEATURES:-$DATA_ROOT/Market_Features/v2/talib/historical_2017/multimarket_features_2017_present_v0_3.parquet}"
-MODEL_ROOT="${KALMAN_MODEL_V2_ROOT:-$DATA_ROOT/Market_Model_V2}"
-OUTPUT_DIR="${KALMAN_SHADOW_BAKEOFF_OUTPUT_DIR:-$MODEL_ROOT/shadow_bakeoff/v1}"
+readarray -t RESOLVED < <("$PY" - "$ENV_FILE" "$DATA_ROOT" <<'PY'
+from pathlib import Path
+from dotenv import dotenv_values
+import sys
+
+v = dotenv_values(Path(sys.argv[1]))
+root = sys.argv[2]
+market = v.get("KALMAN_MARKET_V2_OUTPUT_DIR") or f"{root}/Market_Data/v2"
+model = v.get("KALMAN_MODEL_V2_ROOT") or f"{root}/Market_Model_V2"
+raw = v.get("KALMAN_SHADOW_BAKEOFF_HIST_RAW") or (
+    f"{root}/Market_Data/v2/raw/historical_2017/"
+    "multimarket_raw_2017_present.parquet"
+)
+features = v.get("KALMAN_SHADOW_BAKEOFF_HIST_FEATURES") or (
+    f"{root}/Market_Features/v2/talib/historical_2017/"
+    "multimarket_features_2017_present_v0_3.parquet"
+)
+output = v.get("KALMAN_SHADOW_BAKEOFF_OUTPUT_DIR") or f"{model}/shadow_bakeoff/v1"
+for x in (market, raw, features, model, output):
+    print(x)
+PY
+)
+
+MARKET_ROOT="${RESOLVED[0]}"
+RAW="${RESOLVED[1]}"
+FEATURES="${RESOLVED[2]}"
+MODEL_ROOT="${RESOLVED[3]}"
+OUTPUT_DIR="${RESOLVED[4]}"
 STATUS="$OUTPUT_DIR/latest/historical_source_refresh.json"
 MAPPING="${KALMAN_HISTORICAL_REFRESH_MAPPING:-$APP_ROOT/config/historical-source-refresh-v1.json}"
 BACKUP_ROOT="${KALMAN_HISTORICAL_REFRESH_BACKUP_ROOT:-$DATA_ROOT/Market_Data/v2/raw/historical_2017/_refresh_backups}"
