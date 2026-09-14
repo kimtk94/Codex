@@ -16,8 +16,8 @@ if systemctl is-active --quiet "$UNIT.service" 2>/dev/null; then
 fi
 
 # Conservative defaults. Override only after observing server headroom.
-MEMORY_MAX="${KALMAN_SHADOW_BAKEOFF_MEMORY_MAX:-1536M}"
-CPU_QUOTA="${KALMAN_SHADOW_BAKEOFF_CPU_QUOTA:-75%}"
+MEMORY_MAX="${KALMAN_SHADOW_BAKEOFF_MEMORY_MAX:-1024M}"
+CPU_QUOTA="${KALMAN_SHADOW_BAKEOFF_CPU_QUOTA:-50%}"
 TIMEOUT_SEC="${KALMAN_SHADOW_BAKEOFF_TIMEOUT_SEC:-5400}"
 
 echo "============================================================"
