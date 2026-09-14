@@ -83,6 +83,83 @@ KALMAN_SHADOW_BAKEOFF_SOURCE_REFRESH_SCRIPT=/path/to/validated_refresh.sh
 
 The value may be placed in `/opt/kalman/.env`; cron reads it from that file.
 
+## Built-in Historical Source Refresh V1
+
+The repository now includes a conservative, fail-closed bridge that advances
+the validated 2017+ integrated price-family sources from the already refreshed
+Market Data V2 snapshots:
+
+```text
+research/shadow_bakeoff/historical_source_refresh.py
+scripts/run_historical_source_refresh.sh
+config/historical-source-refresh-v1.json
+```
+
+The refresher is intentionally narrower than the full historical collector. It
+updates only validated 1D price-family indicators with direct current-source
+continuity:
+
+- US_SPY, US_QQQ, US_SOXX, US_IWM
+- COMMON_GLD, COMMON_HYG, COMMON_LQD
+- BTC_BTCUSD
+- KR_KOSPI, KR_KOSDAQ
+
+It does not synthesize missing FRED, liquidity, Upbit 4H, or other macro
+families. Those remain subject to the existing lag / max-ffill contract.
+
+Before appending any row, the refresher:
+
+1. rejects incomplete same-day bars by market-session policy;
+2. checks current-source close continuity against historical overlap;
+3. infers the existing historical feature formula from overlap;
+4. requires formula parity below the configured error threshold;
+5. appends only rows strictly newer than the historical indicator max;
+6. preserves the existing parquet schema;
+7. writes both raw and feature parquet files through temp files;
+8. creates backups before atomic replacement;
+9. keeps the prospective seed unchanged.
+
+The freshness gate now checks the feature stream of each anchor separately.
+A fresh unrelated feature can no longer make `feature_ready=true` while
+US_SPY, KR_KOSPI, or BTC_BTCUSD remains stale.
+
+### First rollout
+
+Keep cron disabled. Deploy the branch, then run:
+
+```bash
+/bin/bash /opt/kalman/app/scripts/run_historical_source_refresh.sh --dry-run
+```
+
+Review:
+
+- source continuity error;
+- selected feature formulas and parity scores;
+- which rows would be appended;
+- incomplete-bar filtering;
+- `live_execution=false`, `toss_execution=false`,
+  `neon_write=false`, `production_write=false`.
+
+Only after the dry-run is clean:
+
+```bash
+/bin/bash /opt/kalman/app/scripts/run_historical_source_refresh.sh --apply
+```
+
+Then re-run the freshness gate / guarded bake-off manually. It is normal for a
+market to remain at `WAITING_SOURCE_REFRESH` before that market's completed
+daily bar exists. In particular, do not invent a US row before the US session
+has completed.
+
+After one successful manual cycle, enable the hook in `/opt/kalman/.env`:
+
+```bash
+KALMAN_SHADOW_BAKEOFF_SOURCE_REFRESH_SCRIPT=/opt/kalman/app/scripts/run_historical_source_refresh.sh
+```
+
+Do not reinstall the bake-off cron until server stability is separately
+approved.
+
 ## Install
 
 After the branch is deployed to `/opt/kalman/app`:
