@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from research.shadow_bakeoff.historical_source_refresh import (
     MappingSpec,
+    _atomic_write_pair,
     _candidate_formulas,
     _event_complete,
     refresh_frames,
@@ -251,5 +254,178 @@ def test_candidate_formulas_include_exact_historical_change_vol20_and_rv20() -> 
         rtol=0.0,
         atol=1e-12,
         equal_nan=True,
+    )
+
+
+def test_atomic_write_pair_preserves_exact_arrow_schema(tmp_path) -> None:
+    raw_path = tmp_path / "raw.parquet"
+    feature_path = tmp_path / "features.parquet"
+    backup_dir = tmp_path / "backup"
+
+    raw_schema = pa.schema(
+        [
+            pa.field(
+                "event_time",
+                pa.timestamp("ns", tz="UTC"),
+            ),
+            pa.field("market", pa.string()),
+            pa.field("source", pa.string()),
+            pa.field(
+                "source_updated_at",
+                pa.timestamp("ns", tz="UTC"),
+            ),
+            pa.field("value", pa.float64()),
+        ],
+        metadata={
+            b"schema_version": b"raw_exact_v1",
+        },
+    )
+
+    feature_schema = pa.schema(
+        [
+            pa.field(
+                "event_time",
+                pa.timestamp("ns", tz="UTC"),
+            ),
+            pa.field("market", pa.string()),
+            pa.field("source", pa.string()),
+            pa.field("feature_family", pa.string()),
+            pa.field("RAW_VALUE", pa.float64()),
+        ],
+        metadata={
+            b"schema_version": b"feature_exact_v1",
+        },
+    )
+
+    raw_seed = pa.Table.from_pydict(
+        {
+            "event_time": [
+                pd.Timestamp(
+                    "2026-09-11T00:00:00Z"
+                )
+            ],
+            "market": ["KR"],
+            "source": ["historical"],
+            "source_updated_at": [
+                pd.Timestamp(
+                    "2026-09-11T06:35:00Z"
+                )
+            ],
+            "value": [6909.91],
+        },
+        schema=raw_schema,
+    )
+
+    feature_seed = pa.Table.from_pydict(
+        {
+            "event_time": [
+                pd.Timestamp(
+                    "2026-09-11T00:00:00Z"
+                )
+            ],
+            "market": ["KR"],
+            "source": ["historical"],
+            "feature_family": ["PRICE"],
+            "RAW_VALUE": [6909.91],
+        },
+        schema=feature_schema,
+    )
+
+    pq.write_table(raw_seed, raw_path)
+    pq.write_table(feature_seed, feature_path)
+
+    raw_out = pd.DataFrame(
+        {
+            "event_time": pd.to_datetime(
+                [
+                    "2026-09-11T00:00:00Z",
+                    "2026-09-14T00:00:00Z",
+                ],
+                utc=True,
+            ),
+            "market": ["KR", "KR"],
+            "source": [
+                "historical",
+                "FinanceDataReader",
+            ],
+            "source_updated_at": pd.to_datetime(
+                [
+                    "2026-09-11T06:35:00Z",
+                    "2026-09-14T10:23:26Z",
+                ],
+                utc=True,
+            ),
+            "value": [
+                6909.91,
+                6684.37,
+            ],
+        }
+    )
+
+    feature_out = pd.DataFrame(
+        {
+            "event_time": pd.to_datetime(
+                [
+                    "2026-09-11T00:00:00Z",
+                    "2026-09-14T00:00:00Z",
+                ],
+                utc=True,
+            ),
+            "market": ["KR", "KR"],
+            "source": [
+                "historical",
+                "DERIVED:KR_KOSPI:HIST_REFRESH_V1",
+            ],
+            "feature_family": [
+                "PRICE",
+                "PRICE",
+            ],
+            "RAW_VALUE": [
+                6909.91,
+                6684.37,
+            ],
+        }
+    )
+
+    backups = _atomic_write_pair(
+        raw_out,
+        feature_out,
+        raw_path=raw_path,
+        feature_path=feature_path,
+        backup_dir=backup_dir,
+    )
+
+    assert pq.read_schema(raw_path).equals(
+        raw_schema,
+        check_metadata=True,
+    )
+
+    assert pq.read_schema(feature_path).equals(
+        feature_schema,
+        check_metadata=True,
+    )
+
+    assert (
+        pq.ParquetFile(raw_path).metadata.num_rows
+        == 2
+    )
+
+    assert (
+        pq.ParquetFile(feature_path).metadata.num_rows
+        == 2
+    )
+
+    assert pq.read_schema(
+        backups["raw_backup"]
+    ).equals(
+        raw_schema,
+        check_metadata=True,
+    )
+
+    assert pq.read_schema(
+        backups["feature_backup"]
+    ).equals(
+        feature_schema,
+        check_metadata=True,
     )
 

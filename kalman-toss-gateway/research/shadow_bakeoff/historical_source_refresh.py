@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from research.model_v2.build_historical_feature_matrix import (
     HISTORICAL_NUMERIC_FEATURES,
@@ -773,17 +775,69 @@ def _atomic_write_pair(
         feature_path.suffix + f".refresh.{os.getpid()}.tmp"
     )
     try:
-        raw_out.to_parquet(raw_tmp, index=False)
-        features_out.to_parquet(feat_tmp, index=False)
+        raw_schema = pq.read_schema(raw_path)
+        feat_schema = pq.read_schema(feature_path)
+
+        if list(raw_out.columns) != raw_schema.names:
+            raise RuntimeError("raw output columns do not match canonical schema")
+        if list(features_out.columns) != feat_schema.names:
+            raise RuntimeError("feature output columns do not match canonical schema")
+
+        raw_table = pa.Table.from_pandas(
+            raw_out,
+            schema=raw_schema,
+            preserve_index=False,
+            safe=True,
+        ).replace_schema_metadata(raw_schema.metadata)
+
+        feat_table = pa.Table.from_pandas(
+            features_out,
+            schema=feat_schema,
+            preserve_index=False,
+            safe=True,
+        ).replace_schema_metadata(feat_schema.metadata)
+
+        if not raw_table.schema.equals(raw_schema, check_metadata=True):
+            raise RuntimeError("raw in-memory schema parity failed")
+        if not feat_table.schema.equals(feat_schema, check_metadata=True):
+            raise RuntimeError("feature in-memory schema parity failed")
+
+        pq.write_table(
+            raw_table,
+            raw_tmp,
+            version="2.6",
+        )
+        pq.write_table(
+            feat_table,
+            feat_tmp,
+            version="2.6",
+        )
+
         raw_mode = stat.S_IMODE(raw_path.stat().st_mode)
         feat_mode = stat.S_IMODE(feature_path.stat().st_mode)
         os.chmod(raw_tmp, raw_mode)
         os.chmod(feat_tmp, feat_mode)
 
-        # Validate persisted schemas before replacing either canonical file.
-        raw_probe = pd.read_parquet(raw_tmp, columns=list(raw_out.columns))
-        feat_probe = pd.read_parquet(feat_tmp, columns=list(features_out.columns))
-        if len(raw_probe) != len(raw_out) or len(feat_probe) != len(features_out):
+        # Fail closed before replacing either canonical file.
+        raw_persisted_schema = pq.read_schema(raw_tmp)
+        feat_persisted_schema = pq.read_schema(feat_tmp)
+
+        if not raw_persisted_schema.equals(
+            raw_schema,
+            check_metadata=True,
+        ):
+            raise RuntimeError("persisted raw schema parity failed")
+
+        if not feat_persisted_schema.equals(
+            feat_schema,
+            check_metadata=True,
+        ):
+            raise RuntimeError("persisted feature schema parity failed")
+
+        raw_rows = pq.ParquetFile(raw_tmp).metadata.num_rows
+        feat_rows = pq.ParquetFile(feat_tmp).metadata.num_rows
+
+        if raw_rows != len(raw_out) or feat_rows != len(features_out):
             raise RuntimeError("persisted row-count validation failed")
 
         os.replace(raw_tmp, raw_path)
