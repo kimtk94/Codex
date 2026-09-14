@@ -14,6 +14,10 @@ on:
       - "kalman-toss-gateway/config/model-v2-spec.json"
       - "kalman-toss-gateway/config/historical-source-refresh-v1.json"
       - "kalman-toss-gateway/scripts/*v2.sh"
+      - "kalman-toss-gateway/scripts/run_historical_source_refresh_rclone.sh"
+      - "kalman-toss-gateway/scripts/install_shadow_bakeoff_systemd.sh"
+      - "kalman-toss-gateway/config/kalman-shadow-bakeoff-daily.service"
+      - "kalman-toss-gateway/config/kalman-shadow-bakeoff-daily.timer"
       - "kalman-toss-gateway/tests/test_market*_v2*.py"
       - "kalman-toss-gateway/tests/test_model_v2*.py"
       - "kalman-toss-gateway/tests/test_historical_source_refresh.py"
@@ -32,6 +36,10 @@ on:
       - "kalman-toss-gateway/config/model-v2-spec.json"
       - "kalman-toss-gateway/config/historical-source-refresh-v1.json"
       - "kalman-toss-gateway/scripts/*v2.sh"
+      - "kalman-toss-gateway/scripts/run_historical_source_refresh_rclone.sh"
+      - "kalman-toss-gateway/scripts/install_shadow_bakeoff_systemd.sh"
+      - "kalman-toss-gateway/config/kalman-shadow-bakeoff-daily.service"
+      - "kalman-toss-gateway/config/kalman-shadow-bakeoff-daily.timer"
       - "kalman-toss-gateway/tests/test_market*_v2*.py"
       - "kalman-toss-gateway/tests/test_model_v2*.py"
       - "kalman-toss-gateway/tests/test_historical_source_refresh.py"
@@ -95,6 +103,9 @@ jobs:
           bash -n scripts/run_v2_shadow_stack.sh
           bash -n scripts/run_v2_shadow_refresh.sh
           bash -n scripts/run_historical_source_refresh.sh
+          bash -n scripts/run_historical_source_refresh_rclone.sh
+          bash -n scripts/install_shadow_bakeoff_systemd.sh
+          systemd-analyze verify config/kalman-shadow-bakeoff-daily.service config/kalman-shadow-bakeoff-daily.timer
 
       - name: Run offline Market V2 unit tests
         env:
