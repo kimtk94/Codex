@@ -181,6 +181,9 @@ def _candidate_formulas(frame: pd.DataFrame, feature: str) -> dict[str, pd.Serie
             * math.sqrt(252.0),
             "change_vol20_ret": ret1.rolling(20, min_periods=20).std(ddof=1),
             "change_vol20_diff": close.diff().rolling(20, min_periods=20).std(ddof=1),
+            "change_vol20_diff_ddof0": close.diff()
+            .rolling(20, min_periods=20)
+            .std(ddof=0),
             "change_vol20_pct100": (ret1 * 100.0)
             .rolling(20, min_periods=20)
             .std(ddof=1),
@@ -214,6 +217,8 @@ def _candidate_formulas(frame: pd.DataFrame, feature: str) -> dict[str, pd.Serie
             "rv20_ret_ann_ddof0": ret1.rolling(20, min_periods=20).std(ddof=0)
             * math.sqrt(252.0),
             "rv20_log_ann_ddof1": logret1.rolling(20, min_periods=20).std(ddof=1)
+            * math.sqrt(252.0),
+            "rv20_log_ann_ddof0": logret1.rolling(20, min_periods=20).std(ddof=0)
             * math.sqrt(252.0),
             "rv20_ret_ddof1": ret1.rolling(20, min_periods=20).std(ddof=1),
         }

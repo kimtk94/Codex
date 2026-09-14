@@ -6,6 +6,7 @@ import pytest
 
 from research.shadow_bakeoff.historical_source_refresh import (
     MappingSpec,
+    _candidate_formulas,
     _event_complete,
     refresh_frames,
 )
@@ -172,3 +173,83 @@ def test_refresh_fails_closed_when_feature_formula_parity_breaks() -> None:
             source_overlap_min_points=5,
             max_source_close_relative_error=1e-12,
         )
+
+def test_candidate_formulas_include_exact_historical_change_vol20_and_rv20() -> None:
+    rows = 80
+    index = pd.date_range(
+        "2026-01-01",
+        periods=rows,
+        freq="D",
+        tz="UTC",
+    )
+
+    # Nonlinear series so competing volatility formulas do not
+    # accidentally collapse to the same result.
+    x = np.arange(rows, dtype=float)
+
+    close = pd.Series(
+        100.0
+        + 0.35 * x
+        + 2.0 * np.sin(x / 3.0)
+        + 0.7 * np.cos(x / 7.0),
+        index=index,
+    )
+
+    frame = pd.DataFrame(
+        {
+            "close": close.to_numpy(),
+        },
+        index=index,
+    )
+
+    change_candidates = _candidate_formulas(
+        frame,
+        "CHANGE_VOL20",
+    )
+
+    expected_change_vol20 = (
+        close.diff()
+        .rolling(20, min_periods=20)
+        .std(ddof=0)
+    )
+
+    assert "change_vol20_diff_ddof0" in change_candidates
+
+    np.testing.assert_allclose(
+        change_candidates[
+            "change_vol20_diff_ddof0"
+        ].to_numpy(),
+        expected_change_vol20.to_numpy(),
+        rtol=0.0,
+        atol=1e-12,
+        equal_nan=True,
+    )
+
+    rv_candidates = _candidate_formulas(
+        frame,
+        "RV20",
+    )
+
+    logret = np.log(
+        close / close.shift(1)
+    )
+
+    expected_rv20 = (
+        logret
+        .rolling(20, min_periods=20)
+        .std(ddof=0)
+        * np.sqrt(252.0)
+    )
+
+    assert "rv20_log_ann_ddof0" in rv_candidates
+
+    np.testing.assert_allclose(
+        rv_candidates[
+            "rv20_log_ann_ddof0"
+        ].to_numpy(),
+        expected_rv20.to_numpy(),
+        rtol=0.0,
+        atol=1e-12,
+        equal_nan=True,
+    )
+
