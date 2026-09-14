@@ -22,6 +22,24 @@ def _ts(value: Any) -> pd.Timestamp:
     return ts.tz_convert("UTC")
 
 
+def _latest_by_anchor(
+    frame: pd.DataFrame,
+    *,
+    time_column: str,
+) -> tuple[dict[str, str | None], dict[str, pd.Timestamp | None]]:
+    labels: dict[str, str | None] = {}
+    timestamps: dict[str, pd.Timestamp | None] = {}
+    for market, indicator_id in ANCHORS.items():
+        series = frame.loc[
+            frame["indicator_id"].astype(str) == indicator_id,
+            time_column,
+        ].dropna()
+        latest = None if series.empty else pd.Timestamp(series.max())
+        timestamps[market] = latest
+        labels[market] = None if latest is None else latest.isoformat()
+    return labels, timestamps
+
+
 def inspect_source_freshness(
     *,
     raw_path: Path,
@@ -50,18 +68,23 @@ def inspect_source_freshness(
         features["available_time"], utc=True, errors="coerce"
     )
 
-    anchor_max: dict[str, str | None] = {}
-    anchor_ready: dict[str, bool] = {}
-    for market, indicator_id in ANCHORS.items():
-        series = raw.loc[
-            raw["indicator_id"].astype(str) == indicator_id,
-            "event_time",
-        ].dropna()
-        latest = None if series.empty else pd.Timestamp(series.max())
-        anchor_max[market] = None if latest is None else latest.isoformat()
-        anchor_ready[market] = bool(
-            latest is not None and latest > seed
-        )
+    anchor_max, raw_latest = _latest_by_anchor(
+        raw,
+        time_column="event_time",
+    )
+    feature_anchor_max, feature_latest = _latest_by_anchor(
+        features,
+        time_column="available_time",
+    )
+
+    anchor_ready = {
+        market: bool(ts is not None and ts > seed)
+        for market, ts in raw_latest.items()
+    }
+    feature_anchor_ready = {
+        market: bool(ts is not None and ts > seed)
+        for market, ts in feature_latest.items()
+    }
 
     feature_series = features["available_time"].dropna()
     feature_max = (
@@ -69,9 +92,7 @@ def inspect_source_freshness(
         if feature_series.empty
         else pd.Timestamp(feature_series.max())
     )
-    feature_ready = bool(
-        feature_max is not None and feature_max > seed
-    )
+    feature_ready = all(feature_anchor_ready.values())
 
     ready = all(anchor_ready.values()) and feature_ready
     return {
@@ -79,6 +100,8 @@ def inspect_source_freshness(
         "seed_end": seed.isoformat(),
         "anchor_max": anchor_max,
         "anchor_ready": anchor_ready,
+        "feature_anchor_max": feature_anchor_max,
+        "feature_anchor_ready": feature_anchor_ready,
         "feature_max_available_time": (
             None if feature_max is None else feature_max.isoformat()
         ),
@@ -93,7 +116,10 @@ def inspect_source_freshness(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Check whether historical integrated sources advanced beyond shadow seed"
+        description=(
+            "Check whether each historical US/KR/BTC raw anchor and its own "
+            "feature stream advanced beyond the fixed shadow seed"
+        )
     )
     p.add_argument("--raw", required=True)
     p.add_argument("--features", required=True)
