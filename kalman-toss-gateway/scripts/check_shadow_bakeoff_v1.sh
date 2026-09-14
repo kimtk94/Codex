@@ -26,8 +26,9 @@ OUTPUT_ROOT="${KALMAN_SHADOW_BAKEOFF_OUTPUT_DIR:-$MODEL_ROOT/shadow_bakeoff/v1}"
 SCHEDULER="$OUTPUT_ROOT/latest/scheduler_status.json"
 SOURCE="$OUTPUT_ROOT/latest/source_freshness.json"
 BAKEOFF="$OUTPUT_ROOT/latest/bakeoff_status.json"
+REFRESH="$OUTPUT_ROOT/latest/historical_source_refresh.json"
 
-"$PY" - "$SCHEDULER" "$SOURCE" "$BAKEOFF" <<'PY'
+"$PY" - "$SCHEDULER" "$SOURCE" "$BAKEOFF" "$REFRESH" <<'PY'
 from __future__ import annotations
 
 import json
@@ -41,10 +42,11 @@ def load(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-scheduler_path, source_path, bakeoff_path = map(Path, sys.argv[1:4])
+scheduler_path, source_path, bakeoff_path, refresh_path = map(Path, sys.argv[1:5])
 scheduler = load(scheduler_path)
 source = load(source_path)
 bakeoff = load(bakeoff_path)
+refresh = load(refresh_path)
 
 print("=" * 76)
 print("KALMAN FORWARD SHADOW BAKE-OFF V1 HEALTH")
@@ -63,7 +65,17 @@ else:
     print("source    :", source.get("status"))
     print("seed_end  :", source.get("seed_end"))
     print("anchors   :", source.get("anchor_max"))
-    print("features  :", source.get("feature_max_available_time"))
+    print("raw ready :", source.get("anchor_ready"))
+    print("feat anch :", source.get("feature_anchor_max"))
+    print("feat ready:", source.get("feature_anchor_ready"))
+    print("feat max  :", source.get("feature_max_available_time"))
+
+if refresh is None:
+    print("refresh   : MISSING")
+else:
+    print("refresh   :", refresh.get("status"), refresh.get("write_status"))
+    print("new raw   :", refresh.get("new_raw_rows"))
+    print("new feat  :", refresh.get("new_feature_rows"))
 
 if bakeoff is None:
     print("bakeoff   : MISSING")
