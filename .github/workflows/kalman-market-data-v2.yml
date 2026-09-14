@@ -10,10 +10,14 @@ on:
       - "kalman-toss-gateway/engine/model_v2_neon_writer.py"
       - "kalman-toss-gateway/research/market_tools/**"
       - "kalman-toss-gateway/research/model_v2/**"
+      - "kalman-toss-gateway/research/shadow_bakeoff/**"
       - "kalman-toss-gateway/config/model-v2-spec.json"
+      - "kalman-toss-gateway/config/historical-source-refresh-v1.json"
       - "kalman-toss-gateway/scripts/*v2.sh"
       - "kalman-toss-gateway/tests/test_market*_v2*.py"
       - "kalman-toss-gateway/tests/test_model_v2*.py"
+      - "kalman-toss-gateway/tests/test_historical_source_refresh.py"
+      - "kalman-toss-gateway/tests/test_shadow_bakeoff_source_freshness.py"
       - ".github/workflows/kalman-market-data-v2.yml"
   push:
     paths:
@@ -24,10 +28,14 @@ on:
       - "kalman-toss-gateway/engine/model_v2_neon_writer.py"
       - "kalman-toss-gateway/research/market_tools/**"
       - "kalman-toss-gateway/research/model_v2/**"
+      - "kalman-toss-gateway/research/shadow_bakeoff/**"
       - "kalman-toss-gateway/config/model-v2-spec.json"
+      - "kalman-toss-gateway/config/historical-source-refresh-v1.json"
       - "kalman-toss-gateway/scripts/*v2.sh"
       - "kalman-toss-gateway/tests/test_market*_v2*.py"
       - "kalman-toss-gateway/tests/test_model_v2*.py"
+      - "kalman-toss-gateway/tests/test_historical_source_refresh.py"
+      - "kalman-toss-gateway/tests/test_shadow_bakeoff_source_freshness.py"
       - ".github/workflows/kalman-market-data-v2.yml"
 
 jobs:
@@ -49,7 +57,7 @@ jobs:
       - name: Install isolated Market V2 dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r engine/market_data/requirements.txt
+          python -m pip install pytest -r engine/market_data/requirements.txt
 
       - name: Verify yfinance repair dependencies
         run: |
@@ -68,7 +76,9 @@ jobs:
           python -m compileall engine/screeners
           python -m compileall engine/features_v2
           python -m compileall engine/model_v2_neon_writer.py
+          python -m compileall research/shadow_bakeoff
           python -m compileall tests/test_market_data_v2.py tests/test_market_tools_v2_extended.py
+          python -m compileall tests/test_historical_source_refresh.py tests/test_shadow_bakeoff_source_freshness.py
 
       - name: Check V2 shell syntax
         run: |
@@ -84,11 +94,20 @@ jobs:
           bash -n scripts/run_neon_shadow_v2.sh
           bash -n scripts/run_v2_shadow_stack.sh
           bash -n scripts/run_v2_shadow_refresh.sh
+          bash -n scripts/run_historical_source_refresh.sh
 
       - name: Run offline Market V2 unit tests
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p "test_market*_v2*.py" -v
+
+      - name: Run historical refresh safety tests
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q \
+            tests/test_historical_source_refresh.py \
+            tests/test_shadow_bakeoff_source_freshness.py
 
   research-v2:
     runs-on: ubuntu-latest
