@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import json
 import os
@@ -11,6 +12,7 @@ import httpx
 from .config import Settings
 
 BASE_URL = 'https://openapi.tossinvest.com'
+_TOKEN_REFRESH_LOCK = asyncio.Lock()
 
 
 class TossClient:
@@ -76,21 +78,36 @@ class TossClient:
             self._token, self._token_expires_at = token, expires_at
             return token
 
-        cache_path = self.settings.toss_token_cache_path
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path = cache_path.with_suffix(cache_path.suffix + '.lock')
-        with open(lock_path, 'a+', encoding='utf-8') as lock_file:
-            os.chmod(lock_path, 0o600)
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            try:
-                token, expires_at = self._read_shared_token()
-                if not token:
-                    token, expires_at = await self._issue_token()
-                    self._write_shared_token(token, expires_at)
+        # Multiple FastAPI requests can arrive together when the shared OAuth
+        # token is missing/expired. Never call blocking flock() on the asyncio
+        # event-loop thread: one request may hold the file lock while awaiting
+        # Toss, and another request could otherwise block the whole loop while
+        # waiting for that same lock.
+        async with _TOKEN_REFRESH_LOCK:
+            token, expires_at = self._read_shared_token()
+            if token:
                 self._token, self._token_expires_at = token, expires_at
                 return token
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+            cache_path = self.settings.toss_token_cache_path
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path = cache_path.with_suffix(cache_path.suffix + '.lock')
+            with open(lock_path, 'a+', encoding='utf-8') as lock_file:
+                os.chmod(lock_path, 0o600)
+                await asyncio.to_thread(fcntl.flock, lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    token, expires_at = self._read_shared_token()
+                    if not token:
+                        token, expires_at = await self._issue_token()
+                        self._write_shared_token(token, expires_at)
+                    self._token, self._token_expires_at = token, expires_at
+                    return token
+                finally:
+                    await asyncio.to_thread(
+                        fcntl.flock,
+                        lock_file.fileno(),
+                        fcntl.LOCK_UN,
+                    )
 
     async def _headers(self, account_required: bool = False) -> dict[str, str]:
         token = await self._get_token()
