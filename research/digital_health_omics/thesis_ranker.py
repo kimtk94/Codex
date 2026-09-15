@@ -62,7 +62,8 @@ PRIORITY_OMICS = {"genomics", "proteomics", "multiomics"}
 def split_semicolon(value) -> List[str]:
     if pd.isna(value):
         return []
-    return [x.strip() for x in str(value).split(";") if x.strip()]
+    vals = [x.strip() for x in str(value).split(";") if x.strip()]
+    return [x for x in vals if x.lower() not in {"nan", "none", "null"}]
 
 
 def classify_article(row: pd.Series) -> str:
@@ -165,7 +166,8 @@ def make_candidate_table(
         sweet = evidence_sweet_spot(n)
         original_quality = max(0.55, 1.0 - 0.45 * sat["non_original_ratio"])
         skku_gap_boost = 1.15 if float(r["skku_recent_3y"]) == 0 else 1.0
-        score = float(r["opportunity_score"]) * feasibility * sweet * original_quality * skku_gap_boost
+        disease_specificity = 0.62 if disease == "other" else 1.0
+        score = float(r["opportunity_score"]) * feasibility * sweet * original_quality * skku_gap_boost * disease_specificity
 
         rows.append(
             {
@@ -176,6 +178,7 @@ def make_candidate_table(
                 **sat,
                 "feasibility_weight": round(feasibility, 4),
                 "evidence_sweet_spot": round(sweet, 4),
+                "disease_specificity": disease_specificity,
                 "thesis_score": round(score, 4),
             }
         )
@@ -185,8 +188,30 @@ def make_candidate_table(
         ["thesis_score", "global_recent_3y", "global_papers"],
         ascending=[False, False, False],
     )
-    out["candidate_rank"] = range(1, len(out) + 1)
-    return out.head(top_n).reset_index(drop=True)
+
+    # Thesis shortlists should not be monopolized by one well-established
+    # modality pair. Keep breadth across Digital Health modalities while
+    # preserving score order. Disease-specific topics are selected first.
+    selected = []
+    pair_counts = Counter()
+    digital_counts = Counter()
+    for _, r in out.iterrows():
+        pair = (r["digital_axis"], r["omics_axis"])
+        if pair_counts[pair] >= 3:
+            continue
+        if digital_counts[r["digital_axis"]] >= 5:
+            continue
+        selected.append(r.to_dict())
+        pair_counts[pair] += 1
+        digital_counts[r["digital_axis"]] += 1
+        if len(selected) >= top_n:
+            break
+
+    diversified = pd.DataFrame(selected)
+    if diversified.empty:
+        return diversified
+    diversified["candidate_rank"] = range(1, len(diversified) + 1)
+    return diversified.reset_index(drop=True)
 
 
 def supporting_papers_for_topic(
@@ -573,7 +598,9 @@ def main():
         candidates, global_original, entities, args.end_year
     )
 
-    profiles = build_researcher_profiles(skku_all)
+    # Researcher matching uses original papers only to avoid conference
+    # summaries/reviews creating spurious expertise matches.
+    profiles = build_researcher_profiles(skku_original)
     matches = match_researchers(candidates, profiles)
 
     candidates.to_csv(indir / "master_thesis_candidates.csv", index=False)
