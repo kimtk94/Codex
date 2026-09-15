@@ -50,6 +50,34 @@ class GatewayNoSymbolAllowlistTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "DAILY_TOTAL_LIMIT_EXCEEDED")
 
+    def test_manual_live_gate_is_independent_from_auto_gate(self) -> None:
+        settings = Settings(
+            trading_enabled=False,
+            live_trading_confirm="",
+            manual_trading_enabled=True,
+            manual_trading_confirm="CONFIRM_MANUAL_TRADING",
+            live_micro_total_limit_krw=30000,
+            max_single_order_krw=5000,
+        )
+        manual = validate_order(
+            settings,
+            "AAPL",
+            1000,
+            execution_channel="MANUAL",
+        )
+        automated = validate_order(
+            settings,
+            "AAPL",
+            1000,
+            execution_channel="AUTO",
+        )
+        self.assertTrue(manual.allowed)
+        self.assertEqual(manual.reason, "OK")
+        self.assertFalse(automated.allowed)
+        self.assertEqual(automated.reason, "TRADING_DISABLED")
+        self.assertTrue(settings.manual_live_gate_open)
+        self.assertFalse(settings.live_gate_open)
+
     def test_health_does_not_expose_allowed_symbols(self) -> None:
         payload = asyncio.run(health(self.settings()))
         self.assertNotIn("allowedSymbols", payload)
