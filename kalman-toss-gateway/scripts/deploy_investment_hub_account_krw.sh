@@ -437,7 +437,7 @@ if skipped_non_files:
 
 print(f"[PASS] recovered files={len(downloaded)}")
 
-required={"index.html","app.js","style.css","api/health.js","api/account.js"}
+required={"index.html","app.js","style.css","api/health.js","vercel.json"}
 
 def normalize_source_root() -> None:
     global downloaded
@@ -523,7 +523,59 @@ app_path=root/"app.js"
 css_path=root/"style.css"
 index_path=root/"index.html"
 health_path=root/"api/health.js"
-dashboard_path=root/"api/dashboard.js"
+vercel_path=root/"vercel.json"
+
+def resolve_api_route(route: str) -> Path:
+    """Resolve an external /api/... route to its actual source function.
+
+    This deployment intentionally exposes more public routes than physical
+    serverless source files by using vercel.json rewrites/routes. Preserve that
+    12-function architecture instead of requiring one file per public route.
+    """
+    import json
+    cfg=json.loads(vercel_path.read_text(encoding="utf-8"))
+
+    candidates=[]
+
+    # Modern Vercel rewrites: {"source":"/api/dashboard","destination":"/api/market"}
+    rewrites=cfg.get("rewrites") or []
+    if isinstance(rewrites, dict):
+        rewrites=[rewrites]
+    for item in rewrites:
+        if not isinstance(item, dict):
+            continue
+        src=str(item.get("source") or "")
+        dst=str(item.get("destination") or "")
+        if src == route and dst:
+            candidates.append(dst)
+
+    # Legacy routes: {"src":"^/api/dashboard$","dest":"/api/market"}
+    for item in cfg.get("routes") or []:
+        if not isinstance(item, dict):
+            continue
+        src=str(item.get("src") or "")
+        dst=str(item.get("dest") or item.get("destination") or "")
+        normalized=src.replace("^","").replace("$","")
+        if normalized == route and dst:
+            candidates.append(dst)
+
+    # A physical file is also valid when no rewrite is needed.
+    direct=root/(route.lstrip("/")+".js")
+    if direct.exists():
+        return direct
+
+    for dst in candidates:
+        clean=dst.split("?",1)[0].lstrip("/")
+        p=root/(clean if clean.endswith(".js") else clean+".js")
+        if p.exists():
+            print(f"[INFO] route {route} -> {p.relative_to(root)}")
+            return p
+
+    raise SystemExit(
+        f"[FAIL] cannot resolve {route} from vercel.json; candidates={candidates}"
+    )
+
+dashboard_path=resolve_api_route("/api/dashboard")
 
 app=app_path.read_text(encoding="utf-8")
 css=css_path.read_text(encoding="utf-8")
@@ -820,6 +872,12 @@ index=index.replace(
 
 # Health metadata only; contracts/model/risk logic are untouched.
 health=health.replace("vNext.7.4.9","vNext.7.4.11")
+
+# Verify the read-only account route remains resolvable through the recovered
+# 12-function routing graph. The account backend itself is intentionally not
+# modified by this UI deployment.
+account_target=resolve_api_route("/api/account")
+print(f"[INFO] account route target: {account_target.relative_to(root)}")
 
 # Static safety checks.
 assert "const mv=h?.marketValue" in app
