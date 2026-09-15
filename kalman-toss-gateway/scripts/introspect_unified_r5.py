@@ -24,18 +24,55 @@ lines = source.splitlines()
 
 defs = []
 imports = []
-for node in ast.walk(tree):
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        defs.append({
-            "kind": type(node).__name__,
-            "name": node.name,
-            "lineno": node.lineno,
-            "end_lineno": getattr(node, "end_lineno", node.lineno),
+nested_sources = []
+
+def collect_ast(parsed, source_name):
+    for node in ast.walk(parsed):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            defs.append({
+                "source": source_name,
+                "kind": type(node).__name__,
+                "name": node.name,
+                "lineno": node.lineno,
+                "end_lineno": getattr(node, "end_lineno", node.lineno),
+            })
+        elif isinstance(node, ast.Import):
+            imports.extend(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            imports.append((node.module or "") + ":" + ",".join(a.name for a in node.names))
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "exec":
+            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                text = node.args[0].value
+                if len(text) > 1000:
+                    nested_sources.append({
+                        "parent": source_name,
+                        "parent_lineno": node.lineno,
+                        "text": text,
+                    })
+
+collect_ast(tree, "outer")
+
+nested_reports = []
+for idx, nested in enumerate(nested_sources, start=1):
+    nested_name = f"nested_exec_{idx:02d}"
+    nested_text = nested["text"]
+    try:
+        nested_tree = ast.parse(nested_text, filename=nested_name)
+    except SyntaxError as exc:
+        nested_reports.append({
+            "source": nested_name,
+            "parent_lineno": nested["parent_lineno"],
+            "parse_error": str(exc),
+            "lines": len(nested_text.splitlines()),
         })
-    elif isinstance(node, ast.Import):
-        imports.extend(a.name for a in node.names)
-    elif isinstance(node, ast.ImportFrom):
-        imports.append((node.module or "") + ":" + ",".join(a.name for a in node.names))
+        continue
+    collect_ast(nested_tree, nested_name)
+    nested_reports.append({
+        "source": nested_name,
+        "parent_lineno": nested["parent_lineno"],
+        "parse_error": None,
+        "lines": len(nested_text.splitlines()),
+    })
 
 patterns = [
     "R5.1",
@@ -65,23 +102,31 @@ patterns = [
 
 occurrences = []
 seen = set()
-for pat in patterns:
-    for i, line in enumerate(lines, start=1):
-        if pat.lower() in line.lower():
-            key = (i, pat)
-            if key in seen:
-                continue
-            seen.add(key)
-            lo = max(1, i - 5)
-            hi = min(len(lines), i + 5)
-            occurrences.append({
-                "pattern": pat,
-                "lineno": i,
-                "context": [
-                    {"lineno": j, "text": lines[j - 1][:500]}
-                    for j in range(lo, hi + 1)
-                ],
-            })
+
+def scan_text(source_name, text):
+    source_lines = text.splitlines()
+    for pat in patterns:
+        for i, line in enumerate(source_lines, start=1):
+            if pat.lower() in line.lower():
+                key = (source_name, i, pat)
+                if key in seen:
+                    continue
+                seen.add(key)
+                lo = max(1, i - 7)
+                hi = min(len(source_lines), i + 7)
+                occurrences.append({
+                    "source": source_name,
+                    "pattern": pat,
+                    "lineno": i,
+                    "context": [
+                        {"lineno": j, "text": source_lines[j - 1][:1000]}
+                        for j in range(lo, hi + 1)
+                    ],
+                })
+
+scan_text("outer", source)
+for idx, nested in enumerate(nested_sources, start=1):
+    scan_text(f"nested_exec_{idx:02d}", nested["text"])
 
 interesting_defs = [
     d for d in defs
@@ -95,9 +140,10 @@ interesting_defs = [
 report = {
     "payload_sha256": sha,
     "source_lines": len(lines),
+    "nested_sources": nested_reports,
     "imports": sorted(set(imports)),
-    "interesting_definitions": sorted(interesting_defs, key=lambda x: x["lineno"]),
-    "occurrences": sorted(occurrences, key=lambda x: (x["lineno"], x["pattern"])),
+    "interesting_definitions": sorted(interesting_defs, key=lambda x: (x.get("source",""), x["lineno"])),
+    "occurrences": sorted(occurrences, key=lambda x: (x.get("source",""), x["lineno"], x["pattern"])),
 }
 
 out = Path("unified_r5_introspection.json")
@@ -106,6 +152,7 @@ print(json.dumps({
     "status": "READY",
     "payload_sha256": sha,
     "source_lines": len(lines),
+    "nested_sources": len(nested_reports),
     "interesting_definitions": len(interesting_defs),
     "occurrences": len(occurrences),
     "artifact": str(out),
