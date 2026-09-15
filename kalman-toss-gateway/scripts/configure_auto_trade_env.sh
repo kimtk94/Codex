@@ -16,7 +16,9 @@ fi
 
 case "$PROFILE" in
   dry-run)
-    export CFG_AUTO_TRADE_ENABLED=true
+    # Store DRY_RUN sizing/policy parameters without enabling the automated
+    # trade loop. Promotion and production safety require AUTO_TRADE_ENABLED=false.
+    export CFG_AUTO_TRADE_ENABLED=false
     export CFG_AUTO_TRADE_EXECUTION_MODE=DRY_RUN
     export CFG_AUTO_TRADE_SIGNAL_POLICY=APPROVED_ONLY
     export CFG_AUTO_TRADE_SHADOW_CONFIRM=
@@ -36,7 +38,8 @@ case "$PROFILE" in
     export CFG_LIVE_TRADING_CONFIRM=
     ;;
   cash-fraction-dry-run)
-    export CFG_AUTO_TRADE_ENABLED=true
+    # Same safety contract as dry-run: configuration only, no automated loop.
+    export CFG_AUTO_TRADE_ENABLED=false
     export CFG_AUTO_TRADE_EXECUTION_MODE=DRY_RUN
     export CFG_AUTO_TRADE_SIGNAL_POLICY=APPROVED_ONLY
     export CFG_AUTO_TRADE_SHADOW_CONFIRM=
