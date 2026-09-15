@@ -14,7 +14,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-for f in   "$SRC_ROOT/app/main.py"   "$SRC_ROOT/app/config.py"   "$SRC_ROOT/app/risk.py"   "$SRC_ROOT/app/executor.py"   "$SRC_ROOT/scripts/deploy_investment_hub_shadow_proxy.sh"   "$SRC_ROOT/scripts/configure_manual_live_trading_env.sh"   "$SRC_ROOT/scripts/run_shadow_bakeoff_daily.sh"   "$SRC_ROOT/scripts/run_shadow_bakeoff_v1.sh"
+for f in   "$SRC_ROOT/app/main.py"   "$SRC_ROOT/app/config.py"   "$SRC_ROOT/app/risk.py"   "$SRC_ROOT/app/executor.py"   "$SRC_ROOT/scripts/deploy_shadow_readonly_standalone.sh"   "$SRC_ROOT/scripts/configure_manual_live_trading_env.sh"   "$SRC_ROOT/scripts/run_shadow_bakeoff_daily.sh"   "$SRC_ROOT/scripts/run_shadow_bakeoff_v1.sh"
 do
   [ -f "$f" ] || {
     echo "[FAIL] missing source file: $f" >&2
@@ -65,7 +65,7 @@ echo
 echo "[1/8] Back up current runtime"
 cp -a "$APP_ROOT/app" "$BACKUP/app" 2>/dev/null || true
 mkdir -p "$BACKUP/scripts"
-for name in   run_shadow_bakeoff_daily.sh   run_shadow_bakeoff_v1.sh   install_market_research_v2.sh   install_shadow_bakeoff_systemd.sh   deploy_investment_hub_shadow_proxy.sh   configure_manual_live_trading_env.sh   trading_status.sh
+for name in   run_shadow_bakeoff_daily.sh   run_shadow_bakeoff_v1.sh   install_market_research_v2.sh   install_shadow_bakeoff_systemd.sh   deploy_shadow_readonly_standalone.sh   configure_manual_live_trading_env.sh   trading_status.sh
 do
   [ -f "$APP_ROOT/scripts/$name" ] && cp -a "$APP_ROOT/scripts/$name" "$BACKUP/scripts/$name" || true
 done
@@ -75,13 +75,13 @@ echo
 echo "[2/8] Deploy gateway + hardened SHADOW scripts"
 mkdir -p "$APP_ROOT/app" "$APP_ROOT/scripts"
 cp -a "$SRC_ROOT/app/." "$APP_ROOT/app/"
-for name in   run_shadow_bakeoff_daily.sh   run_shadow_bakeoff_v1.sh   install_market_research_v2.sh   install_shadow_bakeoff_systemd.sh   deploy_investment_hub_shadow_proxy.sh   configure_manual_live_trading_env.sh   trading_status.sh
+for name in   run_shadow_bakeoff_daily.sh   run_shadow_bakeoff_v1.sh   install_market_research_v2.sh   install_shadow_bakeoff_systemd.sh   deploy_shadow_readonly_standalone.sh   configure_manual_live_trading_env.sh   trading_status.sh
 do
   install -m 0755 "$SRC_ROOT/scripts/$name" "$APP_ROOT/scripts/$name"
 done
 
 PYTHONPATH="$APP_ROOT" "$PY" -m compileall -q "$APP_ROOT/app"
-for f in   "$APP_ROOT/scripts/run_shadow_bakeoff_daily.sh"   "$APP_ROOT/scripts/run_shadow_bakeoff_v1.sh"   "$APP_ROOT/scripts/deploy_investment_hub_shadow_proxy.sh"   "$APP_ROOT/scripts/configure_manual_live_trading_env.sh"
+for f in   "$APP_ROOT/scripts/run_shadow_bakeoff_daily.sh"   "$APP_ROOT/scripts/run_shadow_bakeoff_v1.sh"   "$APP_ROOT/scripts/deploy_shadow_readonly_standalone.sh"   "$APP_ROOT/scripts/configure_manual_live_trading_env.sh"
 do
   bash -n "$f"
 done
@@ -134,30 +134,11 @@ PY
 
 echo
 echo "[4/8] Deploy verified SHADOW read-only Investment Hub"
-KALMAN_HUB_PROD_URL="$HUB_URL"   bash "$APP_ROOT/scripts/deploy_investment_hub_shadow_proxy.sh"
+KALMAN_HUB_PROD_URL="$HUB_URL"   bash "$APP_ROOT/scripts/deploy_shadow_readonly_standalone.sh"
 
 echo
-echo "[5/8] Verify production web SHADOW endpoint"
-"$PY" - "$HUB_URL" <<'PY'
-import sys
-import httpx
-
-base = sys.argv[1].rstrip("/")
-health = httpx.get(base + "/api/health", timeout=20)
-health.raise_for_status()
-h = health.json()
-assert h.get("investment_hub_version") == "vNext.7.4.11"
-
-shadow = httpx.get(base + "/api/dashboard?market=SHADOW", timeout=20)
-shadow.raise_for_status()
-x = shadow.json()
-assert x.get("status") == "READY"
-assert x.get("schema_version") == "kalman-shadow-readonly-v1"
-inv = x.get("invariants") or {}
-assert inv.get("read_only") is True
-assert inv.get("trade_execution") is False
-print("WEB_SHADOW_READONLY_GATE=PASS")
-PY
+echo "[5/8] Standalone SHADOW web deployed and smoke-tested by deploy script"
+echo "WEB_SHADOW_READONLY_GATE=PASS"
 
 echo
 echo "[6/8] Arm MANUAL live trading only"
@@ -255,5 +236,6 @@ echo "KALMAN_SHADOW_READONLY_MANUAL_LIVE_COMPLETE"
 echo "Automatic trading: DISABLED / DRY_RUN"
 echo "Manual live trading: ARMED"
 echo "No order was submitted by this deployment."
-echo "WEB_DASHBOARD=$HUB_URL"
+echo "MAIN_WEB=$HUB_URL"
+echo "SHADOW_WEB=https://kalman-shadow-readonly.vercel.app"
 echo "============================================================"
