@@ -239,6 +239,120 @@ def test_refresh_ignores_non_daily_rows_for_daily_bridge() -> None:
     )
 
 
+def test_refresh_supports_scalar_raw_value_lineage() -> None:
+    rows = 80
+    dates = pd.date_range(
+        "2026-01-01",
+        periods=rows,
+        freq="B",
+        tz="UTC",
+    )
+    value = pd.Series(
+        1300.0
+        + 0.7 * np.arange(rows, dtype=float)
+        + 5.0 * np.sin(np.arange(rows, dtype=float) / 5.0),
+        index=dates,
+    )
+
+    raw = pd.DataFrame(
+        {
+            "event_time": dates,
+            "available_time": dates + pd.Timedelta(days=1),
+            "market": ["KR"] * rows,
+            "indicator_id": ["KR_USDKRW"] * rows,
+            "timeframe": ["1D"] * rows,
+            "open": [np.nan] * rows,
+            "high": [np.nan] * rows,
+            "low": [np.nan] * rows,
+            "close": [np.nan] * rows,
+            "volume": [np.nan] * rows,
+            "raw_value": value.to_numpy(),
+            "source": ["FRED:DEXKOUS"] * rows,
+        }
+    )
+
+    logret1 = np.log(value / value.shift(1))
+    features = pd.DataFrame(
+        {
+            "event_time": dates,
+            "available_time": dates + pd.Timedelta(days=1),
+            "market": ["KR"] * rows,
+            "indicator_id": ["KR_USDKRW"] * rows,
+            "timeframe": ["1D"] * rows,
+            "feature_family": ["PRICE"] * rows,
+            "RAW_VALUE": value.to_numpy(),
+            "CHG_20": value.diff(20).to_numpy(),
+            "RET_60D": value.pct_change(60, fill_method=None).to_numpy(),
+            "RV20": (
+                logret1.rolling(20, min_periods=20).std(ddof=0)
+                * np.sqrt(252.0)
+            ).to_numpy(),
+        }
+    )
+
+    overlap = raw.tail(30).copy()
+    current = pd.DataFrame(
+        {
+            "timestamp": overlap["event_time"].to_numpy(),
+            "open": overlap["raw_value"].to_numpy(),
+            "high": overlap["raw_value"].to_numpy(),
+            "low": overlap["raw_value"].to_numpy(),
+            "close": overlap["raw_value"].to_numpy(),
+            "volume": np.zeros(len(overlap)),
+            "source": ["yfinance"] * len(overlap),
+        }
+    )
+
+    next_event = pd.Timestamp(dates[-1]) + pd.offsets.BDay(1)
+    next_value = float(value.iloc[-1] + 1.0)
+    extra = pd.DataFrame(
+        {
+            "timestamp": [next_event],
+            "open": [next_value],
+            "high": [next_value],
+            "low": [next_value],
+            "close": [next_value],
+            "volume": [0.0],
+            "source": ["yfinance"],
+        }
+    )
+    current = pd.concat([current, extra], ignore_index=True)
+
+    mapping = MappingSpec(
+        indicator_id="KR_USDKRW",
+        source_candidates=("raw/yfinance/yf_usdkrw.parquet",),
+        timezone="UTC",
+        same_day_complete_after=None,
+        required_anchor=False,
+    )
+
+    raw_out, feat_out, report = refresh_frames(
+        raw,
+        features,
+        source_frames={"KR_USDKRW": current},
+        mappings=[mapping],
+        now=pd.Timestamp(next_event) + pd.Timedelta(days=1),
+        parity_min_points=10,
+        max_parity_error=1e-8,
+        source_overlap_min_points=5,
+        max_source_close_relative_error=1e-12,
+    )
+
+    item = report["indicators"][0]
+    assert item["status"] == "ADVANCED"
+    assert item["historical_value_column"] == "raw_value"
+    assert item["new_raw_rows"] == 1
+    assert item["new_feature_rows"] == 1
+
+    appended_raw = raw_out.iloc[-1]
+    assert pd.isna(appended_raw["close"])
+    assert float(appended_raw["raw_value"]) == pytest.approx(next_value)
+
+    appended_feat = feat_out.iloc[-1]
+    assert np.isfinite(float(appended_feat["CHG_20"]))
+    assert np.isfinite(float(appended_feat["RV20"]))
+
+
 def test_refresh_fails_closed_when_feature_formula_parity_breaks() -> None:
     raw, features = _historical_price()
     features = features.copy()
