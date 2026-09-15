@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     live_micro_total_limit_krw: int = 30000
     max_single_order_krw: int = 5000
     trading_state_db: str = '/opt/kalman/state/trading.sqlite3'
+    shadow_bakeoff_status: str = '/mnt/gdrive/Market_Model_V2/shadow_bakeoff/v1/latest/bakeoff_status.json'
 
     host: str = '0.0.0.0'
     port: int = 8787
@@ -35,6 +36,10 @@ class Settings(BaseSettings):
     @property
     def toss_token_cache_path(self) -> Path:
         return Path(self.toss_token_cache).expanduser()
+
+    @property
+    def shadow_bakeoff_status_path(self) -> Path:
+        return Path(self.shadow_bakeoff_status).expanduser()
 
 @lru_cache
 def get_settings() -> Settings:
