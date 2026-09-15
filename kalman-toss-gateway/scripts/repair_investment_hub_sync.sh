@@ -149,7 +149,7 @@ for market in ("CRYPTO","US","KR","GLOBAL"):
     run=x.get("run_id")
     stale=x.get("effective_stale")
     print(f"{market:<6} run={run} generated_at={generated} data_as_of={data} stale={stale}")
-    if market in {"CRYPTO","KR","GLOBAL"}:
+    if market in {"CRYPTO","US","KR","GLOBAL"}:
         try:
             dt=datetime.fromisoformat(str(generated).replace("Z","+00:00"))
             age=(now-dt.astimezone(timezone.utc)).total_seconds()
