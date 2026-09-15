@@ -72,11 +72,14 @@ PY
 )"
 
     if [ "$CRYPTO_SOURCE" = "rclone_xlsx" ]; then
-      PYTHONPATH="$APP_ROOT" "$PY" - <<'PY'
+      CRYPTO_XLSX="$(
+        PYTHONPATH="$APP_ROOT" "$PY" - <<'PY'
 from engine.crypto_sheet_file_compat import resolve_crypto_archive_xlsx
-p=resolve_crypto_archive_xlsx()
-print(f"[PASS] CRYPTO rclone XLSX source: {p}")
+print(resolve_crypto_archive_xlsx())
 PY
+      )"
+      export KALMAN_CRYPTO_ARCHIVE_XLSX="$CRYPTO_XLSX"
+      echo "[PASS] CRYPTO rclone XLSX source: $CRYPTO_XLSX"
     elif [ "$CRYPTO_SOURCE" != "gspread" ]; then
       echo "[FAIL] KALMAN_CRYPTO_SOURCE must be rclone_xlsx or gspread" >&2
       exit 26
