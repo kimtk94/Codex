@@ -142,8 +142,38 @@ def _true_range(frame: pd.DataFrame) -> pd.Series:
     ).max(axis=1)
 
 
-def _candidate_formulas(frame: pd.DataFrame, feature: str) -> dict[str, pd.Series]:
-    close = pd.to_numeric(frame["close"], errors="coerce").astype(float)
+def _historical_value_column(frame: pd.DataFrame) -> str:
+    """Choose the canonical scalar used by a historical indicator lineage.
+
+    Price-family rows normally use close. Scalar/FRED lineages such as
+    KR_USDKRW (DEXKOUS) carry their observation in raw_value while OHLC
+    columns are intentionally null. Prefer raw_value only when close has no
+    usable history and raw_value does.
+    """
+    close_count = 0
+    if "close" in frame.columns:
+        close_count = int(
+            pd.to_numeric(frame["close"], errors="coerce").notna().sum()
+        )
+    raw_count = 0
+    if "raw_value" in frame.columns:
+        raw_count = int(
+            pd.to_numeric(frame["raw_value"], errors="coerce").notna().sum()
+        )
+    if close_count == 0 and raw_count > 0:
+        return "raw_value"
+    return "close"
+
+
+def _candidate_formulas(
+    frame: pd.DataFrame,
+    feature: str,
+    *,
+    value_column: str = "close",
+) -> dict[str, pd.Series]:
+    if value_column not in frame.columns:
+        raise KeyError(f"historical value column missing: {value_column}")
+    close = pd.to_numeric(frame[value_column], errors="coerce").astype(float)
     ret1 = close.pct_change(1, fill_method=None)
     logret1 = np.log(close / close.shift(1))
     out: dict[str, pd.Series] = {}
@@ -233,6 +263,8 @@ def _candidate_formulas(frame: pd.DataFrame, feature: str) -> dict[str, pd.Serie
             "rv20_ret_ddof1": ret1.rolling(20, min_periods=20).std(ddof=1),
         }
     elif feature == "ATR14_PCT":
+        if value_column != "close":
+            return {}
         tr = _true_range(frame)
         atr_wilder = _wilder_average(tr, 14)
         atr_ewm = tr.ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
@@ -267,6 +299,7 @@ def infer_formula_choices(
     *,
     min_points: int,
     max_error: float,
+    value_column: str = "close",
 ) -> dict[str, FormulaChoice]:
     raw_x = raw_indicator.copy()
     raw_x["event_time"] = _utc(raw_x["event_time"])
@@ -295,7 +328,11 @@ def infer_formula_choices(
         if int(target.notna().sum()) < min_points:
             continue
 
-        candidates = _candidate_formulas(raw_x, feature)
+        candidates = _candidate_formulas(
+            raw_x,
+            feature,
+            value_column=value_column,
+        )
         scored: list[tuple[float, int, str]] = []
         for name, series in candidates.items():
             pred = pd.Series(
@@ -339,8 +376,14 @@ def _formula_by_name(
     raw_indicator: pd.DataFrame,
     feature: str,
     formula: str,
+    *,
+    value_column: str = "close",
 ) -> pd.Series:
-    candidates = _candidate_formulas(raw_indicator, feature)
+    candidates = _candidate_formulas(
+        raw_indicator,
+        feature,
+        value_column=value_column,
+    )
     if formula not in candidates:
         raise KeyError(f"{feature}:{formula}")
     return pd.to_numeric(candidates[formula], errors="coerce")
@@ -408,8 +451,14 @@ def _validate_price_overlap(
     *,
     min_points: int,
     max_relative_error: float,
+    historical_value_column: str = "close",
 ) -> dict[str, Any]:
-    left = historical[["event_time", "close"]].copy()
+    if historical_value_column not in historical.columns:
+        raise KeyError(
+            f"historical value column missing: {historical_value_column}"
+        )
+    left = historical[["event_time", historical_value_column]].copy()
+    left = left.rename(columns={historical_value_column: "close"})
     left["event_time"] = _utc(left["event_time"])
     left["close"] = pd.to_numeric(left["close"], errors="coerce")
     right = current[["event_time", "close"]].copy()
@@ -497,12 +546,14 @@ def _append_indicator(
     hist_raw["event_time"] = _utc(hist_raw["event_time"])
     hist_feat["event_time"] = _utc(hist_feat["event_time"])
     old_max = pd.Timestamp(hist_raw["event_time"].max())
+    value_column = _historical_value_column(hist_raw)
 
     continuity = _validate_price_overlap(
         hist_raw,
         current,
         min_points=source_overlap_min_points,
         max_relative_error=max_source_close_relative_error,
+        historical_value_column=value_column,
     )
 
     current = current.loc[
@@ -529,6 +580,7 @@ def _append_indicator(
         "new_raw_rows": int(len(new_current)),
         "new_feature_rows": 0,
         "source_continuity": continuity,
+        "historical_value_column": value_column,
         "formula_parity": {},
     }
     if new_current.empty:
@@ -549,9 +601,10 @@ def _append_indicator(
         row["indicator_id"] = mapping.indicator_id
         if "timeframe" in row:
             row["timeframe"] = "1D"
-        for col in ("open", "high", "low", "close", "volume"):
-            if col in raw.columns and col in src.index:
-                row[col] = src[col]
+        if value_column == "close":
+            for col in ("open", "high", "low", "close", "volume"):
+                if col in raw.columns and col in src.index:
+                    row[col] = src[col]
         if "raw_value" in raw.columns:
             row["raw_value"] = src["close"]
         if "source" in raw.columns and "source" in src.index:
@@ -592,6 +645,7 @@ def _append_indicator(
         hist_feat,
         min_points=parity_min_points,
         max_error=max_parity_error,
+        value_column=value_column,
     )
     report["formula_parity"] = {
         key: {
@@ -609,6 +663,7 @@ def _append_indicator(
             combined_indicator,
             feature,
             choice.formula,
+            value_column=value_column,
         )
         for feature, choice in choices.items()
     }
