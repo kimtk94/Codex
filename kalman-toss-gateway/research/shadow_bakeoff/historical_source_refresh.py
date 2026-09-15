@@ -366,6 +366,16 @@ def _resolve_current_source(
     return None
 
 
+def _historical_daily_indicator(
+    frame: pd.DataFrame,
+    indicator_id: str,
+) -> pd.DataFrame:
+    mask = frame["indicator_id"].astype(str) == str(indicator_id)
+    if "timeframe" in frame.columns:
+        mask &= frame["timeframe"].astype(str).str.upper().eq("1D")
+    return frame.loc[mask].copy()
+
+
 def _normalize_current(frame: pd.DataFrame) -> pd.DataFrame:
     required = {"timestamp", "open", "high", "low", "close"}
     missing = required.difference(frame.columns)
@@ -458,12 +468,17 @@ def _append_indicator(
     source_overlap_min_points: int,
     max_source_close_relative_error: float,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    hist_raw = raw.loc[
-        raw["indicator_id"].astype(str) == mapping.indicator_id
-    ].copy()
-    hist_feat = features.loc[
-        features["indicator_id"].astype(str) == mapping.indicator_id
-    ].copy()
+    # The bridge writes 1D rows, so all lineage-sensitive operations
+    # must use the same 1D historical slice. Mixing intraday rows under the
+    # same indicator_id can corrupt volatility parity and old_max.
+    hist_raw = _historical_daily_indicator(
+        raw,
+        mapping.indicator_id,
+    )
+    hist_feat = _historical_daily_indicator(
+        features,
+        mapping.indicator_id,
+    )
     if hist_raw.empty:
         raise RuntimeError(f"historical raw indicator missing: {mapping.indicator_id}")
     if hist_feat.empty:
@@ -553,9 +568,10 @@ def _append_indicator(
     new_raw_frame = pd.DataFrame(raw_rows, columns=raw.columns)
     raw_out = pd.concat([raw, new_raw_frame], ignore_index=True)
 
-    combined_indicator = raw_out.loc[
-        raw_out["indicator_id"].astype(str) == mapping.indicator_id
-    ].copy()
+    combined_indicator = _historical_daily_indicator(
+        raw_out,
+        mapping.indicator_id,
+    )
     combined_indicator["event_time"] = _utc(combined_indicator["event_time"])
     combined_indicator = (
         combined_indicator.sort_values("event_time")
