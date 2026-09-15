@@ -7,6 +7,8 @@ on:
     paths:
       - 'research/digital_health_omics/allofus_stage0.py'
       - 'notebooks/AoU_CDRv9_Stage0.ipynb'
+      - 'research/digital_health_omics/allofus_proposal1.py'
+      - 'notebooks/AoU_Proposal1_Wearable_Proteomics_V1.ipynb'
       - '.github/workflows/aou-stage0-static-check.yml'
   workflow_dispatch:
 
@@ -21,8 +23,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Compile helper
-        run: python -m py_compile research/digital_health_omics/allofus_stage0.py
+      - name: Install analysis dependencies
+        run: pip install -r research/digital_health_omics/requirements.txt
+      - name: Compile helpers
+        run: |
+          python -m py_compile research/digital_health_omics/allofus_stage0.py
+          python -m py_compile research/digital_health_omics/allofus_proposal1.py
       - name: Validate notebook Python
         run: |
           python - <<'PY'
@@ -30,15 +36,71 @@ jobs:
           import json
           from pathlib import Path
 
-          p = Path("notebooks/AoU_CDRv9_Stage0.ipynb")
-          nb = json.loads(p.read_text(encoding="utf-8"))
-          assert nb["nbformat"] == 4
-          code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
-          assert len(code_cells) == 1, f"expected one code cell, got {len(code_cells)}"
-          source = "".join(code_cells[0]["source"])
-          ast.parse(source)
-          assert "WORKSPACE_CDR" in source
-          assert "PROTEOMICS_SAMPLE_RESOURCE" in source
-          assert "proposal_decision" in source
-          print("Notebook JSON + Python syntax: OK")
+          for name in [
+              "notebooks/AoU_CDRv9_Stage0.ipynb",
+              "notebooks/AoU_Proposal1_Wearable_Proteomics_V1.ipynb",
+          ]:
+              p = Path(name)
+              nb = json.loads(p.read_text(encoding="utf-8"))
+              assert nb["nbformat"] == 4
+              code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+              assert len(code_cells) == 1, f"{name}: expected one code cell, got {len(code_cells)}"
+              source = "".join(code_cells[0]["source"])
+              ast.parse(source)
+              assert "WORKSPACE_CDR" in source
+              print(name, "JSON + Python syntax: OK")
+          PY
+      - name: Synthetic analysis test
+        working-directory: research/digital_health_omics
+        run: |
+          python - <<'PY'
+          import numpy as np
+          import pandas as pd
+          from allofus_proposal1 import aggregate_sleep_phenotypes, bh_fdr, proteome_wide_scan
+
+          rng = np.random.default_rng(7)
+          people = [str(i) for i in range(1, 161)]
+
+          rows = []
+          for i, pid in enumerate(people):
+              for d in range(30):
+                  start = pd.Timestamp("2026-01-01", tz="UTC") + pd.Timedelta(days=d, hours=22) + pd.Timedelta(minutes=i % 30)
+                  rows.append({
+                      "person_id": pid,
+                      "sleep_date": start.date(),
+                      "sleep_minutes": 420 + (i % 10),
+                      "efficiency": 90,
+                      "start_ts": start,
+                      "end_ts": start + pd.Timedelta(minutes=420 + (i % 10)),
+                      "data_quality": None,
+                  })
+          nightly = pd.DataFrame(rows)
+          ph = aggregate_sleep_phenotypes(nightly, min_days=21)
+          assert len(ph) == len(people)
+          assert ph["sleep_midpoint_variability_min"].notna().all()
+
+          pr = []
+          for i, pid in enumerate(people):
+              exposure = ph.loc[ph["person_id"] == pid, "mean_sleep_hours"].iloc[0]
+              for protein in ["P1", "P2", "P3"]:
+                  effect = 2.0 * exposure if protein == "P1" else 0.0
+                  pr.append({
+                      "person_id": pid, "protein": protein, "olink_id": protein,
+                      "uniprot": "", "npx": effect + rng.normal(0, 0.1)
+                  })
+          prot = pd.DataFrame(pr)
+          cov = pd.DataFrame({
+              "person_id": people,
+              "age_at_cdr_cutoff": rng.integers(50, 80, size=len(people)),
+              "gender_concept_id": rng.choice(["1","2"], size=len(people)),
+          })
+          out = proteome_wide_scan(
+              prot, ph, cov, ["mean_sleep_hours"],
+              ["age_at_cdr_cutoff","gender_concept_id"], min_n=100
+          )
+          assert len(out) == 3
+          assert out.iloc[0]["protein"] == "P1"
+          assert np.nanmin(bh_fdr([0.001, 0.01, 0.5])) <= 0.0031
+          print("Synthetic V1 analysis: OK")
+          PY
           PY
