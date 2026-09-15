@@ -41,6 +41,19 @@ need_exec "$PY"
 need_file "$ENV_FILE"
 need_file "$RCLONE_CONFIG"
 need_file "$MAPPING"
+need_file "$APP_ROOT/research/model_v2/build_historical_feature_matrix.py"
+
+export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+"$PY" - <<'PY'
+from research.model_v2.build_historical_feature_matrix import (
+    HISTORICAL_NUMERIC_FEATURES,
+)
+if not HISTORICAL_NUMERIC_FEATURES:
+    raise SystemExit("[FAIL] historical feature contract is empty")
+print("HISTORICAL_FEATURE_CONTRACT_IMPORT=PASS")
+PY
+
 command -v rclone >/dev/null 2>&1 || {
   echo "[FAIL] rclone not found" >&2
   exit 10
@@ -138,7 +151,6 @@ do
 done
 
 echo "[3/7] Apply refresh to local staged pair"
-export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 cd "$APP_ROOT"
 
 "$PY" -m research.shadow_bakeoff.historical_source_refresh   --raw "$RAW"   --features "$FEATURES"   --market-root "$MARKET"   --mapping "$MAPPING"   --output-status "$STATUS"   --backup-root "$BACKUPS"   --parity-min-points "$PARITY_MIN"   --max-parity-error "$PARITY_MAX"   --source-overlap-min-points "$OVERLAP_MIN"   --max-source-close-relative-error "$OVERLAP_MAX"   --apply
