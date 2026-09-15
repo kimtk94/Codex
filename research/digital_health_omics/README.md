@@ -155,3 +155,20 @@ The recommended sequence is:
 2. calculate Fitbit × proteomics × WGS × EHR overlap,
 3. proceed with the wearable–proteomics project when overlap is sufficient,
 4. otherwise pivot to wearable × genomics × ADRD while retaining the same digital phenotype pipeline.
+
+
+### All of Us CDRv9 Stage 0
+
+Run `notebooks/AoU_CDRv9_Stage0.ipynb` inside an All of Us Researcher Workbench 2.0 **Controlled Tier** workspace.
+
+It is intentionally a one-run-cell notebook and performs:
+
+- Fitbit / EHR BigQuery table discovery
+- WGS and proteomics sample-resource discovery
+- Fitbit × Proteomics × WGS × EHR overlap counts
+- >=21 / >=30 day wearable sleep QC
+- first-pass mean/SD sleep duration, efficiency, activity and steps phenotypes
+- automatic GO / CONDITIONAL / PIVOT decision for Proposal 1 vs Proposal 2
+- aggregate-only output export
+
+CDRv9 already includes Olink proteomics plus cis-pQTL and fine-mapped pQTL resources, so the recommended causal layer is to reuse those pQTL results rather than estimate de novo pQTLs in the ~10k proteomics subset.
