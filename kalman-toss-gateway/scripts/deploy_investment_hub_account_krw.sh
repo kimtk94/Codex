@@ -192,6 +192,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import urllib.parse
 import urllib.request
@@ -480,10 +481,15 @@ def normalize_source_root() -> None:
         dst.write_bytes(src.read_bytes())
         moved.append(rel.as_posix())
 
+    # Remove the wrapper after normalization so Vercel sees one canonical
+    # project root only. This avoids duplicate src/api vs api discovery and
+    # guarantees that the patch stage and deploy stage operate on the same files.
+    shutil.rmtree(source_dir)
+
     downloaded=sorted(set(downloaded) | set(moved))
     print(
         f"[INFO] normalized recovered source root: "
-        f"{prefix}/ -> ./ ({len(moved)} files)"
+        f"{prefix}/ -> ./ ({len(moved)} files; wrapper removed)"
     )
 
 normalize_source_root()
