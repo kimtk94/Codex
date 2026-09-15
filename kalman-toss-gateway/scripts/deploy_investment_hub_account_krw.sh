@@ -502,6 +502,75 @@ load_account=r"""async function loadAccount(){
 """
 app=app[:start]+load_account+app[end:]
 
+render_anchor="""function renderMarket(m,j){
+  if(m==='GLOBAL')return renderGlobal(j);if(m==='CRYPTO')return renderCrypto(j);if(m==='US')return renderUS(j);return renderKR(j)
+}
+"""
+render_shadow=r"""function renderShadow(j){
+  const signals=j.signals||{}, ranking=j.forward_ranking||[];
+  const cards=['US','KR','BTC'].map(m=>{
+    const s=signals[m]||{}, sig=String(s.signal||'—'), kind=sig==='BUY'?'warn':'';
+    const score=s.probability!=null?`확률 ${pct(s.probability,100)}`:s.predicted_return!=null?`예상수익 ${pct(s.predicted_return,100)}`:'모델 점수 —';
+    return `<div class="card"><div class="section-title"><h3>${m}</h3>${badge(sig,kind)}</div><div class="kpi">${esc(s.symbol||'—')}</div><div class="metric-line"><span class="muted">모델</span><b>${esc(s.model_family||'—')}</b></div><div class="metric-line"><span class="muted">Score</span><b>${score}</b></div><div class="metric-line"><span class="muted">결측률</span><b>${s.missing_feature_ratio==null?'—':pct(s.missing_feature_ratio,100)}</b></div><div class="small" style="margin-top:9px">${time(s.as_of)}</div></div>`;
+  }).join('');
+  const ranks=ranking.map((r,i)=>`<div class="top"><div class="rank">${r.forward_rank==null?i+1:r.forward_rank+1}</div><div><div class="asset">${esc(r.strategy||'—')}</div><div class="small">${esc(r.status||'—')}</div></div><div class="right"><b>${r.sharpe==null?'—':`Sharpe ${fmt(r.sharpe,2)}`}</b><div class="small">수익 ${r.total_return==null?'—':pct(r.total_return,100)} · MDD ${r.max_drawdown==null?'—':pct(r.max_drawdown,100)}</div></div></div>`).join('');
+  return `<div class="summary">${badge('READ ONLY','ok')} ${badge(j.tracking_status||'SHADOW')} <span class="muted">갱신 ${time(j.updated_at)}</span></div><div class="notice">Forward SHADOW는 표시 전용입니다. 이 화면의 신호는 주문으로 전달되지 않습니다.</div><div class="grid section">${cards}</div><div class="card section"><div class="section-title"><h3>A/B/C Forward Ranking</h3><span class="muted">post-seed ${fmt(j.post_seed_return_rows,0)} rows</span></div>${ranks||'<div class="notice">아직 forward ranking 데이터가 부족합니다.</div>'}</div>`;
+}
+function renderMarket(m,j){
+  if(m==='SHADOW')return renderShadow(j);if(m==='GLOBAL')return renderGlobal(j);if(m==='CRYPTO')return renderCrypto(j);if(m==='US')return renderUS(j);return renderKR(j)
+}
+"""
+app=replace_once(app, render_anchor, render_shadow, "renderMarket SHADOW")
+
+shadow_proxy=r"""
+  const __kalmanUrl = new URL(req.url || '/api/dashboard', 'http://localhost');
+  if ((__kalmanUrl.searchParams.get('market') || '').toUpperCase() === 'SHADOW') {
+    const base = String(process.env.TOSS_GATEWAY_URL || '').replace(/\\/+$/, '');
+    const secret = String(process.env.HUB_GATEWAY_SECRET || '');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    if (!base || !secret) {
+      res.statusCode = 503;
+      res.end(JSON.stringify({error:'SHADOW_GATEWAY_NOT_CONFIGURED'}));
+      return;
+    }
+    try {
+      const upstream = await fetch(base + '/api/shadow-bakeoff', {
+        method: 'GET',
+        headers: {'X-Gateway-Secret': secret, 'Accept': 'application/json'},
+        cache: 'no-store'
+      });
+      const body = await upstream.text();
+      res.statusCode = upstream.status;
+      res.end(body);
+      return;
+    } catch (err) {
+      res.statusCode = 502;
+      res.end(JSON.stringify({error:'SHADOW_GATEWAY_FETCH_FAILED'}));
+      return;
+    }
+  }
+"""
+
+handler_patterns=[
+    r"(export\s+default\s+async\s+function(?:\s+\w+)?\s*\(\s*req\s*,\s*res\s*\)\s*\{)",
+    r"(module\.exports\s*=\s*async\s+function(?:\s+\w+)?\s*\(\s*req\s*,\s*res\s*\)\s*\{)",
+    r"(module\.exports\s*=\s*async\s*\(\s*req\s*,\s*res\s*\)\s*=>\s*\{)",
+]
+patched=False
+for pattern in handler_patterns:
+    dashboard,n=re.subn(
+        pattern,
+        lambda m: m.group(1)+"\n"+shadow_proxy,
+        dashboard,
+        count=1,
+    )
+    if n==1:
+        patched=True
+        break
+if not patched:
+    raise SystemExit("[FAIL] api/dashboard.js handler anchor not recognized")
+
 css += r"""
 .account-holding{display:block;padding:13px 0}
 .holding-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
