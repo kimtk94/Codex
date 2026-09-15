@@ -6,6 +6,7 @@ on:
       - feature/digital-health-omics-scout
     paths:
       - 'research/digital_health_omics/allofus_stage0.py'
+      - 'research/digital_health_omics/requirements.txt'
       - 'notebooks/AoU_CDRv9_Stage0.ipynb'
       - 'research/digital_health_omics/allofus_proposal1.py'
       - 'notebooks/AoU_Proposal1_Wearable_Proteomics_V1.ipynb'
@@ -102,5 +103,4 @@ jobs:
           assert out.iloc[0]["protein"] == "P1"
           assert np.nanmin(bh_fdr([0.001, 0.01, 0.5])) <= 0.0031
           print("Synthetic V1 analysis: OK")
-          PY
           PY
