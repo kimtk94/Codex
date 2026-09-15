@@ -51,9 +51,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def trade_id_for(entry_run_id: str, symbol: str, entry_time: datetime) -> uuid.UUID:
+    # A model decision can be recomputed by multiple pipeline run_ids for the
+    # same as_of. Identity must therefore be stable across reruns.
+    del entry_run_id
     return uuid.uuid5(
         UUID_NAMESPACE,
-        f"{STRATEGY_VERSION}|{entry_run_id}|{symbol}|{entry_time.isoformat()}",
+        f"{STRATEGY_VERSION}|{symbol}|{entry_time.isoformat()}",
     )
 
 
@@ -253,6 +256,7 @@ def upsert_trades(cur: Any, trades: list[Trade]) -> None:
                 exit_price=EXCLUDED.exit_price,
                 return_pct=EXCLUDED.return_pct,
                 exit_reason=EXCLUDED.exit_reason,
+                run_id=EXCLUDED.run_id,
                 metadata=EXCLUDED.metadata
             """,
             (
