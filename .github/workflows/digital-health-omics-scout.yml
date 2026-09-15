@@ -26,7 +26,7 @@ jobs:
         run: pip install -r research/digital_health_omics/requirements.txt
       - name: Run Global + SKKU scout
         working-directory: research/digital_health_omics
-        run: python scout.py --route both --start-year 2020 --end-year 2026 --max-records 1000
+        run: python scout.py --route both --start-year 2020 --end-year 2026 --max-records 5000
       - name: Show outputs
         working-directory: research/digital_health_omics
         run: |
@@ -42,6 +42,18 @@ jobs:
           latest = sorted(Path('outputs').glob('*'))[-1]
           p = pd.read_csv(latest/'global_vs_skku_opportunities.csv')
           print(p.head(30).to_string(index=False))
+          print("\n=== YEAR DISTRIBUTION ===")
+          for route in ["global", "skku"]:
+              d = pd.read_csv(latest/f"{route}_papers.csv")
+              print(f"\n{route.upper()}")
+              print(d["year"].value_counts(dropna=False).sort_index().to_string())
+          print("\n=== TOP SKKU TOPICS ===")
+          s = pd.read_csv(latest/'skku_topics.csv')
+          print(s.head(30).to_string(index=False))
+          print("\n=== SAMPLE SKKU PAPERS ===")
+          sp = pd.read_csv(latest/'skku_papers.csv')
+          cols = ["year","title","digital_axes","omics_axes","disease_axes","pubmed_url"]
+          print(sp[cols].head(25).to_string(index=False))
           PY
       - name: Upload result CSVs
         uses: actions/upload-artifact@v4
