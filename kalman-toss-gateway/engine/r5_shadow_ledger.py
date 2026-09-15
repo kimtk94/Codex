@@ -434,9 +434,15 @@ def main() -> int:
     args = parse_args()
     env_file = os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env")
     load_dotenv(env_file, override=True)
-    database_url = os.environ.get("DATABASE_URL") or os.environ.get("NEON_DATABASE_URL")
+    database_url = (
+        os.environ.get("DATABASE_URL_WRITER")
+        or os.environ.get("DATABASE_URL")
+        or os.environ.get("NEON_DATABASE_URL")
+    )
     if not database_url:
-        raise RuntimeError("DATABASE_URL/NEON_DATABASE_URL is required")
+        raise RuntimeError(
+            "DATABASE_URL_WRITER/DATABASE_URL/NEON_DATABASE_URL is required"
+        )
 
     try:
         import psycopg
