@@ -152,6 +152,32 @@ interesting_defs = [
     )
 ]
 
+# Emit only the R5.1 replay-relevant DUAL_CODE ranges for implementation review.
+selected_ranges = []
+for idx, nested in enumerate(nested_sources, start=1):
+    if nested.get("label") != "DUAL_CODE":
+        continue
+    dual_lines = nested["text"].splitlines()
+    for lo, hi, label in [
+        (82, 170, "constants_and_features"),
+        (421, 592, "panel_and_feature_engineering"),
+        (593, 910, "signals_trades_outcomes"),
+    ]:
+        selected_ranges.append({
+            "label": label,
+            "start": lo,
+            "end": hi,
+            "lines": [
+                {"lineno": n, "text": dual_lines[n - 1]}
+                for n in range(lo, min(hi, len(dual_lines)) + 1)
+            ],
+        })
+
+Path("unified_r5_replay_ranges.json").write_text(
+    json.dumps(selected_ranges, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8",
+)
+
 report = {
     "payload_sha256": sha,
     "source_lines": len(lines),
