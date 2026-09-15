@@ -345,6 +345,25 @@ def test_candidate_formulas_include_exact_historical_change_vol20_and_rv20() -> 
         equal_nan=True,
     )
 
+    expected_rv20_365 = (
+        logret
+        .rolling(20, min_periods=20)
+        .std(ddof=0)
+        * np.sqrt(365.0)
+    )
+
+    assert "rv20_log_ann365_ddof0" in rv_candidates
+
+    np.testing.assert_allclose(
+        rv_candidates[
+            "rv20_log_ann365_ddof0"
+        ].to_numpy(),
+        expected_rv20_365.to_numpy(),
+        rtol=0.0,
+        atol=1e-12,
+        equal_nan=True,
+    )
+
 
 def test_atomic_write_pair_preserves_exact_arrow_schema(tmp_path) -> None:
     raw_path = tmp_path / "raw.parquet"
