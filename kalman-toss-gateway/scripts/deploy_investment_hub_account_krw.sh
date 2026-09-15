@@ -677,13 +677,26 @@ app=replace_once(
     "if(m==='US'){const signalChart=await usShadowSignalChart(marketSnapshot);box.innerHTML=usModelPerformanceView(j)+signalChart;}",
     "US model signal chart",
 )
-app=replace_once(
-    app,
-    "const by=new Map((j.items||[]).map(x=>[String(x.symbol).toUpperCase(),x]));",
+# Patch KR hydration only inside loadActualModelPerformance(). The same
+# "const by=new Map(...)" expression also exists in loadYtdStockCharts().
+loader_start=app.find("async function loadActualModelPerformance(")
+loader_end=app.find("\nfunction bindPerformanceTabs(", loader_start)
+if loader_start < 0 or loader_end < 0:
+    raise SystemExit("[FAIL] loadActualModelPerformance block missing")
+loader=app[loader_start:loader_end]
+loader_old="const by=new Map((j.items||[]).map(x=>[String(x.symbol).toUpperCase(),x]));"
+if loader.count(loader_old) != 1:
+    raise SystemExit(
+        f"[FAIL] KR actual ledger hydration inside loader: "
+        f"expected 1 match, got {loader.count(loader_old)}"
+    )
+loader=loader.replace(
+    loader_old,
     """const hydrated=(j.items||[]).map(x=>hydrateKrActualItem(x,marketSnapshot));
       const by=new Map(hydrated.map(x=>[String(x.symbol).toUpperCase(),x]));""",
-    "KR actual ledger hydration",
+    1,
 )
+app=app[:loader_start]+loader+app[loader_end:]
 app=replace_once(app,"function bindPerformanceTabs(m,assets){","function bindPerformanceTabs(m,assets,marketSnapshot=null){","tab binding signature")
 app=replace_once(
     app,
