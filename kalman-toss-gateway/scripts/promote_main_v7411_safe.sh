@@ -26,6 +26,46 @@ chmod +x "$APP"/scripts/*.sh
 echo "RUNTIME_SYNC=PASS"
 
 echo
+echo "[1b/6] Google service-account preflight for CRYPTO archive bridge"
+
+ADC="$(
+python3 - "$ENV" <<'PY'
+from pathlib import Path
+import sys
+
+p=Path(sys.argv[1])
+v={}
+for raw in p.read_text(encoding="utf-8").splitlines():
+    line=raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k,val=line.split("=",1)
+    val=val.strip()
+    if len(val)>=2 and val[0]==val[-1] and val[0] in {'"', "'"}:
+        val=val[1:-1]
+    v[k.strip()]=val
+print(v.get("GOOGLE_APPLICATION_CREDENTIALS") or "")
+PY
+)"
+
+[ -n "$ADC" ] || fail "GOOGLE_APPLICATION_CREDENTIALS is missing from $ENV"
+[ -f "$ADC" ] || fail "Google service-account JSON missing: $ADC"
+
+python3 - "$ADC" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+x=json.loads(p.read_text(encoding="utf-8"))
+required=("type","client_email","private_key","token_uri")
+missing=[k for k in required if not x.get(k)]
+if x.get("type")!="service_account":
+    raise SystemExit("[FAIL] Google ADC JSON is not a service_account credential")
+if missing:
+    raise SystemExit("[FAIL] Google ADC JSON missing required fields: "+",".join(missing))
+print("GOOGLE_ADC=PASS")
+PY
+
+echo
 echo "[2/6] Refresh Unified DB + verify read-only account"
 KALMAN_APP_ROOT="$APP" \
 KALMAN_ENV_FILE="$ENV" \
