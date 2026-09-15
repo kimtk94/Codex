@@ -178,6 +178,9 @@ vercel_dir.mkdir(parents=True,exist_ok=True)
 (Path(app_dir)/".kalman-project-id").write_text(project_id,encoding="utf-8")
 PY
 
+rm -f "$ENV_PULL"
+echo "[PASS] temporary source env removed"
+
 echo
 echo "[4/6] Deploy standalone SHADOW web"
 cd "$APP_DIR"
