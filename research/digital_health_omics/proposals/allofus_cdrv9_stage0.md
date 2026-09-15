@@ -69,9 +69,10 @@ Create a simple count table:
 | EHR | |
 | Fitbit ∩ Proteomics | |
 | Fitbit ∩ WGS | |
+| Fitbit ∩ Proteomics ∩ EHR | |
 | Fitbit ∩ Proteomics ∩ WGS | |
 | Fitbit ∩ Proteomics ∩ WGS ∩ EHR | |
-| Above + age >= 50 | |
+| Fitbit ∩ Proteomics ∩ EHR + age >= 50 | |
 | Above + >=12 months usable EHR follow-up | |
 | Above + wearable QC | |
 
@@ -108,6 +109,8 @@ Avoid treating multi-year Fitbit measurements collected long after the blood dra
 
 ## 9. Go / pivot rule
 
+The decision N is **Fitbit-QC ∩ Proteomics ∩ EHR**. WGS overlap is reported but is not required for the primary wearable–proteomics association because CDRv9 supplies cis-pQTL and fine-mapped pQTL summary resources.
+
 ### GO — full Proposal 1
 If final analyzable overlap is >=1,500.
 
@@ -116,7 +119,7 @@ If 500–1,499:
 - reduce dimensionality
 - pre-specify protein modules/panels
 - avoid underpowered de novo pQTL discovery
-- use external pQTL instruments for MR
+- use CDRv9 provided cis-pQTL/fine-mapped pQTL and external instruments for MR/coloc
 
 ### PIVOT
 If <500:
