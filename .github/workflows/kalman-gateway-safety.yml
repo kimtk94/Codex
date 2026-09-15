@@ -7,6 +7,7 @@ on:
       - "kalman-toss-gateway/engine/auto_trade.py"
       - "kalman-toss-gateway/engine/pipeline_entry.py"
       - "kalman-toss-gateway/engine/r5_shadow_ledger.py"
+      - "kalman-toss-gateway/engine/r5_annual_ledger.py"
       - "kalman-toss-gateway/engine/crypto_sheet_file_compat.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/configure_manual_live_trading_env.sh"
@@ -32,6 +33,7 @@ on:
       - "kalman-toss-gateway/engine/auto_trade.py"
       - "kalman-toss-gateway/engine/pipeline_entry.py"
       - "kalman-toss-gateway/engine/r5_shadow_ledger.py"
+      - "kalman-toss-gateway/engine/r5_annual_ledger.py"
       - "kalman-toss-gateway/engine/crypto_sheet_file_compat.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/configure_manual_live_trading_env.sh"
@@ -44,6 +46,7 @@ on:
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - "kalman-toss-gateway/tests/test_crypto_sheet_file_compat.py"
       - "kalman-toss-gateway/tests/test_r5_shadow_ledger.py"
+      - "kalman-toss-gateway/tests/test_r5_annual_ledger.py"
       - ".github/workflows/kalman-gateway-safety.yml"
 
 permissions:
@@ -72,7 +75,7 @@ jobs:
 
       - name: Compile gateway code
         run: |
-          python -m compileall app engine/auto_trade.py engine/pipeline_entry.py engine/crypto_sheet_file_compat.py engine/r5_shadow_ledger.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_crypto_sheet_file_compat.py tests/test_auto_trade_sizing.py tests/test_drive_copy_compat.py tests/test_r5_shadow_ledger.py
+          python -m compileall app engine/auto_trade.py engine/pipeline_entry.py engine/crypto_sheet_file_compat.py engine/r5_shadow_ledger.py engine/r5_annual_ledger.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_crypto_sheet_file_compat.py tests/test_auto_trade_sizing.py tests/test_drive_copy_compat.py tests/test_r5_shadow_ledger.py tests/test_r5_annual_ledger.py
           bash -n scripts/configure_auto_trade_env.sh
           bash -n scripts/configure_manual_live_trading_env.sh
           bash -n scripts/trading_status.sh
@@ -88,4 +91,4 @@ jobs:
       - name: Run gateway safety tests
         env:
           PYTHONPATH: .
-        run: python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist tests.test_crypto_sheet_file_compat tests.test_auto_trade_sizing tests.test_drive_copy_compat tests.test_r5_shadow_ledger -v
+        run: python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist tests.test_crypto_sheet_file_compat tests.test_auto_trade_sizing tests.test_drive_copy_compat tests.test_r5_shadow_ledger tests.test_r5_annual_ledger -v
