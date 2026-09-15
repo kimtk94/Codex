@@ -1,62 +1,88 @@
 {
   "version": "historical_source_refresh_v1_001",
-  "description": "Conservative 1D price-family bridge from current Market Data V2 snapshots into the validated 2017+ integrated sources. Required anchors are US_SPY, KR_KOSPI, BTC_BTCUSD. Same-day incomplete bars are excluded by market session policy.",
+  "description": "Conservative 1D price/FX-family bridge from current Market Data V2 snapshots into the validated 2017+ integrated sources. Required anchors are US_SPY, KR_KOSPI, BTC_BTCUSD. Same-day incomplete bars are excluded by market session policy.",
   "indicators": [
     {
       "indicator_id": "US_SPY",
-      "source_candidates": ["raw/yfinance/yf_spy.parquet"],
+      "source_candidates": [
+        "raw/yfinance/yf_spy.parquet"
+      ],
       "timezone": "America/New_York",
       "same_day_complete_after": "16:30",
       "required_anchor": true
     },
     {
       "indicator_id": "US_QQQ",
-      "source_candidates": ["raw/yfinance/yf_qqq.parquet"],
+      "source_candidates": [
+        "raw/yfinance/yf_qqq.parquet"
+      ],
       "timezone": "America/New_York",
       "same_day_complete_after": "16:30",
       "required_anchor": false
     },
     {
       "indicator_id": "US_SOXX",
-      "source_candidates": ["raw/yfinance/yf_soxx.parquet"],
+      "source_candidates": [
+        "raw/yfinance/yf_soxx.parquet"
+      ],
       "timezone": "America/New_York",
       "same_day_complete_after": "16:30",
       "required_anchor": false
     },
     {
       "indicator_id": "US_IWM",
-      "source_candidates": ["raw/yfinance/yf_iwm.parquet"],
+      "source_candidates": [
+        "raw/yfinance/yf_iwm.parquet"
+      ],
       "timezone": "America/New_York",
       "same_day_complete_after": "16:30",
       "required_anchor": false
     },
     {
       "indicator_id": "COMMON_GLD",
-      "source_candidates": ["raw/yfinance/yf_gld.parquet"],
+      "source_candidates": [
+        "raw/yfinance/yf_gld.parquet"
+      ],
       "timezone": "America/New_York",
       "same_day_complete_after": "16:30",
       "required_anchor": false
     },
     {
       "indicator_id": "COMMON_HYG",
-      "source_candidates": ["raw/yfinance/yf_hyg.parquet"],
+      "source_candidates": [
+        "raw/yfinance/yf_hyg.parquet"
+      ],
       "timezone": "America/New_York",
       "same_day_complete_after": "16:30",
       "required_anchor": false
     },
     {
       "indicator_id": "COMMON_LQD",
-      "source_candidates": ["raw/yfinance/yf_lqd.parquet"],
+      "source_candidates": [
+        "raw/yfinance/yf_lqd.parquet"
+      ],
       "timezone": "America/New_York",
       "same_day_complete_after": "16:30",
       "required_anchor": false
     },
     {
       "indicator_id": "BTC_BTCUSD",
-      "source_candidates": ["raw/yfinance/yf_btc.parquet"],
+      "source_candidates": [
+        "raw/yfinance/yf_btc.parquet"
+      ],
       "timezone": "UTC",
       "same_day_complete_after": null,
       "required_anchor": true
+    },
+    {
+      "indicator_id": "KR_USDKRW",
+      "source_candidates": [
+        "raw/yfinance/yf_usdkrw.parquet",
+        "raw/financedatareader/fdr_usdkrw.parquet"
+      ],
+      "timezone": "UTC",
+      "same_day_complete_after": null,
+      "required_anchor": false
     },
     {
       "indicator_id": "KR_KOSPI",
