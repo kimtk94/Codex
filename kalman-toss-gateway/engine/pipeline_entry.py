@@ -1,10 +1,69 @@
 from __future__ import annotations
 
+import errno
 import os
 import runpy
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+def _install_drive_copy2_compat() -> None:
+    """Fallback to content-only copy for rclone/FUSE metadata failures.
+
+    The Colab lineage uses shutil.copy2(), which copies file contents and then
+    POSIX metadata/xattrs. rclone/FUSE-backed Google Drive paths can raise EIO
+    or ENOTSUP during copystat/listxattr even after the file bytes were copied.
+    Keep normal copy2 semantics everywhere else and only relax metadata copying
+    when either side is the server's Drive compatibility tree.
+    """
+    original_copy2 = shutil.copy2
+    drive_prefixes = (
+        '/content/drive/',
+        '/mnt/gdrive/',
+    )
+
+    def drive_path(value) -> bool:
+        try:
+            p = os.path.abspath(os.fspath(value))
+        except TypeError:
+            return False
+        return any(p.startswith(prefix.rstrip('/')) for prefix in drive_prefixes)
+
+    def safe_copy2(src, dst, *, follow_symlinks=True):
+        try:
+            return original_copy2(
+                src,
+                dst,
+                follow_symlinks=follow_symlinks,
+            )
+        except OSError as exc:
+            recoverable = exc.errno in {
+                errno.EIO,
+                errno.ENOTSUP,
+                getattr(errno, 'EOPNOTSUPP', errno.ENOTSUP),
+            }
+            if not recoverable or not (drive_path(src) or drive_path(dst)):
+                raise
+
+            # copy2() may already have copied the bytes before copystat/xattr
+            # failed. Re-copy content only so the destination is deterministic.
+            result = shutil.copyfile(
+                src,
+                dst,
+                follow_symlinks=follow_symlinks,
+            )
+            print(
+                '[server] Drive copy2 metadata fallback:',
+                os.fspath(src),
+                '->',
+                os.fspath(dst),
+                f'({exc.__class__.__name__}: errno={exc.errno})',
+            )
+            return result
+
+    shutil.copy2 = safe_copy2
 
 
 def main() -> None:
@@ -22,6 +81,8 @@ def main() -> None:
     for legacy_name, server_name in aliases.items():
         if not os.environ.get(legacy_name) and os.environ.get(server_name):
             os.environ[legacy_name] = os.environ[server_name]
+
+    _install_drive_copy2_compat()
 
     run_mode = os.environ.get('RUN_MODE')
     if not run_mode:
