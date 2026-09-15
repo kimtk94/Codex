@@ -172,3 +172,20 @@ It is intentionally a one-run-cell notebook and performs:
 - aggregate-only output export
 
 CDRv9 already includes Olink proteomics plus cis-pQTL and fine-mapped pQTL resources, so the recommended causal layer is to reuse those pQTL results rather than estimate de novo pQTLs in the ~10k proteomics subset.
+
+
+### Proposal 1 V1 analysis
+
+Run `notebooks/AoU_Proposal1_Wearable_Proteomics_V1.ipynb` after the Stage 0 feasibility check.
+
+The notebook performs:
+
+- proteomics-participant-restricted Fitbit extraction
+- >=21-day sleep QC
+- mean sleep duration, duration variability, sleep midpoint/onset variability, social jetlag and efficiency phenotypes
+- proteome-wide NPX association adjusted for age and sex
+- per-phenotype Benjamini-Hochberg FDR
+- CDRv9 cis-pQTL prioritization
+- MR instrument-candidate export for downstream outcome-GWAS harmonization
+
+Individual-level WGS is not required for this primary analysis because CDRv9 provides pQTL summary resources.
