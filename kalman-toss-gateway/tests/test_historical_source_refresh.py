@@ -150,6 +150,95 @@ def test_refresh_appends_only_completed_rows_and_preserves_schema() -> None:
     assert np.isfinite(float(new_feature["MA20_DIST"]))
 
 
+def test_refresh_ignores_non_daily_rows_for_daily_bridge() -> None:
+    raw, features = _historical_price(rows=80)
+
+    raw_4h = raw.tail(30).copy()
+    raw_4h["event_time"] = (
+        pd.to_datetime(raw_4h["event_time"], utc=True)
+        + pd.Timedelta(hours=4)
+    )
+    raw_4h["available_time"] = raw_4h["event_time"]
+    raw_4h["timeframe"] = "4H"
+    for column in ("open", "high", "low", "close"):
+        raw_4h[column] = pd.to_numeric(
+            raw_4h[column],
+            errors="coerce",
+        ) * 10.0
+
+    feat_4h = features.tail(30).copy()
+    feat_4h["event_time"] = (
+        pd.to_datetime(feat_4h["event_time"], utc=True)
+        + pd.Timedelta(hours=4)
+    )
+    feat_4h["available_time"] = feat_4h["event_time"]
+    feat_4h["timeframe"] = "4H"
+    feat_4h["RET_1D"] = 7.0
+    feat_4h["MA20_DIST"] = 7.0
+
+    raw_mixed = pd.concat([raw, raw_4h], ignore_index=True)
+    features_mixed = pd.concat(
+        [features, feat_4h],
+        ignore_index=True,
+    )
+
+    current = _current_snapshot(raw, extra_days=2)
+    old_daily_max = pd.Timestamp(raw["event_time"].max())
+
+    mapping = MappingSpec(
+        indicator_id="US_SPY",
+        source_candidates=(
+            "raw/yfinance/yf_spy.parquet",
+        ),
+        timezone="UTC",
+        same_day_complete_after=None,
+        required_anchor=True,
+    )
+
+    raw_out, feat_out, report = refresh_frames(
+        raw_mixed,
+        features_mixed,
+        source_frames={"US_SPY": current},
+        mappings=[mapping],
+        now=old_daily_max + pd.Timedelta(
+            days=2,
+            hours=12,
+        ),
+        parity_min_points=10,
+        max_parity_error=1e-8,
+        source_overlap_min_points=5,
+        max_source_close_relative_error=1e-12,
+    )
+
+    assert report["new_raw_rows"] == 1
+    assert report["new_feature_rows"] == 1
+
+    expected_event = old_daily_max + pd.Timedelta(days=1)
+    appended_raw = raw_out.loc[
+        pd.to_datetime(
+            raw_out["event_time"],
+            utc=True,
+        ).eq(expected_event)
+        & raw_out["timeframe"].astype(str).eq("1D")
+    ]
+    appended_feat = feat_out.loc[
+        pd.to_datetime(
+            feat_out["event_time"],
+            utc=True,
+        ).eq(expected_event)
+        & feat_out["timeframe"].astype(str).eq("1D")
+    ]
+
+    assert len(appended_raw) == 1
+    assert len(appended_feat) == 1
+    assert np.isfinite(
+        float(appended_feat["RET_1D"].iloc[0])
+    )
+    assert np.isfinite(
+        float(appended_feat["MA20_DIST"].iloc[0])
+    )
+
+
 def test_refresh_fails_closed_when_feature_formula_parity_breaks() -> None:
     raw, features = _historical_price()
     features = features.copy()
