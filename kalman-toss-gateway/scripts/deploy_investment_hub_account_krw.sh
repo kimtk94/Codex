@@ -19,7 +19,7 @@ GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_5UY79dRUtszZNnUc3onHxd2Cj9EY}
 GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-77jlvdtk8-insk1285-9320s-projects.vercel.app}"
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
-WORK="/tmp/kalman-hub-v7410-${STAMP}"
+WORK="/tmp/kalman-hub-v7411-${STAMP}"
 SRC="${WORK}/source"
 mkdir -p "${SRC}"
 
@@ -269,9 +269,13 @@ def walk(entries, prefix=Path("")):
         if not uid:
             raise SystemExit(f"[FAIL] missing uid for {rel}")
 
-        path_q=urllib.parse.urlencode({"teamId": team_id, "path": rel.as_posix()})
+        # The known-good Investment Hub deployment is a Vercel CLI
+        # deployment. The REST API's optional `path` query is documented for
+        # Git deployments only; supplying it to CLI deployments can return a
+        # metadata response without `content` for otherwise valid files.
+        file_q=urllib.parse.urlencode({"teamId": team_id})
         payload=get_json(
-            f"https://api.vercel.com/v8/deployments/{deployment}/files/{uid}?{path_q}"
+            f"https://api.vercel.com/v8/deployments/{deployment}/files/{uid}?{file_q}"
         )
         content=payload.get("content")
         encoding=str(payload.get("encoding") or "").lower()
