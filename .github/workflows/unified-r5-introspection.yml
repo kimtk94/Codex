@@ -28,5 +28,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: unified-r5-introspection
-          path: kalman-toss-gateway/unified_r5_introspection.json
+          path: |
+            kalman-toss-gateway/unified_r5_introspection.json
+            kalman-toss-gateway/unified_r5_replay_ranges.json
           if-no-files-found: error
