@@ -22,6 +22,8 @@ on:
       - "kalman-toss-gateway/scripts/deploy_investment_hub_account_krw.sh"
       - "kalman-toss-gateway/scripts/deploy_investment_hub_shadow_proxy.sh"
       - "kalman-toss-gateway/scripts/deploy_shadow_readonly_manual_live.sh"
+      - "kalman-toss-gateway/scripts/deploy_shadow_readonly_standalone.sh"
+      - "kalman-toss-gateway/shadow-web/**"
       - "kalman-toss-gateway/config/kalman-shadow-bakeoff-daily.service"
       - "kalman-toss-gateway/config/kalman-shadow-bakeoff-daily.timer"
       - "kalman-toss-gateway/tests/test_market*_v2*.py"
@@ -50,6 +52,8 @@ on:
       - "kalman-toss-gateway/scripts/deploy_investment_hub_account_krw.sh"
       - "kalman-toss-gateway/scripts/deploy_investment_hub_shadow_proxy.sh"
       - "kalman-toss-gateway/scripts/deploy_shadow_readonly_manual_live.sh"
+      - "kalman-toss-gateway/scripts/deploy_shadow_readonly_standalone.sh"
+      - "kalman-toss-gateway/shadow-web/**"
       - "kalman-toss-gateway/config/kalman-shadow-bakeoff-daily.service"
       - "kalman-toss-gateway/config/kalman-shadow-bakeoff-daily.timer"
       - "kalman-toss-gateway/tests/test_market*_v2*.py"
@@ -123,6 +127,7 @@ jobs:
           bash -n scripts/deploy_investment_hub_account_krw.sh
           bash -n scripts/deploy_investment_hub_shadow_proxy.sh
           bash -n scripts/deploy_shadow_readonly_manual_live.sh
+          bash -n scripts/deploy_shadow_readonly_standalone.sh
           bash -n scripts/configure_manual_live_trading_env.sh
           systemd-analyze verify config/kalman-shadow-bakeoff-daily.service config/kalman-shadow-bakeoff-daily.timer
 
