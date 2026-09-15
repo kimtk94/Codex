@@ -16,6 +16,30 @@ mkdir -p "$LOCK_DIR" "$LOG_DIR"
 export KALMAN_ENV_FILE="$ENV_FILE"
 export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
+"$PY" - <<'PY'
+from importlib.metadata import version
+from packaging.version import Version
+
+import scipy
+from pypfopt import EfficientFrontier
+
+required_modules = (
+    "research.model_v2.build_historical_feature_matrix",
+    "research.quant_stack.historical_v3_2_portfolio_validation",
+    "research.shadow_bakeoff.runner",
+)
+
+for name in required_modules:
+    __import__(name)
+
+if Version(version("PyPortfolioOpt")) != Version("1.6.0"):
+    raise SystemExit("[FAIL] PyPortfolioOpt runtime must be exactly 1.6.0")
+if Version(scipy.__version__) >= Version("1.18"):
+    raise SystemExit("[FAIL] scipy runtime must remain < 1.18")
+
+print("SHADOW_RUNTIME_PREFLIGHT=PASS")
+PY
+
 DATA_ROOT="$("$PY" - "$ENV_FILE" <<'PY'
 from pathlib import Path
 from dotenv import dotenv_values
@@ -125,20 +149,64 @@ if [ "$SOURCE_RC" -ne 0 ]; then
 fi
 
 echo "[4/4] Run file-only A/B/C forward SHADOW bakeoff"
+RUN_STARTED_AT="$("$PY" - <<'PY'
+from datetime import datetime, timezone
+print(datetime.now(timezone.utc).isoformat())
+PY
+)"
+
+# A failed runner must never leave an older READY status available for the
+# daily wrapper to misinterpret as this run's success.
+rm -f "$BAKEOFF_STATUS"
+
 /bin/bash "$APP_ROOT/scripts/run_shadow_bakeoff_v1.sh"
 
 [ -f "$BAKEOFF_STATUS" ] || {
-  echo "[FAIL] bakeoff status missing: $BAKEOFF_STATUS" >&2
+  echo "[FAIL] fresh bakeoff status missing: $BAKEOFF_STATUS" >&2
   exit 50
 }
 
-"$PY" - "$BAKEOFF_STATUS" <<'PY'
-import json, sys
+"$PY" - "$BAKEOFF_STATUS" "$RUN_STARTED_AT" "$SEED_END" <<'PY'
+import json
+import sys
 from pathlib import Path
+import pandas as pd
+
 p = Path(sys.argv[1])
+run_started_at = pd.Timestamp(sys.argv[2])
+seed_end = pd.Timestamp(sys.argv[3])
 x = json.loads(p.read_text(encoding="utf-8"))
+
 if x.get("status") != "READY":
     raise SystemExit(f"[FAIL] bakeoff status={x.get('status')}")
+
+updated_at = pd.Timestamp(x.get("updated_at"))
+if updated_at <= run_started_at:
+    raise SystemExit(
+        f"[FAIL] stale bakeoff status: updated_at={updated_at} "
+        f"run_started_at={run_started_at}"
+    )
+
+if x.get("has_post_seed_signal") is not True:
+    raise SystemExit("[FAIL] bakeoff has_post_seed_signal is not true")
+
+signals = x.get("signal_status") or {}
+for market in ("US", "KR", "BTC"):
+    signal = signals.get(market)
+    if not isinstance(signal, dict):
+        raise SystemExit(f"[FAIL] missing signal payload for {market}")
+    as_of = pd.Timestamp(signal.get("as_of"))
+    if as_of <= seed_end:
+        raise SystemExit(
+            f"[FAIL] {market} signal is not post-seed: "
+            f"as_of={as_of} seed_end={seed_end}"
+        )
+    missing_ratio = float(signal.get("missing_feature_ratio", 999.0))
+    if missing_ratio > 0.20:
+        raise SystemExit(
+            f"[FAIL] {market} missing_feature_ratio={missing_ratio:.4f} > 0.2000"
+        )
+
 inv = x.get("invariants") or {}
 required_false = [
     "production_write",
@@ -153,9 +221,12 @@ for key in required_false:
         raise SystemExit(f"[FAIL] invariant {key}={inv.get(key)!r}")
 if inv.get("file_only") is not True:
     raise SystemExit("[FAIL] file_only invariant is not true")
+
+print("BAKEOFF_FRESH_STATUS=PASS")
 print("BAKEOFF_SAFETY_INVARIANTS=PASS")
 print("tracking_status=", x.get("tracking_status"))
 print("post_seed_return_rows=", x.get("post_seed_return_rows"))
+print("updated_at=", x.get("updated_at"))
 PY
 
 echo "SHADOW_BAKEOFF_DAILY_COMPLETE"
