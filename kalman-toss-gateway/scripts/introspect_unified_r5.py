@@ -40,6 +40,19 @@ def collect_ast(parsed, source_name):
             imports.extend(a.name for a in node.names)
         elif isinstance(node, ast.ImportFrom):
             imports.append((node.module or "") + ":" + ",".join(a.name for a in node.names))
+        elif isinstance(node, ast.Assign):
+            if (
+                isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+                and len(node.value.value) > 1000
+            ):
+                names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+                nested_sources.append({
+                    "parent": source_name,
+                    "parent_lineno": node.lineno,
+                    "label": names[0] if names else "assigned_string",
+                    "text": node.value.value,
+                })
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "exec":
             if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
                 text = node.args[0].value
@@ -47,6 +60,7 @@ def collect_ast(parsed, source_name):
                     nested_sources.append({
                         "parent": source_name,
                         "parent_lineno": node.lineno,
+                        "label": "exec_literal",
                         "text": text,
                     })
 
@@ -70,6 +84,7 @@ for idx, nested in enumerate(nested_sources, start=1):
     nested_reports.append({
         "source": nested_name,
         "parent_lineno": nested["parent_lineno"],
+        "label": nested.get("label"),
         "parse_error": None,
         "lines": len(nested_text.splitlines()),
     })
