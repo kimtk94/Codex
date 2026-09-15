@@ -94,4 +94,17 @@ PY
 esac
 
 cd "$APP_ROOT"
-exec flock -n "$LOCK_DIR/pipeline.lock" "$PY" -m engine.pipeline_entry
+if ! flock -n "$LOCK_DIR/pipeline.lock" "$PY" -m engine.pipeline_entry; then
+  rc=$?
+  echo "[FAIL] Unified pipeline failed: mode=$MODE exit=$rc" >&2
+  exit "$rc"
+fi
+
+# R5.1 US lifecycle ledger is research/read-only accounting only. It runs
+# strictly after a successful US pipeline, never changes strategy_signal or
+# dashboard_snapshot, and cannot execute an order.
+if [ "$MODE" = "US" ]; then
+  echo
+  echo "[post] Sync R5.1 US SHADOW lifecycle ledger"
+  PYTHONPATH="$APP_ROOT" "$PY" -m engine.r5_shadow_ledger
+fi
