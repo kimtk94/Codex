@@ -36,8 +36,9 @@ GLOBAL_CORE = r"""(
    OR "real-world data"[Title/Abstract] OR "remote monitoring"[Title/Abstract]
    OR telemedicine[Title/Abstract] OR telehealth[Title/Abstract]
    OR "mobile health"[Title/Abstract] OR mhealth[Title/Abstract]
-   OR "machine learning"[Title/Abstract] OR "deep learning"[Title/Abstract]
-   OR "artificial intelligence"[Title/Abstract])
+   OR smartphone*[Title/Abstract] OR "mobile app"[Title/Abstract]
+   OR "digital therapeutic"[Title/Abstract] OR "digital therapeutics"[Title/Abstract]
+   OR "digital twin"[Title/Abstract] OR "clinical decision support"[Title/Abstract])
   AND
   (genomic*[Title/Abstract] OR GWAS[Title/Abstract] OR "genome-wide association"[Title/Abstract]
    OR "polygenic risk"[Title/Abstract] OR transcriptom*[Title/Abstract]
@@ -398,7 +399,7 @@ def main():
     parser.add_argument("--route", choices=["global", "skku", "both"], default="both")
     parser.add_argument("--start-year", type=int, default=2020)
     parser.add_argument("--end-year", type=int, default=datetime.now().year)
-    parser.add_argument("--max-records", type=int, default=3000)
+    parser.add_argument("--max-records", type=int, default=5000)
     parser.add_argument("--config", type=Path, default=HERE / "config.json")
     parser.add_argument("--output-dir", type=Path, default=HERE / "outputs")
     args = parser.parse_args()
