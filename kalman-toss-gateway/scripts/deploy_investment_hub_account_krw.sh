@@ -438,11 +438,20 @@ load_account=r"""async function loadAccount(){
     const totalPurchaseUsd=n(hroot?.totalPurchaseAmount?.usd);
     const totalEvalUsd=n(hroot?.marketValue?.amountAfterCost?.usd??hroot?.marketValue?.amount?.usd);
     const totalPnlUsd=n(hroot?.profitLoss?.amountAfterCost?.usd??hroot?.profitLoss?.amount?.usd);
+    const calculatedTotalRate=(
+      totalPurchaseUsd!=null&&totalPurchaseUsd!==0&&totalPnlUsd!=null
+        ? totalPnlUsd/totalPurchaseUsd
+        : null
+    );
 
     const summary=[
       card('총 매입금액',accountUsd(totalPurchaseUsd),accountKrw(totalPurchaseUsd,fx)),
       card('총 평가금액',accountUsd(totalEvalUsd),accountKrw(totalEvalUsd,fx)),
-      card('평가손익',accountUsd(totalPnlUsd),accountKrw(totalPnlUsd,fx)),
+      card(
+        '평가손익',
+        accountUsd(totalPnlUsd),
+        `${accountKrw(totalPnlUsd,fx)} · 합계수익률 ${calculatedTotalRate==null?'—':pct(calculatedTotalRate,100)}`
+      ),
       card('매수가능',money(krwPower,'KRW'),`USD ${accountUsd(usdPower,2)}`)
     ].join('');
 
@@ -618,6 +627,7 @@ assert "const pl=h?.profitLoss" in app
 assert "fmt(qty(h),6)" in app
 assert "accountKrw" in app
 assert "pct(rate,100)" in app
+assert "calculatedTotalRate" in app
 assert "open.er-api.com" in app
 assert "api.frankfurter.dev/v2/rate/usd/krw" in app
 assert "function renderShadow(j)" in app
