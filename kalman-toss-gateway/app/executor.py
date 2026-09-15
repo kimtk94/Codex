@@ -207,7 +207,23 @@ async def execute_order(
     if request.side.upper() == 'BUY':
         bp = _result(await client.buying_power(prepared.currency))
         available = _decimal(bp['cashBuyingPower'])
-        if available < prepared.source_notional:
+        funding_currency = prepared.currency
+
+        if available < prepared.source_notional and prepared.currency == 'USD':
+            krw_bp = _result(await client.buying_power('KRW'))
+            available_krw = _decimal(krw_bp['cashBuyingPower'])
+            if available_krw >= Decimal(prepared.estimated_notional_krw):
+                funding_currency = 'KRW'
+            else:
+                return {
+                    'allowed': False,
+                    'reason': 'INSUFFICIENT_BUYING_POWER',
+                    'executionAttempted': False,
+                    'estimatedNotionalKrw': prepared.estimated_notional_krw,
+                    'availableUsd': str(available),
+                    'availableKrw': str(available_krw),
+                }
+        elif available < prepared.source_notional:
             return {
                 'allowed': False,
                 'reason': 'INSUFFICIENT_BUYING_POWER',
@@ -273,6 +289,7 @@ async def execute_order(
         'reason': 'SUBMITTED',
         'executionAttempted': True,
         'estimatedNotionalKrw': prepared.estimated_notional_krw,
+        'fundingCurrency': locals().get('funding_currency'),
         'clientOrderId': request.client_order_id,
         'orderId': order_id,
         'order': result,
