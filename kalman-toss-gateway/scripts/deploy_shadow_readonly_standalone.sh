@@ -43,9 +43,23 @@ EOF
 )
 
 python3 - "$ENV_PULL" <<'PY'
+from pathlib import Path
 import sys
-from dotenv import dotenv_values
-x=dotenv_values(sys.argv[1])
+
+def parse_env(path):
+    out={}
+    for raw in Path(path).read_text(encoding="utf-8").splitlines():
+        line=raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key,value=line.split("=",1)
+        value=value.strip()
+        if len(value)>=2 and value[0]==value[-1] and value[0] in {'"', "'"}:
+            value=value[1:-1]
+        out[key.strip()]=value
+    return out
+
+x=parse_env(sys.argv[1])
 for k in ("TOSS_GATEWAY_URL","HUB_GATEWAY_SECRET"):
     if not str(x.get(k) or "").strip():
         raise SystemExit(f"[FAIL] missing production env: {k}")
@@ -63,10 +77,22 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from dotenv import dotenv_values
-
 env_file, team_id, project_name, app_dir = sys.argv[1:]
-env=dotenv_values(env_file)
+
+def parse_env(path):
+    out={}
+    for raw in Path(path).read_text(encoding="utf-8").splitlines():
+        line=raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key,value=line.split("=",1)
+        value=value.strip()
+        if len(value)>=2 and value[0]==value[-1] and value[0] in {'"', "'"}:
+            value=value[1:-1]
+        out[key.strip()]=value
+    return out
+
+env=parse_env(env_file)
 gateway=str(env.get("TOSS_GATEWAY_URL") or "").strip()
 secret=str(env.get("HUB_GATEWAY_SECRET") or "").strip()
 if not gateway or not secret:
