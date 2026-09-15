@@ -14,7 +14,7 @@ import hashlib
 import json
 import os
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_CEILING, ROUND_DOWN
 from types import SimpleNamespace
 
 import psycopg
@@ -212,7 +212,7 @@ def _usd_order_size(
         # from the KRW target and always round down so the estimated KRW
         # notional cannot exceed the configured KRW ceiling.
         amount = (target_krw / fx_usd_krw).quantize(Decimal('0.01'), rounding=ROUND_DOWN)
-        estimated_krw = (amount * fx_usd_krw).quantize(Decimal('1'), rounding=ROUND_DOWN)
+        estimated_krw = (amount * fx_usd_krw).quantize(Decimal('1'), rounding=ROUND_CEILING)
 
         detail['selectedOrderUsd'] = str(amount)
         detail['estimatedOrderKrw'] = str(estimated_krw)
@@ -247,7 +247,7 @@ def _usd_order_size(
         return None, detail
     detail['selectedOrderUsd'] = str(amount)
     detail['estimatedOrderKrw'] = str(
-        (amount * fx_usd_krw).quantize(Decimal('1'), rounding=ROUND_DOWN)
+        (amount * fx_usd_krw).quantize(Decimal('1'), rounding=ROUND_CEILING)
     )
     return amount, detail
 
