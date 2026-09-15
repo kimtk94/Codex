@@ -38,8 +38,8 @@ need curl
 need tar
 
 echo "=================================================="
-echo "Kalman Investment Hub vNext.7.4.10"
-echo "Account USD + KRW valuation"
+echo "Kalman Investment Hub vNext.7.4.11"
+echo "Account USD/KRW + SHADOW read-only"
 echo "=================================================="
 echo "Production : ${PROD_URL}"
 echo "Base       : ${GOOD_DEPLOYMENT}"
@@ -319,11 +319,13 @@ app_path=root/"app.js"
 css_path=root/"style.css"
 index_path=root/"index.html"
 health_path=root/"api/health.js"
+dashboard_path=root/"api/dashboard.js"
 
 app=app_path.read_text(encoding="utf-8")
 css=css_path.read_text(encoding="utf-8")
 index=index_path.read_text(encoding="utf-8")
 health=health_path.read_text(encoding="utf-8")
+dashboard=dashboard_path.read_text(encoding="utf-8")
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count=text.count(old)
