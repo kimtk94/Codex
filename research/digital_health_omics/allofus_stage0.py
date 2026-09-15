@@ -233,6 +233,7 @@ def overlap_table(
         "Fitbit ∩ EHR": fitbit_ids & ehr_ids,
         "Fitbit ∩ WGS": fitbit_ids & wgs_ids,
         "Fitbit ∩ Proteomics": fitbit_ids & proteomics_ids,
+        "Fitbit ∩ Proteomics ∩ EHR": fitbit_ids & proteomics_ids & ehr_ids,
         "Proteomics ∩ WGS": proteomics_ids & wgs_ids,
         "Fitbit ∩ Proteomics ∩ WGS": fitbit_ids & proteomics_ids & wgs_ids,
         "Fitbit ∩ Proteomics ∩ WGS ∩ EHR": fitbit_ids & proteomics_ids & wgs_ids & ehr_ids,
@@ -392,7 +393,9 @@ def stage0_summary(
     qc_ids: Optional[set[str]] = None,
 ) -> pd.DataFrame:
     rows = overlap_table(fitbit_ids, ehr_ids, wgs_ids, proteomics_ids)
-    final = fitbit_ids & proteomics_ids & wgs_ids & ehr_ids
+    # Individual-level WGS overlap is not required for Proposal 1 because CDRv9
+    # already provides cis-pQTL and fine-mapped pQTL summary resources.
+    final = fitbit_ids & proteomics_ids & ehr_ids
     if qc_ids is not None:
         rows = pd.concat(
             [rows, pd.DataFrame([{"cohort": "Above + wearable QC", "n": len(final & qc_ids)}])],
