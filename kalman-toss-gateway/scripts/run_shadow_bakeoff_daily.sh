@@ -230,5 +230,18 @@ print("post_seed_return_rows=", x.get("post_seed_return_rows"))
 print("updated_at=", x.get("updated_at"))
 PY
 
+PUBLISH_WEB="${KALMAN_SHADOW_PUBLISH_WEB:-true}"
+if [ "$PUBLISH_WEB" = "true" ]; then
+  echo "[5/5] Publish validated SHADOW snapshot web"
+  KALMAN_SHADOW_BAKEOFF_STATUS="$BAKEOFF_STATUS" \
+  KALMAN_SOURCE_ROOT="$APP_ROOT" \
+  KALMAN_ENV_FILE="$ENV_FILE" \
+  /bin/bash "$APP_ROOT/scripts/deploy_shadow_readonly_standalone.sh"
+  echo "SHADOW_SNAPSHOT_PUBLISH=PASS"
+else
+  echo "[5/5] SHADOW snapshot web publish skipped by configuration"
+fi
+
 echo "SHADOW_BAKEOFF_DAILY_COMPLETE"
 echo "WEB_DASHBOARD=${HUB_URL}"
+echo "SHADOW_WEB=https://kalman-shadow-readonly.vercel.app"
