@@ -6,16 +6,20 @@ on:
       - "kalman-toss-gateway/app/**"
       - "kalman-toss-gateway/engine/auto_trade.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
+      - "kalman-toss-gateway/scripts/configure_manual_live_trading_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - ".github/workflows/kalman-gateway-safety.yml"
   push:
-    branches: [main]
+    branches:
+      - main
+      - feature/shadow-bakeoff-v1-20260913
     paths:
       - "kalman-toss-gateway/app/**"
       - "kalman-toss-gateway/engine/auto_trade.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
+      - "kalman-toss-gateway/scripts/configure_manual_live_trading_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
@@ -48,6 +52,9 @@ jobs:
       - name: Compile gateway code
         run: |
           python -m compileall app engine/auto_trade.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py
+          bash -n scripts/configure_auto_trade_env.sh
+          bash -n scripts/configure_manual_live_trading_env.sh
+          bash -n scripts/trading_status.sh
 
       - name: Run gateway safety tests
         env:
