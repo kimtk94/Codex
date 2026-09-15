@@ -260,12 +260,19 @@ def annotate_papers(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     return out
 
 
+def _axis_values(value) -> List[str]:
+    if pd.isna(value):
+        return []
+    vals = [x.strip() for x in str(value).split(";") if x.strip()]
+    return [x for x in vals if x.lower() not in {"nan", "none", "null"}]
+
+
 def explode_topics(df: pd.DataFrame) -> pd.DataFrame:
     records = []
     for _, row in df.iterrows():
-        digital = [x for x in str(row.get("digital_axes", "")).split(";") if x]
-        omics = [x for x in str(row.get("omics_axes", "")).split(";") if x]
-        diseases = [x for x in str(row.get("disease_axes", "")).split(";") if x] or ["other"]
+        digital = _axis_values(row.get("digital_axes", ""))
+        omics = _axis_values(row.get("omics_axes", ""))
+        diseases = _axis_values(row.get("disease_axes", "")) or ["other"]
 
         for d in digital:
             for o in omics:
