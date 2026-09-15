@@ -140,3 +140,18 @@ The tool is designed to answer questions such as:
 - Which genomics-based digital phenotype studies are underrepresented at SKKU?
 - What globally emerging omics topics could be suitable for an SKKU master's thesis?
 - Where does SKKU already have a strong publication footprint versus a clear research gap?
+
+
+## Thesis proposal package
+
+The 2026 thesis-planning layer is available under `proposals/`:
+
+- `proposals/top3_thesis_proposals_2026.md` — ranked All of Us-first thesis designs
+- `proposals/allofus_cdrv9_stage0.md` — Stage 0 multimodal overlap / go-pivot feasibility plan
+
+The recommended sequence is:
+
+1. confirm All of Us Controlled Tier access,
+2. calculate Fitbit × proteomics × WGS × EHR overlap,
+3. proceed with the wearable–proteomics project when overlap is sufficient,
+4. otherwise pivot to wearable × genomics × ADRD while retaining the same digital phenotype pipeline.
