@@ -25,31 +25,63 @@ def _env_file_value(name: str) -> str | None:
     return None
 
 
+def _validate_xlsx(path: Path) -> Path:
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    try:
+        with zipfile.ZipFile(path) as zf:
+            zf.getinfo("xl/workbook.xml")
+    except Exception as exc:
+        raise RuntimeError(f"CRYPTO archive is not a readable XLSX file: {path}") from exc
+    return path
+
+
 def resolve_crypto_archive_xlsx(data_root: str | Path | None = None) -> Path:
     explicit = _env_file_value("KALMAN_CRYPTO_ARCHIVE_XLSX")
     if explicit:
-        p = Path(explicit).expanduser()
-        if p.is_file():
-            return p
-        raise FileNotFoundError(f"KALMAN_CRYPTO_ARCHIVE_XLSX not found: {p}")
+        return _validate_xlsx(Path(explicit).expanduser())
 
-    root = Path(data_root or os.environ.get("KALMAN_DATA_ROOT") or "/opt/kalman/data").expanduser()
-    exact = root / DEFAULT_ARCHIVE_BASENAME
-    if exact.is_file():
-        return exact
+    rclone = shutil.which("rclone")
+    if not rclone:
+        raise RuntimeError("rclone is required for KALMAN_CRYPTO_SOURCE=rclone_xlsx")
 
-    candidates = sorted(
-        root.glob("Kalman Upbit KRW History*.xlsx"),
-        key=lambda p: (p.stat().st_mtime if p.exists() else 0.0, p.name),
-        reverse=True,
+    source = (
+        _env_file_value("KALMAN_CRYPTO_ARCHIVE_RCLONE_SOURCE")
+        or f"gdrive:{DEFAULT_ARCHIVE_BASENAME}"
     )
-    if candidates:
-        return candidates[0]
+    config = _env_file_value("KALMAN_RCLONE_CONFIG") or "/etc/rclone/rclone.conf"
+    cache = Path(
+        _env_file_value("KALMAN_CRYPTO_ARCHIVE_CACHE")
+        or "/opt/kalman/state/crypto-archive/Kalman-Upbit-KRW-History.xlsx"
+    ).expanduser()
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cache.with_name(cache.stem + ".tmp.xlsx")
 
-    raise FileNotFoundError(
-        "CRYPTO archive XLSX not found through the rclone-mounted data root. "
-        f"Expected {exact} or KALMAN_CRYPTO_ARCHIVE_XLSX."
+    cmd = [
+        rclone,
+        "copyto",
+        source,
+        str(tmp),
+        "--config",
+        config,
+        "--drive-export-formats=xlsx",
+    ]
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=int(os.environ.get("KALMAN_CRYPTO_RCLONE_TIMEOUT") or "180"),
+        check=False,
     )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+        tail = detail[-1] if detail else f"exit={proc.returncode}"
+        raise RuntimeError(f"rclone CRYPTO archive export failed: {tail}")
+
+    _validate_xlsx(tmp)
+    os.replace(tmp, cache)
+    return _validate_xlsx(cache)
 
 
 def _col_index(ref: str) -> int:
