@@ -5,7 +5,9 @@ TEAM_ID="${VERCEL_TEAM_ID:-team_eklxTMfdySLBHexmheTiWGCE}"
 TEAM_SLUG="${VERCEL_TEAM_SLUG:-insk1285-9320s-projects}"
 PROJECT_ID="${VERCEL_PROJECT_ID:-prj_KCDIl7qLqtBloI7pjRFQk2Itq7V1}"
 PROD_URL="${KALMAN_HUB_PROD_URL:-https://kalman-investment-hub-v2.vercel.app}"
-GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-77jlvdtk8-insk1285-9320s-projects.vercel.app}"
+GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_5UY79dRUtszZNnUc3onHxd2Cj9EY}"
+BASE_ALIAS="${KALMAN_HUB_BASE_ALIAS:-kalman-investment-hub-v2-base749.vercel.app}"
+BASE_URL="https://${BASE_ALIAS}"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 WORK="/tmp/kalman-hub-shadow-proxy-${STAMP}"
@@ -26,7 +28,7 @@ echo "Kalman Investment Hub vNext.7.4.11"
 echo "Static clone + immutable backend proxy + SHADOW read-only"
 echo "=================================================="
 echo "Production : ${PROD_URL}"
-echo "Backend    : ${GOOD_URL}"
+echo "Base alias : ${BASE_URL}"
 echo "Work       : ${WORK}"
 echo
 
@@ -35,15 +37,87 @@ vercel whoami >/dev/null
 echo "[PASS] Vercel CLI authenticated"
 
 echo
-echo "[1/7] Fetch public static bundle from immutable known-good deployment"
+echo "[1/7] Pin immutable known-good backend to a stable public alias"
+python3 - "${GOOD_DEPLOYMENT}" "${TEAM_ID}" "${BASE_ALIAS}" <<'PY'
+from __future__ import annotations
+import json
+import os
+from pathlib import Path
+import sys
+import urllib.parse
+import urllib.request
+
+deployment, team_id, alias = sys.argv[1:]
+
+def find_token() -> str:
+    env = os.environ.get("VERCEL_TOKEN", "").strip()
+    if env:
+        return env
+    home = Path.home()
+    candidates = [
+        home / ".local/share/com.vercel.cli/auth.json",
+        home / ".config/vercel/auth.json",
+        home / ".vercel/auth.json",
+    ]
+    for base in (home / ".local/share", home / ".config"):
+        if base.exists():
+            candidates.extend(base.glob("**/com.vercel.cli/auth.json"))
+    seen = set()
+    for p in candidates:
+        p = Path(p)
+        if p in seen or not p.is_file():
+            continue
+        seen.add(p)
+        try:
+            obj = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        token = str(obj.get("token") or "").strip() if isinstance(obj, dict) else ""
+        if token:
+            return token
+    raise SystemExit("[FAIL] Vercel auth token not found")
+
+token = find_token()
+query = urllib.parse.urlencode({"teamId": team_id})
+url = f"https://api.vercel.com/v2/deployments/{deployment}/aliases?{query}"
+body = json.dumps({"alias": alias, "redirect": None}).encode("utf-8")
+req = urllib.request.Request(
+    url,
+    data=body,
+    method="POST",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "kalman-base-alias/1.0",
+    },
+)
+with urllib.request.urlopen(req, timeout=30) as response:
+    payload = json.loads(response.read().decode("utf-8"))
+if payload.get("alias") != alias:
+    raise SystemExit(f"[FAIL] alias assignment mismatch: {payload}")
+print("[PASS] base alias assigned:", alias)
+PY
+
+curl -fsS --max-time 20 "${BASE_URL}/api/health" -o "${WORK}/base-health.json" || fail "base alias is not publicly reachable"
+python3 - "${WORK}/base-health.json" <<'PY'
+import json,sys
+x=json.load(open(sys.argv[1],encoding="utf-8"))
+assert x.get("investment_hub_version")=="vNext.7.4.9", x
+assert x.get("trade_enabled") is False, x
+print("[PASS] immutable backend alias is public and healthy")
+PY
+
+echo
+echo "[2/7] Fetch current production static bundle"
 for file in index.html app.js style.css; do
-  curl -fsS --max-time 30 "${GOOD_URL}/${file}" -o "${SRC}/${file}" || fail "failed to fetch ${file}"
+  curl -fsS --max-time 30 "${PROD_URL}/${file}" -o "${SRC}/${file}" || fail "failed to fetch ${file}"
   [ -s "${SRC}/${file}" ] || fail "empty static file: ${file}"
 done
 echo "[PASS] index.html/app.js/style.css fetched"
 
 echo
-echo "[2/7] Patch SHADOW read-only UI"
+echo "[3/7] Patch SHADOW read-only UI"
 python3 - "${SRC}" <<'PY'
 from pathlib import Path
 import sys
@@ -104,9 +178,9 @@ print("[PASS] SHADOW tab + renderer patched")
 PY
 
 echo
-echo "[3/7] Build one-function API proxy"
+echo "[4/7] Build one-function API proxy"
 cat > "${SRC}/api/[...path].js" <<'JS'
-const GOOD_URL = 'https://kalman-investment-hub-v2-77jlvdtk8-insk1285-9320s-projects.vercel.app';
+const GOOD_URL = '__KALMAN_BASE_URL__';
 
 function copyResponseHeaders(upstream, res) {
   for (const name of ['content-type', 'cache-control', 'etag', 'last-modified']) {
@@ -208,6 +282,18 @@ module.exports = async function handler(req, res) {
 };
 JS
 
+python3 - "${SRC}/api/[...path].js" "${BASE_URL}" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+base=sys.argv[2].rstrip("/")
+text=p.read_text(encoding="utf-8")
+if text.count("__KALMAN_BASE_URL__") != 1:
+    raise SystemExit("[FAIL] backend proxy placeholder mismatch")
+p.write_text(text.replace("__KALMAN_BASE_URL__", base), encoding="utf-8")
+print("[PASS] backend proxy target pinned:", base)
+PY
+
 cat > "${SRC}/vercel.json" <<'JSON'
 {
   "version": 2
@@ -222,7 +308,7 @@ EOF
 echo "[PASS] immutable backend proxy prepared"
 
 echo
-echo "[4/7] Candidate deploy without production alias"
+echo "[5/7] Candidate deploy without production alias"
 cd "${SRC}"
 set +e
 vercel deploy --prod --skip-domain --yes --scope "${TEAM_SLUG}" 2>&1 | tee "${WORK}/candidate.log"
@@ -248,7 +334,7 @@ vcurl() {
 }
 
 echo
-echo "[5/7] Candidate smoke tests"
+echo "[6/7] Candidate smoke tests"
 vcurl "/api/health" "${WORK}/health.json"
 vcurl "/api/account" "${WORK}/account.json"
 vcurl "/api/dashboard?market=GLOBAL" "${WORK}/global.json"
@@ -276,7 +362,7 @@ grep -q "renderShadow" "${WORK}/app.js" || fail "candidate UI missing SHADOW ren
 echo "[PASS] candidate UI"
 
 echo
-echo "[6/7] Promote candidate"
+echo "[7/7] Promote candidate"
 vercel promote "${CANDIDATE}" --yes --scope "${TEAM_SLUG}" >/dev/null
 
 READY=false
@@ -296,7 +382,7 @@ PY
 done
 
 [ "${READY}" = true ] || {
-  vercel promote "${GOOD_URL}" --yes --scope "${TEAM_SLUG}" >/dev/null || true
+  vercel promote "${GOOD_DEPLOYMENT}" --yes --scope "${TEAM_SLUG}" >/dev/null || true
   fail "production vNext.7.4.11 did not become healthy; restored known-good"
 }
 
@@ -313,6 +399,6 @@ print("[PASS] production SHADOW read-only")
 PY
 
 echo
-echo "[7/7] Complete"
+echo "[8/8] Complete"
 echo "PRODUCTION_SHADOW_PROXY_GATE=PASS"
 echo "WEB_DASHBOARD=${PROD_URL}"
