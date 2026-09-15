@@ -5,6 +5,10 @@ on:
     paths:
       - "kalman-toss-gateway/app/**"
       - "kalman-toss-gateway/engine/auto_trade.py"
+      - "kalman-toss-gateway/engine/pipeline_entry.py"
+      - "kalman-toss-gateway/engine/crypto_sheet_file_compat.py"
+      - "kalman-toss-gateway/engine/pipeline_entry.py"
+      - "kalman-toss-gateway/engine/crypto_sheet_file_compat.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/configure_manual_live_trading_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
@@ -12,6 +16,7 @@ on:
       - "kalman-toss-gateway/scripts/promote_main_v7411_safe.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
+      - "kalman-toss-gateway/tests/test_crypto_sheet_file_compat.py"
       - ".github/workflows/kalman-gateway-safety.yml"
   push:
     branches:
@@ -55,43 +60,15 @@ jobs:
 
       - name: Compile gateway code
         run: |
-          python -m compileall app engine/auto_trade.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py
+          python -m compileall app engine/auto_trade.py engine/pipeline_entry.py engine/crypto_sheet_file_compat.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_crypto_sheet_file_compat.py
           bash -n scripts/configure_auto_trade_env.sh
           bash -n scripts/configure_manual_live_trading_env.sh
           bash -n scripts/trading_status.sh
+          bash -n scripts/run_pipeline.sh
           bash -n scripts/deploy_investment_hub_account_krw.sh
           bash -n scripts/promote_main_v7411_safe.sh
-
-      - name: Inspect unified Google compatibility bridge
-        run: |
-          python - <<'PY'
-          import base64, lzma, re
-          from pathlib import Path
-
-          parts=sorted(Path("engine").glob("_unified_payload_*.b64"))
-          enc="".join("".join(p.read_text(encoding="ascii").split()) for p in parts)
-          text=lzma.decompress(base64.b64decode(enc)).decode("utf-8")
-
-          pats=("Drive compatibility","google.auth","GOOGLE_APPLICATION_CREDENTIALS","gspread","Google Sheets","spreadsheet")
-          lines=text.splitlines()
-          hits=[]
-          for i,line in enumerate(lines):
-              if any(p.lower() in line.lower() for p in pats):
-                  hits.append(i)
-
-          seen=set()
-          for i in hits:
-              a=max(0,i-8); b=min(len(lines),i+18)
-              key=(a,b)
-              if key in seen:
-                  continue
-              seen.add(key)
-              print(f"--- unified payload lines {a+1}-{b} ---")
-              for j in range(a,b):
-                  print(f"{j+1:05d}: {lines[j]}")
-          PY
 
       - name: Run gateway safety tests
         env:
           PYTHONPATH: .
-        run: python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist -v
+        run: python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist tests.test_crypto_sheet_file_compat -v
