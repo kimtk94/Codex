@@ -280,9 +280,13 @@ def top_entities_for_topic(
     column: str,
     limit: int = 8,
 ) -> str:
-    subset = papers[papers.apply(lambda r: row_has_topic(r, topic_key), axis=1)]
+    # Caller passes an already topic-filtered supporting-paper frame.
+    # Guard explicitly for zero-hit topics because pandas apply() on a
+    # completely empty frame can yield an unexpected frame-shaped object.
+    if papers.empty or "pmid" not in papers.columns:
+        return ""
     counter = Counter()
-    for pmid in subset["pmid"].astype(str):
+    for pmid in papers["pmid"].astype(str):
         values = entity_by_pmid.get(pmid, {}).get(column, "")
         for v in split_semicolon(values):
             counter[v] += 1
