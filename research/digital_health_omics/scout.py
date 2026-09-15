@@ -158,20 +158,27 @@ def parse_pubmed_xml(xml_bytes: bytes) -> List[dict]:
 
         author_names = []
         affiliations = []
+        skku_authors = []
         for author in citation.findall(".//Article/AuthorList/Author"):
             collective = first_text(author, ["CollectiveName"])
             if collective:
-                author_names.append(collective)
+                name = collective
             else:
                 fore = first_text(author, ["ForeName"])
                 last = first_text(author, ["LastName"])
                 name = " ".join(x for x in [fore, last] if x)
-                if name:
-                    author_names.append(name)
+            if name:
+                author_names.append(name)
+
+            author_affiliations = []
             for aff in author.findall(".//AffiliationInfo/Affiliation"):
                 value = text_of(aff)
                 if value:
                     affiliations.append(value)
+                    author_affiliations.append(value)
+
+            if name and any("sungkyunkwan" in aff.lower() for aff in author_affiliations):
+                skku_authors.append(name)
 
         doi = ""
         for article_id in citation.findall(".//PubmedData/ArticleIdList/ArticleId"):
@@ -193,6 +200,7 @@ def parse_pubmed_xml(xml_bytes: bytes) -> List[dict]:
                 "abstract": abstract,
                 "journal": journal,
                 "authors": "; ".join(author_names),
+                "skku_authors": "; ".join(dict.fromkeys(skku_authors)),
                 "affiliations": " | ".join(dict.fromkeys(affiliations)),
                 "doi": doi,
                 "publication_types": "; ".join(publication_types),
@@ -386,6 +394,12 @@ def route_run(
     print(f"[{route.upper()}] PubMed matched {total_count:,}; fetching {len(pmids):,} records.")
     rows = client.fetch(pmids)
     papers = annotate_papers(pd.DataFrame(rows), cfg)
+    if not papers.empty and "year" in papers.columns:
+        # PubMed can occasionally return ahead-of-print metadata with a future
+        # journal year even when the query end date is earlier. Keep the
+        # analytical window explicit and reproducible.
+        keep_year = papers["year"].isna() | papers["year"].between(start_year, end_year)
+        papers = papers.loc[keep_year].reset_index(drop=True)
     topics = summarize_topics(papers, end_year=end_year)
 
     meta = {
