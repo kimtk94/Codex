@@ -13,9 +13,14 @@ class Settings(BaseSettings):
     expected_egress_ip: str = ''
     toss_token_cache: str = '/opt/kalman/state/toss_oauth_token.json'
 
-    # Two-key live gate. Both must be satisfied.
+    # Automated live gate. Kept separate from manual broker access so
+    # research/SHADOW automation can stay isolated while manual trading is armed.
     trading_enabled: bool = False
     live_trading_confirm: str = ''
+
+    # Manual live gate. /api/orders/live uses this gate only.
+    manual_trading_enabled: bool = False
+    manual_trading_confirm: str = ''
 
     live_micro_total_limit_krw: int = 30000
     max_single_order_krw: int = 5000
@@ -28,6 +33,13 @@ class Settings(BaseSettings):
     @property
     def live_gate_open(self) -> bool:
         return self.trading_enabled and self.live_trading_confirm == 'CONFIRM_LIVE_TRADING'
+
+    @property
+    def manual_live_gate_open(self) -> bool:
+        return (
+            self.manual_trading_enabled
+            and self.manual_trading_confirm == 'CONFIRM_MANUAL_TRADING'
+        )
 
     @property
     def state_db_path(self) -> Path:
