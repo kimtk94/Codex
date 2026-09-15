@@ -1,0 +1,44 @@
+name: AoU CDRv9 Stage0 Static Check
+
+on:
+  push:
+    branches:
+      - feature/digital-health-omics-scout
+    paths:
+      - 'research/digital_health_omics/allofus_stage0.py'
+      - 'notebooks/AoU_CDRv9_Stage0.ipynb'
+      - '.github/workflows/aou-stage0-static-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile helper
+        run: python -m py_compile research/digital_health_omics/allofus_stage0.py
+      - name: Validate notebook Python
+        run: |
+          python - <<'PY'
+          import ast
+          import json
+          from pathlib import Path
+
+          p = Path("notebooks/AoU_CDRv9_Stage0.ipynb")
+          nb = json.loads(p.read_text(encoding="utf-8"))
+          assert nb["nbformat"] == 4
+          code_cells = [c for c in nb["cells"] if c["cell_type"] == "code"]
+          assert len(code_cells) == 1, f"expected one code cell, got {len(code_cells)}"
+          source = "".join(code_cells[0]["source"])
+          ast.parse(source)
+          assert "WORKSPACE_CDR" in source
+          assert "PROTEOMICS_SAMPLE_RESOURCE" in source
+          assert "proposal_decision" in source
+          print("Notebook JSON + Python syntax: OK")
+          PY
