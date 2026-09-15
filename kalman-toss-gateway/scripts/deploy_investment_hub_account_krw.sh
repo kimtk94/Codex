@@ -883,7 +883,9 @@ x=json.load(open(sys.argv[1], encoding="utf-8"))
 assert x.get("status")=="ok"
 assert x.get("tradingEnabled") is False
 assert x.get("liveGateOpen") is False
-print("[PASS] gateway trading remains OFF")
+print("[PASS] automated gateway trading remains OFF")
+print("[INFO] manualTradingEnabled=", x.get("manualTradingEnabled"))
+print("[INFO] manualLiveGateOpen=", x.get("manualLiveGateOpen"))
 PY
 
 echo
@@ -891,11 +893,13 @@ echo "=================================================="
 echo "PRODUCTION COMPLETE"
 echo "=================================================="
 echo "URL: ${PROD_URL}"
-echo "Version: vNext.7.4.10"
+echo "Version: vNext.7.4.11"
 echo "Account: Toss USD originals + KRW reference conversion"
 echo "FX: browser-side OPEN-ER -> Frankfurter fallback"
 echo "API functions: 12"
-echo "Trade execution: OFF"
+echo "SHADOW web: READ ONLY"
+echo "Automated trade execution: OFF"
+echo "Manual trade gate: managed separately by configure_manual_live_trading_env.sh"
 echo "Recovered source backup:"
 echo "  /root/kalman-hub-v749-source-${STAMP}.tar.gz"
 echo "Work log:"
