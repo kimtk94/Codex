@@ -8,6 +8,7 @@ PY="$RESEARCH_VENV/bin/python"
 LOCK_DIR="${KALMAN_LOCK_DIR:-/opt/kalman/state}"
 LOG_DIR="${KALMAN_LOG_DIR:-/opt/kalman/logs}"
 GDRIVE_MOUNT="${KALMAN_GDRIVE_MOUNT:-/mnt/gdrive}"
+HUB_URL="${KALMAN_HUB_URL:-https://kalman-investment-hub-v2.vercel.app}"
 
 [ -x "$PY" ] || { echo "[FAIL] Research Python missing: $PY" >&2; exit 10; }
 [ -f "$ENV_FILE" ] || { echo "[FAIL] Env missing: $ENV_FILE" >&2; exit 11; }
@@ -230,3 +231,4 @@ print("updated_at=", x.get("updated_at"))
 PY
 
 echo "SHADOW_BAKEOFF_DAILY_COMPLETE"
+echo "WEB_DASHBOARD=${HUB_URL}"
