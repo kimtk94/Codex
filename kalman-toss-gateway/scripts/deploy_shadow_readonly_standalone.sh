@@ -6,6 +6,7 @@ TEAM_ID="${VERCEL_TEAM_ID:-team_eklxTMfdySLBHexmheTiWGCE}"
 TEAM_SLUG="${VERCEL_TEAM_SLUG:-insk1285-9320s-projects}"
 SOURCE_PROJECT_ID="${VERCEL_SOURCE_PROJECT_ID:-prj_KCDIl7qLqtBloI7pjRFQk2Itq7V1}"
 SHADOW_PROJECT_NAME="${KALMAN_SHADOW_WEB_PROJECT:-kalman-shadow-readonly}"
+STABLE_URL="https://${SHADOW_PROJECT_NAME}.vercel.app"
 WORK="/tmp/kalman-shadow-readonly-$(date -u +%Y%m%dT%H%M%SZ)"
 APP_DIR="${WORK}/app"
 ENV_PULL="${WORK}/source-production.env"
@@ -226,8 +227,44 @@ PY
 grep -q "Kalman Forward SHADOW" "$WORK/index.html" || fail "SHADOW UI marker missing"
 
 echo
+echo "[5b/6] Verify stable production domain"
+STABLE_READY=false
+for _ in $(seq 1 45); do
+  : >"$WORK/stable-health.json"
+  : >"$WORK/stable-shadow.json"
+  curl -fsS --max-time 15 "$STABLE_URL/api/health" -o "$WORK/stable-health.json" 2>/dev/null || true
+  curl -fsS --max-time 15 "$STABLE_URL/api/shadow" -o "$WORK/stable-shadow.json" 2>/dev/null || true
+
+  if python3 - "$WORK/stable-health.json" "$WORK/stable-shadow.json" <<'PY' >/dev/null 2>&1
+import json,sys
+from pathlib import Path
+try:
+    h=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8").strip())
+    s=json.loads(Path(sys.argv[2]).read_text(encoding="utf-8").strip())
+except Exception:
+    raise SystemExit(1)
+ok=(
+    h.get("status")=="ok"
+    and h.get("read_only") is True
+    and s.get("status")=="READY"
+    and s.get("schema_version")=="kalman-shadow-readonly-v1"
+)
+raise SystemExit(0 if ok else 1)
+PY
+  then
+    STABLE_READY=true
+    break
+  fi
+  sleep 2
+done
+
+[ "$STABLE_READY" = true ] || fail "stable SHADOW production domain did not become READY"
+echo "[PASS] stable SHADOW production domain"
+
+echo
 echo "[6/6] Complete"
 echo "SHADOW_READONLY_WEB_GATE=PASS"
-echo "SHADOW_WEB=$DEPLOY_URL"
+echo "SHADOW_WEB=$STABLE_URL"
+echo "DEPLOYMENT_URL=$DEPLOY_URL"
 echo "MAIN_WEB=https://kalman-investment-hub-v2.vercel.app"
 echo "TRADE_EXECUTION=false"
