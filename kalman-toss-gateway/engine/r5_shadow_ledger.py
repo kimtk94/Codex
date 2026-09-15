@@ -5,7 +5,7 @@ import json
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -273,6 +273,132 @@ def upsert_trades(cur: Any, trades: list[Trade]) -> None:
         )
 
 
+def build_dashboard_ledger_payload(trades: list[Trade]) -> dict[str, Any]:
+    events: list[dict[str, Any]] = []
+    trade_rows: list[dict[str, Any]] = []
+    closed_multiple = Decimal("1")
+    closed_returns: list[float] = []
+
+    for trade in sorted(trades, key=lambda x: x.entry_time):
+        row = {
+            "trade_id": str(trade.trade_id),
+            "symbol": trade.symbol,
+            "entry_time": trade.entry_time.isoformat(),
+            "entry_price": float(trade.entry_price),
+            "exit_time": trade.exit_time.isoformat() if trade.exit_time else None,
+            "exit_price": float(trade.exit_price) if trade.exit_price is not None else None,
+            "return_pct": trade.return_pct,
+            "exit_reason": trade.exit_reason,
+            "status": "CLOSED" if trade.exit_time else "OPEN",
+            "ledger_type": LEDGER_TYPE,
+            "shadow_only": True,
+            "execution": False,
+        }
+        trade_rows.append(row)
+        events.append(
+            {
+                "trade_id": str(trade.trade_id),
+                "symbol": trade.symbol,
+                "time": trade.entry_time.isoformat(),
+                "price": float(trade.entry_price),
+                "signal": "BUY",
+                "event_type": "R5_1_SHADOW_ENTER",
+                "source": "R5.1_SHADOW_LEDGER",
+            }
+        )
+        if trade.exit_time is not None and trade.exit_price is not None:
+            events.append(
+                {
+                    "trade_id": str(trade.trade_id),
+                    "symbol": trade.symbol,
+                    "time": trade.exit_time.isoformat(),
+                    "price": float(trade.exit_price),
+                    "signal": "SELL",
+                    "event_type": "R5_1_SHADOW_EXIT",
+                    "source": "R5.1_SHADOW_LEDGER",
+                    "exit_reason": trade.exit_reason,
+                }
+            )
+            if trade.return_pct is not None:
+                closed_returns.append(float(trade.return_pct))
+                closed_multiple *= Decimal(str(1.0 + float(trade.return_pct)))
+
+    closed_count = len(closed_returns)
+    return {
+        "schema_version": "r5-shadow-lifecycle-v0.1",
+        "model_version": MODEL_VERSION,
+        "strategy_version": STRATEGY_VERSION,
+        "ledger_type": LEDGER_TYPE,
+        "shadow_only": True,
+        "execution": False,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "trade_count": len(trade_rows),
+            "closed_count": closed_count,
+            "open_count": sum(x.exit_time is None for x in trades),
+            "closed_compound_return_pct": float(closed_multiple - Decimal("1")) * 100.0,
+            "closed_mean_return_pct": (
+                sum(closed_returns) / closed_count * 100.0 if closed_count else None
+            ),
+            "open_symbols": [x.symbol for x in trades if x.exit_time is None],
+        },
+        "trades": trade_rows,
+        "events": sorted(events, key=lambda x: (x["time"], x["symbol"], x["signal"])),
+    }
+
+
+def enrich_latest_dashboard(cur: Any, trades: list[Trade]) -> str:
+    payload = build_dashboard_ledger_payload(trades)
+    cur.execute(
+        """
+        SELECT snapshot_id,run_id
+        FROM dashboard_snapshot
+        WHERE market='US'
+          AND status='READY'
+          AND model_version=%s
+        ORDER BY generated_at DESC
+        LIMIT 1
+        FOR UPDATE
+        """,
+        (MODEL_VERSION,),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise RuntimeError("latest R5.1 US dashboard snapshot not found")
+    snapshot_id, run_id = row
+
+    cur.execute(
+        """
+        UPDATE dashboard_snapshot
+        SET payload = jsonb_set(
+            payload,
+            '{source_payload,r5_shadow_ledger}',
+            %s::jsonb,
+            true
+        )
+        WHERE snapshot_id=%s
+        """,
+        (json.dumps(payload, separators=(",", ":")), snapshot_id),
+    )
+    if cur.rowcount != 1:
+        raise RuntimeError(f"dashboard snapshot update failed: {snapshot_id}")
+
+    cur.execute(
+        """
+        SELECT payload #> '{source_payload,r5_shadow_ledger}'
+        FROM dashboard_snapshot
+        WHERE snapshot_id=%s
+        """,
+        (snapshot_id,),
+    )
+    stored = cur.fetchone()[0] or {}
+    if stored.get("shadow_only") is not True or stored.get("execution") is not False:
+        raise RuntimeError("dashboard R5.1 ledger safety metadata mismatch")
+    if len(stored.get("trades") or []) != len(trades):
+        raise RuntimeError("dashboard R5.1 ledger trade count mismatch")
+    return str(run_id)
+
+
 def validate_written(cur: Any, expected: list[Trade]) -> None:
     ids = [x.trade_id for x in expected]
     cur.execute(
@@ -349,9 +475,10 @@ def main() -> int:
 
             upsert_trades(cur, trades)
             validate_written(cur, trades)
+            dashboard_run_id = enrich_latest_dashboard(cur, trades)
         conn.commit()
 
-    print("R5_SHADOW_LEDGER_SYNC_COMPLETE")
+    print(f"R5_SHADOW_LEDGER_SYNC_COMPLETE dashboard_run_id={dashboard_run_id}")
     return 0
 
 
