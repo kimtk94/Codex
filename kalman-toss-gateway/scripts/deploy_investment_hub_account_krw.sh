@@ -15,11 +15,11 @@ PROJECT_NAME="${VERCEL_PROJECT_NAME:-kalman-investment-hub-v2}"
 PROD_URL="${KALMAN_HUB_PROD_URL:-https://kalman-investment-hub-v2.vercel.app}"
 
 # Full 12-function redeploy created after TOSS_GATEWAY_URL was configured.
-GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_GQw5d9PiGJc6CNfvmh9PqZ5HJBMc}"
-GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-rlkd569pn-insk1285-9320s-projects.vercel.app}"
+GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_65cNLaPveHxTSnCJpAs3wbLpUTLA}"
+GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-abm9j754k-insk1285-9320s-projects.vercel.app}"
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
-WORK="/tmp/kalman-hub-v7411-${STAMP}"
+WORK="/tmp/kalman-hub-v7413-${STAMP}"
 SRC="${WORK}/source"
 mkdir -p "${SRC}"
 
@@ -38,7 +38,7 @@ need curl
 need tar
 
 echo "=================================================="
-echo "Kalman Investment Hub vNext.7.4.12"
+echo "Kalman Investment Hub vNext.7.4.13"
 echo "Account + actual-model B/S + SHADOW read-only"
 echo "=================================================="
 echo "Production : ${PROD_URL}"
@@ -68,7 +68,7 @@ except Exception:
     raise SystemExit(1)
 
 required = (
-    x.get("investment_hub_version") in {"vNext.7.4.11","vNext.7.4.12"}
+    x.get("investment_hub_version") in {"vNext.7.4.12","vNext.7.4.13"}
     and x.get("account_gateway_configured") is True
     and x.get("account_gateway_secret_configured") is True
     and x.get("account_trade_execution") is False
@@ -85,7 +85,7 @@ PY
 CURRENT_HEALTH="${WORK}/current-health.json"
 if curl -fsS --max-time 10 "${PROD_URL}/api/health" >"${CURRENT_HEALTH}" 2>/dev/null \
    && health_ok "${CURRENT_HEALTH}"; then
-  echo "[PASS] healthy vNext.7.4.11+ full production already active; promotion skipped"
+  echo "[PASS] healthy vNext.7.4.12+ full production already active; promotion skipped"
 else
   echo "[INFO] restoring known-good 12-function production"
   vercel promote "${GOOD_URL}" --yes --scope "${TEAM_SLUG}" >/dev/null
@@ -583,6 +583,174 @@ css=css_path.read_text(encoding="utf-8")
 index=index_path.read_text(encoding="utf-8")
 health=health_path.read_text(encoding="utf-8")
 dashboard=dashboard_path.read_text(encoding="utf-8")
+
+# vNext.7.4.13 delta: the recovered base is the verified vNext.7.4.12 bundle.
+# Only add the persisted R5.1 Forward SHADOW lifecycle UI and metadata.
+if "vNext.7.4.12" in index and "STRICT_TOP3_ACTUAL_LEDGER" in app and "accountKrw" in app:
+    def delta_replace(text: str, old: str, new: str, label: str) -> str:
+        count=text.count(old)
+        if count != 1:
+            raise SystemExit(f"[FAIL] v7.4.13 {label}: expected 1 match, got {count}")
+        return text.replace(old,new,1)
+
+    old_chart=r"""async function usShadowSignalChart(marketSnapshot){
+  const selector=marketSnapshot?.payload?.source_payload?.today_selector||{};
+  const symbol=String(selector.selected_symbol||'').toUpperCase();
+  if(!symbol)return '<div class="notice">현재 표시 가능한 R5.1 모델 신호가 없습니다.</div>';
+  const hist=await getJSON('/api/history?mode=ytd-points&market=US&assets='+encodeURIComponent(symbol));
+  const raw=(hist.items||[]).find(x=>String(x.symbol||'').toUpperCase()===symbol);
+  if(!raw)return '<div class="notice">현재 모델 선택 종목의 가격 이력이 없습니다.</div>';
+  const events=[];
+  if(selector.shadow_entry_this_signal===true){
+    events.push({time:selector.as_of_utc,price:n(selector.reference_price),signal:'BUY',event_type:'R5_1_SHADOW_ENTRY',source:'R5.1_SHADOW_SIGNAL'});
+  }
+  const item={...raw,events,summary:{...(raw.summary||{}),strategy_return_pct:null,closed_trades:0,win_rate_pct:null,open_position:null,rule:'R5.1 SHADOW SIGNAL'}};
+  return '<div class="section"><div class="section-title"><h3>현재 R5.1 모델 신호</h3><span class="small">SHADOW · 체결 아님</span></div>'+ytdPointChart(item,{name:symbol,actualModel:true,signalOnly:true,rule:'R5.1 SHADOW'})+'</div>';
+}"""
+
+    new_chart=r"""async function usShadowSignalChart(marketSnapshot){
+  const src=marketSnapshot?.payload?.source_payload||{};
+  const ledger=src.r5_shadow_ledger||{};
+  const trades=Array.isArray(ledger.trades)?ledger.trades:[];
+  const ledgerEvents=Array.isArray(ledger.events)?ledger.events:[];
+
+  if(trades.length){
+    const symbols=[...new Set(trades.map(t=>String(t.symbol||'').toUpperCase()).filter(Boolean))];
+    const hist=await getJSON('/api/history?mode=ytd-points&market=US&assets='+encodeURIComponent(symbols.join(',')));
+    const by=new Map((hist.items||[]).map(x=>[String(x.symbol||'').toUpperCase(),x]));
+
+    const charts=symbols.map(symbol=>{
+      const raw=by.get(symbol);
+      if(!raw)return '';
+      const events=ledgerEvents
+        .filter(e=>String(e.symbol||'').toUpperCase()===symbol)
+        .map(e=>({...e,price:n(e.price)}))
+        .filter(e=>e.price!=null)
+        .sort((a,b)=>Date.parse(a.time)-Date.parse(b.time));
+      const symTrades=trades.filter(t=>String(t.symbol||'').toUpperCase()===symbol);
+      const closed=symTrades.filter(t=>t.exit_time&&n(t.return_pct)!=null);
+      let multiple=closed.reduce((m,t)=>m*(1+n(t.return_pct)),1);
+      const open=symTrades.find(t=>!t.exit_time);
+      const rows=raw.rows||[];
+      const last=n(rows.at(-1)?.close);
+      let openPosition=null;
+      if(open&&last!=null&&n(open.entry_price)>0){
+        const r=last/n(open.entry_price)-1;
+        multiple*=1+r;
+        openPosition={
+          entry_time:open.entry_time,
+          entry_price:n(open.entry_price),
+          current_price:last,
+          return_pct:r*100
+        };
+      }
+      const wins=closed.filter(t=>n(t.return_pct)>0).length;
+      const item={
+        ...raw,
+        events,
+        source:'R5_1_SHADOW_LEDGER',
+        summary:{
+          ...(raw.summary||{}),
+          strategy_return_pct:(multiple-1)*100,
+          closed_trades:closed.length,
+          win_rate_pct:closed.length?wins/closed.length*100:null,
+          open_position:openPosition,
+          rule:'R5.1 SHADOW LIFECYCLE'
+        }
+      };
+      return ytdPointChart(item,{name:symbol,actualModel:true,lifecycle:true,rule:'R5.1 SHADOW'});
+    }).filter(Boolean).join('');
+
+    return '<div class="section"><div class="section-title"><h3>R5.1 Forward SHADOW lifecycle</h3><span class="small">ledger B/S · 실제 체결 아님</span></div><div class="trade-chart-grid">'+(charts||'<div class="notice">가격 이력을 불러오지 못했습니다.</div>')+'</div></div>';
+  }
+
+  const selector=src.today_selector||{};
+  const symbol=String(selector.selected_symbol||'').toUpperCase();
+  if(!symbol)return '<div class="notice">현재 표시 가능한 R5.1 모델 신호가 없습니다.</div>';
+  const hist=await getJSON('/api/history?mode=ytd-points&market=US&assets='+encodeURIComponent(symbol));
+  const raw=(hist.items||[]).find(x=>String(x.symbol||'').toUpperCase()===symbol);
+  if(!raw)return '<div class="notice">현재 모델 선택 종목의 가격 이력이 없습니다.</div>';
+  const events=[];
+  if(selector.shadow_entry_this_signal===true){
+    events.push({time:selector.as_of_utc,price:n(selector.reference_price),signal:'BUY',event_type:'R5_1_SHADOW_ENTRY',source:'R5.1_SHADOW_SIGNAL'});
+  }
+  const item={...raw,events,summary:{...(raw.summary||{}),strategy_return_pct:null,closed_trades:0,win_rate_pct:null,open_position:null,rule:'R5.1 SHADOW SIGNAL'}};
+  return '<div class="section"><div class="section-title"><h3>현재 R5.1 모델 신호</h3><span class="small">SHADOW · 체결 아님</span></div>'+ytdPointChart(item,{name:symbol,actualModel:true,signalOnly:true,rule:'R5.1 SHADOW'})+'</div>';
+}"""
+    app=delta_replace(app,old_chart,new_chart,"US lifecycle chart")
+
+    old_view=r"""function usModelPerformanceView(j){
+  const s=j.summary||{},official=n(s.selector_observed_hit_rate_pct);
+  return `<div class="model-disclosure"><b>R5.1 실제 모델 · SHADOW</b><span>${badge('실거래 아님','warn')}</span></div><div class="grid4 model-kpis">${card('R5.1 YTD 수익률','미산출','연속 outcome/체결 ledger 없음')}${card('공식 관측 적중률',official==null?'—':`${official.toFixed(1)}%`,`${fmt(s.selector_prospective_outcomes,0)}개 prospective outcome`)}${card('관측 일수',fmt(s.prospective_distinct_days,0),`${fmt(s.distinct_model_snapshots,0)}개 model snapshot`)}${card('Shadow 신호',fmt(s.shadow_signal_count,0),`${time(s.window_start)} ~ ${time(s.window_end)}`)}</div><div class="notice model-note">현재 R5.1은 frozen prospective / shadow 단계이며 실제 체결 ledger가 없습니다. DB의 60m 가격도 연속봉이 아니라 pipeline snapshot이므로 임의로 +4 bars 수익률을 재구성하지 않습니다. 따라서 이 탭은 현재 공식 prospective <b>적중률·outcome 수·관측기간</b>만 표시하고, YTD 수익률은 정확한 outcome return ledger가 연결될 때까지 미산출로 둡니다.</div>`;
+}"""
+
+    new_view=r"""function usModelPerformanceView(j,marketSnapshot=null){
+  const s=j.summary||{},official=n(s.selector_observed_hit_rate_pct);
+  const ledger=marketSnapshot?.payload?.source_payload?.r5_shadow_ledger||{};
+  const ls=ledger.summary||{};
+  const hasLedger=Array.isArray(ledger.trades)&&ledger.trades.length>0;
+  if(hasLedger){
+    const compound=n(ls.closed_compound_return_pct),closed=n(ls.closed_count),open=n(ls.open_count);
+    return `<div class="model-disclosure"><b>R5.1 실제 모델 · Forward SHADOW ledger</b><span>${badge('실거래 아님','warn')}</span></div><div class="grid4 model-kpis">${card('종료 cycle 복리',compound==null?'—':pct(compound,1),`${fmt(closed,0)}개 closed trade`)}${card('Open',fmt(open,0),esc((ls.open_symbols||[]).join(', ')||'—'))}${card('공식 관측 적중률',official==null?'—':`${official.toFixed(1)}%`,`${fmt(s.selector_prospective_outcomes,0)}개 prospective outcome`)}${card('Ledger',fmt(ls.trade_count,0)+' trades',`${time(s.window_start)} ~ ${time(s.window_end)}`)}</div><div class="notice model-note">R5.1의 저장된 <b>shadow_entry_this_signal</b>과 selector 전환으로 구성한 Forward SHADOW lifecycle입니다. B/S는 실제 주문 체결이 아니라 모델의 가상 ENTER/EXIT이며 거래비용은 반영하지 않습니다.</div>`;
+  }
+  return `<div class="model-disclosure"><b>R5.1 실제 모델 · SHADOW</b><span>${badge('실거래 아님','warn')}</span></div><div class="grid4 model-kpis">${card('R5.1 수익률','미산출','lifecycle ledger 없음')}${card('공식 관측 적중률',official==null?'—':`${official.toFixed(1)}%`,`${fmt(s.selector_prospective_outcomes,0)}개 prospective outcome`)}${card('관측 일수',fmt(s.prospective_distinct_days,0),`${fmt(s.distinct_model_snapshots,0)}개 model snapshot`)}${card('Shadow 신호',fmt(s.shadow_signal_count,0),`${time(s.window_start)} ~ ${time(s.window_end)}`)}</div><div class="notice model-note">Forward SHADOW lifecycle 데이터가 아직 없어서 공식 prospective 통계만 표시합니다.</div>`;
+}"""
+    app=delta_replace(app,old_view,new_view,"US ledger summary")
+
+    app=delta_replace(
+        app,
+        "if(m==='US'){const signalChart=await usShadowSignalChart(marketSnapshot);box.innerHTML=usModelPerformanceView(j)+signalChart;}",
+        "if(m==='US'){const signalChart=await usShadowSignalChart(marketSnapshot);box.innerHTML=usModelPerformanceView(j,marketSnapshot)+signalChart;}",
+        "US loader summary binding",
+    )
+
+    app=delta_replace(
+        app,
+        """const metricLabel=actual?(meta.signalOnly?'모델 신호':'모델 YTD'):'전략 YTD';
+  const ruleLabel=meta.signalOnly?'R5.1 SHADOW 모델 신호 · 실제 체결 아님':(actual?String(meta.rule||sm.rule||'실제 모델')+' ledger · 종목별 복리 + 미실현 MTM · 거래비용 별도':'MA20/60 추세 시뮬레이션 · 거래비용 제외');
+  const legendLabel=meta.signalOnly?'<b class="buy-text">B 모델 BUY</b> · <b class="sell-text">S 모델 SELL</b>':'<b class="buy-text">B 매수</b> · <b class="sell-text">S 매도</b>';""",
+        """const metricLabel=actual?(meta.lifecycle?'SHADOW PnL':(meta.signalOnly?'모델 신호':'모델 YTD')):'전략 YTD';
+  const ruleLabel=meta.lifecycle?'R5.1 Forward SHADOW lifecycle · 실제 체결 아님 · 거래비용 제외':(meta.signalOnly?'R5.1 SHADOW 모델 신호 · 실제 체결 아님':(actual?String(meta.rule||sm.rule||'실제 모델')+' ledger · 종목별 복리 + 미실현 MTM · 거래비용 별도':'MA20/60 추세 시뮬레이션 · 거래비용 제외'));
+  const legendLabel=(meta.signalOnly||meta.lifecycle)?'<b class="buy-text">B 모델 BUY</b> · <b class="sell-text">S 모델 SELL</b>':'<b class="buy-text">B 매수</b> · <b class="sell-text">S 매도</b>';""",
+        "lifecycle chart labels",
+    )
+
+    for marker in (
+        "R5_1_SHADOW_LEDGER",
+        "R5.1 Forward SHADOW lifecycle",
+        "shadow_entry_this_signal",
+        "STRICT_TOP3_ACTUAL_LEDGER",
+    ):
+        if marker not in app:
+            raise SystemExit(f"[FAIL] v7.4.13 marker missing: {marker}")
+
+    index=index.replace("vNext.7.4.12","vNext.7.4.13")
+    health=health.replace("vNext.7.4.12","vNext.7.4.13")
+    health=health.replace(
+        "R5.1_SHADOW_HITRATE_ONLY_NO_YTD_RETURN_LEDGER",
+        "R5.1_SHADOW_LIFECYCLE_LEDGER",
+    )
+    health=health.replace(
+        "BUFFER_3_5_LEDGER_YTD",
+        "STRICT_TOP3_LEDGER_YTD",
+    )
+
+    api_count=len(list((root/"api").rglob("*.js")))
+    if api_count != 12:
+        raise SystemExit(f"[FAIL] v7.4.13 function count changed: {api_count}")
+    for p in list((root/"api").rglob("*.js")) + list((root/"lib").rglob("*.js")):
+        t=p.read_text(encoding="utf-8")
+        if "req.query" in t or "url.parse(" in t:
+            raise SystemExit(f"[FAIL] query-parser regression token in {p.relative_to(root)}")
+
+    app_path.write_text(app,encoding="utf-8")
+    index_path.write_text(index,encoding="utf-8")
+    health_path.write_text(health,encoding="utf-8")
+    dashboard_path.write_text(dashboard,encoding="utf-8")
+    print("[PASS] vNext.7.4.13 US R5.1 lifecycle ledger UI")
+    print("[PASS] KR STRICT_TOP3 + account + SHADOW bundle preserved")
+    print("[PASS] API function count = 12")
+    sys.exit(0)
 
 # vNext.7.4.12: actual-model BUY/SELL visualization on top of the already
 # verified vNext.7.4.11 account/SHADOW bundle.
@@ -1205,10 +1373,19 @@ assert len(ledger)>0, "KR top3_event_history empty"
 types={str(x.get("event_type") or "") for x in ledger}
 assert any("ENTER" in x for x in types), types
 assert any("EXIT" in x for x in types), types
-selector=(((us.get("payload") or {}).get("source_payload") or {}).get("today_selector") or {})
+src=((us.get("payload") or {}).get("source_payload") or {})
+selector=(src.get("today_selector") or {})
 assert selector.get("selected_symbol"), selector
+r5=(src.get("r5_shadow_ledger") or {})
+trades=r5.get("trades") or []
+events=r5.get("events") or []
+assert len(trades)>=1, r5
+assert any(str(x.get("signal") or "")=="BUY" for x in events), events
+assert any(str(x.get("signal") or "")=="SELL" for x in events), events
+assert r5.get("shadow_only") is True
+assert r5.get("execution") is False
 print(f"[PASS] candidate KR actual ledger events={len(ledger)}")
-print("[PASS] candidate US current model selector",selector.get("selected_symbol"))
+print(f"[PASS] candidate US R5.1 lifecycle trades={len(trades)} events={len(events)}")
 PY
 
 vercel curl "${CANDIDATE}/app.js" -- --silent --show-error >"${WORK}/candidate-app.js"
@@ -1216,7 +1393,8 @@ grep -q "accountKrw" "${WORK}/candidate-app.js" || fail "candidate app.js lacks 
 grep -q "fmt(qty(h),6)" "${WORK}/candidate-app.js" || fail "candidate app.js lacks fractional quantity precision"
 grep -q "renderShadow" "${WORK}/candidate-app.js" || fail "candidate app.js lacks SHADOW read-only renderer"
 grep -q "STRICT_TOP3_ACTUAL_LEDGER" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KR actual ledger B/S"
-grep -q "R5_1_SHADOW_ENTRY" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US model signal marker"
+grep -q "R5_1_SHADOW_LEDGER" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US lifecycle ledger renderer"
+grep -q "R5.1 Forward SHADOW lifecycle" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US lifecycle chart"
 grep -q "hydrateKrActualItem" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KR actual ledger hydration"
 echo "[PASS] candidate UI bundle + model B/S markers"
 
@@ -1239,7 +1417,7 @@ try:
 except Exception:
     raise SystemExit(1)
 ok=(
-    x.get("investment_hub_version")=="vNext.7.4.12"
+    x.get("investment_hub_version")=="vNext.7.4.13"
     and x.get("account_gateway_configured") is True
     and x.get("account_gateway_secret_configured") is True
     and x.get("account_trade_execution") is False
@@ -1264,7 +1442,7 @@ if [ "${PROD_READY}" != true ]; then
   rollback
   fail "production health failed after promotion"
 fi
-echo "[PASS] production vNext.7.4.12 health"
+echo "[PASS] production vNext.7.4.13 health"
 
 if ! wait_json_route   "${PROD_URL}/api/account"   "${WORK}/prod-account.json"   account_ok   "production account READY"; then
   rollback
@@ -1308,7 +1486,8 @@ for _ in $(seq 1 30); do
   curl -fsS --max-time 20 "${PROD_URL}/app.js" >"${WORK}/prod-app.js" 2>/dev/null || true
   if grep -q "accountKrw" "${WORK}/prod-app.js"      && grep -q "fmt(qty(h),6)" "${WORK}/prod-app.js"      && grep -q "renderShadow" "${WORK}/prod-app.js" \
      && grep -q "STRICT_TOP3_ACTUAL_LEDGER" "${WORK}/prod-app.js" \
-     && grep -q "R5_1_SHADOW_ENTRY" "${WORK}/prod-app.js"; then
+     && grep -q "R5_1_SHADOW_LEDGER" "${WORK}/prod-app.js" \
+     && grep -q "R5.1 Forward SHADOW lifecycle" "${WORK}/prod-app.js"; then
     APP_READY=true
     break
   fi
@@ -1341,10 +1520,10 @@ echo "=================================================="
 echo "PRODUCTION COMPLETE"
 echo "=================================================="
 echo "URL: ${PROD_URL}"
-echo "Version: vNext.7.4.12"
+echo "Version: vNext.7.4.13"
 echo "Account: Toss USD originals + KRW reference conversion"
 echo "KR actual model: STRICT_TOP3 ledger B/S"
-echo "US model signal: R5.1 SHADOW current signal"
+echo "US actual model: R5.1 Forward SHADOW lifecycle ledger"
 echo "FX: browser-side OPEN-ER -> Frankfurter fallback"
 echo "API functions: 12"
 echo "SHADOW web: READ ONLY"
