@@ -26,6 +26,8 @@ async def main():
         'signalPolicy': os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').upper(),
         'strategyVersion': os.environ.get('AUTO_TRADE_STRATEGY_VERSION', ''),
         'liveGateOpen': s.live_gate_open,
+        'manualTradingEnabled': s.manual_trading_enabled,
+        'manualLiveGateOpen': s.manual_live_gate_open,
         'activeManagedPositions': store.active(),
         'recentManagedPositions': store.recent(10),
     }
