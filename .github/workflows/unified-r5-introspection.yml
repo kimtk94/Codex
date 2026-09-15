@@ -1,0 +1,32 @@
+name: Unified R5 Introspection
+
+on:
+  push:
+    branches:
+      - feature/shadow-bakeoff-v1-20260913
+    paths:
+      - "kalman-toss-gateway/scripts/introspect_unified_r5.py"
+      - ".github/workflows/unified-r5-introspection.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Introspect frozen Unified payload
+        run: python scripts/introspect_unified_r5.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unified-r5-introspection
+          path: kalman-toss-gateway/unified_r5_introspection.json
+          if-no-files-found: error
