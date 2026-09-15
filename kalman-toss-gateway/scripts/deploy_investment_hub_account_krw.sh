@@ -278,6 +278,7 @@ tree=get_json(
 nodes=tree if isinstance(tree, list) else tree.get("files") or tree.get("children") or []
 
 downloaded=[]
+skipped_non_files=[]
 
 def normalize_file_payload(payload):
     """Normalize Vercel deployment-file response variants.
@@ -346,10 +347,18 @@ def decode_file_payload(normalized, rel: Path):
 def file_payload(uid: str, rel: Path):
     # Primary path for CLI deployments.
     file_q=urllib.parse.urlencode({"teamId": team_id})
-    payload=get_json(
-        f"https://api.vercel.com/v8/deployments/"
-        f"{source_deployment}/files/{uid}?{file_q}"
-    )
+    try:
+        payload=get_json(
+            f"https://api.vercel.com/v8/deployments/"
+            f"{source_deployment}/files/{uid}?{file_q}"
+        )
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise SystemExit(
+                f"[FAIL] source file 404 for {rel} "
+                f"(deployment={source_deployment}, uid={uid})"
+            )
+        raise
     normalized=normalize_file_payload(payload)
     if normalized is not None:
         return normalized
@@ -388,13 +397,21 @@ def walk(entries, prefix=Path("")):
 
         children=e.get("children") or []
         typ=str(e.get("type") or "").lower()
-        if typ in {"directory","folder"} or children:
+
+        if typ in {"directory","folder"}:
             walk(children, rel)
             continue
 
-        uid=str(e.get("uid") or e.get("id") or "")
+        # Vercel documents uid as valid only for type=file.
+        # Lambda/middleware/symlink/invalid entries are deployment artifacts,
+        # not downloadable source files.
+        if typ != "file":
+            skipped_non_files.append((rel.as_posix(), typ or "unknown"))
+            continue
+
+        uid=str(e.get("uid") or "")
         if not uid:
-            raise SystemExit(f"[FAIL] missing uid for {rel}")
+            raise SystemExit(f"[FAIL] missing file uid for {rel}")
 
         payload=file_payload(uid, rel)
         raw=decode_file_payload(payload, rel)
@@ -407,6 +424,15 @@ def walk(entries, prefix=Path("")):
         downloaded.append(rel.as_posix())
 
 walk(nodes)
+
+if skipped_non_files:
+    counts={}
+    for _, typ in skipped_non_files:
+        counts[typ]=counts.get(typ, 0)+1
+    print(
+        "[INFO] skipped non-source FileTree entries:",
+        ", ".join(f"{k}={v}" for k,v in sorted(counts.items()))
+    )
 
 print(f"[PASS] recovered files={len(downloaded)}")
 required={"index.html","app.js","style.css","api/health.js","api/account.js"}
