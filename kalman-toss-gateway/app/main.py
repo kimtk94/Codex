@@ -82,9 +82,11 @@ async def health(settings: Settings = Depends(get_settings)):
     return {
         'status': 'ok',
         'service': 'kalman-toss-gateway',
-        'version': '0.2.0',
+        'version': '0.3.0',
         'tradingEnabled': settings.trading_enabled,
         'liveGateOpen': settings.live_gate_open,
+        'manualTradingEnabled': settings.manual_trading_enabled,
+        'manualLiveGateOpen': settings.manual_live_gate_open,
         'limits': {
             'dailyTotalKrw': settings.live_micro_total_limit_krw,
             'singleOrderKrw': settings.max_single_order_krw,
@@ -227,6 +229,7 @@ async def order_probe(order: OrderProbe, settings: Settings = Depends(get_settin
         order.symbol,
         order.amount_krw,
         ledger.daily_committed(),
+        execution_channel='MANUAL',
     )
     return {
         'symbol': order.symbol.upper(),
@@ -246,6 +249,7 @@ async def order_preview(order: LiveOrder, settings: Settings = Depends(get_setti
         order.symbol,
         prepared.estimated_notional_krw,
         ledger.daily_committed(),
+        execution_channel='MANUAL',
     )
     return {
         'allowed': decision.allowed,
@@ -259,4 +263,8 @@ async def order_preview(order: LiveOrder, settings: Settings = Depends(get_setti
 
 @app.post('/api/orders/live', dependencies=[Depends(authorize_gateway)])
 async def live_order(order: LiveOrder, settings: Settings = Depends(get_settings)):
-    return await execute_order(settings, order)
+    return await execute_order(
+        settings,
+        order,
+        execution_channel='MANUAL',
+    )
