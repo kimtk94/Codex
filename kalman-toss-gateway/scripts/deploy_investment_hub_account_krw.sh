@@ -194,6 +194,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -656,14 +657,14 @@ app=app.replace(helper_anchor,model_helpers+helper_anchor,1)
 
 app=replace_once(
     app,
-    "const metricLabel=actual?'모델 YTD':'전략 YTD';\\n  const ruleLabel=actual?\\\`\${meta.rule||sm.rule||'실제 모델'} ledger · 종목별 복리 + 미실현 MTM · 거래비용 별도\\\`:'MA20/60 추세 시뮬레이션 · 거래비용 제외';",
+    "const metricLabel=actual?'모델 YTD':'전략 YTD';\\n  const ruleLabel=actual?`${meta.rule||sm.rule||'실제 모델'} ledger · 종목별 복리 + 미실현 MTM · 거래비용 별도`:'MA20/60 추세 시뮬레이션 · 거래비용 제외';",
     "const metricLabel=actual?(meta.signalOnly?'모델 신호':'모델 YTD'):'전략 YTD';\\n  const ruleLabel=meta.signalOnly?'R5.1 SHADOW 모델 신호 · 실제 체결 아님':(actual?String(meta.rule||sm.rule||'실제 모델')+' ledger · 종목별 복리 + 미실현 MTM · 거래비용 별도':'MA20/60 추세 시뮬레이션 · 거래비용 제외');\\n  const legendLabel=meta.signalOnly?'<b class=\\\"buy-text\\\">B 모델 BUY</b> · <b class=\\\"sell-text\\\">S 모델 SELL</b>':'<b class=\\\"buy-text\\\">B 매수</b> · <b class=\\\"sell-text\\\">S 매도</b>';",
     "actual-model labels",
 )
 app=replace_once(
     app,
     '<span class="trade-legend"><b class="buy-text">B 매수</b> · <b class="sell-text">S 매도</b></span>',
-    '<span class="trade-legend">\${legendLabel}</span>',
+    '<span class="trade-legend">${legendLabel}</span>',
     "actual-model legend",
 )
 app=replace_once(app,"async function loadActualModelPerformance(m,assets){","async function loadActualModelPerformance(m,assets,marketSnapshot=null){","actual loader signature")
@@ -1175,11 +1176,30 @@ assert not x.get("error"), x
 print("[PASS] candidate history")
 PY
 
+vcurl "/api/dashboard?market=KR" "${WORK}/candidate-kr.json"
+vcurl "/api/dashboard?market=US" "${WORK}/candidate-us.json"
+python3 - "${WORK}/candidate-kr.json" "${WORK}/candidate-us.json" <<'PY'
+import json,sys
+kr,us=(json.load(open(p,encoding="utf-8")) for p in sys.argv[1:])
+ledger=((((kr.get("payload") or {}).get("source_payload") or {}).get("ledger") or {}).get("top3_event_history") or [])
+assert len(ledger)>0, "KR top3_event_history empty"
+types={str(x.get("event_type") or "") for x in ledger}
+assert any("ENTER" in x for x in types), types
+assert any("EXIT" in x for x in types), types
+selector=(((us.get("payload") or {}).get("source_payload") or {}).get("today_selector") or {})
+assert selector.get("selected_symbol"), selector
+print(f"[PASS] candidate KR actual ledger events={len(ledger)}")
+print("[PASS] candidate US current model selector",selector.get("selected_symbol"))
+PY
+
 vercel curl "${CANDIDATE}/app.js" -- --silent --show-error >"${WORK}/candidate-app.js"
 grep -q "accountKrw" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KRW mapping"
 grep -q "fmt(qty(h),6)" "${WORK}/candidate-app.js" || fail "candidate app.js lacks fractional quantity precision"
 grep -q "renderShadow" "${WORK}/candidate-app.js" || fail "candidate app.js lacks SHADOW read-only renderer"
-echo "[PASS] candidate UI bundle"
+grep -q "STRICT_TOP3_ACTUAL_LEDGER" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KR actual ledger B/S"
+grep -q "R5_1_SHADOW_ENTRY" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US model signal marker"
+grep -q "hydrateKrActualItem" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KR actual ledger hydration"
+echo "[PASS] candidate UI bundle + model B/S markers"
 
 echo
 echo "[7/8] Promote verified candidate to production"
@@ -1267,7 +1287,9 @@ APP_READY=false
 for _ in $(seq 1 30); do
   : >"${WORK}/prod-app.js"
   curl -fsS --max-time 20 "${PROD_URL}/app.js" >"${WORK}/prod-app.js" 2>/dev/null || true
-  if grep -q "accountKrw" "${WORK}/prod-app.js"      && grep -q "fmt(qty(h),6)" "${WORK}/prod-app.js"      && grep -q "renderShadow" "${WORK}/prod-app.js"; then
+  if grep -q "accountKrw" "${WORK}/prod-app.js"      && grep -q "fmt(qty(h),6)" "${WORK}/prod-app.js"      && grep -q "renderShadow" "${WORK}/prod-app.js" \
+     && grep -q "STRICT_TOP3_ACTUAL_LEDGER" "${WORK}/prod-app.js" \
+     && grep -q "R5_1_SHADOW_ENTRY" "${WORK}/prod-app.js"; then
     APP_READY=true
     break
   fi
@@ -1301,7 +1323,9 @@ echo "PRODUCTION COMPLETE"
 echo "=================================================="
 echo "URL: ${PROD_URL}"
 echo "Version: vNext.7.4.12"
-echo "Account: Toss USD originals + KRW reference conversion\necho "KR actual model: STRICT_TOP3 ledger B/S"\necho "US model signal: R5.1 SHADOW current signal""
+echo "Account: Toss USD originals + KRW reference conversion"
+echo "KR actual model: STRICT_TOP3 ledger B/S"
+echo "US model signal: R5.1 SHADOW current signal"
 echo "FX: browser-side OPEN-ER -> Frankfurter fallback"
 echo "API functions: 12"
 echo "SHADOW web: READ ONLY"
