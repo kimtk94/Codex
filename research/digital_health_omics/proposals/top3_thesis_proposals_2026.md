@@ -68,14 +68,16 @@ Count participants satisfying:
 
 1. valid Fitbit data
 2. proteomics available
-3. WGS or genotyping available
-4. sufficient EHR follow-up
+3. sufficient EHR follow-up
+4. WGS/genotyping overlap as an optional secondary asset
 
 Decision rule:
 
-- **N >= 1,500:** proceed with full wearable + proteomics + genetics proposal.
-- **500 <= N < 1,500:** use a reduced, pre-specified protein panel / dimension reduction and external pQTL instruments.
+- **N >= 1,500:** proceed with full wearable + proteomics association and CDRv9 pQTL/fine-mapping prioritization.
+- **500 <= N < 1,500:** use a reduced, pre-specified protein panel / dimension reduction and the provided CDRv9/external pQTL summaries.
 - **N < 500:** pivot primary thesis to Proposal 2; keep proteomics as a secondary exploratory aim.
+
+Here, **N is Fitbit-QC ∩ Proteomics ∩ EHR**, not Fitbit ∩ Proteomics ∩ WGS. Individual-level WGS overlap is no longer a gating requirement because CDRv9 provides cis-pQTL and fine-mapped pQTL summary resources.
 
 These thresholds are pragmatic design gates, not formal power-analysis results.
 
@@ -144,9 +146,9 @@ For proteins associated with the digital phenotype:
 
 If the proteomics/WGS overlap supports it:
 
-- cis-pQTL association inside the All of Us multi-omics subset
-- ancestry-aware replication
-- compare effect direction to external pQTL resources
+- optional cis-pQTL replication inside the individual-level overlap, only if justified
+- ancestry-aware replication where sample size supports it
+- compare effect direction with the CDRv9 provided cis-pQTL/fine-mapped pQTL resources and external pQTL resources
 
 Do **not** interpret a protein pQTL MR as proof that wearable behavior causally changes the protein. The causal claim is protein -> disease; the wearable-protein association supplies biological context and triangulation.
 
