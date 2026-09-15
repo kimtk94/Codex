@@ -102,11 +102,15 @@ else
   exit "$rc"
 fi
 
-# R5.1 US lifecycle ledger is research/read-only accounting only. It runs
-# strictly after a successful US pipeline, never changes strategy_signal or
-# dashboard_snapshot, and cannot execute an order.
+# R5.1 US ledger accounting is research/read-only only. After Unified has
+# appended the canonical R5.1 trade/outcome parquets, import those exact +4-bar
+# Forward SHADOW trades. Historical 2026 replay is NOT recomputed hourly.
 if [ "$MODE" = "US" ]; then
   echo
-  echo "[post] Sync R5.1 US SHADOW lifecycle ledger"
-  PYTHONPATH="$APP_ROOT" "$PY" -m engine.r5_shadow_ledger
+  echo "[post] Sync canonical R5.1 Forward SHADOW +4-bar ledger"
+  PYTHONPATH="$APP_ROOT" "$PY" -m engine.r5_annual_ledger \
+    --mode forward \
+    --write-db \
+    --replace-legacy-live \
+    --publish-dashboard
 fi
