@@ -1,0 +1,50 @@
+name: Digital Health Omics Scout Check
+
+on:
+  push:
+    branches:
+      - feature/digital-health-omics-scout
+    paths:
+      - 'research/digital_health_omics/**'
+      - 'notebooks/Digital_Health_Omics_Research_Scout.ipynb'
+      - '.github/workflows/digital-health-omics-scout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r research/digital_health_omics/requirements.txt
+      - name: Run Global + SKKU scout
+        working-directory: research/digital_health_omics
+        run: python scout.py --route both --start-year 2020 --end-year 2026 --max-records 1000
+      - name: Show outputs
+        working-directory: research/digital_health_omics
+        run: |
+          latest=$(find outputs -mindepth 1 -maxdepth 1 -type d | sort | tail -1)
+          echo "LATEST=$latest"
+          echo "=== SUMMARY ==="
+          cat "$latest/run_summary.json"
+          echo
+          echo "=== TOP OPPORTUNITIES ==="
+          python - <<'PY'
+          import pandas as pd
+          from pathlib import Path
+          latest = sorted(Path('outputs').glob('*'))[-1]
+          p = pd.read_csv(latest/'global_vs_skku_opportunities.csv')
+          print(p.head(30).to_string(index=False))
+          PY
+      - name: Upload result CSVs
+        uses: actions/upload-artifact@v4
+        with:
+          name: digital-health-omics-results
+          path: research/digital_health_omics/outputs/
