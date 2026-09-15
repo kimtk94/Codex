@@ -15,6 +15,7 @@ on:
       - "kalman-toss-gateway/scripts/run_pipeline.sh"
       - "kalman-toss-gateway/scripts/repair_investment_hub_sync.sh"
       - "kalman-toss-gateway/scripts/deploy_investment_hub_account_krw.sh"
+      - "kalman-toss-gateway/scripts/patch_investment_hub_v7414.py"
       - "kalman-toss-gateway/scripts/promote_main_v7411_safe.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
@@ -41,6 +42,7 @@ on:
       - "kalman-toss-gateway/scripts/run_pipeline.sh"
       - "kalman-toss-gateway/scripts/repair_investment_hub_sync.sh"
       - "kalman-toss-gateway/scripts/deploy_investment_hub_account_krw.sh"
+      - "kalman-toss-gateway/scripts/patch_investment_hub_v7414.py"
       - "kalman-toss-gateway/scripts/promote_main_v7411_safe.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
@@ -75,7 +77,7 @@ jobs:
 
       - name: Compile gateway code
         run: |
-          python -m compileall app engine/auto_trade.py engine/pipeline_entry.py engine/crypto_sheet_file_compat.py engine/r5_shadow_ledger.py engine/r5_annual_ledger.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_crypto_sheet_file_compat.py tests/test_auto_trade_sizing.py tests/test_drive_copy_compat.py tests/test_r5_shadow_ledger.py tests/test_r5_annual_ledger.py
+          python -m compileall app engine/auto_trade.py engine/pipeline_entry.py engine/crypto_sheet_file_compat.py engine/r5_shadow_ledger.py engine/r5_annual_ledger.py scripts/patch_investment_hub_v7414.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_crypto_sheet_file_compat.py tests/test_auto_trade_sizing.py tests/test_drive_copy_compat.py tests/test_r5_shadow_ledger.py tests/test_r5_annual_ledger.py
           bash -n scripts/configure_auto_trade_env.sh
           bash -n scripts/configure_manual_live_trading_env.sh
           bash -n scripts/trading_status.sh
