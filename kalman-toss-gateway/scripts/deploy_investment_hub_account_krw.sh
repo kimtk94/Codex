@@ -657,8 +657,11 @@ app=app.replace(helper_anchor,model_helpers+helper_anchor,1)
 
 app=replace_once(
     app,
-    "const metricLabel=actual?'모델 YTD':'전략 YTD';\\n  const ruleLabel=actual?`${meta.rule||sm.rule||'실제 모델'} ledger · 종목별 복리 + 미실현 MTM · 거래비용 별도`:'MA20/60 추세 시뮬레이션 · 거래비용 제외';",
-    "const metricLabel=actual?(meta.signalOnly?'모델 신호':'모델 YTD'):'전략 YTD';\\n  const ruleLabel=meta.signalOnly?'R5.1 SHADOW 모델 신호 · 실제 체결 아님':(actual?String(meta.rule||sm.rule||'실제 모델')+' ledger · 종목별 복리 + 미실현 MTM · 거래비용 별도':'MA20/60 추세 시뮬레이션 · 거래비용 제외');\\n  const legendLabel=meta.signalOnly?'<b class=\\\"buy-text\\\">B 모델 BUY</b> · <b class=\\\"sell-text\\\">S 모델 SELL</b>':'<b class=\\\"buy-text\\\">B 매수</b> · <b class=\\\"sell-text\\\">S 매도</b>';",
+    """const metricLabel=actual?'모델 YTD':'전략 YTD';
+  const ruleLabel=actual?`${meta.rule||sm.rule||'실제 모델'} ledger · 종목별 복리 + 미실현 MTM · 거래비용 별도`:'MA20/60 추세 시뮬레이션 · 거래비용 제외';""",
+    """const metricLabel=actual?(meta.signalOnly?'모델 신호':'모델 YTD'):'전략 YTD';
+  const ruleLabel=meta.signalOnly?'R5.1 SHADOW 모델 신호 · 실제 체결 아님':(actual?String(meta.rule||sm.rule||'실제 모델')+' ledger · 종목별 복리 + 미실현 MTM · 거래비용 별도':'MA20/60 추세 시뮬레이션 · 거래비용 제외');
+  const legendLabel=meta.signalOnly?'<b class="buy-text">B 모델 BUY</b> · <b class="sell-text">S 모델 SELL</b>':'<b class="buy-text">B 매수</b> · <b class="sell-text">S 매도</b>';""",
     "actual-model labels",
 )
 app=replace_once(
@@ -677,7 +680,8 @@ app=replace_once(
 app=replace_once(
     app,
     "const by=new Map((j.items||[]).map(x=>[String(x.symbol).toUpperCase(),x]));",
-    "const hydrated=(j.items||[]).map(x=>hydrateKrActualItem(x,marketSnapshot));\\n      const by=new Map(hydrated.map(x=>[String(x.symbol).toUpperCase(),x]));",
+    """const hydrated=(j.items||[]).map(x=>hydrateKrActualItem(x,marketSnapshot));
+      const by=new Map(hydrated.map(x=>[String(x.symbol).toUpperCase(),x]));""",
     "KR actual ledger hydration",
 )
 app=replace_once(app,"function bindPerformanceTabs(m,assets){","function bindPerformanceTabs(m,assets,marketSnapshot=null){","tab binding signature")
@@ -703,6 +707,8 @@ app=replace_once(
 for marker in ("STRICT_TOP3_ACTUAL_LEDGER","R5_1_SHADOW_ENTRY","hydrateKrActualItem","usShadowSignalChart","B 모델 BUY"):
     if marker not in app:
         raise SystemExit(f"[FAIL] v7.4.12 marker missing: {marker}")
+if "\\n      const by=new Map(hydrated" in app:
+    raise SystemExit("[FAIL] literal backslash-n leaked into app.js")
 
 index=index.replace("vNext.7.4.11","vNext.7.4.12")
 health=health.replace("vNext.7.4.11","vNext.7.4.12")
