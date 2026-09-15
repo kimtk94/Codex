@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SRC_ROOT="${KALMAN_SOURCE_ROOT:-/opt/kalman/src/Codex/kalman-toss-gateway}"
+ENV_FILE="${KALMAN_ENV_FILE:-/opt/kalman/.env}"
 TEAM_ID="${VERCEL_TEAM_ID:-team_eklxTMfdySLBHexmheTiWGCE}"
 TEAM_SLUG="${VERCEL_TEAM_SLUG:-insk1285-9320s-projects}"
 SOURCE_PROJECT_ID="${VERCEL_SOURCE_PROJECT_ID:-prj_KCDIl7qLqtBloI7pjRFQk2Itq7V1}"
@@ -32,24 +33,26 @@ vercel whoami >/dev/null
 echo "[PASS] Vercel CLI authenticated"
 
 echo
-echo "[2/6] Pull existing production gateway configuration without printing secrets"
-mkdir -p "$WORK/source-link/.vercel"
-cat > "$WORK/source-link/.vercel/project.json" <<EOF
-{"projectId":"$SOURCE_PROJECT_ID","orgId":"$TEAM_ID"}
-EOF
+echo "[2/6] Resolve production gateway configuration without printing secrets"
 
-(
-  cd "$WORK/source-link"
-  vercel env pull "$ENV_PULL" --environment=production --yes >/dev/null
-)
-
-python3 - "$ENV_PULL" <<'PY'
+python3 - "$ENV_FILE" "$ENV_PULL" "$SOURCE_PROJECT_ID" "$TEAM_ID" <<'PY'
+from __future__ import annotations
+import json
+import os
 from pathlib import Path
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+env_file, out_file, source_project_id, team_id = sys.argv[1:]
 
 def parse_env(path):
+    p=Path(path)
     out={}
-    for raw in Path(path).read_text(encoding="utf-8").splitlines():
+    if not p.is_file():
+        return out
+    for raw in p.read_text(encoding="utf-8").splitlines():
         line=raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -60,11 +63,113 @@ def parse_env(path):
         out[key.strip()]=value
     return out
 
-x=parse_env(sys.argv[1])
-for k in ("TOSS_GATEWAY_URL","HUB_GATEWAY_SECRET"):
-    if not str(x.get(k) or "").strip():
-        raise SystemExit(f"[FAIL] missing production env: {k}")
-print("[PASS] source gateway configuration available")
+def valid_gateway(value):
+    value=str(value or "").strip()
+    if not value or "\n" in value or "\r" in value:
+        return False
+    try:
+        u=urllib.parse.urlparse(value)
+    except Exception:
+        return False
+    return u.scheme in {"http","https"} and bool(u.hostname)
+
+def find_token():
+    v=os.environ.get("VERCEL_TOKEN","").strip()
+    if v:
+        return v
+    home=Path.home()
+    candidates=[
+        home/".local/share/com.vercel.cli/auth.json",
+        home/".config/vercel/auth.json",
+        home/".vercel/auth.json",
+    ]
+    for base in (home/".local/share",home/".config"):
+        if base.exists():
+            candidates.extend(base.glob("**/com.vercel.cli/auth.json"))
+    seen=set()
+    for p in candidates:
+        p=Path(p)
+        if p in seen or not p.is_file():
+            continue
+        seen.add(p)
+        try:
+            obj=json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        token=str(obj.get("token") or "").strip() if isinstance(obj,dict) else ""
+        if token:
+            return token
+    raise SystemExit("[FAIL] Vercel token not found")
+
+local=parse_env(env_file)
+gateway=str(local.get("TOSS_GATEWAY_URL") or "").strip()
+secret=str(local.get("HUB_GATEWAY_SECRET") or "").strip()
+source="server-env"
+
+if not valid_gateway(gateway) or not secret:
+    token=find_token()
+    query=urllib.parse.urlencode({
+        "teamId":team_id,
+        "decrypt":"true",
+        "source":"vercel-cli:pull",
+    })
+    url=f"https://api.vercel.com/v10/projects/{urllib.parse.quote(source_project_id,safe='')}/env?{query}"
+    req=urllib.request.Request(
+        url,
+        method="GET",
+        headers={
+            "Authorization":f"Bearer {token}",
+            "Accept":"application/json",
+            "User-Agent":"kalman-shadow-readonly/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req,timeout=30) as r:
+            payload=json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raw=e.read().decode("utf-8",errors="replace")
+        raise SystemExit(f"[FAIL] unable to read source Vercel env: HTTP {e.code} {raw[:200]}")
+
+    envs=payload.get("envs") or []
+    selected={}
+    for item in envs:
+        if not isinstance(item,dict):
+            continue
+        key=str(item.get("key") or "")
+        if key not in {"TOSS_GATEWAY_URL","HUB_GATEWAY_SECRET"}:
+            continue
+        target=item.get("target") or []
+        if isinstance(target,str):
+            target=[target]
+        if "production" not in target:
+            continue
+        value=str(item.get("value") or "").strip()
+        if value:
+            selected[key]=value
+
+    if not valid_gateway(gateway):
+        gateway=str(selected.get("TOSS_GATEWAY_URL") or "").strip()
+    if not secret:
+        secret=str(selected.get("HUB_GATEWAY_SECRET") or "").strip()
+    source="vercel-api-decrypted"
+
+if not valid_gateway(gateway):
+    raise SystemExit("[FAIL] TOSS_GATEWAY_URL is missing or not a valid http(s) URL")
+if not secret:
+    raise SystemExit("[FAIL] HUB_GATEWAY_SECRET is missing")
+if any(ch in gateway for ch in "\r\n") or any(ch in secret for ch in "\r\n"):
+    raise SystemExit("[FAIL] gateway configuration contains newline characters")
+
+p=Path(out_file)
+p.write_text(
+    "TOSS_GATEWAY_URL="+gateway+"\n"
+    "HUB_GATEWAY_SECRET="+secret+"\n",
+    encoding="utf-8",
+)
+p.chmod(0o600)
+
+scheme=urllib.parse.urlparse(gateway).scheme
+print(f"[PASS] source gateway configuration resolved ({source}, scheme={scheme})")
 PY
 
 echo
@@ -161,7 +266,7 @@ if not project_id:
 
 env_body=[
     {"key":"TOSS_GATEWAY_URL","value":gateway,"type":"encrypted","target":["production"]},
-    {"key":"HUB_GATEWAY_SECRET","value":secret,"type":"encrypted","target":["production"]},
+    {"key":"HUB_GATEWAY_SECRET","value":secret,"type":"sensitive","target":["production"]},
 ]
 request(
     "POST",
