@@ -593,14 +593,24 @@ css += r"""
 
 if "vNext.7.4.9" not in index:
     raise SystemExit("[FAIL] index version marker missing")
+
+kr_tab='<button class="tab" data-m="KR">한국장</button>'
+if index.count(kr_tab) != 1:
+    raise SystemExit("[FAIL] KR tab anchor missing")
+index=index.replace(
+    kr_tab,
+    kr_tab+'\n      <button class="tab" data-m="SHADOW">Shadow</button>',
+    1,
+)
+
 index=index.replace(
     "vNext.7.4.9 · MA20/60 + Actual Model Performance Tabs",
-    "vNext.7.4.10 · Account USD/KRW valuation",
+    "vNext.7.4.11 · Account + Forward SHADOW Read Only",
     1,
 )
 
 # Health metadata only; contracts/model/risk logic are untouched.
-health=health.replace("vNext.7.4.9","vNext.7.4.10")
+health=health.replace("vNext.7.4.9","vNext.7.4.11")
 
 # Static safety checks.
 assert "const mv=h?.marketValue" in app
@@ -610,8 +620,11 @@ assert "accountKrw" in app
 assert "pct(rate,100)" in app
 assert "open.er-api.com" in app
 assert "api.frankfurter.dev/v2/rate/usd/krw" in app
+assert "function renderShadow(j)" in app
+assert 'data-m="SHADOW"' in index
+assert "/api/shadow-bakeoff" in dashboard
 assert "run_model_v2" not in app
-assert "vNext.7.4.10" in index
+assert "vNext.7.4.11" in index
 
 for p in list((root/"api").rglob("*.js")) + list((root/"lib").rglob("*.js")):
     t=p.read_text(encoding="utf-8")
@@ -626,8 +639,9 @@ app_path.write_text(app, encoding="utf-8")
 css_path.write_text(css, encoding="utf-8")
 index_path.write_text(index, encoding="utf-8")
 health_path.write_text(health, encoding="utf-8")
+dashboard_path.write_text(dashboard, encoding="utf-8")
 
-print("[PASS] account UI patched")
+print("[PASS] account UI + SHADOW read-only patched")
 print("[PASS] API function count = 12")
 print("[PASS] query-parser regression scan")
 PY
