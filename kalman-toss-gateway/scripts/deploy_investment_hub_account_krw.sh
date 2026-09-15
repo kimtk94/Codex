@@ -279,6 +279,70 @@ nodes=tree if isinstance(tree, list) else tree.get("files") or tree.get("childre
 
 downloaded=[]
 
+def normalize_file_payload(payload):
+    """Normalize Vercel deployment-file response variants.
+
+    Documented responses expose base64 source as `content`, but some current
+    API responses wrap the body in a top-level `data` field. Support both
+    without logging source contents.
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    if isinstance(payload.get("content"), str):
+        return {
+            "content": payload["content"],
+            "encoding": payload.get("encoding") or "base64",
+        }
+
+    data=payload.get("data")
+
+    if isinstance(data, dict):
+        if isinstance(data.get("content"), str):
+            return {
+                "content": data["content"],
+                "encoding": data.get("encoding") or payload.get("encoding") or "base64",
+            }
+        if isinstance(data.get("data"), str):
+            return {
+                "content": data["data"],
+                "encoding": data.get("encoding") or payload.get("encoding") or "base64",
+            }
+
+    if isinstance(data, str):
+        return {
+            "content": data,
+            # Vercel's deployment-file endpoint returns file bytes encoded as
+            # base64. If a deployment returns plain text despite that contract,
+            # the decode helper below safely falls back to UTF-8.
+            "encoding": payload.get("encoding") or "base64-or-text",
+        }
+
+    return None
+
+
+def decode_file_payload(normalized, rel: Path):
+    content=normalized["content"]
+    encoding=str(normalized.get("encoding") or "").lower()
+
+    if encoding == "base64":
+        try:
+            return base64.b64decode(content, validate=True)
+        except Exception as exc:
+            raise SystemExit(
+                f"[FAIL] invalid base64 content for {rel}: {exc}"
+            )
+
+    if encoding == "base64-or-text":
+        compact="".join(content.split())
+        try:
+            return base64.b64decode(compact, validate=True)
+        except Exception:
+            return content.encode("utf-8")
+
+    return content.encode("utf-8")
+
+
 def file_payload(uid: str, rel: Path):
     # Primary path for CLI deployments.
     file_q=urllib.parse.urlencode({"teamId": team_id})
@@ -286,8 +350,9 @@ def file_payload(uid: str, rel: Path):
         f"https://api.vercel.com/v8/deployments/"
         f"{source_deployment}/files/{uid}?{file_q}"
     )
-    if isinstance(payload.get("content"), str):
-        return payload
+    normalized=normalize_file_payload(payload)
+    if normalized is not None:
+        return normalized
 
     # Some Vercel deployments only return content when path is supplied.
     # Retry with the exact relative path rather than failing immediately.
@@ -299,13 +364,17 @@ def file_payload(uid: str, rel: Path):
         f"https://api.vercel.com/v8/deployments/"
         f"{source_deployment}/files/{uid}?{file_q_with_path}"
     )
-    if isinstance(retry.get("content"), str):
-        return retry
+    normalized=normalize_file_payload(retry)
+    if normalized is not None:
+        return normalized
 
     keys=sorted(set(payload.keys()) | set(retry.keys()))
+    data_type=type(payload.get("data")).__name__
+    retry_data_type=type(retry.get("data")).__name__
     raise SystemExit(
-        f"[FAIL] no content for {rel} "
-        f"(deployment={source_deployment}, response_keys={keys})"
+        f"[FAIL] no source bytes for {rel} "
+        f"(deployment={source_deployment}, response_keys={keys}, "
+        f"data_types={data_type}/{retry_data_type})"
     )
 
 def walk(entries, prefix=Path("")):
@@ -328,10 +397,7 @@ def walk(entries, prefix=Path("")):
             raise SystemExit(f"[FAIL] missing uid for {rel}")
 
         payload=file_payload(uid, rel)
-        content=payload.get("content")
-        encoding=str(payload.get("encoding") or "").lower()
-
-        raw=base64.b64decode(content) if encoding == "base64" else content.encode("utf-8")
+        raw=decode_file_payload(payload, rel)
         dst=(out_dir / rel).resolve()
         root=out_dir.resolve()
         if root not in dst.parents and dst != root:
