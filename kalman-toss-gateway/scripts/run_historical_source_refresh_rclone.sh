@@ -145,7 +145,7 @@ copy_current() {
 }
 
 echo "[2/7] Stage current source snapshots"
-for rel in   raw/yfinance/yf_spy.parquet   raw/yfinance/yf_qqq.parquet   raw/yfinance/yf_soxx.parquet   raw/yfinance/yf_iwm.parquet   raw/yfinance/yf_gld.parquet   raw/yfinance/yf_hyg.parquet   raw/yfinance/yf_lqd.parquet   raw/yfinance/yf_btc.parquet   raw/financedatareader/fdr_kospi.parquet   raw/yfinance/yf_kospi.parquet   raw/financedatareader/fdr_kosdaq.parquet   raw/yfinance/yf_kosdaq.parquet
+for rel in   raw/yfinance/yf_spy.parquet   raw/yfinance/yf_qqq.parquet   raw/yfinance/yf_soxx.parquet   raw/yfinance/yf_iwm.parquet   raw/yfinance/yf_gld.parquet   raw/yfinance/yf_hyg.parquet   raw/yfinance/yf_lqd.parquet   raw/yfinance/yf_btc.parquet   raw/yfinance/yf_usdkrw.parquet   raw/financedatareader/fdr_usdkrw.parquet   raw/financedatareader/fdr_kospi.parquet   raw/yfinance/yf_kospi.parquet   raw/financedatareader/fdr_kosdaq.parquet   raw/yfinance/yf_kosdaq.parquet
 do
   copy_current "$rel"
 done
