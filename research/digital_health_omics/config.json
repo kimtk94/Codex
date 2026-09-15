@@ -1,0 +1,25 @@
+{
+  "digital_health_terms": {
+    "wearable_sensor": ["wearable", "wearables", "smartwatch", "smart watch", "sensor", "accelerometer", "photoplethysmography", "ppg"],
+    "digital_biomarker": ["digital biomarker", "digital biomarkers", "digital phenotype", "digital phenotyping"],
+    "ehr_rwd": ["electronic health record", "electronic medical record", "ehr", "emr", "real-world data", "real world data"],
+    "remote_monitoring": ["remote monitoring", "remote patient monitoring", "telemedicine", "telehealth"],
+    "ai_ml": ["machine learning", "deep learning", "artificial intelligence", "neural network"],
+    "mobile_health": ["mobile health", "mhealth", "mobile app", "smartphone"]
+  },
+  "omics_terms": {
+    "genomics": ["genomics", "genomic", "gwas", "genome-wide association", "polygenic risk", "polygenic score", "prs", "eqtl", "whole genome sequencing", "wgs"],
+    "transcriptomics": ["transcriptomics", "transcriptome", "rna-seq", "rna sequencing", "single-cell rna", "single cell rna", "scrna", "snrna"],
+    "proteomics": ["proteomics", "proteome", "proteomic", "pqtl", "protein quantitative trait", "mass spectrometry", "olink", "somascan"],
+    "metabolomics": ["metabolomics", "metabolome", "metabolomic"],
+    "multiomics": ["multi-omics", "multiomics", "multi omics", "integrative omics"]
+  },
+  "disease_terms": {
+    "stroke": ["stroke", "ischemic stroke", "ischaemic stroke", "cerebrovascular"],
+    "cardiovascular": ["cardiovascular", "atrial fibrillation", "heart failure", "coronary", "myocardial"],
+    "diabetes_metabolic": ["diabetes", "metabolic syndrome", "obesity", "glycemic", "glucose"],
+    "cancer": ["cancer", "tumor", "tumour", "oncology", "carcinoma"],
+    "neurodegeneration": ["alzheimer", "parkinson", "dementia", "neurodegenerative"],
+    "aging_frailty": ["aging", "ageing", "frailty", "frail"]
+  }
+}
