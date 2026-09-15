@@ -159,7 +159,10 @@ for idx, nested in enumerate(nested_sources, start=1):
         continue
     dual_lines = nested["text"].splitlines()
     for lo, hi, label in [
+        (1, 81, "paths_and_contracts"),
         (82, 170, "constants_and_features"),
+        (171, 220, "freeze_and_universe"),
+        (300, 420, "live_overlay_paths_and_60m"),
         (421, 592, "panel_and_feature_engineering"),
         (593, 910, "signals_trades_outcomes"),
     ]:
