@@ -7,6 +7,7 @@ VENV="${KALMAN_RESEARCH_V2_VENV:-/opt/kalman/.venv-research-v2}"
 PY="$VENV/bin/python"
 LOCK_DIR="${KALMAN_LOCK_DIR:-/opt/kalman/state}"
 GDRIVE_MOUNT="${KALMAN_GDRIVE_MOUNT:-/mnt/gdrive}"
+HUB_URL="${KALMAN_HUB_URL:-https://kalman-investment-hub-v2.vercel.app}"
 
 [ -x "$PY" ] || { echo "[FAIL] Research Python missing: $PY" >&2; exit 10; }
 [ -f "$ENV_FILE" ] || { echo "[FAIL] Env file missing: $ENV_FILE" >&2; exit 11; }
@@ -129,3 +130,4 @@ echo "live execution      : FALSE"
 echo "dashboard visibility: FALSE"
 echo
 echo "SHADOW_BAKEOFF_V1_COMPLETE"
+echo "WEB_DASHBOARD=${HUB_URL}"
