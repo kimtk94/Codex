@@ -204,9 +204,9 @@ echo "deployment=$DEPLOY_URL"
 
 echo
 echo "[5/6] Smoke deployment"
-vercel curl "$DEPLOY_URL/api/health" -sS > "$WORK/health.json"
-vercel curl "$DEPLOY_URL/api/shadow" -sS > "$WORK/shadow.json"
-vercel curl "$DEPLOY_URL/" -sS > "$WORK/index.html"
+vercel curl "$DEPLOY_URL/api/health" -- --silent --show-error > "$WORK/health.json"
+vercel curl "$DEPLOY_URL/api/shadow" -- --silent --show-error > "$WORK/shadow.json"
+vercel curl "$DEPLOY_URL/" -- --silent --show-error > "$WORK/index.html"
 
 python3 - "$WORK/health.json" "$WORK/shadow.json" <<'PY'
 import json,sys
