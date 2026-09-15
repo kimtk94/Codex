@@ -222,6 +222,14 @@ def _candidate_formulas(frame: pd.DataFrame, feature: str) -> dict[str, pd.Serie
             * math.sqrt(252.0),
             "rv20_log_ann_ddof0": logret1.rolling(20, min_periods=20).std(ddof=0)
             * math.sqrt(252.0),
+            "rv20_ret_ann365_ddof1": ret1.rolling(20, min_periods=20).std(ddof=1)
+            * math.sqrt(365.0),
+            "rv20_ret_ann365_ddof0": ret1.rolling(20, min_periods=20).std(ddof=0)
+            * math.sqrt(365.0),
+            "rv20_log_ann365_ddof1": logret1.rolling(20, min_periods=20).std(ddof=1)
+            * math.sqrt(365.0),
+            "rv20_log_ann365_ddof0": logret1.rolling(20, min_periods=20).std(ddof=0)
+            * math.sqrt(365.0),
             "rv20_ret_ddof1": ret1.rolling(20, min_periods=20).std(ddof=1),
         }
     elif feature == "ATR14_PCT":
