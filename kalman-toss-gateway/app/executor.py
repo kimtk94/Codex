@@ -175,7 +175,13 @@ async def prepare_order(settings: Settings, request) -> PreparedOrder:
     return PreparedOrder(payload=payload, estimated_notional_krw=krw, currency=currency, source_notional=source_notional)
 
 
-async def execute_order(settings: Settings, request, *, risk_reducing_exit: bool = False):
+async def execute_order(
+    settings: Settings,
+    request,
+    *,
+    risk_reducing_exit: bool = False,
+    execution_channel: str = 'AUTO',
+):
     if not request.client_order_id:
         raise ValueError('client_order_id is required for live execution')
     prepared = await prepare_order(settings, request)
@@ -187,6 +193,7 @@ async def execute_order(settings: Settings, request, *, risk_reducing_exit: bool
         prepared.estimated_notional_krw,
         used,
         risk_reducing_exit=risk_reducing_exit,
+        execution_channel=execution_channel,
     )
     if not decision.allowed:
         return {
