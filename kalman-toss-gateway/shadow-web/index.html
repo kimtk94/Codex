@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Kalman SHADOW Read Only</title>
+  <style>
+    body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1220;color:#e5e7eb;margin:0;padding:24px}
+    .wrap{max-width:1100px;margin:0 auto}.head{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}
+    .pill{display:inline-block;padding:5px 9px;border-radius:999px;background:#15351f;color:#9ff0b4;font-size:12px;font-weight:700}
+    .muted{color:#94a3b8}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}
+    .card{background:#111827;border:1px solid #26324d;border-radius:14px;padding:16px}.kpi{font-size:26px;font-weight:800}
+    .row{display:flex;justify-content:space-between;gap:12px;margin-top:8px}.section{margin-top:18px}
+    a{color:#93c5fd}.err{background:#3b1111;border:1px solid #7f1d1d;padding:12px;border-radius:12px}
+    @media(max-width:800px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="pill">READ ONLY</div>
+      <h1>Kalman Forward SHADOW</h1>
+      <div class="muted">주문 실행 없음 · 자동매매와 분리된 표시 전용 화면</div>
+    </div>
+    <div><a href="https://kalman-investment-hub-v2.vercel.app/">Main Investment Hub</a></div>
+  </div>
+  <div id="status" class="section muted">불러오는 중...</div>
+  <div id="signals" class="grid"></div>
+  <div id="ranking" class="section card"></div>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
