@@ -8,6 +8,8 @@ on:
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/configure_manual_live_trading_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
+      - "kalman-toss-gateway/scripts/deploy_investment_hub_account_krw.sh"
+      - "kalman-toss-gateway/scripts/promote_main_v7411_safe.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - ".github/workflows/kalman-gateway-safety.yml"
@@ -21,6 +23,8 @@ on:
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/configure_manual_live_trading_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
+      - "kalman-toss-gateway/scripts/deploy_investment_hub_account_krw.sh"
+      - "kalman-toss-gateway/scripts/promote_main_v7411_safe.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - ".github/workflows/kalman-gateway-safety.yml"
@@ -55,6 +59,8 @@ jobs:
           bash -n scripts/configure_auto_trade_env.sh
           bash -n scripts/configure_manual_live_trading_env.sh
           bash -n scripts/trading_status.sh
+          bash -n scripts/deploy_investment_hub_account_krw.sh
+          bash -n scripts/promote_main_v7411_safe.sh
 
       - name: Run gateway safety tests
         env:
