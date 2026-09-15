@@ -10,7 +10,7 @@ from .executor import TradeLedger, execute_order, prepare_order
 from .risk import validate_order
 from .toss_client import TossClient
 
-app = FastAPI(title='Kalman Toss Gateway', version='0.2.0')
+app = FastAPI(title='Kalman Toss Gateway', version='0.3.0')
 
 
 class OrderProbe(BaseModel):
