@@ -435,12 +435,65 @@ if skipped_non_files:
     )
 
 print(f"[PASS] recovered files={len(downloaded)}")
-required={"index.html","app.js","style.css","api/health.js","api/account.js"}
-missing=sorted(required-set(downloaded))
-if missing:
-    raise SystemExit(f"[FAIL] recovered source missing: {missing}")
 
-api_js=[p for p in downloaded if p.startswith("api/") and p.endswith(".js")]
+required={"index.html","app.js","style.css","api/health.js","api/account.js"}
+
+def normalize_source_root() -> None:
+    global downloaded
+
+    current=set(downloaded)
+    if required.issubset(current):
+        return
+
+    # Vercel's recovered deployment tree can preserve the original upload
+    # directory (for this project: src/). Detect a single common source prefix
+    # containing the complete app and flatten it into out_dir so the rest of
+    # the deployment script can keep using the known-good root layout.
+    prefixes=[]
+    for candidate in ("src","app","web","site"):
+        prefixed={f"{candidate}/{p}" for p in required}
+        if prefixed.issubset(current):
+            prefixes.append(candidate)
+
+    if len(prefixes) != 1:
+        sample=", ".join(sorted(downloaded)[:40])
+        missing=sorted(required-current)
+        raise SystemExit(
+            f"[FAIL] recovered source missing: {missing}; "
+            f"prefix_candidates={prefixes}; recovered_sample=[{sample}]"
+        )
+
+    prefix=prefixes[0]
+    source_dir=(out_dir / prefix).resolve()
+    if out_dir.resolve() not in source_dir.parents:
+        raise SystemExit(f"[FAIL] unsafe source prefix: {source_dir}")
+
+    moved=[]
+    for src in sorted(source_dir.rglob("*")):
+        if not src.is_file():
+            continue
+        rel=src.relative_to(source_dir)
+        dst=(out_dir / rel).resolve()
+        if out_dir.resolve() not in dst.parents:
+            raise SystemExit(f"[FAIL] unsafe normalized path: {dst}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(src.read_bytes())
+        moved.append(rel.as_posix())
+
+    downloaded=sorted(set(downloaded) | set(moved))
+    print(
+        f"[INFO] normalized recovered source root: "
+        f"{prefix}/ -> ./ ({len(moved)} files)"
+    )
+
+normalize_source_root()
+
+current=set(downloaded)
+missing=sorted(required-current)
+if missing:
+    raise SystemExit(f"[FAIL] recovered source missing after normalization: {missing}")
+
+api_js=[p for p in current if p.startswith("api/") and p.endswith(".js")]
 if len(api_js) != 12:
     raise SystemExit(f"[FAIL] expected 12 API functions, recovered {len(api_js)}")
 
