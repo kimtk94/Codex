@@ -62,6 +62,25 @@ case "$MODE" in
       echo "[FAIL] Crypto state directory missing: $DATA_ROOT/Upbit_BTC" >&2
       exit 24
     fi
+
+    CRYPTO_SOURCE="$($PY - <<'PY'
+import os
+from dotenv import dotenv_values
+v=dotenv_values(os.environ['KALMAN_ENV_FILE'])
+print((v.get('KALMAN_CRYPTO_SOURCE') or 'rclone_xlsx').strip().lower())
+PY
+)"
+
+    if [ "$CRYPTO_SOURCE" = "rclone_xlsx" ]; then
+      PYTHONPATH="$APP_ROOT" "$PY" - <<'PY'
+from engine.crypto_sheet_file_compat import resolve_crypto_archive_xlsx
+p=resolve_crypto_archive_xlsx()
+print(f"[PASS] CRYPTO rclone XLSX source: {p}")
+PY
+    elif [ "$CRYPTO_SOURCE" != "gspread" ]; then
+      echo "[FAIL] KALMAN_CRYPTO_SOURCE must be rclone_xlsx or gspread" >&2
+      exit 26
+    fi
     ;;
   US)
     ;;
