@@ -27,6 +27,11 @@ jobs:
       - name: Run Global + SKKU scout
         working-directory: research/digital_health_omics
         run: python scout.py --route both --start-year 2020 --end-year 2026 --max-records 5000
+      - name: Rank master's thesis candidates
+        working-directory: research/digital_health_omics
+        run: |
+          latest=$(find outputs -mindepth 1 -maxdepth 1 -type d | sort | tail -1)
+          python thesis_ranker.py --input-dir "$latest" --end-year 2026 --top-n 30
       - name: Show outputs
         working-directory: research/digital_health_omics
         run: |
@@ -54,6 +59,13 @@ jobs:
           sp = pd.read_csv(latest/'skku_papers.csv')
           cols = ["year","title","digital_axes","omics_axes","disease_axes","pubmed_url"]
           print(sp[cols].head(25).to_string(index=False))
+          print("\n=== MASTER THESIS TOP 10 ===")
+          c = pd.read_csv(latest/'master_thesis_candidates.csv')
+          show = ["candidate_rank","topic_key","thesis_score","global_recent_3y","skku_recent_3y","non_original_ratio","top_genes_proteins","research_question"]
+          print(c[show].head(10).to_string(index=False))
+          print("\n=== SKKU RESEARCHER MATCHES ===")
+          m = pd.read_csv(latest/'skku_researcher_matches.csv')
+          print(m.head(30).to_string(index=False) if len(m) else "No matches")
           PY
       - name: Upload result CSVs
         uses: actions/upload-artifact@v4
