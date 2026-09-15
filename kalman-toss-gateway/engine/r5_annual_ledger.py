@@ -149,9 +149,12 @@ def sha256_file(path: Path) -> str:
 
 def locate_us_root(explicit: str = "") -> Path:
     candidates: list[Path] = []
+    data_root = os.environ.get("KALMAN_DATA_ROOT", "")
     for raw in (
         explicit,
         os.environ.get("KALMAN_US_ETF_ROOT", ""),
+        str(Path(data_root) / "US_ETF") if data_root else "",
+        "/opt/kalman/data/US_ETF",
         "/content/drive/MyDrive/US_ETF",
         "/mnt/gdrive/US_ETF",
         "/mnt/gdrive/MyDrive/US_ETF",
