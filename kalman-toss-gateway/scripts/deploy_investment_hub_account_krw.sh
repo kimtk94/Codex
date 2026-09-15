@@ -245,10 +245,68 @@ def get_json(url: str):
         return json.loads(r.read().decode("utf-8"))
 
 q=urllib.parse.urlencode({"teamId": team_id})
-tree=get_json(f"https://api.vercel.com/v6/deployments/{deployment}/files?{q}")
+
+# A production "redeploy" can expose the file tree while omitting source
+# content for some entries. Follow Vercel's originalDeploymentId chain back
+# to the actual uploaded CLI deployment before reading source files.
+source_deployment=deployment
+seen_deployments=set()
+for _ in range(8):
+    if source_deployment in seen_deployments:
+        raise SystemExit("[FAIL] deployment originalDeploymentId cycle detected")
+    seen_deployments.add(source_deployment)
+
+    meta=get_json(
+        f"https://api.vercel.com/v13/deployments/{source_deployment}?{q}"
+    )
+    original=str(((meta.get("meta") or {}).get("originalDeploymentId")) or "").strip()
+    if not original or original == source_deployment:
+        break
+    print(
+        f"[INFO] Vercel redeploy source hop: "
+        f"{source_deployment} -> {original}"
+    )
+    source_deployment=original
+else:
+    raise SystemExit("[FAIL] originalDeploymentId chain too deep")
+
+print(f"[INFO] source deployment: {source_deployment}")
+
+tree=get_json(
+    f"https://api.vercel.com/v6/deployments/{source_deployment}/files?{q}"
+)
 nodes=tree if isinstance(tree, list) else tree.get("files") or tree.get("children") or []
 
 downloaded=[]
+
+def file_payload(uid: str, rel: Path):
+    # Primary path for CLI deployments.
+    file_q=urllib.parse.urlencode({"teamId": team_id})
+    payload=get_json(
+        f"https://api.vercel.com/v8/deployments/"
+        f"{source_deployment}/files/{uid}?{file_q}"
+    )
+    if isinstance(payload.get("content"), str):
+        return payload
+
+    # Some Vercel deployments only return content when path is supplied.
+    # Retry with the exact relative path rather than failing immediately.
+    file_q_with_path=urllib.parse.urlencode({
+        "teamId": team_id,
+        "path": rel.as_posix(),
+    })
+    retry=get_json(
+        f"https://api.vercel.com/v8/deployments/"
+        f"{source_deployment}/files/{uid}?{file_q_with_path}"
+    )
+    if isinstance(retry.get("content"), str):
+        return retry
+
+    keys=sorted(set(payload.keys()) | set(retry.keys()))
+    raise SystemExit(
+        f"[FAIL] no content for {rel} "
+        f"(deployment={source_deployment}, response_keys={keys})"
+    )
 
 def walk(entries, prefix=Path("")):
     for e in entries or []:
@@ -269,18 +327,9 @@ def walk(entries, prefix=Path("")):
         if not uid:
             raise SystemExit(f"[FAIL] missing uid for {rel}")
 
-        # The known-good Investment Hub deployment is a Vercel CLI
-        # deployment. The REST API's optional `path` query is documented for
-        # Git deployments only; supplying it to CLI deployments can return a
-        # metadata response without `content` for otherwise valid files.
-        file_q=urllib.parse.urlencode({"teamId": team_id})
-        payload=get_json(
-            f"https://api.vercel.com/v8/deployments/{deployment}/files/{uid}?{file_q}"
-        )
+        payload=file_payload(uid, rel)
         content=payload.get("content")
         encoding=str(payload.get("encoding") or "").lower()
-        if not isinstance(content, str):
-            raise SystemExit(f"[FAIL] no content for {rel}")
 
         raw=base64.b64decode(content) if encoding == "base64" else content.encode("utf-8")
         dst=(out_dir / rel).resolve()
