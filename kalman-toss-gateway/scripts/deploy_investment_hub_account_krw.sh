@@ -1301,7 +1301,8 @@ vcurl "/api/health" "${WORK}/candidate-health.json"
 python3 - "${WORK}/candidate-health.json" <<'PY'
 import json,sys
 x=json.load(open(sys.argv[1], encoding="utf-8"))
-assert x.get("investment_hub_version") == "vNext.7.4.12", x.get("investment_hub_version")
+assert x.get("investment_hub_version") == "vNext.7.4.13", x.get("investment_hub_version")
+assert x.get("root_ui_version") == "vNext.7.4.13", x.get("root_ui_version")
 assert x.get("account_gateway_configured") is True
 assert x.get("account_gateway_secret_configured") is True
 assert x.get("account_trade_execution") is False
