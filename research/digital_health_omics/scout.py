@@ -215,8 +215,8 @@ def normalize_text(row: pd.Series) -> str:
 
 
 def term_match(text: str, term: str) -> bool:
-    t = term.lower()
-    if len(t) <= 4 and re.fullmatch(r"[a-z0-9-]+", t):
+    t = term.lower().strip()
+    if re.fullmatch(r"[a-z0-9-]+", t):
         return re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", text) is not None
     return t in text
 
@@ -229,33 +229,64 @@ def matched_axes(text: str, axis_map: Dict[str, List[str]]) -> List[str]:
     return hits
 
 
+def scored_axes(title: str, abstract: str, axis_map: Dict[str, List[str]]) -> List[Tuple[str, int]]:
+    """Score axes by centrality: title hits count 3x abstract-only hits."""
+    title = (title or "").lower()
+    abstract = (abstract or "").lower()
+    scored = []
+    for axis, terms in axis_map.items():
+        title_hits = sum(1 for term in terms if term_match(title, term))
+        abstract_hits = sum(1 for term in terms if term_match(abstract, term))
+        score = 3 * title_hits + abstract_hits
+        if score > 0:
+            scored.append((axis, score))
+    return sorted(scored, key=lambda x: (-x[1], x[0]))
+
+
+def primary_axis(scored: List[Tuple[str, int]], fallback: str = "") -> str:
+    return scored[0][0] if scored else fallback
+
+
 def annotate_papers(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     if df.empty:
         return df.copy()
 
     out = df.copy()
-    digital_col = []
-    omics_col = []
-    disease_col = []
+    digital_col, digital_all_col = [], []
+    omics_col, omics_all_col = [], []
+    disease_col, disease_all_col = [], []
     method_col = []
 
     for _, row in out.iterrows():
-        text = normalize_text(row)
-        digital = matched_axes(text, cfg["digital_health_terms"])
-        omics = matched_axes(text, cfg["omics_terms"])
-        disease = matched_axes(text, cfg["disease_terms"])
-        methods = matched_axes(text, cfg.get("method_terms", {}))
-        if not disease:
-            disease = ["other"]
+        title = str(row.get("title", "") or "")
+        abstract = str(row.get("abstract", "") or "")
 
-        digital_col.append(";".join(digital))
-        omics_col.append(";".join(omics))
-        disease_col.append(";".join(disease))
+        digital_scored = scored_axes(title, abstract, cfg["digital_health_terms"])
+        omics_scored = scored_axes(title, abstract, cfg["omics_terms"])
+        disease_scored = scored_axes(title, abstract, cfg["disease_terms"])
+        method_scored = scored_axes(title, abstract, cfg.get("method_terms", {}))
+
+        digital_all = [x[0] for x in digital_scored]
+        omics_all = [x[0] for x in omics_scored]
+        disease_all = [x[0] for x in disease_scored] or ["other"]
+        methods = [x[0] for x in method_scored]
+
+        digital_col.append(primary_axis(digital_scored))
+        digital_all_col.append(";".join(digital_all))
+        omics_col.append(primary_axis(omics_scored))
+        omics_all_col.append(";".join(omics_all))
+        disease_col.append(primary_axis(disease_scored, "other"))
+        disease_all_col.append(";".join(disease_all))
         method_col.append(";".join(methods))
 
+    # Primary axes drive topic counts to avoid combinatorial false-positive
+    # topic creation. All detected axes remain available for secondary analysis.
     out["digital_axes"] = digital_col
+    out["digital_axes_all"] = digital_all_col
     out["omics_axes"] = omics_col
+    out["omics_axes_all"] = omics_all_col
     out["disease_axes"] = disease_col
+    out["disease_axes_all"] = disease_all_col
     out["method_axes"] = method_col
     return out
 
