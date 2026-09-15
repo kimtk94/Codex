@@ -465,6 +465,27 @@ def deterministic_trade_uuid(provenance: str, original_trade_id: str) -> uuid.UU
     return uuid.uuid5(UUID_NAMESPACE, f"{provenance}|{original_trade_id}")
 
 
+def select_nonoverlap_signals(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Match the frozen R5.1 entry rule exactly.
+
+    Original contract:
+      skip when expected_seq < last_exit
+      allow a new entry when expected_seq == last_exit
+    """
+    selected: list[dict[str, Any]] = []
+    last_exit = -10**18
+    for signal in sorted(
+        signals,
+        key=lambda x: (int(x["expected_seq"]), x.get("timestamp")),
+    ):
+        seq = int(signal["expected_seq"])
+        if seq < last_exit:
+            continue
+        selected.append(signal)
+        last_exit = int(signal["expected_exit_seq"])
+    return selected
+
+
 def build_reconstructed_trades(
     layout: Layout,
     panel: Any,
@@ -543,12 +564,9 @@ def build_reconstructed_trades(
     )
 
     trades: list[LedgerTrade] = []
-    last_exit = -10**18
-    for signal in sorted(signals, key=lambda x: (x["expected_seq"], x["timestamp"])):
+    for signal in select_nonoverlap_signals(signals):
         seq = int(signal["expected_seq"])
         exit_seq = int(signal["expected_exit_seq"])
-        if seq < last_exit:
-            continue
 
         symbol = str(signal["selected_symbol"])
         entry_key = (symbol, seq)
@@ -606,7 +624,6 @@ def build_reconstructed_trades(
                 in_sample_warning=True,
             )
         )
-        last_exit = exit_seq
 
     stats = {
         "timestamps_considered": len(timestamps),
