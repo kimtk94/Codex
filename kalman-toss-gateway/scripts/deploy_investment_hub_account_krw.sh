@@ -15,11 +15,11 @@ PROJECT_NAME="${VERCEL_PROJECT_NAME:-kalman-investment-hub-v2}"
 PROD_URL="${KALMAN_HUB_PROD_URL:-https://kalman-investment-hub-v2.vercel.app}"
 
 # Full 12-function redeploy created after TOSS_GATEWAY_URL was configured.
-GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_65cNLaPveHxTSnCJpAs3wbLpUTLA}"
-GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-abm9j754k-insk1285-9320s-projects.vercel.app}"
+GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_5cBLPqeTG1uFPuJGWMWDKmBgT3ss}"
+GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-oj4gz4c4r-insk1285-9320s-projects.vercel.app}"
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
-WORK="/tmp/kalman-hub-v7413-${STAMP}"
+WORK="/tmp/kalman-hub-v7414-${STAMP}"
 SRC="${WORK}/source"
 mkdir -p "${SRC}"
 
@@ -38,7 +38,7 @@ need curl
 need tar
 
 echo "=================================================="
-echo "Kalman Investment Hub vNext.7.4.13"
+echo "Kalman Investment Hub vNext.7.4.14"
 echo "Account + actual-model B/S + SHADOW read-only"
 echo "=================================================="
 echo "Production : ${PROD_URL}"
@@ -68,7 +68,7 @@ except Exception:
     raise SystemExit(1)
 
 required = (
-    x.get("investment_hub_version") in {"vNext.7.4.12","vNext.7.4.13"}
+    x.get("investment_hub_version") in {"vNext.7.4.13","vNext.7.4.14"}
     and x.get("account_gateway_configured") is True
     and x.get("account_gateway_secret_configured") is True
     and x.get("account_trade_execution") is False
@@ -85,7 +85,7 @@ PY
 CURRENT_HEALTH="${WORK}/current-health.json"
 if curl -fsS --max-time 10 "${PROD_URL}/api/health" >"${CURRENT_HEALTH}" 2>/dev/null \
    && health_ok "${CURRENT_HEALTH}"; then
-  echo "[PASS] healthy vNext.7.4.12+ full production already active; promotion skipped"
+  echo "[PASS] healthy vNext.7.4.13+ full production already active; promotion skipped"
 else
   echo "[INFO] restoring known-good 12-function production"
   vercel promote "${GOOD_URL}" --yes --scope "${TEAM_SLUG}" >/dev/null
@@ -583,6 +583,19 @@ css=css_path.read_text(encoding="utf-8")
 index=index_path.read_text(encoding="utf-8")
 health=health_path.read_text(encoding="utf-8")
 dashboard=dashboard_path.read_text(encoding="utf-8")
+
+# vNext.7.4.14 is a small UI delta over the verified vNext.7.4.13 source.
+# Keep it in a standalone patcher so the older recovery patches remain frozen.
+if "vNext.7.4.13" in index and "R5.1 Forward SHADOW lifecycle" in app:
+    import os
+    import subprocess
+    patcher=Path(
+        os.environ.get("KALMAN_APP_ROOT","/opt/kalman/app")
+    )/"scripts/patch_investment_hub_v7414.py"
+    if not patcher.exists():
+        raise SystemExit(f"[FAIL] v7.4.14 patcher missing: {patcher}")
+    subprocess.run([sys.executable,str(patcher),str(root)],check=True)
+    sys.exit(0)
 
 # vNext.7.4.13 delta: the recovered base is the verified vNext.7.4.12 bundle.
 # Only add the persisted R5.1 Forward SHADOW lifecycle UI and metadata.
@@ -1301,8 +1314,8 @@ vcurl "/api/health" "${WORK}/candidate-health.json"
 python3 - "${WORK}/candidate-health.json" <<'PY'
 import json,sys
 x=json.load(open(sys.argv[1], encoding="utf-8"))
-assert x.get("investment_hub_version") == "vNext.7.4.13", x.get("investment_hub_version")
-assert x.get("root_ui_version") == "vNext.7.4.13", x.get("root_ui_version")
+assert x.get("investment_hub_version") == "vNext.7.4.14", x.get("investment_hub_version")
+assert x.get("root_ui_version") == "vNext.7.4.14", x.get("root_ui_version")
 assert x.get("account_gateway_configured") is True
 assert x.get("account_gateway_secret_configured") is True
 assert x.get("account_trade_execution") is False
@@ -1385,6 +1398,15 @@ assert any(str(x.get("signal") or "")=="BUY" for x in events), events
 assert any(str(x.get("signal") or "")=="SELL" for x in events), events
 assert r5.get("shadow_only") is True
 assert r5.get("execution") is False
+annual=r5.get("annual_2026") or {}
+if annual:
+    assert annual.get("official_ytd") is False
+    assert (annual.get("reconstructed") or {}).get("in_sample_warning") is True
+    assert (annual.get("forward") or {}).get("prospective") is True
+    assert len(annual.get("trades") or []) >= len(trades)
+    print(f"[PASS] candidate US 2026 annual ledger trades={len(annual.get('trades') or [])}")
+else:
+    print("[INFO] annual_2026 not published yet; Forward fallback remains valid")
 print(f"[PASS] candidate KR actual ledger events={len(ledger)}")
 print(f"[PASS] candidate US R5.1 lifecycle trades={len(trades)} events={len(events)}")
 PY
@@ -1395,7 +1417,7 @@ grep -q "fmt(qty(h),6)" "${WORK}/candidate-app.js" || fail "candidate app.js lac
 grep -q "renderShadow" "${WORK}/candidate-app.js" || fail "candidate app.js lacks SHADOW read-only renderer"
 grep -q "STRICT_TOP3_ACTUAL_LEDGER" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KR actual ledger B/S"
 grep -q "R5_1_SHADOW_LEDGER" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US lifecycle ledger renderer"
-grep -q "R5.1 Forward SHADOW lifecycle" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US lifecycle chart"
+grep -q "R5.1 2026 Annual Ledger" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US 2026 annual ledger UI"
 grep -q "hydrateKrActualItem" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KR actual ledger hydration"
 echo "[PASS] candidate UI bundle + model B/S markers"
 
@@ -1418,7 +1440,7 @@ try:
 except Exception:
     raise SystemExit(1)
 ok=(
-    x.get("investment_hub_version")=="vNext.7.4.13"
+    x.get("investment_hub_version")=="vNext.7.4.14"
     and x.get("account_gateway_configured") is True
     and x.get("account_gateway_secret_configured") is True
     and x.get("account_trade_execution") is False
@@ -1443,7 +1465,7 @@ if [ "${PROD_READY}" != true ]; then
   rollback
   fail "production health failed after promotion"
 fi
-echo "[PASS] production vNext.7.4.13 health"
+echo "[PASS] production vNext.7.4.14 health"
 
 if ! wait_json_route   "${PROD_URL}/api/account"   "${WORK}/prod-account.json"   account_ok   "production account READY"; then
   rollback
@@ -1488,7 +1510,7 @@ for _ in $(seq 1 30); do
   if grep -q "accountKrw" "${WORK}/prod-app.js"      && grep -q "fmt(qty(h),6)" "${WORK}/prod-app.js"      && grep -q "renderShadow" "${WORK}/prod-app.js" \
      && grep -q "STRICT_TOP3_ACTUAL_LEDGER" "${WORK}/prod-app.js" \
      && grep -q "R5_1_SHADOW_LEDGER" "${WORK}/prod-app.js" \
-     && grep -q "R5.1 Forward SHADOW lifecycle" "${WORK}/prod-app.js"; then
+     && grep -q "R5.1 2026 Annual Ledger" "${WORK}/prod-app.js"; then
     APP_READY=true
     break
   fi
@@ -1521,10 +1543,10 @@ echo "=================================================="
 echo "PRODUCTION COMPLETE"
 echo "=================================================="
 echo "URL: ${PROD_URL}"
-echo "Version: vNext.7.4.13"
+echo "Version: vNext.7.4.14"
 echo "Account: Toss USD originals + KRW reference conversion"
 echo "KR actual model: STRICT_TOP3 ledger B/S"
-echo "US actual model: R5.1 Forward SHADOW lifecycle ledger"
+echo "US actual model: R5.1 2026 RECON + canonical Forward SHADOW ledger"
 echo "FX: browser-side OPEN-ER -> Frankfurter fallback"
 echo "API functions: 12"
 echo "SHADOW web: READ ONLY"
