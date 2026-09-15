@@ -529,28 +529,24 @@ app=replace_once(app, render_anchor, render_shadow, "renderMarket SHADOW")
 shadow_proxy=r"""
   const __kalmanUrl = new URL(req.url || '/api/dashboard', 'http://localhost');
   if ((__kalmanUrl.searchParams.get('market') || '').toUpperCase() === 'SHADOW') {
-    const base = String(process.env.TOSS_GATEWAY_URL || '').replace(/\\/+$/, '');
-    const secret = String(process.env.HUB_GATEWAY_SECRET || '');
+    const shadowUrl = 'https://kalman-shadow-readonly.vercel.app/api/shadow';
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    if (!base || !secret) {
-      res.statusCode = 503;
-      res.end(JSON.stringify({error:'SHADOW_GATEWAY_NOT_CONFIGURED'}));
-      return;
-    }
     try {
-      const upstream = await fetch(base + '/api/shadow-bakeoff', {
+      const upstream = await fetch(shadowUrl, {
         method: 'GET',
-        headers: {'X-Gateway-Secret': secret, 'Accept': 'application/json'},
+        headers: {'Accept': 'application/json'},
         cache: 'no-store'
       });
       const body = await upstream.text();
+      res.setHeader('X-Kalman-Shadow-Source', 'standalone-snapshot');
       res.statusCode = upstream.status;
       res.end(body);
       return;
     } catch (err) {
+      const code = String(err?.cause?.code || err?.code || err?.name || 'SHADOW_SNAPSHOT_FETCH_ERROR');
       res.statusCode = 502;
-      res.end(JSON.stringify({error:'SHADOW_GATEWAY_FETCH_FAILED'}));
+      res.end(JSON.stringify({error:'SHADOW_SNAPSHOT_FETCH_FAILED', code}));
       return;
     }
   }
@@ -626,7 +622,7 @@ assert "open.er-api.com" in app
 assert "api.frankfurter.dev/v2/rate/usd/krw" in app
 assert "function renderShadow(j)" in app
 assert 'data-m="SHADOW"' in index
-assert "/api/shadow-bakeoff" in dashboard
+assert "kalman-shadow-readonly.vercel.app/api/shadow" in dashboard
 assert "run_model_v2" not in app
 assert "vNext.7.4.11" in index
 
@@ -703,7 +699,7 @@ echo "[6/8] Candidate smoke tests"
 vcurl() {
   local path="$1"
   local out="$2"
-  vercel curl "${CANDIDATE}${path}" -sS >"${out}"
+  vercel curl "${CANDIDATE}${path}" -- --silent --show-error >"${out}"
 }
 
 vcurl "/api/health" "${WORK}/candidate-health.json"
@@ -772,7 +768,7 @@ assert not x.get("error"), x
 print("[PASS] candidate history")
 PY
 
-vercel curl "${CANDIDATE}/app.js" -sS >"${WORK}/candidate-app.js"
+vercel curl "${CANDIDATE}/app.js" -- --silent --show-error >"${WORK}/candidate-app.js"
 grep -q "accountKrw" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KRW mapping"
 grep -q "fmt(qty(h),6)" "${WORK}/candidate-app.js" || fail "candidate app.js lacks fractional quantity precision"
 grep -q "renderShadow" "${WORK}/candidate-app.js" || fail "candidate app.js lacks SHADOW read-only renderer"
