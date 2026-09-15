@@ -15,13 +15,24 @@ def validate_order(
     daily_committed_krw: int = 0,
     *,
     risk_reducing_exit: bool = False,
+    execution_channel: str = 'AUTO',
 ) -> RiskDecision:
     symbol = symbol.upper()
+    channel = execution_channel.strip().upper()
 
-    if not settings.trading_enabled:
-        return RiskDecision(False, 'TRADING_DISABLED')
-    if settings.live_trading_confirm != 'CONFIRM_LIVE_TRADING':
-        return RiskDecision(False, 'LIVE_CONFIRMATION_MISSING')
+    if channel == 'MANUAL':
+        if not settings.manual_trading_enabled:
+            return RiskDecision(False, 'MANUAL_TRADING_DISABLED')
+        if settings.manual_trading_confirm != 'CONFIRM_MANUAL_TRADING':
+            return RiskDecision(False, 'MANUAL_CONFIRMATION_MISSING')
+    elif channel == 'AUTO':
+        if not settings.trading_enabled:
+            return RiskDecision(False, 'TRADING_DISABLED')
+        if settings.live_trading_confirm != 'CONFIRM_LIVE_TRADING':
+            return RiskDecision(False, 'LIVE_CONFIRMATION_MISSING')
+    else:
+        return RiskDecision(False, 'INVALID_EXECUTION_CHANNEL')
+
     if amount_krw <= 0:
         return RiskDecision(False, 'INVALID_AMOUNT')
 
