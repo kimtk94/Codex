@@ -4,13 +4,11 @@ set -euo pipefail
 SRC_ROOT="${KALMAN_SOURCE_ROOT:-/opt/kalman/src/Codex/kalman-toss-gateway}"
 ENV_FILE="${KALMAN_ENV_FILE:-/opt/kalman/.env}"
 TEAM_ID="${VERCEL_TEAM_ID:-team_eklxTMfdySLBHexmheTiWGCE}"
-TEAM_SLUG="${VERCEL_TEAM_SLUG:-insk1285-9320s-projects}"
-SOURCE_PROJECT_ID="${VERCEL_SOURCE_PROJECT_ID:-prj_KCDIl7qLqtBloI7pjRFQk2Itq7V1}"
 SHADOW_PROJECT_NAME="${KALMAN_SHADOW_WEB_PROJECT:-kalman-shadow-readonly}"
+SHADOW_PROJECT_ID="${KALMAN_SHADOW_PROJECT_ID:-prj_jOPKhEQPtwLd845CQUYGq8x2jLP0}"
 STABLE_URL="https://${SHADOW_PROJECT_NAME}.vercel.app"
 WORK="/tmp/kalman-shadow-readonly-$(date -u +%Y%m%dT%H%M%SZ)"
 APP_DIR="${WORK}/app"
-ENV_PULL="${WORK}/source-production.env"
 
 fail(){ echo "[FAIL] $*" >&2; exit 1; }
 
@@ -20,11 +18,39 @@ done
 
 [ -d "$SRC_ROOT/shadow-web" ] || fail "shadow-web source missing: $SRC_ROOT/shadow-web"
 
+STATUS_PATH="${KALMAN_SHADOW_BAKEOFF_STATUS:-}"
+if [ -z "$STATUS_PATH" ]; then
+  STATUS_PATH="$(python3 - "$ENV_FILE" <<'PY'
+from pathlib import Path
+import sys
+
+p=Path(sys.argv[1])
+v={}
+if p.is_file():
+    for raw in p.read_text(encoding="utf-8").splitlines():
+        line=raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k,val=line.split("=",1)
+        val=val.strip()
+        if len(val)>=2 and val[0]==val[-1] and val[0] in {'"', "'"}:
+            val=val[1:-1]
+        v[k.strip()]=val
+
+data_root=v.get("KALMAN_DATA_ROOT") or "/opt/kalman/data"
+model_root=v.get("KALMAN_MODEL_V2_ROOT") or str(Path(data_root)/"Market_Model_V2")
+print(v.get("KALMAN_SHADOW_BAKEOFF_STATUS") or str(Path(model_root)/"shadow_bakeoff/v1/latest/bakeoff_status.json"))
+PY
+)"
+fi
+
+[ -f "$STATUS_PATH" ] || fail "SHADOW bakeoff status missing: $STATUS_PATH"
+
 mkdir -p "$APP_DIR"
 cp -a "$SRC_ROOT/shadow-web/." "$APP_DIR/"
 
 echo "============================================================"
-echo "KALMAN — STANDALONE SHADOW READ-ONLY WEB"
+echo "KALMAN — STANDALONE SHADOW SNAPSHOT WEB"
 echo "============================================================"
 
 echo
@@ -33,280 +59,90 @@ vercel whoami >/dev/null
 echo "[PASS] Vercel CLI authenticated"
 
 echo
-echo "[2/6] Resolve production gateway configuration without printing secrets"
-
-python3 - "$ENV_FILE" "$ENV_PULL" "$SOURCE_PROJECT_ID" "$TEAM_ID" <<'PY'
+echo "[2/6] Validate fresh read-only SHADOW snapshot"
+python3 - "$STATUS_PATH" "$APP_DIR/api/shadow.js" <<'PY'
 from __future__ import annotations
+import base64
 import json
-import os
-import ipaddress
 from pathlib import Path
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 
-env_file, out_file, source_project_id, team_id = sys.argv[1:]
+src=Path(sys.argv[1])
+dst=Path(sys.argv[2])
+x=json.loads(src.read_text(encoding="utf-8"))
 
-def parse_env(path):
-    p=Path(path)
-    out={}
-    if not p.is_file():
-        return out
-    for raw in p.read_text(encoding="utf-8").splitlines():
-        line=raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key,value=line.split("=",1)
-        value=value.strip()
-        if len(value)>=2 and value[0]==value[-1] and value[0] in {'"', "'"}:
-            value=value[1:-1]
-        out[key.strip()]=value
-    return out
+if x.get("status") != "READY":
+    raise SystemExit(f"[FAIL] SHADOW status={x.get('status')!r}")
 
-def valid_gateway(value):
-    value=str(value or "").strip()
-    if not value or "\n" in value or "\r" in value:
-        return False
-    try:
-        u=urllib.parse.urlparse(value)
-    except Exception:
-        return False
-    if u.scheme not in {"http","https"} or not u.hostname:
-        return False
-    host=str(u.hostname).strip().lower()
-    if host in {"localhost","127.0.0.1","::1"}:
-        return False
-    try:
-        ip=ipaddress.ip_address(host)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_unspecified:
-            return False
-    except ValueError:
-        pass
-    return True
+signals=x.get("signal_status") or x.get("signals") or {}
+for market in ("US","KR","BTC"):
+    s=signals.get(market)
+    if not isinstance(s,dict):
+        raise SystemExit(f"[FAIL] missing SHADOW signal: {market}")
 
-def find_token():
-    v=os.environ.get("VERCEL_TOKEN","").strip()
-    if v:
-        return v
-    home=Path.home()
-    candidates=[
-        home/".local/share/com.vercel.cli/auth.json",
-        home/".config/vercel/auth.json",
-        home/".vercel/auth.json",
-    ]
-    for base in (home/".local/share",home/".config"):
-        if base.exists():
-            candidates.extend(base.glob("**/com.vercel.cli/auth.json"))
-    seen=set()
-    for p in candidates:
-        p=Path(p)
-        if p in seen or not p.is_file():
-            continue
-        seen.add(p)
-        try:
-            obj=json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        token=str(obj.get("token") or "").strip() if isinstance(obj,dict) else ""
-        if token:
-            return token
-    raise SystemExit("[FAIL] Vercel token not found")
+inv=x.get("invariants") or {}
+for key in (
+    "production_write",
+    "neon_write",
+    "toss_execution",
+    "live_execution",
+    "auto_trade_visible",
+    "dashboard_snapshot_created",
+):
+    if key in inv and inv.get(key) is not False:
+        raise SystemExit(f"[FAIL] unsafe invariant {key}={inv.get(key)!r}")
 
-local=parse_env(env_file)
-gateway=str(local.get("TOSS_GATEWAY_URL") or "").strip()
-secret=str(local.get("HUB_GATEWAY_SECRET") or "").strip()
-source="server-env"
-
-if not valid_gateway(gateway) or not secret:
-    token=find_token()
-    query=urllib.parse.urlencode({
-        "teamId":team_id,
-        "decrypt":"true",
-        "source":"vercel-cli:pull",
-    })
-    url=f"https://api.vercel.com/v10/projects/{urllib.parse.quote(source_project_id,safe='')}/env?{query}"
-    req=urllib.request.Request(
-        url,
-        method="GET",
-        headers={
-            "Authorization":f"Bearer {token}",
-            "Accept":"application/json",
-            "User-Agent":"kalman-shadow-readonly/1.0",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req,timeout=30) as r:
-            payload=json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        raw=e.read().decode("utf-8",errors="replace")
-        raise SystemExit(f"[FAIL] unable to read source Vercel env: HTTP {e.code} {raw[:200]}")
-
-    envs=payload.get("envs") or []
-    selected={}
-    for item in envs:
-        if not isinstance(item,dict):
-            continue
-        key=str(item.get("key") or "")
-        if key not in {"TOSS_GATEWAY_URL","HUB_GATEWAY_SECRET"}:
-            continue
-        target=item.get("target") or []
-        if isinstance(target,str):
-            target=[target]
-        if "production" not in target:
-            continue
-        value=str(item.get("value") or "").strip()
-        if value:
-            selected[key]=value
-
-    if not valid_gateway(gateway):
-        gateway=str(selected.get("TOSS_GATEWAY_URL") or "").strip()
-    if not secret:
-        secret=str(selected.get("HUB_GATEWAY_SECRET") or "").strip()
-    source="vercel-api-decrypted"
-
-if not valid_gateway(gateway):
-    raise SystemExit("[FAIL] TOSS_GATEWAY_URL is missing or not a valid http(s) URL")
-if not secret:
-    raise SystemExit("[FAIL] HUB_GATEWAY_SECRET is missing")
-if any(ch in gateway for ch in "\r\n") or any(ch in secret for ch in "\r\n"):
-    raise SystemExit("[FAIL] gateway configuration contains newline characters")
-
-p=Path(out_file)
-p.write_text(
-    "TOSS_GATEWAY_URL="+gateway+"\n"
-    "HUB_GATEWAY_SECRET="+secret+"\n",
-    encoding="utf-8",
-)
-p.chmod(0o600)
-
-scheme=urllib.parse.urlparse(gateway).scheme
-print(f"[PASS] source gateway configuration resolved ({source}, scheme={scheme})")
-PY
-
-echo
-echo "[3/6] Create/reuse isolated Vercel project and upsert encrypted env"
-python3 - "$ENV_PULL" "$TEAM_ID" "$SHADOW_PROJECT_NAME" "$APP_DIR" <<'PY'
-from __future__ import annotations
-import json
-import os
-from pathlib import Path
-import sys
-import urllib.error
-import urllib.parse
-import urllib.request
-env_file, team_id, project_name, app_dir = sys.argv[1:]
-
-def parse_env(path):
-    out={}
-    for raw in Path(path).read_text(encoding="utf-8").splitlines():
-        line=raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key,value=line.split("=",1)
-        value=value.strip()
-        if len(value)>=2 and value[0]==value[-1] and value[0] in {'"', "'"}:
-            value=value[1:-1]
-        out[key.strip()]=value
-    return out
-
-env=parse_env(env_file)
-gateway=str(env.get("TOSS_GATEWAY_URL") or "").strip()
-secret=str(env.get("HUB_GATEWAY_SECRET") or "").strip()
-if not gateway or not secret:
-    raise SystemExit("[FAIL] required source env missing")
-
-def find_token():
-    v=os.environ.get("VERCEL_TOKEN","").strip()
-    if v:
-        return v
-    home=Path.home()
-    candidates=[
-        home/".local/share/com.vercel.cli/auth.json",
-        home/".config/vercel/auth.json",
-        home/".vercel/auth.json",
-    ]
-    for base in (home/".local/share",home/".config"):
-        if base.exists():
-            candidates.extend(base.glob("**/com.vercel.cli/auth.json"))
-    seen=set()
-    for p in candidates:
-        p=Path(p)
-        if p in seen or not p.is_file():
-            continue
-        seen.add(p)
-        try:
-            obj=json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        token=str(obj.get("token") or "").strip() if isinstance(obj,dict) else ""
-        if token:
-            return token
-    raise SystemExit("[FAIL] Vercel token not found")
-
-token=find_token()
-headers={
-    "Authorization":f"Bearer {token}",
-    "Content-Type":"application/json",
-    "Accept":"application/json",
-    "User-Agent":"kalman-shadow-readonly/1.0",
+# Gateway normalizes signal_status -> signals. Preserve the existing public API
+# schema so the UI does not care whether the source is gateway or snapshot.
+safe=dict(x)
+safe["schema_version"]="kalman-shadow-readonly-v1"
+safe["signals"]=signals
+safe.pop("signal_status",None)
+safe["invariants"]={
+    **inv,
+    "read_only":True,
+    "trade_execution":False,
 }
-q=urllib.parse.urlencode({"teamId":team_id})
+safe["snapshot_source"]="server-bakeoff-file"
 
-def request(method,url,body=None,allow_404=False):
-    data=None if body is None else json.dumps(body).encode("utf-8")
-    req=urllib.request.Request(url,data=data,method=method,headers=headers)
-    try:
-        with urllib.request.urlopen(req,timeout=30) as r:
-            return r.status,json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        raw=e.read().decode("utf-8",errors="replace")
-        if allow_404 and e.code==404:
-            return 404,{}
-        raise SystemExit(f"[FAIL] Vercel API {method} {url}: HTTP {e.code} {raw[:300]}")
+raw=json.dumps(safe,ensure_ascii=False,separators=(",",":")).encode("utf-8")
+b64=base64.b64encode(raw).decode("ascii")
 
-status,project=request("GET",f"https://api.vercel.com/v9/projects/{urllib.parse.quote(project_name,safe='')}?{q}",allow_404=True)
-if status==404:
-    _,project=request("POST",f"https://api.vercel.com/v11/projects?{q}",{"name":project_name})
-    print("[PASS] project created")
-else:
-    print("[PASS] project reused")
+js=f"""module.exports = async function handler(req,res){{
+  const raw=Buffer.from('{b64}','base64').toString('utf8');
+  res.setHeader('Cache-Control','no-store');
+  res.setHeader('Content-Type','application/json; charset=utf-8');
+  res.setHeader('X-Kalman-Shadow-Source','snapshot');
+  res.statusCode=200;
+  res.end(raw);
+}};
+"""
+dst.write_text(js,encoding="utf-8")
 
-project_id=str(project.get("id") or "").strip()
-if not project_id:
-    raise SystemExit("[FAIL] project id missing")
-
-env_body=[
-    {"key":"TOSS_GATEWAY_URL","value":gateway,"type":"encrypted","target":["production"]},
-    {"key":"HUB_GATEWAY_SECRET","value":secret,"type":"encrypted","target":["production"]},
-]
-request(
-    "POST",
-    f"https://api.vercel.com/v10/projects/{project_id}/env?upsert=true&{q}",
-    env_body,
-)
-print("[PASS] encrypted production env upserted")
-
-vercel_dir=Path(app_dir)/".vercel"
-vercel_dir.mkdir(parents=True,exist_ok=True)
-(vercel_dir/"project.json").write_text(
-    json.dumps({"projectId":project_id,"orgId":team_id}),
-    encoding="utf-8",
-)
-(Path(app_dir)/".kalman-project-id").write_text(project_id,encoding="utf-8")
+print("[PASS] snapshot READY")
+print("updated_at=",safe.get("updated_at"))
+for market in ("US","KR","BTC"):
+    s=signals.get(market) or {}
+    print(market,"as_of=",s.get("as_of"),"signal=",s.get("signal"))
+print("[PASS] trade_execution=false")
 PY
 
-rm -f "$ENV_PULL"
-echo "[PASS] temporary source env removed"
+echo
+echo "[3/6] Link isolated Vercel project"
+mkdir -p "$APP_DIR/.vercel"
+cat > "$APP_DIR/.vercel/project.json" <<EOF
+{"projectId":"$SHADOW_PROJECT_ID","orgId":"$TEAM_ID"}
+EOF
+echo "[PASS] project linked: $SHADOW_PROJECT_NAME"
 
 echo
-echo "[4/6] Deploy standalone SHADOW web"
+echo "[4/6] Deploy standalone SHADOW snapshot"
 cd "$APP_DIR"
 set +e
 vercel deploy --prod --yes 2>&1 | tee "$WORK/deploy.log"
 DEPLOY_RC=${PIPESTATUS[0]}
 set -e
-[ "$DEPLOY_RC" -eq 0 ] || fail "shadow web deployment failed"
+[ "$DEPLOY_RC" -eq 0 ] || fail "shadow snapshot deployment failed"
 
 DEPLOY_URL="$(
   python3 - "$WORK/deploy.log" <<'PY'
@@ -338,7 +174,8 @@ inv=s.get("invariants") or {}
 assert inv.get("read_only") is True
 assert inv.get("trade_execution") is False
 assert all(m in (s.get("signals") or {}) for m in ("US","KR","BTC"))
-print("[PASS] standalone SHADOW read-only smoke")
+assert s.get("snapshot_source")=="server-bakeoff-file"
+print("[PASS] standalone SHADOW snapshot smoke")
 PY
 
 grep -q "Kalman Forward SHADOW" "$WORK/index.html" || fail "SHADOW UI marker missing"
@@ -360,11 +197,13 @@ try:
     s=json.loads(Path(sys.argv[2]).read_text(encoding="utf-8").strip())
 except Exception:
     raise SystemExit(1)
+
 ok=(
     h.get("status")=="ok"
     and h.get("read_only") is True
     and s.get("status")=="READY"
     and s.get("schema_version")=="kalman-shadow-readonly-v1"
+    and s.get("snapshot_source")=="server-bakeoff-file"
 )
 raise SystemExit(0 if ok else 1)
 PY
@@ -375,12 +214,13 @@ PY
   sleep 2
 done
 
-[ "$STABLE_READY" = true ] || fail "stable SHADOW production domain did not become READY"
+[ "$STABLE_READY" = true ] || fail "stable SHADOW snapshot domain did not become READY"
 echo "[PASS] stable SHADOW production domain"
 
 echo
 echo "[6/6] Complete"
 echo "SHADOW_READONLY_WEB_GATE=PASS"
+echo "SHADOW_SOURCE=snapshot"
 echo "SHADOW_WEB=$STABLE_URL"
 echo "DEPLOYMENT_URL=$DEPLOY_URL"
 echo "MAIN_WEB=https://kalman-investment-hub-v2.vercel.app"
