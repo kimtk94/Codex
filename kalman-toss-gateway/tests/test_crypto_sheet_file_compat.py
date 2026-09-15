@@ -144,5 +144,39 @@ class CryptoSheetFileCompatTests(unittest.TestCase):
                 self.assertEqual(resolve_crypto_archive_xlsx(), path)
 
 
+    def test_rclone_archive_export_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cache = root / "cache.xlsx"
+
+            def fake_run(cmd, **kwargs):
+                tmp = Path(cmd[cmd.index("copyto") + 2])
+                _write_test_xlsx(tmp)
+
+                class Result:
+                    returncode = 0
+                    stdout = ""
+                    stderr = ""
+
+                return Result()
+
+            env = {
+                "KALMAN_CRYPTO_ARCHIVE_CACHE": str(cache),
+                "KALMAN_CRYPTO_ARCHIVE_RCLONE_SOURCE": "gdrive:archive.xlsx",
+                "KALMAN_RCLONE_CONFIG": str(root / "rclone.conf"),
+            }
+            with patch.dict(os.environ, env, clear=False), \
+                 patch("engine.crypto_sheet_file_compat.shutil.which", return_value="/usr/bin/rclone"), \
+                 patch("engine.crypto_sheet_file_compat.subprocess.run", side_effect=fake_run):
+                result = resolve_crypto_archive_xlsx()
+
+            self.assertEqual(result, cache)
+            self.assertTrue(result.is_file())
+            self.assertEqual(
+                _Workbook(result).worksheet("KRW_BTC_4H").get_all_values()[-1][4],
+                "2",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
