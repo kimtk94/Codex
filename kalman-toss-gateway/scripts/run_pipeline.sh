@@ -94,7 +94,9 @@ PY
 esac
 
 cd "$APP_ROOT"
-if ! flock -n "$LOCK_DIR/pipeline.lock" "$PY" -m engine.pipeline_entry; then
+if flock -n "$LOCK_DIR/pipeline.lock" "$PY" -m engine.pipeline_entry; then
+  :
+else
   rc=$?
   echo "[FAIL] Unified pipeline failed: mode=$MODE exit=$rc" >&2
   exit "$rc"
