@@ -39,6 +39,7 @@ python3 - "$ENV_FILE" "$ENV_PULL" "$SOURCE_PROJECT_ID" "$TEAM_ID" <<'PY'
 from __future__ import annotations
 import json
 import os
+import ipaddress
 from pathlib import Path
 import sys
 import urllib.error
@@ -71,7 +72,18 @@ def valid_gateway(value):
         u=urllib.parse.urlparse(value)
     except Exception:
         return False
-    return u.scheme in {"http","https"} and bool(u.hostname)
+    if u.scheme not in {"http","https"} or not u.hostname:
+        return False
+    host=str(u.hostname).strip().lower()
+    if host in {"localhost","127.0.0.1","::1"}:
+        return False
+    try:
+        ip=ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_unspecified:
+            return False
+    except ValueError:
+        pass
+    return True
 
 def find_token():
     v=os.environ.get("VERCEL_TOKEN","").strip()
@@ -266,7 +278,7 @@ if not project_id:
 
 env_body=[
     {"key":"TOSS_GATEWAY_URL","value":gateway,"type":"encrypted","target":["production"]},
-    {"key":"HUB_GATEWAY_SECRET","value":secret,"type":"sensitive","target":["production"]},
+    {"key":"HUB_GATEWAY_SECRET","value":secret,"type":"encrypted","target":["production"]},
 ]
 request(
     "POST",
