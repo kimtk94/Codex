@@ -62,6 +62,35 @@ jobs:
           bash -n scripts/deploy_investment_hub_account_krw.sh
           bash -n scripts/promote_main_v7411_safe.sh
 
+      - name: Inspect unified Google compatibility bridge
+        run: |
+          python - <<'PY'
+          import base64, lzma, re
+          from pathlib import Path
+
+          parts=sorted(Path("engine").glob("_unified_payload_*.b64"))
+          enc="".join("".join(p.read_text(encoding="ascii").split()) for p in parts)
+          text=lzma.decompress(base64.b64decode(enc)).decode("utf-8")
+
+          pats=("Drive compatibility","google.auth","GOOGLE_APPLICATION_CREDENTIALS","gspread","Google Sheets","spreadsheet")
+          lines=text.splitlines()
+          hits=[]
+          for i,line in enumerate(lines):
+              if any(p.lower() in line.lower() for p in pats):
+                  hits.append(i)
+
+          seen=set()
+          for i in hits:
+              a=max(0,i-8); b=min(len(lines),i+18)
+              key=(a,b)
+              if key in seen:
+                  continue
+              seen.add(key)
+              print(f"--- unified payload lines {a+1}-{b} ---")
+              for j in range(a,b):
+                  print(f"{j+1:05d}: {lines[j]}")
+          PY
+
       - name: Run gateway safety tests
         env:
           PYTHONPATH: .
