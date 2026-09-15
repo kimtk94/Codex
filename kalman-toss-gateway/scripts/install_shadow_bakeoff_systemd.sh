@@ -2,6 +2,8 @@
 set -euo pipefail
 
 APP_ROOT="${KALMAN_APP_ROOT:-/opt/kalman/app}"
+RESEARCH_VENV="${KALMAN_RESEARCH_V2_VENV:-/opt/kalman/.venv-research-v2}"
+PY="$RESEARCH_VENV/bin/python"
 SERVICE_SRC="$APP_ROOT/config/kalman-shadow-bakeoff-daily.service"
 TIMER_SRC="$APP_ROOT/config/kalman-shadow-bakeoff-daily.timer"
 SERVICE_DST="/etc/systemd/system/kalman-shadow-bakeoff-daily.service"
@@ -44,13 +46,36 @@ if [ "$ACTION" = "--remove" ]; then
   exit 0
 fi
 
-for f in "$SERVICE_SRC" "$TIMER_SRC"   "$APP_ROOT/scripts/run_shadow_bakeoff_daily.sh"   "$APP_ROOT/scripts/run_historical_source_refresh_rclone.sh"
+for f in "$SERVICE_SRC" "$TIMER_SRC"   "$APP_ROOT/scripts/run_shadow_bakeoff_daily.sh"   "$APP_ROOT/scripts/run_historical_source_refresh_rclone.sh"   "$APP_ROOT/research/model_v2/build_historical_feature_matrix.py"   "$APP_ROOT/research/quant_stack/historical_v3_2_portfolio_validation.py"   "$APP_ROOT/research/shadow_bakeoff/runner.py"
 do
   [ -f "$f" ] || {
     echo "[FAIL] missing required file: $f" >&2
     exit 11
   }
 done
+
+[ -x "$PY" ] || {
+  echo "[FAIL] research Python missing: $PY" >&2
+  exit 12
+}
+
+PYTHONPATH="$APP_ROOT" "$PY" - <<'PY'
+from importlib.metadata import version
+from packaging.version import Version
+
+import scipy
+from pypfopt import EfficientFrontier
+import research.model_v2.build_historical_feature_matrix
+import research.quant_stack.historical_v3_2_portfolio_validation
+import research.shadow_bakeoff.runner
+
+if Version(version("PyPortfolioOpt")) != Version("1.6.0"):
+    raise SystemExit("[FAIL] PyPortfolioOpt runtime must be exactly 1.6.0")
+if Version(scipy.__version__) >= Version("1.18"):
+    raise SystemExit("[FAIL] scipy runtime must remain < 1.18")
+
+print("SHADOW_SYSTEMD_RUNTIME_PREFLIGHT=PASS")
+PY
 
 if [ -f "$LEGACY_CRON" ]; then
   mv "$LEGACY_CRON" "$LEGACY_CRON.disabled.$(date -u +%Y%m%dT%H%M%SZ)"
