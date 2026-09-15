@@ -1,3 +1,5 @@
+import json
+
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -124,6 +126,97 @@ async def orders(
     settings: Settings = Depends(get_settings),
 ):
     return await TossClient(settings).orders(status)
+
+
+@app.get('/api/shadow-bakeoff', dependencies=[Depends(authorize_gateway)])
+async def shadow_bakeoff(settings: Settings = Depends(get_settings)):
+    path = settings.shadow_bakeoff_status_path
+    if not path.exists():
+        raise HTTPException(status_code=404, detail='Shadow bakeoff status is not available')
+
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=503, detail=f'Shadow bakeoff status unreadable: {type(exc).__name__}') from exc
+
+    if payload.get('status') != 'READY':
+        raise HTTPException(status_code=503, detail='Shadow bakeoff status is not READY')
+
+    invariants = payload.get('invariants') or {}
+    required_false = (
+        'production_write',
+        'neon_write',
+        'toss_execution',
+        'live_execution',
+        'auto_trade_visible',
+        'dashboard_snapshot_created',
+    )
+    if invariants.get('file_only') is not True:
+        raise HTTPException(status_code=503, detail='Shadow bakeoff file_only invariant failed')
+    for key in required_false:
+        if invariants.get(key) is not False:
+            raise HTTPException(status_code=503, detail=f'Shadow bakeoff invariant failed: {key}')
+
+    safe_signals: dict[str, dict] = {}
+    for market, signal in (payload.get('signal_status') or {}).items():
+        if not isinstance(signal, dict):
+            continue
+        safe_signals[str(market)] = {
+            'market': signal.get('market') or market,
+            'symbol': signal.get('symbol'),
+            'as_of': signal.get('as_of'),
+            'signal': signal.get('signal'),
+            'entry_allowed': bool(signal.get('entry_allowed')),
+            'model_family': signal.get('model_family'),
+            'missing_feature_ratio': signal.get('missing_feature_ratio'),
+            'selected_feature_count': signal.get('selected_feature_count'),
+            'probability': signal.get('probability'),
+            'probability_threshold': signal.get('probability_threshold'),
+            'predicted_return': signal.get('predicted_return'),
+            'regime_probability': signal.get('regime_probability'),
+            'entry_return_threshold': signal.get('entry_return_threshold'),
+            'research_only': True,
+            'shadow_only': True,
+            'live_execution': False,
+            'toss_execution': False,
+        }
+
+    ranking = []
+    for row in payload.get('forward_ranking') or []:
+        if not isinstance(row, dict):
+            continue
+        ranking.append(
+            {
+                'strategy': row.get('strategy'),
+                'status': row.get('status'),
+                'forward_rank': row.get('forward_rank'),
+                'total_return': row.get('total_return'),
+                'cagr': row.get('cagr'),
+                'sharpe': row.get('sharpe'),
+                'max_drawdown': row.get('max_drawdown'),
+                'latest_target': row.get('latest_target'),
+            }
+        )
+
+    return {
+        'schema_version': 'kalman-shadow-readonly-v1',
+        'status': 'READY',
+        'experiment': payload.get('experiment'),
+        'tracking_status': payload.get('tracking_status'),
+        'seed_end': payload.get('seed_end'),
+        'latest_as_of': payload.get('latest_as_of'),
+        'updated_at': payload.get('updated_at'),
+        'post_seed_return_rows': payload.get('post_seed_return_rows'),
+        'has_post_seed_signal': payload.get('has_post_seed_signal'),
+        'signals': safe_signals,
+        'forward_ranking': ranking,
+        'invariants': {
+            'read_only': True,
+            'file_only_source': True,
+            'trade_execution': False,
+            'auto_trade_visible': False,
+        },
+    }
 
 
 @app.post('/api/order-probe', dependencies=[Depends(authorize_gateway)])
