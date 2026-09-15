@@ -40,7 +40,7 @@ EOF
 
 (
   cd "$WORK/source-link"
-  vercel env pull "$ENV_PULL" --environment=production --yes --scope "$TEAM_SLUG" >/dev/null
+  vercel env pull "$ENV_PULL" --environment=production --yes >/dev/null
 )
 
 python3 - "$ENV_PULL" <<'PY'
@@ -186,7 +186,7 @@ echo
 echo "[4/6] Deploy standalone SHADOW web"
 cd "$APP_DIR"
 set +e
-vercel deploy --prod --yes --scope "$TEAM_SLUG" 2>&1 | tee "$WORK/deploy.log"
+vercel deploy --prod --yes 2>&1 | tee "$WORK/deploy.log"
 DEPLOY_RC=${PIPESTATUS[0]}
 set -e
 [ "$DEPLOY_RC" -eq 0 ] || fail "shadow web deployment failed"
