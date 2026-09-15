@@ -706,7 +706,7 @@ vcurl "/api/health" "${WORK}/candidate-health.json"
 python3 - "${WORK}/candidate-health.json" <<'PY'
 import json,sys
 x=json.load(open(sys.argv[1], encoding="utf-8"))
-assert x.get("investment_hub_version") == "vNext.7.4.10", x.get("investment_hub_version")
+assert x.get("investment_hub_version") == "vNext.7.4.11", x.get("investment_hub_version")
 assert x.get("account_gateway_configured") is True
 assert x.get("account_gateway_secret_configured") is True
 assert x.get("account_trade_execution") is False
@@ -746,6 +746,20 @@ assert x.get("payload") is not None
 print("[PASS] candidate dashboard")
 PY
 
+vcurl "/api/dashboard?market=SHADOW" "${WORK}/candidate-shadow.json"
+python3 - "${WORK}/candidate-shadow.json" <<'PY'
+import json,sys
+x=json.load(open(sys.argv[1], encoding="utf-8"))
+assert x.get("status")=="READY", x
+assert x.get("schema_version")=="kalman-shadow-readonly-v1", x
+inv=x.get("invariants") or {}
+assert inv.get("read_only") is True
+assert inv.get("trade_execution") is False
+for market in ("US","KR","BTC"):
+    assert market in (x.get("signals") or {}), market
+print("[PASS] candidate SHADOW read-only")
+PY
+
 vcurl "/api/history?asset=BTC&count=2" "${WORK}/candidate-history.json"
 python3 - "${WORK}/candidate-history.json" <<'PY'
 import json,sys
@@ -757,6 +771,7 @@ PY
 vercel curl "${CANDIDATE}/app.js" -sS >"${WORK}/candidate-app.js"
 grep -q "accountKrw" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KRW mapping"
 grep -q "fmt(qty(h),6)" "${WORK}/candidate-app.js" || fail "candidate app.js lacks fractional quantity precision"
+grep -q "renderShadow" "${WORK}/candidate-app.js" || fail "candidate app.js lacks SHADOW read-only renderer"
 echo "[PASS] candidate UI bundle"
 
 echo
@@ -778,7 +793,7 @@ try:
 except Exception:
     raise SystemExit(1)
 ok=(
-    x.get("investment_hub_version")=="vNext.7.4.10"
+    x.get("investment_hub_version")=="vNext.7.4.11"
     and x.get("account_gateway_configured") is True
     and x.get("account_gateway_secret_configured") is True
     and x.get("account_trade_execution") is False
@@ -803,7 +818,7 @@ if [ "${PROD_READY}" != true ]; then
   rollback
   fail "production health failed after promotion"
 fi
-echo "[PASS] production vNext.7.4.10 health"
+echo "[PASS] production vNext.7.4.11 health"
 
 if ! wait_json_route   "${PROD_URL}/api/account"   "${WORK}/prod-account.json"   account_ok   "production account READY"; then
   rollback
@@ -815,11 +830,37 @@ if ! wait_json_route   "${PROD_URL}/api/dashboard?market=GLOBAL"   "${WORK}/prod
   fail "production dashboard smoke failed"
 fi
 
+shadow_ok() {
+  local file="$1"
+  python3 - "$file" <<'PY' >/dev/null 2>&1
+import json,sys
+from pathlib import Path
+try:
+    x=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8").strip())
+except Exception:
+    raise SystemExit(1)
+inv=x.get("invariants") or {}
+ok=(
+    x.get("status")=="READY"
+    and x.get("schema_version")=="kalman-shadow-readonly-v1"
+    and inv.get("read_only") is True
+    and inv.get("trade_execution") is False
+    and all(k in (x.get("signals") or {}) for k in ("US","KR","BTC"))
+)
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+if ! wait_json_route   "${PROD_URL}/api/dashboard?market=SHADOW"   "${WORK}/prod-shadow.json"   shadow_ok   "production SHADOW read-only READY"; then
+  rollback
+  fail "production SHADOW read-only smoke failed"
+fi
+
 APP_READY=false
 for _ in $(seq 1 30); do
   : >"${WORK}/prod-app.js"
   curl -fsS --max-time 20 "${PROD_URL}/app.js" >"${WORK}/prod-app.js" 2>/dev/null || true
-  if grep -q "accountKrw" "${WORK}/prod-app.js"      && grep -q "fmt(qty(h),6)" "${WORK}/prod-app.js"; then
+  if grep -q "accountKrw" "${WORK}/prod-app.js"      && grep -q "fmt(qty(h),6)" "${WORK}/prod-app.js"      && grep -q "renderShadow" "${WORK}/prod-app.js"; then
     APP_READY=true
     break
   fi
@@ -831,7 +872,7 @@ if [ "${APP_READY}" != true ]; then
   fail "production UI marker missing"
 fi
 
-echo "[PASS] production account + dashboard + UI"
+echo "[PASS] production account + dashboard + SHADOW read-only + UI"
 
 echo
 echo "[8/8] Gateway live-trading gate verification"
