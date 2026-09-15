@@ -229,22 +229,26 @@ def annotate_papers(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     digital_col = []
     omics_col = []
     disease_col = []
+    method_col = []
 
     for _, row in out.iterrows():
         text = normalize_text(row)
         digital = matched_axes(text, cfg["digital_health_terms"])
         omics = matched_axes(text, cfg["omics_terms"])
         disease = matched_axes(text, cfg["disease_terms"])
+        methods = matched_axes(text, cfg.get("method_terms", {}))
         if not disease:
             disease = ["other"]
 
         digital_col.append(";".join(digital))
         omics_col.append(";".join(omics))
         disease_col.append(";".join(disease))
+        method_col.append(";".join(methods))
 
     out["digital_axes"] = digital_col
     out["omics_axes"] = omics_col
     out["disease_axes"] = disease_col
+    out["method_axes"] = method_col
     return out
 
 
