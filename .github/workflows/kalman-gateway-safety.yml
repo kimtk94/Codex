@@ -77,6 +77,10 @@ jobs:
           bash -n scripts/repair_investment_hub_sync.sh
           bash -n scripts/deploy_investment_hub_account_krw.sh
           bash -n scripts/promote_main_v7411_safe.sh
+          if grep -q 'CFG_AUTO_TRADE_ENABLED=true' scripts/configure_auto_trade_env.sh; then
+            echo "configure_auto_trade_env.sh must never enable automated trading" >&2
+            exit 1
+          fi
 
       - name: Run gateway safety tests
         env:
