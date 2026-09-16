@@ -78,6 +78,15 @@ The bot does not treat an accepted order as a filled position. It queries Toss o
 
 Unexpected broker/local quantity mismatches, ambiguous POST outcomes, and unresolved order states go to a manual-reconcile state and block new entries instead of guessing or duplicating an order.
 
+For a newly submitted LIVE exit, the position manager performs a bounded same-cycle reconciliation before the entry worker starts. Defaults are:
+
+```env
+AUTO_TRADE_EXIT_FILL_WAIT_SECONDS=45
+AUTO_TRADE_EXIT_POLL_SECONDS=1
+```
+
+If the SELL reaches a terminal fill and the managed position becomes `CLOSED` inside that window, `run_auto_trade.sh` immediately continues to `engine.auto_trade`, which re-reads broker holdings, open orders, and USD buying power before considering a BUY. If the exit is still open, only partially terminal, ambiguous, or times out, the managed position stays active and a fresh BUY remains blocked.
+
 By default the bot manages one position at a time. `AUTO_TRADE_REQUIRE_ACCOUNT_FLAT=true` also requires the brokerage account to have no holdings and no open orders before the first automated entry. This is intended for the clean handoff after any legacy holdings are manually liquidated.
 
 Read-only status:
