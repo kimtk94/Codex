@@ -142,8 +142,10 @@ def test_event_after_us_close_does_not_leak_same_day():
         market="US",
         max_age_hours=168,
     )
-    assert pd.isna(out.loc[1, "macro__inflation_shock"])
+    assert out.loc[1, "macro__inflation_shock"] == 0.0
+    assert out.loc[1, "macro__active_event_window"] == 0.0
     assert out.loc[2, "macro__inflation_shock"] > 0
+    assert out.loc[2, "macro__active_event_window"] == 1.0
 
 
 def test_event_before_us_close_is_available_same_day():
@@ -163,3 +165,42 @@ def test_event_before_us_close_is_available_same_day():
     )
     assert out.loc[0, "macro__inflation_shock"] > 0
     assert out.loc[0, "macro__us2y_30m_bp_latest"] == 8.0
+
+
+def test_unavailable_reaction_source_remains_nan_not_fake_zero():
+    matrix = pd.DataFrame(
+        {
+            "as_of": pd.to_datetime(["2026-09-11", "2026-09-14"], utc=True),
+            "anchor_close": [100, 101],
+            "target_forward_return": [0.01, np.nan],
+            "target_label": [1, np.nan],
+        }
+    )
+    events = _event("2026-09-11 12:30Z")
+    events["us2y_30m_bp"] = np.nan
+    out = merge_market_matrix(
+        matrix,
+        events,
+        market="US",
+        max_age_hours=168,
+    )
+    assert out["macro__us2y_30m_bp_latest"].isna().all()
+
+
+def test_available_reaction_source_is_zero_outside_active_window():
+    matrix = pd.DataFrame(
+        {
+            "as_of": pd.to_datetime(["2026-09-01", "2026-09-11"], utc=True),
+            "anchor_close": [99, 100],
+            "target_forward_return": [0.0, np.nan],
+            "target_label": [0, np.nan],
+        }
+    )
+    out = merge_market_matrix(
+        matrix,
+        _event("2026-09-11 12:30Z"),
+        market="US",
+        max_age_hours=168,
+    )
+    assert out.loc[0, "macro__us2y_30m_bp_latest"] == 0.0
+    assert out.loc[1, "macro__us2y_30m_bp_latest"] > 0.0
