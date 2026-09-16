@@ -4,20 +4,95 @@
   "surprise_z_clip": 6.0,
   "max_event_age_hours": 168,
   "event_definitions": {
-    "CPI_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 48},
-    "CORE_CPI_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 72},
-    "PCE_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 36},
-    "CORE_PCE_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 48},
-    "PPI_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 24},
-    "NFP": {"category": "LABOR", "hawkish_sign": 1, "half_life_hours": 48},
-    "UNEMPLOYMENT_RATE": {"category": "LABOR", "hawkish_sign": -1, "half_life_hours": 48},
-    "AHE_MOM": {"category": "LABOR", "hawkish_sign": 1, "half_life_hours": 48},
-    "JOLTS_OPENINGS": {"category": "LABOR", "hawkish_sign": 1, "half_life_hours": 24},
-    "INITIAL_CLAIMS": {"category": "LABOR", "hawkish_sign": -1, "half_life_hours": 12},
-    "RETAIL_SALES_MOM": {"category": "GROWTH", "hawkish_sign": 1, "half_life_hours": 24},
-    "ISM_MANUFACTURING": {"category": "GROWTH", "hawkish_sign": 1, "half_life_hours": 24},
-    "ISM_SERVICES": {"category": "GROWTH", "hawkish_sign": 1, "half_life_hours": 24},
-    "FOMC_DECISION": {"category": "POLICY", "hawkish_sign": 1, "half_life_hours": 96},
-    "FOMC_DOT_MEDIAN": {"category": "POLICY", "hawkish_sign": 1, "half_life_hours": 120}
+    "CPI_MOM": {
+      "category": "INFLATION",
+      "hawkish_sign": 1,
+      "half_life_hours": 48,
+      "tradingeconomics_indicators": ["Inflation Rate MoM"]
+    },
+    "CORE_CPI_MOM": {
+      "category": "INFLATION",
+      "hawkish_sign": 1,
+      "half_life_hours": 72,
+      "tradingeconomics_indicators": ["Core Inflation Rate MoM"]
+    },
+    "PCE_MOM": {
+      "category": "INFLATION",
+      "hawkish_sign": 1,
+      "half_life_hours": 36,
+      "tradingeconomics_indicators": ["PCE Price Index MoM"]
+    },
+    "CORE_PCE_MOM": {
+      "category": "INFLATION",
+      "hawkish_sign": 1,
+      "half_life_hours": 48,
+      "tradingeconomics_indicators": ["Core PCE Price Index MoM"]
+    },
+    "PPI_MOM": {
+      "category": "INFLATION",
+      "hawkish_sign": 1,
+      "half_life_hours": 24,
+      "tradingeconomics_indicators": ["Producer Price Inflation MoM", "PPI MoM"]
+    },
+    "NFP": {
+      "category": "LABOR",
+      "hawkish_sign": 1,
+      "half_life_hours": 48,
+      "tradingeconomics_indicators": ["Non Farm Payrolls"]
+    },
+    "UNEMPLOYMENT_RATE": {
+      "category": "LABOR",
+      "hawkish_sign": -1,
+      "half_life_hours": 48,
+      "tradingeconomics_indicators": ["Unemployment Rate"]
+    },
+    "AHE_MOM": {
+      "category": "LABOR",
+      "hawkish_sign": 1,
+      "half_life_hours": 48,
+      "tradingeconomics_indicators": ["Average Hourly Earnings MoM"]
+    },
+    "JOLTS_OPENINGS": {
+      "category": "LABOR",
+      "hawkish_sign": 1,
+      "half_life_hours": 24,
+      "tradingeconomics_indicators": ["JOLTs Job Openings", "Job Openings"]
+    },
+    "INITIAL_CLAIMS": {
+      "category": "LABOR",
+      "hawkish_sign": -1,
+      "half_life_hours": 12,
+      "tradingeconomics_indicators": ["Initial Jobless Claims"]
+    },
+    "RETAIL_SALES_MOM": {
+      "category": "GROWTH",
+      "hawkish_sign": 1,
+      "half_life_hours": 24,
+      "tradingeconomics_indicators": ["Retail Sales MoM"]
+    },
+    "ISM_MANUFACTURING": {
+      "category": "GROWTH",
+      "hawkish_sign": 1,
+      "half_life_hours": 24,
+      "tradingeconomics_indicators": ["ISM Manufacturing PMI", "Manufacturing PMI"]
+    },
+    "ISM_SERVICES": {
+      "category": "GROWTH",
+      "hawkish_sign": 1,
+      "half_life_hours": 24,
+      "tradingeconomics_indicators": ["Non Manufacturing PMI"]
+    },
+    "FOMC_DECISION": {
+      "category": "POLICY",
+      "hawkish_sign": 1,
+      "half_life_hours": 96,
+      "tradingeconomics_indicators": ["Interest Rate"]
+    },
+    "FOMC_DOT_MEDIAN": {
+      "category": "POLICY",
+      "hawkish_sign": 1,
+      "half_life_hours": 120,
+      "tradingeconomics_indicators": []
+    }
   }
 }
