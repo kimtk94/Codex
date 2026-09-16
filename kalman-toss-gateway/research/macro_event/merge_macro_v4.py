@@ -77,13 +77,14 @@ def _decayed_state(
         & eligible["hawkish_surprise_z"].notna()
     ]
     if part.empty:
-        return np.nan
+        # Dense state feature: no active shock is economically zero, not missing.
+        return 0.0
 
     ages = (cutoff - part["available_time"]).dt.total_seconds() / 3600.0
     half_life = pd.to_numeric(part["half_life_hours"], errors="coerce")
     valid = (ages >= 0) & half_life.gt(0) & half_life.notna()
     if not valid.any():
-        return np.nan
+        return 0.0
 
     weights = np.exp(
         -np.log(2.0)
@@ -94,6 +95,24 @@ def _decayed_state(
         part.loc[valid, "hawkish_surprise_z"], errors="coerce"
     ).to_numpy(dtype=float)
     return float(np.nansum(shocks * weights))
+
+
+def _latest_decayed_value(
+    eligible: pd.DataFrame,
+    cutoff: pd.Timestamp,
+    column: str,
+) -> float:
+    part = eligible.loc[eligible[column].notna()].copy()
+    if part.empty:
+        return 0.0
+    latest = part.iloc[-1]
+    age = max(
+        0.0,
+        float((cutoff - latest["available_time"]).total_seconds() / 3600.0),
+    )
+    half_life = float(latest["half_life_hours"])
+    decay = np.exp(-np.log(2.0) * age / half_life) if half_life > 0 else 0.0
+    return float(latest[column]) * float(decay)
 
 
 def build_daily_macro_panel(
@@ -109,6 +128,10 @@ def build_daily_macro_panel(
         e["available_time"], utc=True, errors="raise"
     )
     e = e.sort_values(["available_time", "event_id"]).reset_index(drop=True)
+    source_available = {
+        col: bool(e[col].notna().any()) if col in e.columns else False
+        for col in LATEST_COLUMNS
+    }
 
     cutoffs = decision_cutoffs(as_of, market)
     rows: list[dict[str, Any]] = []
@@ -127,10 +150,9 @@ def build_daily_macro_panel(
             )
 
         if eligible.empty:
-            row["macro__event_age_hours_latest"] = np.nan
+            row["macro__event_age_hours_latest"] = float(max_age_hours)
             row["macro__event_count_72h"] = 0.0
-            for col in LATEST_COLUMNS:
-                row[f"macro__{col}_latest"] = np.nan
+            row["macro__active_event_window"] = 0.0
         else:
             latest = eligible.iloc[-1]
             row["macro__event_age_hours_latest"] = float(
@@ -141,10 +163,18 @@ def build_daily_macro_panel(
                 >= cutoff - pd.Timedelta(hours=72)
             ]
             row["macro__event_count_72h"] = float(len(recent72))
-            for col in LATEST_COLUMNS:
-                row[f"macro__{col}_latest"] = pd.to_numeric(
-                    pd.Series([latest.get(col)]), errors="coerce"
-                ).iloc[0]
+            row["macro__active_event_window"] = 1.0
+
+        # If a reaction series exists in the dataset, represent "no active reaction"
+        # as zero and decay the most recent non-null observation. If the source is
+        # entirely unavailable (e.g. no intraday US2Y feed yet), keep it all-NaN so
+        # feature selection cannot mistake missing data for a real zero series.
+        for col in LATEST_COLUMNS:
+            row[f"macro__{col}_latest"] = (
+                _latest_decayed_value(eligible, cutoff, col)
+                if source_available[col]
+                else np.nan
+            )
 
         rows.append(row)
 
