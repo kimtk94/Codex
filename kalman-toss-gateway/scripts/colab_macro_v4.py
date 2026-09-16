@@ -36,10 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--rates-context",
-        default=(
-            "Upbit_BTC/features/external/macro_rates_fx/"
-            "KR_US_FX_RATES_daily_features.parquet"
-        ),
+        default="Market_Macro/v1/rates/fred_rates_context.parquet",
     )
     p.add_argument(
         "--v3-candidate-tag", default="20260913_return_regime_v3_001"
