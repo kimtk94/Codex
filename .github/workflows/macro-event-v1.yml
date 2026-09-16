@@ -11,6 +11,7 @@ on:
       - "kalman-toss-gateway/scripts/colab_macro_v4.py"
       - "kalman-toss-gateway/tests/test_macro_event_v1.py"
       - "kalman-toss-gateway/tests/test_tradingeconomics_macro_collector.py"
+      - "notebooks/Kalman_Macro_Event_V4_20260916.ipynb"
       - ".github/workflows/macro-event-v1.yml"
   pull_request:
     branches:
@@ -22,6 +23,7 @@ on:
       - "kalman-toss-gateway/scripts/colab_macro_v4.py"
       - "kalman-toss-gateway/tests/test_macro_event_v1.py"
       - "kalman-toss-gateway/tests/test_tradingeconomics_macro_collector.py"
+      - "notebooks/Kalman_Macro_Event_V4_20260916.ipynb"
       - ".github/workflows/macro-event-v1.yml"
   workflow_dispatch:
 
@@ -59,6 +61,24 @@ jobs:
       - name: Run PIT leakage and calendar normalization tests
         run: |
           pytest -q tests/test_macro_event_v1.py tests/test_tradingeconomics_macro_collector.py
+
+      - name: Validate pinned Colab notebook
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("../notebooks/Kalman_Macro_Event_V4_20260916.ipynb")
+          nb = json.loads(p.read_text(encoding="utf-8"))
+          code = "\n".join(
+              "".join(cell.get("source", []))
+              for cell in nb.get("cells", [])
+              if cell.get("cell_type") == "code"
+          )
+          compile(code, str(p), "exec")
+          assert "9a94fddd719d50dc4611ce0d98478f6c75875c28" in code
+          print("MACRO_V4_COLAB=PASS")
+          PY
 
       - name: Research-only safety audit
         run: |
