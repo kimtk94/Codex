@@ -81,74 +81,13 @@ function renderNextActions(){
   });
 
   var status=fresh.fresh
-    ?(executionOn?'PLAN READY · EXECUTION ON':'PLAN READY · EXECUTION OFF')
+    ?'PLAN READY · SERVER GATE'
     :'WAITING FOR FRESH US SNAPSHOT';
   var age=Number.isFinite(fresh.ageMinutes)?Math.round(fresh.ageMinutes)+'m old':'age unknown';
   box.innerHTML='<div class="next-actions-head"><div><b>'+status+'</b><small>US only · max 6 · ₩5,000 each · ₩30,000 cap</small></div><div class="right"><span class="pill '+(fresh.fresh?'ok':'warn')+'">'+(fresh.fresh?'FRESH':'PREVIEW')+'</span><small>'+age+'</small></div></div><div class="next-actions-list">'+rows.join('')+'</div><div class="next-actions-note">SELL-first sequencing. BUY/TOP-UP은 비대상 종목 정리 후 다음 cycle에 계산됩니다. 화면은 주문 자체가 아니라 현재 계좌 + R5.1 기준 운용 계획입니다.</div>';
 }
 '''
 
-
-ACCOUNT_API=r'''const GATEWAY=(process.env.TOSS_GATEWAY_URL||'').replace(/\/+$/,'');
-const SECRET=process.env.HUB_GATEWAY_SECRET||'';
-
-async function gateway(path){
-  if(!GATEWAY)throw new Error('TOSS_GATEWAY_URL is not configured');
-  const r=await fetch(GATEWAY+path,{
-    headers:{'Accept':'application/json','X-Gateway-Secret':SECRET},
-    cache:'no-store'
-  });
-  let body=null;
-  try{body=await r.json()}catch(_){body={error:'INVALID_GATEWAY_JSON'}}
-  if(!r.ok){
-    const e=new Error('gateway '+path+' HTTP '+r.status);
-    e.status=r.status;e.body=body;throw e;
-  }
-  return body;
-}
-
-export default async function handler(req,res){
-  res.setHeader('Cache-Control','no-store');
-  if(req.method!=='GET')return res.status(405).json({error:'METHOD_NOT_ALLOWED'});
-  const specs=[
-    ['accounts','/api/accounts'],
-    ['holdings','/api/holdings'],
-    ['buying_power_usd','/api/buying-power?currency=USD'],
-    ['buying_power_krw','/api/buying-power?currency=KRW'],
-    ['gateway_health','/health']
-  ];
-  const settled=await Promise.allSettled(specs.map(function(x){return gateway(x[1])}));
-  const out={};
-  const parts={};
-  specs.forEach(function(spec,i){
-    const key=spec[0],r=settled[i];
-    if(r.status==='fulfilled'){
-      out[key]=r.value;
-      parts[key]={ok:true};
-    }else{
-      out[key]=null;
-      parts[key]={ok:false,error:String(r.reason&&r.reason.message||r.reason)};
-    }
-  });
-  const required=['accounts','holdings','buying_power_usd','buying_power_krw'];
-  const ready=required.every(function(k){return parts[k]&&parts[k].ok===true});
-  const gh=out.gateway_health||{};
-  return res.status(ready?200:502).json({
-    status:ready?'READY':'DEGRADED',
-    generated_at:new Date().toISOString(),
-    trade_execution:gh.liveGateOpen===true,
-    trading_enabled:gh.tradingEnabled===true,
-    auto_trade_profile:'US_R5_1_TOP6_30000',
-    limits:gh.limits||null,
-    accounts:out.accounts,
-    holdings:out.holdings,
-    buying_power_usd:out.buying_power_usd,
-    buying_power_krw:out.buying_power_krw,
-    gateway_health:gh,
-    parts:parts
-  });
-}
-'''
 
 CSS=r'''
 /* vNext.7.4.17 — next actions / execution-aware freshness */
@@ -159,57 +98,12 @@ CSS=r'''
 
 def main():
     if len(sys.argv)!=2: raise SystemExit("usage: patch_investment_hub_v7417.py <source-root>")
-    root=Path(sys.argv[1]); ap=root/"app.js";cp=root/"style.css";ip=root/"index.html";hp=root/"api/health.js";vp=root/"vercel.json"
-    for p in (ap,cp,ip,hp,vp):
+    root=Path(sys.argv[1]); ap=root/"app.js";cp=root/"style.css";ip=root/"index.html";hp=root/"api/health.js"
+    for p in (ap,cp,ip,hp):
         if not p.exists(): raise SystemExit(f"[FAIL] missing {p}")
-
-    import json
-    cfg=json.loads(vp.read_text(encoding="utf-8"))
-
-    def resolve_api_route(route: str) -> Path:
-        direct=root/(route.lstrip("/")+".js")
-        if direct.exists():
-            return direct
-
-        candidates=[]
-        rewrites=cfg.get("rewrites") or []
-        if isinstance(rewrites,dict):
-            rewrites=[rewrites]
-        for item in rewrites:
-            if not isinstance(item,dict):
-                continue
-            if str(item.get("source") or "")==route:
-                dst=str(item.get("destination") or "")
-                if dst:
-                    candidates.append(dst)
-
-        for item in cfg.get("routes") or []:
-            if not isinstance(item,dict):
-                continue
-            src=str(item.get("src") or "")
-            normalized=src.replace("^","").replace("$","")
-            if normalized==route:
-                dst=str(item.get("dest") or item.get("destination") or "")
-                if dst:
-                    candidates.append(dst)
-
-        for dst in candidates:
-            clean=dst.split("?",1)[0].lstrip("/")
-            p=root/(clean if clean.endswith(".js") else clean+".js")
-            if p.exists():
-                return p
-
-        raise SystemExit(
-            f"[FAIL] cannot resolve {route} from vercel.json; candidates={candidates}"
-        )
-
-    account_path=resolve_api_route("/api/account")
-    print(f"[INFO] v7.4.17 route /api/account -> {account_path.relative_to(root)}")
-
     before_api_count=len(list((root/"api").rglob("*.js")))
     if before_api_count!=12:
         raise SystemExit(f"[FAIL] expected 12 API functions before patch, got {before_api_count}")
-
     app=ap.read_text();css=cp.read_text();idx=ip.read_text();health=hp.read_text()
     if BASE not in idx: raise SystemExit("[FAIL] v7.4.16 base missing")
     for m in ("commandAccount","commandModel","commandHealth","loadUsPrimaryChart","R5.1 Top 6"):
@@ -265,7 +159,7 @@ def main():
     app=once(
         app,
         "  var c=g&&g.payload&&g.payload.components||{},kr=c.KR||{},cr=c.CRYPTO||{},safe=h&&h.trade_enabled===false&&h.account_trade_execution===false;",
-        "  var c=g&&g.payload&&g.payload.components||{},kr=c.KR||{},cr=c.CRYPTO||{};\n  var executionOn=kalmanCommandState.account&&kalmanCommandState.account.trade_execution===true;",
+        "  var c=g&&g.payload&&g.payload.components||{},kr=c.KR||{},cr=c.CRYPTO||{};\n  var executionOn=false;",
         "dynamic execution state"
     )
     app=once(
@@ -285,22 +179,18 @@ def main():
     idx=idx.replace(BASE,TARGET)
     health=health.replace(BASE,TARGET)
     css=css.rstrip()+"\n\n"+CSS.strip()+"\n"
-    account_path.write_text(ACCOUNT_API,encoding="utf-8")
-
-    for m in ("commandNextActions","renderNextActions","WAITING FOR FRESH US SNAPSHOT","SELL PREVIEW","TOP6_TARGET_KRW","US Top-6 armed"):
+    for m in ("commandNextActions","renderNextActions","WAITING FOR FRESH US SNAPSHOT","SELL PREVIEW","TOP6_TARGET_KRW"):
         if m not in app and m not in idx: raise SystemExit(f"[FAIL] v7.4.17 marker missing: {m}")
 
     api_files=sorted(p.relative_to(root).as_posix() for p in (root/"api").rglob("*.js"))
     if len(api_files)!=12:
         raise SystemExit(f"[FAIL] API function count changed: {len(api_files)} files={api_files}")
-    if not account_path.exists():
-        raise SystemExit("[FAIL] resolved account handler disappeared")
 
     ap.write_text(app);cp.write_text(css);ip.write_text(idx);hp.write_text(health)
     print("[PASS] vNext.7.4.17 next-actions panel")
     print("[PASS] execution freshness = 90 minutes")
     print("[PASS] SELL-first US Top-6 plan preview")
-    print("[PASS] account API reflects gateway liveGateOpen")
+    print("[PASS] existing shared account/dashboard router preserved")
     print("[PASS] API function count = 12")
     return 0
 if __name__=="__main__": raise SystemExit(main())
