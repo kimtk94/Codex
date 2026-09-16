@@ -249,11 +249,11 @@ def main():
     )
 
     css=css.rstrip()+"\n\n"+UNIVERSE_CSS.strip()+"\n"
-    idx=idx.replace(BASE,TARGET)
     idx=idx.replace(
         "vNext.7.4.17 · Command Center + Model Workspace",
         "vNext.7.4.18 · Command Center + Universe View"
     )
+    idx=idx.replace(BASE,TARGET)
     health=health.replace(BASE,TARGET)
 
     after=len(list((root/"api").rglob("*.js")))
