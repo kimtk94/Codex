@@ -35,6 +35,13 @@ def parse_args() -> argparse.Namespace:
         default="Market_Macro/v1/raw/us_macro_events_normalized.parquet",
     )
     p.add_argument(
+        "--rates-context",
+        default=(
+            "Upbit_BTC/features/external/macro_rates_fx/"
+            "KR_US_FX_RATES_daily_features.parquet"
+        ),
+    )
+    p.add_argument(
         "--v3-candidate-tag", default="20260913_return_regime_v3_001"
     )
     p.add_argument(
@@ -74,6 +81,7 @@ def main() -> int:
     )
 
     macro_input = drive / args.macro_input
+    rates_context = drive / args.rates_context if str(args.rates_context).strip() else None
     macro_root = drive / "Market_Macro" / "v1"
     macro_features = macro_root / "features" / "macro_events_v1.parquet"
     status_path = v4_root / "macro_v4_colab_status.json"
@@ -85,6 +93,8 @@ def main() -> int:
         matrix_v3 / "btc_matrix.parquet",
         v3_root / "candidate_run_status.json",
     ]
+    if rates_context is not None:
+        required.append(rates_context)
     missing = [str(p) for p in required if not p.exists()]
     if missing:
         raise FileNotFoundError(
@@ -109,6 +119,7 @@ def main() -> int:
                 "code_sha": actual_sha,
                 "v4_candidate_tag": args.v4_candidate_tag,
                 "macro_input": str(macro_input),
+                "rates_context": str(rates_context) if rates_context else None,
                 "research_only": True,
                 "live_execution": False,
                 "toss_execution": False,
@@ -146,6 +157,11 @@ def main() -> int:
                 macro_features,
                 "--macro-spec",
                 macro_spec,
+                *(
+                    ["--rates-context", rates_context]
+                    if rates_context is not None
+                    else []
+                ),
                 "--output-dir",
                 v4_matrix,
             ],
@@ -198,6 +214,7 @@ def main() -> int:
             "COMPLETE",
             comparison=str(comparison),
             macro_features=str(macro_features),
+            rates_context=str(rates_context) if rates_context else None,
             matrix_dir=str(v4_matrix),
             output_root=str(v4_root),
         )
