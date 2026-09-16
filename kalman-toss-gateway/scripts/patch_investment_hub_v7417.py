@@ -186,7 +186,7 @@ def main():
     app=once(
         app,
         "  ].join('');\n}\nfunction stateLabel(stale)",
-        "  ].join('');\n  renderNextActions();\n}\nfunction stateLabel(stale)",
+        "  ].join('');\n  renderNextActions();\n  if(kalmanCommandState.us&&kalmanCommandState.global&&kalmanCommandState.health){renderCommandHealth(kalmanCommandState.us,kalmanCommandState.global,kalmanCommandState.health);}\n}\nfunction stateLabel(stale)",
         "render actions after account"
     )
 
@@ -206,7 +206,7 @@ def main():
     app=once(
         app,
         "function renderCommandHealth(us,g,h){\n  var box=$('#commandHealth');if(!box)return;",
-        "function renderCommandHealth(us,g,h){\n  kalmanCommandState.health=h;\n  var box=$('#commandHealth');if(!box)return;",
+        "function renderCommandHealth(us,g,h){\n  kalmanCommandState.health=h;kalmanCommandState.global=g;\n  var box=$('#commandHealth');if(!box)return;",
         "capture health"
     )
     app=once(
@@ -215,6 +215,19 @@ def main():
         "  var usExec=executionFreshness(us);\n  box.innerHTML=[\n    healthRow('US DATA',stateLabel(!usExec.fresh),time(us&&us.data_as_of)),",
         "health freshness"
     )
+    app=once(
+        app,
+        "  var c=g&&g.payload&&g.payload.components||{},kr=c.KR||{},cr=c.CRYPTO||{},safe=h&&h.trade_enabled===false&&h.account_trade_execution===false;",
+        "  var c=g&&g.payload&&g.payload.components||{},kr=c.KR||{},cr=c.CRYPTO||{};\n  var executionOn=kalmanCommandState.account&&kalmanCommandState.account.trade_execution===true;",
+        "dynamic execution state"
+    )
+    app=once(
+        app,
+        "    healthRow('EXECUTION','<span class=\"health-dot '+(safe?'good-dot':'warn-dot')+'\"></span>'+(safe?'SAFE':'CHECK'),safe?'trade off':'gate changed')",
+        "    healthRow('EXECUTION','<span class=\"health-dot '+(executionOn?'warn-dot':'good-dot')+'\"></span>'+(executionOn?'LIVE':'OFF'),executionOn?'US Top-6 armed':'trade off')",
+        "dynamic execution row"
+    )
+
     app=once(
         app,
         "  var head=$('#headerDataState');if(head){var live=!(us&&us.effective_stale)&&!kr.stale&&!cr.stale;head.className='pill '+(live?'ok':'warn');head.textContent=live?'DATA LIVE':'DATA CHECK';}",
