@@ -1,0 +1,23 @@
+{
+  "version": "kalman_macro_event_v1_001",
+  "surprise_z_min_history": 12,
+  "surprise_z_clip": 6.0,
+  "max_event_age_hours": 168,
+  "event_definitions": {
+    "CPI_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 48},
+    "CORE_CPI_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 72},
+    "PCE_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 36},
+    "CORE_PCE_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 48},
+    "PPI_MOM": {"category": "INFLATION", "hawkish_sign": 1, "half_life_hours": 24},
+    "NFP": {"category": "LABOR", "hawkish_sign": 1, "half_life_hours": 48},
+    "UNEMPLOYMENT_RATE": {"category": "LABOR", "hawkish_sign": -1, "half_life_hours": 48},
+    "AHE_MOM": {"category": "LABOR", "hawkish_sign": 1, "half_life_hours": 48},
+    "JOLTS_OPENINGS": {"category": "LABOR", "hawkish_sign": 1, "half_life_hours": 24},
+    "INITIAL_CLAIMS": {"category": "LABOR", "hawkish_sign": -1, "half_life_hours": 12},
+    "RETAIL_SALES_MOM": {"category": "GROWTH", "hawkish_sign": 1, "half_life_hours": 24},
+    "ISM_MANUFACTURING": {"category": "GROWTH", "hawkish_sign": 1, "half_life_hours": 24},
+    "ISM_SERVICES": {"category": "GROWTH", "hawkish_sign": 1, "half_life_hours": 24},
+    "FOMC_DECISION": {"category": "POLICY", "hawkish_sign": 1, "half_life_hours": 96},
+    "FOMC_DOT_MEDIAN": {"category": "POLICY", "hawkish_sign": 1, "half_life_hours": 120}
+  }
+}
