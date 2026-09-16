@@ -9,7 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from research.macro_event.build_macro_event_features import build_event_features
-from research.macro_event.merge_macro_v4 import decision_cutoffs, merge_market_matrix
+from research.macro_event.merge_macro_v4 import (
+    build_rates_context_panel,
+    decision_cutoffs,
+    merge_market_matrix,
+)
 from research.macro_event.run_macro_v4 import _macro_selection_summary
 
 
@@ -239,3 +243,46 @@ def test_macro_selection_summary(tmp_path):
         "macro__event_count_72h",
         "macro__inflation_shock",
     ]
+
+
+
+def test_model_safe_rates_context_does_not_backfill_before_available_date():
+    rates = pd.DataFrame(
+        {
+            "date": ["2017-01-03", "2017-01-04", "2017-01-05", "2017-01-06"],
+            "us_treasury_2y": [np.nan, np.nan, 1.22, 1.24],
+            "us_treasury_10y": [np.nan, np.nan, 2.45, 2.46],
+            "us_10y_2y_spread": [np.nan, np.nan, 1.23, 1.22],
+            "us_fed_funds_effective": [0.55, 0.55, 0.66, 0.66],
+            "us_treasury_2y_available_flag": [0, 0, 1, 1],
+            "us_treasury_2y_changed_flag": [0, 0, 1, 1],
+        }
+    )
+    as_of = pd.Series(
+        pd.to_datetime(
+            ["2017-01-03", "2017-01-05", "2017-01-06"], utc=True
+        )
+    )
+    panel = build_rates_context_panel(as_of, rates)
+    assert pd.isna(panel.loc[0, "rates__us2y_level"])
+    assert panel.loc[1, "rates__us2y_level"] == 1.22
+    assert panel.loc[2, "rates__us2y_level"] == 1.24
+    assert np.isclose(panel.loc[2, "rates__us2y_chg1d_bp"], 2.0)
+    assert panel.loc[1, "rates__us2y_available_flag"] == 1
+
+
+def test_rates_context_keeps_event_reaction_namespace_separate():
+    rates = pd.DataFrame(
+        {
+            "date": ["2026-09-11"],
+            "us_treasury_2y": [4.43],
+            "us_treasury_10y": [4.83],
+            "us_10y_2y_spread": [0.40],
+        }
+    )
+    panel = build_rates_context_panel(
+        pd.Series(pd.to_datetime(["2026-09-11"], utc=True)),
+        rates,
+    )
+    assert "rates__us2y_level" in panel.columns
+    assert "macro__us2y_30m_bp_latest" not in panel.columns
