@@ -315,7 +315,7 @@ def main():
         raise SystemExit(f"[FAIL] API function count changed: {before}->{after}")
     for p in ("universe.html","universe.js","universe.css"):
         if not (root/p).exists(): raise SystemExit(f"[FAIL] missing generated {p}")
-    for m in ("BASELINE_TOTAL=102","R5.1 SCORED","SELL PREVIEW","TOP-UP PREVIEW","/api/dashboard?market=US"):
+    for m in ("BASELINE_TOTAL=102","R5.1 SCORED","SELL PREVIEW","const base=held?'TOP-UP':'BUY'","label:fresh?base:base+' PREVIEW'","/api/dashboard?market=US"):
         if m not in UNIVERSE_JS and m not in UNIVERSE_HTML:
             raise SystemExit(f"[FAIL] Universe marker missing: {m}")
 
