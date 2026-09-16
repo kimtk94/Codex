@@ -53,6 +53,7 @@ jobs:
           python -m py_compile research/macro_event/build_macro_event_features.py
           python -m py_compile research/macro_event/merge_macro_v4.py
           python -m py_compile research/macro_event/compare_v3_v4.py
+          python -m py_compile research/macro_event/run_macro_v4.py
           python -m py_compile scripts/colab_macro_v4.py
 
       - name: Run PIT leakage and calendar normalization tests
@@ -69,6 +70,7 @@ jobs:
               Path("research/macro_event/build_macro_event_features.py"),
               Path("research/macro_event/merge_macro_v4.py"),
               Path("research/macro_event/compare_v3_v4.py"),
+              Path("research/macro_event/run_macro_v4.py"),
               Path("scripts/colab_macro_v4.py"),
           ]
           text = "\n".join(p.read_text(encoding="utf-8") for p in paths)
