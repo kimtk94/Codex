@@ -26,7 +26,6 @@ import psycopg
 from dotenv import load_dotenv
 
 from app.config import Settings
-from app.executor import execute_order
 from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
@@ -360,95 +359,14 @@ async def main_async() -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
         return 0
 
-    if mode == "DRY_RUN":
-        report["action"] = "DRY_RUN_PLAN_ONLY"
-        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
-        return 0
-
-    if not settings.live_gate_open:
-        report["action"] = "LIVE_GATE_CLOSED"
-        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
-        return 2
-    if not window_open:
-        report["action"] = "US_FRACTIONAL_ORDER_WINDOW_CLOSED"
-        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
-        return 0
-
-    submitted = []
-
-    # Phase 1: risk-reducing exits only. Never buy in the same invocation.
-    for sell in plan["sells"]:
-        symbol = sell["symbol"]
-        request = SimpleNamespace(
-            client_order_id=_client_order_id(run_id, symbol, "SELL"),
-            symbol=symbol,
-            side="SELL",
-            order_type="MARKET",
-            time_in_force="DAY",
-            quantity=sell["quantity"],
-            order_amount=None,
-            price=None,
-        )
-        result = await execute_order(settings, request, risk_reducing_exit=True)
-        submitted.append({"symbol": symbol, "side": "SELL", "result": result})
-
-    if submitted:
-        report["action"] = "SELL_NON_TARGETS_SUBMITTED"
-        report["submitted"] = submitted
-        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
-        return 0
-
-    # Phase 2: fill underweight Top-6 slots, never above 5k/order or 30k basket.
-    buying_power_usd = unwrap(await client.buying_power("USD")) or {}
-    buying_power_krw = unwrap(await client.buying_power("KRW")) or {}
-    cash_usd = _decimal(buying_power_usd.get("cashBuyingPower"))
-    cash_krw = _decimal(buying_power_krw.get("cashBuyingPower"))
-
-    for buy in plan["buys"]:
-        order_krw = int(buy["orderKrw"])
-        amount_usd = _krw_to_usd_amount(order_krw, fx)
-        estimated_krw = int((amount_usd * fx).quantize(Decimal("1"), rounding=ROUND_CEILING))
-        if amount_usd < Decimal(os.environ.get("AUTO_TRADE_MIN_ORDER_USD", "1")):
-            submitted.append(
-                {
-                    "symbol": buy["symbol"],
-                    "side": "BUY",
-                    "skipped": "BELOW_MIN_USD_ORDER",
-                    "orderKrw": order_krw,
-                }
-            )
-            continue
-        if cash_usd < amount_usd and cash_krw < Decimal(estimated_krw):
-            submitted.append(
-                {
-                    "symbol": buy["symbol"],
-                    "side": "BUY",
-                    "skipped": "INSUFFICIENT_BUYING_POWER",
-                    "orderKrw": order_krw,
-                }
-            )
-            continue
-
-        request = SimpleNamespace(
-            client_order_id=_client_order_id(run_id, buy["symbol"], "BUY"),
-            symbol=buy["symbol"],
-            side="BUY",
-            order_type="MARKET",
-            time_in_force="DAY",
-            quantity=None,
-            order_amount=str(amount_usd),
-            price=None,
-        )
-        result = await execute_order(settings, request)
-        submitted.append({"symbol": buy["symbol"], "side": "BUY", "result": result})
-        if result.get("allowed"):
-            if result.get("fundingCurrency") == "KRW":
-                cash_krw = max(Decimal("0"), cash_krw - Decimal(result["estimatedNotionalKrw"]))
-            else:
-                cash_usd = max(Decimal("0"), cash_usd - amount_usd)
-
-    report["action"] = "BUY_REBALANCE_COMPLETE"
-    report["submitted"] = submitted
+    # This module is intentionally plan-only. It may run on an automated
+    # schedule, but it never submits broker orders. Use the reviewed/manual
+    # execution path for any live order.
+    report["action"] = "PLAN_ONLY"
+    report["liveExecution"] = False
+    report["note"] = (
+        "US Top-6 rebalance plan generated; no broker orders were submitted."
+    )
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     return 0
 
