@@ -159,14 +159,14 @@ def main():
     app=once(
         app,
         "  var c=g&&g.payload&&g.payload.components||{},kr=c.KR||{},cr=c.CRYPTO||{},safe=h&&h.trade_enabled===false&&h.account_trade_execution===false;",
-        "  var c=g&&g.payload&&g.payload.components||{},kr=c.KR||{},cr=c.CRYPTO||{};\n  var executionOn=false;",
-        "dynamic execution state"
+        "  var c=g&&g.payload&&g.payload.components||{},kr=c.KR||{},cr=c.CRYPTO||{};",
+        "server execution state"
     )
     app=once(
         app,
         "    healthRow('EXECUTION','<span class=\"health-dot '+(safe?'good-dot':'warn-dot')+'\"></span>'+(safe?'SAFE':'CHECK'),safe?'trade off':'gate changed')",
-        "    healthRow('EXECUTION','<span class=\"health-dot '+(executionOn?'warn-dot':'good-dot')+'\"></span>'+(executionOn?'LIVE':'OFF'),executionOn?'US Top-6 armed':'trade off')",
-        "dynamic execution row"
+        "    healthRow('EXECUTION','<span class=\"health-dot good-dot\"></span>SERVER','US Top-6 gate')",
+        "server execution row"
     )
 
     app=once(
