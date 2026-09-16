@@ -17,10 +17,12 @@ on:
     paths:
       - "kalman-toss-gateway/app/**"
       - "kalman-toss-gateway/engine/auto_trade.py"
+      - "kalman-toss-gateway/engine/position_manager.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
+      - "kalman-toss-gateway/tests/test_same_cycle_rebalance.py"
       - ".github/workflows/kalman-gateway-safety.yml"
 
 permissions:
