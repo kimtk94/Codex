@@ -111,11 +111,9 @@ def build_event_features(events: pd.DataFrame, spec: dict[str, Any]) -> pd.DataF
     x = x.sort_values(["event_type", "available_time", "event_id"]).reset_index(drop=True)
 
     min_history = int(spec.get("surprise_z_min_history", 12))
-    x["surprise_scale_prior"] = (
-        x.groupby("event_type", group_keys=False)["surprise_raw"]
-        .apply(lambda s: _expanding_prior_std(s, min_history))
-        .reset_index(level=0, drop=True)
-    )
+    x["surprise_scale_prior"] = x.groupby("event_type")[
+        "surprise_raw"
+    ].transform(lambda s: _expanding_prior_std(s, min_history))
     x["surprise_z"] = x["surprise_raw"] / x["surprise_scale_prior"].replace(0, np.nan)
     clip = float(spec.get("surprise_z_clip", 6.0))
     x["surprise_z"] = x["surprise_z"].clip(-clip, clip)
