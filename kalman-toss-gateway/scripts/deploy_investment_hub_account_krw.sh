@@ -1416,7 +1416,7 @@ grep -q "accountKrw" "${WORK}/candidate-app.js" || fail "candidate app.js lacks 
 grep -q "fmt(qty(h),6)" "${WORK}/candidate-app.js" || fail "candidate app.js lacks fractional quantity precision"
 grep -q "renderShadow" "${WORK}/candidate-app.js" || fail "candidate app.js lacks SHADOW read-only renderer"
 grep -q "STRICT_TOP3_ACTUAL_LEDGER" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KR actual ledger B/S"
-grep -q "R5_1_SHADOW_LEDGER" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US lifecycle ledger renderer"
+grep -q "R5_1_ANNUAL_2026_LEDGER" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US 2026 annual ledger renderer"
 grep -q "R5.1 2026 Annual Ledger" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US 2026 annual ledger UI"
 grep -q "hydrateKrActualItem" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KR actual ledger hydration"
 echo "[PASS] candidate UI bundle + model B/S markers"
@@ -1509,7 +1509,7 @@ for _ in $(seq 1 30); do
   curl -fsS --max-time 20 "${PROD_URL}/app.js" >"${WORK}/prod-app.js" 2>/dev/null || true
   if grep -q "accountKrw" "${WORK}/prod-app.js"      && grep -q "fmt(qty(h),6)" "${WORK}/prod-app.js"      && grep -q "renderShadow" "${WORK}/prod-app.js" \
      && grep -q "STRICT_TOP3_ACTUAL_LEDGER" "${WORK}/prod-app.js" \
-     && grep -q "R5_1_SHADOW_LEDGER" "${WORK}/prod-app.js" \
+     && grep -q "R5_1_ANNUAL_2026_LEDGER" "${WORK}/prod-app.js" \
      && grep -q "R5.1 2026 Annual Ledger" "${WORK}/prod-app.js"; then
     APP_READY=true
     break
