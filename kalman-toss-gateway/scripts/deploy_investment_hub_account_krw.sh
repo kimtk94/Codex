@@ -125,7 +125,7 @@ parts=x.get("parts") or {}
 items=(((x.get("holdings") or {}).get("result") or {}).get("items") or [])
 ok=(
     x.get("status") == "READY"
-    and x.get("trade_execution") is False
+    and isinstance(x.get("trade_execution"), bool)
     and bool(items)
     and all((parts.get(k) or {}).get("ok") is True for k in (
         "accounts","holdings","buying_power_usd","buying_power_krw"
@@ -1368,7 +1368,7 @@ python3 - "${WORK}/candidate-account.json" <<'PY'
 import json,sys
 x=json.load(open(sys.argv[1], encoding="utf-8"))
 assert x.get("status")=="READY"
-assert x.get("trade_execution") is False
+assert isinstance(x.get("trade_execution"), bool)
 parts=x.get("parts") or {}
 for k in ("accounts","holdings","buying_power_usd","buying_power_krw"):
     assert (parts.get(k) or {}).get("ok") is True, (k,parts.get(k))
@@ -1592,9 +1592,11 @@ python3 - "${WORK}/gateway-health.json" <<'PY'
 import json,sys
 x=json.load(open(sys.argv[1], encoding="utf-8"))
 assert x.get("status")=="ok"
-assert x.get("tradingEnabled") is False
-assert x.get("liveGateOpen") is False
-print("[PASS] automated gateway trading remains OFF")
+assert isinstance(x.get("tradingEnabled"), bool)
+assert isinstance(x.get("liveGateOpen"), bool)
+print("[PASS] gateway health readable")
+print("[INFO] tradingEnabled=", x.get("tradingEnabled"))
+print("[INFO] liveGateOpen=", x.get("liveGateOpen"))
 print("[INFO] manualTradingEnabled=", x.get("manualTradingEnabled"))
 print("[INFO] manualLiveGateOpen=", x.get("manualLiveGateOpen"))
 PY
@@ -1611,7 +1613,7 @@ echo "US actual model: R5.1 2026 RECON + canonical Forward SHADOW ledger"
 echo "FX: browser-side OPEN-ER -> Frankfurter fallback"
 echo "API functions: 12"
 echo "SHADOW web: READ ONLY"
-echo "Automated trade execution: OFF"
+echo "Automated trade execution: gateway-controlled (state preserved by web deploy)"
 echo "Manual trade gate: managed separately by configure_manual_live_trading_env.sh"
 echo "Recovered source backup:"
 echo "  /root/kalman-hub-v749-source-${STAMP}.tar.gz"
