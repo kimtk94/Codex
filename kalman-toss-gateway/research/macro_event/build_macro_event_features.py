@@ -14,12 +14,14 @@ REQUIRED_COLUMNS = {
     "release_time",
     "available_time",
     "actual",
-    "consensus",
 }
 
 OPTIONAL_NUMERIC_COLUMNS = [
+    "consensus",
     "previous",
     "revised_previous",
+    "release_change_raw",
+    "us2y_daily_bp",
     "us2y_1m_bp",
     "us2y_5m_bp",
     "us2y_30m_bp",
@@ -62,8 +64,21 @@ def _safe_numeric(series: pd.Series) -> pd.Series:
 
 
 def _expanding_prior_std(series: pd.Series, min_history: int) -> pd.Series:
-    # Anti-leakage: the current release never contributes to its own scale.
     return series.shift(1).expanding(min_periods=min_history).std(ddof=1)
+
+
+def _derive_release_change(
+    actual: pd.Series,
+    transform: str,
+) -> pd.Series:
+    transform = str(transform or "diff").lower()
+    if transform == "pct_change":
+        return actual.pct_change(fill_method=None) * 100.0
+    if transform == "diff":
+        return actual.diff()
+    if transform == "level":
+        return actual
+    raise ValueError(f"unsupported release_transform: {transform}")
 
 
 def build_event_features(events: pd.DataFrame, spec: dict[str, Any]) -> pd.DataFrame:
@@ -84,7 +99,6 @@ def build_event_features(events: pd.DataFrame, spec: dict[str, Any]) -> pd.DataF
         raise ValueError("event_id must be unique")
 
     x["actual"] = _safe_numeric(x["actual"])
-    x["consensus"] = _safe_numeric(x["consensus"])
     for col in OPTIONAL_NUMERIC_COLUMNS:
         if col in x.columns:
             x[col] = _safe_numeric(x[col])
@@ -106,26 +120,76 @@ def build_event_features(events: pd.DataFrame, spec: dict[str, Any]) -> pd.DataF
         lambda k: float(definitions[k]["half_life_hours"])
     )
 
-    x["surprise_raw"] = x["actual"] - x["consensus"]
-    x["revision_raw"] = x["revised_previous"] - x["previous"]
     x = x.sort_values(["event_type", "available_time", "event_id"]).reset_index(drop=True)
 
-    min_history = int(spec.get("surprise_z_min_history", 12))
-    x["surprise_scale_prior"] = x.groupby("event_type")[
-        "surprise_raw"
-    ].transform(lambda s: _expanding_prior_std(s, min_history))
-    x["surprise_z"] = x["surprise_raw"] / x["surprise_scale_prior"].replace(0, np.nan)
-    clip = float(spec.get("surprise_z_clip", 6.0))
-    x["surprise_z"] = x["surprise_z"].clip(-clip, clip)
+    # Paid/third-party consensus remains supported when present, but is no longer required.
+    x["surprise_raw"] = x["actual"] - x["consensus"]
+    x["revision_raw"] = x["revised_previous"] - x["previous"]
+
+    # Free FRED/ALFRED path: derive a point-in-time release-change proxy from
+    # initial-release observations only. This is explicitly not a consensus surprise.
+    if "release_change_raw" not in events.columns:
+        x["release_change_raw"] = np.nan
+    for event_type, idx in x.groupby("event_type", sort=False).groups.items():
+        transform = definitions[event_type].get("release_transform", "diff")
+        derived = _derive_release_change(x.loc[idx, "actual"], str(transform))
+        existing = x.loc[idx, "release_change_raw"]
+        x.loc[idx, "release_change_raw"] = existing.combine_first(derived)
+
+    surprise_min_history = int(spec.get("surprise_z_min_history", 12))
+    x["surprise_scale_prior"] = x.groupby("event_type")["surprise_raw"].transform(
+        lambda s: _expanding_prior_std(s, surprise_min_history)
+    )
+    x["surprise_z"] = (
+        x["surprise_raw"] / x["surprise_scale_prior"].replace(0, np.nan)
+    )
+    surprise_clip = float(spec.get("surprise_z_clip", 6.0))
+    x["surprise_z"] = x["surprise_z"].clip(-surprise_clip, surprise_clip)
     x["hawkish_surprise_z"] = x["hawkish_sign"] * x["surprise_z"]
 
-    direction = np.sign(x["hawkish_surprise_z"])
+    release_min_history = int(
+        spec.get("release_shock_z_min_history", surprise_min_history)
+    )
+    x["release_scale_prior"] = x.groupby("event_type")[
+        "release_change_raw"
+    ].transform(lambda s: _expanding_prior_std(s, release_min_history))
+    x["release_shock_z"] = (
+        x["release_change_raw"] / x["release_scale_prior"].replace(0, np.nan)
+    )
+    release_clip = float(
+        spec.get("release_shock_z_clip", surprise_clip)
+    )
+    x["release_shock_z"] = x["release_shock_z"].clip(
+        -release_clip, release_clip
+    )
+    x["hawkish_release_shock_z"] = (
+        x["hawkish_sign"] * x["release_shock_z"]
+    )
+
+    # Consensus surprise has priority when available. Otherwise use the free
+    # initial-release change proxy. Keep the source explicit for auditability.
+    x["macro_signal_z"] = x["hawkish_surprise_z"].combine_first(
+        x["hawkish_release_shock_z"]
+    )
+    x["signal_source"] = np.select(
+        [
+            x["hawkish_surprise_z"].notna(),
+            x["hawkish_release_shock_z"].notna(),
+        ],
+        ["CONSENSUS_SURPRISE", "INITIAL_RELEASE_CHANGE_PROXY"],
+        default="MISSING",
+    )
+
+    direction = np.sign(x["macro_signal_z"])
+    x["rates_confirmation_daily_bp"] = direction * x["us2y_daily_bp"]
     x["rates_confirmation_30m_bp"] = direction * x["us2y_30m_bp"]
     x["policy_confirmation_30m_bp"] = direction * x["fed_reprice_30m_bp"]
     x["policy_confirmation_next_bp"] = direction * x["fed_reprice_next_bp"]
 
     x["has_consensus"] = x["consensus"].notna().astype(int)
-    x["has_us2y_reaction"] = x["us2y_30m_bp"].notna().astype(int)
+    x["has_release_shock"] = x["release_shock_z"].notna().astype(int)
+    x["has_us2y_daily_reaction"] = x["us2y_daily_bp"].notna().astype(int)
+    x["has_us2y_intraday_reaction"] = x["us2y_30m_bp"].notna().astype(int)
     x["has_fed_repricing"] = x["fed_reprice_30m_bp"].notna().astype(int)
     x["feature_version"] = str(spec["version"])
     return x.sort_values(["available_time", "event_id"]).reset_index(drop=True)
@@ -150,6 +214,9 @@ def main() -> int:
         "event_types": sorted(out["event_type"].unique().tolist()),
         "categories": sorted(out["category"].unique().tolist()),
         "consensus_coverage": float(out["consensus"].notna().mean()),
+        "release_shock_coverage": float(out["release_shock_z"].notna().mean()),
+        "macro_signal_coverage": float(out["macro_signal_z"].notna().mean()),
+        "us2y_daily_coverage": float(out["us2y_daily_bp"].notna().mean()),
         "us2y_30m_coverage": float(out["us2y_30m_bp"].notna().mean()),
         "fed_reprice_30m_coverage": float(out["fed_reprice_30m_bp"].notna().mean()),
         "research_only": True,
