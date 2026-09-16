@@ -15,7 +15,7 @@ fail(){ echo "[FAIL] $*" >&2; exit 1; }
 [ -f "$ENV" ] || fail "env missing: $ENV"
 
 echo "============================================================"
-echo "KALMAN MAIN HUB — SAFE vNext.7.4.14 PROMOTION"
+echo "KALMAN MAIN HUB — SAFE vNext.7.4.15 PROMOTION"
 echo "============================================================"
 echo "Production: $PROD_URL"
 
@@ -95,7 +95,7 @@ import json,sys
 
 h,a,g,s=(json.load(open(p,encoding="utf-8")) for p in sys.argv[1:])
 
-assert h.get("investment_hub_version")=="vNext.7.4.14", h
+assert h.get("investment_hub_version")=="vNext.7.4.15", h
 assert h.get("trade_enabled") is False, h
 assert h.get("account_trade_execution") is False, h
 
@@ -143,7 +143,7 @@ echo "============================================================"
 echo "KALMAN_MAIN_COMPLETE"
 echo "============================================================"
 echo "URL=$PROD_URL"
-echo "VERSION=vNext.7.4.14"
+echo "VERSION=vNext.7.4.15"
 echo "API_FUNCTIONS=12"
 echo "ACCOUNT=READY"
 echo "SHADOW=READ_ONLY_STANDALONE_SNAPSHOT_PROXY"
