@@ -15,11 +15,11 @@ PROJECT_NAME="${VERCEL_PROJECT_NAME:-kalman-investment-hub-v2}"
 PROD_URL="${KALMAN_HUB_PROD_URL:-https://kalman-investment-hub-v2.vercel.app}"
 
 # Full 12-function redeploy created after TOSS_GATEWAY_URL was configured.
-GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_gDtuNjgK8fg8JbLPiu452XHpZ9K1}"
-GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-imwlwscrd-insk1285-9320s-projects.vercel.app}"
+GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_DVuGHHUmFfKbzzeAhGhFnHnnjxre}"
+GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-qvatuix1a-insk1285-9320s-projects.vercel.app}"
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
-WORK="/tmp/kalman-hub-v7416-${STAMP}"
+WORK="/tmp/kalman-hub-v7417-${STAMP}"
 SRC="${WORK}/source"
 mkdir -p "${SRC}"
 
@@ -38,7 +38,7 @@ need curl
 need tar
 
 echo "=================================================="
-echo "Kalman Investment Hub vNext.7.4.16"
+echo "Kalman Investment Hub vNext.7.4.17"
 echo "Account + actual-model B/S + SHADOW read-only"
 echo "=================================================="
 echo "Production : ${PROD_URL}"
@@ -68,7 +68,7 @@ except Exception:
     raise SystemExit(1)
 
 required = (
-    x.get("investment_hub_version") in {"vNext.7.4.15","vNext.7.4.16"}
+    x.get("investment_hub_version") in {"vNext.7.4.16","vNext.7.4.17"}
     and x.get("account_gateway_configured") is True
     and x.get("account_gateway_secret_configured") is True
     and x.get("account_trade_execution") is False
@@ -583,6 +583,18 @@ css=css_path.read_text(encoding="utf-8")
 index=index_path.read_text(encoding="utf-8")
 health=health_path.read_text(encoding="utf-8")
 dashboard=dashboard_path.read_text(encoding="utf-8")
+
+# vNext.7.4.17 adds execution-aware NEXT ACTIONS display.
+if "vNext.7.4.16" in index and "Investment Intelligence" in index:
+    import os
+    import subprocess
+    patcher=Path(
+        os.environ.get("KALMAN_APP_ROOT","/opt/kalman/app")
+    )/"scripts/patch_investment_hub_v7417.py"
+    if not patcher.exists():
+        raise SystemExit(f"[FAIL] v7.4.17 patcher missing: {patcher}")
+    subprocess.run([sys.executable,str(patcher),str(root)],check=True)
+    sys.exit(0)
 
 # vNext.7.4.16 redesigns information hierarchy only.
 if "vNext.7.4.15" in index and "R5.1 2026 Annual Ledger" in app:
@@ -1339,8 +1351,8 @@ vcurl "/api/health" "${WORK}/candidate-health.json"
 python3 - "${WORK}/candidate-health.json" <<'PY'
 import json,sys
 x=json.load(open(sys.argv[1], encoding="utf-8"))
-assert x.get("investment_hub_version") == "vNext.7.4.16", x.get("investment_hub_version")
-assert x.get("root_ui_version") == "vNext.7.4.16", x.get("root_ui_version")
+assert x.get("investment_hub_version") == "vNext.7.4.17", x.get("investment_hub_version")
+assert x.get("root_ui_version") == "vNext.7.4.17", x.get("root_ui_version")
 assert x.get("account_gateway_configured") is True
 assert x.get("account_gateway_secret_configured") is True
 assert x.get("account_trade_execution") is False
@@ -1451,6 +1463,10 @@ grep -q "R5.1 Top 6" "${WORK}/candidate-app.js" || fail "candidate app.js lacks 
 grep -q "usLedgerTable" "${WORK}/candidate-app.js" || fail "candidate app.js lacks structured ledger table"
 grep -q "usModelTable" "${WORK}/candidate-app.js" || fail "candidate app.js lacks model universe table"
 grep -q "loadUsPrimaryChart" "${WORK}/candidate-app.js" || fail "candidate app.js lacks dedicated US primary chart"
+grep -q "commandNextActions" "${WORK}/candidate-app.js" || fail "candidate app.js lacks NEXT ACTIONS"
+grep -q "WAITING FOR FRESH US SNAPSHOT" "${WORK}/candidate-app.js" || fail "candidate app.js lacks execution freshness guard"
+grep -q "SELL PREVIEW" "${WORK}/candidate-app.js" || fail "candidate app.js lacks stale action preview"
+grep -q "EXECUTION_FRESH_MINUTES=90" "${WORK}/candidate-app.js" || fail "candidate app.js lacks 90m execution freshness"
 vercel curl "${CANDIDATE}/" -- --silent --show-error >"${WORK}/candidate-index.html"
 grep -q "Investment Intelligence" "${WORK}/candidate-index.html" || fail "candidate index lacks command-center header"
 grep -q "commandHealth" "${WORK}/candidate-index.html" || fail "candidate index lacks system-health panel"
@@ -1475,7 +1491,7 @@ try:
 except Exception:
     raise SystemExit(1)
 ok=(
-    x.get("investment_hub_version")=="vNext.7.4.16"
+    x.get("investment_hub_version")=="vNext.7.4.17"
     and x.get("account_gateway_configured") is True
     and x.get("account_gateway_secret_configured") is True
     and x.get("account_trade_execution") is False
@@ -1500,7 +1516,7 @@ if [ "${PROD_READY}" != true ]; then
   rollback
   fail "production health failed after promotion"
 fi
-echo "[PASS] production vNext.7.4.16 health"
+echo "[PASS] production vNext.7.4.17 health"
 
 if ! wait_json_route   "${PROD_URL}/api/account"   "${WORK}/prod-account.json"   account_ok   "production account READY"; then
   rollback
@@ -1552,7 +1568,10 @@ for _ in $(seq 1 30); do
      && grep -q "R5.1 Top 6" "${WORK}/prod-app.js" \
      && grep -q "usLedgerTable" "${WORK}/prod-app.js" \
      && grep -q "usModelTable" "${WORK}/prod-app.js" \
-     && grep -q "loadUsPrimaryChart" "${WORK}/prod-app.js"; then
+     && grep -q "loadUsPrimaryChart" "${WORK}/prod-app.js" \
+     && grep -q "commandNextActions" "${WORK}/prod-app.js" \
+     && grep -q "WAITING FOR FRESH US SNAPSHOT" "${WORK}/prod-app.js" \
+     && grep -q "EXECUTION_FRESH_MINUTES=90" "${WORK}/prod-app.js"; then
     APP_READY=true
     break
   fi
@@ -1585,7 +1604,7 @@ echo "=================================================="
 echo "PRODUCTION COMPLETE"
 echo "=================================================="
 echo "URL: ${PROD_URL}"
-echo "Version: vNext.7.4.16"
+echo "Version: vNext.7.4.17"
 echo "Account: Toss USD originals + KRW reference conversion"
 echo "KR actual model: STRICT_TOP3 ledger B/S"
 echo "US actual model: R5.1 2026 RECON + canonical Forward SHADOW ledger"
