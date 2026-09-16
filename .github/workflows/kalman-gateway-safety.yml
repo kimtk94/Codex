@@ -13,6 +13,9 @@ on:
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/configure_manual_live_trading_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
+      - "kalman-toss-gateway/scripts/run_auto_trade.sh"
+      - "kalman-toss-gateway/scripts/enable_us_top6_live.sh"
+      - "kalman-toss-gateway/scripts/disable_us_top6_live.sh"
       - "kalman-toss-gateway/scripts/run_pipeline.sh"
       - "kalman-toss-gateway/scripts/repair_investment_hub_sync.sh"
       - "kalman-toss-gateway/scripts/deploy_investment_hub_account_krw.sh"
@@ -44,6 +47,9 @@ on:
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/configure_manual_live_trading_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
+      - "kalman-toss-gateway/scripts/run_auto_trade.sh"
+      - "kalman-toss-gateway/scripts/enable_us_top6_live.sh"
+      - "kalman-toss-gateway/scripts/disable_us_top6_live.sh"
       - "kalman-toss-gateway/scripts/run_pipeline.sh"
       - "kalman-toss-gateway/scripts/repair_investment_hub_sync.sh"
       - "kalman-toss-gateway/scripts/deploy_investment_hub_account_krw.sh"
@@ -90,6 +96,9 @@ jobs:
           bash -n scripts/configure_auto_trade_env.sh
           bash -n scripts/configure_manual_live_trading_env.sh
           bash -n scripts/trading_status.sh
+          bash -n scripts/run_auto_trade.sh
+          bash -n scripts/enable_us_top6_live.sh
+          bash -n scripts/disable_us_top6_live.sh
           bash -n scripts/run_pipeline.sh
           bash -n scripts/repair_investment_hub_sync.sh
           bash -n scripts/deploy_investment_hub_account_krw.sh
