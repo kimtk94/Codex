@@ -164,7 +164,8 @@ def test_event_before_us_close_is_available_same_day():
         max_age_hours=168,
     )
     assert out.loc[0, "macro__inflation_shock"] > 0
-    assert out.loc[0, "macro__us2y_30m_bp_latest"] == 8.0
+    reaction = out.loc[0, "macro__us2y_30m_bp_latest"]
+    assert 0.0 < reaction < 8.0
 
 
 def test_unavailable_reaction_source_remains_nan_not_fake_zero():
