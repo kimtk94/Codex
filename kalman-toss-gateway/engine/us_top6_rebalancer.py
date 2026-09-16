@@ -27,6 +27,7 @@ import psycopg
 from dotenv import load_dotenv
 
 from app.config import Settings
+from app.executor import execute_order
 from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
@@ -254,6 +255,42 @@ def _krw_to_usd_amount(order_krw: int, fx_usd_krw: Decimal) -> Decimal:
     return (Decimal(order_krw) / fx_usd_krw).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
 
+def _persist_report(report: dict[str, Any]) -> Path:
+    output_path = Path(
+        os.environ.get(
+            "US_TOP6_PLAN_OUTPUT",
+            "/opt/kalman/state/us_top6_rebalance_plan.json",
+        )
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = output_path.with_suffix(output_path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    tmp.replace(output_path)
+
+    audit_path = Path(
+        os.environ.get(
+            "US_TOP6_AUDIT_LOG",
+            "/opt/kalman/logs/us-top6-orders.jsonl",
+        )
+    )
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    with audit_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(report, ensure_ascii=False, default=str) + "\n")
+    return output_path
+
+
+def _live_profile_confirmed() -> bool:
+    return (
+        _bool(os.environ.get("AUTO_TRADE_ENABLED", "false"))
+        and os.environ.get("AUTO_TRADE_EXECUTION_MODE", "DRY_RUN").strip().upper() == "LIVE"
+        and os.environ.get("AUTO_TRADE_US_TOP6_CONFIRM", "").strip()
+        == "CONFIRM_US_TOP6_30000"
+    )
+
+
 async def main_async() -> int:
     load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=True)
 
@@ -261,7 +298,9 @@ async def main_async() -> int:
         print("US_TOP6_PLAN_DISABLED")
         return 0
 
-    mode = "PLAN_ONLY"
+    mode = os.environ.get("AUTO_TRADE_EXECUTION_MODE", "DRY_RUN").strip().upper()
+    if mode not in {"DRY_RUN", "LIVE"}:
+        raise RuntimeError("AUTO_TRADE_EXECUTION_MODE must be DRY_RUN or LIVE")
 
     if os.environ.get("AUTO_TRADE_MARKET", "US").strip().upper() != "US":
         raise RuntimeError("AUTO_TRADE_MARKET must be US")
@@ -332,8 +371,11 @@ async def main_async() -> int:
         min_order_krw=min_order_krw,
     )
 
+    live_requested = _live_profile_confirmed()
+
     report = {
         "executionMode": mode,
+        "liveRequested": live_requested,
         "market": MARKET,
         "portfolioMode": "R5_1_TOP6",
         "modelVersion": MODEL_VERSION,
@@ -361,32 +403,143 @@ async def main_async() -> int:
 
     if open_orders:
         report["action"] = "WAIT_OPEN_ORDERS"
+        report["liveExecution"] = False
+        output_path = _persist_report(report)
         print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        print(f"US_TOP6_PLAN_WRITTEN={output_path}")
         return 0
 
-    # This module is intentionally plan-only. It may run on an automated
-    # schedule, but it never submits broker orders. Use the reviewed/manual
-    # execution path for any live order.
-    report["action"] = "PLAN_ONLY"
-    report["liveExecution"] = False
-    report["note"] = (
-        "US Top-6 rebalance plan generated; no broker orders were submitted."
-    )
-
-    output_path = Path(
-        os.environ.get(
-            "US_TOP6_PLAN_OUTPUT",
-            "/opt/kalman/state/us_top6_rebalance_plan.json",
+    if not live_requested:
+        report["action"] = "PLAN_ONLY"
+        report["liveExecution"] = False
+        report["note"] = (
+            "US Top-6 rebalance plan generated; live execution gates are not fully armed."
         )
-    )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = output_path.with_suffix(output_path.suffix + ".tmp")
-    tmp.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2, default=str) + "\n",
-        encoding="utf-8",
-    )
-    tmp.replace(output_path)
+        output_path = _persist_report(report)
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        print(f"US_TOP6_PLAN_WRITTEN={output_path}")
+        return 0
 
+    if not settings.live_gate_open:
+        report["action"] = "LIVE_GATE_CLOSED"
+        report["liveExecution"] = False
+        output_path = _persist_report(report)
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        print(f"US_TOP6_PLAN_WRITTEN={output_path}")
+        return 2
+
+    if not window_open:
+        report["action"] = "US_FRACTIONAL_ORDER_WINDOW_CLOSED"
+        report["liveExecution"] = False
+        output_path = _persist_report(report)
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        print(f"US_TOP6_PLAN_WRITTEN={output_path}")
+        return 0
+
+    submitted: list[dict[str, Any]] = []
+
+    # Phase 1 — reduce risk first. If any current US holding is outside the
+    # Top-6 basket, submit SELL orders only and stop this cycle. The next cycle
+    # observes broker state before any BUY is allowed.
+    for sell in plan["sells"]:
+        symbol = sell["symbol"]
+        request = SimpleNamespace(
+            client_order_id=_client_order_id(run_id, symbol, "SELL"),
+            symbol=symbol,
+            side="SELL",
+            order_type="MARKET",
+            time_in_force="DAY",
+            quantity=sell["quantity"],
+            order_amount=None,
+            price=None,
+        )
+        result = await execute_order(
+            settings,
+            request,
+            risk_reducing_exit=True,
+            execution_channel="AUTO",
+        )
+        submitted.append({"symbol": symbol, "side": "SELL", "result": result})
+
+    if submitted:
+        report["action"] = "SELL_NON_TARGETS_SUBMITTED"
+        report["liveExecution"] = True
+        report["submitted"] = submitted
+        output_path = _persist_report(report)
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        print(f"US_TOP6_PLAN_WRITTEN={output_path}")
+        return 0
+
+    # Phase 2 — no non-target US holdings remain. Fill underweight Top-6 names.
+    # build_rebalance_plan() already limits each target to 5,000 KRW and the
+    # aggregate basket to 30,000 KRW. execute_order() enforces the same live
+    # single-order and daily-buy caps again.
+    buying_power_usd = unwrap(await client.buying_power("USD")) or {}
+    buying_power_krw = unwrap(await client.buying_power("KRW")) or {}
+    cash_usd = _decimal(buying_power_usd.get("cashBuyingPower"))
+    cash_krw = _decimal(buying_power_krw.get("cashBuyingPower"))
+    min_order_usd = Decimal(os.environ.get("AUTO_TRADE_MIN_ORDER_USD", "1"))
+
+    for buy in plan["buys"]:
+        order_krw = int(buy["orderKrw"])
+        if order_krw <= 0 or order_krw > 5000:
+            raise RuntimeError(f"invalid live BUY notional for {buy['symbol']}: {order_krw}")
+
+        amount_usd = _krw_to_usd_amount(order_krw, fx)
+        if amount_usd < min_order_usd:
+            submitted.append(
+                {
+                    "symbol": buy["symbol"],
+                    "side": "BUY",
+                    "skipped": "BELOW_MIN_USD_ORDER",
+                    "orderKrw": order_krw,
+                }
+            )
+            continue
+
+        estimated_krw = int(
+            (amount_usd * fx).quantize(Decimal("1"), rounding=ROUND_CEILING)
+        )
+        if cash_usd < amount_usd and cash_krw < Decimal(estimated_krw):
+            submitted.append(
+                {
+                    "symbol": buy["symbol"],
+                    "side": "BUY",
+                    "skipped": "INSUFFICIENT_BUYING_POWER",
+                    "orderKrw": order_krw,
+                }
+            )
+            continue
+
+        request = SimpleNamespace(
+            client_order_id=_client_order_id(run_id, buy["symbol"], "BUY"),
+            symbol=buy["symbol"],
+            side="BUY",
+            order_type="MARKET",
+            time_in_force="DAY",
+            quantity=None,
+            order_amount=str(amount_usd),
+            price=None,
+        )
+        result = await execute_order(
+            settings,
+            request,
+            execution_channel="AUTO",
+        )
+        submitted.append({"symbol": buy["symbol"], "side": "BUY", "result": result})
+        if result.get("allowed"):
+            if result.get("fundingCurrency") == "KRW":
+                cash_krw = max(
+                    Decimal("0"),
+                    cash_krw - Decimal(result["estimatedNotionalKrw"]),
+                )
+            else:
+                cash_usd = max(Decimal("0"), cash_usd - amount_usd)
+
+    report["action"] = "BUY_REBALANCE_COMPLETE" if submitted else "IN_SYNC"
+    report["liveExecution"] = True
+    report["submitted"] = submitted
+    output_path = _persist_report(report)
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
     print(f"US_TOP6_PLAN_WRITTEN={output_path}")
     return 0
