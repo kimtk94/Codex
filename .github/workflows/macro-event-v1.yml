@@ -10,6 +10,7 @@ on:
       - "kalman-toss-gateway/config/model-v4-macro-event-spec.json"
       - "kalman-toss-gateway/scripts/colab_macro_v4.py"
       - "kalman-toss-gateway/tests/test_macro_event_v1.py"
+      - "kalman-toss-gateway/tests/test_tradingeconomics_macro_collector.py"
       - ".github/workflows/macro-event-v1.yml"
   pull_request:
     branches:
@@ -20,6 +21,7 @@ on:
       - "kalman-toss-gateway/config/model-v4-macro-event-spec.json"
       - "kalman-toss-gateway/scripts/colab_macro_v4.py"
       - "kalman-toss-gateway/tests/test_macro_event_v1.py"
+      - "kalman-toss-gateway/tests/test_tradingeconomics_macro_collector.py"
       - ".github/workflows/macro-event-v1.yml"
   workflow_dispatch:
 
@@ -43,18 +45,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pandas numpy scikit-learn pyarrow
+          pip install pytest pandas numpy scikit-learn pyarrow requests
 
       - name: Compile Macro Event V1
         run: |
+          python -m py_compile research/macro_event/collect_tradingeconomics.py
           python -m py_compile research/macro_event/build_macro_event_features.py
           python -m py_compile research/macro_event/merge_macro_v4.py
           python -m py_compile research/macro_event/compare_v3_v4.py
           python -m py_compile scripts/colab_macro_v4.py
 
-      - name: Run PIT leakage regression tests
+      - name: Run PIT leakage and calendar normalization tests
         run: |
-          pytest -q tests/test_macro_event_v1.py
+          pytest -q tests/test_macro_event_v1.py tests/test_tradingeconomics_macro_collector.py
 
       - name: Research-only safety audit
         run: |
@@ -62,6 +65,7 @@ jobs:
           from pathlib import Path
 
           paths = [
+              Path("research/macro_event/collect_tradingeconomics.py"),
               Path("research/macro_event/build_macro_event_features.py"),
               Path("research/macro_event/merge_macro_v4.py"),
               Path("research/macro_event/compare_v3_v4.py"),
