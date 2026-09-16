@@ -15,11 +15,11 @@ PROJECT_NAME="${VERCEL_PROJECT_NAME:-kalman-investment-hub-v2}"
 PROD_URL="${KALMAN_HUB_PROD_URL:-https://kalman-investment-hub-v2.vercel.app}"
 
 # Full 12-function redeploy created after TOSS_GATEWAY_URL was configured.
-GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_9qgta5NvTtMFuZdpugTbEQnKSdex}"
-GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-3rkd2jrkv-insk1285-9320s-projects.vercel.app}"
+GOOD_DEPLOYMENT="${KALMAN_HUB_GOOD_DEPLOYMENT:-dpl_gDtuNjgK8fg8JbLPiu452XHpZ9K1}"
+GOOD_URL="${KALMAN_HUB_GOOD_URL:-https://kalman-investment-hub-v2-imwlwscrd-insk1285-9320s-projects.vercel.app}"
 
 STAMP="$(date +%Y%m%d_%H%M%S)"
-WORK="/tmp/kalman-hub-v7415-${STAMP}"
+WORK="/tmp/kalman-hub-v7416-${STAMP}"
 SRC="${WORK}/source"
 mkdir -p "${SRC}"
 
@@ -38,7 +38,7 @@ need curl
 need tar
 
 echo "=================================================="
-echo "Kalman Investment Hub vNext.7.4.15"
+echo "Kalman Investment Hub vNext.7.4.16"
 echo "Account + actual-model B/S + SHADOW read-only"
 echo "=================================================="
 echo "Production : ${PROD_URL}"
@@ -68,7 +68,7 @@ except Exception:
     raise SystemExit(1)
 
 required = (
-    x.get("investment_hub_version") in {"vNext.7.4.14","vNext.7.4.15"}
+    x.get("investment_hub_version") in {"vNext.7.4.15","vNext.7.4.16"}
     and x.get("account_gateway_configured") is True
     and x.get("account_gateway_secret_configured") is True
     and x.get("account_trade_execution") is False
@@ -583,6 +583,18 @@ css=css_path.read_text(encoding="utf-8")
 index=index_path.read_text(encoding="utf-8")
 health=health_path.read_text(encoding="utf-8")
 dashboard=dashboard_path.read_text(encoding="utf-8")
+
+# vNext.7.4.16 redesigns information hierarchy only.
+if "vNext.7.4.15" in index and "R5.1 2026 Annual Ledger" in app:
+    import os
+    import subprocess
+    patcher=Path(
+        os.environ.get("KALMAN_APP_ROOT","/opt/kalman/app")
+    )/"scripts/patch_investment_hub_v7416.py"
+    if not patcher.exists():
+        raise SystemExit(f"[FAIL] v7.4.16 patcher missing: {patcher}")
+    subprocess.run([sys.executable,str(patcher),str(root)],check=True)
+    sys.exit(0)
 
 # vNext.7.4.15 is a display-only delta over verified vNext.7.4.14.
 # It exposes the full annual ledger from January instead of recent-only rows.
@@ -1327,8 +1339,8 @@ vcurl "/api/health" "${WORK}/candidate-health.json"
 python3 - "${WORK}/candidate-health.json" <<'PY'
 import json,sys
 x=json.load(open(sys.argv[1], encoding="utf-8"))
-assert x.get("investment_hub_version") == "vNext.7.4.15", x.get("investment_hub_version")
-assert x.get("root_ui_version") == "vNext.7.4.15", x.get("root_ui_version")
+assert x.get("investment_hub_version") == "vNext.7.4.16", x.get("investment_hub_version")
+assert x.get("root_ui_version") == "vNext.7.4.16", x.get("root_ui_version")
 assert x.get("account_gateway_configured") is True
 assert x.get("account_gateway_secret_configured") is True
 assert x.get("account_trade_execution") is False
@@ -1434,6 +1446,13 @@ grep -q "R5.1 2026 Annual Ledger" "${WORK}/candidate-app.js" || fail "candidate 
 grep -q "2026 전체 Ledger" "${WORK}/candidate-app.js" || fail "candidate app.js lacks full annual ledger browser"
 grep -q "annual-ledger-scroll" "${WORK}/candidate-app.js" || fail "candidate app.js lacks annual ledger scroll region"
 grep -q "hydrateKrActualItem" "${WORK}/candidate-app.js" || fail "candidate app.js lacks KR actual ledger hydration"
+grep -q "renderCommandAccount" "${WORK}/candidate-app.js" || fail "candidate app.js lacks command center account"
+grep -q "R5.1 Top 6" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US Top-6 workspace"
+grep -q "usLedgerTable" "${WORK}/candidate-app.js" || fail "candidate app.js lacks structured ledger table"
+grep -q "usModelTable" "${WORK}/candidate-app.js" || fail "candidate app.js lacks model universe table"
+vercel curl "${CANDIDATE}/" -- --silent --show-error >"${WORK}/candidate-index.html"
+grep -q "Investment Intelligence" "${WORK}/candidate-index.html" || fail "candidate index lacks command-center header"
+grep -q "commandHealth" "${WORK}/candidate-index.html" || fail "candidate index lacks system-health panel"
 echo "[PASS] candidate UI bundle + model B/S markers"
 
 echo
@@ -1455,7 +1474,7 @@ try:
 except Exception:
     raise SystemExit(1)
 ok=(
-    x.get("investment_hub_version")=="vNext.7.4.15"
+    x.get("investment_hub_version")=="vNext.7.4.16"
     and x.get("account_gateway_configured") is True
     and x.get("account_gateway_secret_configured") is True
     and x.get("account_trade_execution") is False
@@ -1480,7 +1499,7 @@ if [ "${PROD_READY}" != true ]; then
   rollback
   fail "production health failed after promotion"
 fi
-echo "[PASS] production vNext.7.4.15 health"
+echo "[PASS] production vNext.7.4.16 health"
 
 if ! wait_json_route   "${PROD_URL}/api/account"   "${WORK}/prod-account.json"   account_ok   "production account READY"; then
   rollback
@@ -1527,7 +1546,11 @@ for _ in $(seq 1 30); do
      && grep -q "R5_1_ANNUAL_2026_LEDGER" "${WORK}/prod-app.js" \
      && grep -q "R5.1 2026 Annual Ledger" "${WORK}/prod-app.js" \
      && grep -q "2026 전체 Ledger" "${WORK}/prod-app.js" \
-     && grep -q "annual-ledger-scroll" "${WORK}/prod-app.js"; then
+     && grep -q "annual-ledger-scroll" "${WORK}/prod-app.js" \
+     && grep -q "renderCommandAccount" "${WORK}/prod-app.js" \
+     && grep -q "R5.1 Top 6" "${WORK}/prod-app.js" \
+     && grep -q "usLedgerTable" "${WORK}/prod-app.js" \
+     && grep -q "usModelTable" "${WORK}/prod-app.js"; then
     APP_READY=true
     break
   fi
@@ -1560,7 +1583,7 @@ echo "=================================================="
 echo "PRODUCTION COMPLETE"
 echo "=================================================="
 echo "URL: ${PROD_URL}"
-echo "Version: vNext.7.4.15"
+echo "Version: vNext.7.4.16"
 echo "Account: Toss USD originals + KRW reference conversion"
 echo "KR actual model: STRICT_TOP3 ledger B/S"
 echo "US actual model: R5.1 2026 RECON + canonical Forward SHADOW ledger"
