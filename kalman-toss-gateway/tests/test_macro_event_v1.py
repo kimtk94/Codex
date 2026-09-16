@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 
@@ -9,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from research.macro_event.build_macro_event_features import build_event_features
 from research.macro_event.merge_macro_v4 import decision_cutoffs, merge_market_matrix
+from research.macro_event.run_macro_v4 import _macro_selection_summary
 
 
 def spec():
@@ -205,3 +207,35 @@ def test_available_reaction_source_is_zero_outside_active_window():
     )
     assert out.loc[0, "macro__us2y_30m_bp_latest"] == 0.0
     assert out.loc[1, "macro__us2y_30m_bp_latest"] > 0.0
+
+
+def test_macro_selection_summary(tmp_path):
+    market_dir = tmp_path / "us"
+    market_dir.mkdir(parents=True)
+    (market_dir / "fold_metrics.json").write_text(
+        json.dumps(
+            [
+                {
+                    "outer_fold": {"fold_id": 1},
+                    "selected_features": [
+                        "yf_spy__ret5",
+                        "macro__inflation_shock",
+                        "macro__event_count_72h",
+                    ],
+                },
+                {
+                    "outer_fold": {"fold_id": 2},
+                    "selected_features": ["yf_spy__ret20"],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    out = _macro_selection_summary(tmp_path, "US")
+    assert out["fold_count"] == 2
+    assert out["folds_with_macro"] == 1
+    assert out["macro_fold_share"] == 0.5
+    assert out["selected_macro_features"] == [
+        "macro__event_count_72h",
+        "macro__inflation_shock",
+    ]
