@@ -108,48 +108,48 @@ def main():
     idx=once(
         idx,
         '<article class="command-panel"><div class="panel-kicker">SYSTEM HEALTH</div><div id="commandHealth" class="muted">데이터 상태를 확인하는 중...</div></article>',
-        '<article class="command-panel"><div class="panel-kicker">SYSTEM HEALTH</div><div id="commandHealth" class="muted">데이터 상태를 확인하는 중...</div></article>\\n        <article class="command-panel next-actions-panel"><div class="panel-kicker">NEXT ACTIONS · US TOP-6</div><div id="commandNextActions" class="muted">다음 운용 계획을 계산하는 중...</div></article>',
+        '<article class="command-panel"><div class="panel-kicker">SYSTEM HEALTH</div><div id="commandHealth" class="muted">데이터 상태를 확인하는 중...</div></article>\n        <article class="command-panel next-actions-panel"><div class="panel-kicker">NEXT ACTIONS · US TOP-6</div><div id="commandNextActions" class="muted">다음 운용 계획을 계산하는 중...</div></article>',
         "next actions panel"
     )
 
-    app=once(app,"function cmdMetric(label,value,sub,kind){",NEXT_HELPERS+"\\nfunction cmdMetric(label,value,sub,kind){","next actions helpers")
+    app=once(app,"function cmdMetric(label,value,sub,kind){",NEXT_HELPERS+"\nfunction cmdMetric(label,value,sub,kind){","next actions helpers")
 
     app=once(
         app,
-        "function renderCommandAccount(j,fx){\\n  var box=$('#commandAccount');if(!box)return;",
-        "function renderCommandAccount(j,fx){\\n  kalmanCommandState.account=j;kalmanCommandState.fx=fx;\\n  var box=$('#commandAccount');if(!box)return;",
+        "function renderCommandAccount(j,fx){\n  var box=$('#commandAccount');if(!box)return;",
+        "function renderCommandAccount(j,fx){\n  kalmanCommandState.account=j;kalmanCommandState.fx=fx;\n  var box=$('#commandAccount');if(!box)return;",
         "capture account state"
     )
     app=once(
         app,
-        "  ].join('');\\n}\\nfunction stateLabel(stale)",
-        "  ].join('');\\n  renderNextActions();\\n}\\nfunction stateLabel(stale)",
+        "  ].join('');\n}\nfunction stateLabel(stale)",
+        "  ].join('');\n  renderNextActions();\n}\nfunction stateLabel(stale)",
         "render actions after account"
     )
 
     app=once(
         app,
-        "function renderCommandModel(j){\\n  var box=$('#commandModel');if(!box)return;",
-        "function renderCommandModel(j){\\n  kalmanCommandState.us=j;\\n  var box=$('#commandModel');if(!box)return;",
+        "function renderCommandModel(j){\n  var box=$('#commandModel');if(!box)return;",
+        "function renderCommandModel(j){\n  kalmanCommandState.us=j;\n  var box=$('#commandModel');if(!box)return;",
         "capture US state"
     )
     app=once(
         app,
-        "  box.innerHTML='<div class=\"command-model-head\"><div><small>TOP SIGNAL</small><strong>'+esc(a[0]&&a[0].symbol||'—')+'</strong></div><div class=\"right\">'+stateLabel(j&&j.effective_stale)+'<small>'+time(j&&j.data_as_of)+'</small></div></div><div class=\"command-ranks\">'+rows+'</div>';\\n}",
-        "  var ef=executionFreshness(j);\\n  box.innerHTML='<div class=\"command-model-head\"><div><small>TOP RANK</small><strong>'+esc(a[0]&&a[0].symbol||'—')+'</strong></div><div class=\"right\">'+stateLabel(!ef.fresh)+'<small>'+time(j&&j.data_as_of)+'</small></div></div><div class=\"command-ranks\">'+rows+'</div>';\\n  renderNextActions();\\n}",
+        "  box.innerHTML='<div class=\"command-model-head\"><div><small>TOP SIGNAL</small><strong>'+esc(a[0]&&a[0].symbol||'—')+'</strong></div><div class=\"right\">'+stateLabel(j&&j.effective_stale)+'<small>'+time(j&&j.data_as_of)+'</small></div></div><div class=\"command-ranks\">'+rows+'</div>';\n}",
+        "  var ef=executionFreshness(j);\n  box.innerHTML='<div class=\"command-model-head\"><div><small>TOP RANK</small><strong>'+esc(a[0]&&a[0].symbol||'—')+'</strong></div><div class=\"right\">'+stateLabel(!ef.fresh)+'<small>'+time(j&&j.data_as_of)+'</small></div></div><div class=\"command-ranks\">'+rows+'</div>';\n  renderNextActions();\n}",
         "execution-aware model freshness"
     )
 
     app=once(
         app,
-        "function renderCommandHealth(us,g,h){\\n  var box=$('#commandHealth');if(!box)return;",
-        "function renderCommandHealth(us,g,h){\\n  kalmanCommandState.health=h;\\n  var box=$('#commandHealth');if(!box)return;",
+        "function renderCommandHealth(us,g,h){\n  var box=$('#commandHealth');if(!box)return;",
+        "function renderCommandHealth(us,g,h){\n  kalmanCommandState.health=h;\n  var box=$('#commandHealth');if(!box)return;",
         "capture health"
     )
     app=once(
         app,
-        "  box.innerHTML=[\\n    healthRow('US DATA',stateLabel(us&&us.effective_stale),time(us&&us.data_as_of)),",
-        "  var usExec=executionFreshness(us);\\n  box.innerHTML=[\\n    healthRow('US DATA',stateLabel(!usExec.fresh),time(us&&us.data_as_of)),",
+        "  box.innerHTML=[\n    healthRow('US DATA',stateLabel(us&&us.effective_stale),time(us&&us.data_as_of)),",
+        "  var usExec=executionFreshness(us);\n  box.innerHTML=[\n    healthRow('US DATA',stateLabel(!usExec.fresh),time(us&&us.data_as_of)),",
         "health freshness"
     )
     app=once(
@@ -161,7 +161,7 @@ def main():
 
     idx=idx.replace(BASE,TARGET)
     health=health.replace(BASE,TARGET)
-    css=css.rstrip()+"\\n\\n"+CSS.strip()+"\\n"
+    css=css.rstrip()+"\n\n"+CSS.strip()+"\n"
 
     for m in ("commandNextActions","renderNextActions","WAITING FOR FRESH US SNAPSHOT","SELL PREVIEW","TOP6_TARGET_KRW"):
         if m not in app and m not in idx: raise SystemExit(f"[FAIL] v7.4.17 marker missing: {m}")
