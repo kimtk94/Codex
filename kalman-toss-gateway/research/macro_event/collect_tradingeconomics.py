@@ -223,6 +223,11 @@ def normalize_records(
     return out
 
 
+def _redact_secret(message: str, secret: str) -> str:
+    text = str(message)
+    return text.replace(secret, "<REDACTED>") if secret else text
+
+
 def _date_chunks(start: date, end: date, days: int) -> Iterable[tuple[date, date]]:
     if days < 1:
         raise ValueError("chunk days must be >= 1")
@@ -278,8 +283,9 @@ def fetch_calendar(
                 time.sleep(min(8.0, 1.5 * (2 ** attempt)))
 
         if last_error is not None:
+            safe_error = _redact_secret(str(last_error), api_key)
             raise RuntimeError(
-                f"Trading Economics calendar fetch failed for {d1}..{d2}: {last_error}"
+                f"Trading Economics calendar fetch failed for {d1}..{d2}: {safe_error}"
             ) from last_error
 
     return all_rows
