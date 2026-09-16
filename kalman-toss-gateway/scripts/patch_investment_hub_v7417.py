@@ -15,7 +15,7 @@ const EXECUTION_FRESH_MINUTES=90;
 const TOP6_TARGET_KRW=5000;
 const TOP6_TOTAL_LIMIT_KRW=30000;
 const TOP6_MIN_ORDER_KRW=1000;
-var kalmanCommandState={account:null,us:null,fx:null,health:null};
+var kalmanCommandState={account:null,us:null,fx:null,health:null,global:null};
 
 function executionFreshness(us){
   var ts=Date.parse(us&&us.data_as_of||'');
@@ -88,6 +88,68 @@ function renderNextActions(){
 }
 '''
 
+
+ACCOUNT_API=r'''const GATEWAY=(process.env.TOSS_GATEWAY_URL||'').replace(/\/+$/,'');
+const SECRET=process.env.HUB_GATEWAY_SECRET||'';
+
+async function gateway(path){
+  if(!GATEWAY)throw new Error('TOSS_GATEWAY_URL is not configured');
+  const r=await fetch(GATEWAY+path,{
+    headers:{'Accept':'application/json','X-Gateway-Secret':SECRET},
+    cache:'no-store'
+  });
+  let body=null;
+  try{body=await r.json()}catch(_){body={error:'INVALID_GATEWAY_JSON'}}
+  if(!r.ok){
+    const e=new Error('gateway '+path+' HTTP '+r.status);
+    e.status=r.status;e.body=body;throw e;
+  }
+  return body;
+}
+
+export default async function handler(req,res){
+  res.setHeader('Cache-Control','no-store');
+  if(req.method!=='GET')return res.status(405).json({error:'METHOD_NOT_ALLOWED'});
+  const specs=[
+    ['accounts','/api/accounts'],
+    ['holdings','/api/holdings'],
+    ['buying_power_usd','/api/buying-power?currency=USD'],
+    ['buying_power_krw','/api/buying-power?currency=KRW'],
+    ['gateway_health','/health']
+  ];
+  const settled=await Promise.allSettled(specs.map(function(x){return gateway(x[1])}));
+  const out={};
+  const parts={};
+  specs.forEach(function(spec,i){
+    const key=spec[0],r=settled[i];
+    if(r.status==='fulfilled'){
+      out[key]=r.value;
+      parts[key]={ok:true};
+    }else{
+      out[key]=null;
+      parts[key]={ok:false,error:String(r.reason&&r.reason.message||r.reason)};
+    }
+  });
+  const required=['accounts','holdings','buying_power_usd','buying_power_krw'];
+  const ready=required.every(function(k){return parts[k]&&parts[k].ok===true});
+  const gh=out.gateway_health||{};
+  return res.status(ready?200:502).json({
+    status:ready?'READY':'DEGRADED',
+    generated_at:new Date().toISOString(),
+    trade_execution:gh.liveGateOpen===true,
+    trading_enabled:gh.tradingEnabled===true,
+    auto_trade_profile:'US_R5_1_TOP6_30000',
+    limits:gh.limits||null,
+    accounts:out.accounts,
+    holdings:out.holdings,
+    buying_power_usd:out.buying_power_usd,
+    buying_power_krw:out.buying_power_krw,
+    gateway_health:gh,
+    parts:parts
+  });
+}
+'''
+
 CSS=r'''
 /* vNext.7.4.17 — next actions / execution-aware freshness */
 .next-actions-panel{grid-column:1/-1}
@@ -100,6 +162,7 @@ def main():
     root=Path(sys.argv[1]); ap=root/"app.js";cp=root/"style.css";ip=root/"index.html";hp=root/"api/health.js"
     for p in (ap,cp,ip,hp):
         if not p.exists(): raise SystemExit(f"[FAIL] missing {p}")
+    account_path=root/"api/account.js"
     app=ap.read_text();css=cp.read_text();idx=ip.read_text();health=hp.read_text()
     if BASE not in idx: raise SystemExit("[FAIL] v7.4.16 base missing")
     for m in ("commandAccount","commandModel","commandHealth","loadUsPrimaryChart","R5.1 Top 6"):
@@ -162,8 +225,9 @@ def main():
     idx=idx.replace(BASE,TARGET)
     health=health.replace(BASE,TARGET)
     css=css.rstrip()+"\n\n"+CSS.strip()+"\n"
+    account_path.write_text(ACCOUNT_API,encoding="utf-8")
 
-    for m in ("commandNextActions","renderNextActions","WAITING FOR FRESH US SNAPSHOT","SELL PREVIEW","TOP6_TARGET_KRW"):
+    for m in ("commandNextActions","renderNextActions","WAITING FOR FRESH US SNAPSHOT","SELL PREVIEW","TOP6_TARGET_KRW","US Top-6 armed"):
         if m not in app and m not in idx: raise SystemExit(f"[FAIL] v7.4.17 marker missing: {m}")
     if len(list((root/"api").rglob("*.js")))!=12: raise SystemExit("[FAIL] API function count changed")
 
@@ -171,6 +235,7 @@ def main():
     print("[PASS] vNext.7.4.17 next-actions panel")
     print("[PASS] execution freshness = 90 minutes")
     print("[PASS] SELL-first US Top-6 plan preview")
+    print("[PASS] account API reflects gateway liveGateOpen")
     print("[PASS] API function count = 12")
     return 0
 if __name__=="__main__": raise SystemExit(main())
