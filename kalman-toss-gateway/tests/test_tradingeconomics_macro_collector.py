@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from research.macro_event.collect_tradingeconomics import (
+    _redact_secret,
     canonical_event_type,
     normalize_records,
 )
@@ -104,3 +105,11 @@ def test_estimated_timestamp_is_excluded_by_default():
     ]
     assert normalize_records(rows).empty
     assert len(normalize_records(rows, allow_estimated_time=True)) == 1
+
+
+def test_api_key_redaction():
+    secret = "client:super-secret-key"
+    message = f"401 for https://api.example.test?c={secret}&f=json"
+    safe = _redact_secret(message, secret)
+    assert secret not in safe
+    assert "<REDACTED>" in safe
