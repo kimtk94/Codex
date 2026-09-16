@@ -22,17 +22,21 @@ def spec():
         "version": "test",
         "surprise_z_min_history": 2,
         "surprise_z_clip": 6.0,
+        "release_shock_z_min_history": 2,
+        "release_shock_z_clip": 6.0,
         "max_event_age_hours": 168,
         "event_definitions": {
             "CPI_MOM": {
                 "category": "INFLATION",
                 "hawkish_sign": 1,
                 "half_life_hours": 48,
+                "release_transform": "pct_change",
             },
             "UNEMPLOYMENT_RATE": {
                 "category": "LABOR",
                 "hawkish_sign": -1,
                 "half_life_hours": 48,
+                "release_transform": "diff",
             },
         },
     }
@@ -114,8 +118,13 @@ def _event(available_time: str) -> pd.DataFrame:
             "event_id": ["event"],
             "category": ["INFLATION"],
             "available_time": pd.to_datetime([available_time]),
-            "hawkish_surprise_z": [1.5],
+            "macro_signal_z": [1.5],
+            "hawkish_surprise_z": [np.nan],
+            "release_shock_z": [1.5],
+            "hawkish_release_shock_z": [1.5],
             "half_life_hours": [48.0],
+            "us2y_daily_bp": [6.0],
+            "rates_confirmation_daily_bp": [6.0],
             "us2y_5m_bp": [5.0],
             "us2y_30m_bp": [8.0],
             "fed_reprice_30m_bp": [6.0],
@@ -286,3 +295,67 @@ def test_rates_context_keeps_event_reaction_namespace_separate():
     )
     assert "rates__us2y_level" in panel.columns
     assert "macro__us2y_30m_bp_latest" not in panel.columns
+
+
+def test_free_release_shock_fallback_without_consensus():
+    e = pd.DataFrame(
+        {
+            "event_id": ["f1", "f2", "f3", "f4"],
+            "event_type": ["CPI_MOM"] * 4,
+            "release_time": pd.to_datetime(
+                [
+                    "2020-01-14 13:30Z",
+                    "2020-02-13 13:30Z",
+                    "2020-03-11 12:30Z",
+                    "2020-04-10 12:30Z",
+                ]
+            ),
+            "available_time": pd.to_datetime(
+                [
+                    "2020-01-14 13:30Z",
+                    "2020-02-13 13:30Z",
+                    "2020-03-11 12:30Z",
+                    "2020-04-10 12:30Z",
+                ]
+            ),
+            "actual": [100.0, 101.0, 103.0, 104.0],
+        }
+    )
+    out = build_event_features(e, spec())
+    last = out.iloc[-1]
+    assert pd.isna(last["surprise_z"])
+    assert np.isfinite(last["release_shock_z"])
+    assert np.isfinite(last["macro_signal_z"])
+    assert last["signal_source"] == "INITIAL_RELEASE_CHANGE_PROXY"
+
+
+def test_free_unemployment_release_direction_is_hawkish_when_rate_falls():
+    e = pd.DataFrame(
+        {
+            "event_id": ["u1", "u2", "u3", "u4"],
+            "event_type": ["UNEMPLOYMENT_RATE"] * 4,
+            "release_time": pd.to_datetime(
+                [
+                    "2020-01-03 13:30Z",
+                    "2020-02-07 13:30Z",
+                    "2020-03-06 13:30Z",
+                    "2020-04-03 12:30Z",
+                ]
+            ),
+            "available_time": pd.to_datetime(
+                [
+                    "2020-01-03 13:30Z",
+                    "2020-02-07 13:30Z",
+                    "2020-03-06 13:30Z",
+                    "2020-04-03 12:30Z",
+                ]
+            ),
+            "actual": [4.0, 4.2, 4.6, 4.5],
+        }
+    )
+    out = build_event_features(e, spec())
+    last = out.iloc[-1]
+    assert last["release_change_raw"] < 0
+    assert last["release_shock_z"] < 0
+    assert last["hawkish_release_shock_z"] > 0
+    assert last["macro_signal_z"] > 0
