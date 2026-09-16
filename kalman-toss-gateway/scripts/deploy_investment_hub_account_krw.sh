@@ -1450,6 +1450,7 @@ grep -q "renderCommandAccount" "${WORK}/candidate-app.js" || fail "candidate app
 grep -q "R5.1 Top 6" "${WORK}/candidate-app.js" || fail "candidate app.js lacks US Top-6 workspace"
 grep -q "usLedgerTable" "${WORK}/candidate-app.js" || fail "candidate app.js lacks structured ledger table"
 grep -q "usModelTable" "${WORK}/candidate-app.js" || fail "candidate app.js lacks model universe table"
+grep -q "loadUsPrimaryChart" "${WORK}/candidate-app.js" || fail "candidate app.js lacks dedicated US primary chart"
 vercel curl "${CANDIDATE}/" -- --silent --show-error >"${WORK}/candidate-index.html"
 grep -q "Investment Intelligence" "${WORK}/candidate-index.html" || fail "candidate index lacks command-center header"
 grep -q "commandHealth" "${WORK}/candidate-index.html" || fail "candidate index lacks system-health panel"
@@ -1550,7 +1551,8 @@ for _ in $(seq 1 30); do
      && grep -q "renderCommandAccount" "${WORK}/prod-app.js" \
      && grep -q "R5.1 Top 6" "${WORK}/prod-app.js" \
      && grep -q "usLedgerTable" "${WORK}/prod-app.js" \
-     && grep -q "usModelTable" "${WORK}/prod-app.js"; then
+     && grep -q "usModelTable" "${WORK}/prod-app.js" \
+     && grep -q "loadUsPrimaryChart" "${WORK}/prod-app.js"; then
     APP_READY=true
     break
   fi
