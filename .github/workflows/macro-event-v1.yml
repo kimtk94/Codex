@@ -10,7 +10,7 @@ on:
       - "kalman-toss-gateway/config/model-v4-macro-event-spec.json"
       - "kalman-toss-gateway/scripts/colab_macro_v4.py"
       - "kalman-toss-gateway/tests/test_macro_event_v1.py"
-      - "kalman-toss-gateway/tests/test_tradingeconomics_macro_collector.py"
+      - "kalman-toss-gateway/tests/test_fred_alfred_macro_collector.py"
       - "notebooks/Kalman_Macro_Event_V4_20260916.ipynb"
       - ".github/workflows/macro-event-v1.yml"
   pull_request:
@@ -22,7 +22,7 @@ on:
       - "kalman-toss-gateway/config/model-v4-macro-event-spec.json"
       - "kalman-toss-gateway/scripts/colab_macro_v4.py"
       - "kalman-toss-gateway/tests/test_macro_event_v1.py"
-      - "kalman-toss-gateway/tests/test_tradingeconomics_macro_collector.py"
+      - "kalman-toss-gateway/tests/test_fred_alfred_macro_collector.py"
       - "notebooks/Kalman_Macro_Event_V4_20260916.ipynb"
       - ".github/workflows/macro-event-v1.yml"
   workflow_dispatch:
@@ -51,7 +51,7 @@ jobs:
 
       - name: Compile Macro Event V1
         run: |
-          python -m py_compile research/macro_event/collect_tradingeconomics.py
+          python -m py_compile research/macro_event/collect_fred_alfred.py
           python -m py_compile research/macro_event/build_macro_event_features.py
           python -m py_compile research/macro_event/merge_macro_v4.py
           python -m py_compile research/macro_event/compare_v3_v4.py
@@ -60,7 +60,7 @@ jobs:
 
       - name: Run PIT leakage and calendar normalization tests
         run: |
-          pytest -q tests/test_macro_event_v1.py tests/test_tradingeconomics_macro_collector.py
+          pytest -q tests/test_macro_event_v1.py tests/test_fred_alfred_macro_collector.py
 
       - name: Validate pinned Colab notebook
         run: |
@@ -86,7 +86,7 @@ jobs:
           from pathlib import Path
 
           paths = [
-              Path("research/macro_event/collect_tradingeconomics.py"),
+              Path("research/macro_event/collect_fred_alfred.py"),
               Path("research/macro_event/build_macro_event_features.py"),
               Path("research/macro_event/merge_macro_v4.py"),
               Path("research/macro_event/compare_v3_v4.py"),
