@@ -302,11 +302,17 @@ async def main_async() -> int:
         )
         return 2
 
-    run_id, data_as_of, targets = load_target_basket(
-        database_url,
-        max_positions=max_positions,
-        max_age_minutes=max_signal_age,
-    )
+    try:
+        run_id, data_as_of, targets = load_target_basket(
+            database_url,
+            max_positions=max_positions,
+            max_age_minutes=max_signal_age,
+        )
+    except RuntimeError as exc:
+        if str(exc) == "NO_FRESH_R5_1_US_DASHBOARD":
+            print("NO_FRESH_R5_1_US_DASHBOARD")
+            return 0
+        raise
 
     client = TossClient(settings)
     window_open, window_info = await us_fractional_order_window(client)
