@@ -34,7 +34,6 @@ def parse_args() -> argparse.Namespace:
         "--macro-input",
         default="Market_Macro/v1/raw/us_macro_events_normalized.parquet",
     )
-    p.add_argument("--v2-candidate-tag", default="20260913_nested_v2_001")
     p.add_argument(
         "--v3-candidate-tag", default="20260913_return_regime_v3_001"
     )
@@ -62,11 +61,6 @@ def main() -> int:
     drive = Path(args.drive_root)
     model_root = drive / "Market_Model_V2"
     matrix_v3 = model_root / "historical_matrices_v1"
-    v2_root = (
-        model_root
-        / "historical_quant_2017_v2_candidate"
-        / args.v2_candidate_tag
-    )
     v3_root = (
         model_root
         / "historical_quant_2017_v3_candidate"
@@ -163,11 +157,11 @@ def main() -> int:
             [
                 py,
                 "-m",
-                "research.quant_stack.historical_v3_return_regime",
+                "research.macro_event.run_macro_v4",
                 "--matrix-dir",
                 v4_matrix,
-                "--v2-root",
-                v2_root,
+                "--baseline-v3-root",
+                v3_root,
                 "--spec",
                 v4_spec,
                 "--output-dir",
