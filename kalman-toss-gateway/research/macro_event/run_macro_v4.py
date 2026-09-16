@@ -23,6 +23,48 @@ def _write_json(path: Path, payload: Any) -> None:
     tmp.replace(path)
 
 
+def _macro_selection_summary(output_root: Path, market: str) -> dict[str, Any]:
+    path = output_root / market.lower() / "fold_metrics.json"
+    if not path.exists():
+        return {
+            "fold_count": 0,
+            "folds_with_macro": 0,
+            "selected_macro_features": [],
+        }
+
+    folds = json.loads(path.read_text(encoding="utf-8"))
+    selected: set[str] = set()
+    folds_with_macro = 0
+    per_fold: list[dict[str, Any]] = []
+
+    for row in folds:
+        features = [
+            str(x)
+            for x in row.get("selected_features", [])
+            if str(x).startswith("macro__")
+        ]
+        if features:
+            folds_with_macro += 1
+            selected.update(features)
+        per_fold.append(
+            {
+                "fold_id": row.get("outer_fold", {}).get("fold_id"),
+                "macro_feature_count": len(features),
+                "macro_features": features,
+            }
+        )
+
+    return {
+        "fold_count": len(folds),
+        "folds_with_macro": folds_with_macro,
+        "macro_fold_share": (
+            float(folds_with_macro / len(folds)) if folds else 0.0
+        ),
+        "selected_macro_features": sorted(selected),
+        "per_fold": per_fold,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Kalman Historical V4 macro-event candidate"
@@ -56,13 +98,17 @@ def main() -> int:
 
     for market in MARKETS:
         try:
-            status["markets"][market] = run_market_v3(
+            result = run_market_v3(
                 market=market,
                 matrix_dir=matrix_dir,
                 output_root=output_root,
                 spec=spec,
                 code_sha=args.code_sha,
             )
+            result["macro_selection"] = _macro_selection_summary(
+                output_root, market
+            )
+            status["markets"][market] = result
         except Exception as exc:
             status["status"] = "FAIL"
             status["markets"][market] = {
