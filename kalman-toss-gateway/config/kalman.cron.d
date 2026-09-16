@@ -10,14 +10,20 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 20 16 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh KR_GLOBAL >> /opt/kalman/logs/kr.log 2>&1
 
 # US: cover both DST and standard-time regular sessions in KST.
-# Mon-Fri US evening starts map to Mon-Fri late evening KST; overnight maps to Tue-Sat KST.
-15 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
-15 0-6 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
+# R5.1 uses regular-session hourly bars aligned to :30 KST boundaries.
+# Run at :35 so a newly completed :30 bar is available before scoring.
+# The broad data window is kept through 06:35 so post-close data is refreshed
+# under both DST (22:30-05:00 KST) and standard time (23:30-06:00 KST).
+35 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
+35 0-6 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
 
-# Trade worker follows the same US window, 10 minutes after the pipeline.
-# It remains inert unless AUTO_TRADE_ENABLED plus both live trading gates are explicitly opened.
-25 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
-25 0-6 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
+# US Top-6 trade worker runs 10 minutes after the :35 scoring cycle.
+# Toss fractional/amount-order eligibility is determined dynamically by
+# app.market_guard from the Toss US market calendar; stale R5.1 (>90m) also
+# fails closed. The 04:45 KST run is useful in standard time and is safely
+# rejected by market_guard during DST after the fractional window closes.
+45 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
+45 0-4 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
 
 # Seeking Alpha collector -> US/BTC feature refresh (DISABLED BY DEFAULT).
 # Enable only after the authorized SA input method and snapshot timing are verified.
