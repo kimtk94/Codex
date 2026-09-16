@@ -8,9 +8,11 @@ mkdir -p "$LOCK_DIR" /opt/kalman/logs
 export KALMAN_ENV_FILE="$ENV_FILE"
 cd "$APP_ROOT"
 
-# One lock owns the US-only Top-6 planning cycle.
-# This scheduled worker never submits broker orders; it emits the current
-# rebalance plan from the latest R5.1 US snapshot.
+# One lock owns the US-only Top-6 rebalance cycle.
+# It stays plan-only unless ALL live gates are armed:
+# AUTO_TRADE_ENABLED=true, AUTO_TRADE_EXECUTION_MODE=LIVE,
+# TRADING_ENABLED=true, LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING,
+# AUTO_TRADE_US_TOP6_CONFIRM=CONFIRM_US_TOP6_30000.
 (
   flock -n 9 || exit 0
   PYTHONPATH="$APP_ROOT" "$PY" -m engine.us_top6_rebalancer
