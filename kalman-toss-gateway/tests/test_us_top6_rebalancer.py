@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import os
 import unittest
 from decimal import Decimal
+from unittest.mock import patch
 
-from engine.us_top6_rebalancer import BasketTarget, build_rebalance_plan
+from engine.us_top6_rebalancer import (
+    BasketTarget,
+    _krw_to_usd_amount,
+    _live_profile_confirmed,
+    build_rebalance_plan,
+)
 
 
 def targets():
@@ -18,6 +25,37 @@ def targets():
 
 
 class UsTop6PlanTests(unittest.TestCase):
+    def test_live_profile_requires_all_specific_gates(self):
+        base = {
+            "AUTO_TRADE_ENABLED": "true",
+            "AUTO_TRADE_EXECUTION_MODE": "LIVE",
+            "AUTO_TRADE_US_TOP6_CONFIRM": "WRONG",
+        }
+        with patch.dict(os.environ, base, clear=False):
+            self.assertFalse(_live_profile_confirmed())
+
+        armed = {
+            "AUTO_TRADE_ENABLED": "true",
+            "AUTO_TRADE_EXECUTION_MODE": "LIVE",
+            "AUTO_TRADE_US_TOP6_CONFIRM": "CONFIRM_US_TOP6_30000",
+        }
+        with patch.dict(os.environ, armed, clear=False):
+            self.assertTrue(_live_profile_confirmed())
+
+    def test_dry_run_never_confirms_live_profile(self):
+        armed_but_dry = {
+            "AUTO_TRADE_ENABLED": "true",
+            "AUTO_TRADE_EXECUTION_MODE": "DRY_RUN",
+            "AUTO_TRADE_US_TOP6_CONFIRM": "CONFIRM_US_TOP6_30000",
+        }
+        with patch.dict(os.environ, armed_but_dry, clear=False):
+            self.assertFalse(_live_profile_confirmed())
+
+    def test_5000_krw_conversion_rounds_down(self):
+        usd = _krw_to_usd_amount(5000, Decimal("1400"))
+        self.assertEqual(usd, Decimal("3.57"))
+        self.assertLessEqual(usd * Decimal("1400"), Decimal("5000"))
+
     def test_non_target_us_holdings_are_sell_only_first(self):
         holdings = [
             {"symbol": "DE", "marketCountry": "US", "currency": "USD", "quantity": "0.1", "lastPrice": "100"},
