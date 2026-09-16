@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import json
 import os
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN
@@ -256,13 +257,11 @@ def _krw_to_usd_amount(order_krw: int, fx_usd_krw: Decimal) -> Decimal:
 async def main_async() -> int:
     load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=True)
 
-    if not _bool(os.environ.get("AUTO_TRADE_ENABLED", "false")):
-        print("AUTO_TRADE_DISABLED_US_TOP6")
+    if not _bool(os.environ.get("US_TOP6_PLAN_ENABLED", "true")):
+        print("US_TOP6_PLAN_DISABLED")
         return 0
 
-    mode = os.environ.get("AUTO_TRADE_EXECUTION_MODE", "DRY_RUN").strip().upper()
-    if mode not in {"DRY_RUN", "LIVE"}:
-        raise RuntimeError("AUTO_TRADE_EXECUTION_MODE must be DRY_RUN or LIVE")
+    mode = "PLAN_ONLY"
 
     if os.environ.get("AUTO_TRADE_MARKET", "US").strip().upper() != "US":
         raise RuntimeError("AUTO_TRADE_MARKET must be US")
@@ -367,7 +366,23 @@ async def main_async() -> int:
     report["note"] = (
         "US Top-6 rebalance plan generated; no broker orders were submitted."
     )
+
+    output_path = Path(
+        os.environ.get(
+            "US_TOP6_PLAN_OUTPUT",
+            "/opt/kalman/state/us_top6_rebalance_plan.json",
+        )
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = output_path.with_suffix(output_path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    tmp.replace(output_path)
+
     print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    print(f"US_TOP6_PLAN_WRITTEN={output_path}")
     return 0
 
 
