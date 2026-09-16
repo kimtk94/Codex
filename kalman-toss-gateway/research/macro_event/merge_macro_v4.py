@@ -29,7 +29,12 @@ RATES_CONTEXT_COLUMNS = {
 }
 
 LATEST_COLUMNS = [
+    "macro_signal_z",
     "hawkish_surprise_z",
+    "release_shock_z",
+    "hawkish_release_shock_z",
+    "us2y_daily_bp",
+    "rates_confirmation_daily_bp",
     "us2y_5m_bp",
     "us2y_30m_bp",
     "fed_reprice_30m_bp",
@@ -90,7 +95,7 @@ def _decayed_state(
 ) -> float:
     part = eligible.loc[
         (eligible["category"] == category)
-        & eligible["hawkish_surprise_z"].notna()
+        & eligible["macro_signal_z"].notna()
     ]
     if part.empty:
         # Dense state feature: no active shock is economically zero, not missing.
@@ -108,7 +113,7 @@ def _decayed_state(
         / half_life[valid].to_numpy(dtype=float)
     )
     shocks = pd.to_numeric(
-        part.loc[valid, "hawkish_surprise_z"], errors="coerce"
+        part.loc[valid, "macro_signal_z"], errors="coerce"
     ).to_numpy(dtype=float)
     return float(np.nansum(shocks * weights))
 
