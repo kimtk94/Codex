@@ -159,10 +159,57 @@ CSS=r'''
 
 def main():
     if len(sys.argv)!=2: raise SystemExit("usage: patch_investment_hub_v7417.py <source-root>")
-    root=Path(sys.argv[1]); ap=root/"app.js";cp=root/"style.css";ip=root/"index.html";hp=root/"api/health.js"
-    for p in (ap,cp,ip,hp):
+    root=Path(sys.argv[1]); ap=root/"app.js";cp=root/"style.css";ip=root/"index.html";hp=root/"api/health.js";vp=root/"vercel.json"
+    for p in (ap,cp,ip,hp,vp):
         if not p.exists(): raise SystemExit(f"[FAIL] missing {p}")
-    account_path=root/"api/account.js"
+
+    import json
+    cfg=json.loads(vp.read_text(encoding="utf-8"))
+
+    def resolve_api_route(route: str) -> Path:
+        direct=root/(route.lstrip("/")+".js")
+        if direct.exists():
+            return direct
+
+        candidates=[]
+        rewrites=cfg.get("rewrites") or []
+        if isinstance(rewrites,dict):
+            rewrites=[rewrites]
+        for item in rewrites:
+            if not isinstance(item,dict):
+                continue
+            if str(item.get("source") or "")==route:
+                dst=str(item.get("destination") or "")
+                if dst:
+                    candidates.append(dst)
+
+        for item in cfg.get("routes") or []:
+            if not isinstance(item,dict):
+                continue
+            src=str(item.get("src") or "")
+            normalized=src.replace("^","").replace("$","")
+            if normalized==route:
+                dst=str(item.get("dest") or item.get("destination") or "")
+                if dst:
+                    candidates.append(dst)
+
+        for dst in candidates:
+            clean=dst.split("?",1)[0].lstrip("/")
+            p=root/(clean if clean.endswith(".js") else clean+".js")
+            if p.exists():
+                return p
+
+        raise SystemExit(
+            f"[FAIL] cannot resolve {route} from vercel.json; candidates={candidates}"
+        )
+
+    account_path=resolve_api_route("/api/account")
+    print(f"[INFO] v7.4.17 route /api/account -> {account_path.relative_to(root)}")
+
+    before_api_count=len(list((root/"api").rglob("*.js")))
+    if before_api_count!=12:
+        raise SystemExit(f"[FAIL] expected 12 API functions before patch, got {before_api_count}")
+
     app=ap.read_text();css=cp.read_text();idx=ip.read_text();health=hp.read_text()
     if BASE not in idx: raise SystemExit("[FAIL] v7.4.16 base missing")
     for m in ("commandAccount","commandModel","commandHealth","loadUsPrimaryChart","R5.1 Top 6"):
@@ -242,7 +289,12 @@ def main():
 
     for m in ("commandNextActions","renderNextActions","WAITING FOR FRESH US SNAPSHOT","SELL PREVIEW","TOP6_TARGET_KRW","US Top-6 armed"):
         if m not in app and m not in idx: raise SystemExit(f"[FAIL] v7.4.17 marker missing: {m}")
-    if len(list((root/"api").rglob("*.js")))!=12: raise SystemExit("[FAIL] API function count changed")
+
+    api_files=sorted(p.relative_to(root).as_posix() for p in (root/"api").rglob("*.js"))
+    if len(api_files)!=12:
+        raise SystemExit(f"[FAIL] API function count changed: {len(api_files)} files={api_files}")
+    if not account_path.exists():
+        raise SystemExit("[FAIL] resolved account handler disappeared")
 
     ap.write_text(app);cp.write_text(css);ip.write_text(idx);hp.write_text(health)
     print("[PASS] vNext.7.4.17 next-actions panel")
