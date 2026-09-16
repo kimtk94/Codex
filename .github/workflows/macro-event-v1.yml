@@ -76,7 +76,7 @@ jobs:
               if cell.get("cell_type") == "code"
           )
           compile(code, str(p), "exec")
-          assert "114e1652b7c28998927f493c0be81b51d285aaed" in code
+          assert "8bbba91f98fa2f2b9edddea3d156bad50247d312" in code
           print("MACRO_V4_COLAB=PASS")
           PY
 
