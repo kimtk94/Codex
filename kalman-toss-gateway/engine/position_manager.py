@@ -2,6 +2,12 @@
 
 This module never creates a new entry. It only reconciles orders previously
 registered by engine.auto_trade and, in LIVE mode, submits risk-reducing exits.
+
+When a due LIVE exit is submitted, the manager performs a short bounded poll
+for terminal fill confirmation. A fully closed position can therefore release
+the same run_auto_trade.sh lock cycle to engine.auto_trade for a fresh entry.
+Unfilled, partial, ambiguous, or timed-out exits remain active and keep entries
+blocked.
 """
 from __future__ import annotations
 
@@ -31,6 +37,8 @@ TERMINAL_STATUSES = {
     'REPLACE_REJECTED',
 }
 QTY_TOLERANCE = Decimal('0.00000001')
+DEFAULT_EXIT_FILL_WAIT_SECONDS = 45.0
+DEFAULT_EXIT_POLL_SECONDS = 1.0
 
 
 def _decimal(value) -> Decimal:
@@ -200,6 +208,81 @@ async def _reconcile_exit(store: ManagedPositionStore, client: TossClient, posit
     }
 
 
+def _exit_wait_config() -> tuple[float, float]:
+    try:
+        wait_seconds = float(
+            os.environ.get('AUTO_TRADE_EXIT_FILL_WAIT_SECONDS', str(DEFAULT_EXIT_FILL_WAIT_SECONDS))
+        )
+        poll_seconds = float(
+            os.environ.get('AUTO_TRADE_EXIT_POLL_SECONDS', str(DEFAULT_EXIT_POLL_SECONDS))
+        )
+    except ValueError as exc:
+        raise RuntimeError('exit fill wait settings must be numeric') from exc
+
+    if wait_seconds < 0 or wait_seconds > 120:
+        raise RuntimeError('AUTO_TRADE_EXIT_FILL_WAIT_SECONDS must be between 0 and 120')
+    if poll_seconds <= 0 or poll_seconds > 10:
+        raise RuntimeError('AUTO_TRADE_EXIT_POLL_SECONDS must be > 0 and <= 10')
+    return wait_seconds, poll_seconds
+
+
+async def _wait_for_exit_terminal(
+    store: ManagedPositionStore,
+    client: TossClient,
+    position_id: str,
+    *,
+    wait_seconds: float,
+    poll_seconds: float,
+) -> dict:
+    """Bounded same-cycle reconciliation for a freshly submitted exit."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + wait_seconds
+    polls = 0
+    last_report: dict = {'action': 'EXIT_WAITING'}
+
+    while True:
+        position = store.get(position_id)
+        if not position:
+            return {
+                'action': 'EXIT_POLL_POSITION_MISSING',
+                'positionId': position_id,
+                'pollCount': polls,
+            }
+
+        state = str(position.get('state') or '').upper()
+        if state != 'EXIT_SUBMITTED':
+            return {
+                'action': 'EXIT_POLL_COMPLETE',
+                'positionId': position_id,
+                'positionState': state,
+                'pollCount': polls,
+                'lastReport': last_report,
+            }
+
+        last_report = await _reconcile_exit(store, client, position)
+        polls += 1
+        if last_report.get('action') != 'EXIT_WAITING':
+            refreshed = store.get(position_id) or {}
+            return {
+                'action': 'EXIT_POLL_COMPLETE',
+                'positionId': position_id,
+                'positionState': str(refreshed.get('state') or '').upper(),
+                'pollCount': polls,
+                'lastReport': last_report,
+            }
+
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return {
+                'action': 'EXIT_POLL_TIMEOUT',
+                'positionId': position_id,
+                'pollCount': polls,
+                'waitSeconds': wait_seconds,
+                'lastReport': last_report,
+            }
+        await asyncio.sleep(min(poll_seconds, remaining))
+
+
 async def _manage_open_position(settings: Settings, store: ManagedPositionStore, client: TossClient, position: dict, mode: str) -> dict:
     db_url = os.environ.get('DATABASE_URL_WRITER')
     if not db_url:
@@ -343,7 +426,19 @@ async def main_async() -> int:
             continue
 
         if state == 'OPEN':
-            reports.append(await _manage_open_position(settings, store, client, position, mode))
+            open_report = await _manage_open_position(settings, store, client, position, mode)
+            reports.append(open_report)
+            if mode == 'LIVE' and open_report.get('action') == 'EXIT_SUBMITTED':
+                wait_seconds, poll_seconds = _exit_wait_config()
+                reports.append(
+                    await _wait_for_exit_terminal(
+                        store,
+                        client,
+                        position['position_id'],
+                        wait_seconds=wait_seconds,
+                        poll_seconds=poll_seconds,
+                    )
+                )
         elif state in {'MANUAL_RECONCILE', 'AMBIGUOUS_ENTRY'}:
             reports.append({
                 'action': 'TRADING_BLOCKED_MANUAL_RECONCILE',
