@@ -15,7 +15,6 @@ import requests
 
 TE_BASE = "https://api.tradingeconomics.com"
 
-# Ordered from the most specific patterns to broader ones.
 EVENT_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("CORE_CPI_MOM", re.compile(r"\b(core (inflation rate|cpi).*(mom|month)|core cpi mom)\b", re.I)),
     ("CPI_MOM", re.compile(r"\b(inflation rate mom|cpi.*(mom|month))\b", re.I)),
@@ -29,27 +28,30 @@ EVENT_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("INITIAL_CLAIMS", re.compile(r"^initial jobless claims$", re.I)),
     ("RETAIL_SALES_MOM", re.compile(r"^retail sales mom$", re.I)),
     ("ISM_MANUFACTURING", re.compile(r"^ism manufacturing pmi$", re.I)),
-    ("ISM_SERVICES", re.compile(r"^ism (services|non[- ]manufacturing) pmi$", re.I)),
-    ("FOMC_DECISION", re.compile(r"\b(fed interest rate decision|fomc.*rate decision)\b", re.I)),
+    ("ISM_SERVICES", re.compile(r"^(ism (services|non[- ]manufacturing) pmi|non manufacturing pmi)$", re.I)),
+    ("FOMC_DECISION", re.compile(r"\b(fed interest rate decision|fomc.*rate decision|interest rate)\b", re.I)),
 ]
 
 
 def parse_args() -> argparse.Namespace:
+    app_root = Path(__file__).resolve().parents[2]
     p = argparse.ArgumentParser(
-        description="Collect and normalize US Trading Economics macro calendar events"
+        description="Collect and normalize US Trading Economics point-in-time macro calendar events"
     )
     p.add_argument("--start", default="2017-01-01")
     p.add_argument("--end", default=date.today().isoformat())
     p.add_argument("--output", required=True)
     p.add_argument("--country", default="united states")
+    p.add_argument("--spec", default=str(app_root / "config/macro-event-v1-spec.json"))
     p.add_argument(
         "--api-key-env",
         default="TRADINGECONOMICS_API_KEY",
         help="environment variable containing the Trading Economics API key",
     )
-    p.add_argument("--chunk-days", type=int, default=92)
+    p.add_argument("--chunk-days", type=int, default=366)
     p.add_argument("--timeout-seconds", type=float, default=60.0)
     p.add_argument("--max-retries", type=int, default=4)
+    p.add_argument("--sleep-seconds", type=float, default=0.10)
     p.add_argument(
         "--allow-estimated-time",
         action="store_true",
@@ -79,7 +81,14 @@ def _parse_number(raw: Any) -> float | None:
     try:
         return float(text) * multiplier
     except ValueError:
-        return None
+        match = re.search(r"([-+]?\d*\.?\d+)\s*([KMBT]?)\s*$", text, re.I)
+        if not match:
+            return None
+        value = float(match.group(1))
+        suffix = match.group(2).upper()
+        if suffix:
+            value *= {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}[suffix]
+        return value
 
 
 def _numeric(record: dict[str, Any], numeric_key: str, string_key: str) -> float | None:
@@ -90,10 +99,12 @@ def _numeric(record: dict[str, Any], numeric_key: str, string_key: str) -> float
 
 
 def canonical_event_type(record: dict[str, Any]) -> str | None:
+    hinted = str(record.get("_canonical_event_type") or "").strip().upper()
+    if hinted:
+        return hinted
+
     event = str(record.get("Event") or "").strip()
     category = str(record.get("Category") or "").strip()
-
-    # Deliberately exclude closely-named variants before broad rules.
     lower_event = event.lower()
     if any(
         token in lower_event
@@ -147,11 +158,6 @@ def normalize_records(
         consensus = _numeric(record, "ForecastValue", "Forecast")
         previous_after_revision = _numeric(record, "PreviousValue", "Previous")
         previous_before_revision = _parse_number(record.get("Revised"))
-
-        # TE schema:
-        #   Previous = previous period after revision (if applicable)
-        #   Revised  = the value that had been reported before that revision.
-        # The model's pre-release prior is Revised when populated.
         previous_known = (
             previous_before_revision
             if previous_before_revision is not None
@@ -168,8 +174,6 @@ def normalize_records(
                 "event_id": f"TE:{calendar_id}",
                 "event_type": event_type,
                 "release_time": release,
-                # For daily model joins the official release instant is the earliest usable time.
-                # LastUpdate is retained as lineage metadata, not substituted for release time.
                 "available_time": release,
                 "actual": actual,
                 "consensus": consensus,
@@ -195,7 +199,8 @@ def normalize_records(
                     record.get("LastUpdate"), utc=True, errors="coerce"
                 ),
                 "te_forecast": _numeric(record, "TEForecastValue", "TEForecast"),
-                "collector": "TRADING_ECONOMICS_CALENDAR",
+                "collector": "TRADING_ECONOMICS_CALENDAR_PIT",
+                "provider_indicator": record.get("_provider_indicator"),
                 "availability_policy": "OFFICIAL_RELEASE_TIME_UTC",
             }
         )
@@ -214,13 +219,12 @@ def normalize_records(
             ]
         )
 
-    out = pd.DataFrame(rows)
-    out = (
-        out.sort_values(["release_time", "event_id"])
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["release_time", "event_id"])
         .drop_duplicates("event_id", keep="last")
         .reset_index(drop=True)
     )
-    return out
 
 
 def _redact_secret(message: str, secret: str) -> str:
@@ -238,6 +242,37 @@ def _date_chunks(start: date, end: date, days: int) -> Iterable[tuple[date, date
         cursor = chunk_end + timedelta(days=1)
 
 
+def _request_with_retries(
+    session: requests.Session,
+    *,
+    url: str,
+    params: dict[str, str],
+    timeout_seconds: float,
+    max_retries: int,
+    api_key: str,
+) -> list[dict[str, Any]]:
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            response = session.get(url, params=params, timeout=timeout_seconds)
+            response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, dict):
+                payload = [payload]
+            if not isinstance(payload, list):
+                raise RuntimeError(
+                    f"unexpected Trading Economics response type: {type(payload).__name__}"
+                )
+            return [dict(row) for row in payload]
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 >= max_retries:
+                break
+            time.sleep(min(8.0, 1.5 * (2 ** attempt)))
+    safe_error = _redact_secret(str(last_error), api_key)
+    raise RuntimeError(f"Trading Economics request failed: {safe_error}") from last_error
+
+
 def fetch_calendar(
     *,
     api_key: str,
@@ -247,48 +282,76 @@ def fetch_calendar(
     chunk_days: int,
     timeout_seconds: float,
     max_retries: int,
-) -> list[dict[str, Any]]:
+    spec: dict[str, Any],
+    sleep_seconds: float = 0.10,
+) -> tuple[list[dict[str, Any]], list[str]]:
     session = requests.Session()
     all_rows: list[dict[str, Any]] = []
-
+    warnings: list[str] = []
     country_path = requests.utils.quote(country, safe="")
-    for d1, d2 in _date_chunks(start, end, chunk_days):
-        url = (
-            f"{TE_BASE}/calendar/country/{country_path}/"
-            f"{d1.isoformat()}/{d2.isoformat()}"
-        )
-        params = {
-            "c": api_key,
-            "f": "json",
-            "values": "true",
-        }
 
-        last_error: Exception | None = None
-        for attempt in range(max_retries):
-            try:
-                response = session.get(url, params=params, timeout=timeout_seconds)
-                response.raise_for_status()
-                payload = response.json()
-                if not isinstance(payload, list):
-                    raise RuntimeError(
-                        f"unexpected Trading Economics response type: {type(payload).__name__}"
-                    )
-                all_rows.extend(payload)
-                last_error = None
+    for event_type, definition in spec["event_definitions"].items():
+        aliases = [str(x) for x in definition.get("tradingeconomics_indicators", [])]
+        if not aliases:
+            warnings.append(f"{event_type}: no Trading Economics mapping; skipped")
+            continue
+
+        matched_rows: list[dict[str, Any]] = []
+        selected_alias: str | None = None
+
+        for indicator in aliases:
+            indicator_path = requests.utils.quote(indicator, safe="")
+            candidate_rows: list[dict[str, Any]] = []
+            for d1, d2 in _date_chunks(start, end, chunk_days):
+                url = (
+                    f"{TE_BASE}/calendar/country/{country_path}/indicator/"
+                    f"{indicator_path}/{d1.isoformat()}/{d2.isoformat()}"
+                )
+                payload = _request_with_retries(
+                    session,
+                    url=url,
+                    params={"c": api_key, "f": "json", "values": "true"},
+                    timeout_seconds=timeout_seconds,
+                    max_retries=max_retries,
+                    api_key=api_key,
+                )
+                for row in payload:
+                    row["_canonical_event_type"] = str(event_type)
+                    row["_provider_indicator"] = indicator
+                candidate_rows.extend(payload)
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
+
+            candidate_rows = [
+                row
+                for row in candidate_rows
+                if str(row.get("Country") or "").strip().lower()
+                == country.strip().lower()
+            ]
+            if candidate_rows:
+                matched_rows = candidate_rows
+                selected_alias = indicator
                 break
-            except Exception as exc:
-                last_error = exc
-                if attempt + 1 >= max_retries:
-                    break
-                time.sleep(min(8.0, 1.5 * (2 ** attempt)))
 
-        if last_error is not None:
-            safe_error = _redact_secret(str(last_error), api_key)
-            raise RuntimeError(
-                f"Trading Economics calendar fetch failed for {d1}..{d2}: {safe_error}"
-            ) from last_error
+        if matched_rows:
+            all_rows.extend(matched_rows)
+        else:
+            warnings.append(f"{event_type}: no rows from aliases={aliases!r}")
 
-    return all_rows
+        if selected_alias and len(aliases) > 1:
+            warnings.append(
+                f"{event_type}: selected provider alias '{selected_alias}'"
+            )
+
+    deduped: dict[str, dict[str, Any]] = {}
+    anonymous: list[dict[str, Any]] = []
+    for row in all_rows:
+        calendar_id = str(row.get("CalendarId") or "").strip()
+        if calendar_id:
+            deduped[calendar_id] = row
+        else:
+            anonymous.append(row)
+    return list(deduped.values()) + anonymous, warnings
 
 
 def main() -> int:
@@ -305,7 +368,8 @@ def main() -> int:
     if end < start:
         raise ValueError("end before start")
 
-    raw = fetch_calendar(
+    spec = json.loads(Path(args.spec).expanduser().read_text(encoding="utf-8"))
+    raw, warnings = fetch_calendar(
         api_key=api_key,
         country=args.country,
         start=start,
@@ -313,6 +377,8 @@ def main() -> int:
         chunk_days=int(args.chunk_days),
         timeout_seconds=float(args.timeout_seconds),
         max_retries=int(args.max_retries),
+        spec=spec,
+        sleep_seconds=float(args.sleep_seconds),
     )
     out = normalize_records(
         raw,
@@ -328,7 +394,7 @@ def main() -> int:
 
     status = {
         "status": "READY",
-        "source": "TRADING_ECONOMICS",
+        "source": "TRADING_ECONOMICS_POINT_IN_TIME",
         "start": start.isoformat(),
         "end": end.isoformat(),
         "raw_rows": len(raw),
@@ -344,6 +410,7 @@ def main() -> int:
         "actual_coverage": (
             float(out["actual"].notna().mean()) if not out.empty else 0.0
         ),
+        "warnings": warnings,
         "collected_at_utc": datetime.now(timezone.utc).isoformat(),
         "api_key_persisted": False,
         "research_only": True,
