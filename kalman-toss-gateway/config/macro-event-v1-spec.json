@@ -1,98 +1,122 @@
 {
-  "version": "kalman_macro_event_v1_001",
+  "version": "kalman_macro_event_v1_002_free_fred",
   "surprise_z_min_history": 12,
-  "surprise_z_clip": 6.0,
+  "surprise_z_clip": 6,
   "max_event_age_hours": 168,
   "event_definitions": {
     "CPI_MOM": {
       "category": "INFLATION",
       "hawkish_sign": 1,
       "half_life_hours": 48,
-      "tradingeconomics_indicators": ["Inflation Rate MoM"]
+      "fred_series_id": "CPIAUCSL",
+      "release_time_et": "08:30",
+      "release_transform": "pct_change"
     },
     "CORE_CPI_MOM": {
       "category": "INFLATION",
       "hawkish_sign": 1,
       "half_life_hours": 72,
-      "tradingeconomics_indicators": ["Core Inflation Rate MoM"]
+      "fred_series_id": "CPILFESL",
+      "release_time_et": "08:30",
+      "release_transform": "pct_change"
     },
     "PCE_MOM": {
       "category": "INFLATION",
       "hawkish_sign": 1,
       "half_life_hours": 36,
-      "tradingeconomics_indicators": ["PCE Price Index MoM"]
+      "fred_series_id": "PCEPI",
+      "release_time_et": "08:30",
+      "release_transform": "pct_change"
     },
     "CORE_PCE_MOM": {
       "category": "INFLATION",
       "hawkish_sign": 1,
       "half_life_hours": 48,
-      "tradingeconomics_indicators": ["Core PCE Price Index MoM"]
+      "fred_series_id": "PCEPILFE",
+      "release_time_et": "08:30",
+      "release_transform": "pct_change"
     },
     "PPI_MOM": {
       "category": "INFLATION",
       "hawkish_sign": 1,
       "half_life_hours": 24,
-      "tradingeconomics_indicators": ["Producer Price Inflation MoM", "PPI MoM"]
+      "fred_series_id": "PPIFID",
+      "release_time_et": "08:30",
+      "release_transform": "pct_change"
     },
     "NFP": {
       "category": "LABOR",
       "hawkish_sign": 1,
       "half_life_hours": 48,
-      "tradingeconomics_indicators": ["Non Farm Payrolls"]
+      "fred_series_id": "PAYEMS",
+      "release_time_et": "08:30",
+      "release_transform": "diff"
     },
     "UNEMPLOYMENT_RATE": {
       "category": "LABOR",
       "hawkish_sign": -1,
       "half_life_hours": 48,
-      "tradingeconomics_indicators": ["Unemployment Rate"]
+      "fred_series_id": "UNRATE",
+      "release_time_et": "08:30",
+      "release_transform": "diff"
     },
     "AHE_MOM": {
       "category": "LABOR",
       "hawkish_sign": 1,
       "half_life_hours": 48,
-      "tradingeconomics_indicators": ["Average Hourly Earnings MoM"]
+      "fred_series_id": "CES0500000003",
+      "release_time_et": "08:30",
+      "release_transform": "pct_change"
     },
     "JOLTS_OPENINGS": {
       "category": "LABOR",
       "hawkish_sign": 1,
       "half_life_hours": 24,
-      "tradingeconomics_indicators": ["JOLTs Job Openings", "Job Openings"]
+      "fred_series_id": "JTSJOL",
+      "release_time_et": "10:00",
+      "release_transform": "diff"
     },
     "INITIAL_CLAIMS": {
       "category": "LABOR",
       "hawkish_sign": -1,
       "half_life_hours": 12,
-      "tradingeconomics_indicators": ["Initial Jobless Claims"]
+      "fred_series_id": "ICSA",
+      "release_time_et": "08:30",
+      "release_transform": "diff"
     },
     "RETAIL_SALES_MOM": {
       "category": "GROWTH",
       "hawkish_sign": 1,
       "half_life_hours": 24,
-      "tradingeconomics_indicators": ["Retail Sales MoM"]
+      "fred_series_id": "RSAFS",
+      "release_time_et": "08:30",
+      "release_transform": "pct_change"
     },
     "ISM_MANUFACTURING": {
       "category": "GROWTH",
       "hawkish_sign": 1,
       "half_life_hours": 24,
-      "tradingeconomics_indicators": ["ISM Manufacturing PMI", "Manufacturing PMI"]
+      "fred_series_id": null
     },
     "ISM_SERVICES": {
       "category": "GROWTH",
       "hawkish_sign": 1,
       "half_life_hours": 24,
-      "tradingeconomics_indicators": ["Non Manufacturing PMI"]
+      "fred_series_id": null
     },
     "FOMC_DECISION": {
       "category": "POLICY",
       "hawkish_sign": 1,
       "half_life_hours": 96,
-      "tradingeconomics_indicators": ["Interest Rate"]
+      "fred_series_id": null
     },
     "FOMC_DOT_MEDIAN": {
       "category": "POLICY",
       "hawkish_sign": 1,
       "half_life_hours": 120,
-      "tradingeconomics_indicators": []
+      "fred_series_id": null
     }
-  }
+  },
+  "release_shock_z_min_history": 12,
+  "release_shock_z_clip": 6
 }
