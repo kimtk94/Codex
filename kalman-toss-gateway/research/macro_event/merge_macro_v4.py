@@ -17,6 +17,17 @@ MARKET_CUTOFF = {
     "BTC": ("UTC", 23, 59),
 }
 
+RATES_CONTEXT_COLUMNS = {
+    "us_treasury_2y": "rates__us2y_level",
+    "us_treasury_10y": "rates__us10y_level",
+    "us_10y_2y_spread": "rates__us10y_2y_spread",
+    "us_fed_funds_effective": "rates__fed_funds_effective",
+    "us_fed_target_mid": "rates__fed_target_mid",
+    "us_sofr": "rates__sofr",
+    "usdkrw": "rates__usdkrw",
+    "policy_rate_gap_us_minus_kr": "rates__policy_gap_us_minus_kr",
+}
+
 LATEST_COLUMNS = [
     "hawkish_surprise_z",
     "us2y_5m_bp",
@@ -40,6 +51,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--matrix-dir", required=True)
     p.add_argument("--macro-events", required=True)
     p.add_argument("--macro-spec", required=True)
+    p.add_argument(
+        "--rates-context",
+        default="",
+        help="Optional model-safe daily rates/FX feature CSV or parquet.",
+    )
     p.add_argument("--output-dir", required=True)
     return p.parse_args()
 
@@ -121,6 +137,7 @@ def build_daily_macro_panel(
     *,
     market: str,
     max_age_hours: float,
+    rates_context: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     market = market.upper()
     e = events.copy()
@@ -181,6 +198,70 @@ def build_daily_macro_panel(
     return pd.DataFrame(rows, index=pd.RangeIndex(len(rows)))
 
 
+def _load_rates_context(path: Path) -> pd.DataFrame:
+    if path.suffix.lower() == ".parquet":
+        frame = pd.read_parquet(path)
+    elif path.suffix.lower() in {".csv", ".txt"}:
+        frame = pd.read_csv(path)
+    else:
+        raise ValueError(f"unsupported rates context file: {path}")
+    if "date" not in frame.columns:
+        raise ValueError("rates context must contain a date column")
+    return frame
+
+
+def build_rates_context_panel(
+    as_of: pd.Series,
+    rates_context: pd.DataFrame,
+) -> pd.DataFrame:
+    rates = rates_context.copy()
+    rates["__date"] = pd.to_datetime(
+        rates["date"], errors="coerce"
+    ).dt.normalize()
+    rates = (
+        rates.loc[rates["__date"].notna()]
+        .sort_values("__date")
+        .drop_duplicates("__date", keep="last")
+        .set_index("__date")
+    )
+
+    selected = pd.DataFrame(index=rates.index)
+    for source, dest in RATES_CONTEXT_COLUMNS.items():
+        if source in rates.columns:
+            selected[dest] = pd.to_numeric(
+                rates[source], errors="coerce"
+            )
+
+    if "rates__us2y_level" in selected.columns:
+        selected["rates__us2y_chg1d_bp"] = (
+            selected["rates__us2y_level"].diff() * 100.0
+        )
+    if "rates__us10y_level" in selected.columns:
+        selected["rates__us10y_chg1d_bp"] = (
+            selected["rates__us10y_level"].diff() * 100.0
+        )
+    if "rates__us10y_2y_spread" in selected.columns:
+        selected["rates__us10y_2y_chg1d_bp"] = (
+            selected["rates__us10y_2y_spread"].diff() * 100.0
+        )
+
+    if "us_treasury_2y_available_flag" in rates.columns:
+        selected["rates__us2y_available_flag"] = pd.to_numeric(
+            rates["us_treasury_2y_available_flag"], errors="coerce"
+        )
+    if "us_treasury_2y_changed_flag" in rates.columns:
+        selected["rates__us2y_changed_flag"] = pd.to_numeric(
+            rates["us_treasury_2y_changed_flag"], errors="coerce"
+        )
+
+    anchor_dates = pd.to_datetime(
+        as_of, utc=True, errors="raise"
+    ).dt.tz_convert(None).dt.normalize()
+    panel = selected.reindex(pd.DatetimeIndex(anchor_dates)).reset_index(drop=True)
+    panel.index = pd.RangeIndex(len(panel))
+    return panel
+
+
 def merge_market_matrix(
     matrix: pd.DataFrame,
     events: pd.DataFrame,
@@ -198,7 +279,10 @@ def merge_market_matrix(
     if len(panel) != len(x):
         raise RuntimeError("macro panel length mismatch")
 
-    out = pd.concat([x, panel], axis=1)
+    parts = [x, panel]
+    if rates_context is not None:
+        parts.append(build_rates_context_panel(x["as_of"], rates_context))
+    out = pd.concat(parts, axis=1)
     return out.drop(columns=["macro__decision_cutoff"])
 
 
@@ -211,11 +295,19 @@ def main() -> int:
     )
     output_dir = Path(args.output_dir).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
+    rates_context = None
+    rates_path = None
+    if str(args.rates_context).strip():
+        rates_path = Path(args.rates_context).expanduser()
+        if not rates_path.exists():
+            raise FileNotFoundError(rates_path)
+        rates_context = _load_rates_context(rates_path)
     max_age_hours = float(spec.get("max_event_age_hours", 168.0))
 
     status: dict[str, Any] = {
         "status": "READY",
         "markets": {},
+        "rates_context": str(rates_path) if rates_path else None,
         "research_only": True,
         "live_execution": False,
         "neon_write": False,
@@ -231,6 +323,7 @@ def main() -> int:
                 events,
                 market=market,
                 max_age_hours=max_age_hours,
+                rates_context=rates_context,
             )
             dest = output_dir / f"{market.lower()}_matrix.parquet"
             merged.to_parquet(dest, index=False)
@@ -244,10 +337,19 @@ def main() -> int:
             macro_cols = [
                 c for c in merged.columns if c.startswith("macro__")
             ]
+            rates_cols = [
+                c for c in merged.columns if c.startswith("rates__")
+            ]
             status["markets"][market] = {
                 "status": "READY",
                 "rows": int(len(merged)),
                 "macro_feature_count": len(macro_cols),
+                "rates_feature_count": len(rates_cols),
+                "rates_non_null_ratio": (
+                    float(merged[rates_cols].notna().mean().mean())
+                    if rates_cols
+                    else 0.0
+                ),
                 "macro_non_null_ratio": (
                     float(merged[macro_cols].notna().mean().mean())
                     if macro_cols
