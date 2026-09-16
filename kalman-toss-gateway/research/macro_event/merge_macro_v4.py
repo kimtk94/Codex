@@ -137,7 +137,6 @@ def build_daily_macro_panel(
     *,
     market: str,
     max_age_hours: float,
-    rates_context: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     market = market.upper()
     e = events.copy()
@@ -268,6 +267,7 @@ def merge_market_matrix(
     *,
     market: str,
     max_age_hours: float,
+    rates_context: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     x = matrix.copy().reset_index(drop=True)
     panel = build_daily_macro_panel(
