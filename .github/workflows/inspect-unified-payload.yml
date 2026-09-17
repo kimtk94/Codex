@@ -1,0 +1,34 @@
+name: Inspect Unified Payload
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-unified-payload.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat kalman-toss-gateway/engine/_unified_payload_*.b64 | tr -d '\n\r' | base64 -d > /tmp/unified_payload.xz
+          echo '--- compressed ---'
+          file /tmp/unified_payload.xz
+          ls -lh /tmp/unified_payload.xz
+          xz -dc /tmp/unified_payload.xz > /tmp/unified_payload
+          echo '--- decompressed ---'
+          file /tmp/unified_payload
+          ls -lh /tmp/unified_payload
+          echo '--- first bytes ---'
+          head -c 500 /tmp/unified_payload | sed -e 's/[^[:print:]\t]/?/g' || true
+          echo
+          echo '--- tar listing if applicable ---'
+          tar -tf /tmp/unified_payload 2>/dev/null | head -100 || true
