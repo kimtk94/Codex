@@ -161,22 +161,36 @@ def _has_open_buy_order(items: list[dict], symbol: str) -> bool:
     )
 
 
-def _usd_order_size(cash_buying_power: Decimal) -> tuple[Decimal | None, dict]:
+def _usd_order_size(
+    cash_buying_power: Decimal,
+    *,
+    usd_krw_rate: Decimal | None = None,
+) -> tuple[Decimal | None, dict]:
     mode = os.environ.get('AUTO_TRADE_SIZING_MODE', 'FIXED_USD').strip().upper()
     reserve = Decimal(os.environ.get('AUTO_TRADE_CASH_RESERVE_USD', '0'))
     minimum = Decimal(os.environ.get('AUTO_TRADE_MIN_ORDER_USD', '1'))
-    maximum = Decimal(os.environ.get('AUTO_TRADE_MAX_ORDER_USD', '2'))
+    maximum = Decimal(os.environ.get('AUTO_TRADE_MAX_ORDER_USD', '0'))
     spendable = max(Decimal('0'), cash_buying_power - reserve)
 
+    target_krw = None
     if mode == 'FIXED_USD':
         raw = Decimal(os.environ.get('AUTO_TRADE_ORDER_USD', '2'))
+    elif mode == 'FIXED_KRW':
+        target_krw = Decimal(os.environ.get('AUTO_TRADE_ORDER_KRW', '5000'))
+        if target_krw <= 0:
+            raise RuntimeError('AUTO_TRADE_ORDER_KRW must be > 0')
+        if usd_krw_rate is None or usd_krw_rate <= 0:
+            raise RuntimeError('USD/KRW rate is required for FIXED_KRW sizing')
+        # Toss amount orders are submitted in USD. Round down to cents so the
+        # pre-submit KRW estimate never intentionally exceeds the KRW target.
+        raw = (target_krw / usd_krw_rate).quantize(Decimal('0.01'), rounding=ROUND_DOWN)
     elif mode == 'CASH_FRACTION':
         fraction = Decimal(os.environ.get('AUTO_TRADE_CASH_FRACTION', '0.10'))
         if fraction <= 0 or fraction > 1:
             raise RuntimeError('AUTO_TRADE_CASH_FRACTION must be > 0 and <= 1')
         raw = spendable * fraction
     else:
-        raise RuntimeError('AUTO_TRADE_SIZING_MODE must be FIXED_USD or CASH_FRACTION')
+        raise RuntimeError('AUTO_TRADE_SIZING_MODE must be FIXED_USD, FIXED_KRW or CASH_FRACTION')
 
     if maximum > 0:
         raw = min(raw, maximum)
@@ -189,6 +203,8 @@ def _usd_order_size(cash_buying_power: Decimal) -> tuple[Decimal | None, dict]:
         'minOrderUsd': str(minimum),
         'maxOrderUsd': str(maximum),
         'cashFraction': os.environ.get('AUTO_TRADE_CASH_FRACTION', '0.10'),
+        'targetOrderKrw': str(target_krw) if target_krw is not None else None,
+        'usdKrwRateForSizing': str(usd_krw_rate) if usd_krw_rate is not None else None,
     }
     if amount < minimum or amount <= 0:
         return None, detail
@@ -246,7 +262,12 @@ async def main_async() -> int:
 
     buying_power = unwrap(await client.buying_power('USD')) or {}
     cash_power = Decimal(str(buying_power.get('cashBuyingPower') or '0'))
-    order_usd, sizing = _usd_order_size(cash_power)
+    sizing_mode = os.environ.get('AUTO_TRADE_SIZING_MODE', 'FIXED_USD').strip().upper()
+    usd_krw_rate = None
+    if sizing_mode == 'FIXED_KRW':
+        fx_payload = unwrap(await client.exchange_rate('USD', 'KRW')) or {}
+        usd_krw_rate = Decimal(str(fx_payload.get('rate') or '0'))
+    order_usd, sizing = _usd_order_size(cash_power, usd_krw_rate=usd_krw_rate)
 
     now_utc = datetime.now(timezone.utc)
     as_of = signal['as_of']
