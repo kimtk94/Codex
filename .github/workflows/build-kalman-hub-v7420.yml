@@ -71,3 +71,5 @@ jobs:
           fi
           git commit -m "build: generate Kalman Hub v7.4.20 recovery"
           git push origin HEAD:main
+
+# rebuild: mixed recovery version normalization
