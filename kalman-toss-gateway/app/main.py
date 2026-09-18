@@ -7,6 +7,8 @@ from .config import Settings, get_settings
 from .executor import TradeLedger, execute_order, prepare_order
 from .risk import validate_order
 from .toss_client import TossClient
+from .managed_positions import ManagedPositionStore
+from .market_guard import unwrap, us_fractional_order_window
 
 app = FastAPI(title='Kalman Toss Gateway', version='0.2.0')
 
@@ -116,6 +118,64 @@ async def buying_power(
     settings: Settings = Depends(get_settings),
 ):
     return await TossClient(settings).buying_power(currency)
+
+
+@app.get('/api/trading-status', dependencies=[Depends(authorize_gateway)])
+async def trading_status(settings: Settings = Depends(get_settings)):
+    import os
+
+    client = TossClient(settings)
+    store = ManagedPositionStore(settings.state_db_path)
+    ledger = TradeLedger(settings.state_db_path)
+
+    holdings_payload = await client.holdings()
+    orders_payload = await client.orders('OPEN')
+    buying_payload = await client.buying_power('USD')
+    window_open, window_info = await us_fractional_order_window(client)
+
+    holdings = unwrap(holdings_payload) or {}
+    orders = unwrap(orders_payload) or {}
+    buying = unwrap(buying_payload) or {}
+
+    holding_items = holdings.get('items', []) if isinstance(holdings, dict) else []
+    open_orders = orders.get('orders', orders.get('items', [])) if isinstance(orders, dict) else []
+    nonzero = []
+    for row in holding_items or []:
+        try:
+            qty = float(row.get('quantity') or 0)
+        except Exception:
+            qty = 0
+        if qty:
+            nonzero.append({
+                'symbol': str(row.get('symbol') or '').upper(),
+                'quantity': row.get('quantity'),
+                'currency': row.get('currency'),
+                'marketCountry': row.get('marketCountry'),
+            })
+
+    return {
+        'status': 'READY',
+        'autoTradeEnabled': os.environ.get('AUTO_TRADE_ENABLED', 'false').lower() == 'true',
+        'executionMode': os.environ.get('AUTO_TRADE_EXECUTION_MODE', 'DRY_RUN').upper(),
+        'signalPolicy': os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').upper(),
+        'strategyVersion': os.environ.get('AUTO_TRADE_STRATEGY_VERSION', ''),
+        'sizingMode': os.environ.get('AUTO_TRADE_SIZING_MODE', 'FIXED_USD').upper(),
+        'targetOrderKrw': int(os.environ.get('AUTO_TRADE_ORDER_KRW', str(settings.max_single_order_krw))),
+        'liveGateOpen': settings.live_gate_open,
+        'tradingEnabled': settings.trading_enabled,
+        'singleOrderLimitKrw': settings.max_single_order_krw,
+        'dailyTotalLimitKrw': settings.live_micro_total_limit_krw,
+        'dailyCommittedKrw': ledger.daily_committed(),
+        'accountFlat': len(nonzero) == 0 and len(open_orders or []) == 0,
+        'nonzeroHoldings': nonzero,
+        'openOrders': open_orders or [],
+        'cashBuyingPowerUsd': buying.get('cashBuyingPower') if isinstance(buying, dict) else None,
+        'usFractionalOrderWindowOpen': window_open,
+        'marketWindow': window_info,
+        'activeManagedPositions': store.active(),
+        'recentManagedPositions': store.recent(5),
+        'tradeExecutionFromWeb': False,
+    }
 
 
 @app.get('/api/orders', dependencies=[Depends(authorize_gateway)])
