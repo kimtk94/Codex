@@ -382,6 +382,12 @@ def emit_vercel_manifest(src: Path, out: Path) -> int:
         rel = p.relative_to(src).as_posix()
         if rel == "app.js":
             data = browser_loader()
+        elif rel == "vercel.json":
+            cfg = json.loads(p.read_text(encoding="utf-8"))
+            functions = dict(cfg.get("functions") or {})
+            functions["api/**/*.js"] = {"includeFiles": "lib/**"}
+            cfg["functions"] = functions
+            data = json.dumps(cfg, ensure_ascii=False, separators=(",", ":"))
         elif p.suffix == ".js" and (rel.startswith("api/") or rel.startswith("lib/")):
             data = node_wrapper(p.read_bytes())
         else:
