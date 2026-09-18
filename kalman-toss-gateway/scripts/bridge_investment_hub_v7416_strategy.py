@@ -171,7 +171,7 @@ def main() -> int:
     health = health.replace(BASE, TARGET)
     index = index.replace(BASE, TARGET)
     index = re.sub(
-        r"<footer>[^<]*vNext\\.7\\.4\\.16[^<]*</footer>",
+        r"<footer>[^<]*vNext\.7\.4\.16[^<]*</footer>",
         "<footer>vNext.7.4.16 · Command Center + Model Workspace</footer>",
         index,
         count=1,
