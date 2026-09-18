@@ -385,7 +385,7 @@ def emit_vercel_manifest(src: Path, out: Path) -> int:
         elif rel == "vercel.json":
             cfg = json.loads(p.read_text(encoding="utf-8"))
             functions = dict(cfg.get("functions") or {})
-            functions["api/**/*.js"] = {"includeFiles": "lib/**"}
+            functions["api/**/*.js"] = {"includeFiles": "**/*"}
             cfg["functions"] = functions
             data = json.dumps(cfg, ensure_ascii=False, separators=(",", ":"))
         elif p.suffix == ".js" and (rel.startswith("api/") or rel.startswith("lib/")):
