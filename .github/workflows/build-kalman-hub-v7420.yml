@@ -1,0 +1,73 @@
+name: Build Kalman Hub v7.4.20 Recovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7420_recovery.py"
+      - ".github/workflows/build-kalman-hub-v7420.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kalman-hub-v7420-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Fetch audited v7.4.18 patch branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin             feature/shadow-bakeoff-v1-20260913:refs/remotes/origin/feature/shadow-bakeoff-v1-20260913
+
+      - name: Rebuild and validate v7.4.20
+        shell: bash
+        run: |
+          set -euo pipefail
+          python kalman-toss-gateway/scripts/build_investment_hub_v7420_recovery.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("kalman-hub-recovery/v7.4.20/build_report.json")
+          x=json.loads(p.read_text(encoding="utf-8"))
+          assert x["version"]=="vNext.7.4.20"
+          assert x["api_functions"]==12
+          assert x["universe"] is True
+          assert x["command_center"] is True
+          assert x["ledger_semantics"] is True
+          assert x["web_read_only"] is True
+          assert x["compact_manifest_bytes"] < 180000
+          print(json.dumps(x,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Commit generated recovery artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kalman-hub-recovery/v7.4.20/source_manifest.ndjson                   kalman-hub-recovery/v7.4.20/vercel_manifest.json                   kalman-hub-recovery/v7.4.20/build_report.json
+          if git diff --cached --quiet; then
+            echo "No generated changes."
+            exit 0
+          fi
+          git commit -m "build: generate Kalman Hub v7.4.20 recovery"
+          git push origin HEAD:main
