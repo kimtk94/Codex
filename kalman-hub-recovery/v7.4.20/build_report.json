@@ -6,7 +6,7 @@
   "command_center": true,
   "ledger_semantics": true,
   "web_read_only": true,
-  "compact_manifest_bytes": 119461,
+  "compact_manifest_bytes": 119459,
   "patch_history": [
     {
       "before": "vNext.7.4.9",
@@ -52,5 +52,5 @@
     }
   ],
   "source_manifest_sha256": "a917330d3431227829923d949c269172d4342462d58306125671098843ca17ef",
-  "vercel_manifest_sha256": "00805828f68da7fe5e7c7cda5d8eff3fc37044a2f129c511464ce39e8a09853e"
+  "vercel_manifest_sha256": "6b1538142d8d314210bef2b49c41369d1df16b338c3566553231b7e4152fe528"
 }
