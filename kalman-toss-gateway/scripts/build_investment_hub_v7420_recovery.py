@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BASE_MANIFEST = ROOT / "kalman-hub-recovery/v7.4.19/source_manifest.ndjson"
 OUT_DIR = ROOT / "kalman-hub-recovery/v7.4.20"
 BRANCH = "origin/feature/shadow-bakeoff-v1-20260913"
+V7411_REF = "fa50cb1dde1e944481ee9676060b01091ed79e40"
 GATEWAY = "kalman-toss-gateway"
 DEPLOY_SCRIPT = f"{GATEWAY}/scripts/deploy_investment_hub_account_krw.sh"
 PATCH_FILES = [
@@ -28,9 +29,9 @@ PATCH_FILES = [
 TARGET = "vNext.7.4.20"
 
 
-def git_show(path: str) -> str:
+def git_show(path: str, ref: str = BRANCH) -> str:
     return subprocess.check_output(
-        ["git", "show", f"{BRANCH}:{path}"],
+        ["git", "show", f"{ref}:{path}"],
         cwd=ROOT,
         text=True,
         encoding="utf-8",
@@ -96,9 +97,10 @@ def extract_upgrade_step(deploy_text: str, out: Path) -> None:
 
 def run_patch_chain(src: Path, patch_root: Path) -> list[dict]:
     patch_root.mkdir(parents=True, exist_ok=True)
-    deploy_text = git_show(DEPLOY_SCRIPT)
     step = patch_root / "upgrade_step.py"
-    extract_upgrade_step(deploy_text, step)
+    step11 = patch_root / "upgrade_to_v7411.py"
+    extract_upgrade_step(git_show(DEPLOY_SCRIPT), step)
+    extract_upgrade_step(git_show(DEPLOY_SCRIPT, V7411_REF), step11)
 
     scripts = patch_root / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
@@ -111,6 +113,21 @@ def run_patch_chain(src: Path, patch_root: Path) -> list[dict]:
     env = os.environ.copy()
     env["KALMAN_APP_ROOT"] = str(patch_root)
     history = []
+
+    # Reuse the exact deploy patch from the v7.4.11 release point for the
+    # otherwise-missing v7.4.9 -> v7.4.11 transition.
+    before = version((src / "index.html").read_text(encoding="utf-8"))
+    if before == "vNext.7.4.9":
+        p = subprocess.run(
+            [sys.executable, str(step11), str(src)],
+            cwd=ROOT, env=env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        )
+        after = version((src / "index.html").read_text(encoding="utf-8"))
+        history.append({"before": before, "after": after, "rc": p.returncode, "log": p.stdout[-4000:]})
+        if p.returncode != 0 or after != "vNext.7.4.11":
+            raise SystemExit(f"v7.4.11 bridge failed {before}->{after}\n{p.stdout}")
+
     for _ in range(20):
         before = version((src / "index.html").read_text(encoding="utf-8"))
         if before == "vNext.7.4.18":
