@@ -95,6 +95,7 @@ def extract_upgrade_step(deploy_text: str, out: Path) -> None:
 
 
 def run_patch_chain(src: Path, patch_root: Path) -> list[dict]:
+    patch_root.mkdir(parents=True, exist_ok=True)
     deploy_text = git_show(DEPLOY_SCRIPT)
     step = patch_root / "upgrade_step.py"
     extract_upgrade_step(deploy_text, step)
