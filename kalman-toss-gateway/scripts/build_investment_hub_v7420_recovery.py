@@ -220,8 +220,14 @@ if not dashboard_path.exists():
         before = version((src / "index.html").read_text(encoding="utf-8"))
         if before == "vNext.7.4.18":
             break
+        if before == "vNext.7.4.15":
+            compat16 = ROOT / GATEWAY / "scripts" / "bridge_investment_hub_v7416_strategy.py"
+            stock16 = scripts / "patch_investment_hub_v7416.py"
+            cmd = [sys.executable, str(compat16), str(src), str(stock16)]
+        else:
+            cmd = [sys.executable, str(step), str(src)]
         p = subprocess.run(
-            [sys.executable, str(step), str(src)],
+            cmd,
             cwd=ROOT,
             env=env,
             text=True,
