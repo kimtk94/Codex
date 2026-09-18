@@ -73,8 +73,18 @@ def normalize_recovery_to_v749(src: Path) -> None:
 
     if "WEB READ ONLY" in idx:
         idx = idx.replace("WEB READ ONLY", "TRADE OFF")
-    if "vNext.7.4.9" not in idx or "TRADE OFF" not in idx:
-        raise SystemExit("failed to normalize recovery source to v7.4.9")
+    idx = re.sub(
+        r"<footer>[^<]*vNext\.7\.4\.9[^<]*</footer>",
+        "<footer>vNext.7.4.9 · MA20/60 + Actual Model Performance Tabs</footer>",
+        idx,
+        count=1,
+    )
+    if (
+        "vNext.7.4.9" not in idx
+        or "TRADE OFF" not in idx
+        or "vNext.7.4.9 · MA20/60 + Actual Model Performance Tabs" not in idx
+    ):
+        raise SystemExit("failed to normalize recovery source to exact v7.4.9 release anchors")
 
     idxp.write_text(idx, encoding="utf-8")
     hp.write_text(health, encoding="utf-8")
@@ -101,6 +111,33 @@ def run_patch_chain(src: Path, patch_root: Path) -> list[dict]:
     step11 = patch_root / "upgrade_to_v7411.py"
     extract_upgrade_step(git_show(DEPLOY_SCRIPT), step)
     extract_upgrade_step(git_show(DEPLOY_SCRIPT, V7411_REF), step11)
+
+    # The v7.4.9 source exposes /api/dashboard via vercel.json rewrite to
+    # api/assets.js. The historical v7.4.11 patch assumed a physical
+    # api/dashboard.js. Preserve the historical patch semantics while
+    # resolving the actual source file.
+    s11 = step11.read_text(encoding="utf-8")
+    s11 = s11.replace(
+        "from pathlib import Path\nimport re",
+        "from pathlib import Path\nimport json\nimport re",
+        1,
+    )
+    old_dashboard = 'dashboard_path=root/"api/dashboard.js"'
+    new_dashboard = """dashboard_path=root/"api/dashboard.js"
+if not dashboard_path.exists():
+    cfg=json.loads((root/"vercel.json").read_text(encoding="utf-8"))
+    for rw in cfg.get("rewrites",[]):
+        if rw.get("source")=="/api/dashboard":
+            dest=str(rw.get("destination") or "").split("?",1)[0].lstrip("/")
+            candidate=root/(dest if dest.endswith(".js") else dest+".js")
+            if candidate.exists():
+                dashboard_path=candidate
+                break
+if not dashboard_path.exists():
+    raise SystemExit("[FAIL] unable to resolve /api/dashboard source file")"""
+    if old_dashboard not in s11:
+        raise SystemExit("historical v7.4.11 dashboard path anchor missing")
+    step11.write_text(s11.replace(old_dashboard,new_dashboard,1),encoding="utf-8")
 
     scripts = patch_root / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
