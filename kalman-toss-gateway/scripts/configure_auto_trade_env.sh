@@ -5,7 +5,7 @@ ENV_FILE="${KALMAN_ENV_FILE:-/opt/kalman/.env}"
 PROFILE="${1:-dry-run}"
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Run with sudo: sudo $0 [dry-run|cash-fraction-dry-run|off]" >&2
+  echo "Run with sudo: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|off]" >&2
   exit 1
 fi
 
@@ -25,10 +25,14 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES=90
     export CFG_AUTO_TRADE_SIZING_MODE=FIXED_USD
     export CFG_AUTO_TRADE_ORDER_USD=2
+    export CFG_AUTO_TRADE_ORDER_KRW=5000
     export CFG_AUTO_TRADE_CASH_FRACTION=0.10
     export CFG_AUTO_TRADE_CASH_RESERVE_USD=0
     export CFG_AUTO_TRADE_MIN_ORDER_USD=1
     export CFG_AUTO_TRADE_MAX_ORDER_USD=2
+    export CFG_AUTO_TRADE_STRATEGY_VERSION=
+    export CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=30000
+    export CFG_MAX_SINGLE_ORDER_KRW=5000
     export CFG_TRADING_ENABLED=false
     export CFG_LIVE_TRADING_CONFIRM=
     ;;
@@ -42,12 +46,38 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES=90
     export CFG_AUTO_TRADE_SIZING_MODE=CASH_FRACTION
     export CFG_AUTO_TRADE_ORDER_USD=2
+    export CFG_AUTO_TRADE_ORDER_KRW=5000
     export CFG_AUTO_TRADE_CASH_FRACTION="${AUTO_TRADE_CASH_FRACTION:-0.10}"
     export CFG_AUTO_TRADE_CASH_RESERVE_USD="${AUTO_TRADE_CASH_RESERVE_USD:-100}"
     export CFG_AUTO_TRADE_MIN_ORDER_USD="${AUTO_TRADE_MIN_ORDER_USD:-1}"
     export CFG_AUTO_TRADE_MAX_ORDER_USD="${AUTO_TRADE_MAX_ORDER_USD:-50}"
+    export CFG_AUTO_TRADE_ORDER_KRW=5000
+    export CFG_AUTO_TRADE_STRATEGY_VERSION=
+    export CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=30000
+    export CFG_MAX_SINGLE_ORDER_KRW=5000
     export CFG_TRADING_ENABLED=false
     export CFG_LIVE_TRADING_CONFIRM=
+    ;;
+  live-canary-5000)
+    export CFG_AUTO_TRADE_ENABLED=true
+    export CFG_AUTO_TRADE_EXECUTION_MODE=LIVE
+    export CFG_AUTO_TRADE_SIGNAL_POLICY=SHADOW_CANARY
+    export CFG_AUTO_TRADE_SHADOW_CONFIRM=CONFIRM_SHADOW_CANARY
+    export CFG_AUTO_TRADE_REQUIRE_ACCOUNT_FLAT=true
+    export CFG_AUTO_TRADE_DRY_RUN_MAX_SIGNAL_AGE_MINUTES=1440
+    export CFG_AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES=90
+    export CFG_AUTO_TRADE_SIZING_MODE=FIXED_KRW
+    export CFG_AUTO_TRADE_ORDER_USD=0
+    export CFG_AUTO_TRADE_ORDER_KRW=5000
+    export CFG_AUTO_TRADE_CASH_FRACTION=0.10
+    export CFG_AUTO_TRADE_CASH_RESERVE_USD=0
+    export CFG_AUTO_TRADE_MIN_ORDER_USD=1
+    export CFG_AUTO_TRADE_MAX_ORDER_USD=0
+    export CFG_AUTO_TRADE_STRATEGY_VERSION=R5.1_BASE_HGB
+    export CFG_TRADING_ENABLED=true
+    export CFG_LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING
+    export CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=30000
+    export CFG_MAX_SINGLE_ORDER_KRW=5000
     ;;
   off)
     export CFG_AUTO_TRADE_ENABLED=false
@@ -59,16 +89,20 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES=90
     export CFG_AUTO_TRADE_SIZING_MODE=FIXED_USD
     export CFG_AUTO_TRADE_ORDER_USD=2
+    export CFG_AUTO_TRADE_ORDER_KRW=5000
     export CFG_AUTO_TRADE_CASH_FRACTION=0.10
     export CFG_AUTO_TRADE_CASH_RESERVE_USD=0
     export CFG_AUTO_TRADE_MIN_ORDER_USD=1
     export CFG_AUTO_TRADE_MAX_ORDER_USD=2
+    export CFG_AUTO_TRADE_STRATEGY_VERSION=
+    export CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=30000
+    export CFG_MAX_SINGLE_ORDER_KRW=5000
     export CFG_TRADING_ENABLED=false
     export CFG_LIVE_TRADING_CONFIRM=
     ;;
   *)
     echo "Unknown profile: $PROFILE" >&2
-    echo "Usage: sudo $0 [dry-run|cash-fraction-dry-run|off]" >&2
+    echo "Usage: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|off]" >&2
     exit 3
     ;;
 esac
@@ -95,11 +129,15 @@ keys = [
     'AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES',
     'AUTO_TRADE_SIZING_MODE',
     'AUTO_TRADE_ORDER_USD',
+    'AUTO_TRADE_ORDER_KRW',
     'AUTO_TRADE_CASH_FRACTION',
     'AUTO_TRADE_CASH_RESERVE_USD',
     'AUTO_TRADE_MIN_ORDER_USD',
     'AUTO_TRADE_MAX_ORDER_USD',
+    'AUTO_TRADE_STRATEGY_VERSION',
     'TRADING_ENABLED',
+    'LIVE_MICRO_TOTAL_LIMIT_KRW',
+    'MAX_SINGLE_ORDER_KRW',
     'LIVE_TRADING_CONFIRM',
 ]
 values = {k: os.environ[f'CFG_{k}'] for k in keys}
@@ -144,4 +182,8 @@ printf '%s\n' '--- auto-trade settings ---'
 grep -E '^(AUTO_TRADE_|TRADING_ENABLED|LIVE_TRADING_CONFIRM)=' "$ENV_FILE" || true
 
 printf '\n%s\n' 'Secrets and unrelated env values were preserved.'
-printf '%s\n' 'LIVE trading remains disabled in every profile provided by this script.'
+if [ "$PROFILE" = "live-canary-5000" ]; then
+  printf '%s\n' 'LIVE canary enabled: R5.1_BASE_HGB / SHADOW_CANARY / <= KRW 5,000 per entry / KRW 30,000 daily cap.'
+else
+  printf '%s\n' 'LIVE trading remains disabled for this profile.'
+fi
