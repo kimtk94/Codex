@@ -76,4 +76,5 @@ jobs:
 
 
 
-# rebuild: exact v7.4.9 anchors + dashboard rewrite resolver
+
+# rebuild: preserve performance router in v7.4.11 bridge
