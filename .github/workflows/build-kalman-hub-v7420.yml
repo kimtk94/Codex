@@ -79,4 +79,5 @@ jobs:
 
 
 
-# rebuild: normalized Command Center footer
+
+# rebuild: corrected footer regex
