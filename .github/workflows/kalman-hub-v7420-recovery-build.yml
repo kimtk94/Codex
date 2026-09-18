@@ -1,0 +1,76 @@
+name: Kalman Hub v7.4.20 Recovery Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7420_recovery.py"
+      - "kalman-toss-gateway/scripts/bridge_investment_hub_v7413_strategy.py"
+      - "kalman-toss-gateway/scripts/bridge_investment_hub_v7416_strategy.py"
+      - "kalman-toss-gateway/scripts/ledger_semantics_patch.js"
+      - ".github/workflows/kalman-hub-v7420-recovery-build.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kalman-hub-v7420-recovery-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Fetch audited v7.4.18 patch branch
+        run: |
+          set -euo pipefail
+          git fetch origin feature/shadow-bakeoff-v1-20260913:refs/remotes/origin/feature/shadow-bakeoff-v1-20260913
+
+      - name: Build and validate v7.4.20 recovery manifests
+        run: |
+          set -euo pipefail
+          python kalman-toss-gateway/scripts/build_investment_hub_v7420_recovery.py
+          test -s kalman-hub-recovery/v7.4.20/source_manifest.ndjson
+          test -s kalman-hub-recovery/v7.4.20/vercel_manifest.json
+          test -s kalman-hub-recovery/v7.4.20/build_report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("kalman-hub-recovery/v7.4.20/build_report.json")
+          x=json.loads(p.read_text(encoding="utf-8"))
+          assert x["version"]=="vNext.7.4.20"
+          assert x["api_functions"]==12
+          assert x["universe"] is True
+          assert x["command_center"] is True
+          assert x["ledger_semantics"] is True
+          assert x["web_read_only"] is True
+          assert x["compact_manifest_bytes"] < 150000
+          print(json.dumps(x,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Commit generated recovery artifacts
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kalman-hub-recovery/v7.4.20
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git commit -m "build: generate Kalman Hub v7.4.20 recovery manifests"
+          git push origin HEAD:main
