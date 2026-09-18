@@ -75,4 +75,5 @@ jobs:
 
 
 
-# rebuild: add audited v7.4.11 bridge
+
+# rebuild: exact v7.4.9 anchors + dashboard rewrite resolver
