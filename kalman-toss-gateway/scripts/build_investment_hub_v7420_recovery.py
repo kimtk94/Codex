@@ -137,7 +137,43 @@ if not dashboard_path.exists():
     raise SystemExit("[FAIL] unable to resolve /api/dashboard source file")"""
     if old_dashboard not in s11:
         raise SystemExit("historical v7.4.11 dashboard path anchor missing")
-    step11.write_text(s11.replace(old_dashboard,new_dashboard,1),encoding="utf-8")
+    s11 = s11.replace(old_dashboard,new_dashboard,1)
+
+    # The recovered v7.4.9 already includes Current/Actual Model performance
+    # tabs, so preserve its strategyModes router and add only the SHADOW branch.
+    old_render = """function renderMarket(m,j){
+  if(m==='GLOBAL')return renderGlobal(j);if(m==='CRYPTO')return renderCrypto(j);if(m==='US')return renderUS(j);return renderKR(j)
+}
+"""
+    recovered_render = """function renderMarket(m,j){
+  if(m==='GLOBAL')return renderGlobal(j);
+  const mode=strategyModes[m]||'CURRENT';
+  if(m==='CRYPTO')return mode==='MODEL'?renderCryptoModel(j):renderCryptoCurrent(j);
+  if(m==='US')return mode==='MODEL'?renderUSModel(j):renderUSCurrent(j);
+  return mode==='MODEL'?renderKRModel(j):renderKRCurrent(j);
+}
+"""
+    recovered_shadow_render = """function renderMarket(m,j){
+  if(m==='SHADOW')return renderShadow(j);
+  if(m==='GLOBAL')return renderGlobal(j);
+  const mode=strategyModes[m]||'CURRENT';
+  if(m==='CRYPTO')return mode==='MODEL'?renderCryptoModel(j):renderCryptoCurrent(j);
+  if(m==='US')return mode==='MODEL'?renderUSModel(j):renderUSCurrent(j);
+  return mode==='MODEL'?renderKRModel(j):renderKRCurrent(j);
+}
+"""
+    if old_render not in s11:
+        raise SystemExit("historical v7.4.11 renderMarket anchor missing")
+    s11 = s11.replace(old_render,recovered_render,1)
+    old_shadow_router = """function renderMarket(m,j){
+  if(m==='SHADOW')return renderShadow(j);if(m==='GLOBAL')return renderGlobal(j);if(m==='CRYPTO')return renderCrypto(j);if(m==='US')return renderUS(j);return renderKR(j)
+}
+"""
+    if old_shadow_router not in s11:
+        raise SystemExit("historical v7.4.11 SHADOW router anchor missing")
+    s11 = s11.replace(old_shadow_router,recovered_shadow_render,1)
+
+    step11.write_text(s11,encoding="utf-8")
 
     scripts = patch_root / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
