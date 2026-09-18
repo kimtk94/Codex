@@ -170,6 +170,14 @@ def main() -> int:
     css = css.rstrip() + "\n\n" + stock.CSS.strip() + "\n"
     health = health.replace(BASE, TARGET)
     index = index.replace(BASE, TARGET)
+    index = re.sub(
+        r"<footer>[^<]*vNext\\.7\\.4\\.16[^<]*</footer>",
+        "<footer>vNext.7.4.16 · Command Center + Model Workspace</footer>",
+        index,
+        count=1,
+    )
+    if "vNext.7.4.16 · Command Center + Model Workspace" not in index:
+        raise SystemExit("[FAIL] v7.4.16 footer normalization")
 
     if len(list((root / "api").rglob("*.js"))) != 12:
         raise SystemExit("[FAIL] API function count changed")
