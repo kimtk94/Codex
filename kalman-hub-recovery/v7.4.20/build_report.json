@@ -1,0 +1,56 @@
+{
+  "source_files": 30,
+  "api_functions": 12,
+  "version": "vNext.7.4.20",
+  "universe": true,
+  "command_center": true,
+  "ledger_semantics": true,
+  "web_read_only": true,
+  "compact_manifest_bytes": 119444,
+  "patch_history": [
+    {
+      "before": "vNext.7.4.9",
+      "after": "vNext.7.4.11",
+      "rc": 0,
+      "log": "[PASS] account UI + SHADOW read-only patched\n[PASS] API function count = 12\n[PASS] query-parser regression scan\n"
+    },
+    {
+      "before": "vNext.7.4.11",
+      "after": "vNext.7.4.13",
+      "rc": 0,
+      "log": "[PASS] Strategy-Tabs v7.4.13 compatibility bridge\n[PASS] R5.1 lifecycle panel + KR STRICT_TOP3 semantics\n"
+    },
+    {
+      "before": "vNext.7.4.13",
+      "after": "vNext.7.4.14",
+      "rc": 0,
+      "log": "[PASS] vNext.7.4.14 R5.1 2026 annual ledger UI\n[PASS] reconstructed vs canonical Forward SHADOW provenance separated\n[PASS] API function count = 12\n[INFO] route /api/dashboard -> api/assets.js\n"
+    },
+    {
+      "before": "vNext.7.4.14",
+      "after": "vNext.7.4.15",
+      "rc": 0,
+      "log": "[PASS] vNext.7.4.15 full 2026 ledger browser\n[PASS] earliest ledger is visible from January 2026\n[PASS] API function count = 12\n[INFO] route /api/dashboard -> api/assets.js\n"
+    },
+    {
+      "before": "vNext.7.4.15",
+      "after": "vNext.7.4.16",
+      "rc": 0,
+      "log": "[PASS] vNext.7.4.16 Strategy-Tabs -> Command Center bridge\n[PASS] US Overview / Performance / Ledger / Model\n[PASS] Current + Actual Model loaders preserved\n[PASS] API function count = 12\n"
+    },
+    {
+      "before": "vNext.7.4.16",
+      "after": "vNext.7.4.17",
+      "rc": 0,
+      "log": "[PASS] vNext.7.4.17 next-actions panel\n[PASS] execution freshness = 90 minutes\n[PASS] SELL-first US Top-6 plan preview\n[PASS] existing shared account/dashboard router preserved\n[PASS] API function count = 12\n[INFO] route /api/dashboard -> api/assets.js\n"
+    },
+    {
+      "before": "vNext.7.4.17",
+      "after": "vNext.7.4.18",
+      "rc": 0,
+      "log": "[PASS] vNext.7.4.18 inline Universe view\n[PASS] URL /?view=universe\n[PASS] current R5.1 scored universe = dynamic assets payload\n[PASS] requested baseline 102 / unmapped gap displayed transparently\n[PASS] search/filter/sort + holdings + next-action table\n[PASS] API function count = 12\n[INFO] route /api/dashboard -> api/assets.js\n"
+    }
+  ],
+  "source_manifest_sha256": "a917330d3431227829923d949c269172d4342462d58306125671098843ca17ef",
+  "vercel_manifest_sha256": "f47d04a4d9794e2812a58d6e29558e9a7f6562d225c5cd1f7586cd60545140e8"
+}
