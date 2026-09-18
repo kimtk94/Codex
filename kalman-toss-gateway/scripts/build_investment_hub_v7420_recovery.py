@@ -201,6 +201,21 @@ if not dashboard_path.exists():
         if p.returncode != 0 or after != "vNext.7.4.11":
             raise SystemExit(f"v7.4.11 bridge failed {before}->{after}\n{p.stdout}")
 
+    if version((src / "index.html").read_text(encoding="utf-8")) == "vNext.7.4.11":
+        compat_script = ROOT / GATEWAY / "scripts" / "bridge_investment_hub_v7413_strategy.py"
+        p = subprocess.run(
+            [sys.executable, str(compat_script), str(src)],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        after = version((src / "index.html").read_text(encoding="utf-8"))
+        history.append({"before": "vNext.7.4.11", "after": after, "rc": p.returncode, "log": p.stdout[-4000:]})
+        if p.returncode != 0 or after != "vNext.7.4.13":
+            raise SystemExit(f"Strategy-Tabs v7.4.13 bridge failed ->{after}\n{p.stdout}")
+
     for _ in range(20):
         before = version((src / "index.html").read_text(encoding="utf-8"))
         if before == "vNext.7.4.18":
