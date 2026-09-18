@@ -66,8 +66,9 @@ def normalize_recovery_to_v749(src: Path) -> None:
     idx = idxp.read_text(encoding="utf-8")
     health = hp.read_text(encoding="utf-8")
 
-    idx = idx.replace("vNext.7.4.19-recovery", "vNext.7.4.9")
-    health = health.replace("vNext.7.4.19-recovery", "vNext.7.4.9")
+    for old in ("vNext.7.4.19-recovery", "vNext.7.4.19"):
+        idx = idx.replace(old, "vNext.7.4.9")
+        health = health.replace(old, "vNext.7.4.9")
 
     if "WEB READ ONLY" in idx:
         idx = idx.replace("WEB READ ONLY", "TRADE OFF")
