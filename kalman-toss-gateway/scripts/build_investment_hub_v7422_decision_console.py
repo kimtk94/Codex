@@ -194,6 +194,9 @@ def patch_index(src: Path) -> None:
     text = text.replace("R5.1 · MODEL RANKING", "R5.1 · 모델 순위")
     text = text.replace("RESEARCH BENCHMARK · TOP1 vs TOP6", "연구 벤치마크 · TOP-1 vs TOP-6")
     text = text.replace("SYSTEM / BROKER", "시스템 · Toss")
+    text = text.replace("R5.1 실행 계획을 계산하는 중...", "자동매매 조건을 확인하는 중...")
+    text = text.replace("동일 4-bucket benchmark를 불러오는 중...", "4-bucket 연구 벤치마크를 불러오는 중...")
+    text = text.replace("데이터와 서버 상태를 확인하는 중...", "데이터와 Toss 상태를 확인하는 중...")
     text = text.replace("LIVE EXECUTION MIRROR · NEON", "실매매 기록 · NEON MIRROR")
     text = text.replace("<h2>실매매 체결 미러</h2>", "<h2>실매매 기록</h2>")
     text = text.replace(
@@ -570,6 +573,9 @@ function renderCommandHealth(us,kr,cr,h){
         text = text.replace(old, new)
 
     text = text.replace("windowKnown?(bot.usFractionalOrderWindowOpen?'OPEN':'CLOSED'):'UNKNOWN'", "windowKnown?(bot.usFractionalOrderWindowOpen?'주문 가능':'마감'):'확인 불가'")
+    text = text.replace("'+(fi.fresh?'ok':'warn')+'", "'+(fi.valid?'ok':'warn')+'")
+    text = text.replace("no completed 4-bucket snapshot", "완료된 4-bucket 표본 없음")
+    text = text.replace("Decision-console data를 읽지 못했습니다.", "Decision Console 데이터를 읽지 못했습니다.")
     text = text.replace("return{label:'WATCH',kind:'watch',detail:'RANK #'+rank};", "return{label:'관찰',kind:'watch',detail:'RANK #'+rank};")
     text = text.replace("String(x.action&&x.action.label||'')==='WATCH'", "String(x.action&&x.action.label||'')==='관찰'")
     text = text.replace('<option value="WATCH">WATCH</option>', '<option value="WATCH">관찰</option>')
