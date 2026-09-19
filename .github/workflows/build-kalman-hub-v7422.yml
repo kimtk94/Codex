@@ -1,0 +1,69 @@
+name: Build Kalman Hub v7.4.22 Decision Console
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7422_decision_console.py"
+      - ".github/workflows/build-kalman-hub-v7422.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kalman-hub-v7422-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build and validate v7.4.22
+        shell: bash
+        run: |
+          set -euo pipefail
+          python kalman-toss-gateway/scripts/build_investment_hub_v7422_decision_console.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path("kalman-hub-recovery/v7.4.22/build_report.json").read_text())
+          assert x["version"]=="vNext.7.4.22"
+          assert x["api_functions"]==12
+          assert x["decision_console"] is True
+          assert x["server_offline_graceful"] is True
+          assert x["benchmark_panel"] is True
+          assert x["execution_ledger_panel"] is True
+          assert x["web_read_only"] is True
+          assert x["compact_manifest_bytes"] < 220000
+          print(json.dumps(x,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Commit generated artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kalman-hub-recovery/v7.4.22/source_manifest.ndjson \
+                  kalman-hub-recovery/v7.4.22/vercel_manifest.json \
+                  kalman-hub-recovery/v7.4.22/build_report.json
+          if git diff --cached --quiet; then
+            echo "No generated changes."
+            exit 0
+          fi
+          git commit -m "build: generate Kalman Hub v7.4.22 decision console"
+          git push origin HEAD:main
