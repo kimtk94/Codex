@@ -1,4 +1,4 @@
-"""Reconcile bot-managed entries and execute the frozen four-bucket exit rule.
+"""Reconcile bot-managed entries and execute guarded live exit rules.
 
 This module never creates a new entry. It only reconciles orders previously
 registered by engine.auto_trade and, in LIVE mode, submits risk-reducing exits.
@@ -94,6 +94,66 @@ def _elapsed_canonical_buckets(db_url: str, entry_signal_as_of: str) -> int:
     with psycopg.connect(db_url) as conn, conn.cursor() as cur:
         cur.execute(sql, (entry_dt,))
         return int(cur.fetchone()[0] or 0)
+
+
+def _latest_eligible_signal(db_url: str, strategy_version: str, policy: str) -> dict | None:
+    where = [
+        "s.market='US'",
+        "s.strategy_version=%s",
+        "d.status='READY'",
+        "d.stale_after > now()",
+    ]
+    params: list[object] = [strategy_version]
+    if policy == 'SHADOW_CANARY':
+        where.extend([
+            "s.signal='SHADOW'",
+            "upper(COALESCE(s.position_state,''))='FLAT'",
+            "lower(COALESCE(s.payload->>'allow_trade_shadow','false'))='true'",
+            "lower(COALESCE(s.payload->>'shadow_entry_this_signal','false'))='true'",
+        ])
+    else:
+        where.extend([
+            "s.signal='BUY'",
+            "s.entry_allowed IS TRUE",
+            "upper(COALESCE(s.risk_gate,''))='PASS'",
+            "upper(COALESCE(s.position_state,''))='FLAT'",
+            "lower(COALESCE(s.payload->>'live_execution','false'))='true'",
+        ])
+    sql = f"""
+        SELECT s.symbol,s.as_of,s.run_id
+        FROM strategy_signal s
+        JOIN dashboard_snapshot d ON d.run_id=s.run_id AND d.market=s.market
+        WHERE {' AND '.join(where)}
+        ORDER BY s.as_of DESC
+        LIMIT 1
+    """
+    with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {'symbol': str(row[0]).upper(), 'as_of': row[1], 'run_id': row[2]}
+
+
+async def _last_price(client: TossClient, symbol: str) -> Decimal:
+    payload = unwrap(await client.prices([symbol])) or []
+    rows = payload if isinstance(payload, list) else payload.get('items', []) if isinstance(payload, dict) else []
+    if not rows:
+        raise RuntimeError(f'No current price returned for {symbol}')
+    price = _decimal(rows[0].get('lastPrice'))
+    if price <= 0:
+        raise RuntimeError(f'Invalid current price returned for {symbol}')
+    return price
+
+
+def _exit_thresholds() -> tuple[Decimal, Decimal]:
+    stop_loss = Decimal(os.environ.get('AUTO_TRADE_STOP_LOSS_PCT', '-0.03'))
+    take_profit = Decimal(os.environ.get('AUTO_TRADE_TAKE_PROFIT_PCT', '0.20'))
+    if stop_loss >= 0 or stop_loss < Decimal('-0.50'):
+        raise RuntimeError('AUTO_TRADE_STOP_LOSS_PCT must be between -0.50 and 0')
+    if take_profit <= 0 or take_profit > Decimal('5'):
+        raise RuntimeError('AUTO_TRADE_TAKE_PROFIT_PCT must be > 0 and <= 5')
+    return stop_loss, take_profit
 
 
 async def _reconcile_reserved(store: ManagedPositionStore, ledger: TradeLedger, position: dict) -> dict:
@@ -308,19 +368,56 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
             'brokerQuantity': str(broker_qty),
         }
 
+    entry_price = _decimal(position.get('entry_avg_fill_price'))
+    if entry_price <= 0:
+        store.mark_manual_reconcile(position['position_id'], 'missing valid entry average fill price')
+        return {'action': 'MANUAL_RECONCILE_REQUIRED', 'symbol': symbol, 'reason': 'MISSING_ENTRY_PRICE'}
+
+    last_price = await _last_price(client, symbol)
+    price_return = last_price / entry_price - Decimal('1')
+    stop_loss, take_profit = _exit_thresholds()
+
     elapsed = _elapsed_canonical_buckets(db_url, position['entry_signal_as_of'])
     target = int(position['target_exit_buckets'])
+    policy = os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').strip().upper()
+    latest = _latest_eligible_signal(db_url, position['strategy_version'], policy)
+    entry_as_of = _parse_signal_time(position['entry_signal_as_of'])
+    rotation = bool(
+        latest
+        and latest['as_of'] > entry_as_of
+        and latest['symbol'] != symbol.upper()
+    )
+
+    exit_reason = None
+    if price_return <= stop_loss:
+        exit_reason = 'STOP_LOSS_3PCT'
+    elif price_return >= take_profit:
+        exit_reason = 'TAKE_PROFIT_20PCT'
+    elif rotation:
+        exit_reason = 'MODEL_ROTATION'
+    elif elapsed >= target:
+        exit_reason = 'MAX_HOLD_4_BUCKETS'
+
     report = {
         'action': 'HOLD',
         'symbol': symbol,
         'positionId': position['position_id'],
         'entrySignalAsOf': position['entry_signal_as_of'],
+        'entryAveragePrice': str(entry_price),
+        'lastPrice': str(last_price),
+        'priceReturn': str(price_return),
+        'stopLossPct': str(stop_loss),
+        'takeProfitPct': str(take_profit),
         'elapsedCanonicalBuckets': elapsed,
         'targetExitBuckets': target,
+        'latestEligibleSymbol': latest['symbol'] if latest else None,
+        'latestEligibleAsOf': latest['as_of'] if latest else None,
+        'modelRotation': rotation,
         'remainingQuantity': str(expected_qty),
         'executionMode': mode,
+        'exitReason': exit_reason,
     }
-    if elapsed < target:
+    if not exit_reason:
         return report
 
     window_open, window_info = await us_fractional_order_window(client)
@@ -339,7 +436,9 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
     client_order_id = _exit_client_order_id(position['position_id'], attempt)
     reserved, row = store.reserve_exit(position['position_id'], client_order_id)
     if not reserved:
-        return {'action': 'EXIT_RESERVATION_FAILED', 'current': row}
+        return {'action': 'EXIT_RESERVATION_FAILED', 'current': row, 'exitReason': exit_reason}
+
+    store.set_exit_reason(position['position_id'], exit_reason)
 
     request = SimpleNamespace(
         client_order_id=client_order_id,
@@ -366,12 +465,12 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
 
     if not result.get('allowed'):
         store.release_exit(position['position_id'], f"exit blocked: {result.get('reason')}")
-        return {'action': 'EXIT_BLOCKED', 'result': result}
+        return {'action': 'EXIT_BLOCKED', 'result': result, 'exitReason': exit_reason}
 
     order_id = result.get('orderId')
     if not order_id:
         store.mark_manual_reconcile(position['position_id'], 'exit submission returned no orderId')
-        return {'action': 'EXIT_AMBIGUOUS_NO_ORDER_ID', 'result': result}
+        return {'action': 'EXIT_AMBIGUOUS_NO_ORDER_ID', 'result': result, 'exitReason': exit_reason}
 
     store.mark_exit_submitted(position['position_id'], order_id)
     return {
@@ -381,6 +480,8 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         'quantity': str(expected_qty),
         'clientOrderId': client_order_id,
         'orderId': order_id,
+        'exitReason': exit_reason,
+        'priceReturn': str(price_return),
     }
 
 
