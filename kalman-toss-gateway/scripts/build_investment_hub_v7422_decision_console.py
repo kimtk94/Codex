@@ -318,7 +318,7 @@ function renderExecutionLedger(ctl){
         "healthRow('EXECUTION',kalmanCommandState.account&&kalmanCommandState.account.status!=='OFFLINE'?'<span class=\"health-dot good-dot\"></span>ONLINE':'<span class=\"health-dot warn-dot\"></span>OFFLINE','server-side only')"
     )
 
-    account_anchor = "    const [j,fx]=await Promise.all([getJSON('/api/account'),loadAccountFx()]);\\n"
+    account_anchor = "    const [j,fx]=await Promise.all([getJSON('/api/account'),loadAccountFx()]);\n"
     account_insert = r"""    const [j,fx]=await Promise.all([getJSON('/api/account'),loadAccountFx()]);
     if(j&&j.status==='OFFLINE'){
       renderCommandAccount(j,null);
