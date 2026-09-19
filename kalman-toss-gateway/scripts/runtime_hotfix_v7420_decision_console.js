@@ -42,6 +42,24 @@
 
   function state(){try{return typeof kalmanCommandState==='object'&&kalmanCommandState?kalmanCommandState:{}}catch(_){return {}}}
 
+  function snapshotValidity(j){
+    const dataTs=Date.parse(j&&j.data_as_of||''),staleTs=Date.parse(j&&j.stale_after||'');
+    const age=Number.isFinite(dataTs)?Math.max(0,(Date.now()-dataTs)/60000):Infinity;
+    const expired=(j&&typeof j.effective_stale==='boolean')?j.effective_stale:(Number.isFinite(staleTs)?Date.now()>=staleTs:true);
+    return {valid:expired===false,expired:expired!==false,ageMinutes:age};
+  }
+  function entryFreshness(j){
+    const sv=snapshotValidity(j);
+    return {fresh:sv.valid&&Number.isFinite(sv.ageMinutes)&&sv.ageMinutes<=90,ageMinutes:sv.ageMinutes,snapshotValid:sv.valid};
+  }
+  function dotLabel(valid){
+    return '<span class="health-dot '+(valid?'good-dot':'warn-dot')+'"></span>'+(valid?'VALID':'EXPIRED');
+  }
+  try{
+    staleBadge=function(x){return x?badge('SNAPSHOT EXPIRED','warn'):badge('SNAPSHOT VALID','ok');};
+    executionFreshness=function(j){return entryFreshness(j);};
+  }catch(_){}
+
   function brokerOnline(){
     const s=state();
     if(s.account)return s.account.status!=='OFFLINE';
@@ -106,7 +124,7 @@
       const sec=document.createElement('section');
       sec.id='kalmanExecutionLedger';
       sec.className='card section kalman-exec-ledger';
-      sec.innerHTML='<div class="section-head"><div><div class="eyebrow">LIVE EXECUTION MIRROR · NEON</div><h2>실매매 체결 미러</h2><div class="muted">Shadow/model 평가와 분리 · 실제 bot 주문/체결 mirror</div></div><span class="pill">MIRROR PENDING</span></div><div class="kalman-offline"><div><b>실제 Toss 체결 0건</b><span>현재 Production hotfix에는 Neon execution mirror API가 아직 연결되지 않았습니다. Broker 전체 거래내역이 0건이라는 뜻은 아닙니다.</span></div></div>';
+      sec.innerHTML='<div class="section-head"><div><div class="eyebrow">LIVE EXECUTION MIRROR · NEON</div><h2>실매매 체결 미러</h2><div class="muted">Shadow/model 평가와 분리 · 실제 bot 주문/체결 mirror</div></div><span class="pill">MIRROR PENDING</span></div><div class="kalman-offline"><div><b>Neon execution mirror 미연결</b><span>현재 Production hotfix에는 execution mirror API가 아직 연결되지 않았습니다. Broker 전체 거래내역 상태는 여기서 판단하지 않습니다.</span></div></div>';
       tabs.parentNode.insertBefore(sec,tabs);
     }
   }
@@ -126,11 +144,10 @@
   function renderPlan(){
     const box=document.querySelector('#commandNextActions');if(!box)return;
     const sig=latestSignal(),online=brokerOnline();
-    let fresh=false;
-    if(sig.asOf){const age=(Date.now()-Date.parse(sig.asOf))/60000;fresh=Number.isFinite(age)&&age>=0&&age<=90;}
-    const modelEligible=fresh&&sig.canary;
+    const ef=entryFreshness(state().us||{data_as_of:sig.asOf});
+    const modelEligible=ef.fresh&&sig.canary;
     let headline='TRADING LINK OFFLINE',status='NOT EXECUTABLE',kind='warn';
-    if(online&&!modelEligible)headline='MODEL CANDIDATE NOT CURRENT';
+    if(online&&!modelEligible)headline='ENTRY SIGNAL EXPIRED';
     if(online&&modelEligible){headline='BROKER CONNECTED';status='SERVER GATES UNKNOWN';}
 
     box.className='';
@@ -143,7 +160,7 @@
         '<div><span>EARLY / MAX EXIT</span><b>ROTATE ON</b><small>4 canonical buckets max</small></div>'+
       '</div>'+
       '<div class="kalman-gates">'+
-        pill(modelEligible?'MODEL ELIGIBLE NOW':'MODEL NOT ELIGIBLE NOW',modelEligible?'ok':'warn')+
+        pill(modelEligible?'ENTRY SIGNAL <90M':'ENTRY SIGNAL EXPIRED',modelEligible?'ok':'warn')+
         pill(online?'TRADING LINK ONLINE':'TRADING LINK OFFLINE',online?'ok':'warn')+
         pill('SERVER LIVE GATES NOT CONFIRMED','warn')+
         pill('EXECUTION MIRROR PENDING','')+
@@ -213,10 +230,49 @@
     };
   }catch(_){}
 
-    let scheduled=false;
+  let snapshotRefreshBusy=false;
+  async function refreshSnapshotPanels(){
+    if(snapshotRefreshBusy)return;
+    snapshotRefreshBusy=true;
+    try{
+      const [us,kr,cr]=await Promise.all([
+        fetch('/api/dashboard?market=US',{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject(Error('US '+r.status))),
+        fetch('/api/dashboard?market=KR',{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject(Error('KR '+r.status))),
+        fetch('/api/dashboard?market=CRYPTO',{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject(Error('CRYPTO '+r.status)))
+      ]);
+      const s=state();s.us=us;s.kr=kr;s.crypto=cr;
+      const model=document.querySelector('#commandModel');
+      if(model){
+        const p=us.payload||{},a=(p.assets||p.top3||[]).slice(0,6),sv=snapshotValidity(us),ef=entryFreshness(us);
+        const ranks=a.map((x,i)=>'<div class="command-rank"><span>'+(i+1)+'</span><b>'+E(x.symbol||'—')+'</b><small>'+((Number(x.model_score)||0)*10000).toFixed(2)+' bp</small></div>').join('');
+        model.className='';
+        model.innerHTML='<div class="command-model-head"><div><small>TOP RANK</small><strong>'+E(a[0]&&a[0].symbol||'—')+'</strong></div><div class="right">'+dotLabel(sv.valid)+'<small>'+T(us.data_as_of)+' · entry signal '+(ef.fresh?'&lt;90m':'expired')+'</small></div></div><div class="command-ranks">'+ranks+'</div>';
+      }
+      const health=document.querySelector('#commandHealth');
+      if(health){
+        const uv=snapshotValidity(us),kv=snapshotValidity(kr),cv=snapshotValidity(cr);
+        const account=s.account||null,bot=account&&account.trading_status||null;
+        const known=Boolean(bot&&typeof bot.usFractionalOrderWindowOpen==='boolean');
+        const open=known&&bot.usFractionalOrderWindowOpen===true;
+        const row=(label,valid,j)=>'<div class="health-row"><span>'+label+'</span><b>'+dotLabel(valid)+'</b><small>'+T(j&&j.data_as_of)+' · valid until '+T(j&&j.stale_after)+'</small></div>';
+        health.className='';
+        health.innerHTML=
+          row('US SNAPSHOT',uv.valid,us)+row('KR SNAPSHOT',kv.valid,kr)+row('CRYPTO SNAPSHOT',cv.valid,cr)+
+          '<div class="health-row"><span>US ORDER WINDOW</span><b><span class="health-dot '+(open?'good-dot':'warn-dot')+'"></span>'+(known?(open?'OPEN':'CLOSED'):'UNKNOWN')+'</b><small>'+(known?'Toss market calendar':'trading link required')+'</small></div>';
+        const head=document.querySelector('#headerDataState');
+        if(head){const ok=uv.valid&&kv.valid&&cv.valid;head.className='pill '+(ok?'ok':'warn');head.textContent=ok?'SNAPSHOTS VALID':'SNAPSHOT CHECK';}
+      }
+      renderPlan();
+    }catch(e){
+      const h=document.querySelector('#headerDataState');
+      if(h){h.className='pill warn';h.textContent='SNAPSHOT CHECK';}
+    }finally{snapshotRefreshBusy=false;}
+  }
+
+  let scheduled=false;
   function apply(){
     scheduled=false;
-    addStyle();ensureShell();renderBenchmark();renderPlan();renderServerState();
+    addStyle();ensureShell();renderBenchmark();renderPlan();renderServerState();refreshSnapshotPanels();
     const content=document.querySelector('#content');
     if(content){
       content.querySelectorAll('th').forEach(th=>{
@@ -228,7 +284,7 @@
       content.querySelectorAll('.universe-title .muted').forEach(x=>{if(x.textContent.includes('예정 액션'))x.textContent='전체 후보 · 현재 R5.1 score · Top-6 research preview · 실제 주문 아님';});
       content.querySelectorAll('.u-kpi span').forEach(x=>{if(x.textContent.trim()==='MODEL PLAN')x.textContent='RESEARCH PREVIEW';});
       const uf=document.querySelector('#universeFilter option[value="ACTION"]');if(uf)uf.textContent='PREVIEW';
-      content.querySelectorAll('.universe-title .pill').forEach(x=>{if(x.textContent==='R5.1 FRESH')x.textContent='MODEL DATA FRESH';if(x.textContent==='R5.1 PREVIEW')x.textContent='MODEL DATA STALE';});
+      content.querySelectorAll('.universe-title .pill').forEach(x=>{const sv=snapshotValidity(state().us||{});x.textContent=sv.valid?'SNAPSHOT VALID':'SNAPSHOT EXPIRED';x.className='pill '+(sv.valid?'ok':'warn');});
     }
   }
   function schedule(){
