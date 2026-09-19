@@ -143,12 +143,23 @@
 
   function renderPlan(){
     const box=document.querySelector('#commandNextActions');if(!box)return;
-    const sig=latestSignal(),online=brokerOnline();
-    const ef=entryFreshness(state().us||{data_as_of:sig.asOf});
-    const modelEligible=ef.fresh&&sig.canary;
-    let headline='Toss 오프라인',status='주문 불가',kind='warn';
-    if(online&&!modelEligible)headline='진입 신호 만료';
-    if(online&&modelEligible){headline='BROKER CONNECTED';status='게이트 확인 불가';}
+    const sig=latestSignal(),s=state(),account=s.account||null,bot=account&&account.trading_status||null;
+    const tossOnline=brokerOnline();
+    const ef=entryFreshness(s.us||{data_as_of:sig.asOf});
+    const signalFresh=ef.fresh&&sig.canary;
+    const liveGate=Boolean(tossOnline&&bot&&bot.autoTradeEnabled===true&&bot.executionMode==='LIVE'&&bot.liveGateOpen===true);
+    const accountFlat=Boolean(bot&&bot.accountFlat===true);
+    const windowKnown=Boolean(bot&&typeof bot.usFractionalOrderWindowOpen==='boolean');
+    const windowOpen=windowKnown&&bot.usFractionalOrderWindowOpen===true;
+    const entryCandidate=Boolean(signalFresh&&liveGate&&accountFlat&&windowOpen);
+
+    let headline='Toss 오프라인',status='대기',kind='warn';
+    if(tossOnline&&!signalFresh)headline='진입 신호 만료';
+    else if(tossOnline&&signalFresh&&!liveGate)headline='자동매매 게이트 닫힘';
+    else if(tossOnline&&signalFresh&&liveGate&&!accountFlat)headline='계좌 상태 대기';
+    else if(tossOnline&&signalFresh&&liveGate&&accountFlat&&!windowKnown)headline='주문시간 확인 불가';
+    else if(tossOnline&&signalFresh&&liveGate&&accountFlat&&!windowOpen)headline='주문시간 마감';
+    if(entryCandidate){headline='SHADOW_CANARY';status='진입 후보';kind='ok';}
 
     box.className='';
     box.innerHTML=
@@ -160,12 +171,14 @@
         '<div><span>교체 / 최대 보유</span><b>ROTATE ON</b><small>4 canonical bucket 최대</small></div>'+
       '</div>'+
       '<div class="kalman-gates">'+
-        pill(modelEligible?'진입 신호 유효 (<90분)':'진입 신호 만료',modelEligible?'ok':'warn')+
-        pill(online?'Toss 연결됨':'Toss 오프라인',online?'ok':'warn')+
-        pill('자동매매 게이트 확인 불가','warn')+
-        pill('EXECUTION 미러 연결 대기','')+
+        pill(signalFresh?'진입 신호 유효 (<90분)':'진입 신호 만료',signalFresh?'ok':'warn')+
+        pill(tossOnline?'Toss 연결됨':'Toss 오프라인',tossOnline?'ok':'warn')+
+        pill(liveGate?'자동매매 게이트 열림':'자동매매 게이트 닫힘',liveGate?'ok':'warn')+
+        pill(accountFlat?'계좌 FLAT':'계좌 보유/주문 있음',accountFlat?'ok':'warn')+
+        pill(windowKnown?(windowOpen?'주문시간 가능':'주문시간 마감'):'주문시간 확인 불가',windowOpen?'ok':'warn')+
+        pill('미러 연결 대기','')+
       '</div>'+
-      '<div class="next-actions-note"><b>구분:</b> Top-6는 연구용 비교/미리보기이며 실제 자동매매 대상 선정에 사용하지 않습니다. 신규 진입은 SHADOW_CANARY 조건을 통과한 단일 R5.1 신호만 사용합니다. 웹은 주문을 제출하지 않습니다.</div>';
+      '<div class="next-actions-note"><b>구분:</b> Top-6는 연구용 비교/미리보기이며 실제 자동매매 대상 선정에 사용하지 않습니다. 신규 진입은 SHADOW_CANARY 조건을 통과한 단일 R5.1 신호만 사용합니다. “진입 후보”는 주문 제출 완료를 의미하지 않습니다.</div>';
   }
 
   function renderServerState(){
@@ -208,7 +221,7 @@
       rows=rows.filter(function(x){return !q||x.symbol.includes(q);});
       if(f==='TOP6')rows=rows.filter(function(x){return x.top6;});
       if(f==='HELD')rows=rows.filter(function(x){return !!x.held;});
-      if(f==='ACTION')rows=rows.filter(function(x){return String(x.action&&x.action.label||'').includes('PREVIEW');});
+      if(f==='ACTION')rows=rows.filter(function(x){return String(x.action&&x.action.label||'').includes('미리보기');});
       if(f==='WATCH')rows=rows.filter(function(x){return String(x.action&&x.action.label||'')==='관찰';});
       rows.sort(function(a,b){
         if(sort==='SCORE')return (n(b.model_score)||-Infinity)-(n(a.model_score)||-Infinity);
