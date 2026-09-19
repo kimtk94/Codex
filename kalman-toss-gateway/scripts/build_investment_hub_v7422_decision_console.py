@@ -190,6 +190,22 @@ def patch_index(src: Path) -> None:
         raise SystemExit("nav anchor missing")
     text = text.replace(nav, ledger + nav, 1)
 
+    text = text.replace("AUTO-TRADE · SERVER CONTRACT", "자동매매 · 실행 조건")
+    text = text.replace("R5.1 · MODEL RANKING", "R5.1 · 모델 순위")
+    text = text.replace("RESEARCH BENCHMARK · TOP1 vs TOP6", "연구 벤치마크 · TOP-1 vs TOP-6")
+    text = text.replace("SYSTEM / BROKER", "시스템 · Toss")
+    text = text.replace("LIVE EXECUTION MIRROR · NEON", "실매매 기록 · NEON MIRROR")
+    text = text.replace("<h2>실매매 체결 미러</h2>", "<h2>실매매 기록</h2>")
+    text = text.replace(
+        "Shadow/model 평가와 분리 · 서버가 미러링한 실제 bot 주문/체결만 표시",
+        "실제 자동매매 주문·체결만 표시 · Shadow/연구 결과와 분리"
+    )
+    text = text.replace('id="executionLedgerState" class="pill">MIRROR EMPTY<', 'id="executionLedgerState" class="pill">기록 없음<')
+    text = text.replace(
+        "Neon execution mirror가 비어 있습니다. Broker 전체 거래내역이 0건이라는 의미는 아닙니다.",
+        "Neon 실매매 미러에 아직 기록이 없습니다. Toss 전체 거래내역이 0건이라는 뜻은 아닙니다."
+    )
+    text = text.replace(">READ ONLY<", ">조회 전용<")
     text = text.replace("vNext.7.4.21 · Auto-Trade Console + Universe", TARGET + " · Decision Console")
     text = text.replace("vNext.7.4.21", TARGET)
     p.write_text(text, encoding="utf-8")
@@ -484,6 +500,102 @@ function renderCommandHealth(us,kr,cr,h){
     text = text.replace("LIVE RANKING", "MODEL RANKING")
     text = text.replace("${staleBadge(x.stale)}</div><div class=\"kpi\">", "${badge('EMBEDDED SNAPSHOT')}</div><div class=\"kpi\">")
 
+    # User-facing terminology: Korean state words, English only for system identifiers.
+    wording = [
+        ("NOT EXECUTABLE", "주문 불가"),
+        ("GUARDED", "게이트 대기"),
+        ("LIVE READY", "실행 가능"),
+        ("TRADING LINK OFFLINE", "Toss 오프라인"),
+        ("TRADING LINK ONLINE", "Toss 연결됨"),
+        ("BROKER LINK OFFLINE", "Toss 오프라인"),
+        ("BROKER LINK ONLINE", "Toss 연결됨"),
+        ("ENTRY SIGNAL EXPIRED", "진입 신호 만료"),
+        ("ENTRY SIGNAL <90M", "진입 신호 유효 (<90분)"),
+        ("SERVER GATES NOT LIVE", "자동매매 게이트 닫힘"),
+        ("SERVER LIVE GATES OPEN", "자동매매 게이트 열림"),
+        ("SERVER GATES NOT CONFIRMED", "자동매매 게이트 확인 불가"),
+        ("EXECUTION MIRROR HAS ROWS", "실매매 기록 있음"),
+        ("EXECUTION MIRROR EMPTY", "실매매 기록 없음"),
+        ("MIRROR EMPTY", "기록 없음"),
+        ("SNAPSHOTS VALID", "데이터 정상"),
+        ("SNAPSHOT CHECK", "데이터 확인 필요"),
+        ("SNAPSHOT VALID", "스냅샷 유효"),
+        ("SNAPSHOT EXPIRED", "스냅샷 만료"),
+        ("US SNAPSHOT", "US 데이터"),
+        ("KR SNAPSHOT", "KR 데이터"),
+        ("CRYPTO SNAPSHOT", "Crypto 데이터"),
+        ("US ORDER WINDOW", "미국 주문시간"),
+        ("OPEN", "주문 가능"),
+        ("CLOSED", "마감"),
+        ("UNKNOWN", "확인 불가"),
+        ("LIVE POLICY", "실매매 정책"),
+        ("TARGET SIZE", "진입 금액"),
+        ("LIVE EXITS", "손절 / 익절"),
+        ("EARLY / MAX EXIT", "교체 / 최대 보유"),
+        ("last canary candidate", "최근 canary 후보"),
+        ("SHADOW signal is expected", "SHADOW 신호 사용"),
+        ("per new entry", "신규 진입 1회 기준"),
+        ("stop loss · take profit", "손절 · 익절"),
+        ("canonical buckets max", "canonical bucket 최대"),
+        ("RESEARCH PREVIEW", "연구 미리보기"),
+        ("ADD PREVIEW", "편입 미리보기"),
+        ("TOP-UP PREVIEW", "추가 미리보기"),
+        ("EXIT PREVIEW", "제외 미리보기"),
+        ("AT TARGET", "목표 도달"),
+        ("WATCH", "관찰"),
+        ("RESEARCH TOP-6", "연구 Top-6"),
+        ("OUTSIDE RESEARCH TOP-6", "연구 Top-6 제외"),
+        ("Research Preview", "연구 미리보기"),
+        ("R5.1 SHADOW / MODEL EVALUATION LEDGER", "R5.1 SHADOW · 모델 평가 기록"),
+        ("R5.1 Model Ranking", "R5.1 모델 순위"),
+        ("MODEL RANKING", "모델 순위"),
+        ("Model 4h Target", "모델 4h 목표"),
+        ("Model Δ", "모델 Δ"),
+        ("MODEL FORWARD", "모델 Forward"),
+        ("PORTFOLIO", "평가금액"),
+        ("P / L", "손익"),
+        ("BUYING POWER", "주문가능금액"),
+        ("BROKER", "Toss"),
+        ("server offline", "연결 끊김"),
+        ("Neon model data continues", "모델 데이터는 계속 표시"),
+        ("NO BROKER DATA", "계좌 데이터 없음"),
+        ("READ ONLY", "조회 전용"),
+    ]
+    for old, new in wording:
+        text = text.replace(old, new)
+
+    text = text.replace("valid until ", "유효기한 ")
+    text = text.replace("entry signal &lt;90m", "진입 신호 유효 (&lt;90분)")
+    text = text.replace("entry signal expired", "진입 신호 만료")
+    text = text.replace("Toss Securities · trading link offline / broker data 없음", "Toss Securities · 연결 끊김 · 계좌 데이터 없음")
+    text = text.replace("Toss Securities · 계좌 연결됨", "Toss Securities · 연결됨")
+    text = text.replace(
+        "<b>Research benchmark only:</b>",
+        "<b>연구용 벤치마크:</b>"
+    )
+    text = text.replace(
+        "따라서 live auto-trade P/L과 직접 비교하면 안 됩니다.",
+        "실매매 손익과 직접 비교하지 않습니다."
+    )
+    text = text.replace(
+        "sequence compounded 값은 겹치는 window 때문에 포트폴리오 누적수익으로 표시하지 않습니다.",
+        "겹치는 window이므로 sequence compounded 값은 포트폴리오 누적수익으로 표시하지 않습니다."
+    )
+    text = text.replace(
+        "<b>구분:</b> Top-6는 research benchmark/portfolio preview이며 실제 자동매매 selector가 아닙니다. 실제 신규 진입 후보는 SHADOW_CANARY 계약을 통과한 단일 R5.1 signal입니다. 웹은 주문을 제출하지 않습니다.",
+        "<b>구분:</b> Top-6는 연구용 비교/미리보기이며 실제 자동매매 대상 선정에 사용하지 않습니다. 신규 진입은 SHADOW_CANARY 조건을 통과한 단일 R5.1 신호만 사용합니다. 웹은 주문을 제출하지 않습니다."
+    )
+    text = text.replace("Neon execution mirror 0 rows", "Neon 실매매 미러 기록 없음")
+    text = text.replace(
+        "현재 bot 주문/체결이 Neon에 미러링되지 않았다는 뜻입니다. Toss 계정 전체 거래내역이 0건이라는 뜻은 아닙니다.",
+        "현재 자동매매 주문·체결이 Neon에 기록되지 않았다는 뜻입니다. Toss 전체 거래내역이 0건이라는 뜻은 아닙니다."
+    )
+    text = text.replace("+ ' MIRRORED'", "+ '건 기록'")
+    text = text.replace("<th>Signal</th><th>Symbol</th><th>State</th><th>Entry Avg</th><th>Exit Avg</th><th>Realized Return</th><th>Exit reason</th>",
+                        "<th>신호 시각</th><th>종목</th><th>상태</th><th>평균 진입가</th><th>평균 청산가</th><th>실현수익률</th><th>청산 사유</th>")
+    text = text.replace("<th>Entry</th><th>Symbol</th><th>Type</th><th>Entry</th><th>Exit</th><th>Return</th><th>Status</th>",
+                        "<th>진입 시각</th><th>종목</th><th>구분</th><th>진입가</th><th>청산가</th><th>수익률</th><th>상태</th>")
+
     text = text.replace("vNext.7.4.21", TARGET)
     p.write_text(text, encoding="utf-8")
 
@@ -540,8 +652,8 @@ def validate(src: Path) -> dict:
       "health":(src/"api/health.js").read_text(encoding="utf-8")
     }
     checks={
-      "index":[TARGET,"AUTO-TRADE · SERVER CONTRACT","RESEARCH BENCHMARK · TOP1 vs TOP6","LIVE EXECUTION MIRROR · NEON","headerServerState"],
-      "app":["renderBenchmark","renderExecutionLedger","TRADING LINK OFFLINE","EXECUTION MIRROR EMPTY","/api/assets?view=control","Research Preview","SNAPSHOT VALID","ENTRY SIGNAL <90M"],
+      "index":[TARGET,"자동매매 · 실행 조건","연구 벤치마크 · TOP-1 vs TOP-6","실매매 기록 · NEON MIRROR","headerServerState"],
+      "app":["renderBenchmark","renderExecutionLedger","Toss 오프라인","실매매 기록 없음","/api/assets?view=control","연구 미리보기","스냅샷 유효","진입 신호 유효 (<90분)"],
       "assets":["async function control","strategy_benchmark_ledger","v_live_trade_ledger","status:'OFFLINE'"],
       "css":["vNext.7.4.22","execution-rule-grid","benchmark-grid","account-offline"],
       "health":[TARGET]
