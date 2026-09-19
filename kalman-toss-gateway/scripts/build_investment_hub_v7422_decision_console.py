@@ -586,6 +586,86 @@ function renderCommandHealth(us,kr,cr,h){
         "<b>구분:</b> Top-6는 연구용 비교/미리보기이며 실제 자동매매 대상 선정에 사용하지 않습니다. 신규 진입은 SHADOW_CANARY 조건을 통과한 단일 R5.1 신호만 사용합니다. 웹은 주문을 제출하지 않습니다."
     )
     text = text.replace("Neon execution mirror 0 rows", "Neon 실매매 미러 기록 없음")
+    text = text.replace("cmdMetric('Toss','OFFLINE'", "cmdMetric('Toss','연결 끊김'")
+    text = text.replace(")||'CONNECTED'", ")||'연결됨'")
+    text = text.replace("windowKnown?'Toss market calendar':'trading link required'", "windowKnown?'Toss 시장 캘린더':'Toss 연결 필요'")
+    text = text.replace("TOP-1 · 4B ONLY", "TOP-1 · 4B 기준")
+    text = text.replace("TOP-6 EQUAL · 4B ONLY", "TOP-6 동일비중 · 4B 기준")
+    text = text.replace("<b>avg '+pct(row.avg_net,100)+'</b><small>σ '+pct(row.std_net,100)+' · n='+fmt(row.snapshots,0)+' · through '+time(row.last_as_of)+'</small>",
+                        "<b>평균 '+pct(row.avg_net,100)+'</b><small>변동성 '+pct(row.std_net,100)+' · 표본 '+fmt(row.snapshots,0)+' · 기준 '+time(row.last_as_of)+'</small>")
+    text = text.replace("10bp round-trip approximation · overlapping 4h windows", "왕복비용 10bp 가정 · 4시간 구간 중첩")
+    text = text.replace("Δ avg ", "평균 차이 ")
+    text = text.replace("-3% stop, +20% take-profit, model rotation을 포함하지 않습니다.", "-3% 손절, +20% 익절, 모델 교체를 포함하지 않습니다.")
+    text = text.replace("겹치는 window이므로 sequence compounded 값은 포트폴리오 누적수익으로 표시하지 않습니다.", "구간이 서로 겹치므로 연속 복리값은 포트폴리오 누적수익으로 표시하지 않습니다.")
+    text = text.replace("rows.length+' MIRRORED'", "rows.length+'건 기록'")
+
+    # Execution state/reason display labels.
+    ex_anchor = "function renderExecutionLedger(ctl){"
+    if ex_anchor not in text:
+        raise SystemExit("execution ledger anchor missing")
+    ex_helpers = r"""function executionStateLabel(v){
+  var m={
+    ENTRY_RESERVED:'진입 예약',ENTRY_SUBMITTED:'진입 주문 제출',OPEN:'보유 중',
+    EXIT_RESERVED:'청산 예약',EXIT_SUBMITTED:'청산 주문 제출',CLOSED:'청산 완료',
+    CLOSED_MANUAL:'수동 청산',ENTRY_ABORTED:'진입 취소',MANUAL_RECONCILIATION:'확인 필요'
+  };
+  return m[String(v||'').toUpperCase()]||v||'—';
+}
+function exitReasonLabel(v){
+  var m={
+    STOP_LOSS_3PCT:'손절 -3%',TAKE_PROFIT_20PCT:'익절 +20%',
+    MODEL_ROTATION:'모델 교체',MAX_HOLD_4_BUCKETS:'최대 보유 4B',
+    MANUAL_BROKER_FLAT:'브로커 기준 수동 청산'
+  };
+  return m[String(v||'').toUpperCase()]||v||'—';
+}
+"""
+    text = text.replace(ex_anchor, ex_helpers + ex_anchor, 1)
+    text = text.replace("esc(x.state||'—')", "esc(executionStateLabel(x.state))")
+    text = text.replace("esc(x.exit_reason||'—')", "esc(exitReasonLabel(x.exit_reason))")
+
+    # Universe wording.
+    universe_wording = [
+        ("['BASELINE',UNIVERSE_BASELINE_TOTAL,'requested universe']", "['기준 Universe',UNIVERSE_BASELINE_TOTAL,'요청 기준']"),
+        ("['R5.1 SCORED',scored,'current contract']", "['R5.1 평가 완료',scored,'현재 모델 대상']"),
+        ("['UNMAPPED',unmapped,'outside current payload']", "['미매핑',unmapped,'현재 payload 미포함']"),
+        ("['HELD',held,'US positions']", "['보유',held,'미국주식 보유']"),
+        ("['연구 미리보기',actions,'not live execution']", "['연구 미리보기',actions,'실매매와 분리']"),
+        ("US R5.1 UNIVERSE", "US R5.1 Universe"),
+        ("Model Ranking Table", "모델 순위표"),
+        ("전체 후보 · 현재 R5.1 score · Top-6 research preview · 실제 주문 아님", "전체 후보 · R5.1 점수 · Top-6 연구 미리보기 · 실제 주문과 분리"),
+        ("<label>Search</label>", "<label>검색</label>"),
+        ("<label>Filter</label>", "<label>필터</label>"),
+        ("<label>Sort</label>", "<label>정렬</label>"),
+        ('<option value="ALL">ALL</option>', '<option value="ALL">전체</option>'),
+        ('<option value="HELD">HELD</option>', '<option value="HELD">보유</option>'),
+        ('<option value="RANK">Rank</option>', '<option value="RANK">순위</option>'),
+        ('<option value="SCORE">Score</option>', '<option value="SCORE">점수</option>'),
+        ('<option value="SYMBOL">Symbol</option>', '<option value="SYMBOL">종목</option>'),
+        ('<option value="WEIGHT">Weight</option>', '<option value="WEIGHT">비중</option>'),
+        ("<b>Universe contract</b>", "<b>Universe 기준</b>"),
+        ("현재 Production R5.1 API는 '+scored+'개 scored symbols를 반환합니다. 요청 baseline 102와의 차이 '+unmapped+'개는 현재 dashboard payload에 심볼 identity가 없어 임의 생성하지 않습니다.",
+         "현재 R5.1 API가 반환한 평가 종목은 '+scored+'개입니다. 기준 102개와의 차이 '+unmapped+'개는 현재 dashboard payload에 종목 식별자가 없어 임의로 생성하지 않습니다."),
+        ("US R5.1 Ranking", "US R5.1 순위"),
+        ("universeFlag('HELD','held')", "universeFlag('보유','held')"),
+        ("universeFlag('SCORED','scored')", "universeFlag('평가됨','scored')"),
+        ("<th>Rank</th><th>Symbol</th><th>Status</th><th>Score</th><th>Reference</th>", "<th>순위</th><th>종목</th><th>구분</th><th>점수</th><th>기준가</th>"),
+        ("<th>Weight</th><th>Holding</th>", "<th>비중</th><th>보유</th>"),
+    ]
+    for old, new in universe_wording:
+        text = text.replace(old, new)
+
+    # Model/shadow ledger wording.
+    text = text.replace("표시할 R5.1 ledger가 없습니다.", "표시할 R5.1 모델 평가 기록이 없습니다.")
+    text = text.replace("badge('RECON','warn')", "badge('재구성(RECON)','warn')")
+    text = text.replace("ret==null?'OPEN':pct(ret,100)", "ret==null?'진행 중':pct(ret,100)")
+    text = text.replace("x.exit_time?'CLOSED':'OPEN'", "x.exit_time?'완료':'진행 중'")
+    text = text.replace("fmt(t.length,0)+' trades'", "fmt(t.length,0)+'건'")
+    text = text.replace('data-ledger-filter="ALL">ALL<', 'data-ledger-filter="ALL">전체<')
+    text = text.replace('data-ledger-filter="RECON">RECON<', 'data-ledger-filter="RECON">재구성<')
+    text = text.replace("<th>Rank</th><th>Symbol</th><th>Score</th><th>Reference</th><th>모델 4h 목표</th><th>Weight</th>",
+                        "<th>순위</th><th>종목</th><th>점수</th><th>기준가</th><th>모델 4h 목표</th><th>비중</th>")
+    text = text.replace("fmt(a.length,0)+' symbols'", "fmt(a.length,0)+'개 종목'")
     text = text.replace(
         "현재 bot 주문/체결이 Neon에 미러링되지 않았다는 뜻입니다. Toss 계정 전체 거래내역이 0건이라는 뜻은 아닙니다.",
         "현재 자동매매 주문·체결이 Neon에 기록되지 않았다는 뜻입니다. Toss 전체 거래내역이 0건이라는 뜻은 아닙니다."
