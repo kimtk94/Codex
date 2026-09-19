@@ -256,9 +256,9 @@ def patch_app(src: Path) -> None:
   var box=$('#commandAccount');if(!box)return;
   var offline=!j||j.status==='OFFLINE';
   var head=$('#headerServerState');
-  if(head){head.className='pill '+(offline?'warn':'ok');head.textContent=offline?'TRADING LINK OFFLINE':'SERVER ONLINE';}
+  if(head){head.className='pill '+(offline?'warn':'ok');head.textContent=offline?'TRADING LINK OFFLINE':'TRADING LINK ONLINE';}
   var subtitle=$('#accountSubtitle');
-  if(subtitle)subtitle.textContent=offline?'Toss Securities · 서버 미가동 / 계좌 데이터 없음':'Toss Securities · 계좌 연결됨';
+  if(subtitle)subtitle.textContent=offline?'Toss Securities · trading link offline / broker data 없음':'Toss Securities · 계좌 연결됨';
 
   if(offline){
     box.innerHTML=[
@@ -397,8 +397,21 @@ function renderExecutionLedger(ctl){
         "전체 후보 · 현재 R5.1 score · Top-6 research preview · 실제 주문 아님"
     )
     text = text.replace("<th>Model Plan</th>", "<th>Research Preview</th>")
+    text = text.replace('<option value="ACTION">ACTION</option>', '<option value="ACTION">PREVIEW</option>')
+    text = text.replace(
+        "if(f==='ACTION')rows=rows.filter(function(x){return ['buy','sell','hold'].includes(x.action.kind);});",
+        "if(f==='ACTION')rows=rows.filter(function(x){return String(x.action&&x.action.label||'').includes('PREVIEW');});"
+    )
+    text = text.replace(
+        "if(f==='WATCH')rows=rows.filter(function(x){return x.action.kind==='watch';});",
+        "if(f==='WATCH')rows=rows.filter(function(x){return String(x.action&&x.action.label||'')==='WATCH';});"
+    )
+    text = text.replace("fi.fresh?'R5.1 FRESH':'R5.1 PREVIEW'", "fi.fresh?'MODEL DATA FRESH':'MODEL DATA STALE'")
+    text = text.replace("<th>4h Target</th>", "<th>Model 4h Target</th>")
+    text = text.replace("<th>Δ Target</th>", "<th>Model Δ</th>")
     text = text.replace("2026 R5.1 Ledger", "R5.1 SHADOW / MODEL EVALUATION LEDGER")
     text = text.replace(">FORWARD<", ">MODEL FORWARD<")
+    text = text.replace("badge('FORWARD','ok')", "badge('MODEL FORWARD','ok')")
     text = text.replace("R5.1 TOP-1", "R5.1 MODEL TOP-1 · RESEARCH")
     text = text.replace("<h3>R5.1 Model Universe</h3>", "<h3>R5.1 Model Ranking</h3>")
 
