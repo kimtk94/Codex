@@ -1,0 +1,12 @@
+{
+  "source_files": 30,
+  "api_functions": 12,
+  "version": "vNext.7.4.21",
+  "auto_trade_console": true,
+  "server_bot_status": true,
+  "fixed_krw_display": 5000,
+  "web_read_only": true,
+  "compact_manifest_bytes": 119793,
+  "source_manifest_sha256": "c1635d5aa8e922494f50bb8a4a38aed7084ab8c24580ac75cc27b79ef06a371c",
+  "vercel_manifest_sha256": "88790c8255dca406c965c1caeb792af741817a7de1bd8bf7676f09dd1f0b62d3"
+}
