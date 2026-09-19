@@ -56,7 +56,7 @@
     return '<span class="health-dot '+(valid?'good-dot':'warn-dot')+'"></span>'+(valid?'VALID':'EXPIRED');
   }
   try{
-    staleBadge=function(x){return x?badge('SNAPSHOT EXPIRED','warn'):badge('SNAPSHOT VALID','ok');};
+    staleBadge=function(x){return x?badge('스냅샷 만료','warn'):badge('스냅샷 유효','ok');};
     executionFreshness=function(j){return entryFreshness(j);};
   }catch(_){}
 
@@ -83,13 +83,13 @@
 
   function ensureShell(){
     const footer=document.querySelector('footer');
-    if(footer)footer.textContent='Production runtime v7.4.20 · UI contract v7.4.22 · READ ONLY';
+    if(footer)footer.textContent='Production runtime v7.4.20 · UI contract v7.4.22 · 조회 전용';
     const header=document.querySelector('.header-status');
     if(header&&!document.querySelector('#headerServerState')){
       const p=document.createElement('span');
       p.id='headerServerState';p.className='pill warn';p.textContent='SERVER —';
       header.insertBefore(p,header.lastElementChild);
-      if(header.lastElementChild)header.lastElementChild.textContent='READ ONLY';
+      if(header.lastElementChild)header.lastElementChild.textContent='조회 전용';
     }
 
     const grid=document.querySelector('.command-grid');
@@ -103,18 +103,18 @@
 
     if(next){
       next.classList.add('kalman-execution-panel');
-      const k=next.querySelector('.panel-kicker');if(k)k.textContent='AUTO-TRADE · SERVER CONTRACT';
+      const k=next.querySelector('.panel-kicker');if(k)k.textContent='자동매매 · 실행 조건';
       grid.insertBefore(next,grid.firstChild);
     }
-    if(model){const k=model.querySelector('.panel-kicker');if(k)k.textContent='R5.1 · MODEL RANKING';}
+    if(model){const k=model.querySelector('.panel-kicker');if(k)k.textContent='R5.1 · 모델 순위';}
 
     if(!document.querySelector('#commandBenchmark')){
       const a=document.createElement('article');
       a.className='command-panel';
-      a.innerHTML='<div class="panel-kicker">RESEARCH BENCHMARK · TOP1 vs TOP6</div><div id="commandBenchmark"></div>';
+      a.innerHTML='<div class="panel-kicker">연구 벤치마크 · TOP-1 vs TOP-6</div><div id="commandBenchmark"></div>';
       if(health)grid.insertBefore(a,health);else grid.appendChild(a);
     }
-    if(health){const k=health.querySelector('.panel-kicker');if(k)k.textContent='SYSTEM / BROKER';}
+    if(health){const k=health.querySelector('.panel-kicker');if(k)k.textContent='시스템 · Toss';}
 
     const sub=document.querySelector('.account .muted');
     if(sub&&sub.parentElement&&sub.parentElement.querySelector('h2'))sub.textContent='Toss Securities · 서버 연결 시 실계좌 표시';
@@ -124,7 +124,7 @@
       const sec=document.createElement('section');
       sec.id='kalmanExecutionLedger';
       sec.className='card section kalman-exec-ledger';
-      sec.innerHTML='<div class="section-head"><div><div class="eyebrow">LIVE EXECUTION MIRROR · NEON</div><h2>실매매 체결 미러</h2><div class="muted">Shadow/model 평가와 분리 · 실제 bot 주문/체결 mirror</div></div><span class="pill">MIRROR PENDING</span></div><div class="kalman-offline"><div><b>Neon execution mirror 미연결</b><span>현재 Production hotfix에는 execution mirror API가 아직 연결되지 않았습니다. Broker 전체 거래내역 상태는 여기서 판단하지 않습니다.</span></div></div>';
+      sec.innerHTML='<div class="section-head"><div><div class="eyebrow">실매매 기록 · NEON MIRROR</div><h2>실매매 기록</h2><div class="muted">실제 자동매매 주문·체결만 표시 · Shadow/연구 결과와 분리</div></div><span class="pill">미러 연결 대기</span></div><div class="kalman-offline"><div><b>Neon 실매매 미러 미연결</b><span>현재 Production hotfix에는 실매매 미러 API가 아직 연결되지 않았습니다. Toss 전체 거래내역 상태는 여기서 판단하지 않습니다.</span></div></div>';
       tabs.parentNode.insertBefore(sec,tabs);
     }
   }
@@ -138,7 +138,7 @@
         '<div class="kalman-bench-col"><span>TOP-6 EQUAL · 4B ONLY</span><b>avg '+P(BENCH.top6.avg)+'</b><small>σ '+P(BENCH.top6.std)+' · n='+BENCH.snapshots+'</small></div>'+
       '</div>'+
       '<div class="kalman-bench-foot"><span>10bp round-trip approximation · overlapping 4h windows · through '+T(BENCH.asOf)+'</span><b>Δ avg '+P(d)+'</b></div>'+
-      '<div class="small"><b>Research benchmark only:</b> -3% stop, +20% take-profit, model rotation은 포함하지 않습니다. sequence compounded는 겹치는 window 때문에 포트폴리오 누적수익으로 표시하지 않습니다.</div>';
+      '<div class="small"><b>연구용 벤치마크:</b> -3% stop, +20% take-profit, model rotation은 포함하지 않습니다. sequence compounded는 겹치는 window 때문에 포트폴리오 누적수익으로 표시하지 않습니다.</div>';
   }
 
   function renderPlan(){
@@ -146,39 +146,39 @@
     const sig=latestSignal(),online=brokerOnline();
     const ef=entryFreshness(state().us||{data_as_of:sig.asOf});
     const modelEligible=ef.fresh&&sig.canary;
-    let headline='TRADING LINK OFFLINE',status='NOT EXECUTABLE',kind='warn';
-    if(online&&!modelEligible)headline='ENTRY SIGNAL EXPIRED';
-    if(online&&modelEligible){headline='BROKER CONNECTED';status='SERVER GATES UNKNOWN';}
+    let headline='Toss 오프라인',status='주문 불가',kind='warn';
+    if(online&&!modelEligible)headline='진입 신호 만료';
+    if(online&&modelEligible){headline='BROKER CONNECTED';status='게이트 확인 불가';}
 
     box.className='';
     box.innerHTML=
-      '<div class="kalman-execution-hero"><div><small>'+headline+'</small><strong>'+E(sig.symbol)+'</strong><span>last canary candidate · '+T(sig.asOf)+'</span></div>'+pill(status,kind)+'</div>'+
+      '<div class="kalman-execution-hero"><div><small>'+headline+'</small><strong>'+E(sig.symbol)+'</strong><span>최근 canary 후보 · '+T(sig.asOf)+'</span></div>'+pill(status,kind)+'</div>'+
       '<div class="kalman-rule-grid">'+
-        '<div><span>LIVE POLICY</span><b>SHADOW_CANARY</b><small>SHADOW signal is expected</small></div>'+
-        '<div><span>TARGET SIZE</span><b>'+M(5000)+'</b><small>per new entry</small></div>'+
-        '<div><span>LIVE EXITS</span><b>-3% / +20%</b><small>stop loss · take profit</small></div>'+
-        '<div><span>EARLY / MAX EXIT</span><b>ROTATE ON</b><small>4 canonical buckets max</small></div>'+
+        '<div><span>실매매 정책</span><b>SHADOW_CANARY</b><small>SHADOW 신호 사용</small></div>'+
+        '<div><span>진입 금액</span><b>'+M(5000)+'</b><small>신규 진입 1회 기준</small></div>'+
+        '<div><span>손절 / 익절</span><b>-3% / +20%</b><small>손절 · 익절</small></div>'+
+        '<div><span>교체 / 최대 보유</span><b>ROTATE ON</b><small>4 canonical bucket 최대</small></div>'+
       '</div>'+
       '<div class="kalman-gates">'+
-        pill(modelEligible?'ENTRY SIGNAL <90M':'ENTRY SIGNAL EXPIRED',modelEligible?'ok':'warn')+
-        pill(online?'TRADING LINK ONLINE':'TRADING LINK OFFLINE',online?'ok':'warn')+
-        pill('SERVER LIVE GATES NOT CONFIRMED','warn')+
-        pill('EXECUTION MIRROR PENDING','')+
+        pill(modelEligible?'진입 신호 유효 (<90분)':'진입 신호 만료',modelEligible?'ok':'warn')+
+        pill(online?'Toss 연결됨':'Toss 오프라인',online?'ok':'warn')+
+        pill('자동매매 게이트 확인 불가','warn')+
+        pill('EXECUTION 미러 연결 대기','')+
       '</div>'+
-      '<div class="next-actions-note"><b>구분:</b> Top-6는 research benchmark/portfolio preview이며 실제 자동매매 selector가 아닙니다. 실제 신규 진입 후보는 SHADOW_CANARY 조건을 통과한 단일 R5.1 signal입니다. 웹은 주문을 제출하지 않습니다.</div>';
+      '<div class="next-actions-note"><b>구분:</b> Top-6는 연구용 비교/미리보기이며 실제 자동매매 대상 선정에 사용하지 않습니다. 신규 진입은 SHADOW_CANARY 조건을 통과한 단일 R5.1 신호만 사용합니다. 웹은 주문을 제출하지 않습니다.</div>';
   }
 
   function renderServerState(){
     const online=brokerOnline();
     const h=document.querySelector('#headerServerState');
-    if(h){h.className='pill '+(online?'ok':'warn');h.textContent=online?'TRADING LINK ONLINE':'TRADING LINK OFFLINE';}
+    if(h){h.className='pill '+(online?'ok':'warn');h.textContent=online?'Toss 연결됨':'Toss 오프라인';}
 
     if(!online){
       const account=document.querySelector('#account');
       if(account){
         const txt=(account.textContent||'').toLowerCase();
         if(txt.includes('불러오지 못')||txt.includes('실패')||txt.includes('gateway')){
-          account.innerHTML='<div class="kalman-offline"><div><b>TRADING LINK OFFLINE</b><span>Toss 계좌/주문 링크가 오프라인입니다. 모델·신호 화면은 계속 사용할 수 있습니다.</span></div>'+pill('NO BROKER DATA','warn')+'</div>';
+          account.innerHTML='<div class="kalman-offline"><div><b>Toss 오프라인</b><span>Toss 계좌/주문 링크가 오프라인입니다. 모델·신호 화면은 계속 사용할 수 있습니다.</span></div>'+pill('NO BROKER DATA','warn')+'</div>';
         }
       }
     }
@@ -191,11 +191,11 @@
       var currentKrw=(held&&fx)?marketValueUsd(held)*n(fx.rate||0):0;
       var gap=Math.max(0,UNIVERSE_TARGET_KRW-currentKrw);
       if(isTop){
-        if(held&&gap<UNIVERSE_MIN_ORDER_KRW)return{label:'AT TARGET',kind:'hold',detail:'RESEARCH TOP-6 #'+rank};
-        return{label:held?'TOP-UP PREVIEW':'ADD PREVIEW',kind:'watch',detail:(gap>=UNIVERSE_MIN_ORDER_KRW?M(Math.min(UNIVERSE_TARGET_KRW,Math.floor(gap)))+' · ':'')+'RESEARCH TOP-6 #'+rank};
+        if(held&&gap<UNIVERSE_MIN_ORDER_KRW)return{label:'목표 도달',kind:'hold',detail:'연구 Top-6 #'+rank};
+        return{label:held?'추가 미리보기':'편입 미리보기',kind:'watch',detail:(gap>=UNIVERSE_MIN_ORDER_KRW?M(Math.min(UNIVERSE_TARGET_KRW,Math.floor(gap)))+' · ':'')+'연구 Top-6 #'+rank};
       }
-      if(held)return{label:'EXIT PREVIEW',kind:'watch',detail:'OUTSIDE RESEARCH TOP-6'};
-      return{label:'WATCH',kind:'watch',detail:'RANK #'+rank};
+      if(held)return{label:'제외 미리보기',kind:'watch',detail:'OUTSIDE 연구 Top-6'};
+      return{label:'관찰',kind:'watch',detail:'RANK #'+rank};
     };
   }catch(_){}
 
@@ -209,7 +209,7 @@
       if(f==='TOP6')rows=rows.filter(function(x){return x.top6;});
       if(f==='HELD')rows=rows.filter(function(x){return !!x.held;});
       if(f==='ACTION')rows=rows.filter(function(x){return String(x.action&&x.action.label||'').includes('PREVIEW');});
-      if(f==='WATCH')rows=rows.filter(function(x){return String(x.action&&x.action.label||'')==='WATCH';});
+      if(f==='WATCH')rows=rows.filter(function(x){return String(x.action&&x.action.label||'')==='관찰';});
       rows.sort(function(a,b){
         if(sort==='SCORE')return (n(b.model_score)||-Infinity)-(n(a.model_score)||-Infinity);
         if(sort==='SYMBOL')return a.symbol.localeCompare(b.symbol);
@@ -225,8 +225,8 @@
     const originalUsLedgerTable=usLedgerTable;
     usLedgerTable=function(j){
       return originalUsLedgerTable(j)
-        .replace('2026 R5.1 Ledger','R5.1 SHADOW / MODEL EVALUATION LEDGER')
-        .replace(/>FORWARD</g,'>MODEL FORWARD<').replace(/>FORWARD<\/span>/g,'>MODEL FORWARD</span>');
+        .replace('2026 R5.1 Ledger','R5.1 SHADOW · 모델 평가 기록')
+        .replace(/>FORWARD</g,'>모델 Forward<').replace(/>FORWARD<\/span>/g,'>모델 Forward</span>');
     };
   }catch(_){}
 
@@ -246,7 +246,7 @@
         const p=us.payload||{},a=(p.assets||p.top3||[]).slice(0,6),sv=snapshotValidity(us),ef=entryFreshness(us);
         const ranks=a.map((x,i)=>'<div class="command-rank"><span>'+(i+1)+'</span><b>'+E(x.symbol||'—')+'</b><small>'+((Number(x.model_score)||0)*10000).toFixed(2)+' bp</small></div>').join('');
         model.className='';
-        model.innerHTML='<div class="command-model-head"><div><small>TOP RANK</small><strong>'+E(a[0]&&a[0].symbol||'—')+'</strong></div><div class="right">'+dotLabel(sv.valid)+'<small>'+T(us.data_as_of)+' · entry signal '+(ef.fresh?'&lt;90m':'expired')+'</small></div></div><div class="command-ranks">'+ranks+'</div>';
+        model.innerHTML='<div class="command-model-head"><div><small>TOP RANK</small><strong>'+E(a[0]&&a[0].symbol||'—')+'</strong></div><div class="right">'+dotLabel(sv.valid)+'<small>'+T(us.data_as_of)+' · 진입 신호 '+(ef.fresh?'&lt;90m':'expired')+'</small></div></div><div class="command-ranks">'+ranks+'</div>';
       }
       const health=document.querySelector('#commandHealth');
       if(health){
@@ -254,18 +254,18 @@
         const account=s.account||null,bot=account&&account.trading_status||null;
         const known=Boolean(bot&&typeof bot.usFractionalOrderWindowOpen==='boolean');
         const open=known&&bot.usFractionalOrderWindowOpen===true;
-        const row=(label,valid,j)=>'<div class="health-row"><span>'+label+'</span><b>'+dotLabel(valid)+'</b><small>'+T(j&&j.data_as_of)+' · valid until '+T(j&&j.stale_after)+'</small></div>';
+        const row=(label,valid,j)=>'<div class="health-row"><span>'+label+'</span><b>'+dotLabel(valid)+'</b><small>'+T(j&&j.data_as_of)+' · 유효기한 '+T(j&&j.stale_after)+'</small></div>';
         health.className='';
         health.innerHTML=
-          row('US SNAPSHOT',uv.valid,us)+row('KR SNAPSHOT',kv.valid,kr)+row('CRYPTO SNAPSHOT',cv.valid,cr)+
-          '<div class="health-row"><span>US ORDER WINDOW</span><b><span class="health-dot '+(open?'good-dot':'warn-dot')+'"></span>'+(known?(open?'OPEN':'CLOSED'):'UNKNOWN')+'</b><small>'+(known?'Toss market calendar':'trading link required')+'</small></div>';
+          row('US 데이터',uv.valid,us)+row('KR 데이터',kv.valid,kr)+row('Crypto 데이터',cv.valid,cr)+
+          '<div class="health-row"><span>미국 주문시간</span><b><span class="health-dot '+(open?'good-dot':'warn-dot')+'"></span>'+(known?(open?'주문 가능':'마감'):'확인 불가')+'</b><small>'+(known?'Toss market calendar':'trading link required')+'</small></div>';
         const head=document.querySelector('#headerDataState');
-        if(head){const ok=uv.valid&&kv.valid&&cv.valid;head.className='pill '+(ok?'ok':'warn');head.textContent=ok?'SNAPSHOTS VALID':'SNAPSHOT CHECK';}
+        if(head){const ok=uv.valid&&kv.valid&&cv.valid;head.className='pill '+(ok?'ok':'warn');head.textContent=ok?'데이터 정상':'데이터 확인 필요';}
       }
       renderPlan();
     }catch(e){
       const h=document.querySelector('#headerDataState');
-      if(h){h.className='pill warn';h.textContent='SNAPSHOT CHECK';}
+      if(h){h.className='pill warn';h.textContent='데이터 확인 필요';}
     }finally{snapshotRefreshBusy=false;}
   }
 
@@ -277,14 +277,14 @@
     if(content){
       content.querySelectorAll('th').forEach(th=>{
         const t=th.textContent.trim();
-        if(t==='Model Plan')th.textContent='Research Preview';
-        if(t==='4h Target')th.textContent='Model 4h Target';
-        if(t==='Δ Target')th.textContent='Model Δ';
+        if(t==='Model Plan')th.textContent='연구 미리보기';
+        if(t==='4h Target')th.textContent='모델 4h 목표';
+        if(t==='Δ Target')th.textContent='모델 Δ';
       });
       content.querySelectorAll('.universe-title .muted').forEach(x=>{if(x.textContent.includes('예정 액션'))x.textContent='전체 후보 · 현재 R5.1 score · Top-6 research preview · 실제 주문 아님';});
-      content.querySelectorAll('.u-kpi span').forEach(x=>{if(x.textContent.trim()==='MODEL PLAN')x.textContent='RESEARCH PREVIEW';});
-      const uf=document.querySelector('#universeFilter option[value="ACTION"]');if(uf)uf.textContent='PREVIEW';
-      content.querySelectorAll('.universe-title .pill').forEach(x=>{const sv=snapshotValidity(state().us||{});x.textContent=sv.valid?'SNAPSHOT VALID':'SNAPSHOT EXPIRED';x.className='pill '+(sv.valid?'ok':'warn');});
+      content.querySelectorAll('.u-kpi span').forEach(x=>{if(x.textContent.trim()==='MODEL PLAN')x.textContent='연구 미리보기';});
+      const uf=document.querySelector('#universeFilter option[value="ACTION"]');if(uf)uf.textContent='미리보기';
+      content.querySelectorAll('.universe-title .pill').forEach(x=>{const sv=snapshotValidity(state().us||{});x.textContent=sv.valid?'스냅샷 유효':'스냅샷 만료';x.className='pill '+(sv.valid?'ok':'warn');});
     }
   }
   function schedule(){
