@@ -256,7 +256,7 @@ def patch_app(src: Path) -> None:
   var box=$('#commandAccount');if(!box)return;
   var offline=!j||j.status==='OFFLINE';
   var head=$('#headerServerState');
-  if(head){head.className='pill '+(offline?'warn':'ok');head.textContent=offline?'SERVER OFFLINE':'SERVER ONLINE';}
+  if(head){head.className='pill '+(offline?'warn':'ok');head.textContent=offline?'TRADING LINK OFFLINE':'SERVER ONLINE';}
   var subtitle=$('#accountSubtitle');
   if(subtitle)subtitle.textContent=offline?'Toss Securities · 서버 미가동 / 계좌 데이터 없음':'Toss Securities · 계좌 연결됨';
 
@@ -293,19 +293,19 @@ def patch_app(src: Path) -> None:
     if anchor not in text:
         raise SystemExit("loadCommandCenter anchor missing")
     renderers = r"""function benchmarkMetric(label,row){
-  if(!row)return '<div class="benchmark-col"><span>'+esc(label)+'</span><b>—</b><small>no completed snapshot</small></div>';
-  return '<div class="benchmark-col"><span>'+esc(label)+'</span><b>'+pct(row.compounded,100)+'</b><small>avg '+pct(row.avg_net,100)+' · σ '+pct(row.std_net,100)+' · n='+fmt(row.snapshots,0)+'</small></div>';
+  if(!row)return '<div class="benchmark-col"><span>'+esc(label)+'</span><b>—</b><small>no completed 4-bucket snapshot</small></div>';
+  return '<div class="benchmark-col"><span>'+esc(label)+'</span><b>avg '+pct(row.avg_net,100)+'</b><small>σ '+pct(row.std_net,100)+' · n='+fmt(row.snapshots,0)+' · through '+time(row.last_as_of)+'</small></div>';
 }
 function renderBenchmark(ctl){
   kalmanCommandState.control=ctl;
   var box=$('#commandBenchmark');if(!box)return;
   var b=ctl&&ctl.benchmarks||{},a=b.top1,z=b.top6;
-  var delta=(a&&z)?n(z.compounded)-n(a.compounded):null;
+  var delta=(a&&z)?n(z.avg_net)-n(a.avg_net):null;
   box.className='';
   box.innerHTML=
-    '<div class="benchmark-grid">'+benchmarkMetric('TOP-1',a)+benchmarkMetric('TOP-6 EQUAL',z)+'</div>'+
-    '<div class="benchmark-foot"><span>same 4-bucket · 10bp</span><b>Δ cumulative '+(delta==null?'—':pct(delta,100))+'</b></div>'+
-    '<div class="small">Forward sample only. 전략 선택이 아니라 지속 관찰용 비교입니다.</div>';
+    '<div class="benchmark-grid">'+benchmarkMetric('TOP-1 · 4B ONLY',a)+benchmarkMetric('TOP-6 EQUAL · 4B ONLY',z)+'</div>'+
+    '<div class="benchmark-foot"><span>10bp round-trip approximation · overlapping 4h windows</span><b>Δ avg '+(delta==null?'—':pct(delta,100))+'</b></div>'+
+    '<div class="small"><b>Research benchmark only:</b> -3% stop, +20% take-profit, model rotation을 포함하지 않습니다. 따라서 live auto-trade P/L과 직접 비교하면 안 됩니다. sequence compounded 값은 겹치는 window 때문에 포트폴리오 누적수익으로 표시하지 않습니다.</div>';
   renderExecutionLedger(ctl);
   renderNextActions();
 }
@@ -313,12 +313,12 @@ function renderExecutionLedger(ctl){
   var box=$('#executionLedger'),state=$('#executionLedgerState');if(!box)return;
   var rows=(ctl&&ctl.execution_ledger)||[];
   if(!rows.length){
-    if(state){state.className='pill';state.textContent='NO EXECUTION';}
-    box.innerHTML='<div class="execution-empty"><div><b>실제 Toss 체결 0건</b><span>서버가 아직 가동되지 않았으므로 정상입니다. Shadow/benchmark 데이터와 실제 체결 데이터는 분리되어 있습니다.</span></div></div>';
+    if(state){state.className='pill';state.textContent='MIRROR EMPTY';}
+    box.innerHTML='<div class="execution-empty"><div><b>Neon execution mirror 0 rows</b><span>현재 bot 주문/체결이 Neon에 미러링되지 않았다는 뜻입니다. Toss 계정 전체 거래내역이 0건이라는 뜻은 아닙니다.</span></div></div>';
     return;
   }
-  if(state){state.className='pill ok';state.textContent=rows.length+' RECENT';}
-  box.innerHTML='<div class="table-scroll"><table class="data-table"><thead><tr><th>Signal</th><th>Symbol</th><th>State</th><th>Entry Avg</th><th>Exit Avg</th><th>Return</th><th>Exit reason</th></tr></thead><tbody>'+
+  if(state){state.className='pill ok';state.textContent=rows.length+' MIRRORED';}
+  box.innerHTML='<div class="table-scroll"><table class="data-table"><thead><tr><th>Signal</th><th>Symbol</th><th>State</th><th>Entry Avg</th><th>Exit Avg</th><th>Realized Return</th><th>Exit reason</th></tr></thead><tbody>'+
     rows.map(function(x){var r=n(x.realized_return_pct);return '<tr><td>'+time(x.entry_signal_as_of)+'</td><td><b>'+esc(x.symbol||'—')+'</b></td><td>'+esc(x.state||'—')+'</td><td>'+money(x.entry_average_price,'USD')+'</td><td>'+money(x.exit_average_price,'USD')+'</td><td class="'+(r==null?'':r>=0?'good':'bad')+'">'+(r==null?'—':pct(r,100))+'</td><td>'+esc(x.exit_reason||'—')+'</td></tr>';}).join('')+
     '</tbody></table></div>';
 }
@@ -347,14 +347,14 @@ function renderExecutionLedger(ctl){
 
     text = text.replace(
         "healthRow('EXECUTION','<span class=\"health-dot good-dot\"></span>SERVER','US Top-6 gate')",
-        "healthRow('EXECUTION',kalmanCommandState.account&&kalmanCommandState.account.status!=='OFFLINE'?'<span class=\"health-dot good-dot\"></span>ONLINE':'<span class=\"health-dot warn-dot\"></span>OFFLINE','server-side only')"
+        "healthRow('EXECUTION',kalmanCommandState.account&&kalmanCommandState.account.status!=='OFFLINE'?'<span class=\"health-dot good-dot\"></span>ONLINE':'<span class=\"health-dot warn-dot\"></span>OFFLINE','broker/trading link')"
     )
 
     account_anchor = "    const [j,fx]=await Promise.all([getJSON('/api/account'),loadAccountFx()]);\n"
     account_insert = r"""    const [j,fx]=await Promise.all([getJSON('/api/account'),loadAccountFx()]);
     if(j&&j.status==='OFFLINE'){
       renderCommandAccount(j,null);
-      box.innerHTML='<div class="account-offline"><div><b>SERVER OFFLINE</b><span>Toss 계좌 데이터는 서버가 켜지면 자동 복구됩니다. 모델·benchmark·signal은 Neon에서 계속 표시됩니다.</span></div>'+badge('NO BROKER DATA','warn')+'</div>';
+      box.innerHTML='<div class="account-offline"><div><b>TRADING LINK OFFLINE</b><span>Toss 계좌/주문 데이터 링크가 오프라인입니다. 모델·benchmark·signal은 Neon에서 계속 표시됩니다.</span></div>'+badge('NO BROKER DATA','warn')+'</div>';
       return;
     }
 """
@@ -419,7 +419,7 @@ def validate(src: Path) -> dict:
     }
     checks={
       "index":[TARGET,"EXECUTION PLAN","TOP1 ↔ TOP6 · FORWARD CHECK","BROKER EXECUTION LEDGER","headerServerState"],
-      "app":["renderBenchmark","renderExecutionLedger","SERVER OFFLINE","NO BROKER FILL","/api/assets?view=control"],
+      "app":["renderBenchmark","renderExecutionLedger","TRADING LINK OFFLINE","EXECUTION MIRROR EMPTY","/api/assets?view=control"],
       "assets":["async function control","strategy_benchmark_ledger","v_live_trade_ledger","status:'OFFLINE'"],
       "css":["vNext.7.4.22","execution-rule-grid","benchmark-grid","account-offline"],
       "health":[TARGET]
