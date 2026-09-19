@@ -63,6 +63,7 @@ fi
 systemctl restart kalman-toss-gateway.service
 sleep 2
 systemctl is-active --quiet kalman-toss-gateway.service
+curl -fsS --max-time 10 http://127.0.0.1:8787/health >"$BASE/state/gateway-health-$STAMP.json"
 
 export KALMAN_ENV_FILE="$ENV_FILE"
 cd "$APP"
