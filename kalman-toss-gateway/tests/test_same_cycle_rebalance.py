@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 import sys
 import unittest
+from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -78,6 +79,64 @@ class SameCycleRebalanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.row['state'], 'EXIT_SUBMITTED')
         self.assertEqual(report['lastReport']['action'], 'EXIT_WAITING')
         self.assertEqual(mocked.call_count, 1)
+
+    def test_exit_rule_priority_and_thresholds(self):
+        choose = position_manager._choose_exit_reason
+
+        self.assertEqual(
+            choose(
+                price_return=Decimal('-0.04'),
+                stop_loss=Decimal('-0.03'),
+                take_profit=Decimal('0.20'),
+                model_rotation=True,
+                elapsed_buckets=5,
+                target_buckets=4,
+            ),
+            'STOP_LOSS_3PCT',
+        )
+        self.assertEqual(
+            choose(
+                price_return=Decimal('0.25'),
+                stop_loss=Decimal('-0.03'),
+                take_profit=Decimal('0.20'),
+                model_rotation=True,
+                elapsed_buckets=5,
+                target_buckets=4,
+            ),
+            'TAKE_PROFIT_20PCT',
+        )
+        self.assertEqual(
+            choose(
+                price_return=Decimal('0.01'),
+                stop_loss=Decimal('-0.03'),
+                take_profit=Decimal('0.20'),
+                model_rotation=True,
+                elapsed_buckets=5,
+                target_buckets=4,
+            ),
+            'MODEL_ROTATION',
+        )
+        self.assertEqual(
+            choose(
+                price_return=Decimal('0.01'),
+                stop_loss=Decimal('-0.03'),
+                take_profit=Decimal('0.20'),
+                model_rotation=False,
+                elapsed_buckets=4,
+                target_buckets=4,
+            ),
+            'MAX_HOLD_4_BUCKETS',
+        )
+        self.assertIsNone(
+            choose(
+                price_return=Decimal('0.01'),
+                stop_loss=Decimal('-0.03'),
+                take_profit=Decimal('0.20'),
+                model_rotation=False,
+                elapsed_buckets=3,
+                target_buckets=4,
+            )
+        )
 
     def test_exit_wait_config_is_bounded(self):
         with patch.dict(
