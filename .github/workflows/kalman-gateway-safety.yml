@@ -6,8 +6,11 @@ on:
       - "kalman-toss-gateway/app/**"
       - "kalman-toss-gateway/engine/auto_trade.py"
       - "kalman-toss-gateway/engine/position_manager.py"
+      - "kalman-toss-gateway/engine/benchmark_ledger.py"
+      - "kalman-toss-gateway/engine/trade_mirror.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
+      - "kalman-toss-gateway/scripts/run_auto_trade.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - "kalman-toss-gateway/tests/test_same_cycle_rebalance.py"
@@ -18,8 +21,11 @@ on:
       - "kalman-toss-gateway/app/**"
       - "kalman-toss-gateway/engine/auto_trade.py"
       - "kalman-toss-gateway/engine/position_manager.py"
+      - "kalman-toss-gateway/engine/benchmark_ledger.py"
+      - "kalman-toss-gateway/engine/trade_mirror.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
+      - "kalman-toss-gateway/scripts/run_auto_trade.sh"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - "kalman-toss-gateway/tests/test_same_cycle_rebalance.py"
@@ -51,7 +57,7 @@ jobs:
 
       - name: Compile gateway code
         run: |
-          python -m compileall app engine/auto_trade.py engine/position_manager.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py
+          python -m compileall app engine/auto_trade.py engine/position_manager.py engine/benchmark_ledger.py engine/trade_mirror.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py
 
       - name: Run gateway safety tests
         env:
