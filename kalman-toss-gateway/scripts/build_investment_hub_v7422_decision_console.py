@@ -142,15 +142,15 @@ def patch_index(src: Path) -> None:
       </div>'''
     new_grid = '''      <div class="command-grid control-grid">
         <article class="command-panel execution-panel">
-          <div class="panel-kicker">EXECUTION PLAN</div>
+          <div class="panel-kicker">AUTO-TRADE · SERVER CONTRACT</div>
           <div id="commandNextActions" class="muted">R5.1 실행 계획을 계산하는 중...</div>
         </article>
         <article class="command-panel">
-          <div class="panel-kicker">R5.1 · MODEL SIGNAL</div>
+          <div class="panel-kicker">R5.1 · MODEL RANKING</div>
           <div id="commandModel" class="muted">모델 상태를 불러오는 중...</div>
         </article>
         <article class="command-panel">
-          <div class="panel-kicker">TOP1 ↔ TOP6 · FORWARD CHECK</div>
+          <div class="panel-kicker">RESEARCH BENCHMARK · TOP1 vs TOP6</div>
           <div id="commandBenchmark" class="muted">동일 4-bucket benchmark를 불러오는 중...</div>
         </article>
         <article class="command-panel">
@@ -175,13 +175,13 @@ def patch_index(src: Path) -> None:
     ledger = '''    <section class="card section execution-ledger-card">
       <div class="section-head">
         <div>
-          <div class="eyebrow">BROKER EXECUTION LEDGER</div>
-          <h2>실제 체결 기록</h2>
-          <div class="muted">Shadow 성과와 분리 · Toss 체결이 발생한 경우에만 기록</div>
+          <div class="eyebrow">LIVE EXECUTION MIRROR · NEON</div>
+          <h2>실매매 체결 미러</h2>
+          <div class="muted">Shadow/model 평가와 분리 · 서버가 미러링한 실제 bot 주문/체결만 표시</div>
         </div>
-        <span id="executionLedgerState" class="pill">NO EXECUTION</span>
+        <span id="executionLedgerState" class="pill">MIRROR EMPTY</span>
       </div>
-      <div id="executionLedger"><div class="notice">서버 미가동 상태에서는 체결 기록이 비어 있는 것이 정상입니다.</div></div>
+      <div id="executionLedger"><div class="notice">Neon execution mirror가 비어 있습니다. Broker 전체 거래내역이 0건이라는 의미는 아닙니다.</div></div>
     </section>
 
 '''
@@ -209,41 +209,40 @@ def patch_app(src: Path) -> None:
     next_fn = r"""function renderNextActions(){
   var box=$('#commandNextActions');if(!box)return;
   var us=kalmanCommandState.us,ctl=kalmanCommandState.control||{},account=kalmanCommandState.account;
-  var sig=ctl.latest_signal||{};
+  var sig=ctl.latest_canary_candidate||ctl.latest_model_signal||{};
   var sel=currentUsSelector(us||{});
   var assets=(us&&us.payload&&(us.payload.assets||us.payload.top3))||[];
   var symbol=String(sig.symbol||sel.selected_symbol||(assets[0]&&assets[0].symbol)||'—').toUpperCase();
-  var fresh=executionFreshness(us||{data_as_of:sig.as_of});
   var brokerOnline=account&&account.status!=='OFFLINE';
   var bot=botState(account);
-  var brokerExec=ctl.broker_execution_present===true;
+  var mirrorHasRows=ctl.broker_execution_present===true;
   var orderKrw=n(ctl.target_order_krw)||LIVE_CANARY_TARGET_KRW;
   var rules=ctl.exit_rules||{stop_loss_pct:-.03,take_profit_pct:.20,model_rotation:true,max_hold_buckets:4};
-  var shadowAllowed=Boolean(sig.payload&&sig.payload.allow_trade_shadow===true&&sig.payload.shadow_entry_this_signal===true);
-  if(!shadowAllowed)shadowAllowed=sel.allow_trade_shadow===true&&sel.shadow_entry_this_signal===true;
-  var status='PLANNED',kind='warn',headline='SERVER OFFLINE';
-  if(brokerOnline&&bot&&bot.autoTradeEnabled===true&&bot.executionMode==='LIVE'&&bot.liveGateOpen===true){
-    status='LIVE';kind='ok';headline='LIVE CANARY';
-  }else if(brokerOnline){
-    status='GUARDED';kind='warn';headline='BROKER CONNECTED';
-  }
+  var modelEligible=ctl.model_candidate_eligible_now===true;
+  var contract=ctl.execution_contract||{};
+  var botLive=Boolean(brokerOnline&&bot&&bot.autoTradeEnabled===true&&bot.executionMode==='LIVE'&&bot.liveGateOpen===true);
+
+  var status='NOT EXECUTABLE',kind='warn',headline='TRADING LINK OFFLINE';
+  if(brokerOnline&&!modelEligible)headline='MODEL CANDIDATE NOT CURRENT';
+  if(brokerOnline&&modelEligible&&!botLive){status='GUARDED';headline='SERVER GATES NOT LIVE';}
+  if(botLive&&modelEligible){status='LIVE READY';kind='ok';headline='SHADOW_CANARY';}
 
   box.className='';
   box.innerHTML=
-    '<div class="execution-hero"><div><small>'+headline+'</small><strong>'+esc(symbol)+'</strong><span>'+money(orderKrw,'KRW')+' / entry</span></div><span class="pill '+kind+'">'+status+'</span></div>'+
+    '<div class="execution-hero"><div><small>'+headline+'</small><strong>'+esc(symbol)+'</strong><span>last canary candidate · '+time(sig.as_of)+'</span></div><span class="pill '+kind+'">'+status+'</span></div>'+
     '<div class="execution-rule-grid">'+
-      '<div><span>SIGNAL</span><b>'+esc(sig.signal||'SHADOW')+'</b><small>'+time(sig.as_of||(us&&us.data_as_of))+'</small></div>'+
-      '<div><span>ENTRY</span><b>'+money(orderKrw,'KRW')+'</b><small>R5.1 latest eligible</small></div>'+
-      '<div><span>EXIT</span><b>-3% / +20%</b><small>SL · TP</small></div>'+
-      '<div><span>ROTATE</span><b>'+(rules.model_rotation?'ON':'OFF')+'</b><small>'+fmt(rules.max_hold_buckets,0)+' buckets max</small></div>'+
+      '<div><span>LIVE POLICY</span><b>'+esc(contract.signal_policy||'SHADOW_CANARY')+'</b><small>SHADOW signal is expected</small></div>'+
+      '<div><span>TARGET SIZE</span><b>'+money(orderKrw,'KRW')+'</b><small>per new entry</small></div>'+
+      '<div><span>LIVE EXITS</span><b>-3% / +20%</b><small>stop loss · take profit</small></div>'+
+      '<div><span>EARLY / MAX EXIT</span><b>'+(rules.model_rotation?'ROTATE ON':'ROTATE OFF')+'</b><small>'+fmt(rules.max_hold_buckets,0)+' canonical buckets max</small></div>'+
     '</div>'+
     '<div class="execution-gates">'+
-      badge(fresh.fresh?'FRESH':'STALE',fresh.fresh?'ok':'warn')+
-      badge(shadowAllowed?'CANARY SIGNAL':'WAIT SIGNAL',shadowAllowed?'ok':'warn')+
-      badge(brokerOnline?'BROKER ONLINE':'BROKER OFFLINE',brokerOnline?'ok':'warn')+
-      badge(brokerExec?'EXECUTION EXISTS':'NO BROKER FILL',brokerExec?'ok':'')+
+      badge(modelEligible?'MODEL ELIGIBLE NOW':'MODEL NOT ELIGIBLE NOW',modelEligible?'ok':'warn')+
+      badge(brokerOnline?'BROKER LINK ONLINE':'BROKER LINK OFFLINE',brokerOnline?'ok':'warn')+
+      badge(botLive?'SERVER LIVE GATES OPEN':'SERVER GATES NOT CONFIRMED',botLive?'ok':'warn')+
+      badge(mirrorHasRows?'EXECUTION MIRROR HAS ROWS':'EXECUTION MIRROR EMPTY',mirrorHasRows?'ok':'')+
     '</div>'+
-    '<div class="next-actions-note">웹은 주문하지 않습니다. 서버가 켜지면 동일 계약을 읽어 Toss 주문 상태와 체결 ledger만 추가 표시합니다.</div>';
+    '<div class="next-actions-note"><b>구분:</b> Top-6는 research benchmark/portfolio preview이며 실제 자동매매 selector가 아닙니다. 실제 신규 진입 후보는 SHADOW_CANARY 계약을 통과한 단일 R5.1 signal입니다. 웹은 주문을 제출하지 않습니다.</div>';
 }
 """
     text = text[:start] + next_fn + text[end:]
