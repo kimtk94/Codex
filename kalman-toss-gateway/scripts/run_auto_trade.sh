@@ -12,6 +12,17 @@ cd "$APP_ROOT"
 # entry so a due position cannot race with a fresh BUY.
 (
   flock -n 9 || exit 0
+
+  # Risk-reducing reconciliation/exit always runs first.
   "$PY" -m engine.position_manager
+
+  # Keep model benchmark and broker execution audit durable before allowing
+  # a new entry. If Neon/audit sync fails, the cycle stops before BUY.
+  "$PY" -m engine.benchmark_ledger
+  "$PY" -m engine.trade_mirror
+
   "$PY" -m engine.auto_trade
+
+  # Capture the newly reserved/submitted entry (or no-op state) immediately.
+  "$PY" -m engine.trade_mirror
 ) 9>"$LOCK_DIR/auto-trade.lock"
