@@ -64,6 +64,8 @@
   }
 
   function ensureShell(){
+    const footer=document.querySelector('footer');
+    if(footer)footer.textContent='Production runtime v7.4.20 · UI contract v7.4.22 · READ ONLY';
     const header=document.querySelector('.header-status');
     if(header&&!document.querySelector('#headerServerState')){
       const p=document.createElement('span');
@@ -142,7 +144,7 @@
       '</div>'+
       '<div class="kalman-gates">'+
         pill(modelEligible?'MODEL ELIGIBLE NOW':'MODEL NOT ELIGIBLE NOW',modelEligible?'ok':'warn')+
-        pill(online?'BROKER LINK ONLINE':'BROKER LINK OFFLINE',online?'ok':'warn')+
+        pill(online?'TRADING LINK ONLINE':'TRADING LINK OFFLINE',online?'ok':'warn')+
         pill('SERVER LIVE GATES NOT CONFIRMED','warn')+
         pill('EXECUTION MIRROR PENDING','')+
       '</div>'+
@@ -152,14 +154,14 @@
   function renderServerState(){
     const online=brokerOnline();
     const h=document.querySelector('#headerServerState');
-    if(h){h.className='pill '+(online?'ok':'warn');h.textContent=online?'BROKER LINK ONLINE':'BROKER LINK OFFLINE';}
+    if(h){h.className='pill '+(online?'ok':'warn');h.textContent=online?'TRADING LINK ONLINE':'TRADING LINK OFFLINE';}
 
     if(!online){
       const account=document.querySelector('#account');
       if(account){
         const txt=(account.textContent||'').toLowerCase();
         if(txt.includes('불러오지 못')||txt.includes('실패')||txt.includes('gateway')){
-          account.innerHTML='<div class="kalman-offline"><div><b>BROKER LINK OFFLINE</b><span>Toss 계좌/주문 링크가 오프라인입니다. 모델·신호 화면은 계속 사용할 수 있습니다.</span></div>'+pill('NO BROKER DATA','warn')+'</div>';
+          account.innerHTML='<div class="kalman-offline"><div><b>TRADING LINK OFFLINE</b><span>Toss 계좌/주문 링크가 오프라인입니다. 모델·신호 화면은 계속 사용할 수 있습니다.</span></div>'+pill('NO BROKER DATA','warn')+'</div>';
         }
       }
     }
@@ -180,13 +182,34 @@
     };
   }catch(_){}
 
+  try{
+    universeFilteredRows=function(){
+      var rows=universeState.rows.slice();
+      var q=String($('#universeSearch')&&$('#universeSearch').value||'').trim().toUpperCase();
+      var f=String($('#universeFilter')&&$('#universeFilter').value||'ALL');
+      var sort=String($('#universeSort')&&$('#universeSort').value||'RANK');
+      rows=rows.filter(function(x){return !q||x.symbol.includes(q);});
+      if(f==='TOP6')rows=rows.filter(function(x){return x.top6;});
+      if(f==='HELD')rows=rows.filter(function(x){return !!x.held;});
+      if(f==='ACTION')rows=rows.filter(function(x){return String(x.action&&x.action.label||'').includes('PREVIEW');});
+      if(f==='WATCH')rows=rows.filter(function(x){return String(x.action&&x.action.label||'')==='WATCH';});
+      rows.sort(function(a,b){
+        if(sort==='SCORE')return (n(b.model_score)||-Infinity)-(n(a.model_score)||-Infinity);
+        if(sort==='SYMBOL')return a.symbol.localeCompare(b.symbol);
+        if(sort==='WEIGHT')return (n(b.position_weight_r4_vol_target)||0)-(n(a.position_weight_r4_vol_target)||0);
+        return Number(a.rank||999)-Number(b.rank||999);
+      });
+      return rows;
+    };
+  }catch(_){}
+
   // Shadow/model-evaluation ledger labels must not look like broker execution.
   try{
     const originalUsLedgerTable=usLedgerTable;
     usLedgerTable=function(j){
       return originalUsLedgerTable(j)
         .replace('2026 R5.1 Ledger','R5.1 SHADOW / MODEL EVALUATION LEDGER')
-        .replace(/>FORWARD</g,'>MODEL FORWARD<');
+        .replace(/>FORWARD</g,'>MODEL FORWARD<').replace(/>FORWARD<\/span>/g,'>MODEL FORWARD</span>');
     };
   }catch(_){}
 
@@ -196,9 +219,16 @@
     addStyle();ensureShell();renderBenchmark();renderPlan();renderServerState();
     const content=document.querySelector('#content');
     if(content){
-      content.querySelectorAll('th').forEach(th=>{if(th.textContent.trim()==='Model Plan')th.textContent='Research Preview';});
+      content.querySelectorAll('th').forEach(th=>{
+        const t=th.textContent.trim();
+        if(t==='Model Plan')th.textContent='Research Preview';
+        if(t==='4h Target')th.textContent='Model 4h Target';
+        if(t==='Δ Target')th.textContent='Model Δ';
+      });
       content.querySelectorAll('.universe-title .muted').forEach(x=>{if(x.textContent.includes('예정 액션'))x.textContent='전체 후보 · 현재 R5.1 score · Top-6 research preview · 실제 주문 아님';});
       content.querySelectorAll('.u-kpi span').forEach(x=>{if(x.textContent.trim()==='MODEL PLAN')x.textContent='RESEARCH PREVIEW';});
+      const uf=document.querySelector('#universeFilter option[value="ACTION"]');if(uf)uf.textContent='PREVIEW';
+      content.querySelectorAll('.universe-title .pill').forEach(x=>{if(x.textContent==='R5.1 FRESH')x.textContent='MODEL DATA FRESH';if(x.textContent==='R5.1 PREVIEW')x.textContent='MODEL DATA STALE';});
     }
   }
   function schedule(){
