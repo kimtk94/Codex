@@ -230,36 +230,45 @@ def patch_app(src: Path) -> None:
   var sel=currentUsSelector(us||{});
   var assets=(us&&us.payload&&(us.payload.assets||us.payload.top3))||[];
   var symbol=String(sig.symbol||sel.selected_symbol||(assets[0]&&assets[0].symbol)||'—').toUpperCase();
-  var brokerOnline=account&&account.status!=='OFFLINE';
+  var tossOnline=account&&account.status!=='OFFLINE';
   var bot=botState(account);
   var mirrorHasRows=ctl.broker_execution_present===true;
   var orderKrw=n(ctl.target_order_krw)||LIVE_CANARY_TARGET_KRW;
   var rules=ctl.exit_rules||{stop_loss_pct:-.03,take_profit_pct:.20,model_rotation:true,max_hold_buckets:4};
-  var modelEligible=(ctl.entry_signal_fresh_now===true)||(ctl.model_candidate_eligible_now===true);
+  var signalFresh=(ctl.entry_signal_fresh_now===true)||(ctl.model_candidate_eligible_now===true);
   var contract=ctl.execution_contract||{};
-  var botLive=Boolean(brokerOnline&&bot&&bot.autoTradeEnabled===true&&bot.executionMode==='LIVE'&&bot.liveGateOpen===true);
+  var liveGate=Boolean(tossOnline&&bot&&bot.autoTradeEnabled===true&&bot.executionMode==='LIVE'&&bot.liveGateOpen===true);
+  var accountFlat=Boolean(bot&&bot.accountFlat===true);
+  var windowKnown=Boolean(bot&&typeof bot.usFractionalOrderWindowOpen==='boolean');
+  var windowOpen=windowKnown&&bot.usFractionalOrderWindowOpen===true;
+  var entryCandidate=Boolean(signalFresh&&liveGate&&accountFlat&&windowOpen);
 
-  var status='NOT EXECUTABLE',kind='warn',headline='TRADING LINK OFFLINE';
-  if(brokerOnline&&!modelEligible)headline='ENTRY SIGNAL EXPIRED';
-  if(brokerOnline&&modelEligible&&!botLive){status='GUARDED';headline='SERVER GATES NOT LIVE';}
-  if(botLive&&modelEligible){status='LIVE READY';kind='ok';headline='SHADOW_CANARY';}
+  var status='대기',kind='warn',headline='Toss 오프라인';
+  if(tossOnline&&!signalFresh)headline='진입 신호 만료';
+  else if(tossOnline&&signalFresh&&!liveGate)headline='자동매매 게이트 닫힘';
+  else if(tossOnline&&signalFresh&&liveGate&&!accountFlat)headline='계좌 상태 대기';
+  else if(tossOnline&&signalFresh&&liveGate&&accountFlat&&!windowKnown)headline='주문시간 확인 불가';
+  else if(tossOnline&&signalFresh&&liveGate&&accountFlat&&!windowOpen)headline='주문시간 마감';
+  if(entryCandidate){status='진입 후보';kind='ok';headline='SHADOW_CANARY';}
 
   box.className='';
   box.innerHTML=
-    '<div class="execution-hero"><div><small>'+headline+'</small><strong>'+esc(symbol)+'</strong><span>last canary candidate · '+time(sig.as_of)+'</span></div><span class="pill '+kind+'">'+status+'</span></div>'+
+    '<div class="execution-hero"><div><small>'+headline+'</small><strong>'+esc(symbol)+'</strong><span>최근 canary 후보 · '+time(sig.as_of)+'</span></div><span class="pill '+kind+'">'+status+'</span></div>'+
     '<div class="execution-rule-grid">'+
-      '<div><span>LIVE POLICY</span><b>'+esc(contract.signal_policy||'SHADOW_CANARY')+'</b><small>SHADOW signal is expected</small></div>'+
-      '<div><span>TARGET SIZE</span><b>'+money(orderKrw,'KRW')+'</b><small>per new entry</small></div>'+
-      '<div><span>LIVE EXITS</span><b>-3% / +20%</b><small>stop loss · take profit</small></div>'+
-      '<div><span>EARLY / MAX EXIT</span><b>'+(rules.model_rotation?'ROTATE ON':'ROTATE OFF')+'</b><small>'+fmt(rules.max_hold_buckets,0)+' canonical buckets max</small></div>'+
+      '<div><span>실매매 정책</span><b>'+esc(contract.signal_policy||'SHADOW_CANARY')+'</b><small>SHADOW 신호 사용</small></div>'+
+      '<div><span>진입 금액</span><b>'+money(orderKrw,'KRW')+'</b><small>신규 진입 1회 기준</small></div>'+
+      '<div><span>손절 / 익절</span><b>-3% / +20%</b><small>손절 · 익절</small></div>'+
+      '<div><span>교체 / 최대 보유</span><b>'+(rules.model_rotation?'ROTATE ON':'ROTATE OFF')+'</b><small>'+fmt(rules.max_hold_buckets,0)+' canonical bucket 최대</small></div>'+
     '</div>'+
     '<div class="execution-gates">'+
-      badge(modelEligible?'ENTRY SIGNAL <90M':'ENTRY SIGNAL EXPIRED',modelEligible?'ok':'warn')+
-      badge(brokerOnline?'BROKER LINK ONLINE':'BROKER LINK OFFLINE',brokerOnline?'ok':'warn')+
-      badge(botLive?'SERVER LIVE GATES OPEN':'SERVER GATES NOT CONFIRMED',botLive?'ok':'warn')+
-      badge(mirrorHasRows?'EXECUTION MIRROR HAS ROWS':'EXECUTION MIRROR EMPTY',mirrorHasRows?'ok':'')+
+      badge(signalFresh?'진입 신호 유효 (<90분)':'진입 신호 만료',signalFresh?'ok':'warn')+
+      badge(tossOnline?'Toss 연결됨':'Toss 오프라인',tossOnline?'ok':'warn')+
+      badge(liveGate?'자동매매 게이트 열림':'자동매매 게이트 닫힘',liveGate?'ok':'warn')+
+      badge(accountFlat?'계좌 FLAT':'계좌 보유/주문 있음',accountFlat?'ok':'warn')+
+      badge(windowKnown?(windowOpen?'주문시간 가능':'주문시간 마감'):'주문시간 확인 불가',windowOpen?'ok':'warn')+
+      badge(mirrorHasRows?'실매매 기록 있음':'실매매 기록 없음',mirrorHasRows?'ok':'')+
     '</div>'+
-    '<div class="next-actions-note"><b>구분:</b> Top-6는 research benchmark/portfolio preview이며 실제 자동매매 selector가 아닙니다. 실제 신규 진입 후보는 SHADOW_CANARY 계약을 통과한 단일 R5.1 signal입니다. 웹은 주문을 제출하지 않습니다.</div>';
+    '<div class="next-actions-note"><b>구분:</b> Top-6는 연구용 비교/미리보기이며 실제 자동매매 대상 선정에 사용하지 않습니다. 신규 진입은 SHADOW_CANARY 조건을 통과한 단일 R5.1 신호만 사용합니다. “진입 후보”는 주문 제출 완료를 의미하지 않습니다.</div>';
 }
 """
     text = text[:start] + next_fn + text[end:]
@@ -468,7 +477,7 @@ function renderCommandHealth(us,kr,cr,h){
     text = text[:u0] + universe_action + text[u1:]
     text = text.replace(
         "var actions=universeState.rows.filter(function(x){return ['buy','sell'].includes(x.action.kind);}).length;",
-        "var actions=universeState.rows.filter(function(x){return String(x.action&&x.action.label||'').includes('PREVIEW');}).length;"
+        "var actions=universeState.rows.filter(function(x){return String(x.action&&x.action.label||'').includes('미리보기');}).length;"
     )
     text = text.replace(
         "['MODEL PLAN',actions,fi.fresh?'ranking plan':'preview only']",
@@ -482,7 +491,7 @@ function renderCommandHealth(us,kr,cr,h){
     text = text.replace('<option value="ACTION">ACTION</option>', '<option value="ACTION">PREVIEW</option>')
     text = text.replace(
         "if(f==='ACTION')rows=rows.filter(function(x){return ['buy','sell','hold'].includes(x.action.kind);});",
-        "if(f==='ACTION')rows=rows.filter(function(x){return String(x.action&&x.action.label||'').includes('PREVIEW');});"
+        "if(f==='ACTION')rows=rows.filter(function(x){return String(x.action&&x.action.label||'').includes('미리보기');});"
     )
     text = text.replace(
         "if(f==='WATCH')rows=rows.filter(function(x){return x.action.kind==='watch';});",
@@ -597,6 +606,7 @@ function renderCommandHealth(us,kr,cr,h){
     text = text.replace("Δ avg ", "평균 차이 ")
     text = text.replace("-3% stop, +20% take-profit, model rotation을 포함하지 않습니다.", "-3% 손절, +20% 익절, 모델 교체를 포함하지 않습니다.")
     text = text.replace("겹치는 window이므로 sequence compounded 값은 포트폴리오 누적수익으로 표시하지 않습니다.", "구간이 서로 겹치므로 연속 복리값은 포트폴리오 누적수익으로 표시하지 않습니다.")
+    text = text.replace("rows.length+' MIRRORED'", "rows.length+'건 기록'")
     text = text.replace("rows.length+' MIRRORED'", "rows.length+'건 기록'")
 
     # Execution state/reason display labels.
