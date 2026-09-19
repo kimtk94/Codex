@@ -99,6 +99,7 @@ def patch_api(src: Path) -> None:
       latest_model_signal:(latestSignal&&latestSignal[0])||null,
       latest_canary_candidate:(canaryCandidate&&canaryCandidate[0])||null,
       executable_model_candidate:(executableCandidate&&executableCandidate[0])||null,
+      entry_signal_fresh_now:Boolean(executableCandidate&&executableCandidate.length),
       model_candidate_eligible_now:Boolean(executableCandidate&&executableCandidate.length),
       benchmark_contract:{exit_rule:'MAX_HOLD_4_BUCKETS_ONLY',cost_bps_round_trip:10,overlapping_windows:true,includes_live_exit_overrides:false},
       benchmarks:{top1:byName.TOP1_4B_10BP||null,top6:byName.TOP6_EQUAL_4B_10BP||null},
@@ -199,7 +200,7 @@ def patch_app(src: Path) -> None:
     text = p.read_text(encoding="utf-8")
     text = text.replace(
         "var kalmanCommandState={account:null,us:null,fx:null,health:null,global:null};",
-        "var kalmanCommandState={account:null,us:null,fx:null,health:null,global:null,control:null};"
+        "var kalmanCommandState={account:null,us:null,kr:null,crypto:null,fx:null,health:null,global:null,control:null};"
     )
 
     start = text.find("function renderNextActions(){")
@@ -218,12 +219,12 @@ def patch_app(src: Path) -> None:
   var mirrorHasRows=ctl.broker_execution_present===true;
   var orderKrw=n(ctl.target_order_krw)||LIVE_CANARY_TARGET_KRW;
   var rules=ctl.exit_rules||{stop_loss_pct:-.03,take_profit_pct:.20,model_rotation:true,max_hold_buckets:4};
-  var modelEligible=ctl.model_candidate_eligible_now===true;
+  var modelEligible=(ctl.entry_signal_fresh_now===true)||(ctl.model_candidate_eligible_now===true);
   var contract=ctl.execution_contract||{};
   var botLive=Boolean(brokerOnline&&bot&&bot.autoTradeEnabled===true&&bot.executionMode==='LIVE'&&bot.liveGateOpen===true);
 
   var status='NOT EXECUTABLE',kind='warn',headline='TRADING LINK OFFLINE';
-  if(brokerOnline&&!modelEligible)headline='MODEL CANDIDATE NOT CURRENT';
+  if(brokerOnline&&!modelEligible)headline='ENTRY SIGNAL EXPIRED';
   if(brokerOnline&&modelEligible&&!botLive){status='GUARDED';headline='SERVER GATES NOT LIVE';}
   if(botLive&&modelEligible){status='LIVE READY';kind='ok';headline='SHADOW_CANARY';}
 
@@ -237,7 +238,7 @@ def patch_app(src: Path) -> None:
       '<div><span>EARLY / MAX EXIT</span><b>'+(rules.model_rotation?'ROTATE ON':'ROTATE OFF')+'</b><small>'+fmt(rules.max_hold_buckets,0)+' canonical buckets max</small></div>'+
     '</div>'+
     '<div class="execution-gates">'+
-      badge(modelEligible?'MODEL ELIGIBLE NOW':'MODEL NOT ELIGIBLE NOW',modelEligible?'ok':'warn')+
+      badge(modelEligible?'ENTRY SIGNAL <90M':'ENTRY SIGNAL EXPIRED',modelEligible?'ok':'warn')+
       badge(brokerOnline?'BROKER LINK ONLINE':'BROKER LINK OFFLINE',brokerOnline?'ok':'warn')+
       badge(botLive?'SERVER LIVE GATES OPEN':'SERVER GATES NOT CONFIRMED',botLive?'ok':'warn')+
       badge(mirrorHasRows?'EXECUTION MIRROR HAS ROWS':'EXECUTION MIRROR EMPTY',mirrorHasRows?'ok':'')+
@@ -284,7 +285,7 @@ def patch_app(src: Path) -> None:
     cmdMetric('BROKER',(j&&j.trading_status&&j.trading_status.executionMode)||'CONNECTED',(j&&j.trading_status?((j.trading_status.liveGateOpen?'GATE OPEN':'GATE CLOSED')+' · '+(j.trading_status.strategyVersion||'—')):'Toss connected'),'')
   ].join('');
   renderNextActions();
-  if(kalmanCommandState.us&&kalmanCommandState.global&&kalmanCommandState.health){renderCommandHealth(kalmanCommandState.us,kalmanCommandState.global,kalmanCommandState.health);}
+  if(kalmanCommandState.us&&kalmanCommandState.kr&&kalmanCommandState.crypto&&kalmanCommandState.health){renderCommandHealth(kalmanCommandState.us,kalmanCommandState.kr,kalmanCommandState.crypto,kalmanCommandState.health);}
 }
 """
     text = text[:start] + acc_fn + text[end:]
@@ -333,22 +334,22 @@ function renderExecutionLedger(ctl){
   try{
     var x=await Promise.all([
       getJSON('/api/dashboard?market=US'),
+      getJSON('/api/dashboard?market=KR'),
+      getJSON('/api/dashboard?market=CRYPTO'),
       getJSON('/api/dashboard?market=GLOBAL'),
       getJSON('/api/health'),
       getJSON('/api/assets?view=control')
     ]);
-    renderCommandModel(x[0]);renderCommandHealth(x[0],x[1],x[2]);renderBenchmark(x[3]);
+    kalmanCommandState.global=x[3];
+    renderCommandModel(x[0]);
+    renderCommandHealth(x[0],x[1],x[2],x[4]);
+    renderBenchmark(x[5]);
   }catch(e){
-    var b=$('#commandBenchmark');if(b)b.innerHTML='<div class="notice error">Neon control data를 읽지 못했습니다.</div>';
+    var b=$('#commandBenchmark');if(b)b.innerHTML='<div class="notice error">Decision-console data를 읽지 못했습니다.</div>';
   }
 }
 """
     text = text[:start] + load + text[end:]
-
-    text = text.replace(
-        "healthRow('EXECUTION','<span class=\"health-dot good-dot\"></span>SERVER','US Top-6 gate')",
-        "healthRow('EXECUTION',kalmanCommandState.account&&kalmanCommandState.account.status!=='OFFLINE'?'<span class=\"health-dot good-dot\"></span>ONLINE':'<span class=\"health-dot warn-dot\"></span>OFFLINE','broker/trading link')"
-    )
 
     account_anchor = "    const [j,fx]=await Promise.all([getJSON('/api/account'),loadAccountFx()]);\n"
     account_insert = r"""    const [j,fx]=await Promise.all([getJSON('/api/account'),loadAccountFx()]);
@@ -361,6 +362,71 @@ function renderExecutionLedger(ctl){
     if account_anchor not in text:
         raise SystemExit("loadAccount offline anchor missing")
     text = text.replace(account_anchor, account_insert, 1)
+
+    # Snapshot validity and live-entry freshness are different contracts.
+    text = text.replace(
+        "function staleBadge(x){return x?badge('STALE','warn'):badge('LIVE','ok')}",
+        "function staleBadge(x){return x?badge('SNAPSHOT EXPIRED','warn'):badge('SNAPSHOT VALID','ok')}"
+    )
+    old_fresh = """function executionFreshness(us){
+  var ts=Date.parse(us&&us.data_as_of||'');
+  var age=Number.isFinite(ts)?Math.max(0,(Date.now()-ts)/60000):Infinity;
+  return {fresh:Number.isFinite(age)&&age<=EXECUTION_FRESH_MINUTES,ageMinutes:age};
+}"""
+    new_fresh = """function snapshotValidity(j){
+  var dataTs=Date.parse(j&&j.data_as_of||'');
+  var staleTs=Date.parse(j&&j.stale_after||'');
+  var age=Number.isFinite(dataTs)?Math.max(0,(Date.now()-dataTs)/60000):Infinity;
+  var expired=(j&&typeof j.effective_stale==='boolean')?j.effective_stale:(Number.isFinite(staleTs)?Date.now()>=staleTs:true);
+  return {valid:expired===false,expired:expired!==false,ageMinutes:age,validUntil:Number.isFinite(staleTs)?staleTs:null};
+}
+function executionFreshness(us){
+  var sv=snapshotValidity(us);
+  return {fresh:sv.valid&&Number.isFinite(sv.ageMinutes)&&sv.ageMinutes<=EXECUTION_FRESH_MINUTES,ageMinutes:sv.ageMinutes,snapshotValid:sv.valid};
+}"""
+    if old_fresh not in text:
+        raise SystemExit("executionFreshness source anchor missing")
+    text = text.replace(old_fresh, new_fresh, 1)
+
+    f0 = text.find("function stateLabel(")
+    f1 = text.find("\nfunction benchmarkMetric(", f0)
+    if f0 < 0 or f1 < 0:
+        raise SystemExit("command freshness block anchors missing")
+    freshness_render = r"""function snapshotStateLabel(j){
+  var sv=snapshotValidity(j);
+  return '<span class="health-dot '+(sv.valid?'good-dot':'warn-dot')+'"></span>'+(sv.valid?'VALID':'EXPIRED');
+}
+function renderCommandModel(j){
+  kalmanCommandState.us=j;
+  var box=$('#commandModel');if(!box)return;
+  var p=j&&j.payload||{},a=(p.assets||p.top3||[]).slice(0,6);
+  var rows=a.map(function(x,i){return '<div class="command-rank"><span>'+(i+1)+'</span><b>'+esc(x.symbol||'—')+'</b><small>'+fmt((n(x.model_score)||0)*10000,2)+' bp</small></div>';}).join('');
+  box.className='';
+  var ef=executionFreshness(j);
+  box.innerHTML='<div class="command-model-head"><div><small>TOP RANK</small><strong>'+esc(a[0]&&a[0].symbol||'—')+'</strong></div><div class="right">'+snapshotStateLabel(j)+'<small>'+time(j&&j.data_as_of)+' · entry signal '+(ef.fresh?'&lt;90m':'expired')+'</small></div></div><div class="command-ranks">'+rows+'</div>';
+  renderNextActions();
+}
+function healthRow(label,state,detail){return '<div class="health-row"><span>'+label+'</span><b>'+state+'</b><small>'+detail+'</small></div>';}
+function renderCommandHealth(us,kr,cr,h){
+  kalmanCommandState.health=h;kalmanCommandState.us=us;kalmanCommandState.kr=kr;kalmanCommandState.crypto=cr;
+  var box=$('#commandHealth');if(!box)return;
+  box.className='';
+  var usv=snapshotValidity(us),krv=snapshotValidity(kr),crv=snapshotValidity(cr);
+  var account=kalmanCommandState.account,bot=botState(account);
+  var windowKnown=Boolean(bot&&typeof bot.usFractionalOrderWindowOpen==='boolean');
+  var windowState=windowKnown?(bot.usFractionalOrderWindowOpen?'OPEN':'CLOSED'):'UNKNOWN';
+  var windowKind=windowKnown&&bot.usFractionalOrderWindowOpen?'good-dot':'warn-dot';
+  box.innerHTML=[
+    healthRow('US SNAPSHOT',snapshotStateLabel(us),time(us&&us.data_as_of)+' · valid until '+time(us&&us.stale_after)),
+    healthRow('KR SNAPSHOT',snapshotStateLabel(kr),time(kr&&kr.data_as_of)+' · valid until '+time(kr&&kr.stale_after)),
+    healthRow('CRYPTO SNAPSHOT',snapshotStateLabel(cr),time(cr&&cr.data_as_of)+' · valid until '+time(cr&&cr.stale_after)),
+    healthRow('US ORDER WINDOW','<span class="health-dot '+windowKind+'"></span>'+windowState,windowKnown?'Toss market calendar':'trading link required')
+  ].join('');
+  var head=$('#headerDataState');
+  if(head){var ok=usv.valid&&krv.valid&&crv.valid;head.className='pill '+(ok?'ok':'warn');head.textContent=ok?'SNAPSHOTS VALID':'SNAPSHOT CHECK';}
+}
+"""
+    text = text[:f0] + freshness_render + text[f1:]
 
     # Research/model views must never look like live order instructions.
     u0 = text.find("function universeActionFor(")
@@ -406,7 +472,8 @@ function renderExecutionLedger(ctl){
         "if(f==='WATCH')rows=rows.filter(function(x){return x.action.kind==='watch';});",
         "if(f==='WATCH')rows=rows.filter(function(x){return String(x.action&&x.action.label||'')==='WATCH';});"
     )
-    text = text.replace("fi.fresh?'R5.1 FRESH':'R5.1 PREVIEW'", "fi.fresh?'MODEL DATA FRESH':'MODEL DATA STALE'")
+    text = text.replace("var fi=executionFreshness(universeState.us);", "var fi=snapshotValidity(universeState.us);")
+    text = text.replace("fi.fresh?'R5.1 FRESH':'R5.1 PREVIEW'", "fi.valid?'SNAPSHOT VALID':'SNAPSHOT EXPIRED'")
     text = text.replace("<th>4h Target</th>", "<th>Model 4h Target</th>")
     text = text.replace("<th>Δ Target</th>", "<th>Model Δ</th>")
     text = text.replace("2026 R5.1 Ledger", "R5.1 SHADOW / MODEL EVALUATION LEDGER")
@@ -414,6 +481,8 @@ function renderExecutionLedger(ctl){
     text = text.replace("badge('FORWARD','ok')", "badge('MODEL FORWARD','ok')")
     text = text.replace("R5.1 TOP-1", "R5.1 MODEL TOP-1 · RESEARCH")
     text = text.replace("<h3>R5.1 Model Universe</h3>", "<h3>R5.1 Model Ranking</h3>")
+    text = text.replace("LIVE RANKING", "MODEL RANKING")
+    text = text.replace("${staleBadge(x.stale)}</div><div class=\"kpi\">", "${badge('EMBEDDED SNAPSHOT')}</div><div class=\"kpi\">")
 
     text = text.replace("vNext.7.4.21", TARGET)
     p.write_text(text, encoding="utf-8")
@@ -472,7 +541,7 @@ def validate(src: Path) -> dict:
     }
     checks={
       "index":[TARGET,"AUTO-TRADE · SERVER CONTRACT","RESEARCH BENCHMARK · TOP1 vs TOP6","LIVE EXECUTION MIRROR · NEON","headerServerState"],
-      "app":["renderBenchmark","renderExecutionLedger","TRADING LINK OFFLINE","EXECUTION MIRROR EMPTY","/api/assets?view=control","Research Preview"],
+      "app":["renderBenchmark","renderExecutionLedger","TRADING LINK OFFLINE","EXECUTION MIRROR EMPTY","/api/assets?view=control","Research Preview","SNAPSHOT VALID","ENTRY SIGNAL <90M"],
       "assets":["async function control","strategy_benchmark_ledger","v_live_trade_ledger","status:'OFFLINE'"],
       "css":["vNext.7.4.22","execution-rule-grid","benchmark-grid","account-offline"],
       "health":[TARGET]
