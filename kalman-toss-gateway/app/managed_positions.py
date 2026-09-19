@@ -203,7 +203,7 @@ class ManagedPositionStore:
                 conn.execute(
                     """UPDATE managed_position
                        SET exit_attempt=exit_attempt+1, exit_client_order_id=NULL,
-                           exit_order_id=NULL, exit_status=NULL, state='OPEN', note=?, updated_at=?
+                           exit_order_id=NULL, exit_status=NULL, exit_reason=NULL, state='OPEN', note=?, updated_at=?
                        WHERE position_id=?""",
                     (note[:1000], utc_now(), position_id),
                 )
@@ -211,7 +211,7 @@ class ManagedPositionStore:
                 conn.execute(
                     """UPDATE managed_position
                        SET exit_client_order_id=NULL, exit_order_id=NULL, exit_status=NULL,
-                           state='OPEN', note=?, updated_at=? WHERE position_id=?""",
+                           exit_reason=NULL, state='OPEN', note=?, updated_at=? WHERE position_id=?""",
                     (note[:1000], utc_now(), position_id),
                 )
 
@@ -261,7 +261,7 @@ class ManagedPositionStore:
     def mark_closed_manual(self, position_id: str, note: str) -> None:
         with self._connect() as conn:
             conn.execute(
-                """UPDATE managed_position SET remaining_quantity='0', state='CLOSED_MANUAL', note=?, updated_at=?
+                """UPDATE managed_position SET remaining_quantity='0', state='CLOSED_MANUAL', exit_reason='MANUAL_BROKER_FLAT', note=?, updated_at=?
                    WHERE position_id=?""",
                 (note[:1000], utc_now(), position_id),
             )
