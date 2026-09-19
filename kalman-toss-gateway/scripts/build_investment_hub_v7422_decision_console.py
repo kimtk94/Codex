@@ -525,9 +525,6 @@ function renderCommandHealth(us,kr,cr,h){
         ("KR SNAPSHOT", "KR 데이터"),
         ("CRYPTO SNAPSHOT", "Crypto 데이터"),
         ("US ORDER WINDOW", "미국 주문시간"),
-        ("OPEN", "주문 가능"),
-        ("CLOSED", "마감"),
-        ("UNKNOWN", "확인 불가"),
         ("LIVE POLICY", "실매매 정책"),
         ("TARGET SIZE", "진입 금액"),
         ("LIVE EXITS", "손절 / 익절"),
@@ -542,7 +539,6 @@ function renderCommandHealth(us,kr,cr,h){
         ("TOP-UP PREVIEW", "추가 미리보기"),
         ("EXIT PREVIEW", "제외 미리보기"),
         ("AT TARGET", "목표 도달"),
-        ("WATCH", "관찰"),
         ("RESEARCH TOP-6", "연구 Top-6"),
         ("OUTSIDE RESEARCH TOP-6", "연구 Top-6 제외"),
         ("Research Preview", "연구 미리보기"),
@@ -564,6 +560,10 @@ function renderCommandHealth(us,kr,cr,h){
     for old, new in wording:
         text = text.replace(old, new)
 
+    text = text.replace("windowKnown?(bot.usFractionalOrderWindowOpen?'OPEN':'CLOSED'):'UNKNOWN'", "windowKnown?(bot.usFractionalOrderWindowOpen?'주문 가능':'마감'):'확인 불가'")
+    text = text.replace("return{label:'WATCH',kind:'watch',detail:'RANK #'+rank};", "return{label:'관찰',kind:'watch',detail:'RANK #'+rank};")
+    text = text.replace("String(x.action&&x.action.label||'')==='WATCH'", "String(x.action&&x.action.label||'')==='관찰'")
+    text = text.replace('<option value="WATCH">WATCH</option>', '<option value="WATCH">관찰</option>')
     text = text.replace("valid until ", "유효기한 ")
     text = text.replace("entry signal &lt;90m", "진입 신호 유효 (&lt;90분)")
     text = text.replace("entry signal expired", "진입 신호 만료")
