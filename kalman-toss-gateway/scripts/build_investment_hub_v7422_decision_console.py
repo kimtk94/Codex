@@ -157,6 +157,18 @@ def patch_index(src: Path) -> None:
     text = text.replace(nav, ledger + nav, 1)
 
     text = text.replace("vNext.7.4.21 · Auto-Trade Console + Universe", TARGET + " · Decision Console")
+    account_anchor = "    const [j,fx]=await Promise.all([getJSON('/api/account'),loadAccountFx()]);\\n"
+    account_insert = r"""    const [j,fx]=await Promise.all([getJSON('/api/account'),loadAccountFx()]);
+    if(j&&j.status==='OFFLINE'){
+      renderCommandAccount(j,null);
+      box.innerHTML='<div class="account-offline"><div><b>SERVER OFFLINE</b><span>Toss 계좌 데이터는 서버가 켜지면 자동 복구됩니다. 모델·benchmark·signal은 Neon에서 계속 표시됩니다.</span></div>'+badge('NO BROKER DATA','warn')+'</div>';
+      return;
+    }
+"""
+    if account_anchor not in text:
+        raise SystemExit("loadAccount offline anchor missing")
+    text = text.replace(account_anchor, account_insert, 1)
+
     text = text.replace("vNext.7.4.21", TARGET)
     p.write_text(text, encoding="utf-8")
 
