@@ -83,15 +83,15 @@
 
     if(next){
       next.classList.add('kalman-execution-panel');
-      const k=next.querySelector('.panel-kicker');if(k)k.textContent='EXECUTION PLAN';
+      const k=next.querySelector('.panel-kicker');if(k)k.textContent='AUTO-TRADE · SERVER CONTRACT';
       grid.insertBefore(next,grid.firstChild);
     }
-    if(model){const k=model.querySelector('.panel-kicker');if(k)k.textContent='R5.1 · MODEL SIGNAL';}
+    if(model){const k=model.querySelector('.panel-kicker');if(k)k.textContent='R5.1 · MODEL RANKING';}
 
     if(!document.querySelector('#commandBenchmark')){
       const a=document.createElement('article');
       a.className='command-panel';
-      a.innerHTML='<div class="panel-kicker">TOP1 ↔ TOP6 · FORWARD CHECK</div><div id="commandBenchmark"></div>';
+      a.innerHTML='<div class="panel-kicker">RESEARCH BENCHMARK · TOP1 vs TOP6</div><div id="commandBenchmark"></div>';
       if(health)grid.insertBefore(a,health);else grid.appendChild(a);
     }
     if(health){const k=health.querySelector('.panel-kicker');if(k)k.textContent='SYSTEM / BROKER';}
@@ -104,21 +104,21 @@
       const sec=document.createElement('section');
       sec.id='kalmanExecutionLedger';
       sec.className='card section kalman-exec-ledger';
-      sec.innerHTML='<div class="section-head"><div><div class="eyebrow">BROKER EXECUTION LEDGER</div><h2>실제 체결 기록</h2><div class="muted">Shadow 성과와 분리 · Toss 체결이 발생한 경우에만 기록</div></div><span class="pill">NO EXECUTION</span></div><div class="kalman-offline"><div><b>실제 Toss 체결 0건</b><span>서버 미가동 상태이므로 정상입니다. 실매매가 시작되면 v7.4.22 execution ledger와 연결됩니다.</span></div></div>';
+      sec.innerHTML='<div class="section-head"><div><div class="eyebrow">LIVE EXECUTION MIRROR · NEON</div><h2>실매매 체결 미러</h2><div class="muted">Shadow/model 평가와 분리 · 실제 bot 주문/체결 mirror</div></div><span class="pill">MIRROR PENDING</span></div><div class="kalman-offline"><div><b>실제 Toss 체결 0건</b><span>현재 Production hotfix에는 Neon execution mirror API가 아직 연결되지 않았습니다. Broker 전체 거래내역이 0건이라는 뜻은 아닙니다.</span></div></div>';
       tabs.parentNode.insertBefore(sec,tabs);
     }
   }
 
   function renderBenchmark(){
     const box=document.querySelector('#commandBenchmark');if(!box)return;
-    const d=BENCH.top6.compounded-BENCH.top1.compounded;
+    const d=BENCH.top6.avg-BENCH.top1.avg;
     box.innerHTML=
       '<div class="kalman-bench-grid">'+
-        '<div class="kalman-bench-col"><span>TOP-1</span><b>'+P(BENCH.top1.compounded)+'</b><small>avg '+P(BENCH.top1.avg)+' · σ '+P(BENCH.top1.std)+' · n='+BENCH.snapshots+'</small></div>'+
-        '<div class="kalman-bench-col"><span>TOP-6 EQUAL</span><b>'+P(BENCH.top6.compounded)+'</b><small>avg '+P(BENCH.top6.avg)+' · σ '+P(BENCH.top6.std)+' · n='+BENCH.snapshots+'</small></div>'+
+        '<div class="kalman-bench-col"><span>TOP-1 · 4B ONLY</span><b>avg '+P(BENCH.top1.avg)+'</b><small>σ '+P(BENCH.top1.std)+' · n='+BENCH.snapshots+'</small></div>'+
+        '<div class="kalman-bench-col"><span>TOP-6 EQUAL · 4B ONLY</span><b>avg '+P(BENCH.top6.avg)+'</b><small>σ '+P(BENCH.top6.std)+' · n='+BENCH.snapshots+'</small></div>'+
       '</div>'+
-      '<div class="kalman-bench-foot"><span>same 4-bucket · 10bp · through '+T(BENCH.asOf)+'</span><b>Δ cumulative '+P(d)+'</b></div>'+
-      '<div class="small">Forward snapshot 비교이며 자동 전략 선택 기준으로 사용하지 않습니다.</div>';
+      '<div class="kalman-bench-foot"><span>10bp round-trip approximation · overlapping 4h windows · through '+T(BENCH.asOf)+'</span><b>Δ avg '+P(d)+'</b></div>'+
+      '<div class="small"><b>Research benchmark only:</b> -3% stop, +20% take-profit, model rotation은 포함하지 않습니다. sequence compounded는 겹치는 window 때문에 포트폴리오 누적수익으로 표시하지 않습니다.</div>';
   }
 
   function renderPlan(){
@@ -126,39 +126,80 @@
     const sig=latestSignal(),online=brokerOnline();
     let fresh=false;
     if(sig.asOf){const age=(Date.now()-Date.parse(sig.asOf))/60000;fresh=Number.isFinite(age)&&age>=0&&age<=90;}
+    const modelEligible=fresh&&sig.canary;
+    let headline='TRADING LINK OFFLINE',status='NOT EXECUTABLE',kind='warn';
+    if(online&&!modelEligible)headline='MODEL CANDIDATE NOT CURRENT';
+    if(online&&modelEligible){headline='BROKER CONNECTED';status='SERVER GATES UNKNOWN';}
+
     box.className='';
     box.innerHTML=
-      '<div class="kalman-execution-hero"><div><small>'+(online?'BROKER CONNECTED':'SERVER OFFLINE')+'</small><strong>'+E(sig.symbol)+'</strong><span>'+M(5000)+' / entry</span></div>'+pill(online?'GUARDED':'PLANNED',online?'ok':'warn')+'</div>'+
+      '<div class="kalman-execution-hero"><div><small>'+headline+'</small><strong>'+E(sig.symbol)+'</strong><span>last canary candidate · '+T(sig.asOf)+'</span></div>'+pill(status,kind)+'</div>'+
       '<div class="kalman-rule-grid">'+
-        '<div><span>SIGNAL</span><b>R5.1 SHADOW</b><small>'+T(sig.asOf)+'</small></div>'+
-        '<div><span>ENTRY</span><b>'+M(5000)+'</b><small>latest eligible signal</small></div>'+
-        '<div><span>EXIT</span><b>-3% / +20%</b><small>stop loss · take profit</small></div>'+
-        '<div><span>ROTATE</span><b>ON</b><small>model rotation · 4 buckets max</small></div>'+
+        '<div><span>LIVE POLICY</span><b>SHADOW_CANARY</b><small>SHADOW signal is expected</small></div>'+
+        '<div><span>TARGET SIZE</span><b>'+M(5000)+'</b><small>per new entry</small></div>'+
+        '<div><span>LIVE EXITS</span><b>-3% / +20%</b><small>stop loss · take profit</small></div>'+
+        '<div><span>EARLY / MAX EXIT</span><b>ROTATE ON</b><small>4 canonical buckets max</small></div>'+
       '</div>'+
-      '<div class="kalman-gates">'+pill(fresh?'FRESH':'STALE',fresh?'ok':'warn')+pill(sig.canary?'CANARY SIGNAL':'WAIT SIGNAL',sig.canary?'ok':'warn')+pill(online?'BROKER ONLINE':'BROKER OFFLINE',online?'ok':'warn')+pill('NO BROKER FILL','')+'</div>'+
-      '<div class="next-actions-note">웹은 주문하지 않습니다. 서버가 켜지면 계좌·bot gate·실제 체결 정보만 추가됩니다.</div>';
+      '<div class="kalman-gates">'+
+        pill(modelEligible?'MODEL ELIGIBLE NOW':'MODEL NOT ELIGIBLE NOW',modelEligible?'ok':'warn')+
+        pill(online?'BROKER LINK ONLINE':'BROKER LINK OFFLINE',online?'ok':'warn')+
+        pill('SERVER LIVE GATES NOT CONFIRMED','warn')+
+        pill('EXECUTION MIRROR PENDING','')+
+      '</div>'+
+      '<div class="next-actions-note"><b>구분:</b> Top-6는 research benchmark/portfolio preview이며 실제 자동매매 selector가 아닙니다. 실제 신규 진입 후보는 SHADOW_CANARY 조건을 통과한 단일 R5.1 signal입니다. 웹은 주문을 제출하지 않습니다.</div>';
   }
 
   function renderServerState(){
     const online=brokerOnline();
     const h=document.querySelector('#headerServerState');
-    if(h){h.className='pill '+(online?'ok':'warn');h.textContent=online?'SERVER ONLINE':'SERVER OFFLINE';}
+    if(h){h.className='pill '+(online?'ok':'warn');h.textContent=online?'BROKER LINK ONLINE':'BROKER LINK OFFLINE';}
 
     if(!online){
       const account=document.querySelector('#account');
       if(account){
         const txt=(account.textContent||'').toLowerCase();
         if(txt.includes('불러오지 못')||txt.includes('실패')||txt.includes('gateway')){
-          account.innerHTML='<div class="kalman-offline"><div><b>SERVER OFFLINE</b><span>Toss 계좌 데이터는 서버가 켜지면 자동 복구됩니다. 모델·신호 화면은 계속 사용할 수 있습니다.</span></div>'+pill('NO BROKER DATA','warn')+'</div>';
+          account.innerHTML='<div class="kalman-offline"><div><b>BROKER LINK OFFLINE</b><span>Toss 계좌/주문 링크가 오프라인입니다. 모델·신호 화면은 계속 사용할 수 있습니다.</span></div>'+pill('NO BROKER DATA','warn')+'</div>';
         }
       }
     }
   }
 
-  let scheduled=false;
+  // Research universe is not the live auto-trade selector.
+  try{
+    universeActionFor=function(asset,held,fx,fresh){
+      var rank=Number(asset&&asset.rank||999),isTop=rank<=UNIVERSE_TOP_COUNT;
+      var currentKrw=(held&&fx)?marketValueUsd(held)*n(fx.rate||0):0;
+      var gap=Math.max(0,UNIVERSE_TARGET_KRW-currentKrw);
+      if(isTop){
+        if(held&&gap<UNIVERSE_MIN_ORDER_KRW)return{label:'AT TARGET',kind:'hold',detail:'RESEARCH TOP-6 #'+rank};
+        return{label:held?'TOP-UP PREVIEW':'ADD PREVIEW',kind:'watch',detail:(gap>=UNIVERSE_MIN_ORDER_KRW?M(Math.min(UNIVERSE_TARGET_KRW,Math.floor(gap)))+' · ':'')+'RESEARCH TOP-6 #'+rank};
+      }
+      if(held)return{label:'EXIT PREVIEW',kind:'watch',detail:'OUTSIDE RESEARCH TOP-6'};
+      return{label:'WATCH',kind:'watch',detail:'RANK #'+rank};
+    };
+  }catch(_){}
+
+  // Shadow/model-evaluation ledger labels must not look like broker execution.
+  try{
+    const originalUsLedgerTable=usLedgerTable;
+    usLedgerTable=function(j){
+      return originalUsLedgerTable(j)
+        .replace('2026 R5.1 Ledger','R5.1 SHADOW / MODEL EVALUATION LEDGER')
+        .replace(/>FORWARD</g,'>MODEL FORWARD<');
+    };
+  }catch(_){}
+
+    let scheduled=false;
   function apply(){
     scheduled=false;
     addStyle();ensureShell();renderBenchmark();renderPlan();renderServerState();
+    const content=document.querySelector('#content');
+    if(content){
+      content.querySelectorAll('th').forEach(th=>{if(th.textContent.trim()==='Model Plan')th.textContent='Research Preview';});
+      content.querySelectorAll('.universe-title .muted').forEach(x=>{if(x.textContent.includes('예정 액션'))x.textContent='전체 후보 · 현재 R5.1 score · Top-6 research preview · 실제 주문 아님';});
+      content.querySelectorAll('.u-kpi span').forEach(x=>{if(x.textContent.trim()==='MODEL PLAN')x.textContent='RESEARCH PREVIEW';});
+    }
   }
   function schedule(){
     if(scheduled)return;
