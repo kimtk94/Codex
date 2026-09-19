@@ -458,8 +458,8 @@ def validate(src: Path) -> dict:
       "health":(src/"api/health.js").read_text(encoding="utf-8")
     }
     checks={
-      "index":[TARGET,"EXECUTION PLAN","TOP1 ↔ TOP6 · FORWARD CHECK","BROKER EXECUTION LEDGER","headerServerState"],
-      "app":["renderBenchmark","renderExecutionLedger","TRADING LINK OFFLINE","EXECUTION MIRROR EMPTY","/api/assets?view=control"],
+      "index":[TARGET,"AUTO-TRADE · SERVER CONTRACT","RESEARCH BENCHMARK · TOP1 vs TOP6","LIVE EXECUTION MIRROR · NEON","headerServerState"],
+      "app":["renderBenchmark","renderExecutionLedger","TRADING LINK OFFLINE","EXECUTION MIRROR EMPTY","/api/assets?view=control","Research Preview"],
       "assets":["async function control","strategy_benchmark_ledger","v_live_trade_ledger","status:'OFFLINE'"],
       "css":["vNext.7.4.22","execution-rule-grid","benchmark-grid","account-offline"],
       "health":[TARGET]
