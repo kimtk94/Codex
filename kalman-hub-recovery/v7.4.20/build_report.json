@@ -51,7 +51,7 @@
       "log": "[PASS] vNext.7.4.18 inline Universe view\n[PASS] URL /?view=universe\n[PASS] current R5.1 scored universe = dynamic assets payload\n[PASS] requested baseline 102 / unmapped gap displayed transparently\n[PASS] search/filter/sort + holdings + next-action table\n[PASS] API function count = 12\n[INFO] route /api/dashboard -> api/assets.js\n"
     }
   ],
-  "source_manifest_sha256": "bd022985789b94c66723101c673933d4d2bbc8b8fd44125e7fbf2ffa61e753eb",
+  "source_manifest_sha256": "81b1c4a6b51a7ecb9d7abc655d8914f2fdd02ad386129e2006d3d7e4b8dffc6b",
   "vercel_manifest_sha256": "6b1538142d8d314210bef2b49c41369d1df16b338c3566553231b7e4152fe528",
   "runtime_hotfix": "v7.4.22-decision-console",
   "runtime_hotfix_manifest_only": true
