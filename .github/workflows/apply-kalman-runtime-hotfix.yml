@@ -1,0 +1,65 @@
+name: Apply Kalman Runtime Decision Console Hotfix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/scripts/runtime_hotfix_v7420_decision_console.js"
+      - "kalman-toss-gateway/scripts/apply_runtime_hotfix_v7420.py"
+      - ".github/workflows/apply-kalman-runtime-hotfix.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kalman-runtime-manifest-hotfix
+  cancel-in-progress: false
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Apply hotfix to production runtime manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python kalman-toss-gateway/scripts/apply_runtime_hotfix_v7420.py
+          python - <<'PY'
+          import base64,json
+          from pathlib import Path
+          p=Path("kalman-hub-recovery/v7.4.20/source_manifest.ndjson")
+          rows=[json.loads(x) for x in p.read_text().splitlines() if x.strip()]
+          app=next(base64.b64decode(x["data_b64"]).decode() for x in rows if x["file"]=="app.js")
+          assert "KALMAN_DECISION_CONSOLE_HOTFIX_V7422" in app
+          Path("/tmp/hotfix-app.js").write_text(app)
+          PY
+          node --check /tmp/hotfix-app.js
+
+      - name: Commit runtime manifest hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kalman-hub-recovery/v7.4.20/source_manifest.ndjson \
+                  kalman-hub-recovery/v7.4.20/build_report.json
+          if git diff --cached --quiet; then
+            echo "No changes."
+            exit 0
+          fi
+          git commit -m "hotfix: serve v7.4.22 decision console on production runtime"
+          git push origin HEAD:main
