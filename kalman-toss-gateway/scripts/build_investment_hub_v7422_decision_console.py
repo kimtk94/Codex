@@ -40,7 +40,7 @@ def patch_api(src: Path) -> None:
   try{
     const {neon}=await import('@neondatabase/serverless');
     const sql=neon(process.env.DATABASE_URL_READER);
-    const [bench,signal,exec,managed]=await Promise.all([
+    const [bench,latestSignal,canaryCandidate,executableCandidate,exec,managed]=await Promise.all([
       sql`SELECT benchmark_name,COUNT(*)::int AS snapshots,MIN(as_of) AS first_as_of,MAX(as_of) AS last_as_of,
                  AVG(net_return)::float8 AS avg_net,STDDEV_SAMP(net_return)::float8 AS std_net,
                  (EXP(SUM(LN(1+net_return)))-1)::float8 AS compounded
@@ -51,6 +51,30 @@ def patch_api(src: Path) -> None:
           FROM strategy_signal
           WHERE market='US' AND strategy_version='R5.1_BASE_HGB'
           ORDER BY as_of DESC LIMIT 1`,
+      sql`SELECT s.symbol,s.as_of,s.strategy_version,s.signal,s.entry_allowed,s.risk_gate,s.position_state,s.payload
+          FROM strategy_signal s
+          JOIN dashboard_snapshot d ON d.run_id=s.run_id AND d.market=s.market
+          WHERE s.market='US'
+            AND s.strategy_version='R5.1_BASE_HGB'
+            AND s.signal='SHADOW'
+            AND upper(COALESCE(s.position_state,''))='FLAT'
+            AND lower(COALESCE(s.payload->>'allow_trade_shadow','false'))='true'
+            AND lower(COALESCE(s.payload->>'shadow_entry_this_signal','false'))='true'
+            AND d.status='READY'
+          ORDER BY s.as_of DESC LIMIT 1`,
+      sql`SELECT s.symbol,s.as_of,s.strategy_version,s.signal,s.entry_allowed,s.risk_gate,s.position_state,s.payload
+          FROM strategy_signal s
+          JOIN dashboard_snapshot d ON d.run_id=s.run_id AND d.market=s.market
+          WHERE s.market='US'
+            AND s.strategy_version='R5.1_BASE_HGB'
+            AND s.as_of >= now()-interval '90 minutes'
+            AND s.signal='SHADOW'
+            AND upper(COALESCE(s.position_state,''))='FLAT'
+            AND lower(COALESCE(s.payload->>'allow_trade_shadow','false'))='true'
+            AND lower(COALESCE(s.payload->>'shadow_entry_this_signal','false'))='true'
+            AND d.status='READY'
+            AND d.stale_after > now()
+          ORDER BY s.as_of DESC LIMIT 1`,
       sql`SELECT position_id,symbol,strategy_version,state,entry_signal_as_of,entry_order_id,
                  entry_filled_quantity,entry_average_price,exit_order_id,exit_filled_quantity,
                  exit_average_price,exit_reason,realized_return_pct,updated_at
@@ -66,8 +90,17 @@ def patch_api(src: Path) -> None:
       strategy_version:'R5.1_BASE_HGB',
       target_order_krw:5000,
       daily_buy_cap_krw:30000,
+      execution_contract:{
+        signal_policy:'SHADOW_CANARY',
+        max_signal_age_minutes:90,
+        requires:['SHADOW','FLAT','allow_trade_shadow=true','shadow_entry_this_signal=true','dashboard READY + unexpired','broker/account gates on server']
+      },
       exit_rules:{stop_loss_pct:-0.03,take_profit_pct:0.20,model_rotation:true,max_hold_buckets:4},
-      latest_signal:(signal&&signal[0])||null,
+      latest_model_signal:(latestSignal&&latestSignal[0])||null,
+      latest_canary_candidate:(canaryCandidate&&canaryCandidate[0])||null,
+      executable_model_candidate:(executableCandidate&&executableCandidate[0])||null,
+      model_candidate_eligible_now:Boolean(executableCandidate&&executableCandidate.length),
+      benchmark_contract:{exit_rule:'MAX_HOLD_4_BUCKETS_ONLY',cost_bps_round_trip:10,overlapping_windows:true,includes_live_exit_overrides:false},
       benchmarks:{top1:byName.TOP1_4B_10BP||null,top6:byName.TOP6_EQUAL_4B_10BP||null},
       execution_ledger:exec||[],
       managed_summary:(managed&&managed[0])||{total:0,active:0},
