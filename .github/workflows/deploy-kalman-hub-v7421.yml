@@ -1,0 +1,51 @@
+name: Deploy Kalman Hub v7.4.21 Auto Trade Console
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "kalman-hub-recovery/v7.4.21/source_manifest.ndjson"
+      - "kalman-toss-gateway/scripts/deploy_investment_hub_v7421_ci.sh"
+      - ".github/workflows/deploy-kalman-hub-v7421.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-hub-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: team_eklxTMfdySLBHexmheTiWGCE
+      VERCEL_TEAM_SLUG: insk1285-9320s-projects
+      VERCEL_PROJECT_ID: prj_KCDIl7qLqtBloI7pjRFQk2Itq7V1
+      KALMAN_HUB_PROD_URL: https://kalman-investment-hub-v2.vercel.app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify Vercel credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}" || { echo "VERCEL_TOKEN repository secret is not configured" >&2; exit 2; }
+
+      - name: Install pinned Vercel CLI
+        run: npm install --global vercel@59.16.0
+
+      - name: Deploy candidate, smoke-test, and promote
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x kalman-toss-gateway/scripts/deploy_investment_hub_v7421_ci.sh
+          kalman-toss-gateway/scripts/deploy_investment_hub_v7421_ci.sh
