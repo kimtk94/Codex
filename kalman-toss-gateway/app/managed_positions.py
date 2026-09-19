@@ -58,6 +58,12 @@ class ManagedPositionStore:
                 )"""
             )
 
+            cols = {
+                row[1] for row in conn.execute("PRAGMA table_info(managed_position)").fetchall()
+            }
+            if 'exit_reason' not in cols:
+                conn.execute("ALTER TABLE managed_position ADD COLUMN exit_reason TEXT")
+
     def _connect(self):
         return sqlite3.connect(self.path, timeout=15, isolation_level=None)
 
@@ -237,6 +243,13 @@ class ManagedPositionStore:
             out = self._dict(cur, cur.fetchone())
             conn.commit()
             return out
+
+    def set_exit_reason(self, position_id: str, reason: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE managed_position SET exit_reason=?, updated_at=? WHERE position_id=?",
+                (reason[:100], utc_now(), position_id),
+            )
 
     def mark_manual_reconcile(self, position_id: str, note: str) -> None:
         with self._connect() as conn:
