@@ -156,6 +156,26 @@ def _exit_thresholds() -> tuple[Decimal, Decimal]:
     return stop_loss, take_profit
 
 
+def _choose_exit_reason(
+    *,
+    price_return: Decimal,
+    stop_loss: Decimal,
+    take_profit: Decimal,
+    model_rotation: bool,
+    elapsed_buckets: int,
+    target_buckets: int,
+) -> str | None:
+    if price_return <= stop_loss:
+        return 'STOP_LOSS_3PCT'
+    if price_return >= take_profit:
+        return 'TAKE_PROFIT_20PCT'
+    if model_rotation:
+        return 'MODEL_ROTATION'
+    if elapsed_buckets >= target_buckets:
+        return 'MAX_HOLD_4_BUCKETS'
+    return None
+
+
 async def _reconcile_reserved(store: ManagedPositionStore, ledger: TradeLedger, position: dict) -> dict:
     state = position['state']
     if state == 'ENTRY_RESERVED':
@@ -388,15 +408,14 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         and latest['symbol'] != symbol.upper()
     )
 
-    exit_reason = None
-    if price_return <= stop_loss:
-        exit_reason = 'STOP_LOSS_3PCT'
-    elif price_return >= take_profit:
-        exit_reason = 'TAKE_PROFIT_20PCT'
-    elif rotation:
-        exit_reason = 'MODEL_ROTATION'
-    elif elapsed >= target:
-        exit_reason = 'MAX_HOLD_4_BUCKETS'
+    exit_reason = _choose_exit_reason(
+        price_return=price_return,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        model_rotation=rotation,
+        elapsed_buckets=elapsed,
+        target_buckets=target,
+    )
 
     report = {
         'action': 'HOLD',
