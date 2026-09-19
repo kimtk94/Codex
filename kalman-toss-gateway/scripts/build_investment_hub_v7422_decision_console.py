@@ -362,6 +362,46 @@ function renderExecutionLedger(ctl){
         raise SystemExit("loadAccount offline anchor missing")
     text = text.replace(account_anchor, account_insert, 1)
 
+    # Research/model views must never look like live order instructions.
+    u0 = text.find("function universeActionFor(")
+    u1 = text.find("\nfunction buildUniverseRows", u0)
+    if u0 < 0 or u1 < 0:
+        raise SystemExit("universeActionFor anchors missing")
+    universe_action = r"""function universeActionFor(asset,held,fx,fresh){
+  var rank=Number(asset&&asset.rank||999);
+  var isTop=rank<=UNIVERSE_TOP_COUNT;
+  var currentKrw=(held&&fx)?marketValueUsd(held)*n(fx.rate||0):0;
+  var gap=Math.max(0,UNIVERSE_TARGET_KRW-currentKrw);
+  if(isTop){
+    if(held&&gap<UNIVERSE_MIN_ORDER_KRW)return{label:'AT TARGET',kind:'hold',detail:'RESEARCH TOP-6 #'+rank};
+    return{
+      label:held?'TOP-UP PREVIEW':'ADD PREVIEW',
+      kind:'watch',
+      detail:(gap>=UNIVERSE_MIN_ORDER_KRW?money(Math.min(UNIVERSE_TARGET_KRW,Math.floor(gap)),'KRW')+' · ':'')+'RESEARCH TOP-6 #'+rank
+    };
+  }
+  if(held)return{label:'EXIT PREVIEW',kind:'watch',detail:'OUTSIDE RESEARCH TOP-6'};
+  return{label:'WATCH',kind:'watch',detail:'RANK #'+rank};
+}"""
+    text = text[:u0] + universe_action + text[u1:]
+    text = text.replace(
+        "var actions=universeState.rows.filter(function(x){return ['buy','sell'].includes(x.action.kind);}).length;",
+        "var actions=universeState.rows.filter(function(x){return String(x.action&&x.action.label||'').includes('PREVIEW');}).length;"
+    )
+    text = text.replace(
+        "['MODEL PLAN',actions,fi.fresh?'ranking plan':'preview only']",
+        "['RESEARCH PREVIEW',actions,'not live execution']"
+    )
+    text = text.replace(
+        "전체 후보 · 현재 R5.1 score · 보유/Top-6/예정 액션",
+        "전체 후보 · 현재 R5.1 score · Top-6 research preview · 실제 주문 아님"
+    )
+    text = text.replace("<th>Model Plan</th>", "<th>Research Preview</th>")
+    text = text.replace("2026 R5.1 Ledger", "R5.1 SHADOW / MODEL EVALUATION LEDGER")
+    text = text.replace(">FORWARD<", ">MODEL FORWARD<")
+    text = text.replace("R5.1 TOP-1", "R5.1 MODEL TOP-1 · RESEARCH")
+    text = text.replace("<h3>R5.1 Model Universe</h3>", "<h3>R5.1 Model Ranking</h3>")
+
     text = text.replace("vNext.7.4.21", TARGET)
     p.write_text(text, encoding="utf-8")
 
