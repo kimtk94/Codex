@@ -168,5 +168,12 @@
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',schedule,{once:true});else schedule();
   [250,900,2000,4000].forEach(ms=>setTimeout(schedule,ms));
-  new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true});
+  setTimeout(() => {
+    const refresh=document.querySelector('#accountRefresh');
+    if(refresh&&!refresh.dataset.kalmanDecisionBound){
+      refresh.dataset.kalmanDecisionBound='1';
+      refresh.addEventListener('click',()=>setTimeout(schedule,1200));
+    }
+  },1200);
+  window.addEventListener('focus',schedule);
 })();
