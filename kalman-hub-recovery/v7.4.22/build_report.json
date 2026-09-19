@@ -7,7 +7,7 @@
   "benchmark_panel": true,
   "execution_ledger_panel": true,
   "web_read_only": true,
-  "compact_manifest_bytes": 124745,
-  "source_manifest_sha256": "da7cabaedf406b5202bd367b828b6086f84696eb74b4cebbaa0371c00acf71f5",
-  "vercel_manifest_sha256": "9737cbb1fa9c20a8139f1f8d839a1b0a9da0c3a166cc3743b86a812a2338e3be"
+  "compact_manifest_bytes": 124819,
+  "source_manifest_sha256": "c030585a37cf07d195ea9479102a0edeb98e595db71502877a42870a18b87fc2",
+  "vercel_manifest_sha256": "9099444e642b28c617d17f753ce19da69a06642dddd1a29dd505b58d27298389"
 }
