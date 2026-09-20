@@ -10,6 +10,8 @@ on:
       - "kalman-toss-gateway/engine/trade_mirror.py"
       - "kalman-toss-gateway/engine/news_ingest_v1.py"
       - "kalman-toss-gateway/config/news-ingest-v1.json"
+      - "kalman-toss-gateway/config/news-entity-aliases-v2.json"
+      - "kalman-toss-gateway/config/news-entity-aliases-v2.json"
       - "kalman-toss-gateway/scripts/run_news_ingest_v1.sh"
       - "kalman-toss-gateway/scripts/install_news_ingest_v1.sh"
       - "kalman-toss-gateway/tests/test_news_ingest_v1.py"
