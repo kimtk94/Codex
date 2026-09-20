@@ -13,6 +13,44 @@ ROOT = Path(__file__).resolve().parents[2]
 BASE_MANIFEST = ROOT / "kalman-hub-recovery/v7.4.21/source_manifest.ndjson"
 OUT_DIR = ROOT / "kalman-hub-recovery/v7.4.22"
 TARGET = "vNext.7.4.22"
+UI_VOCAB_VERSION = "kalman-ui-v1"
+UI_REQUIRED_TERMS = [
+    "자동매매 · 실행 조건",
+    "R5.1 · 모델 순위",
+    "연구 벤치마크 · TOP-1 vs TOP-6",
+    "시스템 · Toss",
+    "데이터 정상",
+    "데이터 확인 필요",
+    "스냅샷 유효",
+    "스냅샷 만료",
+    "진입 신호 유효 (<90분)",
+    "진입 신호 만료",
+    "Toss 연결됨",
+    "Toss 오프라인",
+    "자동매매 게이트 열림",
+    "자동매매 게이트 닫힘",
+    "계좌 FLAT",
+    "주문시간 가능",
+    "주문시간 마감",
+    "주문시간 확인 불가",
+    "진입 후보",
+    "연구 미리보기",
+    "실매매 기록",
+]
+UI_FORBIDDEN_TERMS = [
+    "DATA LIVE",
+    "MODEL ELIGIBLE NOW",
+    "MODEL NOT ELIGIBLE NOW",
+    "LIVE READY",
+    "TRADING LINK ONLINE",
+    "TRADING LINK OFFLINE",
+    "BROKER LINK ONLINE",
+    "BROKER LINK OFFLINE",
+    "MODEL DATA FRESH",
+    "MODEL DATA STALE",
+    "MIRROR EMPTY",
+]
+
 
 
 def decode_manifest(manifest: Path, out: Path) -> None:
@@ -217,6 +255,11 @@ def patch_index(src: Path) -> None:
 def patch_app(src: Path) -> None:
     p = src / "app.js"
     text = p.read_text(encoding="utf-8")
+    text = text.replace(
+        "const EXECUTION_FRESH_MINUTES=90;",
+        "const UI_VOCAB_VERSION='kalman-ui-v1';\nconst EXECUTION_FRESH_MINUTES=90;",
+        1,
+    )
     text = text.replace(
         "var kalmanCommandState={account:null,us:null,fx:null,health:null,global:null};",
         "var kalmanCommandState={account:null,us:null,kr:null,crypto:null,fx:null,health:null,global:null,control:null};"
@@ -757,6 +800,16 @@ def validate(src: Path) -> dict:
     for name,markers in checks.items():
         miss=[x for x in markers if x not in bodies[name]]
         if miss: raise SystemExit(f"{name} missing {miss}")
+
+    visible = bodies["index"] + "\n" + bodies["app"]
+    missing_vocab = [x for x in UI_REQUIRED_TERMS if x not in visible]
+    if missing_vocab:
+        raise SystemExit(f"UI vocabulary missing {missing_vocab}")
+    forbidden_vocab = [x for x in UI_FORBIDDEN_TERMS if x in visible]
+    if forbidden_vocab:
+        raise SystemExit(f"UI vocabulary regression {forbidden_vocab}")
+    if UI_VOCAB_VERSION not in bodies["app"]:
+        raise SystemExit("UI vocabulary version marker missing")
     if shutil.which("node"):
         for q in sorted(src.rglob("*.js")):
             subprocess.run(["node","--check",str(q)],check=True,stdout=subprocess.DEVNULL)
@@ -768,7 +821,8 @@ def validate(src: Path) -> dict:
       "server_offline_graceful":True,
       "benchmark_panel":True,
       "execution_ledger_panel":True,
-      "web_read_only":True
+      "web_read_only":True,
+      "ui_vocabulary_contract":UI_VOCAB_VERSION
     }
 
 
