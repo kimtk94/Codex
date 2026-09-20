@@ -46,6 +46,17 @@ class HttpAccessDeniedError(RuntimeError):
         super().__init__(f"HTTP {status_code} access denied: {url}")
 
 
+class HttpUpstreamPayloadError(RuntimeError):
+    def __init__(self, url: str, status_code: int, content_type: str | None):
+        self.url = url
+        self.status_code = status_code
+        self.content_type = content_type
+        super().__init__(
+            f"Non-JSON upstream payload: status={status_code} "
+            f"content_type={content_type or 'unknown'} url={url}"
+        )
+
+
 TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "gclid", "fbclid", "mc_cid", "mc_eid",
@@ -1073,7 +1084,14 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
                 },
                 timeout=float(cfg.get("timeout_seconds", 45)),
             )
-            obj = r.json()
+            try:
+                obj = r.json()
+            except ValueError as exc:
+                raise HttpUpstreamPayloadError(
+                    str(r.request.url),
+                    int(r.status_code),
+                    r.headers.get("content-type"),
+                ) from exc
             rows = obj.get("articles") or []
             inserted = 0
             for row in rows:
@@ -1140,6 +1158,38 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
                 "gdelt_api_gate", success=False, error=str(exc), payload=gate_payload,
             )
             print(f"[NEWS][WARN] {source}: {exc}; GDELT circuit open for {delay}s until {iso(until)}")
+            break
+        except HttpUpstreamPayloadError as exc:
+            previous = int(gate_payload.get("consecutive_payload_errors") or 0)
+            consecutive = previous + 1
+            base = max(300, int(cfg.get("malformed_response_backoff_seconds", 1800)))
+            cap = max(base, int(cfg.get("malformed_response_max_backoff_seconds", 7200)))
+            delay = min(cap, base * (2 ** max(0, consecutive - 1)))
+            until = utc_now() + timedelta(seconds=delay)
+            gate_payload = {
+                "status": "UPSTREAM_NON_JSON",
+                "consecutive_payload_errors": consecutive,
+                "backoff_seconds": delay,
+                "backoff_until": iso(until),
+                "trigger_source": source,
+            }
+            spool.record_source(
+                source, success=False, error=str(exc),
+                payload={
+                    "market": market,
+                    "query": query,
+                    "query_meta": query_meta,
+                    "malformed_payload": True,
+                    "global_backoff_until": iso(until),
+                },
+            )
+            spool.record_source(
+                "gdelt_api_gate", success=False, error=str(exc), payload=gate_payload,
+            )
+            print(
+                f"[NEWS][WARN] {source}: {exc}; GDELT circuit open for "
+                f"{delay}s until {iso(until)}"
+            )
             break
         except Exception as exc:
             spool.record_source(
