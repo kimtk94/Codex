@@ -31,13 +31,17 @@ def config():
         "fred": {
             "enabled": True,
             "series_id": "DGS2",
+            "policy_proxy_series_id": "DFF",
+            "policy_proxy_label": "DGS2_MINUS_DFF",
             "reaction_quality": "DAILY_PROXY",
+            "reaction_scale_bps": 5.0,
         },
         "coverage_weights": {
-            "official_news": 0.40,
-            "dgs2_daily_proxy": 0.25,
+            "official_news": 0.35,
+            "dgs2_daily_proxy": 0.20,
             "consensus_surprise_provider": 0.25,
             "fed_repricing_provider": 0.10,
+            "fed_repricing_proxy": 0.10,
         },
     }
 
@@ -138,9 +142,19 @@ def test_feature_payload_is_challenger_only_and_partial_without_consensus():
         config=config(),
         macro_rows=macro_rows,
         release_rows=[],
+        policy_rows=[],
         source_states=states,
         dgs2_observations=obs,
         dgs2_error=None,
+        policy_rate_observations=macro.parse_fred_observations(
+            {
+                "observations": [
+                    {"date": "2026-09-16", "value": "5.00"},
+                    {"date": "2026-09-17", "value": "5.00"},
+                ]
+            }
+        ),
+        policy_rate_error=None,
     )
 
     assert features["official_macro_count_6h"] == 1
@@ -151,7 +165,7 @@ def test_feature_payload_is_challenger_only_and_partial_without_consensus():
     assert features["r51_scoring_enabled"] is False
     assert features["trade_execution_enabled"] is False
     assert features["challenger_only"] is True
-    assert coverage == 0.65
+    assert coverage == 0.60
 
 
 def test_feature_payload_activates_consensus_surprise():
@@ -182,10 +196,143 @@ def test_feature_payload_activates_consensus_surprise():
         config=config(),
         macro_rows=[],
         release_rows=releases,
+        policy_rows=[],
         source_states=states,
         dgs2_observations=[],
         dgs2_error="test",
+        policy_rate_observations=[],
+        policy_rate_error="test",
     )
     assert features["policy_pressure_surprise_latest"] == 2.0
     assert features["consensus_surprise_count_72h"] == 1
     assert coverage == 0.65
+
+
+def test_policy_proxy_spread_change():
+    dgs2 = macro.parse_fred_observations(
+        {
+            "observations": [
+                {"date": "2026-09-16", "value": "4.74"},
+                {"date": "2026-09-17", "value": "4.67"},
+            ]
+        }
+    )
+    dff = macro.parse_fred_observations(
+        {
+            "observations": [
+                {"date": "2026-09-16", "value": "5.00"},
+                {"date": "2026-09-17", "value": "4.98"},
+            ]
+        }
+    )
+    latest = macro.rate_spread_latest_change(dgs2, dff)
+    assert round(latest["latest_spread_bps"], 6) == -31.0
+    assert round(latest["change_bps_1d"], 6) == -5.0
+
+    reaction = macro.rate_spread_event_reaction(
+        dgs2, dff, datetime(2026, 9, 17, 12, 30, tzinfo=UTC)
+    )
+    assert round(reaction["reaction_bps"], 6) == -5.0
+
+
+def test_feature_payload_prefers_external_repricing_provider():
+    as_of = datetime(2026, 9, 20, 13, 0, tzinfo=UTC)
+    states = [
+        {
+            "source": "fed_monetary",
+            "last_success_at": datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
+            "last_error": None,
+        },
+        {
+            "source": "bls_cpi",
+            "last_success_at": datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
+            "last_error": None,
+        },
+    ]
+    dgs2 = macro.parse_fred_observations(
+        {
+            "observations": [
+                {"date": "2026-09-16", "value": "4.74"},
+                {"date": "2026-09-17", "value": "4.67"},
+            ]
+        }
+    )
+    dff = macro.parse_fred_observations(
+        {
+            "observations": [
+                {"date": "2026-09-16", "value": "5.00"},
+                {"date": "2026-09-17", "value": "4.98"},
+            ]
+        }
+    )
+    policy_rows = [
+        {
+            "event_name": "CPI",
+            "available_at": datetime(2026, 9, 20, 12, 45, tzinfo=UTC),
+            "repricing_bps": 8.0,
+            "source": "fed_funds_futures",
+            "horizon": "NEXT_FOMC",
+        }
+    ]
+    features, coverage = macro.build_feature_payload(
+        as_of=as_of,
+        config=config(),
+        macro_rows=[],
+        release_rows=[],
+        policy_rows=policy_rows,
+        source_states=states,
+        dgs2_observations=dgs2,
+        dgs2_error=None,
+        policy_rate_observations=dff,
+        policy_rate_error=None,
+    )
+    assert features["fed_policy_repricing_bps"] == 8.0
+    assert features["fed_policy_repricing_quality"] == "FUTURES_PROVIDER"
+    assert features["fed_policy_repricing_source"] == "fed_funds_futures"
+    assert features["policy_proxy_quality"] == "MARKET_RATE_MINUS_EFFECTIVE_RATE_PROXY"
+    assert coverage == 0.75
+
+
+def test_macro_shock_interaction_uses_surprise_and_us2y_reaction():
+    as_of = datetime(2026, 9, 17, 18, 0, tzinfo=UTC)
+    releases = [
+        {
+            "indicator_key": "CPI_HEADLINE_YOY",
+            "event_name": "CPI",
+            "actual": 3.2,
+            "consensus": 3.0,
+            "available_at": datetime(2026, 9, 17, 12, 30, tzinfo=UTC),
+        }
+    ]
+    dgs2 = macro.parse_fred_observations(
+        {
+            "observations": [
+                {"date": "2026-09-16", "value": "4.70"},
+                {"date": "2026-09-17", "value": "4.80"},
+            ]
+        }
+    )
+    dff = macro.parse_fred_observations(
+        {
+            "observations": [
+                {"date": "2026-09-16", "value": "5.00"},
+                {"date": "2026-09-17", "value": "5.00"},
+            ]
+        }
+    )
+    features, _ = macro.build_feature_payload(
+        as_of=as_of,
+        config=config(),
+        macro_rows=[],
+        release_rows=releases,
+        policy_rows=[],
+        source_states=[],
+        dgs2_observations=dgs2,
+        dgs2_error=None,
+        policy_rate_observations=dff,
+        policy_rate_error=None,
+    )
+    assert features["policy_pressure_surprise_latest"] == 2.0
+    assert round(features["us2y_event_reaction_z"], 6) == 2.0
+    assert round(features["macro_shock_interaction"], 6) == 4.0
+    assert features["policy_alignment"] == 1
