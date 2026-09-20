@@ -137,6 +137,20 @@ class _LocalWorksheet:
         self.workbook_path = workbook_path
         self.title = title
 
+    @staticmethod
+    def _normalize_rows(rows: list[tuple[Any, ...]]) -> list[list[Any]]:
+        normalized = [
+            ["" if value is None else value for value in row]
+            for row in rows
+        ]
+        # gspread omits trailing completely-empty rows and trailing empty cells.
+        while normalized and not any(value != "" for value in normalized[-1]):
+            normalized.pop()
+        for row in normalized:
+            while row and row[-1] == "":
+                row.pop()
+        return normalized
+
     def get(self, range_name: str) -> list[list[Any]]:
         from openpyxl import load_workbook
         from openpyxl.utils.cell import range_boundaries
@@ -149,16 +163,39 @@ class _LocalWorksheet:
                     f"Worksheet {self.title!r} not found in {self.workbook_path}"
                 )
             ws = wb[self.title]
-            rows: list[list[Any]] = []
-            for row in ws.iter_rows(
-                min_row=min_row,
-                max_row=max_row,
-                min_col=min_col,
-                max_col=max_col,
-                values_only=True,
-            ):
-                rows.append(["" if value is None else value for value in row])
-            return rows
+            rows = list(
+                ws.iter_rows(
+                    min_row=min_row,
+                    max_row=max_row,
+                    min_col=min_col,
+                    max_col=max_col,
+                    values_only=True,
+                )
+            )
+            return self._normalize_rows(rows)
+        finally:
+            wb.close()
+
+    def get_all_values(self) -> list[list[Any]]:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(self.workbook_path, read_only=True, data_only=True)
+        try:
+            if self.title not in wb.sheetnames:
+                raise KeyError(
+                    f"Worksheet {self.title!r} not found in {self.workbook_path}"
+                )
+            ws = wb[self.title]
+            rows = list(
+                ws.iter_rows(
+                    min_row=1,
+                    max_row=ws.max_row,
+                    min_col=1,
+                    max_col=ws.max_column,
+                    values_only=True,
+                )
+            )
+            return self._normalize_rows(rows)
         finally:
             wb.close()
 
