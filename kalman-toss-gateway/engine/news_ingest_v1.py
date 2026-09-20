@@ -630,7 +630,7 @@ def collect_rss(spool: Spool, cfg: dict[str, Any]) -> tuple[int, int]:
 def collect_sec(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str]],
                 state_dir: Path) -> tuple[int, int]:
     source = "sec_edgar"
-    if not cfg.get("enabled", True):
+    if not cfg.get("enabled", True) or not env_bool("KALMAN_NEWS_SEC_ENABLED", True):
         return 0, 0
     if not spool.due(source, int(cfg.get("min_interval_seconds", 900))):
         return 0, 0
@@ -1069,7 +1069,8 @@ def collect_all(spool: Spool, config: dict[str, Any], db_url: str | None,
     gdelt_cfg = config.get("gdelt", {})
     secmap = None
     dartmap = None
-    sec_due = spool.due("sec_edgar", int(sec_cfg.get("min_interval_seconds", 900)))
+    sec_enabled = bool(sec_cfg.get("enabled", True)) and env_bool("KALMAN_NEWS_SEC_ENABLED", True)
+    sec_due = sec_enabled and spool.due("sec_edgar", int(sec_cfg.get("min_interval_seconds", 900)))
     gdelt_us_due = spool.due("gdelt_us", int(gdelt_cfg.get("min_interval_seconds", 900)))
     dart_due = spool.due("opendart", int(dart_cfg.get("min_interval_seconds", 300)))
     gdelt_kr_due = spool.due("gdelt_kr", int(gdelt_cfg.get("min_interval_seconds", 900)))
