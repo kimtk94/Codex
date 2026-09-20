@@ -5,10 +5,10 @@ TEAM_ID="${VERCEL_TEAM_ID:-team_eklxTMfdySLBHexmheTiWGCE}"
 TEAM_SLUG="${VERCEL_TEAM_SLUG:-insk1285-9320s-projects}"
 PROJECT_ID="${VERCEL_PROJECT_ID:-prj_KCDIl7qLqtBloI7pjRFQk2Itq7V1}"
 PROD_URL="${KALMAN_HUB_PROD_URL:-https://kalman-investment-hub-v2.vercel.app}"
-VERSION_TAG="vNext.7.4.26"
+VERSION_TAG="vNext.7.4.27"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BUILDER="$ROOT/kalman-toss-gateway/scripts/build_investment_hub_v7427_freshness_split.py"
+BUILDER="$ROOT/kalman-toss-gateway/scripts/build_investment_hub_v7427_canonical_ledger.py"
 MANIFEST="$ROOT/kalman-hub-recovery/v7.4.27/source_manifest.ndjson"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 WORK="/tmp/kalman-hub-v7427-${STAMP}"
@@ -205,10 +205,21 @@ for x in (crypto,global_):
     assert "display_effective_stale" in x
     assert (x.get("freshness_contract") or {}).get("trade_gate_unchanged") is True
     assert (x.get("freshness_contract") or {}).get("display_basis")=="PIPELINE_GENERATED_AT"
+assert us.get("canonical_ledger_source") is True,us.get("canonical_ledger_error")
+src=(us.get("payload") or {}).get("source_payload") or {}
+ledger=src.get("r5_shadow_ledger") or {}
+annual=ledger.get("annual_2026") or {}
+readmodel=src.get("r5_ledger_read_model") or {}
+assert readmodel.get("source")=="strategy_ledger"
+assert readmodel.get("canonical") is True
+assert len(annual.get("trades") or [])>=268
+assert len((annual.get("reconstructed") or {}).get("trades") or [])==251
+assert len((annual.get("forward") or {}).get("trades") or [])>=17
+assert len(annual.get("events") or [])>0
 bench=control.get("benchmarks") or {}
 assert (bench.get("top1") or {}).get("snapshots",0)>0
 assert (bench.get("top6") or {}).get("snapshots",0)>0
-print("[PASS] production v7.4.27 visible; benchmark present; web remains read-only")
+print("[PASS] production v7.4.27 visible; canonical R5.1 ledger present; web remains read-only")
 PY
 
 echo "[7/7] Done"
