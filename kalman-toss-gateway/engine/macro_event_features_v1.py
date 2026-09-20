@@ -327,7 +327,10 @@ def select_us_reaction_anchor(
             "available_at": iso(available_at),
         }
 
-    allowed_sources = set(config.get("us_reaction_anchor_sources") or [])
+    allowed_sources = set(
+        config.get("us_reaction_anchor_sources")
+        or ("fed_monetary", "bls_cpi", "bls_employment", "bls_jolts", "bea_releases")
+    )
     candidates = []
     for row in official_rows:
         if str(row.get("source") or "") not in allowed_sources:
