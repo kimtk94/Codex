@@ -23,6 +23,7 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM_ID: team_eklxTMfdySLBHexmheTiWGCE
+      VERCEL_ORG_ID: team_eklxTMfdySLBHexmheTiWGCE
       VERCEL_TEAM_SLUG: insk1285-9320s-projects
       VERCEL_PROJECT_ID: prj_KCDIl7qLqtBloI7pjRFQk2Itq7V1
       KALMAN_HUB_PROD_URL: https://kalman-investment-hub-v2.vercel.app
