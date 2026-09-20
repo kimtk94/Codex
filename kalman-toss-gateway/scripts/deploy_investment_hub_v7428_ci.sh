@@ -5,10 +5,10 @@ TEAM_ID="${VERCEL_TEAM_ID:-team_eklxTMfdySLBHexmheTiWGCE}"
 TEAM_SLUG="${VERCEL_TEAM_SLUG:-insk1285-9320s-projects}"
 PROJECT_ID="${VERCEL_PROJECT_ID:-prj_KCDIl7qLqtBloI7pjRFQk2Itq7V1}"
 PROD_URL="${KALMAN_HUB_PROD_URL:-https://kalman-investment-hub-v2.vercel.app}"
-VERSION_TAG="vNext.7.4.27"
+VERSION_TAG="vNext.7.4.28"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BUILDER="$ROOT/kalman-toss-gateway/scripts/build_investment_hub_v7428_canonical_ledger.py"
+BUILDER="$ROOT/kalman-toss-gateway/scripts/build_investment_hub_v7428_r5_null_fix.py"
 MANIFEST="$ROOT/kalman-hub-recovery/v7.4.28/source_manifest.ndjson"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 WORK="/tmp/kalman-hub-v7428-${STAMP}"
@@ -221,6 +221,9 @@ assert readmodel.get("canonical") is True
 assert len(annual.get("trades") or [])>=268
 assert len((annual.get("reconstructed") or {}).get("trades") or [])==251
 assert len((annual.get("forward") or {}).get("trades") or [])>=17
+open_rows=[t for t in ((annual.get("forward") or {}).get("trades") or []) if not t.get("exit_time")]
+assert open_rows
+assert all(t.get("return_pct") is None for t in open_rows),open_rows
 assert len(annual.get("events") or [])>0
 bench=control.get("benchmarks") or {}
 assert (bench.get("top1") or {}).get("snapshots",0)>0
