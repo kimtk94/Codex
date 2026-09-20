@@ -699,7 +699,7 @@ def test_macro_event_signal_is_blocked_without_consensus_surprise():
     )
     assert features["reaction_anchor_kind"] == "US_OFFICIAL_NEWS_PROXY"
     assert features["macro_event_signal_ready"] is False
-    assert "CONSENSUS_SURPRISE_UNAVAILABLE" in features["macro_event_signal_blockers"]
+    assert "EVENT_BUNDLE_SURPRISE_UNAVAILABLE" in features["macro_event_signal_blockers"]
 
 
 def test_policy_repricing_must_match_same_event_window():
