@@ -16,12 +16,24 @@ CREATE TABLE IF NOT EXISTS public.macro_release_observation (
     source text NOT NULL,
     source_item_id text,
     time_quality text NOT NULL
-        CHECK (time_quality IN ('EXACT_SOURCE_TS','PUBLISHER_TS','FIRST_SEEN_TS','DATE_ONLY')),
+        CHECK (time_quality IN (
+            'EXACT_SOURCE_TS','PUBLISHER_TS','FIRST_SEEN_TS','DATE_ONLY',
+            'PROVIDER_RELEASE_TS','PROVIDER_ESTIMATED_TS'
+        )),
     payload jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CHECK (available_at >= release_at)
 );
+
+ALTER TABLE public.macro_release_observation
+    DROP CONSTRAINT IF EXISTS macro_release_observation_time_quality_check;
+ALTER TABLE public.macro_release_observation
+    ADD CONSTRAINT macro_release_observation_time_quality_check
+    CHECK (time_quality IN (
+        'EXACT_SOURCE_TS','PUBLISHER_TS','FIRST_SEEN_TS','DATE_ONLY',
+        'PROVIDER_RELEASE_TS','PROVIDER_ESTIMATED_TS'
+    ));
 
 CREATE INDEX IF NOT EXISTS idx_macro_release_available
     ON public.macro_release_observation (available_at DESC);
@@ -55,6 +67,15 @@ CREATE TABLE IF NOT EXISTS public.macro_policy_repricing_observation (
     updated_at timestamptz NOT NULL DEFAULT now(),
     CHECK (available_at >= event_at)
 );
+
+ALTER TABLE public.macro_policy_repricing_observation
+    DROP CONSTRAINT IF EXISTS macro_policy_repricing_observation_time_quality_check;
+ALTER TABLE public.macro_policy_repricing_observation
+    ADD CONSTRAINT macro_policy_repricing_observation_time_quality_check
+    CHECK (time_quality IN (
+        'EXACT_SOURCE_TS','PUBLISHER_TS','FIRST_SEEN_TS','DATE_ONLY',
+        'PROVIDER_RELEASE_TS','PROVIDER_ESTIMATED_TS'
+    ));
 
 CREATE INDEX IF NOT EXISTS idx_macro_policy_repricing_available
     ON public.macro_policy_repricing_observation (available_at DESC);
