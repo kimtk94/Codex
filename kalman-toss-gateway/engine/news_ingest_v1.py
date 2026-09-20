@@ -71,12 +71,19 @@ def parse_dt(value: Any) -> datetime | None:
             return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).astimezone(UTC)
     except Exception:
         pass
+    raw_text = text
     text = text.replace("Z", "+00:00")
     try:
         dt = datetime.fromisoformat(text)
         return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).astimezone(UTC)
     except Exception:
-        return None
+        pass
+    for fmt in ("%Y%m%dT%H%M%SZ", "%Y%m%d%H%M%S"):
+        try:
+            return datetime.strptime(raw_text, fmt).replace(tzinfo=UTC)
+        except Exception:
+            pass
+    return None
 
 
 def clean_url(url: str | None) -> str | None:
@@ -762,7 +769,27 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
     return total_seen, total_inserted
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def source_market_scope(source: str) -> list[str]:
+    if source == "sec_edgar" or source == "gdelt_us":
+        return ["US"]
+    if source == "opendart" or source.startswith("bok_") or source == "gdelt_kr":
+        return ["KR"]
+    if source == "gdelt_crypto" or source.startswith("gdelt_historical"):
+        return ["CRYPTO"]
+    return ["GLOBAL"]
+
+
 def sync_neon(spool: Spool, db_url: str | None, batch_size: int = 500) -> int:
+    if not env_bool("KALMAN_NEWS_NEON_SYNC_ENABLED", False):
+        print("[NEWS][SYNC] Neon sync disabled by KALMAN_NEWS_NEON_SYNC_ENABLED")
+        return 0
     if not db_url:
         print("[NEWS][SYNC][WARN] DATABASE_URL_WRITER missing; Neon sync skipped")
         return 0
@@ -814,10 +841,11 @@ def sync_neon(spool: Spool, db_url: str | None, batch_size: int = 500) -> int:
                 payload = s["payload_json"] or "{}"
                 conn.execute("""
                 INSERT INTO public.news_source_state(
-                  source,last_attempt_at,last_success_at,etag,last_modified,cursor,
+                  source,market_scope,last_attempt_at,last_success_at,etag,last_modified,cursor,
                   last_error_at,last_error,rows_seen,rows_inserted,rows_duplicate,payload,updated_at
-                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now())
+                ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now())
                 ON CONFLICT(source) DO UPDATE SET
+                  market_scope=excluded.market_scope,
                   last_attempt_at=excluded.last_attempt_at,
                   last_success_at=excluded.last_success_at,
                   etag=excluded.etag,last_modified=excluded.last_modified,cursor=excluded.cursor,
@@ -825,9 +853,10 @@ def sync_neon(spool: Spool, db_url: str | None, batch_size: int = 500) -> int:
                   rows_seen=excluded.rows_seen,rows_inserted=excluded.rows_inserted,
                   rows_duplicate=excluded.rows_duplicate,payload=excluded.payload,updated_at=now()
                 """, (
-                    s["source"], s["last_attempt_at"], s["last_success_at"], s["etag"],
-                    s["last_modified"], s["cursor"], s["last_error_at"], s["last_error"],
-                    s["rows_seen"], s["rows_inserted"], s["rows_duplicate"], payload,
+                    s["source"], source_market_scope(s["source"]), s["last_attempt_at"],
+                    s["last_success_at"], s["etag"], s["last_modified"], s["cursor"],
+                    s["last_error_at"], s["last_error"], s["rows_seen"], s["rows_inserted"],
+                    s["rows_duplicate"], payload,
                 ))
     spool.mark("neon", ids)
     return len(ids)
@@ -841,6 +870,9 @@ def drive_mount_available(mount: Path) -> bool:
 
 
 def sync_drive(spool: Spool, drive_root: Path, batch_size: int = 1000) -> int:
+    if not env_bool("KALMAN_NEWS_DRIVE_SYNC_ENABLED", True):
+        print("[NEWS][SYNC] Drive sync disabled by KALMAN_NEWS_DRIVE_SYNC_ENABLED")
+        return 0
     mount = Path(os.environ.get("KALMAN_GDRIVE_MOUNT", "/mnt/gdrive"))
     if str(drive_root).startswith(str(mount)) and not drive_mount_available(mount):
         print(f"[NEWS][SYNC][WARN] Drive mount unavailable: {mount}; archive sync deferred")
