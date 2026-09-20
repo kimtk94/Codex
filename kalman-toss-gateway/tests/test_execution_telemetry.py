@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import pathlib
+import sqlite3
 import sys
 import tempfile
 from decimal import Decimal
@@ -142,6 +143,47 @@ def test_round_trip_quality_uses_actual_broker_costs():
     expected_net = (Decimal("109.9") / Decimal("100.1")) - Decimal("1")
     assert abs(q["net_return"] - float(expected_net)) < 1e-12
     assert abs(q["round_trip_cost_bps"] - 20.0) < 1e-12
+
+
+def test_trade_ledger_migrates_legacy_order_guard_before_telemetry_query():
+    with tempfile.TemporaryDirectory() as td:
+        path = pathlib.Path(td) / "trading.sqlite3"
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                """CREATE TABLE order_guard (
+                    client_order_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    trade_date_kst TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    estimated_notional_krw INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    toss_order_id TEXT,
+                    error TEXT
+                )"""
+            )
+            conn.execute(
+                "INSERT INTO order_guard VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    "legacy-cid",
+                    "2026-09-20T00:00:00+00:00",
+                    "2026-09-20",
+                    "AMD",
+                    "BUY",
+                    5000,
+                    "SUBMITTED",
+                    "legacy-order",
+                    None,
+                ),
+            )
+            conn.commit()
+
+        TradeLedger(path)
+        rows = _broker_orders(path, 10)
+
+        assert len(rows) == 1
+        assert rows[0]["client_order_id"] == "legacy-cid"
+        assert rows[0]["telemetry_json"] is None
 
 
 def test_broker_orders_reads_only_rows_with_toss_order_id():
