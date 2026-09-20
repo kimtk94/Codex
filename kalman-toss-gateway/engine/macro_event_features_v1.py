@@ -679,6 +679,10 @@ def build_feature_payload(
     matched_policy, policy_event_gap_minutes = select_matched_policy_repricing(
         policy_rows, reaction_anchor, policy_match_hours
     )
+    event_family = macro_event_family(reaction_anchor_meta, config)
+    event_bundle = select_event_bundle(
+        scored_releases, reaction_anchor, event_family, config
+    )
 
     state_by_source = {str(r.get("source")): r for r in source_states}
     healthy_official = 0
@@ -706,46 +710,52 @@ def build_feature_payload(
         if latest_release is not None
         else None
     )
+
+    shadow_score = compute_shadow_event_score(
+        event_family=event_family,
+        event_bundle=event_bundle,
+        reaction_z=reaction_z,
+        matched_policy=matched_policy,
+        policy_proxy_event_bps=proxy_event.get("reaction_bps"),
+        config=config,
+    )
+    event_bundle_surprise = shadow_score.get("bundle_surprise")
     shock_interaction = (
-        latest_surprise * reaction_z
-        if latest_surprise is not None and reaction_z is not None
+        float(event_bundle_surprise) * reaction_z
+        if event_bundle_surprise is not None and reaction_z is not None
         else None
     )
     policy_alignment = (
         1
-        if latest_surprise is not None
+        if event_bundle_surprise is not None
         and event_reaction.get("reaction_bps") is not None
-        and latest_surprise * float(event_reaction["reaction_bps"]) > 0
+        and float(event_bundle_surprise) * float(event_reaction["reaction_bps"]) > 0
         else -1
-        if latest_surprise is not None
+        if event_bundle_surprise is not None
         and event_reaction.get("reaction_bps") is not None
-        and latest_surprise * float(event_reaction["reaction_bps"]) < 0
+        and float(event_bundle_surprise) * float(event_reaction["reaction_bps"]) < 0
         else 0
-        if latest_surprise is not None and event_reaction.get("reaction_bps") == 0
+        if event_bundle_surprise is not None and event_reaction.get("reaction_bps") == 0
         else None
     )
 
     us2y_event_ready = event_reaction.get("reaction_bps") is not None
     policy_confirmation_ready = fed_repricing_ready or policy_proxy_event_ready
-    signal_blockers: list[str] = []
-    if not surprise_provider_ready:
-        signal_blockers.append("CONSENSUS_SURPRISE_UNAVAILABLE")
-    if reaction_anchor is None:
-        signal_blockers.append("NO_US_EVENT_ANCHOR")
-    elif not us2y_event_ready:
-        signal_blockers.append("US2Y_EVENT_REACTION_UNAVAILABLE")
-    if not policy_confirmation_ready:
-        signal_blockers.append("POLICY_REPRICING_CONFIRMATION_UNAVAILABLE")
-
-    macro_event_signal_ready = not signal_blockers
+    signal_blockers = list(shadow_score.get("blockers") or [])
+    if reaction_anchor is None and "NO_US_EVENT_ANCHOR" not in signal_blockers:
+        signal_blockers.insert(0, "NO_US_EVENT_ANCHOR")
+    macro_event_signal_ready = bool(shadow_score.get("ready")) and reaction_anchor is not None
     macro_event_signal_full_provider_ready = (
-        surprise_provider_ready and us2y_event_ready and fed_repricing_ready
+        macro_event_signal_ready
+        and matched_policy is not None
+        and shadow_score.get("policy_confirmation_source") == "FUTURES_PROVIDER"
     )
     macro_event_signal_quality = (
         "FULL_PROVIDER_CONFIRMATION"
         if macro_event_signal_full_provider_ready
         else "DGS2_DFF_PROXY_CONFIRMATION"
-        if macro_event_signal_ready and policy_proxy_event_ready
+        if macro_event_signal_ready
+        and shadow_score.get("policy_confirmation_source") == "DGS2_DFF_PROXY"
         else "INCOMPLETE"
     )
 
@@ -764,7 +774,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.3",
+        "schema_version": "macro-event-feature-v1.4",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -845,6 +855,19 @@ def build_feature_payload(
         ),
         "fed_policy_repricing_event_gap_minutes": policy_event_gap_minutes,
         "fed_policy_repricing_match_hours": policy_match_hours,
+        "macro_event_family": event_family,
+        "macro_event_shadow_score": shadow_score.get("score"),
+        "macro_event_shadow_direction": shadow_score.get("direction"),
+        "macro_event_shadow_components": {
+            "bundle_surprise": shadow_score.get("bundle_surprise"),
+            "bundle_indicators": shadow_score.get("bundle_indicators"),
+            "bundle_component_scores": shadow_score.get("bundle_component_scores"),
+            "us2y_reaction_z": shadow_score.get("us2y_reaction_z"),
+            "policy_confirmation_z": shadow_score.get("policy_confirmation_z"),
+            "policy_confirmation_source": shadow_score.get("policy_confirmation_source"),
+        },
+        "macro_event_shadow_score_range": shadow_score.get("score_range"),
+        "macro_event_shadow_positive_direction": shadow_score.get("positive_direction"),
         "macro_event_signal_ready": macro_event_signal_ready,
         "macro_event_signal_full_provider_ready": macro_event_signal_full_provider_ready,
         "macro_event_signal_quality": macro_event_signal_quality,
@@ -895,6 +918,9 @@ def build_feature_payload(
             "macro_event_signal": {
                 "status": "READY" if macro_event_signal_ready else "BLOCKED",
                 "quality": macro_event_signal_quality,
+                "event_family": event_family,
+                "shadow_score": shadow_score.get("score"),
+                "direction": shadow_score.get("direction"),
                 "blockers": signal_blockers,
             },
         },
