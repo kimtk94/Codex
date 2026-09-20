@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -36,6 +37,7 @@ class Settings(BaseSettings):
     def toss_token_cache_path(self) -> Path:
         return Path(self.toss_token_cache).expanduser()
 
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings(_env_file=os.environ.get('KALMAN_ENV_FILE', '.env'))
