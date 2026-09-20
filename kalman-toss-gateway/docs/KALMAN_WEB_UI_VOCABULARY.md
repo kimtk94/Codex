@@ -1,6 +1,6 @@
 # Kalman Web UI Vocabulary Contract
 
-Version: `kalman-ui-v1`
+Version: `kalman-ui-v1.1`
 
 This vocabulary is the canonical user-facing terminology for Kalman Investment Hub. Internal API fields and strategy identifiers may remain English, but visible operational states should use the terms below consistently.
 
@@ -40,10 +40,19 @@ Do not use SERVER/BROKER/TRADING LINK as competing user-facing connection labels
 
 ## Auto-trade state
 
+- Signal age within the live-entry window: **진입 신호 유효 (<90분)**
+- Signal age outside the live-entry window: **진입 신호 만료**
+- Latest signal satisfies SHADOW_CANARY shape: **CANARY 조건 충족**
+- Latest signal fails one or more SHADOW_CANARY fields: **CANARY 조건 미충족**
+- Server-side read-only evaluator available and all real entry gates pass: **실행 조건 통과**
+- Server-side evaluator available but a real entry gate blocks: **실행 조건 차단**
+- Server-side evaluator unavailable: **실행 판정 확인 불가**
 - Preconditions not fully satisfied: **대기**
-- All visible entry preconditions satisfied: **진입 후보**
+- All server-side readiness gates satisfied: **진입 후보**
 
-**진입 후보** does not mean an order was submitted or filled.
+**진입 후보** means the read-only server readiness evaluator passed. It does not mean an order was submitted, accepted, or filled.
+
+The web must not infer **진입 후보** from browser-side checks alone. Final readiness comes from the server evaluator that reuses the auto-trade gate helpers.
 
 ## Research vs live execution
 
@@ -89,3 +98,11 @@ Do not reintroduce these visible labels:
 - MIRROR EMPTY
 
 The v7.4.22 builder validates this contract in CI.
+
+
+## Navigation hierarchy
+
+- The top Command Center contains account summary, model state, benchmark, data health, and entry readiness.
+- Detailed **내 계좌** and **실매매 기록** belong under the **운영** tab.
+- The **통합** market view should compose current US/KR/Crypto snapshots directly instead of treating historical GLOBAL embedded component flags as current market state.
+- On mobile, the primary market tabs stay on one horizontally scrollable row to prevent sticky sub-navigation overlap.
