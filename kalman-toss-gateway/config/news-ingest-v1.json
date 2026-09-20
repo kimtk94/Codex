@@ -124,6 +124,8 @@
     ],
     "max_queries_per_cycle": 1,
     "round_robin_seconds": 300,
-    "entity_terms_per_query": 20
+    "entity_terms_per_query": 20,
+    "rate_limit_backoff_seconds": 3600,
+    "rate_limit_max_backoff_seconds": 21600
   }
 }
