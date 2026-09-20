@@ -703,7 +703,7 @@ def collect_sec(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str]
 
 def collect_dart(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str]]) -> tuple[int, int]:
     source = "opendart"
-    if not cfg.get("enabled", True):
+    if not cfg.get("enabled", True) or not env_bool("KALMAN_NEWS_DART_ENABLED", True):
         return 0, 0
     if not spool.due(source, int(cfg.get("min_interval_seconds", 300))):
         return 0, 0
@@ -1070,8 +1070,9 @@ def collect_all(spool: Spool, config: dict[str, Any], db_url: str | None,
     secmap = None
     dartmap = None
     sec_enabled = bool(sec_cfg.get("enabled", True)) and env_bool("KALMAN_NEWS_SEC_ENABLED", True)
+    dart_enabled = bool(dart_cfg.get("enabled", True)) and env_bool("KALMAN_NEWS_DART_ENABLED", True)
     sec_due = sec_enabled and spool.due("sec_edgar", int(sec_cfg.get("min_interval_seconds", 900)))
-    dart_due = spool.due("opendart", int(dart_cfg.get("min_interval_seconds", 300)))
+    dart_due = dart_enabled and spool.due("opendart", int(dart_cfg.get("min_interval_seconds", 300)))
     gdelt_kr_due = spool.due("gdelt_kr", int(gdelt_cfg.get("min_interval_seconds", 900)))
 
     # Never touch SEC endpoints while the runtime SEC gate is disabled. GDELT US
@@ -1081,7 +1082,7 @@ def collect_all(spool: Spool, config: dict[str, Any], db_url: str | None,
             secmap = sec_company_map(state_dir, os.environ["KALMAN_NEWS_SEC_USER_AGENT"])
         except Exception as exc:
             print(f"[NEWS][WARN] SEC company alias cache: {exc}")
-    if os.environ.get("DART_API_KEY") and (dart_due or gdelt_kr_due):
+    if dart_enabled and os.environ.get("DART_API_KEY") and (dart_due or gdelt_kr_due):
         try:
             dartmap = dart_company_map(state_dir, os.environ["DART_API_KEY"])
         except Exception as exc:
