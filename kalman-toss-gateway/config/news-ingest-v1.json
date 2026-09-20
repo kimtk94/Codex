@@ -1,0 +1,107 @@
+{
+  "version": "news-ingest-v1.0.0",
+  "rss_sources": [
+    {
+      "name": "fed_monetary",
+      "market": "GLOBAL",
+      "symbol": "GLOBAL",
+      "language": "en",
+      "url": "https://www.federalreserve.gov/feeds/press_monetary.xml",
+      "min_interval_seconds": 300,
+      "enabled": true
+    },
+    {
+      "name": "bls_cpi",
+      "market": "GLOBAL",
+      "symbol": "GLOBAL",
+      "language": "en",
+      "url": "https://www.bls.gov/feed/cpi.rss",
+      "min_interval_seconds": 300,
+      "enabled": true
+    },
+    {
+      "name": "bls_employment",
+      "market": "GLOBAL",
+      "symbol": "GLOBAL",
+      "language": "en",
+      "url": "https://www.bls.gov/feed/empsit.rss",
+      "min_interval_seconds": 300,
+      "enabled": true
+    },
+    {
+      "name": "bls_jolts",
+      "market": "GLOBAL",
+      "symbol": "GLOBAL",
+      "language": "en",
+      "url": "https://www.bls.gov/feed/jolts.rss",
+      "min_interval_seconds": 300,
+      "enabled": true
+    },
+    {
+      "name": "bea_releases",
+      "market": "GLOBAL",
+      "symbol": "GLOBAL",
+      "language": "en",
+      "url": "https://apps.bea.gov/rss/rss.xml",
+      "min_interval_seconds": 300,
+      "enabled": true
+    },
+    {
+      "name": "bok_monetary",
+      "market": "KR",
+      "symbol": "KR_MACRO",
+      "language": "ko",
+      "url": "https://www.bok.or.kr/portal/bbs/P0000559/news.rss?menuNo=200690",
+      "min_interval_seconds": 300,
+      "enabled": true
+    },
+    {
+      "name": "bok_statistics",
+      "market": "KR",
+      "symbol": "KR_MACRO",
+      "language": "ko",
+      "url": "https://www.bok.or.kr/portal/bbs/B0000501/news.rss?menuNo=201264",
+      "min_interval_seconds": 300,
+      "enabled": true
+    }
+  ],
+  "sec": {
+    "enabled": true,
+    "min_interval_seconds": 900,
+    "lookback_days": 2,
+    "max_recent_per_company": 30,
+    "request_sleep_seconds": 0.12,
+    "forms": ["8-K", "10-Q", "10-K", "6-K", "20-F", "40-F", "S-1", "S-3", "424B2", "DEF 14A"]
+  },
+  "dart": {
+    "enabled": true,
+    "min_interval_seconds": 300,
+    "page_count": 100,
+    "max_pages": 20
+  },
+  "gdelt": {
+    "enabled": true,
+    "min_interval_seconds": 900,
+    "timespan": "1h",
+    "maxrecords": 250,
+    "timeout_seconds": 45,
+    "queries": [
+      {
+        "market": "US",
+        "query": "(earnings OR guidance OR merger OR acquisition OR stocks OR shares)"
+      },
+      {
+        "market": "KR",
+        "query": "(KOSPI OR Korea OR Korean OR Samsung OR \"SK hynix\")"
+      },
+      {
+        "market": "CRYPTO",
+        "query": "(bitcoin OR ethereum OR cryptocurrency OR crypto)"
+      },
+      {
+        "market": "GLOBAL",
+        "query": "(\"Federal Reserve\" OR inflation OR \"interest rates\" OR tariff OR oil)"
+      }
+    ]
+  }
+}
