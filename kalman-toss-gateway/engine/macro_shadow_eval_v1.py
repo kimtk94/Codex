@@ -206,7 +206,7 @@ def sync_evaluations(
               baseline_gross_return,baseline_net_return,macro_features,metadata,updated_at
             ) VALUES(
               %s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-              %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,now()
+              %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,now()
             )
             ON CONFLICT(benchmark_id) DO UPDATE SET
               macro_as_of=excluded.macro_as_of,
