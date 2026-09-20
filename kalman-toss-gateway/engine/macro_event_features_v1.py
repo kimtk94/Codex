@@ -126,7 +126,11 @@ def parse_fred_observations(payload: dict[str, Any]) -> list[Dgs2Observation]:
     return out
 
 
-def fetch_dgs2(config: dict[str, Any], as_of: datetime) -> tuple[list[Dgs2Observation], str | None]:
+def fetch_fred_series(
+    config: dict[str, Any],
+    as_of: datetime,
+    series_id: str,
+) -> tuple[list[Dgs2Observation], str | None]:
     fred = config.get("fred") or {}
     if not fred.get("enabled", True):
         return [], "DISABLED"
@@ -136,7 +140,7 @@ def fetch_dgs2(config: dict[str, Any], as_of: datetime) -> tuple[list[Dgs2Observ
     days = int(fred.get("observation_days", 14))
     start = (as_of - timedelta(days=days)).date().isoformat()
     params = {
-        "series_id": str(fred.get("series_id", "DGS2")),
+        "series_id": series_id,
         "api_key": api_key,
         "file_type": "json",
         "observation_start": start,
@@ -149,6 +153,20 @@ def fetch_dgs2(config: dict[str, Any], as_of: datetime) -> tuple[list[Dgs2Observ
             return parse_fred_observations(response.json()), None
     except Exception as exc:
         return [], f"{type(exc).__name__}: {exc}"
+
+
+def fetch_dgs2(config: dict[str, Any], as_of: datetime) -> tuple[list[Dgs2Observation], str | None]:
+    fred = config.get("fred") or {}
+    return fetch_fred_series(config, as_of, str(fred.get("series_id", "DGS2")))
+
+
+def fetch_policy_proxy_rate(
+    config: dict[str, Any], as_of: datetime
+) -> tuple[list[Dgs2Observation], str | None]:
+    fred = config.get("fred") or {}
+    return fetch_fred_series(
+        config, as_of, str(fred.get("policy_proxy_series_id", "DFF"))
+    )
 
 
 def dgs2_latest_change(observations: list[Dgs2Observation]) -> dict[str, Any]:
@@ -203,6 +221,68 @@ def dgs2_event_reaction(
         "reaction_bps": (
             (event_obs.value_pct - prior_obs.value_pct) * 100.0 if prior_obs else None
         ),
+    }
+
+
+def rate_spread_latest_change(
+    market_rate: list[Dgs2Observation],
+    policy_rate: list[Dgs2Observation],
+) -> dict[str, Any]:
+    m = {o.date.date(): o.value_pct for o in market_rate}
+    p = {o.date.date(): o.value_pct for o in policy_rate}
+    common = sorted(set(m) & set(p))
+    if not common:
+        return {
+            "latest_date": None,
+            "latest_spread_bps": None,
+            "previous_date": None,
+            "previous_spread_bps": None,
+            "change_bps_1d": None,
+        }
+    latest_date = common[-1]
+    latest_spread = (m[latest_date] - p[latest_date]) * 100.0
+    previous_date = common[-2] if len(common) >= 2 else None
+    previous_spread = (
+        (m[previous_date] - p[previous_date]) * 100.0
+        if previous_date is not None
+        else None
+    )
+    return {
+        "latest_date": latest_date.isoformat(),
+        "latest_spread_bps": latest_spread,
+        "previous_date": previous_date.isoformat() if previous_date else None,
+        "previous_spread_bps": previous_spread,
+        "change_bps_1d": (
+            latest_spread - previous_spread if previous_spread is not None else None
+        ),
+    }
+
+
+def rate_spread_event_reaction(
+    market_rate: list[Dgs2Observation],
+    policy_rate: list[Dgs2Observation],
+    event_at: datetime | None,
+) -> dict[str, Any]:
+    if event_at is None:
+        return {"event_date_et": None, "reaction_bps": None}
+    event_date = event_at.astimezone(NY).date()
+    m = {o.date.date(): o.value_pct for o in market_rate}
+    p = {o.date.date(): o.value_pct for o in policy_rate}
+    common = sorted(set(m) & set(p))
+    if event_date not in common:
+        return {"event_date_et": event_date.isoformat(), "reaction_bps": None}
+    prior = [d for d in common if d < event_date]
+    if not prior:
+        return {"event_date_et": event_date.isoformat(), "reaction_bps": None}
+    prior_date = prior[-1]
+    event_spread = (m[event_date] - p[event_date]) * 100.0
+    prior_spread = (m[prior_date] - p[prior_date]) * 100.0
+    return {
+        "event_date_et": event_date.isoformat(),
+        "prior_date": prior_date.isoformat(),
+        "event_spread_bps": event_spread,
+        "prior_spread_bps": prior_spread,
+        "reaction_bps": event_spread - prior_spread,
     }
 
 
