@@ -60,6 +60,52 @@ def _execution(order: dict) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _optional_datetime(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _broker_order_telemetry(order: dict, response_meta: dict | None = None) -> dict:
+    execution = _execution(order)
+    ordered_at = _optional_datetime(order.get('orderedAt'))
+    filled_at = _optional_datetime(execution.get('filledAt'))
+    fill_latency_ms = None
+    if ordered_at is not None and filled_at is not None:
+        fill_latency_ms = max(0.0, (filled_at - ordered_at).total_seconds() * 1000.0)
+    return {
+        'order_id': order.get('orderId'),
+        'status': str(order.get('status') or '').upper() or None,
+        'currency': order.get('currency'),
+        'ordered_at': order.get('orderedAt'),
+        'canceled_at': order.get('canceledAt'),
+        'filled_quantity': execution.get('filledQuantity'),
+        'average_filled_price': execution.get('averageFilledPrice'),
+        'filled_amount': execution.get('filledAmount'),
+        'commission': execution.get('commission'),
+        'tax': execution.get('tax'),
+        'filled_at': execution.get('filledAt'),
+        'settlement_date': execution.get('settlementDate'),
+        'broker_fill_latency_ms': round(fill_latency_ms, 3) if fill_latency_ms is not None else None,
+        'response_meta': dict(response_meta or {}),
+    }
+
+
+def _persist_broker_order_telemetry(client: TossClient, position: dict, leg: str, order: dict) -> None:
+    client_order_id = position.get('entry_client_order_id') if leg == 'ENTRY' else position.get('exit_client_order_id')
+    settings = getattr(client, 'settings', None)
+    if not client_order_id or settings is None:
+        return
+    TradeLedger(settings.state_db_path).patch_telemetry(
+        client_order_id,
+        {'broker_order': _broker_order_telemetry(order, getattr(client, 'last_response_meta', {}))},
+    )
+
+
 def _open_order_ids(payload) -> set[str]:
     data = unwrap(payload) or {}
     if isinstance(data, dict):
@@ -222,6 +268,7 @@ async def _reconcile_entry(store: ManagedPositionStore, client: TossClient, posi
         return {'action': 'ENTRY_AMBIGUOUS_NO_ORDER_ID'}
 
     order = _order_view(await client.order(order_id))
+    _persist_broker_order_telemetry(client, position, 'ENTRY', order)
     status = str(order.get('status') or '').upper()
     execution = _execution(order)
     filled = _decimal(execution.get('filledQuantity'))
@@ -256,6 +303,7 @@ async def _reconcile_exit(store: ManagedPositionStore, client: TossClient, posit
         return {'action': 'EXIT_AMBIGUOUS_NO_ORDER_ID'}
 
     order = _order_view(await client.order(order_id))
+    _persist_broker_order_telemetry(client, position, 'EXIT', order)
     status = str(order.get('status') or '').upper()
     execution = _execution(order)
     filled = _decimal(execution.get('filledQuantity'))

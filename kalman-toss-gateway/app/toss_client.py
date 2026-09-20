@@ -18,6 +18,36 @@ class TossClient:
         self.settings = settings
         self._token: str | None = None
         self._token_expires_at = 0.0
+        self.last_response_meta: dict[str, Any] = {}
+
+    @staticmethod
+    def _int_header(value: str | None) -> int | None:
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _capture_response_meta(self, response: httpx.Response) -> None:
+        headers = response.headers
+        request = getattr(response, "request", None)
+        path = str(request.url.path) if request is not None else None
+        meta = {
+            "endpoint": path,
+            "status_code": response.status_code,
+            "request_id": headers.get("x-request-id") or headers.get("x-toss-request-id"),
+            "rate_limit_limit": self._int_header(headers.get("x-ratelimit-limit")),
+            "rate_limit_remaining": self._int_header(headers.get("x-ratelimit-remaining")),
+            "rate_limit_reset_seconds": self._int_header(headers.get("x-ratelimit-reset")),
+            "retry_after_seconds": self._int_header(headers.get("retry-after")),
+        }
+        self.last_response_meta = {k: v for k, v in meta.items() if v is not None}
+
+    def _response_json(self, response: httpx.Response) -> Any:
+        self._capture_response_meta(response)
+        response.raise_for_status()
+        return response.json()
 
     def _read_shared_token(self) -> tuple[str | None, float]:
         path = self.settings.toss_token_cache_path
@@ -63,8 +93,7 @@ class TossClient:
                 },
                 headers={'Content-Type': 'application/x-www-form-urlencoded'},
             )
-            response.raise_for_status()
-            payload = response.json()
+            payload = self._response_json(response)
         return payload['access_token'], time.time() + int(payload.get('expires_in', 3600))
 
     async def _get_token(self) -> str:
@@ -104,8 +133,16 @@ class TossClient:
     async def accounts(self) -> Any:
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(f'{BASE_URL}/api/v1/accounts', headers=await self._headers(False))
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
+
+    async def orderbook(self, symbol: str) -> Any:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f'{BASE_URL}/api/v1/orderbook',
+                params={'symbol': symbol.upper()},
+                headers=await self._headers(False),
+            )
+            return self._response_json(r)
 
     async def prices(self, symbols: list[str]) -> Any:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -114,8 +151,7 @@ class TossClient:
                 params={'symbols': ','.join(symbols)},
                 headers=await self._headers(False),
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
 
     async def exchange_rate(self, base: str = 'USD', quote: str = 'KRW') -> Any:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -124,8 +160,7 @@ class TossClient:
                 params={'baseCurrency': base, 'quoteCurrency': quote},
                 headers=await self._headers(False),
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
 
     async def market_calendar_us(self, date: str | None = None) -> Any:
         params = {'date': date} if date else None
@@ -135,8 +170,7 @@ class TossClient:
                 params=params,
                 headers=await self._headers(False),
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
 
     async def holdings(self, symbol: str | None = None) -> Any:
         params = {'symbol': symbol.upper()} if symbol else None
@@ -146,8 +180,7 @@ class TossClient:
                 params=params,
                 headers=await self._headers(True),
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
 
     async def buying_power(self, currency: str = 'KRW') -> Any:
         currency = currency.upper()
@@ -159,8 +192,7 @@ class TossClient:
                 params={'currency': currency},
                 headers=await self._headers(True),
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
 
     async def sellable_quantity(self, symbol: str) -> Any:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -169,8 +201,7 @@ class TossClient:
                 params={'symbol': symbol.upper()},
                 headers=await self._headers(True),
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
 
     async def orders(self, status: str = 'OPEN', symbol: str | None = None) -> Any:
         params = {'status': status.upper()}
@@ -182,8 +213,7 @@ class TossClient:
                 params=params,
                 headers=await self._headers(True),
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
 
     async def order(self, order_id: str) -> Any:
         if not order_id:
@@ -193,8 +223,7 @@ class TossClient:
                 f'{BASE_URL}/api/v1/orders/{order_id}',
                 headers=await self._headers(True),
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
 
     async def place_order(self, payload: dict[str, Any]) -> Any:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -203,8 +232,7 @@ class TossClient:
                 json=payload,
                 headers={**await self._headers(True), 'Content-Type': 'application/json'},
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
 
     async def cancel_order(self, order_id: str) -> Any:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -212,5 +240,4 @@ class TossClient:
                 f'{BASE_URL}/api/v1/orders/{order_id}/cancel',
                 headers=await self._headers(True),
             )
-            r.raise_for_status()
-            return r.json()
+            return self._response_json(r)
