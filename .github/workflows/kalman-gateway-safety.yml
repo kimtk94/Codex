@@ -21,6 +21,12 @@ on:
       - "kalman-toss-gateway/scripts/run_macro_event_features_v1.sh"
       - "kalman-toss-gateway/scripts/install_macro_event_features_v1.sh"
       - "kalman-toss-gateway/tests/test_macro_event_features_v1.py"
+      - "kalman-toss-gateway/tests/test_macro_shadow_eval_v1.py"
+      - "kalman-toss-gateway/scripts/install_macro_shadow_eval_v1.sh"
+      - "kalman-toss-gateway/scripts/run_macro_shadow_eval_v1.sh"
+      - "kalman-toss-gateway/research/quant_stack/macro_shadow_eval_v1.sql"
+      - "kalman-toss-gateway/config/macro-shadow-eval-v1.json"
+      - "kalman-toss-gateway/engine/macro_shadow_eval_v1.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/scripts/run_auto_trade.sh"
@@ -85,7 +91,7 @@ jobs:
 
       - name: Compile gateway code
         run: |
-          python -m compileall app engine/auto_trade.py engine/position_manager.py engine/benchmark_ledger.py engine/trade_mirror.py engine/news_ingest_v1.py engine/macro_event_features_v1.py engine/macro_consensus_provider_v1.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py
+          python -m compileall app engine/auto_trade.py engine/position_manager.py engine/benchmark_ledger.py engine/trade_mirror.py engine/news_ingest_v1.py engine/macro_event_features_v1.py engine/macro_consensus_provider_v1.py engine/macro_shadow_eval_v1.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py
 
       - name: Shell syntax checks
         run: |
@@ -96,10 +102,12 @@ jobs:
           bash -n scripts/install_news_ingest_v1.sh
           bash -n scripts/run_macro_event_features_v1.sh
           bash -n scripts/install_macro_event_features_v1.sh
+          bash -n scripts/run_macro_shadow_eval_v1.sh
+          bash -n scripts/install_macro_shadow_eval_v1.sh
 
       - name: Run gateway safety tests
         env:
           PYTHONPATH: .
         run: |
           python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist tests.test_same_cycle_rebalance -v
-          pytest -q tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py
+          pytest -q tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py tests/test_macro_shadow_eval_v1.py
