@@ -391,3 +391,19 @@ def test_consensus_provider_is_fail_closed_without_runtime_gate(monkeypatch):
     )
     assert rows == []
     assert status["status"] == "DISABLED_RUNTIME"
+
+
+def test_consensus_provider_active_window_is_quota_aware():
+    provider = {
+        "active_weekdays": [0, 1, 2, 3, 4],
+        "active_window_utc": {"start": "12:00", "end": "16:15"},
+    }
+    assert consensus.within_active_window(
+        datetime(2026, 9, 21, 12, 30, tzinfo=UTC), provider
+    )
+    assert not consensus.within_active_window(
+        datetime(2026, 9, 21, 18, 0, tzinfo=UTC), provider
+    )
+    assert not consensus.within_active_window(
+        datetime(2026, 9, 20, 13, 0, tzinfo=UTC), provider
+    )
