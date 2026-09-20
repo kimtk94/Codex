@@ -55,8 +55,14 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
     quote = telemetry.get("pretrade_quote") if isinstance(telemetry.get("pretrade_quote"), dict) else {}
     submit = telemetry.get("submit") if isinstance(telemetry.get("submit"), dict) else {}
     submit_meta = submit.get("response_meta") if isinstance(submit.get("response_meta"), dict) else {}
+    broker_meta = broker.get("response_meta") if isinstance(broker.get("response_meta"), dict) else {}
 
     fill_price = _dec(average_fill) or _dec(broker.get("average_filled_price"))
+    fill_quantity = _dec(broker.get("filled_quantity"))
+    exact_notional = None
+    if fill_price is not None and fill_quantity is not None and fill_quantity > 0:
+        exact_notional = fill_price * fill_quantity
+
     side = str(side or "").upper()
     reference_price = _dec(quote.get("best_ask" if side == "BUY" else "best_bid" if side == "SELL" else ""))
     slippage_bps = None
@@ -69,13 +75,18 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
     filled_amount = _dec(broker.get("filled_amount"))
     commission = _dec(broker.get("commission")) or Decimal("0")
     tax = _dec(broker.get("tax")) or Decimal("0")
+    cost_basis = exact_notional if exact_notional is not None and exact_notional > 0 else filled_amount
     cost_bps = None
-    if filled_amount is not None and filled_amount > 0:
-        cost_bps = (commission + tax) / filled_amount * Decimal("10000")
+    if cost_basis is not None and cost_basis > 0:
+        cost_bps = (commission + tax) / cost_basis * Decimal("10000")
 
     def n(value):
         value = _dec(value)
         return float(value) if value is not None else None
+
+    def meta_value(key):
+        value = submit_meta.get(key)
+        return value if value is not None else broker_meta.get(key)
 
     return {
         "currency": broker.get("currency") or quote.get("currency"),
@@ -85,7 +96,10 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
         "spread_bps": n(quote.get("spread_bps")),
         "reference_price": float(reference_price) if reference_price is not None else None,
         "slippage_bps": float(slippage_bps) if slippage_bps is not None else None,
+        "filled_quantity": float(fill_quantity) if fill_quantity is not None else None,
+        "average_filled_price": float(fill_price) if fill_price is not None else None,
         "filled_amount": float(filled_amount) if filled_amount is not None else None,
+        "exact_notional": float(exact_notional) if exact_notional is not None else None,
         "commission": float(commission),
         "tax": float(tax),
         "cost_bps": float(cost_bps) if cost_bps is not None else None,
@@ -93,16 +107,16 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
         "broker_filled_at": broker.get("filled_at"),
         "broker_fill_latency_ms": broker.get("broker_fill_latency_ms"),
         "submit_http_latency_ms": submit.get("http_latency_ms"),
-        "rate_limit_limit": submit_meta.get("rate_limit_limit"),
-        "rate_limit_remaining": submit_meta.get("rate_limit_remaining"),
-        "rate_limit_reset_seconds": submit_meta.get("rate_limit_reset_seconds"),
-        "retry_after_seconds": submit_meta.get("retry_after_seconds"),
+        "rate_limit_limit": meta_value("rate_limit_limit"),
+        "rate_limit_remaining": meta_value("rate_limit_remaining"),
+        "rate_limit_reset_seconds": meta_value("rate_limit_reset_seconds"),
+        "retry_after_seconds": meta_value("retry_after_seconds"),
     }
 
 
 def _round_trip_quality(entry_quality: dict, exit_quality: dict) -> dict:
-    entry_amount = _dec(entry_quality.get("filled_amount"))
-    exit_amount = _dec(exit_quality.get("filled_amount"))
+    entry_amount = _dec(entry_quality.get("exact_notional")) or _dec(entry_quality.get("filled_amount"))
+    exit_amount = _dec(exit_quality.get("exact_notional")) or _dec(exit_quality.get("filled_amount"))
     if entry_amount is None or exit_amount is None or entry_amount <= 0:
         return {}
     entry_cost = (_dec(entry_quality.get("commission")) or Decimal("0")) + (_dec(entry_quality.get("tax")) or Decimal("0"))
