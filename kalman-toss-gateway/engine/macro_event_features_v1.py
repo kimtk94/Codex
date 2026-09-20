@@ -17,7 +17,10 @@ import psycopg
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
-from engine.macro_consensus_provider_v1 import refresh_consensus_observations
+from engine.macro_consensus_provider_v1 import (
+    refresh_consensus_observations,
+    within_active_window,
+)
 
 
 FEATURE_VERSION = "macro-event-feature-v1"
@@ -301,6 +304,57 @@ def _count_within(rows: list[dict[str, Any]], as_of: datetime, hours: float) -> 
     )
 
 
+def select_us_reaction_anchor(
+    release_rows: list[dict[str, Any]],
+    official_rows: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> tuple[datetime | None, dict[str, Any]]:
+    structured = []
+    for row in release_rows:
+        if str(row.get("market") or "").upper() != "US":
+            continue
+        available_at = parse_dt(row.get("available_at"))
+        if available_at is None:
+            continue
+        structured.append((available_at, row))
+    if structured:
+        available_at, row = max(structured, key=lambda x: x[0])
+        return available_at, {
+            "kind": "STRUCTURED_US_RELEASE",
+            "source": row.get("source"),
+            "event_name": row.get("event_name"),
+            "indicator_key": row.get("indicator_key"),
+            "available_at": iso(available_at),
+        }
+
+    allowed_sources = set(config.get("us_reaction_anchor_sources") or [])
+    candidates = []
+    for row in official_rows:
+        if str(row.get("source") or "") not in allowed_sources:
+            continue
+        available_at = parse_dt(row.get("available_at"))
+        if available_at is None:
+            continue
+        candidates.append((available_at, row))
+    if candidates:
+        available_at, row = max(candidates, key=lambda x: x[0])
+        return available_at, {
+            "kind": "US_OFFICIAL_NEWS_PROXY",
+            "source": row.get("source"),
+            "event_name": row.get("title"),
+            "indicator_key": None,
+            "available_at": iso(available_at),
+        }
+
+    return None, {
+        "kind": "NONE",
+        "source": None,
+        "event_name": None,
+        "indicator_key": None,
+        "available_at": None,
+    }
+
+
 def build_feature_payload(
     *,
     as_of: datetime,
@@ -380,12 +434,8 @@ def build_feature_payload(
             or datetime.min.replace(tzinfo=UTC),
         )
 
-    reaction_anchor = (
-        latest_release["available_at_dt"]
-        if latest_release is not None
-        else parse_dt(latest_official.get("available_at"))
-        if latest_official
-        else None
+    reaction_anchor, reaction_anchor_meta = select_us_reaction_anchor(
+        release_rows, official_rows, config
     )
 
     dgs2 = dgs2_latest_change(dgs2_observations)
@@ -472,7 +522,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.1",
+        "schema_version": "macro-event-feature-v1.2",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -502,6 +552,11 @@ def build_feature_payload(
         "latest_surprise_available_at": (
             iso(latest_release["available_at_dt"]) if latest_release else None
         ),
+        "reaction_anchor_kind": reaction_anchor_meta["kind"],
+        "reaction_anchor_source": reaction_anchor_meta["source"],
+        "reaction_anchor_event_name": reaction_anchor_meta["event_name"],
+        "reaction_anchor_indicator": reaction_anchor_meta["indicator_key"],
+        "reaction_anchor_available_at": reaction_anchor_meta["available_at"],
         "us2y_series": str(fred_cfg.get("series_id", "DGS2")),
         "us2y_latest_date": dgs2["latest_date"],
         "us2y_latest_pct": dgs2["latest_pct"],
@@ -559,6 +614,17 @@ def build_feature_payload(
                 "quality": str(
                     fred_cfg.get("reaction_quality", "DAILY_PROXY")
                 ),
+            },
+            "us2y_event_reaction": {
+                "status": (
+                    "READY"
+                    if event_reaction.get("reaction_bps") is not None
+                    else "PENDING_MARKET_OBSERVATION"
+                    if reaction_anchor is not None
+                    else "NO_US_EVENT_ANCHOR"
+                ),
+                "anchor_kind": reaction_anchor_meta["kind"],
+                "anchor_source": reaction_anchor_meta["source"],
             },
             "consensus_surprise_provider": {
                 "status": "READY" if surprise_provider_ready else "UNAVAILABLE"
@@ -867,6 +933,68 @@ def latest_status(db_url: str, feature_version: str) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
+def stack_status(
+    db_url: str,
+    config: dict[str, Any],
+    as_of: datetime | None = None,
+) -> dict[str, Any]:
+    as_of = (as_of or utc_now()).astimezone(UTC)
+    feature_version = str(config.get("feature_version", FEATURE_VERSION))
+    provider = config.get("trading_economics") or {}
+    with psycopg.connect(db_url, connect_timeout=15, row_factory=dict_row) as conn:
+        counts = conn.execute(
+            """
+            SELECT
+              (SELECT count(*) FROM public.macro_release_observation) AS releases,
+              (SELECT count(*) FROM public.macro_policy_repricing_observation) AS policy_repricing,
+              (SELECT count(*) FROM public.news_feature_snapshot
+                 WHERE market='GLOBAL' AND symbol='GLOBAL'
+                   AND feature_version=%s) AS snapshots
+            """,
+            (feature_version,),
+        ).fetchone()
+        latest_release = conn.execute(
+            """
+            SELECT indicator_key,event_name,market,release_at,available_at,
+                   actual,consensus,previous,source,time_quality
+            FROM public.macro_release_observation
+            ORDER BY available_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        latest_policy = conn.execute(
+            """
+            SELECT event_name,event_at,available_at,repricing_bps,
+                   horizon,source,time_quality
+            FROM public.macro_policy_repricing_observation
+            ORDER BY available_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+    return {
+        "as_of": iso(as_of),
+        "feature_version": feature_version,
+        "runtime": {
+            "macro_features_enabled": env_bool("KALMAN_MACRO_FEATURES_ENABLED", False),
+            "fred_key_configured": bool(
+                (os.environ.get("FRED_API_KEY") or os.environ.get("FRED_KEY") or "").strip()
+            ),
+            "consensus_enabled": env_bool("KALMAN_MACRO_CONSENSUS_ENABLED", False),
+            "trading_economics_key_configured": bool(
+                (os.environ.get("TRADING_ECONOMICS_API_KEY") or "").strip()
+            ),
+            "consensus_active_window": within_active_window(as_of, provider),
+        },
+        "counts": dict(counts) if counts else {
+            "releases": 0, "policy_repricing": 0, "snapshots": 0
+        },
+        "latest_release": dict(latest_release) if latest_release else None,
+        "latest_policy_repricing": dict(latest_policy) if latest_policy else None,
+        "latest_snapshot": latest_status(db_url, feature_version),
+    }
+
+
 def selftest() -> None:
     assert abs(decay_weight(12, 12) - 0.5) < 1e-12
     norm = {
@@ -935,9 +1063,8 @@ def main() -> None:
         result = import_policy_csv(db_url, Path(args.input_csv))
         print("[MACRO][POLICY_IMPORT]", json.dumps(result, sort_keys=True))
     elif args.command == "status":
-        row = latest_status(
-            db_url, str(config.get("feature_version", FEATURE_VERSION))
-        )
+        as_of = parse_dt(args.as_of) if args.as_of else None
+        row = stack_status(db_url, config, as_of)
         print("[MACRO][STATUS]", json.dumps(row, default=str, ensure_ascii=False, sort_keys=True))
 
 
