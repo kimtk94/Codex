@@ -56,6 +56,12 @@ jobs:
           assert "/api/trading-readiness" in api
           assert "signal_diagnostics" in api
           assert "kalman-web-control-v2" in api
+          assert "FROM v_kalman_model_readiness" in api
+          assert "model_readiness_source:'neon_v_kalman_model_readiness'" in api
+          control=api.split("async function control",1)[1].split("async function dashboard",1)[0]
+          assert "FROM strategy_signal" not in control
+          assert "Date.now()-Date.parse(latest.as_of)" not in control
+          assert "executableCandidate" not in control
           assert ".operations-mode .wrap>.account" in css
           assert ".primary-tabs{flex-wrap:nowrap" in css
           for bad in ["VALID':'EXPIRED",">PREVIEW</option>","KRW available","GATE OPEN","GATE CLOSED","Toss connected","EMBEDDED SNAPSHOT"]:
