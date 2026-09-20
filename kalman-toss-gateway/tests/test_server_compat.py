@@ -112,3 +112,22 @@ def test_resolve_crypto_xlsx_exports_zero_byte_rclone_placeholder(
         server_compat._LocalWorksheet(cache, "Overview").get("A13:B13")[0]
         == ["KRW-BTC", 109_867_000]
     )
+
+
+def test_local_crypto_xlsx_get_all_values_trims_empty_tail(tmp_path):
+    from openpyxl import Workbook
+
+    path = tmp_path / "Kalman Upbit KRW History.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Sources_Audit"
+    ws["A1"] = "source"
+    ws["B1"] = "status"
+    ws["A2"] = "Upbit"
+    ws["B2"] = "OK"
+    wb.save(path)
+    wb.close()
+
+    values = server_compat._LocalWorksheet(path, "Sources_Audit").get_all_values()
+
+    assert values == [["source", "status"], ["Upbit", "OK"]]
