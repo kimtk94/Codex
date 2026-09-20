@@ -28,6 +28,21 @@ def config():
                 "policy_sign": -1.0,
                 "unit": "pct",
             },
+            "CORE_CPI_YOY": {
+                "scale": 0.1,
+                "policy_sign": 1.0,
+                "unit": "pct",
+            },
+            "NFP": {
+                "scale": 50.0,
+                "policy_sign": 1.0,
+                "unit": "thousands",
+            },
+            "AVERAGE_HOURLY_EARNINGS_MOM": {
+                "scale": 0.1,
+                "policy_sign": 1.0,
+                "unit": "pct",
+            },
         },
         "fred": {
             "enabled": True,
@@ -43,6 +58,25 @@ def config():
             "consensus_surprise_provider": 0.25,
             "fed_repricing_provider": 0.10,
             "fed_repricing_proxy": 0.10,
+        },
+        "structured_official_match_minutes": 30,
+        "policy_repricing_match_hours": 6,
+        "event_scoring": {
+            "bundle_window_minutes": 10,
+            "policy_repricing_scale_bps": 5,
+            "neutral_band": 0.5,
+            "indicator_family": {
+                "CPI_HEADLINE_YOY": "CPI",
+                "CORE_CPI_YOY": "CPI",
+                "NFP": "NFP",
+                "UNEMPLOYMENT_RATE": "NFP",
+                "AVERAGE_HOURLY_EARNINGS_MOM": "NFP",
+            },
+            "weights": {
+                "CPI": {"surprise": 0.50, "us2y": 0.30, "policy": 0.20},
+                "NFP": {"surprise": 0.50, "us2y": 0.30, "policy": 0.20},
+                "FOMC": {"us2y": 0.45, "policy": 0.55},
+            },
         },
     }
 
@@ -692,3 +726,146 @@ def test_policy_repricing_must_match_same_event_window():
     stale, stale_gap = macro.select_matched_policy_repricing(rows[:1], anchor, 6)
     assert stale is None
     assert stale_gap is None
+
+
+
+def test_shadow_cpi_score_uses_release_bundle_average():
+    cfg = config()
+    anchor = datetime(2026, 9, 17, 12, 30, tzinfo=UTC)
+    releases = [
+        {
+            "indicator_key": "CPI_HEADLINE_YOY",
+            "available_at_dt": anchor,
+            "policy_pressure_surprise": 2.0,
+        },
+        {
+            "indicator_key": "CORE_CPI_YOY",
+            "available_at_dt": anchor,
+            "policy_pressure_surprise": 1.0,
+        },
+    ]
+    bundle = macro.select_event_bundle(releases, anchor, "CPI", cfg)
+    score = macro.compute_shadow_event_score(
+        event_family="CPI",
+        event_bundle=bundle,
+        reaction_z=2.0,
+        matched_policy=None,
+        policy_proxy_event_bps=5.0,
+        config=cfg,
+    )
+    assert score["ready"] is True
+    assert score["bundle_surprise"] == 1.5
+    assert score["bundle_indicators"] == ["CORE_CPI_YOY", "CPI_HEADLINE_YOY"]
+    assert score["policy_confirmation_source"] == "DGS2_DFF_PROXY"
+    assert score["score"] == 1.55
+    assert score["direction"] == "HAWKISH_TIGHTENING"
+
+
+def test_shadow_nfp_bundle_handles_unemployment_policy_sign():
+    cfg = config()
+    normalization = cfg["indicator_normalization"]
+    anchor = datetime(2026, 9, 17, 12, 30, tzinfo=UTC)
+    nfp = macro.normalized_surprise("NFP", 250, 200, normalization)
+    unemployment = macro.normalized_surprise(
+        "UNEMPLOYMENT_RATE", 4.2, 4.1, normalization
+    )
+    wages = macro.normalized_surprise(
+        "AVERAGE_HOURLY_EARNINGS_MOM", 0.4, 0.3, normalization
+    )
+    releases = [
+        {
+            "indicator_key": "NFP",
+            "available_at_dt": anchor,
+            "policy_pressure_surprise": nfp,
+        },
+        {
+            "indicator_key": "UNEMPLOYMENT_RATE",
+            "available_at_dt": anchor,
+            "policy_pressure_surprise": unemployment,
+        },
+        {
+            "indicator_key": "AVERAGE_HOURLY_EARNINGS_MOM",
+            "available_at_dt": anchor,
+            "policy_pressure_surprise": wages,
+        },
+    ]
+    bundle = macro.select_event_bundle(releases, anchor, "NFP", cfg)
+    score = macro.compute_shadow_event_score(
+        event_family="NFP",
+        event_bundle=bundle,
+        reaction_z=1.0,
+        matched_policy=None,
+        policy_proxy_event_bps=5.0,
+        config=cfg,
+    )
+    assert nfp == 1.0
+    assert unemployment == -1.0
+    assert wages == 1.0
+    assert round(score["bundle_surprise"], 12) == round(1.0 / 3.0, 12)
+    assert score["ready"] is True
+    assert score["score"] == round(0.5 * (1.0 / 3.0) + 0.3 + 0.2, 12)
+
+
+def test_shadow_fomc_score_does_not_require_consensus_bundle():
+    cfg = config()
+    score = macro.compute_shadow_event_score(
+        event_family="FOMC",
+        event_bundle=[],
+        reaction_z=-2.0,
+        matched_policy={
+            "repricing_bps": -10.0,
+            "source": "fed_funds_futures",
+        },
+        policy_proxy_event_bps=None,
+        config=cfg,
+    )
+    assert score["ready"] is True
+    assert score["bundle_surprise"] is None
+    assert score["policy_confirmation_source"] == "FUTURES_PROVIDER"
+    assert score["score"] == -2.0
+    assert score["direction"] == "DOVISH_EASING"
+
+
+def test_newer_fomc_official_anchor_beats_older_structured_cpi():
+    cfg = config()
+    releases = [
+        {
+            "market": "US",
+            "source": "trading_economics_calendar",
+            "event_name": "Inflation Rate YoY",
+            "indicator_key": "CPI_HEADLINE_YOY",
+            "available_at": datetime(2026, 9, 16, 12, 30, tzinfo=UTC),
+            "actual": 3.2,
+            "consensus": 3.0,
+        }
+    ]
+    official_rows = [
+        {
+            "source": "fed_monetary",
+            "title": "Federal Reserve issues FOMC statement",
+            "available_at": datetime(2026, 9, 17, 18, 0, tzinfo=UTC),
+        }
+    ]
+    anchor, meta = macro.select_us_reaction_anchor(releases, official_rows, cfg)
+    assert anchor == datetime(2026, 9, 17, 18, 0, tzinfo=UTC)
+    assert meta["kind"] == "US_OFFICIAL_NEWS_PROXY"
+    assert meta["source"] == "fed_monetary"
+    assert macro.macro_event_family(meta, cfg) == "FOMC"
+
+
+def test_shadow_score_is_blocked_when_event_components_are_incomplete():
+    cfg = config()
+    score = macro.compute_shadow_event_score(
+        event_family="CPI",
+        event_bundle=[],
+        reaction_z=None,
+        matched_policy=None,
+        policy_proxy_event_bps=None,
+        config=cfg,
+    )
+    assert score["ready"] is False
+    assert score["score"] is None
+    assert score["direction"] == "BLOCKED"
+    assert "EVENT_BUNDLE_SURPRISE_UNAVAILABLE" in score["blockers"]
+    assert "US2Y_EVENT_REACTION_UNAVAILABLE" in score["blockers"]
+    assert "POLICY_REPRICING_CONFIRMATION_UNAVAILABLE" in score["blockers"]
