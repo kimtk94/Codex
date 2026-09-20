@@ -8,6 +8,7 @@ on:
       - "kalman-toss-gateway/engine/position_manager.py"
       - "kalman-toss-gateway/engine/benchmark_ledger.py"
       - "kalman-toss-gateway/engine/trade_mirror.py"
+      - "kalman-toss-gateway/engine/execution_telemetry_sync.py"
       - "kalman-toss-gateway/engine/news_ingest_v1.py"
       - "kalman-toss-gateway/config/news-ingest-v1.json"
       - "kalman-toss-gateway/config/news-entity-aliases-v2.json"
@@ -45,6 +46,7 @@ on:
       - "kalman-toss-gateway/engine/position_manager.py"
       - "kalman-toss-gateway/engine/benchmark_ledger.py"
       - "kalman-toss-gateway/engine/trade_mirror.py"
+      - "kalman-toss-gateway/engine/execution_telemetry_sync.py"
       - "kalman-toss-gateway/engine/news_ingest_v1.py"
       - "kalman-toss-gateway/config/news-ingest-v1.json"
       - "kalman-toss-gateway/scripts/run_news_ingest_v1.sh"
@@ -101,7 +103,7 @@ jobs:
 
       - name: Compile gateway code
         run: |
-          python -m compileall app engine/auto_trade.py engine/position_manager.py engine/benchmark_ledger.py engine/trade_mirror.py engine/news_ingest_v1.py engine/macro_event_features_v1.py engine/macro_consensus_provider_v1.py engine/macro_shadow_eval_v1.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py tests/test_trade_mirror_status.py tests/test_execution_telemetry.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py
+          python -m compileall app engine/auto_trade.py engine/position_manager.py engine/benchmark_ledger.py engine/trade_mirror.py engine/execution_telemetry_sync.py engine/news_ingest_v1.py engine/macro_event_features_v1.py engine/macro_consensus_provider_v1.py engine/macro_shadow_eval_v1.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py tests/test_trade_mirror_status.py tests/test_execution_telemetry.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py
 
       - name: Shell syntax checks
         run: |
