@@ -1,0 +1,14 @@
+{
+  "source_files": 30,
+  "api_functions": 12,
+  "version": "vNext.7.4.23",
+  "unified_readiness": true,
+  "readiness_source": "server_readonly_shared_auto_trade_helpers",
+  "signal_diagnostics_split": true,
+  "operations_tab": true,
+  "global_direct_snapshots": true,
+  "mobile_tabs_single_row": true,
+  "web_read_only": true,
+  "ui_vocabulary_contract": "kalman-ui-v1.1",
+  "compact_manifest_bytes": 338481
+}
