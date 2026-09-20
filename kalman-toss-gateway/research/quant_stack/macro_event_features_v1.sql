@@ -37,3 +37,31 @@ SELECT DISTINCT ON (indicator_key)
        created_at, updated_at
 FROM public.macro_release_observation
 ORDER BY indicator_key, available_at DESC, observation_id DESC;
+
+
+CREATE TABLE IF NOT EXISTS public.macro_policy_repricing_observation (
+    observation_id text PRIMARY KEY,
+    event_name text NOT NULL,
+    event_at timestamptz NOT NULL,
+    available_at timestamptz NOT NULL,
+    repricing_bps double precision NOT NULL,
+    horizon text NOT NULL DEFAULT 'NEXT_FOMC',
+    source text NOT NULL,
+    source_item_id text,
+    time_quality text NOT NULL
+        CHECK (time_quality IN ('EXACT_SOURCE_TS','PUBLISHER_TS','FIRST_SEEN_TS','DATE_ONLY')),
+    payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (available_at >= event_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_macro_policy_repricing_available
+    ON public.macro_policy_repricing_observation (available_at DESC);
+
+CREATE OR REPLACE VIEW public.v_macro_policy_repricing_latest AS
+SELECT DISTINCT ON (horizon)
+       observation_id,event_name,event_at,available_at,repricing_bps,
+       horizon,source,source_item_id,time_quality,payload,created_at,updated_at
+FROM public.macro_policy_repricing_observation
+ORDER BY horizon, available_at DESC, observation_id DESC;
