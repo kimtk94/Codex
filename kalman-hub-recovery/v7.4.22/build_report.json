@@ -7,7 +7,8 @@
   "benchmark_panel": true,
   "execution_ledger_panel": true,
   "web_read_only": true,
+  "ui_vocabulary_contract": "kalman-ui-v1",
   "compact_manifest_bytes": 124835,
-  "source_manifest_sha256": "e5d33fabb06d6acec697f65927b253ba9d015e8d388846bbf7170e904386eb5e",
+  "source_manifest_sha256": "50081edee8b20c286fd6b01a06e7d157fa0673df2e25abfbc475f050d26510b4",
   "vercel_manifest_sha256": "a37d2c89ccb13637ff4caf3ffcdc418c6dbea4efd573e042657835cb260bf03e"
 }
