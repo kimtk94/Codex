@@ -953,6 +953,83 @@ def collect_dart(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str
         return 0, 0
 
 
+def gdelt_primary_terms(
+    market: str,
+    entity_aliases: dict[str, dict[str, tuple[str, ...]]],
+    universe: dict[str, list[str]],
+) -> list[str]:
+    allowed = set(universe.get(market, []))
+    terms: list[str] = []
+    for symbol in sorted(entity_aliases.get(market, {})):
+        if allowed and symbol not in allowed:
+            continue
+        aliases = list(entity_aliases[market][symbol])
+        if market == "KR":
+            aliases = [
+                a for a in aliases
+                if re.search(r"[A-Za-z]", a) and not re.search(r"[가-힣]", a)
+            ]
+        if not aliases:
+            continue
+        term = aliases[0].strip()
+        if term and term not in terms:
+            terms.append(term)
+    return terms
+
+
+def gdelt_query_for_item(
+    item: dict[str, Any],
+    cfg: dict[str, Any],
+    entity_aliases: dict[str, dict[str, tuple[str, ...]]],
+    universe: dict[str, list[str]],
+    now: datetime,
+) -> tuple[str, dict[str, Any]]:
+    market = str(item["market"]).upper()
+    if not item.get("entity_targeted"):
+        return str(item.get("query") or ""), {"mode": "static"}
+
+    terms = gdelt_primary_terms(market, entity_aliases, universe)
+    if not terms:
+        return str(item.get("query") or ""), {"mode": "static_fallback"}
+
+    shard_size = max(1, int(item.get(
+        "terms_per_query", cfg.get("entity_terms_per_query", 20)
+    )))
+    shards = [terms[i:i + shard_size] for i in range(0, len(terms), shard_size)]
+    market_count = max(1, len(cfg.get("queries", [])))
+    rr_seconds = max(60, int(cfg.get("round_robin_seconds", 300)))
+    market_cycle_seconds = rr_seconds * market_count
+    shard_index = int(now.timestamp() // market_cycle_seconds) % len(shards)
+    shard = shards[shard_index]
+
+    def qterm(value: str) -> str:
+        clean = value.replace('"', "").strip()
+        return f'"{clean}"' if (" " in clean or "-" in clean or "&" in clean or "." in clean) else clean
+
+    query = "(" + " OR ".join(qterm(x) for x in shard) + ")"
+    query_filter = str(item.get("query_filter") or "").strip()
+    if query_filter:
+        query += " " + query_filter
+    return query, {
+        "mode": "entity_targeted_v2",
+        "shard_index": shard_index,
+        "shard_count": len(shards),
+        "terms": shard,
+    }
+
+
+def gdelt_scheduled_items(cfg: dict[str, Any], now: datetime) -> list[dict[str, Any]]:
+    items = list(cfg.get("queries", []))
+    if not items:
+        return []
+    max_per_cycle = max(1, int(cfg.get("max_queries_per_cycle", len(items))))
+    if max_per_cycle >= len(items):
+        return items
+    rr_seconds = max(60, int(cfg.get("round_robin_seconds", 300)))
+    start = int(now.timestamp() // rr_seconds) % len(items)
+    return [items[(start + i) % len(items)] for i in range(max_per_cycle)]
+
+
 def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str]],
                   secmap: dict[str, dict[str, Any]] | None,
                   dartmap: dict[str, str] | None,
@@ -960,28 +1037,27 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
     if not cfg.get("enabled", True):
         return 0, 0
     total_seen = total_inserted = 0
-    last_request_monotonic: float | None = None
-    request_spacing = max(0.0, float(cfg.get("request_spacing_seconds", 8)))
-    for item in cfg.get("queries", []):
+    now_for_schedule = utc_now()
+    for item in gdelt_scheduled_items(cfg, now_for_schedule):
         market = str(item["market"]).upper()
         source = f"gdelt_{market.lower()}"
         if not spool.due(source, int(cfg.get("min_interval_seconds", 900))):
             continue
+        query, query_meta = gdelt_query_for_item(
+            item, cfg, entity_aliases or {}, universe, now_for_schedule
+        )
+        if not query:
+            continue
         try:
-            if last_request_monotonic is not None and request_spacing > 0:
-                elapsed = time.monotonic() - last_request_monotonic
-                if elapsed < request_spacing:
-                    time.sleep(request_spacing - elapsed)
-            last_request_monotonic = time.monotonic()
             r = http_get(
                 "https://api.gdeltproject.org/api/v2/doc/doc",
                 params={
-                    "query": item["query"],
+                    "query": query,
                     "mode": "ArtList",
-                    "maxrecords": int(cfg.get("maxrecords", 250)),
+                    "maxrecords": int(item.get("maxrecords", cfg.get("maxrecords", 250))),
                     "format": "json",
                     "sort": "DateDesc",
-                    "timespan": str(cfg.get("timespan", "1h")),
+                    "timespan": str(item.get("timespan", cfg.get("timespan", "1h"))),
                 },
                 timeout=float(cfg.get("timeout_seconds", 45)),
             )
@@ -1008,7 +1084,12 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
                 inserted += int(spool.put(article))
             spool.record_source(
                 source, success=True, seen=len(rows), inserted=inserted,
-                duplicates=len(rows)-inserted, payload={"market": market, "query": item["query"]},
+                duplicates=len(rows)-inserted,
+                payload={
+                    "market": market,
+                    "query": query,
+                    "query_meta": query_meta,
+                },
             )
             total_seen += len(rows)
             total_inserted += inserted
@@ -1017,16 +1098,19 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
                 source, success=False, error=str(exc),
                 payload={
                     "market": market,
-                    "query": item.get("query"),
+                    "query": query,
+                    "query_meta": query_meta,
                     "retry_after_seconds": exc.retry_after_seconds,
                     "rate_limited": True,
                 },
             )
-            print(f"[NEWS][WARN] {source}: {exc}; remaining GDELT queries deferred")
+            print(f"[NEWS][WARN] {source}: {exc}; scheduled GDELT query deferred")
             break
         except Exception as exc:
-            spool.record_source(source, success=False, error=str(exc),
-                                payload={"market": market, "query": item.get("query")})
+            spool.record_source(
+                source, success=False, error=str(exc),
+                payload={"market": market, "query": query, "query_meta": query_meta},
+            )
             print(f"[NEWS][WARN] {source}: {exc}")
     return total_seen, total_inserted
 
