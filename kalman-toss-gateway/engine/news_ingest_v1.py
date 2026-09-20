@@ -630,7 +630,10 @@ def configured_alias_entities(title: str, market: str,
         best_alias: str | None = None
         for alias in aliases:
             alias_norm = normalize_entity_text(alias)
-            if len(alias_norm.replace(" ", "")) < 2:
+            compact_alias = alias_norm.replace(" ", "")
+            if len(compact_alias) < 2:
+                continue
+            if compact_alias in {"sk", "lg", "ls", "kt", "gs"}:
                 continue
             if f" {alias_norm} " in normalized:
                 if best_alias is None or len(alias_norm) > len(normalize_entity_text(best_alias)):
