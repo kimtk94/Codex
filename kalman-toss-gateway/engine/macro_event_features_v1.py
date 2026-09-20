@@ -17,6 +17,8 @@ import psycopg
 from dotenv import load_dotenv
 from psycopg.rows import dict_row
 
+from engine.macro_consensus_provider_v1 import refresh_consensus_observations
+
 
 FEATURE_VERSION = "macro-event-feature-v1"
 FRED_OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
@@ -658,6 +660,7 @@ def build_snapshot(
     dgs2, dgs2_error = fetch_dgs2(config, as_of)
     policy_rate, policy_rate_error = fetch_policy_proxy_rate(config, as_of)
     with psycopg.connect(db_url, connect_timeout=15, row_factory=dict_row) as conn:
+        consensus_refresh = refresh_consensus_observations(conn, config, as_of)
         macro_rows, release_rows, policy_rows, states = fetch_inputs(
             conn, as_of, lookback, config
         )
@@ -673,6 +676,7 @@ def build_snapshot(
             policy_rate_observations=policy_rate,
             policy_rate_error=policy_rate_error,
         )
+        features["consensus_provider_refresh"] = consensus_refresh
         run_id = "MACRO-" + as_of.strftime("%Y%m%dT%H%MZ")
         conn.execute(
             """
