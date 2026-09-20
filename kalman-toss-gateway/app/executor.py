@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+import time
 
 import httpx
 from dataclasses import dataclass
@@ -33,6 +35,44 @@ def _decimal(v) -> Decimal:
     return Decimal(str(v))
 
 
+def _quote_telemetry(payload) -> dict:
+    data = _result(payload) or {}
+    if not isinstance(data, dict):
+        return {}
+    asks = []
+    bids = []
+    for row in data.get('asks') or []:
+        try:
+            p = _decimal(row.get('price'))
+            if p > 0:
+                asks.append(p)
+        except Exception:
+            pass
+    for row in data.get('bids') or []:
+        try:
+            p = _decimal(row.get('price'))
+            if p > 0:
+                bids.append(p)
+        except Exception:
+            pass
+    best_ask = min(asks) if asks else None
+    best_bid = max(bids) if bids else None
+    mid = None
+    spread_bps = None
+    if best_ask is not None and best_bid is not None and best_ask >= best_bid:
+        mid = (best_ask + best_bid) / Decimal('2')
+        if mid > 0:
+            spread_bps = (best_ask - best_bid) / mid * Decimal('10000')
+    return {
+        'timestamp': data.get('timestamp'),
+        'currency': data.get('currency'),
+        'best_bid': str(best_bid) if best_bid is not None else None,
+        'best_ask': str(best_ask) if best_ask is not None else None,
+        'mid': str(mid) if mid is not None else None,
+        'spread_bps': str(spread_bps) if spread_bps is not None else None,
+    }
+
+
 class TradeLedger:
     def __init__(self, path: Path):
         self.path = path
@@ -50,6 +90,9 @@ class TradeLedger:
         )"""
         with self._connect() as conn:
             conn.execute(ddl)
+            cols = {row[1] for row in conn.execute('PRAGMA table_info(order_guard)').fetchall()}
+            if 'telemetry_json' not in cols:
+                conn.execute('ALTER TABLE order_guard ADD COLUMN telemetry_json TEXT')
 
     def _connect(self):
         return sqlite3.connect(self.path, timeout=15, isolation_level=None)
@@ -74,7 +117,10 @@ class TradeLedger:
                 conn.rollback()
                 return False, 'DAILY_TOTAL_LIMIT_EXCEEDED', int(used)
             conn.execute(
-                'INSERT INTO order_guard VALUES (?,?,?,?,?,?,?,?,?)',
+                """INSERT INTO order_guard (
+                    client_order_id,created_at,trade_date_kst,symbol,side,
+                    estimated_notional_krw,status,toss_order_id,error
+                ) VALUES (?,?,?,?,?,?,?,?,?)""",
                 (client_order_id, datetime.now(timezone.utc).isoformat(), today, symbol, side, amount_krw, 'RESERVED', None, None),
             )
             conn.commit()
@@ -104,6 +150,34 @@ class TradeLedger:
             conn.row_factory = sqlite3.Row
             row = conn.execute('SELECT * FROM order_guard WHERE client_order_id=?', (client_order_id,)).fetchone()
             return dict(row) if row else None
+
+
+    def patch_telemetry(self, client_order_id: str, patch: dict) -> None:
+        if not patch:
+            return
+        with self._connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            row = conn.execute(
+                'SELECT telemetry_json FROM order_guard WHERE client_order_id=?',
+                (client_order_id,),
+            ).fetchone()
+            if row is None:
+                conn.rollback()
+                return
+            current = {}
+            if row[0]:
+                try:
+                    parsed = json.loads(row[0])
+                    if isinstance(parsed, dict):
+                        current = parsed
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    current = {}
+            current.update(patch)
+            conn.execute(
+                'UPDATE order_guard SET telemetry_json=? WHERE client_order_id=?',
+                (json.dumps(current, ensure_ascii=False, separators=(',', ':'), default=str), client_order_id),
+            )
+            conn.commit()
 
 
 async def prepare_order(settings: Settings, request) -> PreparedOrder:
@@ -234,8 +308,35 @@ async def execute_order(settings: Settings, request, *, risk_reducing_exit: bool
         }
 
     try:
+        quote_payload = await client.orderbook(request.symbol)
+        ledger.patch_telemetry(
+            request.client_order_id,
+            {
+                'pretrade_quote': _quote_telemetry(quote_payload),
+                'pretrade_quote_response': dict(client.last_response_meta),
+            },
+        )
+    except Exception as exc:
+        ledger.patch_telemetry(
+            request.client_order_id,
+            {
+                'pretrade_quote_error': f'{type(exc).__name__}: {exc}',
+                'pretrade_quote_response': dict(client.last_response_meta),
+            },
+        )
+
+    submit_started = datetime.now(timezone.utc)
+    submit_clock = time.perf_counter()
+    try:
         result = await client.place_order(prepared.payload)
     except httpx.HTTPStatusError as exc:
+        submit_completed = datetime.now(timezone.utc)
+        ledger.patch_telemetry(request.client_order_id, {'submit': {
+            'started_at': submit_started.isoformat(),
+            'completed_at': submit_completed.isoformat(),
+            'http_latency_ms': round((time.perf_counter() - submit_clock) * 1000, 3),
+            'response_meta': dict(client.last_response_meta),
+        }})
         status = exc.response.status_code if exc.response is not None else 0
         ledger.finish(
             request.client_order_id,
@@ -244,11 +345,33 @@ async def execute_order(settings: Settings, request, *, risk_reducing_exit: bool
         )
         raise
     except (httpx.TransportError, TimeoutError) as exc:
+        submit_completed = datetime.now(timezone.utc)
+        ledger.patch_telemetry(request.client_order_id, {'submit': {
+            'started_at': submit_started.isoformat(),
+            'completed_at': submit_completed.isoformat(),
+            'http_latency_ms': round((time.perf_counter() - submit_clock) * 1000, 3),
+            'response_meta': dict(client.last_response_meta),
+        }})
         ledger.finish(request.client_order_id, 'AMBIGUOUS', error=f'{type(exc).__name__}: {exc}')
         raise
     except Exception as exc:
+        submit_completed = datetime.now(timezone.utc)
+        ledger.patch_telemetry(request.client_order_id, {'submit': {
+            'started_at': submit_started.isoformat(),
+            'completed_at': submit_completed.isoformat(),
+            'http_latency_ms': round((time.perf_counter() - submit_clock) * 1000, 3),
+            'response_meta': dict(client.last_response_meta),
+        }})
         ledger.finish(request.client_order_id, 'AMBIGUOUS', error=f'{type(exc).__name__}: {exc}')
         raise
+
+    submit_completed = datetime.now(timezone.utc)
+    ledger.patch_telemetry(request.client_order_id, {'submit': {
+        'started_at': submit_started.isoformat(),
+        'completed_at': submit_completed.isoformat(),
+        'http_latency_ms': round((time.perf_counter() - submit_clock) * 1000, 3),
+        'response_meta': dict(client.last_response_meta),
+    }})
 
     inner = _result(result) or {}
     order_id = inner.get('orderId') if isinstance(inner, dict) else None
