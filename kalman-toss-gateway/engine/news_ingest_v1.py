@@ -1071,11 +1071,12 @@ def collect_all(spool: Spool, config: dict[str, Any], db_url: str | None,
     dartmap = None
     sec_enabled = bool(sec_cfg.get("enabled", True)) and env_bool("KALMAN_NEWS_SEC_ENABLED", True)
     sec_due = sec_enabled and spool.due("sec_edgar", int(sec_cfg.get("min_interval_seconds", 900)))
-    gdelt_us_due = spool.due("gdelt_us", int(gdelt_cfg.get("min_interval_seconds", 900)))
     dart_due = spool.due("opendart", int(dart_cfg.get("min_interval_seconds", 300)))
     gdelt_kr_due = spool.due("gdelt_kr", int(gdelt_cfg.get("min_interval_seconds", 900)))
 
-    if os.environ.get("KALMAN_NEWS_SEC_USER_AGENT") and (sec_due or gdelt_us_due):
+    # Never touch SEC endpoints while the runtime SEC gate is disabled. GDELT US
+    # can continue with market-level fallback mapping until SEC access is restored.
+    if os.environ.get("KALMAN_NEWS_SEC_USER_AGENT") and sec_due:
         try:
             secmap = sec_company_map(state_dir, os.environ["KALMAN_NEWS_SEC_USER_AGENT"])
         except Exception as exc:
