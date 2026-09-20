@@ -1103,6 +1103,10 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
                     "query_meta": query_meta,
                 },
             )
+            spool.record_source(
+                "gdelt_api_gate", success=True,
+                payload={"status": "READY", "consecutive_429": 0},
+            )
             total_seen += len(rows)
             total_inserted += inserted
         except HttpRateLimitError as exc:
