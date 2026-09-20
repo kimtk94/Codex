@@ -84,7 +84,7 @@ echo "[PASS] candidate=$CANDIDATE"
 echo "[4/6] Candidate smoke tests"
 vcurl(){
   local path="$1" out="$2"
-  vercel curl "$CANDIDATE$path" -sS >"$out"
+  vercel curl "$CANDIDATE$path" --scope "$TEAM_SLUG" >"$out"
   [ -s "$out" ] || fail "empty response: $path"
 }
 vcurl "/" "$WORK/index.html"
@@ -93,7 +93,7 @@ vcurl "/api/health" "$WORK/health.json"
 vcurl "/api/assets?view=control" "$WORK/control.json"
 vcurl "/api/dashboard?market=US" "$WORK/us.json"
 set +e
-vercel curl "$CANDIDATE/api/account" -sS >"$WORK/account.json"
+vercel curl "$CANDIDATE/api/account" --scope "$TEAM_SLUG" >"$WORK/account.json"
 set -e
 
 python3 - "$WORK" "$VERSION_TAG" <<'PY'
@@ -128,13 +128,13 @@ vercel promote "$CANDIDATE" --yes --scope "$TEAM_SLUG" >/dev/null
 echo "[PASS] promoted"
 
 echo "[6/6] Production verification"
-vercel curl "$PROD_URL/" -sS >"$WORK/prod-index.html"
-vercel curl "$PROD_URL/app.js" -sS >"$WORK/prod-app.js"
-vercel curl "$PROD_URL/api/health" -sS >"$WORK/prod-health.json"
+vercel curl "$PROD_URL/" --scope "$TEAM_SLUG" >"$WORK/prod-index.html"
+vercel curl "$PROD_URL/app.js" --scope "$TEAM_SLUG" >"$WORK/prod-app.js"
+vercel curl "$PROD_URL/api/health" --scope "$TEAM_SLUG" >"$WORK/prod-health.json"
 set +e
-vercel curl "$PROD_URL/api/account" -sS >"$WORK/prod-account.json"
+vercel curl "$PROD_URL/api/account" --scope "$TEAM_SLUG" >"$WORK/prod-account.json"
 set -e
-vercel curl "$PROD_URL/api/assets?view=control" -sS >"$WORK/prod-control.json"
+vercel curl "$PROD_URL/api/assets?view=control" --scope "$TEAM_SLUG" >"$WORK/prod-control.json"
 
 python3 - "$WORK" "$VERSION_TAG" <<'PY'
 from pathlib import Path
