@@ -431,3 +431,136 @@ def test_consensus_provider_error_redaction():
     text = consensus.sanitize_provider_error(exc, "secret-client:secret-key")
     assert "secret-client:secret-key" not in text
     assert "***" in text
+
+
+
+def test_us2y_anchor_ignores_newer_bok_event():
+    as_of = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
+    cfg = config()
+    cfg["us_reaction_anchor_sources"] = [
+        "fed_monetary", "bls_cpi", "bls_employment", "bls_jolts", "bea_releases"
+    ]
+    official_rows = [
+        {
+            "source": "bls_cpi",
+            "title": "Consumer Price Index",
+            "available_at": datetime(2026, 9, 17, 12, 30, tzinfo=UTC),
+        },
+        {
+            "source": "bok_statistics",
+            "title": "Korea producer prices",
+            "available_at": datetime(2026, 9, 17, 21, 0, tzinfo=UTC),
+        },
+    ]
+
+    anchor, meta = macro.select_us_reaction_anchor([], official_rows, cfg)
+    assert anchor == datetime(2026, 9, 17, 12, 30, tzinfo=UTC)
+    assert meta["kind"] == "US_OFFICIAL_NEWS_PROXY"
+    assert meta["source"] == "bls_cpi"
+
+
+def test_us2y_anchor_is_none_when_only_non_us_official_event_exists():
+    cfg = config()
+    cfg["us_reaction_anchor_sources"] = [
+        "fed_monetary", "bls_cpi", "bls_employment", "bls_jolts", "bea_releases"
+    ]
+    official_rows = [
+        {
+            "source": "bok_statistics",
+            "title": "Korea producer prices",
+            "available_at": datetime(2026, 9, 17, 21, 0, tzinfo=UTC),
+        }
+    ]
+    anchor, meta = macro.select_us_reaction_anchor([], official_rows, cfg)
+    assert anchor is None
+    assert meta["kind"] == "NONE"
+
+
+def test_structured_us_release_takes_precedence_for_us2y_anchor():
+    cfg = config()
+    cfg["us_reaction_anchor_sources"] = ["bls_cpi"]
+    releases = [
+        {
+            "market": "US",
+            "source": "trading_economics_calendar",
+            "event_name": "Inflation Rate YoY",
+            "indicator_key": "CPI_HEADLINE_YOY",
+            "available_at": datetime(2026, 9, 17, 12, 30, tzinfo=UTC),
+            "actual": 3.2,
+            "consensus": 3.0,
+        }
+    ]
+    official_rows = [
+        {
+            "source": "bls_cpi",
+            "title": "Consumer Price Index",
+            "available_at": datetime(2026, 9, 17, 12, 31, tzinfo=UTC),
+        }
+    ]
+    anchor, meta = macro.select_us_reaction_anchor(releases, official_rows, cfg)
+    assert anchor == datetime(2026, 9, 17, 12, 30, tzinfo=UTC)
+    assert meta["kind"] == "STRUCTURED_US_RELEASE"
+    assert meta["indicator_key"] == "CPI_HEADLINE_YOY"
+
+
+def test_feature_payload_does_not_attribute_bok_event_to_us2y():
+    as_of = datetime(2026, 9, 17, 22, 0, tzinfo=UTC)
+    cfg = config()
+    cfg["official_macro_sources"] = ["bok_statistics"]
+    cfg["us_reaction_anchor_sources"] = ["fed_monetary", "bls_cpi"]
+    dgs2 = macro.parse_fred_observations(
+        {
+            "observations": [
+                {"date": "2026-09-16", "value": "4.74"},
+                {"date": "2026-09-17", "value": "4.67"},
+            ]
+        }
+    )
+    dff = macro.parse_fred_observations(
+        {
+            "observations": [
+                {"date": "2026-09-16", "value": "5.00"},
+                {"date": "2026-09-17", "value": "5.00"},
+            ]
+        }
+    )
+    features, _ = macro.build_feature_payload(
+        as_of=as_of,
+        config=cfg,
+        macro_rows=[
+            {
+                "article_id": "bok-1",
+                "source": "bok_statistics",
+                "title": "Korea producer prices",
+                "available_at": datetime(2026, 9, 17, 21, 0, tzinfo=UTC),
+                "importance": 1.0,
+                "confidence": 1.0,
+            }
+        ],
+        release_rows=[],
+        policy_rows=[],
+        source_states=[
+            {
+                "source": "bok_statistics",
+                "last_success_at": datetime(2026, 9, 17, 21, 0, tzinfo=UTC),
+                "last_error": None,
+            }
+        ],
+        dgs2_observations=dgs2,
+        dgs2_error=None,
+        policy_rate_observations=dff,
+        policy_rate_error=None,
+    )
+    assert features["reaction_anchor_kind"] == "NONE"
+    assert features["us2y_event_reaction_bps"] is None
+    assert features["policy_proxy_event_reaction_bps"] is None
+    assert features["component_status"]["us2y_event_reaction"]["status"] == "NO_US_EVENT_ANCHOR"
+
+
+def test_macro_schema_accepts_provider_timestamp_contract():
+    schema = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "research" / "quant_stack" / "macro_event_features_v1.sql"
+    ).read_text(encoding="utf-8")
+    assert "PROVIDER_RELEASE_TS" in schema
+    assert "PROVIDER_ESTIMATED_TS" in schema
