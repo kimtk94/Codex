@@ -284,6 +284,34 @@ class Spool:
         ))
         self.db.commit()
 
+    def record_disabled(self, source: str, reason: str) -> None:
+        now = iso(utc_now())
+        old = self.source_state(source)
+        self.db.execute("""
+        INSERT INTO source_state(
+          source,last_attempt_at,last_success_at,etag,last_modified,cursor,
+          last_error_at,last_error,rows_seen,rows_inserted,rows_duplicate,payload_json
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(source) DO UPDATE SET
+          last_attempt_at=excluded.last_attempt_at,
+          last_success_at=source_state.last_success_at,
+          etag=source_state.etag,
+          last_modified=source_state.last_modified,
+          cursor=source_state.cursor,
+          last_error_at=NULL,
+          last_error=NULL,
+          rows_seen=source_state.rows_seen,
+          rows_inserted=source_state.rows_inserted,
+          rows_duplicate=source_state.rows_duplicate,
+          payload_json=excluded.payload_json
+        """, (
+            source, now, old.get("last_success_at"), old.get("etag"),
+            old.get("last_modified"), old.get("cursor"), None, None,
+            0, 0, 0,
+            json.dumps({"status": "DISABLED", "reason": reason}, sort_keys=True),
+        ))
+        self.db.commit()
+
     def put(self, article: Article) -> bool:
         cur = self.db.execute(
             "SELECT 1 FROM article WHERE article_id=?", (article.article_id,)
@@ -630,7 +658,11 @@ def collect_rss(spool: Spool, cfg: dict[str, Any]) -> tuple[int, int]:
 def collect_sec(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str]],
                 state_dir: Path) -> tuple[int, int]:
     source = "sec_edgar"
-    if not cfg.get("enabled", True) or not env_bool("KALMAN_NEWS_SEC_ENABLED", True):
+    if not cfg.get("enabled", True):
+        spool.record_disabled(source, "config_disabled")
+        return 0, 0
+    if not env_bool("KALMAN_NEWS_SEC_ENABLED", True):
+        spool.record_disabled(source, "runtime_gate")
         return 0, 0
     if not spool.due(source, int(cfg.get("min_interval_seconds", 900))):
         return 0, 0
@@ -703,7 +735,11 @@ def collect_sec(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str]
 
 def collect_dart(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str]]) -> tuple[int, int]:
     source = "opendart"
-    if not cfg.get("enabled", True) or not env_bool("KALMAN_NEWS_DART_ENABLED", True):
+    if not cfg.get("enabled", True):
+        spool.record_disabled(source, "config_disabled")
+        return 0, 0
+    if not env_bool("KALMAN_NEWS_DART_ENABLED", True):
+        spool.record_disabled(source, "runtime_gate")
         return 0, 0
     if not spool.due(source, int(cfg.get("min_interval_seconds", 300))):
         return 0, 0
@@ -866,8 +902,6 @@ def sync_neon(spool: Spool, db_url: str | None, batch_size: int = 500) -> int:
         print("[NEWS][SYNC][WARN] DATABASE_URL_WRITER missing; Neon sync skipped")
         return 0
     rows = spool.pending("neon", batch_size)
-    if not rows:
-        return 0
     ids: list[str] = []
     with psycopg.connect(db_url, connect_timeout=15) as conn:
         with conn.transaction():
