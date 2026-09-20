@@ -1110,6 +1110,21 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
             total_seen += len(rows)
             total_inserted += inserted
         except HttpRateLimitError as exc:
+            previous = int(gate_payload.get("consecutive_429") or 0)
+            consecutive = previous + 1
+            base = max(300, int(cfg.get("rate_limit_backoff_seconds", 3600)))
+            cap = max(base, int(cfg.get("rate_limit_max_backoff_seconds", 21600)))
+            delay = min(cap, base * (2 ** max(0, consecutive - 1)))
+            if exc.retry_after_seconds is not None:
+                delay = max(delay, int(exc.retry_after_seconds))
+            until = utc_now() + timedelta(seconds=delay)
+            gate_payload = {
+                "status": "RATE_LIMITED",
+                "consecutive_429": consecutive,
+                "backoff_seconds": delay,
+                "backoff_until": iso(until),
+                "trigger_source": source,
+            }
             spool.record_source(
                 source, success=False, error=str(exc),
                 payload={
@@ -1118,9 +1133,13 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
                     "query_meta": query_meta,
                     "retry_after_seconds": exc.retry_after_seconds,
                     "rate_limited": True,
+                    "global_backoff_until": iso(until),
                 },
             )
-            print(f"[NEWS][WARN] {source}: {exc}; scheduled GDELT query deferred")
+            spool.record_source(
+                "gdelt_api_gate", success=False, error=str(exc), payload=gate_payload,
+            )
+            print(f"[NEWS][WARN] {source}: {exc}; GDELT circuit open for {delay}s until {iso(until)}")
             break
         except Exception as exc:
             spool.record_source(
