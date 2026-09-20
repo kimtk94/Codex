@@ -25,6 +25,19 @@ def _dec(v):
         return None
 
 
+def _execution_status(order: dict, pos: dict | None, leg: str | None) -> tuple[str | None, str]:
+    """Prefer broker-reconciled managed-position status over submission-ledger status."""
+    guard_status = str(order.get("status") or "").upper() or None
+    if not pos or leg not in {"ENTRY", "EXIT"}:
+        return guard_status, "order_guard"
+
+    status_key = "entry_status" if leg == "ENTRY" else "exit_status"
+    reconciled_status = str(pos.get(status_key) or "").upper() or None
+    if reconciled_status:
+        return reconciled_status, "managed_position"
+    return guard_status, "order_guard"
+
+
 def main() -> int:
     load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=True)
     db_url = os.environ.get("DATABASE_URL_WRITER")
@@ -138,6 +151,13 @@ def main() -> int:
                         filled = max(Decimal("0"), entry_filled - remaining)
                     avg = _dec(pos.get("exit_avg_fill_price"))
 
+                execution_status, status_source = _execution_status(o, pos, leg)
+                reconciled_position_status = None
+                if pos and leg == "ENTRY":
+                    reconciled_position_status = pos.get("entry_status")
+                elif pos and leg == "EXIT":
+                    reconciled_position_status = pos.get("exit_status")
+
                 cur.execute(
                     """
                     INSERT INTO trade_execution (
@@ -176,7 +196,7 @@ def main() -> int:
                         execution_mode,
                         signal_policy,
                         pos.get("entry_signal_as_of") if pos else None,
-                        o.get("status"),
+                        execution_status,
                         filled,
                         avg,
                         o.get("estimated_notional_krw"),
@@ -187,6 +207,9 @@ def main() -> int:
                             "local_created_at": o.get("created_at"),
                             "position_leg": leg,
                             "exit_reason": pos.get("exit_reason") if pos else None,
+                            "order_guard_status": o.get("status"),
+                            "reconciled_position_status": reconciled_position_status,
+                            "status_source": status_source,
                             "source": "local_order_guard",
                         }),
                         o.get("created_at"),
