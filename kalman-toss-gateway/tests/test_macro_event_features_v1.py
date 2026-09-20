@@ -869,3 +869,48 @@ def test_shadow_score_is_blocked_when_event_components_are_incomplete():
     assert "EVENT_BUNDLE_SURPRISE_UNAVAILABLE" in score["blockers"]
     assert "US2Y_EVENT_REACTION_UNAVAILABLE" in score["blockers"]
     assert "POLICY_REPRICING_CONFIRMATION_UNAVAILABLE" in score["blockers"]
+
+
+def test_free_reaction_score_renormalizes_existing_cpi_rate_weights():
+    cfg = config()
+    score = macro.compute_free_reaction_shadow_score(
+        event_family="CPI",
+        reaction_z=2.0,
+        policy_proxy_event_bps=5.0,
+        config=cfg,
+    )
+    assert score["ready"] is True
+    assert score["quality"] == "DAILY_RATE_PROXY_ONLY"
+    assert score["free_only"] is True
+    assert score["policy_proxy_confirmation_z"] == 1.0
+    # Existing CPI rate weights 0.30/0.20 renormalize to 0.60/0.40.
+    assert score["score"] == 1.6
+    assert score["direction"] == "HAWKISH_TIGHTENING"
+
+
+def test_free_reaction_score_uses_existing_fomc_weights():
+    cfg = config()
+    score = macro.compute_free_reaction_shadow_score(
+        event_family="FOMC",
+        reaction_z=-2.0,
+        policy_proxy_event_bps=-5.0,
+        config=cfg,
+    )
+    assert score["ready"] is True
+    # Existing FOMC weights already sum to one: 0.45 / 0.55.
+    assert score["score"] == -1.45
+    assert score["direction"] == "DOVISH_EASING"
+
+
+def test_free_reaction_score_blocks_without_event_rate_confirmation():
+    cfg = config()
+    score = macro.compute_free_reaction_shadow_score(
+        event_family="NFP",
+        reaction_z=1.0,
+        policy_proxy_event_bps=None,
+        config=cfg,
+    )
+    assert score["ready"] is False
+    assert score["score"] is None
+    assert score["direction"] == "BLOCKED"
+    assert "DGS2_DFF_EVENT_CONFIRMATION_UNAVAILABLE" in score["blockers"]
