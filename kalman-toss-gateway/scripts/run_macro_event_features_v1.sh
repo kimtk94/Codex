@@ -19,9 +19,9 @@ export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 cmd="${1:-}"
 case "$cmd" in
-  build|import-csv|status|selftest) ;;
+  build|import-csv|import-policy-csv|status|selftest) ;;
   *)
-    echo "Usage: $0 {build|import-csv|status|selftest} [args...]" >&2
+    echo "Usage: $0 {build|import-csv|import-policy-csv|status|selftest} [args...]" >&2
     exit 2
     ;;
 esac
