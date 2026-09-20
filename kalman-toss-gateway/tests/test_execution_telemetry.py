@@ -134,6 +134,74 @@ def test_execution_quality_measures_touch_slippage_and_cost():
     assert q["rate_limit_remaining"] == 6
 
 
+def test_execution_quality_prefers_exact_fill_notional_and_broker_rate_limit():
+    q = _execution_quality(
+        "SELL",
+        "545.1",
+        {
+            "broker_order": {
+                "currency": "USD",
+                "filled_quantity": "0.006965",
+                "average_filled_price": "545.1",
+                "filled_amount": "3.79",
+                "commission": "0",
+                "tax": "0.01",
+                "response_meta": {
+                    "rate_limit_limit": 5,
+                    "rate_limit_remaining": 4,
+                    "rate_limit_reset_seconds": 1,
+                },
+            }
+        },
+    )
+    exact = Decimal("0.006965") * Decimal("545.1")
+    expected_cost_bps = Decimal("0.01") / exact * Decimal("10000")
+    assert abs(q["exact_notional"] - float(exact)) < 1e-12
+    assert abs(q["cost_bps"] - float(expected_cost_bps)) < 1e-12
+    assert q["rate_limit_limit"] == 5
+    assert q["rate_limit_remaining"] == 4
+    assert q["rate_limit_reset_seconds"] == 1
+
+
+def test_round_trip_quality_uses_exact_notional_not_rounded_filled_amount():
+    entry = _execution_quality(
+        "BUY",
+        "522.59",
+        {
+            "broker_order": {
+                "filled_quantity": "0.006965",
+                "average_filled_price": "522.59",
+                "filled_amount": "3.63",
+                "commission": "0",
+                "tax": "0",
+            }
+        },
+    )
+    exit_ = _execution_quality(
+        "SELL",
+        "545.1",
+        {
+            "broker_order": {
+                "filled_quantity": "0.006965",
+                "average_filled_price": "545.1",
+                "filled_amount": "3.79",
+                "commission": "0",
+                "tax": "0.01",
+            }
+        },
+    )
+    q = _round_trip_quality(entry, exit_)
+    expected_gross = Decimal("545.1") / Decimal("522.59") - Decimal("1")
+    entry_notional = Decimal("0.006965") * Decimal("522.59")
+    exit_notional = Decimal("0.006965") * Decimal("545.1")
+    expected_net = (exit_notional - Decimal("0.01")) / entry_notional - Decimal("1")
+    expected_cost_bps = Decimal("0.01") / entry_notional * Decimal("10000")
+
+    assert abs(q["gross_return"] - float(expected_gross)) < 1e-12
+    assert abs(q["net_return"] - float(expected_net)) < 1e-12
+    assert abs(q["round_trip_cost_bps"] - float(expected_cost_bps)) < 1e-12
+
+
 def test_round_trip_quality_uses_actual_broker_costs():
     q = _round_trip_quality(
         {"filled_amount": 100.0, "commission": 0.1, "tax": 0.0},
