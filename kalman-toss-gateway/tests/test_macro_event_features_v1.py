@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from engine import macro_event_features_v1 as macro
+from engine import macro_consensus_provider_v1 as consensus
 
 
 UTC = timezone.utc
@@ -336,3 +337,57 @@ def test_macro_shock_interaction_uses_surprise_and_us2y_reaction():
     assert round(features["us2y_event_reaction_z"], 6) == 2.0
     assert round(features["macro_shock_interaction"], 6) == 4.0
     assert features["policy_alignment"] == 1
+
+
+def test_trading_economics_value_parser_preserves_model_units():
+    assert consensus.parse_calendar_value("3.2%", "pct") == 3.2
+    assert consensus.parse_calendar_value("178K", "thousands") == 178.0
+    assert consensus.parse_calendar_value("7.2M", "thousands") == 7200.0
+    assert consensus.parse_calendar_value("(0.4%)", "pct") == -0.4
+
+
+def test_trading_economics_calendar_row_maps_actual_and_consensus():
+    as_of = datetime(2026, 9, 17, 13, 0, tzinfo=UTC)
+    cfg = config()
+    cfg["trading_economics"] = {
+        "enabled": True,
+        "event_map": {
+            "Inflation Rate YoY": "CPI_HEADLINE_YOY",
+        },
+    }
+    row = {
+        "CalendarId": "12345",
+        "Date": "2026-09-17T12:30:00",
+        "Country": "United States",
+        "Category": "Inflation Rate",
+        "Event": "Inflation Rate YoY",
+        "Actual": "3.2%",
+        "Previous": "3.1%",
+        "Forecast": "3.0%",
+        "TEForecast": "3.1%",
+        "DateSpan": "0",
+        "LastUpdate": "2026-09-17T12:30:05",
+        "Unit": "%",
+        "Ticker": "USCPIYOY",
+        "Symbol": "USCPIYOY",
+        "Source": "U.S. Bureau of Labor Statistics",
+    }
+
+    mapped = consensus.normalize_calendar_row(row, cfg, as_of)
+    assert mapped is not None
+    assert mapped["indicator_key"] == "CPI_HEADLINE_YOY"
+    assert mapped["actual"] == 3.2
+    assert mapped["consensus"] == 3.0
+    assert mapped["previous"] == 3.1
+    assert mapped["time_quality"] == "PROVIDER_RELEASE_TS"
+    assert mapped["source"] == "trading_economics_calendar"
+
+
+def test_consensus_provider_is_fail_closed_without_runtime_gate(monkeypatch):
+    monkeypatch.setenv("KALMAN_MACRO_CONSENSUS_ENABLED", "false")
+    rows, status = consensus.fetch_calendar_rows(
+        {"trading_economics": {"enabled": True}},
+        datetime(2026, 9, 20, 14, 0, tzinfo=UTC),
+    )
+    assert rows == []
+    assert status["status"] == "DISABLED_RUNTIME"
