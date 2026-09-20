@@ -174,6 +174,24 @@ def normalize_calendar_row(
     }
 
 
+
+def within_active_window(as_of: datetime, provider: dict[str, Any]) -> bool:
+    weekdays = set(int(x) for x in provider.get("active_weekdays", [0, 1, 2, 3, 4]))
+    if as_of.astimezone(UTC).weekday() not in weekdays:
+        return False
+    window = provider.get("active_window_utc") or {}
+    start_text = str(window.get("start", "12:00"))
+    end_text = str(window.get("end", "16:15"))
+
+    def minutes(text: str) -> int:
+        hh, mm = text.split(":", 1)
+        return int(hh) * 60 + int(mm)
+
+    now = as_of.astimezone(UTC)
+    current = now.hour * 60 + now.minute
+    return minutes(start_text) <= current <= minutes(end_text)
+
+
 def fetch_calendar_rows(config: dict[str, Any], as_of: datetime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     provider = config.get("trading_economics") or {}
     if not provider.get("enabled", True):
@@ -184,6 +202,13 @@ def fetch_calendar_rows(config: dict[str, Any], as_of: datetime) -> tuple[list[d
     credentials = (os.environ.get("TRADING_ECONOMICS_API_KEY") or "").strip()
     if not credentials:
         return [], {"status": "UNCONFIGURED", "rows_seen": 0, "rows_mapped": 0}
+    if not within_active_window(as_of, provider):
+        return [], {
+            "status": "OUTSIDE_ACTIVE_WINDOW",
+            "rows_seen": 0,
+            "rows_mapped": 0,
+            "provider": "trading_economics",
+        }
 
     days = max(1, int(provider.get("lookback_days", 5)))
     start = (as_of - timedelta(days=days)).date().isoformat()
@@ -273,7 +298,10 @@ def upsert_observations(
                 json.dumps(row["payload"], ensure_ascii=False, sort_keys=True),
             ),
         ).fetchone()
-        was_inserted = bool(result and result[0])
+        if isinstance(result, dict):
+            was_inserted = bool(result.get("inserted"))
+        else:
+            was_inserted = bool(result and result[0])
         inserted += int(was_inserted)
         updated += int(not was_inserted)
     return {"seen": seen, "inserted": inserted, "updated": updated}
