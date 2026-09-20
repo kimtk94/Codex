@@ -175,6 +175,14 @@ def normalize_calendar_row(
 
 
 
+def sanitize_provider_error(exc: Exception, credentials: str) -> str:
+    message = f"{type(exc).__name__}: {exc}"
+    if credentials:
+        message = message.replace(credentials, "***")
+        message = message.replace(quote(credentials, safe=""), "***")
+    return message
+
+
 def within_active_window(as_of: datetime, provider: dict[str, Any]) -> bool:
     weekdays = set(int(x) for x in provider.get("active_weekdays", [0, 1, 2, 3, 4]))
     if as_of.astimezone(UTC).weekday() not in weekdays:
@@ -202,6 +210,13 @@ def fetch_calendar_rows(config: dict[str, Any], as_of: datetime) -> tuple[list[d
     credentials = (os.environ.get("TRADING_ECONOMICS_API_KEY") or "").strip()
     if not credentials:
         return [], {"status": "UNCONFIGURED", "rows_seen": 0, "rows_mapped": 0}
+    if credentials.lower() in {"guest", "guest:guest"}:
+        return [], {
+            "status": "DEMO_CREDENTIALS_REJECTED",
+            "rows_seen": 0,
+            "rows_mapped": 0,
+            "provider": "trading_economics",
+        }
     if not within_active_window(as_of, provider):
         return [], {
             "status": "OUTSIDE_ACTIVE_WINDOW",
@@ -254,7 +269,7 @@ def fetch_calendar_rows(config: dict[str, Any], as_of: datetime) -> tuple[list[d
             "rows_seen": 0,
             "rows_mapped": 0,
             "provider": "trading_economics",
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": sanitize_provider_error(exc, credentials),
         }
 
 
