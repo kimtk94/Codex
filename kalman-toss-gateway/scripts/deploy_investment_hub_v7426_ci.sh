@@ -8,7 +8,7 @@ PROD_URL="${KALMAN_HUB_PROD_URL:-https://kalman-investment-hub-v2.vercel.app}"
 VERSION_TAG="vNext.7.4.26"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BUILDER="$ROOT/kalman-toss-gateway/scripts/build_investment_hub_v7426_persistent_benchmark.py"
+BUILDER="$ROOT/kalman-toss-gateway/scripts/build_investment_hub_v7426_freshness_split.py"
 MANIFEST="$ROOT/kalman-hub-recovery/v7.4.26/source_manifest.ndjson"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 WORK="/tmp/kalman-hub-v7426-${STAMP}"
