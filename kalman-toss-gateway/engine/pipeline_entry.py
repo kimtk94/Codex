@@ -25,6 +25,12 @@ def main() -> None:
 
     if not os.environ.get('RUN_MODE'):
         raise RuntimeError('RUN_MODE is required')
+
+    # Server-only compatibility is installed before the immutable Unified
+    # payload is loaded. The payload hash/source remains untouched.
+    from engine.server_compat import install_server_runtime_compat
+    install_server_runtime_compat()
+
     runpy.run_module('engine.unified_runner', run_name='__main__')
 
 
