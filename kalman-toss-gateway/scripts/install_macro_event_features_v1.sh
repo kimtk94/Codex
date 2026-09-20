@@ -15,7 +15,7 @@ SCHEMA="$APP_ROOT/research/quant_stack/macro_event_features_v1.sql"
 [ -x "$RUN" ] || chmod +x "$RUN"
 [ -f "$SCHEMA" ] || { echo "[FAIL] schema missing: $SCHEMA" >&2; exit 12; }
 
-echo "[1/4] Apply additive macro feature schema"
+echo "[1/4] Verify/apply additive macro feature schema"
 KALMAN_ENV_FILE="$ENV_FILE" "$PY" - "$SCHEMA" <<'PY'
 import os
 import sys
@@ -30,13 +30,38 @@ db_url = os.environ.get("DATABASE_URL_WRITER") or os.environ.get("DATABASE_URL")
 if not db_url:
     raise SystemExit("DATABASE_URL_WRITER/DATABASE_URL missing")
 
-sql = Path(sys.argv[1]).read_text(encoding="utf-8")
-statements = [x.strip() for x in sql.split(";") if x.strip()]
+required = (
+    "public.macro_release_observation",
+    "public.macro_policy_repricing_observation",
+    "public.v_macro_release_latest",
+    "public.v_macro_policy_repricing_latest",
+)
+
 with psycopg.connect(db_url, connect_timeout=15) as conn:
-    for stmt in statements:
-        conn.execute(stmt)
-    conn.commit()
-print(f"[PASS] applied {len(statements)} schema statements")
+    row = conn.execute(
+        "SELECT " + ",".join("to_regclass(%s)" for _ in required),
+        required,
+    ).fetchone()
+    missing = [name for name, value in zip(required, row) if value is None]
+
+    if not missing:
+        print("[PASS] macro schema already present; DDL skipped")
+    else:
+        print("[INFO] missing macro schema objects: " + ", ".join(missing))
+        sql = Path(sys.argv[1]).read_text(encoding="utf-8")
+        statements = [x.strip() for x in sql.split(";") if x.strip()]
+        try:
+            for stmt in statements:
+                conn.execute(stmt)
+            conn.commit()
+        except psycopg.errors.InsufficientPrivilege as exc:
+            conn.rollback()
+            raise SystemExit(
+                "Macro schema is incomplete and the runtime DB role lacks DDL privileges. "
+                "Apply research/quant_stack/macro_event_features_v1.sql with the schema-owner/admin role, "
+                "then rerun this installer."
+            ) from exc
+        print(f"[PASS] applied {len(statements)} schema statements")
 PY
 
 echo "[2/4] Selftest"
