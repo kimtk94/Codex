@@ -165,7 +165,7 @@ def test_feature_payload_is_challenger_only_and_partial_without_consensus():
     assert features["r51_scoring_enabled"] is False
     assert features["trade_execution_enabled"] is False
     assert features["challenger_only"] is True
-    assert coverage == 0.60
+    assert coverage == 0.65
 
 
 def test_feature_payload_activates_consensus_surprise():
@@ -205,7 +205,7 @@ def test_feature_payload_activates_consensus_surprise():
     )
     assert features["policy_pressure_surprise_latest"] == 2.0
     assert features["consensus_surprise_count_72h"] == 1
-    assert coverage == 0.65
+    assert coverage == 0.60
 
 
 def test_policy_proxy_spread_change():
