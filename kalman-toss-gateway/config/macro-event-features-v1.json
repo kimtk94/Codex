@@ -1,0 +1,55 @@
+{
+  "version": "macro-event-feature-v1.0.0",
+  "feature_version": "macro-event-feature-v1",
+  "lookback_hours": 72,
+  "half_life_hours": {
+    "official_macro": 12,
+    "broad_macro_news": 6,
+    "surprise": 24
+  },
+  "official_macro_sources": [
+    "fed_monetary",
+    "bls_cpi",
+    "bls_employment",
+    "bls_jolts",
+    "bea_releases",
+    "bok_monetary",
+    "bok_statistics"
+  ],
+  "broad_macro_sources": [
+    "gdelt_global",
+    "gdelt_us",
+    "gdelt_kr",
+    "gdelt_crypto"
+  ],
+  "fred": {
+    "enabled": true,
+    "series_id": "DGS2",
+    "observation_days": 14,
+    "timeout_seconds": 20,
+    "reaction_quality": "DAILY_PROXY"
+  },
+  "indicator_normalization": {
+    "CPI_HEADLINE_MOM": {"scale": 0.1, "policy_sign": 1.0, "unit": "pct"},
+    "CPI_HEADLINE_YOY": {"scale": 0.1, "policy_sign": 1.0, "unit": "pct"},
+    "CORE_CPI_MOM": {"scale": 0.1, "policy_sign": 1.0, "unit": "pct"},
+    "CORE_CPI_YOY": {"scale": 0.1, "policy_sign": 1.0, "unit": "pct"},
+    "CORE_PCE_MOM": {"scale": 0.1, "policy_sign": 1.0, "unit": "pct"},
+    "CORE_PCE_YOY": {"scale": 0.1, "policy_sign": 1.0, "unit": "pct"},
+    "NFP": {"scale": 50.0, "policy_sign": 1.0, "unit": "thousands"},
+    "UNEMPLOYMENT_RATE": {"scale": 0.1, "policy_sign": -1.0, "unit": "pct"},
+    "AVERAGE_HOURLY_EARNINGS_MOM": {"scale": 0.1, "policy_sign": 1.0, "unit": "pct"},
+    "PPI_MOM": {"scale": 0.2, "policy_sign": 1.0, "unit": "pct"},
+    "RETAIL_SALES_MOM": {"scale": 0.3, "policy_sign": 1.0, "unit": "pct"},
+    "ISM_MANUFACTURING": {"scale": 1.0, "policy_sign": 1.0, "unit": "index"},
+    "ISM_SERVICES": {"scale": 1.0, "policy_sign": 1.0, "unit": "index"},
+    "JOLTS_OPENINGS": {"scale": 250.0, "policy_sign": 1.0, "unit": "thousands"},
+    "INITIAL_JOBLESS_CLAIMS": {"scale": 10.0, "policy_sign": -1.0, "unit": "thousands"}
+  },
+  "coverage_weights": {
+    "official_news": 0.40,
+    "dgs2_daily_proxy": 0.25,
+    "consensus_surprise_provider": 0.25,
+    "fed_repricing_provider": 0.10
+  }
+}
