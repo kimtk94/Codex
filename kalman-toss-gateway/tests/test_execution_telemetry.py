@@ -123,7 +123,8 @@ def test_execution_quality_measures_touch_slippage_and_cost():
             },
         },
     )
-    assert abs(q["slippage_bps"] - (Decimal("0.10") / Decimal("100.50") * Decimal("10000"))) < Decimal("1e-9")
+    expected_slippage = float(Decimal("0.10") / Decimal("100.50") * Decimal("10000"))
+    assert abs(q["slippage_bps"] - expected_slippage) < 1e-9
     assert abs(q["cost_bps"] - float(Decimal("0.10") / Decimal("100.60") * Decimal("10000"))) < 1e-9
     assert q["submit_http_latency_ms"] == 37.2
     assert q["broker_fill_latency_ms"] == 1200.0
