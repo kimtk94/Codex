@@ -1,5 +1,5 @@
 {
-  "version": "macro-event-feature-v1.5.0",
+  "version": "macro-event-feature-v1.6.0",
   "feature_version": "macro-event-feature-v1",
   "lookback_hours": 72,
   "half_life_hours": {
