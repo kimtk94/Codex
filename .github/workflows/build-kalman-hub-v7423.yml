@@ -1,0 +1,67 @@
+name: Build Kalman Hub v7.4.23 Unified Readiness
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "kalman-hub-recovery/v7.4.23/source_manifest.ndjson"
+      - ".github/workflows/build-kalman-hub-v7423.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-hub-v7423-build
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Decode and validate v7.4.23
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK=/tmp/kalman-v7423
+          rm -rf "$WORK"
+          mkdir -p "$WORK"
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64,json
+          src=Path("kalman-hub-recovery/v7.4.23/source_manifest.ndjson")
+          out=Path("/tmp/kalman-v7423")
+          rows=[json.loads(x) for x in src.read_text().splitlines() if x.strip()]
+          assert len(rows)==30, len(rows)
+          for row in rows:
+              p=out/row["file"]
+              p.parent.mkdir(parents=True,exist_ok=True)
+              p.write_bytes(base64.b64decode(row["data_b64"]))
+          index=(out/"index.html").read_text()
+          app=(out/"app.js").read_text()
+          api=(out/"api/assets.js").read_text()
+          css=(out/"style.css").read_text()
+          assert "vNext.7.4.23" in index
+          assert 'id="operationsTab"' in index
+          assert "function readinessReasonLabel" in app
+          assert "account.trading_readiness" in app
+          assert "CANARY 조건 충족" in app
+          assert "최신 시장 스냅샷" in app
+          assert "function loadOperations" in app
+          assert "/api/trading-readiness" in api
+          assert "signal_diagnostics" in api
+          assert "kalman-web-control-v2" in api
+          assert ".operations-mode .wrap>.account" in css
+          assert ".primary-tabs{flex-wrap:nowrap" in css
+          for bad in ["VALID':'EXPIRED",">PREVIEW</option>","KRW available","GATE OPEN","GATE CLOSED","Toss connected","EMBEDDED SNAPSHOT"]:
+              assert bad not in app,bad
+          print("manifest markers OK")
+          PY
+          node --check "$WORK/app.js"
+          node --check "$WORK/api/assets.js"
+          echo "[PASS] v7.4.23 source manifest"
