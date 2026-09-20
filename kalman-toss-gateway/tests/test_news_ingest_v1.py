@@ -483,3 +483,76 @@ def test_gdelt_targeted_query_uses_alias_shards_and_filters():
     assert '"SK hynix"' in kr_query
     assert "삼성전자" not in kr_query
     assert "sourcecountry:southkorea" in kr_query
+
+
+
+def test_gdelt_circuit_breaker_skips_network_while_open(tmp_path, monkeypatch):
+    spool = Spool(tmp_path / "spool.sqlite3")
+    until = news_ingest_v1.utc_now() + news_ingest_v1.timedelta(hours=1)
+    spool.record_source(
+        "gdelt_api_gate",
+        success=False,
+        error="HTTP 429",
+        payload={
+            "status": "RATE_LIMITED",
+            "consecutive_429": 1,
+            "backoff_until": news_ingest_v1.iso(until),
+        },
+    )
+
+    def should_not_run(*args, **kwargs):
+        raise AssertionError("GDELT network should be skipped while circuit is open")
+
+    monkeypatch.setattr(news_ingest_v1, "http_get", should_not_run)
+
+    seen, inserted = news_ingest_v1.collect_gdelt(
+        spool,
+        {
+            "enabled": True,
+            "min_interval_seconds": 0,
+            "max_queries_per_cycle": 1,
+            "queries": [{"market": "CRYPTO", "query": "Bitcoin"}],
+        },
+        {"US": [], "KR": [], "CRYPTO": ["BTC", "ETH"]},
+        None,
+        None,
+        {},
+    )
+
+    assert seen == 0
+    assert inserted == 0
+
+
+def test_gdelt_429_opens_persistent_global_circuit(tmp_path, monkeypatch):
+    spool = Spool(tmp_path / "spool.sqlite3")
+
+    def rate_limited(*args, **kwargs):
+        raise HttpRateLimitError("https://api.gdeltproject.org/api/v2/doc/doc")
+
+    monkeypatch.setattr(news_ingest_v1, "http_get", rate_limited)
+
+    seen, inserted = news_ingest_v1.collect_gdelt(
+        spool,
+        {
+            "enabled": True,
+            "min_interval_seconds": 0,
+            "max_queries_per_cycle": 1,
+            "rate_limit_backoff_seconds": 3600,
+            "rate_limit_max_backoff_seconds": 21600,
+            "queries": [{"market": "CRYPTO", "query": "Bitcoin"}],
+        },
+        {"US": [], "KR": [], "CRYPTO": ["BTC", "ETH"]},
+        None,
+        None,
+        {},
+    )
+
+    assert seen == 0
+    assert inserted == 0
+
+    gate = spool.source_state("gdelt_api_gate")
+    payload = __import__("json").loads(gate["payload_json"])
+    assert payload["status"] == "RATE_LIMITED"
+    assert payload["consecutive_429"] == 1
+    assert payload["backoff_seconds"] == 3600
+    assert news_ingest_v1.parse_dt(payload["backoff_until"]) > news_ingest_v1.utc_now()
