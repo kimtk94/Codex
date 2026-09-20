@@ -85,7 +85,8 @@ def normalized_surprise(
         return None
     policy_sign = float(spec.get("policy_sign", 1.0))
     score = policy_sign * (float(actual) - float(consensus)) / scale
-    return max(-5.0, min(5.0, score))
+    clipped = max(-5.0, min(5.0, score))
+    return round(clipped, 12)
 
 
 def stable_observation_id(row: dict[str, Any]) -> str:

@@ -416,3 +416,70 @@ def test_entity_alias_v2_ignores_ambiguous_short_kr_group_tokens():
         universe, None, None, "KR", aliases, False,
     )
     assert [e.symbol for e in mapped] == ["005930"]
+
+
+
+def test_gdelt_round_robin_limits_requests_to_one_market_per_cycle():
+    cfg = {
+        "max_queries_per_cycle": 1,
+        "round_robin_seconds": 300,
+        "queries": [
+            {"market": "US"},
+            {"market": "KR"},
+            {"market": "CRYPTO"},
+            {"market": "GLOBAL"},
+        ],
+    }
+    t0 = news_ingest_v1.datetime(1970, 1, 1, 0, 0, tzinfo=news_ingest_v1.UTC)
+    t1 = news_ingest_v1.datetime(1970, 1, 1, 0, 5, tzinfo=news_ingest_v1.UTC)
+    assert [x["market"] for x in news_ingest_v1.gdelt_scheduled_items(cfg, t0)] == ["US"]
+    assert [x["market"] for x in news_ingest_v1.gdelt_scheduled_items(cfg, t1)] == ["KR"]
+
+
+def test_gdelt_targeted_query_uses_alias_shards_and_filters():
+    aliases = {
+        "US": {
+            "AAPL": ("Apple",),
+            "MSFT": ("Microsoft",),
+            "NVDA": ("Nvidia",),
+        },
+        "KR": {
+            "005930": ("삼성전자", "Samsung Electronics"),
+            "000660": ("SK하이닉스", "SK hynix"),
+        },
+        "CRYPTO": {
+            "BTC": ("Bitcoin",),
+            "ETH": ("Ethereum",),
+        },
+    }
+    universe = {
+        "US": ["AAPL", "MSFT", "NVDA"],
+        "KR": ["005930", "000660"],
+        "CRYPTO": ["BTC", "ETH"],
+    }
+    cfg = {
+        "entity_terms_per_query": 20,
+        "round_robin_seconds": 300,
+        "queries": [{}, {}, {}, {}],
+    }
+    now = news_ingest_v1.datetime(2026, 9, 20, 13, 0, tzinfo=news_ingest_v1.UTC)
+
+    us_query, us_meta = news_ingest_v1.gdelt_query_for_item(
+        {"market": "US", "entity_targeted": True, "query_filter": "sourcelang:english"},
+        cfg, aliases, universe, now,
+    )
+    assert us_meta["mode"] == "entity_targeted_v2"
+    assert "Apple" in us_query
+    assert "Microsoft" in us_query
+    assert "Nvidia" in us_query
+    assert "sourcelang:english" in us_query
+    assert "earnings OR guidance" not in us_query
+
+    kr_query, _ = news_ingest_v1.gdelt_query_for_item(
+        {"market": "KR", "entity_targeted": True, "query_filter": "sourcecountry:southkorea"},
+        cfg, aliases, universe, now,
+    )
+    assert "Samsung Electronics" in kr_query
+    assert '"SK hynix"' in kr_query
+    assert "삼성전자" not in kr_query
+    assert "sourcecountry:southkorea" in kr_query
