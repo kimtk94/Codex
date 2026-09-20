@@ -71,7 +71,18 @@
     "lookback_days": 2,
     "max_recent_per_company": 30,
     "request_sleep_seconds": 0.12,
-    "forms": ["8-K", "10-Q", "10-K", "6-K", "20-F", "40-F", "S-1", "S-3", "424B2", "DEF 14A"]
+    "forms": [
+      "8-K",
+      "10-Q",
+      "10-K",
+      "6-K",
+      "20-F",
+      "40-F",
+      "S-1",
+      "S-3",
+      "424B2",
+      "DEF 14A"
+    ]
   },
   "dart": {
     "enabled": true,
@@ -82,27 +93,37 @@
   "gdelt": {
     "enabled": true,
     "min_interval_seconds": 900,
-    "timespan": "1h",
+    "timespan": "3h",
     "maxrecords": 250,
     "timeout_seconds": 45,
     "request_spacing_seconds": 8,
     "queries": [
       {
         "market": "US",
-        "query": "(earnings OR guidance OR merger OR acquisition OR stocks OR shares)"
+        "entity_targeted": true,
+        "query_filter": "sourcelang:english",
+        "timespan": "3h"
       },
       {
         "market": "KR",
-        "query": "(KOSPI OR Korea OR Korean OR Samsung OR \"SK hynix\")"
+        "entity_targeted": true,
+        "query_filter": "sourcecountry:southkorea",
+        "timespan": "3h"
       },
       {
         "market": "CRYPTO",
-        "query": "(bitcoin OR ethereum OR cryptocurrency OR crypto)"
+        "entity_targeted": true,
+        "query_filter": "sourcelang:english",
+        "timespan": "3h"
       },
       {
         "market": "GLOBAL",
-        "query": "(\"Federal Reserve\" OR inflation OR \"interest rates\" OR tariff OR oil)"
+        "query": "(\"Federal Reserve\" OR \"US inflation\" OR \"interest rates\" OR \"US tariff\" OR \"crude oil\") sourcelang:english",
+        "timespan": "2h"
       }
-    ]
+    ],
+    "max_queries_per_cycle": 1,
+    "round_robin_seconds": 300,
+    "entity_terms_per_query": 20
   }
 }
