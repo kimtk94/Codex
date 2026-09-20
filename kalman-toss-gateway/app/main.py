@@ -9,6 +9,7 @@ from .risk import validate_order
 from .toss_client import TossClient
 from .managed_positions import ManagedPositionStore
 from .market_guard import unwrap, us_fractional_order_window
+from .readiness import evaluate_live_readiness
 
 app = FastAPI(title='Kalman Toss Gateway', version='0.2.0')
 
@@ -180,6 +181,11 @@ async def trading_status(settings: Settings = Depends(get_settings)):
         'recentManagedPositions': store.recent(5),
         'tradeExecutionFromWeb': False,
     }
+
+
+@app.get('/api/trading-readiness', dependencies=[Depends(authorize_gateway)])
+async def trading_readiness(settings: Settings = Depends(get_settings)):
+    return await evaluate_live_readiness(settings)
 
 
 @app.get('/api/orders', dependencies=[Depends(authorize_gateway)])
