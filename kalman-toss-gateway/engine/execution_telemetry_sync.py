@@ -73,12 +73,14 @@ async def main_async() -> int:
     if limit < 1 or limit > 1000:
         raise RuntimeError("EXECUTION_TELEMETRY_SYNC_LIMIT must be between 1 and 1000")
 
+    # Initialize the ledger first so legacy SQLite files are migrated
+    # (e.g. telemetry_json is added) before telemetry queries run.
+    ledger = TradeLedger(state_db)
     rows = _broker_orders(state_db, limit)
     if not rows:
         print(json.dumps({"status": "SKIP", "reason": "NO_BROKER_ORDERS", "orders": 0}))
         return 0
 
-    ledger = TradeLedger(state_db)
     client = TossClient(settings)
     synced = 0
     failed = []
