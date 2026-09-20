@@ -156,3 +156,40 @@ def test_sec_runtime_gate_disables_collection(tmp_path, monkeypatch):
 
     assert seen == 0
     assert inserted == 0
+
+
+
+def test_collect_all_never_prefetches_sec_when_runtime_gate_off(tmp_path, monkeypatch):
+    spool = Spool(tmp_path / "spool.sqlite3")
+    monkeypatch.setenv("KALMAN_NEWS_SEC_ENABLED", "false")
+    monkeypatch.setenv("KALMAN_NEWS_SEC_USER_AGENT", "KalmanResearch/1.0 test@example.com")
+
+    monkeypatch.setattr(
+        news_ingest_v1,
+        "latest_universe",
+        lambda *args, **kwargs: {"US": ["AAPL"], "KR": [], "CRYPTO": ["BTC", "ETH"]},
+    )
+
+    def sec_network_must_not_run(*args, **kwargs):
+        raise AssertionError("SEC alias refresh should not run while disabled")
+
+    monkeypatch.setattr(news_ingest_v1, "sec_company_map", sec_network_must_not_run)
+    monkeypatch.setattr(news_ingest_v1, "collect_rss", lambda *args, **kwargs: (0, 0))
+    monkeypatch.setattr(news_ingest_v1, "collect_sec", lambda *args, **kwargs: (0, 0))
+    monkeypatch.setattr(news_ingest_v1, "collect_dart", lambda *args, **kwargs: (0, 0))
+    monkeypatch.setattr(news_ingest_v1, "collect_gdelt", lambda *args, **kwargs: (0, 0))
+
+    result = news_ingest_v1.collect_all(
+        spool,
+        {
+            "rss_sources": [],
+            "sec": {"enabled": True, "min_interval_seconds": 0},
+            "dart": {"enabled": False},
+            "gdelt": {"enabled": True, "min_interval_seconds": 0},
+        },
+        None,
+        tmp_path / "state",
+    )
+
+    assert result["seen"] == 0
+    assert result["inserted"] == 0
