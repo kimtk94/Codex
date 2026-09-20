@@ -28,10 +28,10 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Build v7.4.25 source manifest
+      - name: Build v7.4.26 source manifest
         run: python kalman-toss-gateway/scripts/build_investment_hub_v7426_freshness_split.py
 
-      - name: Validate persistent benchmark surface
+      - name: Validate freshness split and preserved surfaces
         shell: bash
         run: |
           set -euo pipefail
