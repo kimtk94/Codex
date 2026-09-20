@@ -18,8 +18,8 @@ export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 cmd="${1:-}"
 case "$cmd" in
-  collect|sync|coverage|import-gdelt-csv|selftest) ;;
-  *) echo "Usage: $0 {collect|sync|coverage|import-gdelt-csv|selftest} [args...]" >&2; exit 2 ;;
+  collect|sync|coverage|enrich|import-gdelt-csv|selftest) ;;
+  *) echo "Usage: $0 {collect|sync|coverage|enrich|import-gdelt-csv|selftest} [args...]" >&2; exit 2 ;;
 esac
 
 cd "$APP_ROOT"
