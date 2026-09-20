@@ -200,6 +200,22 @@ class _LocalWorksheet:
             wb.close()
 
 
+    def get_all_records(self) -> list[dict[str, Any]]:
+        values = self.get_all_values()
+        if not values:
+            return []
+        header = [str(v) for v in values[0]]
+        records: list[dict[str, Any]] = []
+        for row in values[1:]:
+            padded = row + [""] * max(0, len(header) - len(row))
+            records.append(dict(zip(header, padded[: len(header)])))
+        return records
+
+    def row_values(self, row: int) -> list[Any]:
+        values = self.get(f"A{int(row)}:XFD{int(row)}")
+        return values[0] if values else []
+
+
 class _LocalSpreadsheet:
     def __init__(self, workbook_path: Path):
         self.workbook_path = workbook_path
