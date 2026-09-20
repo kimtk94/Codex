@@ -1,0 +1,25 @@
+{
+  "version": "macro-shadow-eval-v1.0.0",
+  "feature_version": "macro-event-feature-v1",
+  "market": "US",
+  "strategy_version": "R5.1_BASE_HGB",
+  "benchmark_names": [
+    "TOP1_4B_10BP",
+    "TOP6_EQUAL_4B_10BP"
+  ],
+  "forward_start": "2026-09-20T14:26:00Z",
+  "max_macro_snapshot_age_minutes": 30,
+  "min_macro_coverage": 0.65,
+  "minimum_ready_observations_for_rule_research": 60,
+  "regime_thresholds_bps": {
+    "tightening": 10,
+    "easing": -10,
+    "mixed_min_abs": 5
+  },
+  "research_contract": {
+    "observation_only": true,
+    "changes_r51": false,
+    "changes_trade_execution": false,
+    "promotion_allowed": false
+  }
+}
