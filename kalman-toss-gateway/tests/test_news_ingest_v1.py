@@ -390,3 +390,29 @@ def test_enrich_existing_replaces_market_fallback_and_reopens_neon_sync(tmp_path
     assert [(x["market"], x["symbol"]) for x in entities] == [("US", "NVDA")]
     assert entities[0]["mapping_method"] == "entity_alias_v2"
     assert spool.stats()["pending_neon"] == 1
+
+
+
+def test_entity_alias_v2_ignores_ambiguous_short_kr_group_tokens():
+    aliases = {
+        "KR": {
+            "034730": ("SK",),
+            "003550": ("LG",),
+            "005930": ("삼성전자",),
+        }
+    }
+    universe = {"US": [], "KR": ["034730", "003550", "005930"], "CRYPTO": []}
+
+    assert news_ingest_v1.alias_entities(
+        "SK hynix reports stronger memory demand",
+        universe, None, None, "KR", aliases, False,
+    ) == ()
+    assert news_ingest_v1.alias_entities(
+        "LG Energy Solution expands battery capacity",
+        universe, None, None, "KR", aliases, False,
+    ) == ()
+    mapped = news_ingest_v1.alias_entities(
+        "삼성전자 반도체 투자 확대",
+        universe, None, None, "KR", aliases, False,
+    )
+    assert [e.symbol for e in mapped] == ["005930"]
