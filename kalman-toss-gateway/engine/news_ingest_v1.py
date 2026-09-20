@@ -359,6 +359,42 @@ class Spool:
             (limit,),
         ).fetchall()
 
+    def gdelt_articles(self, limit: int | None = None) -> list[sqlite3.Row]:
+        sql = "SELECT * FROM article WHERE source LIKE 'gdelt_%' ORDER BY first_seen_at"
+        if limit is None:
+            return self.db.execute(sql).fetchall()
+        return self.db.execute(sql + " LIMIT ?", (limit,)).fetchall()
+
+    def replace_market_fallback(self, article_id: str, market: str,
+                                entities: Iterable[Entity]) -> int:
+        rows = [e for e in entities if e.market == market
+                and e.mapping_method != "market_topic_fallback_v1"]
+        if not rows:
+            return 0
+        self.db.execute(
+            "DELETE FROM entity WHERE article_id=? AND market=? "
+            "AND mapping_method='market_topic_fallback_v1'",
+            (article_id, market),
+        )
+        for e in rows:
+            self.db.execute("""
+            INSERT INTO entity(article_id,market,symbol,entity_type,relevance,mapping_method,payload_json)
+            VALUES(?,?,?,?,?,?,?)
+            ON CONFLICT(article_id,market,symbol) DO UPDATE SET
+              entity_type=excluded.entity_type,
+              relevance=MAX(entity.relevance,excluded.relevance),
+              mapping_method=excluded.mapping_method,
+              payload_json=excluded.payload_json
+            """, (
+                article_id, e.market, e.symbol, e.entity_type, e.relevance,
+                e.mapping_method, json.dumps(e.payload or {}, ensure_ascii=False, sort_keys=True),
+            ))
+        self.db.execute(
+            "UPDATE article SET synced_neon=0 WHERE article_id=?", (article_id,)
+        )
+        self.db.commit()
+        return len(rows)
+
     def entities(self, article_id: str) -> list[sqlite3.Row]:
         return self.db.execute(
             "SELECT * FROM entity WHERE article_id=? ORDER BY market,symbol",
@@ -528,6 +564,94 @@ def latest_universe(db_url: str | None, cache_path: Path) -> dict[str, list[str]
     }
 
 
+def normalize_entity_text(value: str) -> str:
+    return re.sub(
+        r"\s+", " ",
+        re.sub(r"[^0-9a-zA-Z가-힣]+", " ", (value or "").lower())
+    ).strip()
+
+
+def load_entity_aliases(path: Path, universe: dict[str, list[str]]) -> dict[str, dict[str, tuple[str, ...]]]:
+    if not path.exists():
+        print(f"[NEWS][WARN] entity alias config missing: {path}")
+        return {}
+    obj = json.loads(path.read_text(encoding="utf-8"))
+    raw_markets = obj.get("markets") or {}
+    out: dict[str, dict[str, tuple[str, ...]]] = {}
+    for market in ("US", "KR", "CRYPTO"):
+        allowed = set(universe.get(market, []))
+        market_rows: dict[str, tuple[str, ...]] = {}
+        for symbol, meta in (raw_markets.get(market) or {}).items():
+            symbol = str(symbol)
+            if allowed and symbol not in allowed:
+                continue
+            aliases = meta.get("aliases", []) if isinstance(meta, dict) else meta
+            cleaned = tuple(
+                str(x).strip() for x in aliases
+                if str(x).strip()
+            )
+            market_rows[symbol] = cleaned
+        out[market] = market_rows
+    return out
+
+
+def explicit_ticker_hit(title: str, symbol: str, market: str) -> bool:
+    symbol = str(symbol)
+    if market == "US":
+        escaped = re.escape(symbol)
+        marked = re.search(
+            rf"(?:\$|\(|\b(?:NASDAQ|NYSE)\s*:\s*){escaped}(?:\)|\b)",
+            title,
+            flags=re.IGNORECASE,
+        )
+        if marked:
+            return True
+        if len(symbol) >= 3:
+            return bool(re.search(
+                rf"(?<![A-Za-z0-9-]){escaped}(?![A-Za-z0-9-])", title
+            ))
+        return False
+    if market == "KR" and re.fullmatch(r"[0-9A-Z]{5,6}", symbol):
+        return bool(re.search(rf"(?<![0-9A-Z]){re.escape(symbol)}(?![0-9A-Z])", title))
+    return False
+
+
+def configured_alias_entities(title: str, market: str,
+                              alias_map: dict[str, dict[str, tuple[str, ...]]],
+                              universe: dict[str, list[str]]) -> tuple[Entity, ...]:
+    if market not in {"US", "KR", "CRYPTO"}:
+        return ()
+    normalized = f" {normalize_entity_text(title)} "
+    allowed = set(universe.get(market, []))
+    entities: dict[tuple[str, str], Entity] = {}
+    for symbol, aliases in alias_map.get(market, {}).items():
+        if allowed and symbol not in allowed:
+            continue
+        best_alias: str | None = None
+        for alias in aliases:
+            alias_norm = normalize_entity_text(alias)
+            if len(alias_norm.replace(" ", "")) < 2:
+                continue
+            if f" {alias_norm} " in normalized:
+                if best_alias is None or len(alias_norm) > len(normalize_entity_text(best_alias)):
+                    best_alias = alias
+        ticker_hit = explicit_ticker_hit(title, symbol, market)
+        if best_alias or ticker_hit:
+            entity_type = "MARKET" if symbol in {"KOSPI", "KOSDAQ"} else "ASSET"
+            relevance = 0.96 if best_alias else 0.82
+            entities[(market, symbol)] = Entity(
+                market, symbol, relevance, "entity_alias_v2", entity_type,
+                {
+                    "matched_alias": best_alias,
+                    "ticker_hit": ticker_hit,
+                    "mapper_version": "news-entity-aliases-v2.0.0",
+                },
+            )
+    return tuple(sorted(
+        entities.values(), key=lambda x: (-x.relevance, x.symbol)
+    ))
+
+
 def sec_company_map(state_dir: Path, user_agent: str, max_age_hours: int = 24) -> dict[str, dict[str, Any]]:
     path = state_dir / "sec_company_tickers.json"
     fresh = path.exists() and (time.time() - path.stat().st_mtime) < max_age_hours * 3600
@@ -585,40 +709,64 @@ def dart_company_map(state_dir: Path, api_key: str, max_age_hours: int = 24) -> 
 def alias_entities(title: str, universe: dict[str, list[str]],
                    secmap: dict[str, dict[str, Any]] | None,
                    dartmap: dict[str, str] | None,
-                   market_hint: str) -> tuple[Entity, ...]:
+                   market_hint: str,
+                   entity_aliases: dict[str, dict[str, tuple[str, ...]]] | None = None,
+                   include_fallback: bool = True) -> tuple[Entity, ...]:
     low = title.lower()
     entities: dict[tuple[str, str], Entity] = {}
-    if market_hint == "CRYPTO":
+
+    for e in configured_alias_entities(
+        title, market_hint, entity_aliases or {}, universe
+    ):
+        entities[(e.market, e.symbol)] = e
+
+    if market_hint == "CRYPTO" and not entities:
         for alias, symbol in DEFAULT_CRYPTO_ALIASES.items():
             if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", low):
-                entities[("CRYPTO", symbol)] = Entity("CRYPTO", symbol, 0.95, "crypto_alias_v1")
+                entities[("CRYPTO", symbol)] = Entity(
+                    "CRYPTO", symbol, 0.95, "crypto_alias_v1"
+                )
+
     if market_hint == "US" and secmap:
         allowed = set(universe.get("US", []))
         for symbol, meta in secmap.items():
             if symbol not in allowed:
                 continue
             company = str(meta.get("title") or "").strip().lower()
-            ticker_hit = re.search(rf"(?<![a-z0-9]){re.escape(symbol.lower())}(?![a-z0-9])", low)
+            ticker_hit = explicit_ticker_hit(title, symbol, "US")
             company_hit = len(company) >= 4 and company in low
             if company_hit or ticker_hit:
-                entities[("US", symbol)] = Entity(
-                    "US", symbol, 0.95 if company_hit else 0.75,
+                current = entities.get(("US", symbol))
+                candidate = Entity(
+                    "US", symbol, 0.98 if company_hit else 0.86,
                     "sec_company_alias_v1"
                 )
+                if current is None or candidate.relevance > current.relevance:
+                    entities[("US", symbol)] = candidate
+
     if market_hint == "KR" and dartmap:
         allowed = set(universe.get("KR", []))
         for symbol, company in dartmap.items():
             if symbol not in allowed:
                 continue
             if len(company) >= 2 and company.lower() in low:
-                entities[("KR", symbol)] = Entity("KR", symbol, 0.95, "dart_company_alias_v1")
+                current = entities.get(("KR", symbol))
+                candidate = Entity("KR", symbol, 0.98, "dart_company_alias_v1")
+                if current is None or candidate.relevance > current.relevance:
+                    entities[("KR", symbol)] = candidate
+
     if entities:
-        return tuple(entities.values())
-    if market_hint in MARKETS:
+        return tuple(sorted(
+            entities.values(), key=lambda x: (-x.relevance, x.market, x.symbol)
+        ))
+    if include_fallback and market_hint in MARKETS:
         fallback_symbol = {
             "US": "US_NEWS", "KR": "KR_NEWS", "CRYPTO": "CRYPTO_NEWS", "GLOBAL": "GLOBAL"
         }[market_hint]
-        return (Entity(market_hint, fallback_symbol, 0.25, "market_topic_fallback_v1", "MARKET"),)
+        return (Entity(
+            market_hint, fallback_symbol, 0.25,
+            "market_topic_fallback_v1", "MARKET"
+        ),)
     return ()
 
 
@@ -804,7 +952,8 @@ def collect_dart(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str
 
 def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[str]],
                   secmap: dict[str, dict[str, Any]] | None,
-                  dartmap: dict[str, str] | None) -> tuple[int, int]:
+                  dartmap: dict[str, str] | None,
+                  entity_aliases: dict[str, dict[str, tuple[str, ...]]] | None = None) -> tuple[int, int]:
     if not cfg.get("enabled", True):
         return 0, 0
     total_seen = total_inserted = 0
@@ -841,7 +990,9 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
                 url = clean_url(str(row.get("url") or "")) or None
                 published = parse_dt(row.get("seendate"))
                 now = utc_now()
-                entities = alias_entities(title, universe, secmap, dartmap, market)
+                entities = alias_entities(
+                    title, universe, secmap, dartmap, market, entity_aliases
+                )
                 payload = {k: v for k, v in row.items() if k not in {"title"}}
                 aid = stable_id(source, None, url, title, published)
                 article = Article(
@@ -921,7 +1072,19 @@ def sync_neon(spool: Spool, db_url: str | None, batch_size: int = 500) -> int:
                     row["available_at"], row["time_quality"], row["language"],
                     row["content_sha256"], json.dumps(payload, ensure_ascii=False),
                 ))
-                for e in spool.entities(row["article_id"]):
+                current_entities = spool.entities(row["article_id"])
+                resolved_markets = {
+                    str(e["market"]) for e in current_entities
+                    if e["mapping_method"] != "market_topic_fallback_v1"
+                }
+                for market in resolved_markets:
+                    conn.execute(
+                        "DELETE FROM public.news_entity "
+                        "WHERE article_id=%s AND market=%s "
+                        "AND mapping_method='market_topic_fallback_v1'",
+                        (row["article_id"], market),
+                    )
+                for e in current_entities:
                     conn.execute("""
                     INSERT INTO public.news_entity(
                       article_id,market,symbol,entity_type,relevance,mapping_method,payload
@@ -1066,6 +1229,51 @@ def write_coverage(spool: Spool, db_url: str | None, output: Path) -> dict[str, 
     return report
 
 
+def market_hint_from_source(source: str) -> str | None:
+    if source == "gdelt_us":
+        return "US"
+    if source == "gdelt_kr":
+        return "KR"
+    if source == "gdelt_crypto":
+        return "CRYPTO"
+    if source == "gdelt_global":
+        return "GLOBAL"
+    return None
+
+
+def enrich_existing_entities(
+    spool: Spool,
+    universe: dict[str, list[str]],
+    entity_aliases: dict[str, dict[str, tuple[str, ...]]],
+    limit: int | None = None,
+) -> dict[str, int]:
+    scanned = mapped_articles = entity_links = 0
+    for row in spool.gdelt_articles(limit):
+        market = market_hint_from_source(str(row["source"]))
+        if market not in {"US", "KR", "CRYPTO"}:
+            continue
+        scanned += 1
+        title = str(row["title"] or "")
+        summary = str(row["summary"] or "")
+        text = f"{title} {summary}".strip()
+        mapped = alias_entities(
+            text, universe, None, None, market,
+            entity_aliases=entity_aliases,
+            include_fallback=False,
+        )
+        if not mapped:
+            continue
+        n = spool.replace_market_fallback(row["article_id"], market, mapped)
+        if n:
+            mapped_articles += 1
+            entity_links += n
+    return {
+        "scanned": scanned,
+        "mapped_articles": mapped_articles,
+        "entity_links": entity_links,
+    }
+
+
 def import_gdelt_csv(spool: Spool, path: Path) -> tuple[int, int]:
     seen = inserted = 0
     with path.open("r", encoding="utf-8-sig", newline="") as fh:
@@ -1096,8 +1304,17 @@ def import_gdelt_csv(spool: Spool, path: Path) -> tuple[int, int]:
 
 
 def collect_all(spool: Spool, config: dict[str, Any], db_url: str | None,
-                state_dir: Path) -> dict[str, Any]:
+                state_dir: Path, entity_alias_path: Path | None = None) -> dict[str, Any]:
     universe = latest_universe(db_url, state_dir / "universe_cache.json")
+    entity_aliases = load_entity_aliases(
+        entity_alias_path or Path(
+            os.environ.get(
+                "KALMAN_NEWS_ENTITY_ALIASES",
+                "/opt/kalman/app/config/news-entity-aliases-v2.json",
+            )
+        ),
+        universe,
+    )
     sec_cfg = config.get("sec", {})
     dart_cfg = config.get("dart", {})
     gdelt_cfg = config.get("gdelt", {})
@@ -1131,7 +1348,7 @@ def collect_all(spool: Spool, config: dict[str, Any], db_url: str | None,
     for fn, args in [
         (collect_sec, (spool, sec_cfg, universe, state_dir)),
         (collect_dart, (spool, dart_cfg, universe)),
-        (collect_gdelt, (spool, gdelt_cfg, universe, secmap, dartmap)),
+        (collect_gdelt, (spool, gdelt_cfg, universe, secmap, dartmap, entity_aliases)),
     ]:
         a, b = fn(*args)
         totals["seen"] += a
@@ -1150,6 +1367,18 @@ def selftest() -> None:
     assert a.canonical_url == "https://example.com/a"
     assert a.time_quality == "PUBLISHER_TS"
     assert event_classify(a.title, a.source, {})[0] == "MACRO"
+    aliases = {
+        "US": {"NVDA": ("Nvidia", "NVIDIA")},
+        "KR": {"005930": ("삼성전자", "Samsung Electronics")},
+        "CRYPTO": {"BTC": ("Bitcoin", "BTC")},
+    }
+    universe = {"US": ["NVDA"], "KR": ["005930"], "CRYPTO": ["BTC"]}
+    assert alias_entities(
+        "Nvidia launches new AI platform", universe, None, None, "US", aliases, False
+    )[0].symbol == "NVDA"
+    assert alias_entities(
+        "삼성전자 실적 발표", universe, None, None, "KR", aliases, False
+    )[0].symbol == "005930"
     tmp = Path("/tmp/kalman-news-selftest.sqlite3")
     tmp.unlink(missing_ok=True)
     s = Spool(tmp)
@@ -1163,12 +1392,17 @@ def selftest() -> None:
 def main() -> None:
     load_env()
     p = argparse.ArgumentParser(description="Kalman News/Event ingestion v1")
-    p.add_argument("command", choices=["collect", "sync", "coverage", "import-gdelt-csv", "selftest"])
+    p.add_argument("command", choices=["collect", "sync", "coverage", "enrich", "import-gdelt-csv", "selftest"])
     p.add_argument("--config", default=os.environ.get("KALMAN_NEWS_CONFIG", "/opt/kalman/app/config/news-ingest-v1.json"))
     p.add_argument("--spool", default=os.environ.get("KALMAN_NEWS_SPOOL_DB", "/var/lib/kalman/news/news_spool.sqlite3"))
     p.add_argument("--state-dir", default=os.environ.get("KALMAN_NEWS_STATE_DIR", "/opt/kalman/state/news"))
     p.add_argument("--drive-root", default=os.environ.get("KALMAN_NEWS_DRIVE_ROOT", "/mnt/gdrive/Market_News/v1/raw"))
     p.add_argument("--coverage-output", default=os.environ.get("KALMAN_NEWS_COVERAGE_STATUS", "/opt/kalman/state/news/coverage_status.json"))
+    p.add_argument("--entity-aliases", default=os.environ.get(
+        "KALMAN_NEWS_ENTITY_ALIASES",
+        "/opt/kalman/app/config/news-entity-aliases-v2.json",
+    ))
+    p.add_argument("--limit", type=int)
     p.add_argument("--input-csv")
     p.add_argument("--sync-neon", action="store_true")
     p.add_argument("--sync-drive", action="store_true")
@@ -1183,7 +1417,9 @@ def main() -> None:
     db_url = os.environ.get("DATABASE_URL_WRITER") or os.environ.get("DATABASE_URL")
 
     if args.command == "collect":
-        result = collect_all(spool, config, db_url, Path(args.state_dir))
+        result = collect_all(
+            spool, config, db_url, Path(args.state_dir), Path(args.entity_aliases)
+        )
         print("[NEWS][COLLECT]", json.dumps(result, sort_keys=True))
         if args.sync_neon:
             print(f"[NEWS][SYNC] neon={sync_neon(spool, db_url)}")
@@ -1196,6 +1432,11 @@ def main() -> None:
     elif args.command == "coverage":
         report = write_coverage(spool, db_url, Path(args.coverage_output))
         print("[NEWS][COVERAGE]", json.dumps(report["spool"], sort_keys=True))
+    elif args.command == "enrich":
+        universe = latest_universe(db_url, Path(args.state_dir) / "universe_cache.json")
+        aliases = load_entity_aliases(Path(args.entity_aliases), universe)
+        report = enrich_existing_entities(spool, universe, aliases, args.limit)
+        print("[NEWS][ENRICH]", json.dumps(report, sort_keys=True))
     elif args.command == "import-gdelt-csv":
         if not args.input_csv:
             raise SystemExit("--input-csv is required")

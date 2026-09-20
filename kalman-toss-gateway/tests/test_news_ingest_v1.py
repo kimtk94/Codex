@@ -295,3 +295,98 @@ def test_sync_neon_updates_source_state_with_no_pending_articles(tmp_path, monke
     synced = news_ingest_v1.sync_neon(spool, "postgresql://example")
     assert synced == 0
     assert any("news_source_state" in sql for sql, _ in calls)
+
+
+
+def test_entity_alias_v2_config_covers_current_universe_shape():
+    path = Path(__file__).resolve().parents[1] / "config" / "news-entity-aliases-v2.json"
+    obj = news_ingest_v1.load_entity_aliases(
+        path,
+        {
+            "US": list(__import__("json").loads(path.read_text())["markets"]["US"].keys()),
+            "KR": list(__import__("json").loads(path.read_text())["markets"]["KR"].keys()),
+            "CRYPTO": ["BTC", "ETH"],
+        },
+    )
+    assert len(obj["US"]) == 93
+    assert len(obj["KR"]) == 101
+    assert set(obj["CRYPTO"]) == {"BTC", "ETH"}
+
+
+def test_entity_alias_v2_maps_us_kr_crypto_and_avoids_short_ticker_false_positive():
+    aliases = {
+        "US": {
+            "NVDA": ("Nvidia",),
+            "T": ("AT&T",),
+        },
+        "KR": {
+            "005930": ("삼성전자", "Samsung Electronics"),
+        },
+        "CRYPTO": {
+            "BTC": ("Bitcoin", "BTC"),
+            "ETH": ("Ethereum", "Ether", "ETH"),
+        },
+    }
+    universe = {
+        "US": ["NVDA", "T"],
+        "KR": ["005930"],
+        "CRYPTO": ["BTC", "ETH"],
+    }
+
+    us = news_ingest_v1.alias_entities(
+        "Nvidia shares rise after new AI chip launch",
+        universe, None, None, "US", aliases, False,
+    )
+    assert [e.symbol for e in us] == ["NVDA"]
+
+    kr = news_ingest_v1.alias_entities(
+        "삼성전자, 반도체 투자 확대",
+        universe, None, None, "KR", aliases, False,
+    )
+    assert [e.symbol for e in kr] == ["005930"]
+
+    crypto = news_ingest_v1.alias_entities(
+        "Bitcoin climbs as crypto demand improves",
+        universe, None, None, "CRYPTO", aliases, False,
+    )
+    assert [e.symbol for e in crypto] == ["BTC"]
+
+    no_t = news_ingest_v1.alias_entities(
+        "T is used as a variable in this report",
+        universe, None, None, "US", {"US": {"T": ()}}, False,
+    )
+    assert no_t == ()
+
+    marked_t = news_ingest_v1.alias_entities(
+        "AT&T (T) announces results",
+        universe, None, None, "US", aliases, False,
+    )
+    assert [e.symbol for e in marked_t] == ["T"]
+
+
+def test_enrich_existing_replaces_market_fallback_and_reopens_neon_sync(tmp_path):
+    raw = b"""<?xml version="1.0"?><rss><channel><item>
+    <title>Nvidia launches a new AI platform</title>
+    <link>https://example.com/nvidia</link><guid>nvidia-1</guid>
+    <pubDate>Sun, 20 Sep 2026 13:00:00 GMT</pubDate>
+    </item></channel></rss>"""
+    fallback = Entity("US", "US_NEWS", 0.25, "market_topic_fallback_v1", "MARKET")
+    row = parse_feed(raw, "gdelt_us", (fallback,))[0]
+    spool = Spool(tmp_path / "spool.sqlite3")
+    assert spool.put(row) is True
+    spool.mark("neon", [row.article_id])
+    assert spool.stats()["pending_neon"] == 0
+
+    report = news_ingest_v1.enrich_existing_entities(
+        spool,
+        {"US": ["NVDA"], "KR": [], "CRYPTO": []},
+        {"US": {"NVDA": ("Nvidia",)}, "KR": {}, "CRYPTO": {}},
+    )
+
+    assert report["scanned"] == 1
+    assert report["mapped_articles"] == 1
+    assert report["entity_links"] == 1
+    entities = [dict(x) for x in spool.entities(row.article_id)]
+    assert [(x["market"], x["symbol"]) for x in entities] == [("US", "NVDA")]
+    assert entities[0]["mapping_method"] == "entity_alias_v2"
+    assert spool.stats()["pending_neon"] == 1
