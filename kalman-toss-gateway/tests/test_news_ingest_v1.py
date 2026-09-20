@@ -1,10 +1,13 @@
 from pathlib import Path
 
+from engine import news_ingest_v1
 from engine.news_ingest_v1 import (
     Entity,
+    HttpRateLimitError,
     Spool,
     clean_url,
     event_classify,
+    http_get,
     parse_feed,
 )
 
@@ -36,3 +39,42 @@ def test_spool_is_idempotent(tmp_path: Path):
     assert spool.put(row) is False
     assert spool.stats()["articles"] == 1
     assert len(spool.entities(row.article_id)) == 1
+
+
+
+def test_macro_full_release_names_are_classified():
+    assert event_classify("Consumer Price Index update", "bls_cpi", {})[0] == "MACRO"
+    assert event_classify("Employment Situation release", "bls_employment", {})[0] == "MACRO"
+    assert event_classify("Job Openings and Labor Turnover Survey", "bls_jolts", {})[0] == "MACRO"
+
+
+def test_http_429_is_not_immediately_retried(monkeypatch):
+    calls = {"count": 0}
+
+    class FakeResponse:
+        status_code = 429
+        headers = {"Retry-After": "30"}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, *args, **kwargs):
+            calls["count"] += 1
+            return FakeResponse()
+
+    monkeypatch.setattr(news_ingest_v1.httpx, "Client", FakeClient)
+
+    try:
+        http_get("https://example.com/rate-limited", retries=3)
+        assert False, "expected HttpRateLimitError"
+    except HttpRateLimitError as exc:
+        assert exc.retry_after_seconds == 30
+
+    assert calls["count"] == 1

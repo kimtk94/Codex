@@ -26,6 +26,19 @@ from dotenv import load_dotenv
 
 UTC = timezone.utc
 MARKETS = {"US", "KR", "CRYPTO", "GLOBAL"}
+
+
+class HttpRateLimitError(RuntimeError):
+    def __init__(self, url: str, retry_after_seconds: float | None = None):
+        self.url = url
+        self.retry_after_seconds = retry_after_seconds
+        suffix = (
+            f" retry_after={retry_after_seconds:.0f}s"
+            if retry_after_seconds is not None else ""
+        )
+        super().__init__(f"HTTP 429 Too Many Requests: {url}{suffix}")
+
+
 TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "gclid", "fbclid", "mc_cid", "mc_eid",
@@ -39,7 +52,9 @@ EVENT_RULES: list[tuple[str, tuple[str, ...], float]] = [
     ("LEGAL", ("lawsuit", "litigation", "investigation", "소송", "조사"), 0.75),
     ("MANAGEMENT", ("ceo", "cfo", "resign", "appoint", "대표이사", "임원", "사임", "선임"), 0.70),
     ("PRODUCT", ("launch", "product", "approval", "fda", "출시", "승인"), 0.65),
-    ("MACRO", ("cpi", "inflation", "employment", "jobs", "fomc", "rate", "pce", "gdp",
+    ("MACRO", ("cpi", "consumer price index", "inflation", "employment",
+               "employment situation", "jobs", "jolts",
+               "job openings and labor turnover", "fomc", "rate", "pce", "gdp",
                "물가", "고용", "금리", "통화정책", "기준금리"), 0.90),
     ("CRYPTO_REGULATORY", ("bitcoin etf", "ethereum etf", "crypto regulation", "stablecoin",
                            "가상자산", "비트코인 etf"), 0.85),
@@ -358,8 +373,25 @@ def http_get(url: str, *, headers: dict[str, str] | None = None,
                 r = client.get(url, headers=headers, params=params)
             if r.status_code == 304:
                 return r
+            if r.status_code == 429:
+                retry_after_seconds: float | None = None
+                retry_after = (r.headers.get("Retry-After") or "").strip()
+                if retry_after:
+                    try:
+                        retry_after_seconds = max(0.0, float(retry_after))
+                    except ValueError:
+                        retry_at = parse_dt(retry_after)
+                        if retry_at is not None:
+                            retry_after_seconds = max(
+                                0.0, (retry_at - utc_now()).total_seconds()
+                            )
+                raise HttpRateLimitError(url, retry_after_seconds)
             r.raise_for_status()
             return r
+        except HttpRateLimitError:
+            # A 429 is a provider-side throttle signal, not a transient transport
+            # failure. Do not hammer the provider with immediate retries.
+            raise
         except Exception as exc:
             last = exc
             if attempt == retries:
@@ -719,12 +751,19 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
     if not cfg.get("enabled", True):
         return 0, 0
     total_seen = total_inserted = 0
+    last_request_monotonic: float | None = None
+    request_spacing = max(0.0, float(cfg.get("request_spacing_seconds", 8)))
     for item in cfg.get("queries", []):
         market = str(item["market"]).upper()
         source = f"gdelt_{market.lower()}"
         if not spool.due(source, int(cfg.get("min_interval_seconds", 900))):
             continue
         try:
+            if last_request_monotonic is not None and request_spacing > 0:
+                elapsed = time.monotonic() - last_request_monotonic
+                if elapsed < request_spacing:
+                    time.sleep(request_spacing - elapsed)
+            last_request_monotonic = time.monotonic()
             r = http_get(
                 "https://api.gdeltproject.org/api/v2/doc/doc",
                 params={
@@ -762,6 +801,18 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
             )
             total_seen += len(rows)
             total_inserted += inserted
+        except HttpRateLimitError as exc:
+            spool.record_source(
+                source, success=False, error=str(exc),
+                payload={
+                    "market": market,
+                    "query": item.get("query"),
+                    "retry_after_seconds": exc.retry_after_seconds,
+                    "rate_limited": True,
+                },
+            )
+            print(f"[NEWS][WARN] {source}: {exc}; remaining GDELT queries deferred")
+            break
         except Exception as exc:
             spool.record_source(source, success=False, error=str(exc),
                                 payload={"market": market, "query": item.get("query")})
