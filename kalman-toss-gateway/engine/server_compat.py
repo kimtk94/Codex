@@ -11,6 +11,8 @@ from typing import Any
 _ORIGINAL_COPY2 = shutil.copy2
 _COPY2_PATCHED = False
 _CRYPTO_BRIDGE_PATCHED = False
+_KR_READ_PARQUET_PATCHED = False
+_KR_OVERLAY_NOTICES: set[str] = set()
 
 
 def _data_root() -> Path:
@@ -50,6 +52,123 @@ def _install_rclone_copy_compat() -> None:
         return
     shutil.copy2 = _rclone_safe_copy2
     _COPY2_PATCHED = True
+
+
+def _kr_source_candidate(path: Any) -> bool:
+    run_mode = os.environ.get("RUN_MODE", "").upper()
+    if run_mode not in {"KR", "KR_GLOBAL", "FULL"}:
+        return False
+    try:
+        p = Path(path)
+    except (TypeError, ValueError):
+        return False
+    name = p.name
+    if not (
+        name.startswith("marcap-")
+        and (
+            name.endswith(".fresh.parquet")
+            or name.endswith(".krx-augmented.parquet")
+        )
+    ):
+        return False
+    normalized = str(p).replace("\\", "/")
+    return "/Finance_KR/marcap_cache/" in normalized
+
+
+def _overlay_frozen_kr_live_raw(source):
+    import pandas as pd
+
+    live_path = _data_root() / "Finance_KR" / "kr_hgb_live_features_v0_4_latest.parquet"
+    if not live_path.is_file():
+        return source
+
+    required_keys = {"Date", "Code"}
+    if not required_keys.issubset(source.columns):
+        return source
+
+    live = pd.read_parquet.__kalman_original__(live_path)  # type: ignore[attr-defined]
+    if not required_keys.issubset(live.columns):
+        return source
+
+    raw_cols = [
+        col
+        for col in ("Open", "High", "Low", "Close", "Volume", "Amount", "Marcap", "Stocks")
+        if col in source.columns and col in live.columns
+    ]
+    if not raw_cols:
+        return source
+
+    src = source.copy()
+    src["Date"] = pd.to_datetime(src["Date"], errors="coerce").dt.tz_localize(None)
+    src["Code"] = src["Code"].astype(str).str.zfill(6)
+
+    frozen = live[["Date", "Code", *raw_cols]].copy()
+    frozen["Date"] = pd.to_datetime(frozen["Date"], errors="coerce").dt.tz_localize(None)
+    frozen["Code"] = frozen["Code"].astype(str).str.zfill(6)
+    frozen = frozen.dropna(subset=["Date"]).drop_duplicates(["Date", "Code"], keep="last")
+
+    frozen_names = {col: f"__kalman_frozen_{col}" for col in raw_cols}
+    frozen = frozen.rename(columns=frozen_names)
+
+    src["__kalman_row_order"] = range(len(src))
+    merged = src.merge(frozen, on=["Date", "Code"], how="left", sort=False)
+
+    matched = 0
+    changed_cells = 0
+    for col in raw_cols:
+        old_col = frozen_names[col]
+        mask = merged[old_col].notna()
+        matched = max(matched, int(mask.sum()))
+        if mask.any():
+            lhs = pd.to_numeric(merged.loc[mask, col], errors="coerce")
+            rhs = pd.to_numeric(merged.loc[mask, old_col], errors="coerce")
+            both = lhs.notna() & rhs.notna()
+            changed_cells += int(((lhs[both] - rhs[both]).abs() > 0).sum())
+            merged.loc[mask, col] = merged.loc[mask, old_col]
+        merged = merged.drop(columns=[old_col])
+
+    merged = (
+        merged.sort_values("__kalman_row_order")
+        .drop(columns=["__kalman_row_order"])
+        .reset_index(drop=True)
+    )
+    merged = merged[source.columns.tolist()]
+
+    max_frozen = frozen["Date"].max()
+    notice = f"{matched}:{changed_cells}:{max_frozen}"
+    if notice not in _KR_OVERLAY_NOTICES:
+        _KR_OVERLAY_NOTICES.add(notice)
+        print(
+            "[server] KR source lineage freeze:"
+            f" matched_rows={matched}"
+            f" changed_cells={changed_cells}"
+            f" through={max_frozen.date() if pd.notna(max_frozen) else None}"
+        )
+    return merged
+
+
+def _install_kr_source_lineage_compat() -> None:
+    global _KR_READ_PARQUET_PATCHED
+    if _KR_READ_PARQUET_PATCHED:
+        return
+
+    run_mode = os.environ.get("RUN_MODE", "").upper()
+    if run_mode not in {"KR", "KR_GLOBAL", "FULL"}:
+        return
+
+    import pandas as pd
+
+    original = pd.read_parquet
+
+    def _read_parquet(path, *args, **kwargs):
+        frame = original(path, *args, **kwargs)
+        if _kr_source_candidate(path):
+            return _overlay_frozen_kr_live_raw(frame)
+        return frame
+
+    _read_parquet.__kalman_original__ = original  # type: ignore[attr-defined]
+    pd.read_parquet = _read_parquet
+    _KR_READ_PARQUET_PATCHED = True
 
 
 def _is_real_xlsx(path: Path) -> bool:
@@ -270,4 +389,5 @@ def _install_crypto_xlsx_bridge() -> None:
 
 def install_server_runtime_compat() -> None:
     _install_rclone_copy_compat()
+    _install_kr_source_lineage_compat()
     _install_crypto_xlsx_bridge()
