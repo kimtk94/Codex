@@ -250,3 +250,48 @@ def test_collect_all_never_prefetches_dart_when_runtime_gate_off(tmp_path, monke
 
     assert result["seen"] == 0
     assert result["inserted"] == 0
+
+
+def test_disabled_source_clears_stale_error(tmp_path):
+    spool = Spool(tmp_path / "spool.sqlite3")
+    spool.record_source("sec_edgar", success=False, error="HTTP 403")
+    before = spool.source_state("sec_edgar")
+    assert before["last_error"] == "HTTP 403"
+
+    spool.record_disabled("sec_edgar", "runtime_gate")
+    after = spool.source_state("sec_edgar")
+    assert after["last_error"] is None
+    assert after["last_error_at"] is None
+    assert '"status": "DISABLED"' in after["payload_json"]
+    assert '"reason": "runtime_gate"' in after["payload_json"]
+
+
+def test_sync_neon_updates_source_state_with_no_pending_articles(tmp_path, monkeypatch):
+    spool = Spool(tmp_path / "spool.sqlite3")
+    spool.record_source("fed_monetary", success=True, seen=1, inserted=1)
+    monkeypatch.setenv("KALMAN_NEWS_NEON_SYNC_ENABLED", "true")
+
+    calls = []
+
+    class Tx:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class Conn:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def transaction(self):
+            return Tx()
+        def execute(self, sql, params=None):
+            calls.append((sql, params))
+            return None
+
+    monkeypatch.setattr(news_ingest_v1.psycopg, "connect", lambda *args, **kwargs: Conn())
+
+    synced = news_ingest_v1.sync_neon(spool, "postgresql://example")
+    assert synced == 0
+    assert any("news_source_state" in sql for sql, _ in calls)
