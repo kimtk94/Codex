@@ -1,5 +1,5 @@
 {
-  "version": "macro-event-feature-v1.2.0",
+  "version": "macro-event-feature-v1.3.0",
   "feature_version": "macro-event-feature-v1",
   "lookback_hours": 72,
   "half_life_hours": {
@@ -155,5 +155,12 @@
       "start": "12:00",
       "end": "16:15"
     }
-  }
+  },
+  "us_reaction_anchor_sources": [
+    "fed_monetary",
+    "bls_cpi",
+    "bls_employment",
+    "bls_jolts",
+    "bea_releases"
+  ]
 }
