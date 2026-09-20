@@ -6,6 +6,8 @@
   if (window.__KALMAN_DECISION_CONSOLE_HOTFIX_V7422__) return;
   window.__KALMAN_DECISION_CONSOLE_HOTFIX_V7422__ = true;
 
+  const UI_VOCAB_VERSION = 'kalman-ui-v1';
+
   const BENCH = {
     asOf: '2026-09-18T14:30:00Z',
     snapshots: 27,
@@ -83,7 +85,7 @@
 
   function ensureShell(){
     const footer=document.querySelector('footer');
-    if(footer)footer.textContent='Production v7.4.20 · UI v7.4.22 · 조회 전용';
+    if(footer){footer.textContent='Production v7.4.20 · UI v7.4.22 · 조회 전용';footer.dataset.uiVocab=UI_VOCAB_VERSION;}
     const header=document.querySelector('.header-status');
     if(header&&!document.querySelector('#headerServerState')){
       const p=document.createElement('span');
