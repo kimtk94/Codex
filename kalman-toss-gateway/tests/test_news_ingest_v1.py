@@ -556,3 +556,51 @@ def test_gdelt_429_opens_persistent_global_circuit(tmp_path, monkeypatch):
     assert payload["consecutive_429"] == 1
     assert payload["backoff_seconds"] == 3600
     assert news_ingest_v1.parse_dt(payload["backoff_until"]) > news_ingest_v1.utc_now()
+
+
+
+def test_gdelt_non_json_payload_opens_global_circuit(tmp_path, monkeypatch):
+    spool = Spool(tmp_path / "spool.sqlite3")
+
+    class FakeRequest:
+        url = "https://api.gdeltproject.org/api/v2/doc/doc?query=test"
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "text/html"}
+        request = FakeRequest()
+
+        def json(self):
+            raise ValueError("not json")
+
+    monkeypatch.setattr(
+        news_ingest_v1,
+        "http_get",
+        lambda *args, **kwargs: FakeResponse(),
+    )
+
+    seen, inserted = news_ingest_v1.collect_gdelt(
+        spool,
+        {
+            "enabled": True,
+            "min_interval_seconds": 0,
+            "max_queries_per_cycle": 1,
+            "malformed_response_backoff_seconds": 1800,
+            "malformed_response_max_backoff_seconds": 7200,
+            "queries": [{"market": "CRYPTO", "query": "Bitcoin"}],
+        },
+        {"US": [], "KR": [], "CRYPTO": ["BTC", "ETH"]},
+        None,
+        None,
+        {},
+    )
+
+    assert seen == 0
+    assert inserted == 0
+
+    gate = spool.source_state("gdelt_api_gate")
+    payload = __import__("json").loads(gate["payload_json"])
+    assert payload["status"] == "UPSTREAM_NON_JSON"
+    assert payload["consecutive_payload_errors"] == 1
+    assert payload["backoff_seconds"] == 1800
+    assert news_ingest_v1.parse_dt(payload["backoff_until"]) > news_ingest_v1.utc_now()
