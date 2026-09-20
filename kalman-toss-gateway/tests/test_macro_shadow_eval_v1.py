@@ -92,3 +92,59 @@ def test_eval_id_is_deterministic():
     assert a == b
     assert a != c
     assert a.startswith("macro-eval-")
+
+
+def test_sync_insert_placeholder_count_matches_params(monkeypatch):
+    cfg = {
+        "feature_version": "macro-event-feature-v1",
+        "research_contract": {"observation_only": True},
+        "regime_thresholds_bps": {
+            "tightening": 10,
+            "easing": -10,
+            "mixed_min_abs": 5,
+        },
+        "max_macro_snapshot_age_minutes": 30,
+        "min_macro_coverage": 0.65,
+    }
+
+    row = {
+        "benchmark_id": "11111111-1111-1111-1111-111111111111",
+        "market": "US",
+        "strategy_version": "R5.1_BASE_HGB",
+        "benchmark_name": "TOP1_4B_10BP",
+        "signal_as_of": datetime(2026, 9, 21, 14, 30, tzinfo=UTC),
+        "baseline_gross_return": 0.01,
+        "baseline_net_return": 0.009,
+        "benchmark_metadata": {},
+        "macro_as_of": datetime(2026, 9, 21, 14, 15, tzinfo=UTC),
+        "macro_run_id": "MACRO-TEST",
+        "coverage_confidence": 0.65,
+        "macro_features": {
+            "us2y_change_bps_1d": 12.0,
+            "policy_proxy_change_bps_1d": 11.0,
+            "policy_proxy_spread_bps": 70.0,
+            "official_macro_decay": 1.0,
+            "broad_macro_decay": 2.0,
+            "macro_event_free_reaction_score": 1.2,
+            "macro_event_free_reaction_direction": "HAWKISH_TIGHTENING",
+            "macro_event_free_reaction_ready": True,
+        },
+    }
+
+    monkeypatch.setattr(shadow, "fetch_candidates", lambda conn, config: [row])
+
+    calls = []
+
+    class FakeConn:
+        def execute(self, sql, params=None):
+            calls.append((sql, params))
+            return []
+        def commit(self):
+            pass
+
+    result = shadow.sync_evaluations(FakeConn(), cfg)
+    assert result["upserted"] == 1
+    assert len(calls) == 1
+    sql, params = calls[0]
+    assert sql.count("%s") == len(params)
+    assert len(params) == 24
