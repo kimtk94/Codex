@@ -143,6 +143,17 @@
       "Initial Jobless Claims": "INITIAL_JOBLESS_CLAIMS",
       "IJCUSA": "INITIAL_JOBLESS_CLAIMS",
       "USACPPIM": "CORE_PCE_MOM"
+    },
+    "active_weekdays": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "active_window_utc": {
+      "start": "12:00",
+      "end": "16:15"
     }
   }
 }
