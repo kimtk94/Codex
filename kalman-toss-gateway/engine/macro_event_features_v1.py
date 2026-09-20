@@ -309,8 +309,8 @@ def select_us_reaction_anchor(
     official_rows: list[dict[str, Any]],
     config: dict[str, Any],
 ) -> tuple[datetime | None, dict[str, Any]]:
-    structured_with_consensus = []
-    structured_any = []
+    structured_with_consensus: list[tuple[datetime, dict[str, Any]]] = []
+    structured_any: list[tuple[datetime, dict[str, Any]]] = []
     for row in release_rows:
         if str(row.get("market") or "").upper() != "US":
             continue
@@ -321,9 +321,49 @@ def select_us_reaction_anchor(
         structured_any.append(item)
         if row.get("actual") is not None and row.get("consensus") is not None:
             structured_with_consensus.append(item)
+
+    allowed_sources = set(
+        config.get("us_reaction_anchor_sources")
+        or ("fed_monetary", "bls_cpi", "bls_employment", "bls_jolts", "bea_releases")
+    )
+    official_candidates: list[tuple[datetime, dict[str, Any]]] = []
+    for row in official_rows:
+        if str(row.get("source") or "") not in allowed_sources:
+            continue
+        available_at = parse_dt(row.get("available_at"))
+        if available_at is None:
+            continue
+        official_candidates.append((available_at, row))
+
     structured = structured_with_consensus or structured_any
-    if structured:
-        available_at, row = max(structured, key=lambda x: x[0])
+    latest_structured = max(structured, key=lambda x: x[0]) if structured else None
+    latest_official = (
+        max(official_candidates, key=lambda x: x[0]) if official_candidates else None
+    )
+
+    duplicate_minutes = float(config.get("structured_official_match_minutes", 30.0))
+    if latest_structured and latest_official:
+        s_at, s_row = latest_structured
+        o_at, o_row = latest_official
+        if abs((s_at - o_at).total_seconds()) <= duplicate_minutes * 60.0:
+            return s_at, {
+                "kind": "STRUCTURED_US_RELEASE",
+                "source": s_row.get("source"),
+                "event_name": s_row.get("event_name"),
+                "indicator_key": s_row.get("indicator_key"),
+                "available_at": iso(s_at),
+            }
+        if o_at > s_at:
+            return o_at, {
+                "kind": "US_OFFICIAL_NEWS_PROXY",
+                "source": o_row.get("source"),
+                "event_name": o_row.get("title"),
+                "indicator_key": None,
+                "available_at": iso(o_at),
+            }
+
+    if latest_structured:
+        available_at, row = latest_structured
         return available_at, {
             "kind": "STRUCTURED_US_RELEASE",
             "source": row.get("source"),
@@ -332,20 +372,8 @@ def select_us_reaction_anchor(
             "available_at": iso(available_at),
         }
 
-    allowed_sources = set(
-        config.get("us_reaction_anchor_sources")
-        or ("fed_monetary", "bls_cpi", "bls_employment", "bls_jolts", "bea_releases")
-    )
-    candidates = []
-    for row in official_rows:
-        if str(row.get("source") or "") not in allowed_sources:
-            continue
-        available_at = parse_dt(row.get("available_at"))
-        if available_at is None:
-            continue
-        candidates.append((available_at, row))
-    if candidates:
-        available_at, row = max(candidates, key=lambda x: x[0])
+    if latest_official:
+        available_at, row = latest_official
         return available_at, {
             "kind": "US_OFFICIAL_NEWS_PROXY",
             "source": row.get("source"),
@@ -385,6 +413,171 @@ def select_matched_policy_repricing(
         return None, None
     gap_seconds, _, row = min(candidates, key=lambda x: (x[0], -x[1].timestamp()))
     return row, gap_seconds / 60.0
+
+
+def macro_event_family(
+    reaction_anchor_meta: dict[str, Any],
+    config: dict[str, Any],
+) -> str:
+    scoring = config.get("event_scoring") or {}
+    family_map = scoring.get("indicator_family") or {}
+    indicator = str(reaction_anchor_meta.get("indicator_key") or "")
+    if indicator and indicator in family_map:
+        return str(family_map[indicator]).upper()
+
+    source = str(reaction_anchor_meta.get("source") or "")
+    if source == "fed_monetary":
+        return "FOMC"
+    if source == "bls_cpi":
+        return "CPI"
+    if source == "bls_employment":
+        return "NFP"
+    return "OTHER"
+
+
+def select_event_bundle(
+    scored_releases: list[dict[str, Any]],
+    reaction_anchor: datetime | None,
+    event_family: str,
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if reaction_anchor is None or event_family not in {"CPI", "NFP"}:
+        return []
+    scoring = config.get("event_scoring") or {}
+    family_map = scoring.get("indicator_family") or {}
+    window_minutes = max(
+        0.0, float(scoring.get("bundle_window_minutes", 10.0))
+    )
+    out: list[dict[str, Any]] = []
+    for row in scored_releases:
+        indicator = str(row.get("indicator_key") or "")
+        if str(family_map.get(indicator) or "").upper() != event_family:
+            continue
+        available_at = row.get("available_at_dt")
+        if not isinstance(available_at, datetime):
+            available_at = parse_dt(row.get("available_at"))
+        if available_at is None:
+            continue
+        if abs((available_at - reaction_anchor).total_seconds()) <= window_minutes * 60.0:
+            out.append(row)
+    return sorted(out, key=lambda r: str(r.get("indicator_key") or ""))
+
+
+def _clip5(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return max(-5.0, min(5.0, float(value)))
+
+
+def compute_shadow_event_score(
+    *,
+    event_family: str,
+    event_bundle: list[dict[str, Any]],
+    reaction_z: float | None,
+    matched_policy: dict[str, Any] | None,
+    policy_proxy_event_bps: float | None,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    scoring = config.get("event_scoring") or {}
+    policy_scale = max(1e-9, float(scoring.get("policy_repricing_scale_bps", 5.0)))
+    provider_policy_z = (
+        _clip5(float(matched_policy["repricing_bps"]) / policy_scale)
+        if matched_policy is not None and matched_policy.get("repricing_bps") is not None
+        else None
+    )
+    proxy_policy_z = (
+        _clip5(float(policy_proxy_event_bps) / policy_scale)
+        if policy_proxy_event_bps is not None
+        else None
+    )
+    policy_z = provider_policy_z if provider_policy_z is not None else proxy_policy_z
+    policy_source = (
+        "FUTURES_PROVIDER"
+        if provider_policy_z is not None
+        else "DGS2_DFF_PROXY"
+        if proxy_policy_z is not None
+        else None
+    )
+
+    bundle_scores = [
+        float(r["policy_pressure_surprise"])
+        for r in event_bundle
+        if r.get("policy_pressure_surprise") is not None
+    ]
+    bundle_surprise = (
+        sum(bundle_scores) / len(bundle_scores) if bundle_scores else None
+    )
+
+    weights_by_family = scoring.get("weights") or {}
+    weights = weights_by_family.get(event_family) or {}
+    blockers: list[str] = []
+    components: dict[str, float | None] = {
+        "bundle_surprise": bundle_surprise,
+        "us2y_reaction_z": reaction_z,
+        "policy_confirmation_z": policy_z,
+    }
+
+    if event_family in {"CPI", "NFP"}:
+        if bundle_surprise is None:
+            blockers.append("EVENT_BUNDLE_SURPRISE_UNAVAILABLE")
+        if reaction_z is None:
+            blockers.append("US2Y_EVENT_REACTION_UNAVAILABLE")
+        if policy_z is None:
+            blockers.append("POLICY_REPRICING_CONFIRMATION_UNAVAILABLE")
+    elif event_family == "FOMC":
+        if reaction_z is None:
+            blockers.append("US2Y_EVENT_REACTION_UNAVAILABLE")
+        if policy_z is None:
+            blockers.append("POLICY_REPRICING_CONFIRMATION_UNAVAILABLE")
+    else:
+        blockers.append("UNSUPPORTED_EVENT_FAMILY")
+
+    score = None
+    if not blockers:
+        if event_family in {"CPI", "NFP"}:
+            score = (
+                float(weights.get("surprise", 0.50)) * float(bundle_surprise)
+                + float(weights.get("us2y", 0.30)) * float(reaction_z)
+                + float(weights.get("policy", 0.20)) * float(policy_z)
+            )
+        elif event_family == "FOMC":
+            score = (
+                float(weights.get("us2y", 0.45)) * float(reaction_z)
+                + float(weights.get("policy", 0.55)) * float(policy_z)
+            )
+        score = round(float(_clip5(score)), 12)
+
+    neutral_band = abs(float(scoring.get("neutral_band", 0.50)))
+    direction = (
+        "HAWKISH_TIGHTENING"
+        if score is not None and score > neutral_band
+        else "DOVISH_EASING"
+        if score is not None and score < -neutral_band
+        else "NEUTRAL"
+        if score is not None
+        else "BLOCKED"
+    )
+    return {
+        "event_family": event_family,
+        "score": score,
+        "direction": direction,
+        "ready": score is not None,
+        "blockers": blockers,
+        "bundle_surprise": bundle_surprise,
+        "bundle_indicators": [
+            str(r.get("indicator_key") or "") for r in event_bundle
+        ],
+        "bundle_component_scores": {
+            str(r.get("indicator_key") or ""): r.get("policy_pressure_surprise")
+            for r in event_bundle
+        },
+        "us2y_reaction_z": reaction_z,
+        "policy_confirmation_z": policy_z,
+        "policy_confirmation_source": policy_source,
+        "score_range": [-5.0, 5.0],
+        "positive_direction": "HAWKISH_TIGHTENING",
+        "shadow_only": True,
+    }
 
 
 def build_feature_payload(
@@ -486,6 +679,10 @@ def build_feature_payload(
     matched_policy, policy_event_gap_minutes = select_matched_policy_repricing(
         policy_rows, reaction_anchor, policy_match_hours
     )
+    event_family = macro_event_family(reaction_anchor_meta, config)
+    event_bundle = select_event_bundle(
+        scored_releases, reaction_anchor, event_family, config
+    )
 
     state_by_source = {str(r.get("source")): r for r in source_states}
     healthy_official = 0
@@ -513,46 +710,52 @@ def build_feature_payload(
         if latest_release is not None
         else None
     )
+
+    shadow_score = compute_shadow_event_score(
+        event_family=event_family,
+        event_bundle=event_bundle,
+        reaction_z=reaction_z,
+        matched_policy=matched_policy,
+        policy_proxy_event_bps=proxy_event.get("reaction_bps"),
+        config=config,
+    )
+    event_bundle_surprise = shadow_score.get("bundle_surprise")
     shock_interaction = (
-        latest_surprise * reaction_z
-        if latest_surprise is not None and reaction_z is not None
+        float(event_bundle_surprise) * reaction_z
+        if event_bundle_surprise is not None and reaction_z is not None
         else None
     )
     policy_alignment = (
         1
-        if latest_surprise is not None
+        if event_bundle_surprise is not None
         and event_reaction.get("reaction_bps") is not None
-        and latest_surprise * float(event_reaction["reaction_bps"]) > 0
+        and float(event_bundle_surprise) * float(event_reaction["reaction_bps"]) > 0
         else -1
-        if latest_surprise is not None
+        if event_bundle_surprise is not None
         and event_reaction.get("reaction_bps") is not None
-        and latest_surprise * float(event_reaction["reaction_bps"]) < 0
+        and float(event_bundle_surprise) * float(event_reaction["reaction_bps"]) < 0
         else 0
-        if latest_surprise is not None and event_reaction.get("reaction_bps") == 0
+        if event_bundle_surprise is not None and event_reaction.get("reaction_bps") == 0
         else None
     )
 
     us2y_event_ready = event_reaction.get("reaction_bps") is not None
     policy_confirmation_ready = fed_repricing_ready or policy_proxy_event_ready
-    signal_blockers: list[str] = []
-    if not surprise_provider_ready:
-        signal_blockers.append("CONSENSUS_SURPRISE_UNAVAILABLE")
-    if reaction_anchor is None:
-        signal_blockers.append("NO_US_EVENT_ANCHOR")
-    elif not us2y_event_ready:
-        signal_blockers.append("US2Y_EVENT_REACTION_UNAVAILABLE")
-    if not policy_confirmation_ready:
-        signal_blockers.append("POLICY_REPRICING_CONFIRMATION_UNAVAILABLE")
-
-    macro_event_signal_ready = not signal_blockers
+    signal_blockers = list(shadow_score.get("blockers") or [])
+    if reaction_anchor is None and "NO_US_EVENT_ANCHOR" not in signal_blockers:
+        signal_blockers.insert(0, "NO_US_EVENT_ANCHOR")
+    macro_event_signal_ready = bool(shadow_score.get("ready")) and reaction_anchor is not None
     macro_event_signal_full_provider_ready = (
-        surprise_provider_ready and us2y_event_ready and fed_repricing_ready
+        macro_event_signal_ready
+        and matched_policy is not None
+        and shadow_score.get("policy_confirmation_source") == "FUTURES_PROVIDER"
     )
     macro_event_signal_quality = (
         "FULL_PROVIDER_CONFIRMATION"
         if macro_event_signal_full_provider_ready
         else "DGS2_DFF_PROXY_CONFIRMATION"
-        if macro_event_signal_ready and policy_proxy_event_ready
+        if macro_event_signal_ready
+        and shadow_score.get("policy_confirmation_source") == "DGS2_DFF_PROXY"
         else "INCOMPLETE"
     )
 
@@ -571,7 +774,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.3",
+        "schema_version": "macro-event-feature-v1.4",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -652,6 +855,19 @@ def build_feature_payload(
         ),
         "fed_policy_repricing_event_gap_minutes": policy_event_gap_minutes,
         "fed_policy_repricing_match_hours": policy_match_hours,
+        "macro_event_family": event_family,
+        "macro_event_shadow_score": shadow_score.get("score"),
+        "macro_event_shadow_direction": shadow_score.get("direction"),
+        "macro_event_shadow_components": {
+            "bundle_surprise": shadow_score.get("bundle_surprise"),
+            "bundle_indicators": shadow_score.get("bundle_indicators"),
+            "bundle_component_scores": shadow_score.get("bundle_component_scores"),
+            "us2y_reaction_z": shadow_score.get("us2y_reaction_z"),
+            "policy_confirmation_z": shadow_score.get("policy_confirmation_z"),
+            "policy_confirmation_source": shadow_score.get("policy_confirmation_source"),
+        },
+        "macro_event_shadow_score_range": shadow_score.get("score_range"),
+        "macro_event_shadow_positive_direction": shadow_score.get("positive_direction"),
         "macro_event_signal_ready": macro_event_signal_ready,
         "macro_event_signal_full_provider_ready": macro_event_signal_full_provider_ready,
         "macro_event_signal_quality": macro_event_signal_quality,
@@ -702,6 +918,9 @@ def build_feature_payload(
             "macro_event_signal": {
                 "status": "READY" if macro_event_signal_ready else "BLOCKED",
                 "quality": macro_event_signal_quality,
+                "event_family": event_family,
+                "shadow_score": shadow_score.get("score"),
+                "direction": shadow_score.get("direction"),
                 "blockers": signal_blockers,
             },
         },
