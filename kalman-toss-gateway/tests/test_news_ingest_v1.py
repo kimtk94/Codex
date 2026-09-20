@@ -193,3 +193,60 @@ def test_collect_all_never_prefetches_sec_when_runtime_gate_off(tmp_path, monkey
 
     assert result["seen"] == 0
     assert result["inserted"] == 0
+
+
+def test_dart_runtime_gate_disables_collection(tmp_path, monkeypatch):
+    spool = Spool(tmp_path / "spool.sqlite3")
+    monkeypatch.setenv("KALMAN_NEWS_DART_ENABLED", "false")
+    monkeypatch.setenv("DART_API_KEY", "dummy")
+
+    def should_not_run(*args, **kwargs):
+        raise AssertionError("OpenDART network access should be skipped when disabled")
+
+    monkeypatch.setattr(news_ingest_v1, "http_get", should_not_run)
+
+    seen, inserted = news_ingest_v1.collect_dart(
+        spool,
+        {"enabled": True, "min_interval_seconds": 0},
+        {"US": [], "KR": ["005930"], "CRYPTO": []},
+    )
+
+    assert seen == 0
+    assert inserted == 0
+
+
+def test_collect_all_never_prefetches_dart_when_runtime_gate_off(tmp_path, monkeypatch):
+    spool = Spool(tmp_path / "spool.sqlite3")
+    monkeypatch.setenv("KALMAN_NEWS_SEC_ENABLED", "false")
+    monkeypatch.setenv("KALMAN_NEWS_DART_ENABLED", "false")
+    monkeypatch.setenv("DART_API_KEY", "dummy")
+
+    monkeypatch.setattr(
+        news_ingest_v1,
+        "latest_universe",
+        lambda *args, **kwargs: {"US": [], "KR": ["005930"], "CRYPTO": ["BTC", "ETH"]},
+    )
+
+    def dart_network_must_not_run(*args, **kwargs):
+        raise AssertionError("DART alias refresh should not run while disabled")
+
+    monkeypatch.setattr(news_ingest_v1, "dart_company_map", dart_network_must_not_run)
+    monkeypatch.setattr(news_ingest_v1, "collect_rss", lambda *args, **kwargs: (0, 0))
+    monkeypatch.setattr(news_ingest_v1, "collect_sec", lambda *args, **kwargs: (0, 0))
+    monkeypatch.setattr(news_ingest_v1, "collect_dart", lambda *args, **kwargs: (0, 0))
+    monkeypatch.setattr(news_ingest_v1, "collect_gdelt", lambda *args, **kwargs: (0, 0))
+
+    result = news_ingest_v1.collect_all(
+        spool,
+        {
+            "rss_sources": [],
+            "sec": {"enabled": False},
+            "dart": {"enabled": True, "min_interval_seconds": 0},
+            "gdelt": {"enabled": True, "min_interval_seconds": 0},
+        },
+        None,
+        tmp_path / "state",
+    )
+
+    assert result["seen"] == 0
+    assert result["inserted"] == 0
