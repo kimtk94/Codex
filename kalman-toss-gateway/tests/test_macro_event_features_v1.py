@@ -300,6 +300,7 @@ def test_macro_shock_interaction_uses_surprise_and_us2y_reaction():
         {
             "indicator_key": "CPI_HEADLINE_YOY",
             "event_name": "CPI",
+            "market": "US",
             "actual": 3.2,
             "consensus": 3.0,
             "available_at": datetime(2026, 9, 17, 12, 30, tzinfo=UTC),
