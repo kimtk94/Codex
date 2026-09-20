@@ -10,5 +10,8 @@
   "mobile_tabs_single_row": true,
   "web_read_only": true,
   "ui_vocabulary_contract": "kalman-ui-v1.1",
-  "compact_manifest_bytes": 338481
+  "compact_manifest_bytes": 338481,
+  "model_readiness_source": "neon_v_kalman_model_readiness",
+  "model_readiness_db_view": true,
+  "control_query_source": "neon_view_single_query"
 }
