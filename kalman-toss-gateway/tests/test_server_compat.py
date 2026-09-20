@@ -45,10 +45,9 @@ def test_rclone_safe_copy2_does_not_hide_unrelated_eio(tmp_path, monkeypatch):
     assert exc.value.errno == errno.EIO
 
 
-def test_local_crypto_xlsx_reads_gspread_style_range(tmp_path):
+def _write_test_workbook(path: Path) -> None:
     from openpyxl import Workbook
 
-    path = tmp_path / "Kalman Upbit KRW History 2026-08-22.xlsx"
     wb = Workbook()
     ws = wb.active
     ws.title = "Overview"
@@ -61,8 +60,55 @@ def test_local_crypto_xlsx_reads_gspread_style_range(tmp_path):
     wb.save(path)
     wb.close()
 
+
+def test_local_crypto_xlsx_reads_gspread_style_range(tmp_path):
+    path = tmp_path / "Kalman Upbit KRW History 2026-08-22.xlsx"
+    _write_test_workbook(path)
+
     values = server_compat._LocalWorksheet(path, "Overview").get("A1:B13")
 
     assert values[0][0] == "Kalman"
     assert values[7][1] == "kalman-model-web-v8-hourly-entry-filter"
     assert values[12] == ["KRW-BTC", 109_867_000]
+
+
+def test_resolve_crypto_xlsx_exports_zero_byte_rclone_placeholder(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "drive"
+    root.mkdir()
+    placeholder = root / "Kalman Upbit KRW History 2026-08-22.xlsx"
+    placeholder.touch()
+    cache = tmp_path / "cache" / "crypto.xlsx"
+
+    monkeypatch.setenv("KALMAN_DATA_ROOT", str(root))
+    monkeypatch.setenv("KALMAN_CRYPTO_SHEET_CACHE", str(cache))
+    monkeypatch.setenv("KALMAN_RCLONE_REMOTE", "gdrive:")
+    monkeypatch.setenv("KALMAN_RCLONE_CONFIG", "/etc/rclone/rclone.conf")
+    monkeypatch.delenv("KALMAN_CRYPTO_SHEET_XLSX", raising=False)
+
+    def fake_run(cmd, **kwargs):
+        assert cmd[0:3] == [
+            "rclone",
+            "copyto",
+            "gdrive:Kalman Upbit KRW History 2026-08-22.xlsx",
+        ]
+        exported = Path(cmd[3])
+        exported.parent.mkdir(parents=True, exist_ok=True)
+        _write_test_workbook(exported)
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(server_compat.subprocess, "run", fake_run)
+
+    resolved = server_compat._resolve_crypto_xlsx()
+
+    assert resolved == cache
+    assert server_compat._is_real_xlsx(cache)
+    assert (
+        server_compat._LocalWorksheet(cache, "Overview").get("A13:B13")[0]
+        == ["KRW-BTC", 109_867_000]
+    )
