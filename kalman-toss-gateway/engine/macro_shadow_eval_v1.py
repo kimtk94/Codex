@@ -201,10 +201,12 @@ def sync_evaluations(
               coverage_confidence,evaluation_status,free_macro_regime,
               us2y_change_bps_1d,policy_proxy_change_bps_1d,
               policy_proxy_spread_bps,official_macro_decay,broad_macro_decay,
+              macro_event_free_reaction_score,macro_event_free_reaction_direction,
+              macro_event_free_reaction_ready,
               baseline_gross_return,baseline_net_return,macro_features,metadata,updated_at
             ) VALUES(
               %s,%s::uuid,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-              %s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,now()
+              %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,now()
             )
             ON CONFLICT(benchmark_id) DO UPDATE SET
               macro_as_of=excluded.macro_as_of,
@@ -218,6 +220,9 @@ def sync_evaluations(
               policy_proxy_spread_bps=excluded.policy_proxy_spread_bps,
               official_macro_decay=excluded.official_macro_decay,
               broad_macro_decay=excluded.broad_macro_decay,
+              macro_event_free_reaction_score=excluded.macro_event_free_reaction_score,
+              macro_event_free_reaction_direction=excluded.macro_event_free_reaction_direction,
+              macro_event_free_reaction_ready=excluded.macro_event_free_reaction_ready,
               baseline_gross_return=excluded.baseline_gross_return,
               baseline_net_return=excluded.baseline_net_return,
               macro_features=excluded.macro_features,
@@ -242,6 +247,17 @@ def sync_evaluations(
                 _float(features.get("policy_proxy_spread_bps")),
                 _float(features.get("official_macro_decay")),
                 _float(features.get("broad_macro_decay")),
+                _float(features.get("macro_event_free_reaction_score")),
+                (
+                    str(features.get("macro_event_free_reaction_direction"))
+                    if features.get("macro_event_free_reaction_direction") is not None
+                    else None
+                ),
+                (
+                    bool(features.get("macro_event_free_reaction_ready"))
+                    if features.get("macro_event_free_reaction_ready") is not None
+                    else None
+                ),
                 float(row["baseline_gross_return"]),
                 float(row["baseline_net_return"]),
                 json.dumps(features, ensure_ascii=False, sort_keys=True),
@@ -283,6 +299,18 @@ def status(conn: psycopg.Connection, config: dict[str, Any]) -> dict[str, Any]:
         (market, strategy_version, benchmark_names),
     ).fetchall()
 
+    free_reaction_summary = conn.execute(
+        """
+        SELECT *
+        FROM public.v_macro_shadow_eval_free_reaction_v1
+        WHERE market=%s
+          AND strategy_version=%s
+          AND benchmark_name = ANY(%s)
+        ORDER BY benchmark_name,macro_event_free_reaction_direction
+        """,
+        (market, strategy_version, benchmark_names),
+    ).fetchall()
+
     ready_counts = {
         str(row["benchmark_name"]): int(row["ready_rows"])
         for row in readiness
@@ -303,6 +331,7 @@ def status(conn: psycopg.Connection, config: dict[str, Any]) -> dict[str, Any]:
         "changes_trade_execution": False,
         "readiness": list(readiness),
         "summary": list(summary),
+        "free_reaction_summary": list(free_reaction_summary),
     }
 
 
