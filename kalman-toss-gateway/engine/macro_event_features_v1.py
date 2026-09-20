@@ -309,14 +309,19 @@ def select_us_reaction_anchor(
     official_rows: list[dict[str, Any]],
     config: dict[str, Any],
 ) -> tuple[datetime | None, dict[str, Any]]:
-    structured = []
+    structured_with_consensus = []
+    structured_any = []
     for row in release_rows:
         if str(row.get("market") or "").upper() != "US":
             continue
         available_at = parse_dt(row.get("available_at"))
         if available_at is None:
             continue
-        structured.append((available_at, row))
+        item = (available_at, row)
+        structured_any.append(item)
+        if row.get("actual") is not None and row.get("consensus") is not None:
+            structured_with_consensus.append(item)
+    structured = structured_with_consensus or structured_any
     if structured:
         available_at, row = max(structured, key=lambda x: x[0])
         return available_at, {
@@ -356,6 +361,30 @@ def select_us_reaction_anchor(
         "indicator_key": None,
         "available_at": None,
     }
+
+
+def select_matched_policy_repricing(
+    policy_rows: list[dict[str, Any]],
+    reaction_anchor: datetime | None,
+    max_gap_hours: float,
+) -> tuple[dict[str, Any] | None, float | None]:
+    if reaction_anchor is None:
+        return None, None
+    candidates: list[tuple[float, datetime, dict[str, Any]]] = []
+    max_gap_seconds = max(0.0, float(max_gap_hours)) * 3600.0
+    for row in policy_rows:
+        event_at = parse_dt(row.get("event_at"))
+        available_at = parse_dt(row.get("available_at"))
+        if event_at is None or available_at is None or row.get("repricing_bps") is None:
+            continue
+        gap_seconds = abs((event_at - reaction_anchor).total_seconds())
+        if gap_seconds > max_gap_seconds:
+            continue
+        candidates.append((gap_seconds, available_at, row))
+    if not candidates:
+        return None, None
+    gap_seconds, _, row = min(candidates, key=lambda x: (x[0], -x[1].timestamp()))
+    return row, gap_seconds / 60.0
 
 
 def build_feature_payload(
@@ -398,6 +427,8 @@ def build_feature_payload(
 
     scored_releases: list[dict[str, Any]] = []
     for row in release_rows:
+        if str(row.get("market") or "").upper() != "US":
+            continue
         score = normalized_surprise(
             str(row.get("indicator_key") or ""),
             row.get("actual"),
@@ -451,17 +482,10 @@ def build_feature_payload(
         dgs2_observations, policy_rate_observations, reaction_anchor
     )
 
-    valid_policy_rows = [
-        r
-        for r in policy_rows
-        if parse_dt(r.get("available_at")) is not None
-        and r.get("repricing_bps") is not None
-    ]
-    valid_policy_rows.sort(
-        key=lambda r: parse_dt(r.get("available_at"))
-        or datetime.min.replace(tzinfo=UTC)
+    policy_match_hours = float(config.get("policy_repricing_match_hours", 6.0))
+    matched_policy, policy_event_gap_minutes = select_matched_policy_repricing(
+        policy_rows, reaction_anchor, policy_match_hours
     )
-    latest_policy = valid_policy_rows[-1] if valid_policy_rows else None
 
     state_by_source = {str(r.get("source")): r for r in source_states}
     healthy_official = 0
@@ -473,12 +497,10 @@ def build_feature_payload(
         healthy_official / len(official_sources) if official_sources else 0.0
     )
 
-    surprise_provider_ready = any(
-        row.get("consensus") is not None and row.get("actual") is not None
-        for row in release_rows
-    )
-    fed_repricing_ready = latest_policy is not None
+    surprise_provider_ready = latest_release is not None
+    fed_repricing_ready = matched_policy is not None
     fed_proxy_ready = proxy_latest.get("latest_spread_bps") is not None
+    policy_proxy_event_ready = proxy_event.get("reaction_bps") is not None
 
     reaction_scale_bps = float(fred_cfg.get("reaction_scale_bps", 5.0))
     reaction_z = (
@@ -510,6 +532,30 @@ def build_feature_payload(
         else None
     )
 
+    us2y_event_ready = event_reaction.get("reaction_bps") is not None
+    policy_confirmation_ready = fed_repricing_ready or policy_proxy_event_ready
+    signal_blockers: list[str] = []
+    if not surprise_provider_ready:
+        signal_blockers.append("CONSENSUS_SURPRISE_UNAVAILABLE")
+    if reaction_anchor is None:
+        signal_blockers.append("NO_US_EVENT_ANCHOR")
+    elif not us2y_event_ready:
+        signal_blockers.append("US2Y_EVENT_REACTION_UNAVAILABLE")
+    if not policy_confirmation_ready:
+        signal_blockers.append("POLICY_REPRICING_CONFIRMATION_UNAVAILABLE")
+
+    macro_event_signal_ready = not signal_blockers
+    macro_event_signal_full_provider_ready = (
+        surprise_provider_ready and us2y_event_ready and fed_repricing_ready
+    )
+    macro_event_signal_quality = (
+        "FULL_PROVIDER_CONFIRMATION"
+        if macro_event_signal_full_provider_ready
+        else "DGS2_DFF_PROXY_CONFIRMATION"
+        if macro_event_signal_ready and policy_proxy_event_ready
+        else "INCOMPLETE"
+    )
+
     weights = config.get("coverage_weights") or {}
     coverage = (
         float(weights.get("official_news", 0.35)) * official_health
@@ -525,7 +571,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.2",
+        "schema_version": "macro-event-feature-v1.3",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -588,22 +634,28 @@ def build_feature_payload(
         "policy_proxy_quality": "MARKET_RATE_MINUS_EFFECTIVE_RATE_PROXY",
         "policy_proxy_error": policy_rate_error,
         "fed_policy_repricing_bps": (
-            float(latest_policy["repricing_bps"]) if latest_policy else None
+            float(matched_policy["repricing_bps"]) if matched_policy else None
         ),
         "fed_policy_repricing_quality": (
-            "FUTURES_PROVIDER" if latest_policy else "UNAVAILABLE"
+            "FUTURES_PROVIDER_EVENT_MATCHED" if matched_policy else "UNAVAILABLE"
         ),
         "fed_policy_repricing_source": (
-            latest_policy.get("source") if latest_policy else None
+            matched_policy.get("source") if matched_policy else None
         ),
         "fed_policy_repricing_horizon": (
-            latest_policy.get("horizon") if latest_policy else None
+            matched_policy.get("horizon") if matched_policy else None
         ),
         "fed_policy_repricing_available_at": (
-            iso(parse_dt(latest_policy.get("available_at")))
-            if latest_policy and parse_dt(latest_policy.get("available_at"))
+            iso(parse_dt(matched_policy.get("available_at")))
+            if matched_policy and parse_dt(matched_policy.get("available_at"))
             else None
         ),
+        "fed_policy_repricing_event_gap_minutes": policy_event_gap_minutes,
+        "fed_policy_repricing_match_hours": policy_match_hours,
+        "macro_event_signal_ready": macro_event_signal_ready,
+        "macro_event_signal_full_provider_ready": macro_event_signal_full_provider_ready,
+        "macro_event_signal_quality": macro_event_signal_quality,
+        "macro_event_signal_blockers": signal_blockers,
         "macro_shock_interaction": shock_interaction,
         "policy_alignment": policy_alignment,
         "component_status": {
@@ -633,11 +685,24 @@ def build_feature_payload(
                 "status": "READY" if surprise_provider_ready else "UNAVAILABLE"
             },
             "fed_repricing_provider": {
-                "status": "READY" if fed_repricing_ready else "UNAVAILABLE"
+                "status": "READY" if fed_repricing_ready else "UNAVAILABLE",
+                "event_gap_minutes": policy_event_gap_minutes,
+                "match_window_hours": policy_match_hours,
             },
             "fed_repricing_proxy": {
-                "status": "READY" if fed_proxy_ready else "UNAVAILABLE",
+                "status": (
+                    "READY_EVENT_MATCHED"
+                    if policy_proxy_event_ready
+                    else "READY_LEVEL_ONLY"
+                    if fed_proxy_ready
+                    else "UNAVAILABLE"
+                ),
                 "quality": "MARKET_RATE_MINUS_EFFECTIVE_RATE_PROXY",
+            },
+            "macro_event_signal": {
+                "status": "READY" if macro_event_signal_ready else "BLOCKED",
+                "quality": macro_event_signal_quality,
+                "blockers": signal_blockers,
             },
         },
         "r51_scoring_enabled": False,
