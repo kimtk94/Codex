@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import pathlib
 import sys
@@ -15,6 +16,7 @@ from app.config import Settings
 from app.executor import TradeLedger, _quote_telemetry
 from app.toss_client import TossClient
 from engine.position_manager import _broker_order_telemetry
+from engine.execution_telemetry_sync import _broker_orders, _fetch_order_with_bounded_429_retry
 from engine.trade_mirror import _execution_quality, _round_trip_quality
 
 
@@ -140,3 +142,43 @@ def test_round_trip_quality_uses_actual_broker_costs():
     expected_net = (Decimal("109.9") / Decimal("100.1")) - Decimal("1")
     assert abs(q["net_return"] - float(expected_net)) < 1e-12
     assert abs(q["round_trip_cost_bps"] - 20.0) < 1e-12
+
+
+def test_broker_orders_reads_only_rows_with_toss_order_id():
+    with tempfile.TemporaryDirectory() as td:
+        path = pathlib.Path(td) / "trading.sqlite3"
+        ledger = TradeLedger(path)
+        ok, _, _ = ledger.reserve("cid-a", "AAPL", "BUY", 5000, 30000)
+        assert ok
+        ledger.finish("cid-a", "SUBMITTED", "order-a")
+        ok, _, _ = ledger.reserve("cid-b", "MSFT", "BUY", 5000, 30000)
+        assert ok
+        rows = _broker_orders(path, 10)
+        assert [row["client_order_id"] for row in rows] == ["cid-a"]
+        assert rows[0]["toss_order_id"] == "order-a"
+
+
+def test_429_retry_is_bounded_and_read_only():
+    request = httpx.Request("GET", "https://openapi.tossinvest.com/api/v1/orders/order-1")
+    response = httpx.Response(
+        429,
+        request=request,
+        headers={"Retry-After": "0"},
+        json={"error": {"code": "RATE_LIMIT"}},
+    )
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = 0
+            self.last_response_meta = {"retry_after_seconds": 0}
+
+        async def order(self, order_id):
+            self.calls += 1
+            if self.calls == 1:
+                raise httpx.HTTPStatusError("429", request=request, response=response)
+            return {"result": {"orderId": order_id, "status": "FILLED", "execution": {}}}
+
+    client = FakeClient()
+    out = asyncio.run(_fetch_order_with_bounded_429_retry(client, "order-1"))
+    assert out["orderId"] == "order-1"
+    assert client.calls == 2
