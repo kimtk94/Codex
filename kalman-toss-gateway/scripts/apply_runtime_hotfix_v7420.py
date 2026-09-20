@@ -10,7 +10,7 @@ MANIFEST = ROOT / "kalman-hub-recovery/v7.4.20/source_manifest.ndjson"
 REPORT = ROOT / "kalman-hub-recovery/v7.4.20/build_report.json"
 HOTFIX = ROOT / "kalman-toss-gateway/scripts/runtime_hotfix_v7420_decision_console.js"
 MARKER = "KALMAN_DECISION_CONSOLE_HOTFIX_V7422"
-UI_VOCAB_VERSION = "kalman-ui-v1"
+UI_VOCAB_VERSION = "kalman-ui-v1.1"
 FORBIDDEN_VISIBLE_LABELS = [
     "DATA LIVE",
     "DATA CHECK",
