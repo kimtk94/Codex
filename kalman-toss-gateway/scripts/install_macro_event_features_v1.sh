@@ -44,10 +44,33 @@ with psycopg.connect(db_url, connect_timeout=15) as conn:
     ).fetchone()
     missing = [name for name, value in zip(required, row) if value is None]
 
-    if not missing:
-        print("[PASS] macro schema already present; DDL skipped")
+    constraint_rows = conn.execute(
+        """
+        SELECT conname, pg_get_constraintdef(oid) AS definition
+        FROM pg_constraint
+        WHERE conname IN (
+          'macro_release_observation_time_quality_check',
+          'macro_policy_repricing_observation_time_quality_check'
+        )
+        """
+    ).fetchall()
+    constraint_defs = {name: definition for name, definition in constraint_rows}
+    required_provider_token = "PROVIDER_RELEASE_TS"
+    constraint_upgrade = any(
+        required_provider_token not in constraint_defs.get(name, "")
+        for name in (
+            "macro_release_observation_time_quality_check",
+            "macro_policy_repricing_observation_time_quality_check",
+        )
+    )
+
+    if not missing and not constraint_upgrade:
+        print("[PASS] macro schema already present and provider timestamp contract is current; DDL skipped")
     else:
-        print("[INFO] missing macro schema objects: " + ", ".join(missing))
+        if missing:
+            print("[INFO] missing macro schema objects: " + ", ".join(missing))
+        if constraint_upgrade:
+            print("[INFO] macro time_quality constraints require provider timestamp upgrade")
         sql = Path(sys.argv[1]).read_text(encoding="utf-8")
         statements = [x.strip() for x in sql.split(";") if x.strip()]
         try:
@@ -57,7 +80,7 @@ with psycopg.connect(db_url, connect_timeout=15) as conn:
         except psycopg.errors.InsufficientPrivilege as exc:
             conn.rollback()
             raise SystemExit(
-                "Macro schema is incomplete and the runtime DB role lacks DDL privileges. "
+                "Macro schema is incomplete/outdated and the runtime DB role lacks DDL privileges. "
                 "Apply research/quant_stack/macro_event_features_v1.sql with the schema-owner/admin role, "
                 "then rerun this installer."
             ) from exc
