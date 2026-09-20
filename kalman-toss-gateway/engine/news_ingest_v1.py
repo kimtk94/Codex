@@ -39,6 +39,13 @@ class HttpRateLimitError(RuntimeError):
         super().__init__(f"HTTP 429 Too Many Requests: {url}{suffix}")
 
 
+class HttpAccessDeniedError(RuntimeError):
+    def __init__(self, url: str, status_code: int):
+        self.url = url
+        self.status_code = status_code
+        super().__init__(f"HTTP {status_code} access denied: {url}")
+
+
 TRACKING_PARAMS = {
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "gclid", "fbclid", "mc_cid", "mc_eid",
@@ -386,11 +393,13 @@ def http_get(url: str, *, headers: dict[str, str] | None = None,
                                 0.0, (retry_at - utc_now()).total_seconds()
                             )
                 raise HttpRateLimitError(url, retry_after_seconds)
+            if r.status_code in {401, 403}:
+                raise HttpAccessDeniedError(url, r.status_code)
             r.raise_for_status()
             return r
-        except HttpRateLimitError:
-            # A 429 is a provider-side throttle signal, not a transient transport
-            # failure. Do not hammer the provider with immediate retries.
+        except (HttpRateLimitError, HttpAccessDeniedError):
+            # Provider-side policy responses are not transport failures. Immediate
+            # retries only increase the chance of a longer block.
             raise
         except Exception as exc:
             last = exc
@@ -495,12 +504,24 @@ def sec_company_map(state_dir: Path, user_agent: str, max_age_hours: int = 24) -
     path = state_dir / "sec_company_tickers.json"
     fresh = path.exists() and (time.time() - path.stat().st_mtime) < max_age_hours * 3600
     if not fresh:
-        r = http_get(
-            "https://www.sec.gov/files/company_tickers.json",
-            headers={"User-Agent": user_agent, "Accept-Encoding": "gzip, deflate"},
-        )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(r.content)
+        try:
+            r = http_get(
+                "https://www.sec.gov/files/company_tickers.json",
+                headers={
+                    "User-Agent": user_agent,
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip, deflate",
+                },
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_bytes(r.content)
+            json.loads(tmp.read_text(encoding="utf-8"))
+            os.replace(tmp, path)
+        except Exception as exc:
+            if not path.exists():
+                raise
+            print(f"[NEWS][WARN] SEC ticker map refresh failed; stale cache used: {exc}")
     obj = json.loads(path.read_text(encoding="utf-8"))
     return {
         str(v["ticker"]).upper(): {
@@ -1048,12 +1069,17 @@ def collect_all(spool: Spool, config: dict[str, Any], db_url: str | None,
     gdelt_cfg = config.get("gdelt", {})
     secmap = None
     dartmap = None
-    if os.environ.get("KALMAN_NEWS_SEC_USER_AGENT"):
+    sec_due = spool.due("sec_edgar", int(sec_cfg.get("min_interval_seconds", 900)))
+    gdelt_us_due = spool.due("gdelt_us", int(gdelt_cfg.get("min_interval_seconds", 900)))
+    dart_due = spool.due("opendart", int(dart_cfg.get("min_interval_seconds", 300)))
+    gdelt_kr_due = spool.due("gdelt_kr", int(gdelt_cfg.get("min_interval_seconds", 900)))
+
+    if os.environ.get("KALMAN_NEWS_SEC_USER_AGENT") and (sec_due or gdelt_us_due):
         try:
             secmap = sec_company_map(state_dir, os.environ["KALMAN_NEWS_SEC_USER_AGENT"])
         except Exception as exc:
             print(f"[NEWS][WARN] SEC company alias cache: {exc}")
-    if os.environ.get("DART_API_KEY"):
+    if os.environ.get("DART_API_KEY") and (dart_due or gdelt_kr_due):
         try:
             dartmap = dart_company_map(state_dir, os.environ["DART_API_KEY"])
         except Exception as exc:
