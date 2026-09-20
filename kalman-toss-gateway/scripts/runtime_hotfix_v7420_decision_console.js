@@ -37,7 +37,13 @@
       '.kalman-bench-foot{display:flex;justify-content:space-between;gap:12px;padding:8px 2px 5px;font-size:10px;color:#8293b2}.kalman-bench-foot b{color:#d7e0f2}',
       '.kalman-exec-ledger{margin-top:18px}.kalman-offline{display:flex;justify-content:space-between;align-items:center;gap:14px;background:#0e1729;border:1px dashed #3a4864;border-radius:12px;padding:14px}.kalman-offline b{color:var(--warn)}.kalman-offline span{display:block;color:var(--muted);font-size:11px;margin-top:3px}',
       '@media(max-width:900px){.command-grid.kalman-decision-grid{grid-template-columns:1fr}.kalman-execution-panel{grid-row:auto}}',
-      '@media(max-width:520px){.kalman-rule-grid,.kalman-bench-grid{grid-template-columns:1fr}.kalman-execution-hero strong{font-size:28px}},'#accountSectionK23,#kalmanExecutionLedger{display:none}','.operations-mode #accountSectionK23,.operations-mode #kalmanExecutionLedger{display:block}','.operations-mode #content{display:none}','.primary-tabs{flex-wrap:nowrap!important;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}','.primary-tabs::-webkit-scrollbar{display:none}.primary-tabs .tab{flex:0 0 auto;white-space:nowrap}','@media(max-width:430px){.product-head{display:block}.header-status{margin-top:10px;justify-content:flex-start;flex-wrap:wrap}}']
+      '@media(max-width:520px){.kalman-rule-grid,.kalman-bench-grid{grid-template-columns:1fr}.kalman-execution-hero strong{font-size:28px}}',
+      '#accountSectionK23,#kalmanExecutionLedger{display:none}',
+      '.operations-mode #accountSectionK23,.operations-mode #kalmanExecutionLedger{display:block}',
+      '.operations-mode #content{display:none}',
+      '.primary-tabs{flex-wrap:nowrap!important;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}',
+      '.primary-tabs::-webkit-scrollbar{display:none}.primary-tabs .tab{flex:0 0 auto;white-space:nowrap}',
+      '@media(max-width:430px){.product-head{display:block}.header-status{margin-top:10px;justify-content:flex-start;flex-wrap:wrap}}'
     ].join('');
     document.head.appendChild(s);
   }
@@ -55,7 +61,7 @@
     return {fresh:sv.valid&&Number.isFinite(sv.ageMinutes)&&sv.ageMinutes<=90,ageMinutes:sv.ageMinutes,snapshotValid:sv.valid};
   }
   function dotLabel(valid){
-    return '<span class="health-dot '+(valid?'good-dot':'warn-dot')+'"></span>'+(valid?'VALID':'EXPIRED');
+    return '<span class="health-dot '+(valid?'good-dot':'warn-dot')+'"></span>'+(valid?'스냅샷 유효':'스냅샷 만료');
   }
   try{
     staleBadge=function(x){return x?badge('스냅샷 만료','warn'):badge('스냅샷 유효','ok');};
