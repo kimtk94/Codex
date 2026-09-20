@@ -131,3 +131,81 @@ def test_local_crypto_xlsx_get_all_values_trims_empty_tail(tmp_path):
     values = server_compat._LocalWorksheet(path, "Sources_Audit").get_all_values()
 
     assert values == [["source", "status"], ["Upbit", "OK"]]
+
+
+def test_kr_source_lineage_overlay_freezes_existing_live_raw(tmp_path, monkeypatch):
+    import pandas as pd
+
+    root = tmp_path / "drive"
+    finance = root / "Finance_KR"
+    cache = finance / "marcap_cache"
+    cache.mkdir(parents=True)
+
+    live = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2026-09-16", "2026-09-16"]),
+            "Code": ["000001", "000002"],
+            "Open": [100.0, 200.0],
+            "High": [110.0, 210.0],
+            "Low": [90.0, 190.0],
+            "Close": [101.0, 202.0],
+            "Volume": [1000.0, 2000.0],
+            "Amount": [101000.0, 404000.0],
+            "Marcap": [1_000_000.0, 2_000_000.0],
+            "Stocks": [10_000.0, 20_000.0],
+        }
+    )
+    live.to_parquet(finance / "kr_hgb_live_features_v0_4_latest.parquet", index=False)
+
+    source = live.copy()
+    source.loc[source["Code"].eq("000001"), "Close"] = 103.0
+    source.loc[:, "Volume"] = [9999.0, 8888.0]
+    source.loc[:, "Amount"] = [999999.0, 888888.0]
+    source = pd.concat(
+        [
+            source,
+            pd.DataFrame(
+                {
+                    "Date": [pd.Timestamp("2026-09-17")],
+                    "Code": ["000001"],
+                    "Open": [102.0],
+                    "High": [112.0],
+                    "Low": [92.0],
+                    "Close": [104.0],
+                    "Volume": [1200.0],
+                    "Amount": [124800.0],
+                    "Marcap": [1_010_000.0],
+                    "Stocks": [10_000.0],
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+
+    monkeypatch.setenv("KALMAN_DATA_ROOT", str(root))
+    monkeypatch.setenv("RUN_MODE", "KR_GLOBAL")
+
+    import pandas as real_pd
+    original = real_pd.read_parquet
+
+    def wrapper(path, *args, **kwargs):
+        return original(path, *args, **kwargs)
+
+    wrapper.__kalman_original__ = original
+    monkeypatch.setattr(real_pd, "read_parquet", wrapper)
+
+    out = server_compat._overlay_frozen_kr_live_raw(source)
+
+    frozen = out.loc[
+        out["Date"].eq(pd.Timestamp("2026-09-16"))
+        & out["Code"].eq("000001")
+    ].iloc[0]
+    future = out.loc[
+        out["Date"].eq(pd.Timestamp("2026-09-17"))
+        & out["Code"].eq("000001")
+    ].iloc[0]
+
+    assert frozen["Close"] == 101.0
+    assert frozen["Volume"] == 1000.0
+    assert frozen["Amount"] == 101000.0
+    assert future["Close"] == 104.0
