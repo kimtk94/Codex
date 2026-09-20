@@ -580,6 +580,76 @@ def compute_shadow_event_score(
     }
 
 
+
+def compute_free_reaction_shadow_score(
+    *,
+    event_family: str,
+    reaction_z: float | None,
+    policy_proxy_event_bps: float | None,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    scoring = config.get("event_scoring") or {}
+    policy_scale = max(
+        1e-9, float(scoring.get("policy_repricing_scale_bps", 5.0))
+    )
+    policy_proxy_z = (
+        _clip5(float(policy_proxy_event_bps) / policy_scale)
+        if policy_proxy_event_bps is not None
+        else None
+    )
+    blockers: list[str] = []
+    if event_family not in {"CPI", "NFP", "FOMC"}:
+        blockers.append("UNSUPPORTED_EVENT_FAMILY")
+    if reaction_z is None:
+        blockers.append("US2Y_EVENT_REACTION_UNAVAILABLE")
+    if policy_proxy_z is None:
+        blockers.append("DGS2_DFF_EVENT_CONFIRMATION_UNAVAILABLE")
+
+    score = None
+    weights = (scoring.get("weights") or {}).get(event_family) or {}
+    if not blockers:
+        if event_family in {"CPI", "NFP"}:
+            us2y_weight = float(weights.get("us2y", 0.30))
+            policy_weight = float(weights.get("policy", 0.20))
+        else:
+            us2y_weight = float(weights.get("us2y", 0.45))
+            policy_weight = float(weights.get("policy", 0.55))
+        denom = us2y_weight + policy_weight
+        if denom <= 0:
+            blockers.append("INVALID_FREE_REACTION_WEIGHTS")
+        else:
+            score = _clip5(
+                (us2y_weight / denom) * float(reaction_z)
+                + (policy_weight / denom) * float(policy_proxy_z)
+            )
+            score = round(float(score), 12)
+
+    neutral_band = abs(float(scoring.get("neutral_band", 0.50)))
+    direction = (
+        "HAWKISH_TIGHTENING"
+        if score is not None and score > neutral_band
+        else "DOVISH_EASING"
+        if score is not None and score < -neutral_band
+        else "NEUTRAL"
+        if score is not None
+        else "BLOCKED"
+    )
+    return {
+        "event_family": event_family,
+        "score": score,
+        "direction": direction,
+        "ready": score is not None,
+        "blockers": blockers,
+        "us2y_reaction_z": reaction_z,
+        "policy_proxy_confirmation_z": policy_proxy_z,
+        "policy_confirmation_source": "DGS2_DFF_PROXY" if policy_proxy_z is not None else None,
+        "quality": "DAILY_RATE_PROXY_ONLY",
+        "free_only": True,
+        "shadow_only": True,
+        "score_range": [-5.0, 5.0],
+        "positive_direction": "HAWKISH_TIGHTENING",
+    }
+
 def build_feature_payload(
     *,
     as_of: datetime,
@@ -719,6 +789,12 @@ def build_feature_payload(
         policy_proxy_event_bps=proxy_event.get("reaction_bps"),
         config=config,
     )
+    free_reaction_score = compute_free_reaction_shadow_score(
+        event_family=event_family,
+        reaction_z=reaction_z,
+        policy_proxy_event_bps=proxy_event.get("reaction_bps"),
+        config=config,
+    )
     event_bundle_surprise = shadow_score.get("bundle_surprise")
     shock_interaction = (
         float(event_bundle_surprise) * reaction_z
@@ -774,7 +850,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.4",
+        "schema_version": "macro-event-feature-v1.5",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -868,6 +944,25 @@ def build_feature_payload(
         },
         "macro_event_shadow_score_range": shadow_score.get("score_range"),
         "macro_event_shadow_positive_direction": shadow_score.get("positive_direction"),
+        "macro_event_free_reaction_score": free_reaction_score.get("score"),
+        "macro_event_free_reaction_direction": free_reaction_score.get("direction"),
+        "macro_event_free_reaction_ready": (
+            bool(free_reaction_score.get("ready")) and reaction_anchor is not None
+        ),
+        "macro_event_free_reaction_quality": free_reaction_score.get("quality"),
+        "macro_event_free_reaction_blockers": (
+            (["NO_US_EVENT_ANCHOR"] if reaction_anchor is None else [])
+            + list(free_reaction_score.get("blockers") or [])
+        ),
+        "macro_event_free_reaction_components": {
+            "us2y_reaction_z": free_reaction_score.get("us2y_reaction_z"),
+            "policy_proxy_confirmation_z": free_reaction_score.get(
+                "policy_proxy_confirmation_z"
+            ),
+            "policy_confirmation_source": free_reaction_score.get(
+                "policy_confirmation_source"
+            ),
+        },
         "macro_event_signal_ready": macro_event_signal_ready,
         "macro_event_signal_full_provider_ready": macro_event_signal_full_provider_ready,
         "macro_event_signal_quality": macro_event_signal_quality,
@@ -922,6 +1017,22 @@ def build_feature_payload(
                 "shadow_score": shadow_score.get("score"),
                 "direction": shadow_score.get("direction"),
                 "blockers": signal_blockers,
+            },
+            "macro_event_free_reaction": {
+                "status": (
+                    "READY"
+                    if free_reaction_score.get("ready") and reaction_anchor is not None
+                    else "BLOCKED"
+                ),
+                "quality": free_reaction_score.get("quality"),
+                "event_family": event_family,
+                "shadow_score": free_reaction_score.get("score"),
+                "direction": free_reaction_score.get("direction"),
+                "blockers": (
+                    (["NO_US_EVENT_ANCHOR"] if reaction_anchor is None else [])
+                    + list(free_reaction_score.get("blockers") or [])
+                ),
+                "free_only": True,
             },
         },
         "r51_scoring_enabled": False,
