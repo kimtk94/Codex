@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS public.macro_shadow_evaluation_v1 (
     policy_proxy_spread_bps double precision,
     official_macro_decay double precision,
     broad_macro_decay double precision,
+    macro_event_free_reaction_score double precision,
+    macro_event_free_reaction_direction text
+        CHECK (macro_event_free_reaction_direction IN (
+            'HAWKISH_TIGHTENING','DOVISH_EASING','NEUTRAL','BLOCKED'
+        )),
+    macro_event_free_reaction_ready boolean,
     baseline_gross_return double precision NOT NULL,
     baseline_net_return double precision NOT NULL,
     macro_features jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -33,6 +39,13 @@ CREATE TABLE IF NOT EXISTS public.macro_shadow_evaluation_v1 (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.macro_shadow_evaluation_v1
+    ADD COLUMN IF NOT EXISTS macro_event_free_reaction_score double precision;
+ALTER TABLE public.macro_shadow_evaluation_v1
+    ADD COLUMN IF NOT EXISTS macro_event_free_reaction_direction text;
+ALTER TABLE public.macro_shadow_evaluation_v1
+    ADD COLUMN IF NOT EXISTS macro_event_free_reaction_ready boolean;
 
 CREATE INDEX IF NOT EXISTS idx_macro_shadow_eval_signal
     ON public.macro_shadow_evaluation_v1
@@ -78,3 +91,43 @@ GRANT SELECT, INSERT, UPDATE ON public.macro_shadow_evaluation_v1 TO investment_
 GRANT SELECT ON public.macro_shadow_evaluation_v1 TO kalman_colab_ro;
 GRANT SELECT ON public.v_macro_shadow_eval_summary_v1 TO kalman_colab_ro;
 GRANT SELECT ON public.v_macro_shadow_eval_readiness_v1 TO kalman_colab_ro;
+
+
+CREATE OR REPLACE VIEW public.v_macro_shadow_eval_free_reaction_v1 AS
+SELECT
+    market,
+    strategy_version,
+    benchmark_name,
+    macro_event_free_reaction_direction,
+    count(*) FILTER (
+        WHERE evaluation_status='READY'
+          AND macro_event_free_reaction_ready IS TRUE
+    ) AS ready_n,
+    avg(baseline_net_return) FILTER (
+        WHERE evaluation_status='READY'
+          AND macro_event_free_reaction_ready IS TRUE
+    ) AS avg_net_return,
+    stddev_samp(baseline_net_return) FILTER (
+        WHERE evaluation_status='READY'
+          AND macro_event_free_reaction_ready IS TRUE
+    ) AS stddev_net_return,
+    avg(CASE WHEN baseline_net_return > 0 THEN 1.0 ELSE 0.0 END) FILTER (
+        WHERE evaluation_status='READY'
+          AND macro_event_free_reaction_ready IS TRUE
+    ) AS win_rate,
+    avg(macro_event_free_reaction_score) FILTER (
+        WHERE evaluation_status='READY'
+          AND macro_event_free_reaction_ready IS TRUE
+    ) AS avg_free_reaction_score,
+    min(signal_as_of) FILTER (
+        WHERE evaluation_status='READY'
+          AND macro_event_free_reaction_ready IS TRUE
+    ) AS first_ready_as_of,
+    max(signal_as_of) FILTER (
+        WHERE evaluation_status='READY'
+          AND macro_event_free_reaction_ready IS TRUE
+    ) AS last_ready_as_of
+FROM public.macro_shadow_evaluation_v1
+GROUP BY market,strategy_version,benchmark_name,macro_event_free_reaction_direction;
+
+GRANT SELECT ON public.v_macro_shadow_eval_free_reaction_v1 TO kalman_colab_ro;
