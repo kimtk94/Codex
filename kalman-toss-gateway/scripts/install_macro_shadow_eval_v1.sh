@@ -28,6 +28,7 @@ required = (
     "public.macro_shadow_evaluation_v1",
     "public.v_macro_shadow_eval_summary_v1",
     "public.v_macro_shadow_eval_readiness_v1",
+    "public.v_macro_shadow_eval_free_reaction_v1",
 )
 with psycopg.connect(db_url, connect_timeout=15) as conn:
     row = conn.execute(
