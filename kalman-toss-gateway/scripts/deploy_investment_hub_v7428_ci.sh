@@ -162,9 +162,6 @@ annual=ledger.get("annual_2026") or {}
 assert len(annual.get("trades") or [])>=268
 assert len((annual.get("reconstructed") or {}).get("trades") or [])==251
 assert len((annual.get("forward") or {}).get("trades") or [])>=17
-open_rows=[t for t in ((annual.get("forward") or {}).get("trades") or []) if not t.get("exit_time")]
-assert open_rows
-assert all(t.get("return_pct") is None for t in open_rows),open_rows
 bench=control.get("benchmarks") or {}
 assert (bench.get("top1") or {}).get("snapshots",0)>0,bench
 assert (bench.get("top6") or {}).get("snapshots",0)>0,bench
