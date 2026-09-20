@@ -580,7 +580,12 @@ def fetch_inputs(
     as_of: datetime,
     lookback_hours: int,
     config: dict[str, Any],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
     since = as_of - timedelta(hours=lookback_hours)
     macro_rows = conn.execute(
         """
@@ -607,6 +612,17 @@ def fetch_inputs(
         """,
         (since, as_of),
     ).fetchall()
+    policy_rows = conn.execute(
+        """
+        SELECT observation_id,event_name,event_at,available_at,repricing_bps,
+               horizon,source,source_item_id,time_quality,payload
+        FROM public.macro_policy_repricing_observation
+        WHERE available_at >= %s
+          AND available_at <= %s
+        ORDER BY available_at
+        """,
+        (since, as_of),
+    ).fetchall()
     configured = list(
         dict.fromkeys(
             (config.get("official_macro_sources") or [])
@@ -624,7 +640,12 @@ def fetch_inputs(
             """,
             (configured,),
         ).fetchall()
-    return list(macro_rows), list(release_rows), list(source_states)
+    return (
+        list(macro_rows),
+        list(release_rows),
+        list(policy_rows),
+        list(source_states),
+    )
 
 
 def build_snapshot(
@@ -635,16 +656,22 @@ def build_snapshot(
     as_of = (as_of or utc_now()).astimezone(UTC).replace(second=0, microsecond=0)
     lookback = int(config.get("lookback_hours", 72))
     dgs2, dgs2_error = fetch_dgs2(config, as_of)
+    policy_rate, policy_rate_error = fetch_policy_proxy_rate(config, as_of)
     with psycopg.connect(db_url, connect_timeout=15, row_factory=dict_row) as conn:
-        macro_rows, release_rows, states = fetch_inputs(conn, as_of, lookback, config)
+        macro_rows, release_rows, policy_rows, states = fetch_inputs(
+            conn, as_of, lookback, config
+        )
         features, coverage = build_feature_payload(
             as_of=as_of,
             config=config,
             macro_rows=macro_rows,
             release_rows=release_rows,
+            policy_rows=policy_rows,
             source_states=states,
             dgs2_observations=dgs2,
             dgs2_error=dgs2_error,
+            policy_rate_observations=policy_rate,
+            policy_rate_error=policy_rate_error,
         )
         run_id = "MACRO-" + as_of.strftime("%Y%m%dT%H%MZ")
         conn.execute(
