@@ -1,0 +1,1099 @@
+{
+  "version": "news-entity-aliases-v2.0.0",
+  "generated_at_utc": "2026-09-20T13:40:00Z",
+  "notes": "Curated US aliases plus current KR universe names from production model_output. GOOG company-name aliases are assigned to GOOGL to avoid duplicate class mapping; explicit GOOG ticker mentions still map to GOOG.",
+  "markets": {
+    "US": {
+      "AAPL": {
+        "aliases": [
+          "Apple",
+          "Apple Inc"
+        ]
+      },
+      "ABBV": {
+        "aliases": [
+          "AbbVie",
+          "AbbVie Inc"
+        ]
+      },
+      "ABT": {
+        "aliases": [
+          "Abbott",
+          "Abbott Laboratories"
+        ]
+      },
+      "ACN": {
+        "aliases": [
+          "Accenture",
+          "Accenture plc"
+        ]
+      },
+      "ADBE": {
+        "aliases": [
+          "Adobe",
+          "Adobe Inc"
+        ]
+      },
+      "AMAT": {
+        "aliases": [
+          "Applied Materials",
+          "Applied Materials Inc"
+        ]
+      },
+      "AMD": {
+        "aliases": [
+          "Advanced Micro Devices"
+        ]
+      },
+      "AMGN": {
+        "aliases": [
+          "Amgen",
+          "Amgen Inc"
+        ]
+      },
+      "AMT": {
+        "aliases": [
+          "American Tower",
+          "American Tower Corporation"
+        ]
+      },
+      "AMZN": {
+        "aliases": [
+          "Amazon",
+          "Amazon.com"
+        ]
+      },
+      "AVGO": {
+        "aliases": [
+          "Broadcom",
+          "Broadcom Inc"
+        ]
+      },
+      "AXP": {
+        "aliases": [
+          "American Express",
+          "American Express Company"
+        ]
+      },
+      "BA": {
+        "aliases": [
+          "Boeing",
+          "The Boeing Company"
+        ]
+      },
+      "BAC": {
+        "aliases": [
+          "Bank of America",
+          "BofA"
+        ]
+      },
+      "BMY": {
+        "aliases": [
+          "Bristol Myers Squibb",
+          "Bristol-Myers Squibb"
+        ]
+      },
+      "BNY": {
+        "aliases": [
+          "Bank of New York Mellon",
+          "BNY Mellon",
+          "The Bank of New York Mellon"
+        ]
+      },
+      "BRK-B": {
+        "aliases": [
+          "Berkshire Hathaway",
+          "Berkshire Hathaway Inc"
+        ]
+      },
+      "C": {
+        "aliases": [
+          "Citigroup",
+          "Citigroup Inc"
+        ]
+      },
+      "CAT": {
+        "aliases": [
+          "Caterpillar",
+          "Caterpillar Inc"
+        ]
+      },
+      "CL": {
+        "aliases": [
+          "Colgate-Palmolive",
+          "Colgate Palmolive"
+        ]
+      },
+      "CMCSA": {
+        "aliases": [
+          "Comcast",
+          "Comcast Corporation"
+        ]
+      },
+      "COF": {
+        "aliases": [
+          "Capital One",
+          "Capital One Financial"
+        ]
+      },
+      "COP": {
+        "aliases": [
+          "ConocoPhillips"
+        ]
+      },
+      "CRM": {
+        "aliases": [
+          "Salesforce",
+          "Salesforce Inc"
+        ]
+      },
+      "CSCO": {
+        "aliases": [
+          "Cisco",
+          "Cisco Systems"
+        ]
+      },
+      "CVS": {
+        "aliases": [
+          "CVS Health"
+        ]
+      },
+      "CVX": {
+        "aliases": [
+          "Chevron",
+          "Chevron Corporation"
+        ]
+      },
+      "DE": {
+        "aliases": [
+          "Deere & Company",
+          "John Deere"
+        ]
+      },
+      "DHR": {
+        "aliases": [
+          "Danaher",
+          "Danaher Corporation"
+        ]
+      },
+      "DIS": {
+        "aliases": [
+          "Disney",
+          "Walt Disney",
+          "The Walt Disney Company"
+        ]
+      },
+      "DUK": {
+        "aliases": [
+          "Duke Energy",
+          "Duke Energy Corporation"
+        ]
+      },
+      "EMR": {
+        "aliases": [
+          "Emerson",
+          "Emerson Electric"
+        ]
+      },
+      "FDX": {
+        "aliases": [
+          "FedEx",
+          "Federal Express"
+        ]
+      },
+      "GE": {
+        "aliases": [
+          "GE Aerospace",
+          "General Electric"
+        ]
+      },
+      "GILD": {
+        "aliases": [
+          "Gilead",
+          "Gilead Sciences"
+        ]
+      },
+      "GM": {
+        "aliases": [
+          "General Motors"
+        ]
+      },
+      "GOOG": {
+        "aliases": []
+      },
+      "GOOGL": {
+        "aliases": [
+          "Alphabet",
+          "Alphabet Inc",
+          "Google"
+        ]
+      },
+      "GS": {
+        "aliases": [
+          "Goldman Sachs",
+          "Goldman Sachs Group"
+        ]
+      },
+      "HD": {
+        "aliases": [
+          "Home Depot",
+          "The Home Depot"
+        ]
+      },
+      "IBM": {
+        "aliases": [
+          "International Business Machines"
+        ]
+      },
+      "INTC": {
+        "aliases": [
+          "Intel",
+          "Intel Corporation"
+        ]
+      },
+      "INTU": {
+        "aliases": [
+          "Intuit",
+          "Intuit Inc"
+        ]
+      },
+      "ISRG": {
+        "aliases": [
+          "Intuitive Surgical"
+        ]
+      },
+      "JNJ": {
+        "aliases": [
+          "Johnson & Johnson",
+          "Johnson and Johnson"
+        ]
+      },
+      "JPM": {
+        "aliases": [
+          "JPMorgan",
+          "JPMorgan Chase",
+          "JP Morgan"
+        ]
+      },
+      "KO": {
+        "aliases": [
+          "Coca-Cola",
+          "Coca Cola",
+          "The Coca-Cola Company"
+        ]
+      },
+      "LIN": {
+        "aliases": [
+          "Linde",
+          "Linde plc"
+        ]
+      },
+      "LLY": {
+        "aliases": [
+          "Eli Lilly",
+          "Eli Lilly and Company",
+          "Lilly"
+        ]
+      },
+      "LOW": {
+        "aliases": [
+          "Lowe's",
+          "Lowes",
+          "Lowe's Companies"
+        ]
+      },
+      "LRCX": {
+        "aliases": [
+          "Lam Research"
+        ]
+      },
+      "MA": {
+        "aliases": [
+          "Mastercard",
+          "Mastercard Inc"
+        ]
+      },
+      "MCD": {
+        "aliases": [
+          "McDonald's",
+          "McDonalds",
+          "McDonald's Corporation"
+        ]
+      },
+      "MDLZ": {
+        "aliases": [
+          "Mondelez",
+          "Mondelez International"
+        ]
+      },
+      "MDT": {
+        "aliases": [
+          "Medtronic"
+        ]
+      },
+      "META": {
+        "aliases": [
+          "Meta",
+          "Meta Platforms",
+          "Facebook"
+        ]
+      },
+      "MMM": {
+        "aliases": [
+          "3M",
+          "3M Company"
+        ]
+      },
+      "MO": {
+        "aliases": [
+          "Altria",
+          "Altria Group"
+        ]
+      },
+      "MRK": {
+        "aliases": [
+          "Merck",
+          "Merck & Co"
+        ]
+      },
+      "MS": {
+        "aliases": [
+          "Morgan Stanley"
+        ]
+      },
+      "MSFT": {
+        "aliases": [
+          "Microsoft",
+          "Microsoft Corporation"
+        ]
+      },
+      "MU": {
+        "aliases": [
+          "Micron",
+          "Micron Technology"
+        ]
+      },
+      "NEE": {
+        "aliases": [
+          "NextEra Energy",
+          "NextEra"
+        ]
+      },
+      "NFLX": {
+        "aliases": [
+          "Netflix"
+        ]
+      },
+      "NKE": {
+        "aliases": [
+          "Nike",
+          "Nike Inc"
+        ]
+      },
+      "NVDA": {
+        "aliases": [
+          "Nvidia",
+          "NVIDIA"
+        ]
+      },
+      "ORCL": {
+        "aliases": [
+          "Oracle",
+          "Oracle Corporation"
+        ]
+      },
+      "PEP": {
+        "aliases": [
+          "PepsiCo",
+          "Pepsi"
+        ]
+      },
+      "PFE": {
+        "aliases": [
+          "Pfizer"
+        ]
+      },
+      "PG": {
+        "aliases": [
+          "Procter & Gamble",
+          "Procter and Gamble",
+          "P&G"
+        ]
+      },
+      "PLTR": {
+        "aliases": [
+          "Palantir",
+          "Palantir Technologies"
+        ]
+      },
+      "PM": {
+        "aliases": [
+          "Philip Morris",
+          "Philip Morris International"
+        ]
+      },
+      "QCOM": {
+        "aliases": [
+          "Qualcomm"
+        ]
+      },
+      "RTX": {
+        "aliases": [
+          "RTX",
+          "Raytheon",
+          "Raytheon Technologies"
+        ]
+      },
+      "SBUX": {
+        "aliases": [
+          "Starbucks"
+        ]
+      },
+      "SCHW": {
+        "aliases": [
+          "Charles Schwab",
+          "Schwab"
+        ]
+      },
+      "SO": {
+        "aliases": [
+          "Southern Company",
+          "The Southern Company"
+        ]
+      },
+      "SPG": {
+        "aliases": [
+          "Simon Property Group"
+        ]
+      },
+      "T": {
+        "aliases": [
+          "AT&T",
+          "AT and T"
+        ]
+      },
+      "TMO": {
+        "aliases": [
+          "Thermo Fisher",
+          "Thermo Fisher Scientific"
+        ]
+      },
+      "TMUS": {
+        "aliases": [
+          "T-Mobile",
+          "T Mobile",
+          "T-Mobile US"
+        ]
+      },
+      "TSLA": {
+        "aliases": [
+          "Tesla"
+        ]
+      },
+      "TXN": {
+        "aliases": [
+          "Texas Instruments"
+        ]
+      },
+      "UBER": {
+        "aliases": [
+          "Uber"
+        ]
+      },
+      "UNH": {
+        "aliases": [
+          "UnitedHealth",
+          "UnitedHealth Group"
+        ]
+      },
+      "UNP": {
+        "aliases": [
+          "Union Pacific",
+          "Union Pacific Corporation"
+        ]
+      },
+      "UPS": {
+        "aliases": [
+          "United Parcel Service"
+        ]
+      },
+      "USB": {
+        "aliases": [
+          "U.S. Bancorp",
+          "US Bancorp"
+        ]
+      },
+      "V": {
+        "aliases": [
+          "Visa",
+          "Visa Inc"
+        ]
+      },
+      "VZ": {
+        "aliases": [
+          "Verizon",
+          "Verizon Communications"
+        ]
+      },
+      "WFC": {
+        "aliases": [
+          "Wells Fargo"
+        ]
+      },
+      "WMT": {
+        "aliases": [
+          "Walmart",
+          "Wal-Mart",
+          "Wal Mart"
+        ]
+      },
+      "XOM": {
+        "aliases": [
+          "Exxon Mobil",
+          "ExxonMobil",
+          "Exxon"
+        ]
+      }
+    },
+    "KR": {
+      "105560": {
+        "aliases": [
+          "KB금융"
+        ]
+      },
+      "128940": {
+        "aliases": [
+          "한미약품"
+        ]
+      },
+      "161390": {
+        "aliases": [
+          "한국타이어앤테크놀로지"
+        ]
+      },
+      "175330": {
+        "aliases": [
+          "JB금융지주"
+        ]
+      },
+      "180640": {
+        "aliases": [
+          "한진칼"
+        ]
+      },
+      "207940": {
+        "aliases": [
+          "삼성바이오로직스",
+          "Samsung Biologics"
+        ]
+      },
+      "241560": {
+        "aliases": [
+          "두산밥캣"
+        ]
+      },
+      "259960": {
+        "aliases": [
+          "크래프톤"
+        ]
+      },
+      "267250": {
+        "aliases": [
+          "HD현대"
+        ]
+      },
+      "267260": {
+        "aliases": [
+          "HD현대일렉트릭"
+        ]
+      },
+      "267270": {
+        "aliases": [
+          "HD건설기계"
+        ]
+      },
+      "271560": {
+        "aliases": [
+          "오리온"
+        ]
+      },
+      "272210": {
+        "aliases": [
+          "한화시스템"
+        ]
+      },
+      "277810": {
+        "aliases": [
+          "레인보우로보틱스"
+        ]
+      },
+      "278470": {
+        "aliases": [
+          "에이피알"
+        ]
+      },
+      "298040": {
+        "aliases": [
+          "효성중공업"
+        ]
+      },
+      "307950": {
+        "aliases": [
+          "현대오토에버"
+        ]
+      },
+      "316140": {
+        "aliases": [
+          "우리금융지주"
+        ]
+      },
+      "323410": {
+        "aliases": [
+          "카카오뱅크"
+        ]
+      },
+      "326030": {
+        "aliases": [
+          "SK바이오팜"
+        ]
+      },
+      "329180": {
+        "aliases": [
+          "HD현대중공업"
+        ]
+      },
+      "352820": {
+        "aliases": [
+          "하이브"
+        ]
+      },
+      "353200": {
+        "aliases": [
+          "대덕전자"
+        ]
+      },
+      "373220": {
+        "aliases": [
+          "LG에너지솔루션",
+          "LG Energy Solution"
+        ]
+      },
+      "377300": {
+        "aliases": [
+          "카카오페이"
+        ]
+      },
+      "402340": {
+        "aliases": [
+          "SK스퀘어"
+        ]
+      },
+      "443060": {
+        "aliases": [
+          "HD현대마린솔루션"
+        ]
+      },
+      "000100": {
+        "aliases": [
+          "유한양행"
+        ]
+      },
+      "000150": {
+        "aliases": [
+          "두산"
+        ]
+      },
+      "000270": {
+        "aliases": [
+          "기아",
+          "Kia"
+        ]
+      },
+      "000500": {
+        "aliases": [
+          "가온전선"
+        ]
+      },
+      "000660": {
+        "aliases": [
+          "SK하이닉스",
+          "SK hynix",
+          "SK Hynix",
+          "Hynix"
+        ]
+      },
+      "000720": {
+        "aliases": [
+          "현대건설"
+        ]
+      },
+      "000810": {
+        "aliases": [
+          "삼성화재"
+        ]
+      },
+      "000880": {
+        "aliases": [
+          "한화"
+        ]
+      },
+      "001440": {
+        "aliases": [
+          "대한전선"
+        ]
+      },
+      "003230": {
+        "aliases": [
+          "삼양식품"
+        ]
+      },
+      "003490": {
+        "aliases": [
+          "대한항공"
+        ]
+      },
+      "003550": {
+        "aliases": [
+          "LG"
+        ]
+      },
+      "003670": {
+        "aliases": [
+          "포스코퓨처엠"
+        ]
+      },
+      "005380": {
+        "aliases": [
+          "현대차",
+          "Hyundai Motor",
+          "Hyundai"
+        ]
+      },
+      "005490": {
+        "aliases": [
+          "POSCO홀딩스",
+          "POSCO Holdings",
+          "POSCO"
+        ]
+      },
+      "005830": {
+        "aliases": [
+          "DB손해보험"
+        ]
+      },
+      "005930": {
+        "aliases": [
+          "삼성전자",
+          "Samsung Electronics",
+          "Samsung"
+        ]
+      },
+      "005940": {
+        "aliases": [
+          "NH투자증권"
+        ]
+      },
+      "006260": {
+        "aliases": [
+          "LS"
+        ]
+      },
+      "006400": {
+        "aliases": [
+          "삼성SDI"
+        ]
+      },
+      "006800": {
+        "aliases": [
+          "미래에셋증권"
+        ]
+      },
+      "007660": {
+        "aliases": [
+          "이수페타시스"
+        ]
+      },
+      "009150": {
+        "aliases": [
+          "삼성전기"
+        ]
+      },
+      "009540": {
+        "aliases": [
+          "HD한국조선해양"
+        ]
+      },
+      "009830": {
+        "aliases": [
+          "한화솔루션"
+        ]
+      },
+      "010060": {
+        "aliases": [
+          "OCI홀딩스"
+        ]
+      },
+      "010120": {
+        "aliases": [
+          "LS ELECTRIC"
+        ]
+      },
+      "010130": {
+        "aliases": [
+          "고려아연"
+        ]
+      },
+      "010140": {
+        "aliases": [
+          "삼성중공업"
+        ]
+      },
+      "010950": {
+        "aliases": [
+          "S-Oil"
+        ]
+      },
+      "011070": {
+        "aliases": [
+          "LG이노텍"
+        ]
+      },
+      "011200": {
+        "aliases": [
+          "HMM"
+        ]
+      },
+      "012330": {
+        "aliases": [
+          "현대모비스"
+        ]
+      },
+      "012450": {
+        "aliases": [
+          "한화에어로스페이스"
+        ]
+      },
+      "0126Z0": {
+        "aliases": [
+          "삼성에피스홀딩스"
+        ]
+      },
+      "015760": {
+        "aliases": [
+          "한국전력"
+        ]
+      },
+      "016360": {
+        "aliases": [
+          "삼성증권"
+        ]
+      },
+      "017670": {
+        "aliases": [
+          "SK텔레콤"
+        ]
+      },
+      "018260": {
+        "aliases": [
+          "삼성에스디에스"
+        ]
+      },
+      "021240": {
+        "aliases": [
+          "코웨이"
+        ]
+      },
+      "024110": {
+        "aliases": [
+          "기업은행"
+        ]
+      },
+      "028050": {
+        "aliases": [
+          "삼성E&A"
+        ]
+      },
+      "028260": {
+        "aliases": [
+          "삼성물산"
+        ]
+      },
+      "029780": {
+        "aliases": [
+          "삼성카드"
+        ]
+      },
+      "030200": {
+        "aliases": [
+          "KT"
+        ]
+      },
+      "032640": {
+        "aliases": [
+          "LG유플러스"
+        ]
+      },
+      "032830": {
+        "aliases": [
+          "삼성생명"
+        ]
+      },
+      "033780": {
+        "aliases": [
+          "KT&G"
+        ]
+      },
+      "034020": {
+        "aliases": [
+          "두산에너빌리티"
+        ]
+      },
+      "034730": {
+        "aliases": [
+          "SK"
+        ]
+      },
+      "035420": {
+        "aliases": [
+          "NAVER",
+          "Naver"
+        ]
+      },
+      "035720": {
+        "aliases": [
+          "카카오",
+          "Kakao"
+        ]
+      },
+      "039490": {
+        "aliases": [
+          "키움증권"
+        ]
+      },
+      "042660": {
+        "aliases": [
+          "한화오션"
+        ]
+      },
+      "042700": {
+        "aliases": [
+          "한미반도체"
+        ]
+      },
+      "047040": {
+        "aliases": [
+          "대우건설"
+        ]
+      },
+      "047050": {
+        "aliases": [
+          "포스코인터내셔널"
+        ]
+      },
+      "047810": {
+        "aliases": [
+          "한국항공우주"
+        ]
+      },
+      "051910": {
+        "aliases": [
+          "LG화학"
+        ]
+      },
+      "055550": {
+        "aliases": [
+          "신한지주"
+        ]
+      },
+      "062040": {
+        "aliases": [
+          "산일전기"
+        ]
+      },
+      "064350": {
+        "aliases": [
+          "현대로템"
+        ]
+      },
+      "064400": {
+        "aliases": [
+          "LG씨엔에스"
+        ]
+      },
+      "066570": {
+        "aliases": [
+          "LG전자"
+        ]
+      },
+      "066970": {
+        "aliases": [
+          "엘앤에프"
+        ]
+      },
+      "068270": {
+        "aliases": [
+          "셀트리온",
+          "Celltrion"
+        ]
+      },
+      "071050": {
+        "aliases": [
+          "한국금융지주"
+        ]
+      },
+      "078930": {
+        "aliases": [
+          "GS"
+        ]
+      },
+      "079550": {
+        "aliases": [
+          "LIG디펜스앤에어로스페이스"
+        ]
+      },
+      "086280": {
+        "aliases": [
+          "현대글로비스"
+        ]
+      },
+      "086790": {
+        "aliases": [
+          "하나금융지주"
+        ]
+      },
+      "090430": {
+        "aliases": [
+          "아모레퍼시픽"
+        ]
+      },
+      "096770": {
+        "aliases": [
+          "SK이노베이션"
+        ]
+      },
+      "KOSPI": {
+        "aliases": [
+          "KOSPI",
+          "Korea Composite Stock Price Index"
+        ]
+      }
+    },
+    "CRYPTO": {
+      "BTC": {
+        "aliases": [
+          "Bitcoin",
+          "BTC",
+          "BTC-USD"
+        ]
+      },
+      "ETH": {
+        "aliases": [
+          "Ethereum",
+          "Ether",
+          "ETH",
+          "ETH-USD"
+        ]
+      }
+    }
+  }
+}
