@@ -175,6 +175,7 @@ def test_feature_payload_activates_consensus_surprise():
         {
             "indicator_key": "CPI_HEADLINE_YOY",
             "event_name": "CPI",
+            "market": "US",
             "actual": 3.2,
             "consensus": 3.0,
             "available_at": datetime(2026, 9, 20, 12, 30, tzinfo=UTC),
@@ -237,16 +238,28 @@ def test_policy_proxy_spread_change():
 
 
 def test_feature_payload_prefers_external_repricing_provider():
-    as_of = datetime(2026, 9, 20, 13, 0, tzinfo=UTC)
+    as_of = datetime(2026, 9, 17, 18, 0, tzinfo=UTC)
+    cfg = config()
+    cfg["policy_repricing_match_hours"] = 6
+    releases = [
+        {
+            "indicator_key": "CPI_HEADLINE_YOY",
+            "event_name": "CPI",
+            "market": "US",
+            "actual": 3.2,
+            "consensus": 3.0,
+            "available_at": datetime(2026, 9, 17, 12, 30, tzinfo=UTC),
+        }
+    ]
     states = [
         {
             "source": "fed_monetary",
-            "last_success_at": datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
+            "last_success_at": datetime(2026, 9, 17, 12, 0, tzinfo=UTC),
             "last_error": None,
         },
         {
             "source": "bls_cpi",
-            "last_success_at": datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
+            "last_success_at": datetime(2026, 9, 17, 12, 0, tzinfo=UTC),
             "last_error": None,
         },
     ]
@@ -254,7 +267,7 @@ def test_feature_payload_prefers_external_repricing_provider():
         {
             "observations": [
                 {"date": "2026-09-16", "value": "4.74"},
-                {"date": "2026-09-17", "value": "4.67"},
+                {"date": "2026-09-17", "value": "4.80"},
             ]
         }
     )
@@ -269,7 +282,8 @@ def test_feature_payload_prefers_external_repricing_provider():
     policy_rows = [
         {
             "event_name": "CPI",
-            "available_at": datetime(2026, 9, 20, 12, 45, tzinfo=UTC),
+            "event_at": datetime(2026, 9, 17, 12, 30, tzinfo=UTC),
+            "available_at": datetime(2026, 9, 17, 12, 45, tzinfo=UTC),
             "repricing_bps": 8.0,
             "source": "fed_funds_futures",
             "horizon": "NEXT_FOMC",
@@ -277,9 +291,9 @@ def test_feature_payload_prefers_external_repricing_provider():
     ]
     features, coverage = macro.build_feature_payload(
         as_of=as_of,
-        config=config(),
+        config=cfg,
         macro_rows=[],
-        release_rows=[],
+        release_rows=releases,
         policy_rows=policy_rows,
         source_states=states,
         dgs2_observations=dgs2,
@@ -288,11 +302,14 @@ def test_feature_payload_prefers_external_repricing_provider():
         policy_rate_error=None,
     )
     assert features["fed_policy_repricing_bps"] == 8.0
-    assert features["fed_policy_repricing_quality"] == "FUTURES_PROVIDER"
+    assert features["fed_policy_repricing_quality"] == "FUTURES_PROVIDER_EVENT_MATCHED"
     assert features["fed_policy_repricing_source"] == "fed_funds_futures"
+    assert features["fed_policy_repricing_event_gap_minutes"] == 0.0
+    assert features["macro_event_signal_ready"] is True
+    assert features["macro_event_signal_full_provider_ready"] is True
+    assert features["macro_event_signal_quality"] == "FULL_PROVIDER_CONFIRMATION"
     assert features["policy_proxy_quality"] == "MARKET_RATE_MINUS_EFFECTIVE_RATE_PROXY"
-    assert coverage == 0.75
-
+    assert coverage == 1.0
 
 def test_macro_shock_interaction_uses_surprise_and_us2y_reaction():
     as_of = datetime(2026, 9, 17, 18, 0, tzinfo=UTC)
@@ -565,3 +582,113 @@ def test_macro_schema_accepts_provider_timestamp_contract():
     ).read_text(encoding="utf-8")
     assert "PROVIDER_RELEASE_TS" in schema
     assert "PROVIDER_ESTIMATED_TS" in schema
+
+
+
+def test_macro_event_signal_uses_policy_proxy_when_external_provider_missing():
+    as_of = datetime(2026, 9, 17, 18, 0, tzinfo=UTC)
+    releases = [
+        {
+            "indicator_key": "CPI_HEADLINE_YOY",
+            "event_name": "CPI",
+            "market": "US",
+            "actual": 3.2,
+            "consensus": 3.0,
+            "available_at": datetime(2026, 9, 17, 12, 30, tzinfo=UTC),
+        }
+    ]
+    dgs2 = macro.parse_fred_observations(
+        {"observations": [
+            {"date": "2026-09-16", "value": "4.70"},
+            {"date": "2026-09-17", "value": "4.80"},
+        ]}
+    )
+    dff = macro.parse_fred_observations(
+        {"observations": [
+            {"date": "2026-09-16", "value": "5.00"},
+            {"date": "2026-09-17", "value": "4.98"},
+        ]}
+    )
+    features, _ = macro.build_feature_payload(
+        as_of=as_of,
+        config=config(),
+        macro_rows=[],
+        release_rows=releases,
+        policy_rows=[],
+        source_states=[],
+        dgs2_observations=dgs2,
+        dgs2_error=None,
+        policy_rate_observations=dff,
+        policy_rate_error=None,
+    )
+    assert features["macro_event_signal_ready"] is True
+    assert features["macro_event_signal_full_provider_ready"] is False
+    assert features["macro_event_signal_quality"] == "DGS2_DFF_PROXY_CONFIRMATION"
+    assert features["macro_event_signal_blockers"] == []
+    assert features["component_status"]["fed_repricing_proxy"]["status"] == "READY_EVENT_MATCHED"
+
+
+def test_macro_event_signal_is_blocked_without_consensus_surprise():
+    as_of = datetime(2026, 9, 17, 18, 0, tzinfo=UTC)
+    dgs2 = macro.parse_fred_observations(
+        {"observations": [
+            {"date": "2026-09-16", "value": "4.70"},
+            {"date": "2026-09-17", "value": "4.80"},
+        ]}
+    )
+    dff = macro.parse_fred_observations(
+        {"observations": [
+            {"date": "2026-09-16", "value": "5.00"},
+            {"date": "2026-09-17", "value": "4.98"},
+        ]}
+    )
+    features, _ = macro.build_feature_payload(
+        as_of=as_of,
+        config=config(),
+        macro_rows=[
+            {
+                "article_id": "bls-1",
+                "source": "bls_cpi",
+                "title": "Consumer Price Index",
+                "available_at": datetime(2026, 9, 17, 12, 30, tzinfo=UTC),
+                "importance": 1.0,
+                "confidence": 1.0,
+            }
+        ],
+        release_rows=[],
+        policy_rows=[],
+        source_states=[],
+        dgs2_observations=dgs2,
+        dgs2_error=None,
+        policy_rate_observations=dff,
+        policy_rate_error=None,
+    )
+    assert features["reaction_anchor_kind"] == "US_OFFICIAL_NEWS_PROXY"
+    assert features["macro_event_signal_ready"] is False
+    assert "CONSENSUS_SURPRISE_UNAVAILABLE" in features["macro_event_signal_blockers"]
+
+
+def test_policy_repricing_must_match_same_event_window():
+    anchor = datetime(2026, 9, 17, 12, 30, tzinfo=UTC)
+    rows = [
+        {
+            "event_name": "OLD_EVENT",
+            "event_at": datetime(2026, 9, 16, 12, 30, tzinfo=UTC),
+            "available_at": datetime(2026, 9, 16, 12, 45, tzinfo=UTC),
+            "repricing_bps": 12.0,
+        },
+        {
+            "event_name": "CPI",
+            "event_at": datetime(2026, 9, 17, 12, 35, tzinfo=UTC),
+            "available_at": datetime(2026, 9, 17, 12, 45, tzinfo=UTC),
+            "repricing_bps": 7.0,
+        },
+    ]
+    matched, gap = macro.select_matched_policy_repricing(rows, anchor, 6)
+    assert matched is not None
+    assert matched["event_name"] == "CPI"
+    assert gap == 5.0
+
+    stale, stale_gap = macro.select_matched_policy_repricing(rows[:1], anchor, 6)
+    assert stale is None
+    assert stale_gap is None
