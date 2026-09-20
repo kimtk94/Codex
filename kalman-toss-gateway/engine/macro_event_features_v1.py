@@ -777,6 +777,76 @@ def import_csv(db_url: str, path: Path) -> dict[str, int]:
     return {"seen": seen, "inserted": inserted}
 
 
+def import_policy_csv(db_url: str, path: Path) -> dict[str, int]:
+    required = {
+        "event_name",
+        "event_at",
+        "available_at",
+        "repricing_bps",
+        "source",
+        "time_quality",
+    }
+    seen = inserted = 0
+    with path.open("r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(f"missing policy CSV columns: {sorted(missing)}")
+        with psycopg.connect(db_url, connect_timeout=15) as conn:
+            for raw in reader:
+                seen += 1
+                event_at = parse_dt(raw.get("event_at"))
+                available_at = parse_dt(raw.get("available_at"))
+                if event_at is None or available_at is None:
+                    raise ValueError(f"row {seen}: invalid event_at/available_at")
+                if available_at < event_at:
+                    raise ValueError(f"row {seen}: available_at precedes event_at")
+                material = "|".join(
+                    str(raw.get(k) or "")
+                    for k in (
+                        "event_name",
+                        "event_at",
+                        "available_at",
+                        "horizon",
+                        "source",
+                        "source_item_id",
+                    )
+                )
+                obs_id = (raw.get("observation_id") or "").strip() or (
+                    "policy-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:28]
+                )
+                payload_text = (raw.get("payload_json") or "").strip()
+                payload = json.loads(payload_text) if payload_text else {}
+                cur = conn.execute(
+                    """
+                    INSERT INTO public.macro_policy_repricing_observation(
+                      observation_id,event_name,event_at,available_at,repricing_bps,
+                      horizon,source,source_item_id,time_quality,payload,updated_at
+                    ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now())
+                    ON CONFLICT(observation_id) DO UPDATE SET
+                      repricing_bps=excluded.repricing_bps,
+                      payload=excluded.payload,
+                      updated_at=now()
+                    RETURNING (xmax = 0) AS inserted
+                    """,
+                    (
+                        obs_id,
+                        raw["event_name"].strip(),
+                        event_at,
+                        available_at,
+                        float(raw["repricing_bps"]),
+                        (raw.get("horizon") or "NEXT_FOMC").strip(),
+                        raw["source"].strip(),
+                        (raw.get("source_item_id") or "").strip() or None,
+                        raw["time_quality"].strip(),
+                        json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    ),
+                ).fetchone()
+                inserted += int(bool(cur and cur[0]))
+            conn.commit()
+    return {"seen": seen, "inserted": inserted}
+
+
 def latest_status(db_url: str, feature_version: str) -> dict[str, Any] | None:
     with psycopg.connect(db_url, connect_timeout=15, row_factory=dict_row) as conn:
         row = conn.execute(
@@ -819,7 +889,10 @@ def selftest() -> None:
 def main() -> None:
     load_env()
     parser = argparse.ArgumentParser(description="Kalman Macro Event Feature Layer V1")
-    parser.add_argument("command", choices=["build", "import-csv", "status", "selftest"])
+    parser.add_argument(
+        "command",
+        choices=["build", "import-csv", "import-policy-csv", "status", "selftest"],
+    )
     parser.add_argument(
         "--config",
         default=os.environ.get(
@@ -852,6 +925,11 @@ def main() -> None:
             raise SystemExit("--input-csv is required")
         result = import_csv(db_url, Path(args.input_csv))
         print("[MACRO][IMPORT]", json.dumps(result, sort_keys=True))
+    elif args.command == "import-policy-csv":
+        if not args.input_csv:
+            raise SystemExit("--input-csv is required")
+        result = import_policy_csv(db_url, Path(args.input_csv))
+        print("[MACRO][POLICY_IMPORT]", json.dumps(result, sort_keys=True))
     elif args.command == "status":
         row = latest_status(
             db_url, str(config.get("feature_version", FEATURE_VERSION))
