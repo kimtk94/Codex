@@ -305,9 +305,12 @@ def build_feature_payload(
     config: dict[str, Any],
     macro_rows: list[dict[str, Any]],
     release_rows: list[dict[str, Any]],
+    policy_rows: list[dict[str, Any]],
     source_states: list[dict[str, Any]],
     dgs2_observations: list[Dgs2Observation],
     dgs2_error: str | None,
+    policy_rate_observations: list[Dgs2Observation],
+    policy_rate_error: str | None,
 ) -> tuple[dict[str, Any], float]:
     official_sources = set(config.get("official_macro_sources") or [])
     broad_sources = set(config.get("broad_macro_sources") or [])
@@ -316,6 +319,7 @@ def build_feature_payload(
     broad_hl = float(half_lives.get("broad_macro_news", 6))
     surprise_hl = float(half_lives.get("surprise", 24))
     normalization = config.get("indicator_normalization") or {}
+    fred_cfg = config.get("fred") or {}
 
     official_rows = [r for r in macro_rows if r.get("source") in official_sources]
     broad_rows = [r for r in macro_rows if r.get("source") in broad_sources]
@@ -370,16 +374,39 @@ def build_feature_payload(
     if official_rows:
         latest_official = max(
             official_rows,
-            key=lambda r: parse_dt(r.get("available_at")) or datetime.min.replace(tzinfo=UTC),
+            key=lambda r: parse_dt(r.get("available_at"))
+            or datetime.min.replace(tzinfo=UTC),
         )
+
     reaction_anchor = (
         latest_release["available_at_dt"]
         if latest_release is not None
-        else parse_dt(latest_official.get("available_at")) if latest_official else None
+        else parse_dt(latest_official.get("available_at"))
+        if latest_official
+        else None
     )
 
     dgs2 = dgs2_latest_change(dgs2_observations)
     event_reaction = dgs2_event_reaction(dgs2_observations, reaction_anchor)
+
+    proxy_latest = rate_spread_latest_change(
+        dgs2_observations, policy_rate_observations
+    )
+    proxy_event = rate_spread_event_reaction(
+        dgs2_observations, policy_rate_observations, reaction_anchor
+    )
+
+    valid_policy_rows = [
+        r
+        for r in policy_rows
+        if parse_dt(r.get("available_at")) is not None
+        and r.get("repricing_bps") is not None
+    ]
+    valid_policy_rows.sort(
+        key=lambda r: parse_dt(r.get("available_at"))
+        or datetime.min.replace(tzinfo=UTC)
+    )
+    latest_policy = valid_policy_rows[-1] if valid_policy_rows else None
 
     state_by_source = {str(r.get("source")): r for r in source_states}
     healthy_official = 0
@@ -395,21 +422,55 @@ def build_feature_payload(
         row.get("consensus") is not None and row.get("actual") is not None
         for row in release_rows
     )
-    fed_repricing_ready = False
+    fed_repricing_ready = latest_policy is not None
+    fed_proxy_ready = proxy_latest.get("latest_spread_bps") is not None
+
+    reaction_scale_bps = float(fred_cfg.get("reaction_scale_bps", 5.0))
+    reaction_z = (
+        max(-5.0, min(5.0, float(event_reaction["reaction_bps"]) / reaction_scale_bps))
+        if event_reaction.get("reaction_bps") is not None and reaction_scale_bps > 0
+        else None
+    )
+    latest_surprise = (
+        float(latest_release["policy_pressure_surprise"])
+        if latest_release is not None
+        else None
+    )
+    shock_interaction = (
+        latest_surprise * reaction_z
+        if latest_surprise is not None and reaction_z is not None
+        else None
+    )
+    policy_alignment = (
+        1
+        if latest_surprise is not None
+        and event_reaction.get("reaction_bps") is not None
+        and latest_surprise * float(event_reaction["reaction_bps"]) > 0
+        else -1
+        if latest_surprise is not None
+        and event_reaction.get("reaction_bps") is not None
+        and latest_surprise * float(event_reaction["reaction_bps"]) < 0
+        else 0
+        if latest_surprise is not None and event_reaction.get("reaction_bps") == 0
+        else None
+    )
 
     weights = config.get("coverage_weights") or {}
     coverage = (
-        float(weights.get("official_news", 0.40)) * official_health
-        + float(weights.get("dgs2_daily_proxy", 0.25)) * (1.0 if dgs2_observations else 0.0)
+        float(weights.get("official_news", 0.35)) * official_health
+        + float(weights.get("dgs2_daily_proxy", 0.20))
+        * (1.0 if dgs2_observations else 0.0)
         + float(weights.get("consensus_surprise_provider", 0.25))
         * (1.0 if surprise_provider_ready else 0.0)
         + float(weights.get("fed_repricing_provider", 0.10))
         * (1.0 if fed_repricing_ready else 0.0)
+        + float(weights.get("fed_repricing_proxy", 0.10))
+        * (1.0 if fed_proxy_ready else 0.0)
     )
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1",
+        "schema_version": "macro-event-feature-v1.1",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -427,9 +488,7 @@ def build_feature_payload(
         ),
         "release_observation_count_72h": len(release_rows),
         "consensus_surprise_count_72h": len(scored_releases),
-        "policy_pressure_surprise_latest": (
-            latest_release["policy_pressure_surprise"] if latest_release else None
-        ),
+        "policy_pressure_surprise_latest": latest_surprise,
         "policy_pressure_surprise_decay_ema": surprise_ema,
         "latest_surprise_indicator": (
             latest_release.get("indicator_key") if latest_release else None
@@ -441,7 +500,7 @@ def build_feature_payload(
         "latest_surprise_available_at": (
             iso(latest_release["available_at_dt"]) if latest_release else None
         ),
-        "us2y_series": str((config.get("fred") or {}).get("series_id", "DGS2")),
+        "us2y_series": str(fred_cfg.get("series_id", "DGS2")),
         "us2y_latest_date": dgs2["latest_date"],
         "us2y_latest_pct": dgs2["latest_pct"],
         "us2y_previous_date": dgs2["previous_date"],
@@ -451,12 +510,42 @@ def build_feature_payload(
         "us2y_event_day_pct": event_reaction["event_day_pct"],
         "us2y_event_prior_day_pct": event_reaction["prior_day_pct"],
         "us2y_event_reaction_bps": event_reaction["reaction_bps"],
+        "us2y_event_reaction_z": reaction_z,
         "us2y_reaction_quality": str(
-            (config.get("fred") or {}).get("reaction_quality", "DAILY_PROXY")
+            fred_cfg.get("reaction_quality", "DAILY_PROXY")
         ),
         "us2y_error": dgs2_error,
-        "fed_policy_repricing_bps": None,
-        "fed_policy_repricing_quality": "UNAVAILABLE",
+        "policy_proxy_series": str(
+            fred_cfg.get("policy_proxy_series_id", "DFF")
+        ),
+        "policy_proxy_label": str(
+            fred_cfg.get("policy_proxy_label", "DGS2_MINUS_DFF")
+        ),
+        "policy_proxy_latest_date": proxy_latest.get("latest_date"),
+        "policy_proxy_spread_bps": proxy_latest.get("latest_spread_bps"),
+        "policy_proxy_change_bps_1d": proxy_latest.get("change_bps_1d"),
+        "policy_proxy_event_reaction_bps": proxy_event.get("reaction_bps"),
+        "policy_proxy_quality": "MARKET_RATE_MINUS_EFFECTIVE_RATE_PROXY",
+        "policy_proxy_error": policy_rate_error,
+        "fed_policy_repricing_bps": (
+            float(latest_policy["repricing_bps"]) if latest_policy else None
+        ),
+        "fed_policy_repricing_quality": (
+            "FUTURES_PROVIDER" if latest_policy else "UNAVAILABLE"
+        ),
+        "fed_policy_repricing_source": (
+            latest_policy.get("source") if latest_policy else None
+        ),
+        "fed_policy_repricing_horizon": (
+            latest_policy.get("horizon") if latest_policy else None
+        ),
+        "fed_policy_repricing_available_at": (
+            iso(parse_dt(latest_policy.get("available_at")))
+            if latest_policy and parse_dt(latest_policy.get("available_at"))
+            else None
+        ),
+        "macro_shock_interaction": shock_interaction,
+        "policy_alignment": policy_alignment,
         "component_status": {
             "official_news": {
                 "status": "READY" if official_health == 1.0 else "PARTIAL",
@@ -466,20 +555,25 @@ def build_feature_payload(
             "dgs2_daily_proxy": {
                 "status": "READY" if dgs2_observations else "UNAVAILABLE",
                 "quality": str(
-                    (config.get("fred") or {}).get("reaction_quality", "DAILY_PROXY")
+                    fred_cfg.get("reaction_quality", "DAILY_PROXY")
                 ),
             },
             "consensus_surprise_provider": {
                 "status": "READY" if surprise_provider_ready else "UNAVAILABLE"
             },
-            "fed_repricing_provider": {"status": "UNAVAILABLE"},
+            "fed_repricing_provider": {
+                "status": "READY" if fed_repricing_ready else "UNAVAILABLE"
+            },
+            "fed_repricing_proxy": {
+                "status": "READY" if fed_proxy_ready else "UNAVAILABLE",
+                "quality": "MARKET_RATE_MINUS_EFFECTIVE_RATE_PROXY",
+            },
         },
         "r51_scoring_enabled": False,
         "trade_execution_enabled": False,
         "challenger_only": True,
     }
     return payload, coverage
-
 
 def fetch_inputs(
     conn: psycopg.Connection,
