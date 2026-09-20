@@ -407,3 +407,27 @@ def test_consensus_provider_active_window_is_quota_aware():
     assert not consensus.within_active_window(
         datetime(2026, 9, 20, 13, 0, tzinfo=UTC), provider
     )
+
+
+def test_consensus_provider_rejects_demo_credentials(monkeypatch):
+    monkeypatch.setenv("KALMAN_MACRO_CONSENSUS_ENABLED", "true")
+    monkeypatch.setenv("TRADING_ECONOMICS_API_KEY", "guest:guest")
+    rows, status = consensus.fetch_calendar_rows(
+        {
+            "trading_economics": {
+                "enabled": True,
+                "active_weekdays": [0, 1, 2, 3, 4],
+                "active_window_utc": {"start": "12:00", "end": "16:15"},
+            }
+        },
+        datetime(2026, 9, 21, 12, 30, tzinfo=UTC),
+    )
+    assert rows == []
+    assert status["status"] == "DEMO_CREDENTIALS_REJECTED"
+
+
+def test_consensus_provider_error_redaction():
+    exc = RuntimeError("request failed for ?c=secret-client:secret-key")
+    text = consensus.sanitize_provider_error(exc, "secret-client:secret-key")
+    assert "secret-client:secret-key" not in text
+    assert "***" in text
