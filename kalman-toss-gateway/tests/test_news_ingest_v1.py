@@ -3,6 +3,7 @@ from pathlib import Path
 from engine import news_ingest_v1
 from engine.news_ingest_v1 import (
     Entity,
+    HttpAccessDeniedError,
     HttpRateLimitError,
     Spool,
     clean_url,
@@ -78,3 +79,58 @@ def test_http_429_is_not_immediately_retried(monkeypatch):
         assert exc.retry_after_seconds == 30
 
     assert calls["count"] == 1
+
+
+
+def test_http_403_is_not_immediately_retried(monkeypatch):
+    calls = {"count": 0}
+
+    class FakeResponse:
+        status_code = 403
+        headers = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, *args, **kwargs):
+            calls["count"] += 1
+            return FakeResponse()
+
+    monkeypatch.setattr(news_ingest_v1.httpx, "Client", FakeClient)
+
+    try:
+        http_get("https://www.sec.gov/files/company_tickers.json", retries=3)
+        assert False, "expected HttpAccessDeniedError"
+    except HttpAccessDeniedError as exc:
+        assert exc.status_code == 403
+
+    assert calls["count"] == 1
+
+
+def test_sec_company_map_uses_stale_cache_on_refresh_error(tmp_path, monkeypatch):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    cache = state_dir / "sec_company_tickers.json"
+    cache.write_text(
+        '{"0":{"cik_str":320193,"ticker":"AAPL","title":"Apple Inc."}}',
+        encoding="utf-8",
+    )
+
+    def denied(*args, **kwargs):
+        raise HttpAccessDeniedError(
+            "https://www.sec.gov/files/company_tickers.json", 403
+        )
+
+    monkeypatch.setattr(news_ingest_v1, "http_get", denied)
+    mapping = news_ingest_v1.sec_company_map(
+        state_dir, "Kalman Research admin@example.com", max_age_hours=0
+    )
+
+    assert mapping["AAPL"]["cik"] == "0000320193"
