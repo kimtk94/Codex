@@ -6,7 +6,7 @@
   if (window.__KALMAN_DECISION_CONSOLE_HOTFIX_V7422__) return;
   window.__KALMAN_DECISION_CONSOLE_HOTFIX_V7422__ = true;
 
-  const UI_VOCAB_VERSION = 'kalman-ui-v1';
+  const UI_VOCAB_VERSION = 'kalman-ui-v1.1';
 
   const BENCH = {
     asOf: '2026-09-18T14:30:00Z',
@@ -37,7 +37,7 @@
       '.kalman-bench-foot{display:flex;justify-content:space-between;gap:12px;padding:8px 2px 5px;font-size:10px;color:#8293b2}.kalman-bench-foot b{color:#d7e0f2}',
       '.kalman-exec-ledger{margin-top:18px}.kalman-offline{display:flex;justify-content:space-between;align-items:center;gap:14px;background:#0e1729;border:1px dashed #3a4864;border-radius:12px;padding:14px}.kalman-offline b{color:var(--warn)}.kalman-offline span{display:block;color:var(--muted);font-size:11px;margin-top:3px}',
       '@media(max-width:900px){.command-grid.kalman-decision-grid{grid-template-columns:1fr}.kalman-execution-panel{grid-row:auto}}',
-      '@media(max-width:520px){.kalman-rule-grid,.kalman-bench-grid{grid-template-columns:1fr}.kalman-execution-hero strong{font-size:28px}}'
+      '@media(max-width:520px){.kalman-rule-grid,.kalman-bench-grid{grid-template-columns:1fr}.kalman-execution-hero strong{font-size:28px}},'#accountSectionK23,#kalmanExecutionLedger{display:none}','.operations-mode #accountSectionK23,.operations-mode #kalmanExecutionLedger{display:block}','.operations-mode #content{display:none}','.primary-tabs{flex-wrap:nowrap!important;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}','.primary-tabs::-webkit-scrollbar{display:none}.primary-tabs .tab{flex:0 0 auto;white-space:nowrap}','@media(max-width:430px){.product-head{display:block}.header-status{margin-top:10px;justify-content:flex-start;flex-wrap:wrap}}']
     ].join('');
     document.head.appendChild(s);
   }
@@ -85,7 +85,7 @@
 
   function ensureShell(){
     const footer=document.querySelector('footer');
-    if(footer){footer.textContent='Production v7.4.20 · UI v7.4.22 · 조회 전용';footer.dataset.uiVocab=UI_VOCAB_VERSION;}
+    if(footer){footer.textContent='Production v7.4.20 · UI v7.4.23 · 조회 전용';footer.dataset.uiVocab=UI_VOCAB_VERSION;}
     const header=document.querySelector('.header-status');
     if(header&&!document.querySelector('#headerServerState')){
       const p=document.createElement('span');
@@ -118,10 +118,25 @@
     }
     if(health){const k=health.querySelector('.panel-kicker');if(k)k.textContent='시스템 · Toss';}
 
+    const accountSection=document.querySelector('.account');
+    if(accountSection)accountSection.id='accountSectionK23';
     const sub=document.querySelector('.account .muted');
     if(sub&&sub.parentElement&&sub.parentElement.querySelector('h2'))sub.textContent='Toss Securities · 서버 연결 시 실계좌 표시';
 
     const tabs=document.querySelector('.primary-tabs');
+    if(tabs&&!document.querySelector('#operationsTab')){
+      const op=document.createElement('button');
+      op.id='operationsTab';op.type='button';op.className='tab';op.textContent='운영';
+      tabs.appendChild(op);
+      op.addEventListener('click',()=>{
+        document.body.classList.remove('universe-mode');
+        document.body.classList.add('operations-mode');
+        tabs.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===op));
+        history.replaceState(null,'','?view=operations');
+      });
+      tabs.querySelectorAll('.tab[data-m]').forEach(x=>x.addEventListener('click',()=>document.body.classList.remove('operations-mode')));
+      const u=document.querySelector('#universeTab');if(u)u.addEventListener('click',()=>document.body.classList.remove('operations-mode'));
+    }
     if(tabs&&!document.querySelector('#kalmanExecutionLedger')){
       const sec=document.createElement('section');
       sec.id='kalmanExecutionLedger';
@@ -145,42 +160,35 @@
 
   function renderPlan(){
     const box=document.querySelector('#commandNextActions');if(!box)return;
-    const sig=latestSignal(),s=state(),account=s.account||null,bot=account&&account.trading_status||null;
+    const sig=latestSignal(),s=state();
     const tossOnline=brokerOnline();
+    const sv=snapshotValidity(s.us||{data_as_of:sig.asOf});
     const ef=entryFreshness(s.us||{data_as_of:sig.asOf});
-    const signalFresh=ef.fresh&&sig.canary;
-    const liveGate=Boolean(tossOnline&&bot&&bot.autoTradeEnabled===true&&bot.executionMode==='LIVE'&&bot.liveGateOpen===true);
-    const accountFlat=Boolean(bot&&bot.accountFlat===true);
-    const windowKnown=Boolean(bot&&typeof bot.usFractionalOrderWindowOpen==='boolean');
-    const windowOpen=windowKnown&&bot.usFractionalOrderWindowOpen===true;
-    const entryCandidate=Boolean(signalFresh&&liveGate&&accountFlat&&windowOpen);
-
-    let headline='Toss 오프라인',status='대기',kind='warn';
-    if(tossOnline&&!signalFresh)headline='진입 신호 만료';
-    else if(tossOnline&&signalFresh&&!liveGate)headline='자동매매 게이트 닫힘';
-    else if(tossOnline&&signalFresh&&liveGate&&!accountFlat)headline='계좌 상태 대기';
-    else if(tossOnline&&signalFresh&&liveGate&&accountFlat&&!windowKnown)headline='주문시간 확인 불가';
-    else if(tossOnline&&signalFresh&&liveGate&&accountFlat&&!windowOpen)headline='주문시간 마감';
-    if(entryCandidate){headline='SHADOW_CANARY';status='진입 후보';kind='ok';}
+    const signalTimeFresh=ef.fresh;
+    const canaryShape=sig.canary===true;
+    let headline='실행 판정 확인 불가';
+    if(!sv.valid)headline='스냅샷 만료';
+    else if(!signalTimeFresh)headline='진입 신호 만료';
+    else if(!canaryShape)headline='CANARY 조건 미충족';
+    else if(!tossOnline)headline='Toss 오프라인';
 
     box.className='';
     box.innerHTML=
-      '<div class="kalman-execution-hero"><div><small>'+headline+'</small><strong>'+E(sig.symbol)+'</strong><span>최근 canary 후보 · '+T(sig.asOf)+'</span></div>'+pill(status,kind)+'</div>'+
+      '<div class="kalman-execution-hero"><div><small>'+headline+'</small><strong>'+E(sig.symbol)+'</strong><span>최근 모델 신호 · '+T(sig.asOf)+'</span></div>'+pill('대기','warn')+'</div>'+
       '<div class="kalman-rule-grid">'+
-        '<div><span>실매매 정책</span><b>SHADOW_CANARY</b><small>SHADOW 신호 사용</small></div>'+
+        '<div><span>실매매 정책</span><b>SHADOW_CANARY</b><small>서버 readiness 기준</small></div>'+
         '<div><span>진입 금액</span><b>'+M(5000)+'</b><small>신규 진입 1회 기준</small></div>'+
-        '<div><span>손절 / 익절</span><b>-3% / +20%</b><small>손절 · 익절</small></div>'+
+        '<div><span>손절 / 익절</span><b>-3% / +20%</b><small>실매매 청산 규칙</small></div>'+
         '<div><span>교체 / 최대 보유</span><b>ROTATE ON</b><small>4 canonical bucket 최대</small></div>'+
       '</div>'+
       '<div class="kalman-gates">'+
-        pill(signalFresh?'진입 신호 유효 (<90분)':'진입 신호 만료',signalFresh?'ok':'warn')+
+        pill(sv.valid?'스냅샷 유효':'스냅샷 만료',sv.valid?'ok':'warn')+
+        pill(signalTimeFresh?'진입 신호 유효 (<90분)':'진입 신호 만료',signalTimeFresh?'ok':'warn')+
+        pill(canaryShape?'CANARY 조건 충족':'CANARY 조건 미충족',canaryShape?'ok':'warn')+
         pill(tossOnline?'Toss 연결됨':'Toss 오프라인',tossOnline?'ok':'warn')+
-        pill(liveGate?'자동매매 게이트 열림':'자동매매 게이트 닫힘',liveGate?'ok':'warn')+
-        pill(accountFlat?'계좌 FLAT':'계좌 보유/주문 있음',accountFlat?'ok':'warn')+
-        pill(windowKnown?(windowOpen?'주문시간 가능':'주문시간 마감'):'주문시간 확인 불가',windowOpen?'ok':'warn')+
-        pill('미러 연결 대기','')+
+        pill('실행 판정 확인 불가','')+
       '</div>'+
-      '<div class="next-actions-note"><b>구분:</b> Top-6는 연구용 비교/미리보기이며 실제 자동매매 대상 선정에 사용하지 않습니다. 신규 진입은 SHADOW_CANARY 조건을 통과한 단일 R5.1 신호만 사용합니다. “진입 후보”는 주문 제출 완료를 의미하지 않습니다.</div>';
+      '<div class="next-actions-note"><b>구분:</b> 현재 Production hotfix는 서버 readiness API가 아직 정식 배포되지 않아 진입 후보를 추정하지 않습니다. 정식 v7.4.23에서 실제 auto-trade와 동일한 읽기 전용 판정을 사용합니다.</div>';
   }
 
   function renderServerState(){
@@ -245,6 +253,19 @@
     };
   }catch(_){}
 
+  try{
+    renderGlobal=function(j){
+      const s=state(),p=j&&j.payload||{},sum=p.summary||{},direct={KR:s.kr,US:s.us,CRYPTO:s.crypto};
+      const cards=['KR','US','CRYPTO'].map(k=>{
+        const x=direct[k]||{},xp=x.payload||{},sm=xp.summary||{},assets=xp.assets||xp.top3||[];
+        const lead=k==='KR'?(sm.overall_action_label||sm.regime||(assets[0]&&assets[0].name)):k==='US'?(sm.selected_symbol||(assets[0]&&assets[0].symbol)||sm.market_risk):(sm.model_version||sm.regime||(assets[0]&&assets[0].symbol)||'Crypto');
+        const sv=snapshotValidity(x);
+        return '<div class="card"><div class="section-title"><h3>'+(k==='KR'?'한국장':k==='US'?'미국장':'Crypto')+'</h3>'+pill(sv.valid?'스냅샷 유효':'스냅샷 만료',sv.valid?'ok':'warn')+'</div><div class="kpi">'+E(lead||'—')+'</div><div class="small">'+T(x.data_as_of)+'</div></div>';
+      }).join('');
+      return '<div class="summary">'+pill('최신 시장 스냅샷','')+' '+pill(sum.state||'GLOBAL','')+' '+(sum.trade_signal?pill('거래 신호','warn'):pill('거래 신호 없음',''))+'</div><div class="grid">'+cards+'</div>';
+    };
+  }catch(_){}
+
   let snapshotRefreshBusy=false;
   async function refreshSnapshotPanels(){
     if(snapshotRefreshBusy)return;
@@ -261,7 +282,7 @@
         const p=us.payload||{},a=(p.assets||p.top3||[]).slice(0,6),sv=snapshotValidity(us),ef=entryFreshness(us);
         const ranks=a.map((x,i)=>'<div class="command-rank"><span>'+(i+1)+'</span><b>'+E(x.symbol||'—')+'</b><small>'+((Number(x.model_score)||0)*10000).toFixed(2)+' bp</small></div>').join('');
         model.className='';
-        model.innerHTML='<div class="command-model-head"><div><small>TOP RANK</small><strong>'+E(a[0]&&a[0].symbol||'—')+'</strong></div><div class="right">'+dotLabel(sv.valid)+'<small>'+T(us.data_as_of)+' · 진입 신호 '+(ef.fresh?'&lt;90m':'expired')+'</small></div></div><div class="command-ranks">'+ranks+'</div>';
+        model.innerHTML='<div class="command-model-head"><div><small>TOP RANK</small><strong>'+E(a[0]&&a[0].symbol||'—')+'</strong></div><div class="right">'+dotLabel(sv.valid)+'<small>'+T(us.data_as_of)+' · '+(ef.fresh?'진입 신호 유효 (&lt;90분)':'진입 신호 만료')+'</small></div></div><div class="command-ranks">'+ranks+'</div>';
       }
       const health=document.querySelector('#commandHealth');
       if(health){
@@ -278,6 +299,14 @@
         if(head){const ok=uv.valid&&kv.valid&&cv.valid;head.className='pill '+(ok?'ok':'warn');head.textContent=ok?'데이터 정상':'데이터 확인 필요';}
       }
       renderPlan();
+      try{
+        const activeGlobal=document.querySelector('.tab[data-m="GLOBAL"].active');
+        const content=document.querySelector('#content');
+        if(activeGlobal&&content&&typeof renderGlobal==='function'){
+          const g=(typeof marketCache==='object'&&marketCache&&marketCache.GLOBAL)||s.global||{};
+          content.innerHTML=renderGlobal(g);
+        }
+      }catch(_){}
     }catch(e){
       const h=document.querySelector('#headerDataState');
       if(h){h.className='pill warn';h.textContent='데이터 확인 필요';}
@@ -287,7 +316,9 @@
   let scheduled=false;
   function apply(){
     scheduled=false;
-    addStyle();ensureShell();renderBenchmark();renderPlan();renderServerState();refreshSnapshotPanels();
+    addStyle();ensureShell();
+    if(new URLSearchParams(location.search).get('view')==='operations')document.body.classList.add('operations-mode');
+    renderBenchmark();renderPlan();renderServerState();refreshSnapshotPanels();
     const content=document.querySelector('#content');
     if(content){
       content.querySelectorAll('th').forEach(th=>{
