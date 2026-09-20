@@ -1036,8 +1036,20 @@ def collect_gdelt(spool: Spool, cfg: dict[str, Any], universe: dict[str, list[st
                   entity_aliases: dict[str, dict[str, tuple[str, ...]]] | None = None) -> tuple[int, int]:
     if not cfg.get("enabled", True):
         return 0, 0
-    total_seen = total_inserted = 0
+    gate = spool.source_state("gdelt_api_gate")
+    gate_payload = {}
+    if gate.get("payload_json"):
+        try:
+            gate_payload = json.loads(gate["payload_json"])
+        except Exception:
+            gate_payload = {}
     now_for_schedule = utc_now()
+    until = parse_dt(gate_payload.get("backoff_until"))
+    if until and now_for_schedule < until:
+        remaining = int((until - now_for_schedule).total_seconds())
+        print(f"[NEWS][GDELT] circuit open; retry deferred for ~{remaining}s until {iso(until)}")
+        return 0, 0
+    total_seen = total_inserted = 0
     for item in gdelt_scheduled_items(cfg, now_for_schedule):
         market = str(item["market"]).upper()
         source = f"gdelt_{market.lower()}"
