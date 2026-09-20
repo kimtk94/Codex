@@ -1,0 +1,80 @@
+name: Build Kalman Hub v7.4.28 R5 Null Semantics
+
+on:
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7428_r5_null_fix.py"
+      - ".github/workflows/build-kalman-hub-v7428.yml"
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7428_r5_null_fix.py"
+      - ".github/workflows/build-kalman-hub-v7428.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build v7.4.28 source manifest
+        run: python kalman-toss-gateway/scripts/build_investment_hub_v7428_r5_null_fix.py
+
+      - name: Validate R5 null semantics and canonical ledger
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s kalman-hub-recovery/v7.4.28/source_manifest.ndjson
+          test -s kalman-hub-recovery/v7.4.28/build_report.json
+          python - <<'PY'
+          from pathlib import Path
+          import base64,json,tempfile,subprocess
+
+          manifest=Path("kalman-hub-recovery/v7.4.28/source_manifest.ndjson")
+          rows=[json.loads(x) for x in manifest.read_text().splitlines() if x.strip()]
+          assert len(rows)==30, len(rows)
+          with tempfile.TemporaryDirectory() as td:
+              out=Path(td)
+              for row in rows:
+                  p=out/row["file"]
+                  p.parent.mkdir(parents=True,exist_ok=True)
+                  p.write_bytes(base64.b64decode(row["data_b64"]))
+              api=(out/"api/assets.js").read_text()
+              app=(out/"app.js").read_text()
+              health=(out/"api/health.js").read_text()
+              index=(out/"index.html").read_text()
+              assert "vNext.7.4.28" in index
+              assert "vNext.7.4.28" in health
+              assert "if(v==null||v==='')return null;" in api
+              for marker in [
+                  "_r5CanonicalLedger",
+                  "strategy_ledger",
+                  "R5_1_RECONSTRUCTED_2026",
+                  "R5_1_CANONICAL_FORWARD_LOG",
+                  "canonical_ledger_source",
+              ]:
+                  assert marker in api, marker
+              for marker in [
+                  "R5.1 2026 Annual Ledger",
+                  "2026 전체 Ledger",
+                  "loadUsPrimaryChart",
+                  "Execution Quality:",
+              ]:
+                  assert marker in app, marker
+              assert "trade_enabled:false" in health
+              assert "account_trade_execution:false" in health
+              subprocess.run(["node","--check",str(out/"api/assets.js")],check=True)
+              subprocess.run(["node","--check",str(out/"app.js")],check=True)
+          print("[PASS] v7.4.28 R5 null semantics")
+          PY
