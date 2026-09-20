@@ -3,6 +3,8 @@ from __future__ import annotations
 import errno
 import os
 import shutil
+import subprocess
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -32,9 +34,9 @@ def _rclone_safe_copy2(
     try:
         return _ORIGINAL_COPY2(src, dst, follow_symlinks=follow_symlinks)
     except OSError as exc:
-        # rclone/FUSE may expose file contents normally while listxattr(2)
-        # returns EIO. shutil.copy2() copies bytes first, then copystat()
-        # probes xattrs. Preserve the file bytes and skip unsupported metadata.
+        # rclone/FUSE can expose normal file bytes while listxattr(2) returns
+        # EIO. shutil.copy2() copies bytes first, then copystat() probes xattrs.
+        # For the configured data root only, keep the bytes and skip metadata.
         if exc.errno != errno.EIO or not (
             _under_data_root(src) or _under_data_root(dst)
         ):
@@ -50,11 +52,19 @@ def _install_rclone_copy_compat() -> None:
     _COPY2_PATCHED = True
 
 
-def _resolve_crypto_xlsx() -> Path | None:
+def _is_real_xlsx(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0 and zipfile.is_zipfile(path)
+    except OSError:
+        return False
+
+
+def _mounted_crypto_sheet() -> Path | None:
     explicit = os.environ.get("KALMAN_CRYPTO_SHEET_XLSX", "").strip()
     if explicit:
         p = Path(explicit).expanduser()
-        return p if p.is_file() else None
+        if p.exists():
+            return p
 
     root = _data_root()
     matches = sorted(
@@ -63,6 +73,63 @@ def _resolve_crypto_xlsx() -> Path | None:
         reverse=True,
     )
     return matches[0] if matches else None
+
+
+def _export_crypto_sheet(source_hint: Path) -> Path:
+    remote = os.environ.get("KALMAN_RCLONE_REMOTE", "gdrive:").strip() or "gdrive:"
+    if not remote.endswith(":"):
+        remote += ":"
+
+    config = Path(
+        os.environ.get("KALMAN_RCLONE_CONFIG", "/etc/rclone/rclone.conf")
+    ).expanduser()
+    cache = Path(
+        os.environ.get("KALMAN_CRYPTO_SHEET_CACHE", "/tmp/kalman_upbit_crypto.xlsx")
+    ).expanduser()
+    cache.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp = cache.with_name(f".{cache.name}.tmp-{os.getpid()}")
+    tmp.unlink(missing_ok=True)
+    remote_source = f"{remote}{source_hint.name}"
+
+    cmd = [
+        "rclone",
+        "copyto",
+        remote_source,
+        str(tmp),
+        f"--config={config}",
+    ]
+    try:
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=120,
+        )
+        if not _is_real_xlsx(tmp):
+            raise RuntimeError(
+                f"rclone export did not produce a valid XLSX: {remote_source}"
+            )
+        os.replace(tmp, cache)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+    return cache
+
+
+def _resolve_crypto_xlsx() -> Path | None:
+    source_hint = _mounted_crypto_sheet()
+    if source_hint is None:
+        return None
+
+    # A Google native Sheet can appear through rclone mount as a zero-byte
+    # placeholder with an .xlsx suffix. Use it directly only if it is a real
+    # XLSX ZIP; otherwise request a direct rclone export to a local cache.
+    if _is_real_xlsx(source_hint):
+        return source_hint
+    return _export_crypto_sheet(source_hint)
 
 
 class _LocalWorksheet:
@@ -145,7 +212,7 @@ def _install_crypto_xlsx_bridge() -> None:
     google.auth.default = _local_default
     gspread.authorize = _local_authorize
     _CRYPTO_BRIDGE_PATCHED = True
-    print(f"[server] CRYPTO Google Sheet bridge: local XLSX {workbook_path}")
+    print(f"[server] CRYPTO Google Sheet bridge: exported XLSX {workbook_path}")
 
 
 def install_server_runtime_compat() -> None:
