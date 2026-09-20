@@ -134,3 +134,25 @@ def test_sec_company_map_uses_stale_cache_on_refresh_error(tmp_path, monkeypatch
     )
 
     assert mapping["AAPL"]["cik"] == "0000320193"
+
+
+
+def test_sec_runtime_gate_disables_collection(tmp_path, monkeypatch):
+    spool = Spool(tmp_path / "spool.sqlite3")
+    monkeypatch.setenv("KALMAN_NEWS_SEC_ENABLED", "false")
+    monkeypatch.setenv("KALMAN_NEWS_SEC_USER_AGENT", "KalmanResearch/1.0 test@example.com")
+
+    def should_not_run(*args, **kwargs):
+        raise AssertionError("SEC network access should be skipped when disabled")
+
+    monkeypatch.setattr(news_ingest_v1, "sec_company_map", should_not_run)
+
+    seen, inserted = news_ingest_v1.collect_sec(
+        spool,
+        {"enabled": True, "min_interval_seconds": 0},
+        {"US": ["AAPL"], "KR": [], "CRYPTO": []},
+        tmp_path / "state",
+    )
+
+    assert seen == 0
+    assert inserted == 0
