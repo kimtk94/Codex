@@ -40,6 +40,7 @@
       '@media(max-width:520px){.kalman-rule-grid,.kalman-bench-grid{grid-template-columns:1fr}.kalman-execution-hero strong{font-size:28px}}',
       '#accountSectionK23,#kalmanExecutionLedger{display:none}',
       '.operations-mode #accountSectionK23,.operations-mode #kalmanExecutionLedger{display:block}',
+      '.operations-mode #accountSectionK23{order:3}.operations-mode #kalmanExecutionLedger{order:4}',
       '.operations-mode #content{display:none}',
       '.primary-tabs{flex-wrap:nowrap!important;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch}',
       '.primary-tabs::-webkit-scrollbar{display:none}.primary-tabs .tab{flex:0 0 auto;white-space:nowrap}',
