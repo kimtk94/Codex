@@ -1,0 +1,81 @@
+name: Build Kalman Hub v7.4.33 Neon Shadow
+
+on:
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7433_shadow_ranking_neon.py"
+      - ".github/workflows/build-kalman-hub-v7433.yml"
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7433_shadow_ranking_neon.py"
+      - ".github/workflows/build-kalman-hub-v7433.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build v7.4.33 source manifest
+        run: python kalman-toss-gateway/scripts/build_investment_hub_v7433_shadow_ranking_neon.py
+
+      - name: Validate Neon SHADOW ranking read model
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s kalman-hub-recovery/v7.4.33/source_manifest.ndjson
+          test -s kalman-hub-recovery/v7.4.33/build_report.json
+          python - <<'PY'
+          from pathlib import Path
+          import base64,json,tempfile,subprocess
+
+          manifest=Path("kalman-hub-recovery/v7.4.33/source_manifest.ndjson")
+          rows=[json.loads(x) for x in manifest.read_text().splitlines() if x.strip()]
+          assert len(rows)==30, len(rows)
+          with tempfile.TemporaryDirectory() as td:
+              out=Path(td)
+              for row in rows:
+                  p=out/row["file"]
+                  p.parent.mkdir(parents=True,exist_ok=True)
+                  p.write_bytes(base64.b64decode(row["data_b64"]))
+              api=(out/"api/assets.js").read_text()
+              app=(out/"app.js").read_text()
+              health=(out/"api/health.js").read_text()
+              index=(out/"index.html").read_text()
+              assert "vNext.7.4.32" in index
+              assert "vNext.7.4.32" in health
+              for marker in [
+                  "kalman-shadow-readonly-v2",
+                  "NEON_STRATEGY_SIGNAL",
+                  "KALMAN_V2_US_LOGIT_001",
+                  "KALMAN_V2_KR_LOGIT_001",
+                  "KALMAN_V2_BTC_LOGIT_001",
+                  "NEON_SHADOW_PORTFOLIO_SNAPSHOT",
+                  "v_latest_shadow_portfolio_snapshot",
+                  "entry_allowed_for_real_orders:false",
+                  "trade_execution:false",
+              ]:
+                  assert marker in api, marker
+              for marker in ["Neon Signal","Neon ranking","SHADOW 신호와 A/B/C ranking 모두 Neon read model"]:
+                  assert marker in app, marker
+              assert "overlayStaleEtfDisplayPrices" in (out/"lib/assets-payload.js").read_text()
+              assert "function renderCommandAccount(" in app
+              assert "function renderCommandModel(" in app
+              assert "trade_enabled:false" in health
+              assert "account_trade_execution:false" in health
+              subprocess.run(["node","--check",str(out/"api/assets.js")],check=True)
+              subprocess.run(["node","--check",str(out/"app.js")],check=True)
+          print("[PASS] v7.4.33 Neon SHADOW ranking read model")
+          PY
