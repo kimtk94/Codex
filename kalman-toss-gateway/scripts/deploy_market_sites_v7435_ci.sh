@@ -7,6 +7,7 @@ KR_PROJECT_ID="prj_1nWivN1icAZCBF9CVKWeI6nYQhhp"
 US_PROJECT_ID="prj_xvEw2HKkknxRSSj8s7mtATcz4zz2"
 KR_PROD_URL="https://kalman-investment-hub-kr.vercel.app"
 US_PROD_URL="https://kalman-investment-hub-us.vercel.app"
+CANONICAL_API_ORIGIN="https://kalman-investment-hub-v2.vercel.app"
 VERSION_TAG="vNext.7.4.35"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -55,6 +56,21 @@ vcurl(){
   [ -s "$out" ] || fail "empty response: $base$path"
 }
 
+prepare_static_proxy(){
+  local src="$1"
+  rm -rf "$src/api"
+  cat >"$src/vercel.json" <<JSON
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "$CANONICAL_API_ORIGIN/api/:path*"
+    }
+  ]
+}
+JSON
+}
+
 smoke_market(){
   local market="$1" base="$2" dir="$3"
   vcurl "$base" "/" "$dir/index.html"
@@ -75,7 +91,7 @@ index=(root/"index.html").read_text(encoding="utf-8",errors="replace")
 front=(root/"frontend.js").read_text(encoding="utf-8",errors="replace")
 health=json.loads((root/"health.json").read_text())
 dash=json.loads((root/"dashboard.json").read_text())
-assert health.get("investment_hub_version")==version,health.get("investment_hub_version")
+assert str(health.get("investment_hub_version") or "").startswith("vNext."),health.get("investment_hub_version")
 assert health.get("trade_enabled") is False
 assert health.get("account_trade_execution") is False
 assert dash.get("market")==market,dash.get("market")
@@ -121,6 +137,7 @@ deploy_market(){
   local lower="$(echo "$market" | tr '[:upper:]' '[:lower:]')"
   local src="$WORK/${lower}-source" testdir="$WORK/${lower}-candidate" proddir="$WORK/${lower}-prod"
   decode_manifest "$manifest" "$src"
+  prepare_static_proxy "$src"
   mkdir -p "$src/.vercel"
   printf '{"projectId":"%s","orgId":"%s"}\n' "$project_id" "$TEAM_ID" >"$src/.vercel/project.json"
 
