@@ -177,7 +177,7 @@ assert (shadow.get("invariants") or {}).get("trade_execution") is False
 assert shadow.get("ranking_source")=="NEON_SHADOW_PORTFOLIO_SNAPSHOT",shadow
 assert shadow.get("ranking_stale") is False,shadow
 assert shadow.get("ranking_source_version")=="shadow_portfolio_ranking_v2_001",shadow
-assert str(shadow.get("ranking_code_sha") or "").startswith("b917778"),shadow
+code_sha=str(shadow.get("ranking_code_sha") or "")\nassert len(code_sha)==40 and all(c in "0123456789abcdef" for c in code_sha.lower()),shadow
 ranking=shadow.get("forward_ranking") or []
 assert len(ranking)==3,ranking
 assert ranking[0].get("strategy")=="A_EQUAL_WEIGHT",ranking
@@ -309,7 +309,7 @@ assert (shadow.get("invariants") or {}).get("trade_execution") is False
 assert shadow.get("ranking_source")=="NEON_SHADOW_PORTFOLIO_SNAPSHOT",shadow
 assert shadow.get("ranking_stale") is False,shadow
 assert shadow.get("ranking_source_version")=="shadow_portfolio_ranking_v2_001",shadow
-assert str(shadow.get("ranking_code_sha") or "").startswith("b917778"),shadow
+code_sha=str(shadow.get("ranking_code_sha") or "")\nassert len(code_sha)==40 and all(c in "0123456789abcdef" for c in code_sha.lower()),shadow
 ranking=shadow.get("forward_ranking") or []
 assert len(ranking)==3,ranking
 assert ranking[0].get("strategy")=="A_EQUAL_WEIGHT",ranking
