@@ -33,6 +33,9 @@ on:
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/scripts/run_auto_trade.sh"
       - "kalman-toss-gateway/scripts/apply_live_canary_5000.sh"
+      - "kalman-toss-gateway/scripts/install_cron.sh"
+      - "kalman-toss-gateway/config/kalman.cron.d"
+      - "kalman-toss-gateway/config/kalman.cron"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - "kalman-toss-gateway/tests/test_same_cycle_rebalance.py"
@@ -72,6 +75,9 @@ on:
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/scripts/run_auto_trade.sh"
       - "kalman-toss-gateway/scripts/apply_live_canary_5000.sh"
+      - "kalman-toss-gateway/scripts/install_cron.sh"
+      - "kalman-toss-gateway/config/kalman.cron.d"
+      - "kalman-toss-gateway/config/kalman.cron"
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - "kalman-toss-gateway/tests/test_same_cycle_rebalance.py"
@@ -114,12 +120,33 @@ jobs:
           bash -n scripts/configure_auto_trade_env.sh
           bash -n scripts/run_auto_trade.sh
           bash -n scripts/apply_live_canary_5000.sh
+          bash -n scripts/install_cron.sh
           bash -n scripts/run_news_ingest_v1.sh
           bash -n scripts/install_news_ingest_v1.sh
           bash -n scripts/run_macro_event_features_v1.sh
           bash -n scripts/install_macro_event_features_v1.sh
           bash -n scripts/run_macro_shadow_eval_v1.sh
           bash -n scripts/install_macro_shadow_eval_v1.sh
+
+      - name: Validate US auto-trade cron contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path("config/kalman.cron.d").read_text(encoding="utf-8")
+          required = [
+              "35 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US",
+              "15 0-6 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US",
+              "45 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh",
+              "25 0-6 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh",
+          ]
+          for line in required:
+              assert line in text, line
+
+          assert "15 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US" not in text
+          assert "25 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh" not in text
+          print("[PASS] US open pulse + overnight auto-trade cron")
+          PY
 
       - name: Run gateway safety tests
         env:
