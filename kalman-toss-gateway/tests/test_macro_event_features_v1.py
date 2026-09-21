@@ -914,3 +914,120 @@ def test_free_reaction_score_blocks_without_event_rate_confirmation():
     assert score["score"] is None
     assert score["direction"] == "BLOCKED"
     assert "DGS2_DFF_EVENT_CONFIRMATION_UNAVAILABLE" in score["blockers"]
+
+
+def test_multi_market_provider_specs_preserve_us_and_kr_contracts():
+    cfg = {
+        "trading_economics": {
+            "enabled": True,
+            "base_url": "https://api.tradingeconomics.com",
+            "markets": {
+                "US": {
+                    "country": "United States",
+                    "event_map": {"Inflation Rate YoY": "CPI_HEADLINE_YOY"},
+                },
+                "KR": {
+                    "country": "South Korea",
+                    "event_map": {"Inflation Rate YoY": "KR_CPI_YOY"},
+                },
+            },
+        }
+    }
+    specs = consensus._provider_market_specs(cfg)
+    by_market = {row["market"]: row for row in specs}
+    assert set(by_market) == {"US", "KR"}
+    assert by_market["US"]["country"] == "United States"
+    assert by_market["KR"]["country"] == "South Korea"
+
+
+def test_korea_calendar_row_maps_to_kr_without_touching_us_contract():
+    as_of = datetime(2026, 9, 21, 1, 0, tzinfo=UTC)
+    cfg = {
+        "indicator_normalization": {
+            "KR_CPI_YOY": {"scale": 0.2, "policy_sign": 1, "unit": "pct"}
+        },
+        "trading_economics": {"enabled": True},
+    }
+    spec = {
+        "market": "KR",
+        "country": "South Korea",
+        "event_map": {"Inflation Rate YoY": "KR_CPI_YOY"},
+    }
+    row = {
+        "CalendarId": "kr-cpi-1",
+        "Date": "2026-09-21T00:00:00+00:00",
+        "LastUpdate": "2026-09-21T00:00:05+00:00",
+        "Country": "South Korea",
+        "Event": "Inflation Rate YoY",
+        "Actual": "2.4%",
+        "Forecast": "2.2%",
+        "Previous": "2.1%",
+        "DateSpan": "0",
+        "Unit": "%",
+    }
+    mapped = consensus.normalize_calendar_row(row, cfg, as_of, spec)
+    assert mapped is not None
+    assert mapped["market"] == "KR"
+    assert mapped["indicator_key"] == "KR_CPI_YOY"
+    assert mapped["actual"] == 2.4
+    assert mapped["consensus"] == 2.2
+    assert mapped["payload"]["market"] == "KR"
+
+
+def test_local_active_windows_are_timezone_aware():
+    kr = {
+        "timezone": "Asia/Seoul",
+        "active_weekdays": [0, 1, 2, 3, 4],
+        "active_windows_local": [{"start": "07:30", "end": "11:30"}],
+    }
+    # 2026-09-21 23:00 UTC == 2026-09-22 08:00 KST.
+    assert consensus.within_active_window(
+        datetime(2026, 9, 21, 23, 0, tzinfo=UTC), kr
+    )
+    assert not consensus.within_active_window(
+        datetime(2026, 9, 21, 15, 0, tzinfo=UTC), kr
+    )
+
+
+def test_release_scoring_keeps_us_and_kr_surprises_separate():
+    as_of = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
+    rows = [
+        {
+            "market": "US",
+            "indicator_key": "CPI_HEADLINE_YOY",
+            "actual": 3.2,
+            "consensus": 3.0,
+            "available_at": datetime(2026, 9, 21, 11, 0, tzinfo=UTC),
+        },
+        {
+            "market": "KR",
+            "indicator_key": "KR_CPI_YOY",
+            "actual": 2.4,
+            "consensus": 2.2,
+            "available_at": datetime(2026, 9, 21, 10, 0, tzinfo=UTC),
+        },
+    ]
+    normalization = {
+        "CPI_HEADLINE_YOY": {"scale": 0.1, "policy_sign": 1},
+        "KR_CPI_YOY": {"scale": 0.2, "policy_sign": 1},
+    }
+    us, us_latest, _ = macro.score_release_market(
+        release_rows=rows,
+        market="US",
+        as_of=as_of,
+        normalization=normalization,
+        surprise_half_life_hours=24,
+    )
+    kr, kr_latest, _ = macro.score_release_market(
+        release_rows=rows,
+        market="KR",
+        as_of=as_of,
+        normalization=normalization,
+        surprise_half_life_hours=24,
+    )
+    assert len(us) == 1
+    assert len(kr) == 1
+    assert us_latest["indicator_key"] == "CPI_HEADLINE_YOY"
+    assert kr_latest["indicator_key"] == "KR_CPI_YOY"
+    assert us_latest["policy_pressure_surprise"] == 2.0
+    assert round(kr_latest["policy_pressure_surprise"], 12) == 1.0

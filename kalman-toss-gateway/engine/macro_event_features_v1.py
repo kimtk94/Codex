@@ -650,6 +650,52 @@ def compute_free_reaction_shadow_score(
         "positive_direction": "HAWKISH_TIGHTENING",
     }
 
+def score_release_market(
+    *,
+    release_rows: list[dict[str, Any]],
+    market: str,
+    as_of: datetime,
+    normalization: dict[str, Any],
+    surprise_half_life_hours: float,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, float | None]:
+    scored: list[dict[str, Any]] = []
+    market_key = market.upper()
+    for row in release_rows:
+        if str(row.get("market") or "").upper() != market_key:
+            continue
+        score = normalized_surprise(
+            str(row.get("indicator_key") or ""),
+            row.get("actual"),
+            row.get("consensus"),
+            normalization,
+        )
+        if score is None:
+            continue
+        available_at = parse_dt(row.get("available_at"))
+        if available_at is None:
+            continue
+        scored.append(
+            {
+                **row,
+                "available_at_dt": available_at,
+                "policy_pressure_surprise": score,
+                "decay_weight": decay_weight(
+                    _age_hours(as_of, available_at), surprise_half_life_hours
+                ),
+            }
+        )
+    scored.sort(key=lambda r: r["available_at_dt"])
+    latest = scored[-1] if scored else None
+    denom = sum(r["decay_weight"] for r in scored)
+    decay_ema = (
+        sum(r["policy_pressure_surprise"] * r["decay_weight"] for r in scored)
+        / denom
+        if denom > 0
+        else None
+    )
+    return scored, latest, decay_ema
+
+
 def build_feature_payload(
     *,
     as_of: datetime,
@@ -688,39 +734,19 @@ def build_feature_payload(
         if parse_dt(r.get("available_at")) is not None
     )
 
-    scored_releases: list[dict[str, Any]] = []
-    for row in release_rows:
-        if str(row.get("market") or "").upper() != "US":
-            continue
-        score = normalized_surprise(
-            str(row.get("indicator_key") or ""),
-            row.get("actual"),
-            row.get("consensus"),
-            normalization,
-        )
-        if score is None:
-            continue
-        available_at = parse_dt(row.get("available_at"))
-        if available_at is None:
-            continue
-        scored_releases.append(
-            {
-                **row,
-                "available_at_dt": available_at,
-                "policy_pressure_surprise": score,
-                "decay_weight": decay_weight(
-                    _age_hours(as_of, available_at), surprise_hl
-                ),
-            }
-        )
-    scored_releases.sort(key=lambda r: r["available_at_dt"])
-    latest_release = scored_releases[-1] if scored_releases else None
-    denom = sum(r["decay_weight"] for r in scored_releases)
-    surprise_ema = (
-        sum(r["policy_pressure_surprise"] * r["decay_weight"] for r in scored_releases)
-        / denom
-        if denom > 0
-        else None
+    scored_releases, latest_release, surprise_ema = score_release_market(
+        release_rows=release_rows,
+        market="US",
+        as_of=as_of,
+        normalization=normalization,
+        surprise_half_life_hours=surprise_hl,
+    )
+    kr_scored_releases, kr_latest_release, kr_surprise_ema = score_release_market(
+        release_rows=release_rows,
+        market="KR",
+        as_of=as_of,
+        normalization=normalization,
+        surprise_half_life_hours=surprise_hl,
     )
 
     latest_official = None
@@ -850,7 +876,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.5",
+        "schema_version": "macro-event-feature-v1.6",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -867,9 +893,37 @@ def build_feature_payload(
             else None
         ),
         "release_observation_count_72h": len(release_rows),
+        "us_release_observation_count_72h": sum(
+            1 for row in release_rows if str(row.get("market") or "").upper() == "US"
+        ),
+        "kr_release_observation_count_72h": sum(
+            1 for row in release_rows if str(row.get("market") or "").upper() == "KR"
+        ),
         "consensus_surprise_count_72h": len(scored_releases),
         "policy_pressure_surprise_latest": latest_surprise,
         "policy_pressure_surprise_decay_ema": surprise_ema,
+        "us_consensus_surprise_count_72h": len(scored_releases),
+        "us_policy_pressure_surprise_latest": latest_surprise,
+        "us_policy_pressure_surprise_decay_ema": surprise_ema,
+        "kr_consensus_surprise_count_72h": len(kr_scored_releases),
+        "kr_policy_pressure_surprise_latest": (
+            float(kr_latest_release["policy_pressure_surprise"])
+            if kr_latest_release is not None
+            else None
+        ),
+        "kr_policy_pressure_surprise_decay_ema": kr_surprise_ema,
+        "kr_latest_surprise_indicator": (
+            kr_latest_release.get("indicator_key") if kr_latest_release else None
+        ),
+        "kr_latest_surprise_actual": (
+            kr_latest_release.get("actual") if kr_latest_release else None
+        ),
+        "kr_latest_surprise_consensus": (
+            kr_latest_release.get("consensus") if kr_latest_release else None
+        ),
+        "kr_latest_surprise_available_at": (
+            iso(kr_latest_release["available_at_dt"]) if kr_latest_release else None
+        ),
         "latest_surprise_indicator": (
             latest_release.get("indicator_key") if latest_release else None
         ),
@@ -994,6 +1048,14 @@ def build_feature_payload(
             },
             "consensus_surprise_provider": {
                 "status": "READY" if surprise_provider_ready else "UNAVAILABLE"
+            },
+            "us_consensus_surprise_provider": {
+                "status": "READY" if surprise_provider_ready else "UNAVAILABLE"
+            },
+            "kr_consensus_surprise_provider": {
+                "status": "READY" if kr_latest_release is not None else "UNAVAILABLE",
+                "quality": "SURPRISE_ONLY_NO_KR_MARKET_REACTION_CONFIRMATION",
+                "shadow_only": True,
             },
             "fed_repricing_provider": {
                 "status": "READY" if fed_repricing_ready else "UNAVAILABLE",

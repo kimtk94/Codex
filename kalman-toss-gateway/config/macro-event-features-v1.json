@@ -1,5 +1,5 @@
 {
-  "version": "macro-event-feature-v1.6.0",
+  "version": "macro-event-feature-v1.7.0",
   "feature_version": "macro-event-feature-v1",
   "lookback_hours": 72,
   "half_life_hours": {
@@ -107,6 +107,61 @@
       "scale": 10,
       "policy_sign": -1,
       "unit": "thousands"
+    },
+    "GDP_QOQ": {
+      "scale": 0.5,
+      "policy_sign": 1,
+      "unit": "pct"
+    },
+    "INDUSTRIAL_PRODUCTION_MOM": {
+      "scale": 0.5,
+      "policy_sign": 1,
+      "unit": "pct"
+    },
+    "KR_BOK_BASE_RATE": {
+      "scale": 0.25,
+      "policy_sign": 1,
+      "unit": "pct"
+    },
+    "KR_GDP_QOQ": {
+      "scale": 0.3,
+      "policy_sign": 1,
+      "unit": "pct"
+    },
+    "KR_GDP_YOY": {
+      "scale": 0.5,
+      "policy_sign": 1,
+      "unit": "pct"
+    },
+    "KR_UNEMPLOYMENT_RATE": {
+      "scale": 0.1,
+      "policy_sign": -1,
+      "unit": "pct"
+    },
+    "KR_TRADE_BALANCE": {
+      "scale": 1000000000,
+      "policy_sign": 1,
+      "unit": "usd"
+    },
+    "KR_CPI_MOM": {
+      "scale": 0.2,
+      "policy_sign": 1,
+      "unit": "pct"
+    },
+    "KR_CPI_YOY": {
+      "scale": 0.2,
+      "policy_sign": 1,
+      "unit": "pct"
+    },
+    "KR_INDUSTRIAL_PRODUCTION_MOM": {
+      "scale": 1,
+      "policy_sign": 1,
+      "unit": "pct"
+    },
+    "KR_EXPORTS_YOY": {
+      "scale": 5,
+      "policy_sign": 1,
+      "unit": "pct"
     }
   },
   "coverage_weights": {
@@ -119,41 +174,81 @@
   "trading_economics": {
     "enabled": true,
     "base_url": "https://api.tradingeconomics.com",
-    "country": "United States",
     "lookback_days": 5,
     "timeout_seconds": 20,
-    "event_map": {
-      "Inflation Rate MoM": "CPI_HEADLINE_MOM",
-      "Inflation Rate YoY": "CPI_HEADLINE_YOY",
-      "Core Inflation Rate MoM": "CORE_CPI_MOM",
-      "Core Inflation Rate YoY": "CORE_CPI_YOY",
-      "Core PCE Price Index MoM": "CORE_PCE_MOM",
-      "Core PCE Price Index YoY": "CORE_PCE_YOY",
-      "Non Farm Payrolls": "NFP",
-      "Nonfarm Payrolls": "NFP",
-      "Unemployment Rate": "UNEMPLOYMENT_RATE",
-      "Average Hourly Earnings MoM": "AVERAGE_HOURLY_EARNINGS_MOM",
-      "Producer Price Inflation MoM": "PPI_MOM",
-      "PPI MoM": "PPI_MOM",
-      "Retail Sales MoM": "RETAIL_SALES_MOM",
-      "ISM Manufacturing PMI": "ISM_MANUFACTURING",
-      "ISM Services PMI": "ISM_SERVICES",
-      "JOLTs Job Openings": "JOLTS_OPENINGS",
-      "JOLTS Job Openings": "JOLTS_OPENINGS",
-      "Initial Jobless Claims": "INITIAL_JOBLESS_CLAIMS",
-      "IJCUSA": "INITIAL_JOBLESS_CLAIMS",
-      "USACPPIM": "CORE_PCE_MOM"
-    },
-    "active_weekdays": [
-      0,
-      1,
-      2,
-      3,
-      4
-    ],
-    "active_window_utc": {
-      "start": "12:00",
-      "end": "16:15"
+    "markets": {
+      "US": {
+        "country": "United States",
+        "timezone": "America/New_York",
+        "active_weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "active_windows_local": [
+          {
+            "start": "07:30",
+            "end": "11:30"
+          }
+        ],
+        "event_map": {
+          "Inflation Rate MoM": "CPI_HEADLINE_MOM",
+          "Inflation Rate YoY": "CPI_HEADLINE_YOY",
+          "Core Inflation Rate MoM": "CORE_CPI_MOM",
+          "Core Inflation Rate YoY": "CORE_CPI_YOY",
+          "Core PCE Price Index MoM": "CORE_PCE_MOM",
+          "Core PCE Price Index YoY": "CORE_PCE_YOY",
+          "Non Farm Payrolls": "NFP",
+          "Nonfarm Payrolls": "NFP",
+          "Unemployment Rate": "UNEMPLOYMENT_RATE",
+          "Average Hourly Earnings MoM": "AVERAGE_HOURLY_EARNINGS_MOM",
+          "Producer Price Inflation MoM": "PPI_MOM",
+          "PPI MoM": "PPI_MOM",
+          "Retail Sales MoM": "RETAIL_SALES_MOM",
+          "ISM Manufacturing PMI": "ISM_MANUFACTURING",
+          "ISM Services PMI": "ISM_SERVICES",
+          "JOLTs Job Openings": "JOLTS_OPENINGS",
+          "JOLTS Job Openings": "JOLTS_OPENINGS",
+          "Initial Jobless Claims": "INITIAL_JOBLESS_CLAIMS",
+          "IJCUSA": "INITIAL_JOBLESS_CLAIMS",
+          "USACPPIM": "CORE_PCE_MOM",
+          "GDP Growth Rate QoQ": "GDP_QOQ",
+          "GDP Growth Rate": "GDP_QOQ",
+          "Industrial Production MoM": "INDUSTRIAL_PRODUCTION_MOM"
+        }
+      },
+      "KR": {
+        "country": "South Korea",
+        "timezone": "Asia/Seoul",
+        "active_weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ],
+        "active_windows_local": [
+          {
+            "start": "07:30",
+            "end": "11:30"
+          }
+        ],
+        "event_map": {
+          "Interest Rate Decision": "KR_BOK_BASE_RATE",
+          "Interest Rate": "KR_BOK_BASE_RATE",
+          "Inflation Rate MoM": "KR_CPI_MOM",
+          "Inflation Rate YoY": "KR_CPI_YOY",
+          "GDP Growth Rate QoQ": "KR_GDP_QOQ",
+          "GDP Growth Rate YoY": "KR_GDP_YOY",
+          "Unemployment Rate": "KR_UNEMPLOYMENT_RATE",
+          "Trade Balance": "KR_TRADE_BALANCE",
+          "Industrial Production MoM": "KR_INDUSTRIAL_PRODUCTION_MOM",
+          "Exports YoY": "KR_EXPORTS_YOY",
+          "GDP Growth Rate": "KR_GDP_QOQ"
+        }
+      }
     }
   },
   "us_reaction_anchor_sources": [
