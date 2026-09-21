@@ -59,6 +59,26 @@ def config():
             "fed_repricing_provider": 0.10,
             "fed_repricing_proxy": 0.10,
         },
+        "target_market_impact": {
+            "semantics": "ordinal_research_prior_not_causal_effect_size",
+            "tier_weights": {"HIGH": 1.0, "MEDIUM": 0.65, "CONTEXTUAL": 0.35},
+            "targets": {
+                "US": {
+                    "event_family_weights": {"FOMC": 1.0, "CPI": 1.0, "NFP": 1.0},
+                    "indicators": {
+                        "CPI_HEADLINE_YOY": {"origin": "US", "tier": "HIGH"},
+                        "NFP": {"origin": "US", "tier": "HIGH"},
+                    },
+                },
+                "KR": {
+                    "event_family_weights": {"FOMC": 1.0, "CPI": 0.85, "NFP": 0.75},
+                    "indicators": {
+                        "CPI_HEADLINE_YOY": {"origin": "US", "tier": "HIGH"},
+                        "NFP": {"origin": "US", "tier": "MEDIUM"},
+                    },
+                },
+            },
+        },
         "structured_official_match_minutes": 30,
         "policy_repricing_match_hours": 6,
         "event_scoring": {
@@ -1031,3 +1051,40 @@ def test_release_scoring_keeps_us_and_kr_surprises_separate():
     assert kr_latest["indicator_key"] == "KR_CPI_YOY"
     assert us_latest["policy_pressure_surprise"] == 2.0
     assert round(kr_latest["policy_pressure_surprise"], 12) == 1.0
+
+
+def test_target_market_surprise_index_separates_us_to_kr_spillover():
+    cfg = config()
+    rows = [
+        {
+            "market": "US",
+            "indicator_key": "CPI_HEADLINE_YOY",
+            "policy_pressure_surprise": 2.0,
+            "decay_weight": 1.0,
+            "available_at_dt": datetime(2026, 9, 1, 12, 30, tzinfo=UTC),
+        },
+        {
+            "market": "US",
+            "indicator_key": "NFP",
+            "policy_pressure_surprise": -1.0,
+            "decay_weight": 1.0,
+            "available_at_dt": datetime(2026, 9, 2, 12, 30, tzinfo=UTC),
+        },
+    ]
+    us = macro.target_market_surprise_index(rows, "US", cfg)
+    kr = macro.target_market_surprise_index(rows, "KR", cfg, origin_market="US")
+    assert round(us["score"], 6) == 0.5
+    assert round(kr["score"], 6) == round((2.0 - 0.65) / 1.65, 6)
+    assert kr["contributor_count"] == 2
+    assert kr["weight_semantics"] == "ordinal_research_prior_not_causal_effect_size"
+
+
+def test_target_market_event_score_applies_cross_market_family_weight():
+    cfg = config()
+    shadow = {"event_family": "CPI", "score": 2.0}
+    us = macro.target_market_event_score(shadow, "US", cfg)
+    kr = macro.target_market_event_score(shadow, "KR", cfg)
+    assert us["score"] == 2.0
+    assert kr["score"] == 1.7
+    assert us["ready"] is True
+    assert kr["ready"] is True
