@@ -1,0 +1,8 @@
+# Kalman SHADOW A/B/C ranking V2
+# Example only. Install after a manual server run and Neon schema verification.
+#
+# KR close refresh follow-up (Mon-Fri 17:05 KST)
+5 17 * * 1-5 root KALMAN_ENV_FILE=/opt/kalman/.env /opt/kalman/app/scripts/run_shadow_portfolio_ranking_v2.sh --mirror-neon >> /var/log/kalman-shadow-ranking.log 2>&1
+#
+# US close refresh follow-up (Tue-Sat 07:45 KST)
+45 7 * * 2-6 root KALMAN_ENV_FILE=/opt/kalman/.env /opt/kalman/app/scripts/run_shadow_portfolio_ranking_v2.sh --mirror-neon >> /var/log/kalman-shadow-ranking.log 2>&1

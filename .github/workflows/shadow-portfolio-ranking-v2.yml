@@ -1,0 +1,80 @@
+name: Shadow Portfolio Ranking V2
+
+on:
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/config/shadow-portfolio-ranking-v2.json"
+      - "kalman-toss-gateway/config/shadow-portfolio-ranking-v2.cron.example"
+      - "kalman-toss-gateway/engine/shadow_portfolio_ranking.py"
+      - "kalman-toss-gateway/engine/shadow_portfolio_ranking_writer.py"
+      - "kalman-toss-gateway/research/quant_stack/shadow_portfolio_snapshot.sql"
+      - "kalman-toss-gateway/scripts/run_shadow_portfolio_ranking_v2.sh"
+      - "kalman-toss-gateway/tests/test_shadow_portfolio_ranking_v2.py"
+      - ".github/workflows/shadow-portfolio-ranking-v2.yml"
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/config/shadow-portfolio-ranking-v2.json"
+      - "kalman-toss-gateway/config/shadow-portfolio-ranking-v2.cron.example"
+      - "kalman-toss-gateway/engine/shadow_portfolio_ranking.py"
+      - "kalman-toss-gateway/engine/shadow_portfolio_ranking_writer.py"
+      - "kalman-toss-gateway/research/quant_stack/shadow_portfolio_snapshot.sql"
+      - "kalman-toss-gateway/scripts/run_shadow_portfolio_ranking_v2.sh"
+      - "kalman-toss-gateway/tests/test_shadow_portfolio_ranking_v2.py"
+      - ".github/workflows/shadow-portfolio-ranking-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pandas numpy pyarrow python-dotenv "psycopg[binary]>=3.2"
+
+      - name: Compile ranking modules
+        run: |
+          python -m py_compile             engine/shadow_portfolio_ranking.py             engine/shadow_portfolio_ranking_writer.py
+
+      - name: Validate shell syntax
+        run: bash -n scripts/run_shadow_portfolio_ranking_v2.sh
+
+      - name: Run ranking regression tests
+        env:
+          PYTHONPATH: .
+        run: python -m unittest tests.test_shadow_portfolio_ranking_v2 -v
+
+      - name: Validate migration safety shape
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          sql=Path("research/quant_stack/shadow_portfolio_snapshot.sql").read_text()
+          assert "CREATE TABLE IF NOT EXISTS shadow_portfolio_snapshot" in sql
+          assert "CREATE OR REPLACE VIEW v_latest_shadow_portfolio_snapshot" in sql
+          assert "GRANT SELECT" in sql
+          forbidden=[
+              "ALTER TABLE strategy_signal",
+              "ALTER TABLE dashboard_snapshot",
+              "trade_execution",
+              "TRUNCATE",
+              "DELETE FROM",
+          ]
+          for marker in forbidden:
+              assert marker not in sql, marker
+          print("[PASS] isolated SHADOW ranking schema")
+          PY
