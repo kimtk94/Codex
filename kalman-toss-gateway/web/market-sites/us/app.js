@@ -1,4 +1,4 @@
-const $=s=>document.querySelector(s),E=x=>String(x??'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m])),N=x=>Number.isFinite(Number(x))?Number(x):null;
+const $=s=>document.querySelector(s),E=x=>String(x??'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m])),N=x=>x===null||x===undefined||x===''?null:(Number.isFinite(Number(x))?Number(x):null);
 const USD=x=>N(x)==null?'—':'$'+N(x).toLocaleString(undefined,{minimumFractionDigits:N(x)<100?2:0,maximumFractionDigits:2});
 const PCT=x=>N(x)==null?'—':(N(x)>=0?'+':'')+(N(x)*100).toFixed(4)+'%';
 const DT=x=>x?String(x).replace('T',' ').replace('.000Z',' UTC').slice(0,22):'—';
