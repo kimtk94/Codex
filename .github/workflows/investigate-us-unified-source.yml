@@ -21,24 +21,42 @@ jobs:
           python -m py_compile /tmp/unified.py
           echo "===== PROVIDER / US INTRADAY HITS ====="
           grep -nEi 'yfinance|yf\.download|alpaca|stockhistoricaldata|StockBarsRequest|TimeFrame|1h|60m|hour|interval|RUN_MODE|data_as_of|model_as_of' /tmp/unified.py | head -n 240 || true
-      - name: Show US-related source neighborhoods
+      - name: Show embedded Alpaca request and bar-completion logic
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
-          lines=Path('/tmp/unified.py').read_text(encoding='utf-8').splitlines()
-          pats=re.compile(r'(yf\.download|yfinance|alpaca|StockBarsRequest|TimeFrame|RUN_MODE|fetch.*US|US.*fetch|interval.*1h|period.*1d|data_as_of)', re.I)
-          hits=[i for i,l in enumerate(lines) if pats.search(l)]
-          seen=[]
-          for i in hits:
-              a=max(0,i-8); b=min(len(lines),i+18)
-              if any(abs(i-j)<12 for j in seen):
+          import ast, re
+
+          src=Path('/tmp/unified.py').read_text(encoding='utf-8')
+          tree=ast.parse(src)
+          strings=[]
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) > 500:
+                  strings.append(node.value)
+
+          pats=re.compile(
+              r'(StockHistoricalDataClient|StockBarsRequest|TimeFrame|feed\s*=|IEX|15Min|15m|'
+              r'LIVE_SOURCE_MAX|groupby|resample|minute|bucket|regular|market_open|market_close|'
+              r'complete|start\s*=|end\s*=|datetime\.now|Timestamp\.now)',
+              re.I,
+          )
+          emitted=0
+          for si, blob in enumerate(strings):
+              if not re.search(r'Alpaca|StockBarsRequest|IEX', blob, re.I):
                   continue
-              seen.append(i)
-              print(f"===== lines {a+1}-{b} =====")
-              for n in range(a,b):
-                  print(f"{n+1}: {lines[n]}")
-              if len(seen)>=20:
-                  break
+              lines=blob.splitlines()
+              hits=[i for i,l in enumerate(lines) if pats.search(l)]
+              seen=[]
+              for i in hits:
+                  if any(abs(i-j)<10 for j in seen):
+                      continue
+                  seen.append(i)
+                  a=max(0,i-7); b=min(len(lines),i+14)
+                  print(f"===== embedded {si} lines {a+1}-{b} =====")
+                  for n in range(a,b):
+                      print(f"{n+1}: {lines[n]}")
+                  emitted += 1
+                  if emitted >= 40:
+                      raise SystemExit(0)
           PY
