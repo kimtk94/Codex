@@ -32,12 +32,3 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # US close: 07:30 KST safely follows both DST and standard-time US closes.
 # Refresh all V2 data/features, capture Finviz PIT, fixed-model score, mirror Neon SHADOW.
 30 7 * * 2-6 root /opt/kalman/app/scripts/run_v2_shadow_refresh.sh --mirror-neon >> /opt/kalman/logs/v2-shadow-us.log 2>&1
-
-# SHADOW portfolio A/B/C ranking follows each canonical V2 refresh.
-# Research-only Neon mirror: isolated shadow_portfolio_snapshot table; no broker/order writes.
-# KR close follow-up: V2 refresh 16:50 -> ranking 17:05 KST.
-5 17 * * 1-5 root KALMAN_ENV_FILE=/opt/kalman/.env KALMAN_CODE_SHA=e01c27223b47847ff0e4640de3d491bd8ebed7fd /opt/kalman/app/scripts/run_shadow_portfolio_ranking_v2.sh --mirror-neon >> /opt/kalman/logs/shadow-portfolio-ranking.log 2>&1
-
-# US close follow-up: V2 refresh 07:30 -> ranking 07:45 KST, Tuesday-Saturday.
-45 7 * * 2-6 root KALMAN_ENV_FILE=/opt/kalman/.env KALMAN_CODE_SHA=e01c27223b47847ff0e4640de3d491bd8ebed7fd /opt/kalman/app/scripts/run_shadow_portfolio_ranking_v2.sh --mirror-neon >> /opt/kalman/logs/shadow-portfolio-ranking.log 2>&1
-
