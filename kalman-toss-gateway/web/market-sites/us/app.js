@@ -36,6 +36,16 @@ function forwardTradesHtml(){
   return '<div class="tw"><table class="tinytable"><thead><tr><th>Status</th><th>Symbol</th><th>Entry</th><th>Exit</th><th>Net return</th></tr></thead><tbody>'+z.map(t=>'<tr><td><b>'+E(t.status||'—')+'</b></td><td><b>'+E(t.symbol||'—')+'</b></td><td>'+E(DT(t.entry_time))+'<br><small>'+USD(t.entry_price)+'</small></td><td>'+(t.exit_time?E(DT(t.exit_time))+'<br><small>'+USD(t.exit_price)+'</small>':'—')+'</td><td class="'+(N(t.return_pct)>=0?'pos':'neg')+'">'+PCT2(t.return_pct)+'</td></tr>').join('')+'</tbody></table></div>';
 }
 
+function performanceHtml(){
+  let a=S?.payload?.source_payload?.r5_shadow_ledger?.annual_2026||{},r=a.reconstructed?.summary||{};
+  if(!r.trade_count)return '';
+  return '<section class="dailybox performancebox"><div class="sectiontitle"><div><b>R5.1 2026 성과 · RECONSTRUCTED</b><small>historical replay · 실제 주문/체결 성과와 분리</small></div><span class="badge replaybadge">REPLAY</span></div><div class="perfgrid"><div class="perfkpi"><span>Trades</span><b>'+E(r.trade_count??'—')+'</b><small>Closed '+E(r.closed_count??'—')+'</small></div><div class="perfkpi"><span>Mean / trade</span><b class="'+(N(r.closed_mean_return_pct)>=0?'pos':'neg')+'">'+PCT2(r.closed_mean_return_pct)+'</b><small>position-weighted net10</small></div><div class="perfkpi hero"><span>Compounded</span><b class="'+(N(r.closed_compound_return_pct)>=0?'pos':'neg')+'">'+PCT2(r.closed_compound_return_pct)+'</b><small>'+E(String(r.first_entry||'').slice(0,10))+' → '+E(String(r.last_event||'').slice(0,10))+'</small></div><div class="perfkpi"><span>Open</span><b>'+E(r.open_count??0)+'</b><small>'+E((r.open_symbols||[]).join(', ')||'없음')+'</small></div></div><div class="note strongnote">RECONSTRUCTED는 과거 데이터 replay입니다. 실거래 수익률이나 미래 성과로 해석하지 않습니다.</div></section>';
+}
+function forwardShadowHtml(){
+  let a=S?.payload?.source_payload?.r5_shadow_ledger?.annual_2026||{},f=a.forward?.summary||{},z=(a.forward?.trades||[]).slice(-3).reverse();
+  if(!f.trade_count)return '';
+  return '<section class="dailybox forwardbox"><div class="sectiontitle"><div><b>Forward SHADOW · prospective</b><small>실시간 이후 추적 · execution=false</small></div><span class="badge info">SHADOW</span></div><div class="forwardgrid"><div><span>Trades</span><b>'+E(f.trade_count??'—')+'</b></div><div><span>Closed</span><b>'+E(f.closed_count??'—')+'</b></div><div><span>Open</span><b>'+E(f.open_count??0)+'</b><small>'+E((f.open_symbols||[]).join(', ')||'없음')+'</small></div><div><span>Compound</span><b class="'+(N(f.closed_compound_return_pct)>=0?'pos':'neg')+'">'+PCT2(f.closed_compound_return_pct)+'</b></div></div><div class="forwardrecent">'+z.map(t=>'<div class="forwardrow"><span class="status '+(t.status==='OPEN'?'open':'')+'">'+E(t.status||'—')+'</span><b>'+E(t.symbol||'—')+'</b><span>'+E(String(t.entry_time||'').slice(5,16).replace('T',' '))+'</span><strong class="'+(N(t.return_pct)>=0?'pos':'neg')+'">'+PCT2(t.return_pct)+'</strong></div>').join('')+'</div><div class="note">Forward SHADOW는 prospective 연구 추적이며 실제 주문을 실행하지 않습니다.</div></section>';
+}
 function bind(){document.addEventListener('click',e=>{let b=e.target.closest('[data-s]');if(b)select(b.dataset.s)});let q=$('#q'),sg=$('#sg');q?.addEventListener('input',()=>{let v=q.value.trim().toUpperCase();if(!v){sg.classList.add('hide');return}let z=A.filter(x=>x.symbol.includes(v)).slice(0,12);sg.innerHTML=z.map(x=>'<button data-s="'+E(x.symbol)+'"><b>'+E(x.symbol)+'</b><span>#'+E(x.rank)+' · '+USD(x.reference_price)+'</span></button>').join('');sg.classList.toggle('hide',!z.length)})}
 function select(s){let x=A.find(z=>z.symbol===s);if(!x)return;$('#d').innerHTML=detailHtml(x);$('#q').value=s;$('#sg').classList.add('hide');$('#d').scrollIntoView({behavior:'smooth',block:'nearest'})}
 async function load(){
@@ -51,10 +61,9 @@ async function load(){
   $('#m').innerHTML=
     '<section class="appbar"><div class="appbrand">US Investment Hub</div>'+siteNav('US')+
     '<div class="appmarket"><b>'+E(sm.market_risk||'US')+'</b><span>'+E(j.model_version)+'</span><span class="badge '+(j.effective_stale?'bad':'')+'">'+(j.effective_stale?'STALE':'FRESH')+'</span></div><small>'+DT(j.data_as_of)+'</small></section>'+
-    top3Html()+modelSignalHtml()+benchmarkHtml()+
+    top3Html()+modelSignalHtml()+performanceHtml()+benchmarkHtml()+forwardShadowHtml()+
     '<section class="card"><div class="sw"><input id="q" class="search" placeholder="🔎 US ticker 검색 · NVDA, ORCL, AAPL"><div id="sg" class="sg hide"></div></div><div id="d"></div></section>'+
-    fold('R5.1 2026 Ledger','replay와 prospective를 분리',ledgerHtml())+
-    fold('Forward SHADOW · recent',E(fwd.trade_count??0)+' trades · OPEN '+E((fwd.open_symbols||[]).join(', ')||'없음'),forwardTradesHtml())+
+    fold('R5.1 2026 Ledger','replay + prospective 상세',ledgerHtml()+forwardTradesHtml())+
     fold('Model Context','R5.1_BASE_HGB · 4H relative-return','<div class="note">Primary lineage: '+E(sm.primary_lineage)+' · Evidence: '+E(sm.evidence_confidence)+' · Trade enabled: false</div>')+
     fold('US Universe',A.length+' stocks · rank order',universe());
   bind();

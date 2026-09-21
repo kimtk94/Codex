@@ -35,3 +35,18 @@
 .site-nav-link{padding:5px 8px;border-radius:7px;color:#8fa0b8;text-decoration:none;font-size:10px;font-weight:850;letter-spacing:.04em}
 .site-nav-link:hover{color:#e8eef9;background:#14233b}.site-nav-link.active{color:#dbeafe;background:#1d4ed8}
 @media(max-width:700px){.site-nav{order:3}.site-nav-link{padding:4px 7px}.appmarket{order:4}.appbar>small{order:5}}
+
+/* KR priority hierarchy v3 */
+.marketbadge{background:#15385c;color:#bfdbfe}
+.top3rows{display:grid;gap:5px}
+.top3row{width:100%;display:grid;grid-template-columns:42px minmax(150px,1.2fr) 120px 150px;align-items:center;gap:8px;padding:9px 10px;border:1px solid #263651;background:#0b1526;color:#e8eef9;border-radius:10px;cursor:pointer;text-align:left}
+.top3row:hover{border-color:#415572;background:#0e1b30}
+.top3name small,.top3price small,.top3score small{display:block;color:#8190a7;font-size:10px;margin-top:2px}
+.top3price,.top3score{text-align:right}.top3score b{color:#bfdbfe}
+.marketttop3 .note,.markettop3 .note{margin-top:8px;color:#8fa0b8;font-size:10px}
+@media(max-width:700px){
+  .top3row{grid-template-columns:30px 1fr auto;gap:6px;padding:8px}
+  .top3row .posrank{grid-row:1/3}
+  .top3name{grid-column:2}.top3price{grid-column:2;text-align:left}.top3price b{font-size:12px}
+  .top3score{grid-column:3;grid-row:1/3}.top3score b{font-size:11px}.top3score small{max-width:92px}
+}

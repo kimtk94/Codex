@@ -8,3 +8,21 @@
 .benchlabel{font-size:10px;color:var(--muted);font-weight:800}.benchcard>b{display:block;font-size:20px;margin:4px 0}.benchcard small,.ledgercard>small{display:block;color:var(--muted);font-size:10px;margin-top:3px}
 .ledgerhead{display:flex;justify-content:space-between;align-items:center;gap:8px}.ledgerkpis{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:8px}.ledgerkpis>div{padding:7px;border:1px solid var(--border);border-radius:8px}.ledgerkpis span{display:block;color:var(--muted);font-size:9px}.ledgerkpis b{display:block;margin-top:3px;font-size:12px}.tinytable small{color:var(--muted)}
 @media(max-width:700px){.site-nav{order:3}.site-nav-link{padding:4px 7px}.appmarket{order:4}.appbar>small{order:5}.benchgrid,.ledgergrid{grid-template-columns:1fr}.ledgerkpis{grid-template-columns:repeat(2,1fr)}}
+
+/* US priority hierarchy v3 */
+.replaybadge{background:#4b3517;color:#fde68a}
+.perfgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.perfkpi{padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--card2)}
+.perfkpi span,.forwardgrid span{display:block;color:var(--muted);font-size:10px}
+.perfkpi b{display:block;font-size:16px;margin-top:4px}.perfkpi small,.forwardgrid small{display:block;color:var(--muted);font-size:9px;margin-top:3px}
+.perfkpi.hero{border-color:#7c5aa2}.perfkpi.hero b{font-size:20px}
+.strongnote{border-left:2px solid var(--warn);padding-left:8px}
+.forwardgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.forwardgrid>div{padding:9px;border:1px solid var(--border);border-radius:9px;background:var(--card2)}
+.forwardgrid b{display:block;margin-top:4px;font-size:14px}
+.forwardrecent{display:grid;gap:5px;margin-top:8px}.forwardrow{display:grid;grid-template-columns:72px 1fr 100px 90px;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:9px;background:var(--card2)}
+.forwardrow .status{font-size:9px;font-weight:900;color:var(--muted)}.forwardrow .status.open{color:var(--good)}.forwardrow>span:nth-child(3){color:var(--muted);font-size:10px}.forwardrow strong{text-align:right}
+@media(max-width:700px){
+  .perfgrid,.forwardgrid{grid-template-columns:repeat(2,1fr)}
+  .forwardrow{grid-template-columns:60px 1fr auto}.forwardrow>span:nth-child(3){display:none}.forwardrow strong{grid-column:3}
+}
