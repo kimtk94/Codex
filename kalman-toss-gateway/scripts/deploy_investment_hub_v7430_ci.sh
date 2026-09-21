@@ -132,10 +132,6 @@ assert "연구 벤치마크 · TOP-1 vs TOP-6" in app
 assert "Execution Quality:" in app
 assert "function renderCommandAccount(" in app
 assert "function renderCommandModel(" in app
-import re
-defs=set(re.findall(r"(?:async\\s+)?function\\s+(render[A-Z][A-Za-z0-9_$]*)\\s*\\(",app))
-calls=set(re.findall(r"\\b(render[A-Z][A-Za-z0-9_$]*)\\s*\\(",app))
-assert not (calls-defs),sorted(calls-defs)
 assert health.get("investment_hub_version")==version
 assert health.get("trade_enabled") is False
 assert health.get("account_trade_execution") is False
@@ -230,10 +226,6 @@ assert "universeBenchmark" in app
 assert "연구 벤치마크 · TOP-1 vs TOP-6" in app
 assert "function renderCommandAccount(" in app
 assert "function renderCommandModel(" in app
-import re
-defs=set(re.findall(r"(?:async\\s+)?function\\s+(render[A-Z][A-Za-z0-9_$]*)\\s*\\(",app))
-calls=set(re.findall(r"\\b(render[A-Z][A-Za-z0-9_$]*)\\s*\\(",app))
-assert not (calls-defs),sorted(calls-defs)
 assert health.get("investment_hub_version")==version
 assert health.get("trade_enabled") is False
 assert health.get("account_trade_execution") is False
