@@ -51,20 +51,24 @@ def _load_close(path: Path, market: str) -> pd.Series:
     if not path.is_file():
         raise FileNotFoundError(path)
     frame = pd.read_parquet(path)
-    if "ts" not in frame.columns or "close" not in frame.columns:
-        raise ValueError(f"{path}: required columns are ts, close")
-    out = frame[["ts", "close"]].copy()
-    out["ts"] = pd.to_datetime(out["ts"], utc=True, errors="raise")
+    ts_col = "timestamp" if "timestamp" in frame.columns else ("ts" if "ts" in frame.columns else None)
+    if ts_col is None or "close" not in frame.columns:
+        raise ValueError(
+            f"{path}: required columns are timestamp (or legacy ts), close; "
+            f"available={list(frame.columns)}"
+        )
+    out = frame[[ts_col, "close"]].copy().rename(columns={ts_col: "timestamp"})
+    out["timestamp"] = pd.to_datetime(out["timestamp"], utc=True, errors="raise")
     out["close"] = pd.to_numeric(out["close"], errors="coerce")
     out = (
-        out.dropna(subset=["ts", "close"])
+        out.dropna(subset=["timestamp", "close"])
         .loc[lambda x: x["close"] > 0]
-        .sort_values("ts")
-        .drop_duplicates("ts", keep="last")
+        .sort_values("timestamp")
+        .drop_duplicates("timestamp", keep="last")
     )
     if len(out) < 90:
         raise RuntimeError(f"{market}: insufficient market rows ({len(out)})")
-    series = out.set_index("ts")["close"]
+    series = out.set_index("timestamp")["close"]
     series.name = market
     return series
 
