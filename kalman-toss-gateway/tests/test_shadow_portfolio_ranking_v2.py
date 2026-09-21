@@ -21,7 +21,7 @@ class ShadowPortfolioRankingTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(
             {
-                "ts": index,
+                "timestamp": index,
                 "symbol": market,
                 "market": market,
                 "currency": "USD",
