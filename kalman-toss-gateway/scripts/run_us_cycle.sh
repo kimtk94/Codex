@@ -11,9 +11,9 @@ mkdir -p "$LOCK_DIR" /opt/kalman/logs
   flock -n 9 || exit 0
 
   echo "US_CYCLE_START_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  bash "$APP_ROOT/scripts/run_pipeline.sh" US
+  bash "$APP_ROOT/scripts/run_pipeline.sh" US 2>&1 | tee -a /opt/kalman/logs/us.log
   echo "US_CYCLE_PIPELINE_DONE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-  bash "$APP_ROOT/scripts/run_auto_trade.sh"
+  bash "$APP_ROOT/scripts/run_auto_trade.sh" 2>&1 | tee -a /opt/kalman/logs/auto-trade.log
   echo "US_CYCLE_DONE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ) 9>"$LOCK_DIR/us-cycle.lock"
