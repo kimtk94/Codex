@@ -135,17 +135,23 @@ jobs:
 
           text = Path("config/kalman.cron.d").read_text(encoding="utf-8")
           required = [
+              "35 23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US",
+              "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US",
+              "45 23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh",
+              "45 0-4 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh",
+          ]
+          for line in required:
+              assert line in text, line
+
+          forbidden = [
               "35 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US",
               "15 0-6 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US",
               "45 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh",
               "25 0-6 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh",
           ]
-          for line in required:
-              assert line in text, line
-
-          assert "15 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US" not in text
-          assert "25 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh" not in text
-          print("[PASS] US open pulse + overnight auto-trade cron")
+          for line in forbidden:
+              assert line not in text, line
+          print("[PASS] US cron aligned to complete market-open-based 60m bars")
           PY
 
       - name: Validate live canary cash-driven policy
