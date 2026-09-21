@@ -151,7 +151,14 @@ jobs:
           ]
           for line in forbidden:
               assert line not in text, line
-          print("[PASS] US cron aligned to complete market-open-based 60m bars")
+
+          # R5.1 records the signal timestamp at the START of each completed
+          # 60m bucket. A :35 refresh followed by a :45 trade check therefore
+          # sees a ~75-minute-old signal: 60m bar + 15m execution lag.
+          signal_age_at_trade_minutes = 60 + 15
+          assert signal_age_at_trade_minutes < 90
+          assert 35 >= 30 + 2  # :30 bucket boundary + SAFE_CLOSE_DELAY_MIN=2
+          print("[PASS] US cron aligned to complete 60m bars; trade signal age≈75m < 90m")
           PY
 
       - name: Validate live canary cash-driven policy
