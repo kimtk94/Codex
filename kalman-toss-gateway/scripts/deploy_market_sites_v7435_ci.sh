@@ -9,6 +9,7 @@ KR_PROD_URL="https://kalman-investment-hub-kr.vercel.app"
 US_PROD_URL="https://kalman-investment-hub-us.vercel.app"
 CANONICAL_API_ORIGIN="https://kalman-investment-hub-v2.vercel.app"
 VERSION_TAG="vNext.7.4.35"
+LOCAL_KPI_API="$ROOT/kalman-toss-gateway/web/market-sites/shared/market-kpis.js"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILDER="$ROOT/kalman-toss-gateway/scripts/build_investment_hub_v7435_dedicated_sites.py"
@@ -59,9 +60,15 @@ vcurl(){
 prepare_static_proxy(){
   local src="$1"
   rm -rf "$src/api"
+  mkdir -p "$src/api"
+  cp "$LOCAL_KPI_API" "$src/api/market-kpis.js"
   cat >"$src/vercel.json" <<JSON
 {
   "rewrites": [
+    {
+      "source": "/market-pulse",
+      "destination": "/api/market-kpis"
+    },
     {
       "source": "/api/:path*",
       "destination": "$CANONICAL_API_ORIGIN/api/:path*"
@@ -76,6 +83,7 @@ smoke_market(){
   vcurl "$base" "/" "$dir/index.html"
   vcurl "$base" "/api/health" "$dir/health.json"
   vcurl "$base" "/api/dashboard?market=$market" "$dir/dashboard.json"
+  vcurl "$base" "/market-pulse?market=$market" "$dir/market-pulse.json"
   if [ "$market" = "KR" ]; then
     vcurl "$base" "/compact.js" "$dir/frontend.js"
     vcurl "$base" "/core.js" "$dir/core.js"
@@ -91,6 +99,11 @@ index=(root/"index.html").read_text(encoding="utf-8",errors="replace")
 front=(root/"frontend.js").read_text(encoding="utf-8",errors="replace")
 health=json.loads((root/"health.json").read_text())
 dash=json.loads((root/"dashboard.json").read_text())
+pulse=json.loads((root/"market-pulse.json").read_text())
+assert pulse.get("schema_version")=="kalman-market-pulse-v1",pulse
+assert pulse.get("market")==market,pulse
+assert pulse.get("read_only") is True and pulse.get("trade_signal_input") is False,pulse
+assert len(pulse.get("items") or [])==4,pulse
 assert str(health.get("investment_hub_version") or "").startswith("vNext."),health.get("investment_hub_version")
 assert health.get("trade_enabled") is False
 assert health.get("account_trade_execution") is False
