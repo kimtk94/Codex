@@ -32,6 +32,7 @@ on:
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/scripts/run_auto_trade.sh"
+      - "kalman-toss-gateway/scripts/run_us_cycle.sh"
       - "kalman-toss-gateway/scripts/apply_live_canary_5000.sh"
       - "kalman-toss-gateway/scripts/install_cron.sh"
       - "kalman-toss-gateway/config/kalman.cron.d"
@@ -74,6 +75,7 @@ on:
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/scripts/run_auto_trade.sh"
+      - "kalman-toss-gateway/scripts/run_us_cycle.sh"
       - "kalman-toss-gateway/scripts/apply_live_canary_5000.sh"
       - "kalman-toss-gateway/scripts/install_cron.sh"
       - "kalman-toss-gateway/config/kalman.cron.d"
@@ -119,6 +121,7 @@ jobs:
         run: |
           bash -n scripts/configure_auto_trade_env.sh
           bash -n scripts/run_auto_trade.sh
+          bash -n scripts/run_us_cycle.sh
           bash -n scripts/apply_live_canary_5000.sh
           bash -n scripts/install_cron.sh
           bash -n scripts/run_news_ingest_v1.sh
@@ -135,30 +138,28 @@ jobs:
 
           text = Path("config/kalman.cron.d").read_text(encoding="utf-8")
           required = [
-              "35 23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US",
-              "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US",
-              "45 23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh",
-              "45 0-4 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh",
+              "35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh",
+              "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh",
           ]
           for line in required:
               assert line in text, line
 
-          forbidden = [
-              "35 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US",
-              "15 0-6 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US",
-              "45 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh",
-              "25 0-6 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh",
-          ]
-          for line in forbidden:
-              assert line not in text, line
+          assert "run_pipeline.sh US" not in text
+          assert "run_auto_trade.sh" not in text
+          print("[PASS] US cron uses one serialized pipeline->trade cycle")
+          PY
 
-          # R5.1 records the signal timestamp at the START of each completed
-          # 60m bucket. A :35 refresh followed by a :45 trade check therefore
-          # sees a ~75-minute-old signal: 60m bar + 15m execution lag.
-          signal_age_at_trade_minutes = 60 + 15
-          assert signal_age_at_trade_minutes < 90
-          assert 35 >= 30 + 2  # :30 bucket boundary + SAFE_CLOSE_DELAY_MIN=2
-          print("[PASS] US cron aligned to complete 60m bars; trade signal age≈75m < 90m")
+      - name: Validate US cycle ordering
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path("scripts/run_us_cycle.sh").read_text(encoding="utf-8")
+          pipeline = text.index('run_pipeline.sh" US')
+          trade = text.index('run_auto_trade.sh"')
+          assert pipeline < trade
+          assert 'us-cycle.lock' in text
+          print("[PASS] US cycle = pipeline commit -> auto-trade under one cycle lock")
           PY
 
       - name: Validate live canary cash-driven policy
@@ -171,6 +172,7 @@ jobs:
           required = [
               "CFG_AUTO_TRADE_REQUIRE_ACCOUNT_FLAT=false",
               "CFG_AUTO_TRADE_ORDER_KRW=5000",
+              "CFG_AUTO_TRADE_SIGNAL_BAR_MINUTES=60",
               "CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=0",
               "CFG_MAX_SINGLE_ORDER_KRW=5000",
           ]

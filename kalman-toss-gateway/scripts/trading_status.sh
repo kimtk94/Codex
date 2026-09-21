@@ -25,6 +25,8 @@ async def main():
         'executionMode': os.environ.get('AUTO_TRADE_EXECUTION_MODE', 'DRY_RUN').upper(),
         'signalPolicy': os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').upper(),
         'strategyVersion': os.environ.get('AUTO_TRADE_STRATEGY_VERSION', ''),
+        'signalBarMinutes': int(os.environ.get('AUTO_TRADE_SIGNAL_BAR_MINUTES', '0') or 0),
+        'maxSignalAgeMinutes': int(os.environ.get('AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES', '90') or 90),
         'liveGateOpen': s.live_gate_open,
         'activeManagedPositions': store.active(),
         'recentManagedPositions': store.recent(10),

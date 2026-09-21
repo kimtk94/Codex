@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -11,7 +12,7 @@ from app.config import Settings
 from app.executor import TradeLedger
 from app.main import health
 from app.risk import validate_order
-from engine.auto_trade import _usd_order_size
+from engine.auto_trade import _effective_signal_as_of, _signal_bar_minutes, _usd_order_size
 
 
 class GatewayNoSymbolAllowlistTests(unittest.TestCase):
@@ -104,6 +105,29 @@ class GatewayNoSymbolAllowlistTests(unittest.TestCase):
         self.assertEqual(amount, Decimal("3.57"))
         self.assertEqual(detail["targetOrderKrw"], "5000")
         self.assertLessEqual(amount * Decimal("1400"), Decimal("5000"))
+
+    def test_r5_1_signal_freshness_uses_bar_completion(self) -> None:
+        as_of = datetime(2026, 9, 21, 13, 30, tzinfo=timezone.utc)
+        with patch.dict(
+            "os.environ",
+            {"AUTO_TRADE_SIGNAL_BAR_MINUTES": "60"},
+            clear=False,
+        ):
+            self.assertEqual(_signal_bar_minutes("R5.1_BASE_HGB"), 60)
+            effective = _effective_signal_as_of(as_of, "R5.1_BASE_HGB")
+        self.assertEqual(
+            effective,
+            datetime(2026, 9, 21, 14, 30, tzinfo=timezone.utc),
+        )
+
+    def test_r5_1_rejects_wrong_bar_duration(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"AUTO_TRADE_SIGNAL_BAR_MINUTES": "0"},
+            clear=False,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "requires AUTO_TRADE_SIGNAL_BAR_MINUTES=60"):
+                _signal_bar_minutes("R5.1_BASE_HGB")
 
     def test_health_does_not_expose_allowed_symbols(self) -> None:
         payload = asyncio.run(health(self.settings()))

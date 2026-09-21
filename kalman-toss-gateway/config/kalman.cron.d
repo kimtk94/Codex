@@ -9,18 +9,12 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # KR: after regular close, Monday-Friday KST.
 20 16 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh KR_GLOBAL >> /opt/kalman/logs/kr.log 2>&1
 
-# US R5.1 consumes COMPLETE 60m bars derived from four market-open-aligned 15m bars.
-# SAFE_CLOSE_DELAY_MIN=2, so poll at :35 KST after the :30 hourly bucket boundary.
-# DST first actionable full bar completes at 23:30 KST; standard time at 00:30 KST.
-# The 23:35 + Tue-Sat 00:35-04:35 window covers both regimes while the broker
-# market calendar remains the authoritative session/order-window guard.
-35 23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
-35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
-
-# Trade worker follows 10 minutes later. With bar timestamps recorded at bucket START,
-# :45 keeps the newest completed signal about 75 minutes old, inside the 90-minute gate.
-45 23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
-45 0-4 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
+# US R5.1: each cycle starts after the :30 canonical hourly boundary.
+# run_us_cycle.sh serializes: US pipeline commit -> position/ledger sync -> auto-trade.
+# This avoids evaluating the previous signal while the ~40m US pipeline is still running.
+# R5.1 freshness uses bar completion (stored as_of is the immutable 60m BAR START).
+35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
+35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
 
 # Seeking Alpha collector -> US/BTC feature refresh (DISABLED BY DEFAULT).
 # Enable only after the authorized SA input method and snapshot timing are verified.
