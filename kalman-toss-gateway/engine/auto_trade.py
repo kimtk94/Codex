@@ -39,6 +39,32 @@ def _bool(value) -> bool:
     return str(value or '').strip().lower() == 'true'
 
 
+def _signal_bar_minutes(strategy_version: str | None) -> int:
+    """Minutes represented by a signal timestamp that marks the bar START.
+
+    R5.1 signals are stamped at the start of a completed 60m canonical bucket.
+    Freshness must therefore be measured from bar completion (as_of + 60m),
+    while the stored as_of itself remains immutable for model/ledger lineage.
+    """
+    default = '60' if strategy_version == 'R5.1_BASE_HGB' else '0'
+    raw = os.environ.get('AUTO_TRADE_SIGNAL_BAR_MINUTES', default)
+    try:
+        minutes = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError('AUTO_TRADE_SIGNAL_BAR_MINUTES must be an integer') from exc
+    if minutes < 0 or minutes > 240:
+        raise RuntimeError('AUTO_TRADE_SIGNAL_BAR_MINUTES must be between 0 and 240')
+    if strategy_version == 'R5.1_BASE_HGB' and minutes != 60:
+        raise RuntimeError('R5.1_BASE_HGB requires AUTO_TRADE_SIGNAL_BAR_MINUTES=60')
+    return minutes
+
+
+def _effective_signal_as_of(as_of: datetime, strategy_version: str | None) -> datetime:
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=timezone.utc)
+    return as_of + timedelta(minutes=_signal_bar_minutes(strategy_version))
+
+
 def _signal_shape_ok(signal: dict, policy: str) -> bool:
     payload = signal.get('payload') or {}
     if str(signal.get('position_state', '')).upper() != 'FLAT':
@@ -69,14 +95,15 @@ def load_signal(mode: str, strategy_version: str | None, policy: str):
     else:
         max_age = int(os.environ.get('AUTO_TRADE_DRY_RUN_MAX_SIGNAL_AGE_MINUTES', '1440'))
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age)
+    bar_minutes = _signal_bar_minutes(strategy_version)
 
     where = [
         "s.market='US'",
-        's.as_of >= %s',
+        "(s.as_of + (%s * interval '1 minute')) >= %s",
         "d.status='READY'",
         'd.stale_after > now()',
     ]
-    params: list[object] = [cutoff]
+    params: list[object] = [bar_minutes, cutoff]
 
     if strategy_version:
         where.append('s.strategy_version=%s')
@@ -273,6 +300,8 @@ async def main_async() -> int:
     as_of = signal['as_of']
     if as_of.tzinfo is None:
         as_of = as_of.replace(tzinfo=timezone.utc)
+    bar_minutes = _signal_bar_minutes(signal.get('strategy_version'))
+    effective_as_of = _effective_signal_as_of(as_of, signal.get('strategy_version'))
 
     common = {
         'executionMode': mode,
@@ -280,7 +309,11 @@ async def main_async() -> int:
         'strategyVersion': signal['strategy_version'],
         'signal': signal['signal'],
         'signalAsOf': signal['as_of'],
-        'signalAgeMinutes': round((now_utc - as_of).total_seconds() / 60.0, 1),
+        'signalTimestampSemantics': 'BAR_START' if bar_minutes else 'EVENT_TIME',
+        'signalBarMinutes': bar_minutes,
+        'signalAvailableAt': effective_as_of,
+        'signalAgeMinutesRaw': round((now_utc - as_of).total_seconds() / 60.0, 1),
+        'signalAgeMinutes': round((now_utc - effective_as_of).total_seconds() / 60.0, 1),
         'entryAllowed': signal['entry_allowed'],
         'riskGate': signal['risk_gate'],
         'positionState': signal['position_state'],
