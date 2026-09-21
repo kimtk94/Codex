@@ -650,6 +650,100 @@ def compute_free_reaction_shadow_score(
         "positive_direction": "HAWKISH_TIGHTENING",
     }
 
+def target_market_indicator_weight(
+    config: dict[str, Any],
+    target_market: str,
+    indicator_key: str,
+) -> float:
+    impact = config.get("target_market_impact") or {}
+    target = ((impact.get("targets") or {}).get(target_market.upper()) or {})
+    spec = ((target.get("indicators") or {}).get(indicator_key) or {})
+    if not spec:
+        return 0.0
+    if isinstance(spec, (int, float)):
+        return max(0.0, float(spec))
+    tier = str(spec.get("tier") or "").upper()
+    return max(0.0, float((impact.get("tier_weights") or {}).get(tier, 0.0)))
+
+
+def target_market_surprise_index(
+    scored_releases: list[dict[str, Any]],
+    target_market: str,
+    config: dict[str, Any],
+    *,
+    origin_market: str | None = None,
+) -> dict[str, Any]:
+    contributors: list[dict[str, Any]] = []
+    numerator = 0.0
+    denominator = 0.0
+    origin_filter = origin_market.upper() if origin_market else None
+    for row in scored_releases:
+        row_origin = str(row.get("market") or "").upper()
+        if origin_filter and row_origin != origin_filter:
+            continue
+        indicator = str(row.get("indicator_key") or "")
+        impact_weight = target_market_indicator_weight(config, target_market, indicator)
+        if impact_weight <= 0:
+            continue
+        decay = max(0.0, float(row.get("decay_weight") or 0.0))
+        surprise = row.get("policy_pressure_surprise")
+        if surprise is None or decay <= 0:
+            continue
+        effective_weight = impact_weight * decay
+        numerator += float(surprise) * effective_weight
+        denominator += effective_weight
+        contributors.append({
+            "indicator_key": indicator,
+            "origin_market": row_origin,
+            "impact_weight": impact_weight,
+            "decay_weight": decay,
+            "effective_weight": effective_weight,
+            "surprise": float(surprise),
+            "available_at": (
+                iso(row["available_at_dt"])
+                if isinstance(row.get("available_at_dt"), datetime)
+                else row.get("available_at")
+            ),
+        })
+    contributors.sort(key=lambda r: str(r.get("available_at") or ""))
+    score = round(numerator / denominator, 12) if denominator > 0 else None
+    return {
+        "target_market": target_market.upper(),
+        "origin_market_filter": origin_filter,
+        "score": score,
+        "contributor_count": len(contributors),
+        "latest_indicator": contributors[-1]["indicator_key"] if contributors else None,
+        "contributors": contributors[-12:],
+        "weight_semantics": str(
+            (config.get("target_market_impact") or {}).get(
+                "semantics", "ordinal_research_prior"
+            )
+        ),
+    }
+
+
+def target_market_event_score(
+    shadow_score: dict[str, Any],
+    target_market: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    impact = config.get("target_market_impact") or {}
+    target = ((impact.get("targets") or {}).get(target_market.upper()) or {})
+    family = str(shadow_score.get("event_family") or "OTHER").upper()
+    weight = float((target.get("event_family_weights") or {}).get(family, 0.0))
+    raw = shadow_score.get("score")
+    score = round(float(raw) * weight, 12) if raw is not None and weight > 0 else None
+    return {
+        "target_market": target_market.upper(),
+        "event_family": family,
+        "source_score": raw,
+        "impact_weight": weight,
+        "score": score,
+        "ready": score is not None,
+        "shadow_only": True,
+    }
+
+
 def score_release_market(
     *,
     release_rows: list[dict[str, Any]],
@@ -749,6 +843,20 @@ def build_feature_payload(
         surprise_half_life_hours=surprise_hl,
     )
 
+    all_scored_releases = scored_releases + kr_scored_releases
+    us_priority_surprise = target_market_surprise_index(
+        all_scored_releases, "US", config
+    )
+    kr_priority_surprise = target_market_surprise_index(
+        all_scored_releases, "KR", config
+    )
+    kr_domestic_priority_surprise = target_market_surprise_index(
+        all_scored_releases, "KR", config, origin_market="KR"
+    )
+    kr_us_spillover_surprise = target_market_surprise_index(
+        all_scored_releases, "KR", config, origin_market="US"
+    )
+
     latest_official = None
     if official_rows:
         latest_official = max(
@@ -821,6 +929,8 @@ def build_feature_payload(
         policy_proxy_event_bps=proxy_event.get("reaction_bps"),
         config=config,
     )
+    us_target_event_score = target_market_event_score(shadow_score, "US", config)
+    kr_us_spillover_event_score = target_market_event_score(shadow_score, "KR", config)
     event_bundle_surprise = shadow_score.get("bundle_surprise")
     shock_interaction = (
         float(event_bundle_surprise) * reaction_z
@@ -876,7 +986,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.6",
+        "schema_version": "macro-event-feature-v1.8",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -924,6 +1034,15 @@ def build_feature_payload(
         "kr_latest_surprise_available_at": (
             iso(kr_latest_release["available_at_dt"]) if kr_latest_release else None
         ),
+        "us_priority_surprise_index": us_priority_surprise.get("score"),
+        "us_priority_surprise_contributor_count": us_priority_surprise.get("contributor_count"),
+        "us_priority_surprise_latest_indicator": us_priority_surprise.get("latest_indicator"),
+        "kr_priority_surprise_index": kr_priority_surprise.get("score"),
+        "kr_priority_surprise_contributor_count": kr_priority_surprise.get("contributor_count"),
+        "kr_domestic_priority_surprise_index": kr_domestic_priority_surprise.get("score"),
+        "kr_us_spillover_surprise_index": kr_us_spillover_surprise.get("score"),
+        "kr_us_spillover_contributor_count": kr_us_spillover_surprise.get("contributor_count"),
+        "target_market_impact_weight_semantics": us_priority_surprise.get("weight_semantics"),
         "latest_surprise_indicator": (
             latest_release.get("indicator_key") if latest_release else None
         ),
@@ -998,6 +1117,10 @@ def build_feature_payload(
         },
         "macro_event_shadow_score_range": shadow_score.get("score_range"),
         "macro_event_shadow_positive_direction": shadow_score.get("positive_direction"),
+        "us_target_macro_event_score": us_target_event_score.get("score"),
+        "us_target_macro_event_weight": us_target_event_score.get("impact_weight"),
+        "kr_us_spillover_event_score": kr_us_spillover_event_score.get("score"),
+        "kr_us_spillover_event_weight": kr_us_spillover_event_score.get("impact_weight"),
         "macro_event_free_reaction_score": free_reaction_score.get("score"),
         "macro_event_free_reaction_direction": free_reaction_score.get("direction"),
         "macro_event_free_reaction_ready": (
@@ -1055,6 +1178,16 @@ def build_feature_payload(
             "kr_consensus_surprise_provider": {
                 "status": "READY" if kr_latest_release is not None else "UNAVAILABLE",
                 "quality": "SURPRISE_ONLY_NO_KR_MARKET_REACTION_CONFIRMATION",
+                "shadow_only": True,
+            },
+            "target_market_impact": {
+                "status": "READY",
+                "weight_semantics": us_priority_surprise.get("weight_semantics"),
+                "us_priority_surprise_index": us_priority_surprise.get("score"),
+                "kr_priority_surprise_index": kr_priority_surprise.get("score"),
+                "kr_domestic_priority_surprise_index": kr_domestic_priority_surprise.get("score"),
+                "kr_us_spillover_surprise_index": kr_us_spillover_surprise.get("score"),
+                "kr_us_spillover_event_score": kr_us_spillover_event_score.get("score"),
                 "shadow_only": True,
             },
             "fed_repricing_provider": {
