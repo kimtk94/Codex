@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+import tempfile
 import unittest
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from app.managed_positions import ManagedPositionStore
 from engine import position_manager
 
 
@@ -156,6 +158,53 @@ class SameCycleRebalanceTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, 'between 0 and 120'):
                 position_manager._exit_wait_config()
+
+    def test_distinct_symbols_can_be_managed_concurrently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ManagedPositionStore(pathlib.Path(tmp) / "trading.sqlite3")
+            first_ok, first = store.reserve_entry(
+                run_id="run-a",
+                symbol="AAPL",
+                strategy_version="R5.1_BASE_HGB",
+                signal_as_of="2026-09-22T00:00:00+00:00",
+                client_order_id="order-a",
+                target_exit_buckets=4,
+            )
+            second_ok, second = store.reserve_entry(
+                run_id="run-b",
+                symbol="MSFT",
+                strategy_version="R5.1_BASE_HGB",
+                signal_as_of="2026-09-22T00:05:00+00:00",
+                client_order_id="order-b",
+                target_exit_buckets=4,
+            )
+            self.assertTrue(first_ok)
+            self.assertTrue(second_ok)
+            self.assertEqual(first["symbol"], "AAPL")
+            self.assertEqual(second["symbol"], "MSFT")
+
+    def test_same_symbol_second_active_lot_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ManagedPositionStore(pathlib.Path(tmp) / "trading.sqlite3")
+            first_ok, _ = store.reserve_entry(
+                run_id="run-a",
+                symbol="AAPL",
+                strategy_version="R5.1_BASE_HGB",
+                signal_as_of="2026-09-22T00:00:00+00:00",
+                client_order_id="order-a",
+                target_exit_buckets=4,
+            )
+            second_ok, existing = store.reserve_entry(
+                run_id="run-b",
+                symbol="AAPL",
+                strategy_version="R5.1_BASE_HGB",
+                signal_as_of="2026-09-22T00:05:00+00:00",
+                client_order_id="order-b",
+                target_exit_buckets=4,
+            )
+            self.assertTrue(first_ok)
+            self.assertFalse(second_ok)
+            self.assertEqual(existing["symbol"], "AAPL")
 
 
 if __name__ == '__main__':
