@@ -9,16 +9,18 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # KR: after regular close, Monday-Friday KST.
 20 16 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh KR_GLOBAL >> /opt/kalman/logs/kr.log 2>&1
 
-# US: cover both DST and standard-time regular sessions in KST.
-# 22:35/23:35 are opening pulses: NYSE/Nasdaq regular open is 22:30 KST in DST
-# and 23:30 KST in standard time. Overnight refresh then returns to :15 hourly.
-35 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
-15 0-6 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
+# US R5.1 consumes COMPLETE 60m bars derived from four market-open-aligned 15m bars.
+# SAFE_CLOSE_DELAY_MIN=2, so poll at :35 KST after the :30 hourly bucket boundary.
+# DST first actionable full bar completes at 23:30 KST; standard time at 00:30 KST.
+# The 23:35 + Tue-Sat 00:35-04:35 window covers both regimes while the broker
+# market calendar remains the authoritative session/order-window guard.
+35 23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
+35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
 
-# Trade worker follows each pipeline 10 minutes later. Broker-calendar market_guard
-# remains authoritative and blocks amount/fractional orders outside the allowed window.
-45 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
-25 0-6 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
+# Trade worker follows 10 minutes later. With bar timestamps recorded at bucket START,
+# :45 keeps the newest completed signal about 75 minutes old, inside the 90-minute gate.
+45 23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
+45 0-4 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
 
 # Seeking Alpha collector -> US/BTC feature refresh (DISABLED BY DEFAULT).
 # Enable only after the authorized SA input method and snapshot timing are verified.
