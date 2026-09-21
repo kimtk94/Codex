@@ -10,6 +10,7 @@ on:
       - "kalman-toss-gateway/engine/macro_event_features_v1.py"
       - "kalman-toss-gateway/scripts/run_macro_event_features_v1.sh"
       - "kalman-toss-gateway/scripts/install_macro_event_cron_v1.sh"
+      - "kalman-toss-gateway/scripts/deploy_macro_event_v17.sh"
       - "kalman-toss-gateway/tests/test_macro_event_features_v1.py"
       - ".github/workflows/kalman-macro-event-tests.yml"
   push:
@@ -21,6 +22,7 @@ on:
       - "kalman-toss-gateway/engine/macro_event_features_v1.py"
       - "kalman-toss-gateway/scripts/run_macro_event_features_v1.sh"
       - "kalman-toss-gateway/scripts/install_macro_event_cron_v1.sh"
+      - "kalman-toss-gateway/scripts/deploy_macro_event_v17.sh"
       - "kalman-toss-gateway/tests/test_macro_event_features_v1.py"
       - ".github/workflows/kalman-macro-event-tests.yml"
   workflow_dispatch:
@@ -57,6 +59,7 @@ jobs:
         run: |
           bash -n scripts/run_macro_event_features_v1.sh
           bash -n scripts/install_macro_event_cron_v1.sh
+          bash -n scripts/deploy_macro_event_v17.sh
 
       - name: Validate cron contract
         run: |
