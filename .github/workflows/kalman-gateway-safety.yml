@@ -149,6 +149,19 @@ jobs:
           print("[PASS] US cron uses one serialized pipeline->trade cycle")
           PY
 
+      - name: Validate US cycle ordering
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path("scripts/run_us_cycle.sh").read_text(encoding="utf-8")
+          pipeline = text.index('run_pipeline.sh" US')
+          trade = text.index('run_auto_trade.sh"')
+          assert pipeline < trade
+          assert 'us-cycle.lock' in text
+          print("[PASS] US cycle = pipeline commit -> auto-trade under one cycle lock")
+          PY
+
       - name: Validate live canary cash-driven policy
         run: |
           python - <<'PY'
