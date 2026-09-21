@@ -49,7 +49,7 @@ async function usRates(){
   try{
     const r=await fetch(url,{signal:ctrl.signal,headers:{accept:'application/xml,text/xml,*/*','user-agent':'Mozilla/5.0 Kalman-Market-Pulse/2.1'}});
     if(!r.ok)throw new Error('UST_HTTP_'+r.status);
-    const xml=await r.text(),entries=xml.match(/<entry>[\\s\\S]*?<\\/entry>/gi)||[];
+    const xml=await r.text(),entries=xml.match(/<entry>[\s\S]*?<\/entry>/gi)||[];
     const rows=entries.map(e=>({date:xmlTag(e,'NEW_DATE'),d2:finite(xmlTag(e,'BC_2YEAR')),d10:finite(xmlTag(e,'BC_10YEAR'))}))
       .filter(x=>x.date&&x.d2!=null&&x.d10!=null).sort((a,b)=>a.date.localeCompare(b.date));
     if(!rows.length)throw new Error('UST_NO_COMPLETE_ROWS');
