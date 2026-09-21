@@ -148,6 +148,24 @@ jobs:
           print("[PASS] US open pulse + overnight auto-trade cron")
           PY
 
+      - name: Validate live canary cash-driven policy
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path("scripts/configure_auto_trade_env.sh").read_text(encoding="utf-8")
+          live = text.split("  live-canary-5000)", 1)[1].split("  off)", 1)[0]
+          required = [
+              "CFG_AUTO_TRADE_REQUIRE_ACCOUNT_FLAT=false",
+              "CFG_AUTO_TRADE_ORDER_KRW=5000",
+              "CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=0",
+              "CFG_MAX_SINGLE_ORDER_KRW=5000",
+          ]
+          for token in required:
+              assert token in live, token
+          print("[PASS] live canary = KRW 5,000/order, cash-driven, no fixed daily cap")
+          PY
+
       - name: Run gateway safety tests
         env:
           PYTHONPATH: .

@@ -87,7 +87,12 @@ async def health(settings: Settings = Depends(get_settings)):
         'tradingEnabled': settings.trading_enabled,
         'liveGateOpen': settings.live_gate_open,
         'limits': {
-            'dailyTotalKrw': settings.live_micro_total_limit_krw,
+            'dailyCapEnabled': settings.live_micro_total_limit_krw > 0,
+            'dailyTotalKrw': (
+                settings.live_micro_total_limit_krw
+                if settings.live_micro_total_limit_krw > 0
+                else None
+            ),
             'singleOrderKrw': settings.max_single_order_krw,
         },
     }
@@ -165,7 +170,12 @@ async def trading_status(settings: Settings = Depends(get_settings)):
         'liveGateOpen': settings.live_gate_open,
         'tradingEnabled': settings.trading_enabled,
         'singleOrderLimitKrw': settings.max_single_order_krw,
-        'dailyTotalLimitKrw': settings.live_micro_total_limit_krw,
+        'dailyCapEnabled': settings.live_micro_total_limit_krw > 0,
+        'dailyTotalLimitKrw': (
+            settings.live_micro_total_limit_krw
+            if settings.live_micro_total_limit_krw > 0
+            else None
+        ),
         'dailyCommittedKrw': ledger.daily_committed(),
         'stopLossPct': os.environ.get('AUTO_TRADE_STOP_LOSS_PCT', '-0.03'),
         'takeProfitPct': os.environ.get('AUTO_TRADE_TAKE_PROFIT_PCT', '0.20'),

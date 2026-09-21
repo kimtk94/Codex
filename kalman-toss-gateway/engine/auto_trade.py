@@ -246,10 +246,10 @@ async def main_async() -> int:
 
     store = ManagedPositionStore(settings.state_db_path)
     active_positions = store.active()
-    if mode == 'LIVE' and active_positions:
-        print('MANAGED_POSITION_ACTIVE', json.dumps(active_positions, ensure_ascii=False, default=str))
-        return 0
 
+    # Existing managed positions no longer block a new entry globally. The
+    # broker cash check, same-symbol position/open-order guards, and
+    # ManagedPositionStore idempotency remain authoritative.
     client = TossClient(settings)
     window_open, window_info = await us_fractional_order_window(client)
     holdings_items = _holding_items(await client.holdings())

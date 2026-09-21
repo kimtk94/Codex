@@ -70,7 +70,7 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_EXECUTION_MODE=LIVE
     export CFG_AUTO_TRADE_SIGNAL_POLICY=SHADOW_CANARY
     export CFG_AUTO_TRADE_SHADOW_CONFIRM=CONFIRM_SHADOW_CANARY
-    export CFG_AUTO_TRADE_REQUIRE_ACCOUNT_FLAT=true
+    export CFG_AUTO_TRADE_REQUIRE_ACCOUNT_FLAT=false
     export CFG_AUTO_TRADE_DRY_RUN_MAX_SIGNAL_AGE_MINUTES=1440
     export CFG_AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES=90
     export CFG_AUTO_TRADE_STOP_LOSS_PCT=-0.03
@@ -87,7 +87,7 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_STRATEGY_VERSION=R5.1_BASE_HGB
     export CFG_TRADING_ENABLED=true
     export CFG_LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING
-    export CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=30000
+    export CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=0
     export CFG_MAX_SINGLE_ORDER_KRW=5000
     ;;
   off)
@@ -202,7 +202,7 @@ grep -E '^(AUTO_TRADE_|TRADING_ENABLED|LIVE_TRADING_CONFIRM)=' "$ENV_FILE" || tr
 
 printf '\n%s\n' 'Secrets and unrelated env values were preserved.'
 if [ "$PROFILE" = "live-canary-5000" ]; then
-  printf '%s\n' 'LIVE canary enabled: R5.1_BASE_HGB / SHADOW_CANARY / <= KRW 5,000 per entry / KRW 30,000 daily cap.'
+  printf '%s\n' 'LIVE canary enabled: R5.1_BASE_HGB / SHADOW_CANARY / KRW 5,000 max per entry / no fixed daily buy cap; broker cash controls additional entries.'
 else
   printf '%s\n' 'LIVE trading remains disabled for this profile.'
 fi
