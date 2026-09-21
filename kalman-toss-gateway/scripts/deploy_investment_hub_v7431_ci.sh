@@ -9,7 +9,7 @@ VERSION_TAG="vNext.7.4.31"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILDER="$ROOT/kalman-toss-gateway/scripts/build_investment_hub_v7431_etf_display_price.py"
-MANIFEST="$ROOT/kalman-hub-recovery/v7.4.30/source_manifest.ndjson"
+MANIFEST="$ROOT/kalman-hub-recovery/v7.4.31/source_manifest.ndjson"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 WORK="/tmp/kalman-hub-v7431-${STAMP}"
 SRC="$WORK/source"
