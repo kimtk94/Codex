@@ -39,6 +39,7 @@ function compactMarketTop3Html(s,j){
 function pulseNum(x){
   let v=N(x?.value);if(v==null)return '—';
   if(x.kind==='yield_pct')return v.toFixed(3)+'%';
+  if(x.kind==='spread_bps')return (v>=0?'+':'')+v.toFixed(1)+'bp';
   if(x.kind==='fx')return v.toLocaleString('ko-KR',{maximumFractionDigits:1});
   if(x.kind==='price')return String.fromCharCode(36)+v.toLocaleString('en-US',{maximumFractionDigits:2});
   return v.toLocaleString('ko-KR',{maximumFractionDigits:2});
@@ -46,12 +47,13 @@ function pulseNum(x){
 function pulseDelta(x){
   let d=N(x?.change_abs),p=N(x?.change_pct);
   if(x?.kind==='yield_pct')return d==null?'—':(d>=0?'+':'')+(d*100).toFixed(1)+'bp';
+  if(x?.kind==='spread_bps')return d==null?'—':'Δ '+(d>=0?'+':'')+d.toFixed(1)+'bp';
   return p==null?'—':(p>=0?'+':'')+(p*100).toFixed(2)+'%';
 }
 function marketPulseHtml(){
   let z=K?.items||[];
   if(!z.length)return '<section class="pulsebar"><div class="pulseempty">Market Pulse · unavailable</div></section>';
-  return '<section class="pulsebar" aria-label="KR market pulse">'+z.map(x=>'<div class="pulseitem"><span>'+E(x.label)+'</span><b>'+E(pulseNum(x))+'</b><small class="'+(N(x.change_abs)>=0?'pos':'neg')+'">'+E(pulseDelta(x))+'</small></div>').join('')+'<div class="pulsemeta">PUBLIC CONTEXT · '+E(K.status||'—')+' · 모델/매매 입력 아님</div></section>';
+  return '<section class="pulsebar" aria-label="KR market pulse">'+z.map(x=>'<div class="pulseitem"><span>'+E(x.label)+'</span><b>'+E(pulseNum(x))+'</b><small class="'+(N(x.change_abs)>=0?'pos':'neg')+'">'+E(pulseDelta(x))+'</small></div>').join('')+'<div class="pulsemeta">REGIME STRIP · '+E(K.status||'—')+' · 모델/매매 입력 아님</div></section>';
 }
 function compactTop5Html(){
   let z=perfTop5();

@@ -9,6 +9,7 @@ function tvChart(symbol){let tv=tvUS(symbol),u='https://s.tradingview.com/widget
 function pulseNum(x){
   let v=N(x?.value);if(v==null)return '—';
   if(x.kind==='yield_pct')return v.toFixed(3)+'%';
+  if(x.kind==='spread_bps')return (v>=0?'+':'')+v.toFixed(1)+'bp';
   if(x.kind==='fx')return v.toLocaleString(undefined,{maximumFractionDigits:1});
   if(x.kind==='price')return String.fromCharCode(36)+v.toLocaleString(undefined,{maximumFractionDigits:2});
   return v.toLocaleString(undefined,{maximumFractionDigits:2});
@@ -16,12 +17,13 @@ function pulseNum(x){
 function pulseDelta(x){
   let d=N(x?.change_abs),p=N(x?.change_pct);
   if(x?.kind==='yield_pct')return d==null?'—':(d>=0?'+':'')+(d*100).toFixed(1)+'bp';
+  if(x?.kind==='spread_bps')return d==null?'—':'Δ '+(d>=0?'+':'')+d.toFixed(1)+'bp';
   return p==null?'—':(p>=0?'+':'')+(p*100).toFixed(2)+'%';
 }
 function marketPulseHtml(){
   let z=K?.items||[];
   if(!z.length)return '<section class="pulsebar"><div class="pulseempty">Market Pulse · unavailable</div></section>';
-  return '<section class="pulsebar" aria-label="US market pulse">'+z.map(x=>'<div class="pulseitem"><span>'+E(x.label)+'</span><b>'+E(pulseNum(x))+'</b><small class="'+(N(x.change_abs)>=0?'pos':'neg')+'">'+E(pulseDelta(x))+'</small></div>').join('')+'<div class="pulsemeta">PUBLIC CONTEXT · '+E(K.status||'—')+' · not a model/trade input</div></section>';
+  return '<section class="pulsebar" aria-label="US market pulse">'+z.map(x=>'<div class="pulseitem"><span>'+E(x.label)+'</span><b>'+E(pulseNum(x))+'</b><small class="'+(N(x.change_abs)>=0?'pos':'neg')+'">'+E(pulseDelta(x))+'</small></div>').join('')+'<div class="pulsemeta">REGIME STRIP · '+E(K.status||'—')+' · not a model/trade input</div></section>';
 }
 function currentTop3(){return S?.payload?.top3||[]}
 function top3Html(){return '<section class="dailybox"><div class="sectiontitle"><div><b>현재 TOP3 · MODEL</b><small>4H relative-return ranking · Trade OFF</small></div><span class="badge info">TOP 3</span></div><div class="rows">'+currentTop3().map(x=>'<button class="rowbtn pick" data-s="'+E(x.symbol)+'"><span class="rank">#'+E(x.rank)+'</span><span class="name"><b>'+E(x.symbol)+'</b><small>Universe '+E(x.universe_size)+' · R5.1 HGB</small></span><span class="metric price"><b>'+USD(x.reference_price)+'</b><small>reference</small></span><span class="metric target"><b>'+USD(x.target_price_4h)+'</b><small>4H target</small></span><span class="alpha">'+PCT(x.model_score)+'</span><span class="tag">TOP PICK</span></button>').join('')+'</div></section>'}

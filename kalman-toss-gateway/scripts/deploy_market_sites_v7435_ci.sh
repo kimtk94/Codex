@@ -100,10 +100,18 @@ front=(root/"frontend.js").read_text(encoding="utf-8",errors="replace")
 health=json.loads((root/"health.json").read_text())
 dash=json.loads((root/"dashboard.json").read_text())
 pulse=json.loads((root/"market-pulse.json").read_text())
-assert pulse.get("schema_version")=="kalman-market-pulse-v1",pulse
+assert pulse.get("schema_version")=="kalman-market-pulse-v2",pulse
 assert pulse.get("market")==market,pulse
 assert pulse.get("read_only") is True and pulse.get("trade_signal_input") is False,pulse
-assert len(pulse.get("items") or [])==4,pulse
+assert len(pulse.get("items") or [])==6,pulse
+if market=="US":
+    keys={x.get("key") for x in pulse.get("items") or []}
+    assert {"US2Y","US10Y","US2S10S"} <= keys,keys
+    assert all(next(x for x in pulse["items"] if x["key"]==k).get("status")=="READY" for k in ("US2Y","US10Y","US2S10S")),pulse
+else:
+    keys={x.get("key") for x in pulse.get("items") or []}
+    assert {"KR3Y","KR10Y","KR3S10S"} <= keys,keys
+    assert all(next(x for x in pulse["items"] if x["key"]==k).get("status")=="READY" for k in ("KR3Y","KR10Y","KR3S10S")),pulse
 assert str(health.get("investment_hub_version") or "").startswith("vNext."),health.get("investment_hub_version")
 assert health.get("trade_enabled") is False
 assert health.get("account_trade_execution") is False
