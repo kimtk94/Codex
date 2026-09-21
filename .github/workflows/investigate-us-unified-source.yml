@@ -1,0 +1,44 @@
+name: Investigate US Unified Source
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/investigate-us-unified-source.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode immutable unified source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat kalman-toss-gateway/engine/_unified_payload_*.b64 | tr -d '\n\r' | base64 -d | xz -dc > /tmp/unified.py
+          python -m py_compile /tmp/unified.py
+          echo "===== PROVIDER / US INTRADAY HITS ====="
+          grep -nEi 'yfinance|yf\.download|alpaca|stockhistoricaldata|StockBarsRequest|TimeFrame|1h|60m|hour|interval|RUN_MODE|data_as_of|model_as_of' /tmp/unified.py | head -n 240 || true
+      - name: Show US-related source neighborhoods
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          lines=Path('/tmp/unified.py').read_text(encoding='utf-8').splitlines()
+          pats=re.compile(r'(yf\.download|yfinance|alpaca|StockBarsRequest|TimeFrame|RUN_MODE|fetch.*US|US.*fetch|interval.*1h|period.*1d|data_as_of)', re.I)
+          hits=[i for i,l in enumerate(lines) if pats.search(l)]
+          seen=[]
+          for i in hits:
+              a=max(0,i-8); b=min(len(lines),i+18)
+              if any(abs(i-j)<12 for j in seen):
+                  continue
+              seen.append(i)
+              print(f"===== lines {a+1}-{b} =====")
+              for n in range(a,b):
+                  print(f"{n+1}: {lines[n]}")
+              if len(seen)>=20:
+                  break
+          PY
