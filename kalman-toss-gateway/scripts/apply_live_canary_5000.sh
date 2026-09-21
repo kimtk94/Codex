@@ -77,15 +77,20 @@ from pathlib import Path
 
 text = Path("/etc/cron.d/kalman").read_text(encoding="utf-8")
 required = [
-    "35 23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US",
-    "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US",
-    "45 23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh",
-    "45 0-4 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh",
+    "35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh",
+    "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh",
+]
+forbidden = [
+    "run_pipeline.sh US",
+    "run_auto_trade.sh",
 ]
 missing = [line for line in required if line not in text]
 if missing:
-    raise SystemExit(f"US auto-trade cron contract failed: missing={missing}")
-print("[PASS] US auto-trade cron contract")
+    raise SystemExit(f"US cycle cron contract failed: missing={missing}")
+bad = [token for token in forbidden if token in text]
+if bad:
+    raise SystemExit(f"US cycle cron contract failed: independent workers remain={bad}")
+print("[PASS] US serialized cycle cron contract")
 PY
 
 # Open the explicit LIVE canary gates only after the new runtime and cron validate.
@@ -103,8 +108,9 @@ cd "$APP"
 "$PY" -m engine.trade_mirror
 bash "$APP/scripts/trading_status.sh"
 
-grep -F "run_auto_trade.sh" /etc/cron.d/kalman >/dev/null
-grep -F "run_pipeline.sh US" /etc/cron.d/kalman >/dev/null
+grep -F "run_us_cycle.sh" /etc/cron.d/kalman >/dev/null
+! grep -F "run_pipeline.sh US" /etc/cron.d/kalman >/dev/null
+! grep -F "run_auto_trade.sh" /etc/cron.d/kalman >/dev/null
 systemctl is-active --quiet cron.service 2>/dev/null || systemctl is-active --quiet crond.service
 
 echo
@@ -117,9 +123,9 @@ echo "model_rotation=enabled"
 echo "max_hold=4 canonical buckets"
 echo "daily_buy_cap_krw=DISABLED_CASH_DRIVEN"
 echo "cron=/etc/cron.d/kalman"
-echo "us_completed_bar_pipeline_kst=23:35_and_00:35-04:35"
-echo "us_completed_bar_trade_poll_kst=23:45_and_00:45-04:45"
-echo "us_bar_alignment=MARKET_OPEN_PLUS_N_HOURS_PLUS_5M"
-echo "us_signal_age_at_trade_minutes≈75"
+echo "us_cycle_kst=23:35_and_00:35-04:35"
+echo "us_cycle_order=PIPELINE_COMMIT_THEN_AUTO_TRADE"
+echo "us_signal_timestamp=60M_BAR_START"
+echo "us_signal_freshness_basis=BAR_START_PLUS_60M"
 echo "backup=$BACKUP"
 echo "env_backup=$ENV_BACKUP"
