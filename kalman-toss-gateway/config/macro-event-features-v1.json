@@ -245,7 +245,8 @@
           "Unemployment Rate": "KR_UNEMPLOYMENT_RATE",
           "Trade Balance": "KR_TRADE_BALANCE",
           "Industrial Production MoM": "KR_INDUSTRIAL_PRODUCTION_MOM",
-          "Exports YoY": "KR_EXPORTS_YOY"
+          "Exports YoY": "KR_EXPORTS_YOY",
+          "GDP Growth Rate": "KR_GDP_QOQ"
         }
       }
     }
