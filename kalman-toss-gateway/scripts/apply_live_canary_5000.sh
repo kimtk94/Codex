@@ -77,10 +77,10 @@ from pathlib import Path
 
 text = Path("/etc/cron.d/kalman").read_text(encoding="utf-8")
 required = [
-    "35 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US",
-    "15 0-6 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US",
-    "45 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh",
-    "25 0-6 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh",
+    "35 23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US",
+    "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US",
+    "45 23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh",
+    "45 0-4 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh",
 ]
 missing = [line for line in required if line not in text]
 if missing:
@@ -117,9 +117,9 @@ echo "model_rotation=enabled"
 echo "max_hold=4 canonical buckets"
 echo "daily_buy_cap_krw=DISABLED_CASH_DRIVEN"
 echo "cron=/etc/cron.d/kalman"
-echo "us_open_pipeline_kst=22:35_or_23:35"
-echo "us_open_trade_poll_kst=22:45_or_23:45"
-echo "overnight_pipeline_kst=00:15-06:15"
-echo "overnight_trade_poll_kst=00:25-06:25"
+echo "us_completed_bar_pipeline_kst=23:35_and_00:35-04:35"
+echo "us_completed_bar_trade_poll_kst=23:45_and_00:45-04:45"
+echo "us_bar_alignment=MARKET_OPEN_PLUS_N_HOURS_PLUS_5M"
+echo "us_signal_age_at_trade_minutes≈75"
 echo "backup=$BACKUP"
 echo "env_backup=$ENV_BACKUP"
