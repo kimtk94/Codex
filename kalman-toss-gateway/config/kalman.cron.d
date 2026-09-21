@@ -10,13 +10,14 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 20 16 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh KR_GLOBAL >> /opt/kalman/logs/kr.log 2>&1
 
 # US: cover both DST and standard-time regular sessions in KST.
-# Mon-Fri US evening starts map to Mon-Fri late evening KST; overnight maps to Tue-Sat KST.
-15 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
+# 22:35/23:35 are opening pulses: NYSE/Nasdaq regular open is 22:30 KST in DST
+# and 23:30 KST in standard time. Overnight refresh then returns to :15 hourly.
+35 22-23 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
 15 0-6 * * 2-6 root /opt/kalman/app/scripts/run_pipeline.sh US >> /opt/kalman/logs/us.log 2>&1
 
-# Trade worker follows the same US window, 10 minutes after the pipeline.
-# It remains inert unless AUTO_TRADE_ENABLED plus both live trading gates are explicitly opened.
-25 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
+# Trade worker follows each pipeline 10 minutes later. Broker-calendar market_guard
+# remains authoritative and blocks amount/fractional orders outside the allowed window.
+45 22-23 * * 1-5 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
 25 0-6 * * 2-6 root /opt/kalman/app/scripts/run_auto_trade.sh >> /opt/kalman/logs/auto-trade.log 2>&1
 
 # Seeking Alpha collector -> US/BTC feature refresh (DISABLED BY DEFAULT).
