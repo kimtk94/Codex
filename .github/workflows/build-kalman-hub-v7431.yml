@@ -1,0 +1,86 @@
+name: Build Kalman Hub v7.4.31 ETF Display Price
+
+on:
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7431_etf_display_price.py"
+      - ".github/workflows/build-kalman-hub-v7431.yml"
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7431_etf_display_price.py"
+      - ".github/workflows/build-kalman-hub-v7431.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build v7.4.31 source manifest
+        run: python kalman-toss-gateway/scripts/build_investment_hub_v7431_etf_display_price.py
+
+      - name: Validate ETF display/model freshness separation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s kalman-hub-recovery/v7.4.31/source_manifest.ndjson
+          test -s kalman-hub-recovery/v7.4.31/build_report.json
+          python - <<'PY'
+          from pathlib import Path
+          import base64,json,tempfile,subprocess
+
+          manifest=Path("kalman-hub-recovery/v7.4.31/source_manifest.ndjson")
+          rows=[json.loads(x) for x in manifest.read_text().splitlines() if x.strip()]
+          assert len(rows)==30, len(rows)
+          with tempfile.TemporaryDirectory() as td:
+              out=Path(td)
+              for row in rows:
+                  p=out/row["file"]
+                  p.parent.mkdir(parents=True,exist_ok=True)
+                  p.write_bytes(base64.b64decode(row["data_b64"]))
+              payload=(out/"lib/assets-payload.js").read_text()
+              market=(out/"api/market.js").read_text()
+              app=(out/"app.js").read_text()
+              api=(out/"api/assets.js").read_text()
+              health=(out/"api/health.js").read_text()
+              index=(out/"index.html").read_text()
+
+              assert "vNext.7.4.31" in index
+              assert "vNext.7.4.31" in health
+              for marker in [
+                  "overlayStaleEtfDisplayPrices",
+                  "YAHOO_PUBLIC_CONTEXT",
+                  "model_snapshot_value",
+                  "modelSnapshotStale",
+                  "etf_display_price_source",
+              ]:
+                  assert marker in payload, marker
+              for marker in [
+                  "withDisplayPrices",
+                  "display_price_source",
+                  "model_snapshot_stale",
+                  "investment-hub-market-v0.4",
+              ]:
+                  assert marker in market, marker
+              assert "function renderCommandAccount(" in app
+              assert "function renderCommandModel(" in app
+              assert "canonical_ledger_source" in api
+              assert "trade_enabled:false" in health
+              assert "account_trade_execution:false" in health
+              subprocess.run(["node","--check",str(out/"lib/assets-payload.js")],check=True)
+              subprocess.run(["node","--check",str(out/"api/market.js")],check=True)
+              subprocess.run(["node","--check",str(out/"app.js")],check=True)
+          print("[PASS] v7.4.31 ETF display price overlay")
+          PY
