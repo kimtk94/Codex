@@ -97,14 +97,19 @@ class ManagedPositionStore:
                 return False, existing
 
             marks = ','.join('?' for _ in ACTIVE_STATES)
+            # Multiple different symbols may be managed concurrently when cash
+            # is available. A second active lot for the same symbol is blocked
+            # because exit reconciliation tracks broker quantity per symbol.
             cur = conn.execute(
-                f'SELECT * FROM managed_position WHERE state IN ({marks}) ORDER BY created_at LIMIT 1',
-                ACTIVE_STATES,
+                f'''SELECT * FROM managed_position
+                    WHERE state IN ({marks}) AND upper(symbol)=upper(?)
+                    ORDER BY created_at LIMIT 1''',
+                (*ACTIVE_STATES, symbol),
             )
-            active = self._dict(cur, cur.fetchone())
-            if active:
+            active_same_symbol = self._dict(cur, cur.fetchone())
+            if active_same_symbol:
                 conn.rollback()
-                return False, active
+                return False, active_same_symbol
             conn.execute(
                 """INSERT INTO managed_position (
                     position_id,symbol,strategy_version,entry_run_id,entry_signal_as_of,
