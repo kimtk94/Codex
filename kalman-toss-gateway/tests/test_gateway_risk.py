@@ -3,9 +3,12 @@ from __future__ import annotations
 import asyncio
 import unittest
 from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from app.config import Settings
+from app.executor import TradeLedger
 from app.main import health
 from app.risk import validate_order
 from engine.auto_trade import _usd_order_size
@@ -40,7 +43,7 @@ class GatewayNoSymbolAllowlistTests(unittest.TestCase):
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "MAX_SINGLE_ORDER_EXCEEDED")
 
-    def test_global_daily_limit_still_applies(self) -> None:
+    def test_positive_daily_limit_still_applies_when_configured(self) -> None:
         decision = validate_order(
             self.settings(),
             "MSFT",
@@ -49,6 +52,38 @@ class GatewayNoSymbolAllowlistTests(unittest.TestCase):
         )
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason, "DAILY_TOTAL_LIMIT_EXCEEDED")
+
+    def test_zero_daily_limit_means_balance_driven_no_fixed_daily_cap(self) -> None:
+        settings = Settings(
+            trading_enabled=True,
+            live_trading_confirm="CONFIRM_LIVE_TRADING",
+            live_micro_total_limit_krw=0,
+            max_single_order_krw=5000,
+        )
+        decision = validate_order(
+            settings,
+            "MSFT",
+            5000,
+            daily_committed_krw=250000,
+        )
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.reason, "OK")
+
+    def test_trade_ledger_zero_daily_limit_allows_repeated_5000_buys(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ledger = TradeLedger(Path(tmp) / "trading.sqlite3")
+            for i in range(10):
+                ok, reason, used = ledger.reserve(
+                    f"order-{i}",
+                    f"SYM{i}",
+                    "BUY",
+                    5000,
+                    0,
+                )
+                self.assertTrue(ok)
+                self.assertEqual(reason, "OK")
+                ledger.finish(f"order-{i}", "SUBMITTED", f"toss-{i}")
+            self.assertEqual(ledger.daily_committed(), 50000)
 
     def test_fixed_krw_sizing_never_exceeds_5000_target(self) -> None:
         with patch.dict(
