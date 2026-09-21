@@ -113,7 +113,9 @@ class TradeLedger:
                      AND status IN ('RESERVED','SUBMITTED','AMBIGUOUS')""",
                 (today,),
             ).fetchone()[0]
-            if side == 'BUY' and int(used) + amount_krw > daily_limit:
+            # daily_limit <= 0 disables the cumulative daily cap. Duplicate
+            # order IDs and the per-order risk limit remain enforced.
+            if side == 'BUY' and daily_limit > 0 and int(used) + amount_krw > daily_limit:
                 conn.rollback()
                 return False, 'DAILY_TOTAL_LIMIT_EXCEEDED', int(used)
             conn.execute(
