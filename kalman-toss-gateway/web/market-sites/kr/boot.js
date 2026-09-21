@@ -1,0 +1,1 @@
+load();setInterval(()=>{if(!document.hidden)load()},60000);
