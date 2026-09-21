@@ -38,22 +38,28 @@ function csvRows(text){
   return lines.slice(1).map(line=>{const a=line.split(',');return Object.fromEntries(head.map((h,i)=>[h,(a[i]??'').trim()]))});
 }
 
+function xmlTag(entry,name){
+  const re=new RegExp('<d:'+name+'(?:\\s[^>]*)?>([^<]+)<\\/d:'+name+'>','i');
+  const m=String(entry||'').match(re);return m?m[1].trim():null;
+}
 async function usRates(){
-  const start=new Date(Date.now()-21*86400000);
-  const url='https://fred.stlouisfed.org/graph/fredgraph.csv?id=DGS2,DGS10&cosd='+ymd(start);
-  const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),8000);
+  const now=new Date(),month=String(now.getUTCFullYear())+String(now.getUTCMonth()+1).padStart(2,'0');
+  const url='https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value_month='+month;
+  const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),10000);
   try{
-    const r=await fetch(url,{signal:ctrl.signal,headers:{accept:'text/csv','user-agent':'Mozilla/5.0 Kalman-Market-Pulse/2.0'}});
-    if(!r.ok)throw new Error('FRED_HTTP_'+r.status);
-    const rows=csvRows(await r.text()).map(x=>({date:x.DATE||x.observation_date,d2:finite(x.DGS2),d10:finite(x.DGS10)})).filter(x=>x.date&&(x.d2!=null||x.d10!=null));
-    const complete=rows.filter(x=>x.d2!=null&&x.d10!=null);if(!complete.length)throw new Error('FRED_NO_COMPLETE_ROWS');
-    const cur=complete.at(-1),prev=complete.length>1?complete.at(-2):null;
-    const item=(key,label,value,previous)=>({key,label,kind:'yield_pct',status:value==null?'DEGRADED':'READY',value,previous_close:previous,change_abs:value!=null&&previous!=null?value-previous:null,change_pct:value!=null&&previous?((value-previous)/previous):null,currency:'PCT',as_of:cur.date,source:'FEDERAL_RESERVE_H15_VIA_FRED'});
+    const r=await fetch(url,{signal:ctrl.signal,headers:{accept:'application/xml,text/xml,*/*','user-agent':'Mozilla/5.0 Kalman-Market-Pulse/2.1'}});
+    if(!r.ok)throw new Error('UST_HTTP_'+r.status);
+    const xml=await r.text(),entries=xml.match(/<entry>[\\s\\S]*?<\\/entry>/gi)||[];
+    const rows=entries.map(e=>({date:xmlTag(e,'NEW_DATE'),d2:finite(xmlTag(e,'BC_2YEAR')),d10:finite(xmlTag(e,'BC_10YEAR'))}))
+      .filter(x=>x.date&&x.d2!=null&&x.d10!=null).sort((a,b)=>a.date.localeCompare(b.date));
+    if(!rows.length)throw new Error('UST_NO_COMPLETE_ROWS');
+    const cur=rows.at(-1),prev=rows.length>1?rows.at(-2):null,source='US_TREASURY_DAILY_PAR_YIELD';
+    const item=(key,label,value,previous)=>({key,label,kind:'yield_pct',status:'READY',value,previous_close:previous??null,change_abs:prev&&previous!=null?value-previous:null,change_pct:prev&&previous?((value-previous)/previous):null,currency:'PCT',as_of:cur.date,source});
     const spread=cur.d10-cur.d2,prevSpread=prev?prev.d10-prev.d2:null;
     return [
-      item('US2Y','US 2Y',cur.d2,prev?.d2??null),
-      item('US10Y','US 10Y',cur.d10,prev?.d10??null),
-      {key:'US2S10S',label:'2s10s',kind:'spread_bps',status:'READY',value:spread*100,previous_close:prevSpread==null?null:prevSpread*100,change_abs:prevSpread==null?null:(spread-prevSpread)*100,change_pct:null,currency:'BP',as_of:cur.date,source:'FEDERAL_RESERVE_H15_VIA_FRED',components:['DGS2','DGS10']}
+      item('US2Y','US 2Y',cur.d2,prev?.d2),
+      item('US10Y','US 10Y',cur.d10,prev?.d10),
+      {key:'US2S10S',label:'2s10s',kind:'spread_bps',status:'READY',value:spread*100,previous_close:prevSpread==null?null:prevSpread*100,change_abs:prevSpread==null?null:(spread-prevSpread)*100,change_pct:null,currency:'BP',as_of:cur.date,source,components:['UST2Y','UST10Y']}
     ];
   }finally{clearTimeout(timer)}
 }
@@ -64,7 +70,7 @@ function ecosRows(body){
   return rows.map(x=>({date:String(x.TIME||''),value:finite(x.DATA_VALUE)})).filter(x=>x.date&&x.value!=null).sort((a,b)=>a.date.localeCompare(b.date));
 }
 async function ecosRate(itemCode){
-  const end=new Date(),start=new Date(Date.now()-21*86400000);
+  const end=new Date(),start=new Date(Date.now()-10*86400000);
   const key=process.env.BOK_ECOS_API_KEY||process.env.ECOS_API_KEY||'sample';
   const url='https://ecos.bok.or.kr/api/StatisticSearch/'+encodeURIComponent(key)+'/json/kr/1/10/817Y002/D/'+compactYmd(start)+'/'+compactYmd(end)+'/'+itemCode;
   const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),8000);
@@ -105,7 +111,7 @@ export default async function handler(req,res){
     const specs=market==='US'
       ?[{key:'US2Y',label:'US 2Y',kind:'yield_pct'},{key:'US10Y',label:'US 10Y',kind:'yield_pct'},{key:'US2S10S',label:'2s10s',kind:'spread_bps'}]
       :[{key:'KR3Y',label:'KR 3Y',kind:'yield_pct'},{key:'KR10Y',label:'KR 10Y',kind:'yield_pct'},{key:'KR3S10S',label:'3s10s',kind:'spread_bps'}];
-    rates=failed(specs,market==='US'?'FEDERAL_RESERVE_H15_VIA_FRED':'BOK_ECOS_817Y002',error);
+    rates=failed(specs,market==='US'?'US_TREASURY_DAILY_PAR_YIELD':'BOK_ECOS_817Y002',error);
   }
   const items=[...base,...rates],ready=items.filter(x=>x.status==='READY').length;
   res.setHeader('Cache-Control','public, s-maxage=60, stale-while-revalidate=300');
