@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 import httpx
 import psycopg
@@ -76,9 +77,38 @@ def parse_calendar_value(value: Any, target_unit: str | None) -> float | None:
     return number * multiplier[suffix]
 
 
-def event_indicator_key(row: dict[str, Any], config: dict[str, Any]) -> str | None:
+def _provider_market_specs(config: dict[str, Any]) -> list[dict[str, Any]]:
     provider = config.get("trading_economics") or {}
-    mapping = provider.get("event_map") or {}
+    markets = provider.get("markets")
+    if isinstance(markets, dict) and markets:
+        out: list[dict[str, Any]] = []
+        for market, raw_spec in markets.items():
+            if not isinstance(raw_spec, dict):
+                continue
+            spec = {
+                key: value
+                for key, value in provider.items()
+                if key != "markets"
+            }
+            spec.update(raw_spec)
+            spec["market"] = str(market).upper()
+            out.append(spec)
+        return out
+
+    # Backward-compatible single-market contract used by v1.6 and tests.
+    legacy = dict(provider)
+    legacy["market"] = str(legacy.get("market") or "US").upper()
+    return [legacy]
+
+
+def event_indicator_key(
+    row: dict[str, Any],
+    config: dict[str, Any],
+    market_spec: dict[str, Any] | None = None,
+) -> str | None:
+    provider = config.get("trading_economics") or {}
+    spec = market_spec or provider
+    mapping = spec.get("event_map") or provider.get("event_map") or {}
     candidates = [
         _norm_text(row.get("Event")),
         _norm_text(row.get("Category")),
@@ -96,14 +126,18 @@ def normalize_calendar_row(
     row: dict[str, Any],
     config: dict[str, Any],
     as_of: datetime,
+    market_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    indicator_key = event_indicator_key(row, config)
+    provider = config.get("trading_economics") or {}
+    spec = market_spec or provider
+    market = str(spec.get("market") or "US").upper()
+    indicator_key = event_indicator_key(row, config, spec)
     if not indicator_key:
         return None
 
     normalization = config.get("indicator_normalization") or {}
-    spec = normalization.get(indicator_key) or {}
-    target_unit = str(spec.get("unit") or "").strip() or None
+    indicator_spec = normalization.get(indicator_key) or {}
+    target_unit = str(indicator_spec.get("unit") or "").strip() or None
 
     release_at = parse_dt(row.get("Date"))
     if release_at is None or release_at > as_of:
@@ -122,10 +156,15 @@ def normalize_calendar_row(
 
     calendar_id = str(row.get("CalendarId") or row.get("CalendarID") or "").strip()
     event_name = str(row.get("Event") or row.get("Category") or indicator_key).strip()
-    source_item_id = calendar_id or str(row.get("Ticker") or row.get("Symbol") or "").strip() or None
+    source_item_id = (
+        calendar_id
+        or str(row.get("Ticker") or row.get("Symbol") or "").strip()
+        or None
+    )
 
     material = "|".join(
         [
+            market,
             indicator_key,
             event_name,
             release_at.isoformat(),
@@ -140,6 +179,7 @@ def normalize_calendar_row(
 
     payload = {
         "provider": "trading_economics",
+        "market": market,
         "calendar_id": calendar_id or None,
         "country": row.get("Country"),
         "category": row.get("Category"),
@@ -160,7 +200,7 @@ def normalize_calendar_row(
         "observation_id": observation_id,
         "indicator_key": indicator_key,
         "event_name": event_name,
-        "market": "US",
+        "market": market,
         "release_at": release_at,
         "available_at": available_at,
         "actual": actual,
@@ -174,7 +214,6 @@ def normalize_calendar_row(
     }
 
 
-
 def sanitize_provider_error(exc: Exception, credentials: str) -> str:
     message = f"{type(exc).__name__}: {exc}"
     if credentials:
@@ -183,24 +222,63 @@ def sanitize_provider_error(exc: Exception, credentials: str) -> str:
     return message
 
 
+def _minutes(text: str) -> int:
+    hh, mm = str(text).split(":", 1)
+    return int(hh) * 60 + int(mm)
+
+
+def _minute_in_window(current: int, start: int, end: int) -> bool:
+    if start <= end:
+        return start <= current <= end
+    # Supports an overnight local-time window.
+    return current >= start or current <= end
+
+
 def within_active_window(as_of: datetime, provider: dict[str, Any]) -> bool:
+    timezone_name = str(provider.get("timezone") or "").strip()
+    local_windows = provider.get("active_windows_local")
+    if timezone_name and isinstance(local_windows, list) and local_windows:
+        try:
+            local = as_of.astimezone(ZoneInfo(timezone_name))
+        except Exception:
+            return False
+        weekdays = set(
+            int(x) for x in provider.get("active_weekdays", [0, 1, 2, 3, 4])
+        )
+        if local.weekday() not in weekdays:
+            return False
+        current = local.hour * 60 + local.minute
+        for window in local_windows:
+            if not isinstance(window, dict):
+                continue
+            try:
+                start = _minutes(str(window.get("start", "00:00")))
+                end = _minutes(str(window.get("end", "23:59")))
+            except (TypeError, ValueError):
+                continue
+            if _minute_in_window(current, start, end):
+                return True
+        return False
+
+    # Legacy v1.6 UTC window contract.
     weekdays = set(int(x) for x in provider.get("active_weekdays", [0, 1, 2, 3, 4]))
-    if as_of.astimezone(UTC).weekday() not in weekdays:
+    now = as_of.astimezone(UTC)
+    if now.weekday() not in weekdays:
         return False
     window = provider.get("active_window_utc") or {}
-    start_text = str(window.get("start", "12:00"))
-    end_text = str(window.get("end", "16:15"))
-
-    def minutes(text: str) -> int:
-        hh, mm = text.split(":", 1)
-        return int(hh) * 60 + int(mm)
-
-    now = as_of.astimezone(UTC)
+    try:
+        start = _minutes(str(window.get("start", "12:00")))
+        end = _minutes(str(window.get("end", "16:15")))
+    except (TypeError, ValueError):
+        return False
     current = now.hour * 60 + now.minute
-    return minutes(start_text) <= current <= minutes(end_text)
+    return _minute_in_window(current, start, end)
 
 
-def fetch_calendar_rows(config: dict[str, Any], as_of: datetime) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def fetch_calendar_rows(
+    config: dict[str, Any],
+    as_of: datetime,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     provider = config.get("trading_economics") or {}
     if not provider.get("enabled", True):
         return [], {"status": "DISABLED_CONFIG", "rows_seen": 0, "rows_mapped": 0}
@@ -217,60 +295,106 @@ def fetch_calendar_rows(config: dict[str, Any], as_of: datetime) -> tuple[list[d
             "rows_mapped": 0,
             "provider": "trading_economics",
         }
-    if not within_active_window(as_of, provider):
-        return [], {
-            "status": "OUTSIDE_ACTIVE_WINDOW",
-            "rows_seen": 0,
-            "rows_mapped": 0,
-            "provider": "trading_economics",
-        }
 
     days = max(1, int(provider.get("lookback_days", 5)))
     start = (as_of - timedelta(days=days)).date().isoformat()
     end = as_of.date().isoformat()
-    country = str(provider.get("country", "United States")).strip()
     base_url = str(provider.get("base_url", TE_BASE_URL)).rstrip("/")
-    url = f"{base_url}/calendar/country/{quote(country, safe='')}/{start}/{end}"
+    timeout_seconds = float(provider.get("timeout_seconds", 20))
 
-    params = {
-        "c": credentials,
-        "f": "json",
-        "values": "true",
+    all_rows: list[dict[str, Any]] = []
+    market_status: dict[str, dict[str, Any]] = {}
+    total_seen = 0
+    total_mapped = 0
+    attempted = 0
+    ready = 0
+    errors = 0
+
+    for spec in _provider_market_specs(config):
+        market = str(spec.get("market") or "US").upper()
+        country = str(spec.get("country") or "").strip()
+        if not country:
+            market_status[market] = {
+                "status": "UNCONFIGURED_COUNTRY",
+                "rows_seen": 0,
+                "rows_mapped": 0,
+            }
+            continue
+        if not within_active_window(as_of, spec):
+            market_status[market] = {
+                "status": "OUTSIDE_ACTIVE_WINDOW",
+                "rows_seen": 0,
+                "rows_mapped": 0,
+                "country": country,
+            }
+            continue
+
+        attempted += 1
+        url = f"{base_url}/calendar/country/{quote(country, safe='')}/{start}/{end}"
+        params = {
+            "c": credentials,
+            "f": "json",
+            "values": "true",
+        }
+        try:
+            with httpx.Client(timeout=timeout_seconds) as client:
+                response = client.get(url, params=params)
+                response.raise_for_status()
+                payload = response.json()
+            if not isinstance(payload, list):
+                raise ValueError("Trading Economics calendar response is not a list")
+
+            mapped: list[dict[str, Any]] = []
+            for row in payload:
+                if not isinstance(row, dict):
+                    continue
+                country_value = _norm_text(row.get("Country"))
+                if country_value and country_value != _norm_text(country):
+                    continue
+                normalized = normalize_calendar_row(row, config, as_of, spec)
+                if normalized is not None:
+                    mapped.append(normalized)
+
+            seen_count = len(payload)
+            mapped_count = len(mapped)
+            total_seen += seen_count
+            total_mapped += mapped_count
+            all_rows.extend(mapped)
+            ready += 1
+            market_status[market] = {
+                "status": "READY",
+                "rows_seen": seen_count,
+                "rows_mapped": mapped_count,
+                "country": country,
+                "window_start": start,
+                "window_end": end,
+            }
+        except Exception as exc:
+            errors += 1
+            market_status[market] = {
+                "status": "ERROR",
+                "rows_seen": 0,
+                "rows_mapped": 0,
+                "country": country,
+                "error": sanitize_provider_error(exc, credentials),
+            }
+
+    if ready:
+        overall = "DEGRADED" if errors else "READY"
+    elif attempted and errors:
+        overall = "ERROR"
+    else:
+        overall = "OUTSIDE_ACTIVE_WINDOW"
+
+    return all_rows, {
+        "status": overall,
+        "rows_seen": total_seen,
+        "rows_mapped": total_mapped,
+        "provider": "trading_economics",
+        "window_start": start,
+        "window_end": end,
+        "market_status": market_status,
     }
-    try:
-        with httpx.Client(timeout=float(provider.get("timeout_seconds", 20))) as client:
-            response = client.get(url, params=params)
-            response.raise_for_status()
-            payload = response.json()
-        if not isinstance(payload, list):
-            raise ValueError("Trading Economics calendar response is not a list")
-
-        mapped: list[dict[str, Any]] = []
-        for row in payload:
-            if not isinstance(row, dict):
-                continue
-            country_value = _norm_text(row.get("Country"))
-            if country_value and country_value != _norm_text(country):
-                continue
-            normalized = normalize_calendar_row(row, config, as_of)
-            if normalized is not None:
-                mapped.append(normalized)
-        return mapped, {
-            "status": "READY",
-            "rows_seen": len(payload),
-            "rows_mapped": len(mapped),
-            "window_start": start,
-            "window_end": end,
-            "provider": "trading_economics",
-        }
-    except Exception as exc:
-        return [], {
-            "status": "ERROR",
-            "rows_seen": 0,
-            "rows_mapped": 0,
-            "provider": "trading_economics",
-            "error": sanitize_provider_error(exc, credentials),
-        }
 
 
 def upsert_observations(
@@ -328,7 +452,7 @@ def refresh_consensus_observations(
     as_of: datetime,
 ) -> dict[str, Any]:
     rows, status = fetch_calendar_rows(config, as_of)
-    if status.get("status") != "READY":
+    if status.get("status") not in {"READY", "DEGRADED"}:
         return status
     counts = upsert_observations(conn, rows)
     conn.commit()
