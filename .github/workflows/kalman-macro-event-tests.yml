@@ -65,7 +65,9 @@ jobs:
           text = Path("config/macro-event-features-v1.cron.d").read_text()
           active = [
               line for line in text.splitlines()
-              if line.strip() and line.lstrip()[0].isdigit()
+              if line.strip()
+              and not line.lstrip().startswith("#")
+              and "run_macro_event_features_v1.sh build" in line
           ]
           assert len(active) == 1, active
           assert active[0].startswith("*/15 * * * * root ")
