@@ -128,7 +128,7 @@ deploy_market(){
   set +e
   (
     cd "$src"
-    vercel deploy --prod --skip-domain --yes --scope "$TEAM_SLUG"
+    VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$TEAM_ID" vercel deploy --prod --skip-domain --yes --scope "$TEAM_SLUG"
   ) 2>&1 | tee "$WORK/${lower}-deploy.log"
   rc=${PIPESTATUS[0]}
   set -e
