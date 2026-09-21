@@ -32,7 +32,13 @@ def validate_order(
 
     if amount_krw > settings.max_single_order_krw:
         return RiskDecision(False, 'MAX_SINGLE_ORDER_EXCEEDED')
-    if daily_committed_krw + amount_krw > settings.live_micro_total_limit_krw:
+    # A non-positive daily limit means balance-driven execution: the broker's
+    # current cash buying power is the portfolio-level entry budget. The
+    # per-order limit remains mandatory.
+    if (
+        settings.live_micro_total_limit_krw > 0
+        and daily_committed_krw + amount_krw > settings.live_micro_total_limit_krw
+    ):
         return RiskDecision(False, 'DAILY_TOTAL_LIMIT_EXCEEDED')
 
     return RiskDecision(True, 'OK')
