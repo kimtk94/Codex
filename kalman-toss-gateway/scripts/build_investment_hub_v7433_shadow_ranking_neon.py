@@ -61,7 +61,7 @@ def patch_versions(src):
         text=p.read_text(encoding="utf-8")
         if "vNext.7.4.32" not in text:
             raise SystemExit(f"v7.4.32 version anchor missing in {rel}")
-        p.write_text(text.replace("vNext.7.4.31",TARGET),encoding="utf-8")
+        p.write_text(text.replace("vNext.7.4.32",TARGET),encoding="utf-8")
 
 def validate(src):
     if len(sorted((src/"api").rglob("*.js")))!=12:
