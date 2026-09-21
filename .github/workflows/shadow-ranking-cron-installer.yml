@@ -1,0 +1,60 @@
+name: SHADOW Ranking Cron Installer
+
+on:
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/config/kalman.cron.d"
+      - "kalman-toss-gateway/config/shadow-portfolio-ranking-v2.cron.d"
+      - "kalman-toss-gateway/scripts/install_shadow_portfolio_ranking_cron.sh"
+      - ".github/workflows/shadow-ranking-cron-installer.yml"
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/config/kalman.cron.d"
+      - "kalman-toss-gateway/config/shadow-portfolio-ranking-v2.cron.d"
+      - "kalman-toss-gateway/scripts/install_shadow_portfolio_ranking_cron.sh"
+      - ".github/workflows/shadow-ranking-cron-installer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate shell syntax
+        run: |
+          bash -n scripts/install_shadow_portfolio_ranking_cron.sh
+          bash -n scripts/run_shadow_portfolio_ranking_v2.sh
+
+      - name: Validate cron separation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          base=Path("config/kalman.cron.d").read_text()
+          shadow=Path("config/shadow-portfolio-ranking-v2.cron.d").read_text()
+
+          assert "run_shadow_portfolio_ranking_v2.sh" not in base
+          assert "run_v2_shadow_refresh.sh--mirror-neon" not in base
+          assert "run_v2_shadow_refresh.sh --mirror-neon" in base
+
+          active=[
+              line for line in shadow.splitlines()
+              if line and line[0].isdigit() and "run_shadow_portfolio_ranking_v2.sh --mirror-neon" in line
+          ]
+          assert len(active)==2,active
+          assert "CRON_TZ=Asia/Seoul" in shadow
+          assert "run_v2_shadow_refresh" not in shadow
+          assert "run_shadow_portfolio_ranking_v2.sh--" not in shadow
+          assert any(line.startswith("5 17 * * 1-5 ") for line in active)
+          assert any(line.startswith("45 7 * * 2-6 ") for line in active)
+          print("[PASS] dedicated SHADOW ranking cron")
+          PY
