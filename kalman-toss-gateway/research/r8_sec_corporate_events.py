@@ -12,11 +12,20 @@ from pathlib import Path
 import httpx
 import pandas as pd
 
-SCHEMA="kalman-r8-sec-corporate-events-v1"
+SCHEMA="kalman-r8-sec-corporate-events-v2"
 SEC_TICKERS="https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS="https://data.sec.gov/submissions"
 DEFAULT_R5_SCORED="/mnt/gdrive/US_ETF/model_lab_v1/results/r5_0_1_research_sandbox_all_data/r5_0_1_scored_rows.parquet"
 DEFAULT_OUT="/opt/kalman/state/r8_sec"
+
+CIK_LINEAGE_OVERRIDES={
+    # Exxon Mobil Corporation redomiciled on 2026-07-01.
+    # SEC predecessor CIK 0000034088 -> successor registrant CIK 0002115436.
+    "XOM":[
+        {"cik":"0000034088","valid_from":"2020-01-01","valid_to":"2026-06-30","title":"EXXON MOBIL CORP"},
+        {"cik":"0002115436","valid_from":"2026-07-01","valid_to":None,"title":"ExxonMobil Holdings Corporation"},
+    ],
+}
 
 ITEM_BUCKETS={
     "1.01":"MATERIAL_AGREEMENT",
@@ -144,43 +153,60 @@ def archive_primary_url(cik,accession,primary):
         f"{int(cik)}/{str(accession).replace('-','')}/{primary}"
     )
 
-def collect_symbol(client,symbol,mapping,start_year,end_year):
-    cik=mapping["cik"]
-    base=client.get_json(f"{SEC_SUBMISSIONS}/CIK{cik}.json")
-    rows=filing_rows_from_submission(base)
+def _date_in_mapping_window(filing_date,mapping):
+    if not filing_date:
+        return False
+    d=str(filing_date)
+    lo=mapping.get("valid_from")
+    hi=mapping.get("valid_to")
+    if lo and d < lo:
+        return False
+    if hi and d > hi:
+        return False
+    return True
 
-    for meta in (base.get("filings") or {}).get("files") or []:
-        if not overlap_file(meta,start_year,end_year):
-            continue
-        name=meta.get("name")
-        if not name:
-            continue
-        hist=client.get_json(f"{SEC_SUBMISSIONS}/{name}")
-        rows.extend(historical_file_rows(hist))
-
+def collect_symbol(client,symbol,mappings,start_year,end_year):
     out=[]
     seen=set()
-    for r in rows:
-        form=str(r.get("form") or "").upper().strip()
-        if form not in {"8-K","8-K/A"}:
-            continue
-        filing_date=str(r.get("filingDate") or "")
-        try:
-            year=int(filing_date[:4])
-        except Exception:
-            continue
-        if year<start_year or year>end_year:
-            continue
-        acc=str(r.get("accessionNumber") or "")
-        if not acc or acc in seen:
-            continue
-        seen.add(acc)
-        items=split_items(r.get("items"))
-        buckets=event_buckets(items)
-        out.append({
-            "symbol":symbol,
-            "cik":cik,
-            "company_name":mapping.get("title"),
+
+    for mapping in mappings:
+        cik=mapping["cik"]
+        base=client.get_json(f"{SEC_SUBMISSIONS}/CIK{cik}.json")
+        rows=filing_rows_from_submission(base)
+
+        for meta in (base.get("filings") or {}).get("files") or []:
+            if not overlap_file(meta,start_year,end_year):
+                continue
+            name=meta.get("name")
+            if not name:
+                continue
+            hist=client.get_json(f"{SEC_SUBMISSIONS}/{name}")
+            rows.extend(historical_file_rows(hist))
+
+        for r in rows:
+            form=str(r.get("form") or "").upper().strip()
+            if form not in {"8-K","8-K/A"}:
+                continue
+            filing_date=str(r.get("filingDate") or "")
+            try:
+                year=int(filing_date[:4])
+            except Exception:
+                continue
+            if year<start_year or year>end_year:
+                continue
+            if not _date_in_mapping_window(filing_date,mapping):
+                continue
+            acc=str(r.get("accessionNumber") or "")
+            key=(symbol,acc)
+            if not acc or key in seen:
+                continue
+            seen.add(key)
+            items=split_items(r.get("items"))
+            buckets=event_buckets(items)
+            out.append({
+                "symbol":symbol,
+                "cik":cik,
+                "company_name":mapping.get("title"),
             "accession_number":acc,
             "form":form,
             "filing_date":filing_date or None,
@@ -226,10 +252,13 @@ def main():
     ambiguous=[]
     unmapped=[]
     for sym in universe:
+        if sym in CIK_LINEAGE_OVERRIDES:
+            mappings[sym]=CIK_LINEAGE_OVERRIDES[sym]
+            continue
         candidates=ticker_map.get(norm_symbol(sym),[])
         picked=pick_mapping(sym,candidates)
         if picked:
-            mappings[sym]=picked
+            mappings[sym]=[picked]
         elif candidates:
             ambiguous.append({"symbol":sym,"candidates":candidates})
         else:
@@ -238,15 +267,16 @@ def main():
     events=[]
     errors=[]
     for i,sym in enumerate(universe,1):
-        m=mappings.get(sym)
-        if not m:
+        ms=mappings.get(sym)
+        if not ms:
             continue
         try:
-            rows=collect_symbol(client,sym,m,args.start_year,args.end_year)
+            rows=collect_symbol(client,sym,ms,args.start_year,args.end_year)
             events.extend(rows)
-            print(f"[{i:02d}/{len(universe)}] {sym} CIK={m['cik']} events={len(rows)}",flush=True)
+            ciks=",".join(x["cik"] for x in ms)
+            print(f"[{i:02d}/{len(universe)}] {sym} CIK={ciks} events={len(rows)}",flush=True)
         except Exception as exc:
-            errors.append({"symbol":sym,"cik":m["cik"],"error":f"{type(exc).__name__}: {exc}"})
+            errors.append({"symbol":sym,"ciks":[x["cik"] for x in ms],"error":f"{type(exc).__name__}: {exc}"})
             print(f"[WARN] {sym} {type(exc).__name__}: {exc}",flush=True)
 
     events.sort(key=lambda x:(x.get("acceptance_at") or "9999",x["symbol"],x["accession_number"]))
@@ -260,8 +290,16 @@ def main():
         any(b!="FINANCIAL_EXHIBITS" for b in x.get("event_buckets") or [])
         for x in events
     )
+    symbol_accessions=[(x["symbol"],x["accession_number"]) for x in events]
+    duplicate_ratio=(
+        (len(symbol_accessions)-len(set(symbol_accessions)))/len(symbol_accessions)
+        if symbol_accessions else 0.0
+    )
     accessions=[x["accession_number"] for x in events]
-    duplicate_ratio=(len(accessions)-len(set(accessions)))/len(accessions) if accessions else 0.0
+    cross_symbol_shared_accession_ratio=(
+        (len(accessions)-len(set(accessions)))/len(accessions)
+        if accessions else 0.0
+    )
 
     times=pd.to_datetime([x["acceptance_at"] for x in events if x.get("acceptance_at")],utc=True,errors="coerce")
     first=(times.min().isoformat() if len(times) else None)
@@ -280,7 +318,7 @@ def main():
         "event_symbols_ge_70":event_symbols>=70,
         "event_rows_ge_500":n>=500,
         "acceptance_timestamp_ratio_ge_95pct":(acceptance_n/n if n else 0)>=0.95,
-        "accession_duplicate_ratio_le_1pct":duplicate_ratio<=0.01,
+        "within_symbol_accession_duplicate_ratio_le_1pct":duplicate_ratio<=0.01,
         "semantic_item_ratio_ge_80pct":(semantic_n/n if n else 0)>=0.80,
     }
     ready=all(gates.values())
@@ -313,7 +351,9 @@ def main():
         "recognized_item_ratio":recognized_n/n if n else 0.0,
         "semantic_item_rows_excluding_9_01_only":semantic_n,
         "semantic_item_ratio_excluding_9_01_only":semantic_n/n if n else 0.0,
-        "accession_duplicate_ratio":duplicate_ratio,
+        "accession_duplicate_ratio_within_symbol":duplicate_ratio,
+        "cross_symbol_shared_accession_ratio":cross_symbol_shared_accession_ratio,
+        "cik_lineage_overrides":CIK_LINEAGE_OVERRIDES,
         "first_acceptance_at":first,
         "last_acceptance_at":last,
         "span_months":span_months,
