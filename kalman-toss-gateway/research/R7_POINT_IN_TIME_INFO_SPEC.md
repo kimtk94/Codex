@@ -349,3 +349,66 @@ Readiness:
 - session reaction coverage >=80% over event-input-eligible releases that fall within canonical QQQ history.
 - per-family reaction coverage is reported diagnostically.
 - even if this gate passes, it only admits an explicitly named ACTUAL/SESSION_REACTION-ONLY challenger. It does not authorize consensus-surprise features or claim intraday US2Y repricing.
+
+
+## 14. R7.1 bounded macro challenger
+
+Exactly one free-data macro challenger is admitted after R7.0 readiness:
+
+`R7C1_ACTUAL_SESSION_REACTION_ONLY`
+
+Unchanged from R5:
+- HGB model family / cloned estimator parameters
+- target: `relative_ret_4b = stock fwd_ret_4b - same-timestamp universe median fwd_ret_4b`
+- R5 20-feature base set
+- Top1 execution
+- R4 volatility sizing
+- 10 bps cost
+- exact +4 expected-seq non-overlap
+- E2-E8 paired common-OOS evaluation
+- 5-trading-day moving-block bootstrap, B=2000
+
+Added macro features, fixed before performance inspection:
+- `m_event_decay_24h`
+- `m_actual_delta_pressure_decay`
+- `m_session_reaction_1h_decay`
+- family-specific decays for CPI / Employment / PPI / JOLTS / FOMC
+
+Macro state contract:
+- latest reaction-available macro event only
+- event half-life = 24h
+- hard max age = 72h
+- actual component = change from prior PIT-eligible first-release actual, not consensus surprise
+- fixed unit scales/policy signs: CPI 0.1, Core CPI 0.1, NFP 50 thousand, unemployment 0.1 with negative policy sign, AHE 0.1, PPI 0.2, JOLTS 250 thousand
+- component z-values clipped to +/-5 then averaged within event
+- session reaction = QQQ first complete post-event 60m open-to-close return
+- no consensus
+- no intraday US2Y claim
+
+Critical timing:
+- canonical R5 row `timestamp` is the 60m bar start.
+- model decision information cutoff is `signal_as_of = timestamp + 60 minutes`.
+- a macro event enters R7C1 only when its `reaction_available_at <= signal_as_of`.
+- the 2h reaction remains diagnostic and has its own later availability timestamp; it is not an R7C1 feature.
+
+Preflight fail-closed checks:
+- R7 actual readiness must pass.
+- R7 session-reaction readiness must pass.
+- frozen 497,504 scored-row count and 93-symbol universe must match.
+- base R5 features must reconcile to frozen scored rows.
+- reconstructed `relative_ret_4b` must reconcile to frozen target.
+- all frozen fold training counts must match.
+- challenger non-overlap schedule must exactly match frozen R5 baseline schedule.
+
+Survivor gate remains the frozen R7 gate:
+- >=300 common trades
+- log growth > R5
+- PF >= R5
+- MDD no worse than R5 by more than 2 percentage points
+- >=5 positive paired folds
+- paired bootstrap 95% lower CI > 0
+- one-challenger Holm p < .05
+- effective names >=5
+- top ticker share <=35%
+
+No forced winner. R5.1 LIVE remains untouched.
