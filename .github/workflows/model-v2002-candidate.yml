@@ -71,7 +71,7 @@ jobs:
           ]
           for marker in forbidden:
               assert marker not in runner, marker
-          assert "Market_Model_V2_002_Candidate" in runner
+          assert "Market_Model_V2_002_1_Diagnostic" in runner
           assert "Market_Features/v2_002" in runner
           print("[PASS] V2.002 remains isolated research-only")
           PY
