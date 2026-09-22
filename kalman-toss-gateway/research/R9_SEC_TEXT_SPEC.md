@@ -154,3 +154,30 @@ R9:
 - does not alter sizing
 - does not write strategy_signal
 - does not change R5-EXIT-V1
+
+
+## 10. SEC archive access hardening after first smoke
+
+The first 50-document smoke failed before parsing:
+- 0 / 49 unique document fetches succeeded
+- all observed failures were HTTP 403 from `www.sec.gov/Archives/...`
+- no R9 text alpha result was observed
+- LIVE / production remained unchanged
+
+The first smoke used a URL-only User-Agent identifier. SEC's published automated-access example requires a declared organization/application and administrative contact email.
+
+R9 therefore freezes the following access repair before any successful document fetch:
+- `SEC_CONTACT_EMAIL` is mandatory and must be syntactically email-like;
+- User-Agent must include that exact contact email;
+- HTTP `From` header also carries the contact email;
+- archive Host remains `www.sec.gov`;
+- request interval remains >=0.35 seconds;
+- HTTP failures include only bounded diagnostic response text and are not cached as success.
+
+Staged retry:
+1. `probe` = one document
+2. `smoke5` = five diverse documents
+3. `smoke` = 50 diverse documents
+4. `full` only if the 50-document smoke passes
+
+No readiness thresholds are relaxed.
