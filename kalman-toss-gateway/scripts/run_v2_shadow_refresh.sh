@@ -242,8 +242,11 @@ for market, row in (status.get("markets") or {}).items():
     p = row.get("probability_up")
     p_text = f"{float(p):.6f}" if p is not None else "NA"
     print(
-        f"{market}: direction={row.get('shadow_direction')} "
-        f"p_up={p_text} quality={row.get('data_quality')} "
+        f"{market}: raw={row.get('raw_shadow_direction')} "
+        f"direction={row.get('shadow_direction')} "
+        f"risk_gate={row.get('risk_gate')} "
+        f"p_up={p_text} data_quality={row.get('data_quality')} "
+        f"model_quality={(row.get('model_quality') or {}).get('status')} "
         f"as_of={row.get('as_of')} "
         f"calibration={cal.get('status')} rows={cal.get('rows')}"
     )
