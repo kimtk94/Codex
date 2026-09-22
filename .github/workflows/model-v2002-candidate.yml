@@ -1,0 +1,77 @@
+name: Kalman Model V2.002 Candidate
+
+on:
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/config/model-v2-002-candidate-spec.json"
+      - "kalman-toss-gateway/engine/features_v2_002/**"
+      - "kalman-toss-gateway/research/model_v2_002/**"
+      - "kalman-toss-gateway/scripts/run_model_v2_002_candidate.sh"
+      - "kalman-toss-gateway/tests/test_model_v2002_candidate.py"
+      - ".github/workflows/model-v2002-candidate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/config/model-v2-002-candidate-spec.json"
+      - "kalman-toss-gateway/engine/features_v2_002/**"
+      - "kalman-toss-gateway/research/model_v2_002/**"
+      - "kalman-toss-gateway/scripts/run_model_v2_002_candidate.sh"
+      - "kalman-toss-gateway/tests/test_model_v2002_candidate.py"
+      - ".github/workflows/model-v2002-candidate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install isolated candidate dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install             pandas numpy pyarrow python-dotenv             scikit-learn "TA-Lib==0.7.1"
+
+      - name: Compile candidate modules
+        run: |
+          python -m compileall engine/features_v2_002
+          python -m compileall research/model_v2_002
+          python -m py_compile tests/test_model_v2002_candidate.py
+
+      - name: Validate runner shell
+        run: bash -n scripts/run_model_v2_002_candidate.sh
+
+      - name: Run candidate regression tests
+        env:
+          PYTHONPATH: .
+        run: python -m unittest tests.test_model_v2002_candidate -v
+
+      - name: Validate isolation invariants
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          runner=Path("scripts/run_model_v2_002_candidate.sh").read_text()
+          forbidden=[
+              "run_auto_trade.sh",
+              "strategy_signal",
+              "dashboard_snapshot",
+              "DATABASE_URL_WRITER",
+              "run_neon",
+          ]
+          for marker in forbidden:
+              assert marker not in runner, marker
+          assert "Market_Model_V2_002_Candidate" in runner
+          assert "Market_Features/v2_002" in runner
+          print("[PASS] V2.002 remains isolated research-only")
+          PY
