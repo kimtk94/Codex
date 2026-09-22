@@ -347,9 +347,6 @@ def build_r1_training_rows(root, symbols, canon_panel, live_panel):
     raw["exec_weight"] = ratio.clip(0.25, 1.0).fillna(1.0)
     raw["net10_return"] = raw["exec_weight"] * raw["fwd_ret_4b"] - raw["exec_weight"] * COST
     raw["target_net"] = raw["net10_return"]
-    raw["target_ordinal_net"] = (
-        raw.groupby("timestamp")["target_net"].rank(pct=True, method="average") - 0.5
-    )
 
     valid = (
         raw["_core_valid"]
@@ -358,6 +355,9 @@ def build_r1_training_rows(root, symbols, canon_panel, live_panel):
         & (raw["target_timestamp_4b"] < RESEARCH_CUTOFF)
     )
     train = raw.loc[valid].copy()
+    train["target_ordinal_net"] = (
+        train.groupby("timestamp")["target_net"].rank(pct=True, method="average") - 0.5
+    )
     train, path_audit = attach_path_proxy(train, canon_panel, live_panel)
     train["proxy_net_return"] = train["exec_weight"] * train["proxy_ret_4b"] - train["exec_weight"] * COST
     train["target_path_relative"] = (
