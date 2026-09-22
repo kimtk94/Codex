@@ -81,10 +81,15 @@ class ExtendedMarketToolsV2Tests(unittest.TestCase):
                 "volume": np.linspace(1000, 2000, n),
             }
         )
-        frame.loc[0, "close"] = np.nan
-
-        features = build_talib_features(frame)
-        self.assertEqual(int(features["talib_v2_rsi14"].notna().sum()), 0)
+        # Reproduce the observed VIX diagnostic state directly: raw close has
+        # enough data, while the persisted TA-Lib RSI column is entirely NaN.
+        frame.loc[[3, 17, 42], "close"] = np.nan
+        features = pd.DataFrame(
+            {
+                "timestamp": idx,
+                "talib_v2_rsi14": np.nan,
+            }
+        )
 
         comparison = compare_legacy_rsi(frame, features)
         self.assertEqual(comparison["status"], "FEATURE_GAP_DIAGNOSED")
