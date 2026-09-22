@@ -188,7 +188,7 @@ class GdeltClient:
         raise RuntimeError(last_error or "GDELT retry exhaustion")
 
 
-def collect_window(client,alias,start,end,maxrecords=250,min_window_hours=24.0,depth=0):
+def collect_window(client,alias,start,end,maxrecords=250,min_window_hours=24.0,depth=0,split_saturated=True):
     start=pd.Timestamp(start)
     end=pd.Timestamp(end)
 
@@ -224,7 +224,7 @@ def collect_window(client,alias,start,end,maxrecords=250,min_window_hours=24.0,d
         base_audit["split_reason"]=None
         return [],[base_audit]
 
-    if saturated and hours>min_window_hours:
+    if split_saturated and saturated and hours>min_window_hours:
         base_audit["terminal"]=False
         base_audit["split_reason"]="MAXRECORDS_250"
         mid=start+(end-start)/2
@@ -234,10 +234,10 @@ def collect_window(client,alias,start,end,maxrecords=250,min_window_hours=24.0,d
         left_end=min(end,mid+pd.Timedelta(seconds=1))
         right_start=max(start,mid-pd.Timedelta(seconds=1))
         left_rows,left_audit=collect_window(
-            client,alias,start,left_end,maxrecords,min_window_hours,depth+1
+            client,alias,start,left_end,maxrecords,min_window_hours,depth+1,split_saturated
         )
         right_rows,right_audit=collect_window(
-            client,alias,right_start,end,maxrecords,min_window_hours,depth+1
+            client,alias,right_start,end,maxrecords,min_window_hours,depth+1,split_saturated
         )
         return left_rows+right_rows,[base_audit]+left_audit+right_audit
 
@@ -268,6 +268,7 @@ def main():
     ap.add_argument("--min-request-interval",type=float,default=15.0)
     ap.add_argument("--cache-dir",default=DEFAULT_CACHE)
     ap.add_argument("--min-window-hours",type=float,default=24.0)
+    ap.add_argument("--max-retries",type=int,default=None)
     args=ap.parse_args()
 
     r8=json.loads(Path(args.r8_manifest).read_text())
@@ -287,7 +288,8 @@ def main():
         start=pd.Timestamp("2023-07-01T00:00:00Z")
         end=pd.Timestamp("2026-09-02T13:30:00Z")
 
-    client=GdeltClient(args.cache_dir,args.min_request_interval)
+    effective_retries=(1 if args.mode=="smoke" else 3) if args.max_retries is None else args.max_retries
+    client=GdeltClient(args.cache_dir,args.min_request_interval,max_retries=effective_retries)
     rows=[]
     query_audit=[]
 
@@ -302,6 +304,7 @@ def main():
                 we,
                 maxrecords=250,
                 min_window_hours=args.min_window_hours,
+                split_saturated=(args.mode!="smoke"),
             )
             for qa in audits:
                 qa.update({
@@ -431,6 +434,8 @@ def main():
         "cache_dir":str(Path(args.cache_dir)),
         "min_request_interval_seconds":args.min_request_interval,
         "min_window_hours":args.min_window_hours,
+        "max_retries":effective_retries,
+        "adaptive_split_enabled":bool(args.mode!="smoke"),
         "next_action":next_action,
     }
     (out/f"manifest_{args.mode}.json").write_text(json.dumps(manifest,indent=2,default=str)+"\n")
