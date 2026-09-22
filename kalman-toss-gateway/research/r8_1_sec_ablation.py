@@ -83,6 +83,7 @@ SEC_BUCKET_FEATURE = {
 }
 SEC_HALF_LIFE_HOURS = 48.0
 SEC_MAX_AGE_HOURS = 120.0
+SEC_PUBLICATION_EMBARGO_MINUTES = 5
 
 SCORED_COLUMNS = list(dict.fromkeys([
     "expected_seq", "timestamp", "fwd_ret_4b", "target_timestamp_4b",
@@ -320,6 +321,7 @@ def load_sec_events(events_path: Path):
         out.append({
             "symbol":symbol,
             "acceptance_at":accepted,
+            "available_at":accepted+pd.to_timedelta(SEC_PUBLICATION_EMBARGO_MINUTES,unit="m"),
             "semantic_event":semantic,
             "event_buckets":buckets,
         })
@@ -379,14 +381,14 @@ def attach_sec_features(df: pd.DataFrame, events: pd.DataFrame):
         if ev.empty:
             continue
 
-        any_decay=_latest_decay(sig,ev["acceptance_at"])
-        counts=_rolling_event_count(sig,ev["acceptance_at"])
+        any_decay=_latest_decay(sig,ev["available_at"])
+        counts=_rolling_event_count(sig,ev["available_at"])
         out.loc[idx,"sec_any_decay_48h"]=any_decay
         out.loc[idx,"sec_event_count_120h_log1p"]=counts
 
         for bucket,col in SEC_BUCKET_FEATURE.items():
             times=[
-                r.acceptance_at for r in ev.itertuples()
+                r.available_at for r in ev.itertuples()
                 if bucket in r.event_buckets
             ]
             if times:
@@ -408,6 +410,7 @@ def attach_sec_features(df: pd.DataFrame, events: pd.DataFrame):
         "sec_event_symbols":int(len(event_symbols)),
         "features":SEC_FEATURES,
         "signal_as_of_contract":"timestamp + 60 minutes",
+        "publication_embargo_minutes":SEC_PUBLICATION_EMBARGO_MINUTES,
         "half_life_hours":SEC_HALF_LIFE_HOURS,
         "max_age_hours":SEC_MAX_AGE_HOURS,
         "sentiment_used":False,
@@ -683,6 +686,7 @@ def main():
         "sec_feature_contract": {
             "features": SEC_FEATURES,
             "event_timestamp": "SEC EDGAR acceptanceDateTime",
+            "available_at": "acceptanceDateTime + 5 minutes conservative embargo",
             "event_state": "symbol-specific latest semantic 8-K event by bucket",
             "half_life_hours": SEC_HALF_LIFE_HOURS,
             "max_age_hours": SEC_MAX_AGE_HOURS,
