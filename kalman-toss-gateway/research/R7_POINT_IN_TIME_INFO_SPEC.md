@@ -412,3 +412,58 @@ Survivor gate remains the frozen R7 gate:
 - top ticker share <=35%
 
 No forced winner. R5.1 LIVE remains untouched.
+
+
+## 15. R7.1 observed result — rejected
+
+Execution date: 2026-09-22
+
+Candidate:
+- `R7C1_ACTUAL_SESSION_REACTION_ONLY`
+
+Data/readiness gates:
+- PIT actual coverage: 97.1875% — PASS
+- QQQ session-reaction coverage: 99.0937% — PASS
+- frozen base-feature reconciliation: PASS
+- frozen relative-target reconciliation: PASS
+- non-overlap schedule parity: 1166 / 1166 exact match — PASS
+
+Frozen R5 baseline:
+- trades: 1166
+- cumulative return: +116.9751%
+- log growth: 0.774612
+- win rate: 50.7719%
+- profit factor: 1.207053
+- max drawdown: -22.6589%
+
+R7C1:
+- trades: 1166
+- cumulative return: +30.1602%
+- log growth: 0.263596
+- win rate: 48.9708%
+- median trade return: -0.01747%
+- profit factor: 1.081151
+- max drawdown: -24.8655%
+- effective names: 30.2314
+- top ticker share: 8.3777%
+
+Paired test vs R5:
+- mean daily paired log difference: -0.00065431
+- 95% moving-block bootstrap CI: [-0.00160531, +0.00031682]
+- one-sided p = 0.901049
+- Holm p = 0.901049
+- positive paired folds: 2 / 7
+
+Decision:
+- `research_survivor = false`
+- `promotion_eligible = false`
+- `live_action = NONE`
+- R5.1 remains champion and LIVE is unchanged.
+
+Interpretation:
+- the free point-in-time macro data and session-reaction contracts are technically usable;
+- however, the preregistered macro-state encoding materially degrades the R5 selector;
+- this is an alpha failure, not a data-readiness failure;
+- no post-result retuning of decay, scales, family weights, thresholds, or feature subsets is allowed inside R7.1;
+- further macro redesign requires a new separately preregistered version and a new untouched evaluation period;
+- the R7-M ingestion/readiness assets remain reusable as research infrastructure.
