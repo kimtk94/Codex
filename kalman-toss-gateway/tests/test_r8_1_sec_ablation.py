@@ -10,6 +10,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 def test_sec_contract_is_frozen():
     assert m.SEC_HALF_LIFE_HOURS==48.0
     assert m.SEC_MAX_AGE_HOURS==120.0
+    assert m.SEC_PUBLICATION_EMBARGO_MINUTES==5
     assert "FINANCIAL_EXHIBITS" not in m.SEC_BUCKET_FEATURE
     assert m.CHALLENGER=="R8C1_SEC_CORPORATE_EVENT"
 
@@ -59,3 +60,10 @@ def test_decay_zero_after_120h():
     assert abs(x[1]-0.5)<1e-12
     assert x[2] > 0
     assert x[3]==0.0
+
+
+def test_five_minute_embargo_blocks_same_boundary():
+    accepted=pd.Timestamp("2026-01-02T14:30:00Z")
+    available=accepted+pd.to_timedelta(m.SEC_PUBLICATION_EMBARGO_MINUTES,unit="m")
+    signal_as_of=pd.Timestamp("2026-01-02T14:30:00Z")
+    assert available > signal_as_of
