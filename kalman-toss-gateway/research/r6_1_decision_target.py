@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 
-SCHEMA = "kalman-r6-1-decision-target-v2"
+SCHEMA = "kalman-r6-1-decision-target-v3"
 COST = 0.001
 STOP = -0.03
 TAKE = 0.20
@@ -20,7 +20,7 @@ MIN_UNIVERSE = 80
 BLOCK_DAYS = 5
 B_DEFAULT = 2000
 RNG_SEED = 20260922
-PATH_COVERAGE_MIN = 0.99
+PATH_COVERAGE_MIN = 0.99\nEXPECTED_SCORED_ROWS = 497504
 
 RESEARCH_CUTOFF = pd.Timestamp("2026-09-02T13:30:00Z")
 FOLDS = [
@@ -315,6 +315,7 @@ def main():
     root = Path(a.root)
     us = root / "US_ETF"
     r50 = us / "model_lab_v1/results/r5_0_1_research_sandbox_all_data"
+    r6v1_metrics_path = us / "model_lab_v1/results/r6_selective_horizon/r6_metrics.csv"
 
     out = us / "model_lab_v1/results/r6_1_decision_target"
     out.mkdir(parents=True, exist_ok=True)
@@ -337,8 +338,10 @@ def main():
     if scored["symbol"].nunique() != 93:
         raise RuntimeError(f"expected 93 symbols, got {scored['symbol'].nunique()}")
 
-    if len(scored) != 831981:
-        raise RuntimeError(f"frozen scored row count changed: expected 831981, got {len(scored)}")
+    if len(scored) != EXPECTED_SCORED_ROWS:
+        raise RuntimeError(
+            f"frozen scored row count changed: expected {EXPECTED_SCORED_ROWS}, got {len(scored)}"
+        )
 
     scored = add_path_proxy(scored)
 
@@ -369,9 +372,12 @@ def main():
             f"path coverage too low: {overall_path_coverage:.6f} < {PATH_COVERAGE_MIN:.6f}"
         )
 
-    base = frozen_ledger.loc[frozen_ledger["candidate"] == "R5C0_HGB_REFERENCE"].copy()
+    base = frozen_ledger.loc[
+        (frozen_ledger["candidate"] == "R5C0_HGB_REFERENCE")
+        & (frozen_ledger["fold"].astype(str).isin(EVAL_FOLD_NAMES))
+    ].copy()
     if base.empty:
-        raise RuntimeError("frozen R5 baseline ledger missing")
+        raise RuntimeError("frozen R5 common-OOS baseline ledger missing")
 
     base["timestamp"] = nts(base["timestamp"])
     base["target_timestamp_4b"] = nts(base["target_timestamp_4b"])
@@ -382,16 +388,23 @@ def main():
     ].drop_duplicates(["timestamp", "symbol"])
     base = base.merge(proxy_lookup, on=["timestamp", "symbol"], how="left", validate="many_to_one")
 
-    frozen_row = frozen_leaderboard.loc[
-        frozen_leaderboard["candidate"] == "R5C0_HGB_REFERENCE"
-    ].iloc[0]
+    if not r6v1_metrics_path.exists():
+        raise FileNotFoundError(
+            f"missing prior R6 common-OOS reference metrics: {r6v1_metrics_path}"
+        )
+    r6v1_metrics = pd.read_csv(r6v1_metrics_path)
+    ref_rows = r6v1_metrics.loc[r6v1_metrics["arm"] == "R5_BASE_4H"]
+    if ref_rows.empty:
+        raise RuntimeError("R5_BASE_4H missing from prior R6 common-OOS metrics")
+    frozen_row = ref_rows.iloc[0]
 
     base_primary = metrics(base, "net10_return")
     baseline_reconciliation = {
+        "scope": "E2-E8 common OOS",
         "trades_match": int(base_primary["trades"]) == int(frozen_row["trades"]),
-        "cum_return_abs_diff": abs(float(base_primary["cum_return"]) - float(frozen_row["net10_cum_return"])),
-        "log_growth_abs_diff": abs(float(base_primary["log_growth"]) - float(frozen_row["net10_log_growth"])),
-        "mdd_abs_diff": abs(float(base_primary["mdd"]) - float(frozen_row["net10_mdd"])),
+        "cum_return_abs_diff": abs(float(base_primary["cum_return"]) - float(frozen_row["cum_return"])),
+        "log_growth_abs_diff": abs(float(base_primary["log_growth"]) - float(frozen_row["log_growth"])),
+        "mdd_abs_diff": abs(float(base_primary["mdd"]) - float(frozen_row["max_drawdown"])),
     }
     baseline_reconciliation["pass"] = (
         baseline_reconciliation["trades_match"]
@@ -422,7 +435,7 @@ def main():
     scored_parts = []
     fold_contract = []
 
-    for i, (fold, ss, ee) in enumerate(FOLDS, 1):
+    for i, (fold, ss, ee) in enumerate(EVAL_FOLDS, 1):
         start = ts(ss)
         end = ts(ee)
 
@@ -612,11 +625,13 @@ def main():
         "research_only": True,
         "production_changed": False,
         "r5_1_untouched": True,
-        "source_contract": "frozen r5_0_1_scored_rows + frozen R5C0 trade ledger",
+        "source_contract": "frozen r5_0_1_scored_rows; E1 warm-up; E2-E8 paired common OOS",
         "baseline_reconciliation": baseline_reconciliation,
         "overall_path_coverage": overall_path_coverage,
         "baseline_proxy_coverage": base_proxy_coverage,
         "schedule_audit": schedule_df.to_dict(orient="records"),
+        "evaluation_folds": [x[0] for x in EVAL_FOLDS],
+        "warmup_fold": FOLDS[0][0],
         "candidates": [CONTROL, *CHALLENGERS.keys()],
         "research_survivors": surv["candidate"].tolist() if len(surv) else [],
         "selected_r6_1_candidate": selected,
@@ -645,8 +660,9 @@ def main():
         json.dumps({
             "schema": SCHEMA,
             "research_cutoff": RESEARCH_CUTOFF.isoformat(),
-            "source": "frozen r5_0_1_scored_rows.parquet",
-            "baseline": "frozen R5C0_HGB_REFERENCE trade ledger",
+            "source": "frozen r5_0_1_scored_rows.parquet (497,504 OOS rows)",
+            "training_protocol": "E1 warm-up; E2-E8 expanding common-OOS evaluation",
+            "baseline": "frozen R5C0_HGB_REFERENCE trade ledger restricted to E2-E8",
             "features": FEATURES,
             "challengers": CHALLENGERS,
             "cost": COST,
@@ -664,6 +680,7 @@ def main():
         r50 / "r5_0_1_trade_ledger.parquet",
         r50 / "r5_0_1_leaderboard.csv",
         r50 / "model_freeze/r5_hgb.joblib",
+        r6v1_metrics_path,
     ]
     (out / "r6_1_manifest.json").write_text(
         json.dumps({
