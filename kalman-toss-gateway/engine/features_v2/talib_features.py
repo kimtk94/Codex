@@ -94,13 +94,63 @@ def build_talib_features(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def compare_legacy_rsi(frame: pd.DataFrame, features: pd.DataFrame) -> dict[str, Any]:
-    close = pd.to_numeric(frame["close"], errors="coerce").astype(float)
-    legacy = _legacy_rsi(close, 14).reset_index(drop=True)
-    modern = pd.to_numeric(features["talib_v2_rsi14"], errors="coerce").reset_index(drop=True)
-    pair = pd.DataFrame({"legacy": legacy, "talib": modern}).dropna()
+    """Compare RSI implementations after canonical timestamp alignment.
+
+    The feature builder sorts raw input by timestamp, so comparing against the
+    original row order can create false disagreements when a source arrives in
+    reverse or otherwise non-canonical order.  Align on timestamps explicitly
+    and always emit enough diagnostics to explain an empty overlap.
+    """
+    raw = frame[["timestamp", "close"]].copy()
+    raw["timestamp"] = pd.to_datetime(raw["timestamp"], errors="coerce", utc=True)
+    raw["close"] = pd.to_numeric(raw["close"], errors="coerce").astype(float)
+    raw = (
+        raw.dropna(subset=["timestamp"])
+        .sort_values("timestamp")
+        .drop_duplicates("timestamp", keep="last")
+        .reset_index(drop=True)
+    )
+    raw["legacy"] = _legacy_rsi(raw["close"], 14)
+
+    modern = features[["timestamp", "talib_v2_rsi14"]].copy()
+    modern["timestamp"] = pd.to_datetime(modern["timestamp"], errors="coerce", utc=True)
+    modern["talib"] = pd.to_numeric(
+        modern["talib_v2_rsi14"], errors="coerce"
+    ).astype(float)
+    modern = (
+        modern.dropna(subset=["timestamp"])
+        .sort_values("timestamp")
+        .drop_duplicates("timestamp", keep="last")
+        [["timestamp", "talib"]]
+        .reset_index(drop=True)
+    )
+
+    aligned = raw[["timestamp", "close", "legacy"]].merge(
+        modern,
+        on="timestamp",
+        how="inner",
+        validate="one_to_one",
+    )
+    pair = aligned.dropna(subset=["legacy", "talib"]).copy()
+
+    diagnostics = {
+        "raw_rows": int(len(frame)),
+        "raw_timestamp_rows": int(len(raw)),
+        "close_valid_rows": int(raw["close"].notna().sum()),
+        "legacy_valid_rows": int(raw["legacy"].notna().sum()),
+        "talib_valid_rows": int(modern["talib"].notna().sum()),
+        "timestamp_overlap_rows": int(len(aligned)),
+        "overlap_rows": int(len(pair)),
+    }
 
     if pair.empty:
-        return {"status": "INSUFFICIENT_DATA", "overlap_rows": 0}
+        return {
+            "status": "INSUFFICIENT_DATA",
+            **diagnostics,
+            "reason": (
+                "no timestamp-aligned rows where both legacy and TA-Lib RSI are finite"
+            ),
+        }
 
     diff = pair["legacy"] - pair["talib"]
     legacy_zone = pd.cut(
@@ -117,16 +167,12 @@ def compare_legacy_rsi(frame: pd.DataFrame, features: pd.DataFrame) -> dict[str,
     corr = pair["legacy"].corr(pair["talib"])
     return {
         "status": "READY",
-        "overlap_rows": int(len(pair)),
+        **diagnostics,
         "mean_absolute_difference": float(diff.abs().mean()),
         "max_absolute_difference": float(diff.abs().max()),
         "mean_signed_difference": float(diff.mean()),
         "correlation": None if corr is None or not np.isfinite(corr) else float(corr),
         "threshold_zone_disagreement_ratio": float((legacy_zone != talib_zone).mean()),
-        "legacy_first_valid_index": int(legacy.first_valid_index())
-        if legacy.first_valid_index() is not None
-        else None,
-        "talib_first_valid_index": int(modern.first_valid_index())
-        if modern.first_valid_index() is not None
-        else None,
+        "first_overlap_timestamp": pair["timestamp"].min().isoformat(),
+        "last_overlap_timestamp": pair["timestamp"].max().isoformat(),
     }

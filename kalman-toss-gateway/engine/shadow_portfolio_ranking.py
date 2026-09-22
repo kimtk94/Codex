@@ -220,28 +220,37 @@ def _risk_cap_weights(
     *,
     risk_cap_ratio: float,
     fallback: bool,
-) -> tuple[np.ndarray, float, dict[str, float]]:
+) -> tuple[np.ndarray, float, dict[str, Any]]:
     ew_vol = _portfolio_vol(ew, cov)
     ms_vol = _portfolio_vol(ms, cov)
+    cap = ew_vol * float(risk_cap_ratio)
     if fallback:
         return ew.copy(), 0.0, {
             "equal_weight_vol": ew_vol,
             "max_sharpe_vol": ms_vol,
+            "risk_cap_vol": cap,
             "blended_vol": ew_vol,
+            "risk_cap_binding": False,
+            "risk_cap_reason": "MAX_SHARPE_FALLBACK",
         }
     if ew_vol <= 0:
         return ms.copy(), 1.0, {
             "equal_weight_vol": ew_vol,
             "max_sharpe_vol": ms_vol,
+            "risk_cap_vol": cap,
             "blended_vol": ms_vol,
+            "risk_cap_binding": False,
+            "risk_cap_reason": "DEGENERATE_EQUAL_WEIGHT_VOL",
         }
 
-    cap = ew_vol * float(risk_cap_ratio)
     if ms_vol <= cap + 1e-12:
         return ms.copy(), 1.0, {
             "equal_weight_vol": ew_vol,
             "max_sharpe_vol": ms_vol,
+            "risk_cap_vol": cap,
             "blended_vol": ms_vol,
+            "risk_cap_binding": False,
+            "risk_cap_reason": "MAX_SHARPE_WITHIN_CAP",
         }
 
     best_alpha = 0.0
@@ -258,7 +267,10 @@ def _risk_cap_weights(
     return best, best_alpha, {
         "equal_weight_vol": ew_vol,
         "max_sharpe_vol": ms_vol,
+        "risk_cap_vol": cap,
         "blended_vol": best_vol,
+        "risk_cap_binding": True,
+        "risk_cap_reason": "MAX_SHARPE_EXCEEDED_CAP",
     }
 
 
@@ -326,6 +338,7 @@ def build_targets(
                 }
             )
 
+        cap_vol = float(risk.get("risk_cap_vol") or 0.0)
         audit.append(
             {
                 "decision_ts": history.index[-1],
@@ -333,6 +346,9 @@ def build_targets(
                 "alpha_max_sharpe": alpha,
                 "max_sharpe_status": ms_status,
                 "fallback_reason": fallback_reason,
+                "max_sharpe_to_cap_ratio": (
+                    float(risk["max_sharpe_vol"]) / cap_vol if cap_vol > 0 else None
+                ),
                 **risk,
             }
         )
@@ -518,6 +534,33 @@ def rank_strategies(
     if not ready:
         return rows, "WAITING_FOR_FORWARD_DATA"
 
+    min_forward_observations = int(
+        config.get("min_forward_observations_for_rank", 60)
+    )
+    min_forward_rebalances = int(
+        config.get("min_forward_rebalances_for_rank", 2)
+    )
+    for row in rows:
+        observations = int(row.get("observations") or 0)
+        rebalances = int(row.get("rebalance_count") or 0)
+        eligible = (
+            row.get("status") == "READY"
+            and observations >= min_forward_observations
+            and rebalances >= min_forward_rebalances
+        )
+        row["rank_eligible"] = bool(eligible)
+        row["annualized_metrics_interpretable"] = bool(eligible)
+        row["rank_gate"] = {
+            "minimum_forward_observations": min_forward_observations,
+            "minimum_forward_rebalances": min_forward_rebalances,
+            "observations": observations,
+            "rebalance_count": rebalances,
+        }
+        row["forward_rank"] = None
+
+    if not all(bool(row.get("rank_eligible")) for row in ready):
+        return rows, "TRACKING_INSUFFICIENT_FORWARD_HISTORY"
+
     def key(row: dict[str, Any]) -> tuple[float, float, float]:
         sharpe = row.get("sharpe")
         return (
@@ -531,7 +574,7 @@ def rank_strategies(
     for row in rows:
         row["forward_rank"] = order.get(row["strategy"])
     rows.sort(key=lambda x: x.get("forward_rank") if x.get("forward_rank") is not None else 999)
-    return rows, "TRACKING"
+    return rows, "RANKING_ACTIVE"
 
 
 def build_snapshot(
@@ -544,6 +587,20 @@ def build_snapshot(
     returns, market_as_of, data_end = build_return_panel(market_root, config)
     targets, gate_audit = build_targets(returns, config)
     ranking, tracking_status = rank_strategies(returns, targets, config)
+    latest_risk_cap_audit: dict[str, Any] | None = None
+    if not gate_audit.empty:
+        latest = gate_audit.sort_values("effective_ts").iloc[-1].to_dict()
+        latest_risk_cap_audit = {
+            key: (
+                value.item()
+                if isinstance(value, np.generic)
+                else value
+            )
+            for key, value in latest.items()
+        }
+        for row in ranking:
+            if row.get("strategy") == "C_RISK_CAP_110":
+                row["risk_cap_audit"] = latest_risk_cap_audit
     seed_end = _utc_ts(config["seed_end"])
     post_seed_rows = int((returns.index > seed_end).sum())
 
@@ -572,6 +629,12 @@ def build_snapshot(
             "initial_equity": float(config.get("initial_equity", 1_000_000.0)),
             "risk_cap_ratio": float(config.get("risk_cap_ratio", 1.10)),
             "simplex_step": float(config.get("simplex_step", 0.002)),
+            "min_forward_observations_for_rank": int(
+                config.get("min_forward_observations_for_rank", 60)
+            ),
+            "min_forward_rebalances_for_rank": int(
+                config.get("min_forward_rebalances_for_rank", 2)
+            ),
             "max_wall_clock_age_days": {
                 market: (config.get("market_files") or {}).get(market, {}).get(
                     "max_wall_clock_age_days"
@@ -580,6 +643,7 @@ def build_snapshot(
             },
         },
         "forward_ranking": ranking,
+        "risk_cap_audit_latest": latest_risk_cap_audit,
         "invariants": {
             "research_only": True,
             "entry_allowed_for_real_orders": False,

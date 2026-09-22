@@ -146,6 +146,7 @@ PY
 
 MODEL_DIR="$MODEL_ROOT/models"
 SHADOW_FILE="$MODEL_ROOT/shadow/latest/shadow_signals.json"
+SHADOW_STATUS="$MODEL_ROOT/shadow/shadow_run_status.json"
 NEON_STATUS="$MODEL_ROOT/shadow/neon_mirror_status.json"
 
 need_file "$MODEL_DIR/us/model.json"
@@ -211,6 +212,7 @@ echo
 echo "[4/5] Fixed-model SHADOW scoring"
 "$APP_ROOT/scripts/run_shadow_v2.sh"
 need_file "$SHADOW_FILE"
+need_file "$SHADOW_STATUS"
 
 "$PROD_VENV/bin/python" - "$SHADOW_FILE" <<'PY'
 import json, sys
@@ -227,6 +229,24 @@ for s in signals:
         raise SystemExit("[FAIL] entry_allowed must be false")
 
 print("shadow signals: 3 / safety gates PASS")
+PY
+
+"$PROD_VENV/bin/python" - "$SHADOW_STATUS" <<'PY'
+import json, sys
+from pathlib import Path
+
+status = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print("SHADOW SIGNAL SUMMARY")
+for market, row in (status.get("markets") or {}).items():
+    cal = row.get("calibration") or {}
+    p = row.get("probability_up")
+    p_text = f"{float(p):.6f}" if p is not None else "NA"
+    print(
+        f"{market}: direction={row.get('shadow_direction')} "
+        f"p_up={p_text} quality={row.get('data_quality')} "
+        f"as_of={row.get('as_of')} "
+        f"calibration={cal.get('status')} rows={cal.get('rows')}"
+    )
 PY
 
 echo

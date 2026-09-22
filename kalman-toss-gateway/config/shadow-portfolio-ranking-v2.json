@@ -25,5 +25,7 @@
   "annualization_days": 365,
   "initial_equity": 1000000,
   "risk_cap_ratio": 1.1,
-  "simplex_step": 0.002
+  "simplex_step": 0.002,
+  "min_forward_observations_for_rank": 60,
+  "min_forward_rebalances_for_rank": 2
 }

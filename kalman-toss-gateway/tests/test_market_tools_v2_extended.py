@@ -50,6 +50,20 @@ class ExtendedMarketToolsV2Tests(unittest.TestCase):
         self.assertEqual(comparison["status"], "READY")
         self.assertGreater(comparison["overlap_rows"], 50)
         self.assertIsNotNone(comparison["correlation"])
+        self.assertIn("timestamp_overlap_rows", comparison)
+
+        shuffled = frame.sample(frac=1.0, random_state=42).reset_index(drop=True)
+        shuffled_comparison = compare_legacy_rsi(shuffled, features)
+        self.assertEqual(shuffled_comparison["status"], "READY")
+        self.assertEqual(
+            shuffled_comparison["overlap_rows"],
+            comparison["overlap_rows"],
+        )
+        self.assertAlmostEqual(
+            shuffled_comparison["mean_absolute_difference"],
+            comparison["mean_absolute_difference"],
+            places=12,
+        )
 
     def test_finviz_merge_and_local_candidate_filter(self) -> None:
         overview = pd.DataFrame(
