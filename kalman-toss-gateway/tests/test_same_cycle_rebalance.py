@@ -222,5 +222,134 @@ class SameCycleRebalanceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(existing["symbol"], "AAPL")
 
 
+    def test_same_symbol_add_on_aggregates_quantity_and_weighted_average(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ManagedPositionStore(pathlib.Path(tmp) / "trading.sqlite3")
+            ok, row = store.reserve_entry(
+                run_id="run-a",
+                symbol="AAPL",
+                strategy_version="R5.1_BASE_HGB",
+                signal_as_of="2026-09-22T00:00:00+00:00",
+                client_order_id="order-a",
+                target_exit_buckets=4,
+            )
+            self.assertTrue(ok)
+            store.mark_open(
+                row["position_id"],
+                entry_status="FILLED",
+                filled_quantity=Decimal("1"),
+                average_price="100",
+            )
+
+            ok, add_on = store.reserve_add_on(
+                row["position_id"],
+                run_id="run-b",
+                signal_as_of="2026-09-22T01:00:00+00:00",
+                client_order_id="order-b",
+                target_krw="5000",
+                max_entries=3,
+                min_gap_minutes=60,
+            )
+            self.assertTrue(ok)
+            self.assertEqual(add_on["state"], "ADD_ON_RESERVED")
+            store.mark_add_on_submitted(row["position_id"], "toss-b")
+            updated = store.apply_add_on_fill(
+                row["position_id"],
+                status="FILLED",
+                filled_quantity=Decimal("1"),
+                average_price="120",
+            )
+
+            self.assertEqual(updated["state"], "OPEN")
+            self.assertEqual(updated["entry_count"], 2)
+            self.assertEqual(Decimal(updated["remaining_quantity"]), Decimal("2"))
+            self.assertEqual(Decimal(updated["entry_avg_fill_price"]), Decimal("110"))
+            self.assertEqual(
+                updated["entry_signal_as_of"],
+                "2026-09-22T00:00:00+00:00",
+            )
+            self.assertEqual(
+                updated["last_entry_signal_as_of"],
+                "2026-09-22T01:00:00+00:00",
+            )
+
+    def test_add_on_requires_new_bucket_and_stops_after_three_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ManagedPositionStore(pathlib.Path(tmp) / "trading.sqlite3")
+            ok, row = store.reserve_entry(
+                run_id="run-a",
+                symbol="AAPL",
+                strategy_version="R5.1_BASE_HGB",
+                signal_as_of="2026-09-22T00:00:00+00:00",
+                client_order_id="order-a",
+                target_exit_buckets=4,
+            )
+            self.assertTrue(ok)
+            store.mark_open(
+                row["position_id"],
+                entry_status="FILLED",
+                filled_quantity=Decimal("1"),
+                average_price="100",
+            )
+
+            too_soon, _ = store.reserve_add_on(
+                row["position_id"],
+                run_id="run-b0",
+                signal_as_of="2026-09-22T00:30:00+00:00",
+                client_order_id="order-b0",
+                target_krw="5000",
+                max_entries=3,
+                min_gap_minutes=60,
+            )
+            self.assertFalse(too_soon)
+
+            second_ok, _ = store.reserve_add_on(
+                row["position_id"],
+                run_id="run-b",
+                signal_as_of="2026-09-22T01:00:00+00:00",
+                client_order_id="order-b",
+                target_krw="5000",
+                max_entries=3,
+                min_gap_minutes=60,
+            )
+            self.assertTrue(second_ok)
+            store.apply_add_on_fill(
+                row["position_id"],
+                status="FILLED",
+                filled_quantity=Decimal("1"),
+                average_price="100",
+            )
+
+            third_ok, _ = store.reserve_add_on(
+                row["position_id"],
+                run_id="run-c",
+                signal_as_of="2026-09-22T02:00:00+00:00",
+                client_order_id="order-c",
+                target_krw="5000",
+                max_entries=3,
+                min_gap_minutes=60,
+            )
+            self.assertTrue(third_ok)
+            store.apply_add_on_fill(
+                row["position_id"],
+                status="FILLED",
+                filled_quantity=Decimal("1"),
+                average_price="100",
+            )
+
+            fourth_ok, final = store.reserve_add_on(
+                row["position_id"],
+                run_id="run-d",
+                signal_as_of="2026-09-22T03:00:00+00:00",
+                client_order_id="order-d",
+                target_krw="5000",
+                max_entries=3,
+                min_gap_minutes=60,
+            )
+            self.assertFalse(fourth_ok)
+            self.assertEqual(final["entry_count"], 3)
+
+
+
 if __name__ == '__main__':
     unittest.main()
