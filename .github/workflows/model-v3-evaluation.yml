@@ -8,8 +8,11 @@ on:
       - "kalman-toss-gateway/tests/test_model_v3_evaluation.py"
       - "kalman-toss-gateway/tests/test_model_v3_kr_candidate.py"
       - "kalman-toss-gateway/tests/test_model_v3_kr_selection_audit.py"
+      - "kalman-toss-gateway/tests/test_model_v3_004_kr_joint_gate.py"
       - "kalman-toss-gateway/config/model-v3-kr-candidate-spec.json"
+      - "kalman-toss-gateway/config/model-v3-004-kr-joint-gate-spec.json"
       - "kalman-toss-gateway/scripts/run_model_v3_003_kr_candidate.sh"
+      - "kalman-toss-gateway/scripts/run_model_v3_004_kr_joint_gate.sh"
       - ".github/workflows/model-v3-evaluation.yml"
   push:
     branches: [main]
@@ -18,8 +21,12 @@ on:
       - "kalman-toss-gateway/research/model_v3/**"
       - "kalman-toss-gateway/tests/test_model_v3_evaluation.py"
       - "kalman-toss-gateway/tests/test_model_v3_kr_candidate.py"
+      - "kalman-toss-gateway/tests/test_model_v3_kr_selection_audit.py"
+      - "kalman-toss-gateway/tests/test_model_v3_004_kr_joint_gate.py"
       - "kalman-toss-gateway/config/model-v3-kr-candidate-spec.json"
+      - "kalman-toss-gateway/config/model-v3-004-kr-joint-gate-spec.json"
       - "kalman-toss-gateway/scripts/run_model_v3_003_kr_candidate.sh"
+      - "kalman-toss-gateway/scripts/run_model_v3_004_kr_joint_gate.sh"
       - ".github/workflows/model-v3-evaluation.yml"
   workflow_dispatch:
 
@@ -52,12 +59,15 @@ jobs:
           python -m py_compile tests/test_model_v3_evaluation.py
           python -m py_compile tests/test_model_v3_kr_candidate.py
           python -m py_compile tests/test_model_v3_kr_selection_audit.py
+          python -m py_compile tests/test_model_v3_004_kr_joint_gate.py
           bash -n scripts/run_model_v3_003_kr_candidate.sh
+          bash -n scripts/run_model_v3_004_kr_joint_gate.sh
 
       - name: Validate evaluation specs
         run: |
           python -m json.tool config/model-v3-evaluation-spec.json >/dev/null
           python -m json.tool config/model-v3-kr-candidate-spec.json >/dev/null
+          python -m json.tool config/model-v3-004-kr-joint-gate-spec.json >/dev/null
 
       - name: Run V3 evaluation tests
         env:
@@ -66,6 +76,7 @@ jobs:
           python -m unittest tests.test_model_v3_evaluation -v
           python -m unittest tests.test_model_v3_kr_candidate -v
           python -m unittest tests.test_model_v3_kr_selection_audit -v
+          python -m unittest tests.test_model_v3_004_kr_joint_gate -v
 
       - name: Validate research isolation
         run: |
@@ -78,7 +89,9 @@ jobs:
               Path("research/model_v3/model_contract.py"),
               Path("research/model_v3/kr_candidate.py"),
               Path("research/model_v3/audit_kr_selection.py"),
+              Path("research/model_v3/kr_joint_gate_candidate.py"),
               Path("scripts/run_model_v3_003_kr_candidate.sh"),
+              Path("scripts/run_model_v3_004_kr_joint_gate.sh"),
           ]
           text = "\n".join(p.read_text() for p in files)
           forbidden = [
@@ -93,10 +106,15 @@ jobs:
 
           eval_spec = Path("config/model-v3-evaluation-spec.json").read_text()
           kr_spec = Path("config/model-v3-kr-candidate-spec.json").read_text()
+          kr4_spec = Path("config/model-v3-004-kr-joint-gate-spec.json").read_text()
           assert '"research_only": true' in eval_spec
           assert '"research_only": true' in kr_spec
+          assert '"research_only": true' in kr4_spec
           assert '"2026-09-23T00:00:00"' in eval_spec
           assert '"2026-09-23T00:00:00"' in kr_spec
+          assert '"2026-09-23T00:00:00"' in kr4_spec
           assert '"live_execution": false' in kr_spec
-          print("[PASS] V3 evaluation and KR candidate remain research-only and forward-locked")
+          assert '"live_execution": false' in kr4_spec
+          assert '"forward_data_used_for_model_selection": false' in kr4_spec
+          print("[PASS] V3 evaluation and KR candidates remain research-only and forward-locked")
           PY
