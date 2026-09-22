@@ -1,5 +1,5 @@
 {
-  "version": "kalman_model_v2_002_candidate",
+  "version": "kalman_model_v2_002_1_diagnostic",
   "feature_set": "market_tools_v2_002",
   "dataset_version": "kalman_feature_matrix_v2_002",
   "max_ffill_observations": 3,
@@ -34,7 +34,8 @@
   ],
   "calibration": {
     "method": "platt",
-    "minimum_rows": 30
+    "minimum_rows": 30,
+    "guard": "positive_slope_and_threshold_split_proper_scores"
   },
   "shadow_quality_gate": {
     "minimum_test_rows": 100,
@@ -60,7 +61,7 @@
         "BTC": 1,
         "KR": 0
       },
-      "strategy_version": "KALMAN_V2_002_US_CALLOGIT"
+      "strategy_version": "KALMAN_V2_002_1_US_DIAGNOSTIC"
     },
     "KR": {
       "anchor_key": "yf_kospi",
@@ -79,7 +80,7 @@
         "US": 1,
         "BTC": 0
       },
-      "strategy_version": "KALMAN_V2_002_KR_CALLOGIT"
+      "strategy_version": "KALMAN_V2_002_1_KR_DIAGNOSTIC"
     },
     "BTC": {
       "anchor_key": "yf_btc",
@@ -98,7 +99,8 @@
         "US": 1,
         "KR": 0
       },
-      "strategy_version": "KALMAN_V2_002_BTC_CALLOGIT"
+      "strategy_version": "KALMAN_V2_002_1_BTC_DIAGNOSTIC"
     }
-  }
+  },
+  "diagnostic_only_after_test_review": true
 }
