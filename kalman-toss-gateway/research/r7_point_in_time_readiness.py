@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-SCHEMA = "kalman-r7-point-in-time-readiness-v3"
+SCHEMA = "kalman-r7-point-in-time-readiness-v4"
 DEFAULT_SNAPSHOT = Path(__file__).with_name("r7_neon_readiness_snapshot_20260922.json")
 
 SQL = {
@@ -22,7 +22,7 @@ SQL = {
           avg((consensus IS NOT NULL)::int)::float8 AS consensus_ratio,
           avg((time_quality IN ('EXACT_SOURCE_TS','PUBLISHER_TS','PROVIDER_RELEASE_TS'))::int)::float8 AS strong_time_ratio,
           avg((available_at <= release_at + interval '120 minutes')::int)::float8 AS event_time_usable_ratio_120m,
-          avg(((payload->>'r7_pit_audit') = 'PASS')::int)::float8 AS pit_audit_ratio
+          avg((COALESCE((payload->>'r7_pit_audit') = 'PASS', false))::int)::float8 AS pit_audit_ratio
         FROM macro_release_observation
         WHERE market IN ('US','GLOBAL')
     """,
@@ -119,7 +119,7 @@ def main():
 
     m = data["macro_release"]
     macro_span = years_between(m["first_available"], m["last_available"])
-    macro_ready = bool(
+    macro_release_ready = bool(
         m["n"] >= 120
         and macro_span >= 2
         and m["indicators"] >= 5
@@ -129,6 +129,10 @@ def main():
         and (m.get("event_time_usable_ratio_120m") or 0) >= 0.95
         and (m.get("pit_audit_ratio") or 0) >= 0.95
     )
+    # R7 requires a verified event-time market-reaction contract, not the existing
+    # DGS2 daily proxy. Keep the full Macro axis blocked until that layer exists.
+    macro_reaction_ready = False
+    macro_ready = bool(macro_release_ready and macro_reaction_ready)
 
     na = data["news_article"]
     ne = data["news_entity"]
@@ -155,6 +159,8 @@ def main():
         "axes": {
             "M_MACRO": {
                 "status": "READY" if macro_ready else "BLOCKED",
+                "release_surprise_status": "READY" if macro_release_ready else "BLOCKED",
+                "reaction_status": "READY" if macro_reaction_ready else "BLOCKED",
                 "span_years": macro_span,
                 "observed": m,
                 "repricing": data["macro_repricing"],
@@ -179,7 +185,11 @@ def main():
                         if (m.get("pit_audit_ratio") or 0) < 0.95
                         else []
                     ),
-                    "INTRADAY_EVENT_REACTION_CONTRACT_NOT_VERIFIED",
+                    *(
+                        ["INTRADAY_EVENT_REACTION_CONTRACT_NOT_VERIFIED"]
+                        if not macro_reaction_ready
+                        else []
+                    ),
                 ],
             },
             "N_NEWS": {
