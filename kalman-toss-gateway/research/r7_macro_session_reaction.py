@@ -73,6 +73,7 @@ def build_reaction(events: list[dict], qqq: pd.DataFrame, max_anchor_delay_hours
             "qqq_reaction_1h_open_to_close":None,
             "qqq_reaction_1h_prev_close_to_close":None,
             "qqq_reaction_2h_open_to_close":None,
+            "qqq_reaction_2h_available_at":None,
             "first_expected_seq":None,
             "blocker":None,
         }
@@ -130,6 +131,7 @@ def build_reaction(events: list[dict], qqq: pd.DataFrame, max_anchor_delay_hours
             c2=float(nxt.close)
             if o:
                 row["qqq_reaction_2h_open_to_close"]=(c2/o)-1.0
+                row["qqq_reaction_2h_available_at"]=(pd.Timestamp(nxt.candle_time_utc)+pd.to_timedelta(3600,unit="s")).isoformat()
 
         covered += 1
         rows.append(row)
