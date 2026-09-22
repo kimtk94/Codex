@@ -127,15 +127,15 @@ function engineSignalState(){
 }
 function tradeActionHtml(){
   let ledger=C?.execution_ledger||[],active=ledger.filter(x=>!['CLOSED','CANCELLED','ABORTED','FAILED'].includes(String(x.state||'').toUpperCase()));
-  let pending=active.filter(x=>String(x.state||'').toUpperCase().startsWith('ENTRY_')&&N(x.entry_filled_quantity)<=0);
+  let pending=active.filter(x=>{let st=String(x.state||'').toUpperCase();return st.startsWith('ENTRY_')||st.startsWith('ADD_ON_')});
   let exitPending=active.filter(x=>String(x.state||'').toUpperCase().startsWith('EXIT_'));
   let open=active.filter(x=>String(x.state||'').toUpperCase()==='OPEN'||(N(x.entry_filled_quantity)>0&&N(x.exit_filled_quantity)<N(x.entry_filled_quantity)));
   let sig=engineSignalState(),same=sig?active.find(x=>String(x.symbol||'').toUpperCase()===String(sig.symbol||'').toUpperCase()):null;
   let sameSignal=Boolean(same&&sig?.as_of&&same.entry_signal_as_of&&new Date(sig.as_of).getTime()===new Date(same.entry_signal_as_of).getTime());
   let buyTitle='BUY 예정 없음',buyMeta='현재 신규 진입 후보 없음',buyTime=null;
   if(pending.length){
-    buyTitle='BUY 진행 중 · '+pending.map(x=>x.symbol).join(', ');
-    buyMeta='주문 제출 · fill 대기';
+    buyTitle=(String(pending[0].state||'').toUpperCase().startsWith('ADD_ON_')?'ADD-ON 진행 중 · ':'BUY 진행 중 · ')+pending.map(x=>x.symbol).join(', ');
+    buyMeta=String(pending[0].state||'ORDER_SUBMITTED')+' · fill/reconcile 대기';
     buyTime=pending[0].entry_signal_as_of;
   }else if(sig&&sameSignal){
     buyTitle='BUY 차단 · '+sig.symbol;
@@ -156,7 +156,7 @@ function tradeActionHtml(){
   }
   let sellTitle=exitPending.length?'SELL 진행 중 · '+exitPending.map(x=>x.symbol).join(', '):(open.length?'SELL 감시 · '+open.map(x=>x.symbol).join(', '):'SELL 예정 없음');
   let sellMeta=exitPending.length?'Exit order submitted':(open.length?'Stop -3% · Take +20% · max 4 hourly buckets':'활성 포지션 없음');
-  let posRows=open.map(x=>'<div class="positionrow"><span class="status open">HOLD</span><b>'+E(x.symbol)+'</b><span>Qty '+E(x.entry_filled_quantity||'—')+'</span><span>Avg '+E(x.entry_average_price?USD(x.entry_average_price):'—')+'</span><span>'+timePairHtml(x.entry_signal_as_of)+'</span></div>').join('');
+  let posRows=open.map(x=>{let st=String(x.state||'OPEN').toUpperCase(),label=st==='OPEN'?'HOLD':st.replace('_SUBMITTED','');return '<div class="positionrow"><span class="status open">'+E(label)+'</span><b>'+E(x.symbol)+'</b><span>Qty '+E(x.entry_filled_quantity||'—')+'</span><span>Avg '+E(x.entry_average_price?USD(x.entry_average_price):'—')+'</span><span>'+timePairHtml(x.entry_signal_as_of)+'</span></div>'}).join('');
   let latest=sig?('<div class="actionfoot"><span>MODEL</span><b>'+E(sig.symbol)+'</b><span>BAR START '+E(timePair(sig.bar_start))+'</span><span>COMPLETE '+E(timePair(sig.bar_complete))+'</span></div>'):'';
   return '<section id="trade-action" class="dailybox actionbox"><div class="sectiontitle"><div><b>ACTION · BUY / SELL</b><small>실제 execution ledger 기준</small></div><span class="badge info">'+E(C?.status||'—')+'</span></div><div class="actiongrid"><div class="actioncell buy"><span>BUY</span><b>'+E(buyTitle)+'</b><small>'+E(buyMeta)+'</small>'+(buyTime?timePairHtml(buyTime,'action-clock'):'')+'</div><div class="actioncell sell"><span>SELL</span><b>'+E(sellTitle)+'</b><small>'+E(sellMeta)+'</small></div></div>'+(posRows?'<div class="positionlist"><div class="positionlabel">LIVE POSITIONS · '+open.length+'</div>'+posRows+'</div>':'')+latest+'</section>';
 }
