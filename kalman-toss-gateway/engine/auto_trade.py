@@ -27,6 +27,7 @@ from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
 
 TARGET_EXIT_BUCKETS = 4
+QTY_TOLERANCE = Decimal('0.00000001')
 
 
 def _client_order_id(run_id: str, symbol: str) -> str:
@@ -74,6 +75,53 @@ def _max_active_positions() -> int:
     if value < 1 or value > 20:
         raise RuntimeError('AUTO_TRADE_MAX_ACTIVE_POSITIONS must be between 1 and 20')
     return value
+
+
+def _max_entries_per_symbol() -> int:
+    raw = os.environ.get('AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL', '1')
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError('AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL must be an integer') from exc
+    if value < 1 or value > 10:
+        raise RuntimeError('AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL must be between 1 and 10')
+    return value
+
+
+def _add_on_min_bucket_gap() -> int:
+    raw = os.environ.get('AUTO_TRADE_ADD_ON_MIN_BUCKET_GAP', '1')
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError('AUTO_TRADE_ADD_ON_MIN_BUCKET_GAP must be an integer') from exc
+    if value < 1 or value > 24:
+        raise RuntimeError('AUTO_TRADE_ADD_ON_MIN_BUCKET_GAP must be between 1 and 24')
+    return value
+
+
+def _max_symbol_notional_krw() -> Decimal:
+    try:
+        value = Decimal(os.environ.get('AUTO_TRADE_MAX_SYMBOL_NOTIONAL_KRW', '0'))
+    except Exception as exc:
+        raise RuntimeError('AUTO_TRADE_MAX_SYMBOL_NOTIONAL_KRW must be numeric') from exc
+    if value < 0:
+        raise RuntimeError('AUTO_TRADE_MAX_SYMBOL_NOTIONAL_KRW must be >= 0')
+    return value
+
+
+def _signal_gap_minutes(position: dict, signal_as_of: datetime) -> float | None:
+    raw = position.get('last_entry_signal_as_of') or position.get('entry_signal_as_of')
+    if not raw:
+        return None
+    try:
+        previous = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
+    except (TypeError, ValueError):
+        return None
+    if previous.tzinfo is None:
+        previous = previous.replace(tzinfo=timezone.utc)
+    if signal_as_of.tzinfo is None:
+        signal_as_of = signal_as_of.replace(tzinfo=timezone.utc)
+    return (signal_as_of - previous).total_seconds() / 60.0
 
 
 def _signal_shape_ok(signal: dict, policy: str) -> bool:
@@ -305,6 +353,13 @@ async def main_async() -> int:
     store = ManagedPositionStore(settings.state_db_path)
     active_positions = store.active()
     max_active_positions = _max_active_positions()
+    max_entries_per_symbol = _max_entries_per_symbol()
+    add_on_min_bucket_gap = _add_on_min_bucket_gap()
+    max_symbol_notional_krw = _max_symbol_notional_krw()
+    same_symbol_position = next(
+        (p for p in active_positions if str(p.get('symbol', '')).upper() == symbol),
+        None,
+    )
 
     # Existing managed positions no longer block a new entry globally. The
     # broker cash check, same-symbol position/open-order guards, and
@@ -334,6 +389,19 @@ async def main_async() -> int:
         as_of = as_of.replace(tzinfo=timezone.utc)
     bar_minutes = _signal_bar_minutes(signal.get('strategy_version'))
     effective_as_of = _effective_signal_as_of(as_of, signal.get('strategy_version'))
+
+    entry_count_before = int((same_symbol_position or {}).get('entry_count') or 0)
+    is_add_on = bool(same_symbol_position and policy == 'R5_LIVE_TOP1')
+    signal_gap_minutes = (
+        _signal_gap_minutes(same_symbol_position, as_of) if same_symbol_position else None
+    )
+    required_add_on_gap_minutes = add_on_min_bucket_gap * max(1, bar_minutes)
+    target_order_krw = Decimal(os.environ.get('AUTO_TRADE_ORDER_KRW', '0'))
+    projected_symbol_notional_krw = (
+        target_order_krw * Decimal(entry_count_before + 1)
+        if is_add_on and sizing_mode == 'FIXED_KRW'
+        else None
+    )
 
     common = {
         'executionMode': mode,
@@ -365,6 +433,18 @@ async def main_async() -> int:
         'activeManagedPositions': active_positions,
         'activeManagedPositionCount': len(active_positions),
         'maxActivePositions': max_active_positions,
+        'sameSymbolManagedPositionId': (same_symbol_position or {}).get('position_id'),
+        'entryType': 'ADD_ON' if is_add_on else 'INITIAL',
+        'entryCountBefore': entry_count_before,
+        'maxEntriesPerSymbol': max_entries_per_symbol,
+        'addOnMinBucketGap': add_on_min_bucket_gap,
+        'signalGapMinutesFromLastEntry': signal_gap_minutes,
+        'requiredAddOnGapMinutes': required_add_on_gap_minutes,
+        'maxSymbolNotionalKrw': str(max_symbol_notional_krw),
+        'projectedSymbolNotionalKrw': (
+            str(projected_symbol_notional_krw)
+            if projected_symbol_notional_krw is not None else None
+        ),
         'targetExitBuckets': TARGET_EXIT_BUCKETS,
         **sizing,
     }
@@ -410,33 +490,92 @@ async def main_async() -> int:
     if require_flat and not account_flat:
         print('ACCOUNT_NOT_FLAT')
         return 0
-    if len(active_positions) >= max_active_positions:
-        print('MAX_ACTIVE_POSITIONS_REACHED', len(active_positions), max_active_positions)
-        return 0
-    if position_qty > 0:
-        print('BROKER_POSITION_NOT_FLAT', symbol, position_qty)
-        return 0
     if open_buy:
         print('OPEN_BUY_ORDER_EXISTS', symbol)
         return 0
 
-    reserved, position = store.reserve_entry(
-        run_id=signal['run_id'],
-        symbol=symbol,
-        strategy_version=signal['strategy_version'],
-        signal_as_of=signal['as_of'].isoformat(),
-        client_order_id=client_order_id,
-        target_exit_buckets=TARGET_EXIT_BUCKETS,
-    )
-    if not reserved or not position:
-        print('ENTRY_POSITION_RESERVATION_FAILED', json.dumps(position, ensure_ascii=False, default=str))
-        return 0
+    if is_add_on:
+        if same_symbol_position['state'] != 'OPEN':
+            print('ADD_ON_POSITION_NOT_OPEN', symbol, same_symbol_position['state'])
+            return 0
+        if entry_count_before >= max_entries_per_symbol:
+            print('MAX_ENTRIES_PER_SYMBOL_REACHED', symbol, entry_count_before, max_entries_per_symbol)
+            return 0
+        if signal_gap_minutes is None or signal_gap_minutes < required_add_on_gap_minutes:
+            print(
+                'ADD_ON_SIGNAL_GAP_TOO_SMALL',
+                symbol,
+                signal_gap_minutes,
+                required_add_on_gap_minutes,
+            )
+            return 0
+        managed_qty = Decimal(str(same_symbol_position.get('remaining_quantity') or '0'))
+        if position_qty <= 0 or abs(position_qty - managed_qty) > QTY_TOLERANCE:
+            print('ADD_ON_BROKER_QUANTITY_MISMATCH', symbol, position_qty, managed_qty)
+            return 0
+        if (
+            projected_symbol_notional_krw is not None
+            and max_symbol_notional_krw > 0
+            and projected_symbol_notional_krw > max_symbol_notional_krw
+        ):
+            print(
+                'MAX_SYMBOL_NOTIONAL_REACHED',
+                symbol,
+                projected_symbol_notional_krw,
+                max_symbol_notional_krw,
+            )
+            return 0
+
+        reserved, position = store.reserve_add_on(
+            same_symbol_position['position_id'],
+            run_id=signal['run_id'],
+            signal_as_of=signal['as_of'].isoformat(),
+            client_order_id=client_order_id,
+            target_krw=(
+                str(target_order_krw) if sizing_mode == 'FIXED_KRW' else None
+            ),
+            max_entries=max_entries_per_symbol,
+            min_gap_minutes=required_add_on_gap_minutes,
+        )
+        if not reserved or not position:
+            print('ADD_ON_POSITION_RESERVATION_FAILED', json.dumps(position, ensure_ascii=False, default=str))
+            return 0
+    else:
+        if same_symbol_position:
+            print('SAME_SYMBOL_ACTIVE_POSITION_POLICY_BLOCK', symbol, same_symbol_position['state'])
+            return 0
+        if len(active_positions) >= max_active_positions:
+            print('MAX_ACTIVE_POSITIONS_REACHED', len(active_positions), max_active_positions)
+            return 0
+        if position_qty > 0:
+            print('BROKER_POSITION_NOT_FLAT', symbol, position_qty)
+            return 0
+
+        reserved, position = store.reserve_entry(
+            run_id=signal['run_id'],
+            symbol=symbol,
+            strategy_version=signal['strategy_version'],
+            signal_as_of=signal['as_of'].isoformat(),
+            client_order_id=client_order_id,
+            target_exit_buckets=TARGET_EXIT_BUCKETS,
+        )
+        if not reserved or not position:
+            print('ENTRY_POSITION_RESERVATION_FAILED', json.dumps(position, ensure_ascii=False, default=str))
+            return 0
 
     try:
         result = await execute_order(settings, request)
     except Exception as exc:
         guard = TradeLedger(settings.state_db_path).get(client_order_id)
-        if guard and guard.get('status') == 'AMBIGUOUS':
+        if is_add_on:
+            if guard and guard.get('status') == 'AMBIGUOUS':
+                store.mark_ambiguous_add_on(
+                    position['position_id'],
+                    f"broker add-on submission ambiguous: {guard.get('error') or exc}",
+                )
+            else:
+                store.release_add_on(position['position_id'], f'{type(exc).__name__}: {exc}')
+        elif guard and guard.get('status') == 'AMBIGUOUS':
             store.mark_ambiguous_entry(
                 position['position_id'],
                 f"broker submission ambiguous: {guard.get('error') or exc}",
@@ -446,7 +585,10 @@ async def main_async() -> int:
         raise
 
     if not result.get('allowed'):
-        store.mark_entry_aborted(position['position_id'], f"entry blocked: {result.get('reason')}")
+        if is_add_on:
+            store.release_add_on(position['position_id'], f"add-on blocked: {result.get('reason')}")
+        else:
+            store.mark_entry_aborted(position['position_id'], f"entry blocked: {result.get('reason')}")
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
         return 0
 
@@ -466,18 +608,36 @@ async def main_async() -> int:
                 ),
                 'max_active_positions': max_active_positions,
                 'active_positions_before_entry': len(active_positions),
+                'entry_type': 'ADD_ON' if is_add_on else 'INITIAL',
+                'entry_count_before': entry_count_before,
+                'max_entries_per_symbol': max_entries_per_symbol,
+                'max_symbol_notional_krw': str(max_symbol_notional_krw),
+                'projected_symbol_notional_krw': (
+                    str(projected_symbol_notional_krw)
+                    if projected_symbol_notional_krw is not None else None
+                ),
             }
         },
     )
 
     order_id = result.get('orderId')
     if not order_id:
-        store.mark_ambiguous_entry(position['position_id'], 'entry submission returned no orderId')
-        print('ENTRY_AMBIGUOUS_NO_ORDER_ID')
+        if is_add_on:
+            store.mark_ambiguous_add_on(position['position_id'], 'add-on submission returned no orderId')
+            print('ADD_ON_AMBIGUOUS_NO_ORDER_ID')
+        else:
+            store.mark_ambiguous_entry(position['position_id'], 'entry submission returned no orderId')
+            print('ENTRY_AMBIGUOUS_NO_ORDER_ID')
         return 2
 
-    store.mark_entry_submitted(position['position_id'], order_id)
+    if is_add_on:
+        store.mark_add_on_submitted(position['position_id'], order_id)
+    else:
+        store.mark_entry_submitted(position['position_id'], order_id)
     result['managedPositionId'] = position['position_id']
+    result['entryType'] = 'ADD_ON' if is_add_on else 'INITIAL'
+    result['entryCountBefore'] = entry_count_before
+    result['entryCountAfterFillExpected'] = entry_count_before + 1
     result['targetExitBuckets'] = TARGET_EXIT_BUCKETS
     result['researchNonOverlapEntry'] = _bool(
         (signal.get('payload') or {}).get('shadow_entry_this_signal')

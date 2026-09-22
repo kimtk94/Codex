@@ -28,6 +28,10 @@ async def main():
         'signalBarMinutes': int(os.environ.get('AUTO_TRADE_SIGNAL_BAR_MINUTES', '0') or 0),
         'maxSignalAgeMinutes': int(os.environ.get('AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES', '90') or 90),
         'maxActivePositions': int(os.environ.get('AUTO_TRADE_MAX_ACTIVE_POSITIONS', '3') or 3),
+        'maxEntriesPerSymbol': int(os.environ.get('AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL', '1') or 1),
+        'addOnMinBucketGap': int(os.environ.get('AUTO_TRADE_ADD_ON_MIN_BUCKET_GAP', '1') or 1),
+        'maxSymbolNotionalKrw': os.environ.get('AUTO_TRADE_MAX_SYMBOL_NOTIONAL_KRW', '0'),
+        'orderKrw': os.environ.get('AUTO_TRADE_ORDER_KRW', '0'),
         'modelRotationEnabled': os.environ.get('AUTO_TRADE_MODEL_ROTATION_ENABLED', 'true').lower() == 'true',
         'researchNonOverlapBenchmark': True,
         'liveEntryRequiresResearchNonOverlap': (
