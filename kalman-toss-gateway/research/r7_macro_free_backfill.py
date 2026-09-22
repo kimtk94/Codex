@@ -74,7 +74,7 @@ def bls_data(start_year,end_year):
         vals={}
         for r in s.get("data") or []:
             p=str(r.get("period") or "")
-            if not re.fullmatch(r"M\\d{2}",p):
+            if not (len(p)==3 and p.startswith("M") and p[1:].isdigit()):
                 continue
             raw=r.get("value")
             value=parse_bls_value(raw)
