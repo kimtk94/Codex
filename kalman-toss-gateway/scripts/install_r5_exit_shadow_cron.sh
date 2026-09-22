@@ -44,9 +44,11 @@ install -d -m 0755 "$BASE/logs"
 install -m 0644 "$SRC" "$DST"
 
 if systemctl list-unit-files cron.service >/dev/null 2>&1; then
-  systemctl reload cron.service || systemctl restart cron.service
+  systemctl restart cron.service
+  systemctl is-active --quiet cron.service || fail "cron.service is not active"
 elif systemctl list-unit-files crond.service >/dev/null 2>&1; then
-  systemctl reload crond.service || systemctl restart crond.service
+  systemctl restart crond.service
+  systemctl is-active --quiet crond.service || fail "crond.service is not active"
 else
   fail "cron/crond service not found"
 fi
