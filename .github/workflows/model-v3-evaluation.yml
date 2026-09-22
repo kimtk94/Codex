@@ -11,6 +11,7 @@ on:
       - "kalman-toss-gateway/tests/test_model_v3_004_kr_joint_gate.py"
       - "kalman-toss-gateway/tests/test_model_v3_btc_tail.py"
       - "kalman-toss-gateway/tests/test_model_v3_us_hurdle.py"
+      - "kalman-toss-gateway/tests/test_model_v3_shadow_tracker.py"
       - "kalman-toss-gateway/config/model-v3-kr-candidate-spec.json"
       - "kalman-toss-gateway/config/model-v3-004-kr-joint-gate-spec.json"
       - "kalman-toss-gateway/config/model-v3-btc-tail-spec.json"
@@ -19,6 +20,7 @@ on:
       - "kalman-toss-gateway/scripts/run_model_v3_004_kr_joint_gate.sh"
       - "kalman-toss-gateway/scripts/run_model_v3_003_btc_tail.sh"
       - "kalman-toss-gateway/scripts/run_model_v3_003_us_hurdle.sh"
+      - "kalman-toss-gateway/scripts/run_v3_shadow_tracker.sh"
       - ".github/workflows/model-v3-evaluation.yml"
   push:
     branches: [main]
@@ -68,10 +70,12 @@ jobs:
           python -m py_compile tests/test_model_v3_004_kr_joint_gate.py
           python -m py_compile tests/test_model_v3_btc_tail.py
           python -m py_compile tests/test_model_v3_us_hurdle.py
+          python -m py_compile tests/test_model_v3_shadow_tracker.py
           bash -n scripts/run_model_v3_003_kr_candidate.sh
           bash -n scripts/run_model_v3_004_kr_joint_gate.sh
           bash -n scripts/run_model_v3_003_btc_tail.sh
           bash -n scripts/run_model_v3_003_us_hurdle.sh
+          bash -n scripts/run_v3_shadow_tracker.sh
 
       - name: Validate evaluation specs
         run: |
@@ -91,6 +95,7 @@ jobs:
           python -m unittest tests.test_model_v3_004_kr_joint_gate -v
           python -m unittest tests.test_model_v3_btc_tail -v
           python -m unittest tests.test_model_v3_us_hurdle -v
+          python -m unittest tests.test_model_v3_shadow_tracker -v
 
       - name: Validate research isolation
         run: |
@@ -106,10 +111,12 @@ jobs:
               Path("research/model_v3/kr_joint_gate_candidate.py"),
               Path("research/model_v3/btc_tail_candidate.py"),
               Path("research/model_v3/us_hurdle_candidate.py"),
+              Path("research/model_v3/shadow_tracker.py"),
               Path("scripts/run_model_v3_003_kr_candidate.sh"),
               Path("scripts/run_model_v3_004_kr_joint_gate.sh"),
               Path("scripts/run_model_v3_003_btc_tail.sh"),
               Path("scripts/run_model_v3_003_us_hurdle.sh"),
+              Path("scripts/run_v3_shadow_tracker.sh"),
           ]
           text = "\n".join(p.read_text() for p in files)
           forbidden = [
