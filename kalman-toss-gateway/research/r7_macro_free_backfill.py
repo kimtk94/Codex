@@ -340,7 +340,7 @@ def main():
             ),
         }
     report={
-      "schema":"kalman-r7-macro-free-v4",
+      "schema":"kalman-r7-macro-free-v5",
       "generated_at_utc":datetime.now(UTC).isoformat(),
       "research_only":True,"production_changed":False,
       "provider_cost":"FREE_NO_KEY",
@@ -353,6 +353,12 @@ def main():
       "pit_archive_eligible_events":eligible,
       "pit_archive_coverage_ratio":pit_archive_coverage_ratio,
       "per_family_archive_coverage":per_family,
+      "actual_gate_contract":{
+        "scope":"OVERALL_BLS_ARCHIVE_EVENTS",
+        "threshold":0.95,
+        "per_family_coverage_is_diagnostic_only":True,
+        "reissued_or_corrected_rows_are_event_level_missing":True
+      },
       "consensus_available":False,
       "pit_actual_ready":pit_archive_coverage_ratio>=0.95,
       "reaction_ready":False,
