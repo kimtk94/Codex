@@ -266,7 +266,8 @@ def main():
     url_ratio=float(d["canonical_url"].notna().mean()) if len(d) else 0.0
     dup_ratio=float((raw_rows-len(d))/raw_rows) if raw_rows else 0.0
     counts=d.groupby("symbol").size() if len(d) else pd.Series(dtype=int)
-    symbols_ge20=int((counts>=20).sum())\n    symbols_ge10=int((counts>=10).sum())
+    symbols_ge20=int((counts>=20).sum())
+    symbols_ge10=int((counts>=10).sum())
     times=pd.to_datetime(d["available_at"],utc=True,errors="coerce").dropna()
     span_months=((times.max()-times.min()).total_seconds()/86400/30.4375 if len(times)>=2 else 0.0)
 
@@ -279,11 +280,11 @@ def main():
             "seendate_parse_ge_90pct":seen_ratio>=0.90,
         }
         ready=False
-        next_action="RUN_FULL_READINESS" if smoke_pass else "FIX_NEWS_DATA_READINESS"
+        next_action="RUN_RECENT_READINESS" if smoke_pass else "FIX_NEWS_DATA_READINESS"
     else:
         gates={
             "universe_is_93":len(reg)==93,
-            "symbols_ge10_articles_ge_80":symbols_ge20>=80,
+            "symbols_ge10_articles_ge_80":symbols_ge10>=80,
             "usable_span_days_ge_60":span_months*30.4375>=60,
             "seendate_parse_ge_95pct":seen_ratio>=0.95,
             "canonical_url_ge_95pct":url_ratio>=0.95,
@@ -312,14 +313,16 @@ def main():
         "raw_symbol_article_rows":raw_rows,
         "dedup_symbol_article_rows":len(d),
         "within_symbol_duplicate_ratio":dup_ratio,
-        "symbols_with_20plus_articles":symbols_ge20,\n        "symbols_with_10plus_articles":symbols_ge10,
+        "symbols_with_20plus_articles":symbols_ge20,
+        "symbols_with_10plus_articles":symbols_ge10,
         "seendate_parse_ratio":seen_ratio,
         "canonical_url_ratio":url_ratio,
         "saturated_success_query_ratio":saturated_ratio,
         "usable_span_months":span_months,
         "smoke_quality_pass":smoke_pass,
         "gates":gates,
-        "r9_news_ready":ready,\n        "historical_model_fitting_allowed":False,
+        "r9_news_ready":ready,
+        "historical_model_fitting_allowed":False,
         "next_action":next_action,
     }
     (out/f"manifest_{args.mode}.json").write_text(json.dumps(manifest,indent=2,default=str)+"\n")
