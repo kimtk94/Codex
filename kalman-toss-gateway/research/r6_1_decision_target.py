@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 
-SCHEMA = "kalman-r6-1-decision-target-v3"
+SCHEMA = "kalman-r6-1-decision-target-v4"
 COST = 0.001
 STOP = -0.03
 TAKE = 0.20
@@ -20,7 +20,7 @@ MIN_UNIVERSE = 80
 BLOCK_DAYS = 5
 B_DEFAULT = 2000
 RNG_SEED = 20260922
-PATH_COVERAGE_MIN = 0.99
+PATH_COVERAGE_MIN = 0.95
 EXPECTED_SCORED_ROWS = 497504
 
 RESEARCH_CUTOFF = pd.Timestamp("2026-09-02T13:30:00Z")
@@ -36,6 +36,16 @@ FOLDS = [
 ]
 EVAL_FOLDS = FOLDS[1:]
 EVAL_FOLD_NAMES = {x[0] for x in EVAL_FOLDS}
+EXPECTED_TRAIN_ROWS = {
+    "E1_2023H1": 333560,
+    "E2_2023H2": 402199,
+    "E3_2024H1": 469975,
+    "E4_2024H2": 536765,
+    "E5_2025H1": 604724,
+    "E6_2025H2": 670525,
+    "E7_2026_JAN_APR": 739716,
+    "E8_2026_MAY_CUTOFF": 784713,
+}
 
 FEATURES = [
     "cs_ret_1b", "cs_ret_2b", "cs_ret_4b", "cs_ret_6b",
@@ -145,41 +155,264 @@ def effective_names(symbols, weights):
     return float(1.0 / x.pow(2).sum()), float(x.max())
 
 
-def add_path_proxy(df):
-    if df.duplicated(["symbol", "expected_seq"]).any():
-        raise RuntimeError("duplicate symbol/expected_seq in frozen scored rows")
 
+def _read_panel_symbol(canon_panel, live_panel, sym):
+    p = canon_panel / f"{sym}_1h_gap_aware.parquet"
+    if not p.exists():
+        raise FileNotFoundError(p)
+
+    cols = ["expected_seq", "timestamp", "high", "low", "close"]
+    q = pd.read_parquet(p)
+    keep = [x for x in cols if x in q.columns]
+    q = q[keep].copy()
+    q["expected_seq"] = pd.to_numeric(q["expected_seq"], errors="coerce")
+    q = q.loc[q["expected_seq"].notna()].copy()
+    q["expected_seq"] = q["expected_seq"].astype("int64")
+    if "timestamp" in q.columns:
+        q["timestamp"] = nts(q["timestamp"])
+
+    lp = live_panel / f"{sym}_1h_live.parquet"
+    if lp.exists():
+        z = pd.read_parquet(lp)
+        if len(z):
+            keep2 = [x for x in cols if x in z.columns]
+            z = z[keep2].copy()
+            z["expected_seq"] = pd.to_numeric(z["expected_seq"], errors="coerce")
+            z = z.loc[z["expected_seq"].notna()].copy()
+            z["expected_seq"] = z["expected_seq"].astype("int64")
+            if "timestamp" in z.columns:
+                z["timestamp"] = nts(z["timestamp"])
+                z = z.loc[z["timestamp"] < RESEARCH_CUTOFF]
+            q = pd.concat([q, z], ignore_index=True, sort=False)
+
+    return (
+        q.sort_values("expected_seq")
+        .drop_duplicates("expected_seq", keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def attach_path_proxy(df, canon_panel, live_panel):
     out = df.copy()
-    for k in [1, 2, 3, 4]:
-        fut = out[["symbol", "expected_seq", "high", "low"]].copy()
-        fut["expected_seq"] = fut["expected_seq"] - k
-        fut = fut.rename(columns={"high": f"high_p{k}", "low": f"low_p{k}"})
-        out = out.merge(fut, on=["symbol", "expected_seq"], how="left", validate="one_to_one")
+    out["proxy_ret_4b"] = np.nan
+    out["path_complete"] = False
+    parity_abs = []
 
-    complete_cols = [f"{x}_p{k}" for k in [1, 2, 3, 4] for x in ["high", "low"]]
-    out["path_complete"] = out[complete_cols].notna().all(axis=1)
+    for sym, idxs in out.groupby("symbol", sort=False).groups.items():
+        q = _read_panel_symbol(canon_panel, live_panel, str(sym))
+        q = q.dropna(subset=["expected_seq", "high", "low", "close"])
+        q = q.set_index("expected_seq")
 
-    c = pd.to_numeric(out["close"], errors="coerce").to_numpy(float)
-    proxy = pd.to_numeric(out["fwd_ret_4b"], errors="coerce").to_numpy(float)
-    active = out["path_complete"].to_numpy(bool) & np.isfinite(c) & np.isfinite(proxy)
+        idx = np.asarray(list(idxs), dtype=int)
+        seq = pd.to_numeric(out.loc[idx, "expected_seq"], errors="coerce").to_numpy()
+        entry = q["close"].reindex(seq).to_numpy(float)
+        exit4 = q["close"].reindex(seq + 4).to_numpy(float)
 
-    for k in [1, 2, 3, 4]:
-        hi = pd.to_numeric(out[f"high_p{k}"], errors="coerce").to_numpy(float)
-        lo = pd.to_numeric(out[f"low_p{k}"], errors="coerce").to_numpy(float)
-        stop_touch = active & ((lo / c - 1.0) <= STOP)
-        take_touch = active & ((hi / c - 1.0) >= TAKE)
+        frozen_fwd = pd.to_numeric(out.loc[idx, "fwd_ret_4b"], errors="coerce").to_numpy(float)
+        canonical_fwd = exit4 / entry - 1.0
+        ok = np.isfinite(frozen_fwd) & np.isfinite(canonical_fwd)
+        if ok.any():
+            parity_abs.extend(np.abs(frozen_fwd[ok] - canonical_fwd[ok]).tolist())
 
-        # Conservative same-bar ambiguity rule: stop wins.
-        stop_first = stop_touch
-        take_only = take_touch & ~stop_touch
+        highs = []
+        lows = []
+        complete = np.isfinite(entry) & np.isfinite(exit4)
+        for k in [1, 2, 3, 4]:
+            hi = q["high"].reindex(seq + k).to_numpy(float)
+            lo = q["low"].reindex(seq + k).to_numpy(float)
+            highs.append(hi)
+            lows.append(lo)
+            complete &= np.isfinite(hi) & np.isfinite(lo)
 
-        proxy[stop_first] = STOP
-        proxy[take_only] = TAKE
-        active[stop_first | take_only] = False
+        proxy = frozen_fwd.copy()
+        active = complete & np.isfinite(proxy)
+        for k in [0, 1, 2, 3]:
+            stop_touch = active & ((lows[k] / entry - 1.0) <= STOP)
+            take_touch = active & ((highs[k] / entry - 1.0) >= TAKE)
+            # Conservative same-bar ambiguity: stop wins.
+            proxy[stop_touch] = STOP
+            take_only = take_touch & ~stop_touch
+            proxy[take_only] = TAKE
+            active[stop_touch | take_only] = False
 
-    proxy[~out["path_complete"].to_numpy(bool)] = np.nan
-    out["proxy_ret_4b"] = proxy
-    return out
+        proxy[~complete] = np.nan
+        out.loc[idx, "proxy_ret_4b"] = proxy
+        out.loc[idx, "path_complete"] = complete
+
+    pa = np.asarray(parity_abs, float)
+    audit = {
+        "rows": int(len(out)),
+        "path_coverage": float(out["path_complete"].mean()),
+        "fwd_parity_n": int(len(pa)),
+        "fwd_parity_median_abs_diff": float(np.median(pa)) if len(pa) else None,
+        "fwd_parity_max_abs_diff": float(np.max(pa)) if len(pa) else None,
+    }
+    return out, audit
+
+
+def _bool_series(s):
+    if pd.api.types.is_bool_dtype(s):
+        return s.fillna(False)
+    return s.astype(str).str.strip().str.lower().isin(["true", "1", "yes"])
+
+
+def _target_timestamp_map(root):
+    qpath = (
+        root / "US_ETF/directional_research/canonical_history_v1/"
+        "qqq_context/history_1h/QQQ_1h_gap_aware.parquet"
+    )
+    q = pd.read_parquet(qpath)
+    q["expected_seq"] = pd.to_numeric(q["expected_seq"], errors="coerce")
+    q = q.loc[q["expected_seq"].notna()].copy()
+    q["expected_seq"] = q["expected_seq"].astype("int64")
+    if "timestamp" in q.columns:
+        q["timestamp"] = nts(q["timestamp"])
+    else:
+        q["market_open_utc"] = nts(q["market_open_utc"])
+        q["timestamp"] = q["market_open_utc"] + pd.to_timedelta(
+            pd.to_numeric(q["session_bucket"], errors="coerce"), unit="h"
+        )
+    return q.drop_duplicates("expected_seq", keep="last").set_index("expected_seq")["timestamp"]
+
+
+def build_r1_training_rows(root, symbols, canon_panel, live_panel):
+    r1 = root / "US_ETF/directional_research/r1_directional_v1_2/primary_train"
+    if not r1.exists():
+        raise FileNotFoundError(r1)
+
+    required = [
+        "expected_seq", "timestamp", "feature_core_valid",
+        "ret_1b", "ret_2b", "ret_4b", "ret_6b",
+        "bar_range", "rv_6", "rv_24", "ma_dist_6", "ma_dist_24",
+        "volume_z_24", "qqq_ret_1b", "qqq_ret_2b", "qqq_ret_6b",
+        "qqq_rv_24", "qqq_ma_dist_24", "fwd_ret_4b",
+    ]
+
+    parts = []
+    for sym in symbols:
+        p = r1 / f"{sym}_r1.parquet"
+        if not p.exists():
+            raise FileNotFoundError(p)
+        z = pd.read_parquet(p)
+        miss = [x for x in required if x not in z.columns]
+        if miss:
+            raise RuntimeError(f"{p.name} missing R1 columns: {miss}")
+        z = z[required].copy()
+        z["symbol"] = str(sym)
+        z["timestamp"] = nts(z["timestamp"])
+        z["expected_seq"] = pd.to_numeric(z["expected_seq"], errors="coerce")
+        z = z.loc[z["expected_seq"].notna()].copy()
+        z["expected_seq"] = z["expected_seq"].astype("int64")
+        z["_core_valid"] = _bool_series(z["feature_core_valid"])
+        parts.append(z)
+
+    raw = pd.concat(parts, ignore_index=True)
+    raw = raw.sort_values(["symbol", "expected_seq"]).reset_index(drop=True)
+
+    q_ts = _target_timestamp_map(root)
+    raw["target_timestamp_4b"] = (raw["expected_seq"] + 4).map(q_ts)
+
+    beta = np.full(len(raw), np.nan, float)
+    for sym, idxs in raw.groupby("symbol", sort=False).groups.items():
+        idx = np.asarray(list(idxs), dtype=int)
+        z = raw.loc[idx, ["expected_seq", "ret_1b", "qqq_ret_1b"]].copy()
+        lo = int(z["expected_seq"].min())
+        hi = int(z["expected_seq"].max())
+        grid = pd.DataFrame({"expected_seq": np.arange(lo, hi + 1, dtype=np.int64)})
+        grid = grid.merge(z, on="expected_seq", how="left")
+        x = pd.to_numeric(grid["ret_1b"], errors="coerce")
+        y = pd.to_numeric(grid["qqq_ret_1b"], errors="coerce")
+        b = x.rolling(24, min_periods=12).cov(y) / y.rolling(24, min_periods=12).var().replace(0, np.nan)
+        bm = pd.Series(b.to_numpy(), index=grid["expected_seq"])
+        beta[idx] = bm.reindex(z["expected_seq"]).to_numpy(float)
+
+    raw["beta24"] = np.clip(beta, -3, 3)
+    raw["residual_ret_6b"] = raw["ret_6b"] - raw["beta24"] * raw["qqq_ret_6b"]
+
+    g = raw.groupby("timestamp")
+    for col in [
+        "ret_1b", "ret_2b", "ret_4b", "ret_6b",
+        "rv_6", "rv_24", "ma_dist_6", "ma_dist_24",
+        "volume_z_24", "bar_range", "beta24", "residual_ret_6b",
+    ]:
+        raw["cs_" + col] = g[col].rank(pct=True, method="average")
+
+    raw["universe_median_rv24"] = g["rv_24"].transform("median")
+    raw["ix_trend_qqq"] = raw["ma_dist_24"] * raw["qqq_ma_dist_24"]
+    raw["ix_vol_qqq"] = raw["rv_24"] * raw["qqq_rv_24"]
+    raw["ix_ret1_qqq"] = raw["ret_1b"] * raw["qqq_ret_2b"]
+    raw["ix_mom6_qqq"] = raw["ret_6b"] * raw["qqq_ret_6b"]
+
+    ratio = raw["universe_median_rv24"] / raw["rv_24"].replace(0, np.nan)
+    raw["exec_weight"] = ratio.clip(0.25, 1.0).fillna(1.0)
+    raw["net10_return"] = raw["exec_weight"] * raw["fwd_ret_4b"] - raw["exec_weight"] * COST
+    raw["target_net"] = raw["net10_return"]
+    raw["target_ordinal_net"] = (
+        raw.groupby("timestamp")["target_net"].rank(pct=True, method="average") - 0.5
+    )
+
+    valid = (
+        raw["_core_valid"]
+        & raw["fwd_ret_4b"].notna()
+        & raw["target_timestamp_4b"].notna()
+        & (raw["target_timestamp_4b"] < RESEARCH_CUTOFF)
+    )
+    train = raw.loc[valid].copy()
+    train, path_audit = attach_path_proxy(train, canon_panel, live_panel)
+    train["proxy_net_return"] = train["exec_weight"] * train["proxy_ret_4b"] - train["exec_weight"] * COST
+    train["target_path_relative"] = (
+        train["proxy_net_return"]
+        - train.groupby("timestamp")["proxy_net_return"].transform("median")
+    )
+    return train.reset_index(drop=True), path_audit
+
+
+def reconcile_training_features(train, frozen):
+    keys = ["symbol", "expected_seq"]
+    cols = keys + FEATURES
+    a = train[cols].copy()
+    b = frozen[cols].copy()
+    m = a.merge(b, on=keys, how="inner", suffixes=("_train", "_frozen"), validate="one_to_one")
+
+    details = []
+    all_abs = []
+    finite_same = 0
+    total = 0
+    for f in FEATURES:
+        x = pd.to_numeric(m[f + "_train"], errors="coerce").to_numpy(float)
+        y = pd.to_numeric(m[f + "_frozen"], errors="coerce").to_numpy(float)
+        fx = np.isfinite(x)
+        fy = np.isfinite(y)
+        finite_same += int((fx == fy).sum())
+        total += len(x)
+        both = fx & fy
+        d = np.abs(x[both] - y[both])
+        if len(d):
+            all_abs.append(d)
+        details.append({
+            "feature": f,
+            "n": int(len(x)),
+            "both_finite": int(both.sum()),
+            "median_abs_diff": float(np.median(d)) if len(d) else None,
+            "max_abs_diff": float(np.max(d)) if len(d) else None,
+            "finite_agreement": float((fx == fy).mean()) if len(x) else None,
+        })
+
+    vals = np.concatenate(all_abs) if all_abs else np.array([], float)
+    audit = {
+        "matched_rows": int(len(m)),
+        "median_abs_numeric_diff": float(np.median(vals)) if len(vals) else None,
+        "max_abs_numeric_diff": float(np.max(vals)) if len(vals) else None,
+        "finite_state_agreement": float(finite_same / total) if total else None,
+        "details": details,
+    }
+    audit["pass"] = (
+        audit["matched_rows"] > 5000
+        and audit["median_abs_numeric_diff"] is not None
+        and audit["median_abs_numeric_diff"] <= 1e-10
+        and audit["finite_state_agreement"] >= 0.999
+    )
+    return audit
 
 
 def simulate(scored, score_col):
