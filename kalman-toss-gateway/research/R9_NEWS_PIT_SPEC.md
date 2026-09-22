@@ -50,9 +50,8 @@ Multiple traded share classes of the same issuer may share the same news article
 
 ## 4. Query contract
 
-DOC 2.0 validation window:
-- 2026-06-23 through 2026-09-02 13:30 UTC
-- chosen to remain inside DOC 2.0's documented recent-three-month explicit date-window limit at preregistration time
+Historical research window:
+- 2023-07-01 through 2026-09-02 13:30 UTC
 
 Query granularity:
 - calendar-month windows
@@ -60,7 +59,7 @@ Query granularity:
 - maxrecords=250 per request
 - if a month reaches the 250-record ceiling, that month is marked `SATURATED` and is not silently treated as complete
 
-The DOC API is not used for a 2023-2026 historical backfill because its official STARTDATETIME/ENDDATETIME contract only supports the recent three-month window.
+GDELT expanded DOC 2.0 in 2018 to search from 2017-01-01 forward. ArticleList queries over broad ranges emphasize the most recent three months of the specified search window, so R9 uses month-sized root windows and recursively narrows only saturated windows.
 
 Only English-language articles are retained in v1.
 
@@ -99,13 +98,13 @@ No sentiment, direction, novelty, LLM classification, or price reaction is compu
 
 All required:
 - frozen universe = 93 symbols
-- >= 80 / 93 symbols with at least 10 mapped recent articles
-- >= 60 days usable span
+- >= 80 / 93 symbols with at least 20 mapped historical articles
+- >= 24 months usable span
 - >= 95% rows with parseable GDELT seendate
 - >= 95% rows with canonical URL
 - within-symbol duplicate ratio <= 5%
 - saturated symbol-month windows <= 5% of all successful symbol-month queries
-- >= 5,000 deduplicated symbol-article rows
+- >= 10,000 deduplicated symbol-article rows
 - no production writes
 - no model fitting
 
@@ -128,9 +127,7 @@ Smoke passes when:
 
 R9.1 is NOT admitted by this spec.
 
-If recent R9.0 readiness passes, R9-N moves to a prospective news ledger first. Historical R9 alpha promotion is not allowed from DOC 2.0 because the required multi-year PIT backfill is unavailable through this API.
-
-A future alpha challenger requires a separately preregistered prospective evaluation or a separately validated historical raw/BigQuery data source.
+If R9.0 full historical readiness passes, exactly one bounded R9.1 news challenger may be separately preregistered.
 
 Candidate feature family may include only:
 - recent article count
@@ -171,3 +168,30 @@ The following changes are frozen before rerun:
 - modes are now `smoke` and `recent`; multi-year `full` mode is prohibited for DOC 2.0
 
 No model fitting is enabled by these changes.
+
+
+## 12. GDELT saturation / throttling hardening after smoke v3
+
+Smoke v3 observed:
+- 10 symbol root queries
+- 6 succeeded / 4 returned HTTP 429
+- all 6 successful root windows hit the 250 ArticleList cap
+- 1,500 deduplicated symbol-article rows
+- seendate parse ratio 100%
+- canonical URL ratio 100%
+- production unchanged
+
+This confirms both useful news coverage and incomplete root-window retrieval.
+
+Frozen source-repair rules before the next smoke:
+- minimum request interval = 15 seconds
+- adaptive retry for 429 / transient 5xx
+- successful GDELT responses cached by alias + exact time window
+- monthly root window retained
+- any 250-record saturated window is bisected recursively
+- one-second overlap is used at split boundaries, then canonical-URL dedupe removes overlap duplicates
+- recursive splitting stops at 24-hour windows
+- only **terminal leaf windows** count toward the saturation completeness gate
+- if a terminal 24-hour window still returns 250 rows, it remains explicitly saturated and incomplete
+
+No alpha result has been inspected and no promotion threshold is relaxed.
