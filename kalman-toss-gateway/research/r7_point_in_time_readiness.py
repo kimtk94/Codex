@@ -7,7 +7,6 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-import psycopg
 
 SCHEMA = "kalman-r7-point-in-time-readiness-v2"
 DEFAULT_SNAPSHOT = Path(__file__).with_name("r7_neon_readiness_snapshot_20260922.json")
@@ -97,6 +96,7 @@ def parse_args():
 def load_data(snapshot_path):
     dsn = os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL")
     if dsn:
+        import psycopg
         with psycopg.connect(dsn) as conn, conn.cursor() as cur:
             return {k: one(cur, q) for k, q in SQL.items()}, "LIVE_NEON"
 
