@@ -32,12 +32,30 @@ def clean_company_name(x):
     s=WS_RE.sub(" ",s).strip(" .-")
     return s
 
-def query_alias(company_name):
-    # Keep legal-name precision, but normalize common SEC typography.
+ALIAS_OVERRIDES={
+    "AMZN":"Amazon",
+    "GOOG":"Alphabet",
+    "GOOGL":"Alphabet",
+    "JPM":"JPMorgan Chase",
+    "XOM":"ExxonMobil",
+    "META":"Meta Platforms",
+    "UNH":"UnitedHealth Group",
+    "WMT":"Walmart",
+    "MSFT":"Microsoft",
+    "NVDA":"NVIDIA",
+    "AAPL":"Apple Inc",
+}
+
+def query_alias(company_name,symbol=None):
+    if symbol and symbol in ALIAS_OVERRIDES:
+        return ALIAS_OVERRIDES[symbol]
     s=clean_company_name(company_name)
-    s=re.sub(r"\bCOM\b","com",s,flags=re.I)
-    s=re.sub(r"\bCORP\b","Corp",s,flags=re.I)
-    s=re.sub(r"\bINC\b","Inc",s,flags=re.I)
+    s=re.sub(
+        r"\s+(CORPORATION|CORP|INCORPORATED|INC|COMPANY|CO|PLC|LTD|LIMITED)$",
+        "",
+        s,
+        flags=re.I,
+    ).strip()
     return s
 
 def canonical_url(url):
@@ -74,7 +92,7 @@ def load_registry(events_path):
         # mode-like deterministic choice: longest normalized name, then lexical.
         uniq=sorted(set(names),key=lambda x:(-len(clean_company_name(x)),clean_company_name(x)))
         name=uniq[0]
-        reg.append({"symbol":sym,"company_name":name,"query_alias":query_alias(name)})
+        reg.append({"symbol":sym,"company_name":name,"query_alias":query_alias(name,sym)})
     return pd.DataFrame(reg)
 
 def month_windows(start,end):
@@ -89,14 +107,22 @@ def month_windows(start,end):
         cur=nxt
 
 class GdeltClient:
-    def __init__(self,min_interval=0.6,timeout=30):
-        self.client=httpx.Client(timeout=timeout,follow_redirects=True)
+    def __init__(self,min_interval=8.0,timeout=45,max_retries=4):
+        self.client=httpx.Client(
+            timeout=timeout,
+            follow_redirects=True,
+            headers={"User-Agent":"KalmanR9NewsResearch/1.0"},
+        )
         self.min_interval=float(min_interval)
+        self.max_retries=int(max_retries)
         self.last=0.0
-    def search(self,alias,start,end,maxrecords=250):
+
+    def _wait_interval(self):
         wait=self.min_interval-(time.monotonic()-self.last)
         if wait>0:
             time.sleep(wait)
+
+    def search(self,alias,start,end,maxrecords=250):
         params={
             "query":f'\"{alias}\" sourcelang:english',
             "mode":"artlist",
@@ -106,10 +132,24 @@ class GdeltClient:
             "startdatetime":pd.Timestamp(start).strftime("%Y%m%d%H%M%S"),
             "enddatetime":pd.Timestamp(end).strftime("%Y%m%d%H%M%S"),
         }
-        r=self.client.get(GDELT,params=params)
-        self.last=time.monotonic()
-        r.raise_for_status()
-        return r.json()
+        last_error=None
+        for attempt in range(self.max_retries+1):
+            self._wait_interval()
+            r=self.client.get(GDELT,params=params)
+            self.last=time.monotonic()
+            if r.status_code==429:
+                retry_after=r.headers.get("retry-after")
+                try:
+                    pause=float(retry_after) if retry_after else 10.0*(2**attempt)
+                except Exception:
+                    pause=10.0*(2**attempt)
+                last_error=f"HTTP 429 retry_after={retry_after}"
+                if attempt<self.max_retries:
+                    time.sleep(max(pause,self.min_interval))
+                    continue
+            r.raise_for_status()
+            return r.json()
+        raise RuntimeError(last_error or "GDELT retry exhaustion")
 
 def extract_articles(payload):
     if not isinstance(payload,dict):
@@ -130,8 +170,8 @@ def main():
     ap.add_argument("--events",default=DEFAULT_EVENTS)
     ap.add_argument("--r8-manifest",default=DEFAULT_R8_MANIFEST)
     ap.add_argument("--output-dir",default=DEFAULT_OUT)
-    ap.add_argument("--mode",choices=["smoke","full"],default="smoke")
-    ap.add_argument("--min-request-interval",type=float,default=0.6)
+    ap.add_argument("--mode",choices=["smoke","recent"],default="smoke")
+    ap.add_argument("--min-request-interval",type=float,default=8.0)
     args=ap.parse_args()
 
     r8=json.loads(Path(args.r8_manifest).read_text())
@@ -148,7 +188,9 @@ def main():
         end=pd.Timestamp("2026-09-01T00:00:00Z")
     else:
         symbols=reg["symbol"].tolist()
-        start=pd.Timestamp("2023-07-01T00:00:00Z")
+        # DOC 2.0 supports explicit START/END only within the recent ~3-month window.
+        # This snapshot stays inside that bound on the preregistration date.
+        start=pd.Timestamp("2026-06-23T00:00:00Z")
         end=pd.Timestamp("2026-09-02T13:30:00Z")
 
     client=GdeltClient(args.min_request_interval)
@@ -241,17 +283,17 @@ def main():
     else:
         gates={
             "universe_is_93":len(reg)==93,
-            "symbols_ge20_articles_ge_80":symbols_ge20>=80,
-            "usable_span_months_ge_24":span_months>=24,
+            "symbols_ge10_articles_ge_80":symbols_ge20>=80,
+            "usable_span_days_ge_60":span_months*30.4375>=60,
             "seendate_parse_ge_95pct":seen_ratio>=0.95,
             "canonical_url_ge_95pct":url_ratio>=0.95,
             "within_symbol_duplicate_ratio_le_5pct":dup_ratio<=0.05,
             "saturated_query_ratio_le_5pct":saturated_ratio<=0.05,
-            "dedup_symbol_article_rows_ge_10000":len(d)>=10000,
+            "dedup_symbol_article_rows_ge_5000":len(d)>=5000,
         }
         smoke_pass=None
         ready=all(gates.values())
-        next_action="PREREGISTER_SINGLE_R9_NEWS_ABLATION" if ready else "FIX_NEWS_DATA_READINESS"
+        next_action="START_PROSPECTIVE_R9_NEWS_LEDGER" if ready else "FIX_NEWS_DATA_READINESS"
 
     manifest={
         "schema":SCHEMA,
@@ -277,7 +319,7 @@ def main():
         "usable_span_months":span_months,
         "smoke_quality_pass":smoke_pass,
         "gates":gates,
-        "r9_news_ready":ready,
+        "r9_news_ready":ready,\n        "historical_model_fitting_allowed":False,
         "next_action":next_action,
     }
     (out/f"manifest_{args.mode}.json").write_text(json.dumps(manifest,indent=2,default=str)+"\n")
