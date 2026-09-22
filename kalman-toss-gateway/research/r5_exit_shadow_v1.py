@@ -102,13 +102,27 @@ def build_signal_rows(raw,root):
         return pd.DataFrame(columns=SIGNAL_STABLE+["run_id","mapping_status"])
     raw=raw.copy()
     raw["as_of"]=nts(raw["as_of"])
-    raw=raw.sort_values(["as_of","run_id"]).drop_duplicates(["symbol","as_of"],keep="last")
+    raw["_position_weight"]=raw["payload"].map(
+        lambda p: float((p or {}).get("position_weight") or 1.0)
+    )
+    raw["_research_non_overlap"]=raw["payload"].map(
+        lambda p: _bool((p or {}).get("shadow_entry_this_signal"))
+    )
+    raw=(
+        raw.sort_values(["as_of","run_id"])
+        .groupby(["symbol","as_of"],as_index=False)
+        .agg(
+            run_id=("run_id","last"),
+            strategy_version=("strategy_version","last"),
+            position_weight=("_position_weight","last"),
+            research_non_overlap_entry=("_research_non_overlap","max"),
+        )
+    )
 
     rows=[]
     panels={}
     for r in raw.itertuples(index=False):
         symbol=str(r.symbol).upper()
-        payload=r.payload or {}
         if symbol not in panels:
             panels[symbol]=read_panel(root,symbol)
         q=panels[symbol]
@@ -122,7 +136,7 @@ def build_signal_rows(raw,root):
             z=hit.iloc[-1]
             expected_seq=int(z["expected_seq"])
             entry_close=float(z["close"])
-        weight=float(payload.get("position_weight") or 1.0)
+        weight=float(r.position_weight)
         rows.append({
             "signal_id":signal_id(symbol,r.as_of),
             "run_id":str(r.run_id),
@@ -133,7 +147,7 @@ def build_signal_rows(raw,root):
             "expected_seq":expected_seq,
             "entry_close":entry_close,
             "position_weight":weight,
-            "research_non_overlap_entry":_bool(payload.get("shadow_entry_this_signal")),
+            "research_non_overlap_entry":bool(r.research_non_overlap_entry),
             "mapping_status":status,
             "prospective_boundary":START,
         })
