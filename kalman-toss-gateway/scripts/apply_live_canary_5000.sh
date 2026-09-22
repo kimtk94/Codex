@@ -116,7 +116,10 @@ systemctl is-active --quiet cron.service 2>/dev/null || systemctl is-active --qu
 echo
 echo "KALMAN_LIVE_CANARY_5000_APPLIED"
 echo "strategy=R5.1_BASE_HGB"
+echo "signal_policy=R5_LIVE_TOP1"
+echo "research_non_overlap=BENCHMARK_ONLY"
 echo "entry=FIXED_KRW_5000"
+echo "max_active_positions=3"
 echo "stop_loss=-3%"
 echo "take_profit=+20%"
 echo "model_rotation=enabled"
