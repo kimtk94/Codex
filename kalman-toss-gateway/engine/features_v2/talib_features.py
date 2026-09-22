@@ -167,7 +167,9 @@ def compare_legacy_rsi(frame: pd.DataFrame, features: pd.DataFrame) -> dict[str,
         aligned["talib_diagnostic"] = aligned["talib"]
 
     pair = aligned.dropna(subset=["legacy", "talib_diagnostic"]).copy()
-    pair = pair.rename(columns={"talib_diagnostic": "talib"})
+    pair["talib_feature"] = pair["talib"]
+    pair["talib"] = pair["talib_diagnostic"]
+    pair = pair.drop(columns=["talib_diagnostic"])
 
     diagnostics = {
         "raw_rows": int(len(frame)),
