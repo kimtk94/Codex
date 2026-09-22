@@ -170,7 +170,11 @@ jobs:
           text = Path("scripts/configure_auto_trade_env.sh").read_text(encoding="utf-8")
           live = text.split("  live-canary-5000)", 1)[1].split("  off)", 1)[0]
           required = [
+              "CFG_AUTO_TRADE_SIGNAL_POLICY=R5_LIVE_TOP1",
+              "CFG_AUTO_TRADE_OVERLAP_CONFIRM=CONFIRM_R5_LIVE_TOP1",
               "CFG_AUTO_TRADE_REQUIRE_ACCOUNT_FLAT=false",
+              "CFG_AUTO_TRADE_MAX_ACTIVE_POSITIONS=3",
+              "CFG_AUTO_TRADE_MODEL_ROTATION_ENABLED=false",
               "CFG_AUTO_TRADE_ORDER_KRW=5000",
               "CFG_AUTO_TRADE_SIGNAL_BAR_MINUTES=60",
               "CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=0",
@@ -178,7 +182,7 @@ jobs:
           ]
           for token in required:
               assert token in live, token
-          print("[PASS] live canary = KRW 5,000/order, cash-driven, no fixed daily cap")
+          print("[PASS] live = R5_LIVE_TOP1, max 3 positions, 4-bar holds, KRW 5,000/order")
           PY
 
       - name: Run gateway safety tests
