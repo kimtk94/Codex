@@ -16,6 +16,12 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
 35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
 
+# US execution watcher: every 5 minutes during the broad US session window.
+# It never rebuilds the model. us-cycle.lock makes it skip while the hourly
+# pipeline is committing a new signal; broker market-window checks remain fail-closed.
+*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
+*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
+
 # Seeking Alpha collector -> US/BTC feature refresh (DISABLED BY DEFAULT).
 # Enable only after the authorized SA input method and snapshot timing are verified.
 # 45 7 * * * root /opt/kalman/app/scripts/run_sa_us_btc_refresh.sh >> /opt/kalman/logs/sa-us-btc.log 2>&1
