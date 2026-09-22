@@ -10,7 +10,7 @@ from typing import Any
 
 import pandas as pd
 
-from .model_contract import score_row
+from .model_contract import score_frame, score_row
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,6 +52,118 @@ def deterministic_run_id(
 ) -> str:
     source = "|".join([strategy_version, market, symbol, as_of, model_sha256])
     return "v2-" + hashlib.sha256(source.encode("utf-8")).hexdigest()[:24]
+
+
+def _utc_timestamp(value: Any) -> pd.Timestamp:
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
+def _calibration_metrics(
+    y_true: pd.Series,
+    probability: pd.Series,
+    *,
+    bins: int = 10,
+) -> dict[str, Any]:
+    y = pd.to_numeric(y_true, errors="coerce").to_numpy(dtype=float)
+    p = pd.to_numeric(probability, errors="coerce").to_numpy(dtype=float)
+    finite = np.isfinite(y) & np.isfinite(p)
+    y = y[finite]
+    p = np.clip(p[finite], 1e-12, 1.0 - 1e-12)
+    if len(y) == 0:
+        return {"rows": 0}
+
+    brier = float(np.mean((p - y) ** 2))
+    logloss = float(-np.mean(y * np.log(p) + (1.0 - y) * np.log(1.0 - p)))
+
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    bucket = np.minimum(np.digitize(p, edges[1:-1], right=False), bins - 1)
+    reliability: list[dict[str, Any]] = []
+    ece = 0.0
+    for idx in range(bins):
+        mask = bucket == idx
+        count = int(mask.sum())
+        if count == 0:
+            continue
+        mean_p = float(np.mean(p[mask]))
+        observed = float(np.mean(y[mask]))
+        ece += (count / len(y)) * abs(mean_p - observed)
+        reliability.append(
+            {
+                "bin": idx,
+                "lower": float(edges[idx]),
+                "upper": float(edges[idx + 1]),
+                "rows": count,
+                "mean_probability": mean_p,
+                "observed_positive_rate": observed,
+                "absolute_gap": abs(mean_p - observed),
+            }
+        )
+
+    return {
+        "rows": int(len(y)),
+        "positive_rate": float(np.mean(y)),
+        "mean_probability": float(np.mean(p)),
+        "brier": brier,
+        "log_loss": logloss,
+        "ece_10bin": float(ece),
+        "extreme_probability_rate": float(np.mean((p <= 0.01) | (p >= 0.99))),
+        "reliability_bins": reliability,
+    }
+
+
+def forward_calibration_audit(
+    matrix: pd.DataFrame,
+    artifact: dict[str, Any],
+    *,
+    minimum_rows: int = 20,
+) -> dict[str, Any]:
+    """Audit fixed-model calibration only on labels realized after held-out test_end."""
+    window = artifact.get("training_window") or {}
+    test_end_raw = window.get("test_end")
+    if not test_end_raw:
+        return {
+            "status": "UNAVAILABLE",
+            "reason": "model artifact missing training_window.test_end",
+            "artifact_test_metrics": artifact.get("test_metrics"),
+        }
+
+    frame = matrix.copy()
+    frame["as_of"] = pd.to_datetime(frame["as_of"], utc=True, errors="coerce")
+    target = pd.to_numeric(frame.get("target_label"), errors="coerce")
+    test_end = _utc_timestamp(test_end_raw)
+    eligible = frame.loc[(frame["as_of"] > test_end) & target.notna()].copy()
+
+    base = {
+        "window": "POST_TEST_END_REALIZED_LABELS",
+        "test_end": test_end.isoformat(),
+        "minimum_rows_for_interpretation": int(minimum_rows),
+        "artifact_test_metrics": artifact.get("test_metrics"),
+    }
+    if eligible.empty:
+        return {
+            "status": "WAITING_FOR_FORWARD_LABELS",
+            "sufficient_for_interpretation": False,
+            **base,
+            "rows": 0,
+        }
+
+    scored = score_frame(eligible, artifact)
+    metrics = _calibration_metrics(
+        eligible["target_label"],
+        scored["probability_up"],
+    )
+    rows = int(metrics.get("rows") or 0)
+    return {
+        "status": "READY" if rows >= minimum_rows else "TRACKING",
+        "sufficient_for_interpretation": rows >= minimum_rows,
+        **base,
+        "first_as_of": eligible["as_of"].min().isoformat(),
+        "last_as_of": eligible["as_of"].max().isoformat(),
+        **metrics,
+    }
 
 
 def build_shadow_signal(
@@ -192,6 +304,7 @@ def main() -> int:
                 output_dir / "latest" / f"{market_name.lower()}.json",
                 signal,
             )
+            calibration = forward_calibration_audit(matrix, artifact)
             status["markets"][market_name] = {
                 "status": "READY",
                 "run_id": signal["run_id"],
@@ -200,6 +313,7 @@ def main() -> int:
                 "probability_up": signal["payload"]["probability_up"],
                 "data_quality": signal["payload"]["data_quality"],
                 "is_forward_shadow": signal["payload"]["is_forward_shadow"],
+                "calibration": calibration,
             }
         except Exception as exc:
             status["status"] = "FAIL"
