@@ -30,6 +30,12 @@ RELEASE_PATTERNS={
  "PPI": re.compile(r"Producer Price Index",re.I),
  "JOLTS": re.compile(r"Job Openings and Labor Turnover Survey",re.I),
 }
+ARCHIVE_SLUGS={
+ "CPI":"cpi",
+ "EMPLOYMENT":"empsit",
+ "PPI":"ppi",
+ "JOLTS":"jolts",
+}
 MONTHS={m:i for i,m in enumerate(
  ["January","February","March","April","May","June","July","August","September","October","November","December"],1
 )}
@@ -48,6 +54,109 @@ class TableParser(HTMLParser):
         elif tag=="tr" and self.in_tr:
             if self.row: self.rows.append(self.row)
             self.in_tr=False
+
+class TextParser(HTMLParser):
+    def __init__(self):
+        super().__init__(); self.parts=[]
+    def handle_data(self,data):
+        if data and data.strip():
+            self.parts.append(data.strip())
+
+def html_to_text(html):
+    p=TextParser(); p.feed(html)
+    return re.sub(r"\s+"," "," ".join(p.parts)).strip()
+
+def signed_value(verb,value):
+    v=float(value)
+    verb=(verb or "").lower()
+    if any(x in verb for x in ("decreased","declined","fell","dropped","down")):
+        return -v
+    return v
+
+def parse_archive_actuals(family,text):
+    t=re.sub(r"\s+"," ",text)
+    out={}
+    if family=="CPI":
+        m=re.search(r"(?:CPI-U\)|Consumer Price Index for All Urban Consumers).*?\b(increased|rose|advanced|decreased|declined|fell|dropped)\s+([0-9.]+)\s+percent",t,re.I)
+        if m: out["CPI_HEADLINE_MOM"]=signed_value(m.group(1),m.group(2))
+        m=re.search(r"index for all items less food and energy\s+(rose|increased|advanced|fell|declined|decreased|dropped)\s+([0-9.]+)\s+percent",t,re.I)
+        if m: out["CORE_CPI_MOM"]=signed_value(m.group(1),m.group(2))
+    elif family=="EMPLOYMENT":
+        head=t[:7000]
+        m=re.search(r"Total nonfarm payroll employment\s+(?:increased|rose)\s+by\s+([0-9,]+)",head,re.I)
+        if m: out["NFP"]=float(m.group(1).replace(",",""))
+        if "NFP" not in out:
+            m=re.search(r"Total nonfarm payroll employment\s+(?:declined|decreased|fell)\s+by\s+([0-9,]+)",head,re.I)
+            if m: out["NFP"]=-float(m.group(1).replace(",",""))
+        if "NFP" not in out:
+            m=re.search(r"(?:total )?nonfarm payroll employment\s*\(([+-]?[0-9,]+)\)",head,re.I)
+            if m: out["NFP"]=float(m.group(1).replace(",",""))
+        m=re.search(r"unemployment rate.*?(?:to|at|\()\s*([0-9.]+)\s+percent",head,re.I)
+        if m: out["UNEMPLOYMENT_RATE"]=float(m.group(1))
+        m=re.search(r"average hourly earnings for all employees on private nonfarm payrolls.{0,220}?(?:or\s+)?([0-9.]+)\s+percent",t,re.I)
+        if m:
+            snippet=m.group(0).lower()
+            val=float(m.group(1))
+            if any(x in snippet for x in ("declined","decreased","fell","down")): val=-val
+            out["AVERAGE_HOURLY_EARNINGS_MOM"]=val
+    elif family=="PPI":
+        m=re.search(r"Producer Price Index for final demand\s+(moved up|rose|increased|advanced|edged up|fell|declined|decreased|edged down)\s+([0-9.]+)\s+percent",t,re.I)
+        if m: out["PPI_MOM"]=signed_value(m.group(1),m.group(2))
+        elif re.search(r"Producer Price Index for final demand\s+was unchanged",t,re.I):
+            out["PPI_MOM"]=0.0
+    elif family=="JOLTS":
+        head=t[:5000]
+        m=re.search(r"number of job openings.{0,120}?(?:at|to)\s+([0-9.]+)\s+million",head,re.I)
+        if m: out["JOLTS_OPENINGS"]=float(m.group(1))*1000.0
+    return out
+
+def archive_url(event):
+    slug=ARCHIVE_SLUGS.get(event.get("family"))
+    if not slug: return None
+    dt=datetime.fromisoformat(str(event["release_at"]).replace("Z","+00:00"))
+    local=dt.astimezone(NY)
+    return f"https://www.bls.gov/news.release/archives/{slug}_{local:%m%d%Y}.htm"
+
+def attach_archive_first_release(events):
+    stats={"attempted":0,"fetched":0,"parsed":0,"reissued_or_corrected":0}
+    with httpx.Client(timeout=30,headers={"User-Agent":"Kalman-R7-research"}) as client:
+        for e in events:
+            url=archive_url(e)
+            if not url:
+                continue
+            stats["attempted"]+=1
+            e["archive_url"]=url
+            try:
+                r=client.get(url)
+                if r.status_code!=200:
+                    e["archive_fetch_status"]=f"HTTP_{r.status_code}"
+                    e["first_release_actuals"]={}
+                    e["first_release_quality"]="ARCHIVE_FETCH_FAILED"
+                    e["pit_actual_eligible"]=False
+                    continue
+                stats["fetched"]+=1
+                text=html_to_text(r.text)
+                actuals=parse_archive_actuals(e["family"],text)
+                reissued=bool(re.search(r"reissued this news release|corrected this news release",text,re.I))
+                if reissued: stats["reissued_or_corrected"]+=1
+                if actuals: stats["parsed"]+=1
+                e["archive_fetch_status"]="OK"
+                e["first_release_actuals"]=actuals
+                if reissued:
+                    e["first_release_quality"]="OFFICIAL_BLS_ARCHIVE_REISSUED_OR_CORRECTED"
+                    e["pit_actual_eligible"]=False
+                elif actuals:
+                    e["first_release_quality"]="OFFICIAL_BLS_ARCHIVE_PIT_CANDIDATE"
+                    e["pit_actual_eligible"]=True
+                else:
+                    e["first_release_quality"]="ARCHIVE_PARSE_FAILED"
+                    e["pit_actual_eligible"]=False
+            except Exception as ex:
+                e["archive_fetch_status"]=f"ERROR:{type(ex).__name__}"
+                e["first_release_actuals"]={}
+                e["first_release_quality"]="ARCHIVE_FETCH_FAILED"
+                e["pit_actual_eligible"]=False
+    return stats
 
 def fetch_json(client,url,payload):
     r=client.post(url,json=payload); r.raise_for_status(); return r.json()
@@ -145,6 +254,8 @@ def bls_schedule(start_year,end_year):
                 if not fam: continue
                 try: release_at=parse_release_dt(date_text,time_text)
                 except Exception: continue
+                if release_at > datetime.now(UTC):
+                    continue
                 events.append({
                     "family":fam,"event_name":name,"release_at":release_at.isoformat(),
                     "reference_period":parse_reference_month(name),
@@ -163,6 +274,8 @@ def fomc_events(start_year,end_year):
     for ds in sorted(dates):
         d=datetime.strptime(ds,"%Y%m%d")
         release=d.replace(hour=14,minute=0,tzinfo=NY).astimezone(UTC)
+        if release > datetime.now(UTC):
+            continue
         out.append({
             "family":"FOMC","event_name":"FOMC statement","release_at":release.isoformat(),
             "reference_period":None,"source":"FED_FOMC_CALENDAR",
@@ -196,11 +309,15 @@ def main():
     actuals=derived_actuals(data)
     events=bls_schedule(args.start_year,args.end_year)+fomc_events(args.start_year,args.end_year)
     events=attach_actuals(events,actuals)
+    archive_stats=attach_archive_first_release(events)
     events.sort(key=lambda x:x["release_at"])
     fams=sorted(set(e["family"] for e in events))
     n_actual=sum(bool(e["actuals"]) for e in events)
+    eligible=sum(bool(e.get("pit_actual_eligible")) for e in events)
+    attempted=archive_stats.get("attempted") or 0
+    pit_archive_coverage_ratio=(eligible/attempted) if attempted else 0.0
     report={
-      "schema":"kalman-r7-macro-free-v2",
+      "schema":"kalman-r7-macro-free-v3",
       "generated_at_utc":datetime.now(UTC).isoformat(),
       "research_only":True,"production_changed":False,
       "provider_cost":"FREE_NO_KEY",
@@ -209,8 +326,11 @@ def main():
       "events":len(events),"families":fams,"family_count":len(fams),
       "events_with_revised_actuals":n_actual,
       "bls_parse":bls_parse,
+      "archive_first_release":archive_stats,
+      "pit_archive_eligible_events":eligible,
+      "pit_archive_coverage_ratio":pit_archive_coverage_ratio,
       "consensus_available":False,
-      "pit_actual_ready":False,
+      "pit_actual_ready":pit_archive_coverage_ratio>=0.95,
       "reaction_ready":False,
       "model_fitting_allowed":False,
       "blockers":[
