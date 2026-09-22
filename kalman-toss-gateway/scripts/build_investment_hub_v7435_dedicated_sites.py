@@ -135,6 +135,10 @@ def validate_market(src: Path, market: str) -> dict:
             "FORWARD SHADOW",
             "/api/assets?view=control",
             "RECONSTRUCTED · 2026",
+            "US TRADING DAY",
+            "NEXT ACTION",
+            "NEXT UPDATE",
+            "sessionStatusHtml",
         ):
             if marker not in app:
                 raise SystemExit(f"US app marker missing: {marker}")
