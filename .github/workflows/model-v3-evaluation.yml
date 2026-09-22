@@ -168,15 +168,17 @@ jobs:
 
           cron_text = Path("scripts/configure_v3_shadow_cron.sh").read_text()
           assert "CRON_TZ=Asia/Seoul" in cron_text
+          assert "45 8 * * 2-6" in cron_text
           assert "15 9 * * *" in cron_text
-          assert "25 9 * * 1-5" in cron_text
-          assert "40 16 * * 1-5" in cron_text
+          assert "45 17 * * 1-5" in cron_text
 
           cycle_text = Path("scripts/run_v3_shadow_cycle.sh").read_text()
           assert "run_model_v3_003_btc_tail.sh" in cycle_text
           assert "run_model_v3_003_us_hurdle.sh" in cycle_text
           assert "run_model_v3_004_kr_joint_gate.sh" in cycle_text
           assert "run_v3_shadow_tracker.sh" in cycle_text
+          assert "run_market_data_v2.sh" in cycle_text
+          assert "REFRESH_MARKET_DATA=true" in cycle_text
 
           print("[PASS] V3 research-only forward scheduling contract validated")
           PY
