@@ -6,6 +6,9 @@ on:
       - "kalman-toss-gateway/config/model-v3-evaluation-spec.json"
       - "kalman-toss-gateway/research/model_v3/**"
       - "kalman-toss-gateway/tests/test_model_v3_evaluation.py"
+      - "kalman-toss-gateway/tests/test_model_v3_kr_candidate.py"
+      - "kalman-toss-gateway/config/model-v3-kr-candidate-spec.json"
+      - "kalman-toss-gateway/scripts/run_model_v3_003_kr_candidate.sh"
       - ".github/workflows/model-v3-evaluation.yml"
   push:
     branches: [main]
@@ -13,6 +16,9 @@ on:
       - "kalman-toss-gateway/config/model-v3-evaluation-spec.json"
       - "kalman-toss-gateway/research/model_v3/**"
       - "kalman-toss-gateway/tests/test_model_v3_evaluation.py"
+      - "kalman-toss-gateway/tests/test_model_v3_kr_candidate.py"
+      - "kalman-toss-gateway/config/model-v3-kr-candidate-spec.json"
+      - "kalman-toss-gateway/scripts/run_model_v3_003_kr_candidate.sh"
       - ".github/workflows/model-v3-evaluation.yml"
   workflow_dispatch:
 
@@ -37,20 +43,26 @@ jobs:
       - name: Install evaluation dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pandas numpy pyarrow
+          python -m pip install pandas numpy pyarrow scikit-learn
 
       - name: Compile V3 evaluation modules
         run: |
           python -m compileall research/model_v3
           python -m py_compile tests/test_model_v3_evaluation.py
+          python -m py_compile tests/test_model_v3_kr_candidate.py
+          bash -n scripts/run_model_v3_003_kr_candidate.sh
 
-      - name: Validate evaluation spec
-        run: python -m json.tool config/model-v3-evaluation-spec.json >/dev/null
+      - name: Validate evaluation specs
+        run: |
+          python -m json.tool config/model-v3-evaluation-spec.json >/dev/null
+          python -m json.tool config/model-v3-kr-candidate-spec.json >/dev/null
 
       - name: Run V3 evaluation tests
         env:
           PYTHONPATH: .
-        run: python -m unittest tests.test_model_v3_evaluation -v
+        run: |
+          python -m unittest tests.test_model_v3_evaluation -v
+          python -m unittest tests.test_model_v3_kr_candidate -v
 
       - name: Validate research isolation
         run: |
@@ -60,6 +72,9 @@ jobs:
           files = [
               Path("research/model_v3/evaluation.py"),
               Path("research/model_v3/evaluate_score_file.py"),
+              Path("research/model_v3/model_contract.py"),
+              Path("research/model_v3/kr_candidate.py"),
+              Path("scripts/run_model_v3_003_kr_candidate.sh"),
           ]
           text = "\n".join(p.read_text() for p in files)
           forbidden = [
@@ -72,8 +87,12 @@ jobs:
           for marker in forbidden:
               assert marker not in text, marker
 
-          spec = Path("config/model-v3-evaluation-spec.json").read_text()
-          assert '"research_only": true' in spec
-          assert '"2026-09-23T00:00:00"' in spec
-          print("[PASS] V3 evaluation contract remains research-only and forward-locked")
+          eval_spec = Path("config/model-v3-evaluation-spec.json").read_text()
+          kr_spec = Path("config/model-v3-kr-candidate-spec.json").read_text()
+          assert '"research_only": true' in eval_spec
+          assert '"research_only": true' in kr_spec
+          assert '"2026-09-23T00:00:00"' in eval_spec
+          assert '"2026-09-23T00:00:00"' in kr_spec
+          assert '"live_execution": false' in kr_spec
+          print("[PASS] V3 evaluation and KR candidate remain research-only and forward-locked")
           PY

@@ -1,0 +1,52 @@
+{
+  "version": "kalman_model_v3_003_kr_candidate",
+  "dataset_version": "kalman_feature_matrix_v3_003_kr",
+  "feature_set": "market_tools_v2_002",
+  "research_only": true,
+  "shadow_only": true,
+  "live_execution": false,
+  "forward_start": "2026-09-23T00:00:00",
+  "max_ffill_observations": 3,
+  "minimum_feature_coverage": 0.8,
+  "candidate_feature_counts": [
+    8,
+    16,
+    32
+  ],
+  "candidate_c": [
+    0.001,
+    0.01,
+    0.1
+  ],
+  "candidate_class_weight": [
+    null,
+    "balanced"
+  ],
+  "walk_forward": {
+    "initial_train_observations": 252,
+    "test_block_observations": 21,
+    "horizon_purge_observations": 5,
+    "minimum_oof_rows": 126
+  },
+  "markets": {
+    "KR": {
+      "anchor_key": "yf_kospi",
+      "symbol": "KOSPI",
+      "horizon_observations": 5,
+      "positive_return_threshold": 0,
+      "include_groups": [
+        "KR",
+        "COMMON",
+        "US",
+        "BTC"
+      ],
+      "group_lag_observations": {
+        "KR": 0,
+        "COMMON": 1,
+        "US": 1,
+        "BTC": 0
+      },
+      "strategy_version": "KALMAN_V3_003_KR_RANK_ALPHA"
+    }
+  }
+}
