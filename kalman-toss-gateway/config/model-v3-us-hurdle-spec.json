@@ -1,0 +1,67 @@
+{
+  "version": "kalman_model_v3_003_us_hurdle",
+  "dataset_version": "kalman_feature_matrix_v3_003_us_hurdle",
+  "feature_set": "market_tools_v2_002",
+  "research_only": true,
+  "shadow_only": true,
+  "live_execution": false,
+  "forward_start": "2026-09-23T00:00:00",
+  "objective": "RANK_ALPHA_AFTER_TARGET_REDESIGN",
+  "target_design": "ABSOLUTE_5D_FORWARD_RETURN_HURDLE",
+  "target_hurdles": [
+    0.0025,
+    0.005,
+    0.01
+  ],
+  "max_ffill_observations": 3,
+  "minimum_feature_coverage": 0.8,
+  "candidate_feature_counts": [
+    8,
+    16
+  ],
+  "candidate_c": [
+    0.001,
+    0.01
+  ],
+  "candidate_class_weight": [
+    null,
+    "balanced"
+  ],
+  "walk_forward": {
+    "initial_train_observations": 252,
+    "test_block_observations": 21,
+    "horizon_purge_observations": 5,
+    "minimum_oof_rows": 126
+  },
+  "selection_gate": {
+    "minimum_nonoverlap_entries": 12,
+    "minimum_half_nonoverlap_entries": 4,
+    "require_positive_incremental_alpha_net": true,
+    "require_positive_win_rate_lift": true,
+    "require_positive_net_mean": true,
+    "require_positive_net_compounded_return": true,
+    "require_positive_alpha_each_half": true,
+    "auc_is_diagnostic_only": true
+  },
+  "markets": {
+    "US": {
+      "anchor_key": "yf_spy",
+      "symbol": "SPY",
+      "horizon_observations": 5,
+      "positive_return_threshold": 0,
+      "include_groups": [
+        "US",
+        "COMMON",
+        "BTC",
+        "KR"
+      ],
+      "group_lag_observations": {
+        "US": 0,
+        "COMMON": 0,
+        "BTC": 1,
+        "KR": 0
+      },
+      "strategy_version": "KALMAN_V3_003_US_HURDLE_RANK_ALPHA"
+    }
+  }
+}
