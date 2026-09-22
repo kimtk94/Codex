@@ -266,7 +266,7 @@ def main():
     url_ratio=float(d["canonical_url"].notna().mean()) if len(d) else 0.0
     dup_ratio=float((raw_rows-len(d))/raw_rows) if raw_rows else 0.0
     counts=d.groupby("symbol").size() if len(d) else pd.Series(dtype=int)
-    symbols_ge20=int((counts>=20).sum())
+    symbols_ge20=int((counts>=20).sum())\n    symbols_ge10=int((counts>=10).sum())
     times=pd.to_datetime(d["available_at"],utc=True,errors="coerce").dropna()
     span_months=((times.max()-times.min()).total_seconds()/86400/30.4375 if len(times)>=2 else 0.0)
 
@@ -312,7 +312,7 @@ def main():
         "raw_symbol_article_rows":raw_rows,
         "dedup_symbol_article_rows":len(d),
         "within_symbol_duplicate_ratio":dup_ratio,
-        "symbols_with_20plus_articles":symbols_ge20,
+        "symbols_with_20plus_articles":symbols_ge20,\n        "symbols_with_10plus_articles":symbols_ge10,
         "seendate_parse_ratio":seen_ratio,
         "canonical_url_ratio":url_ratio,
         "saturated_success_query_ratio":saturated_ratio,
