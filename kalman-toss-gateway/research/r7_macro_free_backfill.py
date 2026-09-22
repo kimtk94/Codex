@@ -321,7 +321,7 @@ def main():
       "generated_at_utc":datetime.now(UTC).isoformat(),
       "research_only":True,"production_changed":False,
       "provider_cost":"FREE_NO_KEY",
-      "sources":["BLS_PUBLIC_API_V1","BLS_RELEASE_CALENDAR","FED_FOMC_CALENDAR"],
+      "sources":["BLS_PUBLIC_API_V1","BLS_RELEASE_CALENDAR","BLS_ARCHIVED_NEWS_RELEASE_HTML","FED_FOMC_CALENDAR"],
       "start_year":args.start_year,"end_year":args.end_year,
       "events":len(events),"families":fams,"family_count":len(fams),
       "events_with_revised_actuals":n_actual,
@@ -333,11 +333,11 @@ def main():
       "pit_actual_ready":pit_archive_coverage_ratio>=0.95,
       "reaction_ready":False,
       "model_fitting_allowed":False,
-      "blockers":[
-        "NO_CONSENSUS_FREE_SOURCE",
-        "BLS_API_HISTORY_IS_REVISED_NOT_FIRST_RELEASE_VINTAGE",
-        "MARKET_REACTION_LAYER_NOT_BUILT"
-      ]
+      "blockers":(
+        ["NO_CONSENSUS_FREE_SOURCE"]
+        + ([] if pit_archive_coverage_ratio>=0.95 else ["ARCHIVE_FIRST_RELEASE_COVERAGE_BELOW_95PCT"])
+        + ["MARKET_REACTION_LAYER_NOT_BUILT"]
+      )
     }
     out=Path(args.output_dir); out.mkdir(parents=True,exist_ok=True)
     (out/"events.json").write_text(json.dumps(events,indent=2,default=str)+"\n")
