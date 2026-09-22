@@ -65,6 +65,17 @@ def _effective_signal_as_of(as_of: datetime, strategy_version: str | None) -> da
     return as_of + timedelta(minutes=_signal_bar_minutes(strategy_version))
 
 
+def _max_active_positions() -> int:
+    raw = os.environ.get('AUTO_TRADE_MAX_ACTIVE_POSITIONS', '3')
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError('AUTO_TRADE_MAX_ACTIVE_POSITIONS must be an integer') from exc
+    if value < 1 or value > 20:
+        raise RuntimeError('AUTO_TRADE_MAX_ACTIVE_POSITIONS must be between 1 and 20')
+    return value
+
+
 def _signal_shape_ok(signal: dict, policy: str) -> bool:
     payload = signal.get('payload') or {}
     if str(signal.get('position_state', '')).upper() != 'FLAT':
@@ -81,6 +92,14 @@ def _signal_shape_ok(signal: dict, policy: str) -> bool:
             str(signal.get('signal', '')).upper() == 'SHADOW'
             and _bool(payload.get('allow_trade_shadow'))
             and _bool(payload.get('shadow_entry_this_signal'))
+        )
+    if policy == 'R5_LIVE_TOP1':
+        # LIVE portfolio policy deliberately decouples execution from the
+        # research-only 4-bar non-overlap ledger. The research flag remains
+        # attached to the signal for A/B attribution and audit.
+        return (
+            str(signal.get('signal', '')).upper() == 'SHADOW'
+            and _bool(payload.get('allow_trade_shadow'))
         )
     return False
 
@@ -123,6 +142,12 @@ def load_signal(mode: str, strategy_version: str | None, policy: str):
             "upper(COALESCE(s.position_state,''))='FLAT'",
             "lower(COALESCE(s.payload->>'allow_trade_shadow','false'))='true'",
             "lower(COALESCE(s.payload->>'shadow_entry_this_signal','false'))='true'",
+        ])
+    elif mode == 'LIVE' and policy == 'R5_LIVE_TOP1':
+        where.extend([
+            "s.signal='SHADOW'",
+            "upper(COALESCE(s.position_state,''))='FLAT'",
+            "lower(COALESCE(s.payload->>'allow_trade_shadow','false'))='true'",
         ])
 
     sql = f"""
@@ -251,8 +276,10 @@ async def main_async() -> int:
         raise RuntimeError('AUTO_TRADE_EXECUTION_MODE must be DRY_RUN or LIVE')
 
     policy = os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').strip().upper()
-    if policy not in {'APPROVED_ONLY', 'SHADOW_CANARY'}:
-        raise RuntimeError('AUTO_TRADE_SIGNAL_POLICY must be APPROVED_ONLY or SHADOW_CANARY')
+    if policy not in {'APPROVED_ONLY', 'SHADOW_CANARY', 'R5_LIVE_TOP1'}:
+        raise RuntimeError(
+            'AUTO_TRADE_SIGNAL_POLICY must be APPROVED_ONLY, SHADOW_CANARY or R5_LIVE_TOP1'
+        )
 
     strategy_version = os.environ.get('AUTO_TRADE_STRATEGY_VERSION', '').strip() or None
     if mode == 'LIVE' and not strategy_version:
@@ -261,6 +288,10 @@ async def main_async() -> int:
     if mode == 'LIVE' and policy == 'SHADOW_CANARY':
         if os.environ.get('AUTO_TRADE_SHADOW_CONFIRM', '') != 'CONFIRM_SHADOW_CANARY':
             print('SHADOW_CANARY_CONFIRMATION_MISSING')
+            return 2
+    if mode == 'LIVE' and policy == 'R5_LIVE_TOP1':
+        if os.environ.get('AUTO_TRADE_OVERLAP_CONFIRM', '') != 'CONFIRM_R5_LIVE_TOP1':
+            print('R5_LIVE_TOP1_CONFIRMATION_MISSING')
             return 2
 
     settings = Settings()
@@ -273,6 +304,7 @@ async def main_async() -> int:
 
     store = ManagedPositionStore(settings.state_db_path)
     active_positions = store.active()
+    max_active_positions = _max_active_positions()
 
     # Existing managed positions no longer block a new entry globally. The
     # broker cash check, same-symbol position/open-order guards, and
@@ -318,6 +350,8 @@ async def main_async() -> int:
         'riskGate': signal['risk_gate'],
         'positionState': signal['position_state'],
         'liveSignalShapeOk': _signal_shape_ok(signal, policy),
+        'researchNonOverlapEntry': _bool((signal.get('payload') or {}).get('shadow_entry_this_signal')),
+        'allowTradeShadow': _bool((signal.get('payload') or {}).get('allow_trade_shadow')),
         'symbol': symbol,
         'accountFlat': account_flat,
         'requireAccountFlat': require_flat,
@@ -329,6 +363,8 @@ async def main_async() -> int:
         'marketWindow': window_info,
         'liveGateOpen': settings.live_gate_open,
         'activeManagedPositions': active_positions,
+        'activeManagedPositionCount': len(active_positions),
+        'maxActivePositions': max_active_positions,
         'targetExitBuckets': TARGET_EXIT_BUCKETS,
         **sizing,
     }
@@ -374,6 +410,9 @@ async def main_async() -> int:
     if require_flat and not account_flat:
         print('ACCOUNT_NOT_FLAT')
         return 0
+    if len(active_positions) >= max_active_positions:
+        print('MAX_ACTIVE_POSITIONS_REACHED', len(active_positions), max_active_positions)
+        return 0
     if position_qty > 0:
         print('BROKER_POSITION_NOT_FLAT', symbol, position_qty)
         return 0
@@ -411,6 +450,26 @@ async def main_async() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
         return 0
 
+    TradeLedger(settings.state_db_path).patch_telemetry(
+        client_order_id,
+        {
+            'signal_context': {
+                'execution_mode': mode,
+                'signal_policy': policy,
+                'strategy_version': signal['strategy_version'],
+                'run_id': signal['run_id'],
+                'signal_as_of': signal['as_of'].isoformat(),
+                'symbol': symbol,
+                'allow_trade_shadow': _bool((signal.get('payload') or {}).get('allow_trade_shadow')),
+                'research_non_overlap_entry': _bool(
+                    (signal.get('payload') or {}).get('shadow_entry_this_signal')
+                ),
+                'max_active_positions': max_active_positions,
+                'active_positions_before_entry': len(active_positions),
+            }
+        },
+    )
+
     order_id = result.get('orderId')
     if not order_id:
         store.mark_ambiguous_entry(position['position_id'], 'entry submission returned no orderId')
@@ -420,6 +479,12 @@ async def main_async() -> int:
     store.mark_entry_submitted(position['position_id'], order_id)
     result['managedPositionId'] = position['position_id']
     result['targetExitBuckets'] = TARGET_EXIT_BUCKETS
+    result['researchNonOverlapEntry'] = _bool(
+        (signal.get('payload') or {}).get('shadow_entry_this_signal')
+    )
+    result['liveEntryPolicy'] = policy
+    result['activePositionsBeforeEntry'] = len(active_positions)
+    result['maxActivePositions'] = max_active_positions
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     return 0
 

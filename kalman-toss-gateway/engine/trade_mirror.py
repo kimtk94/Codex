@@ -265,6 +265,22 @@ def main() -> int:
                     avg = _dec(pos.get("exit_avg_fill_price"))
 
                 telemetry = _json_dict(o.get("telemetry_json"))
+                signal_context = (
+                    telemetry.get("signal_context")
+                    if isinstance(telemetry.get("signal_context"), dict)
+                    else {}
+                )
+                row_execution_mode = signal_context.get("execution_mode") or execution_mode
+                row_signal_policy = signal_context.get("signal_policy") or signal_policy
+                row_strategy_version = (
+                    pos.get("strategy_version") if pos else None
+                ) or signal_context.get("strategy_version") or strategy_default
+                row_run_id = (
+                    pos.get("entry_run_id") if pos else None
+                ) or signal_context.get("run_id")
+                row_signal_as_of = (
+                    pos.get("entry_signal_as_of") if pos else None
+                ) or signal_context.get("signal_as_of")
                 execution_quality = _execution_quality(o.get("side"), avg, telemetry)
                 execution_status, status_source = _execution_status(o, pos, leg)
                 reconciled_position_status = None
@@ -289,9 +305,9 @@ def main() -> int:
                       symbol=EXCLUDED.symbol,
                       side=EXCLUDED.side,
                       strategy_version=EXCLUDED.strategy_version,
-                      execution_mode=EXCLUDED.execution_mode,
-                      signal_policy=EXCLUDED.signal_policy,
-                      signal_as_of=EXCLUDED.signal_as_of,
+                      execution_mode=COALESCE(trade_execution.execution_mode, EXCLUDED.execution_mode),
+                      signal_policy=COALESCE(trade_execution.signal_policy, EXCLUDED.signal_policy),
+                      signal_as_of=COALESCE(trade_execution.signal_as_of, EXCLUDED.signal_as_of),
                       status=EXCLUDED.status,
                       filled_quantity=EXCLUDED.filled_quantity,
                       average_filled_price=EXCLUDED.average_filled_price,
@@ -304,13 +320,13 @@ def main() -> int:
                     (
                         o.get("client_order_id"),
                         o.get("toss_order_id"),
-                        pos.get("entry_run_id") if pos else None,
+                        row_run_id,
                         o.get("symbol"),
                         o.get("side"),
-                        pos.get("strategy_version") if pos else strategy_default,
-                        execution_mode,
-                        signal_policy,
-                        pos.get("entry_signal_as_of") if pos else None,
+                        row_strategy_version,
+                        row_execution_mode,
+                        row_signal_policy,
+                        row_signal_as_of,
                         execution_status,
                         filled,
                         avg,
@@ -325,6 +341,7 @@ def main() -> int:
                             "order_guard_status": o.get("status"),
                             "reconciled_position_status": reconciled_position_status,
                             "status_source": status_source,
+                            "signal_context": signal_context,
                             "execution_telemetry": telemetry,
                             "execution_quality": execution_quality,
                             "source": "local_order_guard",

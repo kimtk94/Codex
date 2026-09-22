@@ -27,6 +27,12 @@ async def main():
         'strategyVersion': os.environ.get('AUTO_TRADE_STRATEGY_VERSION', ''),
         'signalBarMinutes': int(os.environ.get('AUTO_TRADE_SIGNAL_BAR_MINUTES', '0') or 0),
         'maxSignalAgeMinutes': int(os.environ.get('AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES', '90') or 90),
+        'maxActivePositions': int(os.environ.get('AUTO_TRADE_MAX_ACTIVE_POSITIONS', '3') or 3),
+        'modelRotationEnabled': os.environ.get('AUTO_TRADE_MODEL_ROTATION_ENABLED', 'true').lower() == 'true',
+        'researchNonOverlapBenchmark': True,
+        'liveEntryRequiresResearchNonOverlap': (
+            os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').upper() == 'SHADOW_CANARY'
+        ),
         'liveGateOpen': s.live_gate_open,
         'activeManagedPositions': store.active(),
         'recentManagedPositions': store.recent(10),

@@ -140,6 +140,21 @@ class SameCycleRebalanceTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def test_model_rotation_can_be_disabled_for_multi_position_live_policy(self):
+        with patch.dict(
+            position_manager.os.environ,
+            {"AUTO_TRADE_MODEL_ROTATION_ENABLED": "false"},
+            clear=False,
+        ):
+            self.assertFalse(position_manager._model_rotation_enabled())
+
+        with patch.dict(
+            position_manager.os.environ,
+            {"AUTO_TRADE_MODEL_ROTATION_ENABLED": "true"},
+            clear=False,
+        ):
+            self.assertTrue(position_manager._model_rotation_enabled())
+
     def test_exit_wait_config_is_bounded(self):
         with patch.dict(
             position_manager.os.environ,

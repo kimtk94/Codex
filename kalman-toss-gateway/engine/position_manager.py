@@ -157,6 +157,12 @@ def _latest_eligible_signal(db_url: str, strategy_version: str, policy: str) -> 
             "lower(COALESCE(s.payload->>'allow_trade_shadow','false'))='true'",
             "lower(COALESCE(s.payload->>'shadow_entry_this_signal','false'))='true'",
         ])
+    elif policy == 'R5_LIVE_TOP1':
+        where.extend([
+            "s.signal='SHADOW'",
+            "upper(COALESCE(s.position_state,''))='FLAT'",
+            "lower(COALESCE(s.payload->>'allow_trade_shadow','false'))='true'",
+        ])
     else:
         where.extend([
             "s.signal='BUY'",
@@ -200,6 +206,12 @@ def _exit_thresholds() -> tuple[Decimal, Decimal]:
     if take_profit <= 0 or take_profit > Decimal('5'):
         raise RuntimeError('AUTO_TRADE_TAKE_PROFIT_PCT must be > 0 and <= 5')
     return stop_loss, take_profit
+
+
+def _model_rotation_enabled() -> bool:
+    return (
+        os.environ.get('AUTO_TRADE_MODEL_ROTATION_ENABLED', 'true').strip().lower() == 'true'
+    )
 
 
 def _choose_exit_reason(
@@ -450,8 +462,10 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
     policy = os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').strip().upper()
     latest = _latest_eligible_signal(db_url, position['strategy_version'], policy)
     entry_as_of = _parse_signal_time(position['entry_signal_as_of'])
+    rotation_enabled = _model_rotation_enabled()
     rotation = bool(
-        latest
+        rotation_enabled
+        and latest
         and latest['as_of'] > entry_as_of
         and latest['symbol'] != symbol.upper()
     )
@@ -479,6 +493,7 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         'targetExitBuckets': target,
         'latestEligibleSymbol': latest['symbol'] if latest else None,
         'latestEligibleAsOf': latest['as_of'] if latest else None,
+        'modelRotationEnabled': rotation_enabled,
         'modelRotation': rotation,
         'remainingQuantity': str(expected_qty),
         'executionMode': mode,

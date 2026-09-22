@@ -12,7 +12,13 @@ from app.config import Settings
 from app.executor import TradeLedger
 from app.main import health
 from app.risk import validate_order
-from engine.auto_trade import _effective_signal_as_of, _signal_bar_minutes, _usd_order_size
+from engine.auto_trade import (
+    _effective_signal_as_of,
+    _max_active_positions,
+    _signal_bar_minutes,
+    _signal_shape_ok,
+    _usd_order_size,
+)
 
 
 class GatewayNoSymbolAllowlistTests(unittest.TestCase):
@@ -128,6 +134,57 @@ class GatewayNoSymbolAllowlistTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "requires AUTO_TRADE_SIGNAL_BAR_MINUTES=60"):
                 _signal_bar_minutes("R5.1_BASE_HGB")
+
+    def test_r5_live_top1_does_not_require_research_non_overlap_entry(self) -> None:
+        signal = {
+            "signal": "SHADOW",
+            "position_state": "FLAT",
+            "payload": {
+                "allow_trade_shadow": True,
+                "shadow_entry_this_signal": False,
+            },
+        }
+        self.assertTrue(_signal_shape_ok(signal, "R5_LIVE_TOP1"))
+        self.assertFalse(_signal_shape_ok(signal, "SHADOW_CANARY"))
+
+    def test_shadow_canary_still_requires_research_non_overlap_entry(self) -> None:
+        signal = {
+            "signal": "SHADOW",
+            "position_state": "FLAT",
+            "payload": {
+                "allow_trade_shadow": True,
+                "shadow_entry_this_signal": True,
+            },
+        }
+        self.assertTrue(_signal_shape_ok(signal, "R5_LIVE_TOP1"))
+        self.assertTrue(_signal_shape_ok(signal, "SHADOW_CANARY"))
+
+    def test_r5_live_top1_still_requires_allow_trade_shadow(self) -> None:
+        signal = {
+            "signal": "SHADOW",
+            "position_state": "FLAT",
+            "payload": {
+                "allow_trade_shadow": False,
+                "shadow_entry_this_signal": True,
+            },
+        }
+        self.assertFalse(_signal_shape_ok(signal, "R5_LIVE_TOP1"))
+
+    def test_max_active_positions_is_bounded(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"AUTO_TRADE_MAX_ACTIVE_POSITIONS": "3"},
+            clear=False,
+        ):
+            self.assertEqual(_max_active_positions(), 3)
+
+        with patch.dict(
+            "os.environ",
+            {"AUTO_TRADE_MAX_ACTIVE_POSITIONS": "0"},
+            clear=False,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "between 1 and 20"):
+                _max_active_positions()
 
     def test_health_does_not_expose_allowed_symbols(self) -> None:
         payload = asyncio.run(health(self.settings()))
