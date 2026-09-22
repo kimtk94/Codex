@@ -1,0 +1,61 @@
+{
+  "version": "kalman_model_v3_004_kr_joint_gate",
+  "dataset_version": "kalman_feature_matrix_v3_004_kr",
+  "feature_set": "market_tools_v2_002",
+  "research_only": true,
+  "shadow_only": true,
+  "live_execution": false,
+  "forward_start": "2026-09-23T00:00:00",
+  "methodology_status": "POST_V3_003_OOF_AUDIT_PRE_FORWARD_FIXED",
+  "forward_data_used_for_model_selection": false,
+  "max_ffill_observations": 3,
+  "minimum_feature_coverage": 0.8,
+  "candidate_feature_counts": [
+    8
+  ],
+  "candidate_c": [
+    0.001
+  ],
+  "candidate_class_weight": [
+    null
+  ],
+  "fixed_joint_gate_policy": {
+    "candidate_id": "f8_c0.001_cwnone",
+    "feature_count": 8,
+    "C": 0.001,
+    "class_weight": null,
+    "top_fraction": 0.2,
+    "selection_origin": "V3_003_FULL_OOF_GRID_AUDIT",
+    "expected_oof_rows": 402,
+    "expected_minimum_nonoverlap_entries": 8,
+    "required_positive_incremental_alpha_net": true,
+    "required_positive_win_rate_lift": true
+  },
+  "walk_forward": {
+    "initial_train_observations": 252,
+    "test_block_observations": 21,
+    "horizon_purge_observations": 5,
+    "minimum_oof_rows": 126
+  },
+  "markets": {
+    "KR": {
+      "anchor_key": "yf_kospi",
+      "symbol": "KOSPI",
+      "horizon_observations": 5,
+      "positive_return_threshold": 0,
+      "include_groups": [
+        "KR",
+        "COMMON",
+        "US",
+        "BTC"
+      ],
+      "group_lag_observations": {
+        "KR": 0,
+        "COMMON": 1,
+        "US": 1,
+        "BTC": 0
+      },
+      "strategy_version": "KALMAN_V3_004_KR_JOINT_GATE"
+    }
+  }
+}
