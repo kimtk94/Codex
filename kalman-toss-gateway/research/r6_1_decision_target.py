@@ -33,6 +33,8 @@ FOLDS = [
     ("E7_2026_JAN_APR", "2026-01-05", "2026-05-01"),
     ("E8_2026_MAY_CUTOFF", "2026-05-01", "2026-09-02T13:30:00Z"),
 ]
+EVAL_FOLDS = FOLDS[1:]
+EVAL_FOLD_NAMES = {x[0] for x in EVAL_FOLDS}
 
 FEATURES = [
     "cs_ret_1b", "cs_ret_2b", "cs_ret_4b", "cs_ret_6b",
