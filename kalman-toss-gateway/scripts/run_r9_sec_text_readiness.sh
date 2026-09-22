@@ -5,8 +5,16 @@ APP_ROOT="${KALMAN_APP_ROOT:-/opt/kalman/app}"
 PY="${KALMAN_PYTHON:-/opt/kalman/.venv/bin/python}"
 OUT="${R9_SEC_TEXT_OUT:-/opt/kalman/state/r9_sec_text}"
 CACHE="${R9_SEC_TEXT_CACHE:-/opt/kalman/state/r9_sec_text/cache}"
+MODE="${1:-smoke}"
+
+case "$MODE" in
+  smoke) MAX_DOCS=50 ;;
+  full) MAX_DOCS=0 ;;
+  *) echo "[FAIL] usage: $0 [smoke|full]" >&2; return 2 2>/dev/null || exit 2 ;;
+esac
 
 echo "===== R9 SEC TEXT READINESS ====="
+echo "mode=$MODE"
 echo "research_only=true"
 echo "production_changed=false"
 echo "api_key_required=NONE"
@@ -17,4 +25,5 @@ export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
   --r8-manifest "${R9_R8_MANIFEST:-/opt/kalman/state/r8_sec/manifest.json}" \
   --output-dir "$OUT" \
   --cache-dir "$CACHE" \
-  --min-request-interval "${R9_SEC_REQUEST_INTERVAL:-0.35}"
+  --min-request-interval "${R9_SEC_REQUEST_INTERVAL:-0.35}" \
+  --max-documents "$MAX_DOCS"
