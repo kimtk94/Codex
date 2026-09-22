@@ -30,3 +30,44 @@ def test_parse_bls_value_numeric_and_comma():
     assert m.parse_bls_value("123.4") == 123.4
     assert m.parse_bls_value("1,234") == 1234.0
     assert m.parse_bls_value("not-a-number") is None
+
+
+def test_parse_archive_cpi():
+    text = (
+        "The Consumer Price Index for All Urban Consumers (CPI-U) increased 0.4 percent "
+        "on a seasonally adjusted basis in August. "
+        "The index for all items less food and energy rose 0.3 percent in August."
+    )
+    got=m.parse_archive_actuals("CPI",text)
+    assert got["CPI_HEADLINE_MOM"]==0.4
+    assert got["CORE_CPI_MOM"]==0.3
+
+
+def test_parse_archive_employment_positive_and_parenthetical():
+    text = (
+        "Total nonfarm payroll employment increased by 162,000 in August, and the "
+        "unemployment rate was unchanged at 4.1 percent. "
+        "In August, average hourly earnings for all employees on private nonfarm payrolls "
+        "rose by 12 cents, or 0.3 percent, to $37.50."
+    )
+    got=m.parse_archive_actuals("EMPLOYMENT",text)
+    assert got["NFP"]==162000.0
+    assert got["UNEMPLOYMENT_RATE"]==4.1
+    assert got["AVERAGE_HOURLY_EARNINGS_MOM"]==0.3
+
+    text2="Both total nonfarm payroll employment (-23,000) and the unemployment rate (4.1 percent) changed little in July."
+    got2=m.parse_archive_actuals("EMPLOYMENT",text2)
+    assert got2["NFP"]==-23000.0
+    assert got2["UNEMPLOYMENT_RATE"]==4.1
+
+
+def test_parse_archive_ppi_and_jolts():
+    ppi=m.parse_archive_actuals("PPI","The Producer Price Index for final demand fell 0.3 percent in June.")
+    assert ppi["PPI_MOM"]==-0.3
+    jolts=m.parse_archive_actuals("JOLTS","The number of job openings increased to 7.6 million in April.")
+    assert jolts["JOLTS_OPENINGS"]==7600.0
+
+
+def test_archive_url_uses_release_date_et():
+    e={"family":"CPI","release_at":"2026-09-11T12:30:00+00:00"}
+    assert m.archive_url(e).endswith("/cpi_09112026.htm")
