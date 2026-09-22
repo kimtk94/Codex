@@ -15,6 +15,21 @@ class V2ShadowScheduleTests(unittest.TestCase):
         self.assertIn("run_shadow_v2.sh", self.runner)
         self.assertNotIn("run_model_v2_research.sh", self.runner)
 
+    def test_refresh_remains_isolated_while_live_trading_is_active(self) -> None:
+        self.assertIn("SHADOW_ISOLATED_FROM_LIVE_TRADING", self.runner)
+        self.assertIn("continuing isolated fixed-model V2 SHADOW refresh", self.runner)
+        self.assertNotIn(
+            "TRADING_ENABLED=true; refuse scheduled V2 SHADOW refresh",
+            self.runner,
+        )
+        self.assertNotIn(
+            "LIVE_TRADING_CONFIRM is set; refuse scheduled V2 SHADOW refresh",
+            self.runner,
+        )
+        self.assertNotIn("run_auto_trade.sh", self.runner)
+        self.assertNotIn("run_us_cycle.sh", self.runner)
+        self.assertNotIn("toss", self.runner.lower())
+
     def test_cron_has_exactly_two_active_v2_shadow_refresh_jobs(self) -> None:
         active = [
             line.strip()

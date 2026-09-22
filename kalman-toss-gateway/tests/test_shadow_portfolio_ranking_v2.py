@@ -11,6 +11,7 @@ import pandas as pd
 from engine.shadow_portfolio_ranking import (
     MARKETS,
     STRATEGIES,
+    _assert_wall_clock_freshness,
     build_snapshot,
 )
 from engine.shadow_portfolio_ranking_writer import validate_snapshot
@@ -98,6 +99,41 @@ class ShadowPortfolioRankingTests(unittest.TestCase):
             ready=[x for x in snapshot["forward_ranking"] if x["status"]=="READY"]
             self.assertEqual(sorted(x["forward_rank"] for x in ready),list(range(len(ready))))
             validate_snapshot(snapshot)
+
+    def test_wall_clock_freshness_rejects_uniformly_stale_sources(self) -> None:
+        files={
+            "US":{"max_wall_clock_age_days":3},
+            "KR":{"max_wall_clock_age_days":3},
+            "BTC":{"max_wall_clock_age_days":1},
+        }
+        last_raw={
+            "US":pd.Timestamp("2026-09-18T00:00:00Z"),
+            "KR":pd.Timestamp("2026-09-18T00:00:00Z"),
+            "BTC":pd.Timestamp("2026-09-20T00:00:00Z"),
+        }
+        with self.assertRaisesRegex(RuntimeError,"stale market source by wall clock"):
+            _assert_wall_clock_freshness(
+                last_raw,
+                files,
+                now=pd.Timestamp("2026-09-22T10:00:00Z"),
+            )
+
+    def test_wall_clock_freshness_allows_expected_weekend_lag(self) -> None:
+        files={
+            "US":{"max_wall_clock_age_days":3},
+            "KR":{"max_wall_clock_age_days":3},
+            "BTC":{"max_wall_clock_age_days":1},
+        }
+        last_raw={
+            "US":pd.Timestamp("2026-09-18T00:00:00Z"),
+            "KR":pd.Timestamp("2026-09-18T00:00:00Z"),
+            "BTC":pd.Timestamp("2026-09-20T00:00:00Z"),
+        }
+        _assert_wall_clock_freshness(
+            last_raw,
+            files,
+            now=pd.Timestamp("2026-09-20T10:00:00Z"),
+        )
 
     def test_writer_rejects_trade_enabled_payload(self) -> None:
         payload={

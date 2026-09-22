@@ -47,6 +47,28 @@ def _utc_ts(value: Any) -> pd.Timestamp:
     return ts.tz_convert("UTC")
 
 
+def _assert_wall_clock_freshness(
+    last_raw: dict[str, pd.Timestamp],
+    files: dict[str, Any],
+    *,
+    now: pd.Timestamp | None = None,
+) -> None:
+    reference = _utc_ts(now if now is not None else pd.Timestamp.now(tz="UTC")).normalize()
+    for market in MARKETS:
+        spec = files.get(market) or {}
+        max_age = spec.get("max_wall_clock_age_days")
+        if max_age is None:
+            continue
+        latest = _utc_ts(last_raw[market]).normalize()
+        age_days = max((reference - latest).days, 0)
+        if age_days > int(max_age):
+            raise RuntimeError(
+                f"{market}: stale market source by wall clock; "
+                f"last={latest.isoformat()} now={reference.isoformat()} "
+                f"age_days={age_days} max={int(max_age)}"
+            )
+
+
 def _load_close(path: Path, market: str) -> pd.Series:
     if not path.is_file():
         raise FileNotFoundError(path)
@@ -99,6 +121,10 @@ def build_return_panel(
                 f"{market}: stale market source; last={last_raw[market].isoformat()} "
                 f"data_end={data_end.isoformat()} lag_days={lag} max={max_lag}"
             )
+
+    # Relative cross-market lag cannot detect the case where every source stopped
+    # together. Guard against that with an absolute wall-clock age as well.
+    _assert_wall_clock_freshness(last_raw, files)
 
     panel = pd.concat(closes, axis=1).sort_index()
     panel = panel.resample("1D").last().ffill()
@@ -546,6 +572,12 @@ def build_snapshot(
             "initial_equity": float(config.get("initial_equity", 1_000_000.0)),
             "risk_cap_ratio": float(config.get("risk_cap_ratio", 1.10)),
             "simplex_step": float(config.get("simplex_step", 0.002)),
+            "max_wall_clock_age_days": {
+                market: (config.get("market_files") or {}).get(market, {}).get(
+                    "max_wall_clock_age_days"
+                )
+                for market in MARKETS
+            },
         },
         "forward_ranking": ranking,
         "invariants": {
