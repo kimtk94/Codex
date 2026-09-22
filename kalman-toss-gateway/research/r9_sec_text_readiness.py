@@ -59,10 +59,10 @@ class TextExtractor(HTMLParser):
         self.parts=[]
         self.skip=0
     def handle_starttag(self,tag,attrs):
-        if tag.lower() in {"script","style","svg","noscript"}:
+        if tag.lower() in {"script","style","svg","noscript","ix:hidden","ix:header"}:
             self.skip+=1
     def handle_endtag(self,tag):
-        if tag.lower() in {"script","style","svg","noscript"} and self.skip:
+        if tag.lower() in {"script","style","svg","noscript","ix:hidden","ix:header"} and self.skip:
             self.skip-=1
     def handle_data(self,data):
         if not self.skip and data:
@@ -92,18 +92,25 @@ def extract_item_sections(text,target_items):
     hits=list(ITEM_RE.finditer(text))
     if not hits:
         return "", []
-    chunks=[]
-    found=[]
+    candidates={}
     for i,m in enumerate(hits):
         code=m.group(1)
         if code not in target_items:
             continue
         end=hits[i+1].start() if i+1<len(hits) else len(text)
         seg=text[m.start():end].strip()
-        if len(seg)>=80:
-            chunks.append(seg)
-            found.append(code)
-    return "\n\n".join(chunks).strip(), sorted(set(found))
+        if len(seg)<80:
+            continue
+        candidates.setdefault(code,[]).append(seg)
+
+    chosen=[]
+    found=[]
+    for code in sorted(candidates):
+        # Prefer the longest occurrence to avoid table-of-contents/reference snippets.
+        seg=max(candidates[code],key=len)
+        chosen.append(seg)
+        found.append(code)
+    return "\n\n".join(chosen).strip(), found
 
 def cache_key(url):
     return hashlib.sha256(url.encode()).hexdigest()
@@ -220,6 +227,35 @@ def add_novelty(df):
             prev_bucket[key]=vec
     return df
 
+def select_smoke_urls(events,max_docs):
+    if max_docs<=0:
+        return []
+    # Deterministic diversity-first smoke: first usable URL from each symbol,
+    # then fill remaining slots from the global chronological pool.
+    selected=[]
+    seen=set()
+    ordered=sorted(
+        events,
+        key=lambda e:(str(e.get("symbol") or ""),str(e.get("acceptance_at") or ""),str(e.get("primary_url") or "")),
+    )
+    for e in ordered:
+        sym=str(e.get("symbol") or "")
+        url=e.get("primary_url")
+        if not url or sym in seen:
+            continue
+        selected.append(url)
+        seen.add(sym)
+        if len(selected)>=max_docs:
+            return selected
+    for e in sorted(events,key=lambda e:(str(e.get("acceptance_at") or ""),str(e.get("primary_url") or ""))):
+        url=e.get("primary_url")
+        if url and url not in selected:
+            selected.append(url)
+            if len(selected)>=max_docs:
+                break
+    return selected
+
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--events",default=DEFAULT_EVENTS)
@@ -253,7 +289,7 @@ def main():
         raise RuntimeError(f"unexpectedly low unique semantic URLs before fetch: {len(all_unique_urls)}")
     smoke_mode=args.max_documents>0
     unique_urls=(
-        all_unique_urls[:args.max_documents]
+        select_smoke_urls(semantic,args.max_documents)
         if smoke_mode else all_unique_urls
     )
 
@@ -394,8 +430,23 @@ def main():
         },
         "gates":gates,
         "r9_text_ready":bool((not smoke_mode) and all(gates.values())),
+        "smoke_quality_pass":bool(
+            smoke_mode
+            and (fetched/uniq_n if uniq_n else 0)>=0.95
+            and (parsed/fetched if fetched else 0)>=0.95
+            and (extracted/fetched if fetched else 0)>=0.75
+        ),
         "next_action":(
-            "RUN_FULL_READINESS" if smoke_mode
+            (
+                "RUN_FULL_READINESS"
+                if (
+                    (fetched/uniq_n if uniq_n else 0)>=0.95
+                    and (parsed/fetched if fetched else 0)>=0.95
+                    and (extracted/fetched if fetched else 0)>=0.75
+                )
+                else "FIX_TEXT_EXTRACTION_BEFORE_FULL"
+            )
+            if smoke_mode
             else ("PREREGISTER_SINGLE_R9_TEXT_ABLATION" if all(gates.values()) else "FIX_TEXT_DATA_READINESS_ONLY")
         ),
     }
