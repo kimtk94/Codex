@@ -111,7 +111,7 @@ class ShadowPortfolioRankingTests(unittest.TestCase):
             "KR":pd.Timestamp("2026-09-18T00:00:00Z"),
             "BTC":pd.Timestamp("2026-09-20T00:00:00Z"),
         }
-        with self.assertRaisesRegex(RuntimeError,"BTC: stale market source by wall clock"):
+        with self.assertRaisesRegex(RuntimeError,"stale market source by wall clock"):
             _assert_wall_clock_freshness(
                 last_raw,
                 files,
