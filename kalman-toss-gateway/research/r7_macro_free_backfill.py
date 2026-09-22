@@ -168,7 +168,7 @@ def main():
     ap.add_argument("--end-year",type=int,default=2026)
     ap.add_argument("--output-dir",default="/opt/kalman/state/r7_macro_free")
     args=ap.parse_args()
-    data=bls_data(args.start_year,args.end_year)
+    data, bls_parse = bls_data(args.start_year,args.end_year)
     actuals=derived_actuals(data)
     events=bls_schedule(args.start_year,args.end_year)+fomc_events(args.start_year,args.end_year)
     events=attach_actuals(events,actuals)
@@ -176,7 +176,7 @@ def main():
     fams=sorted(set(e["family"] for e in events))
     n_actual=sum(bool(e["actuals"]) for e in events)
     report={
-      "schema":"kalman-r7-macro-free-v1",
+      "schema":"kalman-r7-macro-free-v2",
       "generated_at_utc":datetime.now(UTC).isoformat(),
       "research_only":True,"production_changed":False,
       "provider_cost":"FREE_NO_KEY",
@@ -184,6 +184,7 @@ def main():
       "start_year":args.start_year,"end_year":args.end_year,
       "events":len(events),"families":fams,"family_count":len(fams),
       "events_with_revised_actuals":n_actual,
+      "bls_parse":bls_parse,
       "consensus_available":False,
       "pit_actual_ready":False,
       "reaction_ready":False,
