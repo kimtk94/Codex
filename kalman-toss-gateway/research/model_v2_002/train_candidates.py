@@ -95,6 +95,7 @@ def metrics(
         "rows": int(len(y)),
         "positive_rate": positive_rate,
         "selection_rate": float(np.mean(pred)),
+        "selected_count": int(np.sum(pred)),
         "roc_auc": safe_metric(roc_auc_score, y, p),
         "brier": brier,
         "baseline_brier": baseline_brier,
@@ -231,6 +232,7 @@ def choose_threshold(
     thresholds: list[float],
 ) -> tuple[float, dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    minimum_selected = max(5, int(math.ceil(len(frame) * 0.10)))
     for threshold in thresholds:
         item = {"threshold": threshold, **metrics(
             frame["target_label"],
@@ -238,7 +240,12 @@ def choose_threshold(
             threshold,
             frame["target_forward_return"],
         )}
+        item["minimum_selected_required"] = minimum_selected
+        item["selection_floor_pass"] = int(item["selected_count"]) >= minimum_selected
         rows.append(item)
+
+    eligible = [row for row in rows if row["selection_floor_pass"]]
+    pool = eligible or rows
 
     def key(item: dict[str, Any]) -> tuple[float, float, float, float]:
         selected_ret = item.get("selected_forward_return_mean")
@@ -251,8 +258,8 @@ def choose_threshold(
             -abs(float(item["threshold"]) - 0.55),
         )
 
-    rows.sort(key=key, reverse=True)
-    return float(rows[0]["threshold"]), rows[0]
+    pool.sort(key=key, reverse=True)
+    return float(pool[0]["threshold"]), pool[0]
 
 
 def _metric_value(value: Any, default: float) -> float:
