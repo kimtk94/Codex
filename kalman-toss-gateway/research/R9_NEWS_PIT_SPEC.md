@@ -195,3 +195,22 @@ Frozen source-repair rules before the next smoke:
 - if a terminal 24-hour window still returns 250 rows, it remains explicitly saturated and incomplete
 
 No alpha result has been inspected and no promotion threshold is relaxed.
+
+
+## 13. Runtime hardening after long-running adaptive smoke
+
+The adaptive smoke demonstrated that recursive ArticleList collection is unsuitable for a quick readiness check:
+- AAPL completed with one terminal query and 221 rows.
+- MSFT expanded to 9 terminal leaves and still had terminal errors/saturation.
+- NVDA expanded to 11 terminal leaves and still had terminal errors/saturation.
+- with 15-second spacing and exponential 429 retries, a single failed leaf can consume many minutes.
+
+Frozen correction:
+- smoke mode performs exactly one root ArticleList query per symbol;
+- smoke does not recursively split saturated windows;
+- smoke max retries = 1;
+- smoke default request interval = 20 seconds;
+- saturation is diagnostic in smoke, not expanded;
+- full ArticleList mode is guarded and requires explicit `R9_ALLOW_LONG_FULL=YES`.
+
+The historical source path must be redesigned before full is approved. Candidate historical paths include a bulk GDELT archive / timeline representation rather than thousands of recursively split ArticleList calls.
