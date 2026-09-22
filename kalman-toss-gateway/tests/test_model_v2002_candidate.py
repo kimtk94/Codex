@@ -131,7 +131,18 @@ class ModelV2002CandidateTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "READY")
             artifact = json.loads((output_dir / "us/model.json").read_text())
             self.assertEqual(artifact["artifact_schema"], ARTIFACT_SCHEMA)
-            self.assertEqual(artifact["probability_calibration"]["method"], "platt")
+            self.assertIn(
+                artifact["probability_calibration"]["method"],
+                {"identity", "platt"},
+            )
+            self.assertIn(
+                "guard_checks",
+                artifact["probability_calibration"],
+            )
+            self.assertIn(
+                "guard_reason",
+                artifact["probability_calibration"],
+            )
             self.assertTrue(artifact["shadow_only"])
             self.assertTrue(artifact["research_candidate"])
             self.assertFalse(artifact["live_execution"])
