@@ -232,3 +232,40 @@ Expected current state:
 - E: BLOCKED — no point-in-time analyst-revision dataset
 
 The next engineering work is ingestion/backfill, not model fitting.
+
+
+## 11. R7-M historical backfill execution
+
+Historical macro calendar ingestion reuses the existing production-normalization contract but is executed by a research-only runner:
+
+- `research/r7_macro_backfill.py`
+- `scripts/run_r7_macro_backfill.sh`
+
+Default research window:
+- start: 2020-01-01
+- end: 2026-09-02
+- market: US
+- chunk size: 90 calendar days
+
+Execution sequence is frozen:
+
+1. `smoke` — one short historical window, no DB write.
+2. `dry-run` — full history fetch + JSONL/manifest only, no DB write.
+3. review per-indicator counts, consensus coverage and release-to-availability lag.
+4. `write` — explicit upsert into `macro_release_observation` only after review.
+
+Historical provider rows are tagged:
+
+```
+r7_backfill = true
+r7_pit_audit = UNVERIFIED_PROVIDER_HISTORY
+```
+
+Therefore the existence of many backfilled rows alone cannot make R7-M READY.
+
+Before R7-M readiness may pass, at least 95% of eligible macro rows must have:
+
+- event-time availability within 120 minutes of the scheduled release; and
+- `r7_pit_audit = PASS`.
+
+This prevents historical backfill or revised provider values from being treated as verified point-in-time information merely because they exist in the database.
