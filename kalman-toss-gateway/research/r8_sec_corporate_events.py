@@ -43,7 +43,6 @@ class SecClient:
             headers={
                 "User-Agent":user_agent,
                 "Accept-Encoding":"gzip, deflate",
-                "Host":"data.sec.gov",
             },
             follow_redirects=True,
         )
@@ -54,9 +53,7 @@ class SecClient:
         wait=self.min_interval-(time.monotonic()-self.last)
         if wait>0:
             time.sleep(wait)
-        # files/company_tickers.json is on www.sec.gov, so don't force Host.
-        headers={"User-Agent":self.client.headers["User-Agent"],"Accept-Encoding":"gzip, deflate"}
-        r=httpx.get(url,headers=headers,timeout=self.client.timeout,follow_redirects=True)
+        r=self.client.get(url)
         self.last=time.monotonic()
         r.raise_for_status()
         return r.json()
@@ -259,6 +256,10 @@ def main():
     n=len(events)
     acceptance_n=sum(bool(x.get("acceptance_at")) for x in events)
     recognized_n=sum(bool(x.get("recognized_item")) for x in events)
+    semantic_n=sum(
+        any(b!="FINANCIAL_EXHIBITS" for b in x.get("event_buckets") or [])
+        for x in events
+    )
     accessions=[x["accession_number"] for x in events]
     duplicate_ratio=(len(accessions)-len(set(accessions)))/len(accessions) if accessions else 0.0
 
@@ -280,7 +281,7 @@ def main():
         "event_rows_ge_500":n>=500,
         "acceptance_timestamp_ratio_ge_95pct":(acceptance_n/n if n else 0)>=0.95,
         "accession_duplicate_ratio_le_1pct":duplicate_ratio<=0.01,
-        "recognized_item_ratio_ge_80pct":(recognized_n/n if n else 0)>=0.80,
+        "semantic_item_ratio_ge_80pct":(semantic_n/n if n else 0)>=0.80,
     }
     ready=all(gates.values())
 
@@ -310,6 +311,8 @@ def main():
         "acceptance_timestamp_ratio":acceptance_n/n if n else 0.0,
         "recognized_item_rows":recognized_n,
         "recognized_item_ratio":recognized_n/n if n else 0.0,
+        "semantic_item_rows_excluding_9_01_only":semantic_n,
+        "semantic_item_ratio_excluding_9_01_only":semantic_n/n if n else 0.0,
         "accession_duplicate_ratio":duplicate_ratio,
         "first_acceptance_at":first,
         "last_acceptance_at":last,
