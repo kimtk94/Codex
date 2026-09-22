@@ -85,22 +85,18 @@ Path labels require complete +1/+2/+3/+4 OHLC coverage. Overall and selected-tra
 
 ## Walk-forward folds
 
-Same R5 research folds:
+The frozen `r5_0_1_scored_rows.parquet` contains 497,504 OOS rows from the eight R5 research folds. The separate 831,981 count belongs to the final R5.1 all-data freeze fit and is not the scored-row artifact.
 
-- E1 2023H1
-- E2 2023H2
-- E3 2024H1
-- E4 2024H2
-- E5 2025H1
-- E6 2025H2
-- E7 2026 Jan-Apr
-- E8 2026 May to cutoff
+R6.1 therefore uses:
 
-For each fold:
+- E1 2023H1 = warm-up/training history only
+- E2 2023H2 through E8 2026 May-cutoff = paired common-OOS evaluation
 
-`train.target_timestamp_4b < fold_start`
+For each E2-E8 fold:
 
-The test set is the frozen R5 scored rows inside the fold.
+`train = all prior frozen scored rows with target_timestamp_4b < fold_start`
+
+The paired baseline is the frozen R5C0 trade ledger restricted to E2-E8. This reproduces the prior R6 `R5_BASE_4H` common-OOS benchmark before any challenger is interpreted.
 
 ## Execution
 
