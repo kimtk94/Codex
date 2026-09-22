@@ -356,8 +356,8 @@ def _latest_decay(signal_times, event_times):
 def _rolling_event_count(signal_times,event_times):
     if len(event_times)==0:
         return np.zeros(len(signal_times),float)
-    s=np.asarray(pd.to_datetime(signal_times,utc=True).view("int64"))
-    e=np.sort(np.asarray(pd.to_datetime(event_times,utc=True).view("int64")))
+    s=np.asarray(pd.to_datetime(signal_times,utc=True).astype("int64"))
+    e=np.sort(np.asarray(pd.to_datetime(event_times,utc=True).astype("int64")))
     window=int(SEC_MAX_AGE_HOURS*3600*1e9)
     hi=np.searchsorted(e,s,side="right")
     lo=np.searchsorted(e,s-window,side="left")
