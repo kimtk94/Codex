@@ -167,7 +167,7 @@ def fit_base(
     x_std = scaler.fit_transform(x_imp)
     model = LogisticRegression(
         C=c_value,
-        penalty="l2",
+        l1_ratio=0.0,
         solver="lbfgs",
         class_weight=class_weight,
         max_iter=3000,
@@ -213,7 +213,7 @@ def logits(
 def fit_platt(logit_values: np.ndarray, y_true: pd.Series) -> LogisticRegression:
     calibrator = LogisticRegression(
         C=1_000_000.0,
-        penalty="l2",
+        l1_ratio=0.0,
         solver="lbfgs",
         max_iter=3000,
         random_state=42,
@@ -368,10 +368,73 @@ def train_market(
     calibration_logits = logits(calibration, selected, imputer, scaler, model)
     calibrator = fit_platt(calibration_logits, calibration["target_label"])
     calibration_probability = calibrated_probability(calibration_logits, calibrator)
-    calibration_metrics = metrics(calibration["target_label"], calibration_probability, 0.5)
+    calibration_metrics = metrics(
+        calibration["target_label"],
+        calibration_probability,
+        0.5,
+    )
 
     threshold_logits = logits(threshold_frame, selected, imputer, scaler, model)
-    threshold_probability = calibrated_probability(threshold_logits, calibrator)
+    threshold_raw_probability = raw_probability(
+        threshold_frame,
+        selected,
+        imputer,
+        scaler,
+        model,
+    )
+    threshold_platt_probability = calibrated_probability(
+        threshold_logits,
+        calibrator,
+    )
+    threshold_raw_calibration_metrics = metrics(
+        threshold_frame["target_label"],
+        threshold_raw_probability,
+        0.5,
+    )
+    threshold_platt_calibration_metrics = metrics(
+        threshold_frame["target_label"],
+        threshold_platt_probability,
+        0.5,
+    )
+
+    platt_slope = float(calibrator.coef_[0][0])
+    platt_intercept = float(calibrator.intercept_[0])
+    raw_brier = _metric_value(
+        threshold_raw_calibration_metrics.get("brier"),
+        float("inf"),
+    )
+    platt_brier = _metric_value(
+        threshold_platt_calibration_metrics.get("brier"),
+        float("inf"),
+    )
+    raw_log_loss = _metric_value(
+        threshold_raw_calibration_metrics.get("log_loss"),
+        float("inf"),
+    )
+    platt_log_loss = _metric_value(
+        threshold_platt_calibration_metrics.get("log_loss"),
+        float("inf"),
+    )
+
+    platt_guard_checks = {
+        "positive_slope": platt_slope > 0.0,
+        "brier_not_worse_on_threshold_split": platt_brier <= raw_brier,
+        "log_loss_not_worse_on_threshold_split": platt_log_loss <= raw_log_loss,
+        "strictly_improves_one_proper_score": (
+            platt_brier < raw_brier or platt_log_loss < raw_log_loss
+        ),
+    }
+    use_platt = all(platt_guard_checks.values())
+
+    if use_platt:
+        calibration_method = "platt"
+        threshold_probability = threshold_platt_probability
+        calibration_reason = "PLATT_PASSED_MONOTONIC_PROPER_SCORE_GUARD"
+    else:
+        calibration_method = "identity"
+        threshold_probability = threshold_raw_probability
+        calibration_reason = "PLATT_REJECTED_BY_MONOTONIC_PROPER_SCORE_GUARD"
+
     threshold, threshold_metrics = choose_threshold(
         threshold_frame,
         threshold_probability,
@@ -380,7 +443,11 @@ def train_market(
 
     test_logits = logits(test, selected, imputer, scaler, model)
     test_raw_probability = raw_probability(test, selected, imputer, scaler, model)
-    test_probability = calibrated_probability(test_logits, calibrator)
+    test_probability = (
+        calibrated_probability(test_logits, calibrator)
+        if use_platt
+        else test_raw_probability
+    )
     raw_test_metrics = metrics(
         test["target_label"],
         test_raw_probability,
@@ -421,15 +488,21 @@ def train_market(
         "coefficients": coefficients,
         "intercept": float(model.intercept_[0]),
         "probability_calibration": {
-            "method": "platt",
-            "slope": float(calibrator.coef_[0][0]),
-            "intercept": float(calibrator.intercept_[0]),
+            "method": calibration_method,
+            "slope": platt_slope if use_platt else 1.0,
+            "intercept": platt_intercept if use_platt else 0.0,
             "calibration_rows": int(len(calibration)),
+            "candidate_platt_slope": platt_slope,
+            "candidate_platt_intercept": platt_intercept,
+            "guard_checks": platt_guard_checks,
+            "guard_reason": calibration_reason,
+            "threshold_split_raw_metrics": threshold_raw_calibration_metrics,
+            "threshold_split_platt_metrics": threshold_platt_calibration_metrics,
         },
         "hyperparameters": {
             "C": float(best["c"]),
             "class_weight": best["class_weight"],
-            "penalty": "l2",
+            "regularization": "l2_via_l1_ratio_0",
             "solver": "lbfgs",
             "feature_count": len(selected),
         },
