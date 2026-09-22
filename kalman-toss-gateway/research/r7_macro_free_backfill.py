@@ -52,20 +52,44 @@ class TableParser(HTMLParser):
 def fetch_json(client,url,payload):
     r=client.post(url,json=payload); r.raise_for_status(); return r.json()
 
+def parse_bls_value(value):
+    text=str(value or "").strip()
+    if text in {"", "-", ".", "NA", "N/A", "null", "None"}:
+        return None
+    try:
+        return float(text.replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
 def bls_data(start_year,end_year):
     payload={"seriesid":list(SERIES.values()),"startyear":str(start_year),"endyear":str(end_year)}
-    with httpx.Client(timeout=30,headers={"User-Agent":"Kalman-R7-research"}) as c:
-        x=fetch_json(c,BLS_API,payload)
-    if x.get("status")!="REQUEST_SUCCEEDED": raise RuntimeError(x)
+    with httpx.Client(timeout=30,headers={"User-Agent":"Kalman-R7-research"}) as client:
+        x=fetch_json(client,BLS_API,payload)
+    if x.get("status")!="REQUEST_SUCCEEDED":
+        raise RuntimeError(x)
     by_id={}
+    skipped_missing=0
+    skipped_invalid=0
     for s in (x.get("Results") or {}).get("series") or []:
         vals={}
         for r in s.get("data") or []:
             p=str(r.get("period") or "")
-            if not re.fullmatch(r"M\d{2}",p): continue
-            vals[(int(r["year"]),int(p[1:]))]=float(r["value"])
+            if not re.fullmatch(r"M\\d{2}",p):
+                continue
+            raw=r.get("value")
+            value=parse_bls_value(raw)
+            if value is None:
+                if str(raw or "").strip() in {"", "-", ".", "NA", "N/A", "null", "None"}:
+                    skipped_missing += 1
+                else:
+                    skipped_invalid += 1
+                continue
+            vals[(int(r["year"]),int(p[1:]))]=value
         by_id[s["seriesID"]]=vals
-    return by_id
+    return by_id, {
+        "skipped_missing_values": skipped_missing,
+        "skipped_invalid_values": skipped_invalid,
+    }
 
 def pct(a,b):
     return None if a is None or b in (None,0) else (a/b-1.0)*100.0
