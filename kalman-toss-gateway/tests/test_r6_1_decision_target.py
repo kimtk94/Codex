@@ -21,46 +21,52 @@ def test_holm_adjust_is_bounded_and_monotone_by_rank():
     assert adj[0] <= adj[1] <= adj[2]
 
 
-def test_gap_features_stop_first_conservative():
+def _toy_rows(both=False, time_exit=False):
     seq = np.arange(0, 8)
     t = pd.date_range("2026-01-01", periods=len(seq), freq="h", tz="UTC")
     close = np.full(len(seq), 100.0)
-    high = np.full(len(seq), 101.0)
-    low = np.full(len(seq), 99.0)
+    if time_exit:
+        close[4:] = 102.0
 
-    # For decision at seq=0, the first future bar touches both stop and TP.
-    high[1] = 125.0
-    low[1] = 95.0
+    high = close * 1.005
+    low = close * 0.995
+    if both:
+        high[1] = 125.0
+        low[1] = 95.0
 
-    obs = pd.DataFrame({
+    fwd = np.full(len(seq), np.nan)
+    for i in range(4):
+        fwd[i] = close[i + 4] / close[i] - 1.0
+
+    return pd.DataFrame({
+        "symbol": ["X"] * len(seq),
         "expected_seq": seq,
         "timestamp": t,
-        "open": close,
         "high": high,
         "low": low,
         "close": close,
-        "volume": np.full(len(seq), 1000.0),
+        "fwd_ret_4b": fwd,
     })
-    q_ts = pd.Series(t, index=seq)
-    out = r6.gap_features(obs, q_ts)
+
+
+def test_path_proxy_stop_first_conservative():
+    out = r6.add_path_proxy(_toy_rows(both=True))
     row = out.loc[out["expected_seq"] == 0].iloc[0]
+    assert bool(row["path_complete"])
     assert abs(float(row["proxy_ret_4b"]) - r6.STOP) < 1e-12
 
 
-def test_gap_features_time_exit_when_no_barrier():
-    seq = np.arange(0, 8)
-    t = pd.date_range("2026-01-01", periods=len(seq), freq="h", tz="UTC")
-    close = np.array([100, 100, 100, 100, 102, 102, 102, 102], dtype=float)
-    obs = pd.DataFrame({
-        "expected_seq": seq,
-        "timestamp": t,
-        "open": close,
-        "high": close * 1.005,
-        "low": close * 0.995,
-        "close": close,
-        "volume": np.full(len(seq), 1000.0),
-    })
-    q_ts = pd.Series(t, index=seq)
-    out = r6.gap_features(obs, q_ts)
+def test_path_proxy_time_exit_when_no_barrier():
+    out = r6.add_path_proxy(_toy_rows(time_exit=True))
     row = out.loc[out["expected_seq"] == 0].iloc[0]
+    assert bool(row["path_complete"])
     assert abs(float(row["proxy_ret_4b"]) - 0.02) < 1e-12
+
+
+def test_schedule_audit_exact():
+    t = pd.date_range("2026-01-01", periods=3, freq="4h", tz="UTC")
+    a = pd.DataFrame({"timestamp": t, "fold": ["E1"] * 3})
+    b = a.copy()
+    x = r6.schedule_audit(a, b)
+    assert x["exact_match"]
+    assert x["matched_rows"] == 3
