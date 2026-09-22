@@ -32,6 +32,7 @@ on:
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/scripts/run_auto_trade.sh"
+      - "kalman-toss-gateway/scripts/run_execution_watch.sh"
       - "kalman-toss-gateway/scripts/run_us_cycle.sh"
       - "kalman-toss-gateway/scripts/apply_live_canary_5000.sh"
       - "kalman-toss-gateway/scripts/install_cron.sh"
@@ -75,6 +76,7 @@ on:
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/scripts/run_auto_trade.sh"
+      - "kalman-toss-gateway/scripts/run_execution_watch.sh"
       - "kalman-toss-gateway/scripts/run_us_cycle.sh"
       - "kalman-toss-gateway/scripts/apply_live_canary_5000.sh"
       - "kalman-toss-gateway/scripts/install_cron.sh"
@@ -121,6 +123,7 @@ jobs:
         run: |
           bash -n scripts/configure_auto_trade_env.sh
           bash -n scripts/run_auto_trade.sh
+          bash -n scripts/run_execution_watch.sh
           bash -n scripts/run_us_cycle.sh
           bash -n scripts/apply_live_canary_5000.sh
           bash -n scripts/install_cron.sh
@@ -140,13 +143,15 @@ jobs:
           required = [
               "35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh",
               "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh",
+              "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
+              "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
           ]
           for line in required:
               assert line in text, line
 
           assert "run_pipeline.sh US" not in text
           assert "run_auto_trade.sh" not in text
-          print("[PASS] US cron uses one serialized pipeline->trade cycle")
+          print("[PASS] US cron uses hourly model cycles plus a 5m execution watcher")
           PY
 
       - name: Validate US cycle ordering
@@ -160,6 +165,23 @@ jobs:
           assert pipeline < trade
           assert 'us-cycle.lock' in text
           print("[PASS] US cycle = pipeline commit -> auto-trade under one cycle lock")
+          PY
+
+      - name: Validate execution watcher contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path("scripts/run_execution_watch.sh").read_text(encoding="utf-8")
+          assert "run_pipeline.sh" not in text
+          assert "engine.benchmark_ledger" not in text
+          pm = text.index("engine.position_manager")
+          entry = text.index("engine.auto_trade")
+          mirror = text.index("engine.trade_mirror")
+          assert pm < entry < mirror
+          assert 'us-cycle.lock' in text
+          assert 'auto-trade.lock' in text
+          print("[PASS] watcher = reconcile/risk -> catch-up entry -> mirror; no model refresh")
           PY
 
       - name: Validate live canary cash-driven policy
