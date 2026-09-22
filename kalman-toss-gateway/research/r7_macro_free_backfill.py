@@ -84,13 +84,13 @@ def parse_archive_actuals(family,text):
     elif family=="EMPLOYMENT":
         head=t[:7000]
         m=re.search(r"Total nonfarm payroll employment\s+(?:increased|rose)\s+by\s+([0-9,]+)",head,re.I)
-        if m: out["NFP"]=float(m.group(1).replace(",",""))/1000.0/1000.0
+        if m: out["NFP"]=float(m.group(1).replace(",",""))/1000.0
         if "NFP" not in out:
             m=re.search(r"Total nonfarm payroll employment\s+(?:declined|decreased|fell)\s+by\s+([0-9,]+)",head,re.I)
             if m: out["NFP"]=-float(m.group(1).replace(",",""))/1000.0
         if "NFP" not in out:
             m=re.search(r"(?:total )?nonfarm payroll employment\s*\(([+-]?[0-9,]+)\)",head,re.I)
-            if m: out["NFP"]=float(m.group(1).replace(",",""))
+            if m: out["NFP"]=float(m.group(1).replace(",",""))/1000.0
         m=re.search(r"unemployment rate.*?(?:to|at|\()\s*([0-9.]+)\s+percent",head,re.I)
         if m: out["UNEMPLOYMENT_RATE"]=float(m.group(1))
         m=re.search(r"average hourly earnings for all employees on private nonfarm payrolls.{0,220}?(?:or\s+)?([0-9.]+)\s+percent",t,re.I)
