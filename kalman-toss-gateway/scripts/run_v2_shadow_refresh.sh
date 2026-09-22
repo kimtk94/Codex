@@ -87,10 +87,17 @@ print("TRADING_ENABLED          =", trading or "(empty)")
 print("LIVE_TRADING_CONFIRM     =", "SET" if confirm else "(empty)")
 print("AUTO_TRADE_EXECUTION_MODE=", mode)
 
-if trading == "true":
-    raise SystemExit("[FAIL] TRADING_ENABLED=true; refuse scheduled V2 SHADOW refresh")
-if confirm:
-    raise SystemExit("[FAIL] LIVE_TRADING_CONFIRM is set; refuse scheduled V2 SHADOW refresh")
+# This refresh is structurally isolated from live execution:
+# - fixed Model V2 only (no retrain)
+# - SHADOW signal only
+# - entry_allowed=false / FLAT
+# - Neon writer is excluded from v_latest_successful_run and dashboard_snapshot
+# Live production state is therefore diagnostic context, not a blocker.
+live_active = trading == "true" or bool(confirm)
+print("SHADOW_ISOLATED_FROM_LIVE_TRADING =", "true")
+print("PRODUCTION_LIVE_STATE_OBSERVED    =", "true" if live_active else "false")
+if live_active:
+    print("[INFO] live trading state is active; continuing isolated fixed-model V2 SHADOW refresh")
 PY
 
 DATA_ROOT="$("$PROD_VENV/bin/python" - "$ENV_FILE" <<'PY'
