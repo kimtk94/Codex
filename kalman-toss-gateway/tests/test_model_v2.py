@@ -10,7 +10,11 @@ import pandas as pd
 
 from research.model_v2.build_feature_matrix import asset_feature_frame
 from research.model_v2.model_contract import ARTIFACT_SCHEMA, score_row
-from research.model_v2.shadow_signal import build_shadow_signal, sha256_file
+from research.model_v2.shadow_signal import (
+    build_shadow_signal,
+    forward_calibration_audit,
+    sha256_file,
+)
 from research.model_v2.train_candidates import (
     chronological_split,
     train_market,
@@ -175,6 +179,22 @@ class ModelV2Tests(unittest.TestCase):
             self.assertFalse(signal["payload"]["allow_trade_shadow"])
             self.assertFalse(signal["payload"]["live_execution"])
             self.assertFalse(signal["payload"]["production_promotion"])
+
+            audit_artifact = dict(artifact)
+            audit_artifact["training_window"] = dict(artifact["training_window"])
+            audit_artifact["training_window"]["test_end"] = str(matrix["as_of"].iloc[-51])
+            calibration = forward_calibration_audit(
+                matrix,
+                audit_artifact,
+                minimum_rows=20,
+            )
+            self.assertEqual(calibration["status"], "READY")
+            self.assertTrue(calibration["sufficient_for_interpretation"])
+            self.assertGreaterEqual(calibration["rows"], 20)
+            self.assertIn("brier", calibration)
+            self.assertIn("log_loss", calibration)
+            self.assertIn("ece_10bin", calibration)
+            self.assertTrue(calibration["reliability_bins"])
 
 
 if __name__ == "__main__":
