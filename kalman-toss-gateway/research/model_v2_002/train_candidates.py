@@ -255,12 +255,20 @@ def choose_threshold(
     return float(rows[0]["threshold"]), rows[0]
 
 
+def _metric_value(value: Any, default: float) -> float:
+    try:
+        x = float(value)
+    except Exception:
+        return default
+    return x if math.isfinite(x) else default
+
+
 def quality_pass(test_metrics: dict[str, Any], gate: dict[str, Any]) -> tuple[bool, dict[str, bool]]:
     checks = {
         "minimum_test_rows": int(test_metrics.get("rows") or 0) >= int(gate.get("minimum_test_rows", 100)),
-        "minimum_test_roc_auc": float(test_metrics.get("roc_auc") or -1.0) >= float(gate.get("minimum_test_roc_auc", 0.52)),
-        "minimum_brier_skill": float(test_metrics.get("brier_skill") or -999.0) >= float(gate.get("minimum_brier_skill", 0.0)),
-        "minimum_log_loss_skill": float(test_metrics.get("log_loss_skill") or -999.0) >= float(gate.get("minimum_log_loss_skill", 0.0)),
+        "minimum_test_roc_auc": _metric_value(test_metrics.get("roc_auc"), -1.0) >= float(gate.get("minimum_test_roc_auc", 0.52)),
+        "minimum_brier_skill": _metric_value(test_metrics.get("brier_skill"), -999.0) >= float(gate.get("minimum_brier_skill", 0.0)),
+        "minimum_log_loss_skill": _metric_value(test_metrics.get("log_loss_skill"), -999.0) >= float(gate.get("minimum_log_loss_skill", 0.0)),
     }
     return all(checks.values()), checks
 
@@ -291,6 +299,13 @@ def train_market(
         horizon=horizon,
         ratios=global_spec.get("validation_subsplit_ratios") or {},
     )
+    minimum_calibration_rows = int(
+        (global_spec.get("calibration") or {}).get("minimum_rows", 30)
+    )
+    if len(calibration) < minimum_calibration_rows:
+        raise RuntimeError(
+            f"calibration split too small: {len(calibration)} < {minimum_calibration_rows}"
+        )
 
     feature_counts = sorted({int(x) for x in global_spec.get("candidate_feature_counts", [32])})
     max_features = max(feature_counts)
