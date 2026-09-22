@@ -27,3 +27,28 @@ def test_primary_bucket_priority_is_frozen():
 def test_availability_embargo_is_five_minutes():
     t=pd.Timestamp("2026-01-02T14:30:00Z")
     assert t+pd.to_timedelta(5,unit="m")==pd.Timestamp("2026-01-02T14:35:00Z")
+
+
+def test_item_extraction_prefers_longest_occurrence():
+    short="Item 2.02 Results summary " + ("x "*50)
+    long="Item 2.02 Results detailed " + ("revenue margin guidance "*120)
+    text=short+" Item 9.01 Exhibits "+long+" Item 9.01 Exhibits end"
+    got,found=m.extract_item_sections(text,{"2.02"})
+    assert found==["2.02"]
+    assert "revenue margin guidance" in got
+
+
+def test_smoke_selector_prefers_distinct_symbols():
+    events=[]
+    for sym in ["AAPL","MSFT","NVDA"]:
+        for i in range(3):
+            events.append({
+                "symbol":sym,
+                "acceptance_at":f"2026-01-0{i+1}T00:00:00Z",
+                "primary_url":f"https://sec.test/{sym}/{i}",
+            })
+    urls=m.select_smoke_urls(events,3)
+    assert len(urls)==3
+    assert any("/AAPL/" in x for x in urls)
+    assert any("/MSFT/" in x for x in urls)
+    assert any("/NVDA/" in x for x in urls)
