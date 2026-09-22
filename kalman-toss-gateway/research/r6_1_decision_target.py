@@ -908,10 +908,14 @@ def main():
         "research_only": True,
         "production_changed": False,
         "r5_1_untouched": True,
-        "source_contract": "frozen r5_0_1_scored_rows; E1 warm-up; E2-E8 paired common OOS",
+        "source_contract": "R1 frozen historical rows for challenger training; frozen R5 scored rows for E2-E8 evaluation",
         "baseline_reconciliation": baseline_reconciliation,
+        "feature_reconciliation": feature_audit,
+        "scored_path_audit": scored_path_audit,
+        "training_path_audit": train_path_audit,
         "overall_path_coverage": overall_path_coverage,
         "baseline_proxy_coverage": base_proxy_coverage,
+        "expected_train_rows": EXPECTED_TRAIN_ROWS,
         "schedule_audit": schedule_df.to_dict(orient="records"),
         "evaluation_folds": [x[0] for x in EVAL_FOLDS],
         "warmup_fold": FOLDS[0][0],
@@ -923,6 +927,17 @@ def main():
     }
 
     pd.DataFrame(fold_contract).to_csv(out / "r6_1_fold_contract.csv", index=False)
+    (out / "r6_1_feature_reconciliation.json").write_text(
+        json.dumps(feature_audit, indent=2, ensure_ascii=False, default=str) + "\n"
+    )
+    (out / "r6_1_path_audit.json").write_text(
+        json.dumps(
+            {"scored": scored_path_audit, "training": train_path_audit},
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        ) + "\n"
+    )
     keep = [
         "timestamp", "target_timestamp_4b", "expected_seq", "symbol", "eval_fold",
         "exec_weight", "fwd_ret_4b", "proxy_ret_4b", "net10_return", "proxy_net_return",
@@ -943,8 +958,9 @@ def main():
         json.dumps({
             "schema": SCHEMA,
             "research_cutoff": RESEARCH_CUTOFF.isoformat(),
-            "source": "frozen r5_0_1_scored_rows.parquet (497,504 OOS rows)",
-            "training_protocol": "E1 warm-up; E2-E8 expanding common-OOS evaluation",
+            "training_source": "r1_directional_v1_2/primary_train for 93 frozen R5 symbols",
+            "evaluation_source": "frozen r5_0_1_scored_rows.parquet (497,504 OOS rows)",
+            "training_protocol": "original R5 expanding fold counts enforced; E2-E8 paired common-OOS evaluation",
             "baseline": "frozen R5C0_HGB_REFERENCE trade ledger restricted to E2-E8",
             "features": FEATURES,
             "challengers": CHALLENGERS,
@@ -963,6 +979,7 @@ def main():
         r50 / "r5_0_1_trade_ledger.parquet",
         r50 / "r5_0_1_leaderboard.csv",
         r50 / "model_freeze/r5_hgb.joblib",
+        root / "US_ETF/directional_research/r1_directional_v1_2/r1_dataset_manifest.json",
         r6v1_metrics_path,
     ]
     (out / "r6_1_manifest.json").write_text(
