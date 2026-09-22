@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 
 import psycopg
 
-SCHEMA = "kalman-r7-point-in-time-readiness-v1"
+SCHEMA = "kalman-r7-point-in-time-readiness-v2"
+DEFAULT_SNAPSHOT = Path(__file__).with_name("r7_neon_readiness_snapshot_20260922.json")
 
 SQL = {
     "macro_release": """
@@ -67,7 +70,14 @@ SQL = {
     """,
 }
 
+def _dt(x):
+    if x is None or hasattr(x, "tzinfo"):
+        return x
+    return datetime.fromisoformat(str(x).replace("Z", "+00:00"))
+
 def years_between(a, b):
+    a = _dt(a)
+    b = _dt(b)
     if a is None or b is None:
         return 0.0
     return max(0.0, (b - a).total_seconds() / (365.2425 * 86400.0))
@@ -78,13 +88,32 @@ def one(cur, sql):
     cols = [d.name for d in cur.description]
     return dict(zip(cols, row))
 
-def main():
-    dsn = os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if not dsn:
-        raise SystemExit("Set NEON_DATABASE_URL or DATABASE_URL")
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--snapshot", default=str(DEFAULT_SNAPSHOT))
+    p.add_argument("--require-live", action="store_true")
+    return p.parse_args()
 
-    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        data = {k: one(cur, q) for k, q in SQL.items()}
+def load_data(snapshot_path):
+    dsn = os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if dsn:
+        with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+            return {k: one(cur, q) for k, q in SQL.items()}, "LIVE_NEON"
+
+    p = Path(snapshot_path)
+    if not p.exists():
+        raise SystemExit(
+            "No NEON_DATABASE_URL/DATABASE_URL and snapshot is missing: "
+            f"{p}"
+        )
+    payload = json.loads(p.read_text())
+    return payload["data"], "CHECKED_IN_SNAPSHOT"
+
+def main():
+    args = parse_args()
+    data, data_source = load_data(args.snapshot)
+    if args.require_live and data_source != "LIVE_NEON":
+        raise SystemExit("Live Neon connection required but no database URL is configured.")
 
     m = data["macro_release"]
     macro_span = years_between(m["first_available"], m["last_available"])
@@ -115,6 +144,8 @@ def main():
     report = {
         "schema": SCHEMA,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "data_source": data_source,
+        "snapshot_path": str(args.snapshot) if data_source == "CHECKED_IN_SNAPSHOT" else None,
         "production_changed": False,
         "r5_1_untouched": True,
         "axes": {
