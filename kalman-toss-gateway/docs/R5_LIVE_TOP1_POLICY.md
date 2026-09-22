@@ -24,12 +24,22 @@ A LIVE entry candidate requires:
 6. signal freshness <= 90 minutes, measured from the completed 60m bar close
 7. US fractional-order window open
 8. live two-key gate open
-9. target symbol has no existing broker position
-10. target symbol has no open BUY order
-11. no active managed lot already exists for the same symbol
-12. active managed positions < 3
-13. sufficient broker cash/buying power
-14. per-order estimated notional <= KRW 5,000
+9. no open BUY order for the target symbol
+10. sufficient broker cash/buying power
+11. per-order estimated notional <= KRW 5,000
+
+For a new symbol, the target symbol must not already exist at the broker outside the managed-position state and active managed positions must be below 3.
+
+For an already managed R5_LIVE_TOP1 symbol, the executor may pyramid into the same managed position when all of the following hold:
+
+- the position is OPEN and broker quantity matches the managed aggregate quantity
+- the new signal is at least 1 completed 60m canonical bucket after the previous successful entry signal
+- the same symbol is still the current eligible Top1
+- fewer than 3 successful entries have been aggregated into that symbol
+- projected configured target notional does not exceed KRW 15,000
+- the add-on remains a separate KRW 5,000 maximum order
+
+The same-symbol add-on does **not** consume another active-position slot. It updates the existing managed position's aggregate quantity and quantity-weighted average entry price. The original first-entry signal timestamp remains the max-hold clock anchor, so pyramiding never extends the 4-bucket holding horizon.
 
 `shadow_entry_this_signal` is NOT a LIVE entry requirement under this policy.
 
@@ -43,7 +53,7 @@ Each managed position exits on the first applicable rule:
 2. take profit >= +20%
 3. max hold >= 4 canonical 60m buckets
 
-Position-manager reconciliation and broker-quantity safety checks remain unchanged.
+Position-manager reconciliation validates every add-on fill before updating the aggregate quantity and weighted average price. Any broker/managed quantity mismatch blocks further pyramiding and requires reconciliation.
 
 ## Audit / A-B attribution
 
@@ -58,6 +68,11 @@ Important fields:
 - `signal_as_of`
 - `max_active_positions`
 - `active_positions_before_entry`
+- `entry_type = INITIAL|ADD_ON`
+- `entry_count_before`
+- `max_entries_per_symbol`
+- `max_symbol_notional_krw`
+- `projected_symbol_notional_krw`
 
 This allows two cohorts:
 
