@@ -132,11 +132,32 @@ def write_cache(path,obj):
         json.dump(obj,f,ensure_ascii=False)
     tmp.replace(path)
 
+EMAIL_RE=re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+def declared_sec_identity():
+    email=str(os.environ.get("SEC_CONTACT_EMAIL") or "").strip()
+    org=str(os.environ.get("SEC_ORG_NAME") or "Kalman Research").strip()
+    if not EMAIL_RE.match(email):
+        raise RuntimeError(
+            "SEC_CONTACT_EMAIL must be a real contact email for declared automated access; "
+            "do not use a URL-only User-Agent"
+        )
+    ua=str(os.environ.get("SEC_USER_AGENT") or f"{org} {email}").strip()
+    if email.lower() not in ua.lower():
+        ua=f"{ua} {email}"
+    return ua,email
+
 class SecDocClient:
-    def __init__(self,user_agent,min_interval=0.35,timeout=30):
+    def __init__(self,user_agent,contact_email,min_interval=0.35,timeout=30):
         self.client=httpx.Client(
             timeout=timeout,
-            headers={"User-Agent":user_agent,"Accept-Encoding":"gzip, deflate"},
+            headers={
+                "User-Agent":user_agent,
+                "From":contact_email,
+                "Accept-Encoding":"gzip, deflate",
+                "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Host":"www.sec.gov",
+            },
             follow_redirects=True,
         )
         self.min_interval=float(min_interval)
@@ -147,7 +168,14 @@ class SecDocClient:
             time.sleep(wait)
         r=self.client.get(url)
         self.last=time.monotonic()
-        r.raise_for_status()
+        if r.status_code >= 400:
+            body=WS_RE.sub(" ",r.text or "")[:800]
+            raise RuntimeError(
+                f"SEC_HTTP_{r.status_code} url={url} "
+                f"content_type={r.headers.get('content-type')} "
+                f"retry_after={r.headers.get('retry-after')} "
+                f"body={body}"
+            )
         if len(r.content)>25_000_000:
             raise RuntimeError("document_too_large_gt_25mb")
         return r.text
@@ -293,11 +321,12 @@ def main():
         if smoke_mode else all_unique_urls
     )
 
-    user_agent=os.environ.get(
-        "SEC_USER_AGENT",
-        "KalmanR9Research/1.0 (noncommercial research; contact repository owner)"
+    user_agent,contact_email=declared_sec_identity()
+    client=SecDocClient(
+        user_agent,
+        contact_email,
+        args.min_request_interval,
     )
-    client=SecDocClient(user_agent,args.min_request_interval)
 
     by_url={}
     total=len(unique_urls)
@@ -401,6 +430,8 @@ def main():
         "api_key_required":False,
         "source":"SEC_PRIMARY_8K_DOCUMENTS",
         "sec_user_agent":user_agent,
+        "sec_contact_email_sha256":hashlib.sha256(contact_email.lower().encode()).hexdigest(),
+        "declared_automated_access":True,
         "request_interval_seconds":args.min_request_interval,
         "r8_manifest_schema":r8.get("schema"),
         "mode":"smoke" if smoke_mode else "full",
