@@ -208,6 +208,12 @@ def _exit_thresholds() -> tuple[Decimal, Decimal]:
     return stop_loss, take_profit
 
 
+def _model_rotation_enabled() -> bool:
+    return (
+        os.environ.get('AUTO_TRADE_MODEL_ROTATION_ENABLED', 'true').strip().lower() == 'true'
+    )
+
+
 def _choose_exit_reason(
     *,
     price_return: Decimal,
@@ -456,9 +462,7 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
     policy = os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').strip().upper()
     latest = _latest_eligible_signal(db_url, position['strategy_version'], policy)
     entry_as_of = _parse_signal_time(position['entry_signal_as_of'])
-    rotation_enabled = (
-        os.environ.get('AUTO_TRADE_MODEL_ROTATION_ENABLED', 'true').strip().lower() == 'true'
-    )
+    rotation_enabled = _model_rotation_enabled()
     rotation = bool(
         rotation_enabled
         and latest
