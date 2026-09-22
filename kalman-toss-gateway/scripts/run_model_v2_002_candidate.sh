@@ -38,10 +38,12 @@ SPEC="${KALMAN_MODEL_V2002_SPEC:-$APP_ROOT/config/model-v2-002-candidate-spec.js
 UNIVERSE="${KALMAN_MARKET_V2_UNIVERSE:-$APP_ROOT/config/market-data-v2-universe.json}"
 MARKET_ROOT="${KALMAN_MARKET_V2_OUTPUT_DIR:-$DATA_ROOT/Market_Data/v2}"
 FEATURE_ROOT="${KALMAN_FEATURES_V2002_OUTPUT_DIR:-$DATA_ROOT/Market_Features/v2_002}"
-ROOT="${KALMAN_MODEL_V2002_ROOT:-$DATA_ROOT/Market_Model_V2_002_Candidate}"
+ROOT="${KALMAN_MODEL_V2002_ROOT:-$DATA_ROOT/Market_Model_V2_002_1_Diagnostic}"
 MATRIX_DIR="$ROOT/matrices"
 MODEL_DIR="$ROOT/models"
-BASELINE_MODEL_DIR="${KALMAN_MODEL_V2_ROOT:-$DATA_ROOT/Market_Model_V2}/models"
+BASELINE_ROOT="${KALMAN_MODEL_V2_ROOT:-$DATA_ROOT/Market_Model_V2}"
+BASELINE_MODEL_DIR="$BASELINE_ROOT/models"
+BASELINE_MATRIX_DIR="$BASELINE_ROOT/matrices"
 REPORT="$ROOT/evaluation/latest.json"
 
 cd "$APP_ROOT"
@@ -49,7 +51,7 @@ exec 9>"$LOCK_DIR/model-v2-002-candidate.lock"
 flock -n 9 || { echo "MODEL_V2_002_CANDIDATE_ALREADY_RUNNING" >&2; exit 30; }
 
 echo "=================================================="
-echo "KALMAN MODEL V2.002 CANDIDATE"
+echo "KALMAN MODEL V2.002.1 DIAGNOSTIC"
 echo "=================================================="
 echo "Feature root : $FEATURE_ROOT"
 echo "Model root   : $ROOT"
@@ -71,7 +73,7 @@ echo "[3/4] Train chronologically calibrated candidates"
 
 echo
 echo "[4/4] Compare with frozen V2.001"
-"$RESEARCH_PY" -m research.model_v2_002.evaluate_candidate   --matrix-dir "$MATRIX_DIR"   --model-dir "$MODEL_DIR"   --baseline-model-dir "$BASELINE_MODEL_DIR"   --output-file "$REPORT"
+"$RESEARCH_PY" -m research.model_v2_002.evaluate_candidate   --matrix-dir "$MATRIX_DIR"   --model-dir "$MODEL_DIR"   --baseline-model-dir "$BASELINE_MODEL_DIR"   --baseline-matrix-dir "$BASELINE_MATRIX_DIR"   --output-file "$REPORT"
 
 echo
 echo "=================================================="
@@ -79,5 +81,6 @@ echo "MODEL_V2_002_CANDIDATE_COMPLETE"
 echo "report=$REPORT"
 echo "production_write=false"
 echo "neon_write=false"
+echo "promotion_allowed=false"
 echo "trade_execution=false"
 echo "=================================================="
