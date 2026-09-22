@@ -1,0 +1,29 @@
+import importlib.util
+from pathlib import Path
+import pandas as pd
+
+P=Path(__file__).resolve().parents[1]/"research"/"r9_sec_text_readiness.py"
+spec=importlib.util.spec_from_file_location("r9text",P)
+m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+
+def test_semantic_items_exclude_9_01():
+    e={"items":["2.02","9.01"],"event_buckets":["EARNINGS_RESULTS","FINANCIAL_EXHIBITS"]}
+    assert m.semantic_items_from_event(e)==["2.02"]
+    assert m.primary_bucket(e)=="EARNINGS_RESULTS"
+
+def test_item_section_extraction_does_not_fallback_to_full_filing():
+    txt="Intro text Item 2.02 Results of Operations revenue rose materially. More detail here. Item 9.01 Exhibits follow."
+    got,found=m.extract_item_sections(txt,{"2.02"})
+    assert "Item 2.02" in got
+    assert "Item 9.01" not in got
+    assert found==["2.02"]
+    miss,_=m.extract_item_sections("No explicit item heading here",{"2.02"})
+    assert miss==""
+
+def test_primary_bucket_priority_is_frozen():
+    e={"event_buckets":["OTHER_EVENT","EARNINGS_RESULTS","REG_FD"]}
+    assert m.primary_bucket(e)=="EARNINGS_RESULTS"
+
+def test_availability_embargo_is_five_minutes():
+    t=pd.Timestamp("2026-01-02T14:30:00Z")
+    assert t+pd.to_timedelta(5,unit="m")==pd.Timestamp("2026-01-02T14:35:00Z")
