@@ -30,14 +30,16 @@ MAILTO=""
 CRON_TZ=Asia/Seoul
 
 # Kalman V3 frozen shadow-forward refresh.
-# BTC: after UTC daily candle close (09:00 KST).
+# US: KST Tue-Sat corresponds to US Mon-Fri sessions.
+# The existing V2 shadow refresh runs at 07:30 KST Tue-Sat and refreshes Market Data V2.
+45 8 * * 2-6 root KALMAN_APP_ROOT=$APP_ROOT KALMAN_ENV_FILE=/opt/kalman/.env $APP_ROOT/scripts/run_v3_shadow_cycle.sh US >> $LOG_DIR/v3-shadow-us.log 2>&1
+
+# BTC: refresh Market Data V2 explicitly because BTC must also advance on Sun/Mon KST.
+# Run after the 09:00 KST UTC daily-candle boundary.
 15 9 * * * root KALMAN_APP_ROOT=$APP_ROOT KALMAN_ENV_FILE=/opt/kalman/.env $APP_ROOT/scripts/run_v3_shadow_cycle.sh BTC >> $LOG_DIR/v3-shadow-btc.log 2>&1
 
-# US: previous regular-session daily bar should be available by morning KST.
-25 9 * * 1-5 root KALMAN_APP_ROOT=$APP_ROOT KALMAN_ENV_FILE=/opt/kalman/.env $APP_ROOT/scripts/run_v3_shadow_cycle.sh US >> $LOG_DIR/v3-shadow-us.log 2>&1
-
-# KR: refresh after regular market close.
-40 16 * * 1-5 root KALMAN_APP_ROOT=$APP_ROOT KALMAN_ENV_FILE=/opt/kalman/.env $APP_ROOT/scripts/run_v3_shadow_cycle.sh KR >> $LOG_DIR/v3-shadow-kr.log 2>&1
+# KR: run after the existing 16:50 V2 refresh so the same-day KR close is available.
+45 17 * * 1-5 root KALMAN_APP_ROOT=$APP_ROOT KALMAN_ENV_FILE=/opt/kalman/.env $APP_ROOT/scripts/run_v3_shadow_cycle.sh KR >> $LOG_DIR/v3-shadow-kr.log 2>&1
 EOF
 
 install -o root -g root -m 0644 "$TMP" "$CRON_FILE"
@@ -49,6 +51,6 @@ echo
 echo "[PASS] V3 shadow cron installed"
 echo "cron_file=$CRON_FILE"
 echo "timezone=Asia/Seoul"
+echo "US=08:45 Tue-Sat"
 echo "BTC=09:15 daily"
-echo "US=09:25 weekdays"
-echo "KR=16:40 weekdays"
+echo "KR=17:45 weekdays"
