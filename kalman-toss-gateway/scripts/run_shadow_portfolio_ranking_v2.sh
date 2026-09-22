@@ -159,9 +159,23 @@ print("data_as_of     :", ranking.get("data_as_of"))
 print("post_seed_rows :", ranking.get("post_seed_return_rows"))
 for row in ranking.get("forward_ranking") or []:
     print(
-        f"{row.get('forward_rank')} {row.get('strategy')}: "
-        f"return={row.get('total_return')} sharpe={row.get('sharpe')} "
-        f"mdd={row.get('max_drawdown')} target={row.get('latest_target')}"
+        f"rank={row.get('forward_rank')} eligible={row.get('rank_eligible')} "
+        f"{row.get('strategy')}: return={row.get('total_return')} "
+        f"sharpe={row.get('sharpe')} mdd={row.get('max_drawdown')} "
+        f"obs={row.get('observations')} rebalances={row.get('rebalance_count')} "
+        f"target={row.get('latest_target')}"
+    )
+cap = ranking.get("risk_cap_audit_latest") or {}
+if cap:
+    print(
+        "risk_cap_latest:",
+        f"binding={cap.get('risk_cap_binding')}",
+        f"reason={cap.get('risk_cap_reason')}",
+        f"ew_vol={cap.get('equal_weight_vol')}",
+        f"max_sharpe_vol={cap.get('max_sharpe_vol')}",
+        f"cap_vol={cap.get('risk_cap_vol')}",
+        f"blended_vol={cap.get('blended_vol')}",
+        f"alpha={cap.get('alpha_max_sharpe')}",
     )
 print("neon_status    :", status.get("status"))
 print("trade_execution:", status.get("trade_execution"))
