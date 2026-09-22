@@ -219,8 +219,9 @@ Added SEC features:
 
 Frozen SEC feature contract:
 - event timestamp = EDGAR `acceptanceDateTime`
+- conservative publication availability = `acceptanceDateTime + 5 minutes`
 - `signal_as_of = R5 timestamp + 60 minutes`
-- only events with `acceptanceDateTime <= signal_as_of` may enter
+- only events with `acceptanceDateTime + 5 minutes <= signal_as_of` may enter
 - half-life = 48 calendar hours
 - hard max age = 120 calendar hours
 - bucket feature = decay of latest event containing that semantic bucket
