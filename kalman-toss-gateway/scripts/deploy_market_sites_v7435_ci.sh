@@ -139,7 +139,7 @@ if market=="KR":
 else:
     assert "Kalman · US Investment Hub" in index
     assert "siteNav('US')" in front
-    for marker in ("Research Benchmark · TOP-1 vs TOP-6","R5.1 2026 Ledger","FORWARD SHADOW","RECONSTRUCTED · 2026","US SESSION · KST DATE","NEXT CYCLE","ACTION · BUY / SELL","NEXT UPDATE","sessionStatusHtml"):
+    for marker in ("Research Benchmark · TOP-1 vs TOP-6","R5.1 2026 Ledger","FORWARD SHADOW","RECONSTRUCTED · 2026","US SESSION · KST END DATE","NEXT HOURLY CYCLE","ACTION · BUY / SELL","5M EXECUTION WATCHER","NEXT UPDATE","sessionStatusHtml"):
         assert marker in front,marker
     control=json.loads((root/"control.json").read_text())
     bench=control.get("benchmarks") or {}
