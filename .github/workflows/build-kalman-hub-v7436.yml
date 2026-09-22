@@ -1,0 +1,66 @@
+name: Build Kalman Hub v7.4.36 SHADOW Freshness
+
+on:
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7436_shadow_freshness.py"
+      - ".github/workflows/build-kalman-hub-v7436.yml"
+  push:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7436_shadow_freshness.py"
+      - ".github/workflows/build-kalman-hub-v7436.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build v7.4.36 source
+        run: python kalman-toss-gateway/scripts/build_investment_hub_v7436_shadow_freshness.py
+      - name: Validate SHADOW freshness contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s kalman-hub-recovery/v7.4.36/source_manifest.ndjson
+          python - <<'PY'
+          from pathlib import Path
+          import base64,json,tempfile,subprocess
+          rows=[json.loads(x) for x in Path("kalman-hub-recovery/v7.4.36/source_manifest.ndjson").read_text().splitlines() if x.strip()]
+          assert len(rows)==30
+          with tempfile.TemporaryDirectory() as td:
+              out=Path(td)
+              for row in rows:
+                  p=out/row["file"]; p.parent.mkdir(parents=True,exist_ok=True)
+                  p.write_bytes(base64.b64decode(row["data_b64"]))
+              api=(out/"api/assets.js").read_text()
+              app=(out/"app.js").read_text()
+              health=(out/"api/health.js").read_text()
+              index=(out/"index.html").read_text()
+              for marker in [
+                  "freshnessThresholdHours={US:96,KR:96,BTC:36}",
+                  "signal_stale_markets","signal_age_hours",
+                  "ranking_stale_markets","ranking_age_hours",
+                  "data_freshness_status",
+                  "NEON_SHADOW_PORTFOLIO_SNAPSHOT","NEON_STRATEGY_SIGNAL"
+              ]:
+                  assert marker in api,marker
+              assert "Signal stale" in app
+              assert "vNext.7.4.36" in health and "vNext.7.4.36" in index
+              assert "trade_enabled:false" in health
+              assert "account_trade_execution:false" in health
+              subprocess.run(["node","--check",str(out/"api/assets.js")],check=True)
+              subprocess.run(["node","--check",str(out/"app.js")],check=True)
+          print("[PASS] v7.4.36 SHADOW freshness contract")
+          PY
