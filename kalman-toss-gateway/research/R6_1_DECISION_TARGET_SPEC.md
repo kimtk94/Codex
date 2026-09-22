@@ -114,7 +114,7 @@ For every evaluated fold:
 
 `train.target_timestamp_4b < fold_start`
 
-Any training-row mismatch aborts the run. The preflight also requires the final R5.1 freeze contract exactly: 831,981 rows, first feature timestamp 2020-07-27 13:30 UTC, last feature timestamp 2026-09-01 14:30 UTC, and last target timestamp 2026-09-01 18:30 UTC.
+Any E1-E8 fold training-row mismatch aborts the run. The final R5.1 freeze contract (831,981 rows through the 2026-09-01 live-overlay tail) is recorded separately as a diagnostic. The R1-backed challenger source stops 555 rows earlier, but those rows occur after every R6.1 training boundary; therefore they cannot affect any E2-E8 fitted challenger. A later full-model refit would require reconstructing the complete canonical+overlay 831,981-row panel before use.
 
 ## Execution
 
