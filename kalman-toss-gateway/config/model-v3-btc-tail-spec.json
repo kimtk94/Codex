@@ -1,0 +1,61 @@
+{
+  "version": "kalman_model_v3_003_btc_tail",
+  "dataset_version": "kalman_feature_matrix_v3_003_btc_tail",
+  "feature_set": "market_tools_v2_002",
+  "research_only": true,
+  "shadow_only": true,
+  "live_execution": false,
+  "forward_start": "2026-09-23T00:00:00",
+  "objective": "TAIL_ENTRY_ALPHA",
+  "max_ffill_observations": 3,
+  "minimum_feature_coverage": 0.8,
+  "candidate_feature_counts": [
+    8,
+    16,
+    32
+  ],
+  "candidate_c": [
+    0.001,
+    0.01,
+    0.1
+  ],
+  "candidate_class_weight": [
+    null,
+    "balanced"
+  ],
+  "walk_forward": {
+    "initial_train_observations": 365,
+    "test_block_observations": 28,
+    "horizon_purge_observations": 7,
+    "minimum_oof_rows": 180
+  },
+  "selection_gate": {
+    "minimum_nonoverlap_entries": 8,
+    "require_positive_incremental_alpha_net": true,
+    "require_positive_win_rate_lift": true,
+    "require_positive_net_mean": true,
+    "require_positive_net_compounded_return": true,
+    "auc_is_diagnostic_only": true
+  },
+  "markets": {
+    "BTC": {
+      "anchor_key": "yf_btc",
+      "symbol": "BTC-USD",
+      "horizon_observations": 7,
+      "positive_return_threshold": 0,
+      "include_groups": [
+        "BTC",
+        "COMMON",
+        "US",
+        "KR"
+      ],
+      "group_lag_observations": {
+        "BTC": 0,
+        "COMMON": 1,
+        "US": 1,
+        "KR": 0
+      },
+      "strategy_version": "KALMAN_V3_003_BTC_TAIL_ENTRY"
+    }
+  }
+}
