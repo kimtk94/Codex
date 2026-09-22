@@ -15,7 +15,7 @@ def test_parse_seen_contract():
     assert t==pd.Timestamp("2026-08-26T12:30:00Z")
 
 def test_alias_is_company_name_not_ticker():
-    assert m.query_alias("MICROSOFT CORP")=="MICROSOFT Corp"
+    assert m.query_alias("MICROSOFT CORP","MSFT")=="Microsoft"
 
 def test_article_id_is_symbol_scoped():
     u="https://example.com/x"
@@ -24,3 +24,9 @@ def test_article_id_is_symbol_scoped():
 def test_smoke_symbol_contract_is_deterministic():
     reg=pd.DataFrame({"symbol":["AAPL","MSFT","NVDA","AMZN","META","GOOG","JPM","XOM","WMT","UNH"]})
     assert m.select_smoke_symbols(reg)==["AAPL","MSFT","NVDA","AMZN","META","GOOG","JPM","XOM","WMT","UNH"]
+
+
+def test_public_alias_overrides_avoid_legal_suffix_noise():
+    assert m.query_alias("AMAZON COM INC","AMZN")=="Amazon"
+    assert m.query_alias("JPMORGAN CHASE & CO","JPM")=="JPMorgan Chase"
+    assert m.query_alias("ExxonMobil Holdings Corporation","XOM")=="ExxonMobil"
