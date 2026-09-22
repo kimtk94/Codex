@@ -12,3 +12,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # US R5.1: serialize each completed-bar pipeline with its matching trade decision.
 35 23 * * 1-5 /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
 35 0-4 * * 2-6 /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
+
+# Execution-only catch-up/risk watcher. The script self-serializes with the
+# hourly US cycle and keeps the model signal cadence at 60 minutes.
+*/5 23 * * 1-5 /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
+*/5 0-5 * * 2-6 /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
