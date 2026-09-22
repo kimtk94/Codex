@@ -52,7 +52,7 @@ class ShadowPortfolioRankingTests(unittest.TestCase):
 
             config={
                 "version":"test-shadow-ranking-v2",
-                "seed_end":"2026-08-31T00:00:00Z",
+                "seed_end":"2026-05-31T00:00:00Z",
                 "market_files":{
                     "US":{"path":"raw/yfinance/yf_spy.parquet","max_lag_days":4},
                     "KR":{"path":"raw/yfinance/yf_kospi.parquet","max_lag_days":4},
@@ -66,6 +66,8 @@ class ShadowPortfolioRankingTests(unittest.TestCase):
                 "initial_equity":1000000.0,
                 "risk_cap_ratio":1.10,
                 "simplex_step":0.01,
+                "min_forward_observations_for_rank":60,
+                "min_forward_rebalances_for_rank":2,
             }
             config_path=root/"config.json"
             config_path.write_text(json.dumps(config),encoding="utf-8")
@@ -95,9 +97,64 @@ class ShadowPortfolioRankingTests(unittest.TestCase):
             self.assertFalse(audit.empty)
             cap=1.10*audit["equal_weight_vol"]+1e-10
             self.assertTrue((audit["blended_vol"]<=cap).all())
+            self.assertIn("risk_cap_binding", audit.columns)
+            self.assertIn("risk_cap_vol", audit.columns)
+            self.assertIsNotNone(snapshot["risk_cap_audit_latest"])
 
             ready=[x for x in snapshot["forward_ranking"] if x["status"]=="READY"]
+            self.assertEqual(snapshot["tracking_status"], "RANKING_ACTIVE")
+            self.assertTrue(all(x["rank_eligible"] for x in ready))
             self.assertEqual(sorted(x["forward_rank"] for x in ready),list(range(len(ready))))
+            validate_snapshot(snapshot)
+
+    def test_rank_is_hidden_until_forward_gate_matures(self) -> None:
+        rng=np.random.default_rng(7)
+        idx=pd.date_range("2025-10-01","2026-09-20",freq="D",tz="UTC")
+        n=len(idx)
+        series={
+            "US":100*np.cumprod(1+rng.normal(0.0005,0.008,n)),
+            "KR":100*np.cumprod(1+rng.normal(0.0003,0.007,n)),
+            "BTC":100*np.cumprod(1+rng.normal(0.0008,0.018,n)),
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            market_root=root/"market"
+            self._write_market(market_root/"raw/yfinance/yf_spy.parquet","US",series["US"],idx)
+            self._write_market(market_root/"raw/yfinance/yf_kospi.parquet","KR",series["KR"],idx)
+            self._write_market(market_root/"raw/yfinance/yf_btc.parquet","BTC",series["BTC"],idx)
+            config={
+                "version":"test-shadow-ranking-gated",
+                "seed_end":"2026-09-10T00:00:00Z",
+                "market_files":{
+                    "US":{"path":"raw/yfinance/yf_spy.parquet","max_lag_days":4},
+                    "KR":{"path":"raw/yfinance/yf_kospi.parquet","max_lag_days":4},
+                    "BTC":{"path":"raw/yfinance/yf_btc.parquet","max_lag_days":2},
+                },
+                "lookback_days":180,
+                "min_observations":90,
+                "rebalance_cost_bps":10.0,
+                "annualization_days":365,
+                "initial_equity":1000000.0,
+                "risk_cap_ratio":1.10,
+                "simplex_step":0.01,
+                "min_forward_observations_for_rank":60,
+                "min_forward_rebalances_for_rank":2,
+            }
+            config_path=root/"config.json"
+            config_path.write_text(json.dumps(config),encoding="utf-8")
+            snapshot,_,_=build_snapshot(
+                market_root=market_root,
+                config_path=config_path,
+                code_sha="testsha",
+            )
+            self.assertEqual(
+                snapshot["tracking_status"],
+                "TRACKING_INSUFFICIENT_FORWARD_HISTORY",
+            )
+            ready=[x for x in snapshot["forward_ranking"] if x["status"]=="READY"]
+            self.assertTrue(ready)
+            self.assertTrue(all(x["forward_rank"] is None for x in ready))
+            self.assertTrue(all(not x["rank_eligible"] for x in ready))
             validate_snapshot(snapshot)
 
     def test_wall_clock_freshness_rejects_uniformly_stale_sources(self) -> None:
