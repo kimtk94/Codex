@@ -65,6 +65,39 @@ class ExtendedMarketToolsV2Tests(unittest.TestCase):
             places=12,
         )
 
+    def test_sparse_close_gap_is_diagnosed_without_mutating_features(self) -> None:
+        n = 120
+        idx = pd.date_range("2026-01-01", periods=n, freq="D")
+        close = np.linspace(15, 30, n) + np.sin(np.arange(n) / 5)
+        frame = pd.DataFrame(
+            {
+                "timestamp": idx,
+                "symbol": "VIX",
+                "open": close - 0.2,
+                "high": close + 0.8,
+                "low": close - 0.8,
+                "close": close,
+                "adj_close": close,
+                "volume": np.linspace(1000, 2000, n),
+            }
+        )
+        # Reproduce the observed VIX diagnostic state directly: raw close has
+        # enough data, while the persisted TA-Lib RSI column is entirely NaN.
+        frame.loc[[3, 17, 42], "close"] = np.nan
+        features = pd.DataFrame(
+            {
+                "timestamp": idx,
+                "talib_v2_rsi14": np.nan,
+            }
+        )
+
+        comparison = compare_legacy_rsi(frame, features)
+        self.assertEqual(comparison["status"], "FEATURE_GAP_DIAGNOSED")
+        self.assertEqual(comparison["feature_talib_valid_rows"], 0)
+        self.assertGreater(comparison["talib_valid_rows"], 50)
+        self.assertTrue(comparison["diagnostic_repair_applied"])
+        self.assertTrue(comparison["feature_output_unchanged"])
+
     def test_finviz_merge_and_local_candidate_filter(self) -> None:
         overview = pd.DataFrame(
             {

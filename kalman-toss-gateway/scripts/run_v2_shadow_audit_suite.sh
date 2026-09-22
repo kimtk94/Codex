@@ -73,9 +73,14 @@ for market, row in (shadow_status.get("markets") or {}).items():
     cal = row.get("calibration") or {}
     print(
         market,
+        "raw=", row.get("raw_shadow_direction"),
         "direction=", row.get("shadow_direction"),
+        "risk_gate=", row.get("risk_gate"),
         "p_up=", row.get("probability_up"),
-        "quality=", row.get("data_quality"),
+        "data_quality=", row.get("data_quality"),
+        "model_quality=", (row.get("model_quality") or {}).get("status"),
+        "brier_skill=", (row.get("model_quality") or {}).get("brier_skill"),
+        "log_loss_skill=", (row.get("model_quality") or {}).get("log_loss_skill"),
         "calibration=", cal.get("status"),
         "cal_rows=", cal.get("rows"),
         "brier=", cal.get("brier"),

@@ -103,15 +103,157 @@ def _calibration_metrics(
             }
         )
 
+    positive_rate = float(np.mean(y))
+    baseline_brier = positive_rate * (1.0 - positive_rate)
+    if 0.0 < positive_rate < 1.0:
+        baseline_log_loss = float(
+            -(
+                positive_rate * np.log(positive_rate)
+                + (1.0 - positive_rate) * np.log(1.0 - positive_rate)
+            )
+        )
+    else:
+        baseline_log_loss = 0.0
+
     return {
         "rows": int(len(y)),
-        "positive_rate": float(np.mean(y)),
+        "positive_rate": positive_rate,
         "mean_probability": float(np.mean(p)),
         "brier": brier,
+        "baseline_brier": baseline_brier,
+        "brier_skill": (
+            float(1.0 - brier / baseline_brier)
+            if baseline_brier > 0
+            else None
+        ),
         "log_loss": logloss,
+        "baseline_log_loss": baseline_log_loss,
+        "log_loss_skill": (
+            float(1.0 - logloss / baseline_log_loss)
+            if baseline_log_loss > 0
+            else None
+        ),
         "ece_10bin": float(ece),
         "extreme_probability_rate": float(np.mean((p <= 0.01) | (p >= 0.99))),
         "reliability_bins": reliability,
+    }
+
+
+def model_quality_audit(
+    artifact: dict[str, Any],
+    quality_gate: dict[str, Any] | None = None,
+    forward_calibration: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    gate = dict(quality_gate or {})
+    minimum_rows = int(gate.get("minimum_test_rows", 100))
+    minimum_auc = float(gate.get("minimum_test_roc_auc", 0.52))
+    minimum_brier_skill = float(gate.get("minimum_brier_skill", 0.0))
+    minimum_log_loss_skill = float(gate.get("minimum_log_loss_skill", 0.0))
+    maximum_forward_ece = float(gate.get("maximum_forward_ece", 0.20))
+
+    metrics = artifact.get("test_metrics") or {}
+    rows = int(metrics.get("rows") or 0)
+    positive_rate = metrics.get("positive_rate")
+    auc = metrics.get("roc_auc")
+    brier = metrics.get("brier")
+    logloss = metrics.get("log_loss")
+
+    try:
+        p = float(positive_rate)
+    except Exception:
+        p = float("nan")
+    try:
+        auc_value = float(auc)
+    except Exception:
+        auc_value = float("nan")
+    try:
+        brier_value = float(brier)
+    except Exception:
+        brier_value = float("nan")
+    try:
+        logloss_value = float(logloss)
+    except Exception:
+        logloss_value = float("nan")
+
+    baseline_brier = (
+        p * (1.0 - p)
+        if math.isfinite(p)
+        else float("nan")
+    )
+    baseline_log_loss = (
+        -(p * math.log(p) + (1.0 - p) * math.log(1.0 - p))
+        if math.isfinite(p) and 0.0 < p < 1.0
+        else float("nan")
+    )
+    brier_skill = (
+        1.0 - brier_value / baseline_brier
+        if math.isfinite(brier_value)
+        and math.isfinite(baseline_brier)
+        and baseline_brier > 0
+        else float("nan")
+    )
+    log_loss_skill = (
+        1.0 - logloss_value / baseline_log_loss
+        if math.isfinite(logloss_value)
+        and math.isfinite(baseline_log_loss)
+        and baseline_log_loss > 0
+        else float("nan")
+    )
+
+    checks: dict[str, bool] = {
+        "minimum_test_rows": rows >= minimum_rows,
+        "minimum_test_roc_auc": (
+            math.isfinite(auc_value) and auc_value >= minimum_auc
+        ),
+        "minimum_brier_skill": (
+            math.isfinite(brier_skill) and brier_skill >= minimum_brier_skill
+        ),
+        "minimum_log_loss_skill": (
+            math.isfinite(log_loss_skill)
+            and log_loss_skill >= minimum_log_loss_skill
+        ),
+    }
+
+    forward_gate_applied = bool(
+        forward_calibration
+        and forward_calibration.get("sufficient_for_interpretation") is True
+    )
+    if forward_gate_applied:
+        ece = forward_calibration.get("ece_10bin")
+        try:
+            ece_value = float(ece)
+        except Exception:
+            ece_value = float("nan")
+        checks["maximum_forward_ece"] = (
+            math.isfinite(ece_value) and ece_value <= maximum_forward_ece
+        )
+
+    passed = all(checks.values())
+    return {
+        "status": "PASS" if passed else "FAIL",
+        "checks": checks,
+        "thresholds": {
+            "minimum_test_rows": minimum_rows,
+            "minimum_test_roc_auc": minimum_auc,
+            "minimum_brier_skill": minimum_brier_skill,
+            "minimum_log_loss_skill": minimum_log_loss_skill,
+            "maximum_forward_ece": maximum_forward_ece,
+        },
+        "test_rows": rows,
+        "test_roc_auc": auc if auc is not None else None,
+        "test_brier": brier if brier is not None else None,
+        "baseline_brier": (
+            baseline_brier if math.isfinite(baseline_brier) else None
+        ),
+        "brier_skill": brier_skill if math.isfinite(brier_skill) else None,
+        "test_log_loss": logloss if logloss is not None else None,
+        "baseline_log_loss": (
+            baseline_log_loss if math.isfinite(baseline_log_loss) else None
+        ),
+        "log_loss_skill": (
+            log_loss_skill if math.isfinite(log_loss_skill) else None
+        ),
+        "forward_gate_applied": forward_gate_applied,
     }
 
 
@@ -174,6 +316,7 @@ def build_shadow_signal(
     artifact: dict[str, Any],
     model_sha256: str,
     max_missing_feature_ratio: float,
+    quality_gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if matrix.empty:
         raise RuntimeError(f"{market_name}: empty feature matrix")
@@ -200,7 +343,24 @@ def build_shadow_signal(
     probability = float(score["probability_up"])
     threshold = float(score["probability_threshold"])
     probability_ok = math.isfinite(probability)
-    shadow_entry = bool(score["shadow_entry"] and missing_ok and probability_ok)
+
+    gate = dict(quality_gate or {})
+    forward_calibration = forward_calibration_audit(
+        matrix,
+        artifact,
+        minimum_rows=int(gate.get("minimum_forward_calibration_rows", 20)),
+    )
+    model_quality = model_quality_audit(
+        artifact,
+        gate,
+        forward_calibration,
+    )
+    model_quality_ok = model_quality["status"] == "PASS"
+
+    raw_shadow_entry = bool(
+        score["shadow_entry"] and missing_ok and probability_ok
+    )
+    shadow_entry = bool(raw_shadow_entry and model_quality_ok)
 
     if not probability_ok:
         quality = "FAIL"
@@ -208,6 +368,9 @@ def build_shadow_signal(
     elif not missing_ok:
         quality = "DEGRADED"
         risk_gate = "DATA_QUALITY_FAIL"
+    elif not model_quality_ok:
+        quality = "PASS"
+        risk_gate = "MODEL_QUALITY_FAIL"
     else:
         quality = "PASS"
         risk_gate = "SHADOW_ONLY"
@@ -240,8 +403,13 @@ def build_shadow_signal(
             "model_sha256": model_sha256,
             "probability_up": probability,
             "probability_threshold": threshold,
+            "probability_interpretation": "RAW_UNCALIBRATED_MODEL_SCORE",
+            "raw_shadow_direction": "BUY" if raw_shadow_entry else "WATCH",
+            "raw_shadow_entry_this_signal": raw_shadow_entry,
             "shadow_direction": "BUY" if shadow_entry else "WATCH",
             "shadow_entry_this_signal": shadow_entry,
+            "model_quality": model_quality,
+            "forward_calibration": forward_calibration,
             "selected_feature_count": score["selected_feature_count"],
             "missing_feature_count": score["missing_feature_count"],
             "missing_feature_ratio": score["missing_feature_ratio"],
@@ -293,6 +461,7 @@ def main() -> int:
                 artifact=artifact,
                 model_sha256=model_sha,
                 max_missing_feature_ratio=float(args.max_missing_feature_ratio),
+                quality_gate=spec.get("shadow_quality_gate") or {},
             )
             signals.append(signal)
 
@@ -305,16 +474,21 @@ def main() -> int:
                 output_dir / "latest" / f"{market_name.lower()}.json",
                 signal,
             )
-            calibration = forward_calibration_audit(matrix, artifact)
             status["markets"][market_name] = {
                 "status": "READY",
                 "run_id": signal["run_id"],
                 "as_of": signal["as_of"],
+                "raw_shadow_direction": signal["payload"]["raw_shadow_direction"],
                 "shadow_direction": signal["payload"]["shadow_direction"],
+                "risk_gate": signal["risk_gate"],
                 "probability_up": signal["payload"]["probability_up"],
+                "probability_interpretation": signal["payload"][
+                    "probability_interpretation"
+                ],
                 "data_quality": signal["payload"]["data_quality"],
+                "model_quality": signal["payload"]["model_quality"],
                 "is_forward_shadow": signal["payload"]["is_forward_shadow"],
-                "calibration": calibration,
+                "calibration": signal["payload"]["forward_calibration"],
             }
         except Exception as exc:
             status["status"] = "FAIL"

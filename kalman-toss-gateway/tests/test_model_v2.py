@@ -13,6 +13,7 @@ from research.model_v2.model_contract import ARTIFACT_SCHEMA, score_row
 from research.model_v2.shadow_signal import (
     build_shadow_signal,
     forward_calibration_audit,
+    model_quality_audit,
     sha256_file,
 )
 from research.model_v2.train_candidates import (
@@ -179,6 +180,50 @@ class ModelV2Tests(unittest.TestCase):
             self.assertFalse(signal["payload"]["allow_trade_shadow"])
             self.assertFalse(signal["payload"]["live_execution"])
             self.assertFalse(signal["payload"]["production_promotion"])
+            self.assertIn("model_quality", signal["payload"])
+            self.assertIn("raw_shadow_direction", signal["payload"])
+            self.assertEqual(
+                signal["payload"]["probability_interpretation"],
+                "RAW_UNCALIBRATED_MODEL_SCORE",
+            )
+
+            poor_artifact = dict(artifact)
+            poor_artifact["test_metrics"] = {
+                "rows": 150,
+                "positive_rate": 0.50,
+                "roc_auc": 0.49,
+                "brier": 0.40,
+                "log_loss": 1.50,
+            }
+            poor_quality = model_quality_audit(
+                poor_artifact,
+                {
+                    "minimum_test_rows": 100,
+                    "minimum_test_roc_auc": 0.52,
+                    "minimum_brier_skill": 0.0,
+                    "minimum_log_loss_skill": 0.0,
+                },
+            )
+            self.assertEqual(poor_quality["status"], "FAIL")
+            self.assertLess(poor_quality["brier_skill"], 0.0)
+            self.assertLess(poor_quality["log_loss_skill"], 0.0)
+
+            poor_signal = build_shadow_signal(
+                market_name="US",
+                matrix=matrix,
+                artifact=poor_artifact,
+                model_sha256=sha256_file(model_path),
+                max_missing_feature_ratio=0.15,
+                quality_gate={
+                    "minimum_test_rows": 100,
+                    "minimum_test_roc_auc": 0.52,
+                    "minimum_brier_skill": 0.0,
+                    "minimum_log_loss_skill": 0.0,
+                },
+            )
+            self.assertEqual(poor_signal["risk_gate"], "MODEL_QUALITY_FAIL")
+            self.assertEqual(poor_signal["payload"]["shadow_direction"], "WATCH")
+            self.assertFalse(poor_signal["payload"]["shadow_entry_this_signal"])
 
             audit_artifact = dict(artifact)
             audit_artifact["training_window"] = dict(artifact["training_window"])
@@ -194,6 +239,8 @@ class ModelV2Tests(unittest.TestCase):
             self.assertIn("brier", calibration)
             self.assertIn("log_loss", calibration)
             self.assertIn("ece_10bin", calibration)
+            self.assertIn("brier_skill", calibration)
+            self.assertIn("log_loss_skill", calibration)
             self.assertTrue(calibration["reliability_bins"])
 
 

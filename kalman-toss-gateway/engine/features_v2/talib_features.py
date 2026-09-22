@@ -93,6 +93,27 @@ def build_talib_features(frame: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _diagnostic_talib_rsi_from_finite_observations(
+    close: pd.Series,
+    *,
+    period: int = 14,
+) -> pd.Series:
+    """Diagnostic-only RSI recovery that does not alter stored feature outputs."""
+    try:
+        import talib
+    except ImportError:
+        return pd.Series(np.nan, index=close.index, dtype=float)
+
+    values = pd.to_numeric(close, errors="coerce").to_numpy(dtype=float)
+    mask = np.isfinite(values)
+    out = np.full(len(values), np.nan, dtype=float)
+    if int(mask.sum()) <= period:
+        return pd.Series(out, index=close.index, dtype=float)
+
+    out[mask] = talib.RSI(values[mask], timeperiod=period)
+    return pd.Series(out, index=close.index, dtype=float)
+
+
 def compare_legacy_rsi(frame: pd.DataFrame, features: pd.DataFrame) -> dict[str, Any]:
     """Compare RSI implementations after canonical timestamp alignment.
 
@@ -131,16 +152,36 @@ def compare_legacy_rsi(frame: pd.DataFrame, features: pd.DataFrame) -> dict[str,
         how="inner",
         validate="one_to_one",
     )
-    pair = aligned.dropna(subset=["legacy", "talib"]).copy()
+    feature_talib_valid_rows = int(aligned["talib"].notna().sum())
+    diagnostic_repair_applied = False
+
+    if feature_talib_valid_rows == 0 and int(aligned["close"].notna().sum()) > 14:
+        aligned["talib_diagnostic"] = _diagnostic_talib_rsi_from_finite_observations(
+            aligned["close"],
+            period=14,
+        )
+        diagnostic_repair_applied = bool(
+            aligned["talib_diagnostic"].notna().any()
+        )
+    else:
+        aligned["talib_diagnostic"] = aligned["talib"]
+
+    pair = aligned.dropna(subset=["legacy", "talib_diagnostic"]).copy()
+    pair["talib_feature"] = pair["talib"]
+    pair["talib"] = pair["talib_diagnostic"]
+    pair = pair.drop(columns=["talib_diagnostic"])
 
     diagnostics = {
         "raw_rows": int(len(frame)),
         "raw_timestamp_rows": int(len(raw)),
         "close_valid_rows": int(raw["close"].notna().sum()),
         "legacy_valid_rows": int(raw["legacy"].notna().sum()),
-        "talib_valid_rows": int(modern["talib"].notna().sum()),
+        "feature_talib_valid_rows": feature_talib_valid_rows,
+        "talib_valid_rows": int(pair["talib"].notna().sum()),
         "timestamp_overlap_rows": int(len(aligned)),
         "overlap_rows": int(len(pair)),
+        "diagnostic_repair_applied": diagnostic_repair_applied,
+        "feature_output_unchanged": True,
     }
 
     if pair.empty:
@@ -166,7 +207,11 @@ def compare_legacy_rsi(frame: pd.DataFrame, features: pd.DataFrame) -> dict[str,
 
     corr = pair["legacy"].corr(pair["talib"])
     return {
-        "status": "READY",
+        "status": (
+            "FEATURE_GAP_DIAGNOSED"
+            if diagnostic_repair_applied
+            else "READY"
+        ),
         **diagnostics,
         "mean_absolute_difference": float(diff.abs().mean()),
         "max_absolute_difference": float(diff.abs().max()),
