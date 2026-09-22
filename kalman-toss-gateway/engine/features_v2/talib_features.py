@@ -25,19 +25,6 @@ def _legacy_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     return 100 - (100 / (1 + rs))
 
 
-def _scatter_talib(
-    size: int,
-    mask: np.ndarray,
-    values: np.ndarray | tuple[np.ndarray, ...],
-) -> np.ndarray | tuple[np.ndarray, ...]:
-    """Scatter TA-Lib output computed on finite observations back to source rows."""
-    if isinstance(values, tuple):
-        return tuple(_scatter_talib(size, mask, value) for value in values)
-    out = np.full(size, np.nan, dtype=float)
-    out[mask] = np.asarray(values, dtype=float)
-    return out
-
-
 def build_talib_features(frame: pd.DataFrame) -> pd.DataFrame:
     try:
         import talib
@@ -59,106 +46,72 @@ def build_talib_features(frame: pd.DataFrame) -> pd.DataFrame:
     high_arr = high.to_numpy(dtype=float)
     low_arr = low.to_numpy(dtype=float)
     volume_arr = volume.to_numpy(dtype=float)
-    size = len(x)
 
     out = pd.DataFrame({
         "timestamp": pd.to_datetime(x["timestamp"], errors="coerce"),
         "symbol": x["symbol"].astype(str),
     })
 
-    # TA-Lib propagates NaN values through many indicators.  Market snapshots
-    # such as VIX can contain sparse missing sessions, so compute indicators on
-    # the finite observation sequence and scatter results back to source rows.
-    # This preserves point-in-time ordering without inventing/filling prices.
-    close_mask = np.isfinite(close_arr)
-    if int(close_mask.sum()) >= 2:
-        close_valid = close_arr[close_mask]
-        out["talib_v2_rsi14"] = _scatter_talib(
-            size,
-            close_mask,
-            talib.RSI(close_valid, timeperiod=14),
-        )
-        macd, macd_signal, macd_hist = _scatter_talib(
-            size,
-            close_mask,
-            talib.MACD(
-                close_valid,
-                fastperiod=12,
-                slowperiod=26,
-                signalperiod=9,
-            ),
-        )
-        out["talib_v2_macd"] = macd
-        out["talib_v2_macd_signal"] = macd_signal
-        out["talib_v2_macd_hist"] = macd_hist
-        out["talib_v2_roc10"] = _scatter_talib(
-            size,
-            close_mask,
-            talib.ROC(close_valid, timeperiod=10),
-        )
-        out["talib_v2_obv"] = _scatter_talib(
-            size,
-            close_mask,
-            talib.OBV(close_valid, volume_arr[close_mask]),
-        )
-        upper, middle, lower = _scatter_talib(
-            size,
-            close_mask,
-            talib.BBANDS(
-                close_valid,
-                timeperiod=20,
-                nbdevup=2,
-                nbdevdn=2,
-                matype=0,
-            ),
-        )
-    else:
-        out["talib_v2_rsi14"] = np.nan
-        out["talib_v2_macd"] = np.nan
-        out["talib_v2_macd_signal"] = np.nan
-        out["talib_v2_macd_hist"] = np.nan
-        out["talib_v2_roc10"] = np.nan
-        out["talib_v2_obv"] = np.nan
-        upper = np.full(size, np.nan, dtype=float)
-        middle = np.full(size, np.nan, dtype=float)
-        lower = np.full(size, np.nan, dtype=float)
+    out["talib_v2_rsi14"] = talib.RSI(close_arr, timeperiod=14)
+    macd, macd_signal, macd_hist = talib.MACD(
+        close_arr,
+        fastperiod=12,
+        slowperiod=26,
+        signalperiod=9,
+    )
+    out["talib_v2_macd"] = macd
+    out["talib_v2_macd_signal"] = macd_signal
+    out["talib_v2_macd_hist"] = macd_hist
 
-    ohlc_mask = np.isfinite(high_arr) & np.isfinite(low_arr) & np.isfinite(close_arr)
-    if int(ohlc_mask.sum()) >= 2:
-        high_valid = high_arr[ohlc_mask]
-        low_valid = low_arr[ohlc_mask]
-        close_ohlc_valid = close_arr[ohlc_mask]
-        out["talib_v2_adx14"] = _scatter_talib(
-            size,
-            ohlc_mask,
-            talib.ADX(high_valid, low_valid, close_ohlc_valid, timeperiod=14),
-        )
-        out["talib_v2_atr14"] = _scatter_talib(
-            size,
-            ohlc_mask,
-            talib.ATR(high_valid, low_valid, close_ohlc_valid, timeperiod=14),
-        )
-        out["talib_v2_natr14"] = _scatter_talib(
-            size,
-            ohlc_mask,
-            talib.NATR(high_valid, low_valid, close_ohlc_valid, timeperiod=14),
-        )
+    if high.notna().any() and low.notna().any():
+        out["talib_v2_adx14"] = talib.ADX(high_arr, low_arr, close_arr, timeperiod=14)
+        out["talib_v2_atr14"] = talib.ATR(high_arr, low_arr, close_arr, timeperiod=14)
+        out["talib_v2_natr14"] = talib.NATR(high_arr, low_arr, close_arr, timeperiod=14)
     else:
         out["talib_v2_adx14"] = np.nan
         out["talib_v2_atr14"] = np.nan
         out["talib_v2_natr14"] = np.nan
 
+    out["talib_v2_roc10"] = talib.ROC(close_arr, timeperiod=10)
+    out["talib_v2_obv"] = talib.OBV(close_arr, volume_arr)
+
+    upper, middle, lower = talib.BBANDS(
+        close_arr,
+        timeperiod=20,
+        nbdevup=2,
+        nbdevdn=2,
+        matype=0,
+    )
     out["talib_v2_bb_upper"] = upper
     out["talib_v2_bb_mid"] = middle
     out["talib_v2_bb_lower"] = lower
-    width = pd.Series(upper - lower, index=out.index).replace(0, np.nan)
-    out["talib_v2_bb_pctb"] = (
-        close.reset_index(drop=True) - pd.Series(lower, index=out.index)
-    ) / width
+    width = pd.Series(upper - lower).replace(0, np.nan)
+    out["talib_v2_bb_pctb"] = (close.reset_index(drop=True) - lower) / width
 
     out["feature_set"] = FEATURE_SET
     out["point_in_time"] = True
     return out
+
+
+def _diagnostic_talib_rsi_from_finite_observations(
+    close: pd.Series,
+    *,
+    period: int = 14,
+) -> pd.Series:
+    """Diagnostic-only RSI recovery that does not alter stored feature outputs."""
+    try:
+        import talib
+    except ImportError:
+        return pd.Series(np.nan, index=close.index, dtype=float)
+
+    values = pd.to_numeric(close, errors="coerce").to_numpy(dtype=float)
+    mask = np.isfinite(values)
+    out = np.full(len(values), np.nan, dtype=float)
+    if int(mask.sum()) <= period:
+        return pd.Series(out, index=close.index, dtype=float)
+
+    out[mask] = talib.RSI(values[mask], timeperiod=period)
+    return pd.Series(out, index=close.index, dtype=float)
 
 
 def compare_legacy_rsi(frame: pd.DataFrame, features: pd.DataFrame) -> dict[str, Any]:
@@ -199,16 +152,34 @@ def compare_legacy_rsi(frame: pd.DataFrame, features: pd.DataFrame) -> dict[str,
         how="inner",
         validate="one_to_one",
     )
-    pair = aligned.dropna(subset=["legacy", "talib"]).copy()
+    feature_talib_valid_rows = int(aligned["talib"].notna().sum())
+    diagnostic_repair_applied = False
+
+    if feature_talib_valid_rows == 0 and int(aligned["close"].notna().sum()) > 14:
+        aligned["talib_diagnostic"] = _diagnostic_talib_rsi_from_finite_observations(
+            aligned["close"],
+            period=14,
+        )
+        diagnostic_repair_applied = bool(
+            aligned["talib_diagnostic"].notna().any()
+        )
+    else:
+        aligned["talib_diagnostic"] = aligned["talib"]
+
+    pair = aligned.dropna(subset=["legacy", "talib_diagnostic"]).copy()
+    pair = pair.rename(columns={"talib_diagnostic": "talib"})
 
     diagnostics = {
         "raw_rows": int(len(frame)),
         "raw_timestamp_rows": int(len(raw)),
         "close_valid_rows": int(raw["close"].notna().sum()),
         "legacy_valid_rows": int(raw["legacy"].notna().sum()),
-        "talib_valid_rows": int(modern["talib"].notna().sum()),
+        "feature_talib_valid_rows": feature_talib_valid_rows,
+        "talib_valid_rows": int(pair["talib"].notna().sum()),
         "timestamp_overlap_rows": int(len(aligned)),
         "overlap_rows": int(len(pair)),
+        "diagnostic_repair_applied": diagnostic_repair_applied,
+        "feature_output_unchanged": True,
     }
 
     if pair.empty:
@@ -234,7 +205,11 @@ def compare_legacy_rsi(frame: pd.DataFrame, features: pd.DataFrame) -> dict[str,
 
     corr = pair["legacy"].corr(pair["talib"])
     return {
-        "status": "READY",
+        "status": (
+            "FEATURE_GAP_DIAGNOSED"
+            if diagnostic_repair_applied
+            else "READY"
+        ),
         **diagnostics,
         "mean_absolute_difference": float(diff.abs().mean()),
         "max_absolute_difference": float(diff.abs().max()),
