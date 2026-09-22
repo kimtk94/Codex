@@ -58,3 +58,27 @@ def test_fomc_event_timestamp_is_eligible_without_bls_actual():
     rows,stats=m.build_reaction(events,_qqq(),6)
     assert rows[0]["reaction_available"] is True
     assert stats["eligible_events_in_qqq_history"]==1
+
+
+def test_two_hour_reaction_does_not_bridge_next_session():
+    q=pd.DataFrame({
+        "candle_time_utc":pd.to_datetime([
+            "2026-09-01T18:30:00Z",
+            "2026-09-02T13:30:00Z",
+        ],utc=True),
+        "open":[100.0,110.0],
+        "close":[101.0,111.0],
+        "session_date":["2026-09-01","2026-09-02"],
+        "session_bucket":[5,0],
+        "expected_seq":[20,21],
+        "bar_time_aligned":[True,True],
+        "data_gap_before":[False,False],
+    }).assign(bar_end_utc=lambda x:x.candle_time_utc+pd.Timedelta(hours=1))
+    events=[{
+        "family":"FOMC",
+        "event_name":"FOMC statement",
+        "release_at":"2026-09-01T18:00:00Z",
+        "pit_actual_eligible":False,
+    }]
+    rows,_=m.build_reaction(events,q,6)
+    assert rows[0]["qqq_reaction_2h_open_to_close"] is None
