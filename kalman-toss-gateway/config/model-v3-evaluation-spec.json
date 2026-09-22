@@ -1,0 +1,65 @@
+{
+  "schema_version": "kalman-model-v3-evaluation-contract-v1",
+  "version": "kalman_model_v3_003_evaluation_001",
+  "research_only": true,
+  "forward_start": "2026-09-23T00:00:00",
+  "rolling_score_policy": {
+    "lookback_observations": 126,
+    "minimum_history_observations": 60,
+    "quantile_method": "linear",
+    "current_score_excluded_from_threshold": true
+  },
+  "policy_selection": {
+    "source": "PRE_FORWARD_VALIDATION_ONLY",
+    "minimum_nonoverlap_entries": 8,
+    "primary_metric": "nonoverlap_incremental_alpha_mean_net",
+    "secondary_metric": "nonoverlap_win_rate_lift",
+    "tie_breaker": "sparser_top_fraction"
+  },
+  "costs": {
+    "round_trip_cost_bps": 10
+  },
+  "promotion_gate": {
+    "minimum_forward_observations_for_interpretation": 60,
+    "minimum_forward_observations_for_promotion": 120,
+    "minimum_nonoverlap_entries_for_promotion": 8,
+    "minimum_incremental_alpha_mean_net": 0,
+    "minimum_win_rate_lift": 0,
+    "minimum_net_compounded_return": 0
+  },
+  "markets": {
+    "KR": {
+      "status": "CANDIDATE",
+      "objective": "RANK_ALPHA",
+      "horizon_observations": 5,
+      "candidate_top_fractions": [
+        0.2,
+        0.3,
+        0.4
+      ],
+      "notes": "Select top fraction on pre-forward validation only; freeze before forward tracking."
+    },
+    "BTC": {
+      "status": "CANDIDATE",
+      "objective": "TAIL_ENTRY_ALPHA",
+      "horizon_observations": 7,
+      "candidate_top_fractions": [
+        0.05,
+        0.1,
+        0.15
+      ],
+      "notes": "Evaluate sparse high-conviction entries with non-overlapping holding windows."
+    },
+    "US": {
+      "status": "TARGET_REDESIGN_REQUIRED",
+      "objective": "RANK_ALPHA_AFTER_TARGET_REDESIGN",
+      "horizon_observations": 5,
+      "candidate_top_fractions": [
+        0.2,
+        0.3,
+        0.4
+      ],
+      "notes": "Do not promote current direction target model; use this contract after target redesign."
+    }
+  }
+}
