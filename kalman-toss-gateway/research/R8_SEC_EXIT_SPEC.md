@@ -155,3 +155,22 @@ R8-S and R5-EXIT-V1:
 - do not write strategy signals
 - do not alter production tables
 
+
+
+## 9. SEC issuer-lineage correction before alpha fitting
+
+The first readiness run exposed one clear historical-lineage discontinuity:
+- current XOM ticker mapping points to successor registrant CIK `0002115436`, yielding only three 2026 events;
+- SEC identifies ExxonMobil Holdings Corporation as successor registrant effective 2026-07-01;
+- predecessor Exxon Mobil Corporation used CIK `0000034088`.
+
+R8-S v2 therefore freezes:
+- XOM / CIK 0000034088 through 2026-06-30
+- XOM / CIK 0002115436 from 2026-07-01 onward
+
+This correction is source-lineage repair before any alpha model is fit; it is not performance-driven tuning.
+
+Duplicate governance is also clarified:
+- uniqueness key = `symbol + accession_number`;
+- the same SEC accession may intentionally map to multiple traded share classes of the same issuer (for example GOOG/GOOGL);
+- cross-symbol shared accessions are reported diagnostically and do not count as within-symbol duplicates.
