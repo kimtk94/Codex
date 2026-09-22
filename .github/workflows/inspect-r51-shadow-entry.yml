@@ -1,0 +1,55 @@
+name: Inspect R51 Shadow Entry Rule
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/inspect-r51-shadow-entry.yml"
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode and inspect exact R5.1 entry rule
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat kalman-toss-gateway/engine/_unified_payload_*.b64 | tr -d '\n\r' | base64 -d | xz -dc > /tmp/unified.py
+          python - <<'PY'
+          from pathlib import Path
+          import ast, re
+          root=Path('/tmp/unified.py').read_text(encoding='utf-8')
+          queue=[("root",root,0)]
+          seen=set()
+          targets=[]
+          while queue:
+              label,blob,depth=queue.pop(0)
+              if depth>5 or blob in seen:
+                  continue
+              seen.add(blob)
+              if 'shadow_entry_this_signal' in blob or 'R51_TRADE_LOG' in blob or 'r5_1_trade_entry_log' in blob:
+                  targets.append((label,blob,depth))
+              try:
+                  tree=ast.parse(blob)
+              except SyntaxError:
+                  continue
+              for node in ast.walk(tree):
+                  if isinstance(node,ast.Constant) and isinstance(node.value,str) and len(node.value)>200:
+                      queue.append((f"{label}/str@{getattr(node,'lineno','?')}",node.value,depth+1))
+          emitted=set()
+          patterns=[
+              'shadow_entry_this_signal','R51_TRADE_LOG','r5_1_trade_entry_log',
+              'expected_exit_seq','trade_id','allow_trade_shadow','R51_START'
+          ]
+          for label,blob,depth in targets:
+              lines=blob.splitlines()
+              for i,line in enumerate(lines):
+                  if any(p.lower() in line.lower() for p in patterns):
+                      a=max(0,i-18); b=min(len(lines),i+30)
+                      key=(label,a,b)
+                      if key in emitted: continue
+                      emitted.add(key)
+                      print(f"===== {label} depth={depth} lines {a+1}-{b} =====")
+                      for n in range(a,b):
+                          print(f"{n+1}: {lines[n]}")
+          PY
