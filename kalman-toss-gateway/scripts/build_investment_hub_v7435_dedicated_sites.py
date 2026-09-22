@@ -139,7 +139,7 @@ def validate_market(src: Path, market: str) -> dict:
             "NEXT HOURLY CYCLE",
             "ACTION · BUY / SELL",
             "5M EXECUTION WATCHER",
-            "NEXT UPDATE",
+            "EXPECTED WEB UPDATE",
             "sessionStatusHtml",
         ):
             if marker not in app:
