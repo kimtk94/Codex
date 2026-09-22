@@ -502,6 +502,170 @@ def make_score_stream(
     return out.sort_values("as_of").reset_index(drop=True)
 
 
+def update_forward_ledgers(
+    matrix: pd.DataFrame,
+    artifact: dict[str, Any],
+    *,
+    forward_start: pd.Timestamp,
+    score_ledger_path: Path,
+    outcome_ledger_path: Path,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    forward_matrix = matrix.loc[matrix["as_of"] >= forward_start].copy()
+    forward_matrix = (
+        forward_matrix.sort_values("as_of")
+        .drop_duplicates("as_of", keep="last")
+        .reset_index(drop=True)
+    )
+
+    if score_ledger_path.exists():
+        score_ledger = pd.read_parquet(score_ledger_path)
+        score_ledger["as_of"] = pd.to_datetime(
+            score_ledger["as_of"], errors="raise"
+        )
+    else:
+        score_ledger = pd.DataFrame(
+            columns=[
+                "as_of",
+                "score",
+                "missing_feature_ratio",
+                "anchor_close",
+                "score_frozen_at",
+            ]
+        )
+
+    existing_score_dates = set(
+        pd.to_datetime(score_ledger.get("as_of", pd.Series(dtype="datetime64[ns]")))
+        .dropna()
+        .tolist()
+    )
+    new_rows = forward_matrix.loc[
+        ~forward_matrix["as_of"].isin(existing_score_dates)
+    ].copy()
+
+    new_score_dates: list[str] = []
+    if not new_rows.empty:
+        scored = score_frame(new_rows, artifact)
+        frozen_at = pd.Timestamp.now(tz="UTC").isoformat()
+        additions = pd.DataFrame(
+            {
+                "as_of": new_rows["as_of"].to_numpy(),
+                "score": scored["score"].to_numpy(),
+                "missing_feature_ratio": scored[
+                    "missing_feature_ratio"
+                ].to_numpy(),
+                "anchor_close": new_rows["anchor_close"].to_numpy(),
+                "score_frozen_at": frozen_at,
+            }
+        )
+        new_score_dates = [
+            pd.Timestamp(v).isoformat() for v in additions["as_of"].tolist()
+        ]
+        score_ledger = pd.concat(
+            [score_ledger, additions],
+            ignore_index=True,
+        )
+        score_ledger = (
+            score_ledger.sort_values("as_of")
+            .drop_duplicates("as_of", keep="first")
+            .reset_index(drop=True)
+        )
+
+    if not score_ledger.empty:
+        if pd.Timestamp(score_ledger["as_of"].min()) < forward_start:
+            raise RuntimeError("forward score ledger contains pre-forward rows")
+        atomic_parquet(score_ledger, score_ledger_path)
+
+    if outcome_ledger_path.exists():
+        outcome_ledger = pd.read_parquet(outcome_ledger_path)
+        outcome_ledger["as_of"] = pd.to_datetime(
+            outcome_ledger["as_of"], errors="raise"
+        )
+    else:
+        outcome_ledger = pd.DataFrame(
+            columns=[
+                "as_of",
+                "target_forward_return",
+                "target_label",
+                "outcome_frozen_at",
+            ]
+        )
+
+    existing_outcome_dates = set(
+        pd.to_datetime(
+            outcome_ledger.get("as_of", pd.Series(dtype="datetime64[ns]"))
+        )
+        .dropna()
+        .tolist()
+    )
+    matured = forward_matrix.loc[
+        forward_matrix["as_of"].isin(score_ledger["as_of"])
+        & forward_matrix["target_forward_return"].notna()
+        & ~forward_matrix["as_of"].isin(existing_outcome_dates)
+    ].copy()
+
+    new_outcome_dates: list[str] = []
+    if not matured.empty:
+        frozen_at = pd.Timestamp.now(tz="UTC").isoformat()
+        additions = matured[
+            ["as_of", "target_forward_return", "target_label"]
+        ].copy()
+        additions["outcome_frozen_at"] = frozen_at
+        new_outcome_dates = [
+            pd.Timestamp(v).isoformat() for v in additions["as_of"].tolist()
+        ]
+        outcome_ledger = pd.concat(
+            [outcome_ledger, additions],
+            ignore_index=True,
+        )
+        outcome_ledger = (
+            outcome_ledger.sort_values("as_of")
+            .drop_duplicates("as_of", keep="first")
+            .reset_index(drop=True)
+        )
+
+    if not outcome_ledger.empty:
+        if not set(outcome_ledger["as_of"]).issubset(set(score_ledger["as_of"])):
+            raise RuntimeError("outcome ledger contains date without frozen score")
+        atomic_parquet(outcome_ledger, outcome_ledger_path)
+
+    evaluation = score_ledger[
+        ["as_of", "anchor_close", "score", "missing_feature_ratio"]
+    ].copy()
+    if outcome_ledger.empty:
+        evaluation["target_forward_return"] = np.nan
+        evaluation["target_label"] = np.nan
+    else:
+        evaluation = evaluation.merge(
+            outcome_ledger[
+                ["as_of", "target_forward_return", "target_label"]
+            ],
+            on="as_of",
+            how="left",
+            validate="one_to_one",
+        )
+
+    audit = {
+        "append_only": True,
+        "score_rows": int(len(score_ledger)),
+        "outcome_rows": int(len(outcome_ledger)),
+        "new_score_rows": int(len(new_score_dates)),
+        "new_outcome_rows": int(len(new_outcome_dates)),
+        "new_score_dates": new_score_dates,
+        "new_outcome_dates": new_outcome_dates,
+        "score_ledger_sha256": (
+            sha256_file(score_ledger_path)
+            if score_ledger_path.exists()
+            else None
+        ),
+        "outcome_ledger_sha256": (
+            sha256_file(outcome_ledger_path)
+            if outcome_ledger_path.exists()
+            else None
+        ),
+    }
+    return evaluation, audit
+
+
 def current_shadow_signal(
     combined_scores: pd.DataFrame,
     *,
@@ -657,25 +821,18 @@ def main() -> int:
     if pd.Timestamp(frozen_reference["as_of"].max()) >= forward_start:
         raise RuntimeError("frozen reference contains forward rows")
 
-    forward_matrix = matrix.loc[matrix["as_of"] >= forward_start].copy()
-    if forward_matrix.empty:
-        forward_scores = pd.DataFrame(
-            columns=[
-                "as_of",
-                "anchor_close",
-                "target_forward_return",
-                "target_label",
-                "score",
-                "missing_feature_ratio",
-            ]
-        )
-    else:
-        forward_scores = make_score_stream(forward_matrix, artifact)
-
+    forward_scores, ledger_audit = update_forward_ledgers(
+        matrix,
+        artifact,
+        forward_start=forward_start,
+        score_ledger_path=output_dir / "forward_score_ledger.parquet",
+        outcome_ledger_path=output_dir / "forward_outcome_ledger.parquet",
+    )
     atomic_parquet(
         forward_scores,
         output_dir / "forward_scores_latest.parquet",
     )
+
     combined = pd.concat(
         [
             frozen_reference[
@@ -742,6 +899,7 @@ def main() -> int:
         "current_shadow_signal": signal,
         "matrix_as_of": pd.Timestamp(matrix["as_of"].max()).isoformat(),
         "forward_score_rows": int(len(forward_scores)),
+        "forward_ledgers": ledger_audit,
         "research_only": True,
         "shadow_only": True,
         "production_write": False,
