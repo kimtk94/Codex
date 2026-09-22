@@ -10,7 +10,6 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from engine.market_data.snapshot import atomic_json, write_snapshot
-from engine.features_v2.compare import compare_legacy_rsi if False else None
 from engine.features_v2.talib_features import compare_legacy_rsi
 from .registry import FEATURE_SET, registry_payload
 from .talib_features import build_talib_features
