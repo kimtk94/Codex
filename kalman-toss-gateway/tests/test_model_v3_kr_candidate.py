@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,6 +12,7 @@ from research.model_v3.kr_candidate import (
     expanding_walk_forward_oof,
     safe_pre_forward,
     select_candidate_and_policy,
+    update_forward_ledgers,
 )
 
 
@@ -170,6 +173,97 @@ class ModelV3KRCandidateTests(unittest.TestCase):
             ],
             0.0,
         )
+
+    def test_forward_ledgers_are_append_only(self) -> None:
+        forward_start = pd.Timestamp("2026-09-23")
+        artifact = {
+            "artifact_schema": "kalman_rank_logit_json_v3",
+            "selected_features": ["f1"],
+            "imputer_medians": {"f1": 0.0},
+            "scaler_mean": {"f1": 0.0},
+            "scaler_scale": {"f1": 1.0},
+            "coefficients": {"f1": 1.0},
+            "intercept": 0.0,
+        }
+        first = pd.DataFrame(
+            {
+                "as_of": pd.to_datetime(
+                    ["2026-09-23", "2026-09-24", "2026-09-25"]
+                ),
+                "anchor_close": [100.0, 101.0, 102.0],
+                "target_forward_return": [0.02, np.nan, np.nan],
+                "target_label": [1.0, np.nan, np.nan],
+                "f1": [0.2, 0.4, 0.6],
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            score_path = root / "scores.parquet"
+            outcome_path = root / "outcomes.parquet"
+
+            eval1, audit1 = update_forward_ledgers(
+                first,
+                artifact,
+                forward_start=forward_start,
+                score_ledger_path=score_path,
+                outcome_ledger_path=outcome_path,
+            )
+            frozen_scores = dict(zip(eval1["as_of"], eval1["score"]))
+            self.assertEqual(audit1["score_rows"], 3)
+            self.assertEqual(audit1["outcome_rows"], 1)
+
+            revised = first.copy()
+            revised.loc[:, "f1"] = [9.0, 9.0, 9.0]
+            revised.loc[0, "target_forward_return"] = -0.50
+            revised.loc[0, "target_label"] = 0.0
+            revised.loc[1, "target_forward_return"] = 0.03
+            revised.loc[1, "target_label"] = 1.0
+            revised = pd.concat(
+                [
+                    revised,
+                    pd.DataFrame(
+                        {
+                            "as_of": [pd.Timestamp("2026-09-28")],
+                            "anchor_close": [103.0],
+                            "target_forward_return": [np.nan],
+                            "target_label": [np.nan],
+                            "f1": [0.8],
+                        }
+                    ),
+                ],
+                ignore_index=True,
+            )
+
+            eval2, audit2 = update_forward_ledgers(
+                revised,
+                artifact,
+                forward_start=forward_start,
+                score_ledger_path=score_path,
+                outcome_ledger_path=outcome_path,
+            )
+            for as_of, score in frozen_scores.items():
+                got = float(
+                    eval2.loc[eval2["as_of"] == as_of, "score"].iloc[0]
+                )
+                self.assertAlmostEqual(got, float(score))
+
+            first_outcome = float(
+                eval2.loc[
+                    eval2["as_of"] == pd.Timestamp("2026-09-23"),
+                    "target_forward_return",
+                ].iloc[0]
+            )
+            self.assertAlmostEqual(first_outcome, 0.02)
+            second_outcome = float(
+                eval2.loc[
+                    eval2["as_of"] == pd.Timestamp("2026-09-24"),
+                    "target_forward_return",
+                ].iloc[0]
+            )
+            self.assertAlmostEqual(second_outcome, 0.03)
+            self.assertEqual(audit2["new_score_rows"], 1)
+            self.assertEqual(audit2["new_outcome_rows"], 1)
 
     def test_candidate_id_is_deterministic(self) -> None:
         item = {
