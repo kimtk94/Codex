@@ -51,13 +51,13 @@ def test_parse_archive_employment_positive_and_parenthetical():
         "rose by 12 cents, or 0.3 percent, to $37.50."
     )
     got=m.parse_archive_actuals("EMPLOYMENT",text)
-    assert got["NFP"]==162000.0
+    assert got["NFP"]==162.0
     assert got["UNEMPLOYMENT_RATE"]==4.1
     assert got["AVERAGE_HOURLY_EARNINGS_MOM"]==0.3
 
     text2="Both total nonfarm payroll employment (-23,000) and the unemployment rate (4.1 percent) changed little in July."
     got2=m.parse_archive_actuals("EMPLOYMENT",text2)
-    assert got2["NFP"]==-23000.0
+    assert got2["NFP"]==-23.0
     assert got2["UNEMPLOYMENT_RATE"]==4.1
 
 
@@ -89,3 +89,21 @@ def test_parse_archive_jolts_historical_phrasings():
     for text,expected in cases.items():
         got=m.parse_archive_actuals("JOLTS",text)
         assert got["JOLTS_OPENINGS"]==expected
+
+
+def test_nfp_archive_unit_is_thousands():
+    up=m.parse_archive_actuals(
+        "EMPLOYMENT",
+        "Total nonfarm payroll employment increased by 250,000 in August."
+    )
+    down=m.parse_archive_actuals(
+        "EMPLOYMENT",
+        "Total nonfarm payroll employment declined by 50,000 in August."
+    )
+    paren=m.parse_archive_actuals(
+        "EMPLOYMENT",
+        "Both total nonfarm payroll employment (-23,000) and the unemployment rate (4.1 percent) changed little in July."
+    )
+    assert up["NFP"]==250.0
+    assert down["NFP"]==-50.0
+    assert paren["NFP"]==-23.0
