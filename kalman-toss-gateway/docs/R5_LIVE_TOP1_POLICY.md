@@ -43,6 +43,19 @@ The same-symbol add-on does **not** consume another active-position slot. It upd
 
 `shadow_entry_this_signal` is NOT a LIVE entry requirement under this policy.
 
+## Execution cadence
+
+The R5.1 model and Top1 decision cadence remains hourly. The execution layer is intentionally more frequent:
+
+- `run_us_cycle.sh` refreshes/commits the US model signal on the existing hourly schedule.
+- `run_execution_watch.sh` runs every 5 minutes during the broad US-session KST window.
+- The watcher never runs `run_pipeline.sh` or the benchmark ledger.
+- It acquires `us-cycle.lock` before `auto-trade.lock`, so it skips while an hourly model refresh is in flight.
+- Each watcher tick runs `position_manager -> auto_trade -> trade_mirror`.
+- Existing signal freshness, client-order idempotency, same-signal add-on gap checks, broker quantity reconciliation, and market-window gates remain authoritative.
+
+This makes a fresh hourly signal recoverable between model cycles without converting R5.1 into a 5-minute strategy. Stop-loss/take-profit and fill reconciliation are also checked on the 5-minute execution cadence, while max-hold remains defined in canonical hourly buckets.
+
 ## Exit policy
 
 For R5_LIVE_TOP1, model-rotation exits are disabled so multiple symbols can coexist.
