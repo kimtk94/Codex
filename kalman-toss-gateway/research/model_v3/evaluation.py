@@ -377,18 +377,8 @@ def evaluate_forward_gate(
         horizon_observations=horizon_observations,
     )
 
-    result = evaluate_policy(
-        forward_scored,
-        top_fraction=policy.top_fraction,
-        lookback_observations=policy.lookback_observations,
-        minimum_history_observations=2,
-        horizon_observations=horizon_observations,
-        round_trip_cost_bps=round_trip_cost_bps,
-    )
-
-    # evaluate_policy recomputes thresholds from forward-only history, so replace
-    # selection-dependent statistics with the point-in-time selections that used
-    # all prior history without future leakage.
+    # Summarize the forward selections produced by thresholds that used
+    # all information available strictly before each current score.
     valid = forward_scored["target_forward_return"].notna()
     unconditional_returns = forward_scored.loc[
         valid, "target_forward_return"
