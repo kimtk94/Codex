@@ -174,3 +174,94 @@ Duplicate governance is also clarified:
 - uniqueness key = `symbol + accession_number`;
 - the same SEC accession may intentionally map to multiple traded share classes of the same issuer (for example GOOG/GOOGL);
 - cross-symbol shared accessions are reported diagnostically and do not count as within-symbol duplicates.
+
+
+## 10. R8.1 bounded SEC challenger — preregistered before performance inspection
+
+Readiness input frozen at SEC v2:
+- 93/93 mapped symbols
+- 93/93 symbols with events
+- 8,858 8-K / 8-K/A rows
+- 100% acceptance timestamp coverage
+- 89.2301% semantic-item coverage excluding stand-alone 9.01-only rows
+- 0% within-symbol accession duplicates
+- XOM predecessor/successor CIK lineage repaired before alpha fitting
+
+Exactly one challenger is admitted:
+
+`R8C1_SEC_CORPORATE_EVENT`
+
+No alternate SEC feature subset, decay, or item weighting is evaluated inside R8.1.
+
+Unchanged from frozen R5:
+- cloned HGB estimator family / parameters
+- 20 R5 base features
+- target = `relative_ret_4b`
+- Top1 execution
+- R4 volatility sizing
+- 10 bps cost
+- exact +4 expected-seq non-overlap
+- E2-E8 paired common-OOS schedule
+- 5-trading-day moving-block bootstrap, B=2000
+
+Added SEC features:
+- `sec_any_decay_48h`
+- `sec_event_count_120h_log1p`
+- `sec_earnings_results_decay_48h`
+- `sec_material_agreement_decay_48h`
+- `sec_acquisition_disposition_decay_48h`
+- `sec_financing_obligation_decay_48h`
+- `sec_restructuring_impairment_decay_48h`
+- `sec_management_board_decay_48h`
+- `sec_reg_fd_decay_48h`
+- `sec_other_event_decay_48h`
+- `sec_delisting_compliance_decay_48h`
+
+Frozen SEC feature contract:
+- event timestamp = EDGAR `acceptanceDateTime`
+- `signal_as_of = R5 timestamp + 60 minutes`
+- only events with `acceptanceDateTime <= signal_as_of` may enter
+- half-life = 48 calendar hours
+- hard max age = 120 calendar hours
+- bucket feature = decay of latest event containing that semantic bucket
+- event-count feature = `log1p(number of semantic 8-K filings in prior 120 calendar hours)`
+- stand-alone 9.01 Financial Statements/Exhibits is not a semantic event
+- no filing text
+- no sentiment
+- no directional hand-label
+- no SEC event return/reaction feature
+- no post-result feature selection
+
+Fail-closed preflight:
+- SEC manifest schema must be `kalman-r8-sec-corporate-events-v2`
+- `sec_event_ready=true`
+- frozen 93-symbol universe
+- frozen 497,504 scored rows
+- R5 base-feature reconciliation
+- frozen `relative_ret_4b` target reconciliation
+- frozen fold training-row counts
+- challenger non-overlap schedule exact-match to R5
+
+Frozen survivor gate:
+- >=300 common trades
+- log growth > R5
+- PF >= R5
+- MDD no worse than R5 by more than 2 percentage points
+- >=5 positive paired folds
+- paired moving-block bootstrap 95% lower CI > 0
+- one-challenger Holm p < .05
+- effective names >=5
+- top ticker share <=35%
+
+No forced winner. Regardless of result, `live_action=NONE` until a separate promotion decision.
+
+## 11. R5-EXIT-V1 automatic collection
+
+Prospective exit-shadow is scheduled once per US trading day after the session:
+- Tue-Sat 08:15 KST
+- after the existing 07:45 SHADOW portfolio ranking
+- read-only strategy_signal input
+- exact canonical `expected_seq + 2/+4/+6/+8` outcomes
+- append-only immutable research ledger
+
+The scheduled collector does not invoke Toss, auto-trade, position manager, or any LIVE exit path.
