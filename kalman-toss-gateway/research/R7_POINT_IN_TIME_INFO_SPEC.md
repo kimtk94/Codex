@@ -317,3 +317,35 @@ Decision:
 - no retroactive family-level 95% gate is introduced after observing results.
 - event-level availability masks must exclude the 9 Employment reissue/correction rows from any R7 feature.
 - R7-M remains blocked because `reaction_ready = false`; consensus is also unavailable for surprise-based challengers.
+
+
+## 13. Free session-reaction contract
+
+The free reaction path is explicitly labeled `QQQ_SESSION_REACTION_1H`. It is not an intraday US2Y yield reaction and must never be described as one.
+
+Source:
+- canonical `QQQ_1h_gap_aware.parquet`
+- canonical-history contract: 60m bars derived from complete 15m constituents, six full regular-session buckets, final regular 30m tail excluded, no forward-filled gaps.
+
+PIT alignment:
+- choose the first complete 60m QQQ bar whose `candle_time_utc >= release_at`.
+- a bar that straddles the release is never used.
+- require the first post-event full bar to begin within 6 hours of the event.
+- `reaction_available_at = first_full_bar_start + 60 minutes`.
+- the feature cannot enter any model timestamp before `reaction_available_at`.
+- 2h reaction requires `expected_seq + 1` and the same `session_date`; it may not bridge overnight.
+- BLS rows marked reissued/corrected remain event-input ineligible.
+- FOMC statement timestamps are event-input eligible even without a BLS actual value.
+
+Primary reaction field:
+- QQQ first-full-bar open-to-close return.
+
+Secondary diagnostics:
+- previous-close to first-full-bar close return.
+- same-session 2h open-to-close return when available.
+- anchor delay in minutes.
+
+Readiness:
+- session reaction coverage >=80% over event-input-eligible releases that fall within canonical QQQ history.
+- per-family reaction coverage is reported diagnostically.
+- even if this gate passes, it only admits an explicitly named ACTUAL/SESSION_REACTION-ONLY challenger. It does not authorize consensus-surprise features or claim intraday US2Y repricing.
