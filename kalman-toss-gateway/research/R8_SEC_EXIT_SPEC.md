@@ -69,7 +69,7 @@ Data-quality only. No alpha fitting before all required gates pass.
 - >= 500 PIT event rows
 - >= 95% non-null acceptance timestamps
 - accession duplicate ratio <= 1%
-- >= 80% event rows contain at least one recognized item bucket
+- >= 80% event rows contain at least one semantic item bucket other than stand-alone 9.01 Financial Statements/Exhibits
 
 If the item-coverage gate fails, an event-presence-only challenger may later be separately preregistered; the gate is not relaxed post-result.
 
