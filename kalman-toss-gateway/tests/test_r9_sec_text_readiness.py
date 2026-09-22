@@ -52,3 +52,21 @@ def test_smoke_selector_prefers_distinct_symbols():
     assert any("/AAPL/" in x for x in urls)
     assert any("/MSFT/" in x for x in urls)
     assert any("/NVDA/" in x for x in urls)
+
+
+def test_declared_sec_identity_requires_email(monkeypatch):
+    monkeypatch.delenv("SEC_CONTACT_EMAIL",raising=False)
+    monkeypatch.setenv("SEC_USER_AGENT","KalmanR9Research/1.0 github.com/kimtk94/Codex")
+    try:
+        m.declared_sec_identity()
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "SEC_CONTACT_EMAIL" in str(exc)
+
+
+def test_declared_sec_identity_appends_contact_email(monkeypatch):
+    monkeypatch.setenv("SEC_CONTACT_EMAIL","research@example.com")
+    monkeypatch.setenv("SEC_USER_AGENT","KalmanR9Research/1.0")
+    ua,email=m.declared_sec_identity()
+    assert email=="research@example.com"
+    assert "research@example.com" in ua
