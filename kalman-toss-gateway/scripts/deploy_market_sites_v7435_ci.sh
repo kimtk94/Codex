@@ -104,6 +104,9 @@ assert pulse.get("schema_version")=="kalman-market-pulse-v2",pulse
 assert pulse.get("market")==market,pulse
 assert pulse.get("read_only") is True and pulse.get("trade_signal_input") is False,pulse
 assert len(pulse.get("items") or [])==6,pulse
+assert "regimeSummaryHtml" in front, "market regime summary missing"
+assert "MARKET REGIME" in front, "market regime label missing"
+assert "descriptive context only" in front, "regime safety marker missing"
 if market=="US":
     keys={x.get("key") for x in pulse.get("items") or []}
     assert {"US2Y","US10Y","US2S10S"} <= keys,keys

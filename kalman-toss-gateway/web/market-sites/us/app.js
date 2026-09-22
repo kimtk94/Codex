@@ -20,10 +20,31 @@ function pulseDelta(x){
   if(x?.kind==='spread_bps')return d==null?'—':'Δ '+(d>=0?'+':'')+d.toFixed(1)+'bp';
   return p==null?'—':(p>=0?'+':'')+(p*100).toFixed(2)+'%';
 }
+function pulseItem(key){return (K?.items||[]).find(x=>x.key===key)||null}
+function usRegime(){
+  let nq=pulseItem('NASDAQ'),sx=pulseItem('SOXX'),vx=pulseItem('VIX'),r2=pulseItem('US2Y'),r10=pulseItem('US10Y'),curve=pulseItem('US2S10S');
+  let ep=[N(nq?.change_pct),N(sx?.change_pct)].filter(x=>x!=null),eq=ep.length?ep.reduce((a,b)=>a+b,0)/ep.length:null;
+  let eqText=eq==null?'Equity —':eq>0.005?'Equity Risk-on':eq<-0.005?'Equity Risk-off':'Equity Mixed';
+  let v=N(vx?.change_pct),volText=v==null?'Vol —':v>0.03?'Vol ↑':v<-0.03?'Vol ↓':'Vol stable';
+  let a=N(r2?.change_abs),b=N(r10?.change_abs),rates='Rates —';
+  if(a!=null&&b!=null)rates=a>0.005&&b>0.005?'Rates ↑':a<-0.005&&b<-0.005?'Rates ↓':Math.abs(a)<0.005&&Math.abs(b)<0.005?'Rates ~':'Rates mixed';
+  let dc=N(curve?.change_abs),curveText=dc==null?'Curve —':dc>1?'Curve Steepening':dc<-1?'Curve Flattening':'Curve Stable';
+  return {sentence:'US: '+eqText+' · '+volText+' · '+rates+' · '+curveText,tags:[
+    [eqText,eq==null?'neutral':eq>0.005?'up':eq<-0.005?'down':'neutral'],
+    [volText,v==null?'neutral':v>0.03?'warn':v<-0.03?'up':'neutral'],
+    [rates,(a!=null&&b!=null&&a>0.005&&b>0.005)?'warn':(a!=null&&b!=null&&a<-0.005&&b<-0.005)?'cool':'neutral'],
+    [curveText,dc==null?'neutral':dc>1?'up':dc<-1?'cool':'neutral']
+  ]};
+}
+function regimeSummaryHtml(){
+  if(!K?.items?.length)return '';
+  let r=usRegime();
+  return '<div class="regimesummary"><div><span>MARKET REGIME</span><b>'+E(r.sentence)+'</b></div><div class="regimetags">'+r.tags.map(x=>'<span class="regtag '+x[1]+'">'+E(x[0])+'</span>').join('')+'</div></div>';
+}
 function marketPulseHtml(){
   let z=K?.items||[];
   if(!z.length)return '<section class="pulsebar"><div class="pulseempty">Market Pulse · unavailable</div></section>';
-  return '<section class="pulsebar" aria-label="US market pulse">'+z.map(x=>'<div class="pulseitem"><span>'+E(x.label)+'</span><b>'+E(pulseNum(x))+'</b><small class="'+(N(x.change_abs)>=0?'pos':'neg')+'">'+E(pulseDelta(x))+'</small></div>').join('')+'<div class="pulsemeta">REGIME STRIP · '+E(K.status||'—')+' · not a model/trade input</div></section>';
+  return '<section class="pulsebar" aria-label="US market pulse">'+regimeSummaryHtml()+z.map(x=>'<div class="pulseitem"><span>'+E(x.label)+'</span><b>'+E(pulseNum(x))+'</b><small class="'+(N(x.change_abs)>=0?'pos':'neg')+'">'+E(pulseDelta(x))+'</small></div>').join('')+'<div class="pulsemeta">REGIME STRIP · '+E(K.status||'—')+' · descriptive context only · not a model/trade input</div></section>';
 }
 function currentTop3(){return S?.payload?.top3||[]}
 function top3Html(){return '<section class="dailybox"><div class="sectiontitle"><div><b>현재 TOP3 · MODEL</b><small>4H relative-return ranking · Trade OFF</small></div><span class="badge info">TOP 3</span></div><div class="rows">'+currentTop3().map(x=>'<button class="rowbtn pick" data-s="'+E(x.symbol)+'"><span class="rank">#'+E(x.rank)+'</span><span class="name"><b>'+E(x.symbol)+'</b><small>Universe '+E(x.universe_size)+' · R5.1 HGB</small></span><span class="metric price"><b>'+USD(x.reference_price)+'</b><small>reference</small></span><span class="metric target"><b>'+USD(x.target_price_4h)+'</b><small>4H target</small></span><span class="alpha">'+PCT(x.model_score)+'</span><span class="tag">TOP PICK</span></button>').join('')+'</div></section>'}

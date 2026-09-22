@@ -50,10 +50,32 @@ function pulseDelta(x){
   if(x?.kind==='spread_bps')return d==null?'—':'Δ '+(d>=0?'+':'')+d.toFixed(1)+'bp';
   return p==null?'—':(p>=0?'+':'')+(p*100).toFixed(2)+'%';
 }
+function pulseItem(key){return (K?.items||[]).find(x=>x.key===key)||null}
+function dirClass(v,positive='up'){if(v==null)return 'neutral';if(Math.abs(v)<0.000001)return 'neutral';return v>0?(positive==='up'?'up':'down'):(positive==='up'?'down':'up')}
+function krRegime(){
+  let kp=pulseItem('KOSPI'),kq=pulseItem('KOSDAQ'),fx=pulseItem('USDKRW'),r3=pulseItem('KR3Y'),r10=pulseItem('KR10Y'),curve=pulseItem('KR3S10S');
+  let ep=[N(kp?.change_pct),N(kq?.change_pct)].filter(x=>x!=null),eq=ep.length?ep.reduce((a,b)=>a+b,0)/ep.length:null;
+  let eqText=eq==null?'Equity —':eq>0.005?'Equity Risk-on':eq<-0.005?'Equity Risk-off':'Equity Mixed';
+  let a=N(r3?.change_abs),b=N(r10?.change_abs),rates='Rates —';
+  if(a!=null&&b!=null)rates=a>0.005&&b>0.005?'Rates ↑':a<-0.005&&b<-0.005?'Rates ↓':Math.abs(a)<0.005&&Math.abs(b)<0.005?'Rates ~':'Rates mixed';
+  let dc=N(curve?.change_abs),curveText=dc==null?'Curve —':dc>1?'Curve Steepening':dc<-1?'Curve Flattening':'Curve Stable';
+  let f=N(fx?.change_pct),fxText=f==null?'KRW —':f>0.003?'KRW weaker':f<-0.003?'KRW stronger':'KRW stable';
+  return {sentence:'KR: '+eqText+' · '+rates+' · '+curveText+' · '+fxText,tags:[
+    [eqText,eq==null?'neutral':eq>0.005?'up':eq<-0.005?'down':'neutral'],
+    [rates,(a!=null&&b!=null&&a>0.005&&b>0.005)?'warn':(a!=null&&b!=null&&a<-0.005&&b<-0.005)?'cool':'neutral'],
+    [curveText,dc==null?'neutral':dc>1?'up':dc<-1?'cool':'neutral'],
+    [fxText,f==null?'neutral':f>0.003?'warn':f<-0.003?'cool':'neutral']
+  ]};
+}
+function regimeSummaryHtml(){
+  if(!K?.items?.length)return '';
+  let r=krRegime();
+  return '<div class="regimesummary"><div><span>MARKET REGIME</span><b>'+E(r.sentence)+'</b></div><div class="regimetags">'+r.tags.map(x=>'<span class="regtag '+x[1]+'">'+E(x[0])+'</span>').join('')+'</div></div>';
+}
 function marketPulseHtml(){
   let z=K?.items||[];
   if(!z.length)return '<section class="pulsebar"><div class="pulseempty">Market Pulse · unavailable</div></section>';
-  return '<section class="pulsebar" aria-label="KR market pulse">'+z.map(x=>'<div class="pulseitem"><span>'+E(x.label)+'</span><b>'+E(pulseNum(x))+'</b><small class="'+(N(x.change_abs)>=0?'pos':'neg')+'">'+E(pulseDelta(x))+'</small></div>').join('')+'<div class="pulsemeta">REGIME STRIP · '+E(K.status||'—')+' · 모델/매매 입력 아님</div></section>';
+  return '<section class="pulsebar" aria-label="KR market pulse">'+regimeSummaryHtml()+z.map(x=>'<div class="pulseitem"><span>'+E(x.label)+'</span><b>'+E(pulseNum(x))+'</b><small class="'+(N(x.change_abs)>=0?'pos':'neg')+'">'+E(pulseDelta(x))+'</small></div>').join('')+'<div class="pulsemeta">REGIME STRIP · '+E(K.status||'—')+' · descriptive context only · 모델/매매 입력 아님</div></section>';
 }
 function compactTop5Html(){
   let z=perfTop5();
