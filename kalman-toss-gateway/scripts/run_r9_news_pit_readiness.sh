@@ -6,8 +6,8 @@ PY="${KALMAN_PYTHON:-/opt/kalman/.venv/bin/python}"
 MODE="${1:-smoke}"
 
 case "$MODE" in
-  smoke|full) ;;
-  *) echo "[FAIL] usage: $0 [smoke|full]" >&2; return 2 2>/dev/null || exit 2 ;;
+  smoke|recent) ;;
+  *) echo "[FAIL] usage: $0 [smoke|recent]" >&2; return 2 2>/dev/null || exit 2 ;;
 esac
 
 echo "===== R9 NEWS PIT READINESS ====="
@@ -22,4 +22,4 @@ export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
   --r8-manifest "${R9_R8_MANIFEST:-/opt/kalman/state/r8_sec/manifest.json}" \
   --output-dir "${R9_NEWS_OUT:-/opt/kalman/state/r9_news_pit}" \
   --mode "$MODE" \
-  --min-request-interval "${R9_GDELT_REQUEST_INTERVAL:-0.6}"
+  --min-request-interval "${R9_GDELT_REQUEST_INTERVAL:-8.0}"
