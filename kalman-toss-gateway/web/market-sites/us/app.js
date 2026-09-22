@@ -2,7 +2,7 @@
 const $=s=>document.querySelector(s),E=x=>String(x??'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m])),N=x=>x===null||x===undefined||x===''?null:(Number.isFinite(Number(x))?Number(x):null);
 const USD=x=>N(x)==null?'—':'$'+N(x).toLocaleString(undefined,{minimumFractionDigits:N(x)<100?2:0,maximumFractionDigits:2});
 const PCT=x=>N(x)==null?'—':(N(x)>=0?'+':'')+(N(x)*100).toFixed(4)+'%';
-const DT=x=>x?String(x).replace('T',' ').replace('.000Z',' UTC').slice(0,22):'—';
+const DT=x=>x?zonePair(x):'—';
 let S=null,A=[],C=null,K=null;
 const NYSE=new Set(['ACN','ORCL','UBER','GE','ABBV','ABT','AMT','BA','BAC','BMY','C','CAT','COF','CVS','CVX','DE','DHR','DIS','EMR','GM','GS','JNJ','JPM','LLY','MDT','MS','PFE','TMO','USB','WFC','CRM','AXP','BRK-B','CL','COP','DUK','FDX','HD','IBM','KO','LOW','MA','MCD','MMM','MO','MRK','NEE','NKE','PG','PM','RTX','SCHW','SO','SPG','T','UNH','UNP','UPS','V','VZ','XOM']);
 function tvUS(s){return (NYSE.has(String(s||'').toUpperCase())?'NYSE:':'NASDAQ:')+String(s||'').toUpperCase()}
@@ -93,10 +93,57 @@ function usSessionContext(now=new Date()){
   let nextUpdate=new Date(next.getTime()+lag*60000);
   return {base,nextDay,slots,generated,done,due,status,statusClass,next,nextUpdate,nextBase,usDate:fmtNyYMD(slots[0]),kstSessionDate:fmtKstMD(slots.at(-1))};
 }
+function engineSignalState(){
+  let s=C?.latest_model_signal||null;
+  if(!s)return null;
+  let start=s.as_of?new Date(s.as_of):null,complete=start?new Date(start.getTime()+60*60000):null;
+  let age=complete?Math.max(0,(Date.now()-complete.getTime())/60000):null;
+  let max=N(C?.execution_contract?.max_signal_age_minutes)??90;
+  let fresh=age!=null&&age<=max;
+  let shape=Boolean(s.canary_shape_ok);
+  let snapshot=Boolean(s.snapshot_valid_now);
+  return {...s,bar_start:start,bar_complete:complete,effective_age_minutes:age,effective_fresh:fresh,engine_candidate:Boolean(fresh&&shape&&snapshot)};
+}
+function tradeActionHtml(){
+  let ledger=C?.execution_ledger||[],active=ledger.filter(x=>!['CLOSED','CANCELLED','ABORTED','FAILED'].includes(String(x.state||'').toUpperCase()));
+  let pendingBuy=active.find(x=>String(x.state||'').toUpperCase().startsWith('ENTRY_')&&N(x.entry_filled_quantity)<=0);
+  let exitPending=active.find(x=>String(x.state||'').toUpperCase().startsWith('EXIT_'));
+  let openPos=active.find(x=>String(x.state||'').toUpperCase()==='OPEN'||N(x.entry_filled_quantity)>0&&N(x.exit_filled_quantity)<N(x.entry_filled_quantity));
+  let sig=engineSignalState(),buyTitle='BUY 예정 없음',buyMeta='현재 실행 가능한 신규 진입 없음',buyTime='—';
+  if(pendingBuy){
+    buyTitle='BUY 진행 중 · '+pendingBuy.symbol;
+    buyMeta=String(pendingBuy.state||'ENTRY_SUBMITTED')+' · fill 대기';
+    buyTime=pendingBuy.entry_signal_as_of?zonePair(pendingBuy.entry_signal_as_of):'—';
+  }else if(sig?.engine_candidate){
+    buyTitle='BUY 후보 · '+sig.symbol;
+    buyMeta='R5.1 signal gate 기준 fresh · broker/account gate 확인 후 실행';
+    buyTime=sig.bar_complete?zonePair(sig.bar_complete):'—';
+  }else if(sig){
+    buyTitle='BUY 대기 · '+sig.symbol;
+    buyMeta='현재 신규 진입 gate 미충족 · effective age '+(sig.effective_age_minutes==null?'—':Math.round(sig.effective_age_minutes)+'m');
+    buyTime=sig.bar_complete?zonePair(sig.bar_complete):'—';
+  }
+  let sellTitle='SELL 예정 없음',sellMeta='현재 확정된 매도 주문 없음',sellTime='—';
+  if(exitPending){
+    sellTitle='SELL 진행 중 · '+exitPending.symbol;
+    sellMeta=String(exitPending.state||'EXIT_SUBMITTED');
+    sellTime=exitPending.updated_at?zonePair(exitPending.updated_at):'—';
+  }else if(openPos){
+    sellTitle='SELL 감시 · '+openPos.symbol;
+    sellMeta='Exit rules: -3% stop · +20% take-profit · model rotation · max 4 buckets';
+    sellTime=openPos.entry_signal_as_of?('Entry signal '+zonePair(openPos.entry_signal_as_of)):'—';
+  }else if(pendingBuy){
+    sellTitle='SELL 계획 · '+pendingBuy.symbol;
+    sellMeta='매수 체결 후 exit rules 적용 · max 4 canonical buckets';
+    sellTime='체결 후 결정';
+  }
+  let latest=sig?('<div class="note">Latest model candidate <b>'+E(sig.symbol)+'</b> · BAR START '+E(zonePair(sig.bar_start))+' · BAR COMPLETE '+E(zonePair(sig.bar_complete))+' · engine-effective age '+E(sig.effective_age_minutes==null?'—':Math.round(sig.effective_age_minutes)+'m')+'</div>'):'';
+  return '<section class="dailybox actionbox"><div class="sectiontitle"><div><b>ACTION · BUY / SELL</b><small>실제 execution ledger 우선 · 모델 후보는 별도 표시</small></div><span class="badge info">'+E(C?.status||'—')+'</span></div><div class="signalgrid"><div class="sig"><span>BUY</span><b>'+E(buyTitle)+'</b><small>'+E(buyMeta)+'</small><small>'+E(buyTime)+'</small></div><div class="sig"><span>SELL</span><b>'+E(sellTitle)+'</b><small>'+E(sellMeta)+'</small><small>'+E(sellTime)+'</small></div></div>'+latest+'</section>';
+}
 function sessionStatusHtml(){
   let x=usSessionContext(),pct=Math.round(x.done/x.slots.length*100),sameSession=x.next>=x.slots[0]&&x.next<=x.slots.at(-1);
-  let steps=x.slots.map((t,i)=>{let cls=x.generated&&x.generated>=t?'done':(new Date()>=t?(new Date()-t<20*60000?'running':'late'):'upcoming');return '<div class="sessionstep '+cls+'"><span>'+(i+1)+'</span><b>'+fmtKstHM(t)+'</b></div>'}).join('');
-  return '<section id="us-session-status" class="sessioncard"><div class="sessiontop"><div><span class="eyebrow">US SESSION · KST DATE</span><b>'+E(x.kstSessionDate)+' · US Session</b><small>NY '+E(x.usDate)+' · KST '+E(fmtKstMD(x.slots[0]))+' 밤 → '+E(fmtKstMD(x.slots.at(-1)))+' 새벽 · Automation 23:35 → 04:35</small></div><span class="sessionstate '+x.statusClass+'">'+E(x.status)+'</span></div><div class="sessionprogress"><div style="width:'+pct+'%"></div></div><div class="sessionmeta"><b>'+x.done+'/'+x.slots.length+' cycles reflected</b><span>Latest web update '+E(S?.generated_at?zonePair(S.generated_at):'—')+'</span></div><div class="sessionsteps">'+steps+'</div><div class="nextgrid"><div><span>NEXT ACTION</span><b>'+E(zonePair(x.next))+'</b><small>'+(sameSession?'Next US serialized cycle':'Next US trading-day cycle')+'</small></div><div><span>NEXT UPDATE</span><b>~ '+E(zonePair(x.nextUpdate))+'</b><small>expected after cycle completion · observed lag based</small></div></div></section>';
+  let steps=x.slots.map((t,i)=>{let cls=x.generated&&x.generated>=t?'done':(new Date()>=t?(new Date()-t<20*60000?'running':'late'):'upcoming');return '<div class="sessionstep '+cls+'"><span>'+(i+1)+'</span><b>'+fmtKstHM(t)+' KST</b><small>'+fmtEtHM(t)+' ET</small></div>'}).join('');
+  return '<section id="us-session-status" class="sessioncard"><div class="sessiontop"><div><span class="eyebrow">US SESSION · KST DATE</span><b>'+E(x.kstSessionDate)+' · US Session</b><small>NY '+E(x.usDate)+' · KST '+E(fmtKstMD(x.slots[0]))+' 밤 → '+E(fmtKstMD(x.slots.at(-1)))+' 새벽 · Automation 23:35 → 04:35</small></div><span class="sessionstate '+x.statusClass+'">'+E(x.status)+'</span></div><div class="sessionprogress"><div style="width:'+pct+'%"></div></div><div class="sessionmeta"><b>'+x.done+'/'+x.slots.length+' cycles reflected</b><span>Latest web update '+E(S?.generated_at?zonePair(S.generated_at):'—')+'</span></div><div class="sessionsteps">'+steps+'</div><div class="nextgrid"><div><span>NEXT CYCLE</span><b>'+E(zonePair(x.next))+'</b><small>'+(sameSession?'Next US serialized cycle':'Next US trading-day cycle')+'</small></div><div><span>NEXT UPDATE</span><b>~ '+E(zonePair(x.nextUpdate))+'</b><small>expected after cycle completion · observed lag based</small></div></div></section>';
 }
 function renderSessionStatus(){let el=$('#us-session-status');if(el)el.outerHTML=sessionStatusHtml()}
 async function pollSessionStatus(){
@@ -129,7 +176,7 @@ function performanceHtml(){
 function forwardShadowHtml(){
   let a=S?.payload?.source_payload?.r5_shadow_ledger?.annual_2026||{},f=a.forward?.summary||{},z=(a.forward?.trades||[]).slice(-3).reverse();
   if(!f.trade_count)return '';
-  return '<section class="dailybox forwardbox"><div class="sectiontitle"><div><b>Forward SHADOW · prospective</b><small>실시간 이후 추적 · execution=false</small></div><span class="badge info">SHADOW</span></div><div class="forwardgrid"><div><span>Trades</span><b>'+E(f.trade_count??'—')+'</b></div><div><span>Closed</span><b>'+E(f.closed_count??'—')+'</b></div><div><span>Open</span><b>'+E(f.open_count??0)+'</b><small>'+E((f.open_symbols||[]).join(', ')||'없음')+'</small></div><div><span>Compound</span><b class="'+(N(f.closed_compound_return_pct)>=0?'pos':'neg')+'">'+PCT2(f.closed_compound_return_pct)+'</b></div></div><div class="forwardrecent">'+z.map(t=>'<div class="forwardrow"><span class="status '+(t.status==='OPEN'?'open':'')+'">'+E(t.status||'—')+'</span><b>'+E(t.symbol||'—')+'</b><span>'+E(String(t.entry_time||'').slice(5,16).replace('T',' '))+'</span><strong class="'+(N(t.return_pct)>=0?'pos':'neg')+'">'+PCT2(t.return_pct)+'</strong></div>').join('')+'</div><div class="note">Forward SHADOW는 prospective 연구 추적이며 실제 주문을 실행하지 않습니다.</div></section>';
+  return '<section class="dailybox forwardbox"><div class="sectiontitle"><div><b>Forward SHADOW · prospective</b><small>실시간 이후 추적 · execution=false</small></div><span class="badge info">SHADOW</span></div><div class="forwardgrid"><div><span>Trades</span><b>'+E(f.trade_count??'—')+'</b></div><div><span>Closed</span><b>'+E(f.closed_count??'—')+'</b></div><div><span>Open</span><b>'+E(f.open_count??0)+'</b><small>'+E((f.open_symbols||[]).join(', ')||'없음')+'</small></div><div><span>Compound</span><b class="'+(N(f.closed_compound_return_pct)>=0?'pos':'neg')+'">'+PCT2(f.closed_compound_return_pct)+'</b></div></div><div class="forwardrecent">'+z.map(t=>'<div class="forwardrow"><span class="status '+(t.status==='OPEN'?'open':'')+'">'+E(t.status||'—')+'</span><b>'+E(t.symbol||'—')+'</b><span>'+E(t.entry_time?zonePair(t.entry_time):'—')+'</span><strong class="'+(N(t.return_pct)>=0?'pos':'neg')+'">'+PCT2(t.return_pct)+'</strong></div>').join('')+'</div><div class="note">Forward SHADOW는 prospective 연구 추적이며 실제 주문을 실행하지 않습니다.</div></section>';
 }
 function bind(){document.addEventListener('click',e=>{let b=e.target.closest('[data-s]');if(b)select(b.dataset.s)});let q=$('#q'),sg=$('#sg');q?.addEventListener('input',()=>{let v=q.value.trim().toUpperCase();if(!v){sg.classList.add('hide');return}let z=A.filter(x=>x.symbol.includes(v)).slice(0,12);sg.innerHTML=z.map(x=>'<button data-s="'+E(x.symbol)+'"><b>'+E(x.symbol)+'</b><span>#'+E(x.rank)+' · '+USD(x.reference_price)+'</span></button>').join('');sg.classList.toggle('hide',!z.length)})}
 function select(s){let x=A.find(z=>z.symbol===s);if(!x)return;$('#d').innerHTML=detailHtml(x);$('#q').value=s;$('#sg').classList.add('hide');$('#d').scrollIntoView({behavior:'smooth',block:'nearest'})}
@@ -146,8 +193,8 @@ async function load(){
   let sm=j.payload?.summary||{},annual=j.payload?.source_payload?.r5_shadow_ledger?.annual_2026||{},fwd=annual.forward?.summary||{};
   $('#m').innerHTML=
     '<section class="appbar"><div class="appbrand">US Investment Hub</div>'+siteNav('US')+
-    '<div class="appmarket"><b>'+E(sm.market_risk||'US')+'</b><span>'+E(j.model_version)+'</span><span class="badge '+(j.effective_stale?'bad':'')+'">'+(j.effective_stale?'STALE':'FRESH')+'</span></div><small>'+DT(j.data_as_of)+'</small></section>'+
-    marketPulseHtml()+sessionStatusHtml()+top3Html()+modelSignalHtml()+performanceHtml()+benchmarkHtml()+forwardShadowHtml()+
+    '<div class="appmarket"><b>'+E(sm.market_risk||'US')+'</b><span>'+E(j.model_version)+'</span><span class="badge '+(j.effective_stale?'bad':'')+'">'+(j.effective_stale?'STALE':'FRESH')+'</span></div><small>DATA BAR START · '+E(zonePair(j.data_as_of))+'</small></section>'+
+    marketPulseHtml()+sessionStatusHtml()+tradeActionHtml()+top3Html()+modelSignalHtml()+performanceHtml()+benchmarkHtml()+forwardShadowHtml()+
     '<section class="card"><div class="sw"><input id="q" class="search" placeholder="🔎 US ticker 검색 · NVDA, ORCL, AAPL"><div id="sg" class="sg hide"></div></div><div id="d"></div></section>'+
     fold('R5.1 2026 Ledger','replay + prospective 상세',ledgerHtml()+forwardTradesHtml())+
     fold('Model Context','R5.1_BASE_HGB · 4H relative-return','<div class="note">Primary lineage: '+E(sm.primary_lineage)+' · Evidence: '+E(sm.evidence_confidence)+' · Trade enabled: false</div>')+
