@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import psycopg
+from dotenv import load_dotenv
 
 SCHEMA="kalman-r5-exit-shadow-v1"
 START=pd.Timestamp("2026-09-22T10:45:00Z")
@@ -268,6 +269,7 @@ def status(signals,outcomes):
     }
 
 def main():
+    load_dotenv(os.environ.get("KALMAN_ENV_FILE","/opt/kalman/.env"),override=False)
     ap=argparse.ArgumentParser()
     ap.add_argument("--root",default=DEFAULT_ROOT)
     ap.add_argument("--output-dir",default=DEFAULT_OUT)
