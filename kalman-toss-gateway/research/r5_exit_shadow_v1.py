@@ -20,10 +20,22 @@ COST=0.001
 
 DEFAULT_ROOT="/mnt/gdrive"
 DEFAULT_OUT="/mnt/gdrive/US_ETF/model_lab_v1/results/r5_exit_shadow_v1"
+DEFAULT_SEC_EVENTS="/opt/kalman/state/r8_sec/events.json"
+
+SEC_HALF_LIFE_HOURS=48.0
+SEC_MAX_AGE_HOURS=120.0
+SEC_EMBARGO_MINUTES=5
+SEC_SEMANTIC_BUCKETS={
+    "EARNINGS_RESULTS","MATERIAL_AGREEMENT","ACQUISITION_DISPOSITION",
+    "FINANCING_OBLIGATION","DELISTING_COMPLIANCE","RESTRUCTURING_IMPAIRMENT",
+    "MANAGEMENT_BOARD","REG_FD","OTHER_EVENT",
+}
 
 SIGNAL_STABLE=[
     "signal_id","symbol","as_of","signal_available_at","strategy_version",
     "expected_seq","entry_close","position_weight","research_non_overlap_entry",
+    "sec_active_120h","sec_any_decay_48h","sec_event_count_120h",
+    "sec_latest_buckets_csv","sec_latest_event_available_at",
 ]
 OUTCOME_STABLE=[
     "outcome_id","signal_id","symbol","as_of","horizon_buckets","entry_expected_seq",
@@ -46,6 +58,75 @@ def db_url():
     if not u:
         raise RuntimeError("DATABASE_URL or DATABASE_URL_WRITER is required for read-only signal retrieval")
     return u
+
+def load_sec_event_index(path):
+    p=Path(path)
+    if not p.exists():
+        return {}
+    rows=json.loads(p.read_text(encoding="utf-8"))
+    out={}
+    for e in rows:
+        symbol=str(e.get("symbol") or "").upper()
+        accepted=nts(e.get("acceptance_at"))
+        buckets=sorted(
+            b for b in (e.get("event_buckets") or [])
+            if b in SEC_SEMANTIC_BUCKETS
+        )
+        if not symbol or pd.isna(accepted) or not buckets:
+            continue
+        available=accepted+pd.to_timedelta(SEC_EMBARGO_MINUTES,unit="m")
+        out.setdefault(symbol,[]).append({
+            "available_at":available,
+            "buckets":buckets,
+        })
+    for symbol in out:
+        out[symbol].sort(key=lambda x:x["available_at"])
+    return out
+
+
+def sec_tag(symbol,signal_available_at,index):
+    xs=index.get(str(symbol).upper()) or []
+    if not xs or pd.isna(signal_available_at):
+        return {
+            "sec_active_120h":False,
+            "sec_any_decay_48h":0.0,
+            "sec_event_count_120h":0,
+            "sec_latest_buckets_csv":"",
+            "sec_latest_event_available_at":pd.NaT,
+        }
+    cutoff=pd.Timestamp(signal_available_at)
+    eligible=[x for x in xs if x["available_at"]<=cutoff]
+    if not eligible:
+        return {
+            "sec_active_120h":False,
+            "sec_any_decay_48h":0.0,
+            "sec_event_count_120h":0,
+            "sec_latest_buckets_csv":"",
+            "sec_latest_event_available_at":pd.NaT,
+        }
+    recent=[
+        x for x in eligible
+        if (cutoff-x["available_at"]).total_seconds()/3600.0 <= SEC_MAX_AGE_HOURS
+    ]
+    if not recent:
+        return {
+            "sec_active_120h":False,
+            "sec_any_decay_48h":0.0,
+            "sec_event_count_120h":0,
+            "sec_latest_buckets_csv":"",
+            "sec_latest_event_available_at":pd.NaT,
+        }
+    latest=recent[-1]
+    age_h=(cutoff-latest["available_at"]).total_seconds()/3600.0
+    decay=float(np.exp(-np.log(2.0)*age_h/SEC_HALF_LIFE_HOURS))
+    return {
+        "sec_active_120h":True,
+        "sec_any_decay_48h":decay,
+        "sec_event_count_120h":int(len(recent)),
+        "sec_latest_buckets_csv":",".join(latest["buckets"]),
+        "sec_latest_event_available_at":latest["available_at"],
+    }
+
 
 def fetch_signals(start):
     sql="""
@@ -98,7 +179,7 @@ def read_panel(root,symbol):
 def _bool(v):
     return str(v or "").strip().lower() in {"true","1","yes"}
 
-def build_signal_rows(raw,root):
+def build_signal_rows(raw,root,sec_index):
     if raw.empty:
         return pd.DataFrame(columns=SIGNAL_STABLE+["run_id","mapping_status"])
     raw=raw.copy()
@@ -138,12 +219,14 @@ def build_signal_rows(raw,root):
             expected_seq=int(z["expected_seq"])
             entry_close=float(z["close"])
         weight=float(r.position_weight)
+        signal_available_at=r.as_of+pd.to_timedelta(3600,unit="s")
+        stag=sec_tag(symbol,signal_available_at,sec_index)
         rows.append({
             "signal_id":signal_id(symbol,r.as_of),
             "run_id":str(r.run_id),
             "symbol":symbol,
             "as_of":r.as_of,
-            "signal_available_at":r.as_of+pd.to_timedelta(3600,unit="s"),
+            "signal_available_at":signal_available_at,
             "strategy_version":STRATEGY,
             "expected_seq":expected_seq,
             "entry_close":entry_close,
@@ -151,6 +234,7 @@ def build_signal_rows(raw,root):
             "research_non_overlap_entry":bool(r.research_non_overlap_entry),
             "mapping_status":status,
             "prospective_boundary":START,
+            **stag,
         })
     return pd.DataFrame(rows)
 
@@ -264,6 +348,17 @@ def status(signals,outcomes):
         "signal_rows":int(len(signals)),
         "mapped_signal_rows":int((signals.get("mapping_status",pd.Series(dtype=str))=="EXACT_CANONICAL_MATCH").sum()),
         "outcome_rows":int(len(outcomes)),
+        "sec_tag_contract":{
+            "research_only":True,
+            "passive_only":True,
+            "embargo_minutes":SEC_EMBARGO_MINUTES,
+            "half_life_hours":SEC_HALF_LIFE_HOURS,
+            "max_age_hours":SEC_MAX_AGE_HOURS,
+            "live_sizing_changed":False,
+        },
+        "sec_active_signal_rows":int(
+            signals.get("sec_active_120h",pd.Series(dtype=bool)).fillna(False).astype(bool).sum()
+        ),
         "horizons":horizon,
         "review_rule":"NO_HORIZON_SELECTION_BEFORE_MINIMUM_REVIEW_GATE",
     }
@@ -273,13 +368,15 @@ def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--root",default=DEFAULT_ROOT)
     ap.add_argument("--output-dir",default=DEFAULT_OUT)
+    ap.add_argument("--sec-events",default=DEFAULT_SEC_EVENTS)
     args=ap.parse_args()
 
     out=Path(args.output_dir)
     out.mkdir(parents=True,exist_ok=True)
 
+    sec_index=load_sec_event_index(args.sec_events)
     raw=fetch_signals(START)
-    new_signals=build_signal_rows(raw,args.root)
+    new_signals=build_signal_rows(raw,args.root,sec_index)
     signals=append_immutable(out/"signals.parquet",new_signals,"signal_id",SIGNAL_STABLE)
 
     new_outcomes=build_outcomes(signals,args.root)
