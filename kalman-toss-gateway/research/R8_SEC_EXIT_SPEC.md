@@ -305,3 +305,41 @@ Interpretation:
 - the fixed SEC feature encoding does not add statistically supported alpha over R5;
 - drawdown and diversification improved materially, so SEC may be studied as a future risk tag/overlay only under a new prospective preregistration;
 - no retrospective R8.1 threshold/decay/item-subset tuning is permitted.
+
+
+## 13. R8-RISK-V1 prospective passive SEC tag — preregistered before first signal
+
+At the time of this preregistration, `R5-EXIT-V1` contains:
+- signal rows = 0
+- outcome rows = 0
+
+Therefore passive SEC context can be frozen before any prospective outcome is observed.
+
+For every future R5.1 exit-shadow signal, record without changing the trade:
+- `sec_active_120h`
+- `sec_any_decay_48h`
+- `sec_event_count_120h`
+- `sec_latest_buckets_csv`
+- `sec_latest_event_available_at`
+
+Contract:
+- semantic SEC buckets only; stand-alone 9.01-only filing does not activate the tag
+- availability = EDGAR acceptanceDateTime + 5-minute embargo
+- SEC-active = at least one semantic event in prior 120 calendar hours
+- latest-event decay half-life = 48 calendar hours
+- passive metadata only
+- no size change
+- no signal filtering
+- no exit change
+- no order suppression
+
+The historical R8.1 MDD improvement is only motivation for prospective observation and is not a promotion rule.
+
+No SEC risk overlay may be recommended until a separate prospective review rule is preregistered and the minimum sample is reached.
+
+Minimum descriptive review:
+- >= 40 SEC-active mature 4h outcomes
+- >= 100 total mature 4h outcomes
+- >= 60 distinct prospective signal days
+
+Until then, SEC tags are stored only and no risk decision is made.
