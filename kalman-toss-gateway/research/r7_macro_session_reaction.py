@@ -124,8 +124,8 @@ def build_reaction(events: list[dict], qqq: pd.DataFrame, max_anchor_delay_hours
             row["qqq_reaction_1h_prev_close_to_close"]=(c1/float(prev.close))-1.0
 
         nxt=qqq_by_seq.get(seq+1)
-        if nxt is not None:
-            # Never bridge a missing expected bucket. expected_seq adjacency is explicit.
+        if nxt is not None and str(nxt.session_date)==str(first["session_date"]):
+            # Never bridge a missing bucket or an overnight session boundary.
             c2=float(nxt.close)
             if o:
                 row["qqq_reaction_2h_open_to_close"]=(c2/o)-1.0
@@ -134,10 +134,23 @@ def build_reaction(events: list[dict], qqq: pd.DataFrame, max_anchor_delay_hours
         rows.append(row)
 
     coverage=(covered/eligible_denominator) if eligible_denominator else 0.0
+    per_family={}
+    for family in sorted({str(r.get("family") or "") for r in rows}):
+        xs=[r for r in rows if str(r.get("family") or "")==family]
+        elig=[r for r in xs if r.get("event_input_eligible") and r.get("blocker")!="OUTSIDE_QQQ_HISTORY"]
+        # denominator is restricted to events that actually fall in the QQQ history window
+        elig=[r for r in elig if r.get("blocker")!="OUTSIDE_QQQ_HISTORY"]
+        cov=[r for r in elig if r.get("reaction_available")]
+        per_family[family]={
+            "eligible_events":len(elig),
+            "covered_events":len(cov),
+            "coverage_ratio":(len(cov)/len(elig)) if elig else None,
+        }
     return rows,{
         "eligible_events_in_qqq_history":eligible_denominator,
         "reaction_covered_events":covered,
         "reaction_coverage_ratio":coverage,
+        "per_family_reaction_coverage":per_family,
         "session_reaction_ready":coverage>=0.80,
     }
 
