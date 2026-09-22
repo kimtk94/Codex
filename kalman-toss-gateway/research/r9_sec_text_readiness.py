@@ -227,6 +227,7 @@ def main():
     ap.add_argument("--output-dir",default=DEFAULT_OUT)
     ap.add_argument("--cache-dir",default=DEFAULT_CACHE)
     ap.add_argument("--min-request-interval",type=float,default=0.35)
+    ap.add_argument("--max-documents",type=int,default=0)
     args=ap.parse_args()
 
     r8=json.loads(Path(args.r8_manifest).read_text())
@@ -247,9 +248,14 @@ def main():
         x["_target_semantic_items"]=target
         semantic.append(x)
 
-    unique_urls=sorted({e["primary_url"] for e in semantic})
-    if len(unique_urls)<7000:
-        raise RuntimeError(f"unexpectedly low unique semantic URLs before fetch: {len(unique_urls)}")
+    all_unique_urls=sorted({e["primary_url"] for e in semantic})
+    if len(all_unique_urls)<7000:
+        raise RuntimeError(f"unexpectedly low unique semantic URLs before fetch: {len(all_unique_urls)}")
+    smoke_mode=args.max_documents>0
+    unique_urls=(
+        all_unique_urls[:args.max_documents]
+        if smoke_mode else all_unique_urls
+    )
 
     user_agent=os.environ.get(
         "SEC_USER_AGENT",
@@ -270,8 +276,11 @@ def main():
         if i%100==0 or i==total:
             print(f"[{i}/{total}] {res.get('status')} {e.get('symbol')} {e.get('accession_number')}",flush=True)
 
+    selected_urls=set(unique_urls)
     rows=[]
     for e in semantic:
+        if e["primary_url"] not in selected_urls:
+            continue
         res=by_url[e["primary_url"]]
         accepted=pd.to_datetime(e.get("acceptance_at"),utc=True,errors="coerce")
         rows.append({
@@ -337,7 +346,7 @@ def main():
 
     gates={
         "r8_sec_v2_ready":bool(r8.get("sec_event_ready")),
-        "unique_semantic_documents_ge_7000":uniq_n>=7000,
+        "unique_semantic_documents_ge_7000":(len(all_unique_urls)>=7000 and not smoke_mode),
         "unique_fetch_success_ge_95pct":(fetched/uniq_n if uniq_n else 0)>=0.95,
         "cleaned_text_parse_ge_95pct":(parsed/fetched if fetched else 0)>=0.95,
         "semantic_section_extract_ge_75pct":(extracted/fetched if fetched else 0)>=0.75,
@@ -358,6 +367,9 @@ def main():
         "sec_user_agent":user_agent,
         "request_interval_seconds":args.min_request_interval,
         "r8_manifest_schema":r8.get("schema"),
+        "mode":"smoke" if smoke_mode else "full",
+        "max_documents":args.max_documents,
+        "all_unique_semantic_documents":len(all_unique_urls),
         "semantic_event_rows":len(df),
         "unique_semantic_documents":uniq_n,
         "unique_fetch_success":fetched,
@@ -381,8 +393,11 @@ def main():
             "ngram_range":[1,2],
         },
         "gates":gates,
-        "r9_text_ready":all(gates.values()),
-        "next_action":"PREREGISTER_SINGLE_R9_TEXT_ABLATION" if all(gates.values()) else "FIX_TEXT_DATA_READINESS_ONLY",
+        "r9_text_ready":bool((not smoke_mode) and all(gates.values())),
+        "next_action":(
+            "RUN_FULL_READINESS" if smoke_mode
+            else ("PREREGISTER_SINGLE_R9_TEXT_ABLATION" if all(gates.values()) else "FIX_TEXT_DATA_READINESS_ONLY")
+        ),
     }
     (out/"manifest.json").write_text(json.dumps(manifest,indent=2,default=str)+"\n")
     print(json.dumps(manifest,indent=2,default=str))
