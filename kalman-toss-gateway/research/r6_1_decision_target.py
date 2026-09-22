@@ -348,13 +348,27 @@ def build_r1_training_rows(root, symbols, canon_panel, live_panel):
     raw["net10_return"] = raw["exec_weight"] * raw["fwd_ret_4b"] - raw["exec_weight"] * COST
     raw["target_net"] = raw["net10_return"]
 
+    # R5.0.1 hotfix contract: all valid target rows are eligible.
+    # Do NOT re-apply the older R1 feature_core_valid mask here.
+    # HistGradientBoostingRegressor handles missing feature values natively,
+    # and the frozen R5 fold contract confirms the broader all-valid-row universe.
     valid = (
-        raw["_core_valid"]
-        & raw["fwd_ret_4b"].notna()
+        raw["fwd_ret_4b"].notna()
         & raw["target_timestamp_4b"].notna()
         & (raw["target_timestamp_4b"] < RESEARCH_CUTOFF)
     )
     train = raw.loc[valid].copy()
+    eligibility_audit = {
+        "raw_rows": int(len(raw)),
+        "core_valid_rows": int(raw["_core_valid"].sum()),
+        "all_valid_target_rows": int(valid.sum()),
+        "added_vs_r1_core_mask": int(
+            (
+                valid
+                & ~raw["_core_valid"]
+            ).sum()
+        ),
+    }
     train["target_ordinal_net"] = (
         train.groupby("timestamp")["target_net"].rank(pct=True, method="average") - 0.5
     )
@@ -364,6 +378,7 @@ def build_r1_training_rows(root, symbols, canon_panel, live_panel):
         train["proxy_net_return"]
         - train.groupby("timestamp")["proxy_net_return"].transform("median")
     )
+    path_audit["eligibility"] = eligibility_audit
     return train.reset_index(drop=True), path_audit
 
 
