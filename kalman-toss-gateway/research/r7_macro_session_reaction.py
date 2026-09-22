@@ -12,6 +12,7 @@ UTC=timezone.utc
 
 DEFAULT_EVENTS="/opt/kalman/state/r7_macro_free/events.json"
 DEFAULT_QQQ="/mnt/gdrive/US_ETF/directional_research/canonical_history_v1/qqq_context/history_1h/QQQ_1h_gap_aware.parquet"
+DEFAULT_ACTUAL_MANIFEST="/opt/kalman/state/r7_macro_free/manifest.json"
 DEFAULT_OUT="/opt/kalman/state/r7_macro_reaction"
 
 REQUIRED_QQQ_COLS={
@@ -33,7 +34,7 @@ def load_qqq(path: Path) -> pd.DataFrame:
     # Canonical contract requires aligned, non-gap bars. Keep only fully valid 60m rows.
     valid=df["bar_time_aligned"].fillna(False).astype(bool) & ~df["data_gap_before"].fillna(True).astype(bool)
     df=df.loc[valid].copy()
-    df["bar_end_utc"]=df["candle_time_utc"]+pd.Timedelta(hours=1)
+    df["bar_end_utc"]=df["candle_time_utc"]+pd.to_timedelta(3600,unit="s")
     return df
 
 def build_reaction(events: list[dict], qqq: pd.DataFrame, max_anchor_delay_hours: float=6.0):
@@ -158,11 +159,14 @@ def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--events",default=DEFAULT_EVENTS)
     ap.add_argument("--qqq",default=DEFAULT_QQQ)
+    ap.add_argument("--actual-manifest",default=DEFAULT_ACTUAL_MANIFEST)
     ap.add_argument("--output-dir",default=DEFAULT_OUT)
     ap.add_argument("--max-anchor-delay-hours",type=float,default=6.0)
     args=ap.parse_args()
 
     events=json.loads(Path(args.events).read_text(encoding="utf-8"))
+    actual_manifest=json.loads(Path(args.actual_manifest).read_text(encoding="utf-8"))
+    actual_pit_ready=bool(actual_manifest.get("pit_actual_ready"))
     qqq=load_qqq(Path(args.qqq))
     rows,stats=build_reaction(events,qqq,args.max_anchor_delay_hours)
 
@@ -171,7 +175,7 @@ def main():
     (out/"session_reactions.json").write_text(json.dumps(rows,indent=2)+"\n",encoding="utf-8")
 
     manifest={
-        "schema":"kalman-r7-macro-session-reaction-v1",
+        "schema":"kalman-r7-macro-session-reaction-v2",
         "research_only":True,
         "production_changed":False,
         "reaction_contract":"QQQ_SESSION_REACTION_1H",
@@ -183,14 +187,18 @@ def main():
         "qqq_first_bar":qqq["candle_time_utc"].min().isoformat(),
         "qqq_last_bar_end":qqq["bar_end_utc"].max().isoformat(),
         **stats,
-        "model_fitting_allowed":False,
-        "blockers":[
-            "CONSENSUS_UNAVAILABLE_FOR_SURPRISE_CHALLENGER",
-            "R7_REACTION_REQUIRES_REVIEW_BEFORE_MODEL_FITTING"
-        ] if stats["session_reaction_ready"] else [
-            "SESSION_REACTION_COVERAGE_BELOW_80PCT",
-            "CONSENSUS_UNAVAILABLE_FOR_SURPRISE_CHALLENGER",
-            "R7_REACTION_REQUIRES_REVIEW_BEFORE_MODEL_FITTING"
+        "actual_manifest":str(args.actual_manifest),
+        "actual_pit_ready":actual_pit_ready,
+        "admitted_candidate":"R7C1_ACTUAL_SESSION_REACTION_ONLY" if (actual_pit_ready and stats["session_reaction_ready"]) else None,
+        "model_fitting_allowed":bool(actual_pit_ready and stats["session_reaction_ready"]),
+        "blockers":(
+            ([] if actual_pit_ready else ["PIT_ACTUAL_NOT_READY"])
+            + ([] if stats["session_reaction_ready"] else ["SESSION_REACTION_COVERAGE_BELOW_80PCT"])
+        ),
+        "limitations":[
+            "CONSENSUS_UNAVAILABLE_NO_SURPRISE_FEATURES",
+            "NO_INTRADAY_US2Y_REACTION",
+            "QQQ_SESSION_REACTION_ONLY"
         ],
     }
     (out/"manifest.json").write_text(json.dumps(manifest,indent=2)+"\n",encoding="utf-8")
