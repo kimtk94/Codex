@@ -579,21 +579,15 @@ def main():
             f"frozen scored row count changed: expected {EXPECTED_SCORED_ROWS}, got {len(scored)}"
         )
 
-    scored = add_path_proxy(scored)
+    canon_panel = us / "directional_research/canonical_history_v1/panel_1h_gap_aware"
+    live_panel = us / "directional_research/r4_live_canonical_v1/panel_1h_overlay"
+
+    scored, scored_path_audit = attach_path_proxy(scored, canon_panel, live_panel)
 
     ratio = scored["universe_median_rv24"] / scored["rv_24"].replace(0, np.nan)
     scored["exec_weight"] = ratio.clip(0.25, 1.0).fillna(1.0)
     scored["net10_return"] = scored["exec_weight"] * scored["fwd_ret_4b"] - scored["exec_weight"] * COST
     scored["proxy_net_return"] = scored["exec_weight"] * scored["proxy_ret_4b"] - scored["exec_weight"] * COST
-
-    scored["target_net"] = scored["net10_return"]
-    scored["target_ordinal_net"] = (
-        scored.groupby("timestamp")["target_net"].rank(pct=True, method="average") - 0.5
-    )
-    scored["target_path_relative"] = (
-        scored["proxy_net_return"]
-        - scored.groupby("timestamp")["proxy_net_return"].transform("median")
-    )
 
     overall_path_coverage = float(scored["path_complete"].mean())
     checkpoint(
@@ -602,10 +596,43 @@ def main():
         rows=len(scored),
         symbols=int(scored["symbol"].nunique()),
         path_coverage=overall_path_coverage,
+        fwd_parity_median_abs_diff=scored_path_audit["fwd_parity_median_abs_diff"],
+        fwd_parity_max_abs_diff=scored_path_audit["fwd_parity_max_abs_diff"],
     )
     if overall_path_coverage < PATH_COVERAGE_MIN:
         raise RuntimeError(
-            f"path coverage too low: {overall_path_coverage:.6f} < {PATH_COVERAGE_MIN:.6f}"
+            f"canonical path coverage too low: {overall_path_coverage:.6f} < {PATH_COVERAGE_MIN:.6f}"
+        )
+    if (
+        scored_path_audit["fwd_parity_median_abs_diff"] is None
+        or scored_path_audit["fwd_parity_median_abs_diff"] > 1e-10
+    ):
+        raise RuntimeError(f"canonical 4H parity failed: {scored_path_audit}")
+
+    symbols = sorted(scored["symbol"].astype(str).unique())
+    train_all, train_path_audit = build_r1_training_rows(
+        root, symbols, canon_panel, live_panel
+    )
+
+    feature_audit = reconcile_training_features(train_all, scored)
+    checkpoint(
+        exec_log,
+        "TRAINING_SOURCE_READY",
+        rows=len(train_all),
+        first_timestamp=str(train_all["timestamp"].min()),
+        last_timestamp=str(train_all["timestamp"].max()),
+        path_coverage=float(train_all["path_complete"].mean()),
+        feature_matched_rows=feature_audit["matched_rows"],
+        feature_median_abs_diff=feature_audit["median_abs_numeric_diff"],
+        feature_finite_agreement=feature_audit["finite_state_agreement"],
+    )
+    if not feature_audit["pass"]:
+        (out / "r6_1_feature_reconciliation.json").write_text(
+            json.dumps(feature_audit, indent=2, ensure_ascii=False, default=str) + "\n"
+        )
+        raise RuntimeError(
+            "R1-derived training features do not reconcile to frozen R5 scored rows; "
+            f"see {out / 'r6_1_feature_reconciliation.json'}"
         )
 
     base = frozen_ledger.loc[
@@ -675,8 +702,12 @@ def main():
         start = ts(ss)
         end = ts(ee)
 
-        tr = scored.loc[scored["target_timestamp_4b"] < start].copy()
-        te = scored.loc[(scored["timestamp"] >= start) & (scored["timestamp"] < end)].copy()
+        tr = train_all.loc[train_all["target_timestamp_4b"] < start].copy()
+        te = scored.loc[
+            (scored["fold"].astype(str) == fold)
+            & (scored["timestamp"] >= start)
+            & (scored["timestamp"] < end)
+        ].copy()
 
         valid_ts = te.groupby("timestamp")["symbol"].nunique()
         valid_ts = set(valid_ts[valid_ts >= MIN_UNIVERSE].index)
@@ -685,6 +716,20 @@ def main():
 
         if len(tr) == 0 or len(te) == 0:
             raise RuntimeError(f"empty fold {fold}: train={len(tr)} test={len(te)}")
+
+        expected_train = EXPECTED_TRAIN_ROWS[fold]
+        if len(tr) != expected_train:
+            checkpoint(
+                exec_log,
+                "TRAIN_ROW_COUNT_MISMATCH",
+                fold=fold,
+                expected=expected_train,
+                observed=len(tr),
+                train_last_target=str(tr["target_timestamp_4b"].max()),
+            )
+            raise RuntimeError(
+                f"{fold} training rows mismatch: expected {expected_train}, got {len(tr)}"
+            )
 
         # Freeze the actual R5 control scores rather than recreating the baseline.
         te[CONTROL] = te["R5C0_HGB_REFERENCE"]
@@ -709,7 +754,9 @@ def main():
             "train_last_target": str(tr["target_timestamp_4b"].max()),
             "test_first": str(te["timestamp"].min()),
             "test_last": str(te["timestamp"].max()),
+            "expected_train_rows": int(EXPECTED_TRAIN_ROWS[fold]),
             "train_path_target_rows": int(tr["target_path_relative"].notna().sum()),
+            "train_path_coverage": float(tr["path_complete"].mean()),
             "test_path_coverage": float(te["path_complete"].mean()),
         })
         checkpoint(
