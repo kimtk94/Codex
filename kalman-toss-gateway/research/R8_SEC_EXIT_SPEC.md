@@ -266,3 +266,42 @@ Prospective exit-shadow is scheduled once per US trading day after the session:
 - append-only immutable research ledger
 
 The scheduled collector does not invoke Toss, auto-trade, position manager, or any LIVE exit path.
+
+
+## 12. R8.1 observed result — rejected for alpha promotion
+
+Observed after all preregistered integrity gates passed:
+
+R5:
+- cumulative return +116.9751%
+- log growth 0.774612
+- PF 1.207053
+- MDD -22.6589%
+
+R8C1:
+- cumulative return +111.9022%
+- log growth 0.750955
+- PF 1.203229
+- MDD -17.4001%
+- win rate 51.6295%
+- median trade return 0.03035%
+- effective names 35.7904
+- top ticker share 6.8121%
+
+Paired:
+- mean daily log diff -0.0000302917
+- 95% CI [-0.000814595, +0.000785083]
+- p / Holm = 0.517241
+- positive paired folds = 4/7
+
+Decision:
+- `research_survivor=false`
+- `promotion_eligible=false`
+- `live_action=NONE`
+- R5.1 remains champion.
+
+Interpretation:
+- SEC event data are technically usable and symbol-specific;
+- the fixed SEC feature encoding does not add statistically supported alpha over R5;
+- drawdown and diversification improved materially, so SEC may be studied as a future risk tag/overlay only under a new prospective preregistration;
+- no retrospective R8.1 threshold/decay/item-subset tuning is permitted.
