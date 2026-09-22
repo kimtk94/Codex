@@ -290,11 +290,30 @@ Initial free families:
 Governance:
 - consensus is unavailable and is never fabricated.
 - BLS API historical series are tagged `REVISED_SERIES_NOT_PIT`; they may contain later revisions and are not treated as first-release vintages.
-- therefore the free path is not eligible for R7 model fitting yet.
-- the next step is official archived-release extraction / validation plus a free market-reaction layer.
-- explicit DB write remains blocked in the free runner until PIT validation passes.
+- official archived BLS news releases are parsed separately as first-release PIT candidates.
+- BLS pages marked reissued/corrected remain event-level missing rather than being backfilled from revised history.
+- the preregistered actual-coverage gate remains the original overall >=95% rule; per-family coverage is diagnostic and is not retroactively promoted into a new gate after observing results.
+- explicit DB write remains blocked in the free runner until the reaction layer is validated.
 
 Default runner:
 `scripts/run_r7_macro_backfill.sh smoke` -> free smoke
 `scripts/run_r7_macro_backfill.sh full` -> free 2020-2026 collection
 `write` -> blocked
+
+
+### 2020-2026 free actual-layer audit (2026-09-22)
+
+Observed on `kalman-r7-macro-free-v4`:
+- 367 total events across CPI, Employment, FOMC, JOLTS, PPI.
+- 320 BLS archive attempts; 320 fetched; 320 parsed.
+- 311 PIT-eligible archived releases.
+- overall PIT archive coverage = 97.1875%.
+- CPI = 100%, PPI = 100%, JOLTS = 100%.
+- Employment = 88.75% because 9 official BLS pages are marked reissued/corrected and remain conservatively unavailable.
+- FOMC is event-time only and is outside the BLS archive denominator.
+
+Decision:
+- `pit_actual_ready = true` under the preregistered overall >=95% actual coverage gate.
+- no retroactive family-level 95% gate is introduced after observing results.
+- event-level availability masks must exclude the 9 Employment reissue/correction rows from any R7 feature.
+- R7-M remains blocked because `reaction_ready = false`; consensus is also unavailable for surprise-based challengers.
