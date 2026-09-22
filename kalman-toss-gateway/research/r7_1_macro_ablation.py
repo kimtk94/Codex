@@ -249,6 +249,30 @@ def build_training_rows(root, symbols):
     return raw.loc[valid].reset_index(drop=True)
 
 
+def reconcile_target(train, frozen):
+    m = train[["symbol","expected_seq","relative_ret_4b"]].merge(
+        frozen[["symbol","expected_seq","relative_ret_4b"]],
+        on=["symbol","expected_seq"], how="inner",
+        suffixes=("_train","_frozen"), validate="one_to_one"
+    )
+    x=pd.to_numeric(m["relative_ret_4b_train"],errors="coerce").to_numpy(float)
+    y=pd.to_numeric(m["relative_ret_4b_frozen"],errors="coerce").to_numpy(float)
+    ok=np.isfinite(x)&np.isfinite(y)
+    d=np.abs(x[ok]-y[ok])
+    audit={
+        "matched_rows":int(len(m)),
+        "both_finite":int(ok.sum()),
+        "median_abs_diff":float(np.median(d)) if len(d) else None,
+        "max_abs_diff":float(np.max(d)) if len(d) else None,
+    }
+    audit["pass"]=bool(
+        audit["matched_rows"]>5000
+        and audit["median_abs_diff"] is not None
+        and audit["median_abs_diff"]<=1e-10
+    )
+    return audit
+
+
 def reconcile_base_features(train, frozen):
     keys = ["symbol", "expected_seq"]
     m = train[keys + BASE_FEATURES].merge(
@@ -543,6 +567,9 @@ def main():
     base_audit = reconcile_base_features(train_all, scored)
     if not base_audit["pass"]:
         raise RuntimeError(f"base feature reconciliation failed: {base_audit}")
+    target_audit = reconcile_target(train_all, scored)
+    if not target_audit["pass"]:
+        raise RuntimeError(f"relative target reconciliation failed: {target_audit}")
 
     for fold, start, _ in FOLDS:
         n = int((train_all["target_timestamp_4b"] < ts(start)).sum())
@@ -685,6 +712,7 @@ def main():
             "session_reaction_coverage": reaction_manifest.get("reaction_coverage_ratio"),
         },
         "base_feature_reconciliation": base_audit,
+        "target_reconciliation": target_audit,
         "train_macro_audit": train_macro_audit,
         "scored_macro_audit": scored_macro_audit,
         "schedule_audit": sched,
