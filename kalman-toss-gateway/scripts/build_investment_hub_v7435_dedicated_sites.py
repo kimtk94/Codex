@@ -135,9 +135,10 @@ def validate_market(src: Path, market: str) -> dict:
             "FORWARD SHADOW",
             "/api/assets?view=control",
             "RECONSTRUCTED · 2026",
-            "US SESSION · KST DATE",
-            "NEXT CYCLE",
+            "US SESSION · KST END DATE",
+            "NEXT HOURLY CYCLE",
             "ACTION · BUY / SELL",
+            "5M EXECUTION WATCHER",
             "NEXT UPDATE",
             "sessionStatusHtml",
         ):
