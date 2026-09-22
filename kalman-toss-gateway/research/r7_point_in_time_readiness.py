@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-SCHEMA = "kalman-r7-point-in-time-readiness-v2"
+SCHEMA = "kalman-r7-point-in-time-readiness-v3"
 DEFAULT_SNAPSHOT = Path(__file__).with_name("r7_neon_readiness_snapshot_20260922.json")
 
 SQL = {
@@ -20,7 +20,9 @@ SQL = {
           count(DISTINCT indicator_key)::bigint AS indicators,
           avg((actual IS NOT NULL)::int)::float8 AS actual_ratio,
           avg((consensus IS NOT NULL)::int)::float8 AS consensus_ratio,
-          avg((time_quality IN ('EXACT_SOURCE_TS','PUBLISHER_TS','PROVIDER_RELEASE_TS'))::int)::float8 AS strong_time_ratio
+          avg((time_quality IN ('EXACT_SOURCE_TS','PUBLISHER_TS','PROVIDER_RELEASE_TS'))::int)::float8 AS strong_time_ratio,
+          avg((available_at <= release_at + interval '120 minutes')::int)::float8 AS event_time_usable_ratio_120m,
+          avg(((payload->>'r7_pit_audit') = 'PASS')::int)::float8 AS pit_audit_ratio
         FROM macro_release_observation
         WHERE market IN ('US','GLOBAL')
     """,
@@ -124,6 +126,8 @@ def main():
         and (m["actual_ratio"] or 0) >= 0.95
         and (m["consensus_ratio"] or 0) >= 0.80
         and (m["strong_time_ratio"] or 0) >= 0.95
+        and (m.get("event_time_usable_ratio_120m") or 0) >= 0.95
+        and (m.get("pit_audit_ratio") or 0) >= 0.95
     )
 
     na = data["news_article"]
@@ -155,8 +159,26 @@ def main():
                 "observed": m,
                 "repricing": data["macro_repricing"],
                 "blockers": [] if macro_ready else [
-                    "MACRO_RELEASE_HISTORY_INSUFFICIENT_OR_EMPTY",
-                    "CONSENSUS_SURPRISE_COVERAGE_NOT_READY",
+                    *(
+                        ["MACRO_RELEASE_HISTORY_INSUFFICIENT_OR_EMPTY"]
+                        if m["n"] < 120 or macro_span < 2 or m["indicators"] < 5
+                        else []
+                    ),
+                    *(
+                        ["CONSENSUS_SURPRISE_COVERAGE_NOT_READY"]
+                        if (m["consensus_ratio"] or 0) < 0.80
+                        else []
+                    ),
+                    *(
+                        ["EVENT_TIME_AVAILABILITY_NOT_VERIFIED"]
+                        if (m.get("event_time_usable_ratio_120m") or 0) < 0.95
+                        else []
+                    ),
+                    *(
+                        ["PIT_PROVIDER_HISTORY_AUDIT_NOT_PASSED"]
+                        if (m.get("pit_audit_ratio") or 0) < 0.95
+                        else []
+                    ),
                     "INTRADAY_EVENT_REACTION_CONTRACT_NOT_VERIFIED",
                 ],
             },
