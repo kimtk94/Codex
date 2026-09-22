@@ -96,7 +96,12 @@ def _broker_order_telemetry(order: dict, response_meta: dict | None = None) -> d
 
 
 def _persist_broker_order_telemetry(client: TossClient, position: dict, leg: str, order: dict) -> None:
-    client_order_id = position.get('entry_client_order_id') if leg == 'ENTRY' else position.get('exit_client_order_id')
+    if leg == 'ENTRY':
+        client_order_id = position.get('entry_client_order_id')
+    elif leg == 'ADD_ON':
+        client_order_id = position.get('add_on_client_order_id')
+    else:
+        client_order_id = position.get('exit_client_order_id')
     settings = getattr(client, 'settings', None)
     if not client_order_id or settings is None:
         return
@@ -253,6 +258,29 @@ async def _reconcile_reserved(store: ManagedPositionStore, ledger: TradeLedger, 
         )
         return {'action': 'ENTRY_AMBIGUOUS', 'ledgerStatus': guard['status']}
 
+    if state == 'ADD_ON_RESERVED':
+        guard = ledger.get(position['add_on_client_order_id'])
+        if guard is None:
+            store.release_add_on(
+                position['position_id'],
+                'add-on reservation existed but executor ledger had no order attempt',
+            )
+            return {'action': 'ADD_ON_RELEASED_NO_ORDER_ATTEMPT'}
+        if guard['status'] == 'SUBMITTED' and guard.get('toss_order_id'):
+            store.mark_add_on_submitted(position['position_id'], guard['toss_order_id'])
+            return {'action': 'ADD_ON_RECOVERED_SUBMITTED', 'orderId': guard['toss_order_id']}
+        if guard['status'] == 'FAILED':
+            store.release_add_on(
+                position['position_id'],
+                guard.get('error') or 'add-on submission failed',
+            )
+            return {'action': 'ADD_ON_RELEASED_FAILED'}
+        store.mark_ambiguous_add_on(
+            position['position_id'],
+            f"add-on executor state is ambiguous: order_guard={guard['status']}; reconcile in Toss before retry",
+        )
+        return {'action': 'ADD_ON_AMBIGUOUS', 'ledgerStatus': guard['status']}
+
     if state == 'EXIT_RESERVED':
         guard = ledger.get(position['exit_client_order_id'])
         if guard is None:
@@ -305,6 +333,54 @@ async def _reconcile_entry(store: ManagedPositionStore, client: TossClient, posi
         'status': status,
         'filledQuantity': str(filled),
         'averageFilledPrice': avg,
+    }
+
+
+async def _reconcile_add_on(store: ManagedPositionStore, client: TossClient, position: dict) -> dict:
+    order_id = position.get('add_on_order_id')
+    if not order_id:
+        store.mark_ambiguous_add_on(position['position_id'], 'ADD_ON_SUBMITTED without add_on_order_id')
+        return {'action': 'ADD_ON_AMBIGUOUS_NO_ORDER_ID'}
+
+    order = _order_view(await client.order(order_id))
+    _persist_broker_order_telemetry(client, position, 'ADD_ON', order)
+    status = str(order.get('status') or '').upper()
+    execution = _execution(order)
+    filled = _decimal(execution.get('filledQuantity'))
+    avg = execution.get('averageFilledPrice')
+
+    is_terminal = status in TERMINAL_STATUSES
+    if status == 'PARTIAL_FILLED':
+        open_ids = _open_order_ids(await client.orders('OPEN', position['symbol']))
+        is_terminal = order_id not in open_ids
+
+    if not is_terminal:
+        store.update_add_on_status(position['position_id'], status or 'UNKNOWN')
+        return {'action': 'ADD_ON_WAITING', 'status': status, 'filledQuantity': str(filled)}
+
+    if filled <= 0:
+        store.release_add_on(position['position_id'], f'add-on terminal without fill: {status}')
+        return {'action': 'ADD_ON_RELEASED_UNFILLED', 'status': status}
+
+    try:
+        updated = store.apply_add_on_fill(
+            position['position_id'],
+            status=status,
+            filled_quantity=filled,
+            average_price=avg,
+        )
+    except ValueError as exc:
+        store.mark_ambiguous_add_on(position['position_id'], str(exc))
+        return {'action': 'ADD_ON_MANUAL_RECONCILE', 'reason': str(exc)}
+
+    return {
+        'action': 'ADD_ON_APPLIED',
+        'status': status,
+        'filledQuantity': str(filled),
+        'averageFilledPrice': avg,
+        'entryCount': updated['entry_count'] if updated else None,
+        'aggregateQuantity': updated['remaining_quantity'] if updated else None,
+        'aggregateAveragePrice': updated['entry_avg_fill_price'] if updated else None,
     }
 
 
@@ -591,13 +667,18 @@ async def main_async() -> int:
         position = store.get(original['position_id']) or original
         state = position['state']
 
-        if state in {'ENTRY_RESERVED', 'EXIT_RESERVED'}:
+        if state in {'ENTRY_RESERVED', 'ADD_ON_RESERVED', 'EXIT_RESERVED'}:
             reports.append(await _reconcile_reserved(store, ledger, position))
             position = store.get(position['position_id']) or position
             state = position['state']
 
         if state == 'ENTRY_SUBMITTED':
             reports.append(await _reconcile_entry(store, client, position))
+            position = store.get(position['position_id']) or position
+            state = position['state']
+
+        if state == 'ADD_ON_SUBMITTED':
+            reports.append(await _reconcile_add_on(store, client, position))
             position = store.get(position['position_id']) or position
             state = position['state']
 
