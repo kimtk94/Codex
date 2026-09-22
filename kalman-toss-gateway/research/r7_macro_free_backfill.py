@@ -26,7 +26,7 @@ SERIES={
 }
 RELEASE_PATTERNS={
  "CPI": re.compile(r"Consumer Price Index",re.I),
- "EMPLOYMENT": re.compile(r"^Employment Situation\\s+for\\s+",re.I),
+ "EMPLOYMENT": re.compile(r"^Employment Situation for ",re.I),
  "PPI": re.compile(r"Producer Price Index",re.I),
  "JOLTS": re.compile(r"Job Openings and Labor Turnover Survey",re.I),
 }
