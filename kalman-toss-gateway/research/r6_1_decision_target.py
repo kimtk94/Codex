@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 
-SCHEMA = "kalman-r6-1-decision-target-v5"
+SCHEMA = "kalman-r6-1-decision-target-v6"
 COST = 0.001
 STOP = -0.03
 TAKE = 0.20
@@ -661,13 +661,30 @@ def main():
         ),
         "fold_counts": preflight_fold_counts,
     }
-    training_contract["pass"] = bool(
+    training_contract["fold_counts_match"] = bool(
+        all(x["match"] for x in preflight_fold_counts.values())
+    )
+    training_contract["research_evaluation_pass"] = bool(
+        training_contract["first_timestamp_match"]
+        and training_contract["fold_counts_match"]
+    )
+    training_contract["full_freeze_parity"] = bool(
         training_contract["rows_match"]
         and training_contract["first_timestamp_match"]
         and training_contract["last_feature_timestamp_match"]
         and training_contract["last_target_timestamp_match"]
-        and all(x["match"] for x in preflight_fold_counts.values())
     )
+    training_contract["missing_final_freeze_rows"] = int(
+        EXPECTED_FINAL_TRAIN_ROWS - len(train_all)
+    )
+    training_contract["tail_gap_only_for_r6_eval"] = bool(
+        training_contract["research_evaluation_pass"]
+        and not training_contract["full_freeze_parity"]
+        and train_all["timestamp"].max() >= ts("2026-05-01")
+    )
+    # R6.1 evaluates E2-E8. Its final training boundary is E8 start (2026-05-01).
+    # Therefore the 2026-09-01 R5.1 final-freeze overlay is diagnostic-only here.
+    training_contract["pass"] = training_contract["research_evaluation_pass"]
 
     checkpoint(
         exec_log,
@@ -682,14 +699,25 @@ def main():
         feature_median_abs_diff=feature_audit["median_abs_numeric_diff"],
         feature_finite_agreement=feature_audit["finite_state_agreement"],
         training_contract_pass=training_contract["pass"],
+        full_freeze_parity=training_contract["full_freeze_parity"],
+        missing_final_freeze_rows=training_contract["missing_final_freeze_rows"],
     )
     (out / "r6_1_training_contract.json").write_text(
         json.dumps(training_contract, indent=2, ensure_ascii=False, default=str) + "\n"
     )
-    if not training_contract["pass"]:
+    if not training_contract["research_evaluation_pass"]:
         raise RuntimeError(
-            "R5 all-valid training contract mismatch; "
+            "R5 research-fold training contract mismatch; "
             f"see {out / 'r6_1_training_contract.json'}"
+        )
+    if not training_contract["full_freeze_parity"]:
+        checkpoint(
+            exec_log,
+            "FINAL_FREEZE_TAIL_DIAGNOSTIC",
+            missing_rows=training_contract["missing_final_freeze_rows"],
+            observed_last_feature=training_contract["last_feature_timestamp_observed"],
+            frozen_last_feature=training_contract["last_feature_timestamp_expected"],
+            note="non-blocking for E2-E8 research because every fold training count matches exactly",
         )
     if not feature_audit["pass"]:
         (out / "r6_1_feature_reconciliation.json").write_text(
@@ -977,6 +1005,12 @@ def main():
         "baseline_reconciliation": baseline_reconciliation,
         "feature_reconciliation": feature_audit,
         "training_contract": training_contract,
+        "full_freeze_tail_note": (
+            "The R1-backed challenger source is 555 rows short of the final R5.1 freeze because "
+            "it stops before the 2026-09-01 live-overlay tail. This does not affect E2-E8 "
+            "research training: all frozen R5 fold train counts match exactly. Any later full "
+            "refit would have to rebuild the 831,981-row canonical+overlay panel."
+        ),
         "scored_path_audit": scored_path_audit,
         "training_path_audit": train_path_audit,
         "overall_path_coverage": overall_path_coverage,
