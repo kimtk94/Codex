@@ -269,3 +269,32 @@ Before R7-M readiness may pass, at least 95% of eligible macro rows must have:
 - `r7_pit_audit = PASS`.
 
 This prevents historical backfill or revised provider values from being treated as verified point-in-time information merely because they exist in the database.
+
+
+## 12. Free no-key macro path
+
+The default R7-M research path no longer requires Trading Economics or any paid consensus provider.
+
+Free sources:
+- BLS Public Data API v1 (no registration key)
+- BLS official release calendar
+- Federal Reserve FOMC calendar / statement timing
+
+Initial free families:
+- CPI / Core CPI
+- Employment Situation: NFP, unemployment rate, AHE
+- PPI
+- JOLTS
+- FOMC
+
+Governance:
+- consensus is unavailable and is never fabricated.
+- BLS API historical series are tagged `REVISED_SERIES_NOT_PIT`; they may contain later revisions and are not treated as first-release vintages.
+- therefore the free path is not eligible for R7 model fitting yet.
+- the next step is official archived-release extraction / validation plus a free market-reaction layer.
+- explicit DB write remains blocked in the free runner until PIT validation passes.
+
+Default runner:
+`scripts/run_r7_macro_backfill.sh smoke` -> free smoke
+`scripts/run_r7_macro_backfill.sh full` -> free 2020-2026 collection
+`write` -> blocked
