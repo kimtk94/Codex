@@ -84,10 +84,10 @@ def parse_archive_actuals(family,text):
     elif family=="EMPLOYMENT":
         head=t[:7000]
         m=re.search(r"Total nonfarm payroll employment\s+(?:increased|rose)\s+by\s+([0-9,]+)",head,re.I)
-        if m: out["NFP"]=float(m.group(1).replace(",",""))
+        if m: out["NFP"]=float(m.group(1).replace(",",""))/1000.0/1000.0
         if "NFP" not in out:
             m=re.search(r"Total nonfarm payroll employment\s+(?:declined|decreased|fell)\s+by\s+([0-9,]+)",head,re.I)
-            if m: out["NFP"]=-float(m.group(1).replace(",",""))
+            if m: out["NFP"]=-float(m.group(1).replace(",",""))/1000.0
         if "NFP" not in out:
             m=re.search(r"(?:total )?nonfarm payroll employment\s*\(([+-]?[0-9,]+)\)",head,re.I)
             if m: out["NFP"]=float(m.group(1).replace(",",""))
@@ -340,7 +340,7 @@ def main():
             ),
         }
     report={
-      "schema":"kalman-r7-macro-free-v5",
+      "schema":"kalman-r7-macro-free-v6",
       "generated_at_utc":datetime.now(UTC).isoformat(),
       "research_only":True,"production_changed":False,
       "provider_cost":"FREE_NO_KEY",
