@@ -19,3 +19,14 @@ def test_series_contract():
     assert m.SERIES["AHE_LEVEL"]=="CES0500000003"
     assert m.SERIES["PPI_FINAL_DEMAND_INDEX"]=="WPSFD4"
     assert m.SERIES["JOLTS_OPENINGS"]=="JTS000000000000000JOL"
+
+
+def test_parse_bls_value_missing_markers():
+    for x in ["-", ".", "", "NA", "N/A", None]:
+        assert m.parse_bls_value(x) is None
+
+
+def test_parse_bls_value_numeric_and_comma():
+    assert m.parse_bls_value("123.4") == 123.4
+    assert m.parse_bls_value("1,234") == 1234.0
+    assert m.parse_bls_value("not-a-number") is None
