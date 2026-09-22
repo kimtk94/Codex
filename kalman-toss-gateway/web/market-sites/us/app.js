@@ -58,6 +58,46 @@ function siteNav(active){
   let items=[['MAIN','https://kalman-investment-hub-v2.vercel.app'],['KR','https://kalman-investment-hub-kr.vercel.app'],['US','https://kalman-investment-hub-us.vercel.app']];
   return '<nav class="site-nav" aria-label="Kalman market sites">'+items.map(([k,u])=>'<a class="site-nav-link '+(k===active?'active':'')+'" href="'+u+'">'+k+'</a>').join('')+'</nav>';
 }
+function kstParts(d=new Date()){let q=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d),o={};q.forEach(x=>{if(x.type!=='literal')o[x.type]=x.value});return {y:+o.year,m:+o.month,d:+o.day,h:+o.hour,min:+o.minute}}
+function kstDate(v,h=0,min=0){return new Date(Date.UTC(v.y,v.m-1,v.d,h-9,min))}
+function addKstDays(v,n){let d=new Date(Date.UTC(v.y,v.m-1,v.d+n,12));return {y:d.getUTCFullYear(),m:d.getUTCMonth()+1,d:d.getUTCDate()}}
+function kstWeekday(v){return kstDate(v,12,0).getUTCDay()}
+function isKstTradeStartDay(v){let w=kstWeekday(v);return w>=1&&w<=5}
+function nextKstTradeStartDay(v){let x={...v};for(let i=0;i<8;i++){if(isKstTradeStartDay(x))return x;x=addKstDays(x,1)}return x}
+function fmtKstMD(d){return new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit'}).format(d)}
+function fmtKstHM(d){return new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(d)}
+function fmtNyYMD(d){return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(d)}
+function usSessionContext(now=new Date()){
+  let p=kstParts(now),mins=p.h*60+p.min,today={y:p.y,m:p.m,d:p.d},base;
+  if(mins<360){let prev=addKstDays(today,-1);base=isKstTradeStartDay(prev)?prev:nextKstTradeStartDay(today)}
+  else base=isKstTradeStartDay(today)?today:nextKstTradeStartDay(today);
+  let nextDay=addKstDays(base,1),slots=[kstDate(base,23,35)];
+  for(let h=0;h<=4;h++)slots.push(kstDate(nextDay,h,35));
+  let generated=S?.generated_at?new Date(S.generated_at):null,done=slots.filter(x=>generated&&generated>=x).length,due=slots.filter(x=>now>=x).length;
+  let status='WAITING',statusClass='waiting';
+  if(now>=slots[0]&&now<=new Date(slots.at(-1).getTime()+45*60000)){
+    if(done>=slots.length&&now>=slots.at(-1)){status='COMPLETE';statusClass='complete'}
+    else if(done>=due){status='ON TRACK';statusClass='track'}
+    else if(due&&now-slots[due-1]<20*60000){status='RUNNING';statusClass='running'}
+    else {status='UPDATE LATE';statusClass='late'}
+  }
+  let next=slots.find(x=>x>now),nextBase=base;
+  if(!next){nextBase=nextKstTradeStartDay(addKstDays(base,1));next=kstDate(nextBase,23,35)}
+  let latestDone=[...slots].reverse().find(x=>generated&&generated>=x),lag=5;
+  if(latestDone&&generated){lag=Math.max(2,Math.min(15,Math.round((generated-latestDone)/60000)))}
+  let nextUpdate=new Date(next.getTime()+lag*60000);
+  return {base,nextDay,slots,generated,done,due,status,statusClass,next,nextUpdate,nextBase,usDate:fmtNyYMD(slots[0])};
+}
+function sessionStatusHtml(){
+  let x=usSessionContext(),pct=Math.round(x.done/x.slots.length*100),sameSession=x.next>=x.slots[0]&&x.next<=x.slots.at(-1);
+  let steps=x.slots.map((t,i)=>{let cls=x.generated&&x.generated>=t?'done':(new Date()>=t?(new Date()-t<20*60000?'running':'late'):'upcoming');return '<div class="sessionstep '+cls+'"><span>'+(i+1)+'</span><b>'+fmtKstHM(t)+'</b></div>'}).join('');
+  return '<section id="us-session-status" class="sessioncard"><div class="sessiontop"><div><span class="eyebrow">US TRADING DAY</span><b>'+E(x.usDate)+' · KST '+E(fmtKstMD(x.slots[0]))+' 밤 → '+E(fmtKstMD(x.slots.at(-1)))+' 새벽</b><small>Automation window 23:35 → 04:35 KST · pipeline → sync → auto-trade decision</small></div><span class="sessionstate '+x.statusClass+'">'+E(x.status)+'</span></div><div class="sessionprogress"><div style="width:'+pct+'%"></div></div><div class="sessionmeta"><b>'+x.done+'/'+x.slots.length+' cycles reflected</b><span>Latest web update '+E(S?.generated_at?DT(S.generated_at):'—')+'</span></div><div class="sessionsteps">'+steps+'</div><div class="nextgrid"><div><span>NEXT ACTION</span><b>'+E(fmtKstMD(x.next))+' '+E(fmtKstHM(x.next))+' KST</b><small>'+(sameSession?'Next US serialized cycle':'Next US trading-day cycle')+'</small></div><div><span>NEXT UPDATE</span><b>~ '+E(fmtKstMD(x.nextUpdate))+' '+E(fmtKstHM(x.nextUpdate))+' KST</b><small>expected after cycle completion · observed lag based</small></div></div></section>';
+}
+function renderSessionStatus(){let el=$('#us-session-status');if(el)el.outerHTML=sessionStatusHtml()}
+async function pollSessionStatus(){
+  renderSessionStatus();
+  try{let r=await fetch('/api/dashboard?market=US',{cache:'no-store'});if(!r.ok)return;let j=await r.json();if(S?.generated_at&&j.generated_at&&j.generated_at!==S.generated_at){location.reload();return}}catch(_){ }
+}
 function benchmarkHtml(){
   let b=C?.benchmarks||{},t1=b.top1||{},t6=b.top6||{};
   if(!t1.snapshots&&!t6.snapshots)return '';
@@ -102,7 +142,7 @@ async function load(){
   $('#m').innerHTML=
     '<section class="appbar"><div class="appbrand">US Investment Hub</div>'+siteNav('US')+
     '<div class="appmarket"><b>'+E(sm.market_risk||'US')+'</b><span>'+E(j.model_version)+'</span><span class="badge '+(j.effective_stale?'bad':'')+'">'+(j.effective_stale?'STALE':'FRESH')+'</span></div><small>'+DT(j.data_as_of)+'</small></section>'+
-    marketPulseHtml()+top3Html()+modelSignalHtml()+performanceHtml()+benchmarkHtml()+forwardShadowHtml()+
+    marketPulseHtml()+sessionStatusHtml()+top3Html()+modelSignalHtml()+performanceHtml()+benchmarkHtml()+forwardShadowHtml()+
     '<section class="card"><div class="sw"><input id="q" class="search" placeholder="🔎 US ticker 검색 · NVDA, ORCL, AAPL"><div id="sg" class="sg hide"></div></div><div id="d"></div></section>'+
     fold('R5.1 2026 Ledger','replay + prospective 상세',ledgerHtml()+forwardTradesHtml())+
     fold('Model Context','R5.1_BASE_HGB · 4H relative-return','<div class="note">Primary lineage: '+E(sm.primary_lineage)+' · Evidence: '+E(sm.evidence_confidence)+' · Trade enabled: false</div>')+
@@ -110,3 +150,5 @@ async function load(){
   bind();
 }
 load().catch(e=>{$('#m').innerHTML='<div class="card">LOAD FAILED · '+E(e.message)+'</div>'});
+setInterval(renderSessionStatus,30000);
+setInterval(pollSessionStatus,60000);
