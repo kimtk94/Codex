@@ -26,7 +26,7 @@ SERIES={
 }
 RELEASE_PATTERNS={
  "CPI": re.compile(r"Consumer Price Index",re.I),
- "EMPLOYMENT": re.compile(r"Employment Situation",re.I),
+ "EMPLOYMENT": re.compile(r"^Employment Situation\\s+for\\s+",re.I),
  "PPI": re.compile(r"Producer Price Index",re.I),
  "JOLTS": re.compile(r"Job Openings and Labor Turnover Survey",re.I),
 }
@@ -106,8 +106,17 @@ def parse_archive_actuals(family,text):
             out["PPI_MOM"]=0.0
     elif family=="JOLTS":
         head=t[:5000]
-        m=re.search(r"number of job openings.{0,120}?(?:at|to)\s+([0-9.]+)\s+million",head,re.I)
-        if m: out["JOLTS_OPENINGS"]=float(m.group(1))*1000.0
+        patterns=[
+            r"(?:The\s+)?number of job openings.{0,140}?(?:at|to|of)\s+([0-9.]+)\s+million",
+            r"(?:The\s+)?number of job openings\s+(?:reached|increased to|declined to|decreased to|was little changed at).*?([0-9.]+)\s+million",
+            r"Job openings\s+(?:increased|decreased|declined|rose|fell|were little changed|was little changed).*?\s(?:to|at)\s+([0-9.]+)\s+million",
+            r"job openings level.{0,100}?\s(?:to|at|of)\s+([0-9.]+)\s+million",
+        ]
+        for pat in patterns:
+            m=re.search(pat,head,re.I)
+            if m:
+                out["JOLTS_OPENINGS"]=float(m.group(1))*1000.0
+                break
     return out
 
 def archive_url(event):
@@ -316,8 +325,22 @@ def main():
     eligible=sum(bool(e.get("pit_actual_eligible")) for e in events)
     attempted=archive_stats.get("attempted") or 0
     pit_archive_coverage_ratio=(eligible/attempted) if attempted else 0.0
+    per_family={}
+    for family in sorted(fams):
+        xs=[e for e in events if e.get("family")==family]
+        attempted_rows=[e for e in xs if e.get("archive_url")]
+        eligible_rows=[e for e in attempted_rows if e.get("pit_actual_eligible")]
+        per_family[family]={
+            "events":len(xs),
+            "archive_attempted":len(attempted_rows),
+            "pit_eligible":len(eligible_rows),
+            "coverage_ratio":(
+                len(eligible_rows)/len(attempted_rows)
+                if attempted_rows else None
+            ),
+        }
     report={
-      "schema":"kalman-r7-macro-free-v3",
+      "schema":"kalman-r7-macro-free-v4",
       "generated_at_utc":datetime.now(UTC).isoformat(),
       "research_only":True,"production_changed":False,
       "provider_cost":"FREE_NO_KEY",
@@ -329,6 +352,7 @@ def main():
       "archive_first_release":archive_stats,
       "pit_archive_eligible_events":eligible,
       "pit_archive_coverage_ratio":pit_archive_coverage_ratio,
+      "per_family_archive_coverage":per_family,
       "consensus_available":False,
       "pit_actual_ready":pit_archive_coverage_ratio>=0.95,
       "reaction_ready":False,
