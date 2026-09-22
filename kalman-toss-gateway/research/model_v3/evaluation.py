@@ -177,7 +177,7 @@ def evaluate_policy(
         horizon_observations=horizon_observations,
     )
 
-    valid = scored["target_forward_return"].notna()
+    valid = scored["target_forward_return"].notna() & scored["policy_ready"]
     unconditional_returns = scored.loc[valid, "target_forward_return"].to_numpy(dtype=float)
     overlapping_selected_returns = scored.loc[
         valid & scored["selected"], "target_forward_return"
@@ -225,8 +225,13 @@ def evaluate_policy(
         "round_trip_cost_bps": float(round_trip_cost_bps),
         "rows": int(len(scored)),
         "policy_ready_rows": int(scored["policy_ready"].sum()),
-        "selected_rows": int(scored["selected"].sum()),
-        "nonoverlap_selected_rows": int(scored["nonoverlap_selected"].sum()),
+        "selected_rows": int((valid & scored["selected"]).sum()),
+        "nonoverlap_selected_rows": int(
+            (valid & scored["nonoverlap_selected"]).sum()
+        ),
+        "nonoverlap_selected_signal_rows": int(
+            scored["nonoverlap_selected"].sum()
+        ),
         "unconditional": unconditional,
         "overlapping_selected": overlapping,
         "nonoverlap_selected_gross": nonoverlap_gross,
@@ -242,7 +247,9 @@ def evaluate_policy(
         ),
         "entry_dates": [
             pd.Timestamp(x).isoformat()
-            for x in scored.loc[scored["nonoverlap_selected"], "as_of"].tolist()
+            for x in scored.loc[
+                valid & scored["nonoverlap_selected"], "as_of"
+            ].tolist()
         ],
     }
 
@@ -379,7 +386,10 @@ def evaluate_forward_gate(
 
     # Summarize the forward selections produced by thresholds that used
     # all information available strictly before each current score.
-    valid = forward_scored["target_forward_return"].notna()
+    valid = (
+        forward_scored["target_forward_return"].notna()
+        & forward_scored["policy_ready"]
+    )
     unconditional_returns = forward_scored.loc[
         valid, "target_forward_return"
     ].to_numpy(dtype=float)
