@@ -60,9 +60,18 @@ def validate_snapshot(payload: dict[str, Any]) -> None:
         raise RuntimeError(f"unexpected strategies: {sorted(names)}")
 
     ready = [row for row in rows if row.get("status") == "READY"]
-    ranks = sorted(row.get("forward_rank") for row in ready)
-    if ready and ranks != list(range(len(ready))):
-        raise RuntimeError(f"forward ranks are not contiguous: {ranks}")
+    tracking_status = str(payload.get("tracking_status") or "")
+    if tracking_status == "RANKING_ACTIVE":
+        ranks = sorted(row.get("forward_rank") for row in ready)
+        if ready and ranks != list(range(len(ready))):
+            raise RuntimeError(f"forward ranks are not contiguous: {ranks}")
+        if any(row.get("rank_eligible") is not True for row in ready):
+            raise RuntimeError("RANKING_ACTIVE requires rank_eligible=true for all READY rows")
+    else:
+        if any(row.get("forward_rank") is not None for row in ready):
+            raise RuntimeError(
+                "non-active ranking state must not expose forward_rank values"
+            )
 
 
 def _write_status(path: Path, payload: dict[str, Any]) -> None:
