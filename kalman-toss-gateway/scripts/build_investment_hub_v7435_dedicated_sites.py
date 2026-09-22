@@ -136,7 +136,8 @@ def validate_market(src: Path, market: str) -> dict:
             "/api/assets?view=control",
             "RECONSTRUCTED · 2026",
             "US SESSION · KST DATE",
-            "NEXT ACTION",
+            "NEXT CYCLE",
+            "ACTION · BUY / SELL",
             "NEXT UPDATE",
             "sessionStatusHtml",
         ):
