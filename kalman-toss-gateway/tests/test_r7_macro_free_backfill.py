@@ -71,3 +71,21 @@ def test_parse_archive_ppi_and_jolts():
 def test_archive_url_uses_release_date_et():
     e={"family":"CPI","release_at":"2026-09-11T12:30:00+00:00"}
     assert m.archive_url(e).endswith("/cpi_09112026.htm")
+
+
+def test_employment_release_pattern_excludes_veterans():
+    pat=m.RELEASE_PATTERNS["EMPLOYMENT"]
+    assert pat.search("Employment Situation for February 2020")
+    assert not pat.search("Employment Situation of Veterans for Annual 2019")
+
+
+def test_parse_archive_jolts_historical_phrasings():
+    cases={
+        "Job openings decreased to 6.2 million on the last business day of March.":6200.0,
+        "The number of job openings reached a series high of 8.1 million on the last business day of March.":8100.0,
+        "The number of job openings increased to a series high of 10.1 million on the last business day of June.":10100.0,
+        "The number of job openings was little changed at 9.2 million on the last business day of May.":9200.0,
+    }
+    for text,expected in cases.items():
+        got=m.parse_archive_actuals("JOLTS",text)
+        assert got["JOLTS_OPENINGS"]==expected
