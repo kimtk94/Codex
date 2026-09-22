@@ -8,9 +8,11 @@ CACHE="${R9_SEC_TEXT_CACHE:-/opt/kalman/state/r9_sec_text/cache}"
 MODE="${1:-smoke}"
 
 case "$MODE" in
+  probe) MAX_DOCS=1 ;;
+  smoke5) MAX_DOCS=5 ;;
   smoke) MAX_DOCS=50 ;;
   full) MAX_DOCS=0 ;;
-  *) echo "[FAIL] usage: $0 [smoke|full]" >&2; return 2 2>/dev/null || exit 2 ;;
+  *) echo "[FAIL] usage: $0 [probe|smoke5|smoke|full]" >&2; return 2 2>/dev/null || exit 2 ;;
 esac
 
 echo "===== R9 SEC TEXT READINESS ====="
@@ -18,6 +20,11 @@ echo "mode=$MODE"
 echo "research_only=true"
 echo "production_changed=false"
 echo "api_key_required=NONE"
+
+if [ -z "${SEC_CONTACT_EMAIL:-}" ]; then
+  echo "[FAIL] SEC_CONTACT_EMAIL is required for SEC-declared automated access" >&2
+  return 2 2>/dev/null || exit 2
+fi
 
 export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 "$PY" "$APP_ROOT/research/r9_sec_text_readiness.py" \
