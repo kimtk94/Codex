@@ -20,6 +20,8 @@ R6.1 v4 separates training and evaluation sources.
 **Challenger training source**
 - frozen `r1_directional_v1_2/primary_train/{SYMBOL}_r1.parquet`
 - restricted to the same frozen 93 R5 symbols
+- R5.0.1 uses its broader **all-valid-target-row** eligibility, not the older R1 `feature_core_valid=True` mask
+- missing predictor values are median-imputed exactly as documented by the frozen R5 training-median artifact
 - the R5 cross-sectional feature family is reconstructed from those frozen R1 rows
 - reconstructed features must reconcile against frozen R5 scored rows with:
   - >5,000 matched rows
@@ -112,7 +114,7 @@ For every evaluated fold:
 
 `train.target_timestamp_4b < fold_start`
 
-Any training-row mismatch aborts the run.
+Any training-row mismatch aborts the run. The preflight also requires the final R5.1 freeze contract exactly: 831,981 rows, first feature timestamp 2020-07-27 13:30 UTC, last feature timestamp 2026-09-01 14:30 UTC, and last target timestamp 2026-09-01 18:30 UTC.
 
 ## Execution
 
