@@ -100,8 +100,10 @@ function watcherContext(now=new Date()){
   if(now<start)next=start;
   else if(now<=end){
     let p=kstParts(now),nextMin=Math.floor(p.min/5)*5+5,day={y:p.y,m:p.m,d:p.d};
-    if(nextMin>=60)next=kstDate(addKstDays(day,1),p.h+1>23?0:p.h+1,0);
-    else next=kstDate(day,p.h,nextMin);
+    if(nextMin>=60){
+      let nd=p.h>=23?addKstDays(day,1):day,nh=p.h>=23?0:p.h+1;
+      next=kstDate(nd,nh,0);
+    }else next=kstDate(day,p.h,nextMin);
     if(next>end){let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,23,0)}
   }else{let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,23,0)}
   let active=now>=start&&now<=end;
@@ -110,7 +112,7 @@ function watcherContext(now=new Date()){
 }
 function watcherStatusHtml(){
   let w=watcherContext(),state=w.active?'ACTIVE':'WAITING',cls=w.active?'track':'waiting';
-  return '<section class="watchercard"><div class="watcherhead"><div><span class="eyebrow">5M EXECUTION WATCHER</span><b>체결 · 리스크 · 추가진입 감시</b><small>모델 재계산 없음 · R5.1 signal은 60분 cadence 유지</small></div><span class="sessionstate '+cls+'">'+state+'</span></div><div class="watchergrid"><div><span>WATCH CADENCE</span><b>Every 5 min</b><small>23:00–05:55 KST · 10:00–16:55 ET</small></div><div><span>NEXT WATCH</span>'+timePairHtml(w.next,'hero-clock')+'<small>hourly cycle lock 중이면 자동 SKIP</small></div><div><span>LAST EXECUTION SYNC</span>'+(w.updated?timePairHtml(w.updated):'<b>—</b>')+'<small>execution ledger latest update</small></div><div><span>ORDER</span><b>Reconcile → Trade → Mirror</b><small>position_manager → auto_trade → trade_mirror</small></div></div></section>';
+  return '<section id="execution-watcher" class="watchercard"><div class="watcherhead"><div><span class="eyebrow">5M EXECUTION WATCHER</span><b>체결 · 리스크 · 추가진입 감시</b><small>모델 재계산 없음 · R5.1 signal은 60분 cadence 유지</small></div><span class="sessionstate '+cls+'">'+state+'</span></div><div class="watchergrid"><div><span>WATCH CADENCE</span><b>Every 5 min</b><small>23:00–05:55 KST · 10:00–16:55 ET</small></div><div><span>NEXT WATCH</span>'+timePairHtml(w.next,'hero-clock')+'<small>hourly cycle lock 중이면 자동 SKIP</small></div><div><span>LAST EXECUTION SYNC</span>'+(w.updated?timePairHtml(w.updated):'<b>—</b>')+'<small>execution ledger latest update</small></div><div><span>ORDER</span><b>Reconcile → Trade → Mirror</b><small>position_manager → auto_trade → trade_mirror</small></div></div></section>';
 }
 function engineSignalState(){
   let s=C?.latest_model_signal||null;
@@ -156,7 +158,7 @@ function tradeActionHtml(){
   let sellMeta=exitPending.length?'Exit order submitted':(open.length?'Stop -3% · Take +20% · max 4 hourly buckets':'활성 포지션 없음');
   let posRows=open.map(x=>'<div class="positionrow"><span class="status open">HOLD</span><b>'+E(x.symbol)+'</b><span>Qty '+E(x.entry_filled_quantity||'—')+'</span><span>Avg '+E(x.entry_average_price?USD(x.entry_average_price):'—')+'</span><span>'+timePairHtml(x.entry_signal_as_of)+'</span></div>').join('');
   let latest=sig?('<div class="actionfoot"><span>MODEL</span><b>'+E(sig.symbol)+'</b><span>BAR START '+E(timePair(sig.bar_start))+'</span><span>COMPLETE '+E(timePair(sig.bar_complete))+'</span></div>'):'';
-  return '<section class="dailybox actionbox"><div class="sectiontitle"><div><b>ACTION · BUY / SELL</b><small>실제 execution ledger 기준</small></div><span class="badge info">'+E(C?.status||'—')+'</span></div><div class="actiongrid"><div class="actioncell buy"><span>BUY</span><b>'+E(buyTitle)+'</b><small>'+E(buyMeta)+'</small>'+(buyTime?timePairHtml(buyTime,'action-clock'):'')+'</div><div class="actioncell sell"><span>SELL</span><b>'+E(sellTitle)+'</b><small>'+E(sellMeta)+'</small></div></div>'+(posRows?'<div class="positionlist"><div class="positionlabel">LIVE POSITIONS · '+open.length+'</div>'+posRows+'</div>':'')+latest+'</section>';
+  return '<section id="trade-action" class="dailybox actionbox"><div class="sectiontitle"><div><b>ACTION · BUY / SELL</b><small>실제 execution ledger 기준</small></div><span class="badge info">'+E(C?.status||'—')+'</span></div><div class="actiongrid"><div class="actioncell buy"><span>BUY</span><b>'+E(buyTitle)+'</b><small>'+E(buyMeta)+'</small>'+(buyTime?timePairHtml(buyTime,'action-clock'):'')+'</div><div class="actioncell sell"><span>SELL</span><b>'+E(sellTitle)+'</b><small>'+E(sellMeta)+'</small></div></div>'+(posRows?'<div class="positionlist"><div class="positionlabel">LIVE POSITIONS · '+open.length+'</div>'+posRows+'</div>':'')+latest+'</section>';
 }
 function sessionStatusHtml(){
   let x=usSessionContext(),pct=Math.round(x.done/x.slots.length*100),sameSession=x.next>=x.slots[0]&&x.next<=x.slots.at(-1);
@@ -167,6 +169,19 @@ function renderSessionStatus(){let el=$('#us-session-status');if(el)el.outerHTML
 async function pollSessionStatus(){
   renderSessionStatus();
   try{let r=await fetch('/api/dashboard?market=US',{cache:'no-store'});if(!r.ok)return;let j=await r.json();if(S?.generated_at&&j.generated_at&&j.generated_at!==S.generated_at){location.reload();return}}catch(_){ }
+}
+function renderLiveExecution(){
+  let w=$('#execution-watcher'),a=$('#trade-action');
+  if(w)w.outerHTML=watcherStatusHtml();
+  if(a)a.outerHTML=tradeActionHtml();
+}
+async function pollLiveExecution(){
+  try{
+    let r=await fetch('/api/assets?view=control',{cache:'no-store'});
+    if(!r.ok)return;
+    C=await r.json();
+    renderLiveExecution();
+  }catch(_){}
 }
 function benchmarkHtml(){
   let b=C?.benchmarks||{},t1=b.top1||{},t6=b.top6||{};
@@ -220,5 +235,6 @@ async function load(){
   bind();
 }
 load().catch(e=>{$('#m').innerHTML='<div class="card">LOAD FAILED · '+E(e.message)+'</div>'});
-setInterval(renderSessionStatus,30000);
+setInterval(()=>{renderSessionStatus();renderLiveExecution()},30000);
 setInterval(pollSessionStatus,60000);
+setInterval(pollLiveExecution,60000);
