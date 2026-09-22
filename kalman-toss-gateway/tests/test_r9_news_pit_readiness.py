@@ -30,3 +30,35 @@ def test_public_alias_overrides_avoid_legal_suffix_noise():
     assert m.query_alias("AMAZON COM INC","AMZN")=="Amazon"
     assert m.query_alias("JPMORGAN CHASE & CO","JPM")=="JPMorgan Chase"
     assert m.query_alias("ExxonMobil Holdings Corporation","XOM")=="ExxonMobil"
+
+
+class _FakeClient:
+    max_retries=0
+    def __init__(self):
+        self.calls=[]
+    def search(self,alias,start,end,maxrecords=250):
+        self.calls.append((pd.Timestamp(start),pd.Timestamp(end)))
+        hours=(pd.Timestamp(end)-pd.Timestamp(start)).total_seconds()/3600.0
+        n=250 if hours>24 else 100
+        return {"articles":[{"url":f"https://example.com/{len(self.calls)}/{i}","seendate":"20260801T000000Z"} for i in range(n)]},{"cache_hit":False,"attempts":1}
+
+def test_saturated_window_splits_until_terminal_not_saturated():
+    client=_FakeClient()
+    rows,audit=m.collect_window(
+        client,
+        "NVIDIA",
+        pd.Timestamp("2026-08-01T00:00:00Z"),
+        pd.Timestamp("2026-08-03T00:00:00Z"),
+        maxrecords=250,
+        min_window_hours=24,
+    )
+    terminal=[x for x in audit if x["terminal"]]
+    assert len(client.calls)>1
+    assert len(terminal)>=2
+    assert all(x["saturated"] is False for x in terminal)
+    assert len(rows)>=200
+
+def test_query_alias_overrides_remain_public_names():
+    assert m.query_alias("AMAZON COM INC","AMZN")=="Amazon"
+    assert m.query_alias("JPMORGAN CHASE & CO","JPM")=="JPMorgan Chase"
+    assert m.query_alias("ExxonMobil Holdings Corporation","XOM")=="ExxonMobil"
