@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 
-SCHEMA = "kalman-r6-1-decision-target-v4"
+SCHEMA = "kalman-r6-1-decision-target-v5"
 COST = 0.001
 STOP = -0.03
 TAKE = 0.20
@@ -22,6 +22,10 @@ B_DEFAULT = 2000
 RNG_SEED = 20260922
 PATH_COVERAGE_MIN = 0.95
 EXPECTED_SCORED_ROWS = 497504
+EXPECTED_FINAL_TRAIN_ROWS = 831981
+EXPECTED_FINAL_TRAIN_FIRST = pd.Timestamp("2020-07-27T13:30:00Z")
+EXPECTED_FINAL_TRAIN_LAST_FEATURE = pd.Timestamp("2026-09-01T14:30:00Z")
+EXPECTED_FINAL_TRAIN_LAST_TARGET = pd.Timestamp("2026-09-01T18:30:00Z")
 
 RESEARCH_CUTOFF = pd.Timestamp("2026-09-02T13:30:00Z")
 FOLDS = [
@@ -630,17 +634,63 @@ def main():
     )
 
     feature_audit = reconcile_training_features(train_all, scored)
+
+    preflight_fold_counts = {}
+    for fold_name, fold_start, _ in FOLDS:
+        n = int((train_all["target_timestamp_4b"] < ts(fold_start)).sum())
+        preflight_fold_counts[fold_name] = {
+            "expected": int(EXPECTED_TRAIN_ROWS[fold_name]),
+            "observed": n,
+            "match": bool(n == EXPECTED_TRAIN_ROWS[fold_name]),
+        }
+
+    training_contract = {
+        "rows_expected": EXPECTED_FINAL_TRAIN_ROWS,
+        "rows_observed": int(len(train_all)),
+        "rows_match": bool(len(train_all) == EXPECTED_FINAL_TRAIN_ROWS),
+        "first_timestamp_expected": str(EXPECTED_FINAL_TRAIN_FIRST),
+        "first_timestamp_observed": str(train_all["timestamp"].min()),
+        "first_timestamp_match": bool(train_all["timestamp"].min() == EXPECTED_FINAL_TRAIN_FIRST),
+        "last_feature_timestamp_expected": str(EXPECTED_FINAL_TRAIN_LAST_FEATURE),
+        "last_feature_timestamp_observed": str(train_all["timestamp"].max()),
+        "last_feature_timestamp_match": bool(train_all["timestamp"].max() == EXPECTED_FINAL_TRAIN_LAST_FEATURE),
+        "last_target_timestamp_expected": str(EXPECTED_FINAL_TRAIN_LAST_TARGET),
+        "last_target_timestamp_observed": str(train_all["target_timestamp_4b"].max()),
+        "last_target_timestamp_match": bool(
+            train_all["target_timestamp_4b"].max() == EXPECTED_FINAL_TRAIN_LAST_TARGET
+        ),
+        "fold_counts": preflight_fold_counts,
+    }
+    training_contract["pass"] = bool(
+        training_contract["rows_match"]
+        and training_contract["first_timestamp_match"]
+        and training_contract["last_feature_timestamp_match"]
+        and training_contract["last_target_timestamp_match"]
+        and all(x["match"] for x in preflight_fold_counts.values())
+    )
+
     checkpoint(
         exec_log,
         "TRAINING_SOURCE_READY",
         rows=len(train_all),
         first_timestamp=str(train_all["timestamp"].min()),
         last_timestamp=str(train_all["timestamp"].max()),
+        last_target_timestamp=str(train_all["target_timestamp_4b"].max()),
         path_coverage=float(train_all["path_complete"].mean()),
+        added_vs_r1_core_mask=int(train_path_audit["eligibility"]["added_vs_r1_core_mask"]),
         feature_matched_rows=feature_audit["matched_rows"],
         feature_median_abs_diff=feature_audit["median_abs_numeric_diff"],
         feature_finite_agreement=feature_audit["finite_state_agreement"],
+        training_contract_pass=training_contract["pass"],
     )
+    (out / "r6_1_training_contract.json").write_text(
+        json.dumps(training_contract, indent=2, ensure_ascii=False, default=str) + "\n"
+    )
+    if not training_contract["pass"]:
+        raise RuntimeError(
+            "R5 all-valid training contract mismatch; "
+            f"see {out / 'r6_1_training_contract.json'}"
+        )
     if not feature_audit["pass"]:
         (out / "r6_1_feature_reconciliation.json").write_text(
             json.dumps(feature_audit, indent=2, ensure_ascii=False, default=str) + "\n"
@@ -926,6 +976,7 @@ def main():
         "source_contract": "R1 frozen historical rows for challenger training; frozen R5 scored rows for E2-E8 evaluation",
         "baseline_reconciliation": baseline_reconciliation,
         "feature_reconciliation": feature_audit,
+        "training_contract": training_contract,
         "scored_path_audit": scored_path_audit,
         "training_path_audit": train_path_audit,
         "overall_path_coverage": overall_path_coverage,
