@@ -3,16 +3,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.base import clone
 
-SCHEMA = "kalman-r6-1-decision-target-v1"
+SCHEMA = "kalman-r6-1-decision-target-v2"
 COST = 0.001
 STOP = -0.03
 TAKE = 0.20
@@ -20,6 +20,7 @@ MIN_UNIVERSE = 80
 BLOCK_DAYS = 5
 B_DEFAULT = 2000
 RNG_SEED = 20260922
+PATH_COVERAGE_MIN = 0.99
 
 RESEARCH_CUTOFF = pd.Timestamp("2026-09-02T13:30:00Z")
 FOLDS = [
@@ -41,12 +42,20 @@ FEATURES = [
     "ix_trend_qqq", "ix_vol_qqq", "ix_ret1_qqq", "ix_mom6_qqq",
 ]
 
-CANDIDATES = {
-    "R6T0_RELATIVE_HGB": "target_relative",
+CONTROL = "R6T0_RELATIVE_HGB"
+CHALLENGERS = {
     "R6T1_NET_HGB": "target_net",
     "R6T2_ORDINAL_NET_HGB": "target_ordinal_net",
     "R6T3_PATH_REL_HGB": "target_path_relative",
 }
+
+SCORED_COLUMNS = list(dict.fromkeys([
+    "expected_seq", "timestamp", "high", "low", "close",
+    "fwd_ret_4b", "target_timestamp_4b", "symbol", "fold",
+    "relative_ret_4b", "rv_24", "universe_median_rv24",
+    "R5C0_HGB_REFERENCE",
+    *FEATURES,
+]))
 
 
 def parse_args():
@@ -54,7 +63,6 @@ def parse_args():
     root = Path(os.getenv("KALMAN_DATA_ROOT", "/content/drive/MyDrive"))
     p.add_argument("--root", default=str(root))
     p.add_argument("--bootstrap", type=int, default=B_DEFAULT)
-    p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
 
 
@@ -65,22 +73,6 @@ def nts(x):
 def ts(x):
     t = pd.Timestamp(x)
     return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
-
-
-def max_dd(r):
-    r = np.asarray(r, float)
-    if len(r) == 0:
-        return np.nan
-    eq = np.r_[1.0, np.cumprod(1.0 + r)]
-    peak = np.maximum.accumulate(eq)
-    return float(np.min(eq / peak - 1.0))
-
-
-def pf(r):
-    r = np.asarray(r, float)
-    pos = r[r > 0].sum()
-    neg = -r[r < 0].sum()
-    return float(pos / neg) if neg > 0 else np.inf
 
 
 def checkpoint(path, stage, **kw):
@@ -102,143 +94,20 @@ def sha256_file(p):
     return h.hexdigest()
 
 
-def load_locked(path, sym):
-    p = path / f"{sym}_1h_gap_aware.parquet"
-    if not p.exists():
-        raise FileNotFoundError(p)
-    z = pd.read_parquet(p)
-    if "timestamp" in z.columns:
-        z["timestamp"] = nts(z["timestamp"])
-    else:
-        z["market_open_utc"] = nts(z["market_open_utc"])
-        z["timestamp"] = z["market_open_utc"] + pd.to_timedelta(
-            pd.to_numeric(z["session_bucket"], errors="coerce"), unit="h"
-        )
-    z["expected_seq"] = pd.to_numeric(z["expected_seq"], errors="raise").astype("int64")
-    z["symbol"] = sym
-    return z
+def max_dd(r):
+    r = np.asarray(r, float)
+    if len(r) == 0:
+        return np.nan
+    eq = np.r_[1.0, np.cumprod(1.0 + r)]
+    peak = np.maximum.accumulate(eq)
+    return float(np.min(eq / peak - 1.0))
 
 
-def combine_symbol(canon_panel, live_panel, sym):
-    a = load_locked(canon_panel, sym)
-    p = live_panel / f"{sym}_1h_live.parquet"
-    if p.exists():
-        b = pd.read_parquet(p)
-        if len(b):
-            b["timestamp"] = nts(b["timestamp"])
-            b["expected_seq"] = pd.to_numeric(b["expected_seq"], errors="raise").astype("int64")
-            b["symbol"] = sym
-            b = b.loc[b["timestamp"] > a["timestamp"].max()]
-            a = pd.concat([a, b], ignore_index=True)
-    return (
-        a.sort_values("expected_seq")
-        .drop_duplicates("expected_seq", keep="first")
-        .reset_index(drop=True)
-    )
-
-
-def gap_features(obs, q_ts):
-    obs = obs.copy().sort_values("expected_seq")
-    lo = int(obs["expected_seq"].min())
-    hi = int(obs["expected_seq"].max())
-    g = pd.DataFrame({"expected_seq": np.arange(lo, hi + 1, dtype=np.int64)})
-    cols = [
-        c for c in ["expected_seq", "timestamp", "open", "high", "low", "close", "volume"]
-        if c in obs.columns
-    ]
-    g = g.merge(obs[cols], on="expected_seq", how="left")
-
-    c = pd.to_numeric(g["close"], errors="coerce")
-    h = pd.to_numeric(g["high"], errors="coerce")
-    l = pd.to_numeric(g["low"], errors="coerce")
-    v = pd.to_numeric(g["volume"], errors="coerce")
-
-    for k in [1, 2, 4, 6]:
-        g[f"ret_{k}b"] = c / c.shift(k) - 1.0
-
-    g["bar_range"] = (h - l) / c
-    g["rv_6"] = g["ret_1b"].rolling(6, min_periods=4).std()
-    g["rv_24"] = g["ret_1b"].rolling(24, min_periods=18).std()
-    g["ma_dist_6"] = c / c.rolling(6, min_periods=5).mean() - 1.0
-    g["ma_dist_24"] = c / c.rolling(24, min_periods=18).mean() - 1.0
-
-    lv = np.log1p(v)
-    mu = lv.rolling(24, min_periods=18).mean()
-    sd = lv.rolling(24, min_periods=18).std()
-    g["volume_z_24"] = (lv - mu) / sd.replace(0, np.nan)
-
-    g["fwd_ret_4b"] = c.shift(-4) / c - 1.0
-    g["target_expected_seq"] = g["expected_seq"] + 4
-    g["target_timestamp_4b"] = g["target_expected_seq"].map(q_ts)
-
-    proxy = g["fwd_ret_4b"].to_numpy(float)
-    unresolved = np.isfinite(proxy)
-    for k in [1, 2, 3, 4]:
-        stop_touch = (l.shift(-k) / c - 1.0).to_numpy(float) <= STOP
-        take_touch = (h.shift(-k) / c - 1.0).to_numpy(float) >= TAKE
-        both = unresolved & stop_touch & take_touch
-        stop_only = unresolved & stop_touch & ~take_touch
-        take_only = unresolved & take_touch & ~stop_touch
-        proxy[both | stop_only] = STOP
-        proxy[take_only] = TAKE
-        unresolved[both | stop_only | take_only] = False
-
-    g["proxy_ret_4b"] = proxy
-    return g.loc[g["close"].notna()].copy()
-
-
-def hgb():
-    return HistGradientBoostingRegressor(
-        learning_rate=0.05,
-        max_iter=100,
-        max_leaf_nodes=15,
-        min_samples_leaf=100,
-        l2_regularization=1.0,
-        random_state=42,
-    )
-
-
-def effective_names(symbols, weights):
-    t = pd.DataFrame({"symbol": list(symbols), "w": list(weights)}).groupby("symbol")["w"].sum()
-    x = t / t.sum()
-    return float(1.0 / x.pow(2).sum()), float(x.max())
-
-
-def simulate(scored, candidate):
-    decisions = []
-    for tstamp, g0 in scored.groupby("timestamp", sort=True):
-        g = g0.dropna(
-            subset=[
-                candidate, "fwd_ret_4b", "proxy_net_return",
-                "rv_24", "universe_median_rv24", "target_timestamp_4b",
-            ]
-        ).copy()
-        if len(g) < MIN_UNIVERSE:
-            continue
-        top = g.sort_values([candidate, "symbol"], ascending=[False, True]).iloc[0]
-        w = float(top["exec_weight"])
-        decisions.append({
-            "timestamp": top["timestamp"],
-            "target_timestamp_4b": top["target_timestamp_4b"],
-            "expected_seq": int(top["expected_seq"]),
-            "fold": str(top["fold"]),
-            "symbol": str(top["symbol"]),
-            "weight": w,
-            "score": float(top[candidate]),
-            "stock": float(top["fwd_ret_4b"]),
-            "net10_return": float(top["net10_return"]),
-            "proxy_net_return": float(top["proxy_net_return"]),
-        })
-
-    d = pd.DataFrame(decisions).sort_values("timestamp")
-    out = []
-    next_free = pd.Timestamp.min.tz_localize("UTC")
-    for _, r in d.iterrows():
-        if r["timestamp"] < next_free:
-            continue
-        out.append(r.to_dict())
-        next_free = r["target_timestamp_4b"]
-    return pd.DataFrame(out)
+def profit_factor(r):
+    r = np.asarray(r, float)
+    pos = r[r > 0].sum()
+    neg = -r[r < 0].sum()
+    return float(pos / neg) if neg > 0 else np.inf
 
 
 def metrics(t, ret_col):
@@ -249,6 +118,12 @@ def metrics(t, ret_col):
             "profit_factor": np.nan, "mdd": np.nan,
         }
     r = pd.to_numeric(t[ret_col], errors="coerce").dropna().to_numpy(float)
+    if len(r) == 0:
+        return {
+            "trades": 0, "cum_return": np.nan, "log_growth": np.nan,
+            "avg_return": np.nan, "median_return": np.nan, "win_rate": np.nan,
+            "profit_factor": np.nan, "mdd": np.nan,
+        }
     return {
         "trades": int(len(r)),
         "cum_return": float(np.prod(1 + r) - 1),
@@ -256,9 +131,94 @@ def metrics(t, ret_col):
         "avg_return": float(r.mean()),
         "median_return": float(np.median(r)),
         "win_rate": float((r > 0).mean()),
-        "profit_factor": pf(r),
+        "profit_factor": profit_factor(r),
         "mdd": max_dd(r),
     }
+
+
+def effective_names(symbols, weights):
+    t = pd.DataFrame({"symbol": list(symbols), "w": list(weights)}).groupby("symbol")["w"].sum()
+    x = t / t.sum()
+    return float(1.0 / x.pow(2).sum()), float(x.max())
+
+
+def add_path_proxy(df):
+    if df.duplicated(["symbol", "expected_seq"]).any():
+        raise RuntimeError("duplicate symbol/expected_seq in frozen scored rows")
+
+    out = df.copy()
+    for k in [1, 2, 3, 4]:
+        fut = out[["symbol", "expected_seq", "high", "low"]].copy()
+        fut["expected_seq"] = fut["expected_seq"] - k
+        fut = fut.rename(columns={"high": f"high_p{k}", "low": f"low_p{k}"})
+        out = out.merge(fut, on=["symbol", "expected_seq"], how="left", validate="one_to_one")
+
+    complete_cols = [f"{x}_p{k}" for k in [1, 2, 3, 4] for x in ["high", "low"]]
+    out["path_complete"] = out[complete_cols].notna().all(axis=1)
+
+    c = pd.to_numeric(out["close"], errors="coerce").to_numpy(float)
+    proxy = pd.to_numeric(out["fwd_ret_4b"], errors="coerce").to_numpy(float)
+    active = out["path_complete"].to_numpy(bool) & np.isfinite(c) & np.isfinite(proxy)
+
+    for k in [1, 2, 3, 4]:
+        hi = pd.to_numeric(out[f"high_p{k}"], errors="coerce").to_numpy(float)
+        lo = pd.to_numeric(out[f"low_p{k}"], errors="coerce").to_numpy(float)
+        stop_touch = active & ((lo / c - 1.0) <= STOP)
+        take_touch = active & ((hi / c - 1.0) >= TAKE)
+
+        # Conservative same-bar ambiguity rule: stop wins.
+        stop_first = stop_touch
+        take_only = take_touch & ~stop_touch
+
+        proxy[stop_first] = STOP
+        proxy[take_only] = TAKE
+        active[stop_first | take_only] = False
+
+    proxy[~out["path_complete"].to_numpy(bool)] = np.nan
+    out["proxy_ret_4b"] = proxy
+    return out
+
+
+def simulate(scored, score_col):
+    decisions = []
+    for tstamp, g0 in scored.groupby("timestamp", sort=True):
+        g = g0.dropna(
+            subset=[
+                score_col, "fwd_ret_4b",
+                "rv_24", "universe_median_rv24", "target_timestamp_4b",
+            ]
+        ).copy()
+        if len(g) < MIN_UNIVERSE:
+            continue
+
+        top = g.sort_values([score_col, "symbol"], ascending=[False, True]).iloc[0]
+        decisions.append({
+            "timestamp": top["timestamp"],
+            "target_timestamp_4b": top["target_timestamp_4b"],
+            "expected_seq": int(top["expected_seq"]),
+            "fold": str(top["eval_fold"]),
+            "symbol": str(top["symbol"]),
+            "weight": float(top["exec_weight"]),
+            "score": float(top[score_col]),
+            "stock": float(top["fwd_ret_4b"]),
+            "net10_return": float(top["net10_return"]),
+            "proxy_net_return": (
+                float(top["proxy_net_return"])
+                if pd.notna(top["proxy_net_return"])
+                else np.nan
+            ),
+        })
+
+    d = pd.DataFrame(decisions).sort_values("timestamp")
+    out = []
+    next_free = pd.Timestamp.min.tz_localize("UTC")
+    for _, r in d.iterrows():
+        if r["timestamp"] < next_free:
+            continue
+        out.append(r.to_dict())
+        next_free = r["target_timestamp_4b"]
+
+    return pd.DataFrame(out)
 
 
 def moving_block_indices(n, rng, block=BLOCK_DAYS):
@@ -320,30 +280,41 @@ def paired_bootstrap(base, challenger, reps):
     }
 
 
-def load_r5_reference(path):
-    z = pd.read_csv(path)
-    r = z.loc[z["candidate"] == "R5C0_HGB_REFERENCE"]
-    if r.empty:
-        raise RuntimeError("R5C0_HGB_REFERENCE missing from frozen leaderboard")
-    return r.iloc[0]
+def schedule_audit(base, challenger):
+    a = base[["timestamp", "fold"]].drop_duplicates().sort_values(["timestamp", "fold"]).reset_index(drop=True)
+    b = challenger[["timestamp", "fold"]].drop_duplicates().sort_values(["timestamp", "fold"]).reset_index(drop=True)
+    merged = a.merge(b, on=["timestamp", "fold"], how="outer", indicator=True)
+    return {
+        "base_rows": int(len(a)),
+        "challenger_rows": int(len(b)),
+        "matched_rows": int((merged["_merge"] == "both").sum()),
+        "exact_match": bool(len(a) == len(b) and (merged["_merge"] == "both").all()),
+    }
+
+
+def load_frozen_inputs(r50):
+    scored_path = r50 / "r5_0_1_scored_rows.parquet"
+    ledger_path = r50 / "r5_0_1_trade_ledger.parquet"
+    leaderboard_path = r50 / "r5_0_1_leaderboard.csv"
+    model_path = r50 / "model_freeze/r5_hgb.joblib"
+
+    missing = [str(p) for p in [scored_path, ledger_path, leaderboard_path, model_path] if not p.exists()]
+    if missing:
+        raise FileNotFoundError("missing frozen R5 inputs: " + ", ".join(missing))
+
+    scored = pd.read_parquet(scored_path, columns=SCORED_COLUMNS)
+    ledger = pd.read_parquet(ledger_path)
+    leaderboard = pd.read_csv(leaderboard_path)
+    model = joblib.load(model_path)
+
+    return scored, ledger, leaderboard, model
 
 
 def main():
     a = parse_args()
     root = Path(a.root)
     us = root / "US_ETF"
-
-    canon = us / "directional_research/canonical_history_v1"
-    canon_panel = canon / "panel_1h_gap_aware"
-    canon_qqq = canon / "qqq_context/history_1h/QQQ_1h_gap_aware.parquet"
-
-    live = us / "directional_research/r4_live_canonical_v1"
-    live_panel = live / "panel_1h_overlay"
-    live_qqq = live / "qqq_context/QQQ_1h_live.parquet"
-
-    r291 = us / "model_lab_v1/results/r2_9_1_dual_engine"
     r50 = us / "model_lab_v1/results/r5_0_1_research_sandbox_all_data"
-    r5_leaderboard = r50 / "r5_0_1_leaderboard.csv"
 
     out = us / "model_lab_v1/results/r6_1_decision_target"
     out.mkdir(parents=True, exist_ok=True)
@@ -352,118 +323,100 @@ def main():
     if os.getenv("R6_ALLOW_LIVE", "").lower() == "true":
         raise RuntimeError("R6.1 refuses LIVE mode")
 
-    checkpoint(exec_log, "START", research_cutoff=RESEARCH_CUTOFF.isoformat())
+    checkpoint(exec_log, "START", research_cutoff=RESEARCH_CUTOFF.isoformat(), source="frozen_r5_scored_rows")
 
-    contract = pd.read_csv(r291 / "r2_9_1_model_contract.csv")
-    symbols = sorted(contract["symbol"].astype(str).unique())
-    if len(symbols) != 93:
-        raise RuntimeError(f"expected 93 symbols, got {len(symbols)}")
+    scored, frozen_ledger, frozen_leaderboard, model_template = load_frozen_inputs(r50)
 
-    q0 = pd.read_parquet(canon_qqq)
-    if "timestamp" in q0.columns:
-        q0["timestamp"] = nts(q0["timestamp"])
-    else:
-        q0["market_open_utc"] = nts(q0["market_open_utc"])
-        q0["timestamp"] = q0["market_open_utc"] + pd.to_timedelta(
-            pd.to_numeric(q0["session_bucket"], errors="coerce"), unit="h"
-        )
-    q0["expected_seq"] = pd.to_numeric(q0["expected_seq"], errors="raise").astype("int64")
-
-    q1 = pd.read_parquet(live_qqq) if live_qqq.exists() else pd.DataFrame()
-    if len(q1):
-        q1["timestamp"] = nts(q1["timestamp"])
-        q1["expected_seq"] = pd.to_numeric(q1["expected_seq"], errors="raise").astype("int64")
-        q1 = q1.loc[q1["timestamp"] > q0["timestamp"].max()]
-
-    qqq = (
-        pd.concat([q0, q1], ignore_index=True)
-        .sort_values("expected_seq")
-        .drop_duplicates("expected_seq", keep="first")
-    )
-    q_ts = qqq.set_index("expected_seq")["timestamp"]
-
-    qb = gap_features(qqq, q_ts)
-    qcols = {
-        "ret_1b": "qqq_ret_1b",
-        "ret_2b": "qqq_ret_2b",
-        "ret_4b": "qqq_ret_4b",
-        "ret_6b": "qqq_ret_6b",
-        "rv_24": "qqq_rv_24",
-        "ma_dist_24": "qqq_ma_dist_24",
-    }
-    qctx = qb[["expected_seq"] + list(qcols)].rename(columns=qcols)
-
-    parts = []
-    for i, sym in enumerate(symbols, 1):
-        b = gap_features(combine_symbol(canon_panel, live_panel, sym), q_ts)
-        b["symbol"] = sym
-        b = b.merge(qctx, on="expected_seq", how="left", validate="one_to_one")
-        b["timestamp"] = nts(b["timestamp"])
-        parts.append(b)
-        if i % 10 == 0 or i == len(symbols):
-            checkpoint(exec_log, "BASE_FEATURE_PROGRESS", done=i, total=len(symbols))
-
-    df = pd.concat(parts, ignore_index=True)
-    df = df.loc[
-        df["target_timestamp_4b"].notna()
-        & df["fwd_ret_4b"].notna()
-        & df["proxy_ret_4b"].notna()
-        & (df["target_timestamp_4b"] < RESEARCH_CUTOFF)
+    scored["timestamp"] = nts(scored["timestamp"])
+    scored["target_timestamp_4b"] = nts(scored["target_timestamp_4b"])
+    scored = scored.loc[
+        scored["target_timestamp_4b"].notna()
+        & (scored["target_timestamp_4b"] < RESEARCH_CUTOFF)
     ].copy()
 
-    df = df.sort_values(["symbol", "timestamp"]).reset_index(drop=True)
+    if scored["symbol"].nunique() != 93:
+        raise RuntimeError(f"expected 93 symbols, got {scored['symbol'].nunique()}")
 
-    beta = np.full(len(df), np.nan, float)
-    for sym, idxs in df.groupby("symbol", sort=False).groups.items():
-        idx = np.asarray(list(idxs), dtype=int)
-        x = df.loc[idx, "ret_1b"]
-        y = df.loc[idx, "qqq_ret_1b"]
-        cov = x.rolling(24, min_periods=12).cov(y)
-        var = y.rolling(24, min_periods=12).var()
-        beta[idx] = (cov / var.replace(0, np.nan)).to_numpy()
+    if len(scored) != 831981:
+        raise RuntimeError(f"frozen scored row count changed: expected 831981, got {len(scored)}")
 
-    df["beta24"] = np.clip(beta, -3, 3)
-    df["residual_ret_6b"] = df["ret_6b"] - df["beta24"] * df["qqq_ret_6b"]
+    scored = add_path_proxy(scored)
 
-    g = df.groupby("timestamp")
-    df["universe_median_ret"] = g["fwd_ret_4b"].transform("median")
-    df["universe_median_rv24"] = g["rv_24"].transform("median")
-    df["target_relative"] = df["fwd_ret_4b"] - df["universe_median_ret"]
+    ratio = scored["universe_median_rv24"] / scored["rv_24"].replace(0, np.nan)
+    scored["exec_weight"] = ratio.clip(0.25, 1.0).fillna(1.0)
+    scored["net10_return"] = scored["exec_weight"] * scored["fwd_ret_4b"] - scored["exec_weight"] * COST
+    scored["proxy_net_return"] = scored["exec_weight"] * scored["proxy_ret_4b"] - scored["exec_weight"] * COST
 
-    for c in [
-        "ret_1b", "ret_2b", "ret_4b", "ret_6b", "rv_6", "rv_24",
-        "ma_dist_6", "ma_dist_24", "volume_z_24", "bar_range",
-        "beta24", "residual_ret_6b",
-    ]:
-        df["cs_" + c] = g[c].rank(pct=True, method="average")
-
-    df["ix_trend_qqq"] = df["ma_dist_24"] * df["qqq_ma_dist_24"]
-    df["ix_vol_qqq"] = df["rv_24"] * df["qqq_rv_24"]
-    df["ix_ret1_qqq"] = df["ret_1b"] * df["qqq_ret_2b"]
-    df["ix_mom6_qqq"] = df["ret_6b"] * df["qqq_ret_6b"]
-
-    ratio = df["universe_median_rv24"] / df["rv_24"].replace(0, np.nan)
-    df["exec_weight"] = ratio.clip(0.25, 1.0).fillna(1.0)
-    df["net10_return"] = df["exec_weight"] * df["fwd_ret_4b"] - df["exec_weight"] * COST
-    df["proxy_net_return"] = df["exec_weight"] * df["proxy_ret_4b"] - df["exec_weight"] * COST
-
-    df["target_net"] = df["net10_return"]
-    df["target_ordinal_net"] = (
-        df.groupby("timestamp")["target_net"].rank(pct=True, method="average") - 0.5
+    scored["target_net"] = scored["net10_return"]
+    scored["target_ordinal_net"] = (
+        scored.groupby("timestamp")["target_net"].rank(pct=True, method="average") - 0.5
     )
-    df["target_path_relative"] = (
-        df["proxy_net_return"]
-        - df.groupby("timestamp")["proxy_net_return"].transform("median")
+    scored["target_path_relative"] = (
+        scored["proxy_net_return"]
+        - scored.groupby("timestamp")["proxy_net_return"].transform("median")
     )
 
-    df = df.replace([np.inf, -np.inf], np.nan)
+    overall_path_coverage = float(scored["path_complete"].mean())
+    checkpoint(
+        exec_log,
+        "FROZEN_ROWS_READY",
+        rows=len(scored),
+        symbols=int(scored["symbol"].nunique()),
+        path_coverage=overall_path_coverage,
+    )
+    if overall_path_coverage < PATH_COVERAGE_MIN:
+        raise RuntimeError(
+            f"path coverage too low: {overall_path_coverage:.6f} < {PATH_COVERAGE_MIN:.6f}"
+        )
+
+    base = frozen_ledger.loc[frozen_ledger["candidate"] == "R5C0_HGB_REFERENCE"].copy()
+    if base.empty:
+        raise RuntimeError("frozen R5 baseline ledger missing")
+
+    base["timestamp"] = nts(base["timestamp"])
+    base["target_timestamp_4b"] = nts(base["target_timestamp_4b"])
+    base["fold"] = base["fold"].astype(str)
+
+    proxy_lookup = scored[
+        ["timestamp", "symbol", "proxy_net_return", "path_complete"]
+    ].drop_duplicates(["timestamp", "symbol"])
+    base = base.merge(proxy_lookup, on=["timestamp", "symbol"], how="left", validate="many_to_one")
+
+    frozen_row = frozen_leaderboard.loc[
+        frozen_leaderboard["candidate"] == "R5C0_HGB_REFERENCE"
+    ].iloc[0]
+
+    base_primary = metrics(base, "net10_return")
+    baseline_reconciliation = {
+        "trades_match": int(base_primary["trades"]) == int(frozen_row["trades"]),
+        "cum_return_abs_diff": abs(float(base_primary["cum_return"]) - float(frozen_row["net10_cum_return"])),
+        "log_growth_abs_diff": abs(float(base_primary["log_growth"]) - float(frozen_row["net10_log_growth"])),
+        "mdd_abs_diff": abs(float(base_primary["mdd"]) - float(frozen_row["net10_mdd"])),
+    }
+    baseline_reconciliation["pass"] = (
+        baseline_reconciliation["trades_match"]
+        and baseline_reconciliation["cum_return_abs_diff"] <= 1e-10
+        and baseline_reconciliation["log_growth_abs_diff"] <= 1e-10
+        and baseline_reconciliation["mdd_abs_diff"] <= 1e-10
+    )
+    if not baseline_reconciliation["pass"]:
+        checkpoint(exec_log, "FROZEN_LEDGER_RECONCILIATION_FAIL", parity=baseline_reconciliation)
+        raise RuntimeError(f"frozen R5 ledger/leaderboard mismatch: {baseline_reconciliation}")
+
+    base_proxy_coverage = float(base["proxy_net_return"].notna().mean())
+    if base_proxy_coverage < PATH_COVERAGE_MIN:
+        raise RuntimeError(
+            f"baseline proxy coverage too low: {base_proxy_coverage:.6f} < {PATH_COVERAGE_MIN:.6f}"
+        )
 
     checkpoint(
-        exec_log, "DATA_READY",
-        rows=len(df),
-        first_timestamp=str(df["timestamp"].min()),
-        last_timestamp=str(df["timestamp"].max()),
-        last_target=str(df["target_timestamp_4b"].max()),
+        exec_log,
+        "BASELINE_RECONCILED",
+        trades=int(base_primary["trades"]),
+        cum_return=base_primary["cum_return"],
+        log_growth=base_primary["log_growth"],
+        mdd=base_primary["mdd"],
+        proxy_coverage=base_proxy_coverage,
     )
 
     scored_parts = []
@@ -473,24 +426,30 @@ def main():
         start = ts(ss)
         end = ts(ee)
 
-        tr = df.loc[df["target_timestamp_4b"] < start].copy()
-        te = df.loc[(df["timestamp"] >= start) & (df["timestamp"] < end)].copy()
+        tr = scored.loc[scored["target_timestamp_4b"] < start].copy()
+        te = scored.loc[(scored["timestamp"] >= start) & (scored["timestamp"] < end)].copy()
 
         valid_ts = te.groupby("timestamp")["symbol"].nunique()
         valid_ts = set(valid_ts[valid_ts >= MIN_UNIVERSE].index)
         te = te.loc[te["timestamp"].isin(valid_ts)].copy()
+        te["eval_fold"] = fold
 
         if len(tr) == 0 or len(te) == 0:
             raise RuntimeError(f"empty fold {fold}: train={len(tr)} test={len(te)}")
 
-        for cand, target in CANDIDATES.items():
+        # Freeze the actual R5 control scores rather than recreating the baseline.
+        te[CONTROL] = te["R5C0_HGB_REFERENCE"]
+        if te[CONTROL].notna().mean() < 0.99:
+            raise RuntimeError(f"frozen R5 scores unexpectedly sparse in {fold}")
+
+        med = tr[FEATURES].median()
+
+        for cand, target in CHALLENGERS.items():
             train = tr.loc[tr[target].notna()].copy()
-            med = train[FEATURES].median()
-            model = hgb()
+            model = clone(model_template)
             model.fit(train[FEATURES].fillna(med), train[target])
             te[cand] = model.predict(te[FEATURES].fillna(med))
 
-        te["fold"] = fold
         scored_parts.append(te)
 
         fold_contract.append({
@@ -501,28 +460,69 @@ def main():
             "train_last_target": str(tr["target_timestamp_4b"].max()),
             "test_first": str(te["timestamp"].min()),
             "test_last": str(te["timestamp"].max()),
+            "train_path_target_rows": int(tr["target_path_relative"].notna().sum()),
+            "test_path_coverage": float(te["path_complete"].mean()),
         })
-        checkpoint(exec_log, "FOLD_COMPLETE", fold=fold, index=i, train_rows=len(tr), test_rows=len(te))
+        checkpoint(
+            exec_log,
+            "FOLD_COMPLETE",
+            fold=fold,
+            index=i,
+            train_rows=len(tr),
+            test_rows=len(te),
+        )
 
-    scored = pd.concat(scored_parts, ignore_index=True)
+    eval_rows = pd.concat(scored_parts, ignore_index=True)
 
-    ledgers = []
+    ledgers = [base.assign(candidate=CONTROL)]
     summary_rows = []
     fold_rows = []
+    schedule_rows = []
 
-    for cand in CANDIDATES:
-        t = simulate(scored, cand)
+    base_eff, base_top = effective_names(base["symbol"], base["weight"])
+    base_proxy = metrics(base, "proxy_net_return")
+    summary_rows.append({
+        "candidate": CONTROL,
+        **{f"primary_{k}": v for k, v in base_primary.items()},
+        **{f"proxy_{k}": v for k, v in base_proxy.items()},
+        "proxy_coverage": base_proxy_coverage,
+        "effective_names": base_eff,
+        "top_ticker_share": base_top,
+    })
+
+    for fold, z in base.groupby("fold"):
+        pm = metrics(z, "net10_return")
+        xm = metrics(z, "proxy_net_return")
+        fold_rows.append({
+            "candidate": CONTROL,
+            "fold": str(fold),
+            **{f"primary_{k}": v for k, v in pm.items()},
+            **{f"proxy_{k}": v for k, v in xm.items()},
+            "proxy_coverage": float(z["proxy_net_return"].notna().mean()),
+        })
+
+    for cand in CHALLENGERS:
+        t = simulate(eval_rows, cand)
         t["candidate"] = cand
+
+        sched = schedule_audit(base, t)
+        schedule_rows.append({"candidate": cand, **sched})
+        if not sched["exact_match"]:
+            checkpoint(exec_log, "SCHEDULE_MISMATCH", candidate=cand, audit=sched)
+            raise RuntimeError(f"{cand} non-overlap schedule does not match frozen R5 schedule: {sched}")
+
         ledgers.append(t)
 
         primary = metrics(t, "net10_return")
         proxy = metrics(t, "proxy_net_return")
+        proxy_cov = float(t["proxy_net_return"].notna().mean())
         eff, top_share = effective_names(t["symbol"], t["weight"])
 
         summary_rows.append({
             "candidate": cand,
             **{f"primary_{k}": v for k, v in primary.items()},
             **{f"proxy_{k}": v for k, v in proxy.items()},
+            "proxy_coverage": proxy_cov,
             "effective_names": eff,
             "top_ticker_share": top_share,
         })
@@ -535,36 +535,17 @@ def main():
                 "fold": str(fold),
                 **{f"primary_{k}": v for k, v in pm.items()},
                 **{f"proxy_{k}": v for k, v in xm.items()},
+                "proxy_coverage": float(z["proxy_net_return"].notna().mean()),
             })
 
     ledger = pd.concat(ledgers, ignore_index=True)
     leaderboard = pd.DataFrame(summary_rows)
     folds = pd.DataFrame(fold_rows)
-
-    base = ledger.loc[ledger["candidate"] == "R6T0_RELATIVE_HGB"].copy()
-    base_row = leaderboard.loc[leaderboard["candidate"] == "R6T0_RELATIVE_HGB"].iloc[0]
-
-    frozen = load_r5_reference(r5_leaderboard)
-    parity = {
-        "trades": int(base_row["primary_trades"]) == int(frozen["trades"]),
-        "cum_return_abs_diff": abs(float(base_row["primary_cum_return"]) - float(frozen["net10_cum_return"])),
-        "log_growth_abs_diff": abs(float(base_row["primary_log_growth"]) - float(frozen["net10_log_growth"])),
-        "mdd_abs_diff": abs(float(base_row["primary_mdd"]) - float(frozen["net10_mdd"])),
-    }
-    parity["pass"] = (
-        parity["trades"]
-        and parity["cum_return_abs_diff"] <= 1e-8
-        and parity["log_growth_abs_diff"] <= 1e-8
-        and parity["mdd_abs_diff"] <= 1e-8
-    )
-
-    if not parity["pass"]:
-        checkpoint(exec_log, "BASELINE_RECONCILIATION_FAIL", parity=parity)
-        raise RuntimeError(f"R6T0 failed R5 baseline reconciliation: {parity}")
+    schedule_df = pd.DataFrame(schedule_rows)
 
     boot_rows = []
-    fold_pair_rows = []
-    for cand in [c for c in CANDIDATES if c != "R6T0_RELATIVE_HGB"]:
+    paired_fold_rows = []
+    for cand in CHALLENGERS:
         t = ledger.loc[ledger["candidate"] == cand].copy()
         b = paired_bootstrap(base, t, a.bootstrap)
         boot_rows.append({
@@ -577,29 +558,35 @@ def main():
             "p_one_sided": b["p_one_sided"],
         })
         for x in b["folds"]:
-            fold_pair_rows.append({"candidate": cand, **x})
+            paired_fold_rows.append({"candidate": cand, **x})
 
     boot = pd.DataFrame(boot_rows)
     boot["holm_p"] = holm_adjust(boot["p_one_sided"].to_numpy(float))
-    paired_folds = pd.DataFrame(fold_pair_rows)
+    paired_folds = pd.DataFrame(paired_fold_rows)
 
-    pos = paired_folds.assign(pos=paired_folds["paired_log_diff"] > 0).groupby("candidate")["pos"].sum()
+    pos = (
+        paired_folds.assign(pos=paired_folds["paired_log_diff"] > 0)
+        .groupby("candidate")["pos"]
+        .sum()
+    )
+
     leaderboard = leaderboard.merge(boot, on="candidate", how="left")
     leaderboard["positive_paired_folds"] = leaderboard["candidate"].map(pos)
 
+    base_row = leaderboard.loc[leaderboard["candidate"] == CONTROL].iloc[0]
     base_primary_growth = float(base_row["primary_log_growth"])
     base_primary_pf = float(base_row["primary_profit_factor"])
     base_primary_mdd = float(base_row["primary_mdd"])
     base_proxy_growth = float(base_row["proxy_log_growth"])
 
     leaderboard["research_survivor"] = False
-    challenger_mask = leaderboard["candidate"] != "R6T0_RELATIVE_HGB"
-    m = challenger_mask
+    m = leaderboard["candidate"] != CONTROL
     leaderboard.loc[m, "research_survivor"] = (
         (leaderboard.loc[m, "primary_log_growth"] > base_primary_growth)
         & (leaderboard.loc[m, "primary_profit_factor"] >= base_primary_pf)
         & (leaderboard.loc[m, "primary_mdd"] >= base_primary_mdd - 0.02)
         & (leaderboard.loc[m, "proxy_log_growth"] >= base_proxy_growth)
+        & (leaderboard.loc[m, "proxy_coverage"] >= PATH_COVERAGE_MIN)
         & (leaderboard.loc[m, "positive_paired_folds"].fillna(0) >= 5)
         & (leaderboard.loc[m, "ci95_low"] > 0)
         & (leaderboard.loc[m, "holm_p"] < 0.05)
@@ -625,70 +612,72 @@ def main():
         "research_only": True,
         "production_changed": False,
         "r5_1_untouched": True,
-        "r6_v1_selective_result": "NOT_PROMOTED",
-        "baseline_reconciliation": parity,
-        "candidates": list(CANDIDATES),
+        "source_contract": "frozen r5_0_1_scored_rows + frozen R5C0 trade ledger",
+        "baseline_reconciliation": baseline_reconciliation,
+        "overall_path_coverage": overall_path_coverage,
+        "baseline_proxy_coverage": base_proxy_coverage,
+        "schedule_audit": schedule_df.to_dict(orient="records"),
+        "candidates": [CONTROL, *CHALLENGERS.keys()],
         "research_survivors": surv["candidate"].tolist() if len(surv) else [],
         "selected_r6_1_candidate": selected,
         "promotion_eligible": selected is not None,
         "live_action": "NONE",
     }
 
-    if not a.dry_run:
-        pd.DataFrame(fold_contract).to_csv(out / "r6_1_fold_contract.csv", index=False)
-        keep = [
-            "timestamp", "target_timestamp_4b", "expected_seq", "symbol", "fold",
-            "exec_weight", "fwd_ret_4b", "proxy_ret_4b", "net10_return", "proxy_net_return",
-            *CANDIDATES.keys(),
-        ]
-        scored[keep].to_parquet(out / "r6_1_scored_rows.parquet", index=False)
-        ledger.to_parquet(out / "r6_1_trade_ledger.parquet", index=False)
-        folds.to_csv(out / "r6_1_fold_summary.csv", index=False)
-        paired_folds.to_csv(out / "r6_1_paired_fold_summary.csv", index=False)
-        boot.to_csv(out / "r6_1_paired_bootstrap.csv", index=False)
-        leaderboard.to_csv(out / "r6_1_leaderboard.csv", index=False)
-        (out / "r6_1_selection_decision.json").write_text(
-            json.dumps(decision, indent=2, ensure_ascii=False, default=str) + "\n"
-        )
-        (out / "r6_1_target_contract.json").write_text(
-            json.dumps({
-                "schema": SCHEMA,
-                "research_cutoff": RESEARCH_CUTOFF.isoformat(),
-                "features": FEATURES,
-                "candidates": CANDIDATES,
-                "cost": COST,
-                "stop": STOP,
-                "take": TAKE,
-                "horizon_buckets": 4,
-                "same_bar_stop_take_rule": "STOP_FIRST_CONSERVATIVE",
-                "model": {
-                    "class": "HistGradientBoostingRegressor",
-                    "learning_rate": 0.05,
-                    "max_iter": 100,
-                    "max_leaf_nodes": 15,
-                    "min_samples_leaf": 100,
-                    "l2_regularization": 1.0,
-                    "random_state": 42,
-                },
-            }, indent=2, ensure_ascii=False) + "\n"
-        )
-        sources = [
-            r291 / "r2_9_1_model_contract.csv",
-            r5_leaderboard,
-            canon_qqq,
-        ]
-        (out / "r6_1_manifest.json").write_text(
-            json.dumps({
-                "schema": SCHEMA,
-                "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                "research_only": True,
-                "sources": {str(p): sha256_file(p) for p in sources if p.exists()},
-            }, indent=2, ensure_ascii=False) + "\n"
-        )
+    pd.DataFrame(fold_contract).to_csv(out / "r6_1_fold_contract.csv", index=False)
+    keep = [
+        "timestamp", "target_timestamp_4b", "expected_seq", "symbol", "eval_fold",
+        "exec_weight", "fwd_ret_4b", "proxy_ret_4b", "net10_return", "proxy_net_return",
+        "R5C0_HGB_REFERENCE", CONTROL, *CHALLENGERS.keys(),
+    ]
+    eval_rows[keep].to_parquet(out / "r6_1_scored_rows.parquet", index=False)
+    ledger.to_parquet(out / "r6_1_trade_ledger.parquet", index=False)
+    folds.to_csv(out / "r6_1_fold_summary.csv", index=False)
+    paired_folds.to_csv(out / "r6_1_paired_fold_summary.csv", index=False)
+    boot.to_csv(out / "r6_1_paired_bootstrap.csv", index=False)
+    schedule_df.to_csv(out / "r6_1_schedule_audit.csv", index=False)
+    leaderboard.to_csv(out / "r6_1_leaderboard.csv", index=False)
+    (out / "r6_1_selection_decision.json").write_text(
+        json.dumps(decision, indent=2, ensure_ascii=False, default=str) + "\n"
+    )
+
+    (out / "r6_1_target_contract.json").write_text(
+        json.dumps({
+            "schema": SCHEMA,
+            "research_cutoff": RESEARCH_CUTOFF.isoformat(),
+            "source": "frozen r5_0_1_scored_rows.parquet",
+            "baseline": "frozen R5C0_HGB_REFERENCE trade ledger",
+            "features": FEATURES,
+            "challengers": CHALLENGERS,
+            "cost": COST,
+            "stop": STOP,
+            "take": TAKE,
+            "horizon_buckets": 4,
+            "same_bar_stop_take_rule": "STOP_FIRST_CONSERVATIVE",
+            "path_coverage_min": PATH_COVERAGE_MIN,
+            "model_template": "clone(model_freeze/r5_hgb.joblib)",
+        }, indent=2, ensure_ascii=False) + "\n"
+    )
+
+    sources = [
+        r50 / "r5_0_1_scored_rows.parquet",
+        r50 / "r5_0_1_trade_ledger.parquet",
+        r50 / "r5_0_1_leaderboard.csv",
+        r50 / "model_freeze/r5_hgb.joblib",
+    ]
+    (out / "r6_1_manifest.json").write_text(
+        json.dumps({
+            "schema": SCHEMA,
+            "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "research_only": True,
+            "sources": {str(p): sha256_file(p) for p in sources},
+        }, indent=2, ensure_ascii=False) + "\n"
+    )
 
     checkpoint(
-        exec_log, "SUCCESS",
-        baseline_reconciliation=parity,
+        exec_log,
+        "SUCCESS",
+        baseline_reconciliation=baseline_reconciliation,
         survivors=decision["research_survivors"],
         selected=selected,
     )
