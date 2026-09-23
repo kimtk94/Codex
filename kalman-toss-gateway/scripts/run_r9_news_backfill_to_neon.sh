@@ -12,10 +12,16 @@ MANIFEST="$STATE/manifest.json"
 
 mkdir -p "$STATE"
 
-echo "===== R9 NEWS: BUILD 93-SYMBOL REGISTRY ====="
-"$PY" "$ROOT/research/r9_news_ngram_bq.py" --output-dir "$STATE"
+run_py() {
+  sudo env \
+    PYTHONPATH="$ROOT" \
+    "$PY" "$@"
+}
 
-"$PY" - "$REG" <<'PY'
+echo "===== R9 NEWS: BUILD 93-SYMBOL REGISTRY ====="
+run_py "$ROOT/research/r9_news_ngram_bq.py" --output-dir "$STATE"
+
+run_py - "$REG" <<'PY'
 import sys
 import pandas as pd
 p=sys.argv[1]
@@ -74,13 +80,13 @@ mv "$TMP" "$CSV"
 
 echo
 echo "===== R9 NEWS: READINESS ====="
-"$PY" "$ROOT/research/r9_news_ngram_bq.py" \
+run_py "$ROOT/research/r9_news_ngram_bq.py" \
   --output-dir "$STATE" \
   --summarize-csv "$CSV"
 
 echo
 echo "===== R9 NEWS: NEON VALIDATION ====="
-"$PY" "$ROOT/research/r9_news_neon_store.py" \
+run_py "$ROOT/research/r9_news_neon_store.py" \
   --registry "$REG" \
   --mentions-csv "$CSV" \
   --manifest "$MANIFEST" \
