@@ -231,7 +231,6 @@ def write_store(
 
 def main() -> int:
     args = parse_args()
-    load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=True)
 
     registry_path = Path(args.registry).expanduser()
     mentions_path = Path(args.mentions_csv).expanduser() if args.mentions_csv else None
@@ -258,6 +257,11 @@ def main() -> int:
         plan["status"] = "DRY_RUN"
         print(json.dumps(plan, ensure_ascii=False, indent=2))
         return 0
+
+    load_dotenv(
+        os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"),
+        override=True,
+    )
 
     enabled = os.environ.get("KALMAN_R9_NEWS_NEON_ENABLED", "false").lower() == "true"
     if not enabled:
