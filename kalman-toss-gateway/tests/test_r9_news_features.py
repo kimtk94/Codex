@@ -1,6 +1,11 @@
+import sys
+from pathlib import Path
+
 import pandas as pd
 
-from research.r9_news_features import (
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "research"))
+
+from r9_news_features import (
     NEWS_FEATURES,
     attach_news_features,
     build_daily_features,
