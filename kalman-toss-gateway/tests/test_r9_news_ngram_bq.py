@@ -61,6 +61,16 @@ def test_frozen_public_name_contractions():
         "UPS":"UPS",
         "USB":"US Bancorp",
         "WFC":"Wells Fargo",
+        "BAC":"BofA",
+        "JNJ":"J&J",
+        "T":"AT&T",
     }
     for k,v in expected.items():
         assert m.OVERRIDES[k]==v
+
+
+
+def test_final_public_shorthands_fit_ngram_contract():
+    for symbol in ("BAC","JNJ","T"):
+        alias=m.OVERRIDES[symbol]
+        assert 1 <= len(alias.split()) <= 2
