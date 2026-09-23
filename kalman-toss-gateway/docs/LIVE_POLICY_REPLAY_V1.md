@@ -143,6 +143,11 @@ Files:
 - `live_policy_replay_decision.json`
 - `live_policy_replay_fold_summary.csv`
 - `live_policy_replay_reason_summary.csv`
+- `live_policy_replay_attribution.csv`
+
+The attribution table decomposes the paired P&L delta by exit reason, including
+trade count, aggregate baseline/candidate net return, total delta, mean delta per
+trade, and positive-delta rate.
 
 The trade audit stores one row per baseline trade.
 
