@@ -219,6 +219,36 @@ def _model_rotation_enabled() -> bool:
     )
 
 
+def _profit_flip_config() -> tuple[bool, Decimal, Decimal, Decimal, int]:
+    enabled = (
+        os.environ.get('AUTO_TRADE_PROFIT_FLIP_GUARD_ENABLED', 'false').strip().lower()
+        == 'true'
+    )
+    arm_pct = Decimal(os.environ.get('AUTO_TRADE_PROFIT_FLIP_ARM_PCT', '0.002'))
+    trigger_pct = Decimal(os.environ.get('AUTO_TRADE_PROFIT_FLIP_TRIGGER_PCT', '-0.002'))
+    recovery_pct = Decimal(os.environ.get('AUTO_TRADE_PROFIT_FLIP_RECOVERY_PCT', '0'))
+    try:
+        confirm = int(os.environ.get('AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS', '2'))
+    except ValueError as exc:
+        raise RuntimeError(
+            'AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS must be an integer'
+        ) from exc
+
+    if arm_pct < 0 or arm_pct > Decimal('0.20'):
+        raise RuntimeError('AUTO_TRADE_PROFIT_FLIP_ARM_PCT must be between 0 and 0.20')
+    if trigger_pct >= 0 or trigger_pct < Decimal('-0.20'):
+        raise RuntimeError('AUTO_TRADE_PROFIT_FLIP_TRIGGER_PCT must be between -0.20 and 0')
+    if recovery_pct < trigger_pct or recovery_pct > Decimal('0.20'):
+        raise RuntimeError(
+            'AUTO_TRADE_PROFIT_FLIP_RECOVERY_PCT must be >= trigger and <= 0.20'
+        )
+    if confirm < 1 or confirm > 12:
+        raise RuntimeError(
+            'AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS must be between 1 and 12'
+        )
+    return enabled, arm_pct, trigger_pct, recovery_pct, confirm
+
+
 def _choose_exit_reason(
     *,
     price_return: Decimal,
@@ -227,11 +257,14 @@ def _choose_exit_reason(
     model_rotation: bool,
     elapsed_buckets: int,
     target_buckets: int,
+    pending_exit_reason: str | None = None,
 ) -> str | None:
     if price_return <= stop_loss:
         return 'STOP_LOSS_3PCT'
     if price_return >= take_profit:
         return 'TAKE_PROFIT_20PCT'
+    if pending_exit_reason:
+        return pending_exit_reason
     if model_rotation:
         return 'MODEL_ROTATION'
     if elapsed_buckets >= target_buckets:
@@ -533,6 +566,37 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
     price_return = last_price / entry_price - Decimal('1')
     stop_loss, take_profit = _exit_thresholds()
 
+    (
+        flip_enabled,
+        flip_arm_pct,
+        flip_trigger_pct,
+        flip_recovery_pct,
+        flip_confirm_observations,
+    ) = _profit_flip_config()
+    observed_guard = None
+    pending_exit_reason = position.get('exit_pending_reason')
+    if flip_enabled:
+        observed_guard = store.observe_price_return(
+            position['position_id'],
+            price_return=price_return,
+            arm_pct=flip_arm_pct,
+            trigger_pct=flip_trigger_pct,
+            confirm_observations=flip_confirm_observations,
+        )
+        if observed_guard:
+            pending_exit_reason = observed_guard.get('exit_pending_reason')
+
+        # Daytime deterioration only prepares an exit. At execution time the
+        # position is revalidated against the latest price; a recovery above
+        # the configured threshold cancels the pending exit.
+        if (
+            pending_exit_reason == 'PROFIT_TO_LOSS_FLIP'
+            and price_return > flip_recovery_pct
+        ):
+            store.clear_exit_pending(position['position_id'])
+            pending_exit_reason = None
+            observed_guard = store.get(position['position_id'])
+
     elapsed = _elapsed_canonical_buckets(db_url, position['entry_signal_as_of'])
     target = int(position['target_exit_buckets'])
     policy = os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').strip().upper()
@@ -553,6 +617,7 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         model_rotation=rotation,
         elapsed_buckets=elapsed,
         target_buckets=target,
+        pending_exit_reason=pending_exit_reason,
     )
 
     report = {
@@ -573,6 +638,20 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         'modelRotation': rotation,
         'remainingQuantity': str(expected_qty),
         'executionMode': mode,
+        'profitFlipGuardEnabled': flip_enabled,
+        'profitFlipArmPct': str(flip_arm_pct),
+        'profitFlipTriggerPct': str(flip_trigger_pct),
+        'profitFlipRecoveryPct': str(flip_recovery_pct),
+        'profitFlipConfirmObservations': flip_confirm_observations,
+        'profitFlipArmed': bool(
+            int((observed_guard or position).get('profit_flip_armed') or 0)
+        ),
+        'profitFlipNegativeObservations': int(
+            (observed_guard or position).get('profit_flip_negative_count') or 0
+        ),
+        'peakPriceReturn': (observed_guard or position).get('peak_price_return'),
+        'pendingExitReason': pending_exit_reason,
+        'pendingExitSince': (observed_guard or position).get('exit_pending_since'),
         'exitReason': exit_reason,
     }
     if not exit_reason:
@@ -587,7 +666,11 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         report['action'] = 'LIVE_GATE_CLOSED_EXIT_PENDING'
         return report
     if not window_open:
-        report['action'] = 'EXIT_WINDOW_CLOSED'
+        report['action'] = (
+            'EXIT_PENDING_WINDOW_CLOSED'
+            if exit_reason == 'PROFIT_TO_LOSS_FLIP'
+            else 'EXIT_WINDOW_CLOSED'
+        )
         return report
 
     attempt = int(position.get('exit_attempt') or 0)

@@ -222,6 +222,108 @@ class SameCycleRebalanceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(existing["symbol"], "AAPL")
 
 
+    def test_profit_flip_guard_arms_then_requires_two_negative_observations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ManagedPositionStore(pathlib.Path(tmp) / "trading.sqlite3")
+            ok, row = store.reserve_entry(
+                run_id="run-flip",
+                symbol="AMD",
+                strategy_version="R5.1_BASE_HGB",
+                signal_as_of="2026-09-22T00:00:00+00:00",
+                client_order_id="order-flip",
+                target_exit_buckets=4,
+            )
+            self.assertTrue(ok)
+            store.mark_open(
+                row["position_id"],
+                entry_status="FILLED",
+                filled_quantity=Decimal("1"),
+                average_price="100",
+            )
+
+            positive = store.observe_price_return(
+                row["position_id"],
+                price_return=Decimal("0.003"),
+                arm_pct=Decimal("0.002"),
+                trigger_pct=Decimal("-0.002"),
+                confirm_observations=2,
+            )
+            self.assertEqual(positive["profit_flip_armed"], 1)
+            self.assertIsNone(positive["exit_pending_reason"])
+
+            first_negative = store.observe_price_return(
+                row["position_id"],
+                price_return=Decimal("-0.003"),
+                arm_pct=Decimal("0.002"),
+                trigger_pct=Decimal("-0.002"),
+                confirm_observations=2,
+            )
+            self.assertEqual(first_negative["profit_flip_negative_count"], 1)
+            self.assertIsNone(first_negative["exit_pending_reason"])
+
+            second_negative = store.observe_price_return(
+                row["position_id"],
+                price_return=Decimal("-0.004"),
+                arm_pct=Decimal("0.002"),
+                trigger_pct=Decimal("-0.002"),
+                confirm_observations=2,
+            )
+            self.assertEqual(second_negative["profit_flip_negative_count"], 2)
+            self.assertEqual(
+                second_negative["exit_pending_reason"],
+                "PROFIT_TO_LOSS_FLIP",
+            )
+            self.assertIsNotNone(second_negative["exit_pending_since"])
+
+    def test_profit_flip_pending_can_be_cleared_after_recovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ManagedPositionStore(pathlib.Path(tmp) / "trading.sqlite3")
+            ok, row = store.reserve_entry(
+                run_id="run-recover",
+                symbol="AMD",
+                strategy_version="R5.1_BASE_HGB",
+                signal_as_of="2026-09-22T00:00:00+00:00",
+                client_order_id="order-recover",
+                target_exit_buckets=4,
+            )
+            self.assertTrue(ok)
+            store.mark_open(
+                row["position_id"],
+                entry_status="FILLED",
+                filled_quantity=Decimal("1"),
+                average_price="100",
+            )
+            for ret in ("0.003", "-0.003", "-0.004"):
+                pending = store.observe_price_return(
+                    row["position_id"],
+                    price_return=Decimal(ret),
+                    arm_pct=Decimal("0.002"),
+                    trigger_pct=Decimal("-0.002"),
+                    confirm_observations=2,
+                )
+            self.assertEqual(pending["exit_pending_reason"], "PROFIT_TO_LOSS_FLIP")
+
+            store.clear_exit_pending(row["position_id"])
+            recovered = store.get(row["position_id"])
+            self.assertIsNone(recovered["exit_pending_reason"])
+            self.assertIsNone(recovered["exit_pending_since"])
+            self.assertEqual(recovered["profit_flip_negative_count"], 0)
+
+    def test_pending_profit_flip_exit_precedes_rotation_and_max_hold(self):
+        self.assertEqual(
+            position_manager._choose_exit_reason(
+                price_return=Decimal("-0.005"),
+                stop_loss=Decimal("-0.03"),
+                take_profit=Decimal("0.20"),
+                model_rotation=True,
+                elapsed_buckets=5,
+                target_buckets=4,
+                pending_exit_reason="PROFIT_TO_LOSS_FLIP",
+            ),
+            "PROFIT_TO_LOSS_FLIP",
+        )
+
+
     def test_same_symbol_add_on_aggregates_quantity_and_weighted_average(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = ManagedPositionStore(pathlib.Path(tmp) / "trading.sqlite3")

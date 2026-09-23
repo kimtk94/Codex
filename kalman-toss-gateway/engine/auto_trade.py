@@ -434,6 +434,7 @@ async def main_async() -> int:
         'activeManagedPositionCount': len(active_positions),
         'maxActivePositions': max_active_positions,
         'sameSymbolManagedPositionId': (same_symbol_position or {}).get('position_id'),
+        'sameSymbolExitPendingReason': (same_symbol_position or {}).get('exit_pending_reason'),
         'entryType': 'ADD_ON' if is_add_on else 'INITIAL',
         'entryCountBefore': entry_count_before,
         'maxEntriesPerSymbol': max_entries_per_symbol,
@@ -497,6 +498,13 @@ async def main_async() -> int:
     if is_add_on:
         if same_symbol_position['state'] != 'OPEN':
             print('ADD_ON_POSITION_NOT_OPEN', symbol, same_symbol_position['state'])
+            return 0
+        if same_symbol_position.get('exit_pending_reason'):
+            print(
+                'ADD_ON_BLOCKED_EXIT_PENDING',
+                symbol,
+                same_symbol_position.get('exit_pending_reason'),
+            )
             return 0
         if entry_count_before >= max_entries_per_symbol:
             print('MAX_ENTRIES_PER_SYMBOL_REACHED', symbol, entry_count_before, max_entries_per_symbol)

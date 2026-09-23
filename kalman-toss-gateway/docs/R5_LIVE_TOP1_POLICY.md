@@ -45,16 +45,16 @@ The same-symbol add-on does **not** consume another active-position slot. It upd
 
 ## Execution cadence
 
-The R5.1 model and Top1 decision cadence remains hourly. The execution layer is intentionally more frequent:
+The R5.1 model and Top1 decision cadence remains hourly. Position monitoring and executable order cadence are intentionally separated:
 
 - `run_us_cycle.sh` refreshes/commits the US model signal on the existing hourly schedule.
-- `run_execution_watch.sh` runs every 5 minutes during the broad US-session KST window.
-- The watcher never runs `run_pipeline.sh` or the benchmark ledger.
-- It acquires `us-cycle.lock` before `auto-trade.lock`, so it skips while an hourly model refresh is in flight.
-- Each watcher tick runs `position_manager -> auto_trade -> trade_mirror`.
+- `run_position_watch.sh` runs every 30 minutes from 09:00 KST through 22:00 KST on weekdays. It only runs `position_manager -> trade_mirror`; it never rebuilds the model and never creates BUY orders.
+- `run_execution_watch.sh` begins at 22:25 KST and runs every 5 minutes through the broad US-session window. The Toss market calendar remains the authoritative fail-closed gate, so the same schedule is safe across DST and standard time.
+- Both watchers acquire `us-cycle.lock` before `auto-trade.lock`, so they skip while an hourly model refresh is in flight.
+- Each execution watcher tick runs `position_manager -> auto_trade -> trade_mirror`.
 - Existing signal freshness, client-order idempotency, same-signal add-on gap checks, broker quantity reconciliation, and market-window gates remain authoritative.
 
-This makes a fresh hourly signal recoverable between model cycles without converting R5.1 into a 5-minute strategy. Stop-loss/take-profit and fill reconciliation are also checked on the 5-minute execution cadence, while max-hold remains defined in canonical hourly buckets.
+This keeps model decisions hourly while allowing risk state to evolve intraday and executable orders to react promptly once Toss accepts fractional orders.
 
 ## Exit policy
 
@@ -64,7 +64,19 @@ Each managed position exits on the first applicable rule:
 
 1. stop loss <= -3%
 2. take profit >= +20%
-3. max hold >= 4 canonical 60m buckets
+3. profit-to-loss deterioration guard
+4. max hold >= 4 canonical 60m buckets
+
+The profit-to-loss guard is execution-aware rather than a daytime market-order rule:
+
+- arm after the managed position has been observed at or above +0.2%
+- require two consecutive position-watch observations at or below -0.2%
+- persist `exit_pending_reason=PROFIT_TO_LOSS_FLIP`
+- block same-symbol add-on BUYs while the pending exit exists
+- when the fractional execution window opens, revalidate the latest return
+- cancel the pending exit if return has recovered above 0%; otherwise submit the normal risk-reducing market SELL
+
+The thresholds are environment-controlled by `AUTO_TRADE_PROFIT_FLIP_*` settings. This guard does not change the frozen R5.1 model or research benchmark.
 
 Position-manager reconciliation validates every add-on fill before updating the aggregate quantity and weighted average price. Any broker/managed quantity mismatch blocks further pyramiding and requires reconciliation.
 

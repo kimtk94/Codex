@@ -16,9 +16,16 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
 35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
 
-# US execution watcher: every 5 minutes during the broad US session window.
-# It never rebuilds the model. us-cycle.lock makes it skip while the hourly
-# pipeline is committing a new signal; broker market-window checks remain fail-closed.
+# US daytime managed-position watch: monitor P/L only, no BUY/model rebuild.
+# This catches profit -> loss deterioration while Toss fractional orders are closed.
+*/30 9-21 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh >> /opt/kalman/logs/position-watch.log 2>&1
+0 22 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh >> /opt/kalman/logs/position-watch.log 2>&1
+
+# US execution watcher: begin before the earliest regular open and rely on the
+# Toss market calendar to fail closed until fractional execution is actually allowed.
+# This provides opening revalidation at 22:25+ KST during DST and remains safe
+# when standard time shifts the executable window later.
+25-55/5 22 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
 */5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
 */5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
 
