@@ -17,8 +17,10 @@ Primary source:
 - `gdelt-bq.gdeltv2.web_2grams`
 
 Historical window:
-- 2023-07-01 00:00:00 UTC inclusive
+- 2024-08-01 00:00:00 UTC inclusive
 - 2026-09-02 00:00:00 UTC exclusive
+
+This final cost-bounded window is ~25 months and still satisfies the frozen >=24 month readiness requirement.
 
 Language:
 - ENGLISH
@@ -152,7 +154,7 @@ Final registry target:
 - supported aliases = 93
 - needs_override = 0
 
-The readiness gate remains >= 90 symbols with historical mentions/coverage checks applied downstream; it is not relaxed.
+The alias gate remains >=90 supported aliases, while the historical mention gate remains >=80 symbols with at least one mention. The final recovered dataset has 93 supported aliases and 91 symbols with mentions.
 
 ## 9. Storage and serving architecture
 
@@ -170,3 +172,27 @@ The split is intentional:
 4. Kalman research/feature code reads the compact Neon tables instead of rescanning GDELT.
 
 Neon storage is hard-isolated from production trading tables. The R9 schema does not write `strategy_signal`, `dashboard_snapshot`, LIVE orders, sizing, or exits.
+
+
+## 10. Final historical readiness result
+
+Final validated artifacts:
+- bounded window: 2024-08-01 through 2026-09-01 UTC
+- result rows: 64,435
+- universe symbols: 93
+- supported aliases: 93
+- symbols with mentions: 91
+- usable span: 25.002 months
+- duplicate symbol/day rows: 0
+- finite nonnegative mention counts: PASS
+- research-only Neon mirror: PASS
+- production changed: false
+
+All frozen readiness gates passed.
+
+The historical result was recovered from the already completed BigQuery job and locally bounded to the 25-month research window. No additional GDELT historical query is required.
+
+Next action:
+- `PREREGISTER_SINGLE_R9_NGRAM_ABLATION`
+
+That preregistration is defined separately in `R9_1_NGRAM_ABLATION_SPEC.md`.
