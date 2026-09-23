@@ -42,7 +42,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install focused test dependencies
-        run: python -m pip install --disable-pip-version-check pandas pytest python-dotenv
+        run: python -m pip install --disable-pip-version-check pandas pytest python-dotenv scikit-learn==1.6.1 joblib
       - name: Compile R9 modules
         run: |
           python -m py_compile research/r9_news_ngram_bq.py research/r9_news_neon_store.py research/r9_news_features.py research/r9_1_ngram_ablation.py
@@ -50,6 +50,8 @@ jobs:
           bash -n scripts/recover_r9_news_existing_job_to_neon.sh
           bash -n scripts/run_r9_1_ngram_ablation.sh
           bash -n scripts/apply_r9_news_neon_schema.sh
+      - name: Import R9.1 runner
+        run: PYTHONPATH=research python -c "import r9_1_ngram_ablation"
       - name: Run R9 tests
         run: |
           pytest -q tests/test_r9_news_ngram_bq.py tests/test_r9_news_neon_store.py tests/test_r9_news_features.py
