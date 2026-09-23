@@ -23,6 +23,25 @@ OVERRIDES={
     "XOM":"ExxonMobil",
     "WMT":"Walmart",
     "UNH":"UnitedHealth Group",
+
+    # Frozen public-name contractions for Web 1Gram / 2Gram matching.
+    # Ambiguous cases BAC / JNJ / T intentionally remain unsupported in v1.
+    "AMAT":"Applied Materials",
+    "AMD":"Advanced Micro",
+    "AMT":"American Tower",
+    "BMY":"Bristol Myers",
+    "BNY":"BNY Mellon",
+    "COF":"Capital One",
+    "DHR":"Danaher",
+    "IBM":"IBM",
+    "LLY":"Eli Lilly",
+    "PG":"Procter Gamble",
+    "PM":"Philip Morris",
+    "QCOM":"Qualcomm",
+    "TMO":"Thermo Fisher",
+    "UPS":"UPS",
+    "USB":"US Bancorp",
+    "WFC":"Wells Fargo",
 }
 
 SUFFIX_RE=re.compile(
