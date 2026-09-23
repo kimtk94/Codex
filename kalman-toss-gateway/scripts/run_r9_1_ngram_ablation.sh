@@ -15,7 +15,10 @@ if [[ "${R9_1_EXECUTE:-NO}" != "YES" ]]; then
   exit 0
 fi
 
-[[ -x "$PY" ]] || { echo "ERROR: Python missing: $PY" >&2; exit 20; }
+if ! sudo test -x "$PY"; then
+  echo "ERROR: protected Python missing or not executable as root: $PY" >&2
+  exit 20
+fi
 [[ -s "$MENTIONS" ]] || { echo "ERROR: mentions missing/empty: $MENTIONS" >&2; exit 21; }
 [[ -s "$MANIFEST" ]] || { echo "ERROR: manifest missing/empty: $MANIFEST" >&2; exit 22; }
 
