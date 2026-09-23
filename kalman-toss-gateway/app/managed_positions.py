@@ -84,6 +84,13 @@ class ManagedPositionStore:
                 'add_on_signal_run_id': "ALTER TABLE managed_position ADD COLUMN add_on_signal_run_id TEXT",
                 'add_on_signal_as_of': "ALTER TABLE managed_position ADD COLUMN add_on_signal_as_of TEXT",
                 'add_on_target_krw': "ALTER TABLE managed_position ADD COLUMN add_on_target_krw TEXT",
+                'peak_price_return': "ALTER TABLE managed_position ADD COLUMN peak_price_return TEXT",
+                'last_price_return': "ALTER TABLE managed_position ADD COLUMN last_price_return TEXT",
+                'last_price_observed_at': "ALTER TABLE managed_position ADD COLUMN last_price_observed_at TEXT",
+                'profit_flip_armed': "ALTER TABLE managed_position ADD COLUMN profit_flip_armed INTEGER NOT NULL DEFAULT 0",
+                'profit_flip_negative_count': "ALTER TABLE managed_position ADD COLUMN profit_flip_negative_count INTEGER NOT NULL DEFAULT 0",
+                'exit_pending_reason': "ALTER TABLE managed_position ADD COLUMN exit_pending_reason TEXT",
+                'exit_pending_since': "ALTER TABLE managed_position ADD COLUMN exit_pending_since TEXT",
             }
             for name, ddl in migrations.items():
                 if name not in cols:
@@ -318,6 +325,9 @@ class ManagedPositionStore:
                        last_entry_signal_as_of=add_on_signal_as_of,
                        add_on_client_order_id=NULL, add_on_order_id=NULL, add_on_status=NULL,
                        add_on_signal_run_id=NULL, add_on_signal_as_of=NULL, add_on_target_krw=NULL,
+                       peak_price_return=NULL, last_price_return=NULL, last_price_observed_at=NULL,
+                       profit_flip_armed=0, profit_flip_negative_count=0,
+                       exit_pending_reason=NULL, exit_pending_since=NULL,
                        state='OPEN', note=NULL, updated_at=?
                    WHERE position_id=?""",
                 (
@@ -364,7 +374,10 @@ class ManagedPositionStore:
             conn.execute(
                 """UPDATE managed_position
                    SET entry_status=?, entry_filled_quantity=?, entry_avg_fill_price=?,
-                       remaining_quantity=?, state='OPEN', note=NULL, updated_at=?
+                       remaining_quantity=?, peak_price_return=NULL, last_price_return=NULL,
+                       last_price_observed_at=NULL, profit_flip_armed=0,
+                       profit_flip_negative_count=0, exit_pending_reason=NULL,
+                       exit_pending_since=NULL, state='OPEN', note=NULL, updated_at=?
                    WHERE position_id=?""",
                 (entry_status, q, average_price, q, utc_now(), position_id),
             )
@@ -456,6 +469,83 @@ class ManagedPositionStore:
             conn.execute(
                 "UPDATE managed_position SET exit_reason=?, updated_at=? WHERE position_id=?",
                 (reason[:100], utc_now(), position_id),
+            )
+
+    def observe_price_return(
+        self,
+        position_id: str,
+        *,
+        price_return: Decimal,
+        arm_pct: Decimal,
+        trigger_pct: Decimal,
+        confirm_observations: int,
+    ) -> dict[str, Any] | None:
+        """Persist profit-to-loss guard state for an OPEN managed position."""
+        now = utc_now()
+        with self._connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            cur = conn.execute('SELECT * FROM managed_position WHERE position_id=?', (position_id,))
+            row = self._dict(cur, cur.fetchone())
+            if not row or row['state'] != 'OPEN':
+                conn.rollback()
+                return row
+
+            previous_peak_raw = row.get('peak_price_return')
+            previous_peak = (
+                Decimal(str(previous_peak_raw))
+                if previous_peak_raw not in (None, '')
+                else price_return
+            )
+            peak = max(previous_peak, price_return)
+            armed = bool(int(row.get('profit_flip_armed') or 0)) or peak >= arm_pct
+
+            negative_count = int(row.get('profit_flip_negative_count') or 0)
+            if armed and price_return <= trigger_pct:
+                negative_count += 1
+            else:
+                negative_count = 0
+
+            pending_reason = row.get('exit_pending_reason')
+            pending_since = row.get('exit_pending_since')
+            if (
+                armed
+                and negative_count >= int(confirm_observations)
+                and not pending_reason
+            ):
+                pending_reason = 'PROFIT_TO_LOSS_FLIP'
+                pending_since = now
+
+            conn.execute(
+                """UPDATE managed_position
+                   SET peak_price_return=?, last_price_return=?, last_price_observed_at=?,
+                       profit_flip_armed=?, profit_flip_negative_count=?,
+                       exit_pending_reason=?, exit_pending_since=?, updated_at=?
+                   WHERE position_id=?""",
+                (
+                    str(peak),
+                    str(price_return),
+                    now,
+                    1 if armed else 0,
+                    negative_count,
+                    pending_reason,
+                    pending_since,
+                    now,
+                    position_id,
+                ),
+            )
+            cur = conn.execute('SELECT * FROM managed_position WHERE position_id=?', (position_id,))
+            updated = self._dict(cur, cur.fetchone())
+            conn.commit()
+            return updated
+
+    def clear_exit_pending(self, position_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """UPDATE managed_position
+                   SET exit_pending_reason=NULL, exit_pending_since=NULL,
+                       profit_flip_negative_count=0, updated_at=?
+                   WHERE position_id=?""",
+                (utc_now(), position_id),
             )
 
     def mark_manual_reconcile(self, position_id: str, note: str) -> None:
