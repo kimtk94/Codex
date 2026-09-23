@@ -258,3 +258,271 @@ class BarWindowStore:
             if self.cache_only:
                 raise FileNotFoundError(f"minute cache missing: {path}")
             frame = _fetch_alpaca_1m(
+                self._safe_symbol(symbol),
+                start_utc=start_utc,
+                end_utc=end_utc,
+                feed=self.feed,
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            frame.to_parquet(path, index=False)
+
+        frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True, errors="coerce")
+        frame = frame.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+        self._memory[key] = frame
+        while len(self._memory) > self.memory_windows:
+            self._memory.popitem(last=False)
+        return frame.copy(), path, hit
+
+
+def _iter_dates(start: date, end: date) -> Iterable[date]:
+    current = start
+    while current <= end:
+        yield current
+        current += timedelta(days=1)
+
+
+def iter_live_watch_ticks(start_utc: Any, end_utc: Any) -> list[WatchTick]:
+    """Reproduce the committed KST cron cadence without invoking cron itself."""
+
+    start = _to_utc(start_utc)
+    end = _to_utc(end_utc)
+    if end <= start:
+        return []
+
+    start_kst = start.tz_convert(KST)
+    end_kst = end.tz_convert(KST)
+    ticks: list[WatchTick] = []
+
+    for day in _iter_dates(start_kst.date() - timedelta(days=1), end_kst.date()):
+        if day.weekday() >= 5:
+            continue
+
+        local = datetime.combine(day, dt_time(9, 0), tzinfo=KST)
+        cutoff = datetime.combine(day, dt_time(21, 30), tzinfo=KST)
+        while local <= cutoff:
+            ts = pd.Timestamp(local).tz_convert("UTC")
+            if start < ts <= end:
+                ticks.append(WatchTick(ts, "POSITION_WATCH"))
+            local += timedelta(minutes=30)
+
+        ts_2200 = pd.Timestamp(
+            datetime.combine(day, dt_time(22, 0), tzinfo=KST)
+        ).tz_convert("UTC")
+        if start < ts_2200 <= end:
+            ticks.append(WatchTick(ts_2200, "POSITION_WATCH"))
+
+        local = datetime.combine(day, dt_time(22, 25), tzinfo=KST)
+        overnight_end = datetime.combine(
+            day + timedelta(days=1), dt_time(5, 55), tzinfo=KST
+        )
+        while local <= overnight_end:
+            ts = pd.Timestamp(local).tz_convert("UTC")
+            if start < ts <= end:
+                ticks.append(WatchTick(ts, "EXECUTION_WATCH"))
+            local += timedelta(minutes=5)
+
+    ticks.sort(key=lambda x: (x.timestamp, 0 if x.source == "POSITION_WATCH" else 1))
+    return ticks
+
+
+def fractional_window_open(timestamp: Any) -> bool:
+    """DST-safe regular-session proxy for Toss' authoritative live guard."""
+
+    local = _to_utc(timestamp).tz_convert(NY)
+    if local.weekday() >= 5:
+        return False
+    return dt_time(9, 30) <= local.time() < dt_time(16, 0)
+
+
+def _state_json(state: ProfitFlipState) -> dict[str, Any]:
+    return {
+        "peak_price_return": (
+            None if state.peak_price_return is None else str(state.peak_price_return)
+        ),
+        "armed": state.armed,
+        "negative_count": state.negative_count,
+        "pending_reason": state.pending_reason,
+        "pending_since": state.pending_since,
+    }
+
+
+def replay_one_trade(
+    row: pd.Series | dict[str, Any],
+    *,
+    bars: pd.DataFrame,
+    config: ReplayPolicyConfig,
+    event_audit: Literal["none", "changes", "full"] = "changes",
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    get = row.get
+    entry_ts = _to_utc(get("entry_timestamp"))
+    fixed4_ts = _to_utc(get("exit_timestamp"))
+    entry_effective = _effective_bar_close(entry_ts)
+    fixed4_effective = _effective_bar_close(fixed4_ts)
+    index = MinuteBarIndex(bars)
+    entry_point = index.close_before(entry_effective)
+    fixed4_point = index.close_before(fixed4_effective)
+
+    base: dict[str, Any] = {
+        "replay_data_ready": False,
+        "replay_error": None,
+        "entry_effective_ts": entry_effective,
+        "fixed4_effective_ts": fixed4_effective,
+        "entry_price_vendor": None,
+        "fixed4_exit_price_vendor": None,
+        "reconstructed_fixed4_raw_return": None,
+        "candidate_exit_triggered": False,
+        "candidate_exit_reason": None,
+        "candidate_exit_at": None,
+        "candidate_exit_bar_at": None,
+        "candidate_exit_price_vendor": None,
+        "candidate_raw_return": None,
+        "watch_ticks_total": 0,
+        "watch_ticks_with_price": 0,
+        "position_watch_ticks_total": 0,
+        "position_watch_ticks_with_price": 0,
+        "execution_watch_ticks_total": 0,
+        "execution_watch_ticks_with_price": 0,
+        "regular_exec_ticks_total": 0,
+        "regular_exec_ticks_with_price": 0,
+        "profit_flip_arm_at": None,
+        "profit_flip_pending_at": None,
+        "profit_flip_recovery_clears": 0,
+        "pending_add_on_block_observations": 0,
+        "final_peak_price_return": None,
+        "final_profit_flip_armed": False,
+        "final_profit_flip_negative_count": 0,
+        "final_pending_exit_reason": None,
+        "final_pending_exit_since": None,
+    }
+    events: list[dict[str, Any]] = []
+    if entry_point is None or fixed4_point is None:
+        base["replay_error"] = "ENTRY_OR_FIXED4_PRICE_UNAVAILABLE"
+        return base, events
+
+    entry_price = float(entry_point.price)
+    fixed4_price = float(fixed4_point.price)
+    fixed4_raw = fixed4_price / entry_price - 1.0
+    base.update(
+        replay_data_ready=True,
+        entry_price_vendor=entry_price,
+        fixed4_exit_price_vendor=fixed4_price,
+        reconstructed_fixed4_raw_return=fixed4_raw,
+    )
+
+    state = ProfitFlipState()
+    exit_price: float | None = None
+    exit_at: pd.Timestamp | None = None
+    exit_bar_at: pd.Timestamp | None = None
+    exit_reason: str | None = None
+
+    ticks = iter_live_watch_ticks(entry_effective, fixed4_effective)
+    base["watch_ticks_total"] = len(ticks)
+    for tick in ticks:
+        if tick.source == "POSITION_WATCH":
+            base["position_watch_ticks_total"] += 1
+        else:
+            base["execution_watch_ticks_total"] += 1
+
+        regular_exec = (
+            tick.source == "EXECUTION_WATCH"
+            and fractional_window_open(tick.timestamp)
+            and index.has_regular_session(tick.timestamp)
+        )
+        if regular_exec:
+            base["regular_exec_ticks_total"] += 1
+
+        point = index.open_at_or_after(tick.timestamp, tolerance_minutes=3)
+        if point is None:
+            if event_audit == "full":
+                events.append(
+                    {
+                        "timestamp": tick.timestamp,
+                        "source": tick.source,
+                        "price_available": False,
+                        "regular_execution_window": regular_exec,
+                    }
+                )
+            continue
+
+        base["watch_ticks_with_price"] += 1
+        if tick.source == "POSITION_WATCH":
+            base["position_watch_ticks_with_price"] += 1
+        else:
+            base["execution_watch_ticks_with_price"] += 1
+        if regular_exec:
+            base["regular_exec_ticks_with_price"] += 1
+
+        price_return = Decimal(str(point.price / entry_price - 1.0))
+        before = state
+        if config.profit_flip_enabled:
+            state = advance_profit_flip(
+                state,
+                price_return=price_return,
+                arm_pct=config.arm_pct,
+                trigger_pct=config.trigger_pct,
+                confirm_observations=config.confirm_observations,
+                observed_at=tick.timestamp.isoformat(),
+            )
+            if not before.armed and state.armed and base["profit_flip_arm_at"] is None:
+                base["profit_flip_arm_at"] = tick.timestamp
+            if (
+                before.pending_reason is None
+                and state.pending_reason == PROFIT_TO_LOSS_FLIP
+                and base["profit_flip_pending_at"] is None
+            ):
+                base["profit_flip_pending_at"] = tick.timestamp
+
+            if should_clear_profit_flip_pending(
+                pending_reason=state.pending_reason,
+                price_return=price_return,
+                recovery_pct=config.recovery_pct,
+            ):
+                state = clear_profit_flip_pending(state)
+                base["profit_flip_recovery_clears"] += 1
+
+        if state.pending_reason:
+            base["pending_add_on_block_observations"] += 1
+
+        reason = choose_exit_reason(
+            price_return=price_return,
+            stop_loss=config.stop_loss,
+            take_profit=config.take_profit,
+            model_rotation=False,
+            elapsed_buckets=0,
+            target_buckets=config.target_exit_buckets,
+            pending_exit_reason=state.pending_reason,
+        )
+        state_changed = state != before
+        should_log = (
+            event_audit == "full"
+            or (
+                event_audit == "changes"
+                and (state_changed or reason is not None or regular_exec)
+            )
+        )
+        if should_log:
+            events.append(
+                {
+                    "timestamp": tick.timestamp,
+                    "bar_timestamp": point.bar_timestamp,
+                    "source": tick.source,
+                    "price_available": True,
+                    "price": point.price,
+                    "price_lag_seconds": point.lag_seconds,
+                    "price_return": float(price_return),
+                    "regular_execution_window": regular_exec,
+                    "exit_due_reason": reason,
+                    **_state_json(state),
+                }
+            )
+
+        if reason is not None and regular_exec:
+            exit_price = float(point.price)
+            exit_at = tick.timestamp
+            exit_bar_at = point.bar_timestamp
+            exit_reason = reason
+            break
+
+    candidate_raw = fixed4_raw if exit_price is None else exit_price / entry_price - 1.0
+    base.update(
+        candidate_exit_triggered=exit_price is not None,
