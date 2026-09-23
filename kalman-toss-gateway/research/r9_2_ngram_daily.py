@@ -121,7 +121,7 @@ def normalize_query_result(
 
     days = pd.date_range(
         start_day,
-        end_day - pd.Timedelta(days=1),
+        end_day - pd.Timedelta(1, unit="D"),
         freq="D",
         tz="UTC",
     )
@@ -198,7 +198,7 @@ def build_snapshot(
         history_end_exclusive=end_day,
     )
     snap = daily.loc[daily["day"] >= start_output_day].copy()
-    snap["feature_as_of"] = snap["day"] + pd.Timedelta(days=1)
+    snap["feature_as_of"] = snap["day"] + pd.Timedelta(1, unit="D")
     snap["news_day_used"] = snap["day"].dt.date
     snap["feature_version"] = FEATURE_VERSION
     snap["source_complete"] = True
@@ -354,7 +354,7 @@ def finalize(args: argparse.Namespace) -> None:
     snapshot.to_csv(tmp, index=False)
     os.replace(tmp, snapshot_path)
 
-    last_complete = (end_day - pd.Timedelta(days=1)).date()
+    last_complete = (end_day - pd.Timedelta(1, unit="D")).date()
     state = {
         "schema": "kalman-r9-2-ngram-source-state-v1",
         "source_key": SOURCE_KEY,
