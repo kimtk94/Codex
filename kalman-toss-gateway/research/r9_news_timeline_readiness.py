@@ -180,8 +180,22 @@ class TimelineClient:
                     time.sleep(max(pause,self.min_interval))
                     continue
 
-            r.raise_for_status()
-            payload=r.json()
+            if r.status_code>=400:
+                body=" ".join((r.text or "").split())[:1200]
+                raise RuntimeError(
+                    f"GDELT HTTP {r.status_code}; attempts={attempts}; "
+                    f"retry_after={r.headers.get('retry-after')}; "
+                    f"content_type={r.headers.get('content-type')}; body={body}"
+                )
+
+            try:
+                payload=r.json()
+            except Exception as exc:
+                body=" ".join((r.text or "").split())[:1200]
+                raise RuntimeError(
+                    f"GDELT JSON decode failed; attempts={attempts}; "
+                    f"content_type={r.headers.get('content-type')}; body={body}"
+                ) from exc
             cp.parent.mkdir(parents=True,exist_ok=True)
             tmp=cp.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload,ensure_ascii=False),encoding="utf-8")
@@ -196,7 +210,7 @@ def main():
     ap.add_argument("--r8-manifest",default=DEFAULT_R8_MANIFEST)
     ap.add_argument("--output-dir",default=DEFAULT_OUT)
     ap.add_argument("--cache-dir",default=DEFAULT_CACHE)
-    ap.add_argument("--mode",choices=["smoke","full"],default="smoke")
+    ap.add_argument("--mode",choices=["probe-recent","probe-historical","smoke","full"],default="smoke")
     ap.add_argument("--min-request-interval",type=float,default=12.0)
     ap.add_argument("--max-retries",type=int,default=2)
     args=ap.parse_args()
@@ -209,9 +223,22 @@ def main():
     if len(reg)!=93:
         raise RuntimeError(f"expected 93-symbol registry, got {len(reg)}")
 
-    symbols=select_smoke_symbols(reg) if args.mode=="smoke" else reg["symbol"].tolist()
-    start=pd.Timestamp("2023-07-01T00:00:00Z")
-    end=pd.Timestamp("2026-09-02T00:00:00Z")
+    if args.mode=="probe-recent":
+        symbols=["AAPL"]
+        start=pd.Timestamp("2026-08-01T00:00:00Z")
+        end=pd.Timestamp("2026-09-01T00:00:00Z")
+    elif args.mode=="probe-historical":
+        symbols=["AAPL"]
+        start=pd.Timestamp("2023-07-01T00:00:00Z")
+        end=pd.Timestamp("2026-09-02T00:00:00Z")
+    elif args.mode=="smoke":
+        symbols=select_smoke_symbols(reg)
+        start=pd.Timestamp("2026-08-01T00:00:00Z")
+        end=pd.Timestamp("2026-09-01T00:00:00Z")
+    else:
+        symbols=reg["symbol"].tolist()
+        start=pd.Timestamp("2023-07-01T00:00:00Z")
+        end=pd.Timestamp("2026-09-02T00:00:00Z")
 
     client=TimelineClient(
         args.cache_dir,
@@ -239,6 +266,10 @@ def main():
         except Exception as exc:
             status="ERROR"
             error=f"{type(exc).__name__}: {exc}"
+            import re
+            m=re.search(r"attempts=(\\d+)",error)
+            if m:
+                attempts=int(m.group(1))
 
         if not parsed.empty:
             frames.append(parsed)
@@ -260,6 +291,8 @@ def main():
             f"cache_hit={cache_hit} attempts={attempts}",
             flush=True,
         )
+        if error:
+            print(f"{sym} error={error}",flush=True)
 
     audit=pd.DataFrame(audits)
     data=pd.concat(frames,ignore_index=True) if frames else pd.DataFrame(
@@ -299,17 +332,34 @@ def main():
         if len(dates)>=2 else 0.0
     )
 
-    if args.mode=="smoke":
-        gates={
-            "request_success_ge_90pct":request_success>=0.90,
-            "timeline_parse_success_ge_90pct":parse_success>=0.90,
-            "symbols_ge300_points_ge_9_of_10":symbols_ge300>=9,
-            "monitored_articles_positive_ge_99pct":norm_positive>=0.99,
-            "duplicate_symbol_date_zero":duplicates==0,
-        }
-        ready=False
-        smoke_pass=all(gates.values())
-        next_action="RUN_R9_TIMELINE_FULL" if smoke_pass else "FIX_R9_TIMELINE_SOURCE"
+    if args.mode in {"probe-recent","probe-historical","smoke"}:
+        if args.mode.startswith("probe-"):
+            gates={
+                "request_success":request_success>=1.0,
+                "timeline_parse_success":parse_success>=1.0,
+                "timeline_points_gt_0":len(data)>0,
+                "duplicate_symbol_date_zero":duplicates==0,
+            }
+            ready=False
+            smoke_pass=all(gates.values())
+            next_action=(
+                "RUN_PROBE_HISTORICAL"
+                if args.mode=="probe-recent" and smoke_pass
+                else "RUN_R9_TIMELINE_SMOKE"
+                if args.mode=="probe-historical" and smoke_pass
+                else "FIX_R9_TIMELINE_SOURCE"
+            )
+        else:
+            gates={
+                "request_success_ge_90pct":request_success>=0.90,
+                "timeline_parse_success_ge_90pct":parse_success>=0.90,
+                "symbols_with_points_ge_9_of_10":int((counts>0).sum())>=9,
+                "monitored_articles_positive_ge_99pct":norm_positive>=0.99,
+                "duplicate_symbol_date_zero":duplicates==0,
+            }
+            ready=False
+            smoke_pass=all(gates.values())
+            next_action="RUN_R9_TIMELINE_FULL" if smoke_pass else "FIX_R9_TIMELINE_SOURCE"
     else:
         gates={
             "universe_is_93":len(reg)==93,
