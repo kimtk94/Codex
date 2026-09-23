@@ -213,6 +213,7 @@ def main():
     ap.add_argument("--mode",choices=["probe-recent","probe-historical","smoke","full"],default="smoke")
     ap.add_argument("--min-request-interval",type=float,default=12.0)
     ap.add_argument("--max-retries",type=int,default=2)
+    ap.add_argument("--probe-symbol",default="AAPL")
     args=ap.parse_args()
 
     r8=json.loads(Path(args.r8_manifest).read_text())
@@ -223,12 +224,16 @@ def main():
     if len(reg)!=93:
         raise RuntimeError(f"expected 93-symbol registry, got {len(reg)}")
 
+    probe_symbol=str(args.probe_symbol or "AAPL").upper()
+    if probe_symbol not in set(reg["symbol"]):
+        raise RuntimeError(f"probe symbol not in frozen universe: {probe_symbol}")
+
     if args.mode=="probe-recent":
-        symbols=["AAPL"]
+        symbols=[probe_symbol]
         start=pd.Timestamp("2026-08-01T00:00:00Z")
         end=pd.Timestamp("2026-09-01T00:00:00Z")
     elif args.mode=="probe-historical":
-        symbols=["AAPL"]
+        symbols=[probe_symbol]
         start=pd.Timestamp("2023-07-01T00:00:00Z")
         end=pd.Timestamp("2026-09-02T00:00:00Z")
     elif args.mode=="smoke":
