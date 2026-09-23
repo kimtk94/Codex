@@ -60,17 +60,27 @@ with psycopg.connect(database_url) as conn:
         for statement in statements:
             cur.execute(statement)
 
+        expected = [
+            'research.r9_news_alias_registry',
+            'research.r9_news_mentions_daily',
+            'research.r9_news_manifest',
+            'research.r9_shadow_source_state',
+            'research.r9_shadow_feature_snapshot',
+            'research.r9_shadow_signal',
+            'research.r9_shadow_trade_entry',
+            'research.r9_shadow_outcome',
+        ]
         cur.execute(
-            """SELECT
-                   to_regclass('research.r9_news_alias_registry'),
-                   to_regclass('research.r9_news_mentions_daily'),
-                   to_regclass('research.r9_news_manifest')"""
+            "SELECT " + ", ".join(["to_regclass(%s)"] * len(expected)),
+            expected,
         )
         tables = cur.fetchone()
         if not tables or any(v is None for v in tables):
-            raise RuntimeError(f"schema verification failed: {tables!r}")
+            raise RuntimeError(
+                f"schema verification failed: {dict(zip(expected, tables or []))!r}"
+            )
     conn.commit()
 
 print("R9_NEON_SCHEMA=PASS")
-print("tables=research.r9_news_alias_registry,research.r9_news_mentions_daily,research.r9_news_manifest")
+print("tables=research.r9_news_alias_registry,research.r9_news_mentions_daily,research.r9_news_manifest,research.r9_shadow_source_state,research.r9_shadow_feature_snapshot,research.r9_shadow_signal,research.r9_shadow_trade_entry,research.r9_shadow_outcome")
 PY
