@@ -601,6 +601,8 @@ def _prepare_baseline(
     base = base.sort_values(["entry_timestamp", "symbol"]).reset_index(drop=True)
     if max_trades is not None:
         base = base.head(max(0, int(max_trades))).copy()
+    if base.empty:
+        raise RuntimeError("no FIXED_4 trades matched the requested replay range")
 
     for col in ("weight", "gross_return", "net_return"):
         base[col] = pd.to_numeric(base[col], errors="coerce")
@@ -628,8 +630,16 @@ def build_replay_audit(
         symbol = str(row["symbol"]).upper().replace(".", "-")
         entry_effective = _effective_bar_close(row["entry_timestamp"])
         fixed4_effective = _effective_bar_close(row["exit_timestamp"])
-        fetch_start = entry_effective - pd.Timedelta(minutes=15)
-        fetch_end = fixed4_effective + pd.Timedelta(minutes=5)
+        entry_day_et = entry_effective.tz_convert(NY).date()
+        exit_day_et = fixed4_effective.tz_convert(NY).date()
+        # Normalize the cache window by ET calendar dates so multiple trades
+        # for the same symbol/session pair reuse one disk/API object.
+        fetch_start = pd.Timestamp(
+            datetime.combine(entry_day_et, dt_time(0, 0), tzinfo=NY)
+        ).tz_convert("UTC")
+        fetch_end = pd.Timestamp(
+            datetime.combine(exit_day_et, dt_time(20, 5), tzinfo=NY)
+        ).tz_convert("UTC")
 
         try:
             bars, cache_path, cache_hit = window_store.load_or_fetch(
@@ -681,9 +691,18 @@ def build_replay_audit(
     replay_frame = pd.DataFrame(results)
     audit = pd.concat([base.reset_index(drop=True), replay_frame], axis=1)
     audit["candidate_net_return"] = audit["net_return"].astype(float)
+    audit["reconstructed_fixed4_net_return"] = np.nan
 
     ready = audit["replay_data_ready"].fillna(False).astype(bool)
     if ready.any():
+        audit.loc[ready, "reconstructed_fixed4_net_return"] = (
+            audit.loc[ready, "weight"].astype(float)
+            * pd.to_numeric(
+                audit.loc[ready, "reconstructed_fixed4_raw_return"],
+                errors="coerce",
+            )
+            - audit.loc[ready, "cost_proxy"].astype(float)
+        )
         raw_delta = (
             pd.to_numeric(
                 audit.loc[ready, "candidate_raw_return"], errors="coerce"
@@ -732,6 +751,63 @@ def _coverage_summary(audit: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def _reconciliation_summary(audit: pd.DataFrame) -> dict[str, Any]:
+    ready = audit["replay_data_ready"].fillna(False).astype(bool)
+    z = audit.loc[ready].copy()
+    if z.empty:
+        return {
+            "rows": 0,
+            "median_abs_net_diff": None,
+            "mean_abs_net_diff": None,
+            "corr": None,
+        }
+    reconstructed = pd.to_numeric(
+        z["reconstructed_fixed4_net_return"], errors="coerce"
+    )
+    baseline = pd.to_numeric(z["net_return"], errors="coerce")
+    diff = reconstructed - baseline
+    corr = reconstructed.corr(baseline)
+    return {
+        "rows": int(len(z)),
+        "median_abs_net_diff": float(diff.abs().median()),
+        "mean_abs_net_diff": float(diff.abs().mean()),
+        "corr": (
+            None
+            if corr is None or not math.isfinite(float(corr))
+            else float(corr)
+        ),
+    }
+
+
+def _reason_attribution(audit: pd.DataFrame) -> list[dict[str, Any]]:
+    z = audit.copy()
+    z["attribution_reason"] = z["candidate_exit_reason"].fillna("NO_EARLY_EXIT")
+    rows: list[dict[str, Any]] = []
+    for reason, part in z.groupby("attribution_reason", dropna=False):
+        delta = pd.to_numeric(
+            part["candidate_delta_vs_fixed4"], errors="coerce"
+        ).fillna(0.0)
+        rows.append(
+            {
+                "exit_reason": str(reason),
+                "trades": int(len(part)),
+                "baseline_net_sum": float(
+                    pd.to_numeric(part["net_return"], errors="coerce").sum()
+                ),
+                "candidate_net_sum": float(
+                    pd.to_numeric(
+                        part["candidate_net_return"], errors="coerce"
+                    ).sum()
+                ),
+                "delta_net_sum": float(delta.sum()),
+                "mean_delta_per_trade": float(delta.mean()),
+                "positive_delta_rate": float((delta > 0).mean()),
+            }
+        )
+    rows.sort(key=lambda x: x["delta_net_sum"], reverse=True)
+    return rows
+
+
 def evaluate_replay(
     audit: pd.DataFrame,
     *,
@@ -752,6 +828,8 @@ def evaluate_replay(
         and row["paired_log_delta"] > 0
     )
     coverage = _coverage_summary(audit)
+    reconciliation = _reconciliation_summary(audit)
+    attribution = _reason_attribution(audit)
     triggered = audit["candidate_exit_triggered"].fillna(False).astype(bool)
     reasons = Counter(
         str(x)
@@ -807,6 +885,8 @@ def evaluate_replay(
         "fold_count": int(len(folds)),
         "folds": folds,
         "coverage": coverage,
+        "reconciliation": reconciliation,
+        "reason_attribution": attribution,
         "triggered_exits": int(triggered.sum()),
         "trigger_rate_ready": (
             float(triggered.sum() / coverage["ready_rows"])
@@ -958,6 +1038,19 @@ def main() -> int:
     event_path: Path | None = None
     if args.event_audit != "none":
         event_path = output_dir / "live_policy_replay_event_audit.parquet"
+        if events.empty:
+            events = pd.DataFrame(
+                columns=[
+                    "trade_row",
+                    "symbol",
+                    "fold",
+                    "entry_timestamp",
+                    "exit_timestamp",
+                    "timestamp",
+                    "source",
+                    "price_available",
+                ]
+            )
         events.to_parquet(event_path, index=False)
 
     if args.backfill_only:
@@ -1008,6 +1101,10 @@ def main() -> int:
         ]
     ).to_csv(
         output_dir / "live_policy_replay_reason_summary.csv",
+        index=False,
+    )
+    pd.DataFrame(decision["reason_attribution"]).to_csv(
+        output_dir / "live_policy_replay_attribution.csv",
         index=False,
     )
 
