@@ -138,11 +138,35 @@ Before any BigQuery execution, 16 additional <=2-token public-name contractions 
 - USB -> US Bancorp
 - WFC -> Wells Fargo
 
-This raises supported alias coverage to 90 / 93.
+This initially raised supported alias coverage to 90 / 93.
 
-The following remain intentionally unsupported in v1 because forcing them into <=2-token aliases would create material ambiguity or uncertain tokenizer behavior:
-- BAC (Bank of America)
-- JNJ (Johnson & Johnson)
-- T (AT&T)
+Before historical extraction, three public shorthands were frozen so the registry can be stored and served as a complete 93-symbol contract:
+- BAC -> BofA
+- JNJ -> J&J
+- T -> AT&T
 
-The readiness gate remains >= 90 supported symbols; it is not relaxed.
+These three aliases are explicitly subject to historical source validation. A frozen alias does not guarantee sufficient GDELT coverage; the existing mention-coverage gates remain binding.
+
+Final registry target:
+- universe = 93
+- supported aliases = 93
+- needs_override = 0
+
+The readiness gate remains >= 90 symbols with historical mentions/coverage checks applied downstream; it is not relaxed.
+
+## 9. Storage and serving architecture
+
+Historical extraction source remains GDELT BigQuery.
+
+Neon is the durable research storage and serving layer:
+- `research.r9_news_alias_registry`
+- `research.r9_news_mentions_daily`
+- `research.r9_news_manifest`
+
+The split is intentional:
+1. BigQuery performs bounded historical Web 1Gram / 2Gram extraction.
+2. The resulting daily symbol mention counts are validated locally.
+3. Validated artifacts are mirrored into Neon with idempotent UPSERTs.
+4. Kalman research/feature code reads the compact Neon tables instead of rescanning GDELT.
+
+Neon storage is hard-isolated from production trading tables. The R9 schema does not write `strategy_signal`, `dashboard_snapshot`, LIVE orders, sizing, or exits.
