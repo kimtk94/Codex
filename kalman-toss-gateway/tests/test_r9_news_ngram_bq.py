@@ -25,7 +25,7 @@ def test_sql_is_bounded_and_exact_ngram():
     sql=m.build_sql(reg)
     assert "web_1grams" in sql
     assert "web_2grams" in sql
-    assert "DATE >= 20230701000000" in sql
+    assert "DATE >= 20240801000000" in sql
     assert "DATE < 20260902000000" in sql
     assert "LANG = 'ENGLISH'" in sql
     assert "LOWER(g.NGRAM) = a.alias_lower" in sql
