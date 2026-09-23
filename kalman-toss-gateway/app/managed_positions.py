@@ -89,6 +89,7 @@ class ManagedPositionStore:
                 'last_price_observed_at': "ALTER TABLE managed_position ADD COLUMN last_price_observed_at TEXT",
                 'profit_flip_armed': "ALTER TABLE managed_position ADD COLUMN profit_flip_armed INTEGER NOT NULL DEFAULT 0",
                 'profit_flip_negative_count': "ALTER TABLE managed_position ADD COLUMN profit_flip_negative_count INTEGER NOT NULL DEFAULT 0",
+                'peak_giveback_count': "ALTER TABLE managed_position ADD COLUMN peak_giveback_count INTEGER NOT NULL DEFAULT 0",
                 'exit_pending_reason': "ALTER TABLE managed_position ADD COLUMN exit_pending_reason TEXT",
                 'exit_pending_since': "ALTER TABLE managed_position ADD COLUMN exit_pending_since TEXT",
             }
@@ -327,7 +328,7 @@ class ManagedPositionStore:
                        add_on_signal_run_id=NULL, add_on_signal_as_of=NULL, add_on_target_krw=NULL,
                        peak_price_return=NULL, last_price_return=NULL, last_price_observed_at=NULL,
                        profit_flip_armed=0, profit_flip_negative_count=0,
-                       exit_pending_reason=NULL, exit_pending_since=NULL,
+                       peak_giveback_count=0, exit_pending_reason=NULL, exit_pending_since=NULL,
                        state='OPEN', note=NULL, updated_at=?
                    WHERE position_id=?""",
                 (
@@ -479,8 +480,12 @@ class ManagedPositionStore:
         arm_pct: Decimal,
         trigger_pct: Decimal,
         confirm_observations: int,
+        giveback_enabled: bool = False,
+        giveback_arm_pct: Decimal = Decimal('0.005'),
+        giveback_drawdown_pct: Decimal = Decimal('0.007'),
+        giveback_confirm_observations: int = 2,
     ) -> dict[str, Any] | None:
-        """Persist profit-to-loss guard state for an OPEN managed position."""
+        """Persist intraday profit-protection state for an OPEN managed position."""
         now = utc_now()
         with self._connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
@@ -505,6 +510,14 @@ class ManagedPositionStore:
             else:
                 negative_count = 0
 
+            giveback_count = int(row.get('peak_giveback_count') or 0)
+            peak_drawdown = peak - price_return
+            giveback_armed = giveback_enabled and peak >= giveback_arm_pct
+            if giveback_armed and peak_drawdown >= giveback_drawdown_pct:
+                giveback_count += 1
+            else:
+                giveback_count = 0
+
             pending_reason = row.get('exit_pending_reason')
             pending_since = row.get('exit_pending_since')
             if (
@@ -514,12 +527,19 @@ class ManagedPositionStore:
             ):
                 pending_reason = 'PROFIT_TO_LOSS_FLIP'
                 pending_since = now
+            elif (
+                giveback_armed
+                and giveback_count >= int(giveback_confirm_observations)
+                and not pending_reason
+            ):
+                pending_reason = 'PEAK_PROFIT_GIVEBACK'
+                pending_since = now
 
             conn.execute(
                 """UPDATE managed_position
                    SET peak_price_return=?, last_price_return=?, last_price_observed_at=?,
                        profit_flip_armed=?, profit_flip_negative_count=?,
-                       exit_pending_reason=?, exit_pending_since=?, updated_at=?
+                       peak_giveback_count=?, exit_pending_reason=?, exit_pending_since=?, updated_at=?
                    WHERE position_id=?""",
                 (
                     str(peak),
@@ -527,6 +547,7 @@ class ManagedPositionStore:
                     now,
                     1 if armed else 0,
                     negative_count,
+                    giveback_count,
                     pending_reason,
                     pending_since,
                     now,
@@ -543,7 +564,7 @@ class ManagedPositionStore:
             conn.execute(
                 """UPDATE managed_position
                    SET exit_pending_reason=NULL, exit_pending_since=NULL,
-                       profit_flip_negative_count=0, updated_at=?
+                       profit_flip_negative_count=0, peak_giveback_count=0, updated_at=?
                    WHERE position_id=?""",
                 (utc_now(), position_id),
             )
