@@ -147,7 +147,14 @@ class MinuteBarIndex:
             .reset_index(drop=True)
         )
         self.frame = z
-        self._times_ns = z["timestamp"].astype("int64").to_numpy(dtype=np.int64)
+        # Pandas 3 may preserve datetime64[us, UTC] internally. Timestamp.value
+        # is always nanoseconds, so astype("int64") can silently create a
+        # 1,000x unit mismatch. Normalize explicitly to ns epoch integers.
+        self._times_ns = np.fromiter(
+            (int(pd.Timestamp(ts).value) for ts in z["timestamp"]),
+            dtype=np.int64,
+            count=len(z),
+        )
         self._open = z["open"].to_numpy(dtype=float)
         self._close = z["close"].to_numpy(dtype=float)
         if z.empty:
