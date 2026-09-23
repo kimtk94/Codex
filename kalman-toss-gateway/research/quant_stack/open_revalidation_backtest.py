@@ -65,9 +65,16 @@ def _to_et(value: Any) -> pd.Timestamp:
 
 
 def _effective_bar_close(value: Any) -> pd.Timestamp:
-    # R5 timestamps label the 60m bar start. The signal is available after
-    # that completed bar, so execution-price reconstruction uses +60 minutes.
-    return _to_utc(value) + pd.Timedelta(hours=1)
+    # R5 timestamps label the 60m bar start. The final US regular-session
+    # bucket is truncated at 16:00 ET, so do not push a 15:30 bucket to 16:30.
+    start_utc = _to_utc(value)
+    start_et = start_utc.tz_convert(NY)
+    candidate_et = start_et + pd.Timedelta(hours=1)
+    session_close_et = pd.Timestamp(
+        datetime.combine(start_et.date(), dt_time(16, 0), tzinfo=NY)
+    )
+    effective_et = min(candidate_et, session_close_et)
+    return effective_et.tz_convert("UTC")
 
 
 def _cross_session(entry_timestamp: Any, exit_timestamp: Any) -> bool:
@@ -803,6 +810,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=False)
+    except ImportError:
+        pass
+
     args = parse_args()
     baseline_path = Path(args.baseline_ledger)
     if not baseline_path.is_file():
