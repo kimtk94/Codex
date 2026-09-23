@@ -8,6 +8,8 @@ on:
       - "kalman-toss-gateway/research/quant_stack/**"
       - "kalman-toss-gateway/tests/test_quant_stack.py"
       - "kalman-toss-gateway/tests/test_historical_backfill.py"
+      - "kalman-toss-gateway/tests/test_open_revalidation_backtest.py"
+      - "kalman-toss-gateway/scripts/run_open_revalidation_backtest.sh"
       - "kalman-toss-gateway/tests/test_quant_artifact_validation.py"
       - "kalman-toss-gateway/tests/test_qlib_recorder.py"
       - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
@@ -27,6 +29,8 @@ on:
       - "kalman-toss-gateway/research/quant_stack/**"
       - "kalman-toss-gateway/tests/test_quant_stack.py"
       - "kalman-toss-gateway/tests/test_historical_backfill.py"
+      - "kalman-toss-gateway/tests/test_open_revalidation_backtest.py"
+      - "kalman-toss-gateway/scripts/run_open_revalidation_backtest.sh"
       - "kalman-toss-gateway/tests/test_quant_artifact_validation.py"
       - "kalman-toss-gateway/tests/test_qlib_recorder.py"
       - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
@@ -59,12 +63,14 @@ jobs:
       - name: Compile quant stack
         run: |
           python -m compileall -q research/quant_stack
+          bash -n scripts/run_open_revalidation_backtest.sh
 
       - name: Run quant stack tests
         run: |
           pytest -q \
             tests/test_quant_stack.py \
             tests/test_historical_backfill.py \
+            tests/test_open_revalidation_backtest.py \
             tests/test_quant_artifact_validation.py \
             tests/test_resume_postprocess.py
 
