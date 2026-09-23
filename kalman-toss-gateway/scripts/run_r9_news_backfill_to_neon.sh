@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${R9_PYTHON:-/opt/kalman/.venv/bin/python}"
 STATE="${R9_NEWS_STATE_DIR:-${HOME}/.local/state/kalman/r9_news_ngram}"
 BQ_PROJECT="${R9_BQ_PROJECT:-}"
+BQ_MAX_BYTES="${R9_BQ_MAX_BYTES_BILLED:-1099511627776}"
 SQL="$STATE/r9_ngram_historical.sql"
 REG="$STATE/alias_registry.csv"
 CSV="$STATE/r9_ngram_historical.csv"
@@ -47,6 +48,7 @@ fi
 ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n1 || true)"
 echo "gcloud_account=${ACTIVE_ACCOUNT:-NONE}"
 echo "billing_project=$BQ_PROJECT"
+echo "maximum_bytes_billed=$BQ_MAX_BYTES"
 
 if [[ -z "$ACTIVE_ACCOUNT" ]]; then
   echo "ERROR: no active gcloud account." >&2
@@ -73,6 +75,7 @@ rm -f "$TMP"
 bq --project_id="$BQ_PROJECT" query \
   --use_legacy_sql=false \
   --quiet \
+  --maximum_bytes_billed="$BQ_MAX_BYTES" \
   --format=csv \
   --max_rows=1000000 \
   < "$SQL" > "$TMP"
