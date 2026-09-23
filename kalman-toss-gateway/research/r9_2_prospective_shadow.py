@@ -451,7 +451,7 @@ def build_news_daily(
         hist[["symbol", "day_utc", "mention_count"]],
         symbols,
         history_start=start,
-        history_end_exclusive=last_complete_day + pd.Timedelta(days=1),
+        history_end_exclusive=last_complete_day + pd.Timedelta(1, unit="D"),
     )
 
 
@@ -786,8 +786,8 @@ def main() -> int:
             skipped.append({"timestamp": str(ts), "reason": "NO_BASE_ROWS"})
             continue
 
-        signal_as_of = pd.Timestamp(ts) + pd.Timedelta(hours=1)
-        news_day_used = signal_as_of.floor("D") - pd.Timedelta(days=1)
+        signal_as_of = pd.Timestamp(ts) + pd.Timedelta(1, unit="h")
+        news_day_used = signal_as_of.floor("D") - pd.Timedelta(1, unit="D")
         if news_day_used > last_complete_day:
             skipped.append(
                 {
