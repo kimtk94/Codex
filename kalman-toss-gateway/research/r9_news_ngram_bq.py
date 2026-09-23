@@ -25,7 +25,6 @@ OVERRIDES={
     "UNH":"UnitedHealth Group",
 
     # Frozen public-name contractions for Web 1Gram / 2Gram matching.
-    # Ambiguous cases BAC / JNJ / T intentionally remain unsupported in v1.
     "AMAT":"Applied Materials",
     "AMD":"Advanced Micro",
     "AMT":"American Tower",
@@ -42,6 +41,13 @@ OVERRIDES={
     "UPS":"UPS",
     "USB":"US Bancorp",
     "WFC":"Wells Fargo",
+
+    # Frozen public shorthands for the three names that cannot be represented
+    # faithfully as contiguous <=2-token legal-name aliases. Historical source
+    # validation still decides whether each alias has usable coverage.
+    "BAC":"BofA",
+    "JNJ":"J&J",
+    "T":"AT&T",
 }
 
 SUFFIX_RE=re.compile(
