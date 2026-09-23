@@ -526,3 +526,290 @@ def replay_one_trade(
     candidate_raw = fixed4_raw if exit_price is None else exit_price / entry_price - 1.0
     base.update(
         candidate_exit_triggered=exit_price is not None,
+        candidate_exit_reason=exit_reason,
+        candidate_exit_at=exit_at,
+        candidate_exit_bar_at=exit_bar_at,
+        candidate_exit_price_vendor=exit_price,
+        candidate_raw_return=candidate_raw,
+        final_peak_price_return=(
+            None if state.peak_price_return is None else float(state.peak_price_return)
+        ),
+        final_profit_flip_armed=state.armed,
+        final_profit_flip_negative_count=state.negative_count,
+        final_pending_exit_reason=state.pending_reason,
+        final_pending_exit_since=state.pending_since,
+    )
+    for num, den, name in [
+        (base["watch_ticks_with_price"], base["watch_ticks_total"], "watch_coverage"),
+        (
+            base["position_watch_ticks_with_price"],
+            base["position_watch_ticks_total"],
+            "position_watch_coverage",
+        ),
+        (
+            base["execution_watch_ticks_with_price"],
+            base["execution_watch_ticks_total"],
+            "execution_watch_coverage",
+        ),
+        (
+            base["regular_exec_ticks_with_price"],
+            base["regular_exec_ticks_total"],
+            "regular_exec_coverage",
+        ),
+    ]:
+        base[name] = float(num / den) if den else 1.0
+    return base, events
+
+
+def _prepare_baseline(
+    ledger: pd.DataFrame,
+    *,
+    start: str | None,
+    end: str | None,
+    max_trades: int | None,
+) -> pd.DataFrame:
+    required = {
+        "policy",
+        "fold",
+        "entry_timestamp",
+        "exit_timestamp",
+        "symbol",
+        "weight",
+        "gross_return",
+        "net_return",
+    }
+    missing = required.difference(ledger.columns)
+    if missing:
+        raise RuntimeError(f"baseline ledger missing columns: {sorted(missing)}")
+
+    base = ledger.loc[ledger["policy"].astype(str) == "FIXED_4"].copy()
+    base["entry_timestamp"] = pd.to_datetime(
+        base["entry_timestamp"], utc=True, errors="coerce"
+    )
+    base["exit_timestamp"] = pd.to_datetime(
+        base["exit_timestamp"], utc=True, errors="coerce"
+    )
+    base = base.dropna(
+        subset=["entry_timestamp", "exit_timestamp", "symbol", "net_return"]
+    )
+    if start:
+        base = base.loc[base["entry_timestamp"] >= _to_utc(start)]
+    if end:
+        base = base.loc[
+            base["entry_timestamp"] < _to_utc(end) + pd.Timedelta(days=1)
+        ]
+    base = base.sort_values(["entry_timestamp", "symbol"]).reset_index(drop=True)
+    if max_trades is not None:
+        base = base.head(max(0, int(max_trades))).copy()
+
+    for col in ("weight", "gross_return", "net_return"):
+        base[col] = pd.to_numeric(base[col], errors="coerce")
+    base["cost_proxy"] = base["gross_return"] - base["net_return"]
+    return base
+
+
+def build_replay_audit(
+    ledger: pd.DataFrame,
+    *,
+    config: ReplayPolicyConfig,
+    window_store: BarWindowStore,
+    start: str | None,
+    end: str | None,
+    max_trades: int | None,
+    event_audit: Literal["none", "changes", "full"],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    base = _prepare_baseline(
+        ledger, start=start, end=end, max_trades=max_trades
+    )
+    results: list[dict[str, Any]] = []
+    event_rows: list[dict[str, Any]] = []
+
+    for n, (_, row) in enumerate(base.iterrows(), start=1):
+        symbol = str(row["symbol"]).upper().replace(".", "-")
+        entry_effective = _effective_bar_close(row["entry_timestamp"])
+        fixed4_effective = _effective_bar_close(row["exit_timestamp"])
+        fetch_start = entry_effective - pd.Timedelta(minutes=15)
+        fetch_end = fixed4_effective + pd.Timedelta(minutes=5)
+
+        try:
+            bars, cache_path, cache_hit = window_store.load_or_fetch(
+                symbol,
+                start_utc=fetch_start,
+                end_utc=fetch_end,
+            )
+            replay, events = replay_one_trade(
+                row,
+                bars=bars,
+                config=config,
+                event_audit=event_audit,
+            )
+            replay["cache_path"] = str(cache_path)
+            replay["cache_hit"] = bool(cache_hit)
+        except Exception as exc:
+            replay = {
+                "replay_data_ready": False,
+                "replay_error": f"{type(exc).__name__}: {exc}",
+            }
+            events = []
+
+        results.append(replay)
+        for event in events:
+            event_rows.append(
+                {
+                    "trade_row": n - 1,
+                    "symbol": symbol,
+                    "fold": row.get("fold"),
+                    "entry_timestamp": row["entry_timestamp"],
+                    "exit_timestamp": row["exit_timestamp"],
+                    **event,
+                }
+            )
+
+        if n % 50 == 0 or n == len(base):
+            ready = sum(bool(x.get("replay_data_ready")) for x in results)
+            print(
+                json.dumps(
+                    {
+                        "phase": "LIVE_POLICY_REPLAY",
+                        "processed": n,
+                        "target": len(base),
+                        "ready": ready,
+                    }
+                )
+            )
+
+    replay_frame = pd.DataFrame(results)
+    audit = pd.concat([base.reset_index(drop=True), replay_frame], axis=1)
+    audit["candidate_net_return"] = audit["net_return"].astype(float)
+
+    ready = audit["replay_data_ready"].fillna(False).astype(bool)
+    if ready.any():
+        raw_delta = (
+            pd.to_numeric(
+                audit.loc[ready, "candidate_raw_return"], errors="coerce"
+            )
+            - pd.to_numeric(
+                audit.loc[ready, "reconstructed_fixed4_raw_return"],
+                errors="coerce",
+            )
+        )
+        audit.loc[ready, "candidate_net_return"] = (
+            audit.loc[ready, "net_return"].astype(float)
+            + audit.loc[ready, "weight"].astype(float) * raw_delta
+        )
+
+    audit["candidate_delta_vs_fixed4"] = (
+        audit["candidate_net_return"] - audit["net_return"]
+    )
+    return audit, pd.DataFrame(event_rows)
+
+
+def _safe_median(series: pd.Series) -> float | None:
+    z = pd.to_numeric(series, errors="coerce").dropna().astype(float)
+    return None if z.empty else float(z.median())
+
+
+def _coverage_summary(audit: pd.DataFrame) -> dict[str, Any]:
+    ready = audit["replay_data_ready"].fillna(False).astype(bool)
+    rows = int(len(audit))
+    ready_rows = int(ready.sum())
+    return {
+        "rows": rows,
+        "ready_rows": ready_rows,
+        "ready_ratio": float(ready_rows / rows) if rows else 0.0,
+        "median_watch_coverage": _safe_median(
+            audit.loc[ready, "watch_coverage"]
+        ),
+        "median_position_watch_coverage": _safe_median(
+            audit.loc[ready, "position_watch_coverage"]
+        ),
+        "median_execution_watch_coverage": _safe_median(
+            audit.loc[ready, "execution_watch_coverage"]
+        ),
+        "median_regular_exec_coverage": _safe_median(
+            audit.loc[ready, "regular_exec_coverage"]
+        ),
+    }
+
+
+def evaluate_replay(
+    audit: pd.DataFrame,
+    *,
+    config: ReplayPolicyConfig,
+    feed: str,
+    n_boot: int,
+) -> dict[str, Any]:
+    baseline = _metrics(audit, "net_return")
+    candidate = _metrics(audit, "candidate_net_return")
+    boot = _bootstrap_daily_delta(
+        audit, "candidate_net_return", n_boot=n_boot, seed=42
+    )
+    folds = _fold_summary(audit, "candidate_net_return")
+    positive_folds = sum(
+        1
+        for row in folds
+        if row["paired_log_delta"] is not None
+        and row["paired_log_delta"] > 0
+    )
+    coverage = _coverage_summary(audit)
+    triggered = audit["candidate_exit_triggered"].fillna(False).astype(bool)
+    reasons = Counter(
+        str(x)
+        for x in audit.loc[
+            triggered, "candidate_exit_reason"
+        ].dropna().tolist()
+    )
+
+    delta_log = (
+        None
+        if baseline["log_growth"] is None
+        or candidate["log_growth"] is None
+        else float(candidate["log_growth"] - baseline["log_growth"])
+    )
+    mdd_delta = (
+        None
+        if baseline["mdd"] is None or candidate["mdd"] is None
+        else float(candidate["mdd"] - baseline["mdd"])
+    )
+    min_positive_folds = max(1, math.ceil(len(folds) * 0.60))
+
+    research_survivor = bool(
+        boot["ci95_low"] is not None
+        and boot["ci95_low"] > 0
+        and boot["p_one_sided"] is not None
+        and boot["p_one_sided"] <= 0.10
+        and positive_folds >= min_positive_folds
+        and (mdd_delta is None or mdd_delta >= -0.02)
+        and coverage["ready_ratio"] >= 0.90
+        and coverage["median_watch_coverage"] is not None
+        and coverage["median_watch_coverage"] >= 0.80
+        and coverage["median_regular_exec_coverage"] is not None
+        and coverage["median_regular_exec_coverage"] >= 0.95
+    )
+
+    return {
+        "schema": SCHEMA_VERSION,
+        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "research_only": True,
+        "production_changed": False,
+        "automation_changed": False,
+        "candidate": CANDIDATE_NAME,
+        "source_baseline": "exit_policy_v1_0_1 FIXED_4",
+        "feed": feed,
+        "policy_config": config.jsonable(),
+        "policy_fingerprint": config.fingerprint(),
+        "baseline": baseline,
+        "candidate_metrics": candidate,
+        "delta_log_growth_vs_fixed4": delta_log,
+        "mdd_delta_vs_fixed4": mdd_delta,
+        "paired_bootstrap": boot,
+        "positive_folds": int(positive_folds),
+        "fold_count": int(len(folds)),
+        "folds": folds,
+        "coverage": coverage,
+        "triggered_exits": int(triggered.sum()),
+        "trigger_rate_ready": (
+            float(triggered.sum() / coverage["ready_rows"])
+            if coverage["ready_rows"]
+            else 0.0
+        ),
