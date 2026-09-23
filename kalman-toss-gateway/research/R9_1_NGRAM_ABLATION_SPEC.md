@@ -78,7 +78,7 @@ Three references are reported.
 ### Frozen champion
 `R5C0_HGB_REFERENCE`
 
-The frozen R5.1 ledger on the admitted R9 folds.
+The already-frozen R5.1 score is replayed through the same simulator on the exact R9-admissible E5-E8 rows. This preserves the frozen R5 score while forcing an identical evaluation schedule.
 
 ### Window-matched control
 `R9C0_WINDOW_MATCHED_BASE`
@@ -109,7 +109,7 @@ All must pass before performance interpretation:
 - no missing news features in feature-ready training rows
 - >= 80 symbols per evaluated timestamp
 - exact control/challenger decision schedule match
-- exact frozen-R5/challenger decision schedule match
+- exact frozen-R5-score-replay/challenger decision schedule match
 - research_only = true
 - production_changed = false
 - live_action = NONE
@@ -166,3 +166,27 @@ R9.1 does not write or alter:
 - production dashboard snapshots
 
 The experiment writes research artifacts only.
+
+
+## 11. Integrity amendment before any performance output
+
+The first guarded R9.1 execution stopped at the schedule-integrity gate before metrics, leaderboard, bootstrap, or survivor status were produced.
+
+Observed integrity-only mismatch:
+- historical frozen R5 ledger rows on E5-E8: 614
+- R9 challenger ledger rows: 614
+- timestamp matches: 549
+- exact schedule match: false
+
+Cause:
+- the historical frozen R5 trade ledger was produced by an earlier non-overlap simulation path;
+- slicing that already-constructed ledger by fold does not guarantee the same non-overlap timestamps as replaying candidates on the newly bounded R9 evaluation rows.
+
+Frozen correction, made before any R9.1 performance result was inspected:
+- do not use the historical R5 trade ledger as the performance comparator;
+- retain the frozen R5 score column from the immutable R5 scored-row artifact;
+- replay that frozen R5 score through the same simulator on exactly the same R9-admissible E5-E8 rows used by R9C0 and R9C1;
+- require exact R5-replay/challenger schedule identity;
+- keep all R9 features, folds, bootstrap settings, promotion gates, transaction cost, model template, and no-tuning rule unchanged.
+
+This is an evaluation-schedule integrity correction only. It does not alter the candidate model or its features.
