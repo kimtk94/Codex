@@ -99,7 +99,7 @@ def load_registry(events_path):
 def sql_string(x):
     return str(x).replace("\\","\\\\").replace("'","\\'")
 
-def build_sql(reg,start_int=20230701000000,end_int=20260902000000):
+def build_sql(reg,start_int=20240801000000,end_int=20260902000000):
     x=reg.loc[reg["status"]=="SUPPORTED"].copy()
     structs=[]
     for r in x.itertuples(index=False):
@@ -112,7 +112,7 @@ def build_sql(reg,start_int=20230701000000,end_int=20260902000000):
     aliases=",\n    ".join(structs)
 
     return f"""-- Kalman R9-NG research-only historical mention intensity
--- PIT: downstream hourly features may use completed UTC days only.
+-- PIT: downstream hourly features may use completed UTC days only.\n-- Cost-bounded research window: ~25 months, sufficient for the >=24 month readiness gate.
 WITH aliases AS (
   SELECT * FROM UNNEST([
     {aliases}
