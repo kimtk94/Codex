@@ -79,6 +79,9 @@ text = Path("/etc/cron.d/kalman").read_text(encoding="utf-8")
 required = [
     "35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh",
     "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh",
+    "*/30 9-21 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
+    "0 22 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
+    "25-55/5 22 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
     "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
     "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
 ]
@@ -92,7 +95,7 @@ if missing:
 bad = [token for token in forbidden if token in text]
 if bad:
     raise SystemExit(f"US cycle cron contract failed: independent workers remain={bad}")
-print("[PASS] US hourly model cycle + 5m execution watcher cron contract")
+print("[PASS] US hourly model cycle + daytime position watch + market-gated 5m execution watcher cron contract")
 PY
 
 # Open the explicit LIVE canary gates only after the new runtime and cron validate.
@@ -111,6 +114,7 @@ cd "$APP"
 bash "$APP/scripts/trading_status.sh"
 
 grep -F "run_us_cycle.sh" /etc/cron.d/kalman >/dev/null
+grep -F "run_position_watch.sh" /etc/cron.d/kalman >/dev/null
 grep -F "run_execution_watch.sh" /etc/cron.d/kalman >/dev/null
 ! grep -F "run_pipeline.sh US" /etc/cron.d/kalman >/dev/null
 ! grep -F "run_auto_trade.sh" /etc/cron.d/kalman >/dev/null
@@ -129,12 +133,16 @@ echo "max_active_positions=3"
 echo "stop_loss=-3%"
 echo "take_profit=+20%"
 echo "model_rotation=disabled_for_multi_position"
+echo "profit_flip_guard=ARM_+0.2PCT_TRIGGER_-0.2PCT_X2_REVALIDATE_0PCT"
+echo "profit_flip_pending_blocks_add_on=true"
 echo "max_hold=4 canonical buckets"
 echo "daily_buy_cap_krw=DISABLED_CASH_DRIVEN"
 echo "cron=/etc/cron.d/kalman"
 echo "us_cycle_kst=23:35_and_00:35-04:35"
 echo "us_cycle_order=PIPELINE_COMMIT_THEN_AUTO_TRADE"
-echo "execution_watch_kst=EVERY_5M_23:00-05:55"
+echo "position_watch_kst=EVERY_30M_09:00-21:30_PLUS_22:00"
+echo "position_watch_order=POSITION_MANAGER_THEN_MIRROR_NO_BUY"
+echo "execution_watch_kst=EVERY_5M_22:25-05:55_MARKET_CALENDAR_GATED"
 echo "execution_watch_order=POSITION_MANAGER_THEN_AUTO_TRADE_THEN_MIRROR"
 echo "execution_watch_model_refresh=DISABLED"
 echo "us_signal_timestamp=60M_BAR_START"
