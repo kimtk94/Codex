@@ -786,19 +786,32 @@ def evaluate(audit: pd.DataFrame, *, feed: str) -> dict[str, Any]:
     }
 
 
+def _default_us_etf_root() -> Path:
+    override = os.environ.get("KALMAN_US_ETF_ROOT", "").strip()
+    if override:
+        return Path(override).expanduser()
+
+    candidates = (Path("/mnt/gdrive/US_ETF"), Path("/mnt/gdrive"))
+    for candidate in candidates:
+        if (candidate / "model_lab_v1").is_dir() and (candidate / "directional_research").is_dir():
+            return candidate
+    return Path("/mnt/gdrive/US_ETF")
+
+
 def parse_args() -> argparse.Namespace:
+    root = _default_us_etf_root()
     p = argparse.ArgumentParser(description="Research-only R5 open-revalidation backfill/backtest")
     p.add_argument(
         "--baseline-ledger",
-        default="/mnt/gdrive/US_ETF/model_lab_v1/results/exit_policy_v1_0_pre2026/exit_policy_v1_0_1_trade_ledger.parquet",
+        default=str(root / "model_lab_v1/results/exit_policy_v1_0_pre2026/exit_policy_v1_0_1_trade_ledger.parquet"),
     )
     p.add_argument(
         "--cache-dir",
-        default="/mnt/gdrive/US_ETF/directional_research/open_revalidation_1m_alpaca_v1",
+        default=str(root / "directional_research/open_revalidation_1m_alpaca_v1"),
     )
     p.add_argument(
         "--output-dir",
-        default="/mnt/gdrive/US_ETF/model_lab_v1/results/open_revalidation_v1",
+        default=str(root / "model_lab_v1/results/open_revalidation_v1"),
     )
     p.add_argument("--feed", default=os.environ.get("OPEN_REVALIDATION_ALPACA_FEED", "iex"))
     p.add_argument("--start", default=None)
