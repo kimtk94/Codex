@@ -387,7 +387,7 @@ def main():
             "seendate_parse_ge_90pct":seen_ratio>=0.90,
         }
         ready=False
-        next_action="RUN_FULL_READINESS" if smoke_pass else "FIX_NEWS_DATA_READINESS"
+        next_action="DESIGN_HISTORICAL_BULK_SOURCE" if smoke_pass else "FIX_NEWS_DATA_READINESS"
     else:
         gates={
             "universe_is_93":len(reg)==93,
