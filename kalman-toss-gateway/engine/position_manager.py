@@ -25,6 +25,11 @@ from dotenv import load_dotenv
 from app.config import Settings
 from app.executor import TradeLedger, execute_order
 from app.managed_positions import ManagedPositionStore
+from app.live_exit_policy import (
+    choose_exit_reason as choose_live_exit_reason,
+    should_clear_profit_flip_pending,
+    validate_profit_flip_parameters,
+)
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
 
@@ -234,18 +239,12 @@ def _profit_flip_config() -> tuple[bool, Decimal, Decimal, Decimal, int]:
             'AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS must be an integer'
         ) from exc
 
-    if arm_pct < 0 or arm_pct > Decimal('0.20'):
-        raise RuntimeError('AUTO_TRADE_PROFIT_FLIP_ARM_PCT must be between 0 and 0.20')
-    if trigger_pct >= 0 or trigger_pct < Decimal('-0.20'):
-        raise RuntimeError('AUTO_TRADE_PROFIT_FLIP_TRIGGER_PCT must be between -0.20 and 0')
-    if recovery_pct < trigger_pct or recovery_pct > Decimal('0.20'):
-        raise RuntimeError(
-            'AUTO_TRADE_PROFIT_FLIP_RECOVERY_PCT must be >= trigger and <= 0.20'
-        )
-    if confirm < 1 or confirm > 12:
-        raise RuntimeError(
-            'AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS must be between 1 and 12'
-        )
+    validate_profit_flip_parameters(
+        arm_pct=arm_pct,
+        trigger_pct=trigger_pct,
+        recovery_pct=recovery_pct,
+        confirm_observations=confirm,
+    )
     return enabled, arm_pct, trigger_pct, recovery_pct, confirm
 
 
@@ -259,17 +258,15 @@ def _choose_exit_reason(
     target_buckets: int,
     pending_exit_reason: str | None = None,
 ) -> str | None:
-    if price_return <= stop_loss:
-        return 'STOP_LOSS_3PCT'
-    if price_return >= take_profit:
-        return 'TAKE_PROFIT_20PCT'
-    if pending_exit_reason:
-        return pending_exit_reason
-    if model_rotation:
-        return 'MODEL_ROTATION'
-    if elapsed_buckets >= target_buckets:
-        return 'MAX_HOLD_4_BUCKETS'
-    return None
+    return choose_live_exit_reason(
+        price_return=price_return,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        model_rotation=model_rotation,
+        elapsed_buckets=elapsed_buckets,
+        target_buckets=target_buckets,
+        pending_exit_reason=pending_exit_reason,
+    )
 
 
 async def _reconcile_reserved(store: ManagedPositionStore, ledger: TradeLedger, position: dict) -> dict:
@@ -589,9 +586,10 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         # Daytime deterioration only prepares an exit. At execution time the
         # position is revalidated against the latest price; a recovery above
         # the configured threshold cancels the pending exit.
-        if (
-            pending_exit_reason == 'PROFIT_TO_LOSS_FLIP'
-            and price_return > flip_recovery_pct
+        if should_clear_profit_flip_pending(
+            pending_reason=pending_exit_reason,
+            price_return=price_return,
+            recovery_pct=flip_recovery_pct,
         ):
             store.clear_exit_pending(position['position_id'])
             pending_exit_reason = None
