@@ -109,7 +109,6 @@ def main() -> int:
     model_path = r50 / "model_freeze/r5_hgb.joblib"
 
     scored = pd.read_parquet(scored_path, columns=SCORED_COLUMNS)
-    frozen_ledger = pd.read_parquet(ledger_path)
     model_template = joblib.load(model_path)
 
     scored["timestamp"] = nts(scored["timestamp"])
@@ -146,16 +145,12 @@ def main() -> int:
     if train_all[NEWS_FEATURES].isna().any().any():
         raise RuntimeError("R9 training features contain missing values after burn-in")
 
-    frozen_r5 = frozen_ledger.loc[
-        (frozen_ledger["candidate"] == FROZEN_R5)
-        & (frozen_ledger["fold"].astype(str).isin(EVAL_FOLD_NAMES))
-    ].copy()
-    if frozen_r5.empty:
-        raise RuntimeError("frozen R5 baseline ledger missing for R9 folds")
-    frozen_r5["timestamp"] = nts(frozen_r5["timestamp"])
-    frozen_r5["target_timestamp_4b"] = nts(frozen_r5["target_timestamp_4b"])
-    frozen_r5["fold"] = frozen_r5["fold"].astype(str)
-
+    # Integrity-only protocol correction:
+    # replay the already-frozen R5 score on the exact R9-admissible evaluation
+    # rows. The historical frozen trade ledger was generated on a different
+    # non-overlap path, so slicing it by fold does not guarantee timestamp
+    # identity with a newly reconstructed challenger ledger.
+    r5_parts = []
     control_parts = []
     challenger_parts = []
     fold_contract = []
@@ -180,6 +175,8 @@ def main() -> int:
             raise RuntimeError(f"{fold}: too few window-matched train rows: {len(tr)}")
         if te.empty:
             raise RuntimeError(f"{fold}: no evaluable rows")
+
+        r5_parts.append(te.copy())
 
         c0 = _fit_predict(
             tr,
@@ -208,11 +205,14 @@ def main() -> int:
             "news_coverage_test": float(te[NEWS_FEATURES].notna().all(axis=1).mean()),
         })
 
+    r5_rows = pd.concat(r5_parts, ignore_index=True)
     control_rows = pd.concat(control_parts, ignore_index=True)
     challenger_rows = pd.concat(challenger_parts, ignore_index=True)
 
+    frozen_r5 = simulate(r5_rows, FROZEN_R5)
     control_ledger = simulate(control_rows, CONTROL)
     challenger_ledger = simulate(challenger_rows, CHALLENGER)
+    frozen_r5["candidate"] = FROZEN_R5
     control_ledger["candidate"] = CONTROL
     challenger_ledger["candidate"] = CHALLENGER
 
@@ -299,6 +299,8 @@ def main() -> int:
         "scored_news_audit": scored_news_audit,
         "schedule_control_vs_challenger": sched_c,
         "schedule_r5_vs_challenger": sched_r5,
+        "frozen_r5_reference_mode": "REPLAY_FROZEN_R5_SCORE_ON_EXACT_R9_ADMISSIBLE_ROWS",
+        "historical_frozen_ledger_used_for_performance": False,
         "frozen_r5": r5_m,
         "window_matched_control": control_m,
         "challenger": chal_m,
