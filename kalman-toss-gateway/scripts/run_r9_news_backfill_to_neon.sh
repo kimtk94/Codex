@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${R9_PYTHON:-/opt/kalman/.venv/bin/python}"
-STATE="${R9_NEWS_STATE_DIR:-/opt/kalman/state/r9_news_ngram}"
+STATE="${R9_NEWS_STATE_DIR:-${HOME}/.local/state/kalman/r9_news_ngram}"
 BQ_PROJECT="${R9_BQ_PROJECT:-}"
 SQL="$STATE/r9_ngram_historical.sql"
 REG="$STATE/alias_registry.csv"
@@ -42,7 +42,17 @@ ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(accoun
 echo "gcloud_account=${ACTIVE_ACCOUNT:-NONE}"
 echo "billing_project=$BQ_PROJECT"
 
-bq --project_id="$BQ_PROJECT" query   --use_legacy_sql=false   --dry_run   < "$SQL"
+if [[ -z "$ACTIVE_ACCOUNT" ]]; then
+  echo "ERROR: no active gcloud account." >&2
+  echo "Run: gcloud auth login --no-launch-browser" >&2
+  echo "Then rerun this script." >&2
+  exit 22
+fi
+
+bq --project_id="$BQ_PROJECT" query \
+  --use_legacy_sql=false \
+  --dry_run \
+  < "$SQL"
 
 if [[ "${R9_NGRAM_EXECUTE:-NO}" != "YES" ]]; then
   echo
@@ -54,16 +64,27 @@ echo
 echo "===== R9 NEWS: HISTORICAL EXTRACTION ====="
 TMP="$CSV.tmp"
 rm -f "$TMP"
-bq --project_id="$BQ_PROJECT" query   --use_legacy_sql=false   --quiet   --format=csv   --max_rows=1000000   < "$SQL" > "$TMP"
+bq --project_id="$BQ_PROJECT" query \
+  --use_legacy_sql=false \
+  --quiet \
+  --format=csv \
+  --max_rows=1000000 \
+  < "$SQL" > "$TMP"
 mv "$TMP" "$CSV"
 
 echo
 echo "===== R9 NEWS: READINESS ====="
-"$PY" "$ROOT/research/r9_news_ngram_bq.py"   --output-dir "$STATE"   --summarize-csv "$CSV"
+"$PY" "$ROOT/research/r9_news_ngram_bq.py" \
+  --output-dir "$STATE" \
+  --summarize-csv "$CSV"
 
 echo
 echo "===== R9 NEWS: NEON VALIDATION ====="
-"$PY" "$ROOT/research/r9_news_neon_store.py"   --registry "$REG"   --mentions-csv "$CSV"   --manifest "$MANIFEST"   --dry-run
+"$PY" "$ROOT/research/r9_news_neon_store.py" \
+  --registry "$REG" \
+  --mentions-csv "$CSV" \
+  --manifest "$MANIFEST" \
+  --dry-run
 
 if [[ "${R9_NEON_WRITE:-NO}" != "YES" ]]; then
   echo
@@ -73,7 +94,14 @@ fi
 
 echo
 echo "===== R9 NEWS: NEON MIRROR ====="
-"$PY" "$ROOT/research/r9_news_neon_store.py"   --registry "$REG"   --mentions-csv "$CSV"   --manifest "$MANIFEST"
+sudo env \
+  KALMAN_ENV_FILE="${KALMAN_ENV_FILE:-/opt/kalman/.env}" \
+  KALMAN_R9_NEWS_NEON_ENABLED=true \
+  KALMAN_R9_NEWS_NEON_CONFIRM=CONFIRM_R9_NEWS_NEON_STORE \
+  "$PY" "$ROOT/research/r9_news_neon_store.py" \
+    --registry "$REG" \
+    --mentions-csv "$CSV" \
+    --manifest "$MANIFEST"
 
 echo
 echo "R9_NEWS_BACKFILL_TO_NEON=PASS"
