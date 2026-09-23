@@ -813,3 +813,225 @@ def evaluate_replay(
             if coverage["ready_rows"]
             else 0.0
         ),
+        "exit_reason_counts": dict(sorted(reasons.items())),
+        "research_survivor": research_survivor,
+        "promotion_recommendation": (
+            "PROSPECTIVE_SHADOW_ONLY"
+            if research_survivor
+            else "NO_PROMOTION"
+        ),
+        "limitations": [
+            "Historical vendor bars are a proxy for Toss lastPrice and market fills.",
+            "Missing overnight bars are never forward-filled; coverage gates fail closed.",
+            "The Toss live market calendar is proxied by 09:30-16:00 America/New_York plus observed bars.",
+            "Historical add-on opportunities are not synthesized; pending-state add-on blocking is audited only.",
+            "Model rotation must be disabled unless a point-in-time eligible-signal stream is added.",
+            "Candidate P&L preserves the original baseline and adds only the same-feed counterfactual return delta.",
+        ],
+    }
+
+
+def parse_args() -> argparse.Namespace:
+    root = _default_us_etf_root()
+    p = argparse.ArgumentParser(
+        description=(
+            "Research-only exact-cadence replay of the current Kalman "
+            "live exit policy"
+        )
+    )
+    p.add_argument(
+        "--baseline-ledger",
+        default=str(
+            root
+            / "model_lab_v1/results/exit_policy_v1_0_pre2026/"
+            "exit_policy_v1_0_1_trade_ledger.parquet"
+        ),
+    )
+    p.add_argument(
+        "--cache-dir",
+        default=str(
+            root
+            / "directional_research/live_policy_replay_1m_alpaca_v1"
+        ),
+    )
+    p.add_argument(
+        "--output-dir",
+        default=str(root / "model_lab_v1/results/live_policy_replay_v1"),
+    )
+    p.add_argument(
+        "--feed",
+        default=os.environ.get("LIVE_POLICY_REPLAY_ALPACA_FEED", "iex"),
+    )
+    p.add_argument("--start", default=None)
+    p.add_argument("--end", default="2025-12-31")
+    p.add_argument("--max-trades", type=int, default=None)
+    p.add_argument("--refresh-cache", action="store_true")
+    p.add_argument("--cache-only", action="store_true")
+    p.add_argument(
+        "--event-audit",
+        choices=("none", "changes", "full"),
+        default="changes",
+    )
+    p.add_argument("--n-boot", type=int, default=4000)
+    p.add_argument("--backfill-only", action="store_true")
+    return p.parse_args()
+
+
+def main() -> int:
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(
+            os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"),
+            override=False,
+        )
+    except ImportError:
+        pass
+
+    args = parse_args()
+    if args.n_boot < 100 or args.n_boot > 100_000:
+        raise RuntimeError("--n-boot must be between 100 and 100000")
+
+    config = ReplayPolicyConfig.from_env()
+    if config.model_rotation_enabled:
+        raise RuntimeError(
+            "AUTO_TRADE_MODEL_ROTATION_ENABLED=true cannot be replayed "
+            "exactly from the FIXED_4 ledger alone; disable it or add a "
+            "point-in-time eligible-signal stream before running this study"
+        )
+
+    baseline_path = Path(args.baseline_ledger)
+    if not baseline_path.is_file():
+        raise FileNotFoundError(baseline_path)
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    status_path = output_dir / "status.json"
+    policy_path = output_dir / "policy_snapshot.json"
+
+    _write_json(
+        policy_path,
+        {
+            "schema": SCHEMA_VERSION,
+            "captured_at_utc": datetime.now(UTC).isoformat(),
+            "source": "live environment snapshot",
+            "policy": config.jsonable(),
+            "fingerprint": config.fingerprint(),
+        },
+    )
+    _write_json(
+        status_path,
+        {
+            "schema": SCHEMA_VERSION,
+            "status": "RUNNING",
+            "phase": "LOAD_BASELINE",
+            "research_only": True,
+            "production_changed": False,
+            "automation_changed": False,
+            "baseline_ledger": str(baseline_path),
+            "baseline_sha256": _sha256(baseline_path),
+            "feed": args.feed,
+            "policy_fingerprint": config.fingerprint(),
+        },
+    )
+
+    ledger = pd.read_parquet(baseline_path)
+    store = BarWindowStore(
+        cache_dir=Path(args.cache_dir),
+        feed=args.feed,
+        refresh=bool(args.refresh_cache),
+        cache_only=bool(args.cache_only),
+    )
+    audit, events = build_replay_audit(
+        ledger,
+        config=config,
+        window_store=store,
+        start=args.start,
+        end=args.end,
+        max_trades=args.max_trades,
+        event_audit=args.event_audit,
+    )
+
+    audit_path = output_dir / "live_policy_replay_trade_audit.parquet"
+    audit.to_parquet(audit_path, index=False)
+
+    event_path: Path | None = None
+    if args.event_audit != "none":
+        event_path = output_dir / "live_policy_replay_event_audit.parquet"
+        events.to_parquet(event_path, index=False)
+
+    if args.backfill_only:
+        result = {
+            "schema": SCHEMA_VERSION,
+            "status": "BACKFILL_COMPLETE",
+            "research_only": True,
+            "production_changed": False,
+            "automation_changed": False,
+            "rows": int(len(audit)),
+            "ready_rows": int(
+                audit["replay_data_ready"].fillna(False).sum()
+            ),
+            "coverage": _coverage_summary(audit),
+            "audit": str(audit_path),
+            "event_audit": str(event_path) if event_path else None,
+            "policy_snapshot": str(policy_path),
+        }
+        _write_json(status_path, result)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        return 0
+
+    decision = evaluate_replay(
+        audit,
+        config=config,
+        feed=args.feed,
+        n_boot=int(args.n_boot),
+    )
+    decision.update(
+        baseline_ledger=str(baseline_path),
+        baseline_sha256=_sha256(baseline_path),
+        audit_path=str(audit_path),
+        event_audit_path=str(event_path) if event_path else None,
+        policy_snapshot=str(policy_path),
+    )
+
+    decision_path = output_dir / "live_policy_replay_decision.json"
+    _write_json(decision_path, decision)
+
+    pd.DataFrame(decision["folds"]).to_csv(
+        output_dir / "live_policy_replay_fold_summary.csv",
+        index=False,
+    )
+    pd.DataFrame(
+        [
+            {"exit_reason": reason, "count": count}
+            for reason, count in decision["exit_reason_counts"].items()
+        ]
+    ).to_csv(
+        output_dir / "live_policy_replay_reason_summary.csv",
+        index=False,
+    )
+
+    final_status = {
+        "schema": SCHEMA_VERSION,
+        "status": "COMPLETE",
+        "research_only": True,
+        "production_changed": False,
+        "automation_changed": False,
+        "rows": int(len(audit)),
+        "ready_rows": decision["coverage"]["ready_rows"],
+        "coverage": decision["coverage"],
+        "triggered_exits": decision["triggered_exits"],
+        "research_survivor": decision["research_survivor"],
+        "promotion_recommendation": decision["promotion_recommendation"],
+        "decision": str(decision_path),
+        "audit": str(audit_path),
+        "event_audit": str(event_path) if event_path else None,
+        "policy_snapshot": str(policy_path),
+    }
+    _write_json(status_path, final_status)
+    print(json.dumps(final_status, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
