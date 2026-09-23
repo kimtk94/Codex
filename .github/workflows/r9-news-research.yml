@@ -4,27 +4,46 @@ on:
   push:
     branches:
       - research/r9-news-pit-20260922
+      - research/r9-2-prospective-shadow-20260923
     paths:
       - "kalman-toss-gateway/research/r9_news_ngram_bq.py"
       - "kalman-toss-gateway/research/r9_news_neon_store.py"
       - "kalman-toss-gateway/research/r9_news_neon_schema.sql"
       - "kalman-toss-gateway/research/R9_NEWS_NGRAM_SPEC.md"
       - "kalman-toss-gateway/research/R9_1_NGRAM_ABLATION_SPEC.md"
+      - "kalman-toss-gateway/research/R9_2_PROSPECTIVE_SHADOW_SPEC.md"
+      - "kalman-toss-gateway/research/r9_2_model_freeze.py"
+      - "kalman-toss-gateway/research/r9_2_ngram_daily.py"
+      - "kalman-toss-gateway/research/r9_2_prospective_shadow.py"
       - "kalman-toss-gateway/research/r9_news_features.py"
       - "kalman-toss-gateway/research/r9_1_ngram_ablation.py"
       - "kalman-toss-gateway/scripts/run_r9_news_backfill_to_neon.sh"
       - "kalman-toss-gateway/scripts/recover_r9_news_existing_job_to_neon.sh"
       - "kalman-toss-gateway/scripts/run_r9_1_ngram_ablation.sh"
+      - "kalman-toss-gateway/scripts/run_r9_2_model_freeze.sh"
+      - "kalman-toss-gateway/scripts/run_r9_2_ngram_incremental.sh"
+      - "kalman-toss-gateway/scripts/run_r9_2_prospective_shadow.sh"
       - "kalman-toss-gateway/scripts/apply_r9_news_neon_schema.sh"
       - "kalman-toss-gateway/tests/test_r9_news_ngram_bq.py"
       - "kalman-toss-gateway/tests/test_r9_news_neon_store.py"
       - "kalman-toss-gateway/tests/test_r9_news_features.py"
+      - "kalman-toss-gateway/tests/test_r9_2_ngram_daily.py"
+      - "kalman-toss-gateway/tests/test_r9_2_prospective_shadow.py"
       - ".github/workflows/r9-news-research.yml"
   pull_request:
     paths:
       - "kalman-toss-gateway/research/r9_news_ngram_bq.py"
       - "kalman-toss-gateway/research/r9_news_neon_store.py"
       - "kalman-toss-gateway/research/r9_news_neon_schema.sql"
+      - "kalman-toss-gateway/research/R9_2_PROSPECTIVE_SHADOW_SPEC.md"
+      - "kalman-toss-gateway/research/r9_2_model_freeze.py"
+      - "kalman-toss-gateway/research/r9_2_ngram_daily.py"
+      - "kalman-toss-gateway/research/r9_2_prospective_shadow.py"
+      - "kalman-toss-gateway/scripts/run_r9_2_model_freeze.sh"
+      - "kalman-toss-gateway/scripts/run_r9_2_ngram_incremental.sh"
+      - "kalman-toss-gateway/scripts/run_r9_2_prospective_shadow.sh"
+      - "kalman-toss-gateway/tests/test_r9_2_ngram_daily.py"
+      - "kalman-toss-gateway/tests/test_r9_2_prospective_shadow.py"
       - "kalman-toss-gateway/scripts/run_r9_news_backfill_to_neon.sh"
       - "kalman-toss-gateway/scripts/recover_r9_news_existing_job_to_neon.sh"
       - "kalman-toss-gateway/tests/test_r9_news_ngram_bq.py"
@@ -45,13 +64,18 @@ jobs:
         run: python -m pip install --disable-pip-version-check pandas pytest python-dotenv scikit-learn==1.6.1 joblib
       - name: Compile R9 modules
         run: |
-          python -m py_compile research/r9_news_ngram_bq.py research/r9_news_neon_store.py research/r9_news_features.py research/r9_1_ngram_ablation.py
+          python -m py_compile research/r9_news_ngram_bq.py research/r9_news_neon_store.py research/r9_news_features.py research/r9_1_ngram_ablation.py research/r9_2_model_freeze.py research/r9_2_ngram_daily.py research/r9_2_prospective_shadow.py
           bash -n scripts/run_r9_news_backfill_to_neon.sh
           bash -n scripts/recover_r9_news_existing_job_to_neon.sh
           bash -n scripts/run_r9_1_ngram_ablation.sh
+          bash -n scripts/run_r9_2_model_freeze.sh
+          bash -n scripts/run_r9_2_ngram_incremental.sh
+          bash -n scripts/run_r9_2_prospective_shadow.sh
           bash -n scripts/apply_r9_news_neon_schema.sh
       - name: Import R9.1 runner
         run: PYTHONPATH=research python -c "import r9_1_ngram_ablation"
+      - name: Import R9.2 runners
+        run: PYTHONPATH=research python -c "import r9_2_model_freeze, r9_2_ngram_daily, r9_2_prospective_shadow"
       - name: Run R9 tests
         run: |
-          pytest -q tests/test_r9_news_ngram_bq.py tests/test_r9_news_neon_store.py tests/test_r9_news_features.py
+          pytest -q tests/test_r9_news_ngram_bq.py tests/test_r9_news_neon_store.py tests/test_r9_news_features.py tests/test_r9_2_ngram_daily.py tests/test_r9_2_prospective_shadow.py
