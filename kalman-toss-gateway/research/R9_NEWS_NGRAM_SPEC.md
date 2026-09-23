@@ -114,3 +114,35 @@ R9-NG does not alter:
 - strategy_signal
 - R5-EXIT-V1
 - R8 passive risk work
+
+
+## 8. Alias readiness update
+
+The initial generator produced 74 / 93 supported aliases.
+
+Before any BigQuery execution, 16 additional <=2-token public-name contractions were frozen:
+- AMAT -> Applied Materials
+- AMD -> Advanced Micro
+- AMT -> American Tower
+- BMY -> Bristol Myers
+- BNY -> BNY Mellon
+- COF -> Capital One
+- DHR -> Danaher
+- IBM -> IBM
+- LLY -> Eli Lilly
+- PG -> Procter Gamble
+- PM -> Philip Morris
+- QCOM -> Qualcomm
+- TMO -> Thermo Fisher
+- UPS -> UPS
+- USB -> US Bancorp
+- WFC -> Wells Fargo
+
+This raises supported alias coverage to 90 / 93.
+
+The following remain intentionally unsupported in v1 because forcing them into <=2-token aliases would create material ambiguity or uncertain tokenizer behavior:
+- BAC (Bank of America)
+- JNJ (Johnson & Johnson)
+- T (AT&T)
+
+The readiness gate remains >= 90 supported symbols; it is not relaxed.
