@@ -272,7 +272,7 @@ def main():
             status="ERROR"
             error=f"{type(exc).__name__}: {exc}"
             import re
-            m=re.search(r"attempts=(\\d+)",error)
+            m=re.search(r"attempts=(\d+)",error)
             if m:
                 attempts=int(m.group(1))
 
