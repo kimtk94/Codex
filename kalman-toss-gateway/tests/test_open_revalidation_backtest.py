@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from research.quant_stack.open_revalidation_backtest import (
     POLICIES,
+    _default_us_etf_root,
     _effective_bar_close,
     extract_revalidation_features,
     policy_trigger,
@@ -95,3 +96,9 @@ def test_giveback_policy_requires_large_prior_profit():
 
     features["position_return_prev_close"] = 0.004
     assert not policy_trigger(policies["OPEN_GIVEBACK_5M"], features)
+
+
+def test_us_etf_root_honors_explicit_override(monkeypatch, tmp_path):
+    target = tmp_path / "US_ETF"
+    monkeypatch.setenv("KALMAN_US_ETF_ROOT", str(target))
+    assert _default_us_etf_root() == target
