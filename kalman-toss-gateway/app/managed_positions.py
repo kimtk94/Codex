@@ -480,6 +480,7 @@ class ManagedPositionStore:
         arm_pct: Decimal,
         trigger_pct: Decimal,
         confirm_observations: int,
+        flip_enabled: bool = True,
         giveback_enabled: bool = False,
         giveback_arm_pct: Decimal = Decimal('0.005'),
         giveback_drawdown_pct: Decimal = Decimal('0.007'),
@@ -502,7 +503,9 @@ class ManagedPositionStore:
                 else price_return
             )
             peak = max(previous_peak, price_return)
-            armed = bool(int(row.get('profit_flip_armed') or 0)) or peak >= arm_pct
+            armed = flip_enabled and (
+                bool(int(row.get('profit_flip_armed') or 0)) or peak >= arm_pct
+            )
 
             negative_count = int(row.get('profit_flip_negative_count') or 0)
             if armed and price_return <= trigger_pct:
