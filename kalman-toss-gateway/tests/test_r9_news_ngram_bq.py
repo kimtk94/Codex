@@ -41,3 +41,26 @@ def test_three_word_alias_requires_override():
         p.write_text(json.dumps(events))
         r=m.load_registry(p)
         assert r.iloc[0]["status"]=="NEEDS_OVERRIDE"
+
+
+def test_frozen_public_name_contractions():
+    expected={
+        "AMAT":"Applied Materials",
+        "AMD":"Advanced Micro",
+        "AMT":"American Tower",
+        "BMY":"Bristol Myers",
+        "BNY":"BNY Mellon",
+        "COF":"Capital One",
+        "DHR":"Danaher",
+        "IBM":"IBM",
+        "LLY":"Eli Lilly",
+        "PG":"Procter Gamble",
+        "PM":"Philip Morris",
+        "QCOM":"Qualcomm",
+        "TMO":"Thermo Fisher",
+        "UPS":"UPS",
+        "USB":"US Bancorp",
+        "WFC":"Wells Fargo",
+    }
+    for k,v in expected.items():
+        assert m.OVERRIDES[k]==v
