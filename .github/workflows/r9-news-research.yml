@@ -10,6 +10,7 @@ on:
       - "kalman-toss-gateway/research/r9_news_neon_schema.sql"
       - "kalman-toss-gateway/research/R9_NEWS_NGRAM_SPEC.md"
       - "kalman-toss-gateway/scripts/run_r9_news_backfill_to_neon.sh"
+      - "kalman-toss-gateway/scripts/apply_r9_news_neon_schema.sh"
       - "kalman-toss-gateway/tests/test_r9_news_ngram_bq.py"
       - "kalman-toss-gateway/tests/test_r9_news_neon_store.py"
       - ".github/workflows/r9-news-research.yml"
@@ -39,6 +40,7 @@ jobs:
         run: |
           python -m py_compile             research/r9_news_ngram_bq.py             research/r9_news_neon_store.py
           bash -n scripts/run_r9_news_backfill_to_neon.sh
+          bash -n scripts/apply_r9_news_neon_schema.sh
       - name: Run R9 tests
         run: |
           pytest -q             tests/test_r9_news_ngram_bq.py             tests/test_r9_news_neon_store.py
