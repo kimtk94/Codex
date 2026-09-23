@@ -62,11 +62,46 @@ The interval from 2026-09-02 through the day before the first R9.2 signal may be
 Those bridge days:
 - may populate mention history;
 - may populate feature snapshots;
-- may not create R9.2 signals;
+- may not create R9.2 prospective signals;
 - may not create R9.2 trades/outcomes;
 - may not be used to change features, model parameters, or gates.
 
 The first eligible R9.2 signal is no earlier than `2026-09-24T13:30:00Z`.
+
+
+### 4.1 Frozen pre-boundary diagnostic exception
+
+Before any prospective outcome is observed, one isolated diagnostic window is permitted:
+
+- market timestamps: `2026-09-23T13:30:00Z <= timestamp < 2026-09-24T13:30:00Z`
+- required NGram source day: exactly `2026-09-22`
+- same frozen R9.2 model and medians
+- same frozen R5.1 comparator
+- same canonical live feature formulas
+- same minimum universe coverage of 90/93
+
+This diagnostic may output rankings only:
+- R9 Top1/Top5
+- R5.1 Top1/Top5
+- Top1 agreement
+- score Spearman
+- Top10 overlap
+- volatility-target weights
+
+It is explicitly **not** R9.2 prospective evidence:
+- no trade entry
+- no outcome
+- no bootstrap
+- no Neon prospective signal write
+- no production `strategy_signal`
+- no broker order
+- no model refit or parameter change
+
+The diagnostic is stored only under:
+- `r9_2_preboundary_diagnostic.parquet`
+- `r9_2_preboundary_latest.json`
+
+Its result may be inspected for operational visibility, but may not change the frozen R9.2 model, features, gates, prospective boundary, or LIVE behavior.
 
 ## 5. Frozen prospective model
 
