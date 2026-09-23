@@ -6,8 +6,8 @@ PY="${KALMAN_PYTHON:-/opt/kalman/.venv/bin/python}"
 MODE="${1:-smoke}"
 
 case "$MODE" in
-  smoke|full) ;;
-  *) echo "[FAIL] usage: $0 [smoke|full]" >&2; return 2 2>/dev/null || exit 2 ;;
+  probe-recent|probe-historical|smoke|full) ;;
+  *) echo "[FAIL] usage: $0 [probe-recent|probe-historical|smoke|full]" >&2; return 2 2>/dev/null || exit 2 ;;
 esac
 
 echo "===== R9 NEWS TIMELINE READINESS ====="
@@ -25,4 +25,5 @@ export PYTHONPATH="$APP_ROOT${PYTHONPATH:+:$PYTHONPATH}"
   --cache-dir "${R9_TIMELINE_CACHE:-/opt/kalman/state/r9_news_timeline/cache}" \
   --mode "$MODE" \
   --min-request-interval "${R9_TIMELINE_REQUEST_INTERVAL:-12}" \
-  --max-retries "${R9_TIMELINE_MAX_RETRIES:-2}"
+  --max-retries "${R9_TIMELINE_MAX_RETRIES:-2}" \
+  --probe-symbol "${R9_TIMELINE_PROBE_SYMBOL:-AAPL}"
