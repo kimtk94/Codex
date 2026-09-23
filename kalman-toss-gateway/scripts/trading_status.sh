@@ -33,6 +33,11 @@ async def main():
         'maxSymbolNotionalKrw': os.environ.get('AUTO_TRADE_MAX_SYMBOL_NOTIONAL_KRW', '0'),
         'orderKrw': os.environ.get('AUTO_TRADE_ORDER_KRW', '0'),
         'modelRotationEnabled': os.environ.get('AUTO_TRADE_MODEL_ROTATION_ENABLED', 'true').lower() == 'true',
+        'profitFlipGuardEnabled': os.environ.get('AUTO_TRADE_PROFIT_FLIP_GUARD_ENABLED', 'false').lower() == 'true',
+        'profitFlipArmPct': os.environ.get('AUTO_TRADE_PROFIT_FLIP_ARM_PCT', '0.002'),
+        'profitFlipTriggerPct': os.environ.get('AUTO_TRADE_PROFIT_FLIP_TRIGGER_PCT', '-0.002'),
+        'profitFlipRecoveryPct': os.environ.get('AUTO_TRADE_PROFIT_FLIP_RECOVERY_PCT', '0'),
+        'profitFlipConfirmObservations': int(os.environ.get('AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS', '2') or 2),
         'researchNonOverlapBenchmark': True,
         'liveEntryRequiresResearchNonOverlap': (
             os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').upper() == 'SHADOW_CANARY'
