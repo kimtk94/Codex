@@ -31,7 +31,9 @@ from app.live_exit_policy import (
     validate_profit_flip_parameters,
 )
 from app.market_guard import unwrap, us_fractional_order_window
+from app.prospective_shadow import ProspectiveShadowConfig, ProspectiveShadowStore
 from app.toss_client import TossClient
+from engine.prospective_shadow import manage_prospective_shadows
 
 TERMINAL_STATUSES = {
     'FILLED',
@@ -738,12 +740,24 @@ async def main_async() -> int:
     store = ManagedPositionStore(settings.state_db_path)
     ledger = TradeLedger(settings.state_db_path)
     client = TossClient(settings)
+
+    shadow_config = ProspectiveShadowConfig.from_env()
+    shadow_store = (
+        ProspectiveShadowStore(settings.state_db_path)
+        if shadow_config.enabled
+        else None
+    )
+
     positions = store.active()
-    if not positions:
+    if not positions and not (
+        shadow_store and shadow_store.has_open(shadow_config.candidate_id)
+    ):
         print('NO_MANAGED_POSITION')
         return 0
 
     reports = []
+    shadow_price_overrides: dict[str, Decimal] = {}
+
     for original in positions:
         position = store.get(original['position_id']) or original
         state = position['state']
@@ -771,8 +785,20 @@ async def main_async() -> int:
             continue
 
         if state == 'OPEN':
+            if shadow_store:
+                shadow_store.seed_or_sync(position, shadow_config)
+
             open_report = await _manage_open_position(settings, store, client, position, mode)
             reports.append(open_report)
+
+            if open_report.get('lastPrice') not in (None, ''):
+                try:
+                    shadow_price_overrides[position['position_id']] = Decimal(
+                        str(open_report['lastPrice'])
+                    )
+                except Exception:
+                    pass
+
             if mode == 'LIVE' and open_report.get('action') == 'EXIT_SUBMITTED':
                 wait_seconds, poll_seconds = _exit_wait_config()
                 reports.append(
@@ -792,6 +818,30 @@ async def main_async() -> int:
                 'state': state,
                 'note': position.get('note'),
             })
+
+    if shadow_store:
+        db_url = os.environ.get('DATABASE_URL_WRITER')
+        if not db_url:
+            raise RuntimeError('DATABASE_URL_WRITER is missing')
+
+        shadow_reports = await manage_prospective_shadows(
+            config=shadow_config,
+            shadow_store=shadow_store,
+            managed_store=store,
+            client=client,
+            db_url=db_url,
+            elapsed_buckets_fn=_elapsed_canonical_buckets,
+            price_overrides=shadow_price_overrides,
+            watch_source=os.environ.get('KALMAN_WATCH_SOURCE'),
+        )
+        reports.append({
+            'action': 'PROSPECTIVE_SHADOW_CYCLE',
+            'candidateId': shadow_config.candidate_id,
+            'candidateFingerprint': shadow_config.fingerprint,
+            'brokerOrderAttempted': False,
+            'summary': shadow_store.summary(shadow_config.candidate_id),
+            'reports': shadow_reports,
+        })
 
     print(json.dumps(reports, ensure_ascii=False, indent=2, default=str))
     return 0
