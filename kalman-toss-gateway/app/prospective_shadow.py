@@ -147,6 +147,10 @@ class ProspectiveShadowStore:
                     exit_reason TEXT,
                     live_state_last TEXT,
                     live_exit_reason_last TEXT,
+                    live_policy_exit_observed_at TEXT,
+                    live_policy_exit_reference_price TEXT,
+                    live_policy_exit_reference_return TEXT,
+                    live_policy_exit_reference_reason TEXT,
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (candidate_id, live_position_id)
                 )
@@ -281,6 +285,39 @@ class ProspectiveShadowStore:
                 (config.candidate_id, live_position_id),
             ).fetchone()
             return self._dict(row)
+
+    def record_live_policy_exit_reference(
+        self,
+        candidate_id: str,
+        live_position_id: str,
+        *,
+        observed_at: str,
+        price: Decimal,
+        price_return: Decimal,
+        reason: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE prospective_shadow_position
+                SET live_policy_exit_observed_at=?,
+                    live_policy_exit_reference_price=?,
+                    live_policy_exit_reference_return=?,
+                    live_policy_exit_reference_reason=?,
+                    updated_at=?
+                WHERE candidate_id=? AND live_position_id=?
+                  AND live_policy_exit_observed_at IS NULL
+                """,
+                (
+                    observed_at,
+                    str(price),
+                    str(price_return),
+                    reason,
+                    observed_at,
+                    candidate_id,
+                    live_position_id,
+                ),
+            )
 
     def update_live_link(
         self,
