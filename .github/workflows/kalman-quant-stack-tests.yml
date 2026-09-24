@@ -12,6 +12,7 @@ on:
       - "kalman-toss-gateway/tests/test_live_policy_replay.py"
       - "kalman-toss-gateway/scripts/run_open_revalidation_backtest.sh"
       - "kalman-toss-gateway/scripts/run_live_policy_replay.sh"
+      - "kalman-toss-gateway/scripts/run_live_policy_replay_pilot.sh"
       - "kalman-toss-gateway/app/live_exit_policy.py"
       - "kalman-toss-gateway/app/managed_positions.py"
       - "kalman-toss-gateway/engine/position_manager.py"
@@ -75,6 +76,7 @@ jobs:
           python -m compileall -q research/quant_stack
           bash -n scripts/run_open_revalidation_backtest.sh
           bash -n scripts/run_live_policy_replay.sh
+          bash -n scripts/run_live_policy_replay_pilot.sh
           KALMAN_APP_ROOT="$PWD" KALMAN_PYTHON=python \
             bash scripts/run_open_revalidation_backtest.sh --help >/dev/null
           KALMAN_APP_ROOT="$PWD" KALMAN_PYTHON=python \
