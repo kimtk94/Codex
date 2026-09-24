@@ -108,6 +108,10 @@ def main() -> int:
     missing_by_symbol: Counter[str] = Counter()
     prior_boats_ages: list[float] = []
     prior_boats_available = 0
+    carry_caps = [30, 60, 120, 180, 240, 360, 720, 1440]
+    projected_position_coverages: dict[int, list[float]] = {
+        cap: [] for cap in carry_caps
+    }
     missing_position_events = 0
     evaluated_position_events = 0
     low_coverage_rows = 0
@@ -132,7 +136,11 @@ def main() -> int:
             pd.Series([row.get("position_watch_coverage")]),
             errors="coerce",
         ).iloc[0]
-        if pd.isna(position_cov) or float(position_cov) >= 1.0:
+        if pd.isna(position_cov):
+            continue
+        if float(position_cov) >= 1.0:
+            for cap in carry_caps:
+                projected_position_coverages[cap].append(1.0)
             continue
 
         low_coverage_rows += 1
@@ -152,6 +160,41 @@ def main() -> int:
         )
 
         symbol = str(row.get("symbol") or "")
+        row_position_events = [
+            event for event in events
+            if event.get("source") == "POSITION_WATCH"
+        ]
+        row_available = sum(
+            1 for event in row_position_events
+            if bool(event.get("price_available"))
+        )
+        row_missing_ages: list[float | None] = []
+
+        for event in row_position_events:
+            if bool(event.get("price_available")):
+                continue
+            ts = pd.Timestamp(event["timestamp"])
+            if ts.tzinfo is None:
+                ts = ts.tz_localize("UTC")
+            else:
+                ts = ts.tz_convert("UTC")
+            _, prior_age = _prior_boats(bars, ts)
+            row_missing_ages.append(prior_age)
+
+        row_total = len(row_position_events)
+        for cap in carry_caps:
+            fillable = sum(
+                1
+                for age in row_missing_ages
+                if age is not None and age <= cap
+            )
+            projected = (
+                float((row_available + fillable) / row_total)
+                if row_total
+                else 1.0
+            )
+            projected_position_coverages[cap].append(projected)
+
         for event in events:
             if event.get("source") != "POSITION_WATCH":
                 continue
@@ -200,10 +243,11 @@ def main() -> int:
         else None
     )
 
-    carry_caps = [30, 60, 120, 180, 240, 360, 720, 1440]
     carry_sensitivity = []
     for cap in carry_caps:
         fillable = sum(1 for age in prior_boats_ages if age <= cap)
+        projected_values = projected_position_coverages[cap]
+        projected_series = pd.Series(projected_values, dtype=float)
         carry_sensitivity.append(
             {
                 "max_stale_minutes": cap,
@@ -215,6 +259,37 @@ def main() -> int:
                 ),
                 "remaining_missing_events": int(
                     max(0, missing_position_events - fillable)
+                ),
+                "projected_ready_trades": int(len(projected_values)),
+                "projected_median_position_watch_coverage": (
+                    None
+                    if projected_series.empty
+                    else float(projected_series.median())
+                ),
+                "projected_p10_position_watch_coverage": (
+                    None
+                    if projected_series.empty
+                    else float(projected_series.quantile(0.10))
+                ),
+                "projected_trades_ge_0_80": (
+                    0
+                    if projected_series.empty
+                    else int((projected_series >= 0.80).sum())
+                ),
+                "projected_trades_ge_0_80_ratio": (
+                    None
+                    if projected_series.empty
+                    else float((projected_series >= 0.80).mean())
+                ),
+                "projected_trades_full_coverage": (
+                    0
+                    if projected_series.empty
+                    else int((projected_series >= 1.0).sum())
+                ),
+                "projected_trades_full_coverage_ratio": (
+                    None
+                    if projected_series.empty
+                    else float((projected_series >= 1.0).mean())
                 ),
             }
         )
