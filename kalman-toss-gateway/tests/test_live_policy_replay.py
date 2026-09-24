@@ -222,6 +222,10 @@ def test_replay_arms_by_daytime_and_exits_at_first_executable_regular_tick():
     assert result["candidate_exit_reason"] == PROFIT_TO_LOSS_FLIP
     assert result["candidate_exit_at"] == pd.Timestamp("2025-09-16T13:30:00Z")
     assert result["candidate_exit_price_vendor"] == 98.0
+    assert result["watch_ticks_total"] < result["watch_ticks_scheduled_total"]
+    assert result["watch_coverage"] == 1.0
+    assert result["position_watch_coverage"] == 1.0
+    assert result["execution_watch_coverage"] == 1.0
 
 
 
