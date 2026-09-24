@@ -799,6 +799,23 @@ async def main_async() -> int:
                 except Exception:
                     pass
 
+            if (
+                shadow_store
+                and mode == 'LIVE'
+                and open_report.get('action') == 'EXIT_SUBMITTED'
+                and open_report.get('lastPrice') not in (None, '')
+                and open_report.get('priceReturn') not in (None, '')
+                and open_report.get('exitReason')
+            ):
+                shadow_store.record_live_policy_exit_reference(
+                    shadow_config.candidate_id,
+                    position['position_id'],
+                    observed_at=datetime.now(timezone.utc).isoformat(),
+                    price=Decimal(str(open_report['lastPrice'])),
+                    price_return=Decimal(str(open_report['priceReturn'])),
+                    reason=str(open_report['exitReason']),
+                )
+
             if mode == 'LIVE' and open_report.get('action') == 'EXIT_SUBMITTED':
                 wait_seconds, poll_seconds = _exit_wait_config()
                 reports.append(
