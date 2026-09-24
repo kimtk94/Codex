@@ -200,6 +200,25 @@ def main() -> int:
         else None
     )
 
+    carry_caps = [30, 60, 120, 180, 240, 360, 720, 1440]
+    carry_sensitivity = []
+    for cap in carry_caps:
+        fillable = sum(1 for age in prior_boats_ages if age <= cap)
+        carry_sensitivity.append(
+            {
+                "max_stale_minutes": cap,
+                "fillable_missing_events": int(fillable),
+                "fillable_missing_ratio": (
+                    float(fillable / missing_position_events)
+                    if missing_position_events
+                    else None
+                ),
+                "remaining_missing_events": int(
+                    max(0, missing_position_events - fillable)
+                ),
+            }
+        )
+
     payload = {
         "schema": "kalman-live-policy-position-coverage-diagnostic-v1",
         "research_only": True,
@@ -230,6 +249,7 @@ def main() -> int:
             if not prior_boats_ages
             else float(pd.Series(prior_boats_ages).quantile(0.95))
         ),
+        "carry_sensitivity": carry_sensitivity,
         "samples": samples,
     }
 
@@ -278,6 +298,7 @@ def main() -> int:
         "prior_boats_age_minutes_p95="
         f"{payload['prior_boats_age_minutes_p95']}"
     )
+    print("carry_sensitivity=" + json.dumps(carry_sensitivity, sort_keys=True))
     print(f"diagnosis={diagnosis}")
     print(f"output={args.output}")
 
