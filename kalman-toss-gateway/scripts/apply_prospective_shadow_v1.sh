@@ -10,6 +10,7 @@ ENV_FILE="${KALMAN_ENV_FILE:-/opt/kalman/.env}"
 PY="${KALMAN_PYTHON:-/opt/kalman/.venv/bin/python}"
 ENABLE="${PROSPECTIVE_SHADOW_APPLY_ENABLE:-false}"
 BASE_REF="${PROSPECTIVE_SHADOW_BASE_REF:-origin/main}"
+GIT_ROOT="${KALMAN_GIT_ROOT:-}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_ROOT="/opt/kalman/backups/prospective-shadow-$STAMP"
 
@@ -50,10 +51,17 @@ if [[ "$ENABLE" != "true" && "$ENABLE" != "false" ]]; then
   exit 2
 fi
 
-GIT_ROOT="$(git -C "$SOURCE_ROOT" rev-parse --show-toplevel 2>/dev/null)"
-GIT_RC=$?
-if [[ $GIT_RC -ne 0 || -z "$GIT_ROOT" ]]; then
-  echo "[FAIL] source_root is not inside a git worktree: $SOURCE_ROOT"
+if [[ -z "$GIT_ROOT" ]]; then
+  GIT_ROOT="$(git -c safe.directory='*' -C "$SOURCE_ROOT" rev-parse --show-toplevel 2>/dev/null)"
+  GIT_RC=$?
+  if [[ $GIT_RC -ne 0 || -z "$GIT_ROOT" ]]; then
+    echo "[FAIL] source_root is not inside a git worktree: $SOURCE_ROOT"
+    exit 2
+  fi
+fi
+
+if [[ ! -d "$GIT_ROOT" ]]; then
+  echo "[FAIL] git_root missing: $GIT_ROOT"
   exit 2
 fi
 echo "git_root=$GIT_ROOT"
@@ -112,7 +120,7 @@ for rel in "${MODIFIED_EXISTING[@]}"; do
   fi
 
   BASE_TMP="$(mktemp)"
-  git show "$BASE_REF:kalman-toss-gateway/$rel" > "$BASE_TMP" 2>/dev/null
+  git -c safe.directory="$GIT_ROOT" -C "$GIT_ROOT" show     "$BASE_REF:kalman-toss-gateway/$rel" > "$BASE_TMP" 2>/dev/null
   SHOW_RC=$?
   if [[ $SHOW_RC -ne 0 ]]; then
     rm -f "$BASE_TMP"
