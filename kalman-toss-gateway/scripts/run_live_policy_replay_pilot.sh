@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set +e
+set +u
+set +o pipefail 2>/dev/null || true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ROOT="${KALMAN_APP_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -42,13 +44,27 @@ fi
 
 echo
 echo "===== COMPILE ====="
-cd "$APP_ROOT"
+cd "$APP_ROOT" || {
+  echo "[FAIL] cannot cd to app_root=$APP_ROOT" >&2
+  exit 2
+}
+
 "$PY" -m py_compile   app/live_exit_policy.py   research/quant_stack/live_policy_replay.py
+COMPILE_RC=$?
+if [[ $COMPILE_RC -ne 0 ]]; then
+  echo "[FAIL] compile rc=$COMPILE_RC" >&2
+  exit "$COMPILE_RC"
+fi
 echo "[PASS] compile"
 
 echo
 echo "===== PILOT RUN ====="
 bash scripts/run_live_policy_replay.sh   --max-trades "$MAX_TRADES"   --backfill-only   "$@"
+PILOT_RC=$?
+if [[ $PILOT_RC -ne 0 ]]; then
+  echo "[FAIL] pilot rc=$PILOT_RC" >&2
+  exit "$PILOT_RC"
+fi
 
 ROOT="$("$PY" - <<'PY'
 from research.quant_stack.open_revalidation_backtest import _default_us_etf_root
