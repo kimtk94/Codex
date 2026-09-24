@@ -205,7 +205,32 @@ def test_shadow_store_additive_schema_migration(tmp_path):
             """
             CREATE TABLE prospective_shadow_position (
                 candidate_id TEXT NOT NULL,
+                candidate_fingerprint TEXT NOT NULL,
                 live_position_id TEXT NOT NULL,
+                entry_run_id TEXT,
+                symbol TEXT NOT NULL,
+                strategy_version TEXT,
+                entry_signal_as_of TEXT NOT NULL,
+                live_created_at TEXT,
+                seeded_at TEXT NOT NULL,
+                entry_average_price TEXT NOT NULL,
+                entry_quantity TEXT,
+                entry_count INTEGER NOT NULL DEFAULT 1,
+                target_exit_buckets INTEGER NOT NULL,
+                state TEXT NOT NULL,
+                last_observed_at TEXT,
+                last_price TEXT,
+                last_price_return TEXT,
+                last_elapsed_buckets INTEGER,
+                last_watch_source TEXT,
+                last_exit_signal_reason TEXT,
+                exit_at TEXT,
+                exit_price TEXT,
+                exit_return TEXT,
+                exit_reason TEXT,
+                live_state_last TEXT,
+                live_exit_reason_last TEXT,
+                updated_at TEXT NOT NULL,
                 PRIMARY KEY (candidate_id, live_position_id)
             )
             """
