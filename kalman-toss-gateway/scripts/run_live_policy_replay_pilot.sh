@@ -71,7 +71,30 @@ from research.quant_stack.open_revalidation_backtest import _default_us_etf_root
 print(_default_us_etf_root())
 PY
 )"
-STATUS="$ROOT/model_lab_v1/results/live_policy_replay_v1/status.json"
+
+OUTPUT_DIR=""
+EXPECT_OUTPUT_DIR=0
+for ARG in "$@"; do
+  if [[ $EXPECT_OUTPUT_DIR -eq 1 ]]; then
+    OUTPUT_DIR="$ARG"
+    EXPECT_OUTPUT_DIR=0
+    continue
+  fi
+  case "$ARG" in
+    --output-dir)
+      EXPECT_OUTPUT_DIR=1
+      ;;
+    --output-dir=*)
+      OUTPUT_DIR="${ARG#--output-dir=}"
+      ;;
+  esac
+done
+
+if [[ -n "$OUTPUT_DIR" ]]; then
+  STATUS="$OUTPUT_DIR/status.json"
+else
+  STATUS="$ROOT/model_lab_v1/results/live_policy_replay_v1/status.json"
+fi
 
 echo
 echo "===== PILOT STATUS ====="
