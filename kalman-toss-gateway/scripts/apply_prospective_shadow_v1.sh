@@ -50,10 +50,13 @@ if [[ "$ENABLE" != "true" && "$ENABLE" != "false" ]]; then
   exit 2
 fi
 
-if [[ ! -d "$SOURCE_ROOT/.git" && ! -f "$SOURCE_ROOT/.git" ]]; then
-  echo "[FAIL] source_root is not a git worktree: $SOURCE_ROOT"
+GIT_ROOT="$(git -C "$SOURCE_ROOT" rev-parse --show-toplevel 2>/dev/null)"
+GIT_RC=$?
+if [[ $GIT_RC -ne 0 || -z "$GIT_ROOT" ]]; then
+  echo "[FAIL] source_root is not inside a git worktree: $SOURCE_ROOT"
   exit 2
 fi
+echo "git_root=$GIT_ROOT"
 
 if [[ ! -d "$TARGET_ROOT" ]]; then
   echo "[FAIL] target_root missing: $TARGET_ROOT"
@@ -93,10 +96,10 @@ done
 
 echo
 echo "===== PRODUCTION DRIFT CHECK ====="
-cd "$SOURCE_ROOT"
+cd "$GIT_ROOT"
 CD_RC=$?
 if [[ $CD_RC -ne 0 ]]; then
-  echo "[FAIL] cannot cd source_root"
+  echo "[FAIL] cannot cd git_root"
   exit "$CD_RC"
 fi
 
