@@ -8,7 +8,6 @@ SOURCE_ROOT="${KALMAN_SOURCE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && p
 TARGET_ROOT="${KALMAN_TARGET_ROOT:-/opt/kalman/app}"
 ENV_FILE="${KALMAN_ENV_FILE:-/opt/kalman/.env}"
 PY="${KALMAN_PYTHON:-/opt/kalman/.venv/bin/python}"
-SERVICE="${KALMAN_GATEWAY_SERVICE:-kalman-toss-gateway.service}"
 ENABLE="${PROSPECTIVE_SHADOW_APPLY_ENABLE:-false}"
 BASE_REF="${PROSPECTIVE_SHADOW_BASE_REF:-origin/main}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -109,15 +108,19 @@ for rel in "${MODIFIED_EXISTING[@]}"; do
     continue
   fi
 
-  BASE_HASH="$(git show "$BASE_REF:kalman-toss-gateway/$rel" 2>/dev/null | sha256sum | awk '{print $1}')"
-  SHOW_RC=${PIPESTATUS[0]}
-  TARGET_HASH="$(sha256sum "$TARGET_ROOT/$rel" | awk '{print $1}')"
-
-  if [[ $SHOW_RC -ne 0 || -z "$BASE_HASH" ]]; then
+  BASE_TMP="$(mktemp)"
+  git show "$BASE_REF:kalman-toss-gateway/$rel" > "$BASE_TMP" 2>/dev/null
+  SHOW_RC=$?
+  if [[ $SHOW_RC -ne 0 ]]; then
+    rm -f "$BASE_TMP"
     echo "[FAIL] cannot resolve base file: $BASE_REF:kalman-toss-gateway/$rel"
     DRIFT=1
     continue
   fi
+
+  BASE_HASH="$(sha256sum "$BASE_TMP" | awk '{print $1}')"
+  TARGET_HASH="$(sha256sum "$TARGET_ROOT/$rel" | awk '{print $1}')"
+  rm -f "$BASE_TMP"
 
   if [[ "$TARGET_HASH" != "$BASE_HASH" ]]; then
     echo "[DRIFT] $rel"
@@ -212,26 +215,34 @@ if [[ "$ENABLE" == "true" ]]; then
 fi
 
 echo
-echo "===== RESTART GATEWAY ====="
-systemctl restart "$SERVICE"
-RESTART_RC=$?
-echo "restart_rc=$RESTART_RC"
-if [[ $RESTART_RC -ne 0 ]]; then
+echo "===== INITIALIZE SHADOW SCHEMA ====="
+PYTHONPATH="$TARGET_ROOT" KALMAN_ENV_FILE="$ENV_FILE" "$PY" - <<'PY'
+import os
+from dotenv import load_dotenv
+
+load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=True)
+
+from app.prospective_shadow import ProspectiveShadowConfig, ProspectiveShadowStore
+
+config = ProspectiveShadowConfig.from_env()
+state_db = os.environ.get("TRADING_STATE_DB", "/opt/kalman/state/trading.sqlite3")
+store = ProspectiveShadowStore(state_db)
+print(config.jsonable())
+print(store.summary(config.candidate_id))
+PY
+SCHEMA_RC=$?
+echo "schema_rc=$SCHEMA_RC"
+if [[ $SCHEMA_RC -ne 0 ]]; then
   restore_files
-  systemctl restart "$SERVICE" >/dev/null 2>&1 || true
-  exit "$RESTART_RC"
+  exit "$SCHEMA_RC"
 fi
 
-sleep 2
+echo
+echo "===== EXISTING GATEWAY HEALTH (NO RESTART) ====="
 curl -fsS http://127.0.0.1:8787/health
 HEALTH_RC=$?
 echo
 echo "health_rc=$HEALTH_RC"
-if [[ $HEALTH_RC -ne 0 ]]; then
-  restore_files
-  systemctl restart "$SERVICE" >/dev/null 2>&1 || true
-  exit "$HEALTH_RC"
-fi
 
 echo
 echo "===== PROSPECTIVE SHADOW STATUS ====="
@@ -246,8 +257,10 @@ echo "===================================================="
 echo "backup_root=$BACKUP_ROOT"
 echo "enabled=$ENABLE"
 echo "cron_changed=false"
+echo "gateway_restarted=false"
 echo "live_policy_changed=false"
 echo "broker_order_path_added=false"
+echo "health_rc=$HEALTH_RC"
 echo "status_rc=$STATUS_RC"
 
 exit "$STATUS_RC"
