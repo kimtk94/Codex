@@ -130,6 +130,53 @@ class PricePoint:
     bar_timestamp: pd.Timestamp
     price: float
     lag_seconds: float
+    source_feed: str | None = None
+
+
+def _is_overnight_local_time(value: Any) -> bool:
+    local = _to_utc(value).tz_convert(NY)
+    return local.time() >= dt_time(20, 0) or local.time() < dt_time(4, 0)
+
+
+def _merge_session_feeds(
+    primary: pd.DataFrame,
+    overnight: pd.DataFrame,
+    *,
+    primary_feed: str,
+    overnight_feed: str,
+) -> pd.DataFrame:
+    """Compose 04:00-20:00 ET primary data with 20:00-04:00 ET overnight data."""
+
+    def normalize(frame: pd.DataFrame, source: str) -> pd.DataFrame:
+        z = frame.copy()
+        if "timestamp" not in z.columns:
+            z["timestamp"] = pd.Series(dtype="datetime64[ns, UTC]")
+        z["timestamp"] = pd.to_datetime(z["timestamp"], utc=True, errors="coerce")
+        z = z.dropna(subset=["timestamp"]).copy()
+        z["source_feed"] = source
+        return z
+
+    p = normalize(primary, primary_feed)
+    o = normalize(overnight, overnight_feed)
+
+    if not p.empty:
+        local = p["timestamp"].dt.tz_convert(NY)
+        overnight_mask = (local.dt.time >= dt_time(20, 0)) | (local.dt.time < dt_time(4, 0))
+        p = p.loc[~overnight_mask].copy()
+
+    if not o.empty:
+        local = o["timestamp"].dt.tz_convert(NY)
+        overnight_mask = (local.dt.time >= dt_time(20, 0)) | (local.dt.time < dt_time(4, 0))
+        o = o.loc[overnight_mask].copy()
+
+    out = pd.concat([p, o], ignore_index=True, sort=False)
+    if out.empty:
+        return out
+    return (
+        out.sort_values(["timestamp", "source_feed"])
+        .drop_duplicates("timestamp", keep="last")
+        .reset_index(drop=True)
+    )
 
 
 class MinuteBarIndex:
@@ -157,6 +204,10 @@ class MinuteBarIndex:
         )
         self._open = z["open"].to_numpy(dtype=float)
         self._close = z["close"].to_numpy(dtype=float)
+        if "source_feed" in z.columns:
+            self._source_feed = z["source_feed"].fillna("").astype(str).to_numpy()
+        else:
+            self._source_feed = np.array([""] * len(z), dtype=object)
         if z.empty:
             self._regular_session_dates: set[date] = set()
         else:
@@ -192,27 +243,76 @@ class MinuteBarIndex:
         )
 
     def close_before(
-        self, timestamp: Any, *, lookback_minutes: int = 10
+        self,
+        timestamp: Any,
+        *,
+        lookback_minutes: int = 10,
+        required_feed: str | None = None,
     ) -> PricePoint | None:
         if len(self._times_ns) == 0:
             return None
         ts = _to_utc(timestamp)
         target_ns = int(ts.value)
         idx = int(np.searchsorted(self._times_ns, target_ns, side="left")) - 1
-        if idx < 0:
+        min_ns = target_ns - int(lookback_minutes * 60 * 1_000_000_000)
+        while idx >= 0:
+            bar_ns = int(self._times_ns[idx])
+            if bar_ns < min_ns:
+                return None
+            source = str(self._source_feed[idx] or "")
+            if required_feed is None or source == required_feed:
+                age_seconds = (target_ns - bar_ns) / 1_000_000_000
+                if age_seconds <= 0:
+                    return None
+                value = float(self._close[idx])
+                if math.isfinite(value) and value > 0:
+                    return PricePoint(
+                        requested_at=ts,
+                        bar_timestamp=pd.Timestamp(bar_ns, tz="UTC"),
+                        price=value,
+                        lag_seconds=float(max(0.0, age_seconds - 60.0)),
+                        source_feed=source or None,
+                    )
+            idx -= 1
+        return None
+
+    def live_price_proxy(
+        self,
+        timestamp: Any,
+        *,
+        required_feed: str | None = None,
+        lookback_minutes: int = 600,
+    ) -> PricePoint | None:
+        """Causal proxy for Toss lastPrice at a scheduled watcher tick.
+
+        Prefer the bar open only when a bar starts exactly at the watcher
+        minute. Otherwise use the latest completed minute close strictly
+        before the tick. Never consume a bar that starts after the tick.
+        """
+
+        if len(self._times_ns) == 0:
             return None
-        bar_ns = int(self._times_ns[idx])
-        age_seconds = (target_ns - bar_ns) / 1_000_000_000
-        if age_seconds <= 0 or age_seconds > lookback_minutes * 60:
-            return None
-        value = float(self._close[idx])
-        if not math.isfinite(value) or value <= 0:
-            return None
-        return PricePoint(
-            requested_at=ts,
-            bar_timestamp=pd.Timestamp(bar_ns, tz="UTC"),
-            price=value,
-            lag_seconds=float(age_seconds),
+        ts = _to_utc(timestamp)
+        target_ns = int(ts.value)
+        idx = int(np.searchsorted(self._times_ns, target_ns, side="left"))
+
+        if idx < len(self._times_ns) and int(self._times_ns[idx]) == target_ns:
+            source = str(self._source_feed[idx] or "")
+            if required_feed is None or source == required_feed:
+                value = float(self._open[idx])
+                if math.isfinite(value) and value > 0:
+                    return PricePoint(
+                        requested_at=ts,
+                        bar_timestamp=pd.Timestamp(target_ns, tz="UTC"),
+                        price=value,
+                        lag_seconds=0.0,
+                        source_feed=source or None,
+                    )
+
+        return self.close_before(
+            ts,
+            lookback_minutes=lookback_minutes,
+            required_feed=required_feed,
         )
 
 
@@ -224,12 +324,16 @@ class BarWindowStore:
         *,
         cache_dir: Path,
         feed: str,
+        overnight_feed: str | None,
         refresh: bool,
         cache_only: bool,
         memory_windows: int = 24,
     ):
         self.cache_dir = Path(cache_dir)
         self.feed = str(feed)
+        self.overnight_feed = (
+            str(overnight_feed).strip() if overnight_feed is not None else ""
+        ) or None
         self.refresh = bool(refresh)
         self.cache_only = bool(cache_only)
         self.memory_windows = max(1, int(memory_windows))
@@ -244,7 +348,8 @@ class BarWindowStore:
             f"{start.strftime('%Y%m%dT%H%M%SZ')}__"
             f"{end.strftime('%Y%m%dT%H%M%SZ')}"
         )
-        return self.cache_dir / self.feed / self._safe_symbol(symbol) / f"{stamp}.parquet"
+        feed_key = self.feed if not self.overnight_feed else f"{self.feed}+{self.overnight_feed}"
+        return self.cache_dir / feed_key / self._safe_symbol(symbol) / f"{stamp}.parquet"
 
     def load_or_fetch(
         self, symbol: str, *, start_utc: pd.Timestamp, end_utc: pd.Timestamp
@@ -264,12 +369,28 @@ class BarWindowStore:
         else:
             if self.cache_only:
                 raise FileNotFoundError(f"minute cache missing: {path}")
-            frame = _fetch_alpaca_1m(
+            primary = _fetch_alpaca_1m(
                 self._safe_symbol(symbol),
                 start_utc=start_utc,
                 end_utc=end_utc,
                 feed=self.feed,
             )
+            if self.overnight_feed:
+                overnight = _fetch_alpaca_1m(
+                    self._safe_symbol(symbol),
+                    start_utc=start_utc,
+                    end_utc=end_utc,
+                    feed=self.overnight_feed,
+                )
+                frame = _merge_session_feeds(
+                    primary,
+                    overnight,
+                    primary_feed=self.feed,
+                    overnight_feed=self.overnight_feed,
+                )
+            else:
+                frame = primary.copy()
+                frame["source_feed"] = self.feed
             path.parent.mkdir(parents=True, exist_ok=True)
             frame.to_parquet(path, index=False)
 
@@ -359,6 +480,8 @@ def replay_one_trade(
     bars: pd.DataFrame,
     config: ReplayPolicyConfig,
     event_audit: Literal["none", "changes", "full"] = "changes",
+    primary_feed: str | None = None,
+    overnight_feed: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     get = row.get
     entry_ts = _to_utc(get("entry_timestamp"))
@@ -391,6 +514,8 @@ def replay_one_trade(
         "execution_watch_ticks_with_price": 0,
         "regular_exec_ticks_total": 0,
         "regular_exec_ticks_with_price": 0,
+        "overnight_watch_ticks_total": 0,
+        "overnight_watch_ticks_with_price": 0,
         "profit_flip_arm_at": None,
         "profit_flip_pending_at": None,
         "profit_flip_recovery_clears": 0,
@@ -438,7 +563,37 @@ def replay_one_trade(
         if regular_exec:
             base["regular_exec_ticks_total"] += 1
 
-        point = index.open_at_or_after(tick.timestamp, tolerance_minutes=3)
+        overnight_tick = _is_overnight_local_time(tick.timestamp)
+        if overnight_tick:
+            base["overnight_watch_ticks_total"] += 1
+
+        required_feed = (
+            overnight_feed if overnight_tick and overnight_feed else primary_feed
+        )
+        local_tick = tick.timestamp.tz_convert(NY)
+        if overnight_tick:
+            session_day = (
+                local_tick.date()
+                if local_tick.time() >= dt_time(20, 0)
+                else local_tick.date() - timedelta(days=1)
+            )
+            session_start = pd.Timestamp(
+                datetime.combine(session_day, dt_time(20, 0), tzinfo=NY)
+            ).tz_convert("UTC")
+        else:
+            session_start = pd.Timestamp(
+                datetime.combine(local_tick.date(), dt_time(4, 0), tzinfo=NY)
+            ).tz_convert("UTC")
+        lookback_minutes = max(
+            2,
+            int(math.ceil((tick.timestamp - session_start).total_seconds() / 60.0)) + 1,
+        )
+
+        point = index.live_price_proxy(
+            tick.timestamp,
+            required_feed=required_feed,
+            lookback_minutes=lookback_minutes,
+        )
         if point is None:
             if event_audit == "full":
                 events.append(
@@ -458,6 +613,8 @@ def replay_one_trade(
             base["execution_watch_ticks_with_price"] += 1
         if regular_exec:
             base["regular_exec_ticks_with_price"] += 1
+        if overnight_tick:
+            base["overnight_watch_ticks_with_price"] += 1
 
         price_return = Decimal(str(point.price / entry_price - 1.0))
         before = state
@@ -516,6 +673,7 @@ def replay_one_trade(
                     "price_available": True,
                     "price": point.price,
                     "price_lag_seconds": point.lag_seconds,
+                    "price_source_feed": point.source_feed,
                     "price_return": float(price_return),
                     "regular_execution_window": regular_exec,
                     "exit_due_reason": reason,
@@ -562,6 +720,11 @@ def replay_one_trade(
             base["regular_exec_ticks_with_price"],
             base["regular_exec_ticks_total"],
             "regular_exec_coverage",
+        ),
+        (
+            base["overnight_watch_ticks_with_price"],
+            base["overnight_watch_ticks_total"],
+            "overnight_watch_coverage",
         ),
     ]:
         base[name] = float(num / den) if den else 1.0
@@ -659,6 +822,8 @@ def build_replay_audit(
                 bars=bars,
                 config=config,
                 event_audit=event_audit,
+                primary_feed=window_store.feed,
+                overnight_feed=window_store.overnight_feed,
             )
             replay["cache_path"] = str(cache_path)
             replay["cache_hit"] = bool(cache_hit)
@@ -754,6 +919,9 @@ def _coverage_summary(audit: pd.DataFrame) -> dict[str, Any]:
         ),
         "median_regular_exec_coverage": _safe_median(
             audit.loc[ready, "regular_exec_coverage"]
+        ),
+        "median_overnight_watch_coverage": _safe_median(
+            audit.loc[ready, "overnight_watch_coverage"]
         ),
     }
 
@@ -948,6 +1116,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--feed",
         default=os.environ.get("LIVE_POLICY_REPLAY_ALPACA_FEED", "iex"),
+        help="Primary Alpaca feed for 04:00-20:00 ET (default: iex)",
+    )
+    p.add_argument(
+        "--overnight-feed",
+        default=os.environ.get(
+            "LIVE_POLICY_REPLAY_ALPACA_OVERNIGHT_FEED", "boats"
+        ),
+        help="Alpaca feed for 20:00-04:00 ET (default: boats; empty disables)",
     )
     p.add_argument("--start", default=None)
     p.add_argument("--end", default="2025-12-31")
@@ -1026,6 +1202,7 @@ def main() -> int:
     store = BarWindowStore(
         cache_dir=Path(args.cache_dir),
         feed=args.feed,
+        overnight_feed=(args.overnight_feed or None),
         refresh=bool(args.refresh_cache),
         cache_only=bool(args.cache_only),
     )
@@ -1083,7 +1260,11 @@ def main() -> int:
     decision = evaluate_replay(
         audit,
         config=config,
-        feed=args.feed,
+        feed=(
+            args.feed
+            if not args.overnight_feed
+            else f"{args.feed}+{args.overnight_feed}"
+        ),
         n_boot=int(args.n_boot),
     )
     decision.update(
