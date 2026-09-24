@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import pathlib
+import sqlite3
 import sys
 
 
@@ -194,3 +195,33 @@ def test_shadow_uses_frozen_four_bucket_exit_without_profit_flip(
     assert reports[0]["exitReason"] == "MAX_HOLD_4_BUCKETS"
     assert "PROFIT" not in str(reports[0]["exitReason"])
     assert reports[0]["brokerOrderAttempted"] is False
+
+
+
+def test_shadow_store_additive_schema_migration(tmp_path):
+    db = tmp_path / "state.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE prospective_shadow_position (
+                candidate_id TEXT NOT NULL,
+                live_position_id TEXT NOT NULL,
+                PRIMARY KEY (candidate_id, live_position_id)
+            )
+            """
+        )
+
+    ProspectiveShadowStore(db)
+
+    with sqlite3.connect(db) as conn:
+        cols = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(prospective_shadow_position)"
+            ).fetchall()
+        }
+
+    assert "live_policy_exit_observed_at" in cols
+    assert "live_policy_exit_reference_price" in cols
+    assert "live_policy_exit_reference_return" in cols
+    assert "live_policy_exit_reference_reason" in cols
