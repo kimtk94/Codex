@@ -10,6 +10,7 @@ on:
       - "kalman-toss-gateway/tests/test_historical_backfill.py"
       - "kalman-toss-gateway/tests/test_open_revalidation_backtest.py"
       - "kalman-toss-gateway/tests/test_live_policy_replay.py"
+      - "kalman-toss-gateway/tests/test_boats_history_boundary.py"
       - "kalman-toss-gateway/scripts/run_open_revalidation_backtest.sh"
       - "kalman-toss-gateway/scripts/run_live_policy_replay.sh"
       - "kalman-toss-gateway/scripts/run_live_policy_replay_pilot.sh"
