@@ -95,6 +95,8 @@ rows = int(x.get("rows") or 0)
 ready = int(x.get("ready_rows") or 0)
 ready_ratio = ready / rows if rows else 0.0
 watch = coverage.get("median_watch_coverage")
+position = coverage.get("median_position_watch_coverage")
+execution = coverage.get("median_execution_watch_coverage")
 regular = coverage.get("median_regular_exec_coverage")
 
 print(f"status={x.get('status')}")
@@ -102,16 +104,33 @@ print(f"rows={rows}")
 print(f"ready_rows={ready}")
 print(f"ready_ratio={ready_ratio:.3f}")
 print(f"median_watch_coverage={watch}")
+print(f"median_position_watch_coverage={position}")
+print(f"median_execution_watch_coverage={execution}")
 print(f"median_regular_exec_coverage={regular}")
 print(f"production_changed={x.get('production_changed')}")
 print(f"automation_changed={x.get('automation_changed')}")
 
-ok = (
+backfill_ok = (
     x.get("status") == "BACKFILL_COMPLETE"
     and rows > 0
+    and ready == rows
     and bool(x.get("production_changed")) is False
     and bool(x.get("automation_changed")) is False
 )
-print("pilot_contract=" + ("PASS" if ok else "FAIL"))
-raise SystemExit(0 if ok else 5)
+
+coverage_ok = (
+    watch is not None and float(watch) >= 0.80
+    and position is not None and float(position) >= 0.80
+    and regular is not None and float(regular) >= 0.95
+)
+
+print("backfill_contract=" + ("PASS" if backfill_ok else "FAIL"))
+print("coverage_contract=" + ("PASS" if coverage_ok else "FAIL"))
+print("pilot_contract=" + ("PASS" if backfill_ok and coverage_ok else "FAIL"))
+
+if backfill_ok and not coverage_ok:
+    print("diagnosis=DATA_SEMANTICS_REVIEW_REQUIRED")
+    print("note=Do not run full replay until daytime lastPrice semantics are reconciled.")
+
+raise SystemExit(0 if backfill_ok and coverage_ok else 5)
 PY
