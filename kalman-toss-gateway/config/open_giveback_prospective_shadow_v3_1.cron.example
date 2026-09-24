@@ -1,0 +1,4 @@
+# Kalman OPEN_GIVEBACK_5M prospective shadow v3.1
+# Research only. 09:40 ET on US weekdays; DST-aware scheduling should be installed by server script/systemd timer.
+# Recommended invocation:
+# KALMAN_APP_ROOT=/opt/kalman/app /opt/kalman/.venv/bin/python -m research.quant_stack.open_giveback_prospective_shadow
