@@ -525,6 +525,7 @@ def replay_one_trade(
         "candidate_exit_bar_at": None,
         "candidate_exit_price_vendor": None,
         "candidate_raw_return": None,
+        "watch_ticks_scheduled_total": 0,
         "watch_ticks_total": 0,
         "watch_ticks_with_price": 0,
         "position_watch_ticks_total": 0,
@@ -567,8 +568,13 @@ def replay_one_trade(
     exit_reason: str | None = None
 
     ticks = iter_live_watch_ticks(entry_effective, fixed4_effective)
-    base["watch_ticks_total"] = len(ticks)
+    base["watch_ticks_scheduled_total"] = len(ticks)
     for tick in ticks:
+        # Coverage is defined over ticks actually evaluated while the
+        # historical position still exists. Once an exit is triggered and the
+        # replay breaks, later scheduled ticks are no longer part of the live
+        # position lifecycle and must not dilute the denominator.
+        base["watch_ticks_total"] += 1
         if tick.source == "POSITION_WATCH":
             base["position_watch_ticks_total"] += 1
         else:
