@@ -94,6 +94,7 @@ jobs:
             tests/test_historical_backfill.py \
             tests/test_open_revalidation_backtest.py \
             tests/test_live_policy_replay.py \
+            tests/test_boats_history_boundary.py \
             tests/test_quant_artifact_validation.py \
             tests/test_resume_postprocess.py
 
