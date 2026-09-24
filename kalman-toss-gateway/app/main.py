@@ -9,6 +9,7 @@ from .risk import validate_order
 from .toss_client import TossClient
 from .managed_positions import ManagedPositionStore
 from .market_guard import unwrap, us_fractional_order_window
+from .prospective_shadow import ProspectiveShadowConfig, ProspectiveShadowStore
 from .readiness import evaluate_live_readiness
 
 app = FastAPI(title='Kalman Toss Gateway', version='0.2.0')
@@ -133,6 +134,12 @@ async def trading_status(settings: Settings = Depends(get_settings)):
     client = TossClient(settings)
     store = ManagedPositionStore(settings.state_db_path)
     ledger = TradeLedger(settings.state_db_path)
+    shadow_config = ProspectiveShadowConfig.from_env()
+    shadow_store = (
+        ProspectiveShadowStore(settings.state_db_path)
+        if shadow_config.enabled
+        else None
+    )
 
     holdings_payload = await client.holdings()
     orders_payload = await client.orders('OPEN')
@@ -189,6 +196,20 @@ async def trading_status(settings: Settings = Depends(get_settings)):
         'marketWindow': window_info,
         'activeManagedPositions': store.active(),
         'recentManagedPositions': store.recent(5),
+        'prospectiveShadow': {
+            **shadow_config.jsonable(),
+            'summary': (
+                shadow_store.summary(shadow_config.candidate_id)
+                if shadow_store
+                else None
+            ),
+            'recent': (
+                shadow_store.recent(shadow_config.candidate_id, 5)
+                if shadow_store
+                else []
+            ),
+            'brokerOrderCapable': False,
+        },
         'tradeExecutionFromWeb': False,
     }
 
