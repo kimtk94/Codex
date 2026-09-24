@@ -215,3 +215,21 @@ For a final research decision, rerun the exact frozen policy with SIP if histori
 This change does not alter the currently running scheduler.
 
 No code in this research runner submits an order, calls `engine.auto_trade`, writes production strategy signals, or changes live environment values.
+
+
+## Session-aware market data
+
+The live Toss `/api/v1/prices` endpoint can refresh `lastPrice` during the
+US overnight session. Historical replay therefore composes session-specific
+Alpaca feeds instead of carrying a regular-session close through the night:
+
+- 20:00-04:00 America/New_York: `boats` by default
+- 04:00-20:00 America/New_York: the configured primary feed (`iex` by default)
+
+The replay never consumes a minute bar that starts after the watcher timestamp.
+At an exact watcher minute it may use that minute's open; otherwise it uses the
+latest completed minute close from the required session feed. Missing overnight
+data is not substituted with an IEX close.
+
+The pilot reports `median_overnight_watch_coverage` separately and requires
+it to be at least 80% before the replay is considered validation-ready.
