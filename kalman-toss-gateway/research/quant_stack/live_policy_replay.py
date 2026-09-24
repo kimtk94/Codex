@@ -1072,8 +1072,14 @@ def evaluate_replay(
         and coverage["ready_ratio"] >= 0.90
         and coverage["median_watch_coverage"] is not None
         and coverage["median_watch_coverage"] >= 0.80
+        and coverage["median_position_watch_coverage"] is not None
+        and coverage["median_position_watch_coverage"] >= 0.80
+        and coverage["median_execution_watch_coverage"] is not None
+        and coverage["median_execution_watch_coverage"] >= 0.95
         and coverage["median_regular_exec_coverage"] is not None
         and coverage["median_regular_exec_coverage"] >= 0.95
+        and coverage["median_overnight_watch_coverage"] is not None
+        and coverage["median_overnight_watch_coverage"] >= 0.80
     )
 
     return {
@@ -1096,6 +1102,27 @@ def evaluate_replay(
         "fold_count": int(len(folds)),
         "folds": folds,
         "coverage": coverage,
+        "coverage_gate": {
+            "ready_ratio_min": 0.90,
+            "watch_coverage_min": 0.80,
+            "position_watch_coverage_min": 0.80,
+            "execution_watch_coverage_min": 0.95,
+            "regular_exec_coverage_min": 0.95,
+            "overnight_watch_coverage_min": 0.80,
+            "passed": bool(
+                coverage["ready_ratio"] >= 0.90
+                and coverage["median_watch_coverage"] is not None
+                and coverage["median_watch_coverage"] >= 0.80
+                and coverage["median_position_watch_coverage"] is not None
+                and coverage["median_position_watch_coverage"] >= 0.80
+                and coverage["median_execution_watch_coverage"] is not None
+                and coverage["median_execution_watch_coverage"] >= 0.95
+                and coverage["median_regular_exec_coverage"] is not None
+                and coverage["median_regular_exec_coverage"] >= 0.95
+                and coverage["median_overnight_watch_coverage"] is not None
+                and coverage["median_overnight_watch_coverage"] >= 0.80
+            ),
+        },
         "reconciliation": reconciliation,
         "reason_attribution": attribution,
         "triggered_exits": int(triggered.sum()),
