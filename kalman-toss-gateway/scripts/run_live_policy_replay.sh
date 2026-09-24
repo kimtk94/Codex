@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set +e
+set +u
+set +o pipefail 2>/dev/null || true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -14,5 +16,18 @@ if [[ ! -f "$APP_ROOT/research/quant_stack/live_policy_replay.py" ]]; then
   exit 2
 fi
 
-cd "$APP_ROOT"
-exec "$PY" -m research.quant_stack.live_policy_replay "$@"
+cd "$APP_ROOT" || {
+  echo "[FAIL] cannot cd to app_root=$APP_ROOT" >&2
+  exit 2
+}
+
+"$PY" -m research.quant_stack.live_policy_replay "$@"
+RC=$?
+
+if [[ $RC -ne 0 ]]; then
+  echo "[FAIL] live policy replay rc=$RC" >&2
+else
+  echo "[PASS] live policy replay rc=0"
+fi
+
+exit "$RC"
