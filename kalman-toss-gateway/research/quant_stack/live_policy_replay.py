@@ -1019,6 +1019,22 @@ def _reason_attribution(audit: pd.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
+def _coverage_gate_passed(coverage: dict[str, Any]) -> bool:
+    return bool(
+        coverage["ready_ratio"] >= 0.90
+        and coverage["median_watch_coverage"] is not None
+        and coverage["median_watch_coverage"] >= 0.80
+        and coverage["median_position_watch_coverage"] is not None
+        and coverage["median_position_watch_coverage"] >= 0.80
+        and coverage["median_execution_watch_coverage"] is not None
+        and coverage["median_execution_watch_coverage"] >= 0.95
+        and coverage["median_regular_exec_coverage"] is not None
+        and coverage["median_regular_exec_coverage"] >= 0.95
+        and coverage["median_overnight_watch_coverage"] is not None
+        and coverage["median_overnight_watch_coverage"] >= 0.80
+    )
+
+
 def evaluate_replay(
     audit: pd.DataFrame,
     *,
@@ -1069,17 +1085,7 @@ def evaluate_replay(
         and boot["p_one_sided"] <= 0.10
         and positive_folds >= min_positive_folds
         and (mdd_delta is None or mdd_delta >= -0.02)
-        and coverage["ready_ratio"] >= 0.90
-        and coverage["median_watch_coverage"] is not None
-        and coverage["median_watch_coverage"] >= 0.80
-        and coverage["median_position_watch_coverage"] is not None
-        and coverage["median_position_watch_coverage"] >= 0.80
-        and coverage["median_execution_watch_coverage"] is not None
-        and coverage["median_execution_watch_coverage"] >= 0.95
-        and coverage["median_regular_exec_coverage"] is not None
-        and coverage["median_regular_exec_coverage"] >= 0.95
-        and coverage["median_overnight_watch_coverage"] is not None
-        and coverage["median_overnight_watch_coverage"] >= 0.80
+        and _coverage_gate_passed(coverage)
     )
 
     return {
@@ -1109,19 +1115,7 @@ def evaluate_replay(
             "execution_watch_coverage_min": 0.95,
             "regular_exec_coverage_min": 0.95,
             "overnight_watch_coverage_min": 0.80,
-            "passed": bool(
-                coverage["ready_ratio"] >= 0.90
-                and coverage["median_watch_coverage"] is not None
-                and coverage["median_watch_coverage"] >= 0.80
-                and coverage["median_position_watch_coverage"] is not None
-                and coverage["median_position_watch_coverage"] >= 0.80
-                and coverage["median_execution_watch_coverage"] is not None
-                and coverage["median_execution_watch_coverage"] >= 0.95
-                and coverage["median_regular_exec_coverage"] is not None
-                and coverage["median_regular_exec_coverage"] >= 0.95
-                and coverage["median_overnight_watch_coverage"] is not None
-                and coverage["median_overnight_watch_coverage"] >= 0.80
-            ),
+            "passed": _coverage_gate_passed(coverage),
         },
         "reconciliation": reconciliation,
         "reason_attribution": attribution,
