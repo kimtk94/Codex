@@ -156,6 +156,25 @@ class ProspectiveShadowStore:
                 )
                 """
             )
+            existing_columns = {
+                str(row["name"])
+                for row in conn.execute(
+                    "PRAGMA table_info(prospective_shadow_position)"
+                ).fetchall()
+            }
+            additive_columns = {
+                "live_policy_exit_observed_at": "TEXT",
+                "live_policy_exit_reference_price": "TEXT",
+                "live_policy_exit_reference_return": "TEXT",
+                "live_policy_exit_reference_reason": "TEXT",
+            }
+            for name, sql_type in additive_columns.items():
+                if name not in existing_columns:
+                    conn.execute(
+                        f"ALTER TABLE prospective_shadow_position "
+                        f"ADD COLUMN {name} {sql_type}"
+                    )
+
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS prospective_shadow_observation (
