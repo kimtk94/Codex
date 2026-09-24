@@ -14,6 +14,7 @@ on:
       - "kalman-toss-gateway/scripts/run_open_revalidation_backtest.sh"
       - "kalman-toss-gateway/scripts/run_live_policy_replay.sh"
       - "kalman-toss-gateway/scripts/run_live_policy_replay_pilot.sh"
+      - "kalman-toss-gateway/scripts/run_live_policy_replay_overlap_pilot.sh"
       - "kalman-toss-gateway/scripts/diagnose_live_policy_replay_feeds.sh"
       - "kalman-toss-gateway/app/live_exit_policy.py"
       - "kalman-toss-gateway/app/managed_positions.py"
@@ -79,6 +80,7 @@ jobs:
           bash -n scripts/run_open_revalidation_backtest.sh
           bash -n scripts/run_live_policy_replay.sh
           bash -n scripts/run_live_policy_replay_pilot.sh
+          bash -n scripts/run_live_policy_replay_overlap_pilot.sh
           bash -n scripts/diagnose_live_policy_replay_feeds.sh
           KALMAN_APP_ROOT="$PWD" KALMAN_PYTHON=python \
             bash scripts/run_open_revalidation_backtest.sh --help >/dev/null
