@@ -21,6 +21,7 @@ from app.managed_positions import ManagedPositionStore
 from research.quant_stack.live_policy_replay import (
     MinuteBarIndex,
     ReplayPolicyConfig,
+    _merge_session_feeds,
     fractional_window_open,
     iter_live_watch_ticks,
     replay_one_trade,
@@ -221,3 +222,103 @@ def test_replay_arms_by_daytime_and_exits_at_first_executable_regular_tick():
     assert result["candidate_exit_reason"] == PROFIT_TO_LOSS_FLIP
     assert result["candidate_exit_at"] == pd.Timestamp("2025-09-16T13:30:00Z")
     assert result["candidate_exit_price_vendor"] == 98.0
+
+
+
+def test_merge_session_feeds_uses_boats_only_for_overnight():
+    primary = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                [
+                    "2026-09-23T23:59:00Z",  # 19:59 ET
+                    "2026-09-24T00:00:00Z",  # 20:00 ET: must be replaced
+                    "2026-09-24T08:00:00Z",  # 04:00 ET
+                ],
+                utc=True,
+            ),
+            "open": [100.0, 101.0, 104.0],
+            "close": [100.1, 101.1, 104.1],
+        }
+    )
+    boats = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                [
+                    "2026-09-24T00:00:00Z",  # 20:00 ET
+                    "2026-09-24T07:59:00Z",  # 03:59 ET
+                    "2026-09-24T08:00:00Z",  # 04:00 ET: must be excluded
+                ],
+                utc=True,
+            ),
+            "open": [201.0, 202.0, 203.0],
+            "close": [201.1, 202.1, 203.1],
+        }
+    )
+
+    out = _merge_session_feeds(
+        primary,
+        boats,
+        primary_feed="iex",
+        overnight_feed="boats",
+    )
+
+    by_ts = out.set_index("timestamp")
+    assert by_ts.loc[pd.Timestamp("2026-09-23T23:59:00Z"), "source_feed"] == "iex"
+    assert by_ts.loc[pd.Timestamp("2026-09-24T00:00:00Z"), "source_feed"] == "boats"
+    assert by_ts.loc[pd.Timestamp("2026-09-24T07:59:00Z"), "source_feed"] == "boats"
+    assert by_ts.loc[pd.Timestamp("2026-09-24T08:00:00Z"), "source_feed"] == "iex"
+
+
+def test_live_price_proxy_never_consumes_future_bar():
+    bars = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                [
+                    "2026-09-24T04:07:00Z",
+                    "2026-09-24T04:09:00Z",
+                ],
+                utc=True,
+            ),
+            "open": [120.0, 999.0],
+            "close": [121.0, 999.0],
+            "source_feed": ["boats", "boats"],
+        }
+    )
+    idx = MinuteBarIndex(bars)
+
+    # At 04:08, the 04:09 bar is still in the future. Use the completed
+    # 04:07 close instead.
+    point = idx.live_price_proxy(
+        "2026-09-24T04:08:00Z",
+        required_feed="boats",
+        lookback_minutes=30,
+    )
+    assert point is not None
+    assert point.price == 121.0
+    assert point.bar_timestamp == pd.Timestamp("2026-09-24T04:07:00Z")
+
+
+def test_live_price_proxy_prefers_exact_tick_open():
+    bars = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(
+                [
+                    "2026-09-24T04:07:00Z",
+                    "2026-09-24T04:08:00Z",
+                ],
+                utc=True,
+            ),
+            "open": [120.0, 122.0],
+            "close": [121.0, 123.0],
+            "source_feed": ["boats", "boats"],
+        }
+    )
+    idx = MinuteBarIndex(bars)
+    point = idx.live_price_proxy(
+        "2026-09-24T04:08:00Z",
+        required_feed="boats",
+        lookback_minutes=30,
+    )
+    assert point is not None
+    assert point.price == 122.0
+    assert point.lag_seconds == 0.0
