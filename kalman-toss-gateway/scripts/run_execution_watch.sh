@@ -36,7 +36,7 @@ cd "$APP_ROOT"
     # 1) reconcile entries/add-ons/exits and apply intrabar risk exits;
     # 2) catch up any fresh, eligible signal not yet executed;
     # 3) persist the resulting execution/position audit.
-    "$PY" -m engine.position_manager
+    KALMAN_WATCH_SOURCE=EXECUTION_WATCH "$PY" -m engine.position_manager
     "$PY" -m engine.auto_trade
     "$PY" -m engine.trade_mirror
 
