@@ -21,6 +21,7 @@ from app.managed_positions import ManagedPositionStore
 from research.quant_stack.live_policy_replay import (
     MinuteBarIndex,
     ReplayPolicyConfig,
+    _coverage_gate_passed,
     _merge_session_feeds,
     fractional_window_open,
     iter_live_watch_ticks,
@@ -327,3 +328,26 @@ def test_live_price_proxy_prefers_exact_tick_open():
     assert point is not None
     assert point.price == 122.0
     assert point.lag_seconds == 0.0
+
+
+
+def test_coverage_gate_requires_position_execution_and_overnight_components():
+    coverage = {
+        "ready_ratio": 1.0,
+        "median_watch_coverage": 0.95,
+        "median_position_watch_coverage": 0.67,
+        "median_execution_watch_coverage": 1.0,
+        "median_regular_exec_coverage": 1.0,
+        "median_overnight_watch_coverage": 1.0,
+    }
+    assert _coverage_gate_passed(coverage) is False
+
+    coverage["median_position_watch_coverage"] = 0.80
+    assert _coverage_gate_passed(coverage) is True
+
+    coverage["median_execution_watch_coverage"] = 0.94
+    assert _coverage_gate_passed(coverage) is False
+
+    coverage["median_execution_watch_coverage"] = 0.95
+    coverage["median_overnight_watch_coverage"] = 0.79
+    assert _coverage_gate_passed(coverage) is False
