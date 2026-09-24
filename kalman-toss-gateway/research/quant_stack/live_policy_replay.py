@@ -169,9 +169,10 @@ def _merge_session_feeds(
         overnight_mask = (local.dt.time >= dt_time(20, 0)) | (local.dt.time < dt_time(4, 0))
         o = o.loc[overnight_mask].copy()
 
-    out = pd.concat([p, o], ignore_index=True, sort=False)
-    if out.empty:
-        return out
+    parts = [part for part in (p, o) if not part.empty]
+    if not parts:
+        return pd.DataFrame(columns=list(dict.fromkeys([*p.columns, *o.columns])))
+    out = pd.concat(parts, ignore_index=True, sort=False)
     return (
         out.sort_values(["timestamp", "source_feed"])
         .drop_duplicates("timestamp", keep="last")
@@ -492,8 +493,26 @@ def replay_one_trade(
     entry_point = index.close_before(entry_effective)
     fixed4_point = index.close_before(fixed4_effective)
 
+    feed_counts = (
+        bars["source_feed"].fillna("UNKNOWN").astype(str).value_counts().to_dict()
+        if "source_feed" in bars.columns
+        else {}
+    )
+    bar_timestamps = pd.to_datetime(
+        bars.get("timestamp"), utc=True, errors="coerce"
+    ) if "timestamp" in bars.columns else pd.Series(dtype="datetime64[ns, UTC]")
+
     base: dict[str, Any] = {
         "replay_data_ready": False,
+        "bar_rows_total": int(len(bars)),
+        "primary_feed_bar_rows": int(feed_counts.get(primary_feed or "", 0)),
+        "overnight_feed_bar_rows": int(feed_counts.get(overnight_feed or "", 0)),
+        "bar_window_first_timestamp": (
+            None if bar_timestamps.dropna().empty else bar_timestamps.dropna().min()
+        ),
+        "bar_window_last_timestamp": (
+            None if bar_timestamps.dropna().empty else bar_timestamps.dropna().max()
+        ),
         "replay_error": None,
         "entry_effective_ts": entry_effective,
         "fixed4_effective_ts": fixed4_effective,
@@ -766,7 +785,7 @@ def _prepare_baseline(
         base = base.loc[base["entry_timestamp"] >= _to_utc(start)]
     if end:
         base = base.loc[
-            base["entry_timestamp"] < _to_utc(end) + pd.Timedelta(days=1)
+            base["entry_timestamp"] < _to_utc(end) + pd.Timedelta(1, unit="D")
         ]
     base = base.sort_values(["entry_timestamp", "symbol"]).reset_index(drop=True)
     if max_trades is not None:
@@ -922,6 +941,17 @@ def _coverage_summary(audit: pd.DataFrame) -> dict[str, Any]:
         ),
         "median_overnight_watch_coverage": _safe_median(
             audit.loc[ready, "overnight_watch_coverage"]
+        ),
+        "trades_with_overnight_feed_rows": int(
+            (
+                pd.to_numeric(
+                    audit.loc[ready, "overnight_feed_bar_rows"], errors="coerce"
+                ).fillna(0)
+                > 0
+            ).sum()
+        ),
+        "median_overnight_feed_bar_rows": _safe_median(
+            audit.loc[ready, "overnight_feed_bar_rows"]
         ),
     }
 
