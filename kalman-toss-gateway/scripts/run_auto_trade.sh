@@ -14,7 +14,7 @@ cd "$APP_ROOT"
   flock -n 9 || exit 0
 
   # Risk-reducing reconciliation/exit always runs first.
-  "$PY" -m engine.position_manager
+  KALMAN_WATCH_SOURCE=EXECUTION_WATCH "$PY" -m engine.position_manager
 
   # Keep model benchmark and broker execution audit durable before allowing
   # a new entry. If Neon/audit sync fails, the cycle stops before BUY.
