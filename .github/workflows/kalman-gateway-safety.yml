@@ -32,6 +32,8 @@ on:
       - "kalman-toss-gateway/engine/macro_shadow_eval_v1.py"
       - "kalman-toss-gateway/scripts/configure_auto_trade_env.sh"
       - "kalman-toss-gateway/scripts/configure_prospective_shadow_env.sh"
+      - "kalman-toss-gateway/scripts/prospective_shadow_status.sh"
+      - "kalman-toss-gateway/scripts/apply_prospective_shadow_v1.sh"
       - "kalman-toss-gateway/scripts/trading_status.sh"
       - "kalman-toss-gateway/scripts/run_auto_trade.sh"
       - "kalman-toss-gateway/scripts/run_execution_watch.sh"
@@ -128,6 +130,8 @@ jobs:
         run: |
           bash -n scripts/configure_auto_trade_env.sh
           bash -n scripts/configure_prospective_shadow_env.sh
+          bash -n scripts/prospective_shadow_status.sh
+          bash -n scripts/apply_prospective_shadow_v1.sh
           bash -n scripts/run_auto_trade.sh
           bash -n scripts/run_execution_watch.sh
           bash -n scripts/run_position_watch.sh
