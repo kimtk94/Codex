@@ -98,6 +98,7 @@ watch = coverage.get("median_watch_coverage")
 position = coverage.get("median_position_watch_coverage")
 execution = coverage.get("median_execution_watch_coverage")
 regular = coverage.get("median_regular_exec_coverage")
+overnight = coverage.get("median_overnight_watch_coverage")
 
 print(f"status={x.get('status')}")
 print(f"rows={rows}")
@@ -107,6 +108,7 @@ print(f"median_watch_coverage={watch}")
 print(f"median_position_watch_coverage={position}")
 print(f"median_execution_watch_coverage={execution}")
 print(f"median_regular_exec_coverage={regular}")
+print(f"median_overnight_watch_coverage={overnight}")
 print(f"production_changed={x.get('production_changed')}")
 print(f"automation_changed={x.get('automation_changed')}")
 
@@ -122,6 +124,7 @@ coverage_ok = (
     watch is not None and float(watch) >= 0.80
     and position is not None and float(position) >= 0.80
     and regular is not None and float(regular) >= 0.95
+    and overnight is not None and float(overnight) >= 0.80
 )
 
 print("backfill_contract=" + ("PASS" if backfill_ok else "FAIL"))
