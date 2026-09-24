@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import pathlib
 import sys
 
-import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -78,8 +78,7 @@ def test_shadow_seed_is_strictly_prospective(tmp_path):
     assert store.summary(CANDIDATE_ID)["total"] == 1
 
 
-@pytest.mark.asyncio
-async def test_shadow_stop_loss_is_not_pending_across_recovery(tmp_path, monkeypatch):
+def test_shadow_stop_loss_is_not_pending_across_recovery(tmp_path, monkeypatch):
     activated = datetime(2026, 9, 24, 9, 0, tzinfo=timezone.utc)
     config = _config(activated)
     store = ProspectiveShadowStore(tmp_path / "state.sqlite3")
@@ -95,7 +94,7 @@ async def test_shadow_stop_loss_is_not_pending_across_recovery(tmp_path, monkeyp
         window_closed,
     )
 
-    reports = await manage_prospective_shadows(
+    reports = asyncio.run(manage_prospective_shadows(
         config=config,
         shadow_store=store,
         managed_store=managed,
@@ -104,7 +103,7 @@ async def test_shadow_stop_loss_is_not_pending_across_recovery(tmp_path, monkeyp
         elapsed_buckets_fn=lambda _db, _asof: 0,
         price_overrides={"p-1": Decimal("96")},
         watch_source="POSITION_WATCH",
-    )
+    ))
     assert reports[0]["action"] == "SHADOW_EXIT_DUE_WINDOW_CLOSED"
     assert reports[0]["exitReason"] == "STOP_LOSS_3PCT"
     assert reports[0]["brokerOrderAttempted"] is False
@@ -112,7 +111,7 @@ async def test_shadow_stop_loss_is_not_pending_across_recovery(tmp_path, monkeyp
 
     # The no-profit-flip candidate has no pending exit state. Recovery before
     # an executable window cancels the stop signal naturally.
-    reports = await manage_prospective_shadows(
+    reports = asyncio.run(manage_prospective_shadows(
         config=config,
         shadow_store=store,
         managed_store=managed,
@@ -121,14 +120,13 @@ async def test_shadow_stop_loss_is_not_pending_across_recovery(tmp_path, monkeyp
         elapsed_buckets_fn=lambda _db, _asof: 0,
         price_overrides={"p-1": Decimal("100")},
         watch_source="EXECUTION_WATCH",
-    )
+    ))
     assert reports[0]["action"] == "SHADOW_HOLD"
     assert reports[0]["exitReason"] is None
     assert store.open_positions(CANDIDATE_ID)
 
 
-@pytest.mark.asyncio
-async def test_shadow_closes_virtual_position_without_broker_order(tmp_path, monkeypatch):
+def test_shadow_closes_virtual_position_without_broker_order(tmp_path, monkeypatch):
     activated = datetime(2026, 9, 24, 9, 0, tzinfo=timezone.utc)
     config = _config(activated)
     store = ProspectiveShadowStore(tmp_path / "state.sqlite3")
@@ -144,7 +142,7 @@ async def test_shadow_closes_virtual_position_without_broker_order(tmp_path, mon
         window_open,
     )
 
-    reports = await manage_prospective_shadows(
+    reports = asyncio.run(manage_prospective_shadows(
         config=config,
         shadow_store=store,
         managed_store=managed,
@@ -153,7 +151,7 @@ async def test_shadow_closes_virtual_position_without_broker_order(tmp_path, mon
         elapsed_buckets_fn=lambda _db, _asof: 0,
         price_overrides={"p-1": Decimal("96")},
         watch_source="EXECUTION_WATCH",
-    )
+    ))
     assert reports[0]["action"] == "SHADOW_EXIT"
     assert reports[0]["exitReason"] == "STOP_LOSS_3PCT"
     assert reports[0]["brokerOrderAttempted"] is False
@@ -164,8 +162,7 @@ async def test_shadow_closes_virtual_position_without_broker_order(tmp_path, mon
     assert Decimal(recent["exit_return"]) == Decimal("-0.04")
 
 
-@pytest.mark.asyncio
-async def test_shadow_uses_frozen_four_bucket_exit_without_profit_flip(
+def test_shadow_uses_frozen_four_bucket_exit_without_profit_flip(
     tmp_path, monkeypatch
 ):
     activated = datetime(2026, 9, 24, 9, 0, tzinfo=timezone.utc)
@@ -183,7 +180,7 @@ async def test_shadow_uses_frozen_four_bucket_exit_without_profit_flip(
         window_open,
     )
 
-    reports = await manage_prospective_shadows(
+    reports = asyncio.run(manage_prospective_shadows(
         config=config,
         shadow_store=store,
         managed_store=managed,
@@ -192,7 +189,7 @@ async def test_shadow_uses_frozen_four_bucket_exit_without_profit_flip(
         elapsed_buckets_fn=lambda _db, _asof: 4,
         price_overrides={"p-1": Decimal("99.5")},
         watch_source="EXECUTION_WATCH",
-    )
+    ))
     assert reports[0]["action"] == "SHADOW_EXIT"
     assert reports[0]["exitReason"] == "MAX_HOLD_4_BUCKETS"
     assert "PROFIT" not in str(reports[0]["exitReason"])
