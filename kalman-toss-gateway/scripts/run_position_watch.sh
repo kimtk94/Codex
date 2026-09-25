@@ -27,7 +27,7 @@ cd "$APP_ROOT"
     fi
 
     echo "POSITION_WATCH_START_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    "$PY" -m engine.position_manager
+    KALMAN_WATCH_SOURCE=POSITION_WATCH "$PY" -m engine.position_manager
     "$PY" -m engine.trade_mirror
     echo "POSITION_WATCH_DONE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   ) 8>"$LOCK_DIR/auto-trade.lock"

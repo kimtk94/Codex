@@ -7,6 +7,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from app.live_exit_policy import ProfitFlipState, advance_profit_flip
+
 ACTIVE_STATES = (
     'ENTRY_RESERVED',
     'ENTRY_SUBMITTED',
@@ -491,29 +493,29 @@ class ManagedPositionStore:
                 return row
 
             previous_peak_raw = row.get('peak_price_return')
-            previous_peak = (
-                Decimal(str(previous_peak_raw))
-                if previous_peak_raw not in (None, '')
-                else price_return
+            state = advance_profit_flip(
+                ProfitFlipState(
+                    peak_price_return=(
+                        Decimal(str(previous_peak_raw))
+                        if previous_peak_raw not in (None, '')
+                        else None
+                    ),
+                    armed=bool(int(row.get('profit_flip_armed') or 0)),
+                    negative_count=int(row.get('profit_flip_negative_count') or 0),
+                    pending_reason=row.get('exit_pending_reason'),
+                    pending_since=row.get('exit_pending_since'),
+                ),
+                price_return=price_return,
+                arm_pct=arm_pct,
+                trigger_pct=trigger_pct,
+                confirm_observations=confirm_observations,
+                observed_at=now,
             )
-            peak = max(previous_peak, price_return)
-            armed = bool(int(row.get('profit_flip_armed') or 0)) or peak >= arm_pct
-
-            negative_count = int(row.get('profit_flip_negative_count') or 0)
-            if armed and price_return <= trigger_pct:
-                negative_count += 1
-            else:
-                negative_count = 0
-
-            pending_reason = row.get('exit_pending_reason')
-            pending_since = row.get('exit_pending_since')
-            if (
-                armed
-                and negative_count >= int(confirm_observations)
-                and not pending_reason
-            ):
-                pending_reason = 'PROFIT_TO_LOSS_FLIP'
-                pending_since = now
+            peak = state.peak_price_return
+            armed = state.armed
+            negative_count = state.negative_count
+            pending_reason = state.pending_reason
+            pending_since = state.pending_since
 
             conn.execute(
                 """UPDATE managed_position

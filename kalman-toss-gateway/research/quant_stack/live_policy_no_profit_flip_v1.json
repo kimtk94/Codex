@@ -1,0 +1,75 @@
+{
+  "schema": "kalman-prospective-shadow-candidate-v1",
+  "candidate_id": "LIVE_POLICY_NO_PROFIT_FLIP_V1",
+  "frozen_at": "2026-09-24",
+  "status": "PROSPECTIVE_SHADOW_CANDIDATE",
+  "research_only": true,
+  "production_changed": false,
+  "automation_changed": false,
+  "policy": {
+    "profit_flip_enabled": false,
+    "stop_loss_pct": -0.03,
+    "take_profit_pct": 0.20,
+    "model_rotation_enabled": false,
+    "target_exit_buckets": 4
+  },
+  "historical_price_semantics": {
+    "primary_feed": "sip",
+    "primary_session_et": "04:00-20:00",
+    "overnight_feed": "boats",
+    "overnight_session_et": "20:00-04:00",
+    "carry_forward_across_feed_boundary": false
+  },
+  "historical_evidence_2025": {
+    "rows": 294,
+    "ready_ratio": 1.0,
+    "median_watch_coverage": 1.0,
+    "median_position_watch_coverage": 1.0,
+    "median_execution_watch_coverage": 1.0,
+    "median_regular_exec_coverage": 1.0,
+    "median_overnight_watch_coverage": 1.0,
+    "vs_fixed4": {
+      "delta_log_growth": 0.11537193525770578,
+      "mdd_delta": 0.04443691965045493,
+      "positive_folds": "2/2",
+      "bootstrap_ci95_low": -0.00008552676284593234,
+      "bootstrap_ci95_high": 0.0010904248837916312,
+      "bootstrap_p_one_sided": 0.055594440555944404,
+      "research_survivor": false
+    },
+    "vs_full_profit_flip_policy": {
+      "delta_log_growth": 0.09282543435251932,
+      "mdd_delta": 0.0028157274399465138,
+      "positive_folds": "2/2",
+      "bootstrap_ci95_low": -0.0005755012482814634,
+      "bootstrap_ci95_high": 0.0014513843336745286,
+      "bootstrap_p_one_sided": 0.23103844807759613,
+      "trade_delta_sum": 0.09991232014198752
+    },
+    "profit_flip_counterfactual": {
+      "full_policy_profit_flip_trades": 146,
+      "would_be_no_early_exit": 119,
+      "no_early_exit_delta_sum": 0.4051530559768935,
+      "would_be_stop_loss": 27,
+      "stop_loss_delta_sum": -0.30524073583490596
+    }
+  },
+  "prospective_protocol": {
+    "comparison": "NO_PROFIT_FLIP shadow minus current FULL_POLICY live-policy shadow on matched trade opportunities",
+    "freeze_required": true,
+    "no_parameter_tuning_during_window": true,
+    "minimum_matched_trades": 100,
+    "minimum_us_trading_sessions": 30,
+    "evaluate_once_after_both_minima_are_met": true,
+    "primary_endpoint": "paired daily log-return delta",
+    "gates": {
+      "bootstrap_ci95_low_gt": 0.0,
+      "bootstrap_p_one_sided_lte": 0.10,
+      "mdd_delta_gte": -0.02,
+      "matched_trade_coverage_gte": 0.95,
+      "positive_chronological_folds_fraction_gte": 0.60
+    },
+    "promotion_ceiling": "PROSPECTIVE_SHADOW_ONLY_UNTIL_GATE_PASS"
+  },
+  "guardrail": "This candidate was selected after inspecting 2025 results. Historical evidence is post-hoc and must not be treated as independent confirmation. Any policy change creates a new candidate version and restarts prospective validation."
+}

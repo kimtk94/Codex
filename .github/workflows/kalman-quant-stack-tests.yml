@@ -9,7 +9,23 @@ on:
       - "kalman-toss-gateway/tests/test_quant_stack.py"
       - "kalman-toss-gateway/tests/test_historical_backfill.py"
       - "kalman-toss-gateway/tests/test_open_revalidation_backtest.py"
+      - "kalman-toss-gateway/tests/test_live_policy_replay.py"
+      - "kalman-toss-gateway/tests/test_prospective_shadow.py"
+      - "kalman-toss-gateway/tests/test_boats_history_boundary.py"
       - "kalman-toss-gateway/scripts/run_open_revalidation_backtest.sh"
+      - "kalman-toss-gateway/scripts/run_live_policy_replay.sh"
+      - "kalman-toss-gateway/scripts/run_live_policy_replay_pilot.sh"
+      - "kalman-toss-gateway/scripts/run_live_policy_replay_overlap_pilot.sh"
+      - "kalman-toss-gateway/scripts/run_live_policy_replay_overlap_full.sh"
+      - "kalman-toss-gateway/scripts/diagnose_live_policy_replay_feeds.sh"
+      - "kalman-toss-gateway/scripts/diagnose_live_policy_position_coverage.sh"
+      - "kalman-toss-gateway/scripts/compare_live_policy_ablations.sh"
+      - "kalman-toss-gateway/scripts/configure_prospective_shadow_env.sh"
+      - "kalman-toss-gateway/app/live_exit_policy.py"
+      - "kalman-toss-gateway/app/managed_positions.py"
+      - "kalman-toss-gateway/app/prospective_shadow.py"
+      - "kalman-toss-gateway/engine/position_manager.py"
+      - "kalman-toss-gateway/engine/prospective_shadow.py"
       - "kalman-toss-gateway/tests/test_quant_artifact_validation.py"
       - "kalman-toss-gateway/tests/test_qlib_recorder.py"
       - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
@@ -30,7 +46,12 @@ on:
       - "kalman-toss-gateway/tests/test_quant_stack.py"
       - "kalman-toss-gateway/tests/test_historical_backfill.py"
       - "kalman-toss-gateway/tests/test_open_revalidation_backtest.py"
+      - "kalman-toss-gateway/tests/test_live_policy_replay.py"
       - "kalman-toss-gateway/scripts/run_open_revalidation_backtest.sh"
+      - "kalman-toss-gateway/scripts/run_live_policy_replay.sh"
+      - "kalman-toss-gateway/app/live_exit_policy.py"
+      - "kalman-toss-gateway/app/managed_positions.py"
+      - "kalman-toss-gateway/engine/position_manager.py"
       - "kalman-toss-gateway/tests/test_quant_artifact_validation.py"
       - "kalman-toss-gateway/tests/test_qlib_recorder.py"
       - "kalman-toss-gateway/tests/test_pypfopt_portfolio_targets.py"
@@ -64,8 +85,20 @@ jobs:
         run: |
           python -m compileall -q research/quant_stack
           bash -n scripts/run_open_revalidation_backtest.sh
+          bash -n scripts/run_live_policy_replay.sh
+          bash -n scripts/run_live_policy_replay_pilot.sh
+          bash -n scripts/run_live_policy_replay_overlap_pilot.sh
+          bash -n scripts/run_live_policy_replay_overlap_full.sh
+          bash -n scripts/diagnose_live_policy_replay_feeds.sh
+          bash -n scripts/diagnose_live_policy_position_coverage.sh
+          bash -n scripts/compare_live_policy_ablations.sh
+          bash -n scripts/configure_prospective_shadow_env.sh
+          python -m py_compile app/prospective_shadow.py
+          python -m py_compile engine/prospective_shadow.py
           KALMAN_APP_ROOT="$PWD" KALMAN_PYTHON=python \
             bash scripts/run_open_revalidation_backtest.sh --help >/dev/null
+          KALMAN_APP_ROOT="$PWD" KALMAN_PYTHON=python \
+            bash scripts/run_live_policy_replay.sh --help >/dev/null
 
       - name: Run quant stack tests
         run: |
@@ -73,6 +106,9 @@ jobs:
             tests/test_quant_stack.py \
             tests/test_historical_backfill.py \
             tests/test_open_revalidation_backtest.py \
+            tests/test_live_policy_replay.py \
+            tests/test_prospective_shadow.py \
+            tests/test_boats_history_boundary.py \
             tests/test_quant_artifact_validation.py \
             tests/test_resume_postprocess.py
 

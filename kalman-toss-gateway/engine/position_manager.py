@@ -25,8 +25,15 @@ from dotenv import load_dotenv
 from app.config import Settings
 from app.executor import TradeLedger, execute_order
 from app.managed_positions import ManagedPositionStore
+from app.live_exit_policy import (
+    choose_exit_reason as choose_live_exit_reason,
+    should_clear_profit_flip_pending,
+    validate_profit_flip_parameters,
+)
 from app.market_guard import unwrap, us_fractional_order_window
+from app.prospective_shadow import ProspectiveShadowConfig, ProspectiveShadowStore
 from app.toss_client import TossClient
+from engine.prospective_shadow import manage_prospective_shadows
 
 TERMINAL_STATUSES = {
     'FILLED',
@@ -234,18 +241,12 @@ def _profit_flip_config() -> tuple[bool, Decimal, Decimal, Decimal, int]:
             'AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS must be an integer'
         ) from exc
 
-    if arm_pct < 0 or arm_pct > Decimal('0.20'):
-        raise RuntimeError('AUTO_TRADE_PROFIT_FLIP_ARM_PCT must be between 0 and 0.20')
-    if trigger_pct >= 0 or trigger_pct < Decimal('-0.20'):
-        raise RuntimeError('AUTO_TRADE_PROFIT_FLIP_TRIGGER_PCT must be between -0.20 and 0')
-    if recovery_pct < trigger_pct or recovery_pct > Decimal('0.20'):
-        raise RuntimeError(
-            'AUTO_TRADE_PROFIT_FLIP_RECOVERY_PCT must be >= trigger and <= 0.20'
-        )
-    if confirm < 1 or confirm > 12:
-        raise RuntimeError(
-            'AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS must be between 1 and 12'
-        )
+    validate_profit_flip_parameters(
+        arm_pct=arm_pct,
+        trigger_pct=trigger_pct,
+        recovery_pct=recovery_pct,
+        confirm_observations=confirm,
+    )
     return enabled, arm_pct, trigger_pct, recovery_pct, confirm
 
 
@@ -259,17 +260,15 @@ def _choose_exit_reason(
     target_buckets: int,
     pending_exit_reason: str | None = None,
 ) -> str | None:
-    if price_return <= stop_loss:
-        return 'STOP_LOSS_3PCT'
-    if price_return >= take_profit:
-        return 'TAKE_PROFIT_20PCT'
-    if pending_exit_reason:
-        return pending_exit_reason
-    if model_rotation:
-        return 'MODEL_ROTATION'
-    if elapsed_buckets >= target_buckets:
-        return 'MAX_HOLD_4_BUCKETS'
-    return None
+    return choose_live_exit_reason(
+        price_return=price_return,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        model_rotation=model_rotation,
+        elapsed_buckets=elapsed_buckets,
+        target_buckets=target_buckets,
+        pending_exit_reason=pending_exit_reason,
+    )
 
 
 async def _reconcile_reserved(store: ManagedPositionStore, ledger: TradeLedger, position: dict) -> dict:
@@ -589,9 +588,10 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         # Daytime deterioration only prepares an exit. At execution time the
         # position is revalidated against the latest price; a recovery above
         # the configured threshold cancels the pending exit.
-        if (
-            pending_exit_reason == 'PROFIT_TO_LOSS_FLIP'
-            and price_return > flip_recovery_pct
+        if should_clear_profit_flip_pending(
+            pending_reason=pending_exit_reason,
+            price_return=price_return,
+            recovery_pct=flip_recovery_pct,
         ):
             store.clear_exit_pending(position['position_id'])
             pending_exit_reason = None
@@ -740,12 +740,24 @@ async def main_async() -> int:
     store = ManagedPositionStore(settings.state_db_path)
     ledger = TradeLedger(settings.state_db_path)
     client = TossClient(settings)
+
+    shadow_config = ProspectiveShadowConfig.from_env()
+    shadow_store = (
+        ProspectiveShadowStore(settings.state_db_path)
+        if shadow_config.enabled
+        else None
+    )
+
     positions = store.active()
-    if not positions:
+    if not positions and not (
+        shadow_store and shadow_store.has_open(shadow_config.candidate_id)
+    ):
         print('NO_MANAGED_POSITION')
         return 0
 
     reports = []
+    shadow_price_overrides: dict[str, Decimal] = {}
+
     for original in positions:
         position = store.get(original['position_id']) or original
         state = position['state']
@@ -773,8 +785,37 @@ async def main_async() -> int:
             continue
 
         if state == 'OPEN':
+            if shadow_store:
+                shadow_store.seed_or_sync(position, shadow_config)
+
             open_report = await _manage_open_position(settings, store, client, position, mode)
             reports.append(open_report)
+
+            if open_report.get('lastPrice') not in (None, ''):
+                try:
+                    shadow_price_overrides[position['position_id']] = Decimal(
+                        str(open_report['lastPrice'])
+                    )
+                except Exception:
+                    pass
+
+            if (
+                shadow_store
+                and mode == 'LIVE'
+                and open_report.get('action') == 'EXIT_SUBMITTED'
+                and open_report.get('lastPrice') not in (None, '')
+                and open_report.get('priceReturn') not in (None, '')
+                and open_report.get('exitReason')
+            ):
+                shadow_store.record_live_policy_exit_reference(
+                    shadow_config.candidate_id,
+                    position['position_id'],
+                    observed_at=datetime.now(timezone.utc).isoformat(),
+                    price=Decimal(str(open_report['lastPrice'])),
+                    price_return=Decimal(str(open_report['priceReturn'])),
+                    reason=str(open_report['exitReason']),
+                )
+
             if mode == 'LIVE' and open_report.get('action') == 'EXIT_SUBMITTED':
                 wait_seconds, poll_seconds = _exit_wait_config()
                 reports.append(
@@ -794,6 +835,30 @@ async def main_async() -> int:
                 'state': state,
                 'note': position.get('note'),
             })
+
+    if shadow_store:
+        db_url = os.environ.get('DATABASE_URL_WRITER')
+        if not db_url:
+            raise RuntimeError('DATABASE_URL_WRITER is missing')
+
+        shadow_reports = await manage_prospective_shadows(
+            config=shadow_config,
+            shadow_store=shadow_store,
+            managed_store=store,
+            client=client,
+            db_url=db_url,
+            elapsed_buckets_fn=_elapsed_canonical_buckets,
+            price_overrides=shadow_price_overrides,
+            watch_source=os.environ.get('KALMAN_WATCH_SOURCE'),
+        )
+        reports.append({
+            'action': 'PROSPECTIVE_SHADOW_CYCLE',
+            'candidateId': shadow_config.candidate_id,
+            'candidateFingerprint': shadow_config.fingerprint,
+            'brokerOrderAttempted': False,
+            'summary': shadow_store.summary(shadow_config.candidate_id),
+            'reports': shadow_reports,
+        })
 
     print(json.dumps(reports, ensure_ascii=False, indent=2, default=str))
     return 0
