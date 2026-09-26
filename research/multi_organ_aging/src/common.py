@@ -61,10 +61,25 @@ def write_table(df: pd.DataFrame, path: str | Path) -> None:
 
 def list_input_files(input_dir: str | Path, globs: Sequence[str]) -> list[Path]:
     root = Path(input_dir)
+    scan_roots = [root]
+
+    shared = root / "shared_source"
+    if shared.exists():
+        try:
+            scan_roots.append(shared.resolve())
+        except OSError:
+            scan_roots.append(shared)
+
     found: list[Path] = []
-    for pattern in globs:
-        found.extend(root.glob(pattern))
-    return sorted({p.resolve() for p in found if p.is_file()})
+    for scan_root in scan_roots:
+        if not scan_root.exists():
+            continue
+        for pattern in globs:
+            found.extend(scan_root.glob(pattern))
+            found.extend(scan_root.glob(f"*/{pattern}"))
+
+    unique = {p.resolve() for p in found if p.is_file()}
+    return sorted(unique)
 
 
 def detect_wave(path: str | Path, wave_order: dict[str, int]) -> str:
