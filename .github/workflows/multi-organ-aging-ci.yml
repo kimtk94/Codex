@@ -38,3 +38,11 @@ jobs:
           bash -n master_degree/multi_organ_aging/scripts/bootstrap_server.sh
           bash -n master_degree/multi_organ_aging/scripts/run_pipeline.sh
           bash -n master_degree/multi_organ_aging/scripts/sync_gdrive.sh
+
+      - name: Package research code
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-organ-aging-code
+          path: master_degree/multi_organ_aging
+          if-no-files-found: error
+          retention-days: 30
