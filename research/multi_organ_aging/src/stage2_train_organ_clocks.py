@@ -13,7 +13,7 @@ from sklearn.model_selection import GroupKFold, GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import RobustScaler
 
-from common import ensure_dir, json_dump, load_config, safe_corr, write_table, zscore
+from common import ensure_dir, json_dump, load_config, safe_corr, write_table
 
 
 def make_model(cfg: dict) -> GridSearchCV:
@@ -37,10 +37,10 @@ def make_model(cfg: dict) -> GridSearchCV:
     return GridSearchCV(pipe, grid, scoring="neg_mean_absolute_error", cv=3, n_jobs=-1)
 
 
-def residualize_gap(raw_gap: pd.Series, age: pd.Series, sex: pd.Series) -> pd.Series:
+def fit_gap_residualizer(raw_gap: pd.Series, age: pd.Series, sex: pd.Series) -> np.ndarray | None:
     frame = pd.DataFrame({"gap": raw_gap, "age": age, "sex": sex}).dropna()
     if len(frame) < 50:
-        return raw_gap
+        return None
     X = np.column_stack(
         [
             np.ones(len(frame)),
@@ -50,9 +50,54 @@ def residualize_gap(raw_gap: pd.Series, age: pd.Series, sex: pd.Series) -> pd.Se
     )
     y = frame["gap"].to_numpy(float)
     beta, *_ = np.linalg.lstsq(X, y, rcond=None)
-    fitted = X @ beta
-    resid = pd.Series(y - fitted, index=frame.index)
-    return resid.reindex(raw_gap.index)
+    return beta
+
+
+def apply_gap_residualizer(
+    raw_gap: pd.Series,
+    age: pd.Series,
+    sex: pd.Series,
+    beta: np.ndarray | None,
+) -> pd.Series:
+    raw = pd.to_numeric(raw_gap, errors="coerce")
+    if beta is None:
+        return raw.copy()
+
+    frame = pd.DataFrame(
+        {
+            "gap": raw,
+            "age": pd.to_numeric(age, errors="coerce"),
+            "sex": pd.to_numeric(sex, errors="coerce"),
+        }
+    )
+    out = pd.Series(np.nan, index=frame.index, dtype=float)
+    ok = frame.notna().all(axis=1)
+    if ok.any():
+        X = np.column_stack(
+            [
+                np.ones(int(ok.sum())),
+                frame.loc[ok, "age"].to_numpy(float),
+                frame.loc[ok, "sex"].to_numpy(float),
+            ]
+        )
+        out.loc[ok] = frame.loc[ok, "gap"].to_numpy(float) - X @ beta
+    return out
+
+
+def fit_standardizer(series: pd.Series) -> tuple[float, float]:
+    x = pd.to_numeric(series, errors="coerce").dropna()
+    if x.empty:
+        return 0.0, 1.0
+    mean = float(x.mean())
+    sd = float(x.std(ddof=0))
+    if not np.isfinite(sd) or sd <= 0:
+        sd = 1.0
+    return mean, sd
+
+
+def apply_standardizer(series: pd.Series, mean: float, sd: float) -> pd.Series:
+    x = pd.to_numeric(series, errors="coerce")
+    return (x - mean) / sd
 
 
 def healthy_reference_mask(df: pd.DataFrame, cfg: dict) -> pd.Series:
@@ -72,19 +117,26 @@ def train_one_organ(
     cfg: dict,
     model_dir: Path,
 ):
-    candidates = [c for c in spec["features"] if c in df.columns]
+    # Freeze training to each participant's earliest available visit.
+    baseline = (
+        df.sort_values(["person_id", "visit_index", "year_offset"])
+        .drop_duplicates("person_id", keep="first")
+        .copy()
+    )
+
+    candidates = [c for c in spec["features"] if c in baseline.columns]
     keep = [
         c
         for c in candidates
-        if df[c].notna().mean() >= float(cfg["clock"]["min_nonmissing_fraction"])
+        if baseline[c].notna().mean() >= float(cfg["clock"]["min_nonmissing_fraction"])
     ]
     if len(keep) < int(spec["min_features"]):
         return None, {"organ": organ, "status": "insufficient_features", "features": keep}
 
     required = ["person_id", "age", "sex_male"] + keep
-    d = df[required].copy()
+    d = baseline[required].copy()
     d = d[d["age"].notna() & d["person_id"].notna()]
-    ref = healthy_reference_mask(df.loc[d.index], cfg)
+    ref = healthy_reference_mask(baseline.loc[d.index], cfg)
     d = d.loc[ref].copy()
     n_subjects = d["person_id"].nunique()
 
@@ -127,14 +179,27 @@ def train_one_organ(
         )
 
     raw_gap = pred - y
-    age_accel = residualize_gap(raw_gap, y, d["sex_male"])
-    accel_z = zscore(age_accel)
+    gap_beta = fit_gap_residualizer(raw_gap, y, d["sex_male"])
+    age_accel = apply_gap_residualizer(raw_gap, y, d["sex_male"], gap_beta)
+    accel_mean, accel_sd = fit_standardizer(age_accel)
+    accel_z = apply_standardizer(age_accel, accel_mean, accel_sd)
 
     final_model = make_model(cfg)
     final_model.fit(X, y)
     model_path = model_dir / f"{organ}_elasticnet_clock.pkl"
     with open(model_path, "wb") as f:
-        pickle.dump({"model": final_model, "features": keep, "organ": organ}, f)
+        pickle.dump(
+            {
+                "model": final_model,
+                "features": keep,
+                "organ": organ,
+                "gap_beta_intercept_age_sex": gap_beta,
+                "accel_mean": accel_mean,
+                "accel_sd": accel_sd,
+                "training_scope": "earliest_visit_per_subject",
+            },
+            f,
+        )
 
     scored_ref = d[["person_id", "age", "sex_male"]].copy()
     scored_ref["organ"] = organ
@@ -146,6 +211,7 @@ def train_one_organ(
     meta = {
         "organ": organ,
         "status": "ok",
+        "training_scope": "earliest_visit_per_subject",
         "features": ",".join(keep),
         "n_rows": int(len(d)),
         "n_subjects": int(n_subjects),
@@ -153,9 +219,11 @@ def train_one_organ(
         "oof_r2": float(r2_score(y, pred)),
         "corr_gap_age_before": safe_corr(raw_gap, y),
         "corr_gap_age_after": safe_corr(age_accel, y),
+        "accel_reference_mean": accel_mean,
+        "accel_reference_sd": accel_sd,
         "model_path": str(model_path),
     }
-    return scored_ref, meta, pd.DataFrame(fold_rows), final_model, keep
+    return scored_ref, meta, pd.DataFrame(fold_rows), final_model, keep, gap_beta, accel_mean, accel_sd
 
 
 def apply_final_model(
@@ -163,6 +231,9 @@ def apply_final_model(
     organ: str,
     model,
     features: list[str],
+    gap_beta: np.ndarray | None,
+    accel_mean: float,
+    accel_sd: float,
 ) -> pd.DataFrame:
     eligible = all_df["age"].notna() & all_df["person_id"].notna()
     cols = ["person_id", "wave", "visit_index", "year_offset", "age", "sex_male"] + features
@@ -170,13 +241,17 @@ def apply_final_model(
     d["organ"] = organ
     d["predicted_age"] = model.predict(d[features])
     d["raw_age_gap"] = d["predicted_age"] - d["age"]
-    d["age_acceleration"] = residualize_gap(d["raw_age_gap"], d["age"], d["sex_male"])
-    d["age_acceleration_z"] = zscore(d["age_acceleration"])
+    d["age_acceleration"] = apply_gap_residualizer(
+        d["raw_age_gap"], d["age"], d["sex_male"], gap_beta
+    )
+    d["age_acceleration_z"] = apply_standardizer(
+        d["age_acceleration"], accel_mean, accel_sd
+    )
     return d
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Train leakage-aware organ-specific aging clocks.")
+    ap = argparse.ArgumentParser(description="Train baseline organ-specific aging clocks.")
     ap.add_argument("--config", required=True)
     ap.add_argument("--panel", default=None)
     ap.add_argument("--out-dir", default=None)
@@ -203,12 +278,33 @@ def main() -> int:
             meta_rows.append(result[1])
             print(f"[SKIP] {organ}: {result[1]['status']}")
             continue
-        ref_score, meta, fold_df, final_model, features = result
+
+        (
+            ref_score,
+            meta,
+            fold_df,
+            final_model,
+            features,
+            gap_beta,
+            accel_mean,
+            accel_sd,
+        ) = result
+
         refs.append(ref_score)
         meta_rows.append(meta)
         fold_frames.append(fold_df)
-        all_scores.append(apply_final_model(df, organ, final_model, features))
-        print(f"[OK] {organ}: n={meta['n_rows']} OOF_MAE={meta['oof_mae']:.3f}")
+        all_scores.append(
+            apply_final_model(
+                df,
+                organ,
+                final_model,
+                features,
+                gap_beta,
+                accel_mean,
+                accel_sd,
+            )
+        )
+        print(f"[OK] {organ}: baseline_n={meta['n_rows']} OOF_MAE={meta['oof_mae']:.3f}")
 
     if not all_scores:
         raise SystemExit("No organ clock was trainable. Review Stage 0/1 variable mapping.")
@@ -227,7 +323,9 @@ def main() -> int:
         "trained_organs": meta_df.loc[meta_df["status"].eq("ok"), "organ"].tolist(),
         "n_trained_organs": int(meta_df["status"].eq("ok").sum()),
         "score_rows": int(len(scores)),
-        "warning": "Clock coefficients are not causal effects. OOF performance and age-gap residualization are mandatory QC.",
+        "training_scope": "earliest_visit_per_subject",
+        "age_gap_correction": "OOF baseline age+sex residualization frozen and applied to all waves",
+        "warning": "Clock coefficients are not causal effects. OOF performance and frozen age-gap residualization are mandatory QC.",
     }
     json_dump(summary, out / "STAGE2_SUMMARY.json")
     print(summary)
