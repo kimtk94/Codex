@@ -104,28 +104,33 @@ def main() -> int:
 
     long = pd.concat(frames, ignore_index=True, sort=False)
 
-    # Static sex is filled within participant. Missing visit age may be inferred from
-    # baseline age + planned wave offset, and the source is explicitly flagged.
     def mode_or_nan(s: pd.Series):
         x = s.dropna()
         return x.mode().iloc[0] if not x.empty else np.nan
 
     long["sex_male"] = long.groupby("person_id")["sex_male"].transform(mode_or_nan)
 
-    ordered = long.sort_values(["person_id", "visit_index"])
-    baseline_age_map = (
-        ordered.groupby("person_id")["age"]
-        .apply(lambda s: s.dropna().iloc[0] if not s.dropna().empty else np.nan)
-        .to_dict()
-    )
-    min_offset_map = ordered.groupby("person_id")["year_offset"].min().to_dict()
-    inferred_age = long.apply(
-        lambda r: baseline_age_map.get(r["person_id"], np.nan)
-        + (r["year_offset"] - min_offset_map.get(r["person_id"], np.nan)),
-        axis=1,
-    )
-    long["age_source"] = np.where(long["age"].notna(), "measured", "inferred_from_wave_offset")
+    # Infer missing visit age from a subject-specific age-at-time-zero anchor:
+    # observed age - planned visit offset. Median is used to tolerate integer age rounding.
+    observed_age = long.loc[
+        long["age"].notna() & long["year_offset"].notna(),
+        ["person_id", "age", "year_offset"],
+    ].copy()
+    observed_age["age_at_offset0"] = observed_age["age"] - observed_age["year_offset"]
+    anchor_map = observed_age.groupby("person_id")["age_at_offset0"].median().to_dict()
+
+    anchor = long["person_id"].map(anchor_map)
+    inferred_age = anchor + long["year_offset"]
+    long["age_source"] = np.where(long["age"].notna(), "measured", "inferred_from_subject_anchor")
     long["age"] = long["age"].fillna(inferred_age)
+
+    # QC: measured age should be close to the wave-based subject anchor.
+    expected_age = anchor + long["year_offset"]
+    long["age_wave_residual_years"] = np.where(
+        long["age_source"].eq("measured"),
+        long["age"] - expected_age,
+        np.nan,
+    )
 
     dup = long.duplicated(["person_id", "wave"], keep=False)
     dup_report = long.loc[dup, ["person_id", "wave", "source_file"]].copy()
@@ -142,6 +147,7 @@ def main() -> int:
         print(f"[WARN] parquet write skipped: {exc}")
 
     visits = long.groupby("person_id")["wave"].nunique()
+    age_resid = pd.to_numeric(long["age_wave_residual_years"], errors="coerce").dropna()
     summary = {
         "rows": int(len(long)),
         "subjects": int(long["person_id"].nunique()),
@@ -149,6 +155,9 @@ def main() -> int:
         "subjects_ge_3_visits": int((visits >= 3).sum()),
         "median_visits": float(visits.median()),
         "duplicate_rows_flagged": int(len(dup_report)),
+        "measured_age_rows": int(long["age_source"].eq("measured").sum()),
+        "inferred_age_rows": int(long["age_source"].eq("inferred_from_subject_anchor").sum()),
+        "median_abs_age_wave_residual_years": float(age_resid.abs().median()) if len(age_resid) else None,
     }
     json_dump(summary, out / "STAGE1_SUMMARY.json")
     print(summary)
