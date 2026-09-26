@@ -34,14 +34,16 @@ def detect_visit(name: str) -> int | None:
 
 def read_head(path: Path, nrows: int = 20) -> pd.DataFrame:
     attempts = [
-        dict(sep="\t"),
-        dict(sep=","),
+        dict(sep="\t", low_memory=False),
+        dict(sep=",", low_memory=False),
         dict(sep=None, engine="python"),
     ]
     last = None
     for kwargs in attempts:
         try:
-            return pd.read_csv(path, nrows=nrows, low_memory=False, **kwargs)
+            df = pd.read_csv(path, nrows=nrows, **kwargs)
+            if df.shape[1] > 1:
+                return df
         except Exception as exc:
             last = exc
     raise RuntimeError(f"Cannot read {path}: {last}")
