@@ -666,11 +666,13 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         report['action'] = 'LIVE_GATE_CLOSED_EXIT_PENDING'
         return report
     if not window_open:
-        report['action'] = (
-            'EXIT_PENDING_WINDOW_CLOSED'
-            if exit_reason == 'PROFIT_TO_LOSS_FLIP'
-            else 'EXIT_WINDOW_CLOSED'
-        )
+        store.set_exit_pending(position['position_id'], exit_reason)
+        refreshed = store.get(position['position_id']) or position
+        report.update({
+            'action': 'EXIT_PENDING_WINDOW_CLOSED',
+            'pendingExitReason': refreshed.get('exit_pending_reason') or exit_reason,
+            'pendingExitSince': refreshed.get('exit_pending_since'),
+        })
         return report
 
     attempt = int(position.get('exit_attempt') or 0)
