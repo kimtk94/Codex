@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import io
 import pathlib
 import sys
 import tempfile
 import unittest
 from decimal import Decimal
-from unittest.mock import patch
+from contextlib import redirect_stdout
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -100,6 +104,58 @@ class ExitWindowSafetyTests(unittest.TestCase):
             )
 
         self.assertTrue(allowed)
+
+    def test_live_pending_exit_blocks_before_signal_lookup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = pathlib.Path(tmp) / 'trading.sqlite3'
+            store = ManagedPositionStore(db)
+            ok, row = store.reserve_entry(
+                run_id='run-block',
+                symbol='QCOM',
+                strategy_version='R5.1_BASE_HGB',
+                signal_as_of='2026-09-25T14:30:00+00:00',
+                client_order_id='order-block',
+                target_exit_buckets=4,
+            )
+            self.assertTrue(ok)
+            store.mark_open(
+                row['position_id'],
+                entry_status='FILLED',
+                filled_quantity=Decimal('1'),
+                average_price='200',
+            )
+            store.set_exit_pending(row['position_id'], 'MAX_HOLD_4_BUCKETS')
+
+            fake_settings = SimpleNamespace(
+                state_db_path=db,
+                live_gate_open=True,
+            )
+            signal_lookup = Mock(side_effect=AssertionError('signal lookup must not run'))
+
+            env = {
+                'KALMAN_ENV_FILE': str(pathlib.Path(tmp) / 'missing.env'),
+                'AUTO_TRADE_ENABLED': 'true',
+                'AUTO_TRADE_EXECUTION_MODE': 'LIVE',
+                'AUTO_TRADE_SIGNAL_POLICY': 'R5_LIVE_TOP1',
+                'AUTO_TRADE_STRATEGY_VERSION': 'R5.1_BASE_HGB',
+                'AUTO_TRADE_OVERLAP_CONFIRM': 'CONFIRM_R5_LIVE_TOP1',
+            }
+
+            output = io.StringIO()
+            with (
+                patch.dict(auto_trade.os.environ, env, clear=False),
+                patch.object(auto_trade, 'Settings', return_value=fake_settings),
+                patch.object(auto_trade, 'load_signal', signal_lookup),
+                redirect_stdout(output),
+            ):
+                rc = asyncio.run(auto_trade.main_async())
+
+            self.assertEqual(rc, 0)
+            signal_lookup.assert_not_called()
+            text = output.getvalue()
+            self.assertIn('ENTRY_BLOCKED_PENDING_EXIT_PRIORITY', text)
+            self.assertIn('MAX_HOLD_4_BUCKETS', text)
+            self.assertIn('QCOM', text)
 
     def test_pending_exit_reason_is_persisted_and_priority_can_upgrade(self):
         with tempfile.TemporaryDirectory() as tmp:
