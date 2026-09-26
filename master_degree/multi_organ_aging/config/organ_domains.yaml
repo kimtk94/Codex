@@ -1,0 +1,57 @@
+project:
+  id_col_candidates: [ID, SAMPLE_ID, SUBJECT_ID, IID, FID, PERSON_ID]
+  age_candidates: [AGE, age, AGE_B, AGE_YRS]
+  sex_candidates: [SEX, sex, GENDER]
+  wave_regex: "(follow|wave|visit|f)[_ -]?(0?[0-9]+)"
+  min_waves_for_slope: 2
+  high_confidence_waves: 3
+
+organ_domains:
+  renal:
+    required_min_features: 2
+    patterns:
+      creatinine: ["CREAT", "CREATININE", "CR"]
+      egfr: ["EGFR", "E_GFR"]
+      bun: ["BUN", "UREA"]
+      uacr: ["UACR", "ALB.*CREAT", "ACR"]
+  metabolic:
+    required_min_features: 3
+    patterns:
+      glucose: ["GLUCOSE", "GLU", "FBS", "FAST.*GLU"]
+      hba1c: ["HBA1C", "A1C"]
+      triglyceride: ["TRIG", "TG"]
+      hdl: ["HDL"]
+      ldl: ["LDL"]
+      bmi: ["BMI"]
+      waist: ["WAIST", "WC"]
+  hepatic:
+    required_min_features: 2
+    patterns:
+      ast: ["AST", "GOT"]
+      alt: ["ALT", "GPT"]
+      ggt: ["GGT", "GAMMA.*GT", "R_GTP"]
+      bilirubin: ["BILIRUBIN", "TBIL"]
+      albumin: ["ALBUMIN", "ALB"]
+  vascular:
+    required_min_features: 2
+    patterns:
+      sbp: ["SBP", "SYS.*BP", "SYSTOLIC"]
+      dbp: ["DBP", "DIA.*BP", "DIASTOLIC"]
+      pulse_pressure: ["PULSE.*PRESS", "PP"]
+      heart_rate: ["HEART.*RATE", "PULSE", "HR"]
+
+healthy_reference:
+  bmi_range: [18.5, 29.9]
+  glucose_max: 125
+  hba1c_max: 6.4
+  sbp_max: 139
+  dbp_max: 89
+  egfr_min: 60
+  ast_max: null
+  alt_max: null
+
+discordance:
+  accelerated_mean_z: 1.0
+  resilient_mean_z: -1.0
+  discordant_sd_z: 1.0
+  organ_first_delta_z: 1.0
