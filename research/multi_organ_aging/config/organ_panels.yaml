@@ -1,0 +1,62 @@
+project:
+  wave_spacing_years: 2.0
+  minimum_visits_for_pace: 3
+  random_state: 20260927
+  baseline_visit: 0
+
+id_aliases:
+  - ID
+  - id
+  - IID
+  - iid
+  - SUBJECT_ID
+  - subject_id
+
+age_aliases:
+  - AGE
+  - age
+
+sex_aliases:
+  - SEX
+  - sex
+  - GENDER
+  - gender
+
+variables:
+  BMI: [BMI, bmi]
+  WC: [WAIST, waist, WC, wc]
+  GLUCOSE: [GLUCOSE, glucose, GLU0, FBS]
+  HBA1C: [HBA1C, HbA1c, hba1c, A1C]
+  HDL: [HDL, HDL_C, hdl]
+  LDL: [LDL, LDL_C, ldl]
+  TG: [TG, TRIGLYCERIDE, triglyceride]
+  CREATININE: [CREATININE, creatinine, CRE, Cr]
+  EGFR: [EGFR, eGFR, egfr]
+  BUN: [BUN, bun]
+  UACR: [UACR, uacr, ACR]
+  AST: [AST, ast, GOT]
+  ALT: [ALT, alt, GPT]
+  GGT: [GGT, ggt, GAMMA_GTP]
+  ALBUMIN: [ALBUMIN, albumin, ALB]
+  SBP: [SBP, sbp, SYSTOLIC_BP]
+  DBP: [DBP, dbp, DIASTOLIC_BP]
+
+organs:
+  metabolic: [BMI, WC, GLUCOSE, HBA1C, HDL, LDL, TG]
+  renal: [EGFR, CREATININE, BUN, UACR]
+  hepatic: [AST, ALT, GGT, ALBUMIN]
+  vascular: [SBP, DBP, PULSE_PRESSURE, MAP]
+
+outcomes:
+  reduced_egfr:
+    variable: EGFR
+    baseline_rule: ">=60"
+    event_rule: "<60"
+  dysglycemia:
+    any_of:
+      - {variable: GLUCOSE, baseline_rule: "<126", event_rule: ">=126"}
+      - {variable: HBA1C, baseline_rule: "<6.5", event_rule: ">=6.5"}
+  hypertension:
+    any_of:
+      - {variable: SBP, baseline_rule: "<140", event_rule: ">=140"}
+      - {variable: DBP, baseline_rule: "<90", event_rule: ">=90"}
