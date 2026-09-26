@@ -42,6 +42,7 @@ on:
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - "kalman-toss-gateway/tests/test_same_cycle_rebalance.py"
+      - "kalman-toss-gateway/tests/test_exit_window_safety.py"
       - "kalman-toss-gateway/tests/test_trade_mirror_status.py"
       - "kalman-toss-gateway/tests/test_execution_telemetry.py"
       - "kalman-toss-gateway/tests/test_r5_strategy_ledger_sync.py"
@@ -87,6 +88,7 @@ on:
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - "kalman-toss-gateway/tests/test_same_cycle_rebalance.py"
+      - "kalman-toss-gateway/tests/test_exit_window_safety.py"
       - "kalman-toss-gateway/tests/test_trade_mirror_status.py"
       - "kalman-toss-gateway/tests/test_execution_telemetry.py"
       - "kalman-toss-gateway/tests/test_r5_strategy_ledger_sync.py"
@@ -119,7 +121,7 @@ jobs:
 
       - name: Compile gateway code
         run: |
-          python -m compileall app engine/auto_trade.py engine/position_manager.py engine/benchmark_ledger.py engine/r5_strategy_ledger_sync.py engine/trade_mirror.py engine/execution_telemetry_sync.py engine/news_ingest_v1.py engine/macro_event_features_v1.py engine/macro_consensus_provider_v1.py engine/macro_shadow_eval_v1.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py tests/test_trade_mirror_status.py tests/test_execution_telemetry.py tests/test_r5_strategy_ledger_sync.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py
+          python -m compileall app engine/auto_trade.py engine/position_manager.py engine/benchmark_ledger.py engine/r5_strategy_ledger_sync.py engine/trade_mirror.py engine/execution_telemetry_sync.py engine/news_ingest_v1.py engine/macro_event_features_v1.py engine/macro_consensus_provider_v1.py engine/macro_shadow_eval_v1.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py tests/test_exit_window_safety.py tests/test_trade_mirror_status.py tests/test_execution_telemetry.py tests/test_r5_strategy_ledger_sync.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py
 
       - name: Shell syntax checks
         run: |
@@ -149,15 +151,18 @@ jobs:
               "*/30 9-21 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
               "0 22 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
               "25-55/5 22 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
-              "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
-              "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
+              "0,5,10,15,20,25,30,40,45,55 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
+              "0,5,10,15,20,25,30,40,45,55 0-4 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
+              "*/5 5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
           ]
           for line in required:
               assert line in text, line
 
           assert "run_pipeline.sh US" not in text
           assert "run_auto_trade.sh" not in text
-          print("[PASS] US cron uses hourly model cycles plus a 5m execution watcher")
+          assert "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh" not in text
+          assert "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh" not in text
+          print("[PASS] US cron reserves :35 for model cycle and :50 for watchdog")
           PY
 
       - name: Validate US cycle ordering
@@ -228,6 +233,8 @@ jobs:
               "CFG_AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS=2",
               "CFG_AUTO_TRADE_ORDER_KRW=5000",
               "CFG_AUTO_TRADE_SIGNAL_BAR_MINUTES=60",
+              "CFG_AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED=true",
+              "CFG_AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES=15",
               "CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=0",
               "CFG_MAX_SINGLE_ORDER_KRW=5000",
           ]
@@ -240,5 +247,5 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist tests.test_same_cycle_rebalance -v
+          python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist tests.test_same_cycle_rebalance tests.test_exit_window_safety -v
           pytest -q tests/test_trade_mirror_status.py tests/test_execution_telemetry.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py tests/test_macro_shadow_eval_v1.py
