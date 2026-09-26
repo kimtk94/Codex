@@ -1,0 +1,135 @@
+{
+  "project_name": "MULTI_ORGAN_AGING",
+  "version": "0.1.0",
+  "paths": {
+    "input_dir": "/srv/is-analysis/data/multi_organ_aging/public_training",
+    "out_dir": "/srv/is-analysis/results/multi_organ_aging",
+    "model_dir": "/srv/is-analysis/results/multi_organ_aging/models",
+    "outcomes_file": "/srv/is-analysis/data/multi_organ_aging/controlled/outcomes.tsv.gz",
+    "genetics_file": "/srv/is-analysis/data/multi_organ_aging/controlled/prs.tsv.gz"
+  },
+  "file_globs": ["*.tsv", "*.tsv.gz", "*.csv", "*.csv.gz", "*.xlsx", "*.xls"],
+  "id_concepts": {
+    "person_id": ["person_id", "subject_id", "subjectid", "iid", "id", "dist_id", "htn_id"],
+    "age": ["age", "age_years", "baseline_age"],
+    "sex": ["sex", "gender"]
+  },
+  "wave_order": {
+    "base": 0,
+    "baseline": 0,
+    "follow_01": 1,
+    "follow_02": 2,
+    "follow_03": 3,
+    "follow_04": 4,
+    "follow_05": 5,
+    "follow_06": 6,
+    "follow_07": 7,
+    "follow_08": 8,
+    "follow_09": 9,
+    "follow_10": 10
+  },
+  "wave_year_offset": {
+    "base": 0.0,
+    "baseline": 0.0,
+    "follow_01": 2.0,
+    "follow_02": 4.0,
+    "follow_03": 6.0,
+    "follow_04": 8.0,
+    "follow_05": 10.0,
+    "follow_06": 12.0,
+    "follow_07": 14.0,
+    "follow_08": 16.0,
+    "follow_09": 18.0,
+    "follow_10": 20.0
+  },
+  "concepts": {
+    "height_cm": ["height", "height_cm", "ht"],
+    "weight_kg": ["weight", "weight_kg", "wt"],
+    "bmi": ["bmi", "body_mass_index"],
+    "waist_cm": ["waist", "waist_cm", "wc"],
+    "sbp": ["sbp", "systolic_bp", "systolic_blood_pressure"],
+    "dbp": ["dbp", "diastolic_bp", "diastolic_blood_pressure"],
+    "heart_rate": ["heart_rate", "pulse", "pulse_rate", "hr"],
+    "glucose": ["glucose", "fasting_glucose", "fasting_blood_glucose", "fbs"],
+    "hba1c": ["hba1c", "hb_a1c", "glycated_hemoglobin"],
+    "insulin": ["insulin", "fasting_insulin"],
+    "total_cholesterol": ["total_cholesterol", "cholesterol", "tc"],
+    "hdl": ["hdl", "hdl_c", "hdl_cholesterol"],
+    "ldl": ["ldl", "ldl_c", "ldl_cholesterol"],
+    "triglyceride": ["triglyceride", "triglycerides", "tg"],
+    "creatinine": ["creatinine", "serum_creatinine", "cr"],
+    "bun": ["bun", "blood_urea_nitrogen"],
+    "uric_acid": ["uric_acid", "ua"],
+    "uacr": ["uacr", "albumin_creatinine_ratio", "urine_acr"],
+    "urine_albumin": ["urine_albumin", "microalbumin", "urinary_albumin"],
+    "ast": ["ast", "got"],
+    "alt": ["alt", "gpt"],
+    "ggt": ["ggt", "gamma_gt", "gamma_glutamyl_transferase"],
+    "albumin": ["albumin", "serum_albumin"],
+    "bilirubin": ["bilirubin", "total_bilirubin"],
+    "alp": ["alp", "alkaline_phosphatase"],
+    "crp": ["crp", "hs_crp", "hscrp", "c_reactive_protein"],
+    "wbc": ["wbc", "white_blood_cell", "white_blood_cell_count"],
+    "neutrophil": ["neutrophil", "neutrophil_percent"],
+    "lymphocyte": ["lymphocyte", "lymphocyte_percent"],
+    "hemoglobin": ["hemoglobin", "hb"],
+    "platelet": ["platelet", "platelet_count"],
+    "fvc": ["fvc", "forced_vital_capacity"],
+    "fev1": ["fev1", "forced_expiratory_volume_1s"],
+    "smoking": ["smoking", "smoking_status", "current_smoker"],
+    "alcohol": ["alcohol", "alcohol_status", "current_drinker"],
+    "physical_activity": ["physical_activity", "exercise", "activity"],
+    "htn_dx": ["hypertension", "htn", "hypertension_dx"],
+    "t2d_dx": ["diabetes", "t2d", "dm", "diabetes_dx"],
+    "cvd_dx": ["cvd", "cardiovascular_disease", "mi_stroke"],
+    "ckd_dx": ["ckd", "chronic_kidney_disease"]
+  },
+  "organs": {
+    "cardiovascular": {
+      "features": ["sbp", "dbp", "heart_rate", "pulse_pressure", "bmi", "waist_cm"],
+      "min_features": 3
+    },
+    "metabolic": {
+      "features": ["glucose", "hba1c", "insulin", "total_cholesterol", "hdl", "ldl", "triglyceride", "tyg", "bmi", "waist_cm"],
+      "min_features": 4
+    },
+    "renal": {
+      "features": ["creatinine", "egfr_2021", "bun", "uric_acid", "uacr"],
+      "min_features": 2
+    },
+    "hepatic": {
+      "features": ["ast", "alt", "ggt", "albumin", "bilirubin", "alp"],
+      "min_features": 3
+    },
+    "inflammatory_hematologic": {
+      "features": ["crp", "wbc", "neutrophil", "lymphocyte", "hemoglobin", "platelet", "nlr"],
+      "min_features": 3
+    },
+    "pulmonary": {
+      "features": ["fvc", "fev1", "fev1_fvc"],
+      "min_features": 2
+    }
+  },
+  "clock": {
+    "min_rows": 500,
+    "min_subjects": 300,
+    "min_nonmissing_fraction": 0.50,
+    "group_folds": 5,
+    "random_state": 20260927,
+    "alphas": [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0],
+    "l1_ratios": [0.05, 0.2, 0.5, 0.8, 0.95],
+    "healthy_reference_age_min": 40,
+    "healthy_reference_age_max": 75
+  },
+  "pace": {
+    "min_visits": 3,
+    "min_followup_years": 4.0,
+    "accelerated_threshold_sd": 0.5
+  },
+  "clustering": {
+    "k_min": 2,
+    "k_max": 6,
+    "min_complete_organs": 3,
+    "random_state": 20260927
+  }
+}
