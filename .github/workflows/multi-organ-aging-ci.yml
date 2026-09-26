@@ -35,5 +35,6 @@ jobs:
 
       - name: Validate shell scripts
         run: |
+          bash -n master_degree/multi_organ_aging/scripts/bootstrap_server.sh
           bash -n master_degree/multi_organ_aging/scripts/run_pipeline.sh
           bash -n master_degree/multi_organ_aging/scripts/sync_gdrive.sh
