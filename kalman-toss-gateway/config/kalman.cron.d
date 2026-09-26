@@ -26,8 +26,9 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # This provides opening revalidation at 22:25+ KST during DST and remains safe
 # when standard time shifts the executable window later.
 25-55/5 22 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
-*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
-*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
+0,5,10,15,20,25,30,40,45,55 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
+0,5,10,15,20,25,30,40,45,55 0-4 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
+*/5 5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
 
 # Seeking Alpha collector -> US/BTC feature refresh (DISABLED BY DEFAULT).
 # Enable only after the authorized SA input method and snapshot timing are verified.
