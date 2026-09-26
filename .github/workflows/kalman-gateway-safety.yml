@@ -162,7 +162,15 @@ jobs:
           assert "run_auto_trade.sh" not in text
           assert "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh" not in text
           assert "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh" not in text
-          print("[PASS] US cron reserves :35 for model cycle and :50 for watchdog")
+
+          rollout = Path("scripts/apply_live_canary_5000.sh").read_text(encoding="utf-8")
+          for line in required:
+              if "run_execution_watch.sh" in line:
+                  assert line in rollout, line
+          assert "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh" not in rollout
+          assert "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh" not in rollout
+
+          print("[PASS] US cron and live rollout both reserve :35 model / :50 watchdog")
           PY
 
       - name: Validate US cycle ordering
