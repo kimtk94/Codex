@@ -35,8 +35,13 @@ PROV="$RESULTS/GIT_PROVENANCE.txt"
 } > "$PROV"
 
 echo
+echo "===== MASTER ====="
+rclone copyto "$PROJECT/MULTI_ORGAN_AGING_MASTER.md" "$REMOTE/00_MASTER/MULTI_ORGAN_AGING_MASTER.md" --progress
+RC_MASTER=$?
+
+echo
 echo "===== CODE ====="
-rclone copy "$PROJECT" "$REMOTE/code" \
+rclone copy "$PROJECT" "$REMOTE/02_CODE" \
   --exclude '.git/**' \
   --exclude '__pycache__/**' \
   --exclude '*.pyc' \
@@ -47,7 +52,7 @@ echo
 echo "===== INPUT MANIFEST ====="
 AUDIT="$RESULTS/stage0_audit"
 if [ -d "$AUDIT" ]; then
-  rclone copy "$AUDIT" "$REMOTE/input_manifest" \
+  rclone copy "$AUDIT" "$REMOTE/01_INPUT" \
     --include 'WAVE_FILE_MANIFEST.tsv' \
     --include 'VARIABLE_COVERAGE.tsv' \
     --include 'ORGAN_FEASIBILITY.tsv' \
@@ -62,7 +67,7 @@ fi
 
 echo
 echo "===== RESULTS ====="
-rclone copy "$RESULTS" "$REMOTE/results" \
+rclone copy "$RESULTS" "$REMOTE/03_RESULTS" \
   --exclude 'models/**' \
   --exclude '*.pkl' \
   --exclude '*.joblib' \
@@ -71,7 +76,7 @@ RC_RESULTS=$?
 
 echo
 echo "===== REPORTS ====="
-rclone copy "$RESULTS" "$REMOTE/reports" \
+rclone copy "$RESULTS" "$REMOTE/04_REPORTS" \
   --include '*SUMMARY.json' \
   --include '*REPORT.md' \
   --include '*PERFORMANCE.tsv' \
@@ -84,9 +89,9 @@ rclone copy "$RESULTS" "$REMOTE/reports" \
 RC_REPORTS=$?
 
 echo
-echo "code=$RC_CODE input=$RC_INPUT results=$RC_RESULTS reports=$RC_REPORTS"
+echo "master=$RC_MASTER code=$RC_CODE input=$RC_INPUT results=$RC_RESULTS reports=$RC_REPORTS"
 
-if [ "$RC_CODE" -ne 0 ] || [ "$RC_INPUT" -ne 0 ] || [ "$RC_RESULTS" -ne 0 ] || [ "$RC_REPORTS" -ne 0 ]; then
+if [ "$RC_MASTER" -ne 0 ] || [ "$RC_CODE" -ne 0 ] || [ "$RC_INPUT" -ne 0 ] || [ "$RC_RESULTS" -ne 0 ] || [ "$RC_REPORTS" -ne 0 ]; then
   echo "SYNC STATUS: PARTIAL/FAILED"
   exit 1
 fi
