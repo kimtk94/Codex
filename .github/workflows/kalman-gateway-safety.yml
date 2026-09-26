@@ -167,8 +167,8 @@ jobs:
           for line in required:
               if "run_execution_watch.sh" in line:
                   assert line in rollout, line
-          assert "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh" not in rollout
-          assert "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh" not in rollout
+          assert "old_collision = [" in rollout
+          assert "collision schedule remains=" in rollout
 
           print("[PASS] US cron and live rollout both reserve :35 model / :50 watchdog")
           PY
