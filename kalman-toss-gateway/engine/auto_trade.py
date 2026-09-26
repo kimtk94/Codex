@@ -109,6 +109,78 @@ def _max_symbol_notional_krw() -> Decimal:
     return value
 
 
+def _safe_exit_window_enabled() -> bool:
+    return os.environ.get('AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED', 'true').strip().lower() == 'true'
+
+
+def _exit_window_buffer_minutes() -> int:
+    raw = os.environ.get('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES', '15')
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES must be an integer') from exc
+    if value < 0 or value > 120:
+        raise RuntimeError('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES must be between 0 and 120')
+    return value
+
+
+def _as_aware_datetime(value) -> datetime:
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _entry_exit_window_check(
+    window_info: dict,
+    *,
+    anchor_signal_as_of,
+    strategy_version: str | None,
+    target_exit_buckets: int,
+) -> tuple[bool, dict]:
+    enabled = _safe_exit_window_enabled()
+    buffer_minutes = _exit_window_buffer_minutes()
+    detail = {
+        'enabled': enabled,
+        'bufferMinutes': buffer_minutes,
+        'targetExitBuckets': int(target_exit_buckets),
+    }
+    if not enabled:
+        detail['reason'] = 'DISABLED'
+        return True, detail
+
+    bar_minutes = _signal_bar_minutes(strategy_version)
+    detail['signalBarMinutes'] = bar_minutes
+    if bar_minutes <= 0:
+        detail['reason'] = 'NO_CANONICAL_BAR_DURATION'
+        return True, detail
+
+    active = (window_info or {}).get('activeWindow') or {}
+    fractional_end_text = active.get('fractionalOrderEndTime')
+    if not fractional_end_text:
+        detail['reason'] = 'NO_ACTIVE_FRACTIONAL_WINDOW'
+        return False, detail
+
+    anchor_as_of = _as_aware_datetime(anchor_signal_as_of)
+    effective_anchor = _effective_signal_as_of(anchor_as_of, strategy_version)
+    projected_exit = effective_anchor + timedelta(
+        minutes=bar_minutes * int(target_exit_buckets)
+    )
+    fractional_end = _as_aware_datetime(fractional_end_text)
+    safe_deadline = fractional_end - timedelta(minutes=buffer_minutes)
+    allowed = projected_exit <= safe_deadline
+    detail.update({
+        'reason': 'SAFE' if allowed else 'PROJECTED_EXIT_AFTER_SAFE_DEADLINE',
+        'anchorSignalAsOf': anchor_as_of.isoformat(),
+        'effectiveAnchorAt': effective_anchor.isoformat(),
+        'projectedMaxHoldExitAt': projected_exit.isoformat(),
+        'fractionalOrderEndAt': fractional_end.isoformat(),
+        'safeExitDeadlineAt': safe_deadline.isoformat(),
+    })
+    return allowed, detail
+
+
 def _signal_gap_minutes(position: dict, signal_as_of: datetime) -> float | None:
     raw = position.get('last_entry_signal_as_of') or position.get('entry_signal_as_of')
     if not raw:
@@ -403,6 +475,24 @@ async def main_async() -> int:
         else None
     )
 
+    exit_priority_states = {'EXIT_RESERVED', 'EXIT_SUBMITTED', 'MANUAL_RECONCILE'}
+    exit_priority_positions = [
+        p for p in active_positions
+        if p.get('exit_pending_reason')
+        or str(p.get('state') or '').upper() in exit_priority_states
+    ]
+    exit_anchor_as_of = (
+        (same_symbol_position or {}).get('entry_signal_as_of')
+        if is_add_on
+        else signal['as_of']
+    )
+    entry_exit_window_ok, entry_exit_window = _entry_exit_window_check(
+        window_info,
+        anchor_signal_as_of=exit_anchor_as_of,
+        strategy_version=signal.get('strategy_version'),
+        target_exit_buckets=TARGET_EXIT_BUCKETS,
+    )
+
     common = {
         'executionMode': mode,
         'signalPolicy': policy,
@@ -447,8 +537,38 @@ async def main_async() -> int:
             if projected_symbol_notional_krw is not None else None
         ),
         'targetExitBuckets': TARGET_EXIT_BUCKETS,
+        'exitPriorityBlocking': bool(exit_priority_positions),
+        'exitPriorityPositions': [
+            {
+                'positionId': p.get('position_id'),
+                'symbol': p.get('symbol'),
+                'state': p.get('state'),
+                'pendingExitReason': p.get('exit_pending_reason'),
+                'pendingExitSince': p.get('exit_pending_since'),
+            }
+            for p in exit_priority_positions
+        ],
+        'safeExitWindow': entry_exit_window,
         **sizing,
     }
+
+    if mode == 'LIVE' and exit_priority_positions:
+        common.update({
+            'executionAttempted': False,
+            'wouldSubmit': False,
+            'reason': 'ENTRY_BLOCKED_PENDING_EXIT_PRIORITY',
+        })
+        print(json.dumps(common, ensure_ascii=False, indent=2, default=str))
+        return 0
+
+    if mode == 'LIVE' and window_open and not entry_exit_window_ok:
+        common.update({
+            'executionAttempted': False,
+            'wouldSubmit': False,
+            'reason': 'ENTRY_BLOCKED_UNSAFE_EXIT_WINDOW',
+        })
+        print(json.dumps(common, ensure_ascii=False, indent=2, default=str))
+        return 0
 
     if order_usd is None:
         common.update({'executionAttempted': False, 'wouldSubmit': False, 'reason': 'INSUFFICIENT_CASH_FOR_CONFIGURED_SIZE'})
