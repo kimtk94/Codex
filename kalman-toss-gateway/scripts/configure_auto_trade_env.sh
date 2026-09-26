@@ -32,6 +32,8 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_STOP_LOSS_PCT=-0.03
     export CFG_AUTO_TRADE_TAKE_PROFIT_PCT=0.20
     export CFG_AUTO_TRADE_TARGET_EXIT_BUCKETS=4
+    export CFG_AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED=true
+    export CFG_AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES=15
     export CFG_AUTO_TRADE_MODEL_ROTATION_ENABLED=true
     export CFG_AUTO_TRADE_PROFIT_FLIP_GUARD_ENABLED=false
     export CFG_AUTO_TRADE_PROFIT_FLIP_ARM_PCT=0.002
@@ -69,6 +71,8 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_STOP_LOSS_PCT=-0.03
     export CFG_AUTO_TRADE_TAKE_PROFIT_PCT=0.20
     export CFG_AUTO_TRADE_TARGET_EXIT_BUCKETS=4
+    export CFG_AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED=true
+    export CFG_AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES=15
     export CFG_AUTO_TRADE_MODEL_ROTATION_ENABLED=true
     export CFG_AUTO_TRADE_PROFIT_FLIP_GUARD_ENABLED=false
     export CFG_AUTO_TRADE_PROFIT_FLIP_ARM_PCT=0.002
@@ -106,6 +110,8 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_STOP_LOSS_PCT=-0.03
     export CFG_AUTO_TRADE_TAKE_PROFIT_PCT=0.20
     export CFG_AUTO_TRADE_TARGET_EXIT_BUCKETS=4
+    export CFG_AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED=true
+    export CFG_AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES=15
     export CFG_AUTO_TRADE_MODEL_ROTATION_ENABLED=false
     export CFG_AUTO_TRADE_PROFIT_FLIP_GUARD_ENABLED=true
     export CFG_AUTO_TRADE_PROFIT_FLIP_ARM_PCT=0.002
@@ -143,6 +149,8 @@ case "$PROFILE" in
     export CFG_AUTO_TRADE_STOP_LOSS_PCT=-0.03
     export CFG_AUTO_TRADE_TAKE_PROFIT_PCT=0.20
     export CFG_AUTO_TRADE_TARGET_EXIT_BUCKETS=4
+    export CFG_AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED=true
+    export CFG_AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES=15
     export CFG_AUTO_TRADE_MODEL_ROTATION_ENABLED=true
     export CFG_AUTO_TRADE_PROFIT_FLIP_GUARD_ENABLED=false
     export CFG_AUTO_TRADE_PROFIT_FLIP_ARM_PCT=0.002
@@ -199,6 +207,8 @@ keys = [
     'AUTO_TRADE_STOP_LOSS_PCT',
     'AUTO_TRADE_TAKE_PROFIT_PCT',
     'AUTO_TRADE_TARGET_EXIT_BUCKETS',
+    'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED',
+    'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES',
     'AUTO_TRADE_MODEL_ROTATION_ENABLED',
     'AUTO_TRADE_PROFIT_FLIP_GUARD_ENABLED',
     'AUTO_TRADE_PROFIT_FLIP_ARM_PCT',
@@ -262,7 +272,7 @@ grep -E '^(AUTO_TRADE_|TRADING_ENABLED|LIVE_TRADING_CONFIRM)=' "$ENV_FILE" || tr
 
 printf '\n%s\n' 'Secrets and unrelated env values were preserved.'
 if [ "$PROFILE" = "live-canary-5000" ]; then
-  printf '%s\n' 'LIVE enabled: R5.1_BASE_HGB / R5_LIVE_TOP1 / KRW 5,000 per entry / up to 3 entries per symbol (KRW 15,000 target cap) / max 3 active managed positions / profit-to-loss daytime exit guard ON (arm +0.2%, trigger -0.2% x2, revalidate at 0%). Research non-overlap remains benchmark-only.'
+  printf '%s\n' 'LIVE enabled: R5.1_BASE_HGB / R5_LIVE_TOP1 / KRW 5,000 per entry / up to 3 entries per symbol (KRW 15,000 target cap) / max 3 active managed positions / profit-to-loss guard ON / pending exits block new buys / safe-exit-window ON with 15m buffer. Research non-overlap remains benchmark-only.'
 else
   printf '%s\n' 'LIVE trading remains disabled for this profile.'
 fi
