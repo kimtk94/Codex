@@ -23,9 +23,11 @@ jobs:
           python-version: "3.11"
       - name: Python syntax
         run: |
-          python -m compileall -q research/multi_organ_aging/scripts
+          python -m compileall -q research/multi_organ_aging/src research/multi_organ_aging/scripts
       - name: Shell syntax
         run: |
           bash -n research/multi_organ_aging/scripts/00_init_project.sh
           bash -n research/multi_organ_aging/scripts/run_all.sh
+          bash -n research/multi_organ_aging/scripts/run_pipeline.sh
+          bash -n research/multi_organ_aging/scripts/update_from_git.sh
           bash -n research/multi_organ_aging/scripts/90_sync_drive.sh
