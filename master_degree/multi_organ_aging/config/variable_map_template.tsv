@@ -1,0 +1,21 @@
+file_regex	wave	canonical	source_column	unit	transform	approved	notes
+		renal__creatinine			identity	0	Fill after Stage 0 audit
+		renal__egfr		mL/min/1.73m2	identity	0	Fill after Stage 0 audit
+		renal__bun			identity	0	Fill after Stage 0 audit
+		renal__uacr		mg/g	log1p_optional	0	Fill after Stage 0 audit
+		metabolic__glucose		mg/dL	identity	0	Fill after Stage 0 audit
+		metabolic__hba1c		percent	identity	0	Fill after Stage 0 audit
+		metabolic__triglyceride		mg/dL	log1p_optional	0	Fill after Stage 0 audit
+		metabolic__hdl		mg/dL	identity	0	Fill after Stage 0 audit
+		metabolic__ldl		mg/dL	identity	0	Fill after Stage 0 audit
+		metabolic__bmi		kg/m2	identity	0	Fill after Stage 0 audit
+		metabolic__waist		cm	identity	0	Fill after Stage 0 audit
+		hepatic__ast		U/L	log1p_optional	0	Fill after Stage 0 audit
+		hepatic__alt		U/L	log1p_optional	0	Fill after Stage 0 audit
+		hepatic__ggt		U/L	log1p_optional	0	Fill after Stage 0 audit
+		hepatic__bilirubin		mg/dL	identity	0	Fill after Stage 0 audit
+		hepatic__albumin		g/dL	identity	0	Fill after Stage 0 audit
+		vascular__sbp		mmHg	identity	0	Fill after Stage 0 audit
+		vascular__dbp		mmHg	identity	0	Fill after Stage 0 audit
+		vascular__pulse_pressure		mmHg	identity	0	Derived or mapped after review
+		vascular__heart_rate		bpm	identity	0	Fill after Stage 0 audit
