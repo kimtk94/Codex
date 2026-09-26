@@ -538,6 +538,23 @@ class ManagedPositionStore:
             conn.commit()
             return updated
 
+    def set_exit_pending(self, position_id: str, reason: str) -> None:
+        """Persist a due exit while broker order submission is unavailable.
+
+        Preserve the first pending timestamp for audit, but allow a higher-priority
+        exit reason (for example STOP_LOSS) to replace the prior reason.
+        """
+        now = utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """UPDATE managed_position
+                   SET exit_pending_reason=?,
+                       exit_pending_since=COALESCE(exit_pending_since, ?),
+                       updated_at=?
+                   WHERE position_id=? AND state='OPEN'""",
+                (reason[:100], now, now, position_id),
+            )
+
     def clear_exit_pending(self, position_id: str) -> None:
         with self._connect() as conn:
             conn.execute(
