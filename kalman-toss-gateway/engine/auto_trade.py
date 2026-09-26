@@ -109,6 +109,28 @@ def _max_symbol_notional_krw() -> Decimal:
     return value
 
 
+def _exit_priority_positions(active_positions: list[dict]) -> list[dict]:
+    exit_priority_states = {'EXIT_RESERVED', 'EXIT_SUBMITTED', 'MANUAL_RECONCILE'}
+    return [
+        p for p in active_positions
+        if p.get('exit_pending_reason')
+        or str(p.get('state') or '').upper() in exit_priority_states
+    ]
+
+
+def _exit_priority_summary(positions: list[dict]) -> list[dict]:
+    return [
+        {
+            'positionId': p.get('position_id'),
+            'symbol': p.get('symbol'),
+            'state': p.get('state'),
+            'pendingExitReason': p.get('exit_pending_reason'),
+            'pendingExitSince': p.get('exit_pending_since'),
+        }
+        for p in positions
+    ]
+
+
 def _safe_exit_window_enabled() -> bool:
     return os.environ.get('AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED', 'true').strip().lower() == 'true'
 
@@ -415,6 +437,26 @@ async def main_async() -> int:
             return 2
 
     settings = Settings()
+    store = ManagedPositionStore(settings.state_db_path)
+    active_positions = store.active()
+    exit_priority_positions = _exit_priority_positions(active_positions)
+
+    # Exit obligations dominate entry discovery. In LIVE mode this guard must
+    # run before signal loading so stale/missing signals cannot obscure the
+    # operational state: unresolved exits block all new BUY attempts.
+    if mode == 'LIVE' and exit_priority_positions:
+        print(json.dumps({
+            'executionMode': mode,
+            'signalPolicy': policy,
+            'strategyVersion': strategy_version,
+            'executionAttempted': False,
+            'wouldSubmit': False,
+            'reason': 'ENTRY_BLOCKED_PENDING_EXIT_PRIORITY',
+            'exitPriorityBlocking': True,
+            'exitPriorityPositions': _exit_priority_summary(exit_priority_positions),
+        }, ensure_ascii=False, indent=2, default=str))
+        return 0
+
     signal = load_signal(mode, strategy_version, policy)
     if not signal:
         print('NO_ELIGIBLE_SIGNAL')
@@ -422,8 +464,6 @@ async def main_async() -> int:
 
     symbol = signal['symbol'].upper()
 
-    store = ManagedPositionStore(settings.state_db_path)
-    active_positions = store.active()
     max_active_positions = _max_active_positions()
     max_entries_per_symbol = _max_entries_per_symbol()
     add_on_min_bucket_gap = _add_on_min_bucket_gap()
@@ -475,12 +515,7 @@ async def main_async() -> int:
         else None
     )
 
-    exit_priority_states = {'EXIT_RESERVED', 'EXIT_SUBMITTED', 'MANUAL_RECONCILE'}
-    exit_priority_positions = [
-        p for p in active_positions
-        if p.get('exit_pending_reason')
-        or str(p.get('state') or '').upper() in exit_priority_states
-    ]
+    exit_priority_positions = _exit_priority_positions(active_positions)
     exit_anchor_as_of = (
         (same_symbol_position or {}).get('entry_signal_as_of')
         if is_add_on
@@ -538,16 +573,7 @@ async def main_async() -> int:
         ),
         'targetExitBuckets': TARGET_EXIT_BUCKETS,
         'exitPriorityBlocking': bool(exit_priority_positions),
-        'exitPriorityPositions': [
-            {
-                'positionId': p.get('position_id'),
-                'symbol': p.get('symbol'),
-                'state': p.get('state'),
-                'pendingExitReason': p.get('exit_pending_reason'),
-                'pendingExitSince': p.get('exit_pending_since'),
-            }
-            for p in exit_priority_positions
-        ],
+        'exitPriorityPositions': _exit_priority_summary(exit_priority_positions),
         'safeExitWindow': entry_exit_window,
         **sizing,
     }
