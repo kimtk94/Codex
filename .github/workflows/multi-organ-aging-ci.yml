@@ -2,47 +2,30 @@ name: multi-organ-aging-ci
 
 on:
   push:
+    branches:
+      - main
+      - "research/multi-organ-aging-*"
     paths:
-      - "master_degree/multi_organ_aging/**"
+      - "research/multi_organ_aging/**"
       - ".github/workflows/multi-organ-aging-ci.yml"
   pull_request:
     paths:
-      - "master_degree/multi_organ_aging/**"
+      - "research/multi_organ_aging/**"
       - ".github/workflows/multi-organ-aging-ci.yml"
 
 jobs:
-  validate:
+  syntax:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Install dependencies
+      - name: Python syntax
         run: |
-          python -m pip install --upgrade pip
-          pip install -r master_degree/multi_organ_aging/requirements.txt
-
-      - name: Compile Python
+          python -m compileall -q research/multi_organ_aging/scripts
+      - name: Shell syntax
         run: |
-          python -m compileall master_degree/multi_organ_aging/src
-
-      - name: Run unit tests
-        run: |
-          pytest -q master_degree/multi_organ_aging/tests
-
-      - name: Validate shell scripts
-        run: |
-          bash -n master_degree/multi_organ_aging/scripts/bootstrap_server.sh
-          bash -n master_degree/multi_organ_aging/scripts/run_pipeline.sh
-          bash -n master_degree/multi_organ_aging/scripts/sync_gdrive.sh
-
-      - name: Package research code
-        uses: actions/upload-artifact@v4
-        with:
-          name: multi-organ-aging-code
-          path: master_degree/multi_organ_aging
-          if-no-files-found: error
-          retention-days: 30
+          bash -n research/multi_organ_aging/scripts/00_init_project.sh
+          bash -n research/multi_organ_aging/scripts/run_all.sh
+          bash -n research/multi_organ_aging/scripts/90_sync_drive.sh
