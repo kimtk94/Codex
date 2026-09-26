@@ -82,8 +82,9 @@ required = [
     "*/30 9-21 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
     "0 22 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
     "25-55/5 22 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
-    "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
-    "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
+    "0,5,10,15,20,25,30,40,45,55 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
+    "0,5,10,15,20,25,30,40,45,55 0-4 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
+    "*/5 5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
 ]
 forbidden = [
     "run_pipeline.sh US",
@@ -95,7 +96,14 @@ if missing:
 bad = [token for token in forbidden if token in text]
 if bad:
     raise SystemExit(f"US cycle cron contract failed: independent workers remain={bad}")
-print("[PASS] US hourly model cycle + daytime position watch + market-gated 5m execution watcher cron contract")
+old_collision = [
+    "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
+    "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
+]
+present_collision = [line for line in old_collision if line in text]
+if present_collision:
+    raise SystemExit(f"US cycle cron contract failed: collision schedule remains={present_collision}")
+print("[PASS] US hourly model cycle + collision-free execution watcher cron contract")
 PY
 
 # Open the explicit LIVE canary gates only after the new runtime and cron validate.
@@ -135,6 +143,9 @@ echo "take_profit=+20%"
 echo "model_rotation=disabled_for_multi_position"
 echo "profit_flip_guard=ARM_+0.2PCT_TRIGGER_-0.2PCT_X2_REVALIDATE_0PCT"
 echo "profit_flip_pending_blocks_add_on=true"
+echo "pending_exit_blocks_all_new_buys=true"
+echo "safe_exit_window=true"
+echo "safe_exit_buffer_minutes=15"
 echo "max_hold=4 canonical buckets"
 echo "daily_buy_cap_krw=DISABLED_CASH_DRIVEN"
 echo "cron=/etc/cron.d/kalman"
@@ -142,7 +153,7 @@ echo "us_cycle_kst=23:35_and_00:35-04:35"
 echo "us_cycle_order=PIPELINE_COMMIT_THEN_AUTO_TRADE"
 echo "position_watch_kst=EVERY_30M_09:00-21:30_PLUS_22:00"
 echo "position_watch_order=POSITION_MANAGER_THEN_MIRROR_NO_BUY"
-echo "execution_watch_kst=EVERY_5M_22:25-05:55_MARKET_CALENDAR_GATED"
+echo "execution_watch_kst=5M_CADENCE_EXCEPT_:35_MODEL_AND_:50_WATCHDOG"
 echo "execution_watch_order=POSITION_MANAGER_THEN_AUTO_TRADE_THEN_MIRROR"
 echo "execution_watch_model_refresh=DISABLED"
 echo "us_signal_timestamp=60M_BAR_START"
