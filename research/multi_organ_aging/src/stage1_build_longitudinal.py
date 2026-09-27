@@ -61,7 +61,7 @@ def cumulative_established_history(series: pd.Series) -> pd.Series:
     return pd.Series(out, index=series.index, dtype=float)
 
 
-INTEGRATED_VISIT_RE = re.compile(r"^a(\\d{1,2})_(.+)$", re.IGNORECASE)
+INTEGRATED_VISIT_RE = re.compile(r"^a(\d{1,2})_(.+)$", re.IGNORECASE)
 
 
 def integrated_wide_columns(columns) -> dict[int, list[str]]:
