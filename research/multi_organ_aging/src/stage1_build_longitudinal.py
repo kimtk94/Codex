@@ -381,7 +381,8 @@ def main() -> int:
         .groupby("person_id")["visit_date"]
         .min()
     )
-    long["baseline_visit_date"] = long["person_id"].map(base_dates)
+    # Use a plain mapping for pandas 2.x/3.x compatibility with datetime values.
+    long["baseline_visit_date"] = long["person_id"].map(base_dates.to_dict())
     actual_years = (
         (long["visit_date"] - long["baseline_visit_date"]).dt.total_seconds()
         / (365.25 * 24 * 60 * 60)
