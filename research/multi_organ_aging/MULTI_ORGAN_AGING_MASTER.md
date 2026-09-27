@@ -47,7 +47,9 @@ the same longitudinal KoGES infrastructure but has a distinct primary phenotype.
 BMI, waist circumference, fasting glucose, HbA1c, HDL-C, LDL-C, triglycerides.
 
 ### Renal
-eGFR, creatinine, BUN, UACR when available.
+Creatinine, BUN, UACR and other age-independent renal biomarkers when available.
+
+**Do not use eGFR as an organ-age predictor**, because standard eGFR equations contain chronological age. eGFR is retained as an outcome/validation phenotype.
 
 ### Hepatic
 AST, ALT, GGT, albumin when available.
@@ -107,3 +109,32 @@ Optional, after phenotype freezing:
 8. Build incident outcomes.
 9. Run outcome associations.
 10. Add genetics only after phenotype QC.
+
+
+## 9. Public KoGES prototype status — 2026-09-27
+
+Public training data are used only for workflow QA.
+
+- 1,000 participants; 4,535 longitudinal rows; five waves (baseline through F4).
+- Exact examination dates are used for longitudinal time.
+- KoGES numeric missing sentinels are converted to missing values before modeling.
+- Public-data trainable organ clocks: cardiovascular and metabolic.
+- Renal/hepatic/inflammatory/pulmonary clocks remain unavailable because the education files do not contain enough repeated features.
+- Primary longitudinal design is now a landmark design:
+  - exposure window: baseline through F2
+  - outcome window: F3 through F4
+- Full-window pace and two-organ clustering are descriptive/sensitivity analyses only.
+- Continuous discordance is preferred over cluster labels.
+- Final thesis inference requires the approved controlled KoGES dataset and >=3 organ systems.
+
+### Reference-sample definition
+
+Clock reference participants should be:
+- age 40–75,
+- without established HTN/T2D/CKD/CVD history,
+- without baseline BP >=140/90,
+- without baseline fasting glucose >=126 mg/dL or HbA1c >=6.5% when measured.
+
+### Outcome-testing rule
+
+The primary prospective question is whether **pre-landmark organ-aging pace predicts subsequent incident organ dysfunction**. The exposure and outcome windows must not overlap. The primary sensitivity model additionally adjusts for baseline organ-age acceleration to test whether longitudinal pace adds information beyond starting organ state.
