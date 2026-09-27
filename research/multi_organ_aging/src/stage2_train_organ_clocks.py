@@ -34,7 +34,7 @@ def make_model(cfg: dict) -> GridSearchCV:
         "enet__alpha": cfg["clock"]["alphas"],
         "enet__l1_ratio": cfg["clock"]["l1_ratios"],
     }
-    return GridSearchCV(pipe, grid, scoring="neg_mean_absolute_error", cv=3, n_jobs=-1)
+    return GridSearchCV(pipe, grid, scoring="neg_mean_absolute_error", cv=3, n_jobs=1)
 
 
 def fit_gap_residualizer(raw_gap: pd.Series, age: pd.Series, sex: pd.Series) -> np.ndarray | None:
@@ -104,9 +104,10 @@ def healthy_reference_mask(df: pd.DataFrame, cfg: dict) -> pd.Series:
     lo = float(cfg["clock"]["healthy_reference_age_min"])
     hi = float(cfg["clock"]["healthy_reference_age_max"])
     mask = df["age"].between(lo, hi)
-    for col in ["htn_dx", "t2d_dx", "ckd_dx", "cvd_dx"]:
-        if col in df.columns and df[col].notna().any():
-            mask &= ~(pd.to_numeric(df[col], errors="coerce").fillna(0) > 0)
+
+    # Disease-variable coding in KoGES public exports must be audited before it
+    # is used for exclusion. Until then, use the prespecified age window only.
+    # This avoids silently treating categorical codes such as 2=No as disease.
     return mask
 
 
