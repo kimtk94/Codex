@@ -105,9 +105,12 @@ def healthy_reference_mask(df: pd.DataFrame, cfg: dict) -> pd.Series:
     hi = float(cfg["clock"]["healthy_reference_age_max"])
     mask = df["age"].between(lo, hi)
 
-    # Disease-variable coding in KoGES public exports must be audited before it
-    # is used for exclusion. Until then, use the prespecified age window only.
-    # This avoids silently treating categorical codes such as 2=No as disease.
+    # KoGES yes/no history is normalized upstream to 0=no, 1=yes. Use only
+    # verified/normalized history columns for reference-sample exclusions.
+    for col in ["htn_dx_history", "t2d_dx_history", "ckd_dx_history", "cvd_dx_history"]:
+        if col in df.columns and df[col].notna().any():
+            mask &= ~pd.to_numeric(df[col], errors="coerce").eq(1)
+
     return mask
 
 
