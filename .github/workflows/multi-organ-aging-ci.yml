@@ -30,6 +30,7 @@ jobs:
           bash -n research/multi_organ_aging/scripts/run_all.sh
           bash -n research/multi_organ_aging/scripts/run_pipeline.sh
           bash -n research/multi_organ_aging/scripts/run_controlled_readiness.sh
+          bash -n research/multi_organ_aging/scripts/run_controlled_core.sh
           bash -n research/multi_organ_aging/scripts/update_from_git.sh
           bash -n research/multi_organ_aging/scripts/90_sync_drive.sh
       - name: Install lightweight test dependencies
