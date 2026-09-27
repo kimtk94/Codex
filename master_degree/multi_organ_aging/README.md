@@ -1,3 +1,11 @@
+# LEGACY — DO NOT EXTEND
+
+Active development moved to `research/multi_organ_aging/`.
+This directory is retained temporarily for provenance only. Do not add new analysis stages here.
+See `research/multi_organ_aging/docs/REPO_LAYOUT.md`.
+
+---
+
 # Longitudinal Multi-Organ Aging Discordance
 
 KoGES-centered longitudinal analysis of organ-specific biological-age-gap trajectories and cross-organ aging discordance.
