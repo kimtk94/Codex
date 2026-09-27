@@ -163,3 +163,41 @@ After subject-level cross-fitting and landmark outcome construction, the followi
 5. landmark-window sensitivity when later controlled waves are available.
 
 Public-data associations remain proof-of-concept only, regardless of nominal p-values.
+
+
+## 10. Public prototype robustness results — 2026-09-27
+
+Subject-level cross-fitting preserved both clock performance and prospective associations.
+
+### Cardiovascular aging pace -> incident HTN
+- Cross-fitted joint Cox HR per SD: approximately 1.77.
+- Orthogonalized pace HR per SD: approximately 1.66.
+- Cox proportional-hazards diagnostics passed for pace, baseline organ state, age and sex.
+- 500-replicate bootstrap: median HR approximately 1.80, 95% bootstrap interval approximately 1.36-2.37.
+- Pace improved prediction beyond baseline organ acceleration in almost all bootstrap samples:
+  - positive delta C-index in approximately 99.4%,
+  - lower AIC in approximately 99.2%.
+
+Interpretation: strong workflow-level proof of concept, still not thesis inference because the public KoGES training dataset is educational/prototype data and events are limited.
+
+### Metabolic aging pace -> incident T2D
+- Cross-fitted joint Cox HR per SD: approximately 1.81.
+- Orthogonalized pace HR per SD: approximately 1.67.
+- Bootstrap HR direction was stable, but prediction-improvement intervals were less stable than for HTN.
+- Cox PH tests indicated violations for metabolic pace and sex.
+
+Interpretation: supportive prospective signal, but a single time-invariant Cox HR should not be treated as the primary summary. A discrete-time / time-varying effect sensitivity analysis is required.
+
+### Current phenotype prioritization
+1. Organ-specific longitudinal pace: primary.
+2. Baseline organ acceleration: comparator/covariate.
+3. Multi-organ mean pace: exploratory.
+4. Cross-organ discordance: exploratory; no clear public-prototype association.
+5. Two-organ clusters: descriptive only.
+
+### Remaining public-prototype robustness work
+- discrete-time complementary-log-log survival analysis for interval-observed diagnoses,
+- time-varying pace effect assessment where PH is violated,
+- retain bootstrap and PH diagnostics as mandatory reporting items.
+
+Final controlled-data inference still requires >=3 organ systems to justify a multi-organ thesis framing.
