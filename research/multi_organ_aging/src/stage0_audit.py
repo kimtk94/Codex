@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -11,6 +12,7 @@ from common import (
     json_dump,
     list_input_files,
     load_config,
+    norm_name,
     read_table,
     resolve_concepts,
     sha256_file,
@@ -40,6 +42,7 @@ def main() -> int:
 
     manifest_rows = []
     coverage_rows = []
+    column_rows = []
 
     for p in files:
         df = read_table(p, nrows=50)
@@ -64,15 +67,39 @@ def main() -> int:
                 }
             )
 
+        reverse_map: dict[str, list[str]] = {}
+        for concept, col in resolved.items():
+            if col is not None:
+                reverse_map.setdefault(col, []).append(concept)
+
+        for col in df.columns:
+            normalized = norm_name(col)
+            stem = re.sub(r"^t\d+_", "", normalized)
+            mapped = reverse_map.get(col, [])
+            column_rows.append(
+                {
+                    "wave": wave,
+                    "file": str(p),
+                    "column": col,
+                    "normalized_column": normalized,
+                    "koges_stem": stem,
+                    "mapped_concepts": ",".join(mapped),
+                    "is_mapped": int(bool(mapped)),
+                }
+            )
+
     manifest = pd.DataFrame(manifest_rows).sort_values(["wave", "file"])
     coverage = pd.DataFrame(coverage_rows)
     write_table(manifest, out / "WAVE_FILE_MANIFEST.tsv")
     write_table(coverage, out / "VARIABLE_COVERAGE.tsv")
+    write_table(pd.DataFrame(column_rows), out / "COLUMN_DICTIONARY.tsv")
 
     wide = coverage.pivot_table(
         index="wave", columns="concept", values="present", aggfunc="max", fill_value=0
     )
 
+    if {"height_cm", "weight_kg"}.issubset(wide.columns):
+        wide["bmi"] = ((wide["height_cm"] > 0) & (wide["weight_kg"] > 0)).astype(int)
     if {"sbp", "dbp"}.issubset(wide.columns):
         wide["pulse_pressure"] = ((wide["sbp"] > 0) & (wide["dbp"] > 0)).astype(int)
     if {"triglyceride", "glucose"}.issubset(wide.columns):
@@ -89,7 +116,10 @@ def main() -> int:
     feasibility = []
     for organ, spec in cfg["organs"].items():
         feats = spec["features"]
-        available = [f for f in feats if f in wide.columns]
+        available = [
+            f for f in feats
+            if f in wide.columns and bool((wide[f] > 0).any())
+        ]
         per_wave = wide[available].sum(axis=1) if available else pd.Series(0, index=wide.index)
         min_features = int(spec["min_features"])
         usable_waves = per_wave[per_wave >= min_features]
