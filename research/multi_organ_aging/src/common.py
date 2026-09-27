@@ -178,20 +178,35 @@ def detect_wave(path: str | Path, wave_order: dict[str, int]) -> str:
 
 def resolve_column(columns: Iterable[str], aliases: Sequence[str]) -> str | None:
     columns = list(columns)
-    normalized = {norm_name(c): c for c in columns}
+
+    # KoGES public-training columns are commonly prefixed by visit codes
+    # (e.g. T01_AGE, T02_HBA1C, T00_ID). Match both the full normalized name
+    # and a visit-prefix-stripped stem so short but exact aliases such as
+    # ID, DM, TG and UA can be resolved without unsafe substring matching.
+    variant_to_originals: dict[str, list[str]] = {}
+    for original in columns:
+        n = norm_name(original)
+        variants = {n}
+        stem = re.sub(r"^t\d+_", "", n)
+        variants.add(stem)
+        for variant in variants:
+            variant_to_originals.setdefault(variant, []).append(original)
+
     for a in aliases:
         na = norm_name(a)
-        if na in normalized:
-            return normalized[na]
+        candidates = variant_to_originals.get(na, [])
+        if len(candidates) == 1:
+            return candidates[0]
+
     for a in aliases:
         na = norm_name(a)
         if len(na) < 3:
             continue
-        candidates = [
-            original
-            for nc, original in normalized.items()
-            if nc.startswith(na + "_") or nc.endswith("_" + na)
-        ]
+        candidates = []
+        for variant, originals in variant_to_originals.items():
+            if variant.startswith(na + "_") or variant.endswith("_" + na):
+                candidates.extend(originals)
+        candidates = list(dict.fromkeys(candidates))
         if len(candidates) == 1:
             return candidates[0]
     return None
