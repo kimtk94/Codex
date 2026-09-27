@@ -21,6 +21,23 @@ from common import (
 )
 
 
+def parse_visit_date(series: pd.Series) -> pd.Series:
+    raw = series.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+    out = pd.to_datetime(raw, errors="coerce")
+
+    ymd8 = raw.str.fullmatch(r"\d{8}", na=False)
+    if ymd8.any():
+        out.loc[ymd8] = pd.to_datetime(raw.loc[ymd8], format="%Y%m%d", errors="coerce")
+
+    ymd6 = raw.str.fullmatch(r"\d{6}", na=False)
+    if ymd6.any():
+        out.loc[ymd6] = pd.to_datetime(
+            raw.loc[ymd6] + "15", format="%Y%m%d", errors="coerce"
+        )
+
+    return out
+
+
 def build_wave_frame(df: pd.DataFrame, wave: str, cfg: dict) -> tuple[pd.DataFrame, dict]:
     id_map = cfg["id_concepts"]
     concepts = cfg["concepts"]
@@ -28,6 +45,7 @@ def build_wave_frame(df: pd.DataFrame, wave: str, cfg: dict) -> tuple[pd.DataFra
     person_col = resolve_column(df.columns, id_map["person_id"])
     age_col = resolve_column(df.columns, id_map["age"])
     sex_col = resolve_column(df.columns, id_map["sex"])
+    visit_date_col = resolve_column(df.columns, id_map.get("visit_date", []))
     if person_col is None:
         raise ValueError(f"{wave}: no participant ID column resolved")
 
@@ -35,12 +53,23 @@ def build_wave_frame(df: pd.DataFrame, wave: str, cfg: dict) -> tuple[pd.DataFra
     out["person_id"] = df[person_col].astype(str).str.strip()
     out["wave"] = wave
     out["visit_index"] = int(cfg["wave_order"].get(wave, 999))
-    out["year_offset"] = float(cfg["wave_year_offset"].get(wave, np.nan))
+    out["year_offset_planned"] = float(cfg["wave_year_offset"].get(wave, np.nan))
+    out["year_offset"] = out["year_offset_planned"]
+    out["visit_date"] = (
+        parse_visit_date(df[visit_date_col])
+        if visit_date_col is not None
+        else pd.NaT
+    )
 
     out["age"] = to_numeric(df[age_col]) if age_col is not None else np.nan
     out["sex_male"] = normalize_sex(df[sex_col]) if sex_col is not None else np.nan
 
-    resolved = {"person_id": person_col, "age": age_col, "sex": sex_col}
+    resolved = {
+        "person_id": person_col,
+        "age": age_col,
+        "sex": sex_col,
+        "visit_date": visit_date_col,
+    }
     for concept, aliases in concepts.items():
         col = resolve_column(df.columns, aliases)
         resolved[concept] = col
@@ -110,6 +139,23 @@ def main() -> int:
 
     long["sex_male"] = long.groupby("person_id")["sex_male"].transform(mode_or_nan)
 
+    # Prefer actual examination dates for longitudinal time. Fall back to the
+    # planned 2-year wave spacing only when dates are unavailable.
+    base_dates = (
+        long.loc[long["visit_index"].eq(0) & long["visit_date"].notna()]
+        .groupby("person_id")["visit_date"]
+        .min()
+    )
+    long["baseline_visit_date"] = long["person_id"].map(base_dates)
+    actual_years = (
+        (long["visit_date"] - long["baseline_visit_date"]).dt.total_seconds()
+        / (365.25 * 24 * 60 * 60)
+    )
+    long["year_offset_source"] = np.where(
+        actual_years.notna(), "actual_exam_date", "planned_wave"
+    )
+    long["year_offset"] = actual_years.fillna(long["year_offset_planned"])
+
     # Infer missing visit age from a subject-specific age-at-time-zero anchor:
     # observed age - planned visit offset. Median is used to tolerate integer age rounding.
     observed_age = long.loc[
@@ -158,6 +204,11 @@ def main() -> int:
         "measured_age_rows": int(long["age_source"].eq("measured").sum()),
         "inferred_age_rows": int(long["age_source"].eq("inferred_from_subject_anchor").sum()),
         "median_abs_age_wave_residual_years": float(age_resid.abs().median()) if len(age_resid) else None,
+        "rows_with_actual_exam_date_time": int(long["year_offset_source"].eq("actual_exam_date").sum()),
+        "rows_with_planned_wave_time": int(long["year_offset_source"].eq("planned_wave").sum()),
+        "median_followup_years_actual_or_fallback": float(
+            pd.to_numeric(long["year_offset"], errors="coerce").median()
+        ),
     }
     json_dump(summary, out / "STAGE1_SUMMARY.json")
     print(summary)
