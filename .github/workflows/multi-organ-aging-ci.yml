@@ -29,5 +29,13 @@ jobs:
           bash -n research/multi_organ_aging/scripts/00_init_project.sh
           bash -n research/multi_organ_aging/scripts/run_all.sh
           bash -n research/multi_organ_aging/scripts/run_pipeline.sh
+          bash -n research/multi_organ_aging/scripts/run_controlled_readiness.sh
           bash -n research/multi_organ_aging/scripts/update_from_git.sh
           bash -n research/multi_organ_aging/scripts/90_sync_drive.sh
+      - name: Install lightweight test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy pandas
+      - name: Controlled readiness synthetic test
+        run: |
+          python research/multi_organ_aging/tests/test_controlled_readiness.py
