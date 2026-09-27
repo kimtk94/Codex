@@ -105,11 +105,23 @@ def healthy_reference_mask(df: pd.DataFrame, cfg: dict) -> pd.Series:
     hi = float(cfg["clock"]["healthy_reference_age_max"])
     mask = df["age"].between(lo, hi)
 
-    # KoGES yes/no history is normalized upstream to 0=no, 1=yes. Use only
-    # verified/normalized history columns for reference-sample exclusions.
+    # KoGES yes/no history is normalized upstream to 0=no, 1=yes.
     for col in ["htn_dx_history", "t2d_dx_history", "ckd_dx_history", "cvd_dx_history"]:
         if col in df.columns and df[col].notna().any():
             mask &= ~pd.to_numeric(df[col], errors="coerce").eq(1)
+
+    # A "healthy reference" should also exclude undiagnosed baseline disease
+    # detectable in the same visit. These thresholds follow the frozen KoGES
+    # phenotype specification used elsewhere in the project.
+    sbp = pd.to_numeric(df.get("sbp"), errors="coerce")
+    dbp = pd.to_numeric(df.get("dbp"), errors="coerce")
+    if sbp is not None and dbp is not None:
+        mask &= ~(sbp.ge(140) | dbp.ge(90))
+
+    glucose = pd.to_numeric(df.get("glucose"), errors="coerce")
+    hba1c = pd.to_numeric(df.get("hba1c"), errors="coerce")
+    if glucose is not None and hba1c is not None:
+        mask &= ~(glucose.ge(126) | hba1c.ge(6.5))
 
     return mask
 
@@ -200,7 +212,7 @@ def train_one_organ(
                 "gap_beta_intercept_age_sex": gap_beta,
                 "accel_mean": accel_mean,
                 "accel_sd": accel_sd,
-                "training_scope": "earliest_visit_per_subject",
+                "training_scope": "earliest_visit_strict_disease_free_reference",
             },
             f,
         )
@@ -215,7 +227,7 @@ def train_one_organ(
     meta = {
         "organ": organ,
         "status": "ok",
-        "training_scope": "earliest_visit_per_subject",
+        "training_scope": "earliest_visit_strict_disease_free_reference",
         "features": ",".join(keep),
         "n_rows": int(len(d)),
         "n_subjects": int(n_subjects),
@@ -327,8 +339,9 @@ def main() -> int:
         "trained_organs": meta_df.loc[meta_df["status"].eq("ok"), "organ"].tolist(),
         "n_trained_organs": int(meta_df["status"].eq("ok").sum()),
         "score_rows": int(len(scores)),
-        "training_scope": "earliest_visit_per_subject",
+        "training_scope": "earliest_visit_strict_disease_free_reference",
         "age_gap_correction": "OOF baseline age+sex residualization frozen and applied to all waves",
+        "reference_definition": "Age 40-75, no established HTN/T2D/CKD/CVD history, no baseline BP >=140/90, no baseline glucose >=126 or HbA1c >=6.5 where observed.",
         "warning": "Clock coefficients are not causal effects. OOF performance and frozen age-gap residualization are mandatory QC.",
     }
     json_dump(summary, out / "STAGE2_SUMMARY.json")
