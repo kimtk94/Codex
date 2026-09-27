@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +15,7 @@ from common import (
     list_input_files,
     load_config,
     normalize_sex,
+    norm_name,
     read_table,
     resolve_column,
     to_numeric,
@@ -57,6 +59,133 @@ def cumulative_established_history(series: pd.Series) -> pd.Series:
                 established = 1.0
         out.append(established if seen else np.nan)
     return pd.Series(out, index=series.index, dtype=float)
+
+
+INTEGRATED_VISIT_RE = re.compile(r"^a(\\d{1,2})_(.+)$", re.IGNORECASE)
+
+
+def integrated_wide_columns(columns) -> dict[int, list[str]]:
+    """Group KoGES integrated-wide columns by A01/A02/... visit prefix."""
+    waves: dict[int, list[str]] = {}
+    for original in columns:
+        m = INTEGRATED_VISIT_RE.match(norm_name(original))
+        if m:
+            waves.setdefault(int(m.group(1)), []).append(original)
+    return waves
+
+
+def integrated_visit_to_wave(visit_number: int) -> str:
+    if visit_number < 1:
+        raise ValueError(f"Invalid integrated visit number: {visit_number}")
+    return "base" if visit_number == 1 else f"follow_{visit_number - 1:02d}"
+
+
+def split_integrated_wide(
+    df: pd.DataFrame,
+    cfg: dict,
+) -> list[tuple[str, pd.DataFrame]]:
+    """Split one Axx-prefixed integrated KoGES table into canonical wave frames.
+
+    Global participant ID / sex columns are copied into each temporary wave
+    table when wave-specific versions are absent.
+    """
+    groups = integrated_wide_columns(df.columns)
+    if len(groups) < 3:
+        return []
+
+    id_map = cfg["id_concepts"]
+    global_columns = [
+        c
+        for c in df.columns
+        if not INTEGRATED_VISIT_RE.match(norm_name(c))
+    ]
+    global_person = resolve_column(global_columns, id_map["person_id"])
+    global_sex = resolve_column(global_columns, id_map["sex"])
+
+    out: list[tuple[str, pd.DataFrame]] = []
+    for visit_number in sorted(groups):
+        wave = integrated_visit_to_wave(visit_number)
+        if wave not in cfg["wave_order"]:
+            print(
+                f"[WARN] integrated visit A{visit_number:02d} has no configured "
+                f"wave mapping; skipped"
+            )
+            continue
+
+        cols = list(groups[visit_number])
+        tmp = df[cols].copy()
+
+        if global_person is not None and resolve_column(tmp.columns, id_map["person_id"]) is None:
+            tmp[global_person] = df[global_person]
+
+        if global_sex is not None and resolve_column(tmp.columns, id_map["sex"]) is None:
+            tmp[global_sex] = df[global_sex]
+
+        out.append((wave, tmp))
+
+    return out
+
+
+def first_nonmissing(series: pd.Series):
+    x = series.dropna()
+    return x.iloc[0] if not x.empty else np.nan
+
+
+def coalesce_person_wave_rows(long: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Merge duplicate person-wave rows from separate controlled-data tables.
+
+    Public training usually contributes one row per person-wave. Controlled
+    integrated exports may arrive as separate BIOCHEM / ANTHRO / SPIRO tables.
+    This function preserves nonmissing values across those tables instead of
+    silently dropping later rows. Conflicting nonmissing values are reported.
+    """
+    key = ["person_id", "wave"]
+    duplicates = long.duplicated(key, keep=False)
+    if not duplicates.any():
+        return long.copy(), pd.DataFrame(
+            columns=["person_id", "wave", "column", "n_distinct", "values_preview"]
+        )
+
+    conflicts = []
+    value_cols = [
+        c
+        for c in long.columns
+        if c not in {"person_id", "wave", "source_file", "source_mode"}
+    ]
+
+    for (pid, wave), g in long.loc[duplicates].groupby(key, sort=False):
+        for col in value_cols:
+            vals = g[col].dropna()
+            if vals.empty:
+                continue
+            distinct = pd.unique(vals.astype(str))
+            if len(distinct) > 1:
+                conflicts.append(
+                    {
+                        "person_id": pid,
+                        "wave": wave,
+                        "column": col,
+                        "n_distinct": int(len(distinct)),
+                        "values_preview": "|".join(distinct[:5]),
+                    }
+                )
+
+    rows = []
+    for (pid, wave), g in long.groupby(key, sort=False):
+        row = {"person_id": pid, "wave": wave}
+        for col in long.columns:
+            if col in key:
+                continue
+            if col == "source_file":
+                row[col] = ";".join(dict.fromkeys(g[col].dropna().astype(str)))
+            elif col == "source_mode":
+                row[col] = ";".join(dict.fromkeys(g[col].dropna().astype(str)))
+            else:
+                row[col] = first_nonmissing(g[col])
+        rows.append(row)
+
+    merged = pd.DataFrame(rows)
+    return merged, pd.DataFrame(conflicts)
 
 
 def build_wave_frame(df: pd.DataFrame, wave: str, cfg: dict) -> tuple[pd.DataFrame, dict]:
@@ -171,20 +300,43 @@ def main() -> int:
     frames = []
     mappings = []
 
+    input_modes = []
+
     for p in files:
-        wave = detect_wave(p, cfg["wave_order"])
         df = read_table(p)
-        try:
-            frame, resolved = build_wave_frame(df, wave, cfg)
-        except ValueError as exc:
-            print(f"[SKIP] {p}: {exc}")
-            continue
-        frame["source_file"] = str(p)
-        frames.append(frame)
-        for concept, col in resolved.items():
-            mappings.append(
-                {"wave": wave, "source_file": str(p), "concept": concept, "resolved_column": col}
+        integrated = split_integrated_wide(df, cfg)
+
+        if integrated:
+            input_modes.append("integrated_wide")
+            wave_frames = integrated
+        else:
+            input_modes.append("one_wave_per_file")
+            wave = detect_wave(p, cfg["wave_order"])
+            wave_frames = [(wave, df)]
+
+        for wave, wave_df in wave_frames:
+            try:
+                frame, resolved = build_wave_frame(wave_df, wave, cfg)
+            except ValueError as exc:
+                print(f"[SKIP] {p} [{wave}]: {exc}")
+                continue
+
+            frame["source_file"] = str(p)
+            frame["source_mode"] = (
+                "integrated_wide" if integrated else "one_wave_per_file"
             )
+            frames.append(frame)
+
+            for concept, col in resolved.items():
+                mappings.append(
+                    {
+                        "wave": wave,
+                        "source_file": str(p),
+                        "source_mode": frame["source_mode"].iloc[0],
+                        "concept": concept,
+                        "resolved_column": col,
+                    }
+                )
 
     if not frames:
         raise SystemExit("No wave could be harmonized.")
@@ -246,11 +398,21 @@ def main() -> int:
     )
 
     dup = long.duplicated(["person_id", "wave"], keep=False)
-    dup_report = long.loc[dup, ["person_id", "wave", "source_file"]].copy()
+    dup_report = long.loc[
+        dup,
+        ["person_id", "wave", "source_file", "source_mode"],
+    ].copy()
     write_table(dup_report, out / "DUPLICATE_PARTICIPANT_WAVE.tsv")
-    long = long.sort_values(["person_id", "visit_index", "source_file"]).drop_duplicates(
-        ["person_id", "wave"], keep="first"
+
+    # Controlled KoGES may be delivered as multiple wide domain tables.
+    # Coalesce them by participant-wave so BIOCHEM/ANTHRO/SPIRO information is
+    # retained rather than dropping all but the first table.
+    long, conflict_report = coalesce_person_wave_rows(long)
+    write_table(
+        conflict_report,
+        out / "DUPLICATE_PARTICIPANT_WAVE_CONFLICTS.tsv",
     )
+    long = long.sort_values(["person_id", "visit_index", "source_file"]).copy()
 
     write_table(pd.DataFrame(mappings), out / "RESOLVED_VARIABLE_MAP.tsv")
 
@@ -306,6 +468,11 @@ def main() -> int:
         "subjects_ge_3_visits": int((visits >= 3).sum()),
         "median_visits": float(visits.median()),
         "duplicate_rows_flagged": int(len(dup_report)),
+        "duplicate_value_conflicts_flagged": int(len(conflict_report)),
+        "input_modes": sorted(set(input_modes)),
+        "integrated_wide_input_files": int(
+            sum(mode == "integrated_wide" for mode in input_modes)
+        ),
         "measured_age_rows": int(long["age_source"].eq("measured").sum()),
         "inferred_age_rows": int(long["age_source"].eq("inferred_from_subject_anchor").sum()),
         "median_abs_age_wave_residual_years": float(age_resid.abs().median()) if len(age_resid) else None,
