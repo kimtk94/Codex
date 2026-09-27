@@ -5,6 +5,7 @@
     "input_dir": "/srv/is-analysis/data/multi_organ_aging/public_training",
     "out_dir": "/srv/is-analysis/results/multi_organ_aging",
     "model_dir": "/srv/is-analysis/results/multi_organ_aging/models",
+    "controlled_input_dir": "/srv/is-analysis/data/multi_organ_aging/controlled",
     "outcomes_file": "/srv/is-analysis/data/multi_organ_aging/controlled/outcomes.tsv.gz",
     "genetics_file": "/srv/is-analysis/data/multi_organ_aging/controlled/prs.tsv.gz"
   },
