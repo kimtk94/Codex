@@ -381,8 +381,21 @@ def main() -> int:
         .groupby("person_id")["visit_date"]
         .min()
     )
-    # Use a plain mapping for pandas 2.x/3.x compatibility with datetime values.
-    long["baseline_visit_date"] = long["person_id"].map(base_dates.to_dict())
+    # Avoid pandas-version-specific datetime behavior in Series.map by
+    # constructing the mapped Timestamp vector explicitly.
+    base_date_map = {
+        str(pid): pd.Timestamp(value)
+        for pid, value in base_dates.items()
+        if pd.notna(value)
+    }
+    long["visit_date"] = pd.to_datetime(long["visit_date"], errors="coerce")
+    long["baseline_visit_date"] = pd.to_datetime(
+        [
+            base_date_map.get(str(pid), pd.NaT)
+            for pid in long["person_id"]
+        ],
+        errors="coerce",
+    )
     actual_years = (
         (long["visit_date"] - long["baseline_visit_date"]).dt.total_seconds()
         / (365.25 * 24 * 60 * 60)
