@@ -39,3 +39,6 @@ jobs:
       - name: Controlled readiness synthetic test
         run: |
           python research/multi_organ_aging/tests/test_controlled_readiness.py
+      - name: Integrated wide Stage 1 synthetic test
+        run: |
+          python research/multi_organ_aging/tests/test_stage1_integrated_wide.py
