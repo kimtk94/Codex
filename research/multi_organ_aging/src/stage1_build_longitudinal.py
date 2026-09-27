@@ -23,7 +23,10 @@ from common import (
 
 def parse_visit_date(series: pd.Series) -> pd.Series:
     raw = series.astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
-    out = pd.to_datetime(raw, errors="coerce")
+    try:
+        out = pd.to_datetime(raw, errors="coerce", format="mixed")
+    except TypeError:
+        out = pd.to_datetime(raw, errors="coerce")
 
     ymd8 = raw.str.fullmatch(r"\d{8}", na=False)
     if ymd8.any():
@@ -88,6 +91,35 @@ def build_wave_frame(df: pd.DataFrame, wave: str, cfg: dict) -> tuple[pd.DataFra
         out.loc[valid_tyg, "triglyceride"] * out.loc[valid_tyg, "glucose"] / 2.0
     )
 
+    out["egfr_2021"] = egfr_2021(out["creatinine"], out["age"], out["sex_male"])
+    out["nlr"] = out["neutrophil"] / out["lymphocyte"].replace(0, np.nan)
+    out["fev1_fvc"] = out["fev1"] / out["fvc"].replace(0, np.nan)
+
+    # Apply deliberately broad physiologic bounds after sentinel removal.
+    # Values outside these ranges are treated as QC failures, not winsorized,
+    # so the raw export can always be revisited.
+    for concept, bounds in cfg.get("plausible_ranges", {}).items():
+        if concept not in out.columns:
+            continue
+        lo, hi = map(float, bounds)
+        x = pd.to_numeric(out[concept], errors="coerce")
+        out[concept] = x.where(x.between(lo, hi))
+
+    # Recompute derived features after range masking.
+    h_m = out["height_cm"] / 100.0
+    derived_bmi = out["weight_kg"] / (h_m * h_m)
+    out["bmi"] = out["bmi"].where(out["bmi"].notna(), derived_bmi)
+    if "bmi" in cfg.get("plausible_ranges", {}):
+        lo, hi = map(float, cfg["plausible_ranges"]["bmi"])
+        out["bmi"] = out["bmi"].where(out["bmi"].between(lo, hi))
+
+    out["pulse_pressure"] = out["sbp"] - out["dbp"]
+    out["non_hdl"] = out["total_cholesterol"] - out["hdl"]
+    valid_tyg = out["triglyceride"].gt(0) & out["glucose"].gt(0)
+    out["tyg"] = np.nan
+    out.loc[valid_tyg, "tyg"] = np.log(
+        out.loc[valid_tyg, "triglyceride"] * out.loc[valid_tyg, "glucose"] / 2.0
+    )
     out["egfr_2021"] = egfr_2021(out["creatinine"], out["age"], out["sex_male"])
     out["nlr"] = out["neutrophil"] / out["lymphocyte"].replace(0, np.nan)
     out["fev1_fvc"] = out["fev1"] / out["fvc"].replace(0, np.nan)
@@ -194,6 +226,22 @@ def main() -> int:
 
     visits = long.groupby("person_id")["wave"].nunique()
     age_resid = pd.to_numeric(long["age_wave_residual_years"], errors="coerce").dropna()
+
+    qc_features = sorted(set(
+        cfg.get("plausible_ranges", {}).keys()
+        | set(cfg.get("concepts", {}).keys())
+    ))
+    missing_rows = []
+    for c in qc_features:
+        if c in long.columns:
+            missing_rows.append({
+                "feature": c,
+                "n_nonmissing": int(long[c].notna().sum()),
+                "n_missing": int(long[c].isna().sum()),
+                "missing_fraction": float(long[c].isna().mean()),
+            })
+    write_table(pd.DataFrame(missing_rows), out / "FEATURE_MISSINGNESS_AFTER_QC.tsv")
+
     summary = {
         "rows": int(len(long)),
         "subjects": int(long["person_id"].nunique()),
