@@ -33,11 +33,71 @@ def infer_sep(path: str | Path) -> str:
     return "," if ".csv" in name else "\t"
 
 
+def _detect_text_format(path: str | Path) -> tuple[str, str]:
+    """Detect encoding and delimiter for plain-text cohort exports.
+
+    KoGES public training exports are commonly tab-delimited .txt files and may
+    be encoded as UTF-8/UTF-8-SIG or Korean legacy encodings (CP949/EUC-KR).
+    The detector inspects only a small prefix, so it is safe for large files.
+    """
+    p = Path(path)
+    opener = open
+    if p.name.lower().endswith(".gz"):
+        import gzip
+        opener = gzip.open
+
+    raw = b""
+    with opener(p, "rb") as f:
+        raw = f.read(65536)
+
+    encoding = "utf-8"
+    text = None
+    for candidate in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
+        try:
+            text = raw.decode(candidate)
+            encoding = candidate
+            break
+        except UnicodeDecodeError:
+            continue
+
+    if text is None:
+        text = raw.decode("latin1")
+        encoding = "latin1"
+
+    first_lines = [line for line in text.splitlines()[:10] if line.strip()]
+    sample = "\n".join(first_lines)
+
+    candidates = ["\t", ",", "|", ";"]
+    counts = {sep: sample.count(sep) for sep in candidates}
+    sep = max(counts, key=counts.get) if counts else "\t"
+
+    if counts.get(sep, 0) == 0:
+        sep = r"\s+"
+
+    return sep, encoding
+
+
 def read_table(path: str | Path, nrows: int | None = None) -> pd.DataFrame:
     p = Path(path)
     name = p.name.lower()
+
     if name.endswith((".xlsx", ".xls")):
         return pd.read_excel(p, nrows=nrows)
+
+    if name.endswith((".txt", ".txt.gz")):
+        sep, encoding = _detect_text_format(p)
+        kwargs = dict(
+            sep=sep,
+            compression="infer",
+            nrows=nrows,
+            encoding=encoding,
+        )
+        if sep == r"\s+":
+            kwargs["engine"] = "python"
+        else:
+            kwargs["low_memory"] = False
+        return pd.read_csv(p, **kwargs)
+
     return pd.read_csv(
         p,
         sep=infer_sep(p),
@@ -83,7 +143,32 @@ def list_input_files(input_dir: str | Path, globs: Sequence[str]) -> list[Path]:
 
 
 def detect_wave(path: str | Path, wave_order: dict[str, int]) -> str:
-    n = norm_name(Path(path).stem.replace(".tsv", "").replace(".csv", ""))
+    name = Path(path).name
+    for suffix in (".txt.gz", ".tsv.gz", ".csv.gz", ".txt", ".tsv", ".csv", ".xlsx", ".xls"):
+        if name.lower().endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+
+    n = norm_name(name)
+
+    # KoGES public exports use names such as:
+    # follow_01_base__FOLLOW_01_DATA.txt
+    # follow_02_F1__FOLLOW_02_DATA.txt
+    # follow_03_F2__FOLLOW_03_DATA.txt
+    # The explicit BASE/F<n> token is the visit index and must take priority
+    # over the transport/file sequence number (follow_01, follow_02, ...).
+    if re.search(r"(^|_)base($|_)", n):
+        if "base" in wave_order:
+            return "base"
+        if "baseline" in wave_order:
+            return "baseline"
+
+    follow_match = re.search(r"(^|_)f(\d+)($|_)", n)
+    if follow_match:
+        key = f"follow_{int(follow_match.group(2)):02d}"
+        if key in wave_order:
+            return key
+
     ranked = sorted(wave_order, key=lambda k: len(norm_name(k)), reverse=True)
     for key in ranked:
         if norm_name(key) in n:
