@@ -201,3 +201,37 @@ Interpretation: supportive prospective signal, but a single time-invariant Cox H
 - retain bootstrap and PH diagnostics as mandatory reporting items.
 
 Final controlled-data inference still requires >=3 organ systems to justify a multi-organ thesis framing.
+
+
+## 11. Public prototype discrete-time survival decision — 2026-09-27
+
+Because incident HTN/T2D is observed at follow-up visits rather than at exact onset dates, the prospective public-prototype analysis should use a **discrete-time complementary-log-log model** as the primary event model. Cox proportional-hazards models are retained as sensitivity analyses.
+
+### Cardiovascular pace -> incident HTN
+- Constant-effect discrete-time pace HR per SD: ~1.67.
+- F3 interval HR: ~1.61.
+- F4 interval HR: ~1.72.
+- pace×interval interaction: not supported.
+- Time-varying model has worse AIC than the constant-effect model.
+
+Decision: use the constant-effect discrete-time HR as the primary public-prototype summary.
+
+### Metabolic pace -> incident T2D
+- Constant-effect discrete-time pace HR per SD: ~2.01.
+- F3 interval HR: ~1.76.
+- F4 interval HR: ~2.23.
+- pace×interval interaction: not supported.
+- Time-varying model does not materially improve AIC despite the earlier Cox PH diagnostic.
+
+Decision: use the constant-effect discrete-time model as the parsimonious public-prototype summary, while retaining the Cox PH violation as a sensitivity caveat because event counts are small.
+
+### Current methodological hierarchy
+1. Subject-level cross-fitted organ-age scores.
+2. Pre-landmark longitudinal organ-aging pace.
+3. Discrete-time cloglog prospective outcome model for visit-observed incident diagnoses.
+4. Baseline organ acceleration adjustment.
+5. Orthogonalized-pace sensitivity.
+6. Bootstrap stability and Cox PH checks.
+7. Multi-organ mean/discordance/clustering as exploratory only in the two-organ public prototype.
+
+Landmark-window sensitivity is deferred to the controlled KoGES dataset because the five-wave public training subset provides only one defensible >=3-visit exposure window with >=2 post-landmark outcome waves.
