@@ -120,6 +120,89 @@ def fit_cox(
     }
 
 
+def fit_cox_model(
+    df: pd.DataFrame,
+    duration: str,
+    event: str,
+    predictors: list[str],
+) -> dict:
+    try:
+        from lifelines import CoxPHFitter
+    except Exception as exc:
+        return {"status": f"lifelines_unavailable:{exc}"}
+
+    use = [duration, event] + [c for c in predictors if c in df.columns]
+    x = df[use].copy()
+    for c in use:
+        x[c] = pd.to_numeric(x[c], errors="coerce")
+    x = x.dropna()
+
+    events = int(x[event].sum()) if len(x) else 0
+    if len(x) < 100 or events < 20:
+        return {"status": "insufficient_data", "n": int(len(x)), "events": events}
+
+    for c in predictors:
+        if c in x.columns and x[c].std(ddof=0) > 0:
+            x[c] = zscore(x[c])
+
+    model = CoxPHFitter(penalizer=0.001)
+    model.fit(x, duration_col=duration, event_col=event, show_progress=False)
+
+    return {
+        "status": "ok",
+        "n": int(len(x)),
+        "events": events,
+        "concordance_index": float(model.concordance_index_),
+        "partial_aic": float(model.AIC_partial_),
+        "log_likelihood": float(model.log_likelihood_),
+    }
+
+
+def pace_baseline_diagnostics(
+    analysis: pd.DataFrame,
+    primary_map: dict[str, str],
+) -> pd.DataFrame:
+    rows = []
+    for outcome, pace_col in primary_map.items():
+        organ = pace_col.removesuffix("_pace_z")
+        baseline_col = f"{organ}_baseline_accel_z"
+        if pace_col not in analysis.columns or baseline_col not in analysis.columns:
+            continue
+
+        d = analysis[[pace_col, baseline_col]].apply(
+            pd.to_numeric, errors="coerce"
+        ).dropna()
+        if len(d) < 30:
+            continue
+
+        corr = float(d[pace_col].corr(d[baseline_col]))
+        r2 = corr * corr if np.isfinite(corr) else np.nan
+        vif = 1.0 / (1.0 - r2) if np.isfinite(r2) and r2 < 0.999999 else np.inf
+
+        # Orthogonalized pace is a diagnostic only: residual pace after removing
+        # the linear component explained by baseline organ acceleration.
+        x = d[baseline_col].to_numpy(float)
+        y = d[pace_col].to_numpy(float)
+        X = np.column_stack([np.ones(len(d)), x])
+        beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+        resid = y - X @ beta
+
+        rows.append({
+            "outcome": outcome,
+            "pace_col": pace_col,
+            "baseline_state_col": baseline_col,
+            "n": int(len(d)),
+            "corr_pace_baseline": corr,
+            "r2_pace_baseline": r2,
+            "vif_two_predictor": float(vif),
+            "pace_sd": float(np.std(y, ddof=1)),
+            "baseline_state_sd": float(np.std(x, ddof=1)),
+            "orthogonalized_pace_sd": float(np.std(resid, ddof=1)),
+        })
+
+    return pd.DataFrame(rows)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Public KoGES landmark outcome prototype; workflow QA only."
@@ -213,7 +296,14 @@ def main() -> int:
         "discordance_sd",
     ]
 
+    diagnostic_df = pace_baseline_diagnostics(analysis, primary_map)
+    write_table(
+        diagnostic_df,
+        out / "PACE_BASELINE_COUPLING_DIAGNOSTICS.tsv",
+    )
+
     rows = []
+    comparison_rows = []
     for concept in outcomes:
         event = f"{concept}_event"
         duration = f"{concept}_time"
@@ -251,6 +341,25 @@ def main() -> int:
                 organ = exposure.removesuffix("_pace_z")
                 baseline_state = f"{organ}_baseline_accel_z"
                 if baseline_state in analysis.columns:
+                    baseline_only = fit_cox(
+                        analysis,
+                        duration,
+                        event,
+                        baseline_state,
+                        ["landmark_age", "sex_male"],
+                    )
+                    baseline_only.update(
+                        {
+                            "outcome": concept,
+                            "exposure": baseline_state,
+                            "analysis_role": "baseline_state_only",
+                            "model_spec": "age_sex",
+                            "event_col": event,
+                            "time_col": duration,
+                        }
+                    )
+                    rows.append(baseline_only)
+
                     r2 = fit_cox(
                         analysis,
                         duration,
@@ -270,6 +379,42 @@ def main() -> int:
                     )
                     rows.append(r2)
 
+                    m0 = fit_cox_model(
+                        analysis,
+                        duration,
+                        event,
+                        ["landmark_age", "sex_male", baseline_state],
+                    )
+                    m1 = fit_cox_model(
+                        analysis,
+                        duration,
+                        event,
+                        ["landmark_age", "sex_male", baseline_state, exposure],
+                    )
+                    comparison_rows.append({
+                        "outcome": concept,
+                        "pace_exposure": exposure,
+                        "baseline_state": baseline_state,
+                        "n_baseline_model": m0.get("n"),
+                        "events_baseline_model": m0.get("events"),
+                        "baseline_only_c_index": m0.get("concordance_index"),
+                        "baseline_plus_pace_c_index": m1.get("concordance_index"),
+                        "delta_c_index": (
+                            m1.get("concordance_index") - m0.get("concordance_index")
+                            if m0.get("status") == "ok" and m1.get("status") == "ok"
+                            else np.nan
+                        ),
+                        "baseline_only_partial_aic": m0.get("partial_aic"),
+                        "baseline_plus_pace_partial_aic": m1.get("partial_aic"),
+                        "delta_aic_plus_pace_minus_baseline": (
+                            m1.get("partial_aic") - m0.get("partial_aic")
+                            if m0.get("status") == "ok" and m1.get("status") == "ok"
+                            else np.nan
+                        ),
+                        "baseline_only_loglik": m0.get("log_likelihood"),
+                        "baseline_plus_pace_loglik": m1.get("log_likelihood"),
+                    })
+
     res = pd.DataFrame(rows)
     if not res.empty and "p" in res.columns:
         res["q_fdr_within_role"] = np.nan
@@ -281,6 +426,10 @@ def main() -> int:
                 )
 
     write_table(res, out / "PUBLIC_LANDMARK_ASSOCIATIONS.tsv")
+    write_table(
+        pd.DataFrame(comparison_rows),
+        out / "PACE_INCREMENTAL_MODEL_COMPARISON.tsv",
+    )
 
     model_counts = []
     for concept in outcomes:
@@ -306,6 +455,8 @@ def main() -> int:
         "outcomes": event_rows,
         "model_eligible_counts": model_counts,
         "models_tested": int(len(res)),
+        "pace_baseline_diagnostics_file": "PACE_BASELINE_COUPLING_DIAGNOSTICS.tsv",
+        "incremental_model_comparison_file": "PACE_INCREMENTAL_MODEL_COMPARISON.tsv",
         "note": (
             "Public KoGES training data are educational/prototype data. "
             "Effect estimates are workflow QA only and must not be reported as thesis inference."
