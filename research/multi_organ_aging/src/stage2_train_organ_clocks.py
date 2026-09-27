@@ -271,6 +271,7 @@ def main() -> int:
     ap.add_argument("--config", required=True)
     ap.add_argument("--panel", default=None)
     ap.add_argument("--out-dir", default=None)
+    ap.add_argument("--model-dir", default=None)
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -280,7 +281,17 @@ def main() -> int:
         or out_root / "stage1_longitudinal" / "LONGITUDINAL_MULTI_ORGAN_PANEL.tsv.gz"
     )
     out = ensure_dir(out_root / "stage2_clocks")
-    model_dir = ensure_dir(Path(cfg["paths"].get("model_dir", out_root / "models")))
+
+    # An explicit output root denotes an isolated analysis run (e.g. controlled
+    # KoGES) and must never overwrite models from the public prototype.
+    if args.model_dir:
+        model_dir = ensure_dir(Path(args.model_dir))
+    elif args.out_dir:
+        model_dir = ensure_dir(out_root / "models")
+    else:
+        model_dir = ensure_dir(
+            Path(cfg["paths"].get("model_dir", out_root / "models"))
+        )
 
     df = pd.read_csv(panel_path, sep="\t", compression="infer", low_memory=False)
     all_scores = []
