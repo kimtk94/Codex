@@ -12,7 +12,8 @@
   "id_concepts": {
     "person_id": ["person_id", "subject_id", "subjectid", "iid", "id", "dist_id", "htn_id"],
     "age": ["age", "age_years", "baseline_age"],
-    "sex": ["sex", "gender"]
+    "sex": ["sex", "gender"],
+    "visit_date": ["visit_date", "exam_date", "edate"]
   },
   "wave_order": {
     "base": 0,
@@ -52,8 +53,8 @@
     "heart_rate": ["heart_rate", "pulse", "pulse_rate", "hr"],
     "glucose": ["glucose", "fasting_glucose", "fasting_blood_glucose", "fbs", "glu0", "glu"],
     "hba1c": ["hba1c", "hb_a1c", "glycated_hemoglobin"],
-    "insulin": ["insulin", "fasting_insulin"],
-    "total_cholesterol": ["total_cholesterol", "cholesterol", "tc", "chol", "tchol"],
+    "insulin": ["insulin", "fasting_insulin", "ins0"],
+    "total_cholesterol": ["total_cholesterol", "cholesterol", "tc", "chol", "tchol", "tchl"],
     "hdl": ["hdl", "hdl_c", "hdl_cholesterol"],
     "ldl": ["ldl", "ldl_c", "ldl_cholesterol"],
     "triglyceride": ["triglyceride", "triglycerides", "tg"],
