@@ -405,6 +405,53 @@ def main() -> int:
     long["age_source"] = np.where(long["age"].notna(), "measured", "inferred_from_subject_anchor")
     long["age"] = long["age"].fillna(inferred_age)
 
+    # Recompute cross-domain derived phenotypes after integrated tables have
+    # been coalesced and sex/age are available at the participant-wave level.
+    h_m = pd.to_numeric(long["height_cm"], errors="coerce") / 100.0
+    derived_bmi = (
+        pd.to_numeric(long["weight_kg"], errors="coerce")
+        / (h_m * h_m)
+    )
+    long["bmi"] = pd.to_numeric(long["bmi"], errors="coerce").where(
+        pd.to_numeric(long["bmi"], errors="coerce").notna(),
+        derived_bmi,
+    )
+    if "bmi" in cfg.get("plausible_ranges", {}):
+        lo, hi = map(float, cfg["plausible_ranges"]["bmi"])
+        long["bmi"] = long["bmi"].where(long["bmi"].between(lo, hi))
+
+    long["pulse_pressure"] = (
+        pd.to_numeric(long["sbp"], errors="coerce")
+        - pd.to_numeric(long["dbp"], errors="coerce")
+    )
+    long["non_hdl"] = (
+        pd.to_numeric(long["total_cholesterol"], errors="coerce")
+        - pd.to_numeric(long["hdl"], errors="coerce")
+    )
+
+    tg = pd.to_numeric(long["triglyceride"], errors="coerce")
+    glu = pd.to_numeric(long["glucose"], errors="coerce")
+    valid_tyg = tg.gt(0) & glu.gt(0)
+    long["tyg"] = np.nan
+    long.loc[valid_tyg, "tyg"] = np.log(
+        tg.loc[valid_tyg] * glu.loc[valid_tyg] / 2.0
+    )
+
+    long["egfr_2021"] = egfr_2021(
+        pd.to_numeric(long["creatinine"], errors="coerce"),
+        pd.to_numeric(long["age"], errors="coerce"),
+        pd.to_numeric(long["sex_male"], errors="coerce"),
+    )
+    long["nlr"] = (
+        pd.to_numeric(long["neutrophil"], errors="coerce")
+        / pd.to_numeric(long["lymphocyte"], errors="coerce").replace(0, np.nan)
+    )
+    long["fev1_fvc"] = (
+        pd.to_numeric(long["fev1"], errors="coerce")
+        / pd.to_numeric(long["fvc"], errors="coerce").replace(0, np.nan)
+    )
+    long = long.replace([np.inf, -np.inf], np.nan)
+
     # QC: measured age should be close to the wave-based subject anchor.
     expected_age = anchor + long["year_offset"]
     long["age_wave_residual_years"] = np.where(
