@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
-from scipy.stats import norm
+from scipy.stats import chi2, norm
 
 from common import ensure_dir, json_dump, load_config, write_table
 
@@ -323,6 +323,10 @@ def main() -> int:
 
         # Compare model AIC directly; the time-varying model adds one interaction
         # term because the public prototype has two post-landmark intervals.
+        lr_stat = 2.0 * (
+            tv_summary["llf"] - const_summary["llf"]
+        )
+        extra_df = 2  # pace×interval and sex×interval in the public 2-interval model
         lr_rows.append(
             {
                 "outcome": outcome,
@@ -333,8 +337,13 @@ def main() -> int:
                 ),
                 "constant_llf": const_summary["llf"],
                 "timevarying_llf": tv_summary["llf"],
-                "lr_statistic": 2.0 * (
-                    tv_summary["llf"] - const_summary["llf"]
+                "lr_statistic": lr_stat,
+                "lr_df": extra_df,
+                "lr_p": float(chi2.sf(lr_stat, extra_df)),
+                "preferred_by_aic": (
+                    "constant"
+                    if const_summary["aic"] <= tv_summary["aic"]
+                    else "time_varying"
                 ),
             }
         )
