@@ -179,15 +179,16 @@ def detect_wave(path: str | Path, wave_order: dict[str, int]) -> str:
 def resolve_column(columns: Iterable[str], aliases: Sequence[str]) -> str | None:
     columns = list(columns)
 
-    # KoGES public-training columns are commonly prefixed by visit codes
-    # (e.g. T01_AGE, T02_HBA1C, T00_ID). Match both the full normalized name
+    # KoGES columns are commonly prefixed by visit codes in either public
+    # training form (T01_AGE) or integrated controlled-data form (A01_HBA1C).
+    # Match both the full normalized name
     # and a visit-prefix-stripped stem so short but exact aliases such as
     # ID, DM, TG and UA can be resolved without unsafe substring matching.
     variant_to_originals: dict[str, list[str]] = {}
     for original in columns:
         n = norm_name(original)
         variants = {n}
-        stem = re.sub(r"^t\d+_", "", n)
+        stem = re.sub(r"^(?:t\d+|a\d{1,2})_", "", n)
         variants.add(stem)
         for variant in variants:
             variant_to_originals.setdefault(variant, []).append(original)
