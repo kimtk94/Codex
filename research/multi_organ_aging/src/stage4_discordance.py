@@ -92,6 +92,8 @@ def main():
           "effective_min_complete_organs":effective_min_org,
           "prototype_two_organ_fallback":bool(n_available_organs < configured_min_org),
           "discordance_definition":"Within-person SD/range of organ-specific longitudinal pace z-scores.",
+          "primary_discordance_analysis":"continuous discordance_sd / discordance_range",
+          "cluster_analysis_role":"exploratory only",
           "warning":"Two-organ discordance is for public-pipeline validation only; final thesis inference should retain the prespecified >=3-organ requirement."}
     json_dump(info,out/"STAGE4_SUMMARY.json")
     print(info)
