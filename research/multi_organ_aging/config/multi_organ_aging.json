@@ -8,7 +8,7 @@
     "outcomes_file": "/srv/is-analysis/data/multi_organ_aging/controlled/outcomes.tsv.gz",
     "genetics_file": "/srv/is-analysis/data/multi_organ_aging/controlled/prs.tsv.gz"
   },
-  "file_globs": ["*.tsv", "*.tsv.gz", "*.csv", "*.csv.gz", "*.xlsx", "*.xls"],
+  "file_globs": ["*.tsv", "*.tsv.gz", "*.csv", "*.csv.gz", "*.txt", "*.txt.gz", "*.xlsx", "*.xls"],
   "id_concepts": {
     "person_id": ["person_id", "subject_id", "subjectid", "iid", "id", "dist_id", "htn_id"],
     "age": ["age", "age_years", "baseline_age"],
@@ -94,7 +94,7 @@
       "min_features": 4
     },
     "renal": {
-      "features": ["creatinine", "egfr_2021", "bun", "uric_acid", "uacr"],
+      "features": ["creatinine", "bun", "uric_acid", "uacr"],
       "min_features": 2
     },
     "hepatic": {
