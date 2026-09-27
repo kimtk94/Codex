@@ -33,7 +33,7 @@ the same longitudinal KoGES infrastructure but has a distinct primary phenotype.
 ## 3. Bias-control rules
 
 1. Freeze organ-feature definitions before testing clinical outcomes.
-2. Use out-of-fold baseline predictions when estimating organ age in the training cohort.
+2. Use subject-level cross-fitting: every participant's full longitudinal trajectory must be scored by an organ clock that was not trained on that participant.
 3. Correct raw age gaps for chronological-age dependence.
 4. Do not choose organ definitions based on downstream outcome significance.
 5. Require at least three repeated visits for primary aging-pace estimation.
@@ -103,8 +103,8 @@ Optional, after phenotype freezing:
 2. Confirm subject ID and visit encoding.
 3. Freeze variable alias map.
 4. Build harmonized panel.
-5. Run OOF organ-age models.
-6. Estimate aging slopes.
+5. Train organ-age models and generate subject-level cross-fitted scores across all visits.
+6. Estimate aging slopes from the cross-fitted longitudinal scores.
 7. Run cross-organ discordance / clustering.
 8. Build incident outcomes.
 9. Run outcome associations.
@@ -138,3 +138,15 @@ Clock reference participants should be:
 ### Outcome-testing rule
 
 The primary prospective question is whether **pre-landmark organ-aging pace predicts subsequent incident organ dysfunction**. The exposure and outcome windows must not overlap. The primary sensitivity model additionally adjusts for baseline organ-age acceleration to test whether longitudinal pace adds information beyond starting organ state.
+
+
+### Cross-fitting rule
+
+For primary within-cohort inference, the final deployment clock must **not** be used to score participants who contributed to its training. Participants are partitioned into outer subject folds. For each fold:
+
+1. train/tune the organ clock using healthy-reference participants from the other folds,
+2. estimate age-gap residualization and scaling from training participants only,
+3. score every visit of the held-out participants,
+4. calculate longitudinal pace from those held-out scores.
+
+The all-data final clock is retained only for external/deployment scoring. This prevents participant-level phenotype overfit from contaminating longitudinal pace and outcome models.
