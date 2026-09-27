@@ -235,3 +235,23 @@ Decision: use the constant-effect discrete-time model as the parsimonious public
 7. Multi-organ mean/discordance/clustering as exploratory only in the two-organ public prototype.
 
 Landmark-window sensitivity is deferred to the controlled KoGES dataset because the five-wave public training subset provides only one defensible >=3-visit exposure window with >=2 post-landmark outcome waves.
+
+
+## 12. Controlled-data availability checkpoint — 2026-09-27
+
+Server verification completed.
+
+- Canonical controlled input directory:
+  `/srv/is-analysis/data/multi_organ_aging/controlled`
+- Supported files present: **0**
+- Repository-wide A01/A02/A03 integrated KoGES files under `/srv/is-analysis/data`: **0**
+- Controlled readiness status: **HOLD**
+- Reason: `no_supported_files_found`
+- Controlled Stage 1+ analysis was **not** started.
+- Public prototype files were not relabeled, copied or reused as controlled data.
+
+Interpretation:
+
+The public workflow-validation prototype is complete and the controlled pipeline is implementation-ready, but final multi-organ thesis inference cannot proceed until an approved individual-level KoGES extract is supplied.
+
+No further statistical model expansion should be performed on the public prototype merely to compensate for the absence of controlled data. The project should remain frozen at this checkpoint until new controlled data arrive.
