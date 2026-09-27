@@ -41,6 +41,24 @@ def parse_visit_date(series: pd.Series) -> pd.Series:
     return out
 
 
+def normalize_yes_no_1_2(series: pd.Series) -> pd.Series:
+    x = pd.to_numeric(series, errors="coerce")
+    return x.map({1.0: 0.0, 2.0: 1.0})
+
+
+def cumulative_established_history(series: pd.Series) -> pd.Series:
+    out = []
+    established = 0.0
+    seen = False
+    for value in series:
+        if pd.notna(value):
+            seen = True
+            if float(value) == 1.0:
+                established = 1.0
+        out.append(established if seen else np.nan)
+    return pd.Series(out, index=series.index, dtype=float)
+
+
 def build_wave_frame(df: pd.DataFrame, wave: str, cfg: dict) -> tuple[pd.DataFrame, dict]:
     id_map = cfg["id_concepts"]
     concepts = cfg["concepts"]
@@ -94,6 +112,14 @@ def build_wave_frame(df: pd.DataFrame, wave: str, cfg: dict) -> tuple[pd.DataFra
     out["egfr_2021"] = egfr_2021(out["creatinine"], out["age"], out["sex_male"])
     out["nlr"] = out["neutrophil"] / out["lymphocyte"].replace(0, np.nan)
     out["fev1_fvc"] = out["fev1"] / out["fvc"].replace(0, np.nan)
+
+    # KoGES yes/no disease-history items use 1=no, 2=yes. Preserve the raw
+    # numeric code and expose a 0/1 analysis variable.
+    for concept in cfg.get("binary_coding", {}).get("variables", []):
+        if concept not in out.columns:
+            continue
+        out[f"{concept}_raw_code"] = out[concept].copy()
+        out[concept] = normalize_yes_no_1_2(out[concept])
 
     # Apply deliberately broad physiologic bounds after sentinel removal.
     # Values outside these ranges are treated as QC failures, not winsorized,
@@ -171,6 +197,15 @@ def main() -> int:
 
     long["sex_male"] = long.groupby("person_id")["sex_male"].transform(mode_or_nan)
 
+    long = long.sort_values(["person_id", "visit_index", "source_file"]).copy()
+    for concept in cfg.get("binary_coding", {}).get("variables", []):
+        if concept in long.columns and long[concept].notna().any():
+            long[f"{concept}_history"] = (
+                long.groupby("person_id", group_keys=False)[concept]
+                .apply(cumulative_established_history)
+                .reindex(long.index)
+            )
+
     # Prefer actual examination dates for longitudinal time. Fall back to the
     # planned 2-year wave spacing only when dates are unavailable.
     base_dates = (
@@ -218,6 +253,28 @@ def main() -> int:
     )
 
     write_table(pd.DataFrame(mappings), out / "RESOLVED_VARIABLE_MAP.tsv")
+
+    dx_rows = []
+    for concept in cfg.get("binary_coding", {}).get("variables", []):
+        raw = f"{concept}_raw_code"
+        hist = f"{concept}_history"
+        if raw in long.columns:
+            counts = long[raw].value_counts(dropna=False)
+            for value, n in counts.items():
+                dx_rows.append({
+                    "concept": concept,
+                    "raw_code": value,
+                    "n_rows": int(n),
+                })
+        if hist in long.columns:
+            base = long.loc[long["visit_index"].eq(0), hist]
+            dx_rows.append({
+                "concept": concept,
+                "raw_code": "baseline_established_history_1",
+                "n_rows": int(base.eq(1).sum()),
+            })
+    write_table(pd.DataFrame(dx_rows), out / "DIAGNOSIS_CODING_QC.tsv")
+
     write_table(long, out / "LONGITUDINAL_MULTI_ORGAN_PANEL.tsv.gz")
     try:
         write_table(long, out / "LONGITUDINAL_MULTI_ORGAN_PANEL.parquet")
