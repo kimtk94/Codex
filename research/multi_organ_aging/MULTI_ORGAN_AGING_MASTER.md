@@ -150,3 +150,16 @@ For primary within-cohort inference, the final deployment clock must **not** be 
 4. calculate longitudinal pace from those held-out scores.
 
 The all-data final clock is retained only for external/deployment scoring. This prevents participant-level phenotype overfit from contaminating longitudinal pace and outcome models.
+
+
+### Robustness gate before interpreting prospective effects
+
+After subject-level cross-fitting and landmark outcome construction, the following must be checked before any effect is interpreted:
+
+1. baseline organ acceleration vs pace coupling (correlation/VIF),
+2. orthogonalized pace sensitivity,
+3. proportional-hazards assumption for the joint Cox model,
+4. subject bootstrap stability of pace HR, delta C-index and delta AIC,
+5. landmark-window sensitivity when later controlled waves are available.
+
+Public-data associations remain proof-of-concept only, regardless of nominal p-values.
