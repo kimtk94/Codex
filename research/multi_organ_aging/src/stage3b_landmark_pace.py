@@ -106,6 +106,20 @@ def main() -> int:
     for organ in wide.columns:
         summary[f"{organ}_pace_z"] = wide[organ]
 
+    # Starting organ state is retained so downstream models can test whether
+    # longitudinal pace adds information beyond baseline organ acceleration.
+    baseline_scores = (
+        s[pd.to_numeric(s["visit_index"], errors="coerce").eq(0)]
+        .pivot_table(
+            index="person_id",
+            columns="organ",
+            values="age_acceleration_z",
+            aggfunc="first",
+        )
+    )
+    for organ in baseline_scores.columns:
+        summary[f"{organ}_baseline_accel_z"] = baseline_scores[organ]
+
     summary = summary.reset_index()
 
     write_table(p, out / "LANDMARK_SUBJECT_ORGAN_PACE.tsv.gz")
