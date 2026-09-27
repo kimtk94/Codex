@@ -23,8 +23,16 @@ def main():
 
     wide=p.pivot_table(index="person_id",columns="organ",values="pace_z_within_organ",aggfunc="first")
     nobs=wide.notna().sum(axis=1)
-    min_org=int(cfg["clustering"]["min_complete_organs"])
-    eligible=wide.loc[nobs>=min_org].copy()
+    configured_min_org=int(cfg["clustering"]["min_complete_organs"])
+    n_available_organs=int(wide.shape[1])
+    if n_available_organs < 2:
+        raise SystemExit("At least two organ-specific pace estimates are required for discordance.")
+
+    # Public KoGES training files are a pipeline prototype and may expose fewer
+    # organ panels than the final controlled thesis dataset. Allow a two-organ
+    # prototype while preserving the configured >=3-organ target for final use.
+    effective_min_org=min(configured_min_org, n_available_organs)
+    eligible=wide.loc[nobs>=effective_min_org].copy()
     if eligible.empty:
         raise SystemExit("No participant has enough organ-specific pace estimates.")
 
@@ -80,7 +88,11 @@ def main():
     write_table(counts,out/"CLUSTER_COUNTS.tsv")
     info={"subjects":len(cl),"organs":organ_cols,"selected_k":int(best[1]),
           "best_silhouette":float(best[0]),
-          "discordance_definition":"Within-person SD/range of organ-specific longitudinal pace z-scores."}
+          "configured_min_complete_organs":configured_min_org,
+          "effective_min_complete_organs":effective_min_org,
+          "prototype_two_organ_fallback":bool(n_available_organs < configured_min_org),
+          "discordance_definition":"Within-person SD/range of organ-specific longitudinal pace z-scores.",
+          "warning":"Two-organ discordance is for public-pipeline validation only; final thesis inference should retain the prespecified >=3-organ requirement."}
     json_dump(info,out/"STAGE4_SUMMARY.json")
     print(info)
     return 0
