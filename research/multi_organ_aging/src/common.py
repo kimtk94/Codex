@@ -216,16 +216,28 @@ def resolve_concepts(columns: Iterable[str], concepts: dict[str, Sequence[str]])
     return {k: resolve_column(columns, aliases) for k, aliases in concepts.items()}
 
 
+NUMERIC_MISSING_SENTINELS = {
+    -99999.0, -9999.0, -999.0, -99.0, -9.0,
+    66666.0, 77777.0, 88888.0, 99997.0, 99998.0, 99999.0,
+}
+
+
 def to_numeric(series: pd.Series) -> pd.Series:
     if pd.api.types.is_numeric_dtype(series):
-        return pd.to_numeric(series, errors="coerce")
-    cleaned = (
-        series.astype(str)
-        .str.strip()
-        .replace({"": np.nan, "NA": np.nan, "N/A": np.nan, "nan": np.nan, ".": np.nan})
-        .str.replace(",", "", regex=False)
-    )
-    return pd.to_numeric(cleaned, errors="coerce")
+        out = pd.to_numeric(series, errors="coerce").astype(float)
+    else:
+        cleaned = (
+            series.astype(str)
+            .str.strip()
+            .replace({"": np.nan, "NA": np.nan, "N/A": np.nan, "nan": np.nan, ".": np.nan})
+            .str.replace(",", "", regex=False)
+        )
+        out = pd.to_numeric(cleaned, errors="coerce").astype(float)
+
+    # KoGES public-training exports use large numeric sentinel values for
+    # missing / not-applicable states. Never allow them into quantitative
+    # models as biological measurements.
+    return out.mask(out.isin(NUMERIC_MISSING_SENTINELS))
 
 
 def normalize_sex(series: pd.Series) -> pd.Series:
