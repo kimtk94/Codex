@@ -343,6 +343,22 @@ def main() -> int:
 
     long = pd.concat(frames, ignore_index=True, sort=False)
 
+    # Merge multiple controlled-data domain tables before any longitudinal
+    # history, timing or age-anchor calculation so duplicate source tables do
+    # not implicitly weight a participant-wave more than once.
+    dup = long.duplicated(["person_id", "wave"], keep=False)
+    dup_report = long.loc[
+        dup,
+        ["person_id", "wave", "source_file", "source_mode"],
+    ].copy()
+    write_table(dup_report, out / "DUPLICATE_PARTICIPANT_WAVE.tsv")
+
+    long, conflict_report = coalesce_person_wave_rows(long)
+    write_table(
+        conflict_report,
+        out / "DUPLICATE_PARTICIPANT_WAVE_CONFLICTS.tsv",
+    )
+
     def mode_or_nan(s: pd.Series):
         x = s.dropna()
         return x.mode().iloc[0] if not x.empty else np.nan
@@ -397,21 +413,6 @@ def main() -> int:
         np.nan,
     )
 
-    dup = long.duplicated(["person_id", "wave"], keep=False)
-    dup_report = long.loc[
-        dup,
-        ["person_id", "wave", "source_file", "source_mode"],
-    ].copy()
-    write_table(dup_report, out / "DUPLICATE_PARTICIPANT_WAVE.tsv")
-
-    # Controlled KoGES may be delivered as multiple wide domain tables.
-    # Coalesce them by participant-wave so BIOCHEM/ANTHRO/SPIRO information is
-    # retained rather than dropping all but the first table.
-    long, conflict_report = coalesce_person_wave_rows(long)
-    write_table(
-        conflict_report,
-        out / "DUPLICATE_PARTICIPANT_WAVE_CONFLICTS.tsv",
-    )
     long = long.sort_values(["person_id", "visit_index", "source_file"]).copy()
 
     write_table(pd.DataFrame(mappings), out / "RESOLVED_VARIABLE_MAP.tsv")
