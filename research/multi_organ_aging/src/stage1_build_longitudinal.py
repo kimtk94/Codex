@@ -185,7 +185,14 @@ def coalesce_person_wave_rows(long: pd.DataFrame) -> tuple[pd.DataFrame, pd.Data
         rows.append(row)
 
     merged = pd.DataFrame(rows)
-    return merged, pd.DataFrame(conflicts)
+    conflict_columns = [
+        "person_id",
+        "wave",
+        "column",
+        "n_distinct",
+        "values_preview",
+    ]
+    return merged, pd.DataFrame(conflicts, columns=conflict_columns)
 
 
 def build_wave_frame(df: pd.DataFrame, wave: str, cfg: dict) -> tuple[pd.DataFrame, dict]:
