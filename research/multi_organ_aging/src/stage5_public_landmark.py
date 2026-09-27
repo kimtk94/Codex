@@ -115,6 +115,8 @@ def fit_cox(
         "ci95_low": float(np.exp(row["coef lower 95%"])),
         "ci95_high": float(np.exp(row["coef upper 95%"])),
         "p": float(row["p"]),
+        "concordance_index": float(model.concordance_index_),
+        "partial_aic": float(model.AIC_partial_),
     }
 
 
@@ -209,7 +211,6 @@ def main() -> int:
     exploratory = [
         "multi_organ_landmark_pace_z",
         "discordance_sd",
-        "discordance_range",
     ]
 
     rows = []
@@ -237,20 +238,65 @@ def main() -> int:
                     "outcome": concept,
                     "exposure": exposure,
                     "analysis_role": role,
+                    "model_spec": "age_sex",
                     "event_col": event,
                     "time_col": duration,
                 }
             )
             rows.append(r)
 
+            # For the prespecified organ-specific exposure, test whether pace
+            # adds signal beyond the person's starting organ-age state.
+            if role == "primary":
+                organ = exposure.removesuffix("_pace_z")
+                baseline_state = f"{organ}_baseline_accel_z"
+                if baseline_state in analysis.columns:
+                    r2 = fit_cox(
+                        analysis,
+                        duration,
+                        event,
+                        exposure,
+                        ["landmark_age", "sex_male", baseline_state],
+                    )
+                    r2.update(
+                        {
+                            "outcome": concept,
+                            "exposure": exposure,
+                            "analysis_role": "primary_sensitivity",
+                            "model_spec": f"age_sex_plus_{baseline_state}",
+                            "event_col": event,
+                            "time_col": duration,
+                        }
+                    )
+                    rows.append(r2)
+
     res = pd.DataFrame(rows)
     if not res.empty and "p" in res.columns:
-        res["q_fdr"] = np.nan
-        ok = res["p"].notna()
-        if ok.any():
-            res.loc[ok, "q_fdr"] = bh_fdr(res.loc[ok, "p"].to_numpy())
+        res["q_fdr_within_role"] = np.nan
+        for role, idx in res.groupby("analysis_role").groups.items():
+            ok_idx = [i for i in idx if pd.notna(res.loc[i, "p"])]
+            if ok_idx:
+                res.loc[ok_idx, "q_fdr_within_role"] = bh_fdr(
+                    res.loc[ok_idx, "p"].to_numpy()
+                )
 
     write_table(res, out / "PUBLIC_LANDMARK_ASSOCIATIONS.tsv")
+
+    model_counts = []
+    for concept in outcomes:
+        event = f"{concept}_event"
+        time = f"{concept}_time"
+        if event in analysis.columns and time in analysis.columns:
+            d = analysis[[event, time]].dropna()
+            model_counts.append({
+                "outcome": concept,
+                "landmark_pace_eligible_with_followup": int(len(d)),
+                "events_in_landmark_pace_eligible": int(d[event].sum()),
+            })
+    write_table(
+        pd.DataFrame(model_counts),
+        out / "PUBLIC_LANDMARK_MODEL_ELIGIBLE_COUNTS.tsv",
+    )
 
     info = {
         "status": "ok",
@@ -258,6 +304,7 @@ def main() -> int:
         "outcome_window": f"visit_index > {cutoff}",
         "subjects_with_landmark_pace": int(expo["person_id"].nunique()),
         "outcomes": event_rows,
+        "model_eligible_counts": model_counts,
         "models_tested": int(len(res)),
         "note": (
             "Public KoGES training data are educational/prototype data. "
