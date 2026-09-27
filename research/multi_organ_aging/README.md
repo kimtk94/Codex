@@ -68,6 +68,17 @@ Before controlled KoGES analysis:
 bash scripts/run_controlled_readiness.sh
 ```
 
+After readiness returns `GO`, run the isolated controlled phenotype pipeline:
+
+```bash
+bash scripts/run_controlled_core.sh
+```
+
+Controlled outputs are written under
+`/srv/is-analysis/results/multi_organ_aging/controlled_analysis`
+so public-prototype results and models are not overwritten. The controlled core
+runner intentionally stops before outcome association modeling.
+
 Current public-prototype checkpoint:
 - `docs/PUBLIC_PROTOTYPE_CHECKPOINT_20260927.md`
 - `docs/REPO_LAYOUT.md`
