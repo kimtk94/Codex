@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
+from scipy.stats import norm
 
 from common import ensure_dir, json_dump, load_config, write_table
 
@@ -121,9 +122,10 @@ def fit_cloglog(
     if allow_time_interaction:
         formula = (
             "event ~ pace_z_std * C(period_visit_index) + "
-            "baseline_z_std + age_z_std + sex_male"
+            "sex_male * C(period_visit_index) + "
+            "baseline_z_std + age_z_std"
         )
-        model_label = "cloglog_time_varying_pace"
+        model_label = "cloglog_time_varying_pace_and_sex"
     else:
         formula = (
             "event ~ pace_z_std + C(period_visit_index) + "
@@ -210,7 +212,7 @@ def fit_cloglog(
         se = float(np.sqrt(max(var, 0.0)))
         zval = est / se if se > 0 else np.nan
         p = (
-            float(2.0 * (1.0 - sm.stats.norm.cdf(abs(zval))))
+            float(2.0 * (1.0 - norm.cdf(abs(zval))))
             if np.isfinite(zval)
             else np.nan
         )
