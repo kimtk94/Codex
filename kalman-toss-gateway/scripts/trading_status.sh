@@ -42,6 +42,9 @@ async def main():
         'safeExitBufferMinutes': int(os.environ.get('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES', '15') or 15),
         'minExitBuckets': int(os.environ.get('AUTO_TRADE_MIN_EXIT_BUCKETS', '2') or 2),
         'configuredTargetExitBuckets': int(os.environ.get('AUTO_TRADE_TARGET_EXIT_BUCKETS', '4') or 4),
+        'fridayFlatEnabled': os.environ.get('AUTO_TRADE_FRIDAY_FLAT_ENABLED', 'false').lower() == 'true',
+        'fridayFlatBufferMinutes': int(os.environ.get('AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES', '15') or 15),
+        'fridayFlatShadowPath': os.environ.get('AUTO_TRADE_FRIDAY_FLAT_SHADOW_PATH', ''),
         'researchNonOverlapBenchmark': True,
         'liveEntryRequiresResearchNonOverlap': (
             os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').upper() == 'SHADOW_CANARY'
