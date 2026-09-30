@@ -38,6 +38,10 @@ async def main():
         'profitFlipTriggerPct': os.environ.get('AUTO_TRADE_PROFIT_FLIP_TRIGGER_PCT', '-0.002'),
         'profitFlipRecoveryPct': os.environ.get('AUTO_TRADE_PROFIT_FLIP_RECOVERY_PCT', '0'),
         'profitFlipConfirmObservations': int(os.environ.get('AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS', '2') or 2),
+        'safeExitWindowEnabled': os.environ.get('AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED', 'true').lower() == 'true',
+        'safeExitBufferMinutes': int(os.environ.get('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES', '15') or 15),
+        'minExitBuckets': int(os.environ.get('AUTO_TRADE_MIN_EXIT_BUCKETS', '2') or 2),
+        'configuredTargetExitBuckets': int(os.environ.get('AUTO_TRADE_TARGET_EXIT_BUCKETS', '4') or 4),
         'researchNonOverlapBenchmark': True,
         'liveEntryRequiresResearchNonOverlap': (
             os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').upper() == 'SHADOW_CANARY'
