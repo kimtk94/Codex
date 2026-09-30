@@ -313,6 +313,7 @@ def main() -> int:
 
         rec = {
             "weekend_trade_id": int(trade_id),
+            "source_trade_id": int(row["trade_id"]) if "trade_id" in row.index else int(trade_id),
             "fold": row["fold"],
             "symbol": symbol,
             "entry_timestamp": entry,
@@ -422,6 +423,31 @@ def main() -> int:
         errors="coerce",
     ).dropna()
 
+    all_carry_rows = audit.loc[audit["policy"].astype(str) == "CARRY_ALL"].copy()
+    all_carry_rows["replay_net_return"] = pd.to_numeric(
+        all_carry_rows["baseline_net_return"], errors="coerce"
+    )
+
+    replacement_map = {}
+    for _, r in out.loc[p_cov].iterrows():
+        key = int(r["source_trade_id"])
+        value = r.get(f"{primary}_friday_flat_net_return")
+        if pd.notna(value):
+            replacement_map[key] = float(value)
+
+    if "trade_id" in all_carry_rows.columns:
+        mask = all_carry_rows["trade_id"].isin(replacement_map)
+        all_carry_rows.loc[mask, "replay_net_return"] = (
+            all_carry_rows.loc[mask, "trade_id"].map(replacement_map)
+        )
+
+    full_carry_metrics = _trade_equity_metrics(
+        pd.to_numeric(all_carry_rows["baseline_net_return"], errors="coerce")
+    )
+    full_friday_flat_partial_metrics = _trade_equity_metrics(
+        pd.to_numeric(all_carry_rows["replay_net_return"], errors="coerce")
+    )
+
     result = {
         "schema": "kalman-weekend-carry-execution-validation-v1",
         "research_only": True,
@@ -452,6 +478,12 @@ def main() -> int:
         ),
         "primary_friday_flat_metrics": _trade_equity_metrics(
             out.loc[p_cov, f"{primary}_friday_flat_net_return"]
+        ),
+        "full_889_carry_metrics": full_carry_metrics,
+        "full_889_friday_flat_execution_adjusted_metrics": full_friday_flat_partial_metrics,
+        "full_889_adjusted_weekend_trades": int(len(replacement_map)),
+        "full_889_adjustment_complete": bool(
+            len(replacement_map) == int(len(out))
         ),
     }
 
@@ -525,6 +557,14 @@ def main() -> int:
     print()
     print("FRIDAY_FLAT_METRICS")
     print(json.dumps(result["primary_friday_flat_metrics"], indent=2))
+    print()
+    print("FULL_889_CARRY")
+    print(json.dumps(result["full_889_carry_metrics"], indent=2))
+    print()
+    print("FULL_889_FRIDAY_FLAT_EXECUTION_ADJUSTED")
+    print(json.dumps(result["full_889_friday_flat_execution_adjusted_metrics"], indent=2))
+    print("adjusted_weekend_trades =", result["full_889_adjusted_weekend_trades"])
+    print("adjustment_complete =", result["full_889_adjustment_complete"])
     print()
     print("FOLDS")
     print(pd.DataFrame(folds).to_string(index=False) if folds else "NONE")
