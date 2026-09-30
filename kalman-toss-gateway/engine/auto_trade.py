@@ -542,11 +542,7 @@ async def main_async() -> int:
     )
 
     exit_priority_positions = _exit_priority_positions(active_positions)
-    exit_anchor_as_of = (
-        (same_symbol_position or {}).get('entry_signal_as_of')
-        if is_add_on
-        else signal['as_of']
-    )
+    exit_anchor_as_of = signal['as_of']
     requested_target_exit_buckets = (
         int((same_symbol_position or {}).get('target_exit_buckets') or TARGET_EXIT_BUCKETS)
         if is_add_on
