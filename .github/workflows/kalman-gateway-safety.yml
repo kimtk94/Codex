@@ -243,6 +243,7 @@ jobs:
               "CFG_AUTO_TRADE_SIGNAL_BAR_MINUTES=60",
               "CFG_AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED=true",
               "CFG_AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES=15",
+              "CFG_AUTO_TRADE_MIN_EXIT_BUCKETS=2",
               "CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=0",
               "CFG_MAX_SINGLE_ORDER_KRW=5000",
           ]

@@ -37,6 +37,7 @@ class ExitWindowSafetyTests(unittest.TestCase):
             {
                 'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
                 'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
+                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
                 'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
             },
             clear=False,
@@ -59,12 +60,13 @@ class ExitWindowSafetyTests(unittest.TestCase):
             '2026-09-26T03:45:00+09:00',
         )
 
-    def test_0035_r5_initial_entry_is_blocked_as_too_late(self):
+    def test_0035_r5_initial_entry_adapts_to_three_buckets(self):
         with patch.dict(
             auto_trade.os.environ,
             {
                 'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
                 'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
+                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
                 'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
             },
             clear=False,
@@ -76,15 +78,69 @@ class ExitWindowSafetyTests(unittest.TestCase):
                 target_exit_buckets=4,
             )
 
-        self.assertFalse(allowed)
-        self.assertEqual(
-            detail['reason'],
-            'PROJECTED_EXIT_AFTER_SAFE_DEADLINE',
-        )
+        self.assertTrue(allowed)
+        self.assertEqual(detail['reason'], 'SAFE_ADAPTIVE_TARGET')
+        self.assertEqual(detail['availableExitBuckets'], 3)
+        self.assertEqual(detail['selectedTargetExitBuckets'], 3)
         self.assertEqual(
             detail['projectedMaxHoldExitAt'],
-            '2026-09-25T19:30:00+00:00',
+            '2026-09-25T18:30:00+00:00',
         )
+
+    def test_0135_r5_initial_entry_adapts_to_two_buckets(self):
+        with patch.dict(
+            auto_trade.os.environ,
+            {
+                'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
+                'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
+                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
+                'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
+            },
+            clear=False,
+        ):
+            allowed, detail = auto_trade._entry_exit_window_check(
+                self._window(),
+                anchor_signal_as_of='2026-09-25T15:30:00+00:00',
+                strategy_version='R5.1_BASE_HGB',
+                target_exit_buckets=4,
+            )
+
+        self.assertTrue(allowed)
+        self.assertEqual(detail['reason'], 'SAFE_ADAPTIVE_TARGET')
+        self.assertEqual(detail['availableExitBuckets'], 2)
+        self.assertEqual(detail['selectedTargetExitBuckets'], 2)
+
+    def test_0235_r5_initial_entry_is_blocked_below_two_buckets(self):
+        with patch.dict(
+            auto_trade.os.environ,
+            {
+                'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
+                'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
+                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
+                'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
+            },
+            clear=False,
+        ):
+            allowed, detail = auto_trade._entry_exit_window_check(
+                self._window(),
+                anchor_signal_as_of='2026-09-25T16:30:00+00:00',
+                strategy_version='R5.1_BASE_HGB',
+                target_exit_buckets=4,
+            )
+
+        self.assertFalse(allowed)
+        self.assertEqual(detail['reason'], 'INSUFFICIENT_SAFE_BUCKETS')
+        self.assertEqual(detail['availableExitBuckets'], 1)
+        self.assertEqual(detail['selectedTargetExitBuckets'], 1)
+
+    def test_min_exit_buckets_is_validated(self):
+        with patch.dict(
+            auto_trade.os.environ,
+            {'AUTO_TRADE_MIN_EXIT_BUCKETS': '0'},
+            clear=False,
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'between 1 and 24'):
+                auto_trade._min_exit_buckets()
 
     def test_add_on_can_use_original_position_exit_clock(self):
         with patch.dict(
@@ -92,6 +148,7 @@ class ExitWindowSafetyTests(unittest.TestCase):
             {
                 'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
                 'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
+                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
                 'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
             },
             clear=False,

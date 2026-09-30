@@ -140,6 +140,89 @@ class SameCycleRebalanceTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def test_adaptive_max_hold_reason_uses_selected_bucket_count(self):
+        self.assertEqual(
+            position_manager._choose_exit_reason(
+                price_return=Decimal("0.01"),
+                stop_loss=Decimal("-0.03"),
+                take_profit=Decimal("0.20"),
+                model_rotation=False,
+                elapsed_buckets=2,
+                target_buckets=2,
+            ),
+            "MAX_HOLD_2_BUCKETS",
+        )
+
+    def test_safe_exit_deadline_precedes_rotation_and_max_hold(self):
+        self.assertEqual(
+            position_manager._choose_exit_reason(
+                price_return=Decimal("0.01"),
+                stop_loss=Decimal("-0.03"),
+                take_profit=Decimal("0.20"),
+                model_rotation=True,
+                elapsed_buckets=1,
+                target_buckets=4,
+                safe_exit_deadline_due=True,
+            ),
+            "SAFE_EXIT_DEADLINE",
+        )
+
+    def test_safe_exit_deadline_status_triggers_at_buffer_boundary(self):
+        base = {
+            "activeWindow": {
+                "businessDate": "2026-09-30",
+                "startTime": "2026-09-30T22:30:00+09:00",
+                "fractionalOrderEndTime": "2026-10-01T04:00:00+09:00",
+                "regularEndTime": "2026-10-01T05:00:00+09:00",
+            },
+            "windows": [],
+        }
+        with patch.dict(
+            position_manager.os.environ,
+            {
+                "AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED": "true",
+                "AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES": "15",
+            },
+            clear=False,
+        ):
+            before = dict(base, nowKst="2026-10-01T03:44:59+09:00")
+            due_before, detail_before = position_manager._safe_exit_deadline_status(before)
+            self.assertFalse(due_before)
+            self.assertEqual(detail_before["reason"], "SAFE_DEADLINE_NOT_REACHED")
+
+            at_deadline = dict(base, nowKst="2026-10-01T03:45:00+09:00")
+            due_at, detail_at = position_manager._safe_exit_deadline_status(at_deadline)
+            self.assertTrue(due_at)
+            self.assertEqual(detail_at["reason"], "SAFE_EXIT_DEADLINE_REACHED")
+            self.assertEqual(
+                detail_at["safeExitDeadlineAt"],
+                "2026-10-01T03:45:00+09:00",
+            )
+
+    def test_safe_exit_deadline_marks_missed_closed_window_as_due(self):
+        info = {
+            "nowKst": "2026-10-01T04:05:00+09:00",
+            "activeWindow": None,
+            "windows": [{
+                "businessDate": "2026-09-30",
+                "startTime": "2026-09-30T22:30:00+09:00",
+                "fractionalOrderEndTime": "2026-10-01T04:00:00+09:00",
+                "regularEndTime": "2026-10-01T05:00:00+09:00",
+            }],
+        }
+        with patch.dict(
+            position_manager.os.environ,
+            {
+                "AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED": "true",
+                "AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES": "15",
+            },
+            clear=False,
+        ):
+            due, detail = position_manager._safe_exit_deadline_status(info)
+
+        self.assertTrue(due)
+        self.assertEqual(detail["reason"], "SAFE_EXIT_DEADLINE_REACHED")
+
     def test_model_rotation_can_be_disabled_for_multi_position_live_policy(self):
         with patch.dict(
             position_manager.os.environ,
