@@ -146,6 +146,17 @@ def _exit_window_buffer_minutes() -> int:
     return value
 
 
+def _min_exit_buckets() -> int:
+    raw = os.environ.get('AUTO_TRADE_MIN_EXIT_BUCKETS', '2')
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError('AUTO_TRADE_MIN_EXIT_BUCKETS must be an integer') from exc
+    if value < 1 or value > 24:
+        raise RuntimeError('AUTO_TRADE_MIN_EXIT_BUCKETS must be between 1 and 24')
+    return value
+
+
 def _as_aware_datetime(value) -> datetime:
     if isinstance(value, datetime):
         dt = value
@@ -163,10 +174,14 @@ def _entry_exit_window_check(
 ) -> tuple[bool, dict]:
     enabled = _safe_exit_window_enabled()
     buffer_minutes = _exit_window_buffer_minutes()
+    minimum_buckets = _min_exit_buckets()
+    requested_buckets = int(target_exit_buckets)
     detail = {
         'enabled': enabled,
         'bufferMinutes': buffer_minutes,
-        'targetExitBuckets': int(target_exit_buckets),
+        'configuredTargetExitBuckets': requested_buckets,
+        'minimumExitBuckets': minimum_buckets,
+        'selectedTargetExitBuckets': requested_buckets,
     }
     if not enabled:
         detail['reason'] = 'DISABLED'
@@ -182,21 +197,44 @@ def _entry_exit_window_check(
     fractional_end_text = active.get('fractionalOrderEndTime')
     if not fractional_end_text:
         detail['reason'] = 'NO_ACTIVE_FRACTIONAL_WINDOW'
+        detail['selectedTargetExitBuckets'] = 0
         return False, detail
 
     anchor_as_of = _as_aware_datetime(anchor_signal_as_of)
     effective_anchor = _effective_signal_as_of(anchor_as_of, strategy_version)
-    projected_exit = effective_anchor + timedelta(
-        minutes=bar_minutes * int(target_exit_buckets)
-    )
     fractional_end = _as_aware_datetime(fractional_end_text)
     safe_deadline = fractional_end - timedelta(minutes=buffer_minutes)
-    allowed = projected_exit <= safe_deadline
+
+    available_seconds = max(
+        0.0,
+        (safe_deadline - effective_anchor).total_seconds(),
+    )
+    available_buckets = int(
+        available_seconds // max(1, bar_minutes * 60)
+    )
+    selected_buckets = min(requested_buckets, available_buckets)
+    allowed = selected_buckets >= minimum_buckets
+    configured_projected_exit = effective_anchor + timedelta(
+        minutes=bar_minutes * requested_buckets
+    )
+    selected_projected_exit = effective_anchor + timedelta(
+        minutes=bar_minutes * max(0, selected_buckets)
+    )
+
     detail.update({
-        'reason': 'SAFE' if allowed else 'PROJECTED_EXIT_AFTER_SAFE_DEADLINE',
+        'reason': (
+            'SAFE'
+            if allowed and selected_buckets == requested_buckets
+            else 'SAFE_ADAPTIVE_TARGET'
+            if allowed
+            else 'INSUFFICIENT_SAFE_BUCKETS'
+        ),
         'anchorSignalAsOf': anchor_as_of.isoformat(),
         'effectiveAnchorAt': effective_anchor.isoformat(),
-        'projectedMaxHoldExitAt': projected_exit.isoformat(),
+        'availableExitBuckets': available_buckets,
+        'selectedTargetExitBuckets': selected_buckets,
+        'configuredProjectedExitAt': configured_projected_exit.isoformat(),
+        'projectedMaxHoldExitAt': selected_projected_exit.isoformat(),
         'fractionalOrderEndAt': fractional_end.isoformat(),
         'safeExitDeadlineAt': safe_deadline.isoformat(),
     })
@@ -521,11 +559,20 @@ async def main_async() -> int:
         if is_add_on
         else signal['as_of']
     )
+    requested_target_exit_buckets = (
+        int((same_symbol_position or {}).get('target_exit_buckets') or TARGET_EXIT_BUCKETS)
+        if is_add_on
+        else TARGET_EXIT_BUCKETS
+    )
     entry_exit_window_ok, entry_exit_window = _entry_exit_window_check(
         window_info,
         anchor_signal_as_of=exit_anchor_as_of,
         strategy_version=signal.get('strategy_version'),
-        target_exit_buckets=TARGET_EXIT_BUCKETS,
+        target_exit_buckets=requested_target_exit_buckets,
+    )
+    selected_target_exit_buckets = int(
+        entry_exit_window.get('selectedTargetExitBuckets')
+        or requested_target_exit_buckets
     )
 
     common = {
@@ -571,7 +618,8 @@ async def main_async() -> int:
             str(projected_symbol_notional_krw)
             if projected_symbol_notional_krw is not None else None
         ),
-        'targetExitBuckets': TARGET_EXIT_BUCKETS,
+        'configuredTargetExitBuckets': TARGET_EXIT_BUCKETS,
+        'targetExitBuckets': selected_target_exit_buckets,
         'exitPriorityBlocking': bool(exit_priority_positions),
         'exitPriorityPositions': _exit_priority_summary(exit_priority_positions),
         'safeExitWindow': entry_exit_window,
@@ -711,7 +759,7 @@ async def main_async() -> int:
             strategy_version=signal['strategy_version'],
             signal_as_of=signal['as_of'].isoformat(),
             client_order_id=client_order_id,
-            target_exit_buckets=TARGET_EXIT_BUCKETS,
+            target_exit_buckets=selected_target_exit_buckets,
         )
         if not reserved or not position:
             print('ENTRY_POSITION_RESERVATION_FAILED', json.dumps(position, ensure_ascii=False, default=str))
@@ -770,6 +818,9 @@ async def main_async() -> int:
                     str(projected_symbol_notional_krw)
                     if projected_symbol_notional_krw is not None else None
                 ),
+                'configured_target_exit_buckets': TARGET_EXIT_BUCKETS,
+                'selected_target_exit_buckets': selected_target_exit_buckets,
+                'safe_exit_window': entry_exit_window,
             }
         },
     )
@@ -792,7 +843,8 @@ async def main_async() -> int:
     result['entryType'] = 'ADD_ON' if is_add_on else 'INITIAL'
     result['entryCountBefore'] = entry_count_before
     result['entryCountAfterFillExpected'] = entry_count_before + 1
-    result['targetExitBuckets'] = TARGET_EXIT_BUCKETS
+    result['configuredTargetExitBuckets'] = TARGET_EXIT_BUCKETS
+    result['targetExitBuckets'] = selected_target_exit_buckets
     result['researchNonOverlapEntry'] = _bool(
         (signal.get('payload') or {}).get('shadow_entry_this_signal')
     )
