@@ -153,7 +153,7 @@ class SameCycleRebalanceTests(unittest.IsolatedAsyncioTestCase):
             "MAX_HOLD_2_BUCKETS",
         )
 
-    def test_safe_exit_deadline_precedes_rotation_and_max_hold(self):
+    def test_friday_flat_precedes_rotation_and_max_hold(self):
         self.assertEqual(
             position_manager._choose_exit_reason(
                 price_return=Decimal("0.01"),
@@ -162,13 +162,58 @@ class SameCycleRebalanceTests(unittest.IsolatedAsyncioTestCase):
                 model_rotation=True,
                 elapsed_buckets=1,
                 target_buckets=4,
-                safe_exit_deadline_due=True,
+                friday_flat_due=True,
             ),
-            "SAFE_EXIT_DEADLINE",
+            "FRIDAY_FLAT",
         )
 
-    def test_safe_exit_deadline_status_triggers_at_buffer_boundary(self):
+    def test_friday_flat_triggers_at_deadline_boundary(self):
         base = {
+            "activeWindow": {
+                "businessDate": "2026-09-25",
+                "startTime": "2026-09-25T22:30:00+09:00",
+                "fractionalOrderEndTime": "2026-09-26T04:00:00+09:00",
+                "regularEndTime": "2026-09-26T05:00:00+09:00",
+            },
+            "windows": [],
+        }
+        with patch.dict(
+            position_manager.os.environ,
+            {
+                "AUTO_TRADE_FRIDAY_FLAT_ENABLED": "true",
+                "AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES": "15",
+            },
+            clear=False,
+        ):
+            before = dict(base, nowKst="2026-09-26T03:44:59+09:00")
+            due_before, detail_before = position_manager._friday_flat_deadline_status(
+                before,
+                entry_signal_as_of="2026-09-25T13:30:00+00:00",
+            )
+            self.assertFalse(due_before)
+            self.assertEqual(
+                detail_before["reason"],
+                "FRIDAY_FLAT_DEADLINE_NOT_REACHED",
+            )
+
+            at_deadline = dict(base, nowKst="2026-09-26T03:45:00+09:00")
+            due_at, detail_at = position_manager._friday_flat_deadline_status(
+                at_deadline,
+                entry_signal_as_of="2026-09-25T13:30:00+00:00",
+            )
+            self.assertTrue(due_at)
+            self.assertEqual(
+                detail_at["reason"],
+                "FRIDAY_FLAT_DEADLINE_REACHED",
+            )
+            self.assertEqual(
+                detail_at["safeExitDeadlineAt"],
+                "2026-09-26T03:45:00+09:00",
+            )
+
+    def test_non_friday_does_not_force_session_flat(self):
+        info = {
+            "nowKst": "2026-10-01T03:45:00+09:00",
             "activeWindow": {
                 "businessDate": "2026-09-30",
                 "startTime": "2026-09-30T22:30:00+09:00",
@@ -180,48 +225,90 @@ class SameCycleRebalanceTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(
             position_manager.os.environ,
             {
-                "AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED": "true",
-                "AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES": "15",
+                "AUTO_TRADE_FRIDAY_FLAT_ENABLED": "true",
+                "AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES": "15",
             },
             clear=False,
         ):
-            before = dict(base, nowKst="2026-10-01T03:44:59+09:00")
-            due_before, detail_before = position_manager._safe_exit_deadline_status(before)
-            self.assertFalse(due_before)
-            self.assertEqual(detail_before["reason"], "SAFE_DEADLINE_NOT_REACHED")
-
-            at_deadline = dict(base, nowKst="2026-10-01T03:45:00+09:00")
-            due_at, detail_at = position_manager._safe_exit_deadline_status(at_deadline)
-            self.assertTrue(due_at)
-            self.assertEqual(detail_at["reason"], "SAFE_EXIT_DEADLINE_REACHED")
-            self.assertEqual(
-                detail_at["safeExitDeadlineAt"],
-                "2026-10-01T03:45:00+09:00",
+            due, detail = position_manager._friday_flat_deadline_status(
+                info,
+                entry_signal_as_of="2026-09-30T13:30:00+00:00",
             )
 
-    def test_safe_exit_deadline_marks_missed_closed_window_as_due(self):
+        self.assertFalse(due)
+        self.assertEqual(detail["reason"], "NON_FRIDAY_CARRY_ALLOWED")
+
+    def test_missed_friday_flat_is_due_next_session(self):
         info = {
-            "nowKst": "2026-10-01T04:05:00+09:00",
-            "activeWindow": None,
-            "windows": [{
-                "businessDate": "2026-09-30",
-                "startTime": "2026-09-30T22:30:00+09:00",
-                "fractionalOrderEndTime": "2026-10-01T04:00:00+09:00",
-                "regularEndTime": "2026-10-01T05:00:00+09:00",
-            }],
+            "nowKst": "2026-09-28T22:35:00+09:00",
+            "activeWindow": {
+                "businessDate": "2026-09-28",
+                "startTime": "2026-09-28T22:30:00+09:00",
+                "fractionalOrderEndTime": "2026-09-29T04:00:00+09:00",
+                "regularEndTime": "2026-09-29T05:00:00+09:00",
+            },
+            "windows": [],
         }
         with patch.dict(
             position_manager.os.environ,
             {
-                "AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED": "true",
-                "AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES": "15",
+                "AUTO_TRADE_FRIDAY_FLAT_ENABLED": "true",
+                "AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES": "15",
             },
             clear=False,
         ):
-            due, detail = position_manager._safe_exit_deadline_status(info)
+            due, detail = position_manager._friday_flat_deadline_status(
+                info,
+                entry_signal_as_of="2026-09-25T13:30:00+00:00",
+            )
 
         self.assertTrue(due)
-        self.assertEqual(detail["reason"], "SAFE_EXIT_DEADLINE_REACHED")
+        self.assertEqual(detail["reason"], "MISSED_FRIDAY_FLAT_DEADLINE")
+
+    def test_friday_shadow_seed_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = pathlib.Path(tmp) / "trading.sqlite3"
+            shadow = pathlib.Path(tmp) / "friday-flat-shadow.json"
+            fake_settings = type("S", (), {"state_db_path": db})()
+            position = {
+                "position_id": "pos-shadow",
+                "symbol": "AAPL",
+                "strategy_version": "R5.1_BASE_HGB",
+                "entry_signal_as_of": "2026-09-25T13:30:00+00:00",
+                "target_exit_buckets": 4,
+                "remaining_quantity": "0.1",
+                "entry_avg_fill_price": "100",
+            }
+            with patch.dict(
+                position_manager.os.environ,
+                {"AUTO_TRADE_FRIDAY_FLAT_SHADOW_PATH": str(shadow)},
+                clear=False,
+            ):
+                position_manager._record_friday_flat_shadow_seed(
+                    fake_settings,
+                    position,
+                    last_price=Decimal("101"),
+                    price_return=Decimal("0.01"),
+                    detail={"reason": "FRIDAY_FLAT_DEADLINE_REACHED"},
+                )
+                position_manager._record_friday_flat_shadow_seed(
+                    fake_settings,
+                    position,
+                    last_price=Decimal("102"),
+                    price_return=Decimal("0.02"),
+                    detail={"reason": "FRIDAY_FLAT_DEADLINE_REACHED"},
+                )
+
+            payload = __import__("json").loads(shadow.read_text())
+            self.assertEqual(len(payload["records"]), 1)
+            self.assertEqual(
+                payload["records"]["pos-shadow"]["fridayExitDecisionPrice"],
+                "101",
+            )
+            self.assertEqual(
+                payload["records"]["pos-shadow"]["status"],
+                "PENDING_REPLAY",
+            )
 
     def test_model_rotation_can_be_disabled_for_multi_position_live_policy(self):
         with patch.dict(
