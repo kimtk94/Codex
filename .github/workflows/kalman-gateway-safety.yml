@@ -241,15 +241,18 @@ jobs:
               "CFG_AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS=2",
               "CFG_AUTO_TRADE_ORDER_KRW=5000",
               "CFG_AUTO_TRADE_SIGNAL_BAR_MINUTES=60",
-              "CFG_AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED=true",
+              "CFG_AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED=false",
               "CFG_AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES=15",
               "CFG_AUTO_TRADE_MIN_EXIT_BUCKETS=2",
+              "CFG_AUTO_TRADE_FRIDAY_FLAT_ENABLED=true",
+              "CFG_AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES=15",
+              "CFG_AUTO_TRADE_FRIDAY_FLAT_SHADOW_PATH=/opt/kalman/state/friday-flat-shadow.json",
               "CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=0",
               "CFG_MAX_SINGLE_ORDER_KRW=5000",
           ]
           for token in required:
               assert token in live, token
-          print("[PASS] live = R5_LIVE_TOP1, max 3 positions, 3 entries/symbol, KRW 5,000/order, KRW 15,000/symbol")
+          print("[PASS] live = R5_LIVE_TOP1 + Mon-Thu FIXED_4 carry + Friday-flat canary")
           PY
 
       - name: Run gateway safety tests

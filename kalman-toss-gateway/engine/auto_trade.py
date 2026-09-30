@@ -16,6 +16,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, ROUND_DOWN
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import psycopg
 from dotenv import load_dotenv
@@ -28,6 +29,7 @@ from app.toss_client import TossClient
 
 TARGET_EXIT_BUCKETS = 4
 QTY_TOLERANCE = Decimal('0.00000001')
+NY = ZoneInfo('America/New_York')
 
 
 def _client_order_id(run_id: str, symbol: str) -> str:
@@ -131,30 +133,37 @@ def _exit_priority_summary(positions: list[dict]) -> list[dict]:
     ]
 
 
-def _safe_exit_window_enabled() -> bool:
-    return os.environ.get('AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED', 'true').strip().lower() == 'true'
+def _friday_flat_enabled() -> bool:
+    return (
+        os.environ.get('AUTO_TRADE_FRIDAY_FLAT_ENABLED', 'false')
+        .strip()
+        .lower()
+        == 'true'
+    )
 
 
-def _exit_window_buffer_minutes() -> int:
-    raw = os.environ.get('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES', '15')
+def _friday_flat_buffer_minutes() -> int:
+    raw = os.environ.get('AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES', '15')
     try:
         value = int(raw)
     except (TypeError, ValueError) as exc:
-        raise RuntimeError('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES must be an integer') from exc
+        raise RuntimeError(
+            'AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES must be an integer'
+        ) from exc
     if value < 0 or value > 120:
-        raise RuntimeError('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES must be between 0 and 120')
+        raise RuntimeError(
+            'AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES must be between 0 and 120'
+        )
     return value
 
 
-def _min_exit_buckets() -> int:
-    raw = os.environ.get('AUTO_TRADE_MIN_EXIT_BUCKETS', '2')
+def _business_date_is_friday(value) -> bool:
+    if not value:
+        return False
     try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise RuntimeError('AUTO_TRADE_MIN_EXIT_BUCKETS must be an integer') from exc
-    if value < 1 or value > 24:
-        raise RuntimeError('AUTO_TRADE_MIN_EXIT_BUCKETS must be between 1 and 24')
-    return value
+        return datetime.fromisoformat(str(value)).date().weekday() == 4
+    except (TypeError, ValueError):
+        return False
 
 
 def _as_aware_datetime(value) -> datetime:
@@ -172,74 +181,53 @@ def _entry_exit_window_check(
     strategy_version: str | None,
     target_exit_buckets: int,
 ) -> tuple[bool, dict]:
-    enabled = _safe_exit_window_enabled()
-    buffer_minutes = _exit_window_buffer_minutes()
-    minimum_buckets = _min_exit_buckets()
+    """Friday-only entry gate.
+
+    Monday-Thursday keep the original FIXED_4 carry semantics. On Friday,
+    a signal must become actionable strictly before the configured safe
+    deadline. The stored target remains the original bucket count; the
+    position manager truncates any surviving Friday exposure at the deadline.
+    """
+    enabled = _friday_flat_enabled()
+    buffer_minutes = _friday_flat_buffer_minutes()
     requested_buckets = int(target_exit_buckets)
     detail = {
         'enabled': enabled,
+        'policy': 'FRIDAY_FLAT_CANARY',
         'bufferMinutes': buffer_minutes,
         'configuredTargetExitBuckets': requested_buckets,
-        'minimumExitBuckets': minimum_buckets,
         'selectedTargetExitBuckets': requested_buckets,
     }
     if not enabled:
         detail['reason'] = 'DISABLED'
         return True, detail
 
-    bar_minutes = _signal_bar_minutes(strategy_version)
-    detail['signalBarMinutes'] = bar_minutes
-    if bar_minutes <= 0:
-        detail['reason'] = 'NO_CANONICAL_BAR_DURATION'
+    active = (window_info or {}).get('activeWindow') or {}
+    business_date = active.get('businessDate')
+    detail['businessDate'] = business_date
+    if not _business_date_is_friday(business_date):
+        detail['reason'] = 'NON_FRIDAY_CARRY_ALLOWED'
         return True, detail
 
-    active = (window_info or {}).get('activeWindow') or {}
     fractional_end_text = active.get('fractionalOrderEndTime')
     if not fractional_end_text:
         detail['reason'] = 'NO_ACTIVE_FRACTIONAL_WINDOW'
-        detail['selectedTargetExitBuckets'] = 0
         return False, detail
 
     anchor_as_of = _as_aware_datetime(anchor_signal_as_of)
     effective_anchor = _effective_signal_as_of(anchor_as_of, strategy_version)
     fractional_end = _as_aware_datetime(fractional_end_text)
     safe_deadline = fractional_end - timedelta(minutes=buffer_minutes)
-
-    available_seconds = max(
-        0.0,
-        (safe_deadline - effective_anchor).total_seconds(),
-    )
-    available_buckets = int(
-        available_seconds // max(1, bar_minutes * 60)
-    )
-    selected_buckets = min(requested_buckets, available_buckets)
-    allowed = selected_buckets >= minimum_buckets
-    configured_projected_exit = effective_anchor + timedelta(
-        minutes=bar_minutes * requested_buckets
-    )
-    selected_projected_exit = effective_anchor + timedelta(
-        minutes=bar_minutes * max(0, selected_buckets)
-    )
+    allowed = effective_anchor < safe_deadline
 
     detail.update({
-        'reason': (
-            'SAFE'
-            if allowed and selected_buckets == requested_buckets
-            else 'SAFE_ADAPTIVE_TARGET'
-            if allowed
-            else 'INSUFFICIENT_SAFE_BUCKETS'
-        ),
+        'reason': 'FRIDAY_ENTRY_SAFE' if allowed else 'FRIDAY_ENTRY_AFTER_SAFE_DEADLINE',
         'anchorSignalAsOf': anchor_as_of.isoformat(),
         'effectiveAnchorAt': effective_anchor.isoformat(),
-        'availableExitBuckets': available_buckets,
-        'selectedTargetExitBuckets': selected_buckets,
-        'configuredProjectedExitAt': configured_projected_exit.isoformat(),
-        'projectedMaxHoldExitAt': selected_projected_exit.isoformat(),
         'fractionalOrderEndAt': fractional_end.isoformat(),
         'safeExitDeadlineAt': safe_deadline.isoformat(),
     })
     return allowed, detail
-
 
 def _signal_gap_minutes(position: dict, signal_as_of: datetime) -> float | None:
     raw = position.get('last_entry_signal_as_of') or position.get('entry_signal_as_of')
@@ -554,11 +542,7 @@ async def main_async() -> int:
     )
 
     exit_priority_positions = _exit_priority_positions(active_positions)
-    exit_anchor_as_of = (
-        (same_symbol_position or {}).get('entry_signal_as_of')
-        if is_add_on
-        else signal['as_of']
-    )
+    exit_anchor_as_of = signal['as_of']
     requested_target_exit_buckets = (
         int((same_symbol_position or {}).get('target_exit_buckets') or TARGET_EXIT_BUCKETS)
         if is_add_on
@@ -624,7 +608,7 @@ async def main_async() -> int:
         'targetExitBuckets': selected_target_exit_buckets,
         'exitPriorityBlocking': bool(exit_priority_positions),
         'exitPriorityPositions': _exit_priority_summary(exit_priority_positions),
-        'safeExitWindow': entry_exit_window,
+        'fridayFlatGate': entry_exit_window,
         **sizing,
     }
 
@@ -641,7 +625,7 @@ async def main_async() -> int:
         common.update({
             'executionAttempted': False,
             'wouldSubmit': False,
-            'reason': 'ENTRY_BLOCKED_UNSAFE_EXIT_WINDOW',
+            'reason': 'ENTRY_BLOCKED_FRIDAY_FLAT',
         })
         print(json.dumps(common, ensure_ascii=False, indent=2, default=str))
         return 0

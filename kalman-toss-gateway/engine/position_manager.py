@@ -17,7 +17,9 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import psycopg
 from dotenv import load_dotenv
@@ -39,6 +41,7 @@ TERMINAL_STATUSES = {
 QTY_TOLERANCE = Decimal('0.00000001')
 DEFAULT_EXIT_FILL_WAIT_SECONDS = 45.0
 DEFAULT_EXIT_POLL_SECONDS = 1.0
+NY = ZoneInfo('America/New_York')
 
 
 def _decimal(value) -> Decimal:
@@ -219,25 +222,60 @@ def _model_rotation_enabled() -> bool:
     )
 
 
-def _safe_exit_deadline_status(window_info: dict) -> tuple[bool, dict]:
-    enabled = (
-        os.environ.get('AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED', 'true').strip().lower()
+def _friday_flat_enabled() -> bool:
+    return (
+        os.environ.get('AUTO_TRADE_FRIDAY_FLAT_ENABLED', 'false')
+        .strip()
+        .lower()
         == 'true'
     )
-    raw_buffer = os.environ.get('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES', '15')
+
+
+def _friday_flat_buffer_minutes() -> int:
+    raw = os.environ.get('AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES', '15')
     try:
-        buffer_minutes = int(raw_buffer)
+        value = int(raw)
     except (TypeError, ValueError) as exc:
         raise RuntimeError(
-            'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES must be an integer'
+            'AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES must be an integer'
         ) from exc
-    if buffer_minutes < 0 or buffer_minutes > 120:
+    if value < 0 or value > 120:
         raise RuntimeError(
-            'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES must be between 0 and 120'
+            'AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES must be between 0 and 120'
         )
+    return value
 
+
+def _business_date_is_friday(value) -> bool:
+    if not value:
+        return False
+    try:
+        return datetime.fromisoformat(str(value)).date().weekday() == 4
+    except (TypeError, ValueError):
+        return False
+
+
+def _crossed_friday_since(entry_signal_as_of: str, now: datetime) -> bool:
+    entry = _parse_signal_time(entry_signal_as_of).astimezone(NY)
+    current = now.astimezone(NY)
+    cursor = entry.date()
+    while cursor <= current.date():
+        if cursor.weekday() == 4 and cursor < current.date():
+            return True
+        cursor += timedelta(days=1)
+    return False
+
+
+def _friday_flat_deadline_status(
+    window_info: dict,
+    *,
+    entry_signal_as_of: str,
+) -> tuple[bool, dict]:
+    enabled = _friday_flat_enabled()
+    buffer_minutes = _friday_flat_buffer_minutes()
     detail = {
         'enabled': enabled,
+        'policy': 'FRIDAY_FLAT_CANARY',
         'bufferMinutes': buffer_minutes,
         'due': False,
         'reason': 'DISABLED' if not enabled else 'NO_WINDOW',
@@ -250,60 +288,142 @@ def _safe_exit_deadline_status(window_info: dict) -> tuple[bool, dict]:
     except (TypeError, ValueError, AttributeError):
         now = datetime.now(timezone.utc)
 
-    candidates = []
-    active = (window_info or {}).get('activeWindow')
-    if active:
-        candidates.append(active)
-    for item in (window_info or {}).get('windows') or []:
-        if item not in candidates:
-            candidates.append(item)
+    active = (window_info or {}).get('activeWindow') or {}
+    business_date = active.get('businessDate')
+    detail['businessDate'] = business_date
 
-    parsed = []
-    for item in candidates:
-        fractional_text = (item or {}).get('fractionalOrderEndTime')
+    if active and _business_date_is_friday(business_date):
+        fractional_text = active.get('fractionalOrderEndTime')
         if not fractional_text:
-            continue
+            detail['reason'] = 'NO_FRACTIONAL_END'
+            return False, detail
+        fractional_end = _parse_signal_time(fractional_text)
+        safe_deadline = fractional_end - timedelta(minutes=buffer_minutes)
+        due = now >= safe_deadline
+        detail.update({
+            'due': due,
+            'reason': 'FRIDAY_FLAT_DEADLINE_REACHED' if due else 'FRIDAY_FLAT_DEADLINE_NOT_REACHED',
+            'nowAt': now.isoformat(),
+            'safeExitDeadlineAt': safe_deadline.isoformat(),
+            'fractionalOrderEndAt': fractional_end.isoformat(),
+        })
+        return due, detail
+
+    # If the active fractional window has just closed, activeWindow becomes
+    # null, but the market calendar still carries previous/today/next windows.
+    # Reconstruct the Friday deadline from those windows before falling back
+    # to the cross-week recovery rule.
+    friday_windows = [
+        item for item in ((window_info or {}).get('windows') or [])
+        if _business_date_is_friday((item or {}).get('businessDate'))
+        and (item or {}).get('fractionalOrderEndTime')
+    ]
+    elapsed_fridays = []
+    for item in friday_windows:
         try:
-            fractional_end = _parse_signal_time(fractional_text)
+            fractional_end = _parse_signal_time(item['fractionalOrderEndTime'])
         except (TypeError, ValueError, AttributeError):
             continue
         safe_deadline = fractional_end - timedelta(minutes=buffer_minutes)
-        parsed.append((safe_deadline, fractional_end, item))
-
-    if not parsed:
-        return False, detail
-
-    # Prefer the current active window. Outside an active fractional window,
-    # any already-missed safe deadline makes an overnight/carry position due
-    # for the next available risk-reducing exit.
-    if active:
-        chosen = next(
-            (
-                row for row in parsed
-                if row[2].get('fractionalOrderEndTime')
-                == active.get('fractionalOrderEndTime')
-            ),
-            parsed[-1],
+        if safe_deadline <= now:
+            elapsed_fridays.append((safe_deadline, fractional_end, item))
+    if elapsed_fridays:
+        safe_deadline, fractional_end, item = max(
+            elapsed_fridays,
+            key=lambda row: row[0],
         )
-    else:
-        elapsed = [row for row in parsed if row[0] <= now]
-        if not elapsed:
-            detail['reason'] = 'SAFE_DEADLINE_NOT_REACHED'
-            return False, detail
-        chosen = max(elapsed, key=lambda row: row[0])
+        if _parse_signal_time(entry_signal_as_of) <= safe_deadline:
+            detail.update({
+                'due': True,
+                'reason': 'MISSED_FRIDAY_FLAT_DEADLINE',
+                'businessDate': item.get('businessDate'),
+                'nowAt': now.isoformat(),
+                'safeExitDeadlineAt': safe_deadline.isoformat(),
+                'fractionalOrderEndAt': fractional_end.isoformat(),
+            })
+            return True, detail
 
-    safe_deadline, fractional_end, item = chosen
-    due = now >= safe_deadline
-    detail.update({
-        'due': due,
-        'reason': 'SAFE_EXIT_DEADLINE_REACHED' if due else 'SAFE_DEADLINE_NOT_REACHED',
-        'nowAt': now.isoformat(),
-        'businessDate': item.get('businessDate'),
-        'safeExitDeadlineAt': safe_deadline.isoformat(),
-        'fractionalOrderEndAt': fractional_end.isoformat(),
-    })
-    return due, detail
+    # Fail-safe recovery: if a position survives across a Friday because the
+    # watcher/server was unavailable at the deadline, it is an overdue Friday
+    # flat obligation and must exit at the next executable window.
+    if _crossed_friday_since(entry_signal_as_of, now):
+        detail.update({
+            'due': True,
+            'reason': 'MISSED_FRIDAY_FLAT_DEADLINE',
+            'nowAt': now.isoformat(),
+        })
+        return True, detail
 
+    detail['reason'] = 'NON_FRIDAY_CARRY_ALLOWED'
+    return False, detail
+
+
+def _friday_flat_shadow_path(settings: Settings) -> Path:
+    raw = os.environ.get('AUTO_TRADE_FRIDAY_FLAT_SHADOW_PATH', '').strip()
+    if raw:
+        return Path(raw)
+    return Path(settings.state_db_path).with_name('friday-flat-shadow.json')
+
+
+def _record_friday_flat_shadow_seed(
+    settings: Settings,
+    position: dict,
+    *,
+    last_price: Decimal,
+    price_return: Decimal,
+    detail: dict,
+) -> None:
+    path = _friday_flat_shadow_path(settings)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        'schema': 'kalman-friday-flat-shadow-v1',
+        'records': {},
+    }
+    if path.is_file():
+        try:
+            existing = json.loads(path.read_text(encoding='utf-8'))
+            if isinstance(existing, dict):
+                payload.update(existing)
+                if not isinstance(payload.get('records'), dict):
+                    payload['records'] = {}
+        except Exception:
+            # Do not block a risk-reducing live exit because a research-only
+            # shadow file is malformed. Start a clean state file instead.
+            payload = {
+                'schema': 'kalman-friday-flat-shadow-v1',
+                'records': {},
+            }
+
+    position_id = str(position.get('position_id') or '')
+    if not position_id or position_id in payload['records']:
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
+    payload['records'][position_id] = {
+        'status': 'PENDING_REPLAY',
+        'baselinePolicy': 'CARRY_ALL_FIXED4',
+        'positionId': position_id,
+        'symbol': position.get('symbol'),
+        'strategyVersion': position.get('strategy_version'),
+        'entrySignalAsOf': position.get('entry_signal_as_of'),
+        'targetExitBuckets': int(position.get('target_exit_buckets') or 4),
+        'quantity': str(position.get('remaining_quantity') or '0'),
+        'entryAveragePrice': str(position.get('entry_avg_fill_price') or ''),
+        'fridayExitDecisionPrice': str(last_price),
+        'fridayExitDecisionReturn': str(price_return),
+        'fridayExitDecisionAt': now,
+        'fridayFlatDeadline': detail,
+        'createdAt': now,
+        'updatedAt': now,
+    }
+
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + '\n',
+        encoding='utf-8',
+    )
+    tmp.replace(path)
 
 def _profit_flip_config() -> tuple[bool, Decimal, Decimal, Decimal, int]:
     enabled = (
@@ -344,7 +464,7 @@ def _choose_exit_reason(
     elapsed_buckets: int,
     target_buckets: int,
     pending_exit_reason: str | None = None,
-    safe_exit_deadline_due: bool = False,
+    friday_flat_due: bool = False,
 ) -> str | None:
     if price_return <= stop_loss:
         return 'STOP_LOSS_3PCT'
@@ -352,8 +472,8 @@ def _choose_exit_reason(
         return 'TAKE_PROFIT_20PCT'
     if pending_exit_reason:
         return pending_exit_reason
-    if safe_exit_deadline_due:
-        return 'SAFE_EXIT_DEADLINE'
+    if friday_flat_due:
+        return 'FRIDAY_FLAT'
     if model_rotation:
         return 'MODEL_ROTATION'
     if elapsed_buckets >= target_buckets:
@@ -707,7 +827,10 @@ async def _manage_open_position(
         and latest['as_of'] > entry_as_of
         and latest['symbol'] != symbol.upper()
     )
-    safe_exit_deadline_due, safe_exit_deadline = _safe_exit_deadline_status(window_info)
+    friday_flat_due, friday_flat_detail = _friday_flat_deadline_status(
+        window_info,
+        entry_signal_as_of=position['entry_signal_as_of'],
+    )
 
     exit_reason = _choose_exit_reason(
         price_return=price_return,
@@ -717,7 +840,7 @@ async def _manage_open_position(
         elapsed_buckets=elapsed,
         target_buckets=target,
         pending_exit_reason=pending_exit_reason,
-        safe_exit_deadline_due=safe_exit_deadline_due,
+        friday_flat_due=friday_flat_due,
     )
 
     report = {
@@ -752,14 +875,22 @@ async def _manage_open_position(
         'peakPriceReturn': (observed_guard or position).get('peak_price_return'),
         'pendingExitReason': pending_exit_reason,
         'pendingExitSince': (observed_guard or position).get('exit_pending_since'),
-        'safeExitDeadlineDue': safe_exit_deadline_due,
-        'safeExitDeadline': safe_exit_deadline,
+        'fridayFlatDue': friday_flat_due,
+        'fridayFlat': friday_flat_detail,
         'exitReason': exit_reason,
     }
     if not exit_reason:
         return report
 
     report.update({'exitDue': True, 'usFractionalOrderWindowOpen': window_open, 'marketWindow': window_info})
+    if exit_reason == 'FRIDAY_FLAT':
+        _record_friday_flat_shadow_seed(
+            settings,
+            position,
+            last_price=last_price,
+            price_return=price_return,
+            detail=friday_flat_detail,
+        )
     if mode != 'LIVE':
         report['action'] = 'DRY_RUN_EXIT_DUE'
         return report
