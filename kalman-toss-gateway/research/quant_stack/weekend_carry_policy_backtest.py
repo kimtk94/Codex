@@ -151,7 +151,7 @@ def _max_drawdown(returns: np.ndarray) -> float:
     if len(returns) == 0:
         return 0.0
     eq = np.cumprod(1.0 + returns)
-    peak = np.maximum.accumulate(np.r_[1.0, eq])[:-1]
+    peak = np.maximum.accumulate(np.r_[1.0, eq])[1:]
     dd = eq / peak - 1.0
     return float(dd.min())
 
@@ -190,6 +190,7 @@ def _metrics(df: pd.DataFrame) -> dict:
         "overnight_exposure_trades": int(df["spans_overnight"].sum()),
         "weekend_exposure_trades": int(df["spans_weekend"].sum()),
         "zero_bar_flat_trades": int((df["selected_bar_count"] == 0).sum()),
+        "truncated_trades": int((df["selected_bar_count"] < df["full_bar_count"]).sum()),
         "mean_selected_bars": float(df["selected_bar_count"].mean()) if len(df) else None,
     }
 
@@ -241,11 +242,17 @@ def main() -> int:
                     spans_weekend = True
                     break
 
-        cost = float(trade["gross_return"]) - float(trade["net_return"])
+        baseline_gross = float(trade["gross_return"])
+        baseline_net = float(trade["net_return"])
+        cost = baseline_gross - baseline_net
         for policy in POLICIES:
             selected = _trade_path_for_policy(full, trade["entry_timestamp"], policy)
-            selected_gross = _aggregate_return(selected["gross_bar_return"], spec.method)
-            selected_net = selected_gross - cost
+            if len(selected) == len(full):
+                selected_gross = baseline_gross
+                selected_net = baseline_net
+            else:
+                selected_gross = _aggregate_return(selected["gross_bar_return"], spec.method)
+                selected_net = selected_gross - cost
             rows.append(
                 {
                     "trade_id": pos,
@@ -258,8 +265,8 @@ def main() -> int:
                     "exit_seq": int(trade["exit_seq"]),
                     "weight": float(trade["weight"]),
                     "entry_score": float(trade["entry_score"]),
-                    "baseline_gross_return": float(trade["gross_return"]),
-                    "baseline_net_return": float(trade["net_return"]),
+                    "baseline_gross_return": baseline_gross,
+                    "baseline_net_return": baseline_net,
                     "cost_proxy": cost,
                     "full_bar_count": int(len(full)),
                     "selected_bar_count": int(len(selected)),
