@@ -282,6 +282,11 @@ def main() -> int:
         raise RuntimeError("No policy replay rows created")
 
     metrics = {p: _metrics(out.loc[out["policy"] == p]) for p in POLICIES}
+    fold_rows = []
+    for (policy, fold), g in out.groupby(["policy", "fold"], sort=True):
+        fold_rows.append({"policy": policy, "fold": fold, **_metrics(g)})
+    fold_summary = pd.DataFrame(fold_rows)
+
     wide = out.pivot(index="trade_id", columns="policy", values="net_return")
     paired = {}
     for a in POLICIES:
@@ -333,7 +338,13 @@ def main() -> int:
             "CARRY_ALL": "Original FIXED_4 path; overnight and weekend gaps remain in the four canonical bars.",
         },
         "metrics": metrics,
+        "fold_summary": fold_rows,
         "paired_bootstrap": paired,
+        "interpretation_pairs": {
+            "WEEKDAY_OVERNIGHT_VALUE": "WEEKDAY_CARRY_FRIDAY_FLAT minus DAILY_FLAT",
+            "WEEKEND_CARRY_VALUE": "CARRY_ALL minus WEEKDAY_CARRY_FRIDAY_FLAT",
+            "ALL_CARRY_VALUE": "CARRY_ALL minus DAILY_FLAT",
+        },
         "weekend_only": weekend_summary,
         "limitations": [
             "Entry set, symbol choice, and position weights are held fixed to the pre-2026 FIXED_4 ledger.",
@@ -349,6 +360,7 @@ def main() -> int:
     pd.DataFrame(
         [{"policy": p, **metrics[p]} for p in POLICIES]
     ).to_csv(outdir / "weekend_carry_policy_summary.csv", index=False)
+    fold_summary.to_csv(outdir / "weekend_carry_policy_fold_summary.csv", index=False)
     (outdir / "weekend_carry_policy_decision.json").write_text(
         json.dumps(result, indent=2, ensure_ascii=False, default=str) + "\n",
         encoding="utf-8",
@@ -364,8 +376,20 @@ def main() -> int:
     print()
     print(pd.DataFrame([{"policy": p, **metrics[p]} for p in POLICIES]).to_string(index=False))
     print()
+    print("FOLD SUMMARY")
+    print(fold_summary.to_string(index=False))
+    print()
     print("WEEKEND_ONLY")
     print(json.dumps(weekend_summary, indent=2, ensure_ascii=False))
+    print()
+    print("KEY PAIRED EFFECTS")
+    for label, a, b in [
+        ("WEEKDAY_OVERNIGHT_VALUE", "WEEKDAY_CARRY_FRIDAY_FLAT", "DAILY_FLAT"),
+        ("WEEKEND_CARRY_VALUE", "CARRY_ALL", "WEEKDAY_CARRY_FRIDAY_FLAT"),
+        ("ALL_CARRY_VALUE", "CARRY_ALL", "DAILY_FLAT"),
+    ]:
+        common = wide[[a, b]].dropna()
+        print(label, json.dumps(_paired_bootstrap((common[a] - common[b]).to_numpy()), ensure_ascii=False))
     print()
     print("PAIRED")
     print(json.dumps(paired, indent=2, ensure_ascii=False))
