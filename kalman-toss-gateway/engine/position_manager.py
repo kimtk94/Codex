@@ -309,6 +309,40 @@ def _friday_flat_deadline_status(
         })
         return due, detail
 
+    # If the active fractional window has just closed, activeWindow becomes
+    # null, but the market calendar still carries previous/today/next windows.
+    # Reconstruct the Friday deadline from those windows before falling back
+    # to the cross-week recovery rule.
+    friday_windows = [
+        item for item in ((window_info or {}).get('windows') or [])
+        if _business_date_is_friday((item or {}).get('businessDate'))
+        and (item or {}).get('fractionalOrderEndTime')
+    ]
+    elapsed_fridays = []
+    for item in friday_windows:
+        try:
+            fractional_end = _parse_signal_time(item['fractionalOrderEndTime'])
+        except (TypeError, ValueError, AttributeError):
+            continue
+        safe_deadline = fractional_end - timedelta(minutes=buffer_minutes)
+        if safe_deadline <= now:
+            elapsed_fridays.append((safe_deadline, fractional_end, item))
+    if elapsed_fridays:
+        safe_deadline, fractional_end, item = max(
+            elapsed_fridays,
+            key=lambda row: row[0],
+        )
+        if _parse_signal_time(entry_signal_as_of) <= safe_deadline:
+            detail.update({
+                'due': True,
+                'reason': 'MISSED_FRIDAY_FLAT_DEADLINE',
+                'businessDate': item.get('businessDate'),
+                'nowAt': now.isoformat(),
+                'safeExitDeadlineAt': safe_deadline.isoformat(),
+                'fractionalOrderEndAt': fractional_end.isoformat(),
+            })
+            return True, detail
+
     # Fail-safe recovery: if a position survives across a Friday because the
     # watcher/server was unavailable at the deadline, it is an overdue Friday
     # flat obligation and must exit at the next executable window.
