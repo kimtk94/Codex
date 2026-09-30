@@ -31,28 +31,28 @@ class ExitWindowSafetyTests(unittest.TestCase):
             'windows': [],
         }
 
-    def test_2335_r5_entry_can_finish_before_fractional_close(self):
+    def test_friday_entry_before_deadline_keeps_four_buckets(self):
         with patch.dict(
             auto_trade.os.environ,
             {
-                'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
-                'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
-                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
+                'AUTO_TRADE_FRIDAY_FLAT_ENABLED': 'true',
+                'AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES': '15',
                 'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
             },
             clear=False,
         ):
             allowed, detail = auto_trade._entry_exit_window_check(
                 self._window(),
-                anchor_signal_as_of='2026-09-25T13:30:00+00:00',
+                anchor_signal_as_of='2026-09-25T17:30:00+00:00',
                 strategy_version='R5.1_BASE_HGB',
                 target_exit_buckets=4,
             )
 
         self.assertTrue(allowed)
-        self.assertEqual(detail['reason'], 'SAFE')
+        self.assertEqual(detail['reason'], 'FRIDAY_ENTRY_SAFE')
+        self.assertEqual(detail['selectedTargetExitBuckets'], 4)
         self.assertEqual(
-            detail['projectedMaxHoldExitAt'],
+            detail['effectiveAnchorAt'],
             '2026-09-25T18:30:00+00:00',
         )
         self.assertEqual(
@@ -60,100 +60,71 @@ class ExitWindowSafetyTests(unittest.TestCase):
             '2026-09-26T03:45:00+09:00',
         )
 
-    def test_0035_r5_initial_entry_adapts_to_three_buckets(self):
+    def test_friday_entry_after_deadline_is_blocked(self):
         with patch.dict(
             auto_trade.os.environ,
             {
-                'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
-                'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
-                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
+                'AUTO_TRADE_FRIDAY_FLAT_ENABLED': 'true',
+                'AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES': '15',
                 'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
             },
             clear=False,
         ):
             allowed, detail = auto_trade._entry_exit_window_check(
                 self._window(),
-                anchor_signal_as_of='2026-09-25T14:30:00+00:00',
-                strategy_version='R5.1_BASE_HGB',
-                target_exit_buckets=4,
-            )
-
-        self.assertTrue(allowed)
-        self.assertEqual(detail['reason'], 'SAFE_ADAPTIVE_TARGET')
-        self.assertEqual(detail['availableExitBuckets'], 3)
-        self.assertEqual(detail['selectedTargetExitBuckets'], 3)
-        self.assertEqual(
-            detail['projectedMaxHoldExitAt'],
-            '2026-09-25T18:30:00+00:00',
-        )
-
-    def test_0135_r5_initial_entry_adapts_to_two_buckets(self):
-        with patch.dict(
-            auto_trade.os.environ,
-            {
-                'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
-                'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
-                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
-                'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
-            },
-            clear=False,
-        ):
-            allowed, detail = auto_trade._entry_exit_window_check(
-                self._window(),
-                anchor_signal_as_of='2026-09-25T15:30:00+00:00',
-                strategy_version='R5.1_BASE_HGB',
-                target_exit_buckets=4,
-            )
-
-        self.assertTrue(allowed)
-        self.assertEqual(detail['reason'], 'SAFE_ADAPTIVE_TARGET')
-        self.assertEqual(detail['availableExitBuckets'], 2)
-        self.assertEqual(detail['selectedTargetExitBuckets'], 2)
-
-    def test_0235_r5_initial_entry_is_blocked_below_two_buckets(self):
-        with patch.dict(
-            auto_trade.os.environ,
-            {
-                'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
-                'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
-                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
-                'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
-            },
-            clear=False,
-        ):
-            allowed, detail = auto_trade._entry_exit_window_check(
-                self._window(),
-                anchor_signal_as_of='2026-09-25T16:30:00+00:00',
+                anchor_signal_as_of='2026-09-25T18:30:00+00:00',
                 strategy_version='R5.1_BASE_HGB',
                 target_exit_buckets=4,
             )
 
         self.assertFalse(allowed)
-        self.assertEqual(detail['reason'], 'INSUFFICIENT_SAFE_BUCKETS')
-        self.assertEqual(detail['availableExitBuckets'], 1)
-        self.assertEqual(detail['selectedTargetExitBuckets'], 1)
+        self.assertEqual(detail['reason'], 'FRIDAY_ENTRY_AFTER_SAFE_DEADLINE')
+        self.assertEqual(detail['selectedTargetExitBuckets'], 4)
 
-    def test_min_exit_buckets_is_validated(self):
-        with patch.dict(
-            auto_trade.os.environ,
-            {'AUTO_TRADE_MIN_EXIT_BUCKETS': '0'},
-            clear=False,
-        ):
-            with self.assertRaisesRegex(RuntimeError, 'between 1 and 24'):
-                auto_trade._min_exit_buckets()
-
-    def test_add_on_can_use_original_position_exit_clock(self):
+    def test_non_friday_keeps_fixed4_carry(self):
+        window = self._window()
+        window['activeWindow'] = dict(window['activeWindow'])
+        window['activeWindow']['businessDate'] = '2026-09-30'
         with patch.dict(
             auto_trade.os.environ,
             {
-                'AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED': 'true',
-                'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES': '15',
-                'AUTO_TRADE_MIN_EXIT_BUCKETS': '2',
+                'AUTO_TRADE_FRIDAY_FLAT_ENABLED': 'true',
+                'AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES': '15',
                 'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
             },
             clear=False,
         ):
-            allowed, _ = auto_trade._entry_exit_window_check(
+            allowed, detail = auto_trade._entry_exit_window_check(
+                window,
+                anchor_signal_as_of='2026-09-30T18:30:00+00:00',
+                strategy_version='R5.1_BASE_HGB',
+                target_exit_buckets=4,
+            )
+
+        self.assertTrue(allowed)
+        self.assertEqual(detail['reason'], 'NON_FRIDAY_CARRY_ALLOWED')
+        self.assertEqual(detail['selectedTargetExitBuckets'], 4)
+
+    def test_friday_flat_buffer_is_validated(self):
+        with patch.dict(
+            auto_trade.os.environ,
+            {'AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES': '121'},
+            clear=False,
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'between 0 and 120'):
+                auto_trade._friday_flat_buffer_minutes()
+
+    def test_add_on_uses_original_position_clock_but_keeps_four_buckets(self):
+        with patch.dict(
+            auto_trade.os.environ,
+            {
+                'AUTO_TRADE_FRIDAY_FLAT_ENABLED': 'true',
+                'AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES': '15',
+                'AUTO_TRADE_SIGNAL_BAR_MINUTES': '60',
+            },
+            clear=False,
+        ):
+            allowed, detail = auto_trade._entry_exit_window_check(
                 self._window(),
                 anchor_signal_as_of='2026-09-25T13:30:00+00:00',
                 strategy_version='R5.1_BASE_HGB',
@@ -161,6 +132,7 @@ class ExitWindowSafetyTests(unittest.TestCase):
             )
 
         self.assertTrue(allowed)
+        self.assertEqual(detail['selectedTargetExitBuckets'], 4)
 
     def test_live_pending_exit_blocks_before_signal_lookup(self):
         with tempfile.TemporaryDirectory() as tmp:
