@@ -28,6 +28,7 @@ on:
       - "kalman-toss-gateway/scripts/run_macro_shadow_eval_v1.sh"
       - "kalman-toss-gateway/research/quant_stack/macro_shadow_eval_v1.sql"
       - "kalman-toss-gateway/research/quant_stack/weekend_carry_policy_backtest.py"
+      - "kalman-toss-gateway/research/quant_stack/weekend_carry_execution_validation.py"
       - "kalman-toss-gateway/research/quant_stack/weekend_carry_policy_backtest.py"
       - "kalman-toss-gateway/config/macro-shadow-eval-v1.json"
       - "kalman-toss-gateway/engine/macro_shadow_eval_v1.py"
