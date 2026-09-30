@@ -570,9 +570,11 @@ async def main_async() -> int:
         strategy_version=signal.get('strategy_version'),
         target_exit_buckets=requested_target_exit_buckets,
     )
-    selected_target_exit_buckets = int(
-        entry_exit_window.get('selectedTargetExitBuckets')
-        or requested_target_exit_buckets
+    selected_raw = entry_exit_window.get('selectedTargetExitBuckets')
+    selected_target_exit_buckets = (
+        requested_target_exit_buckets
+        if selected_raw is None
+        else int(selected_raw)
     )
 
     common = {
