@@ -15,7 +15,7 @@ import asyncio
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -219,6 +219,92 @@ def _model_rotation_enabled() -> bool:
     )
 
 
+def _safe_exit_deadline_status(window_info: dict) -> tuple[bool, dict]:
+    enabled = (
+        os.environ.get('AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED', 'true').strip().lower()
+        == 'true'
+    )
+    raw_buffer = os.environ.get('AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES', '15')
+    try:
+        buffer_minutes = int(raw_buffer)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES must be an integer'
+        ) from exc
+    if buffer_minutes < 0 or buffer_minutes > 120:
+        raise RuntimeError(
+            'AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES must be between 0 and 120'
+        )
+
+    detail = {
+        'enabled': enabled,
+        'bufferMinutes': buffer_minutes,
+        'due': False,
+        'reason': 'DISABLED' if not enabled else 'NO_WINDOW',
+    }
+    if not enabled:
+        return False, detail
+
+    try:
+        now = _parse_signal_time((window_info or {}).get('nowKst'))
+    except (TypeError, ValueError, AttributeError):
+        now = datetime.now(timezone.utc)
+
+    candidates = []
+    active = (window_info or {}).get('activeWindow')
+    if active:
+        candidates.append(active)
+    for item in (window_info or {}).get('windows') or []:
+        if item not in candidates:
+            candidates.append(item)
+
+    parsed = []
+    for item in candidates:
+        fractional_text = (item or {}).get('fractionalOrderEndTime')
+        if not fractional_text:
+            continue
+        try:
+            fractional_end = _parse_signal_time(fractional_text)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        safe_deadline = fractional_end - timedelta(minutes=buffer_minutes)
+        parsed.append((safe_deadline, fractional_end, item))
+
+    if not parsed:
+        return False, detail
+
+    # Prefer the current active window. Outside an active fractional window,
+    # any already-missed safe deadline makes an overnight/carry position due
+    # for the next available risk-reducing exit.
+    if active:
+        chosen = next(
+            (
+                row for row in parsed
+                if row[2].get('fractionalOrderEndTime')
+                == active.get('fractionalOrderEndTime')
+            ),
+            parsed[-1],
+        )
+    else:
+        elapsed = [row for row in parsed if row[0] <= now]
+        if not elapsed:
+            detail['reason'] = 'SAFE_DEADLINE_NOT_REACHED'
+            return False, detail
+        chosen = max(elapsed, key=lambda row: row[0])
+
+    safe_deadline, fractional_end, item = chosen
+    due = now >= safe_deadline
+    detail.update({
+        'due': due,
+        'reason': 'SAFE_EXIT_DEADLINE_REACHED' if due else 'SAFE_DEADLINE_NOT_REACHED',
+        'nowAt': now.isoformat(),
+        'businessDate': item.get('businessDate'),
+        'safeExitDeadlineAt': safe_deadline.isoformat(),
+        'fractionalOrderEndAt': fractional_end.isoformat(),
+    })
+    return due, detail
+
+
 def _profit_flip_config() -> tuple[bool, Decimal, Decimal, Decimal, int]:
     enabled = (
         os.environ.get('AUTO_TRADE_PROFIT_FLIP_GUARD_ENABLED', 'false').strip().lower()
@@ -258,6 +344,7 @@ def _choose_exit_reason(
     elapsed_buckets: int,
     target_buckets: int,
     pending_exit_reason: str | None = None,
+    safe_exit_deadline_due: bool = False,
 ) -> str | None:
     if price_return <= stop_loss:
         return 'STOP_LOSS_3PCT'
@@ -265,10 +352,12 @@ def _choose_exit_reason(
         return 'TAKE_PROFIT_20PCT'
     if pending_exit_reason:
         return pending_exit_reason
+    if safe_exit_deadline_due:
+        return 'SAFE_EXIT_DEADLINE'
     if model_rotation:
         return 'MODEL_ROTATION'
     if elapsed_buckets >= target_buckets:
-        return 'MAX_HOLD_4_BUCKETS'
+        return f'MAX_HOLD_{int(target_buckets)}_BUCKETS'
     return None
 
 
@@ -532,7 +621,16 @@ async def _wait_for_exit_terminal(
         await asyncio.sleep(min(poll_seconds, remaining))
 
 
-async def _manage_open_position(settings: Settings, store: ManagedPositionStore, client: TossClient, position: dict, mode: str) -> dict:
+async def _manage_open_position(
+    settings: Settings,
+    store: ManagedPositionStore,
+    client: TossClient,
+    position: dict,
+    mode: str,
+    *,
+    window_open: bool,
+    window_info: dict,
+) -> dict:
     db_url = os.environ.get('DATABASE_URL_WRITER')
     if not db_url:
         raise RuntimeError('DATABASE_URL_WRITER is missing')
@@ -609,6 +707,7 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         and latest['as_of'] > entry_as_of
         and latest['symbol'] != symbol.upper()
     )
+    safe_exit_deadline_due, safe_exit_deadline = _safe_exit_deadline_status(window_info)
 
     exit_reason = _choose_exit_reason(
         price_return=price_return,
@@ -618,6 +717,7 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         elapsed_buckets=elapsed,
         target_buckets=target,
         pending_exit_reason=pending_exit_reason,
+        safe_exit_deadline_due=safe_exit_deadline_due,
     )
 
     report = {
@@ -652,12 +752,13 @@ async def _manage_open_position(settings: Settings, store: ManagedPositionStore,
         'peakPriceReturn': (observed_guard or position).get('peak_price_return'),
         'pendingExitReason': pending_exit_reason,
         'pendingExitSince': (observed_guard or position).get('exit_pending_since'),
+        'safeExitDeadlineDue': safe_exit_deadline_due,
+        'safeExitDeadline': safe_exit_deadline,
         'exitReason': exit_reason,
     }
     if not exit_reason:
         return report
 
-    window_open, window_info = await us_fractional_order_window(client)
     report.update({'exitDue': True, 'usFractionalOrderWindowOpen': window_open, 'marketWindow': window_info})
     if mode != 'LIVE':
         report['action'] = 'DRY_RUN_EXIT_DUE'
@@ -747,6 +848,7 @@ async def main_async() -> int:
         print('NO_MANAGED_POSITION')
         return 0
 
+    window_open, window_info = await us_fractional_order_window(client)
     reports = []
     for original in positions:
         position = store.get(original['position_id']) or original
@@ -775,7 +877,15 @@ async def main_async() -> int:
             continue
 
         if state == 'OPEN':
-            open_report = await _manage_open_position(settings, store, client, position, mode)
+            open_report = await _manage_open_position(
+                settings,
+                store,
+                client,
+                position,
+                mode,
+                window_open=window_open,
+                window_info=window_info,
+            )
             reports.append(open_report)
             if mode == 'LIVE' and open_report.get('action') == 'EXIT_SUBMITTED':
                 wait_seconds, poll_seconds = _exit_wait_config()
