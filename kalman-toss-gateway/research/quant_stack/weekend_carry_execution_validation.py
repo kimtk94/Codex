@@ -54,7 +54,7 @@ def _find_root(explicit: str | None) -> Path:
 
 def _normalize_minute_frame(df: pd.DataFrame, source_file: Path, feed: str) -> pd.DataFrame:
     x = df.copy()
-    if isinstance(x.index, pd.DatetimeIndex):
+    if isinstance(x.index, (pd.DatetimeIndex, pd.MultiIndex)):
         x = x.reset_index()
 
     lower = {str(c).lower(): c for c in x.columns}
