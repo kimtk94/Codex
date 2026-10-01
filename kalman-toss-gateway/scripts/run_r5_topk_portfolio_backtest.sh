@@ -17,7 +17,7 @@ DEPS_RC=$?
 
 if [ "$DEPS_RC" -ne 0 ]; then
   echo "[INFO] Installing research dependencies to user site-packages"
-  "$PYTHON" -m pip install --user --upgrade numpy pandas pyarrow pytest
+  "$PYTHON" -m pip install --user --break-system-packages --upgrade numpy pandas pyarrow pytest
   PIP_RC=$?
   if [ "$PIP_RC" -ne 0 ]; then
     echo "[ERROR] pip install failed: rc=$PIP_RC"
