@@ -4,6 +4,8 @@ import argparse
 import json
 import math
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -22,6 +24,52 @@ PORTFOLIOS = (
     "TOP3_SCORE_PROP",
     "TOP4_EQUAL",
 )
+
+
+def _remote_spec(remote: str, relative: Path) -> str:
+    remote = remote.strip()
+    if not remote.endswith(":"):
+        remote = remote.rstrip("/") + ":"
+    return remote + relative.as_posix().lstrip("/")
+
+
+def _stage_from_rclone(
+    path: Path,
+    *,
+    cache_root: Path,
+    remote: str,
+) -> Path:
+    if path.is_file():
+        return path
+
+    try:
+        relative = path.relative_to("/mnt/gdrive")
+    except ValueError:
+        raise FileNotFoundError(path)
+
+    target = cache_root / relative
+    if target.is_file():
+        return target
+
+    if shutil.which("rclone") is None:
+        raise RuntimeError(
+            f"rclone not found and local file missing: {path}"
+        )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source = _remote_spec(remote, relative)
+
+    print(f"[RCLONE_STAGE] {source} -> {target}", flush=True)
+    proc = subprocess.run(
+        ["rclone", "copyto", source, str(target)],
+        check=False,
+        text=True,
+    )
+    if proc.returncode != 0 or not target.is_file():
+        raise FileNotFoundError(
+            f"failed to stage remote file: {source}"
+        )
+    return target
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -208,10 +256,31 @@ def _read_prices(path: Path) -> pd.DataFrame:
 
 
 class PriceLookup:
-    def __init__(self, locked_panel: Path, live_panel: Path | None = None):
+    def __init__(
+        self,
+        locked_panel: Path,
+        live_panel: Path | None = None,
+        *,
+        cache_root: Path,
+        rclone_remote: str,
+    ):
         self.locked_panel = locked_panel
         self.live_panel = live_panel
+        self.cache_root = cache_root
+        self.rclone_remote = rclone_remote
         self._cache: dict[str, pd.DataFrame] = {}
+
+    def _materialize(self, path: Path) -> Path | None:
+        if path.is_file():
+            return path
+        try:
+            return _stage_from_rclone(
+                path,
+                cache_root=self.cache_root,
+                remote=self.rclone_remote,
+            )
+        except FileNotFoundError:
+            return None
 
     def frame(self, symbol: str) -> pd.DataFrame:
         symbol = symbol.upper().replace(".", "-")
@@ -221,13 +290,15 @@ class PriceLookup:
         rows: list[pd.DataFrame] = []
 
         locked = self.locked_panel / f"{symbol}_1h_gap_aware.parquet"
-        if locked.is_file():
-            rows.append(_read_prices(locked))
+        locked_local = self._materialize(locked)
+        if locked_local is not None:
+            rows.append(_read_prices(locked_local))
 
         if self.live_panel:
             live = self.live_panel / f"{symbol}_1h_live.parquet"
-            if live.is_file():
-                rows.append(_read_prices(live))
+            live_local = self._materialize(live)
+            if live_local is not None:
+                rows.append(_read_prices(live_local))
 
         if not rows:
             out = pd.DataFrame(columns=["expected_seq", "timestamp", "close"])
@@ -806,10 +877,30 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=(
-            root
-            / "model_lab_v1/results/"
+            Path.home()
+            / ".cache/kalman-r5-topk/output/"
             "r5_1_topk_portfolio_v1"
         ),
+    )
+    parser.add_argument(
+        "--cache-root",
+        type=Path,
+        default=Path.home() / ".cache/kalman-r5-topk/data",
+    )
+    parser.add_argument(
+        "--rclone-remote",
+        default="gdrive:",
+    )
+    parser.add_argument(
+        "--upload-remote-dir",
+        default=(
+            "US_ETF/model_lab_v1/results/"
+            "r5_1_topk_portfolio_v1"
+        ),
+    )
+    parser.add_argument(
+        "--no-upload",
+        action="store_true",
     )
     parser.add_argument("--cost-bps", type=float, default=10.0)
     parser.add_argument("--start")
@@ -841,22 +932,31 @@ def main() -> int:
         )
         return 0 if discovery["matches"] else 2
 
+    ranking_path = _stage_from_rclone(
+        args.rankings,
+        cache_root=args.cache_root,
+        remote=args.rclone_remote,
+    )
+    admission_path = _stage_from_rclone(
+        args.admission_log,
+        cache_root=args.cache_root,
+        remote=args.rclone_remote,
+    )
+
     rankings = normalize_rankings(
-        _read_table(args.rankings),
+        _read_table(ranking_path),
         score_column=args.ranking_score_column,
     )
     admissions = normalize_admissions(
-        _read_table(args.admission_log),
+        _read_table(admission_path),
         candidate=args.admission_candidate,
     )
 
     prices = PriceLookup(
         args.locked_panel,
-        (
-            args.live_panel
-            if args.live_panel.is_dir()
-            else None
-        ),
+        None,
+        cache_root=args.cache_root,
+        rclone_remote=args.rclone_remote,
     )
 
     panel, rejected = build_common_trade_panel(
@@ -934,6 +1034,30 @@ def main() -> int:
         args.output_dir / "status.json",
         status,
     )
+
+    if not args.no_upload:
+        remote_dir = _remote_spec(
+            args.rclone_remote,
+            Path(args.upload_remote_dir),
+        )
+        print(
+            f"[RCLONE_UPLOAD] {args.output_dir} -> {remote_dir}",
+            flush=True,
+        )
+        proc = subprocess.run(
+            [
+                "rclone",
+                "copy",
+                str(args.output_dir),
+                remote_dir,
+            ],
+            check=False,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"result upload failed: rc={proc.returncode}"
+            )
 
     print(
         json.dumps(
