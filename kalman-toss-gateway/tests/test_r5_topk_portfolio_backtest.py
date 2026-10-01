@@ -91,7 +91,11 @@ def test_friday_flat_prevents_weekend_hold(tmp_path):
         index=False,
     )
 
-    lookup = PriceLookup(locked)
+    lookup = PriceLookup(
+        locked,
+        cache_root=tmp_path / "cache",
+        rclone_remote="gdrive:",
+    )
     got = lookup.friday_flat_exit_seq(
         "AAA",
         100,
