@@ -13,6 +13,7 @@ from research.quant_stack.r5_topk_portfolio_backtest import (
     PORTFOLIOS,
     PriceLookup,
     evaluate_portfolios,
+    normalize_admissions,
     normalize_rankings,
     portfolio_weights,
     rank_diagnostics,
@@ -184,3 +185,49 @@ def test_rank_diagnostics_reports_excess_and_correlation():
     assert float(
         rank2["mean_excess_vs_rank1"]
     ) < 0
+
+
+def test_r5c0_score_column_can_be_used_for_ranking():
+    frame = pd.DataFrame(
+        {
+            "expected_seq": [20, 20, 20, 20],
+            "symbol": ["A", "B", "C", "D"],
+            "R5C0_HGB_REFERENCE": [0.1, 0.4, 0.3, 0.2],
+        }
+    )
+
+    got = normalize_rankings(
+        frame,
+        score_column="R5C0_HGB_REFERENCE",
+    )
+
+    assert got["symbol"].tolist() == ["B", "C", "D", "A"]
+    assert got["rank"].tolist() == [1, 2, 3, 4]
+
+
+def test_admission_candidate_filters_to_frozen_r5c0():
+    frame = pd.DataFrame(
+        {
+            "expected_seq": [100, 100, 104],
+            "timestamp": pd.to_datetime(
+                [
+                    "2026-01-01T14:30:00Z",
+                    "2026-01-01T14:30:00Z",
+                    "2026-01-01T18:30:00Z",
+                ],
+                utc=True,
+            ),
+            "candidate": [
+                "R5C0_HGB_REFERENCE",
+                "R5C5_DIVERSE_ENSEMBLE",
+                "R5C0_HGB_REFERENCE",
+            ],
+        }
+    )
+
+    got = normalize_admissions(
+        frame,
+        candidate="R5C0_HGB_REFERENCE",
+    )
+
+    assert got["expected_seq"].tolist() == [100, 104]
