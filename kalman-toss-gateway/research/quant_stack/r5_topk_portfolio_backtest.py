@@ -621,72 +621,93 @@ def rank_diagnostics(
 
 def discover_ranking_files(
     root: Path,
-) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    patterns = (
-        "*score*.parquet",
-        "*candidate*.parquet",
-        "*signal*.parquet",
-        "*ranking*.parquet",
-    )
-    seen: set[Path] = set()
+) -> dict[str, list[dict[str, Any]]]:
+    matches: list[dict[str, Any]] = []
+    inspected: list[dict[str, Any]] = []
 
-    for pattern in patterns:
-        for path in root.rglob(pattern):
-            if path in seen:
-                continue
-            seen.add(path)
+    seq_names = {
+        "expected_seq",
+        "seq",
+        "bar_seq",
+        "signal_seq",
+    }
+    symbol_names = {
+        "symbol",
+        "selected_symbol",
+        "ticker",
+        "asset",
+    }
+    score_names = {
+        "score",
+        "prediction",
+        "pred",
+        "alpha_score",
+        "signal_score",
+    }
 
-            try:
-                frame = pd.read_parquet(path)
-                cols = [str(c) for c in frame.columns]
+    for path in root.rglob("*.parquet"):
+        try:
+            frame = pd.read_parquet(path)
+            cols = [str(c) for c in frame.columns]
+            lower = {c.lower() for c in cols}
 
-                seq_ok = any(
-                    c.lower()
-                    in {
-                        "expected_seq",
-                        "seq",
-                        "bar_seq",
-                        "signal_seq",
+            seq_ok = bool(lower & seq_names)
+            symbol_ok = bool(lower & symbol_names)
+            score_ok = bool(lower & score_names)
+
+            name_lower = path.name.lower()
+            r5_like = (
+                "r5" in str(path).lower()
+                or "signal" in name_lower
+                or "score" in name_lower
+                or "candidate" in name_lower
+                or "rank" in name_lower
+            )
+
+            if seq_ok and symbol_ok and score_ok:
+                matches.append(
+                    {
+                        "path": str(path),
+                        "rows": int(len(frame)),
+                        "columns": cols,
+                        "contract": {
+                            "seq": True,
+                            "symbol": True,
+                            "score": True,
+                        },
                     }
-                    for c in cols
                 )
-                symbol_ok = any(
-                    c.lower()
-                    in {
-                        "symbol",
-                        "selected_symbol",
-                        "ticker",
-                        "asset",
-                    }
-                    for c in cols
-                )
-                score_ok = any(
-                    c.lower()
-                    in {
-                        "score",
-                        "prediction",
-                        "pred",
-                        "alpha_score",
-                        "signal_score",
-                    }
-                    for c in cols
-                )
-
-                if seq_ok and symbol_ok and score_ok:
-                    out.append(
-                        {
-                            "path": str(path),
-                            "rows": int(len(frame)),
-                            "columns": cols,
-                        }
-                    )
-
-            except Exception:
                 continue
 
-    return out
+            if r5_like or sum((seq_ok, symbol_ok, score_ok)) >= 2:
+                inspected.append(
+                    {
+                        "path": str(path),
+                        "rows": int(len(frame)),
+                        "columns": cols,
+                        "contract": {
+                            "seq": seq_ok,
+                            "symbol": symbol_ok,
+                            "score": score_ok,
+                        },
+                    }
+                )
 
+        except Exception as exc:
+            inspected.append(
+                {
+                    "path": str(path),
+                    "read_error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    matches.sort(key=lambda x: x["path"])
+    inspected.sort(key=lambda x: x["path"])
+
+    return {
+        "matches": matches,
+        "inspected": inspected[:200],
+    }
 
 def _default_root() -> Path:
     return Path(
@@ -760,18 +781,19 @@ def main() -> int:
     args = parse_args()
 
     if args.discover_only:
-        matches = discover_ranking_files(args.discover_root)
+        discovery = discover_ranking_files(args.discover_root)
         print(
             json.dumps(
                 {
                     "schema_version": SCHEMA_VERSION,
-                    "matches": matches,
+                    "discover_root": str(args.discover_root),
+                    **discovery,
                 },
                 ensure_ascii=False,
                 indent=2,
             )
         )
-        return 0 if matches else 2
+        return 0 if discovery["matches"] else 2
 
     if args.rankings is None:
         raise RuntimeError(
