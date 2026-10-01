@@ -65,13 +65,25 @@ def _pick_col(
     return None
 
 
-def normalize_rankings(frame: pd.DataFrame) -> pd.DataFrame:
+def normalize_rankings(
+    frame: pd.DataFrame,
+    *,
+    score_column: str | None = None,
+) -> pd.DataFrame:
     seq_col = _pick_col(frame, ("expected_seq", "seq", "bar_seq", "signal_seq"))
     symbol_col = _pick_col(frame, ("symbol", "selected_symbol", "ticker", "asset"))
-    score_col = _pick_col(
-        frame,
-        ("score", "prediction", "pred", "alpha_score", "signal_score"),
-    )
+    if score_column is not None:
+        if score_column not in frame.columns:
+            raise ValueError(
+                f"score column not found: {score_column}; "
+                f"available={list(frame.columns)}"
+            )
+        score_col = score_column
+    else:
+        score_col = _pick_col(
+            frame,
+            ("score", "prediction", "pred", "alpha_score", "signal_score"),
+        )
     ts_col = _pick_col(
         frame,
         ("timestamp", "signal_as_of", "ts", "as_of"),
@@ -116,7 +128,24 @@ def normalize_rankings(frame: pd.DataFrame) -> pd.DataFrame:
     return z.reset_index(drop=True)
 
 
-def normalize_admissions(frame: pd.DataFrame) -> pd.DataFrame:
+def normalize_admissions(
+    frame: pd.DataFrame,
+    *,
+    candidate: str | None = None,
+) -> pd.DataFrame:
+    if candidate is not None:
+        candidate_col = _pick_col(
+            frame,
+            ("candidate", "candidate_id", "model", "strategy"),
+        )
+        frame = frame.loc[
+            frame[candidate_col].astype(str).eq(candidate)
+        ].copy()
+        if frame.empty:
+            raise ValueError(
+                f"no admission rows for candidate={candidate}"
+            )
+
     seq_col = _pick_col(frame, ("expected_seq", "seq", "bar_seq", "signal_seq"))
     ts_col = _pick_col(
         frame,
@@ -725,16 +754,33 @@ def parse_args() -> argparse.Namespace:
             "portfolio backtest"
         )
     )
-    parser.add_argument("--rankings", type=Path)
+    parser.add_argument(
+        "--rankings",
+        type=Path,
+        default=(
+            root
+            / "model_lab_v1/results/"
+            "r5_0_1_research_sandbox_all_data/"
+            "r5_0_1_scored_rows.parquet"
+        ),
+    )
+    parser.add_argument(
+        "--ranking-score-column",
+        default="R5C0_HGB_REFERENCE",
+    )
     parser.add_argument(
         "--admission-log",
         type=Path,
         default=(
             root
             / "model_lab_v1/results/"
-            "r5_1_prospective_shadow/"
-            "r5_1_trade_entry_log.parquet"
+            "r5_0_1_research_sandbox_all_data/"
+            "r5_0_1_trade_ledger.parquet"
         ),
+    )
+    parser.add_argument(
+        "--admission-candidate",
+        default="R5C0_HGB_REFERENCE",
     )
     parser.add_argument(
         "--locked-panel",
@@ -795,18 +841,13 @@ def main() -> int:
         )
         return 0 if discovery["matches"] else 2
 
-    if args.rankings is None:
-        raise RuntimeError(
-            "--rankings is required. Run first with "
-            "--discover-only to locate the full candidate "
-            "score/ranking parquet."
-        )
-
     rankings = normalize_rankings(
-        _read_table(args.rankings)
+        _read_table(args.rankings),
+        score_column=args.ranking_score_column,
     )
     admissions = normalize_admissions(
-        _read_table(args.admission_log)
+        _read_table(args.admission_log),
+        candidate=args.admission_candidate,
     )
 
     prices = PriceLookup(
@@ -872,7 +913,9 @@ def main() -> int:
         "schema_version": SCHEMA_VERSION,
         "status": "COMPLETE",
         "rankings": str(args.rankings),
+        "ranking_score_column": args.ranking_score_column,
         "admission_log": str(args.admission_log),
+        "admission_candidate": args.admission_candidate,
         "locked_panel": str(args.locked_panel),
         "live_panel": str(args.live_panel),
         "cost_bps": float(args.cost_bps),
