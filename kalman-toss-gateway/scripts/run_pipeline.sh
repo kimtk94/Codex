@@ -99,4 +99,11 @@ case "$MODE" in
 esac
 
 cd "$APP_ROOT"
-exec flock -n "$LOCK_DIR/pipeline.lock" "$PY" -m engine.pipeline_entry
+
+(
+  if ! flock -n 8; then
+    echo "[SKIP] Pipeline lock busy: $LOCK_DIR/pipeline.lock" >&2
+    exit 30
+  fi
+  exec "$PY" -m engine.pipeline_entry
+) 8>"$LOCK_DIR/pipeline.lock"
