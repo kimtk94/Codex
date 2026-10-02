@@ -32,16 +32,23 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
     policy = os.environ.get("AUTO_TRADE_SIGNAL_POLICY", "APPROVED_ONLY").strip().upper()
     strategy_version = os.environ.get("AUTO_TRADE_STRATEGY_VERSION", "").strip() or None
     require_flat = _enabled("AUTO_TRADE_REQUIRE_ACCOUNT_FLAT", "true")
+    valid_policies = {"APPROVED_ONLY", "SHADOW_CANARY", "R5_LIVE_CONDITIONAL"}
     shadow_confirmed = (
         policy != "SHADOW_CANARY"
         or os.environ.get("AUTO_TRADE_SHADOW_CONFIRM", "") == "CONFIRM_SHADOW_CANARY"
     )
+    conditional_confirmed = (
+        policy != "R5_LIVE_CONDITIONAL"
+        or os.environ.get("AUTO_TRADE_CONDITIONAL_CONFIRM", "")
+        == "CONFIRM_R5_LIVE_CONDITIONAL_20000"
+    )
 
     signal = None
     signal_error = None
-    if strategy_version and policy in {"APPROVED_ONLY", "SHADOW_CANARY"}:
+    if strategy_version and policy in valid_policies:
         try:
-            signal = load_signal("LIVE", strategy_version, policy)
+            signal_policy = "R5_LIVE_TOP1" if policy == "R5_LIVE_CONDITIONAL" else policy
+            signal = load_signal("LIVE", strategy_version, signal_policy)
         except Exception as exc:  # fail closed, but preserve diagnostics
             signal_error = f"{type(exc).__name__}: {exc}"
 
@@ -73,8 +80,9 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         "auto_trade_enabled": enabled,
         "execution_mode_live": mode == "LIVE",
         "strategy_locked": bool(strategy_version),
-        "signal_policy_valid": policy in {"APPROVED_ONLY", "SHADOW_CANARY"},
+        "signal_policy_valid": policy in valid_policies,
         "shadow_confirmed": shadow_confirmed,
+        "conditional_confirmed": conditional_confirmed,
         "live_gate_open": settings.live_gate_open,
         "eligible_signal_found": signal is not None,
         "managed_position_clear": len(active_positions) == 0,
@@ -91,6 +99,7 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         ("strategy_locked", "STRATEGY_VERSION_NOT_LOCKED"),
         ("signal_policy_valid", "SIGNAL_POLICY_INVALID"),
         ("shadow_confirmed", "SHADOW_CANARY_CONFIRMATION_MISSING"),
+        ("conditional_confirmed", "R5_CONDITIONAL_CONFIRMATION_MISSING"),
         ("live_gate_open", "LIVE_GATE_CLOSED"),
         ("eligible_signal_found", "NO_ELIGIBLE_SIGNAL"),
         ("managed_position_clear", "MANAGED_POSITION_ACTIVE"),
