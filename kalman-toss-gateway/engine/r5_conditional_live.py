@@ -107,9 +107,12 @@ def _snapshot_rank_context(snapshot: dict, signal: dict) -> tuple[float | None, 
 
 def _rank_context_from_web_snapshot(signal: dict) -> tuple[float | None, str | None, float | None]:
     configured = os.environ.get("KALMAN_WEB_SNAPSHOT_PATH", "").strip()
+    data_root = Path(os.environ.get("KALMAN_DATA_ROOT", "/mnt/gdrive/US_ETF")).expanduser()
+    drive_root = data_root.parent if data_root.name == "US_ETF" else Path("/mnt/gdrive")
     candidates = [
         Path(configured).expanduser() if configured else None,
         Path("/content/drive/MyDrive/Upbit_BTC/docs/investment_hub_web_snapshot_latest.json"),
+        drive_root / "Upbit_BTC/docs/investment_hub_web_snapshot_latest.json",
         Path("/mnt/gdrive/Upbit_BTC/docs/investment_hub_web_snapshot_latest.json"),
     ]
     seen = set()
