@@ -9,10 +9,82 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from research.quant_stack.r5_topk_portfolio_backtest import strategy_metrics
 
 
 SCHEMA_VERSION = "kalman-r5-conditional-allocation-v1"
+
+def _max_drawdown(returns: pd.Series) -> float:
+    wealth = (1.0 + returns.fillna(0.0)).cumprod()
+    if wealth.empty:
+        return float("nan")
+    drawdown = wealth / wealth.cummax() - 1.0
+    return float(drawdown.min())
+
+
+def strategy_metrics(frame: pd.DataFrame) -> dict:
+    if frame.empty:
+        return {}
+
+    returns = pd.to_numeric(frame["net_return"], errors="coerce").dropna()
+    if returns.empty:
+        return {}
+
+    total_return = float((1.0 + returns).prod() - 1.0)
+    max_drawdown = _max_drawdown(returns)
+
+    start = pd.Timestamp(frame["entry_timestamp"].min())
+    end = pd.Timestamp(frame["exit_timestamp"].max())
+    years = max(
+        (end - start).total_seconds() / (365.25 * 86400.0),
+        1.0 / 365.25,
+    )
+
+    cagr = (
+        float((1.0 + total_return) ** (1.0 / years) - 1.0)
+        if total_return > -1.0
+        else -1.0
+    )
+
+    trades_per_year = len(returns) / years
+    sd = float(returns.std(ddof=0))
+    sharpe = (
+        float(returns.mean() / sd * math.sqrt(trades_per_year))
+        if sd > 0 and trades_per_year > 0
+        else None
+    )
+
+    downside = returns.loc[returns < 0]
+    downside_sd = (
+        float(np.sqrt(np.mean(np.square(downside))))
+        if len(downside)
+        else 0.0
+    )
+    sortino = (
+        float(returns.mean() / downside_sd * math.sqrt(trades_per_year))
+        if downside_sd > 0
+        else None
+    )
+
+    return {
+        "trades": int(len(returns)),
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "total_return": total_return,
+        "cagr": cagr,
+        "max_drawdown": max_drawdown,
+        "cagr_over_abs_mdd": (
+            float(cagr / abs(max_drawdown))
+            if max_drawdown < 0
+            else None
+        ),
+        "trade_sharpe_annualized": sharpe,
+        "trade_sortino_annualized": sortino,
+        "win_rate": float((returns > 0).mean()),
+        "mean_net_return": float(returns.mean()),
+        "median_net_return": float(returns.median()),
+        "best_trade": float(returns.max()),
+        "worst_trade": float(returns.min()),
+    }
 
 STRATEGIES = (
     "TOP1_ALWAYS",
