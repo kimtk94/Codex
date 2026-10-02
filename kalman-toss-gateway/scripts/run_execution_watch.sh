@@ -37,7 +37,21 @@ cd "$APP_ROOT"
     # 2) catch up any fresh, eligible signal not yet executed;
     # 3) persist the resulting execution/position audit.
     "$PY" -m engine.position_manager
-    "$PY" -m engine.auto_trade
+
+    POLICY="$("$PY" - <<'PY'
+import os
+from dotenv import dotenv_values
+v = dotenv_values(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"))
+print((v.get("AUTO_TRADE_SIGNAL_POLICY") or "").strip().upper())
+PY
+)"
+
+    if [ "$POLICY" = "R5_LIVE_CONDITIONAL" ]; then
+      "$PY" -m engine.r5_conditional_live
+    else
+      "$PY" -m engine.auto_trade
+    fi
+
     "$PY" -m engine.trade_mirror
 
     echo "EXECUTION_WATCH_DONE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
