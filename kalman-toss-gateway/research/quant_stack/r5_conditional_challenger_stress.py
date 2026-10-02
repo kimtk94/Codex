@@ -95,11 +95,11 @@ class Prices:
         z = f.loc[f.expected_seq.between(entry_seq, fixed_exit_seq)].copy()
         if z.empty:
             return fixed_exit_seq
+        z["date_et"] = z.timestamp.dt.tz_convert(NY).dt.date
+        z["weekday_et"] = z.timestamp.dt.tz_convert(NY).dt.weekday
         fixed = z.loc[z.expected_seq.eq(fixed_exit_seq)]
         if fixed.empty:
             return fixed_exit_seq
-        z["date_et"] = z.timestamp.dt.tz_convert(NY).dt.date
-        z["weekday_et"] = z.timestamp.dt.tz_convert(NY).dt.weekday
         fixed_date = fixed.iloc[-1]["date_et"]
         fri = z.loc[(z.weekday_et == 4) & (z.date_et < fixed_date)]
         if fri.empty:
