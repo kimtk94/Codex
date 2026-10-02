@@ -100,7 +100,7 @@ class Prices:
             return fixed_exit_seq
         z["date_et"] = z.timestamp.dt.tz_convert(NY).dt.date
         z["weekday_et"] = z.timestamp.dt.tz_convert(NY).dt.weekday
-        fixed_date = fixed.iloc[-1].date_et
+        fixed_date = fixed.iloc[-1]["date_et"]
         fri = z.loc[(z.weekday_et == 4) & (z.date_et < fixed_date)]
         if fri.empty:
             return fixed_exit_seq
