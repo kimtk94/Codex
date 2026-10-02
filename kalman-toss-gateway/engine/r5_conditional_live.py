@@ -171,6 +171,12 @@ async def main_async() -> int:
         return 2
 
     rank1_score, rank2_symbol, rank2_score = _rank_context_from_same_run(signal)
+    if rank1_score is None:
+        print("CONDITIONAL_SCORE_MISSING_RANK1")
+        return 0
+    if rank1_score > confidence_threshold and (not rank2_symbol or rank2_score is None):
+        print("CONDITIONAL_SCORE_MISSING_RANK2")
+        return 0
     decision = decide(
         rank1_symbol=str(signal["symbol"]),
         rank1_score=rank1_score,
