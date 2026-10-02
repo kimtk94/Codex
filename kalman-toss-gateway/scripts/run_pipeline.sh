@@ -23,23 +23,50 @@ print(v.get('KALMAN_DATA_ROOT') or '/opt/kalman/data')
 PY
 )"
 
+gdrive_readable() {
+  mountpoint -q "$GDRIVE_MOUNT" || return 1
+  timeout 20 ls "$DATA_ROOT" >/dev/null 2>&1
+}
+
+recover_gdrive_mount() {
+  echo "[WARN] Recovering Google Drive FUSE mount: $GDRIVE_MOUNT"
+
+  systemctl stop kalman-gdrive.service >/dev/null 2>&1 || true
+
+  if mountpoint -q "$GDRIVE_MOUNT"; then
+    if command -v fusermount3 >/dev/null 2>&1; then
+      fusermount3 -uz "$GDRIVE_MOUNT" >/dev/null 2>&1 || true
+    elif command -v fusermount >/dev/null 2>&1; then
+      fusermount -uz "$GDRIVE_MOUNT" >/dev/null 2>&1 || true
+    fi
+    umount -l "$GDRIVE_MOUNT" >/dev/null 2>&1 || true
+  fi
+
+  mkdir -p "$GDRIVE_MOUNT"
+  systemctl start kalman-gdrive.service >/dev/null 2>&1 || true
+
+  for _ in $(seq 1 30); do
+    if gdrive_readable; then
+      echo "[OK] Google Drive mount recovered: $DATA_ROOT"
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
 case "$DATA_ROOT" in
   "$GDRIVE_MOUNT"|"$GDRIVE_MOUNT"/*)
-    if ! mountpoint -q "$GDRIVE_MOUNT"; then
-      echo "[WARN] Google Drive is not mounted; asking systemd to recover it"
-      systemctl start kalman-gdrive.service || true
-      for _ in $(seq 1 15); do
-        mountpoint -q "$GDRIVE_MOUNT" && break
-        sleep 1
-      done
-    fi
-    if ! mountpoint -q "$GDRIVE_MOUNT"; then
-      echo "[FAIL] Google Drive mount unavailable: $GDRIVE_MOUNT" >&2
-      exit 20
-    fi
-    if ! timeout 20 ls "$DATA_ROOT" >/dev/null; then
-      echo "[FAIL] Google Drive mount is present but unreadable: $DATA_ROOT" >&2
-      exit 21
+    if ! gdrive_readable; then
+      recover_gdrive_mount || {
+        if mountpoint -q "$GDRIVE_MOUNT"; then
+          echo "[FAIL] Google Drive mount is present but unreadable after recovery: $DATA_ROOT" >&2
+          exit 21
+        fi
+        echo "[FAIL] Google Drive mount unavailable after recovery: $GDRIVE_MOUNT" >&2
+        exit 20
+      }
     fi
     ;;
 esac
