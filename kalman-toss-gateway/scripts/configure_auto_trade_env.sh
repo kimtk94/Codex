@@ -5,7 +5,7 @@ ENV_FILE="${KALMAN_ENV_FILE:-/opt/kalman/.env}"
 PROFILE="${1:-dry-run}"
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Run with sudo: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|off]" >&2
+  echo "Run with sudo: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|live-conditional-20000|off]" >&2
   exit 1
 fi
 
@@ -240,7 +240,7 @@ case "$PROFILE" in
     ;;
   *)
     echo "Unknown profile: $PROFILE" >&2
-    echo "Usage: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|off]" >&2
+    echo "Usage: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|live-conditional-20000|off]" >&2
     exit 3
     ;;
 esac
@@ -304,7 +304,7 @@ keys = [
     'MAX_SINGLE_ORDER_KRW',
     'LIVE_TRADING_CONFIRM',
 ]
-values = {k: os.environ[f'CFG_{k}'] for k in keys}
+values = {k: os.environ.get(f'CFG_{k}', '') for k in keys}
 
 original = env_path.read_text(encoding='utf-8').splitlines()
 out: list[str] = []
