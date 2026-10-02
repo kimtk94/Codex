@@ -8,6 +8,8 @@ from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
 from engine.auto_trade import (
+    TARGET_EXIT_BUCKETS,
+    _entry_exit_window_check,
     _has_open_buy_order,
     _holding_items,
     _nonzero_holdings,
@@ -57,6 +59,15 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
 
     client = TossClient(settings)
     window_open, window_info = await us_fractional_order_window(client)
+    entry_window_ok = True
+    entry_window_detail = None
+    if signal is not None:
+        entry_window_ok, entry_window_detail = _entry_exit_window_check(
+            window_info,
+            anchor_signal_as_of=signal["as_of"],
+            strategy_version=signal.get("strategy_version"),
+            target_exit_buckets=TARGET_EXIT_BUCKETS,
+        )
     holdings_items = _holding_items(await client.holdings())
     open_order_items = _open_order_items(await client.orders("OPEN"))
     nonzero_holdings = _nonzero_holdings(holdings_items)
@@ -87,6 +98,7 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         "eligible_signal_found": signal is not None,
         "managed_position_clear": len(active_positions) == 0,
         "order_window_open": bool(window_open),
+        "entry_window_safe": bool(entry_window_ok),
         "account_flat": (account_flat if require_flat else True),
         "symbol_position_clear": position_qty <= 0,
         "open_buy_clear": not open_buy,
@@ -104,6 +116,7 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         ("eligible_signal_found", "NO_ELIGIBLE_SIGNAL"),
         ("managed_position_clear", "MANAGED_POSITION_ACTIVE"),
         ("order_window_open", "US_ORDER_WINDOW_CLOSED"),
+        ("entry_window_safe", "FRIDAY_ENTRY_WINDOW_CLOSED"),
         ("account_flat", "ACCOUNT_NOT_FLAT"),
         ("symbol_position_clear", "BROKER_POSITION_NOT_FLAT"),
         ("open_buy_clear", "OPEN_BUY_ORDER_EXISTS"),
@@ -134,6 +147,7 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         "open_buy_order_exists": open_buy,
         "us_fractional_order_window_open": bool(window_open),
         "market_window": window_info,
+        "entry_window": entry_window_detail,
         "cash_buying_power_usd": str(cash_power),
         "selected_order_usd": str(order_usd) if order_usd is not None else None,
         "sizing": sizing,
