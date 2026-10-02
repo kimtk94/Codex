@@ -138,6 +138,23 @@ function engineSignalState(){
   let snapshot=Boolean(s.snapshot_valid_now);
   return {...s,bar_start:start,bar_complete:complete,effective_age_minutes:age,effective_fresh:fresh,engine_candidate:Boolean(fresh&&shape&&snapshot)};
 }
+function conditionalExecutionHtml(){
+  let rows=liveTradingStatus()?.recentConditionalOrders||[];
+  if(!rows.length)return '<div class="note">CONDITIONAL EXECUTION · 아직 새 conditional LIVE 주문 telemetry가 없습니다.</div>';
+  let latest=rows[0],run=String(latest.runId||''),legs=rows.filter(x=>String(x.runId||'')===run).sort((a,b)=>(N(a.legIndex)||0)-(N(b.legIndex)||0));
+  let regime=String(latest.regime||'—').toUpperCase();
+  let money=x=>N(x)==null?'—':'₩'+N(x).toLocaleString('ko-KR');
+  let score=x=>N(x)==null?'—':N(x).toFixed(6);
+  let gap=N(latest.relativeGap),gth=N(latest.gapThreshold),cth=N(latest.confidenceThreshold);
+  let legText=legs.map(x=>E(x.symbol)+' '+money(x.targetLegKrw??x.estimatedNotionalKrw)).join(' + ');
+  let cash=N(latest.conditionalCashKrw);
+  let meta=[];
+  if(gap!=null)meta.push('gap '+gap.toFixed(4));
+  if(gth!=null)meta.push('gap≤'+gth.toFixed(4));
+  if(cth!=null)meta.push('conf≤'+cth.toFixed(6));
+  let status=legs.map(x=>String(x.status||'—')).join(' / ');
+  return '<div class="detail"><div class="sectiontitle"><div><b>ACTUAL CONDITIONAL DECISION · '+E(regime)+'</b><small>'+E(run||'—')+' · '+E(status)+'</small></div><span class="badge">'+E(regime)+'</span></div><div class="signalgrid"><div class="sig"><span>ALLOCATION</span><b>'+legText+(cash>0?' + CASH '+money(cash):'')+'</b></div><div class="sig"><span>RANK 1</span><b>'+E(latest.rank1Symbol||'—')+' · '+score(latest.rank1Score)+'</b></div><div class="sig"><span>RANK 2</span><b>'+E(latest.rank2Symbol||'—')+' · '+score(latest.rank2Score)+'</b></div><div class="sig"><span>GATE</span><b>'+E(meta.join(' · ')||'—')+'</b></div></div><div class="note">Signal '+E(DT(latest.signalAsOf))+' · 실제 server-side order telemetry 기준 · 화면 재계산값 아님</div></div>';
+}
 function tradeActionHtml(){
   let ledger=C?.execution_ledger||[],active=ledger.filter(x=>!['CLOSED','CANCELLED','ABORTED','FAILED'].includes(String(x.state||'').toUpperCase()));
   let pending=active.filter(x=>{let st=String(x.state||'').toUpperCase();return st.startsWith('ENTRY_')||st.startsWith('ADD_ON_')});
@@ -176,7 +193,7 @@ function tradeActionHtml(){
   let sellMeta=exitPending.length?'Exit order submitted':(open.length?'Stop -3% · Take +20% · max 4 hourly buckets':'활성 포지션 없음');
   let posRows=open.map(x=>{let st=String(x.state||'OPEN').toUpperCase(),label=st==='OPEN'?'HOLD':st.replace('_SUBMITTED','');return '<div class="positionrow"><span class="status open">'+E(label)+'</span><b>'+E(x.symbol)+'</b><span>Qty '+E(x.entry_filled_quantity||'—')+'</span><span>Avg '+E(x.entry_average_price?USD(x.entry_average_price):'—')+'</span><span>'+timePairHtml(x.entry_signal_as_of)+'</span></div>'}).join('');
   let latest=sig?('<div class="actionfoot"><span>MODEL</span><b>'+E(sig.symbol)+'</b><span>BAR START '+E(timePair(sig.bar_start))+'</span><span>COMPLETE '+E(timePair(sig.bar_complete))+'</span></div>'):'';
-  return '<section id="trade-action" class="dailybox actionbox"><div class="sectiontitle"><div><b>ACTION · BUY / SELL</b><small>실제 execution ledger 기준</small></div><span class="badge info">'+E(C?.status||'—')+'</span></div><div class="actiongrid"><div class="actioncell buy"><span>BUY</span><b>'+E(buyTitle)+'</b><small>'+E(buyMeta)+'</small>'+(buyTime?timePairHtml(buyTime,'action-clock'):'')+'</div><div class="actioncell sell"><span>SELL</span><b>'+E(sellTitle)+'</b><small>'+E(sellMeta)+'</small></div></div>'+(posRows?'<div class="positionlist"><div class="positionlabel">LIVE POSITIONS · '+open.length+'</div>'+posRows+'</div>':'')+latest+'</section>';
+  return '<section id="trade-action" class="dailybox actionbox"><div class="sectiontitle"><div><b>ACTION · BUY / SELL</b><small>실제 execution ledger 기준</small></div><span class="badge info">'+E(C?.status||'—')+'</span></div><div class="actiongrid"><div class="actioncell buy"><span>BUY</span><b>'+E(buyTitle)+'</b><small>'+E(buyMeta)+'</small>'+(buyTime?timePairHtml(buyTime,'action-clock'):'')+'</div><div class="actioncell sell"><span>SELL</span><b>'+E(sellTitle)+'</b><small>'+E(sellMeta)+'</small></div></div>'+conditionalExecutionHtml()+(posRows?'<div class="positionlist"><div class="positionlabel">LIVE POSITIONS · '+open.length+'</div>'+posRows+'</div>':'')+latest+'</section>';
 }
 function sessionStatusHtml(){
   let x=usSessionContext(),pct=Math.round(x.done/x.slots.length*100),sameSession=x.next>=x.slots[0]&&x.next<=x.slots.at(-1);
@@ -195,9 +212,13 @@ function renderLiveExecution(){
 }
 async function pollLiveExecution(){
   try{
-    let r=await fetch('/api/assets?view=control',{cache:'no-store'});
+    let [r,tr]=await Promise.all([
+      fetch('/api/assets?view=control',{cache:'no-store'}),
+      fetch('/api/account',{cache:'no-store'}).then(x=>x.ok?x.json():null).catch(()=>null)
+    ]);
     if(!r.ok)return;
     C=await r.json();
+    if(tr)T=tr;
     renderLiveExecution();
   }catch(_){}
 }
