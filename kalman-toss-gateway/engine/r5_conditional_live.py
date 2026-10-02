@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 from decimal import Decimal, ROUND_DOWN
 from types import SimpleNamespace
 
@@ -60,6 +61,77 @@ def _score_from_payload(payload):
     return score_from_payload(payload if isinstance(payload, dict) else {})
 
 
+def _snapshot_rank_context(snapshot: dict, signal: dict) -> tuple[float | None, str | None, float | None]:
+    if not isinstance(snapshot, dict):
+        return None, None, None
+    payload = snapshot.get("payload") if isinstance(snapshot.get("payload"), dict) else snapshot
+    top = payload.get("top3") if isinstance(payload, dict) else None
+    if not isinstance(top, list) or not top:
+        return None, None, None
+
+    rows = []
+    for row in top:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol") or "").upper()
+        score = _score(row.get("model_score"))
+        rank = row.get("rank")
+        try:
+            rank = int(rank)
+        except (TypeError, ValueError):
+            rank = None
+        if symbol and score is not None:
+            rows.append((rank, symbol, score))
+
+    if not rows:
+        return None, None, None
+    rows.sort(key=lambda x: (x[0] is None, x[0] if x[0] is not None else 9999))
+    rank1_symbol = str(signal.get("symbol") or "").upper()
+    first = rows[0]
+    if first[1] != rank1_symbol:
+        return None, None, None
+
+    signal_as_of = str(signal.get("as_of") or "")
+    snapshot_as_of = str(snapshot.get("data_as_of") or payload.get("data_as_of") or "")
+    if signal_as_of and snapshot_as_of:
+        try:
+            import pandas as pd
+            if pd.Timestamp(signal_as_of) != pd.Timestamp(snapshot_as_of):
+                return None, None, None
+        except Exception:
+            return None, None, None
+
+    rank2 = next((row for row in rows[1:] if row[1] != rank1_symbol), None)
+    return first[2], (rank2[1] if rank2 else None), (rank2[2] if rank2 else None)
+
+
+def _rank_context_from_web_snapshot(signal: dict) -> tuple[float | None, str | None, float | None]:
+    configured = os.environ.get("KALMAN_WEB_SNAPSHOT_PATH", "").strip()
+    candidates = [
+        Path(configured).expanduser() if configured else None,
+        Path("/content/drive/MyDrive/Upbit_BTC/docs/investment_hub_web_snapshot_latest.json"),
+        Path("/mnt/gdrive/Upbit_BTC/docs/investment_hub_web_snapshot_latest.json"),
+    ]
+    seen = set()
+    for path in candidates:
+        if path is None:
+            continue
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if not path.is_file():
+                continue
+            snapshot = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        ctx = _snapshot_rank_context(snapshot, signal)
+        if ctx[0] is not None:
+            return ctx
+    return None, None, None
+
+
 def _rank_context_from_same_run(signal: dict) -> tuple[float | None, str | None, float | None]:
     payload = signal.get("payload") if isinstance(signal.get("payload"), dict) else {}
     r1 = _score_from_payload(payload)
@@ -89,18 +161,21 @@ def _rank_context_from_same_run(signal: dict) -> tuple[float | None, str | None,
             if score is not None:
                 scored.append((str(symbol).upper(), score))
 
-    if not scored:
-        return r1, None, None
-    scored.sort(key=lambda x: x[1], reverse=True)
-    top1_symbol = str(signal["symbol"]).upper()
-    if r1 is None:
-        for symbol, score in scored:
-            if symbol == top1_symbol:
-                r1 = score
-                break
-    others = [(s, v) for s, v in scored if s != top1_symbol]
-    if others:
-        return r1, others[0][0], others[0][1]
+    if scored:
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top1_symbol = str(signal["symbol"]).upper()
+        if r1 is None:
+            for symbol, score in scored:
+                if symbol == top1_symbol:
+                    r1 = score
+                    break
+        others = [(s, v) for s, v in scored if s != top1_symbol]
+        if r1 is not None and others:
+            return r1, others[0][0], others[0][1]
+
+    snapshot_r1, snapshot_r2_symbol, snapshot_r2_score = _rank_context_from_web_snapshot(signal)
+    if snapshot_r1 is not None:
+        return snapshot_r1, snapshot_r2_symbol, snapshot_r2_score
     return r1, None, None
 
 
