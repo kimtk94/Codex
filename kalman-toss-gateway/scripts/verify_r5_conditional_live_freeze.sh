@@ -10,7 +10,7 @@ echo "===== R5.1 CONDITIONAL LIVE FREEZE VERIFY ====="
 fail=0
 
 check_file() {
-  if [ -f "$1" ]; then
+  if sudo test -f "$1"; then
     echo "[PASS] file $1"
   else
     echo "[FAIL] missing $1"
@@ -26,13 +26,13 @@ done
 echo
 echo "===== STATIC SAFETY MARKERS ====="
 
-grep -q 'CONDITIONAL_SCORE_MISSING_RANK1' "$APP_ROOT/engine/r5_conditional_live.py"   && echo "[PASS] rank1 fail-closed"   || { echo "[FAIL] rank1 fail-closed"; fail=1; }
+sudo grep -q 'CONDITIONAL_SCORE_MISSING_RANK1' "$APP_ROOT/engine/r5_conditional_live.py"   && echo "[PASS] rank1 fail-closed"   || { echo "[FAIL] rank1 fail-closed"; fail=1; }
 
-grep -q 'CONDITIONAL_SCORE_MISSING_RANK2' "$APP_ROOT/engine/r5_conditional_live.py"   && echo "[PASS] rank2 fail-closed"   || { echo "[FAIL] rank2 fail-closed"; fail=1; }
+sudo grep -q 'CONDITIONAL_SCORE_MISSING_RANK2' "$APP_ROOT/engine/r5_conditional_live.py"   && echo "[PASS] rank2 fail-closed"   || { echo "[FAIL] rank2 fail-closed"; fail=1; }
 
-grep -q 'FRIDAY_EXECUTION_AFTER_SAFE_DEADLINE' "$APP_ROOT/engine/auto_trade.py"   && echo "[PASS] Friday actual-execution gate"   || { echo "[FAIL] Friday actual-execution gate"; fail=1; }
+sudo grep -q 'FRIDAY_EXECUTION_AFTER_SAFE_DEADLINE' "$APP_ROOT/engine/auto_trade.py"   && echo "[PASS] Friday actual-execution gate"   || { echo "[FAIL] Friday actual-execution gate"; fail=1; }
 
-grep -q 'risk_manager=COMPLETED' "$APP_ROOT/scripts/run_execution_watch.sh"   && echo "[PASS] risk manager survives US-cycle contention"   || { echo "[FAIL] watcher risk phase marker"; fail=1; }
+sudo grep -q 'risk_manager=COMPLETED' "$APP_ROOT/scripts/run_execution_watch.sh"   && echo "[PASS] risk manager survives US-cycle contention"   || { echo "[FAIL] watcher risk phase marker"; fail=1; }
 
 echo
 echo "===== ENV CONTRACT ====="
@@ -50,14 +50,27 @@ expected = {
     "AUTO_TRADE_EXECUTION_MODE": "LIVE",
     "AUTO_TRADE_ORDER_KRW": "20000",
     "AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL": "1",
-    "AUTO_TRADE_CONDITIONAL_GAP_THRESHOLD": "0.08156846590660159",
-    "AUTO_TRADE_CONDITIONAL_CONFIDENCE_THRESHOLD": "0.00041106678948450823",
+}
+numeric_expected = {
+    "AUTO_TRADE_CONDITIONAL_GAP_THRESHOLD": 0.08156846590660159,
+    "AUTO_TRADE_CONDITIONAL_CONFIDENCE_THRESHOLD": 0.00041106678948450823,
 }
 
 bad = False
 for key, want in expected.items():
     got = str(v.get(key) or "")
     ok = got == want
+    print(("[PASS]" if ok else "[FAIL]"), key, "=", got, "expected", want)
+    bad = bad or not ok
+
+for key, want in numeric_expected.items():
+    raw = str(v.get(key) or "")
+    try:
+        got = float(raw)
+        ok = abs(got - want) <= max(1e-15, abs(want) * 1e-12)
+    except ValueError:
+        got = raw
+        ok = False
     print(("[PASS]" if ok else "[FAIL]"), key, "=", got, "expected", want)
     bad = bad or not ok
 
