@@ -218,12 +218,23 @@ def _entry_exit_window_check(
     effective_anchor = _effective_signal_as_of(anchor_as_of, strategy_version)
     fractional_end = _as_aware_datetime(fractional_end_text)
     safe_deadline = fractional_end - timedelta(minutes=buffer_minutes)
-    allowed = effective_anchor < safe_deadline
+    now_utc = datetime.now(timezone.utc)
+    signal_safe = effective_anchor < safe_deadline
+    execution_safe = now_utc < safe_deadline
+    allowed = signal_safe and execution_safe
+
+    if not signal_safe:
+        reason = 'FRIDAY_ENTRY_AFTER_SAFE_DEADLINE'
+    elif not execution_safe:
+        reason = 'FRIDAY_EXECUTION_AFTER_SAFE_DEADLINE'
+    else:
+        reason = 'FRIDAY_ENTRY_SAFE'
 
     detail.update({
-        'reason': 'FRIDAY_ENTRY_SAFE' if allowed else 'FRIDAY_ENTRY_AFTER_SAFE_DEADLINE',
+        'reason': reason,
         'anchorSignalAsOf': anchor_as_of.isoformat(),
         'effectiveAnchorAt': effective_anchor.isoformat(),
+        'executionCheckedAt': now_utc.isoformat(),
         'fractionalOrderEndAt': fractional_end.isoformat(),
         'safeExitDeadlineAt': safe_deadline.isoformat(),
     })

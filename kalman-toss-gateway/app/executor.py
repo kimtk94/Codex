@@ -153,6 +153,60 @@ class TradeLedger:
             row = conn.execute('SELECT * FROM order_guard WHERE client_order_id=?', (client_order_id,)).fetchone()
             return dict(row) if row else None
 
+    def recent_conditional_orders(self, limit: int = 12) -> list[dict]:
+        limit = max(1, min(int(limit), 50))
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """SELECT client_order_id, created_at, trade_date_kst, symbol, side,
+                          estimated_notional_krw, status, toss_order_id, telemetry_json
+                   FROM order_guard
+                   WHERE telemetry_json IS NOT NULL
+                   ORDER BY created_at DESC
+                   LIMIT ?""",
+                (limit * 4,),
+            ).fetchall()
+
+        out = []
+        for row in rows:
+            item = dict(row)
+            try:
+                telemetry = json.loads(item.pop('telemetry_json') or '{}')
+            except (TypeError, ValueError, json.JSONDecodeError):
+                telemetry = {}
+            ctx = telemetry.get('signal_context')
+            if not isinstance(ctx, dict):
+                continue
+            if str(ctx.get('signal_policy') or '').upper() != 'R5_LIVE_CONDITIONAL':
+                continue
+            out.append({
+                'clientOrderId': item.get('client_order_id'),
+                'createdAt': item.get('created_at'),
+                'tradeDateKst': item.get('trade_date_kst'),
+                'symbol': item.get('symbol'),
+                'side': item.get('side'),
+                'estimatedNotionalKrw': item.get('estimated_notional_krw'),
+                'status': item.get('status'),
+                'tossOrderId': item.get('toss_order_id'),
+                'runId': ctx.get('run_id'),
+                'signalAsOf': ctx.get('signal_as_of'),
+                'regime': ctx.get('conditional_regime'),
+                'rank1Symbol': ctx.get('rank1_symbol'),
+                'rank1Score': ctx.get('rank1_score'),
+                'rank2Symbol': ctx.get('rank2_symbol'),
+                'rank2Score': ctx.get('rank2_score'),
+                'relativeGap': ctx.get('relative_gap'),
+                'gapThreshold': ctx.get('gap_threshold'),
+                'confidenceThreshold': ctx.get('confidence_threshold'),
+                'targetLegKrw': ctx.get('target_leg_krw'),
+                'conditionalTotalKrw': ctx.get('conditional_total_krw'),
+                'conditionalCashKrw': ctx.get('conditional_cash_krw'),
+                'legIndex': ctx.get('leg_index'),
+            })
+            if len(out) >= limit:
+                break
+        return out
+
 
     def patch_telemetry(self, client_order_id: str, patch: dict) -> None:
         if not patch:
