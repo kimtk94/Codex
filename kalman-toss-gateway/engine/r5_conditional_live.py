@@ -64,46 +64,83 @@ def _score_from_payload(payload):
 def _snapshot_rank_context(snapshot: dict, signal: dict) -> tuple[float | None, str | None, float | None]:
     if not isinstance(snapshot, dict):
         return None, None, None
-    payload = snapshot.get("payload") if isinstance(snapshot.get("payload"), dict) else snapshot
-    top = payload.get("top3") if isinstance(payload, dict) else None
-    if not isinstance(top, list) or not top:
-        return None, None, None
 
-    rows = []
-    for row in top:
-        if not isinstance(row, dict):
-            continue
-        symbol = str(row.get("symbol") or "").upper()
-        score = _score(row.get("model_score"))
-        rank = row.get("rank")
-        try:
-            rank = int(rank)
-        except (TypeError, ValueError):
-            rank = None
-        if symbol and score is not None:
-            rows.append((rank, symbol, score))
-
-    if not rows:
-        return None, None, None
-    rows.sort(key=lambda x: (x[0] is None, x[0] if x[0] is not None else 9999))
     rank1_symbol = str(signal.get("symbol") or "").upper()
-    first = rows[0]
-    if first[1] != rank1_symbol:
+    if not rank1_symbol:
         return None, None, None
 
-    signal_as_of = str(signal.get("as_of") or "")
-    snapshot_as_of = str(snapshot.get("data_as_of") or payload.get("data_as_of") or "")
-    if signal_as_of and snapshot_as_of:
+    rows: list[tuple[int | None, str, float]] = []
+    snapshot_as_of = None
+
+    # API-shaped snapshot: payload.top3 + data_as_of.
+    payload = snapshot.get("payload") if isinstance(snapshot.get("payload"), dict) else None
+    top = payload.get("top3") if isinstance(payload, dict) else None
+    if isinstance(top, list) and top:
+        snapshot_as_of = snapshot.get("data_as_of") or payload.get("data_as_of")
+        for row in top:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol") or "").upper()
+            score = _score(row.get("model_score"))
+            try:
+                rank = int(row.get("rank"))
+            except (TypeError, ValueError):
+                rank = None
+            if symbol and score is not None:
+                rows.append((rank, symbol, score))
+        rows.sort(key=lambda x: (x[0] is None, x[0] if x[0] is not None else 9999))
+
+    # Server web-snapshot shape:
+    # today_selector.selected_symbol + model_universe[*].model_score.
+    if not rows:
+        selector = snapshot.get("today_selector")
+        universe = snapshot.get("model_universe")
+        if not isinstance(selector, dict) or not isinstance(universe, dict):
+            return None, None, None
+
+        selected = str(selector.get("selected_symbol") or "").upper()
+        selected_score = _score(selector.get("model_score"))
+        snapshot_as_of = snapshot.get("model_as_of_utc") or selector.get("as_of_utc")
+
+        scored: list[tuple[str, float]] = []
+        for symbol, row in universe.items():
+            if not isinstance(row, dict):
+                continue
+            score = _score(row.get("model_score"))
+            symbol = str(symbol or "").upper()
+            if symbol and score is not None:
+                scored.append((symbol, score))
+        scored.sort(key=lambda x: (-x[1], x[0]))
+
+        if not scored or selected != scored[0][0] or selected != rank1_symbol:
+            return None, None, None
+        if selected_score is not None and abs(selected_score - scored[0][1]) > 1e-15:
+            return None, None, None
+
+        rows = [(idx, symbol, score) for idx, (symbol, score) in enumerate(scored, start=1)]
+
+    if not rows or rows[0][1] != rank1_symbol:
+        return None, None, None
+
+    signal_as_of = signal.get("as_of")
+    if signal_as_of is not None and snapshot_as_of:
         try:
-            import pandas as pd
-            if pd.Timestamp(signal_as_of) != pd.Timestamp(snapshot_as_of):
+            from datetime import datetime, timezone
+            def _utc(value):
+                if isinstance(value, datetime):
+                    dt = value
+                else:
+                    dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
+            if _utc(signal_as_of) != _utc(snapshot_as_of):
                 return None, None, None
         except Exception:
             return None, None, None
 
     rank2 = next((row for row in rows[1:] if row[1] != rank1_symbol), None)
-    return first[2], (rank2[1] if rank2 else None), (rank2[2] if rank2 else None)
-
+    return rows[0][2], (rank2[1] if rank2 else None), (rank2[2] if rank2 else None)
 
 def _rank_context_from_web_snapshot(signal: dict) -> tuple[float | None, str | None, float | None]:
     configured = os.environ.get("KALMAN_WEB_SNAPSHOT_PATH", "").strip()
