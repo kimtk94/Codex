@@ -204,24 +204,61 @@ def write_stage_note(stage_dir: Path, dest: Path, drive_root: Path):
     }
 
 
-def collect_candidates(ckd_root: Path):
-    rows_by_gene = defaultdict(list)
-    interesting = []
-    for p in ckd_root.rglob("*.tsv"):
-        if not KEY_PATTERNS.search(p.name):
+def load_candidate_seed(ckd_root: Path):
+    preferred = [ckd_root / "stage2" / "stage2_candidates.tsv"]
+    preferred += sorted(ckd_root.glob("thesis_ready*/CKD_THESIS_CANDIDATE_TABLE.tsv"), reverse=True)
+    preferred += sorted(ckd_root.glob("thesis_ready*/CKD_9GENE_EVIDENCE_MATRIX.tsv"), reverse=True)
+
+    for p in preferred:
+        if not p.exists():
             continue
-        data = read_dict_rows(p)
+        data = read_dict_rows(p, max_rows=5000)
         if not data:
             continue
         gene_col = find_gene_column(data[0])
         if not gene_col:
             continue
-        interesting.append(p)
+        genes = []
+        seen = set()
         for row in data:
             gene = str(row.get(gene_col) or "").strip()
-            if not gene or len(gene) > 40:
+            if not gene or len(gene) > 40 or gene in seen:
+                continue
+            seen.add(gene)
+            genes.append(gene)
+        if genes:
+            return genes, p
+    return [], None
+
+
+def collect_candidates(ckd_root: Path, seed_genes):
+    seed = set(seed_genes)
+    rows_by_gene = defaultdict(list)
+    interesting = []
+    if not seed:
+        return rows_by_gene, interesting
+
+    for p in ckd_root.rglob("*.tsv"):
+        if not KEY_PATTERNS.search(p.name):
+            continue
+        data = read_dict_rows(p, max_rows=5000)
+        if not data:
+            continue
+        gene_col = find_gene_column(data[0])
+        if not gene_col:
+            continue
+        matched = False
+        for row in data:
+            gene = str(row.get(gene_col) or "").strip()
+            if gene not in seed:
                 continue
             rows_by_gene[gene].append((p, row))
+            matched = True
+        if matched:
+            interesting.append(p)
+
+    for gene in seed_genes:
+        rows_by_gene.setdefault(gene, [])
     return rows_by_gene, interesting
 
 
@@ -277,7 +314,14 @@ def build(drive_root: Path, vault: Path):
         result = write_stage_note(stage_dir, stages_out / f"{safe(stage_dir.name)}.md", drive_root)
         stages.append(result)
 
-    rows_by_gene, source_tables = collect_candidates(ckd_root)
+    seed_genes, seed_source = load_candidate_seed(ckd_root)
+    if not seed_genes:
+        raise SystemExit(
+            "No CKD candidate seed found. Expected stage2/stage2_candidates.tsv "
+            "or a thesis-ready 9-gene candidate table."
+        )
+
+    rows_by_gene, source_tables = collect_candidates(ckd_root, seed_genes)
     write_candidate_notes(rows_by_gene, ckd_out / "Candidates", drive_root)
 
     generated = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -293,7 +337,15 @@ def build(drive_root: Path, vault: Path):
         "",
         f"- Drive source: `{ckd_root}`",
         f"- Stages detected: **{len(stages)}**",
-        f"- Candidate genes detected: **{len(rows_by_gene)}**",
+        f"- Candidate seed genes: **{len(seed_genes)}**",
+        f"- Evidence-linked candidate genes: **{len(rows_by_gene)}**",
+        f"- Candidate seed source: `{seed_source.relative_to(drive_root).as_posix()}`",
+        "",
+        "## Coverage",
+        "",
+        f"- Stage4 EAS: **{'detected' if any(x['stage'].startswith('stage4_eas') for x in stages) else 'not present in Drive'}**",
+        f"- KoGES: **{'detected' if any('koges' in x['stage'].lower() for x in stages) else 'not present in Drive'}**",
+        f"- Thesis-ready freeze: **{'detected' if any(x['stage'].startswith('thesis_ready') for x in stages) else 'not present in Drive'}**",
         "",
         "## Stages",
         "",
@@ -313,7 +365,7 @@ def build(drive_root: Path, vault: Path):
 
     master += ["", "## Candidate genes", ""]
     if rows_by_gene:
-        for gene in sorted(rows_by_gene):
+        for gene in seed_genes:
             master.append(f"- [[01_RESEARCH/CKD/Candidates/{safe(gene)}|{gene}]] — {len(rows_by_gene[gene])} evidence records")
     else:
         master.append("- No gene-bearing summary/evidence table detected.")
