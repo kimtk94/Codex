@@ -80,7 +80,7 @@ It generates:
         ...
         UMOD.md
 
-Stage notes inventory all result files and preview small summary/QC/evidence artifacts. Candidate notes are detected from gene-bearing summary/evidence TSVs such as coloc, SuSiE, kidney evidence and integrated evidence tables.
+Stage notes inventory all result files and preview small summary/QC/evidence artifacts. CKD candidate notes are **seeded only from `stage2/stage2_candidates.tsv`** (or, if that file is unavailable in a future freeze, an explicit thesis-ready candidate table). Coloc, SuSiE, kidney and integrated-evidence tables may add evidence only for those seeded genes. This prevents large kidney expression/eQTL tables from creating hundreds of off-target candidate nodes.
 
 ## One-cell Colab v2 flow
 
@@ -90,9 +90,10 @@ Stage notes inventory all result files and preview small summary/QC/evidence art
 4. Read CSS SQLite directly from Drive.
 5. Normalize institutions/services and regenerate `02_CSS`.
 6. Clone the public `IS_Analysis_V3` repo for research documentation snapshots.
-7. Read CKD result stages directly from Drive.
-8. Generate CKD stage/candidate notes.
-9. Update the Obsidian Vault.
+7. Read every top-level CKD result directory directly from Drive, including Stage4/KoGES/thesis-ready directories when they are synced there.
+8. Regenerate CKD stage notes and the seed-restricted candidate panel; stale candidate notes are deleted on every refresh.
+9. Write coverage warnings in `CKD_MASTER.md` when Stage4 EAS, KoGES or thesis-ready outputs are not yet present in Drive.
+10. Update the Obsidian Vault.
 
 No service-account JSON and no always-on server are required.
 
@@ -125,7 +126,8 @@ MasterOS CI checks Python syntax and regression tests for:
 - canonical Sheet state overriding misleading later SQLite events
 - institution alias normalization
 - service taxonomy behavior
-- CKD candidate-note generation
+- CKD candidate-note generation restricted to the explicit stage2 seed panel
+- stale CKD candidate pruning across refreshes
 
 ## Next extensions
 
