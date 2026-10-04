@@ -53,20 +53,49 @@ class MasterOSV2Test(unittest.TestCase):
     def test_ckd_candidate_generation(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "IS_Analysis_V3"
-            stage = root / "results" / "ckd" / "stage3b_celltype"
-            stage.mkdir(parents=True)
-            (stage / "STAGE3B_INTEGRATED_EVIDENCE.tsv").write_text(
+            stage2 = root / "results" / "ckd" / "stage2"
+            stage2.mkdir(parents=True)
+            (stage2 / "stage2_candidates.tsv").write_text(
+                "gene_symbol\tanchor_rsid\n"
+                "SDCCAG8\trs953492\n"
+                "UMOD\trs12917707\n",
+                encoding="utf-8",
+            )
+            stage3 = root / "results" / "ckd" / "stage3b_celltype"
+            stage3.mkdir(parents=True)
+            (stage3 / "STAGE3B_INTEGRATED_EVIDENCE.tsv").write_text(
                 "gene_symbol\tkidney_cell_type\tscore\n"
                 "SDCCAG8\tmacrophages\t0.98\n"
-                "UMOD\tloop_of_Henle\t0.95\n",
+                "UMOD\tloop_of_Henle\t0.95\n"
+                "OFFTARGET\tproximal_tubule\t0.99\n",
                 encoding="utf-8",
             )
             vault = Path(td) / "vault"
             research.build(root, vault)
             master = (vault / "01_RESEARCH" / "CKD" / "CKD_MASTER.md").read_text(encoding="utf-8")
-            self.assertIn("Candidate genes detected: **2**", master)
+            self.assertIn("Candidate seed genes: **2**", master)
+            self.assertIn("stage2/stage2_candidates.tsv", master)
             self.assertTrue((vault / "01_RESEARCH" / "CKD" / "Candidates" / "SDCCAG8.md").exists())
             self.assertTrue((vault / "01_RESEARCH" / "CKD" / "Candidates" / "UMOD.md").exists())
+            self.assertFalse((vault / "01_RESEARCH" / "CKD" / "Candidates" / "OFFTARGET.md").exists())
+
+    def test_ckd_refresh_prunes_stale_candidate_notes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "IS_Analysis_V3"
+            stage2 = root / "results" / "ckd" / "stage2"
+            stage2.mkdir(parents=True)
+            seed = stage2 / "stage2_candidates.tsv"
+            seed.write_text(
+                "gene_symbol\tanchor_rsid\nA\trs1\nB\trs2\n",
+                encoding="utf-8",
+            )
+            vault = Path(td) / "vault"
+            research.build(root, vault)
+            self.assertTrue((vault / "01_RESEARCH" / "CKD" / "Candidates" / "B.md").exists())
+
+            seed.write_text("gene_symbol\tanchor_rsid\nA\trs1\n", encoding="utf-8")
+            research.build(root, vault)
+            self.assertFalse((vault / "01_RESEARCH" / "CKD" / "Candidates" / "B.md").exists())
 
 
 if __name__ == "__main__":
