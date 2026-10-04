@@ -287,15 +287,79 @@ def write_candidate_notes(rows_by_gene, out_dir: Path, drive_root: Path):
 
 
 def update_research_index(research_root: Path):
-    lines = ["# Research Index", ""]
+    lines = ["# Research Index", "", "## Thesis main", ""]
+    is_master = research_root / "IS" / "IS_MASTER.md"
+    if is_master.exists():
+        lines.append("- [[01_RESEARCH/IS/IS_MASTER|IS — Thesis main]]")
+    else:
+        lines.append("- IS master not generated yet.")
+
+    lines += ["", "## Supporting research", ""]
     ckd = research_root / "CKD" / "CKD_MASTER.md"
     if ckd.exists():
-        lines.append("- [[01_RESEARCH/CKD/CKD_MASTER|CKD — Drive results]]")
+        lines.append("- [[01_RESEARCH/CKD/CKD_MASTER|CKD — Secondary core]]")
+
+    metabolic = research_root / "METABOLIC_RESILIENCE" / "METABOLIC_RESILIENCE_MASTER.md"
+    if metabolic.exists():
+        lines.append("- [[01_RESEARCH/METABOLIC_RESILIENCE/METABOLIC_RESILIENCE_MASTER|Metabolic Resilience]]")
+
+    muscle = research_root / "MUSCLE" / "MUSCLE_MASTER.md"
+    if muscle.exists():
+        lines.append("- [[01_RESEARCH/MUSCLE/MUSCLE_MASTER|Muscle / Strength Research]]")
+
     legacy = research_root / "IS_Analysis_V3"
+    legacy_notes = []
     if legacy.exists():
         for p in sorted(legacy.glob("*.md")):
+            if p.stem.upper() in {"IS_MASTER", "MUSCLE_MASTER", "METABOLIC_RESILIENCE_MASTER"}:
+                continue
+            legacy_notes.append(p)
+    if legacy_notes:
+        lines += ["", "## Repository snapshots", ""]
+        for p in legacy_notes:
             lines.append(f"- [[01_RESEARCH/IS_Analysis_V3/{p.stem}|IS_Analysis_V3 — {p.stem}]]")
-    (research_root / "RESEARCH_INDEX.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    (research_root / "RESEARCH_INDEX.md").write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+
+
+def update_home(vault: Path):
+    home = vault / "00_HOME" / "HOME.md"
+    lines = [
+        "# MasterOS",
+        "",
+        "## Research — Thesis main",
+        "",
+        "- [[01_RESEARCH/IS/IS_MASTER|Ischemic Stroke — Thesis Main]]",
+        "- [[01_RESEARCH/RESEARCH_INDEX|Research Index]]",
+        "",
+        "## Supporting research",
+        "",
+        "- [[01_RESEARCH/CKD/CKD_MASTER|CKD — Secondary Core]]",
+    ]
+    metabolic = vault / "01_RESEARCH" / "METABOLIC_RESILIENCE" / "METABOLIC_RESILIENCE_MASTER.md"
+    if metabolic.exists():
+        lines.append("- [[01_RESEARCH/METABOLIC_RESILIENCE/METABOLIC_RESILIENCE_MASTER|Metabolic Resilience]]")
+    muscle = vault / "01_RESEARCH" / "MUSCLE" / "MUSCLE_MASTER.md"
+    if muscle.exists():
+        lines.append("- [[01_RESEARCH/MUSCLE/MUSCLE_MASTER|Muscle / Strength Research]]")
+    lines += [
+        "",
+        "## CSS",
+        "",
+        "- [[00_HOME/CSS_DASHBOARD|CSS Dashboard]]",
+        "- [[00_HOME/NORMALIZATION_REPORT|CSS Normalization Report]]",
+        "- [[02_CSS/Actions/OPEN_ACTIONS|CSS Action Queue]]",
+        "",
+        "## Source of truth",
+        "",
+        "- IS thesis master: IS_Analysis_V3/docs/IS_MASTER.md",
+        "- CKD stage results: Google Drive IS_Analysis_V3/results/ckd",
+        "- CSS current state: Novogene_All_Emails canonical Sheet tabs",
+        "- CSS timeline/invoices: css_project_manager.sqlite3",
+        "- This Vault is a generated knowledge layer; source systems remain authoritative.",
+    ]
+    home.parent.mkdir(parents=True, exist_ok=True)
+    home.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
 
 
 def build(drive_root: Path, vault: Path):
@@ -376,6 +440,7 @@ def build(drive_root: Path, vault: Path):
 
     (ckd_out / "CKD_MASTER.md").write_text("\n".join(master) + "\n", encoding="utf-8")
     update_research_index(research_root)
+    update_home(vault)
 
     print(f"CKD stages generated: {len(stages)}")
     print(f"CKD candidate genes generated: {len(rows_by_gene)}")
