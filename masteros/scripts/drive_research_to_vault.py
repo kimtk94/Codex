@@ -319,7 +319,7 @@ def update_research_index(research_root: Path):
         for p in legacy_notes:
             lines.append(f"- [[01_RESEARCH/IS_Analysis_V3/{p.stem}|IS_Analysis_V3 — {p.stem}]]")
 
-    (research_root / "RESEARCH_INDEX.md").write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+    (research_root / "RESEARCH_INDEX.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def update_home(vault: Path):
@@ -359,7 +359,7 @@ def update_home(vault: Path):
         "- This Vault is a generated knowledge layer; source systems remain authoritative.",
     ]
     home.parent.mkdir(parents=True, exist_ok=True)
-    home.write_text("\\n".join(lines) + "\\n", encoding="utf-8")
+    home.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def build(drive_root: Path, vault: Path):
