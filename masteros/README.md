@@ -1,43 +1,98 @@
 # MasterOS — Obsidian-compatible Knowledge Layer
 
-MasterOS turns the existing Novogene CSS and research estate into a Markdown knowledge graph that can be opened by Obsidian.
+MasterOS turns Novogene CSS and research outputs into a Markdown knowledge graph that can be opened directly by Obsidian.
 
-## Recommended architecture: no server required
+## Default architecture: no server required
 
-The default runtime is now Google Drive + Colab.
-
-- Google Drive = source files + generated Vault
-- Colab = refresh engine
-- Obsidian = personal knowledge UI
-- GitHub = code/version control
-- Vercel = optional read-only web portal later
+- **Google Drive** = source files + generated Vault
+- **Colab** = refresh engine
+- **Obsidian** = personal knowledge UI
+- **GitHub** = code/version control
+- **Vercel** = optional read-only portal later
 - Server/SilverBullet = optional advanced mode only
 
-The canonical Drive notebook is `MasterOS_Vault/MasterOS_Colab.ipynb`.
+The recommended notebook is `MasterOS_Vault/MasterOS_Colab_v2.ipynb`.
 
 ## Source-of-truth policy
 
-- Canonical CSS current state stays in `Novogene_All_Emails`, especially `CSS Project Dashboard`, `CSS Action Center`, `CSS Customer 360`, and `WEB_EXPORT`.
-- CSS detailed history/invoice truth stays in `Novogene_CSS/state/css_project_manager.sqlite3`.
-- Research snapshots are rebuilt from the research GitHub repositories.
-- The Vault is generated and one-way in phase 1: source systems -> Vault.
-- Generated Vault fields are never automatically written back to CSS source systems.
+- CSS current state: `Novogene_All_Emails` → `CSS Project Dashboard`, `CSS Action Center`, `CSS Customer 360`, `WEB_EXPORT`
+- CSS lifecycle/invoices: `Novogene_CSS/state/css_project_manager.sqlite3`
+- CKD research results: `MyDrive/IS_Analysis_V3/results/ckd`
+- Public research documentation: GitHub `kimtk94/IS_Analysis_V3`
+- Vault: generated projection only; source systems remain authoritative
+- Phase 1 is one-way: **source systems → Vault**
 
-The latest raw `project_timeline` event is not always the canonical current project state. The Google Sheet therefore has precedence for current state, while SQLite provides detailed lifecycle history and invoices.
+## v2 normalization
 
-## One-cell Colab workflow
+`css_to_vault.py` now normalizes common account aliases before building the graph. Examples:
 
-The notebook performs:
+- `Ehwa Univ.` / `Ehwa Woman University` → `Ewha Univ.`
+- `Kyungpook Univ.` / `Kyungpook University` → `Kyungpook National Univ.`
+- `KAIST Univ.` → `KAIST`
+- `Aginglab` → `AgingLab`
+- `GNU` → `Gyeongsang National Univ.`
+- `Rokit Genoics` → `ROKIT Genomics`
+- numeric parser artifacts are recovered when the project description has a clear institution, e.g. KIOM and University of Missouri
 
-1. Mount Google Drive.
-2. Authenticate the current Colab Google account.
-3. Clone the MasterOS code.
-4. Read the canonical CSS Sheet with the signed-in Colab identity.
-5. Read `MyDrive/Novogene_CSS/state/css_project_manager.sqlite3`.
-6. Generate `MyDrive/MasterOS_Vault/02_CSS`.
-7. Clone research repositories.
-8. Generate `MyDrive/MasterOS_Vault/01_RESEARCH`.
-9. Create minimal Obsidian settings and `08_INBOX`.
+A generated `00_HOME/NORMALIZATION_REPORT.md` records every observed merge.
+
+## v2 service taxonomy
+
+Existing structured service labels are preserved. Legacy `Other` and generic `WGS` are reclassified from the project description.
+
+Key categories include:
+
+- mRNA-Seq
+- PMP / PML
+- Amplicon
+- Proteomics / Metabolomics
+- Microbial WGS
+- Human WGS
+- Plant WGS
+- Animal WGS
+- WGS - Unclassified
+- RIP-Seq / ChIP-Seq / RRBS / Hi-C
+- small RNA-Seq / lncRNA-Seq
+- EPIC Array
+- Special Shipment
+
+This avoids silently rewriting an already-correct `mRNA-Seq` project just because a mixed project description also contains another assay.
+
+## CKD Drive ingestion
+
+`drive_research_to_vault.py` reads `MyDrive/IS_Analysis_V3/results/ckd` directly. It does not require the research server.
+
+It generates:
+
+    01_RESEARCH/CKD/
+      CKD_MASTER.md
+      Stages/
+        stage1.md
+        stage2.md
+        stage2b_coloc.md
+        stage2c_susie.md
+        stage3a_kidney.md
+        stage3b_celltype.md
+        ...
+      Candidates/
+        ACP1.md
+        CPVL.md
+        ...
+        UMOD.md
+
+Stage notes inventory all result files and preview small summary/QC/evidence artifacts. Candidate notes are detected from gene-bearing summary/evidence TSVs such as coloc, SuSiE, kidney evidence and integrated evidence tables.
+
+## One-cell Colab v2 flow
+
+1. Mount Google Drive and authenticate the current Google account.
+2. Clone `kimtk94/Codex` main.
+3. Read canonical CSS Sheet.
+4. Read CSS SQLite directly from Drive.
+5. Normalize institutions/services and regenerate `02_CSS`.
+6. Clone the public `IS_Analysis_V3` repo for research documentation snapshots.
+7. Read CKD result stages directly from Drive.
+8. Generate CKD stage/candidate notes.
+9. Update the Obsidian Vault.
 
 No service-account JSON and no always-on server are required.
 
@@ -47,60 +102,35 @@ No service-account JSON and no always-on server are required.
       00_HOME/
         HOME.md
         CSS_DASHBOARD.md
+        NORMALIZATION_REPORT.md
       01_RESEARCH/
         RESEARCH_INDEX.md
-        ...
+        IS_Analysis_V3/
+        CKD/
       02_CSS/
         Institutions/
         Customers/
         Projects/
         Services/
         Actions/
-          OPEN_ACTIONS.md
-          ACT-*.md
       08_INBOX/
       .obsidian/
 
-## Current CSS adapters
-
-`fetch_css_sheet_snapshot.py` supports both:
-
-- Colab/user ADC authentication via `google.auth.default()` (recommended)
-- service-account JSON when `--credentials` is supplied (optional server mode)
-
-`css_to_vault.py` combines the canonical Sheet snapshot with `css_project_manager.sqlite3`:
-
-- current stage/progress/customer/attention <- `CSS Project Dashboard`
-- action metadata/reason/recommended action/reply drafts <- `CSS Action Center`
-- account rollup <- `CSS Customer 360`
-- executive KPIs <- `WEB_EXPORT`
-- detailed event timeline and invoices <- SQLite
-
-## Research sources
-
-The Colab notebook currently clones:
-
-- `kimtk94/IS_Analysis_V3`
-- `kimtk94/brain_research_mr_scrna_seq`
-- `kimtk94/Paper_AI_Assistant`
-
-The list is intentionally explicit and can be extended as new research repositories are added.
-
-## Obsidian
-
-Open the synced `MasterOS_Vault` folder as an Obsidian Vault. Generated CSS/research notes should be treated as read-only projections. Personal notes belong in `08_INBOX` or other user-authored folders.
+`02_CSS` is treated as fully generated and is rebuilt each refresh so stale alias/service files disappear. Personal notes should live outside generated folders, preferably `08_INBOX`.
 
 ## CI
 
-The GitHub workflow checks Python syntax and the canonical-state regression test. The regression test intentionally gives SQLite a misleading later `Data ready` event while the Sheet says `Completed`, and verifies the generated Vault keeps `Completed`.
+MasterOS CI checks Python syntax and regression tests for:
 
-## Optional advanced mode
-
-The previous Docker/SilverBullet/server files remain available for a future always-on web editor. They are not part of the default setup and are not required for normal MasterOS use.
+- canonical Sheet state overriding misleading later SQLite events
+- institution alias normalization
+- service taxonomy behavior
+- CKD candidate-note generation
 
 ## Next extensions
 
-- CKD / IS / Muscle figure and candidate-gene manifests.
-- Topic -> service -> institution -> customer relationship graph.
-- Vercel read-only executive/search portal.
-- Optional approved write-back for tasks/memos only; never free-form two-way database synchronization.
+- IS/CKD/Muscle figure manifests
+- Research topic → service → institution → customer graph edges
+- customer/research matching scores
+- optional Vercel read-only portal
+- approved task/memo write-back only, never unrestricted two-way DB synchronization
