@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 
 try:
-    from google.oauth2.service_account import Credentials
+    import google.auth
+    from google.oauth2.service_account import Credentials as ServiceAccountCredentials
     from google.auth.transport.requests import AuthorizedSession
 except ImportError as exc:
     raise SystemExit("Install dependencies first: pip install google-auth requests") from exc
@@ -20,8 +21,17 @@ RANGES = {
 }
 
 
-def main(sheet_id: str, credentials_path: Path, output: Path) -> None:
-    creds = Credentials.from_service_account_file(str(credentials_path), scopes=SCOPES)
+def load_credentials(credentials_path: str | None):
+    if credentials_path:
+        p = Path(credentials_path)
+        if p.exists():
+            return ServiceAccountCredentials.from_service_account_file(str(p), scopes=SCOPES)
+    creds, _ = google.auth.default(scopes=SCOPES)
+    return creds
+
+
+def main(sheet_id: str, output: Path, credentials_path: str | None = None) -> None:
+    creds = load_credentials(credentials_path)
     session = AuthorizedSession(creds)
     url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values:batchGet"
     params = [("ranges", r) for r in RANGES.values()]
@@ -49,10 +59,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--sheet-id", default=os.environ.get("CSS_SHEET_ID", ""))
     ap.add_argument("--credentials", default=os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", ""))
-    ap.add_argument("--output", default=os.environ.get("CSS_SHEET_SNAPSHOT", "/srv/masteros/cache/css_sheet_snapshot.json"))
+    ap.add_argument("--output", default=os.environ.get("CSS_SHEET_SNAPSHOT", "/content/css_sheet_snapshot.json"))
     a = ap.parse_args()
     if not a.sheet_id:
         raise SystemExit("CSS_SHEET_ID is required")
-    if not a.credentials:
-        raise SystemExit("GOOGLE_APPLICATION_CREDENTIALS is required")
-    main(a.sheet_id, Path(a.credentials), Path(a.output))
+    main(a.sheet_id, Path(a.output), a.credentials or None)
