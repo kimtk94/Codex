@@ -21,7 +21,19 @@ cd "$APP_ROOT"
   "$PY" -m engine.benchmark_ledger
   "$PY" -m engine.trade_mirror
 
-  "$PY" -m engine.auto_trade
+  POLICY="$("$PY" - <<'PY'
+import os
+from dotenv import dotenv_values
+v = dotenv_values(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"))
+print((v.get("AUTO_TRADE_SIGNAL_POLICY") or "").strip().upper())
+PY
+)"
+
+  if [ "$POLICY" = "R5_LIVE_CONDITIONAL" ]; then
+    "$PY" -m engine.r5_conditional_live
+  else
+    "$PY" -m engine.auto_trade
+  fi
 
   # Capture the newly reserved/submitted entry (or no-op state) immediately.
   "$PY" -m engine.trade_mirror

@@ -189,6 +189,7 @@ async def trading_status(settings: Settings = Depends(get_settings)):
         'marketWindow': window_info,
         'activeManagedPositions': store.active(),
         'recentManagedPositions': store.recent(5),
+        'recentConditionalOrders': ledger.recent_conditional_orders(12),
         'tradeExecutionFromWeb': False,
     }
 

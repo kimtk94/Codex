@@ -8,6 +8,8 @@ from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
 from engine.auto_trade import (
+    TARGET_EXIT_BUCKETS,
+    _entry_exit_window_check,
     _has_open_buy_order,
     _holding_items,
     _nonzero_holdings,
@@ -32,16 +34,23 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
     policy = os.environ.get("AUTO_TRADE_SIGNAL_POLICY", "APPROVED_ONLY").strip().upper()
     strategy_version = os.environ.get("AUTO_TRADE_STRATEGY_VERSION", "").strip() or None
     require_flat = _enabled("AUTO_TRADE_REQUIRE_ACCOUNT_FLAT", "true")
+    valid_policies = {"APPROVED_ONLY", "SHADOW_CANARY", "R5_LIVE_CONDITIONAL"}
     shadow_confirmed = (
         policy != "SHADOW_CANARY"
         or os.environ.get("AUTO_TRADE_SHADOW_CONFIRM", "") == "CONFIRM_SHADOW_CANARY"
     )
+    conditional_confirmed = (
+        policy != "R5_LIVE_CONDITIONAL"
+        or os.environ.get("AUTO_TRADE_CONDITIONAL_CONFIRM", "")
+        == "CONFIRM_R5_LIVE_CONDITIONAL_20000"
+    )
 
     signal = None
     signal_error = None
-    if strategy_version and policy in {"APPROVED_ONLY", "SHADOW_CANARY"}:
+    if strategy_version and policy in valid_policies:
         try:
-            signal = load_signal("LIVE", strategy_version, policy)
+            signal_policy = "R5_LIVE_TOP1" if policy == "R5_LIVE_CONDITIONAL" else policy
+            signal = load_signal("LIVE", strategy_version, signal_policy)
         except Exception as exc:  # fail closed, but preserve diagnostics
             signal_error = f"{type(exc).__name__}: {exc}"
 
@@ -50,6 +59,15 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
 
     client = TossClient(settings)
     window_open, window_info = await us_fractional_order_window(client)
+    entry_window_ok = True
+    entry_window_detail = None
+    if signal is not None:
+        entry_window_ok, entry_window_detail = _entry_exit_window_check(
+            window_info,
+            anchor_signal_as_of=signal["as_of"],
+            strategy_version=signal.get("strategy_version"),
+            target_exit_buckets=TARGET_EXIT_BUCKETS,
+        )
     holdings_items = _holding_items(await client.holdings())
     open_order_items = _open_order_items(await client.orders("OPEN"))
     nonzero_holdings = _nonzero_holdings(holdings_items)
@@ -73,12 +91,14 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         "auto_trade_enabled": enabled,
         "execution_mode_live": mode == "LIVE",
         "strategy_locked": bool(strategy_version),
-        "signal_policy_valid": policy in {"APPROVED_ONLY", "SHADOW_CANARY"},
+        "signal_policy_valid": policy in valid_policies,
         "shadow_confirmed": shadow_confirmed,
+        "conditional_confirmed": conditional_confirmed,
         "live_gate_open": settings.live_gate_open,
         "eligible_signal_found": signal is not None,
         "managed_position_clear": len(active_positions) == 0,
         "order_window_open": bool(window_open),
+        "entry_window_safe": bool(entry_window_ok),
         "account_flat": (account_flat if require_flat else True),
         "symbol_position_clear": position_qty <= 0,
         "open_buy_clear": not open_buy,
@@ -91,10 +111,12 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         ("strategy_locked", "STRATEGY_VERSION_NOT_LOCKED"),
         ("signal_policy_valid", "SIGNAL_POLICY_INVALID"),
         ("shadow_confirmed", "SHADOW_CANARY_CONFIRMATION_MISSING"),
+        ("conditional_confirmed", "R5_CONDITIONAL_CONFIRMATION_MISSING"),
         ("live_gate_open", "LIVE_GATE_CLOSED"),
         ("eligible_signal_found", "NO_ELIGIBLE_SIGNAL"),
         ("managed_position_clear", "MANAGED_POSITION_ACTIVE"),
         ("order_window_open", "US_ORDER_WINDOW_CLOSED"),
+        ("entry_window_safe", "FRIDAY_ENTRY_WINDOW_CLOSED"),
         ("account_flat", "ACCOUNT_NOT_FLAT"),
         ("symbol_position_clear", "BROKER_POSITION_NOT_FLAT"),
         ("open_buy_clear", "OPEN_BUY_ORDER_EXISTS"),
@@ -125,6 +147,7 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         "open_buy_order_exists": open_buy,
         "us_fractional_order_window_open": bool(window_open),
         "market_window": window_info,
+        "entry_window": entry_window_detail,
         "cash_buying_power_usd": str(cash_power),
         "selected_order_usd": str(order_usd) if order_usd is not None else None,
         "sizing": sizing,
