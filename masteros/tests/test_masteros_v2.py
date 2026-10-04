@@ -13,6 +13,10 @@ spec2 = importlib.util.spec_from_file_location("drive_research_to_vault", SCRIPT
 research = importlib.util.module_from_spec(spec2)
 spec2.loader.exec_module(research)
 
+spec3 = importlib.util.spec_from_file_location("research_to_vault", SCRIPTS / "research_to_vault.py")
+snapshots = importlib.util.module_from_spec(spec3)
+spec3.loader.exec_module(snapshots)
+
 
 class MasterOSV2Test(unittest.TestCase):
     def test_institution_aliases(self):
@@ -78,6 +82,36 @@ class MasterOSV2Test(unittest.TestCase):
             self.assertTrue((vault / "01_RESEARCH" / "CKD" / "Candidates" / "SDCCAG8.md").exists())
             self.assertTrue((vault / "01_RESEARCH" / "CKD" / "Candidates" / "UMOD.md").exists())
             self.assertFalse((vault / "01_RESEARCH" / "CKD" / "Candidates" / "OFFTARGET.md").exists())
+
+    def test_is_master_is_thesis_main_in_obsidian(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            clones = base / "clones"
+            docs = clones / "IS_Analysis_V3" / "docs"
+            docs.mkdir(parents=True)
+            (docs / "IS_MASTER.md").write_text(
+                "# IS MASTER\n\nFGF5 / ALDH2 / SH3PXD2A / COL4A2\n",
+                encoding="utf-8",
+            )
+            vault = base / "vault"
+            snapshots.main(clones, vault)
+
+            drive_root = base / "drive" / "IS_Analysis_V3"
+            stage2 = drive_root / "results" / "ckd" / "stage2"
+            stage2.mkdir(parents=True)
+            (stage2 / "stage2_candidates.tsv").write_text(
+                "gene_symbol\tanchor_rsid\nSDCCAG8\trs953492\n",
+                encoding="utf-8",
+            )
+            research.build(drive_root, vault)
+
+            self.assertTrue((vault / "01_RESEARCH" / "IS" / "IS_MASTER.md").exists())
+            index = (vault / "01_RESEARCH" / "RESEARCH_INDEX.md").read_text(encoding="utf-8")
+            home = (vault / "00_HOME" / "HOME.md").read_text(encoding="utf-8")
+            self.assertIn("## Thesis main", index)
+            self.assertLess(index.index("IS — Thesis main"), index.index("CKD — Secondary core"))
+            self.assertIn("Ischemic Stroke — Thesis Main", home)
+            self.assertIn("CKD — Secondary Core", home)
 
     def test_ckd_refresh_prunes_stale_candidate_notes(self):
         with tempfile.TemporaryDirectory() as td:
