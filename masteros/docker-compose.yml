@@ -1,0 +1,10 @@
+services:
+  silverbullet:
+    image: ghcr.io/silverbulletmd/silverbullet:latest
+    restart: unless-stopped
+    environment:
+      SB_USER: "${SB_USER}"
+    volumes:
+      - "${MASTEROS_VAULT:-/srv/masteros/vault}:/data"
+    ports:
+      - "127.0.0.1:${MASTEROS_WEB_PORT:-3000}:3000"
