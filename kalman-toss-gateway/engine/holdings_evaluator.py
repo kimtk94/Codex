@@ -22,6 +22,7 @@ from app.toss_client import TossClient
 from engine.auto_trade import _holding_items, load_signal
 from engine.r5_conditional_live import _rank_context_from_same_run
 from engine.r5_conditional_policy import decide
+from engine.position_manager import _profit_flip_config
 
 
 STRATEGY = "R5.1_BASE_HGB"
@@ -100,6 +101,66 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     os.chmod(path, 0o600)
 
 
+def _load_json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except (FileNotFoundError, PermissionError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _update_unmanaged_review_state(
+    *,
+    previous: dict[str, Any] | None,
+    pnl_rate: Decimal,
+    stop_loss: Decimal,
+    take_profit: Decimal,
+    flip_enabled: bool,
+    arm_pct: Decimal,
+    trigger_pct: Decimal,
+    recovery_pct: Decimal,
+    confirm_observations: int,
+    now: str,
+) -> dict[str, Any]:
+    previous = dict(previous or {})
+    previous_peak = _dec(previous.get("peak_pnl_rate"))
+    peak = max(previous_peak, pnl_rate) if previous_peak is not None else pnl_rate
+    armed = bool(previous.get("profit_flip_armed")) or (
+        flip_enabled and peak >= arm_pct
+    )
+
+    negative_count = int(previous.get("profit_flip_negative_count") or 0)
+    if flip_enabled and armed and pnl_rate <= trigger_pct:
+        negative_count += 1
+    else:
+        negative_count = 0
+
+    reason = None
+    if pnl_rate <= stop_loss:
+        reason = "STOP_LOSS_3PCT"
+    elif pnl_rate >= take_profit:
+        reason = "TAKE_PROFIT_20PCT"
+    elif (
+        flip_enabled
+        and armed
+        and negative_count >= int(confirm_observations)
+    ):
+        reason = "PROFIT_TO_LOSS_FLIP"
+
+    if reason == "PROFIT_TO_LOSS_FLIP" and pnl_rate > recovery_pct:
+        reason = None
+        negative_count = 0
+
+    return {
+        "peak_pnl_rate": str(peak),
+        "last_pnl_rate": str(pnl_rate),
+        "last_observed_at": now,
+        "profit_flip_armed": armed,
+        "profit_flip_negative_count": negative_count,
+        "strong_sell_review_reason": reason,
+    }
+
+
 async def evaluate_holdings() -> dict[str, Any]:
     load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=True)
     settings = Settings()
@@ -154,6 +215,26 @@ async def evaluate_holdings() -> dict[str, Any]:
 
     stop_loss = Decimal(os.environ.get("AUTO_TRADE_STOP_LOSS_PCT", "-0.03"))
     take_profit = Decimal(os.environ.get("AUTO_TRADE_TAKE_PROFIT_PCT", "0.20"))
+    (
+        flip_enabled,
+        flip_arm_pct,
+        flip_trigger_pct,
+        flip_recovery_pct,
+        flip_confirm_observations,
+    ) = _profit_flip_config()
+
+    review_state_path = Path(
+        os.environ.get(
+            "UNMANAGED_REVIEW_STATE_PATH",
+            "/opt/kalman/state/unmanaged-holdings-review-state.json",
+        )
+    )
+    persisted_review = _load_json(review_state_path)
+    unmanaged_review_states = persisted_review.get("symbols")
+    if not isinstance(unmanaged_review_states, dict):
+        unmanaged_review_states = {}
+    observed_unmanaged: set[str] = set()
+    observed_at = datetime.now(timezone.utc).isoformat()
 
     rows: list[dict[str, Any]] = []
     for holding in holdings:
@@ -176,6 +257,27 @@ async def evaluate_holdings() -> dict[str, Any]:
             take_profit=take_profit,
         )
 
+        unmanaged_review = None
+        if managed is None and pnl_rate is not None:
+            observed_unmanaged.add(symbol)
+            unmanaged_review = _update_unmanaged_review_state(
+                previous=unmanaged_review_states.get(symbol),
+                pnl_rate=pnl_rate,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+                flip_enabled=flip_enabled,
+                arm_pct=flip_arm_pct,
+                trigger_pct=flip_trigger_pct,
+                recovery_pct=flip_recovery_pct,
+                confirm_observations=flip_confirm_observations,
+                now=observed_at,
+            )
+            unmanaged_review_states[symbol] = unmanaged_review
+            strong_reason = unmanaged_review.get("strong_sell_review_reason")
+            if strong_reason:
+                action = "UNMANAGED_STRONG_SELL_REVIEW"
+                flags.append(f"STRONG_SELL_REVIEW:{strong_reason}")
+
         rows.append(
             {
                 "symbol": symbol,
@@ -195,8 +297,22 @@ async def evaluate_holdings() -> dict[str, Any]:
                 "model_score": model_score,
                 "evaluation": action,
                 "flags": flags,
+                "unmanaged_review": unmanaged_review,
             }
         )
+
+    for symbol in list(unmanaged_review_states):
+        if symbol not in observed_unmanaged:
+            unmanaged_review_states.pop(symbol, None)
+
+    _atomic_write_json(
+        review_state_path,
+        {
+            "schema_version": "kalman-unmanaged-review-state-v1",
+            "updated_at": observed_at,
+            "symbols": unmanaged_review_states,
+        },
+    )
 
     summary = {
         "holding_count": len(rows),
@@ -204,7 +320,17 @@ async def evaluate_holdings() -> dict[str, Any]:
         "unmanaged_count": sum(1 for row in rows if not row["managed"]),
         "top2_supported_count": sum(1 for row in rows if row["model_support_rank"] is not None),
         "exit_review_count": sum(
-            1 for row in rows if row["evaluation"] in {"UNMANAGED_EXIT_REVIEW", "MANAGED_EXIT_PENDING"}
+            1
+            for row in rows
+            if row["evaluation"]
+            in {
+                "UNMANAGED_EXIT_REVIEW",
+                "UNMANAGED_STRONG_SELL_REVIEW",
+                "MANAGED_EXIT_PENDING",
+            }
+        ),
+        "strong_sell_review_count": sum(
+            1 for row in rows if row["evaluation"] == "UNMANAGED_STRONG_SELL_REVIEW"
         ),
     }
 
@@ -224,8 +350,15 @@ async def evaluate_holdings() -> dict[str, Any]:
         "risk_policy": {
             "stop_loss_pct": str(stop_loss),
             "take_profit_pct": str(take_profit),
+            "profit_flip_enabled": flip_enabled,
+            "profit_flip_arm_pct": str(flip_arm_pct),
+            "profit_flip_trigger_pct": str(flip_trigger_pct),
+            "profit_flip_recovery_pct": str(flip_recovery_pct),
+            "profit_flip_confirm_observations": flip_confirm_observations,
             "managed_exit_policy_authority": "engine.position_manager",
             "unmanaged_auto_sell": False,
+            "strong_sell_review_blocks_new_buy": True,
+            "top2_exit_trigger": False,
         },
         "summary": summary,
         "holdings": rows,

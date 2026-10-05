@@ -19,9 +19,23 @@ cd "$APP_ROOT"
   # Evaluate every broker holding before a new BUY. Evaluation is read-only.
   # If it fails, keep reconciliation/audit durable but fail closed on entries.
   HOLDINGS_EVAL_OK=1
+  HOLDINGS_REVIEW_BLOCK=0
   if ! "$PY" -m engine.holdings_evaluator; then
     HOLDINGS_EVAL_OK=0
     echo "HOLDINGS_EVALUATION_FAILED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ) entry=BLOCKED"
+  else
+    STRONG_SELL_REVIEW_COUNT="$("$PY" - <<'PY'
+import json
+from pathlib import Path
+p=Path("/opt/kalman/state/holdings-evaluation-latest.json")
+j=json.loads(p.read_text(encoding="utf-8"))
+print(int((j.get("summary") or {}).get("strong_sell_review_count") or 0))
+PY
+)"
+    if [ "$STRONG_SELL_REVIEW_COUNT" -gt 0 ]; then
+      HOLDINGS_REVIEW_BLOCK=1
+      echo "HOLDINGS_STRONG_SELL_REVIEW_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ) count=$STRONG_SELL_REVIEW_COUNT entry=BLOCKED"
+    fi
   fi
 
   # Keep model benchmark and broker execution audit durable before allowing
@@ -29,7 +43,7 @@ cd "$APP_ROOT"
   "$PY" -m engine.benchmark_ledger
   "$PY" -m engine.trade_mirror
 
-  if [ "$HOLDINGS_EVAL_OK" -ne 1 ]; then
+  if [ "$HOLDINGS_EVAL_OK" -ne 1 ] || [ "$HOLDINGS_REVIEW_BLOCK" -eq 1 ]; then
     exit 0
   fi
 
