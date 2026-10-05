@@ -80,6 +80,35 @@ class TossClient:
                 except FileNotFoundError:
                     pass
 
+    def _invalidate_rejected_token(self, rejected_token: str) -> None:
+        if not rejected_token:
+            return
+
+        if self._token == rejected_token:
+            self._token = None
+            self._token_expires_at = 0.0
+
+        cache_path = self.settings.toss_token_cache_path
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = cache_path.with_suffix(cache_path.suffix + '.lock')
+        with open(lock_path, 'a+', encoding='utf-8') as lock_file:
+            os.chmod(lock_path, 0o600)
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                try:
+                    payload = json.loads(cache_path.read_text(encoding='utf-8'))
+                except (FileNotFoundError, ValueError, TypeError, json.JSONDecodeError):
+                    payload = {}
+
+                cached_token = str(payload.get('access_token') or '')
+                if cached_token == rejected_token:
+                    try:
+                        cache_path.unlink()
+                    except FileNotFoundError:
+                        pass
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
     async def _issue_token(self) -> tuple[str, float]:
         if not self.settings.toss_client_id or not self.settings.toss_client_secret:
             raise RuntimeError('Toss credentials are not configured')
@@ -130,114 +159,137 @@ class TossClient:
             headers['X-Tossinvest-Account'] = self.settings.toss_account
         return headers
 
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        account_required: bool = False,
+        timeout: float = 15.0,
+        extra_headers: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for attempt in range(2):
+                headers = await self._headers(account_required)
+                if extra_headers:
+                    headers.update(extra_headers)
+
+                response = await client.request(
+                    method,
+                    f'{BASE_URL}{path}',
+                    headers=headers,
+                    **kwargs,
+                )
+
+                if response.status_code == 401:
+                    self._capture_response_meta(response)
+                    rejected_token = headers.get('Authorization', '').removeprefix('Bearer ').strip()
+                    self._invalidate_rejected_token(rejected_token)
+                    if attempt == 0:
+                        continue
+
+                payload = self._response_json(response)
+                if attempt == 1:
+                    self.last_response_meta['auth_retry'] = True
+                return payload
+
+        raise RuntimeError('Unexpected Toss request retry state')
+
     async def accounts(self) -> Any:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(f'{BASE_URL}/api/v1/accounts', headers=await self._headers(False))
-            return self._response_json(r)
+        return await self._request('GET', '/api/v1/accounts')
 
     async def orderbook(self, symbol: str) -> Any:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f'{BASE_URL}/api/v1/orderbook',
-                params={'symbol': symbol.upper()},
-                headers=await self._headers(False),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'GET',
+            '/api/v1/orderbook',
+            params={'symbol': symbol.upper()},
+        )
 
     async def prices(self, symbols: list[str]) -> Any:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f'{BASE_URL}/api/v1/prices',
-                params={'symbols': ','.join(symbols)},
-                headers=await self._headers(False),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'GET',
+            '/api/v1/prices',
+            params={'symbols': ','.join(symbols)},
+        )
 
     async def exchange_rate(self, base: str = 'USD', quote: str = 'KRW') -> Any:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f'{BASE_URL}/api/v1/exchange-rate',
-                params={'baseCurrency': base, 'quoteCurrency': quote},
-                headers=await self._headers(False),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'GET',
+            '/api/v1/exchange-rate',
+            params={'baseCurrency': base, 'quoteCurrency': quote},
+        )
 
     async def market_calendar_us(self, date: str | None = None) -> Any:
         params = {'date': date} if date else None
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f'{BASE_URL}/api/v1/market-calendar/US',
-                params=params,
-                headers=await self._headers(False),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'GET',
+            '/api/v1/market-calendar/US',
+            params=params,
+        )
 
     async def holdings(self, symbol: str | None = None) -> Any:
         params = {'symbol': symbol.upper()} if symbol else None
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f'{BASE_URL}/api/v1/holdings',
-                params=params,
-                headers=await self._headers(True),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'GET',
+            '/api/v1/holdings',
+            account_required=True,
+            params=params,
+        )
 
     async def buying_power(self, currency: str = 'KRW') -> Any:
         currency = currency.upper()
         if currency not in {'KRW', 'USD'}:
             raise ValueError('currency must be KRW or USD')
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f'{BASE_URL}/api/v1/buying-power',
-                params={'currency': currency},
-                headers=await self._headers(True),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'GET',
+            '/api/v1/buying-power',
+            account_required=True,
+            params={'currency': currency},
+        )
 
     async def sellable_quantity(self, symbol: str) -> Any:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f'{BASE_URL}/api/v1/sellable-quantity',
-                params={'symbol': symbol.upper()},
-                headers=await self._headers(True),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'GET',
+            '/api/v1/sellable-quantity',
+            account_required=True,
+            params={'symbol': symbol.upper()},
+        )
 
     async def orders(self, status: str = 'OPEN', symbol: str | None = None) -> Any:
         params = {'status': status.upper()}
         if symbol:
             params['symbol'] = symbol.upper()
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f'{BASE_URL}/api/v1/orders',
-                params=params,
-                headers=await self._headers(True),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'GET',
+            '/api/v1/orders',
+            account_required=True,
+            params=params,
+        )
 
     async def order(self, order_id: str) -> Any:
         if not order_id:
             raise ValueError('order_id is required')
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(
-                f'{BASE_URL}/api/v1/orders/{order_id}',
-                headers=await self._headers(True),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'GET',
+            f'/api/v1/orders/{order_id}',
+            account_required=True,
+        )
 
     async def place_order(self, payload: dict[str, Any]) -> Any:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.post(
-                f'{BASE_URL}/api/v1/orders',
-                json=payload,
-                headers={**await self._headers(True), 'Content-Type': 'application/json'},
-            )
-            return self._response_json(r)
+        return await self._request(
+            'POST',
+            '/api/v1/orders',
+            account_required=True,
+            timeout=20.0,
+            extra_headers={'Content-Type': 'application/json'},
+            json=payload,
+        )
 
     async def cancel_order(self, order_id: str) -> Any:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.post(
-                f'{BASE_URL}/api/v1/orders/{order_id}/cancel',
-                headers=await self._headers(True),
-            )
-            return self._response_json(r)
+        return await self._request(
+            'POST',
+            f'/api/v1/orders/{order_id}/cancel',
+            account_required=True,
+            timeout=20.0,
+        )
