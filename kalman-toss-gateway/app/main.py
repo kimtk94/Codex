@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -159,6 +162,18 @@ async def trading_status(settings: Settings = Depends(get_settings)):
                 'marketCountry': row.get('marketCountry'),
             })
 
+    holdings_evaluation = None
+    eval_path = Path(
+        os.environ.get(
+            'HOLDINGS_EVALUATION_PATH',
+            '/opt/kalman/state/holdings-evaluation-latest.json',
+        )
+    )
+    try:
+        holdings_evaluation = json.loads(eval_path.read_text(encoding='utf-8'))
+    except (FileNotFoundError, PermissionError, ValueError, TypeError, json.JSONDecodeError):
+        holdings_evaluation = None
+
     return {
         'status': 'READY',
         'autoTradeEnabled': os.environ.get('AUTO_TRADE_ENABLED', 'false').lower() == 'true',
@@ -190,6 +205,7 @@ async def trading_status(settings: Settings = Depends(get_settings)):
         'activeManagedPositions': store.active(),
         'recentManagedPositions': store.recent(5),
         'recentConditionalOrders': ledger.recent_conditional_orders(12),
+        'holdingsEvaluation': holdings_evaluation,
         'tradeExecutionFromWeb': False,
     }
 

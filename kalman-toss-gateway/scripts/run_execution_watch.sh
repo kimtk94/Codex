@@ -24,7 +24,19 @@ cd "$APP_ROOT"
   # Always reconcile positions first so stop-loss, take-profit,
   # profit-flip, max-hold and Friday-flat remain protected.
   "$PY" -m engine.position_manager
+
+  HOLDINGS_EVAL_OK=1
+  if ! "$PY" -m engine.holdings_evaluator; then
+    HOLDINGS_EVAL_OK=0
+    echo "HOLDINGS_EVALUATION_FAILED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ) entry=BLOCKED"
+  fi
+
   "$PY" -m engine.trade_mirror
+
+  if [ "$HOLDINGS_EVAL_OK" -ne 1 ]; then
+    echo "EXECUTION_ENTRY_SKIP_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ) reason=HOLDINGS_EVALUATION_FAILED risk_manager=COMPLETED"
+    exit 0
+  fi
 
   # Only the entry stage needs the model-cycle lock. If the hourly model
   # refresh is still running, skip entries but keep risk management complete.

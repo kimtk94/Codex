@@ -28,6 +28,7 @@ cd "$APP_ROOT"
 
     echo "POSITION_WATCH_START_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     "$PY" -m engine.position_manager
+    "$PY" -m engine.holdings_evaluator || echo "HOLDINGS_EVALUATION_WARN_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     "$PY" -m engine.trade_mirror
     echo "POSITION_WATCH_DONE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   ) 8>"$LOCK_DIR/auto-trade.lock"

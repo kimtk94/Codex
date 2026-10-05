@@ -16,10 +16,22 @@ cd "$APP_ROOT"
   # Risk-reducing reconciliation/exit always runs first.
   "$PY" -m engine.position_manager
 
+  # Evaluate every broker holding before a new BUY. Evaluation is read-only.
+  # If it fails, keep reconciliation/audit durable but fail closed on entries.
+  HOLDINGS_EVAL_OK=1
+  if ! "$PY" -m engine.holdings_evaluator; then
+    HOLDINGS_EVAL_OK=0
+    echo "HOLDINGS_EVALUATION_FAILED_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ) entry=BLOCKED"
+  fi
+
   # Keep model benchmark and broker execution audit durable before allowing
   # a new entry. If Neon/audit sync fails, the cycle stops before BUY.
   "$PY" -m engine.benchmark_ledger
   "$PY" -m engine.trade_mirror
+
+  if [ "$HOLDINGS_EVAL_OK" -ne 1 ]; then
+    exit 0
+  fi
 
   POLICY="$("$PY" - <<'PY'
 import os
