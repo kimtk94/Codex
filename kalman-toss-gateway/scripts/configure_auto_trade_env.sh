@@ -5,7 +5,7 @@ ENV_FILE="${KALMAN_ENV_FILE:-/opt/kalman/.env}"
 PROFILE="${1:-dry-run}"
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Run with sudo: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|live-conditional-20000|off]" >&2
+  echo "Run with sudo: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|live-conditional-5000|live-conditional-20000|off]" >&2
   exit 1
 fi
 
@@ -100,6 +100,57 @@ case "$PROFILE" in
     export CFG_MAX_SINGLE_ORDER_KRW=5000
     export CFG_TRADING_ENABLED=false
     export CFG_LIVE_TRADING_CONFIRM=
+    ;;
+  live-conditional-5000)
+    export CFG_AUTO_TRADE_ENABLED=true
+    export CFG_AUTO_TRADE_EXECUTION_MODE=LIVE
+    export CFG_AUTO_TRADE_SIGNAL_POLICY=R5_LIVE_CONDITIONAL
+    export CFG_AUTO_TRADE_SHADOW_CONFIRM=
+    export CFG_AUTO_TRADE_OVERLAP_CONFIRM=
+    export CFG_AUTO_TRADE_REQUIRE_ACCOUNT_FLAT=false
+    export CFG_AUTO_TRADE_MAX_ACTIVE_POSITIONS=3
+    export CFG_AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL=3
+    export CFG_AUTO_TRADE_ADD_ON_MIN_BUCKET_GAP=1
+    export CFG_AUTO_TRADE_MAX_SYMBOL_NOTIONAL_KRW=15000
+    export CFG_AUTO_TRADE_DRY_RUN_MAX_SIGNAL_AGE_MINUTES=1440
+    export CFG_AUTO_TRADE_MAX_SIGNAL_AGE_MINUTES=90
+    export CFG_AUTO_TRADE_SIGNAL_BAR_MINUTES=60
+    export CFG_AUTO_TRADE_STOP_LOSS_PCT=-0.03
+    export CFG_AUTO_TRADE_TAKE_PROFIT_PCT=0.20
+    export CFG_AUTO_TRADE_TARGET_EXIT_BUCKETS=4
+    export CFG_AUTO_TRADE_SAFE_EXIT_WINDOW_ENABLED=false
+    export CFG_AUTO_TRADE_EXIT_WINDOW_BUFFER_MINUTES=15
+    export CFG_AUTO_TRADE_MIN_EXIT_BUCKETS=2
+    export CFG_AUTO_TRADE_FRIDAY_FLAT_ENABLED=true
+    export CFG_AUTO_TRADE_FRIDAY_FLAT_BUFFER_MINUTES=15
+    export CFG_AUTO_TRADE_FRIDAY_FLAT_SHADOW_PATH=/opt/kalman/state/friday-flat-shadow.json
+    export CFG_AUTO_TRADE_MODEL_ROTATION_ENABLED=false
+    export CFG_AUTO_TRADE_PROFIT_FLIP_GUARD_ENABLED=true
+    export CFG_AUTO_TRADE_PROFIT_FLIP_ARM_PCT=0.002
+    export CFG_AUTO_TRADE_PROFIT_FLIP_TRIGGER_PCT=-0.002
+    export CFG_AUTO_TRADE_PROFIT_FLIP_RECOVERY_PCT=0
+    export CFG_AUTO_TRADE_PROFIT_FLIP_CONFIRM_OBSERVATIONS=2
+    export CFG_AUTO_TRADE_BENCHMARK_COST_BPS=10
+    export CFG_AUTO_TRADE_SIZING_MODE=FIXED_KRW
+    export CFG_AUTO_TRADE_ORDER_USD=0
+    export CFG_AUTO_TRADE_ORDER_KRW=5000
+    export CFG_AUTO_TRADE_CASH_FRACTION=0.10
+    export CFG_AUTO_TRADE_CASH_RESERVE_USD=0
+    export CFG_AUTO_TRADE_MIN_ORDER_USD=1
+    export CFG_AUTO_TRADE_MAX_ORDER_USD=0
+    export CFG_AUTO_TRADE_STRATEGY_VERSION=R5.1_BASE_HGB
+    export CFG_AUTO_TRADE_CONDITIONAL_CONFIRM=CONFIRM_R5_LIVE_CONDITIONAL_5000
+    export CFG_AUTO_TRADE_CONDITIONAL_TOTAL_KRW=20000
+    export CFG_AUTO_TRADE_CONDITIONAL_GAP_THRESHOLD="${AUTO_TRADE_CONDITIONAL_GAP_THRESHOLD:-}"
+    export CFG_AUTO_TRADE_CONDITIONAL_CONFIDENCE_THRESHOLD="${AUTO_TRADE_CONDITIONAL_CONFIDENCE_THRESHOLD:-}"
+    export CFG_TRADING_ENABLED=true
+    export CFG_LIVE_TRADING_CONFIRM=CONFIRM_LIVE_TRADING
+    export CFG_LIVE_MICRO_TOTAL_LIMIT_KRW=0
+    export CFG_MAX_SINGLE_ORDER_KRW=5000
+    if [ -z "$CFG_AUTO_TRADE_CONDITIONAL_GAP_THRESHOLD" ] || [ -z "$CFG_AUTO_TRADE_CONDITIONAL_CONFIDENCE_THRESHOLD" ]; then
+      echo "Missing AUTO_TRADE_CONDITIONAL_GAP_THRESHOLD / AUTO_TRADE_CONDITIONAL_CONFIDENCE_THRESHOLD" >&2
+      exit 4
+    fi
     ;;
   live-conditional-20000)
     export CFG_AUTO_TRADE_ENABLED=true
@@ -240,7 +291,7 @@ case "$PROFILE" in
     ;;
   *)
     echo "Unknown profile: $PROFILE" >&2
-    echo "Usage: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|live-conditional-20000|off]" >&2
+    echo "Usage: sudo $0 [dry-run|cash-fraction-dry-run|live-canary-5000|live-conditional-5000|live-conditional-20000|off]" >&2
     exit 3
     ;;
 esac
@@ -346,8 +397,10 @@ printf '%s\n' '--- auto-trade settings ---'
 grep -E '^(AUTO_TRADE_|TRADING_ENABLED|LIVE_TRADING_CONFIRM)=' "$ENV_FILE" || true
 
 printf '\n%s\n' 'Secrets and unrelated env values were preserved.'
-if [ "$PROFILE" = "live-conditional-20000" ]; then
-  printf '%s\n' 'LIVE enabled: R5.1 conditional / KRW 20,000 total exposure: Rank1-only 20,000; close-gap Rank1 10,000 + Rank2 10,000; low-confidence Rank1 10,000 + cash 10,000. Pyramiding disabled in this profile.'
+if [ "$PROFILE" = "live-conditional-5000" ]; then
+  printf '%s\n' 'LIVE enabled: R5.1 conditional allocation / KRW 5,000 per broker BUY / max 1 BUY per symbol per 60m bucket / max 3 entries and KRW 15,000 per symbol. Close-gap targets can accumulate to 10,000 per symbol; wide-gap Rank1 is capped at 15,000 rather than one 20,000 order.'
+elif [ "$PROFILE" = "live-conditional-20000" ]; then
+  printf '%s\n' 'LIVE enabled: R5.1 conditional / KRW 20,000 total exposure: Rank1-only 20,000; close-gap Rank1 10,000 + Rank2 10,000; low-confidence Rank1 10,000 + cash 10,000. Pyramiding disabled in this legacy profile.'
 elif [ "$PROFILE" = "live-canary-5000" ]; then
   printf '%s\n' 'LIVE enabled: R5.1_BASE_HGB / R5_LIVE_TOP1 / KRW 5,000 per entry / up to 3 entries per symbol (KRW 15,000 target cap) / max 3 active managed positions / profit-to-loss guard ON / pending exits block new buys / Monday-Thursday FIXED_4 carry / Friday-flat canary ON with 15m buffer. Research non-overlap remains benchmark-only.'
 else

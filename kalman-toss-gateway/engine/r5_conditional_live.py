@@ -1,13 +1,18 @@
 """R5.1 conditional LIVE executor.
 
 Allocation contract:
-- low confidence: Rank1 KRW 10,000 + KRW 10,000 cash
-- close Rank1/Rank2 score gap: Rank1 KRW 10,000 + Rank2 KRW 10,000
-- otherwise: Rank1 KRW 20,000
+- low confidence: Rank1 target KRW 10,000 + KRW 10,000 cash
+- close Rank1/Rank2 score gap: Rank1 target KRW 10,000 + Rank2 target KRW 10,000
+- otherwise: Rank1 target KRW 20,000
 
-This runner only opens a new managed position per symbol. Existing positions are
-left to position_manager; it does not pyramid/add-on under the conditional
-profile.
+Execution contract for the 5K chunk profile:
+- each broker BUY is capped at KRW 5,000
+- at most one BUY per symbol per 60-minute signal bucket
+- each symbol may accumulate at most 3 entries / KRW 15,000
+- a KRW 10,000 target therefore fills as two 5K entries across buckets
+- a KRW 20,000 target is intentionally capped at three 5K entries (KRW 15,000)
+
+Existing managed-position reconciliation and exit guards remain authoritative.
 """
 from __future__ import annotations
 
@@ -27,6 +32,7 @@ from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
 from engine.auto_trade import (
+    QTY_TOLERANCE,
     TARGET_EXIT_BUCKETS,
     _client_order_id,
     _entry_exit_window_check,
@@ -36,6 +42,7 @@ from engine.auto_trade import (
     _holding_items,
     _nonzero_holdings,
     _open_order_items,
+    _signal_gap_minutes,
     _symbol_position_quantity,
     load_signal,
 )
@@ -47,7 +54,8 @@ from engine.r5_conditional_policy import (
 
 
 POLICY = "R5_LIVE_CONDITIONAL"
-CONFIRM = "CONFIRM_R5_LIVE_CONDITIONAL_20000"
+CONFIRM_LEGACY = "CONFIRM_R5_LIVE_CONDITIONAL_20000"
+CONFIRM_CHUNKED = "CONFIRM_R5_LIVE_CONDITIONAL_5000"
 
 
 def _score(value):
@@ -228,6 +236,60 @@ def _order_usd(target_krw: int, usd_krw: Decimal, cash_available: Decimal) -> De
     return amount if amount >= minimum else None
 
 
+def _target_entries_for_leg(target_krw: int, chunk_krw: int, max_entries: int) -> int:
+    if target_krw <= 0 or chunk_krw <= 0 or max_entries <= 0:
+        return 0
+    required = (int(target_krw) + int(chunk_krw) - 1) // int(chunk_krw)
+    return min(int(max_entries), required)
+
+
+def _conditional_client_order_id(
+    run_id: str,
+    symbol: str,
+    signal_as_of,
+    entry_index: int,
+) -> str:
+    if int(entry_index) <= 1:
+        return _client_order_id(run_id, symbol)
+    stable_run_key = f"{run_id}|{signal_as_of.isoformat()}|entry-{int(entry_index)}"
+    return _client_order_id(stable_run_key, symbol)
+
+
+def _conditional_execution_contract(settings: Settings) -> dict[str, int | str | bool]:
+    confirm = os.environ.get("AUTO_TRADE_CONDITIONAL_CONFIRM", "")
+    order_krw = int(os.environ.get("AUTO_TRADE_ORDER_KRW", "20000") or 20000)
+    max_entries = int(os.environ.get("AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL", "1") or 1)
+    add_on_gap_buckets = int(os.environ.get("AUTO_TRADE_ADD_ON_MIN_BUCKET_GAP", "1") or 1)
+    max_symbol_notional = int(os.environ.get("AUTO_TRADE_MAX_SYMBOL_NOTIONAL_KRW", "0") or 0)
+
+    chunked = confirm == CONFIRM_CHUNKED
+    if chunked:
+        if order_krw != 5000:
+            raise RuntimeError("chunked conditional LIVE requires AUTO_TRADE_ORDER_KRW=5000")
+        if settings.max_single_order_krw != 5000:
+            raise RuntimeError("chunked conditional LIVE requires MAX_SINGLE_ORDER_KRW=5000")
+        if max_entries != 3:
+            raise RuntimeError("chunked conditional LIVE requires AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL=3")
+        if add_on_gap_buckets < 1:
+            raise RuntimeError("chunked conditional LIVE requires add-on gap >= 1 bucket")
+        if max_symbol_notional != 15000:
+            raise RuntimeError("chunked conditional LIVE requires symbol cap KRW 15000")
+    elif confirm == CONFIRM_LEGACY:
+        if max_entries != 1:
+            raise RuntimeError("legacy conditional LIVE requires max_entries_per_symbol=1")
+    else:
+        raise RuntimeError("R5_CONDITIONAL_CONFIRMATION_MISSING")
+
+    return {
+        "chunked": chunked,
+        "order_krw": order_krw,
+        "max_entries": max_entries,
+        "add_on_gap_buckets": add_on_gap_buckets,
+        "max_symbol_notional_krw": max_symbol_notional,
+        "confirm": confirm,
+    }
+
+
 async def main_async() -> int:
     load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=True)
 
@@ -240,10 +302,6 @@ async def main_async() -> int:
     if os.environ.get("AUTO_TRADE_SIGNAL_POLICY", "").upper() != POLICY:
         print("R5_CONDITIONAL_POLICY_NOT_SELECTED")
         return 2
-    if os.environ.get("AUTO_TRADE_CONDITIONAL_CONFIRM", "") != CONFIRM:
-        print("R5_CONDITIONAL_CONFIRMATION_MISSING")
-        return 2
-
     strategy = os.environ.get("AUTO_TRADE_STRATEGY_VERSION", "").strip()
     if strategy != "R5.1_BASE_HGB":
         print("R5_CONDITIONAL_STRATEGY_MISMATCH")
@@ -256,6 +314,12 @@ async def main_async() -> int:
         raise RuntimeError("conditional LIVE total must be KRW 20000")
 
     settings = Settings()
+    try:
+        execution_contract = _conditional_execution_contract(settings)
+    except RuntimeError as exc:
+        print(str(exc))
+        return 2
+
     if not settings.live_gate_open:
         print("LIVE_GATE_CLOSED")
         return 2
@@ -331,9 +395,23 @@ async def main_async() -> int:
     remaining_cash = max(Decimal("0"), cash_usd - reserve)
 
     max_active = int(os.environ.get("AUTO_TRADE_MAX_ACTIVE_POSITIONS", "3"))
+    max_entries = int(execution_contract["max_entries"])
+    chunk_krw = int(execution_contract["order_krw"])
+    add_on_gap_minutes = int(execution_contract["add_on_gap_buckets"]) * 60
+    max_symbol_notional_krw = int(execution_contract["max_symbol_notional_krw"])
+    chunked = bool(execution_contract["chunked"])
+
     results = []
-    active_symbols = {str(p.get("symbol") or "").upper() for p in active}
-    planned_new = [s for s, _ in decision.legs_krw if s.upper() not in active_symbols]
+    active_by_symbol = {
+        str(p.get("symbol") or "").upper(): p
+        for p in active
+        if str(p.get("symbol") or "").strip()
+    }
+    planned_new = {
+        s.upper()
+        for s, _ in decision.legs_krw
+        if s.upper() not in active_by_symbol
+    }
     if len(active) + len(planned_new) > max_active:
         print(json.dumps({
             "executionAttempted": False,
@@ -347,35 +425,121 @@ async def main_async() -> int:
 
     for leg_index, (symbol, target_krw) in enumerate(decision.legs_krw, start=1):
         symbol = symbol.upper()
+        existing = active_by_symbol.get(symbol)
+        entry_count_before = int((existing or {}).get("entry_count") or 0)
+        target_entries = (
+            _target_entries_for_leg(target_krw, chunk_krw, max_entries)
+            if chunked else 1
+        )
+        is_add_on = bool(existing and chunked)
 
-        # Conditional profile deliberately disables pyramiding. A leg already
-        # active is idempotently skipped; the next missing leg can still fill.
-        if symbol in active_symbols:
-            results.append({"symbol": symbol, "status": "SKIP_ALREADY_ACTIVE"})
+        if target_entries <= 0:
+            results.append({"symbol": symbol, "status": "SKIP_ZERO_TARGET"})
             continue
-        if _symbol_position_quantity(holdings, symbol) > 0:
-            results.append({"symbol": symbol, "status": "SKIP_UNMANAGED_BROKER_POSITION"})
+        if entry_count_before >= target_entries:
+            results.append({
+                "symbol": symbol,
+                "status": "SKIP_TARGET_ENTRIES_REACHED",
+                "entryCount": entry_count_before,
+                "targetEntries": target_entries,
+            })
             continue
         if _has_open_buy_order(open_orders, symbol):
             results.append({"symbol": symbol, "status": "SKIP_OPEN_BUY_ORDER"})
             continue
 
-        amount_usd = _order_usd(target_krw, usd_krw, remaining_cash)
+        broker_qty = _symbol_position_quantity(holdings, symbol)
+        if is_add_on:
+            if existing.get("state") != "OPEN":
+                results.append({
+                    "symbol": symbol,
+                    "status": "SKIP_ADD_ON_POSITION_NOT_OPEN",
+                    "state": existing.get("state"),
+                })
+                continue
+            if existing.get("exit_pending_reason"):
+                results.append({
+                    "symbol": symbol,
+                    "status": "SKIP_ADD_ON_EXIT_PENDING",
+                    "reason": existing.get("exit_pending_reason"),
+                })
+                continue
+            managed_qty = Decimal(str(existing.get("remaining_quantity") or "0"))
+            if broker_qty <= 0 or managed_qty <= 0 or abs(broker_qty - managed_qty) > QTY_TOLERANCE:
+                results.append({
+                    "symbol": symbol,
+                    "status": "SKIP_ADD_ON_BROKER_QUANTITY_MISMATCH",
+                    "brokerQuantity": str(broker_qty),
+                    "managedQuantity": str(managed_qty),
+                })
+                continue
+            signal_gap_minutes = _signal_gap_minutes(existing, signal["as_of"])
+            if signal_gap_minutes is None or signal_gap_minutes < add_on_gap_minutes:
+                results.append({
+                    "symbol": symbol,
+                    "status": "SKIP_ADD_ON_SIGNAL_GAP_TOO_SMALL",
+                    "signalGapMinutes": signal_gap_minutes,
+                    "requiredGapMinutes": add_on_gap_minutes,
+                })
+                continue
+            projected_notional = chunk_krw * (entry_count_before + 1)
+            if max_symbol_notional_krw > 0 and projected_notional > max_symbol_notional_krw:
+                results.append({
+                    "symbol": symbol,
+                    "status": "SKIP_MAX_SYMBOL_NOTIONAL_REACHED",
+                    "projectedKrw": projected_notional,
+                    "maxKrw": max_symbol_notional_krw,
+                })
+                continue
+        else:
+            if existing:
+                results.append({
+                    "symbol": symbol,
+                    "status": "SKIP_ALREADY_ACTIVE_LEGACY",
+                    "state": existing.get("state"),
+                })
+                continue
+            if broker_qty > 0:
+                results.append({"symbol": symbol, "status": "SKIP_UNMANAGED_BROKER_POSITION"})
+                continue
+
+        execution_krw = chunk_krw if chunked else target_krw
+        amount_usd = _order_usd(execution_krw, usd_krw, remaining_cash)
         if amount_usd is None:
             results.append({"symbol": symbol, "status": "SKIP_INSUFFICIENT_CASH"})
             continue
 
-        client_order_id = _client_order_id(signal["run_id"], symbol)
-        reserved, position = store.reserve_entry(
-            run_id=signal["run_id"],
-            symbol=symbol,
-            strategy_version=signal["strategy_version"],
-            signal_as_of=signal["as_of"].isoformat(),
-            client_order_id=client_order_id,
-            target_exit_buckets=TARGET_EXIT_BUCKETS,
+        client_order_id = _conditional_client_order_id(
+            signal["run_id"],
+            symbol,
+            signal["as_of"],
+            entry_count_before + 1,
         )
+        if is_add_on:
+            reserved, position = store.reserve_add_on(
+                existing["position_id"],
+                run_id=signal["run_id"],
+                signal_as_of=signal["as_of"].isoformat(),
+                client_order_id=client_order_id,
+                target_krw=str(execution_krw),
+                max_entries=max_entries,
+                min_gap_minutes=add_on_gap_minutes,
+            )
+        else:
+            reserved, position = store.reserve_entry(
+                run_id=signal["run_id"],
+                symbol=symbol,
+                strategy_version=signal["strategy_version"],
+                signal_as_of=signal["as_of"].isoformat(),
+                client_order_id=client_order_id,
+                target_exit_buckets=TARGET_EXIT_BUCKETS,
+            )
         if not reserved or not position:
-            results.append({"symbol": symbol, "status": "SKIP_RESERVATION_FAILED"})
+            results.append({
+                "symbol": symbol,
+                "status": "SKIP_RESERVATION_FAILED",
+                "entryType": "ADD_ON" if is_add_on else "INITIAL",
+            })
             continue
 
         request = SimpleNamespace(
@@ -393,7 +557,15 @@ async def main_async() -> int:
             result = await execute_order(settings, request)
         except Exception as exc:
             guard = TradeLedger(settings.state_db_path).get(client_order_id)
-            if guard and guard.get("status") == "AMBIGUOUS":
+            if is_add_on:
+                if guard and guard.get("status") == "AMBIGUOUS":
+                    store.mark_ambiguous_add_on(
+                        position["position_id"],
+                        f"conditional add-on ambiguous: {guard.get('error') or exc}",
+                    )
+                else:
+                    store.release_add_on(position["position_id"], f"{type(exc).__name__}: {exc}")
+            elif guard and guard.get("status") == "AMBIGUOUS":
                 store.mark_ambiguous_entry(
                     position["position_id"],
                     f"conditional submission ambiguous: {guard.get('error') or exc}",
@@ -405,9 +577,16 @@ async def main_async() -> int:
             raise
 
         if not result.get("allowed"):
-            store.mark_entry_aborted(
-                position["position_id"], f"conditional entry blocked: {result.get('reason')}"
-            )
+            if is_add_on:
+                store.release_add_on(
+                    position["position_id"],
+                    f"conditional add-on blocked: {result.get('reason')}",
+                )
+            else:
+                store.mark_entry_aborted(
+                    position["position_id"],
+                    f"conditional entry blocked: {result.get('reason')}",
+                )
             results.append({"symbol": symbol, "status": "BLOCKED", "result": result})
             continue
 
@@ -429,6 +608,12 @@ async def main_async() -> int:
                     "gap_threshold": gap_threshold,
                     "confidence_threshold": confidence_threshold,
                     "target_leg_krw": target_krw,
+                    "execution_chunk_krw": execution_krw,
+                    "target_entries": target_entries,
+                    "entry_count_before": entry_count_before,
+                    "entry_type": "ADD_ON" if is_add_on else "INITIAL",
+                    "max_entries_per_symbol": max_entries,
+                    "max_symbol_notional_krw": max_symbol_notional_krw,
                     "conditional_total_krw": total_krw,
                     "conditional_cash_krw": decision.cash_krw,
                     "leg_index": leg_index,
@@ -438,19 +623,36 @@ async def main_async() -> int:
 
         order_id = result.get("orderId")
         if not order_id:
-            store.mark_ambiguous_entry(
-                position["position_id"], "conditional submission returned no orderId"
-            )
-            results.append({"symbol": symbol, "status": "AMBIGUOUS_NO_ORDER_ID"})
+            if is_add_on:
+                store.mark_ambiguous_add_on(
+                    position["position_id"], "conditional add-on returned no orderId"
+                )
+            else:
+                store.mark_ambiguous_entry(
+                    position["position_id"], "conditional submission returned no orderId"
+                )
+            results.append({
+                "symbol": symbol,
+                "status": "AMBIGUOUS_NO_ORDER_ID",
+                "entryType": "ADD_ON" if is_add_on else "INITIAL",
+            })
             continue
 
-        store.mark_entry_submitted(position["position_id"], order_id)
+        if is_add_on:
+            store.mark_add_on_submitted(position["position_id"], order_id)
+        else:
+            store.mark_entry_submitted(position["position_id"], order_id)
         remaining_cash -= amount_usd
-        active_symbols.add(symbol)
+        active_by_symbol[symbol] = position
         results.append({
             "symbol": symbol,
             "status": "SUBMITTED",
+            "entryType": "ADD_ON" if is_add_on else "INITIAL",
             "targetKrw": target_krw,
+            "executionChunkKrw": execution_krw,
+            "targetEntries": target_entries,
+            "entryCountBefore": entry_count_before,
+            "entryCountAfterFillExpected": entry_count_before + 1,
             "orderAmountUsd": str(amount_usd),
             "orderId": order_id,
             "positionId": position["position_id"],
@@ -461,6 +663,7 @@ async def main_async() -> int:
         "decision": decision.__dict__,
         "gapThreshold": gap_threshold,
         "confidenceThreshold": confidence_threshold,
+        "executionContract": execution_contract,
         "results": results,
         "fridayFlatGate": window_detail,
     }, ensure_ascii=False, indent=2, default=str))
