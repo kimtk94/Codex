@@ -41,6 +41,7 @@ class FakeAsyncClient:
 
 
 class TossTokenRefreshTests(unittest.IsolatedAsyncioTestCase):
+    # Auth retry must remain bounded: one refresh, one replay, then fail closed.
     def setUp(self) -> None:
         FakeAsyncClient.responses = []
         FakeAsyncClient.calls = []
