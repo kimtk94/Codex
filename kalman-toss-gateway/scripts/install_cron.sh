@@ -54,6 +54,9 @@ if [ "$FORCE" != "--force" ]; then
 fi
 
 install -m 0644 "$APP_ROOT/config/kalman.cron.d" /etc/cron.d/kalman
+if [ -f "$APP_ROOT/config/kalman-us-watchdog.cron.d" ]; then
+  install -m 0644 "$APP_ROOT/config/kalman-us-watchdog.cron.d" /etc/cron.d/kalman-us-watchdog
+fi
 if systemctl list-unit-files cron.service >/dev/null 2>&1; then
   systemctl reload cron.service || systemctl restart cron.service
 elif systemctl list-unit-files crond.service >/dev/null 2>&1; then
