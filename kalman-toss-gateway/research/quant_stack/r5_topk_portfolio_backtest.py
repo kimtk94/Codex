@@ -13,9 +13,19 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+try:
+    from research.quant_stack.r5_universe_audit import audit as audit_universe
+except ModuleNotFoundError:
+    from r5_universe_audit import audit as audit_universe
+
 
 NY = ZoneInfo("America/New_York")
-SCHEMA_VERSION = "kalman-r5-topk-portfolio-v1"
+CANONICAL_COMMISSION_BPS_EACH_SIDE = 5.0
+CANONICAL_SLIPPAGE_BPS_EACH_SIDE = 5.0
+CANONICAL_IMPLIED_ROUND_TRIP_BPS = 2.0 * (
+    CANONICAL_COMMISSION_BPS_EACH_SIDE + CANONICAL_SLIPPAGE_BPS_EACH_SIDE
+)
+SCHEMA_VERSION = "kalman-r5-topk-portfolio-v2-execution-safe"
 PORTFOLIOS = (
     "TOP1",
     "TOP2_EQUAL",
@@ -221,12 +231,20 @@ def _read_prices(path: Path) -> pd.DataFrame:
     frame = pd.read_parquet(path)
     seq_col = _pick_col(frame, ("expected_seq", "seq", "bar_seq"))
     close_col = _pick_col(frame, ("close", "adj_close"))
+    open_col = _pick_col(frame, ("open",), required=False)
     ts_col = _pick_col(frame, ("timestamp", "ts"), required=False)
 
-    z = frame[
-        [seq_col, close_col] + ([ts_col] if ts_col else [])
-    ].copy()
+    selected_cols = [seq_col, close_col]
+    if open_col:
+        selected_cols.append(open_col)
+    if ts_col:
+        selected_cols.append(ts_col)
+    z = frame[selected_cols].copy()
     z = z.rename(columns={seq_col: "expected_seq", close_col: "close"})
+    if open_col:
+        z = z.rename(columns={open_col: "open"})
+    else:
+        z["open"] = np.nan
 
     if ts_col:
         z = z.rename(columns={ts_col: "timestamp"})
@@ -244,6 +262,7 @@ def _read_prices(path: Path) -> pd.DataFrame:
 
     z["expected_seq"] = pd.to_numeric(z["expected_seq"], errors="coerce")
     z["close"] = pd.to_numeric(z["close"], errors="coerce")
+    z["open"] = pd.to_numeric(z["open"], errors="coerce")
     z = z.dropna(subset=["expected_seq", "timestamp", "close"]).loc[
         lambda x: x["close"] > 0
     ]
@@ -324,6 +343,21 @@ class PriceLookup:
             return None, None
         row = z.iloc[-1]
         return pd.Timestamp(row["timestamp"]), float(row["close"])
+
+    def at_open(
+        self,
+        symbol: str,
+        seq: int,
+    ) -> tuple[pd.Timestamp | None, float | None]:
+        frame = self.frame(symbol)
+        z = frame.loc[frame["expected_seq"].eq(int(seq))]
+        if z.empty:
+            return None, None
+        row = z.iloc[-1]
+        value = pd.to_numeric(pd.Series([row.get("open")]), errors="coerce").iloc[0]
+        if pd.isna(value) or float(value) <= 0:
+            return None, None
+        return pd.Timestamp(row["timestamp"]), float(value)
 
     def friday_flat_exit_seq(
         self,
@@ -479,9 +513,12 @@ def build_common_trade_panel(
     admissions: pd.DataFrame,
     prices: PriceLookup,
     *,
+    entry_lag_bars: int = 1,
     start: str | None = None,
     end: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if int(entry_lag_bars) < 1:
+        raise ValueError("entry_lag_bars must be >= 1 to prevent same-bar execution bias")
     admitted = set(int(x) for x in admissions["expected_seq"].tolist())
     ranks = rankings.loc[
         rankings["expected_seq"].isin(admitted)
@@ -519,14 +556,16 @@ def build_common_trade_panel(
 
         entry_records: list[tuple[pd.Timestamp, float]] = []
         missing = False
+        entry_seq = seq + int(entry_lag_bars)
 
         for symbol in symbols:
-            ts, price = prices.at(symbol, seq)
+            ts, price = prices.at_open(symbol, entry_seq)
             if ts is None or price is None:
                 rejected.append(
                     {
                         "expected_seq": seq,
-                        "reason": "ENTRY_PRICE_MISSING",
+                        "entry_expected_seq": entry_seq,
+                        "reason": "NEXT_BAR_OPEN_MISSING",
                         "symbol": symbol,
                     }
                 )
@@ -545,9 +584,18 @@ def build_common_trade_panel(
             continue
 
         fixed_exit_seq = seq + 4
+        if entry_seq >= fixed_exit_seq:
+            rejected.append(
+                {
+                    "expected_seq": seq,
+                    "entry_expected_seq": entry_seq,
+                    "reason": "ENTRY_NOT_BEFORE_TARGET_EXIT",
+                }
+            )
+            continue
         actual_exit_seq = prices.friday_flat_exit_seq(
             symbols[0],
-            seq,
+            entry_seq,
             fixed_exit_seq,
         )
 
@@ -581,6 +629,7 @@ def build_common_trade_panel(
 
         row: dict[str, Any] = {
             "expected_seq": seq,
+            "entry_expected_seq": entry_seq,
             "fixed_exit_seq": fixed_exit_seq,
             "actual_exit_seq": actual_exit_seq,
             "friday_flat_applied": bool(
@@ -879,7 +928,7 @@ def parse_args() -> argparse.Namespace:
         default=(
             Path.home()
             / ".cache/kalman-r5-topk/output/"
-            "r5_1_topk_portfolio_v1"
+            "r5_1_topk_portfolio_v2_execution_safe"
         ),
     )
     parser.add_argument(
@@ -895,7 +944,7 @@ def parse_args() -> argparse.Namespace:
         "--upload-remote-dir",
         default=(
             "US_ETF/model_lab_v1/results/"
-            "r5_1_topk_portfolio_v1"
+            "r5_1_topk_portfolio_v2_execution_safe"
         ),
     )
     parser.add_argument(
@@ -903,6 +952,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
     )
     parser.add_argument("--cost-bps", type=float, default=10.0)
+    parser.add_argument(
+        "--entry-lag-bars",
+        type=int,
+        default=1,
+        help="Execute at the next tradable bar open; values <1 are rejected.",
+    )
     parser.add_argument("--start")
     parser.add_argument("--end")
     parser.add_argument("--discover-only", action="store_true")
@@ -937,6 +992,7 @@ def main() -> int:
         cache_root=args.cache_root,
         remote=args.rclone_remote,
     )
+    universe_validity = audit_universe(ranking_path)
     admission_path = _stage_from_rclone(
         args.admission_log,
         cache_root=args.cache_root,
@@ -963,6 +1019,7 @@ def main() -> int:
         rankings,
         admissions,
         prices,
+        entry_lag_bars=args.entry_lag_bars,
         start=args.start,
         end=args.end,
     )
@@ -1019,6 +1076,40 @@ def main() -> int:
         "locked_panel": str(args.locked_panel),
         "live_panel": str(args.live_panel),
         "cost_bps": float(args.cost_bps),
+        "execution_contract": {
+            "signal_bar": "features and score finalized on expected_seq",
+            "entry": f"open at expected_seq + {int(args.entry_lag_bars)}",
+            "target_exit": "close at signal expected_seq + 4",
+            "same_bar_entry_allowed": False,
+        },
+        "cost_contract": {
+            "configured_round_trip_bps": float(args.cost_bps),
+            "canonical_quant_stack_reference": {
+                "commission_bps_each_side": CANONICAL_COMMISSION_BPS_EACH_SIDE,
+                "slippage_bps_each_side": CANONICAL_SLIPPAGE_BPS_EACH_SIDE,
+                "implied_round_trip_bps": CANONICAL_IMPLIED_ROUND_TRIP_BPS,
+            },
+            "below_canonical_reference": bool(
+                float(args.cost_bps) < CANONICAL_IMPLIED_ROUND_TRIP_BPS
+            ),
+        },
+        "universe_validity": {
+            "survivorship_risk": universe_validity.get("survivorship_risk"),
+            "constant_membership": universe_validity.get("constant_membership"),
+            "distinct_monthly_membership_sets": universe_validity.get(
+                "distinct_monthly_membership_sets"
+            ),
+            "point_in_time_columns_present": universe_validity.get(
+                "point_in_time_columns_present"
+            ),
+            "interpretation": universe_validity.get("interpretation"),
+        },
+        "promotion_gate": (
+            "BLOCK_STATIC_UNIVERSE_AND_COST_VALIDATION"
+            if universe_validity.get("survivorship_risk") == "HIGH"
+            or float(args.cost_bps) < CANONICAL_IMPLIED_ROUND_TRIP_BPS
+            else "REVIEW"
+        ),
         "common_admissions": int(len(panel)),
         "rejected_admissions": int(len(rejected)),
         "friday_flat_count": (
