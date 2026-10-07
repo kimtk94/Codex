@@ -75,12 +75,21 @@ KALMAN_ENV_FILE="$ENV_FILE" KALMAN_APP_ROOT="$APP_ROOT" KALMAN_PYTHON="$PY" \
   "$APP_ROOT/scripts/run_macro_event_features_v1.sh" selftest || fail "macro selftest failed"
 
 echo "[6/6] Read-only US2Y intraday entitlement probe"
+PROBE_REPORT="${KALMAN_MACRO_PROBE_REPORT:-/home/taehoon/kalman-data/macro/us2y-intraday-probe.json}"
+PROBE_REPORT_DIR="$(dirname "$PROBE_REPORT")"
+install -d -m 0755 "$PROBE_REPORT_DIR" || fail "probe report directory create failed"
+
 KALMAN_ENV_FILE="$ENV_FILE" KALMAN_APP_ROOT="$APP_ROOT" KALMAN_PYTHON="$PY" \
-  "$APP_ROOT/scripts/probe_macro_intraday_us2y_v1.sh"
-PROBE_RC=$?
+  "$APP_ROOT/scripts/probe_macro_intraday_us2y_v1.sh" | tee "$PROBE_REPORT"
+PROBE_RC=${PIPESTATUS[0]}
+chmod 0644 "$PROBE_REPORT" 2>/dev/null || true
+if [ -n "${SUDO_USER:-}" ]; then
+  chown "$SUDO_USER":"$SUDO_USER" "$PROBE_REPORT" 2>/dev/null || true
+fi
 
 echo
 echo "===== RESULT ====="
+echo "[INFO] sanitized_probe_report=$PROBE_REPORT"
 if [ "$PROBE_RC" -eq 0 ]; then
   echo "[PASS] Existing Trading Economics credential can reach the US2Y intraday endpoint."
 else
