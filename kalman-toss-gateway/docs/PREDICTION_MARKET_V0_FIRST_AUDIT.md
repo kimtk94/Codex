@@ -276,3 +276,50 @@ KALMAN_PYTHON=/path/to/python \
 Do not change the threshold, semantic channel, asset, horizon, or discovery
 cutoff in response to the next tranche. Any changed hypothesis must receive a
 new hypothesis ID and begin a new discovery/OOS cycle.
+
+## Automated OOS release watcher
+
+A research-only watcher now checks the public archive release and QQQ outcome
+freshness without changing the frozen hypothesis.
+
+Runtime contract:
+
+- public release source:
+  `DineshKumar8399/polymarket-orderbook-dataset`
+- QQQ canonical source:
+  `gdrive:US_ETF/history_1h/QQQ_1h_2017plus.parquet`
+- QQQ Drive candidates are validated before atomic local replacement;
+  a candidate with an older maximum timestamp is rejected
+- GitHub release archives must expose a SHA256 digest and must pass that digest
+  before extraction
+- a release is considered OOS only when its tag is newer than
+  `data-2026-09-13` and its canonical data extends strictly beyond the frozen
+  discovery cutoff
+- all evaluation continues through the frozen
+  `PMOOS-INFLATION-UP-QQQ-7B-V1` spec
+- no result, including `PASS_CONFIRMATORY_GATE`, can automatically mutate R5.x
+  or submit a trade
+
+The server user cron checks at minute 17 every six hours in
+`Asia/Seoul` time:
+
+```cron
+17 */6 * * * /bin/bash /home/taehoon/Codex-PREDICTION-MARKET-20261007/kalman-toss-gateway/scripts/run_prediction_market_oos_watch_v0.sh >> /home/taehoon/kalman-data/prediction-market/oos-watch-v0/cron.log 2>&1
+```
+
+Latest machine-readable state:
+
+`/home/taehoon/kalman-data/prediction-market/oos-watch-v0/latest.json`
+
+Initial live watcher check on 2026-10-07:
+
+- archive release: `data-2026-09-13`
+- status: `NO_NEW_RELEASE`
+- QQQ rows: 13,112
+- QQQ maximum timestamp: `2026-08-28T20:00:00Z`
+- QQQ Drive/local SHA256:
+  `a981f129635517a2df68a63d233ae693081f66f5539e31da9aa05a4df605cfcf`
+
+Therefore both data streams remain insufficient for true confirmatory OOS
+evaluation today. The watcher will stay fail-closed until a newer public archive
+appears and sufficient QQQ outcome bars are available.
