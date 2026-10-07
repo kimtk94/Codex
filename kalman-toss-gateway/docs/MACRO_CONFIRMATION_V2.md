@@ -103,3 +103,69 @@ The extension is explicitly:
 - no live-trading gate mutation
 
 Promotion requires historical point-in-time consensus data, a true intraday rate source, leakage tests, and walk-forward/OOS validation.
+
+
+## Intraday US 2Y provider
+
+Trading Economics exposes the US 2-year Treasury yield as market symbol
+`USGG2YR:IND`. The public instrument page metadata was used only for symbol
+discovery.
+
+The Trading Economics markets intraday endpoint supports 1-minute through
+4-hour bars and historical intraday requests of up to 30 days. Kalman uses the
+1-minute REST endpoint for a research-only delayed intraday confirmation layer.
+
+Configuration:
+
+- provider: Trading Economics
+- symbol: `USGG2YR:IND`
+- interval: 1 minute
+- event families: CPI, PCE, NFP, FOMC
+- pre-event window: 10 minutes
+- reactions: +5m, +15m, +30m, +60m
+- primary confirmation horizon: +15m
+- collection window: event age 5–120 minutes
+- quality: `DELAYED_INTRADAY_RESEARCH`
+
+Leakage rules:
+
+- baseline must be the last timestamp strictly before the release
+- the baseline must be no more than 5 minutes stale
+- each post-event observation must be at or after its target horizon
+- a post-event timestamp gap above 2 minutes blocks that horizon
+- a missing or stale baseline blocks the entire reaction
+- no DGS2 daily value is substituted for a failed intraday observation
+
+Entitlement handling is fail-closed:
+
+- missing credential -> `UNCONFIGURED_CREDENTIAL`
+- demo credential -> `DEMO_CREDENTIALS_REJECTED`
+- HTTP 401/402/403/404/410 -> `UNAVAILABLE_PROVIDER_ENTITLEMENT`
+- other provider errors remain explicit errors
+
+The provider uses the existing `TRADING_ECONOMICS_API_KEY` environment
+variable. It never logs the credential.
+
+### Read-only entitlement probe
+
+After installation on the server:
+
+```bash
+sudo /opt/kalman/app/scripts/probe_macro_intraday_us2y_v1.sh
+```
+
+The probe loads the existing root-only Kalman environment, requests a short
+recent US2Y intraday window, prints only sanitized provider/status data and
+never touches trading execution.
+
+### Real-time boundary
+
+This implementation deliberately uses the REST intraday feed and is labelled
+delayed/research-only. Trading Economics also documents a live markets
+WebSocket, but non-demo market subscriptions require appropriate key/secret
+entitlement. Do not promote the REST confirmation to a live trade gate.
+
+If the existing Trading Economics subscription does not include US2Y
+intraday, Twelve Data `US2Y` is the first fallback candidate. It exposes the
+instrument as `US Treasury Yield 2 Years` and its time-series API supports
+1-minute intervals, but account entitlement must be verified separately.

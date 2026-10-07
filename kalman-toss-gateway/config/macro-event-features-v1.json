@@ -1,5 +1,5 @@
 {
-  "version": "macro-event-feature-v1.9.0",
+  "version": "macro-event-feature-v1.10.0",
   "feature_version": "macro-event-feature-v1",
   "lookback_hours": 72,
   "half_life_hours": {
@@ -526,5 +526,35 @@
         "source": "OPTIONAL_NOT_CURRENTLY_AVAILABLE"
       }
     }
+  },
+  "intraday_us2y": {
+    "enabled": true,
+    "provider": "trading_economics",
+    "base_url": "https://api.tradingeconomics.com",
+    "symbol": "USGG2YR:IND",
+    "interval": "1m",
+    "quality": "DELAYED_INTRADAY_RESEARCH",
+    "event_families": [
+      "CPI",
+      "PCE",
+      "NFP",
+      "FOMC"
+    ],
+    "min_event_age_minutes": 5,
+    "max_event_age_minutes": 120,
+    "pre_event_minutes": 10,
+    "post_buffer_minutes": 5,
+    "horizons_minutes": [
+      5,
+      15,
+      30,
+      60
+    ],
+    "confirmation_horizon": "15m",
+    "baseline_max_gap_minutes": 5,
+    "post_max_gap_minutes": 2,
+    "reaction_scale_bps": 5,
+    "timeout_seconds": 20,
+    "shadow_only": true
   }
 }
