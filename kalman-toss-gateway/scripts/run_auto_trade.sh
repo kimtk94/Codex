@@ -42,6 +42,9 @@ PY
   # a new entry. If Neon/audit sync fails, the cycle stops before BUY.
   "$PY" -m engine.benchmark_ledger
   "$PY" -m engine.trade_mirror
+  if ! "$PY" -m engine.execution_cost_calibrator; then
+    echo "EXECUTION_COST_CALIBRATION_WARN_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fi
 
   if [ "$HOLDINGS_EVAL_OK" -ne 1 ] || [ "$HOLDINGS_REVIEW_BLOCK" -eq 1 ]; then
     exit 0

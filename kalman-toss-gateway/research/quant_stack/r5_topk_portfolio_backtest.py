@@ -953,6 +953,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--cost-bps", type=float, default=10.0)
     parser.add_argument(
+        "--universe-contract",
+        choices=("AUTO", "STATIC", "PIT_CONSERVATIVE", "PIT_FULL"),
+        default="AUTO",
+        help="Validity label for the ranking universe; PIT_CONSERVATIVE remains promotion-blocked.",
+    )
+    parser.add_argument(
         "--entry-lag-bars",
         type=int,
         default=1,
@@ -1066,6 +1072,26 @@ def main() -> int:
         index=False,
     )
 
+    promotion_block_reasons = []
+    universe_contract = str(args.universe_contract).upper()
+    if universe_contract == "PIT_CONSERVATIVE":
+        promotion_block_reasons.append("PIT_CONSERVATIVE_NOT_FULL_UNIVERSE")
+    elif universe_contract == "STATIC":
+        promotion_block_reasons.append("STATIC_UNIVERSE")
+    elif universe_contract == "AUTO" and universe_validity.get("survivorship_risk") == "HIGH":
+        promotion_block_reasons.append("STATIC_UNIVERSE")
+    elif universe_contract == "PIT_FULL" and universe_validity.get("survivorship_risk") == "HIGH":
+        promotion_block_reasons.append("PIT_FULL_CONTRACT_INCONSISTENT_WITH_AUDIT")
+
+    if float(args.cost_bps) < CANONICAL_IMPLIED_ROUND_TRIP_BPS:
+        promotion_block_reasons.append("COST_BELOW_CANONICAL_REFERENCE")
+
+    promotion_gate = (
+        "BLOCK_" + "_AND_".join(promotion_block_reasons)
+        if promotion_block_reasons
+        else "REVIEW"
+    )
+
     status = {
         "schema_version": SCHEMA_VERSION,
         "status": "COMPLETE",
@@ -1093,6 +1119,7 @@ def main() -> int:
                 float(args.cost_bps) < CANONICAL_IMPLIED_ROUND_TRIP_BPS
             ),
         },
+        "universe_contract": universe_contract,
         "universe_validity": {
             "survivorship_risk": universe_validity.get("survivorship_risk"),
             "constant_membership": universe_validity.get("constant_membership"),
@@ -1104,12 +1131,8 @@ def main() -> int:
             ),
             "interpretation": universe_validity.get("interpretation"),
         },
-        "promotion_gate": (
-            "BLOCK_STATIC_UNIVERSE_AND_COST_VALIDATION"
-            if universe_validity.get("survivorship_risk") == "HIGH"
-            or float(args.cost_bps) < CANONICAL_IMPLIED_ROUND_TRIP_BPS
-            else "REVIEW"
-        ),
+        "promotion_block_reasons": promotion_block_reasons,
+        "promotion_gate": promotion_gate,
         "common_admissions": int(len(panel)),
         "rejected_admissions": int(len(rejected)),
         "friday_flat_count": (

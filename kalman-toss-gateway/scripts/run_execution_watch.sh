@@ -46,6 +46,9 @@ PY
   fi
 
   "$PY" -m engine.trade_mirror
+  if ! "$PY" -m engine.execution_cost_calibrator; then
+    echo "EXECUTION_COST_CALIBRATION_WARN_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fi
 
   # Research-only early-session observer. It records hypothetical 5K + 5K
   # OPEN_CARRY entries and never submits broker orders. Failure here must not

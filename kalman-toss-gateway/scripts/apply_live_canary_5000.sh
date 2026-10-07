@@ -28,7 +28,8 @@ python3 -m py_compile \
   "$SRC/engine/auto_trade.py" \
   "$SRC/engine/position_manager.py" \
   "$SRC/engine/benchmark_ledger.py" \
-  "$SRC/engine/trade_mirror.py"
+  "$SRC/engine/trade_mirror.py" \
+  "$SRC/engine/execution_cost_calibrator.py"
 
 rm -rf "$STAGE"
 install -d -m 0755 "$STAGE"
