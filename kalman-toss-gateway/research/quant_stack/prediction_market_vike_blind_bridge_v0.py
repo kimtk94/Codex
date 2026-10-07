@@ -630,6 +630,23 @@ def main() -> int:
             audit["date"] = date
             audit["status"] = "AGGREGATED"
             partition_audit.append(audit)
+        except RuntimeError as exc:
+            payload["partitions"] = partition_audit
+            payload["failed_partition"] = {
+                "date": date,
+                "url": url,
+                "expected_bytes": int(row["bytes"]),
+            }
+            payload["error"] = str(exc)
+            payload["status"] = (
+                "VIKE_SERVICE_UNAVAILABLE"
+                if "HTTP 500" in str(exc)
+                else "VIKE_ARCHIVE_DOWNLOAD_FAILED"
+            )
+            payload["oos_source_allowed"] = False
+            write_json_atomic(status_path, payload)
+            print(json.dumps(payload, indent=2, default=str))
+            return 2
         finally:
             raw.unlink(missing_ok=True)
 
