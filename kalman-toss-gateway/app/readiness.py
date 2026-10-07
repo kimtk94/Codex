@@ -7,6 +7,12 @@ from app.config import Settings
 from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
+from engine.execution_boundary import (
+    CONDITIONAL_CONFIRM_TOKENS,
+    READINESS_POLICIES,
+    TOP1_CONFIRM_TOKEN,
+    r5_live_strategy_locked,
+)
 from engine.auto_trade import (
     TARGET_EXIT_BUCKETS,
     _entry_exit_window_check,
@@ -34,16 +40,21 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
     policy = os.environ.get("AUTO_TRADE_SIGNAL_POLICY", "APPROVED_ONLY").strip().upper()
     strategy_version = os.environ.get("AUTO_TRADE_STRATEGY_VERSION", "").strip() or None
     require_flat = _enabled("AUTO_TRADE_REQUIRE_ACCOUNT_FLAT", "true")
-    valid_policies = {"APPROVED_ONLY", "SHADOW_CANARY", "R5_LIVE_CONDITIONAL"}
+    valid_policies = READINESS_POLICIES
     shadow_confirmed = (
         policy != "SHADOW_CANARY"
         or os.environ.get("AUTO_TRADE_SHADOW_CONFIRM", "") == "CONFIRM_SHADOW_CANARY"
     )
+    top1_confirmed = (
+        policy != "R5_LIVE_TOP1"
+        or os.environ.get("AUTO_TRADE_OVERLAP_CONFIRM", "") == TOP1_CONFIRM_TOKEN
+    )
     conditional_confirmed = (
         policy != "R5_LIVE_CONDITIONAL"
         or os.environ.get("AUTO_TRADE_CONDITIONAL_CONFIRM", "")
-        == "CONFIRM_R5_LIVE_CONDITIONAL_20000"
+        in CONDITIONAL_CONFIRM_TOKENS
     )
+    r5_strategy_locked = r5_live_strategy_locked(policy, strategy_version)
 
     signal = None
     signal_error = None
@@ -92,7 +103,9 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         "execution_mode_live": mode == "LIVE",
         "strategy_locked": bool(strategy_version),
         "signal_policy_valid": policy in valid_policies,
+        "r5_strategy_locked": r5_strategy_locked,
         "shadow_confirmed": shadow_confirmed,
+        "top1_confirmed": top1_confirmed,
         "conditional_confirmed": conditional_confirmed,
         "live_gate_open": settings.live_gate_open,
         "eligible_signal_found": signal is not None,
@@ -110,7 +123,9 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         ("execution_mode_live", "EXECUTION_MODE_NOT_LIVE"),
         ("strategy_locked", "STRATEGY_VERSION_NOT_LOCKED"),
         ("signal_policy_valid", "SIGNAL_POLICY_INVALID"),
+        ("r5_strategy_locked", "R5_LIVE_STRATEGY_MISMATCH"),
         ("shadow_confirmed", "SHADOW_CANARY_CONFIRMATION_MISSING"),
+        ("top1_confirmed", "R5_LIVE_TOP1_CONFIRMATION_MISSING"),
         ("conditional_confirmed", "R5_CONDITIONAL_CONFIRMATION_MISSING"),
         ("live_gate_open", "LIVE_GATE_CLOSED"),
         ("eligible_signal_found", "NO_ELIGIBLE_SIGNAL"),
