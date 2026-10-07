@@ -192,7 +192,7 @@ def test_public_fallback_stays_shadow_quality_in_config():
     cfg_path = Path(__file__).parents[1] / "config" / "macro-event-features-v1.json"
     cfg = json.loads(cfg_path.read_text())
     public = cfg["intraday_us2y"]["public_chart_fallback"]
-    assert cfg["version"] == "macro-event-feature-v1.11.0"
+    assert cfg["version"] == "macro-event-feature-v1.12.0"
     assert public["enabled"] is True
     assert public["interval"] == "5m"
     assert public["quality"] == "PUBLIC_WEB_CHART_5M_SHADOW"

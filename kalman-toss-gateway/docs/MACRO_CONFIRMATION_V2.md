@@ -211,3 +211,71 @@ Fallback quality gates:
 A live no-key probe on 2026-10-08 KST returned 247 recent US2Y observations,
 with the public chart provider identified explicitly and trade execution
 disabled.
+
+
+## Keyless public consensus calendar fallback
+
+The public Trading Economics United States calendar exposes separate columns
+for:
+
+- Actual
+- Previous
+- Consensus
+- Forecast
+
+Kalman treats the public page's `Consensus` column as the market consensus.
+The separate `Forecast` column is retained as `te_forecast` metadata only
+and is never substituted when Consensus is blank.
+
+This distinction is critical for CPI/PCE research.
+
+### Point-in-time freeze
+
+The public calendar fallback is designed prospectively.
+
+Before a scheduled release:
+
+- only rows with a non-empty Consensus are eligible
+- actual remains null
+- the latest observed pre-release Consensus may update as the market consensus changes
+- the exact collection timestamp is stored as `consensus_captured_at`
+- database `available_at` is set to the scheduled release time so the model cannot consume the row before release
+
+At and after release:
+
+- Actual may be populated
+- newly observed post-release Consensus is ignored
+- the previously captured pre-release Consensus remains frozen
+- if no pre-release Consensus was captured, Consensus remains null and no
+  actual-minus-consensus surprise is created
+
+This prevents retrospective consensus leakage.
+
+### Provider priority
+
+For structured release surprise data:
+
+1. authenticated Trading Economics calendar API, when configured
+2. public Trading Economics US calendar page
+3. no consensus surprise
+
+The public fallback is US-only. It does not fabricate Korean consensus data.
+
+Quality label:
+
+`PUBLIC_WEB_CALENDAR_POINT_IN_TIME_SHADOW`
+
+The fallback is undocumented web-page infrastructure and therefore remains
+research/shadow-only.
+
+### 2026-10-08 audit snapshot
+
+The public calendar parser identified 285 US calendar rows and 15 configured
+future target events. At the audit timestamp:
+
+- Initial Jobless Claims for October 8: Consensus = 200K
+- October 14 CPI/Core CPI: Consensus still blank; TE Forecast values present
+- October 29 Core PCE MoM/YoY: Consensus still blank; TE Forecast values present
+
+The parser correctly leaves CPI/PCE consensus null rather than using the TE
+Forecast column.

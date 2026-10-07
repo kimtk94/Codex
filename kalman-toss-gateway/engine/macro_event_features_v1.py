@@ -1050,7 +1050,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.11",
+        "schema_version": "macro-event-feature-v1.12",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),

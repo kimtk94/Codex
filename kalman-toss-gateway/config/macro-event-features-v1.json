@@ -1,5 +1,5 @@
 {
-  "version": "macro-event-feature-v1.11.0",
+  "version": "macro-event-feature-v1.12.0",
   "feature_version": "macro-event-feature-v1",
   "lookback_hours": 72,
   "half_life_hours": {
@@ -249,6 +249,15 @@
           "GDP Growth Rate": "KR_GDP_QOQ"
         }
       }
+    },
+    "runtime_enabled_default": true,
+    "public_calendar_fallback": {
+      "enabled": true,
+      "url": "https://tradingeconomics.com/united-states/calendar",
+      "timeout_seconds": 20,
+      "quality": "PUBLIC_WEB_CALENDAR_POINT_IN_TIME_SHADOW",
+      "pre_release_consensus_only": true,
+      "post_release_consensus_ignored": true
     }
   },
   "us_reaction_anchor_sources": [
