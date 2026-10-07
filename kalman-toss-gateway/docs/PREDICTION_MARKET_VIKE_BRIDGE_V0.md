@@ -2,118 +2,120 @@
 
 Date: 2026-10-07 KST
 
-## Purpose
+## Why this bridge exists
 
-The original frozen prediction-market discovery dataset ends at
-`2026-09-13T11:50:00Z`. Vike exposes a separate Polymarket L1 archive that
-continues beyond that date. This bridge is designed to determine whether Vike
-can be used as a measurement-compatible OOS continuation without retuning the
-frozen hypothesis.
+The frozen discovery archive ends at `2026-09-13T11:50:00Z`. Vike's public
+manifest shows Polymarket archive coverage through `2026-10-06`, so it can
+potentially provide a true OOS continuation.
 
-Vike data is **not** admitted to confirmatory OOS merely because it is newer.
-It must first pass the frozen measurement bridge.
+The original implementation attempted to use Vike
+`/v1/polymarket/markets` for slug-to-token metadata. On 2026-10-07 that
+endpoint returned HTTP 500 even though the public archive manifest remained
+available. Authentication was therefore not treated as failed, and bridge
+thresholds were not relaxed.
 
-## Public source facts observed on 2026-10-07
+The active implementation no longer depends on the Vike market-directory API.
 
-Public manifest:
+## Archive-only identity design
 
-`https://data.vike.io/archive/manifest.json`
-
-Observed:
-
-- manifest generated: `2026-10-07T00:45:08Z`
-- license: CC BY 4.0
-- archive coverage: 2026-07-25 through 2026-10-06
-- family layout used here: `asset=other/tenor=other`
-- stream used here: `l1_quotes`
-- post-discovery dates available: 23 days, 2026-09-14 through 2026-10-06
-- post-discovery L1 size: 4.799 GB
-- overlap window for bridge: 2026-09-08 through 2026-09-13
-- overlap L1 size: 1.128 GB
-- overlap reference contains 12 INFLATION_UPSIDE market slugs
-
-The open Vike evaluation sample confirms the actual L1 parquet schema:
+Vike L1 parquet contains:
 
 `token_id, condition_id, ts, local_ts, bid, ask, bid_size, ask_size`
 
-and confirms that `ts` is epoch milliseconds.
+The original Dinesh archive contains the CPI slug probability series. The bridge
+uses temporal overlap to identify the corresponding Vike condition/token
+without relying on market metadata.
 
-## Frozen bridge specification
+To avoid circular validation, the overlap is split before authenticated archive
+data is inspected:
+
+### Identity train
+
+- `2026-09-08T00:00:00Z` through `2026-09-09T23:50:00Z`
+- used only to map each frozen CPI slug to a Vike condition/token
+- matching statistic: 10-minute midpoint MAE + correlation
+- one best token is chosen per condition before conditions are ranked
+
+### Holdout validation
+
+- `2026-09-10T00:00:00Z` through `2026-09-11T09:00:00Z`
+- not used for identity selection
+- contains 2,240 frozen reference points across 12 CPI slugs
+- contains exactly 5 reference 15pp+ one-hour shocks
+- used for the actual measurement bridge gate
+
+Only four Vike daily L1 partitions are now required: 2026-09-08 through
+2026-09-11. Based on the public manifest this is about 0.724 GB rather than the
+previous 1.128 GB six-day plan.
+
+## Frozen bridge spec
 
 Config:
 
 `config/prediction-market-vike-bridge-v0.json`
 
-SHA256:
+Current SHA256:
 
-`046e2af8e3bfbe0aede53ed07e187a841c63cd5bfc4ef33be0a0f267c3f5d768`
+`a00876c8a506872d73a0138b23e47f1c03684df436138e77ca9ca87639444e11`
 
-Market discovery queries are frozen as:
+This SHA was created after the Vike market-directory HTTP 500 and before any
+authenticated Vike archive partition was inspected.
 
-- `cpi`
-- `inflation`
-- `consumer-price`
+### Identity gate
 
-Only markets classified as:
+For every frozen CPI slug:
 
-- theme: `INFLATION`
-- semantic channel: `INFLATION_UPSIDE`
+- training matched points >= 150
+- training MAE <= 0.03
+- training correlation >= 0.95
+- MAE margin versus the second-best distinct condition >= 0.005
+- selected condition IDs must be unique across slugs
 
-are eligible for this first bridge.
+Any identity ambiguity causes `IDENTITY_BRIDGE_FAIL`.
 
-The overlap is canonicalized to 10-minute last L1 quote per token. For each
-shared market, the bridge independently compares token position 0 and token
-position 1 with the original discovery probability series and selects the
-orientation with lower MAE. This avoids assuming outcome-token ordering.
+### Holdout bridge gate
 
-The bridge passes only if all of these predeclared gates pass:
+All must pass:
 
 - shared markets >= 8
-- matched 10-minute points >= 1,000
-- token-position orientation consistency >= 90%
+- matched holdout points >= 1,000
 - median per-market probability MAE <= 0.03
 - pooled probability correlation >= 0.95
-- median absolute 1-hour-delta difference <= 0.02
-- discovery 15pp shock pairs >= 5
-- sign agreement on those shock pairs >= 90%
+- median absolute one-hour delta difference <= 0.02
+- 15pp shock pairs >= 5
+- shock-direction agreement >= 90%
 
-These thresholds are frozen before authenticated Vike data is accessed. They
-must not be relaxed after seeing the bridge result.
+A failed gate is not retuned.
+
+## Download and aggregation
+
+The active runner downloads only
+`asset=other/tenor=other/l1_quotes.parquet` partitions for the four overlap
+dates. Each raw partition is immediately reduced with DuckDB to the last
+bid/ask midpoint in each 10-minute bucket by condition/token, then the raw
+partition is deleted.
+
+This avoids retaining or loading the full L1 archive in Python memory.
 
 ## Safety
 
-Even `BRIDGE_PASS` only means that Vike is measurement-compatible enough to
-be considered as an OOS input source. It does not:
+`BRIDGE_PASS` only permits Vike to become a confirmatory OOS input source. It
+does not:
 
 - change `PMOOS-INFLATION-UP-QQQ-7B-V1`
-- change the 15pp threshold
+- change the 15pp shock threshold
 - change QQQ
 - change the 7-bar horizon
-- change the 90-minute entry-lag rule
-- alter R5.x
-- submit trades
-- auto-promote any signal
+- change the <=90 minute entry-lag rule
+- modify R5.x
+- place trades
+- auto-promote a signal
 
-A failed bridge means Vike is not used for this frozen OOS cycle.
+## Current execution
 
-## Current status
+Do not paste the Vike API key into chat or commit it.
 
-Without an authenticated Vike key, the public probe returns:
-
-`WAITING_FOR_VIKE_KEY`
-
-This is expected and fail-closed.
-
-Local regression:
-
-- Vike bridge tests: 6 passed
-- Vike bridge + fetch tests: 10 passed
-
-## One-time authenticated bridge run
-
-Do not paste the Vike key into chat or commit it.
-
-From the server:
+Run:
 
 ```bash
 cd /home/taehoon/Codex-PREDICTION-MARKET-20261007/kalman-toss-gateway
@@ -127,13 +129,12 @@ bash scripts/run_prediction_market_vike_overlap_v0.sh
 unset VIKE_API_KEY
 ```
 
-The fetcher downloads only the six overlap-family L1 partitions, filters them
-down to the discovered target CPI/inflation token IDs, discards the temporary
-full partitions, combines the filtered rows, and runs the frozen bridge.
+The command now performs:
+
+`authenticated archive download -> DuckDB 10m aggregation -> blind train mapping -> holdout bridge validation`
+
+It does not call `/v1/polymarket/markets`.
 
 Primary result:
 
 `/home/taehoon/kalman-data/prediction-market/vike-bridge-v0/bridge_status.json`
-
-Only after `BRIDGE_PASS` should the post-2026-09-13 Vike partitions be
-canonicalized for confirmatory OOS.
