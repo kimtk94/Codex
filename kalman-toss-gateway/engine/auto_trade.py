@@ -26,6 +26,11 @@ from app.executor import TradeLedger, execute_order, prepare_order
 from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
+from engine.execution_boundary import (
+    AUTO_TRADE_ENTRY_POLICIES,
+    TOP1_CONFIRM_TOKEN,
+    r5_live_strategy_locked,
+)
 
 TARGET_EXIT_BUCKETS = 4
 QTY_TOLERANCE = Decimal('0.00000001')
@@ -459,7 +464,7 @@ async def main_async() -> int:
         raise RuntimeError('AUTO_TRADE_EXECUTION_MODE must be DRY_RUN or LIVE')
 
     policy = os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').strip().upper()
-    if policy not in {'APPROVED_ONLY', 'SHADOW_CANARY', 'R5_LIVE_TOP1'}:
+    if policy not in AUTO_TRADE_ENTRY_POLICIES:
         raise RuntimeError(
             'AUTO_TRADE_SIGNAL_POLICY must be APPROVED_ONLY, SHADOW_CANARY or R5_LIVE_TOP1'
         )
@@ -468,12 +473,15 @@ async def main_async() -> int:
     if mode == 'LIVE' and not strategy_version:
         print('LIVE_STRATEGY_VERSION_NOT_LOCKED')
         return 2
+    if mode == 'LIVE' and not r5_live_strategy_locked(policy, strategy_version):
+        print('R5_LIVE_STRATEGY_MISMATCH')
+        return 2
     if mode == 'LIVE' and policy == 'SHADOW_CANARY':
         if os.environ.get('AUTO_TRADE_SHADOW_CONFIRM', '') != 'CONFIRM_SHADOW_CANARY':
             print('SHADOW_CANARY_CONFIRMATION_MISSING')
             return 2
     if mode == 'LIVE' and policy == 'R5_LIVE_TOP1':
-        if os.environ.get('AUTO_TRADE_OVERLAP_CONFIRM', '') != 'CONFIRM_R5_LIVE_TOP1':
+        if os.environ.get('AUTO_TRADE_OVERLAP_CONFIRM', '') != TOP1_CONFIRM_TOKEN:
             print('R5_LIVE_TOP1_CONFIRMATION_MISSING')
             return 2
 
