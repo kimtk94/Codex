@@ -24,7 +24,9 @@ def test_rss_timestamp_and_macro_classification():
     <pubDate>Fri, 18 Sep 2026 12:30:00 GMT</pubDate>
     </item></channel></rss>"""
     row = parse_feed(raw, "bls_cpi", (Entity("GLOBAL", "GLOBAL", 1.0, "test"),))[0]
-    assert row.time_quality == "PUBLISHER_TS"
+    assert row.time_quality == "FIRST_SEEN_TS"
+    assert row.available_at == row.first_seen_at
+    assert row.published_at is not None
     assert event_classify(row.title, row.source, {})[0] == "MACRO"
 
 
