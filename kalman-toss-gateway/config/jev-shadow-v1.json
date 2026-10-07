@@ -1,5 +1,5 @@
 {
-  "version": "jev-shadow-v1.0",
+  "version": "jev-shadow-v1.2",
   "market": "US",
   "strategy_version": "R5.1_BASE_HGB",
   "model": "typesafe-ai/jev",

@@ -27,13 +27,31 @@ class JevShadowDecisionV1Tests(unittest.TestCase):
                 "r5_rank": 1,
                 "private_or_unknown": "do-not-send",
             },
+            "dashboard_top3": [
+                {"rank": 1, "symbol": "AMD", "model_score": 0.0008, "universe_size": 93,
+                 "score_semantics": "PREDICTED_RELATIVE_RET_4B_NOT_PROBABILITY"},
+                {"rank": 2, "symbol": "MSFT", "model_score": 0.0005, "universe_size": 93},
+                {"rank": 3, "symbol": "NVDA", "model_score": 0.0004, "universe_size": 93},
+            ],
         }
         state = build_state(signal)
         encoded = str(state)
         self.assertNotIn("AMD", encoded)
+        self.assertNotIn("MSFT", encoded)
+        self.assertNotIn("NVDA", encoded)
         self.assertNotIn("2026-10-07", encoded)
         self.assertNotIn("private_or_unknown", encoded)
         self.assertAlmostEqual(state["signal"]["probability_margin"], 0.20)
+        self.assertEqual(state["signal"]["r5_rank"], 1)
+        self.assertAlmostEqual(state["signal"]["r5_score"], 0.0008)
+        self.assertAlmostEqual(state["signal"]["r5_score_bps"], 8.0)
+        self.assertAlmostEqual(state["signal"]["top1_top2_gap"], 0.0003)
+        self.assertAlmostEqual(state["signal"]["top1_top2_gap_bps"], 3.0)
+        self.assertAlmostEqual(state["signal"]["top1_top3_gap"], 0.0004)
+        self.assertAlmostEqual(state["signal"]["top1_top3_gap_bps"], 4.0)
+        self.assertEqual(state["signal"]["universe_size"], 93)
+        self.assertEqual(state["contract"]["holding_horizon_bars"], 4)
+        self.assertEqual(state["contract"]["assumed_total_cost_bps"], 10.0)
 
     def test_normalizes_choice_boolean_and_score(self):
         result = {

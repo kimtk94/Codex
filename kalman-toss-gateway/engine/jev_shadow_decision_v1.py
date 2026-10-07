@@ -13,7 +13,9 @@ from typing import Any
 
 
 UTC = timezone.utc
-EVAL_VERSION = "jev-shadow-decision-v1"
+EVAL_VERSION = "jev-shadow-decision-v1.2"
+R51_HORIZON_BARS = 4
+R51_COST_BPS = 10.0
 DEFAULT_MODEL = "typesafe-ai/jev"
 DEFAULT_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate"
 DEFAULT_KEY_FILE = "/home/taehoon/.config/kalman/secure/jev_gateway_key_create.out"
@@ -101,6 +103,8 @@ SIGNAL_PAYLOAD_KEYS = (
     "shadow_direction",
     "shadow_entry_this_signal",
     "model_quality",
+    "evidence_confidence",
+    "market_risk",
     "selected_feature_count",
     "missing_feature_count",
     "missing_feature_ratio",
@@ -149,6 +153,49 @@ def build_state(
     if probability is not None and threshold is not None:
         signal_features["probability_margin"] = round(probability - threshold, 8)
 
+    dashboard_top3 = signal.get("dashboard_top3")
+    if not isinstance(dashboard_top3, list):
+        dashboard_top3 = []
+    candidate_symbol = str(signal.get("symbol") or "")
+    ranked_scores: dict[int, float] = {}
+    candidate_row: dict[str, Any] | None = None
+    for row in dashboard_top3:
+        if not isinstance(row, dict):
+            continue
+        rank_value = _float(row.get("rank"))
+        score_value = _float(row.get("model_score"))
+        if rank_value is not None and score_value is not None:
+            ranked_scores[int(rank_value)] = score_value
+        if str(row.get("symbol") or "") == candidate_symbol:
+            candidate_row = row
+
+    if candidate_row is not None:
+        candidate_rank = _float(candidate_row.get("rank"))
+        candidate_score = _float(candidate_row.get("model_score"))
+        universe_size = _float(candidate_row.get("universe_size"))
+        score_semantics = _scalar(candidate_row.get("score_semantics"))
+        if candidate_rank is not None:
+            signal_features["r5_rank"] = int(candidate_rank)
+        if candidate_score is not None:
+            signal_features["r5_score"] = candidate_score
+            signal_features["r5_score_bps"] = candidate_score * 10000.0
+        if universe_size is not None:
+            signal_features["universe_size"] = int(universe_size)
+        if score_semantics is not None:
+            signal_features["score_semantics"] = score_semantics
+
+    for rank in (1, 2, 3):
+        if rank in ranked_scores:
+            signal_features[f"top{rank}_score"] = ranked_scores[rank]
+    if 1 in ranked_scores and 2 in ranked_scores:
+        gap12 = ranked_scores[1] - ranked_scores[2]
+        signal_features["top1_top2_gap"] = gap12
+        signal_features["top1_top2_gap_bps"] = gap12 * 10000.0
+    if 1 in ranked_scores and 3 in ranked_scores:
+        gap13 = ranked_scores[1] - ranked_scores[3]
+        signal_features["top1_top3_gap"] = gap13
+        signal_features["top1_top3_gap_bps"] = gap13 * 10000.0
+
     macro_features_safe = {
         key: value
         for key in MACRO_FEATURE_KEYS
@@ -163,6 +210,8 @@ def build_state(
             "candidate_identity_blinded": True,
             "absolute_time_blinded": True,
             "live_execution_authority": False,
+            "holding_horizon_bars": R51_HORIZON_BARS,
+            "assumed_total_cost_bps": R51_COST_BPS,
             "instruction": (
                 "Use only the supplied state. Do not infer asset-specific facts, news, "
                 "or future outcomes from outside knowledge."
@@ -188,7 +237,7 @@ def evaluation_questions() -> dict[str, Any]:
             "type": "choice",
             "instructions": (
                 "Using only the supplied state, classify support for a long entry over "
-                "the strategy's existing short holding horizon after ordinary trading costs."
+                "the supplied holding_horizon_bars after subtracting the supplied assumed_total_cost_bps."
             ),
             "criteria": {
                 "SUPPORT": "The supplied evidence materially supports the long entry.",
@@ -200,8 +249,8 @@ def evaluation_questions() -> dict[str, Any]:
             "type": "boolean",
             "instructions": (
                 "Diagnostic only, not an execution gate. Using only the supplied state, "
-                "is the expected net return of taking this long entry over the strategy's "
-                "existing holding horizon more likely to be above zero than at or below zero?"
+                "after subtracting assumed_total_cost_bps from the expected return over "
+                "holding_horizon_bars, is net expected return more likely above zero than at or below zero?"
             ),
         },
         "regime": {
@@ -399,6 +448,8 @@ def fetch_candidates(conn: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
           s.risk_gate,
           s.position_state,
           s.payload,
+          d.payload->'top3' AS dashboard_top3,
+          d.payload->'summary' AS dashboard_summary,
           m.as_of AS macro_as_of,
           m.coverage_confidence,
           m.features AS macro_features
@@ -551,7 +602,9 @@ def sync(config: dict[str, Any]) -> dict[str, Any]:
     counts = {"seen": 0, "ready": 0, "api_error": 0}
 
     with psycopg.connect(db_url, row_factory=dict_row, connect_timeout=15) as conn:
-        if conn.execute("SELECT to_regclass('public.jev_shadow_decision_v1')").fetchone()[0] is None:
+        if conn.execute(
+            "SELECT to_regclass('public.jev_shadow_decision_v1') AS rel"
+        ).fetchone()["rel"] is None:
             raise RuntimeError(
                 "public.jev_shadow_decision_v1 is missing; apply research/quant_stack/jev_shadow_decision_v1.sql"
             )
