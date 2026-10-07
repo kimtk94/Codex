@@ -1050,7 +1050,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.10",
+        "schema_version": "macro-event-feature-v1.11",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -1150,6 +1150,13 @@ def build_feature_payload(
         "intraday_us2y_confirmation_horizon": intraday_horizon_key,
         "intraday_us2y_confirmation_bps": intraday_reaction_bps,
         "intraday_us2y_confirmation_z": intraday_reaction_z,
+        "intraday_us2y_fallback_used": intraday_us2y.get("fallback_used"),
+        "intraday_us2y_primary_provider_status": intraday_us2y.get(
+            "primary_provider_status"
+        ),
+        "intraday_us2y_data_min_ts": intraday_us2y.get("data_min_ts"),
+        "intraday_us2y_data_max_ts": intraday_us2y.get("data_max_ts"),
+        "intraday_us2y_cache_time": intraday_us2y.get("cache_time"),
         "policy_proxy_series": str(
             fred_cfg.get("policy_proxy_series_id", "DFF")
         ),

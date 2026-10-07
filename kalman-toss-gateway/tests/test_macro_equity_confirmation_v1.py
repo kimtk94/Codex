@@ -118,7 +118,7 @@ def test_module_has_no_execution_side_effects():
 def test_production_config_keeps_pce_and_equity_shadow_only():
     cfg_path = Path(__file__).parents[1] / "config" / "macro-event-features-v1.json"
     cfg = json.loads(cfg_path.read_text())
-    assert cfg["version"] == "macro-event-feature-v1.10.0"
+    assert cfg["version"] == "macro-event-feature-v1.11.0"
     assert cfg["event_scoring"]["indicator_family"]["CORE_PCE_MOM"] == "PCE"
     assert cfg["event_scoring"]["indicator_family"]["CORE_PCE_YOY"] == "PCE"
     assert cfg["event_scoring"]["weights"]["PCE"] == {
@@ -141,3 +141,12 @@ def test_production_config_intraday_us2y_is_shadow_only():
     assert intraday["confirmation_horizon"] == "15m"
     assert intraday["shadow_only"] is True
     assert intraday["quality"] == "DELAYED_INTRADAY_RESEARCH"
+
+
+def test_production_config_public_us2y_fallback_is_shadow_only():
+    cfg_path = Path(__file__).parents[1] / "config" / "macro-event-features-v1.json"
+    cfg = json.loads(cfg_path.read_text())
+    public = cfg["intraday_us2y"]["public_chart_fallback"]
+    assert public["enabled"] is True
+    assert public["interval"] == "5m"
+    assert public["quality"] == "PUBLIC_WEB_CHART_5M_SHADOW"

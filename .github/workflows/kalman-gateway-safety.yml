@@ -25,6 +25,7 @@ on:
       - "kalman-toss-gateway/scripts/run_macro_event_features_v1.sh"
       - "kalman-toss-gateway/scripts/probe_macro_intraday_us2y_v1.sh"
       - "kalman-toss-gateway/scripts/deploy_macro_confirmation_v110.sh"
+      - "kalman-toss-gateway/scripts/deploy_macro_confirmation_v111.sh"
       - "kalman-toss-gateway/scripts/install_macro_event_features_v1.sh"
       - "kalman-toss-gateway/tests/test_macro_event_features_v1.py"
       - "kalman-toss-gateway/tests/test_macro_equity_confirmation_v1.py"
@@ -78,6 +79,7 @@ on:
       - "kalman-toss-gateway/scripts/run_macro_event_features_v1.sh"
       - "kalman-toss-gateway/scripts/probe_macro_intraday_us2y_v1.sh"
       - "kalman-toss-gateway/scripts/deploy_macro_confirmation_v110.sh"
+      - "kalman-toss-gateway/scripts/deploy_macro_confirmation_v111.sh"
       - "kalman-toss-gateway/scripts/install_macro_event_features_v1.sh"
       - "kalman-toss-gateway/tests/test_macro_event_features_v1.py"
       - "kalman-toss-gateway/tests/test_macro_equity_confirmation_v1.py"
@@ -150,6 +152,7 @@ jobs:
           bash -n scripts/run_macro_event_features_v1.sh
           bash -n scripts/probe_macro_intraday_us2y_v1.sh
           bash -n scripts/deploy_macro_confirmation_v110.sh
+          bash -n scripts/deploy_macro_confirmation_v111.sh
           bash -n scripts/install_macro_event_features_v1.sh
           bash -n scripts/run_macro_shadow_eval_v1.sh
           bash -n scripts/install_macro_shadow_eval_v1.sh

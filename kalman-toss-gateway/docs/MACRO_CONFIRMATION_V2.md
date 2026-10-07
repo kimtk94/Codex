@@ -169,3 +169,45 @@ If the existing Trading Economics subscription does not include US2Y
 intraday, Twelve Data `US2Y` is the first fallback candidate. It exposes the
 instrument as `US Treasury Yield 2 Years` and its time-series API supports
 1-minute intervals, but account entitlement must be verified separately.
+
+
+## Keyless public 5-minute US2Y fallback
+
+The public Trading Economics US 2-year note page exposes chart metadata for
+`USGG2YR:IND` and lists 5/15/30/60-minute chart resolutions. Its web chart
+loads a public CloudFront chart datasource without requiring the account API
+credential.
+
+Kalman can use that datasource only as a prospective shadow fallback when the
+authenticated Trading Economics API is unconfigured or unavailable.
+
+Provider priority:
+
+1. authenticated Trading Economics 1-minute intraday API
+2. Trading Economics public web chart 5-minute datasource
+3. block intraday confirmation
+
+The fallback is explicitly labelled:
+
+`PUBLIC_WEB_CHART_5M_SHADOW`
+
+It is not treated as the documented Trading Economics API and is not suitable
+for production promotion because the web-chart contract is undocumented and
+may change.
+
+The chart payload is the same encoded payload consumed by the public page.
+Kalman decodes it using the obfuscation/decompression procedure present in the
+public chart JavaScript and extracts only the USGG2YR:IND OHLC series.
+
+Fallback quality gates:
+
+- baseline strictly precedes the macro release
+- baseline gap <= 10 minutes
+- first observation at/after each reaction horizon
+- post-target gap <= 10 minutes
+- source range must actually contain the event
+- no DGS2 substitution when the public chart is missing or stale
+
+A live no-key probe on 2026-10-08 KST returned 247 recent US2Y observations,
+with the public chart provider identified explicitly and trade execution
+disabled.
