@@ -1086,6 +1086,16 @@ def main() -> int:
     if float(args.cost_bps) < CANONICAL_IMPLIED_ROUND_TRIP_BPS:
         promotion_block_reasons.append("COST_BELOW_CANONICAL_REFERENCE")
 
+    top1_summary = None
+    if len(summary):
+        top1_rows = summary.loc[summary["portfolio"].eq("TOP1")]
+        if not top1_rows.empty:
+            top1_summary = top1_rows.iloc[0].to_dict()
+            if float(top1_summary.get("cagr") or 0.0) <= 0.0:
+                promotion_block_reasons.append("TOP1_NONPOSITIVE_CAGR")
+            if float(top1_summary.get("total_return") or 0.0) <= 0.0:
+                promotion_block_reasons.append("TOP1_NONPOSITIVE_TOTAL_RETURN")
+
     promotion_gate = (
         "BLOCK_" + "_AND_".join(promotion_block_reasons)
         if promotion_block_reasons
