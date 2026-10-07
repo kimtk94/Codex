@@ -22,6 +22,7 @@ on:
       - "kalman-toss-gateway/research/quant_stack/prediction_market_vike_blind_bridge_v0.py"
       - "kalman-toss-gateway/research/quant_stack/prediction_market_vike_fetch_v0.py"
       - "kalman-toss-gateway/research/quant_stack/prediction_market_us_live_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_us_oos_ledger_v0.py"
       - "kalman-toss-gateway/research/quant_stack/qqq_1h_iex_updater_v0.py"
       - "kalman-toss-gateway/scripts/run_prediction_market_layer_v0.sh"
       - "kalman-toss-gateway/scripts/fetch_prediction_market_archive_v0.sh"
@@ -45,6 +46,7 @@ on:
       - "kalman-toss-gateway/tests/test_prediction_market_vike_blind_bridge_v0.py"
       - "kalman-toss-gateway/tests/test_prediction_market_vike_fetch_v0.py"
       - "kalman-toss-gateway/tests/test_prediction_market_us_live_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_us_oos_ledger_v0.py"
       - "kalman-toss-gateway/tests/test_qqq_1h_iex_updater_v0.py"
       - "kalman-toss-gateway/tests/fixtures/prediction_market_sample.json"
       - ".github/workflows/kalman-prediction-market-v0.yml"
@@ -85,6 +87,7 @@ jobs:
           python -m py_compile research/quant_stack/prediction_market_vike_blind_bridge_v0.py
           python -m py_compile research/quant_stack/prediction_market_vike_fetch_v0.py
           python -m py_compile research/quant_stack/prediction_market_us_live_v0.py
+          python -m py_compile research/quant_stack/prediction_market_us_oos_ledger_v0.py
           python -m py_compile research/quant_stack/qqq_1h_iex_updater_v0.py
 
       - name: Validate shell syntax
@@ -172,6 +175,7 @@ jobs:
           pytest -q tests/test_prediction_market_vike_blind_bridge_v0.py
           pytest -q tests/test_prediction_market_vike_fetch_v0.py
           pytest -q tests/test_prediction_market_us_live_v0.py
+          pytest -q tests/test_prediction_market_us_oos_ledger_v0.py
           pytest -q tests/test_qqq_1h_iex_updater_v0.py
 
       - name: Run fixture smoke

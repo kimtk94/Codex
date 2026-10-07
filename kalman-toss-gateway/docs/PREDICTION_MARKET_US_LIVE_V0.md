@@ -117,3 +117,32 @@ It does not change:
 - confirmatory gate thresholds
 
 It cannot auto-promote a result, mutate R5.x, or submit trades.
+
+## OOS event ledger
+
+Every collector cycle now updates a persistent event ledger.
+
+SQLite:
+
+`/home/taehoon/kalman-data/prediction-market/us-live-v0/oos_event_ledger.sqlite3`
+
+Parquet mirror:
+
+`/home/taehoon/kalman-data/prediction-market/us-live-v0/oos_event_ledger.parquet`
+
+A stable event ID is derived from:
+
+`hypothesis_id + event_hour + dominant_channel`
+
+so repeated collector cycles update one event instead of duplicating it.
+
+Per-event states are:
+
+- `WAITING_ASSET_ENTRY`
+- `EXCLUDED_ENTRY_LAG`
+- `WAITING_HORIZON`
+- `OUTCOME_READY`
+
+When the QQQ 7-bar outcome becomes available, the ledger records both raw forward return and signed return. Signed return follows the same convention as the frozen discovery analysis: `sign(event_score) * forward_return`.
+
+The first live ledger run on 2026-10-08 produced zero events, which is expected because the prospective collector had not yet accumulated a full one-hour probability delta.

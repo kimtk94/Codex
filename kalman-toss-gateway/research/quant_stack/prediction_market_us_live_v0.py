@@ -25,6 +25,7 @@ from research.quant_stack.prediction_market_oos_v0 import (
     evaluate_frozen_hypothesis,
     load_spec,
 )
+from research.quant_stack.prediction_market_us_oos_ledger_v0 import update_ledger
 from research.quant_stack.prediction_market_leadlag_v0 import load_asset_history
 
 
@@ -582,6 +583,14 @@ def run_cycle(
         gap_segment_minutes=int(collection["gap_segment_minutes"]),
     )
 
+    ledger_status = update_ledger(
+        canonical_path=Path(paths["canonical"]),
+        asset_path=Path(config["oos"]["asset"]),
+        spec_path=Path(config["oos"]["spec"]),
+        sqlite_path=Path(paths["event_ledger_sqlite"]),
+        parquet_path=Path(paths["event_ledger_parquet"]),
+    )
+
     oos_status = {"status": "DISABLED"}
     if bool(config["oos"]["enabled"]):
         oos_status = run_oos(
@@ -597,6 +606,7 @@ def run_cycle(
         "checked_at_utc": now_iso(),
         "collect": collect_status,
         "canonical": canonical_status,
+        "ledger": ledger_status,
         "oos": oos_status,
         "safety": config["safety"],
     }
