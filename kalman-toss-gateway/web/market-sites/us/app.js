@@ -50,16 +50,21 @@ function marketPulseHtml(){
 function currentTop3(){return S?.payload?.top3||[]}
 function liveTradingStatus(){return T?.trading_status||null}
 function liveConditional(){let t=liveTradingStatus();return String(t?.signalPolicy||'').toUpperCase()==='R5_LIVE_CONDITIONAL'&&Boolean(t?.tradingEnabled)&&Boolean(t?.liveGateOpen)}
-function top3Html(){let z=currentTop3().slice(0,2);if(!z.length)return '';return '<section class="dailybox"><div class="sectiontitle"><div><b>TOP2 · EQUAL WEIGHT</b><small>R5.1 Rank 1 + Rank 2 · 50 / 50 · FIXED_4</small></div><span class="badge">TOP2</span></div><div class="rows">'+z.map(x=>'<button class="rowbtn pick" data-s="'+E(x.symbol)+'"><span class="rank">#'+E(x.rank)+'</span><span class="name"><b>'+E(x.symbol)+'</b><small>Universe '+E(x.universe_size)+' · R5.1 HGB</small></span><span class="metric price"><b>'+USD(x.reference_price)+'</b><small>reference</small></span><span class="metric target"><b>'+USD(x.target_price_4h)+'</b><small>4H target</small></span><span class="alpha">'+PCT(x.model_score)+'</span><span class="tag">50%</span></button>').join('')+'</div><div class="note">독립 TOP2_EQUAL 전략 · 두 종목을 동일 비중으로 보유하고 4개 canonical 60m bucket 후 청산, 금요일에는 Friday-flat 규칙을 적용합니다.</div></section>'}
+function top3Html(){let live=liveConditional(),meta=live?'4H relative-return ranking · Conditional LIVE':'4H relative-return ranking · Trade OFF';return '<section class="dailybox"><div class="sectiontitle"><div><b>현재 TOP3 · MODEL</b><small>'+E(meta)+'</small></div><span class="badge '+(live?'':'info')+'">'+(live?'LIVE':'TOP 3')+'</span></div><div class="rows">'+currentTop3().map(x=>'<button class="rowbtn pick" data-s="'+E(x.symbol)+'"><span class="rank">#'+E(x.rank)+'</span><span class="name"><b>'+E(x.symbol)+'</b><small>Universe '+E(x.universe_size)+' · R5.1 HGB</small></span><span class="metric price"><b>'+USD(x.reference_price)+'</b><small>reference</small></span><span class="metric target"><b>'+USD(x.target_price_4h)+'</b><small>4H target</small></span><span class="alpha">'+PCT(x.model_score)+'</span><span class="tag">'+(live?'LIVE RANK':'TOP PICK')+'</span></button>').join('')+'</div></section>'}
 function conditionalPolicyHtml(){
-  let z=currentTop3().slice(0,2),r1=z[0]||{},r2=z[1]||{};
-  if(!z.length)return '';
-  return '<section class="dailybox"><div class="sectiontitle"><div><b>PRIMARY STRATEGY · TOP2_EQUAL</b><small>R5.1_BASE_HGB · research portfolio policy</small></div><span class="badge">RESTORED</span></div><div class="signalgrid"><div class="sig"><span>RANK 1 · 50%</span><b>'+E(r1.symbol||'—')+'</b></div><div class="sig"><span>RANK 2 · 50%</span><b>'+E(r2.symbol||'—')+'</b></div><div class="sig"><span>EXIT</span><b>FIXED_4</b></div><div class="sig"><span>FRIDAY</span><b>FLAT · 15m buffer</b></div></div><div class="note">기준 비용 10bp · Top2를 항상 50/50으로 구성합니다. 아래 BUY/SELL 영역은 실제 서버 execution telemetry이며, 이 웹 전략 표시는 서버 주문 설정을 변경하지 않습니다.</div></section>';
+  let t=liveTradingStatus();
+  if(!t)return '';
+  let live=liveConditional();
+  let total=N(t.targetOrderKrw),single=N(t.singleOrderLimitKrw);
+  let half=total==null?null:Math.round(total/2);
+  let money=x=>N(x)==null?'—':'₩'+N(x).toLocaleString('ko-KR');
+  let open=Boolean(t.usFractionalOrderWindowOpen);
+  return '<section class="dailybox"><div class="sectiontitle"><div><b>R5.1 CONDITIONAL '+(live?'LIVE':'STATUS')+'</b><small>'+E(t.signalPolicy||'—')+' · '+E(t.executionMode||'—')+'</small></div><span class="badge '+(live?'':'info')+'">'+(live?'LIVE':'READ ONLY')+'</span></div><div class="signalgrid"><div class="sig"><span>NORMAL / WIDE GAP</span><b>R1 '+money(total)+'</b></div><div class="sig"><span>CLOSE GAP</span><b>R1 '+money(half)+' + R2 '+money(half)+'</b></div><div class="sig"><span>LOW CONFIDENCE</span><b>R1 '+money(half)+' + CASH '+money(half)+'</b></div><div class="sig"><span>PYRAMIDING</span><b>OFF</b></div></div><div class="note">Single-order limit '+money(single)+' · FIXED 4H · Friday flat ON · US fractional window '+(open?'OPEN':'CLOSED')+'. 실제 주문 판단은 server-side conditional executor가 수행합니다.</div></section>';
 }
-function modelSignalHtml(){let t=S?.payload?.source_payload?.today_selector||{},raw=t.as_of_utc||S?.data_as_of,z=currentTop3().slice(0,2),r1=z[0]||{},r2=z[1]||{},scores=z.map(x=>N(x.model_score)).filter(x=>x!=null),avg=scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:null;return '<section class="dailybox"><div class="sectiontitle"><div><b>이번 TOP2 Signal</b><div class="signaltime">'+signalTimeHtml(raw)+'</div></div><span class="badge">50 / 50</span></div><div class="signalgrid"><div class="sig"><span>Rank 1</span><b>'+E(r1.symbol||'—')+'</b></div><div class="sig"><span>Rank 2</span><b>'+E(r2.symbol||'—')+'</b></div><div class="sig"><span>Equal-weight α</span><b class="'+(avg!=null&&avg>=0?'pos':'neg')+'">'+PCT(avg)+'</b></div><div class="sig"><span>Holding rule</span><b>FIXED_4</b></div></div><div class="note">두 종목의 R5.1 relative-return score를 동일 비중으로 결합한 현재 Top2 전략 신호입니다. Signal timestamp는 60분 봉 BAR START 기준입니다.</div></section>'}
+function modelSignalHtml(){let t=S?.payload?.source_payload?.today_selector||{},raw=t.as_of_utc||S?.data_as_of;return '<section class="dailybox"><div class="sectiontitle"><div><b>이번 Model Signal</b><div class="signaltime">'+signalTimeHtml(raw)+'</div></div><span class="badge">'+E(t.evidence_confidence||'—')+'</span></div><div class="signalgrid"><div class="sig"><span>Selected</span><b>'+E(t.selected_symbol||'—')+'</b></div><div class="sig"><span>4H target α</span><b class="pos">'+PCT(t.target_relative_return_4h)+'</b></div><div class="sig"><span>Risk band</span><b>'+USD(t.risk_band_low_4h)+' – '+USD(t.risk_band_high_4h)+'</b></div><div class="sig"><span>Observed hit rate</span><b>'+(N(t.observed_hit_rate)==null?'—':(N(t.observed_hit_rate)*100).toFixed(1)+'%')+'</b></div></div><div class="note">Signal timestamp는 R5.1 60분 봉의 BAR START입니다. 위에 KST와 미국 동부시간(ET), 그리고 실제 봉 완성시각을 함께 표시합니다.</div></section>'}
 function detailHtml(x){if(!x)return'';return '<div class="detail"><div class="sectiontitle"><div><b>'+E(x.symbol)+'</b><small>Rank #'+E(x.rank)+' / '+E(x.universe_size)+'</small></div><span class="badge info">MODEL</span></div><div class="mini"><div><span>Reference</span><b>'+USD(x.reference_price)+'</b></div><div><span>4H Target</span><b>'+USD(x.target_price_4h)+'</b></div><div><span>Relative α</span><b class="pos">'+PCT(x.model_score)+'</b></div><div><span>Vol-target weight</span><b>'+(N(x.position_weight_r4_vol_target)==null?'—':(N(x.position_weight_r4_vol_target)*100).toFixed(1)+'%')+'</b></div></div>'+tvChart(x.symbol)+'<div class="note">차트는 TradingView 시장가격, 모델 Rank/Reference/4H Target은 Investment Hub snapshot 기준입니다. 두 데이터의 기준시각이 다를 수 있습니다.</div></div>'}
 function universe(){return '<div class="tw"><table><thead><tr><th>Rank</th><th>Symbol</th><th>Reference</th><th>4H Target</th><th>Model α</th><th>Weight</th></tr></thead><tbody>'+A.map(x=>'<tr class="pick" data-s="'+E(x.symbol)+'"><td>#'+E(x.rank)+'</td><td><b>'+E(x.symbol)+'</b></td><td>'+USD(x.reference_price)+'</td><td>'+USD(x.target_price_4h)+'</td><td class="'+(N(x.model_score)>=0?'pos':'neg')+'">'+PCT(x.model_score)+'</td><td>'+(N(x.position_weight_r4_vol_target)==null?'—':(N(x.position_weight_r4_vol_target)*100).toFixed(1)+'%')+'</td></tr>').join('')+'</tbody></table></div>'}
-function fold(title,meta,body){return '<details class="fold card"><summary><span><b>'+title+'</b><small>'+meta+'</small></span><span>⌄</span></summary><div class="foldbody">'+body+'</div></details>'}
+function fold(title,meta,body,open=false){return '<details class="fold card"'+(open?' open':'')+'><summary><span><b>'+title+'</b><small>'+meta+'</small></span><span>⌄</span></summary><div class="foldbody">'+body+'</div></details>'}
 
 const PCT2=x=>N(x)==null?'—':(N(x)>=0?'+':'')+(N(x)*100).toFixed(2)+'%';
 function siteNav(active){
@@ -152,6 +157,30 @@ function conditionalExecutionHtml(){
   let status=legs.map(x=>String(x.status||'—')).join(' / ');
   return '<div class="detail"><div class="sectiontitle"><div><b>ACTUAL CONDITIONAL DECISION · '+E(regime)+'</b><small>'+E(run||'—')+' · '+E(status)+'</small></div><span class="badge">'+E(regime)+'</span></div><div class="signalgrid"><div class="sig"><span>ALLOCATION</span><b>'+legText+(cash>0?' + CASH '+money(cash):'')+'</b></div><div class="sig"><span>RANK 1</span><b>'+E(latest.rank1Symbol||'—')+' · '+score(latest.rank1Score)+'</b></div><div class="sig"><span>RANK 2</span><b>'+E(latest.rank2Symbol||'—')+' · '+score(latest.rank2Score)+'</b></div><div class="sig"><span>GATE</span><b>'+E(meta.join(' · ')||'—')+'</b></div></div><div class="note">Signal '+E(DT(latest.signalAsOf))+' · 실제 server-side order telemetry 기준 · 화면 재계산값 아님</div></div>';
 }
+function holdingEvaluationLabel(v){
+  let x=String(v||'').toUpperCase(),m={
+    MANAGED_HOLD:'HOLD · 자동관리',
+    MANAGED_EXIT_PENDING:'SELL 대기',
+    UNMANAGED_HOLD:'HOLD · 기존보유',
+    UNMANAGED_MODEL_SUPPORTED:'HOLD · 모델지지',
+    UNMANAGED_EXIT_REVIEW:'매도 검토',
+    UNMANAGED_STRONG_SELL_REVIEW:'강한 매도 검토'
+  };
+  return m[x]||v||'평가 중';
+}
+function holdingsEvaluationHtml(){
+  let ev=liveTradingStatus()?.holdingsEvaluation||{}, rows=Array.isArray(ev.holdings)?ev.holdings:[];
+  if(!rows.length)return '<section class="dailybox holdingsbox"><div class="sectiontitle"><div><b>보유종목 평가</b><small>Broker holdings · 5분 평가</small></div><span class="badge info">NO DATA</span></div><div class="note">현재 holdings evaluation 데이터가 없습니다.</div></section>';
+  let cards=rows.map(x=>{
+    let pnl=N(x.pnl_rate),day=N(x.daily_pnl_rate),rank=N(x.model_support_rank),score=N(x.model_score);
+    let label=holdingEvaluationLabel(x.evaluation),cls=String(x.evaluation||'').includes('SELL')||String(x.evaluation||'').includes('EXIT')?'bad':(pnl!=null&&pnl>=0?'good':'');
+    let support=rank!=null?'현재 모델 #'+rank+(score!=null?' · score '+score.toFixed(4):''):'현재 TOP 모델 밖';
+    let manage=x.managed?'MANAGED · 자동매도 적용':'UNMANAGED · 자동매도 미적용';
+    return '<div class="holdingeval '+cls+'"><div class="holdingevalhead"><div><b>'+E(x.symbol)+'</b><small>'+E(x.name||'')+'</small></div><span class="status '+(cls==='bad'?'bad':'open')+'">'+E(label)+'</span></div><div class="holdingevalgrid"><div><span>현재 / 평단</span><b>'+USD(x.last_price)+' / '+USD(x.average_purchase_price)+'</b></div><div><span>총 손익</span><b class="'+(pnl==null?'':pnl>=0?'pos':'neg')+'">'+PCT2(pnl)+'</b></div><div><span>오늘</span><b class="'+(day==null?'':day>=0?'pos':'neg')+'">'+PCT2(day)+'</b></div><div><span>모델 지지</span><b>'+E(support)+'</b></div></div><div class="holdingevalfoot"><span>'+E(manage)+'</span>'+(x.managed_exit_pending_reason?'<b>'+E(exitReasonLabel(x.managed_exit_pending_reason))+'</b>':'')+'</div></div>';
+  }).join('');
+  let sm=ev.summary||{};
+  return '<section class="dailybox holdingsbox"><div class="sectiontitle"><div><b>보유종목 평가 · '+rows.length+'</b><small>실제 Broker 보유 · Signal과 별도 평가</small></div><span class="badge">'+E(sm.managed_count??0)+' managed · '+E(sm.unmanaged_count??0)+' existing</span></div><div class="holdingevals">'+cards+'</div><div class="note">모델 지지는 현재 rank/score 참고값입니다. Managed 포지션의 실제 매도 권한은 position_manager가 담당합니다.</div></section>';
+}
 function tradeActionHtml(){
   let ledger=C?.execution_ledger||[],active=ledger.filter(x=>!['CLOSED','CANCELLED','ABORTED','FAILED'].includes(String(x.state||'').toUpperCase()));
   let pending=active.filter(x=>{let st=String(x.state||'').toUpperCase();return st.startsWith('ENTRY_')||st.startsWith('ADD_ON_')});
@@ -188,7 +217,16 @@ function tradeActionHtml(){
   }
   let sellTitle=exitPending.length?'SELL 진행 중 · '+exitPending.map(x=>x.symbol).join(', '):(open.length?'SELL 감시 · '+open.map(x=>x.symbol).join(', '):'SELL 예정 없음');
   let sellMeta=exitPending.length?'Exit order submitted':(open.length?'Stop -3% · Take +20% · max 4 hourly buckets':'활성 포지션 없음');
-  let posRows=open.map(x=>{let st=String(x.state||'OPEN').toUpperCase(),label=st==='OPEN'?'HOLD':st.replace('_SUBMITTED','');return '<div class="positionrow"><span class="status open">'+E(label)+'</span><b>'+E(x.symbol)+'</b><span>Qty '+E(x.entry_filled_quantity||'—')+'</span><span>Avg '+E(x.entry_average_price?USD(x.entry_average_price):'—')+'</span><span>'+timePairHtml(x.entry_signal_as_of)+'</span></div>'}).join('');
+  let canonicalAsOf=sig?.as_of?new Date(sig.as_of):null;
+  let posRows=open.map(x=>{
+    let st=String(x.state||'OPEN').toUpperCase(),label=st==='OPEN'?'HOLD':st.replace('_SUBMITTED','');
+    let target=Math.max(1,Math.round(N(x.target_exit_buckets)??4)),entry=x.entry_signal_as_of?new Date(x.entry_signal_as_of):null;
+    let elapsed=(entry&&canonicalAsOf&&!Number.isNaN(entry.getTime())&&!Number.isNaN(canonicalAsOf.getTime()))?Math.max(0,Math.floor((canonicalAsOf-entry)/3600000)):0;
+    elapsed=Math.min(target,elapsed);
+    let dots=Array.from({length:target},(_,i)=>'<i class="'+(i<elapsed?'done':'')+'"></i>').join('');
+    let bucket='<span class="bucketcount"><b>Bucket '+elapsed+' / '+target+'</b><span class="bucketdots">'+dots+'</span></span>';
+    return '<div class="positionrow"><span class="status open">'+E(label)+'</span><b>'+E(x.symbol)+'</b><span>Qty '+E(x.entry_filled_quantity||'—')+'</span><span>Avg '+E(x.entry_average_price?USD(x.entry_average_price):'—')+'</span>'+bucket+'<span>'+timePairHtml(x.entry_signal_as_of)+'</span></div>'
+  }).join('');
   let latest=sig?('<div class="actionfoot"><span>MODEL</span><b>'+E(sig.symbol)+'</b><span>BAR START '+E(timePair(sig.bar_start))+'</span><span>COMPLETE '+E(timePair(sig.bar_complete))+'</span></div>'):'';
   return '<section id="trade-action" class="dailybox actionbox"><div class="sectiontitle"><div><b>ACTION · BUY / SELL</b><small>실제 execution ledger 기준</small></div><span class="badge info">'+E(C?.status||'—')+'</span></div><div class="actiongrid"><div class="actioncell buy"><span>BUY</span><b>'+E(buyTitle)+'</b><small>'+E(buyMeta)+'</small>'+(buyTime?timePairHtml(buyTime,'action-clock'):'')+'</div><div class="actioncell sell"><span>SELL</span><b>'+E(sellTitle)+'</b><small>'+E(sellMeta)+'</small></div></div>'+conditionalExecutionHtml()+(posRows?'<div class="positionlist"><div class="positionlabel">LIVE POSITIONS · '+open.length+'</div>'+posRows+'</div>':'')+latest+'</section>';
 }
@@ -224,6 +262,27 @@ function benchmarkHtml(){
   if(!t1.snapshots&&!t6.snapshots)return '';
   const card=(label,x)=>'<div class="benchcard"><div class="benchlabel">'+label+'</div><b class="'+(N(x.compounded)>=0?'pos':'neg')+'">'+PCT2(x.compounded)+'</b><small>'+E(x.snapshots||0)+' snapshots · avg '+PCT2(x.avg_net)+' · σ '+PCT2(x.std_net)+'</small><small>'+E(String(x.first_as_of||'').slice(0,10))+' → '+E(String(x.last_as_of||'').slice(0,10))+'</small></div>';
   return '<section class="dailybox benchmarkbox"><div class="sectiontitle"><div><b>Research Benchmark · TOP-1 vs TOP-6</b><small>4-bar · 10bp · research tracking only</small></div><span class="badge info">BENCHMARK</span></div><div class="benchgrid">'+card('TOP-1',t1)+card('TOP-6 equal',t6)+'</div><div class="note">벤치마크는 연구용 관측치이며 실제 주문/체결 성과가 아닙니다.</div></section>';
+}
+function exitReasonLabel(v){
+  let x=String(v||'').toUpperCase(),m={
+    STOP_LOSS_3PCT:'손절 · -3%',
+    TAKE_PROFIT_20PCT:'익절 · +20%',
+    PROFIT_TO_LOSS_FLIP:'수익→손실 전환',
+    FRIDAY_FLAT:'금요일 포지션 정리',
+    MAX_HOLD_4_BUCKETS:'최대 보유 · 4 Bucket',
+    MODEL_ROTATION:'모델 교체',
+    MANUAL_BROKER_FLAT:'브로커 수동 정리',
+    LEGACY_UNSAFE_WINDOW_CARRY:'Legacy 안전창 이월 정리'
+  };
+  return m[x]||v||'—';
+}
+function liveTradeHistoryHtml(){
+  let z=(C?.execution_ledger||[]).filter(x=>['CLOSED','CLOSED_MANUAL'].includes(String(x.state||'').toUpperCase())||x.exit_reason);
+  if(!z.length)return '<div class="note">실거래 매도 내역이 아직 없습니다.</div>';
+  return '<div class="tw"><table class="tinytable livehistory"><thead><tr><th>Symbol</th><th>Entry</th><th>Exit / Sync</th><th>Return</th><th>매도 이유</th></tr></thead><tbody>'+z.map(x=>{
+    let r=N(x.realized_return_pct),reason=exitReasonLabel(x.exit_reason);
+    return '<tr><td><b>'+E(x.symbol||'—')+'</b></td><td>'+E(DT(x.entry_signal_as_of))+'<br><small>'+USD(x.entry_average_price)+'</small></td><td>'+E(DT(x.updated_at))+'<br><small>'+USD(x.exit_average_price)+'</small></td><td class="'+(r==null?'':r>=0?'pos':'neg')+'"><b>'+PCT2(r)+'</b></td><td><span class="exitreason">'+E(reason)+'</span><br><small>'+E(x.exit_reason||'—')+'</small></td></tr>';
+  }).join('')+'</tbody></table></div>';
 }
 function ledgerHtml(){
   let a=S?.payload?.source_payload?.r5_shadow_ledger?.annual_2026||{},r=a.reconstructed?.summary||{},f=a.forward?.summary||{};
@@ -264,8 +323,13 @@ async function load(){
   $('#m').innerHTML=
     '<section class="appbar"><div class="appbrand">US Investment Hub</div>'+siteNav('US')+
     '<div class="appmarket"><b>'+E(sm.market_risk||'US')+'</b><span>'+E(j.model_version)+'</span><span class="badge '+(j.effective_stale?'bad':'')+'">'+(j.effective_stale?'STALE':'FRESH')+'</span></div><small>DATA BAR START · '+E(timePair(j.data_as_of))+'</small></section>'+
-    marketPulseHtml()+sessionStatusHtml()+conditionalPolicyHtml()+watcherStatusHtml()+tradeActionHtml()+top3Html()+modelSignalHtml()+performanceHtml()+benchmarkHtml()+forwardShadowHtml()+
-    '<section class="card"><div class="sw"><input id="q" class="search" placeholder="🔎 US ticker 검색 · NVDA, ORCL, AAPL"><div id="sg" class="sg hide"></div></div><div id="d"></div></section>'+
+    marketPulseHtml()+tradeActionHtml()+holdingsEvaluationHtml()+
+    fold('실거래 History','최근 실제 체결 · 수익률 · 매도 이유',liveTradeHistoryHtml(),true)+
+    top3Html()+sessionStatusHtml()+
+    fold('Execution Monitor','5분 감시 · 주문 정책 · 실행 상태',watcherStatusHtml()+conditionalPolicyHtml()+conditionalExecutionHtml())+
+    fold('Model Signal 상세','선정 종목 · 4H target · risk band',modelSignalHtml())+
+    fold('성과 · Research','replay · benchmark · forward shadow',performanceHtml()+benchmarkHtml()+forwardShadowHtml())+
+    fold('종목 검색','차트 · 모델 상세','<div class="sw"><input id="q" class="search" placeholder="🔎 US ticker 검색 · NVDA, ORCL, AAPL"><div id="sg" class="sg hide"></div></div><div id="d"></div>')+
     fold('R5.1 2026 Ledger','replay + prospective 상세',ledgerHtml()+forwardTradesHtml())+
     fold('Model Context','R5.1_BASE_HGB · 4H relative-return','<div class="note">Primary lineage: '+E(sm.primary_lineage)+' · Evidence: '+E(sm.evidence_confidence)+' · Trade policy: '+E(liveTradingStatus()?.signalPolicy||'—')+'</div>')+
     fold('US Universe',A.length+' stocks · rank order',universe());
