@@ -1,0 +1,59 @@
+{
+  "version": "jev-v1.4-forward-shadow-v1",
+  "evaluation_version": "jev-v1.4-forward-shadow-v1",
+  "market": "US",
+  "strategy_version": "R5.1_BASE_HGB",
+  "forward_start_at_utc": "2026-10-07T14:30:00Z",
+  "signal_bar_minutes": 60,
+  "event_max_age_hours": 6,
+  "bundle_window_minutes": 10,
+  "collection_lookback_hours": 8,
+  "calendar_url": "https://xoomar.com/api/markets/calendar",
+  "calendar_user_agent": "KalmanResearch/1.0",
+  "supported_event_families": [
+    "CPI",
+    "PCE",
+    "NFP",
+    "JOLTS",
+    "GDP",
+    "PPI",
+    "RETAIL_SALES",
+    "JOBLESS_CLAIMS"
+  ],
+  "rate_proxy": {
+    "symbol": "SHY",
+    "interval": "5m",
+    "include_prepost": true,
+    "horizons_minutes": [5, 15, 30, 60],
+    "bp_per_plus_1pct_proxy_return": -49.80568987492392,
+    "calibration_target": "DGS2_CHG_1_BP",
+    "calibration_sample_n": 2417,
+    "calibration_r2": 0.8518366911673452,
+    "calibration_correlation": -0.9229499938606344,
+    "calibration_window": "2017-01-03_to_2026-09-10",
+    "quality": "RESEARCH_EMPIRICAL_DAILY_MAPPING_NOT_DIRECT_INTRADAY_YIELD"
+  },
+  "jev": {
+    "model": "typesafe-ai/jev",
+    "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+    "gateway_key_file": "/home/taehoon/.config/kalman/secure/jev_gateway_key_create.out",
+    "timeout_seconds": 30
+  },
+  "decision_gate": {
+    "min_evidence_probability": 0.70,
+    "min_execution_timing_confidence": 0.65,
+    "fallback_action": "NOW"
+  },
+  "max_candidates_per_run": 24,
+  "research_contract": {
+    "shadow_only": true,
+    "changes_r51": false,
+    "changes_trade_execution": false,
+    "can_veto_live": false,
+    "can_size_live": false,
+    "historical_headline_text_excluded": true,
+    "candidate_identity_blinded_from_jev": true,
+    "future_outcome_hidden": true,
+    "consensus_missing_is_explicit": true
+  }
+}
