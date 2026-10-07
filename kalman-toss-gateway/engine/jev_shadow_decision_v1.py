@@ -248,11 +248,6 @@ def call_gateway(
         "model": model,
         "state": state,
         "questions": evaluation_questions(),
-        "providerOptions": {
-            "gateway": {
-                "zeroDataRetention": True,
-            }
-        },
     }
     request = urllib.request.Request(
         endpoint,
