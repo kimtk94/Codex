@@ -199,8 +199,9 @@ def evaluation_questions() -> dict[str, Any]:
         "positive_ev": {
             "type": "boolean",
             "instructions": (
-                "Using only the supplied state, is the candidate more consistent with "
-                "positive net expected value than non-positive net expected value?"
+                "Diagnostic only, not an execution gate. Using only the supplied state, "
+                "is the expected net return of taking this long entry over the strategy's "
+                "existing holding horizon more likely to be above zero than at or below zero?"
             ),
         },
         "regime": {
