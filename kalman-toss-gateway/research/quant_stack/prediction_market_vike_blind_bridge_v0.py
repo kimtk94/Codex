@@ -550,18 +550,39 @@ def main() -> int:
         "retuning": False,
     }
 
-    manifest = public_manifest(source["manifest_url"])
-    start_date = pd.Timestamp(spec["mapping_train_start_utc"]).strftime("%Y-%m-%d")
-    end_date = pd.Timestamp(spec["validation_end_utc"]).strftime("%Y-%m-%d")
-    dates = available_l1_dates(
-        manifest,
-        asset=source["family_asset"],
-        tenor=source["family_tenor"],
-        start_date=start_date,
-        end_date=end_date,
-    )
+    dates = [dict(x) for x in spec.get("frozen_overlap_partitions", [])]
+    if not dates:
+        manifest = public_manifest(source["manifest_url"])
+        start_date = pd.Timestamp(spec["mapping_train_start_utc"]).strftime("%Y-%m-%d")
+        end_date = pd.Timestamp(spec["validation_end_utc"]).strftime("%Y-%m-%d")
+        dates = available_l1_dates(
+            manifest,
+            asset=source["family_asset"],
+            tenor=source["family_tenor"],
+            start_date=start_date,
+            end_date=end_date,
+        )
+        payload["partition_plan_source"] = "live_manifest"
+    else:
+        payload["partition_plan_source"] = "frozen_public_manifest_snapshot"
+        payload["partition_plan_provenance"] = spec.get("partition_plan_provenance")
+
+    expected_dates = [
+        "2026-09-08",
+        "2026-09-09",
+        "2026-09-10",
+        "2026-09-11",
+    ]
+    actual_dates = [str(x.get("date")) for x in dates]
+    if actual_dates != expected_dates:
+        raise RuntimeError(
+            f"unexpected frozen overlap dates expected={expected_dates} actual={actual_dates}"
+        )
+    if any(int(x.get("bytes") or 0) <= 0 for x in dates):
+        raise RuntimeError("frozen overlap partition has invalid byte size")
+
     payload["archive_dates"] = dates
-    payload["download_total_gb"] = float(sum(x["bytes"] for x in dates) / 1e9)
+    payload["download_total_gb"] = float(sum(int(x["bytes"]) for x in dates) / 1e9)
 
     key = api_key()
     if not key:

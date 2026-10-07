@@ -24,7 +24,34 @@
     "mapping_train_end_utc": "2026-09-09T23:50:00Z",
     "validation_start_utc": "2026-09-10T00:00:00Z",
     "validation_end_utc": "2026-09-11T09:00:00Z",
-    "identity_mode": "blind_time_series_match"
+    "identity_mode": "blind_time_series_match",
+    "frozen_overlap_partitions": [
+      {
+        "date": "2026-09-08",
+        "rows": 13808690,
+        "bytes": 155019170
+      },
+      {
+        "date": "2026-09-09",
+        "rows": 17742612,
+        "bytes": 196293165
+      },
+      {
+        "date": "2026-09-10",
+        "rows": 17493366,
+        "bytes": 188230848
+      },
+      {
+        "date": "2026-09-11",
+        "rows": 17636943,
+        "bytes": 184275664
+      }
+    ],
+    "partition_plan_provenance": {
+      "manifest_generated_at": "2026-10-07T00:45:08Z",
+      "manifest_observed_before_authenticated_archive_access": true,
+      "total_bytes": 723818847
+    }
   },
   "bridge_gate": {
     "shared_markets_min": 8,

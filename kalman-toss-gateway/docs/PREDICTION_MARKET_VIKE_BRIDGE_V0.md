@@ -56,7 +56,7 @@ Config:
 
 Current SHA256:
 
-`a00876c8a506872d73a0138b23e47f1c03684df436138e77ca9ca87639444e11`
+`16f718c7f0e2ea9721d0c8ab072dab74bf7583d01143c84cdfef01dae194f82a`
 
 This SHA was created after the Vike market-directory HTTP 500 and before any
 authenticated Vike archive partition was inspected.
