@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Kalman QQQ 1h Alpaca IEX Research Updater hourly
+
+[Timer]
+OnCalendar=*-*-* *:07:00
+Persistent=true
+RandomizedDelaySec=30
+Unit=kalman-qqq-1h-iex-updater-v0.service
+
+[Install]
+WantedBy=timers.target
