@@ -151,31 +151,34 @@ jobs:
 
           text = Path("config/kalman.cron.d").read_text(encoding="utf-8")
           required = [
-              "35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh",
-              "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh",
+              "*/5 * * * * root bash /opt/kalman/app/scripts/run_us_market_clock.sh cycle",
+              "*/5 * * * * root bash /opt/kalman/app/scripts/run_us_market_clock.sh execution",
               "*/30 9-21 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
               "0 22 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
-              "25-55/5 22 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
-              "0,5,10,15,20,25,30,40,45,55 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
-              "0,5,10,15,20,25,30,40,45,55 0-4 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
-              "*/5 5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
           ]
           for line in required:
               assert line in text, line
 
           assert "run_pipeline.sh US" not in text
           assert "run_auto_trade.sh" not in text
-          assert "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh" not in text
-          assert "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh" not in text
+          assert "root /opt/kalman/app/scripts/run_us_cycle.sh" not in text
+          assert "root /opt/kalman/app/scripts/run_execution_watch.sh" not in text
 
-          rollout = Path("scripts/apply_live_canary_5000.sh").read_text(encoding="utf-8")
-          for line in required:
-              if "run_execution_watch.sh" in line:
-                  assert line in rollout, line
-          assert "old_collision = [" in rollout
-          assert "collision schedule remains=" in rollout
+          watchdog = Path("config/kalman-us-watchdog.cron.d").read_text(encoding="utf-8")
+          assert (
+              "*/5 * * * * root /opt/kalman/app/scripts/run_us_market_clock.sh watchdog"
+              in watchdog
+          )
 
-          print("[PASS] US cron and live rollout both reserve :35 model / :50 watchdog")
+          market_clock = Path("scripts/run_us_market_clock.sh").read_text(encoding="utf-8")
+          assert 'TZ=America/New_York' in market_clock
+          assert 'NY_MIN == 35' in market_clock
+          assert 'NY_MIN == 50' in market_clock
+          assert 'run_us_cycle.sh' in market_clock
+          assert 'run_execution_watch.sh' in market_clock
+          assert 'us_auto_watchdog.sh' in market_clock
+
+          print("[PASS] US cron uses DST-safe market-clock dispatchers")
           PY
 
       - name: Validate US cycle ordering
