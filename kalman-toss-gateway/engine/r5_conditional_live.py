@@ -296,6 +296,9 @@ async def main_async() -> int:
     if os.environ.get("AUTO_TRADE_ENABLED", "false").lower() != "true":
         print("AUTO_TRADE_DISABLED")
         return 0
+    if os.environ.get("AUTO_TRADE_ENTRY_ENABLED", "true").strip().lower() != "true":
+        print("R5_CONDITIONAL_ENTRY_DISABLED_BY_COST_GATE")
+        return 0
     if os.environ.get("AUTO_TRADE_EXECUTION_MODE", "").upper() != "LIVE":
         print("R5_CONDITIONAL_REQUIRES_LIVE")
         return 2

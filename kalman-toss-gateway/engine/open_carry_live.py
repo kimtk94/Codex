@@ -106,6 +106,8 @@ def _validate_contract(settings: Settings) -> tuple[bool, str]:
         return False, "OPEN_CARRY_CONFIRMATION_MISSING"
     if os.environ.get("AUTO_TRADE_ENABLED", "false").strip().lower() != "true":
         return False, "AUTO_TRADE_DISABLED"
+    if os.environ.get("AUTO_TRADE_ENTRY_ENABLED", "true").strip().lower() != "true":
+        return False, "ENTRY_DISABLED_BY_COST_GATE"
     if os.environ.get("AUTO_TRADE_EXECUTION_MODE", "").strip().upper() != "LIVE":
         return False, "OPEN_CARRY_REQUIRES_LIVE"
     if os.environ.get("AUTO_TRADE_SIGNAL_POLICY", "").strip().upper() != POLICY:

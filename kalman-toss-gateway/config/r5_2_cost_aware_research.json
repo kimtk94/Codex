@@ -1,0 +1,40 @@
+{
+  "version": "R5.2_COST_AWARE_RESEARCH_V1",
+  "research_only": true,
+  "live_execution": false,
+  "broker_orders": false,
+  "source_model": "R5.1_BASE_HGB",
+  "candidate": {
+    "target_horizon_bars": 20,
+    "entry_lag_bars": 1,
+    "admission_score_threshold_bps": 20.0,
+    "non_overlap": true,
+    "position_policy": "ONE_ACTIVE_RESEARCH_TRADE"
+  },
+  "execution_cost": {
+    "empirical_observations": 69,
+    "empirical_p90_round_trip_bps": 36.59673953005761,
+    "backtest_cost_floor_bps": 36.59673953005761,
+    "stress_bps": [45.0, 50.0, 60.0]
+  },
+  "observed_exploratory_result": {
+    "static_93": {
+      "trades": 75,
+      "cagr": 0.27630524442260485,
+      "max_drawdown": -0.31669350963402454
+    },
+    "pit_conservative": {
+      "trades": 69,
+      "cagr": 0.319633,
+      "max_drawdown": -0.239651
+    }
+  },
+  "promotion_requirements": [
+    "RETRAIN_MODEL_ON_20_BAR_TARGET",
+    "PURGED_WALK_FORWARD_OUT_OF_SAMPLE",
+    "FULL_POINT_IN_TIME_UNIVERSE_OR_EXPLICIT_UNIVERSE_LIMITATION",
+    "EMPIRICAL_EXECUTION_COST_FLOOR",
+    "COST_STRESS_45_50_60_BPS",
+    "NO_LIVE_PROMOTION_FROM_4H_SCORE_OVERLAY"
+  ]
+}

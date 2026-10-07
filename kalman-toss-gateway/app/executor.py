@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 
@@ -308,6 +309,15 @@ async def prepare_order(settings: Settings, request) -> PreparedOrder:
 async def execute_order(settings: Settings, request, *, risk_reducing_exit: bool = False):
     if not request.client_order_id:
         raise ValueError('client_order_id is required for live execution')
+    if (
+        str(request.side or '').upper() == 'BUY'
+        and os.environ.get('AUTO_TRADE_ENTRY_ENABLED', 'true').strip().lower() != 'true'
+    ):
+        return {
+            'allowed': False,
+            'reason': 'ENTRY_DISABLED_BY_COST_GATE',
+            'executionAttempted': False,
+        }
     prepared = await prepare_order(settings, request)
     ledger = TradeLedger(settings.state_db_path)
     used = ledger.daily_committed()
