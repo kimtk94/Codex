@@ -116,10 +116,12 @@ def official_event_family(source: str | None, title: str | None) -> str:
     if source == "bls_jolts":
         return "JOLTS"
     if source == "bea_releases":
-        if "personal income and outlays" in text or "pce" in text:
+        if "personal income and outlays" in text:
             return "PCE"
         if "gdp" in text or "gross domestic product" in text:
             return "GDP"
+        if "pce" in text or "personal consumption expenditures" in text:
+            return "PCE"
         return "BEA_OTHER"
     return "OTHER"
 

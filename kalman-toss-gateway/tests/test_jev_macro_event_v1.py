@@ -20,6 +20,11 @@ class JevMacroEventV13Tests(unittest.TestCase):
         self.assertFalse(ready)
         self.assertEqual(sources, [])
 
+    def test_bea_gdp_title_with_state_pce_stays_gdp(self):
+        from engine.jev_macro_event_v1 import official_event_family
+        title = "GDP, (Third Estimate), Industries, Corporate Profits, State GDP, and State Personal Income, 2nd Quarter 2026; State PCE, 2025"
+        self.assertEqual(official_event_family("bea_releases", title), "GDP")
+
     def test_event_reaction_is_informative(self):
         ready, sources = macro_is_informative({
             "macro_event_signal_ready": False,
