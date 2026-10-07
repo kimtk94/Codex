@@ -8,6 +8,8 @@ entry:
   confidence threshold and first-5m momentum is positive.
 - 09:40 ET: leg 2 is eligible only when leg 1 qualified and price has not
   weakened versus 09:35.
+- 09:45 ET: fallback evaluation only if 09:40 was missed; a failed 09:40
+  decision is not retried.
 
 The target exposure is KRW 10,000 while the single-order contract remains
 KRW 5,000. Existing hourly LIVE execution is not changed.
@@ -30,35 +32,15 @@ from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
 from engine.r5_conditional_live import _rank_context_from_same_run
+from engine.open_carry_policy import (
+    CHUNK_KRW,
+    STRATEGY,
+    TARGET_KRW,
+    evaluate_leg1,
+    evaluate_leg2,
+)
 
 NY = ZoneInfo("America/New_York")
-STRATEGY = "R5.1_BASE_HGB"
-TARGET_KRW = 10_000
-CHUNK_KRW = 5_000
-
-
-def evaluate_leg1(score: float | None, confidence_threshold: float, open_price: Decimal, price_5m: Decimal) -> tuple[bool, float | None, str]:
-    if score is None:
-        return False, None, "MISSING_SCORE"
-    if open_price <= 0 or price_5m <= 0:
-        return False, None, "INVALID_PRICE"
-    momentum = float(price_5m / open_price - Decimal("1"))
-    if score < confidence_threshold:
-        return False, momentum, "SCORE_BELOW_CONFIDENCE"
-    if momentum <= 0:
-        return False, momentum, "FIRST_5M_NOT_POSITIVE"
-    return True, momentum, "PASS"
-
-
-def evaluate_leg2(leg1_eligible: bool, price_5m: Decimal, price_10m: Decimal) -> tuple[bool, float | None, str]:
-    if not leg1_eligible:
-        return False, None, "LEG1_NOT_ELIGIBLE"
-    if price_5m <= 0 or price_10m <= 0:
-        return False, None, "INVALID_PRICE"
-    continuation = float(price_10m / price_5m - Decimal("1"))
-    if continuation < 0:
-        return False, continuation, "SECOND_5M_WEAKENED"
-    return True, continuation, "PASS"
 
 
 def _state_path() -> Path:
@@ -134,7 +116,7 @@ async def main_async() -> int:
     load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=True)
     now_ny = datetime.now(timezone.utc).astimezone(NY)
     hm = (now_ny.hour, now_ny.minute)
-    if hm not in {(9, 30), (9, 35), (9, 40)}:
+    if hm not in {(9, 30), (9, 35), (9, 40), (9, 45)}:
         return 0
 
     db_url = os.environ.get("DATABASE_URL_WRITER") or os.environ.get("DATABASE_URL")
@@ -212,6 +194,10 @@ async def main_async() -> int:
         }
         _save_state(state)
         print(json.dumps({"status":"OPEN_CARRY_LEG1_SHADOW","symbol":symbol,**state["leg1"]}, ensure_ascii=False, default=str))
+        return 0
+
+    if state.get("leg2") is not None:
+        print("OPEN_CARRY_SHADOW_SKIP reason=LEG2_ALREADY_EVALUATED")
         return 0
 
     leg1 = state.get("leg1") or {}
