@@ -26,6 +26,7 @@ from research.quant_stack.prediction_market_oos_v0 import (
     load_spec,
 )
 from research.quant_stack.prediction_market_us_oos_ledger_v0 import update_ledger
+from research.quant_stack.prediction_market_source_health_v0 import evaluate_and_rollback_if_needed
 from research.quant_stack.prediction_market_leadlag_v0 import load_asset_history
 
 
@@ -576,6 +577,46 @@ def run_cycle(
         config=config,
         prediction_config=prediction_config,
     )
+    health_status = evaluate_and_rollback_if_needed(
+        collect_status,
+        sqlite_path=Path(paths["sqlite"]),
+        gate=config.get("health_gate", {}),
+    )
+    collect_status["source_health"] = health_status
+
+    if (
+        bool(config.get("health_gate", {}).get("fail_closed"))
+        and not bool(health_status.get("passed", True))
+    ):
+        payload = {
+            "schema": "kalman-prediction-market-us-live-v0.1",
+            "checked_at_utc": now_iso(),
+            "collect": collect_status,
+            "canonical": {
+                "status": "FROZEN_SOURCE_HEALTH_FAIL",
+                "reason": "source-health gate failed; canonical unchanged",
+            },
+            "ledger": {
+                "status": "FROZEN_SOURCE_HEALTH_FAIL",
+                "reason": "source-health gate failed; ledger unchanged",
+                "production_promotion": False,
+                "r51_mutated": False,
+                "trade_execution": False,
+            },
+            "oos": {
+                "status": "FROZEN_SOURCE_HEALTH_FAIL",
+                "reason": "source-health gate failed; OOS not evaluated",
+                "production_promotion": False,
+                "r51_mutated": False,
+                "auto_promote": False,
+                "trade_execution": False,
+            },
+            "safety": config["safety"],
+        }
+        write_json_atomic(Path(paths["status"]), payload)
+        print(json.dumps(payload, indent=2, default=str))
+        return payload
+
     canonical_status = build_canonical(
         sqlite_path=Path(paths["sqlite"]),
         output_path=Path(paths["canonical"]),

@@ -146,3 +146,28 @@ Per-event states are:
 When the QQQ 7-bar outcome becomes available, the ledger records both raw forward return and signed return. Signed return follows the same convention as the frozen discovery analysis: `sign(event_score) * forward_return`.
 
 The first live ledger run on 2026-10-08 produced zero events, which is expected because the prospective collector had not yet accumulated a full one-hour probability delta.
+
+## Source-health fail-closed gate
+
+Every collection cycle is now evaluated before its data can influence the canonical series, event ledger, or frozen OOS result.
+
+Current thresholds:
+
+- eligible markets >= 8
+- stored two-sided snapshots / discovered eligible markets >= 90%
+- request failure rate <= 5%
+- maximum `abs(midpoint - currentPx)` <= 0.02
+- once at least five prior cycles exist, current stored snapshot count must be >= 75% of the recent 10-cycle median
+
+The most recent live cycle passed with:
+
+- discovered: 44
+- stored: 44
+- stored/discovered: 1.00
+- request failure rate: 0.00
+- max midpoint/currentPx difference: 0.00
+- recent baseline cycles: 10
+- recent median stored count: 44
+- current/recent median ratio: 1.00
+
+If a cycle fails the gate, its just-inserted raw rows are deleted from SQLite and the cycle reports `SOURCE_HEALTH_FAIL`. The canonical parquet is not rebuilt, the event ledger is not updated, and the OOS evaluator is not run. All three downstream states become `FROZEN_SOURCE_HEALTH_FAIL` until a later healthy cycle succeeds.

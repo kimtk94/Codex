@@ -126,3 +126,66 @@ def test_source_has_no_auth_or_order_side_effects():
     ]
     for token in forbidden:
         assert token not in source
+
+
+def test_run_cycle_freezes_all_downstream_on_health_failure(monkeypatch, tmp_path: Path):
+    config = {
+        "collection": {
+            "canonical_bucket_minutes": 10,
+            "gap_segment_minutes": 30,
+        },
+        "paths": {
+            "sqlite": str(tmp_path / "raw.sqlite3"),
+            "canonical": str(tmp_path / "canonical.parquet"),
+            "status": str(tmp_path / "status.json"),
+            "event_ledger_sqlite": str(tmp_path / "ledger.sqlite3"),
+            "event_ledger_parquet": str(tmp_path / "ledger.parquet"),
+            "oos_dir": str(tmp_path / "oos"),
+        },
+        "oos": {
+            "enabled": True,
+            "asset": str(tmp_path / "qqq.parquet"),
+            "spec": str(tmp_path / "spec.json"),
+            "bootstrap_iterations": 10,
+        },
+        "health_gate": {"enabled": True, "fail_closed": True},
+        "safety": {
+            "read_only": True,
+            "trade_execution_allowed": False,
+        },
+    }
+
+    monkeypatch.setattr(
+        us,
+        "collect_once",
+        lambda **kwargs: {
+            "status": "COLLECTED",
+            "observed_at": "2026-10-08T00:00:00Z",
+            "discovered_markets": 44,
+            "stored_snapshots": 10,
+            "request_failures": [],
+            "max_midpoint_vs_current": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        us,
+        "evaluate_and_rollback_if_needed",
+        lambda *args, **kwargs: {
+            "status": "SOURCE_HEALTH_FAIL",
+            "passed": False,
+            "rolled_back_rows": 10,
+        },
+    )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("downstream step must not run after health failure")
+
+    monkeypatch.setattr(us, "build_canonical", forbidden)
+    monkeypatch.setattr(us, "update_ledger", forbidden)
+    monkeypatch.setattr(us, "run_oos", forbidden)
+
+    result = us.run_cycle(config=config, prediction_config={})
+    assert result["canonical"]["status"] == "FROZEN_SOURCE_HEALTH_FAIL"
+    assert result["ledger"]["status"] == "FROZEN_SOURCE_HEALTH_FAIL"
+    assert result["oos"]["status"] == "FROZEN_SOURCE_HEALTH_FAIL"
+    assert result["collect"]["source_health"]["passed"] is False

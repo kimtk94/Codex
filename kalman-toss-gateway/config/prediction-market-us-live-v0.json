@@ -49,5 +49,16 @@
     "auto_promote": false,
     "r51_mutation_allowed": false,
     "trade_execution_allowed": false
+  },
+  "health_gate": {
+    "enabled": true,
+    "min_discovered_markets": 8,
+    "min_stored_to_discovered_ratio": 0.9,
+    "max_request_failure_rate": 0.05,
+    "max_midpoint_vs_current_abs": 0.02,
+    "recent_baseline_cycles": 10,
+    "recent_baseline_min_cycles": 5,
+    "min_stored_vs_recent_median_ratio": 0.75,
+    "fail_closed": true
   }
 }
