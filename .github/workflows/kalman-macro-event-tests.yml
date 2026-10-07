@@ -12,6 +12,7 @@ on:
       - "kalman-toss-gateway/engine/macro_intraday_us2y_provider_v1.py"
       - "kalman-toss-gateway/scripts/run_macro_event_features_v1.sh"
       - "kalman-toss-gateway/scripts/probe_macro_intraday_us2y_v1.sh"
+      - "kalman-toss-gateway/scripts/deploy_macro_confirmation_v110.sh"
       - "kalman-toss-gateway/scripts/install_macro_event_cron_v1.sh"
       - "kalman-toss-gateway/scripts/configure_macro_consensus_env.sh"
       - "kalman-toss-gateway/scripts/deploy_macro_event_v17.sh"
@@ -32,6 +33,7 @@ on:
       - "kalman-toss-gateway/engine/macro_intraday_us2y_provider_v1.py"
       - "kalman-toss-gateway/scripts/run_macro_event_features_v1.sh"
       - "kalman-toss-gateway/scripts/probe_macro_intraday_us2y_v1.sh"
+      - "kalman-toss-gateway/scripts/deploy_macro_confirmation_v110.sh"
       - "kalman-toss-gateway/scripts/install_macro_event_cron_v1.sh"
       - "kalman-toss-gateway/scripts/deploy_macro_event_v17.sh"
       - "kalman-toss-gateway/scripts/deploy_macro_event_v18.sh"
@@ -77,6 +79,7 @@ jobs:
         run: |
           bash -n scripts/run_macro_event_features_v1.sh
           bash -n scripts/probe_macro_intraday_us2y_v1.sh
+          bash -n scripts/deploy_macro_confirmation_v110.sh
           bash -n scripts/install_macro_event_cron_v1.sh
           bash -n scripts/configure_macro_consensus_env.sh
           bash -n scripts/deploy_macro_event_v17.sh
