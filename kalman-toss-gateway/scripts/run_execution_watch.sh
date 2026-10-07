@@ -47,6 +47,13 @@ PY
 
   "$PY" -m engine.trade_mirror
 
+  # Research-only early-session observer. It records hypothetical 5K + 5K
+  # OPEN_CARRY entries and never submits broker orders. Failure here must not
+  # interfere with the existing hourly LIVE path.
+  if ! "$PY" -m engine.open_carry_shadow; then
+    echo "OPEN_CARRY_SHADOW_ERROR_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  fi
+
   if [ "$HOLDINGS_EVAL_OK" -ne 1 ]; then
     echo "EXECUTION_ENTRY_SKIP_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ) reason=HOLDINGS_EVALUATION_FAILED risk_manager=COMPLETED"
     exit 0
