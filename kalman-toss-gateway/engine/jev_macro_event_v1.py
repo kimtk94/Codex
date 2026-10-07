@@ -13,7 +13,7 @@ from typing import Any
 from engine.jev_shadow_decision_v1 import env_bool, load_env, load_gateway_key
 
 UTC = timezone.utc
-EVAL_VERSION = "jev-macro-event-v1.3.1"
+EVAL_VERSION = "jev-macro-event-v1.3.2"
 DEFAULT_MODEL = "typesafe-ai/jev"
 DEFAULT_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate"
 HOLDING_HORIZON_BARS = 4
@@ -342,6 +342,7 @@ def fetch_candidates(conn: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
     limit = int(config.get("max_candidates_per_run", 24))
     official_max_age_hours = float(config.get("official_event_max_age_hours", 6.0))
     official_sources = list(config.get("official_event_sources") or OFFICIAL_EVENT_SOURCES)
+    signal_bar_minutes = int(config.get("signal_bar_minutes", 60))
 
     return list(
         conn.execute(
@@ -351,6 +352,7 @@ def fetch_candidates(conn: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
               s.market,
               s.symbol,
               s.as_of,
+              d.decision_as_of,
               s.strategy_version,
               m.as_of AS macro_as_of,
               m.coverage_confidence,
@@ -359,13 +361,16 @@ def fetch_candidates(conn: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
               o.title AS official_title,
               o.safe_available_at AS official_available_at
             FROM public.strategy_signal s
+            CROSS JOIN LATERAL (
+              SELECT s.as_of + (%s * interval '1 minute') AS decision_as_of
+            ) d
             LEFT JOIN LATERAL (
               SELECT as_of,coverage_confidence,features
               FROM public.news_feature_snapshot n
               WHERE n.market='GLOBAL'
                 AND n.symbol='GLOBAL'
                 AND n.feature_version=%s
-                AND n.as_of <= s.as_of
+                AND n.as_of <= d.decision_as_of
               ORDER BY n.as_of DESC
               LIMIT 1
             ) m ON true
@@ -378,9 +383,9 @@ def fetch_candidates(conn: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
               JOIN public.news_event e ON e.article_id=a.article_id
               WHERE e.event_type='MACRO'
                 AND a.source = ANY(%s)
-                AND GREATEST(a.available_at,a.first_seen_at) <= s.as_of
+                AND GREATEST(a.available_at,a.first_seen_at) <= d.decision_as_of
                 AND GREATEST(a.available_at,a.first_seen_at)
-                    >= s.as_of - (%s * interval '1 hour')
+                    >= d.decision_as_of - (%s * interval '1 hour')
               ORDER BY GREATEST(a.available_at,a.first_seen_at) DESC
               LIMIT 1
             ) o ON true
@@ -399,6 +404,7 @@ def fetch_candidates(conn: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
             LIMIT %s
             """,
             (
+                signal_bar_minutes,
                 feature_version,
                 official_sources,
                 official_max_age_hours,
@@ -534,11 +540,11 @@ def sync(config: dict[str, Any]) -> dict[str, Any]:
             }
             official_event = None
             official_available = row.get("official_available_at")
-            signal_as_of = row.get("as_of")
-            if row.get("official_title") and isinstance(official_available, datetime) and isinstance(signal_as_of, datetime):
+            decision_as_of = row.get("decision_as_of")
+            if row.get("official_title") and isinstance(official_available, datetime) and isinstance(decision_as_of, datetime):
                 age_minutes = max(
                     0.0,
-                    (signal_as_of.astimezone(UTC) - official_available.astimezone(UTC)).total_seconds() / 60.0,
+                    (decision_as_of.astimezone(UTC) - official_available.astimezone(UTC)).total_seconds() / 60.0,
                 )
                 official_event = {
                     "source": row.get("official_source"),

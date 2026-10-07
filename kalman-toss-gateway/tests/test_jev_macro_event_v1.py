@@ -103,7 +103,7 @@ class JevMacroEventV13Tests(unittest.TestCase):
         self.assertAlmostEqual(out["entry_support_probabilities"]["VETO"], 0.7)
         self.assertEqual(out["regime"], "HAWKISH_TIGHTENING")
         self.assertAlmostEqual(out["conviction_score"], 3.4)
-        self.assertEqual(EVAL_VERSION, "jev-macro-event-v1.3.1")
+        self.assertEqual(EVAL_VERSION, "jev-macro-event-v1.3.2")
 
 
 if __name__ == "__main__":
