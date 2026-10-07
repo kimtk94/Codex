@@ -1,0 +1,20 @@
+{
+  "version": "jev-shadow-v1.0",
+  "market": "US",
+  "strategy_version": "R5.1_BASE_HGB",
+  "model": "typesafe-ai/jev",
+  "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+  "gateway_key_file": "/home/taehoon/.config/kalman/secure/jev_gateway_key_create.out",
+  "macro_feature_version": "macro-event-feature-v1",
+  "max_signal_age_hours": 72,
+  "max_candidates_per_run": 12,
+  "timeout_seconds": 20,
+  "research_contract": {
+    "shadow_only": true,
+    "changes_r51": false,
+    "changes_trade_execution": false,
+    "can_veto_live": false,
+    "can_size_live": false,
+    "promotion_allowed": false
+  }
+}
