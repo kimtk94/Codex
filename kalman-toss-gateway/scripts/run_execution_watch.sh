@@ -71,6 +71,14 @@ PY
       exit 0
     fi
 
+    # Guarded early-session carry entry. The module is fail-closed and only
+    # submits when OPEN_CARRY_LIVE_ENABLED=true plus its explicit confirmation
+    # token and 5K x 2 contract are all present.
+    if ! "$PY" -m engine.open_carry_live; then
+      echo "OPEN_CARRY_LIVE_ERROR_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ) entry=BLOCKED"
+      exit 0
+    fi
+
     POLICY="$("$PY" - <<'PY'
 import os
 from dotenv import dotenv_values
