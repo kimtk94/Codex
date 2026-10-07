@@ -181,19 +181,22 @@ def confidence_map(raw: dict[str, Any]) -> dict[str, float]:
 def candidate_rows(conn) -> list[dict[str, Any]]:
     return list(conn.execute(
         """
-        SELECT s.run_id::text,s.symbol,s.as_of,
+        SELECT s.run_id::text,s.symbol,s.as_of,d.decision_as_of,
                o.source,o.title,o.safe_available_at,
-               EXTRACT(EPOCH FROM (s.as_of-o.safe_available_at))/60.0 AS event_age_minutes,
+               EXTRACT(EPOCH FROM (d.decision_as_of-o.safe_available_at))/60.0 AS event_age_minutes,
                m.coverage_confidence,m.features AS macro_features
         FROM public.strategy_signal s
+        CROSS JOIN LATERAL (
+          SELECT s.as_of + interval '60 minutes' AS decision_as_of
+        ) d
         JOIN LATERAL (
           SELECT a.source,a.title,GREATEST(a.available_at,a.first_seen_at) AS safe_available_at
           FROM public.news_article a
           JOIN public.news_event e ON e.article_id=a.article_id
           WHERE e.event_type='MACRO'
             AND a.source = ANY(ARRAY['fed_monetary','bls_cpi','bls_employment','bls_jolts','bea_releases'])
-            AND GREATEST(a.available_at,a.first_seen_at) <= s.as_of
-            AND GREATEST(a.available_at,a.first_seen_at) >= s.as_of-interval '6 hours'
+            AND GREATEST(a.available_at,a.first_seen_at) <= d.decision_as_of
+            AND GREATEST(a.available_at,a.first_seen_at) >= d.decision_as_of-interval '6 hours'
           ORDER BY GREATEST(a.available_at,a.first_seen_at) DESC
           LIMIT 1
         ) o ON true
@@ -202,7 +205,7 @@ def candidate_rows(conn) -> list[dict[str, Any]]:
           FROM public.news_feature_snapshot n
           WHERE n.market='GLOBAL' AND n.symbol='GLOBAL'
             AND n.feature_version='macro-event-feature-v1'
-            AND n.as_of<=s.as_of
+            AND n.as_of<=d.decision_as_of
           ORDER BY n.as_of DESC LIMIT 1
         ) m ON true
         WHERE s.market='US' AND s.strategy_version='R5.1_BASE_HGB'
