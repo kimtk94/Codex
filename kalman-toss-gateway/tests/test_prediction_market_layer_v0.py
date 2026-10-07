@@ -128,3 +128,38 @@ def test_blocked_payload_cannot_trade():
     assert p["safety"]["read_only"] is True
     assert p["safety"]["trade_execution_enabled"] is False
     assert p["safety"]["geoblock_bypass_attempted"] is False
+
+
+def test_contract_semantics_uses_contract_slug_and_avoids_war_false_positive():
+    c = cfg()
+    ch, sign = pm.contract_semantics(
+        "cpic-uscpi-july-yoy-2026-08-12-gt3pt2pct",
+        "CPI YoY in July",
+        "INFLATION",
+        c,
+    )
+    assert (ch, sign) == ("INFLATION_UPSIDE", -1)
+
+    ch, sign = pm.contract_semantics(
+        "rdc-usfed-fomc-2026-07-29-cut25",
+        "Fed Decision in July",
+        "FED_POLICY",
+        c,
+    )
+    assert (ch, sign) == ("FED_EASING", 1)
+
+    ch, sign = pm.contract_semantics(
+        "rdc-usfed-fomc-2026-07-29-hike25",
+        "Fed Decision in July",
+        "FED_POLICY",
+        c,
+    )
+    assert (ch, sign) == ("FED_TIGHTENING", -1)
+
+    ch, sign = pm.contract_semantics(
+        "some-politics-contract",
+        "Pete Hegseth Announced Out as Secretary of War?",
+        "GEOPOLITICS",
+        c,
+    )
+    assert (ch, sign) == ("UNMAPPED", None)

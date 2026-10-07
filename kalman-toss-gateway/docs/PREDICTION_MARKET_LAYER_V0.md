@@ -73,3 +73,57 @@ On the current Korea-hosted server, live collection is expected to return BLOCKE
 ## Safety invariants
 
 Every emitted market and top-level payload is challenger-only/read-only. There is no order endpoint, wallet key, position sizing, Kelly sizing, execution hook, or R5.1 live feature mutation in this module.
+
+## Offline archive backfill
+
+For reproducible historical research, v0 can ingest the independent CC BY 4.0
+archive published by Dinesh Gopalakrishnan rather than attempting to bypass the
+live HTTP 451 restriction.
+
+Frozen research snapshot:
+
+- GitHub release: data-2026-09-13
+- asset: polymarket-orderbook-2026-09-13.tar.zst
+- SHA256: 13c76e8868589a46a60cd1b6eda80c2094fc36b32f51fc6435fa4ba9c6fb8086
+- observed coverage: 2026-07-10 through 2026-09-13
+
+Fetch and verify:
+
+    scripts/fetch_prediction_market_archive_v0.sh
+
+Build the 10-minute macro canonical table:
+
+    scripts/run_prediction_market_research_v0.sh archive
+
+Archive safety/data-quality rules are explicit:
+
+- quotes/ is top-of-book observation data, not executed prints
+- crossed books are removed
+- the 2026-07-17 to 2026-07-22 collector outage is never bridged for deltas
+- 10m/1h probability changes require the exact prior timestamp within the same segment
+- volume24hr is retained but tagged as unreliable/missing where the source dataset has the known upstream failure
+- only macro/finance/geopolitics/politics rows that map to a configured Kalman theme survive
+
+## Lead-lag audit
+
+The offline lead-lag runner accepts any Kalman asset file that contains a
+recognizable timestamp column and close/price column.
+
+Example:
+
+    scripts/run_prediction_market_research_v0.sh leadlag \
+      --asset QQQ=/path/QQQ_1h_2017plus.parquet \
+      --asset QLD=/path/QLD_1h_2017plus.parquet
+
+The event layer only uses semantically mapped markets. A one-hour probability
+move is converted into a signed risk shift using the configured research prior,
+then aligned to the first asset bar at or after the event. It reports 1-bar,
+4-bar and 7-bar forward returns without changing production R5.1.
+
+An optional US2Y file can be supplied with --us2y. Rate confirmation is only
+scored for FED_EASING and FED_TIGHTENING channels; other event classes are left
+unscored rather than forcing a generic bond-direction assumption.
+
+The 1-hour QQQ/QLD history currently available in Kalman covers 2020-07-27
+through 2026-08-28. SOXX is not currently present in the history_1h folder, so it
+is an explicit data gap rather than a synthesized series.

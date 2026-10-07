@@ -94,6 +94,53 @@ def semantic_channel(text: str, config: dict[str, Any]) -> tuple[str, int | None
     return "UNMAPPED", None
 
 
+def contract_semantics(
+    slug: str,
+    question: str,
+    theme: str,
+    config: dict[str, Any],
+) -> tuple[str, int | None]:
+    s = str(slug or "").lower()
+    q = str(question or "").lower()
+    theme = str(theme or "OTHER").upper()
+
+    if theme == "FED_POLICY":
+        if "-cut" in s or "rate cut" in q:
+            return "FED_EASING", 1
+        if "-hike" in s or "rate hike" in q:
+            return "FED_TIGHTENING", -1
+        return semantic_channel(" ".join([s, q]), config)
+
+    if theme == "INFLATION":
+        if "-gt" in s or " above " in f" {q} ":
+            return "INFLATION_UPSIDE", -1
+        if "-lt" in s or " below " in f" {q} ":
+            return "INFLATION_DOWNSIDE", 1
+        return "UNMAPPED", None
+
+    if theme == "FISCAL_POLICY" and "shutdown" in q:
+        return "GOVERNMENT_SHUTDOWN", -1
+
+    if theme == "RECESSION_GROWTH":
+        if "recession" in q:
+            return "RECESSION_RISK", -1
+        return "UNMAPPED", None
+
+    if theme == "GEOPOLITICS":
+        if "ceasefire" in q or "peace agreement" in q:
+            return "GEOPOLITICAL_DEESCALATION", 1
+        if (
+            "invasion" in q
+            or "military strike" in q
+            or "military attack" in q
+            or "war between" in q
+        ):
+            return "GEOPOLITICAL_RISK", -1
+        return "UNMAPPED", None
+
+    return semantic_channel(" ".join([s, q]), config)
+
+
 def yes_probability(market: dict[str, Any]) -> tuple[float | None, str | None]:
     outcomes = [str(x).strip() for x in parse_jsonish(market.get("outcomes"))]
     prices = parse_jsonish(market.get("outcomePrices"))
@@ -146,7 +193,12 @@ def normalize_market(
         spread = max(0.0, best_ask - best_bid)
 
     theme = classify_theme(text, config)
-    channel, risk_prior_sign = semantic_channel(text, config)
+    channel, risk_prior_sign = contract_semantics(
+        str(market.get("slug") or ""),
+        question,
+        theme,
+        config,
+    )
 
     return {
         "feature_version": FEATURE_VERSION,

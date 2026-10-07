@@ -7,9 +7,16 @@ on:
       - "kalman-toss-gateway/config/prediction-market-layer-v0.json"
       - "kalman-toss-gateway/config/prediction-market-v0.cron.example"
       - "kalman-toss-gateway/engine/prediction_market_layer_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_archive_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_leadlag_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_stratified_v0.py"
       - "kalman-toss-gateway/scripts/run_prediction_market_layer_v0.sh"
+      - "kalman-toss-gateway/scripts/fetch_prediction_market_archive_v0.sh"
+      - "kalman-toss-gateway/scripts/run_prediction_market_research_v0.sh"
       - "kalman-toss-gateway/docs/PREDICTION_MARKET_LAYER_V0.md"
+      - "kalman-toss-gateway/docs/PREDICTION_MARKET_V0_FIRST_AUDIT.md"
       - "kalman-toss-gateway/tests/test_prediction_market_layer_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_archive_leadlag_v0.py"
       - "kalman-toss-gateway/tests/fixtures/prediction_market_sample.json"
       - ".github/workflows/kalman-prediction-market-v0.yml"
   workflow_dispatch:
@@ -35,13 +42,20 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest httpx
+          pip install pytest httpx pandas numpy pyarrow
 
-      - name: Compile module
-        run: python -m py_compile engine/prediction_market_layer_v0.py
+      - name: Compile modules
+        run: |
+          python -m py_compile engine/prediction_market_layer_v0.py
+          python -m py_compile research/quant_stack/prediction_market_archive_v0.py
+          python -m py_compile research/quant_stack/prediction_market_leadlag_v0.py
+          python -m py_compile research/quant_stack/prediction_market_stratified_v0.py
 
       - name: Validate shell syntax
-        run: bash -n scripts/run_prediction_market_layer_v0.sh
+        run: |
+          bash -n scripts/run_prediction_market_layer_v0.sh
+          bash -n scripts/fetch_prediction_market_archive_v0.sh
+          bash -n scripts/run_prediction_market_research_v0.sh
 
       - name: Validate read-only contracts
         run: |
@@ -72,7 +86,9 @@ jobs:
       - name: Run regression tests
         env:
           PYTHONPATH: .
-        run: pytest -q tests/test_prediction_market_layer_v0.py
+        run: |
+          pytest -q tests/test_prediction_market_layer_v0.py
+          pytest -q tests/test_prediction_market_archive_leadlag_v0.py
 
       - name: Run fixture smoke
         env:
