@@ -21,12 +21,14 @@ from engine.macro_consensus_provider_v1 import (
     refresh_consensus_observations,
     within_active_window,
 )
+from engine.macro_equity_confirmation_v1 import compute_equity_confirmation
 
 
 FEATURE_VERSION = "macro-event-feature-v1"
 FRED_OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
 UTC = timezone.utc
 NY = ZoneInfo("America/New_York")
+SURPRISE_EVENT_FAMILIES = {"CPI", "NFP", "PCE"}
 
 
 def utc_now() -> datetime:
@@ -343,32 +345,37 @@ def select_us_reaction_anchor(
 
     duplicate_minutes = float(config.get("structured_official_match_minutes", 30.0))
     if latest_structured and latest_official:
-        s_at, s_row = latest_structured
+        s_available_at, s_row = latest_structured
+        s_release_at = parse_dt(s_row.get("release_at")) or s_available_at
         o_at, o_row = latest_official
-        if abs((s_at - o_at).total_seconds()) <= duplicate_minutes * 60.0:
-            return s_at, {
+        if abs((s_release_at - o_at).total_seconds()) <= duplicate_minutes * 60.0:
+            return s_release_at, {
                 "kind": "STRUCTURED_US_RELEASE",
                 "source": s_row.get("source"),
                 "event_name": s_row.get("event_name"),
                 "indicator_key": s_row.get("indicator_key"),
-                "available_at": iso(s_at),
+                "release_at": iso(s_release_at),
+                "available_at": iso(s_available_at),
             }
-        if o_at > s_at:
+        if o_at > s_available_at:
             return o_at, {
                 "kind": "US_OFFICIAL_NEWS_PROXY",
                 "source": o_row.get("source"),
                 "event_name": o_row.get("title"),
                 "indicator_key": None,
+                "release_at": iso(o_at),
                 "available_at": iso(o_at),
             }
 
     if latest_structured:
         available_at, row = latest_structured
-        return available_at, {
+        release_at = parse_dt(row.get("release_at")) or available_at
+        return release_at, {
             "kind": "STRUCTURED_US_RELEASE",
             "source": row.get("source"),
             "event_name": row.get("event_name"),
             "indicator_key": row.get("indicator_key"),
+            "release_at": iso(release_at),
             "available_at": iso(available_at),
         }
 
@@ -379,6 +386,7 @@ def select_us_reaction_anchor(
             "source": row.get("source"),
             "event_name": row.get("title"),
             "indicator_key": None,
+            "release_at": iso(available_at),
             "available_at": iso(available_at),
         }
 
@@ -387,6 +395,7 @@ def select_us_reaction_anchor(
         "source": None,
         "event_name": None,
         "indicator_key": None,
+        "release_at": None,
         "available_at": None,
     }
 
@@ -426,12 +435,19 @@ def macro_event_family(
         return str(family_map[indicator]).upper()
 
     source = str(reaction_anchor_meta.get("source") or "")
+    event_name = str(reaction_anchor_meta.get("event_name") or "").lower()
     if source == "fed_monetary":
         return "FOMC"
     if source == "bls_cpi":
         return "CPI"
     if source == "bls_employment":
         return "NFP"
+    if source == "bea_releases" and (
+        "personal income and outlays" in event_name
+        or "personal consumption expenditures" in event_name
+        or "pce" in event_name
+    ):
+        return "PCE"
     return "OTHER"
 
 
@@ -441,7 +457,7 @@ def select_event_bundle(
     event_family: str,
     config: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    if reaction_anchor is None or event_family not in {"CPI", "NFP"}:
+    if reaction_anchor is None or event_family not in SURPRISE_EVENT_FAMILIES:
         return []
     scoring = config.get("event_scoring") or {}
     family_map = scoring.get("indicator_family") or {}
@@ -517,7 +533,7 @@ def compute_shadow_event_score(
         "policy_confirmation_z": policy_z,
     }
 
-    if event_family in {"CPI", "NFP"}:
+    if event_family in SURPRISE_EVENT_FAMILIES:
         if bundle_surprise is None:
             blockers.append("EVENT_BUNDLE_SURPRISE_UNAVAILABLE")
         if reaction_z is None:
@@ -534,7 +550,7 @@ def compute_shadow_event_score(
 
     score = None
     if not blockers:
-        if event_family in {"CPI", "NFP"}:
+        if event_family in SURPRISE_EVENT_FAMILIES:
             score = (
                 float(weights.get("surprise", 0.50)) * float(bundle_surprise)
                 + float(weights.get("us2y", 0.30)) * float(reaction_z)
@@ -598,7 +614,7 @@ def compute_free_reaction_shadow_score(
         else None
     )
     blockers: list[str] = []
-    if event_family not in {"CPI", "NFP", "FOMC"}:
+    if event_family not in SURPRISE_EVENT_FAMILIES | {"FOMC"}:
         blockers.append("UNSUPPORTED_EVENT_FAMILY")
     if reaction_z is None:
         blockers.append("US2Y_EVENT_REACTION_UNAVAILABLE")
@@ -608,7 +624,7 @@ def compute_free_reaction_shadow_score(
     score = None
     weights = (scoring.get("weights") or {}).get(event_family) or {}
     if not blockers:
-        if event_family in {"CPI", "NFP"}:
+        if event_family in SURPRISE_EVENT_FAMILIES:
             us2y_weight = float(weights.get("us2y", 0.30))
             policy_weight = float(weights.get("policy", 0.20))
         else:
@@ -932,6 +948,11 @@ def build_feature_payload(
     us_target_event_score = target_market_event_score(shadow_score, "US", config)
     kr_us_spillover_event_score = target_market_event_score(shadow_score, "KR", config)
     event_bundle_surprise = shadow_score.get("bundle_surprise")
+    equity_confirmation = compute_equity_confirmation(
+        config,
+        event_at=reaction_anchor,
+        surprise_score=event_bundle_surprise,
+    )
     shock_interaction = (
         float(event_bundle_surprise) * reaction_z
         if event_bundle_surprise is not None and reaction_z is not None
@@ -986,7 +1007,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.8",
+        "schema_version": "macro-event-feature-v1.9",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -1057,6 +1078,7 @@ def build_feature_payload(
         "reaction_anchor_source": reaction_anchor_meta["source"],
         "reaction_anchor_event_name": reaction_anchor_meta["event_name"],
         "reaction_anchor_indicator": reaction_anchor_meta["indicator_key"],
+        "reaction_anchor_release_at": reaction_anchor_meta.get("release_at"),
         "reaction_anchor_available_at": reaction_anchor_meta["available_at"],
         "us2y_series": str(fred_cfg.get("series_id", "DGS2")),
         "us2y_latest_date": dgs2["latest_date"],
@@ -1117,6 +1139,7 @@ def build_feature_payload(
         },
         "macro_event_shadow_score_range": shadow_score.get("score_range"),
         "macro_event_shadow_positive_direction": shadow_score.get("positive_direction"),
+        "equity_confirmation": equity_confirmation,
         "us_target_macro_event_score": us_target_event_score.get("score"),
         "us_target_macro_event_weight": us_target_event_score.get("impact_weight"),
         "kr_us_spillover_event_score": kr_us_spillover_event_score.get("score"),
@@ -1160,14 +1183,21 @@ def build_feature_payload(
             },
             "us2y_event_reaction": {
                 "status": (
-                    "READY"
+                    "READY_DAILY_PROXY"
                     if event_reaction.get("reaction_bps") is not None
-                    else "PENDING_MARKET_OBSERVATION"
+                    else "PENDING_DAILY_OBSERVATION"
                     if reaction_anchor is not None
                     else "NO_US_EVENT_ANCHOR"
                 ),
+                "quality": str(fred_cfg.get("reaction_quality", "DAILY_PROXY")),
+                "intraday_confirmation": "UNAVAILABLE_NOT_CONFIGURED",
                 "anchor_kind": reaction_anchor_meta["kind"],
                 "anchor_source": reaction_anchor_meta["source"],
+            },
+            "equity_confirmation": {
+                "status": equity_confirmation.get("status"),
+                "quality": equity_confirmation.get("quality"),
+                "shadow_only": True,
             },
             "consensus_surprise_provider": {
                 "status": "READY" if surprise_provider_ready else "UNAVAILABLE"

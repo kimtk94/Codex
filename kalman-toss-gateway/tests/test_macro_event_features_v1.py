@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from engine import macro_event_features_v1 as macro
 from engine import macro_consensus_provider_v1 as consensus
@@ -1088,3 +1088,116 @@ def test_target_market_event_score_applies_cross_market_family_weight():
     assert kr["score"] == 1.7
     assert us["ready"] is True
     assert kr["ready"] is True
+
+
+def test_structured_reaction_anchor_uses_release_time_not_provider_delay():
+    cfg = config()
+    cfg["us_reaction_anchor_sources"] = ["bea_releases"]
+    releases = [
+        {
+            "market": "US",
+            "source": "trading_economics_calendar",
+            "event_name": "Core PCE Price Index MoM",
+            "indicator_key": "CORE_PCE_MOM",
+            "release_at": datetime(2026, 10, 29, 12, 30, tzinfo=UTC),
+            "available_at": datetime(2026, 10, 29, 12, 34, tzinfo=UTC),
+            "actual": 0.3,
+            "consensus": 0.2,
+        }
+    ]
+    official_rows = [
+        {
+            "source": "bea_releases",
+            "title": "Personal Income and Outlays",
+            "available_at": datetime(2026, 10, 29, 12, 31, tzinfo=UTC),
+        }
+    ]
+    anchor, meta = macro.select_us_reaction_anchor(releases, official_rows, cfg)
+    assert anchor == datetime(2026, 10, 29, 12, 30, tzinfo=UTC)
+    assert meta["release_at"] == "2026-10-29T12:30:00+00:00"
+    assert meta["available_at"] == "2026-10-29T12:34:00+00:00"
+
+
+def test_pce_bundle_is_supported_as_surprise_event_family():
+    cfg = config()
+    cfg["indicator_normalization"]["CORE_PCE_MOM"] = {
+        "scale": 0.1,
+        "policy_sign": 1.0,
+        "unit": "pct",
+    }
+    cfg["indicator_normalization"]["CORE_PCE_YOY"] = {
+        "scale": 0.1,
+        "policy_sign": 1.0,
+        "unit": "pct",
+    }
+    cfg["event_scoring"]["indicator_family"].update(
+        {
+            "CORE_PCE_MOM": "PCE",
+            "CORE_PCE_YOY": "PCE",
+        }
+    )
+    cfg["event_scoring"]["weights"]["PCE"] = {
+        "surprise": 0.50,
+        "us2y": 0.30,
+        "policy": 0.20,
+    }
+    anchor = datetime(2026, 10, 29, 12, 30, tzinfo=UTC)
+    releases = [
+        {
+            "indicator_key": "CORE_PCE_MOM",
+            "available_at_dt": anchor,
+            "policy_pressure_surprise": 1.0,
+        },
+        {
+            "indicator_key": "CORE_PCE_YOY",
+            "available_at_dt": anchor + timedelta(minutes=1),
+            "policy_pressure_surprise": 1.0,
+        },
+    ]
+    bundle = macro.select_event_bundle(releases, anchor, "PCE", cfg)
+    assert [x["indicator_key"] for x in bundle] == [
+        "CORE_PCE_MOM",
+        "CORE_PCE_YOY",
+    ]
+    score = macro.compute_shadow_event_score(
+        event_family="PCE",
+        event_bundle=bundle,
+        reaction_z=1.0,
+        matched_policy={"repricing_bps": 5.0},
+        policy_proxy_event_bps=None,
+        config=cfg,
+    )
+    assert score["ready"] is True
+    assert score["event_family"] == "PCE"
+    assert score["bundle_surprise"] == 1.0
+    assert score["score"] == 1.0
+
+
+def test_pce_family_resolves_from_structured_indicator():
+    cfg = config()
+    cfg["event_scoring"]["indicator_family"]["CORE_PCE_MOM"] = "PCE"
+    meta = {
+        "indicator_key": "CORE_PCE_MOM",
+        "source": "trading_economics_calendar",
+    }
+    assert macro.macro_event_family(meta, cfg) == "PCE"
+
+
+def test_bea_personal_income_outlays_fallback_maps_to_pce():
+    cfg = config()
+    meta = {
+        "indicator_key": None,
+        "source": "bea_releases",
+        "event_name": "Personal Income and Outlays, September 2026",
+    }
+    assert macro.macro_event_family(meta, cfg) == "PCE"
+
+
+def test_generic_bea_release_does_not_false_map_to_pce():
+    cfg = config()
+    meta = {
+        "indicator_key": None,
+        "source": "bea_releases",
+        "event_name": "GDP (Advance Estimate), 3rd Quarter 2026",
+    }
+    assert macro.macro_event_family(meta, cfg) == "OTHER"
