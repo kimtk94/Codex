@@ -815,12 +815,15 @@ async def _manage_open_position(
             pending_exit_reason = None
             observed_guard = store.get(position['position_id'])
 
-    elapsed = _elapsed_canonical_buckets(db_url, position['entry_signal_as_of'])
+    bucket_exit_enabled = bool(int(position.get('bucket_exit_enabled', 1) or 0))
+    elapsed = _elapsed_canonical_buckets(db_url, position['entry_signal_as_of']) if bucket_exit_enabled else 0
     target = int(position['target_exit_buckets'])
     policy = os.environ.get('AUTO_TRADE_SIGNAL_POLICY', 'APPROVED_ONLY').strip().upper()
     latest = _latest_eligible_signal(db_url, position['strategy_version'], policy)
     entry_as_of = _parse_signal_time(position['entry_signal_as_of'])
-    rotation_enabled = _model_rotation_enabled()
+    rotation_enabled = _model_rotation_enabled() and bool(
+        int(position.get('model_rotation_enabled', 1) or 0)
+    )
     rotation = bool(
         rotation_enabled
         and latest
@@ -838,7 +841,7 @@ async def _manage_open_position(
         take_profit=take_profit,
         model_rotation=rotation,
         elapsed_buckets=elapsed,
-        target_buckets=target,
+        target_buckets=target if bucket_exit_enabled else 10**9,
         pending_exit_reason=pending_exit_reason,
         friday_flat_due=friday_flat_due,
     )
@@ -855,6 +858,7 @@ async def _manage_open_position(
         'takeProfitPct': str(take_profit),
         'elapsedCanonicalBuckets': elapsed,
         'targetExitBuckets': target,
+        'bucketExitEnabled': bucket_exit_enabled,
         'latestEligibleSymbol': latest['symbol'] if latest else None,
         'latestEligibleAsOf': latest['as_of'] if latest else None,
         'modelRotationEnabled': rotation_enabled,

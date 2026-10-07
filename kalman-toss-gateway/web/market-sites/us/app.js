@@ -64,7 +64,7 @@ function conditionalPolicyHtml(){
 function modelSignalHtml(){let t=S?.payload?.source_payload?.today_selector||{},raw=t.as_of_utc||S?.data_as_of;return '<section class="dailybox"><div class="sectiontitle"><div><b>이번 Model Signal</b><div class="signaltime">'+signalTimeHtml(raw)+'</div></div><span class="badge">'+E(t.evidence_confidence||'—')+'</span></div><div class="signalgrid"><div class="sig"><span>Selected</span><b>'+E(t.selected_symbol||'—')+'</b></div><div class="sig"><span>4H target α</span><b class="pos">'+PCT(t.target_relative_return_4h)+'</b></div><div class="sig"><span>Risk band</span><b>'+USD(t.risk_band_low_4h)+' – '+USD(t.risk_band_high_4h)+'</b></div><div class="sig"><span>Observed hit rate</span><b>'+(N(t.observed_hit_rate)==null?'—':(N(t.observed_hit_rate)*100).toFixed(1)+'%')+'</b></div></div><div class="note">Signal timestamp는 R5.1 60분 봉의 BAR START입니다. 위에 KST와 미국 동부시간(ET), 그리고 실제 봉 완성시각을 함께 표시합니다.</div></section>'}
 function detailHtml(x){if(!x)return'';return '<div class="detail"><div class="sectiontitle"><div><b>'+E(x.symbol)+'</b><small>Rank #'+E(x.rank)+' / '+E(x.universe_size)+'</small></div><span class="badge info">MODEL</span></div><div class="mini"><div><span>Reference</span><b>'+USD(x.reference_price)+'</b></div><div><span>4H Target</span><b>'+USD(x.target_price_4h)+'</b></div><div><span>Relative α</span><b class="pos">'+PCT(x.model_score)+'</b></div><div><span>Vol-target weight</span><b>'+(N(x.position_weight_r4_vol_target)==null?'—':(N(x.position_weight_r4_vol_target)*100).toFixed(1)+'%')+'</b></div></div>'+tvChart(x.symbol)+'<div class="note">차트는 TradingView 시장가격, 모델 Rank/Reference/4H Target은 Investment Hub snapshot 기준입니다. 두 데이터의 기준시각이 다를 수 있습니다.</div></div>'}
 function universe(){return '<div class="tw"><table><thead><tr><th>Rank</th><th>Symbol</th><th>Reference</th><th>4H Target</th><th>Model α</th><th>Weight</th></tr></thead><tbody>'+A.map(x=>'<tr class="pick" data-s="'+E(x.symbol)+'"><td>#'+E(x.rank)+'</td><td><b>'+E(x.symbol)+'</b></td><td>'+USD(x.reference_price)+'</td><td>'+USD(x.target_price_4h)+'</td><td class="'+(N(x.model_score)>=0?'pos':'neg')+'">'+PCT(x.model_score)+'</td><td>'+(N(x.position_weight_r4_vol_target)==null?'—':(N(x.position_weight_r4_vol_target)*100).toFixed(1)+'%')+'</td></tr>').join('')+'</tbody></table></div>'}
-function fold(title,meta,body){return '<details class="fold card"><summary><span><b>'+title+'</b><small>'+meta+'</small></span><span>⌄</span></summary><div class="foldbody">'+body+'</div></details>'}
+function fold(title,meta,body,open=false){return '<details class="fold card"'+(open?' open':'')+'><summary><span><b>'+title+'</b><small>'+meta+'</small></span><span>⌄</span></summary><div class="foldbody">'+body+'</div></details>'}
 
 const PCT2=x=>N(x)==null?'—':(N(x)>=0?'+':'')+(N(x)*100).toFixed(2)+'%';
 function siteNav(active){
@@ -82,6 +82,8 @@ function fmtKstHM(d){return new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seou
 function fmtNyYMD(d){return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(d)}
 function fmtEtMD(d){return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',month:'2-digit',day:'2-digit'}).format(d)}
 function fmtEtHM(d){return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(d)}
+function nyOffsetMinutes(d){let z=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',timeZoneName:'shortOffset',hour:'2-digit'}).formatToParts(d).find(x=>x.type==='timeZoneName')?.value||'GMT-5',m=z.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);if(!m)return -300;let v=(+m[2]*60 + +(m[3]||0));return m[1]==='-'?-v:v}
+function nyDate(v,h=0,min=0){let wall=Date.UTC(v.y,v.m-1,v.d,h,min),guess=new Date(wall),off=nyOffsetMinutes(guess),out=new Date(wall-off*60000),off2=nyOffsetMinutes(out);return off2===off?out:new Date(wall-off2*60000)}
 function zonePair(d){if(!d||Number.isNaN(new Date(d).getTime()))return '—';let x=new Date(d);return fmtKstMD(x)+' '+fmtKstHM(x)+' KST · '+fmtEtMD(x)+' '+fmtEtHM(x)+' ET'}
 function timePair(d){if(!d||Number.isNaN(new Date(d).getTime()))return '—';let x=new Date(d);return fmtKstHM(x)+' KST · '+fmtEtHM(x)+' ET'}
 function timePairHtml(d,klass=''){if(!d||Number.isNaN(new Date(d).getTime()))return '<span class="timepair '+klass+'">—</span>';let x=new Date(d);return '<span class="timepair '+klass+'"><b>'+E(fmtKstHM(x))+'</b><em>KST</em><i>·</i><b>'+E(fmtEtHM(x))+'</b><em>ET</em></span>'}
@@ -90,8 +92,8 @@ function usSessionContext(now=new Date()){
   let p=kstParts(now),mins=p.h*60+p.min,today={y:p.y,m:p.m,d:p.d},base;
   if(mins<360){let prev=addKstDays(today,-1);base=isKstTradeStartDay(prev)?prev:nextKstTradeStartDay(today)}
   else base=isKstTradeStartDay(today)?today:nextKstTradeStartDay(today);
-  let nextDay=addKstDays(base,1),slots=[kstDate(base,23,35)];
-  for(let h=0;h<=4;h++)slots.push(kstDate(nextDay,h,35));
+  let slots=[];for(let h=10;h<=15;h++)slots.push(nyDate(base,h,35));
+  let nextDay=addKstDays(base,1);
   let generated=S?.generated_at?new Date(S.generated_at):null,done=slots.filter(x=>generated&&generated>=x).length,due=slots.filter(x=>now>=x).length;
   let status='WAITING',statusClass='waiting';
   if(now>=slots[0]&&now<=new Date(slots.at(-1).getTime()+45*60000)){
@@ -101,14 +103,14 @@ function usSessionContext(now=new Date()){
     else {status='UPDATE LATE';statusClass='late'}
   }
   let next=slots.find(x=>x>now),nextBase=base;
-  if(!next){nextBase=nextKstTradeStartDay(addKstDays(base,1));next=kstDate(nextBase,23,35)}
+  if(!next){nextBase=nextKstTradeStartDay(addKstDays(base,1));next=nyDate(nextBase,10,35)}
   let latestDone=[...slots].reverse().find(x=>generated&&generated>=x),lag=5;
   if(latestDone&&generated){lag=Math.max(2,Math.min(15,Math.round((generated-latestDone)/60000)))}
   let nextUpdate=new Date(next.getTime()+lag*60000);
   return {base,nextDay,slots,generated,done,due,status,statusClass,next,nextUpdate,nextBase,usDate:fmtNyYMD(slots[0]),kstSessionDate:fmtKstMD(slots.at(-1))};
 }
 function watcherContext(now=new Date()){
-  let s=usSessionContext(now),start=s.slots[0],end=kstDate(s.nextDay,5,55),next;
+  let s=usSessionContext(now),start=nyDate(s.base,9,25),end=nyDate(s.base,15,55),next;
   if(now<start)next=start;
   else if(now<=end){
     let p=kstParts(now),nextMin=Math.floor(p.min/5)*5+5,day={y:p.y,m:p.m,d:p.d};
@@ -116,8 +118,8 @@ function watcherContext(now=new Date()){
       let nd=p.h>=23?addKstDays(day,1):day,nh=p.h>=23?0:p.h+1;
       next=kstDate(nd,nh,0);
     }else next=kstDate(day,p.h,nextMin);
-    if(next>end){let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,23,0)}
-  }else{let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,23,0)}
+    if(next>end){let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=nyDate(nb,9,25)}
+  }else{let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=nyDate(nb,9,25)}
   let active=now>=start&&now<=end;
   let ledger=C?.execution_ledger||[],updated=ledger.map(x=>x.updated_at).filter(Boolean).map(x=>new Date(x)).filter(x=>!Number.isNaN(x.getTime())).sort((a,b)=>b-a)[0]||null;
   return {active,start,end,next,updated};
@@ -125,7 +127,7 @@ function watcherContext(now=new Date()){
 function watcherStatusHtml(){
   let w=watcherContext(),state=w.active?'ACTIVE':'WAITING',cls=w.active?'track':'waiting',conditional=liveConditional();
   let runner=conditional?'r5_conditional_live':'auto_trade';
-  return '<section id="execution-watcher" class="watchercard"><div class="watcherhead"><div><span class="eyebrow">5M EXECUTION WATCHER</span><b>체결 · 리스크 · 신규진입 감시</b><small>모델 재계산 없음 · R5.1 signal은 60분 cadence 유지</small></div><span class="sessionstate '+cls+'">'+state+'</span></div><div class="watchergrid"><div><span>WATCH CADENCE</span><b>Every 5 min</b><small>23:00–05:55 KST · 10:00–16:55 ET</small></div><div><span>NEXT WATCH</span>'+timePairHtml(w.next,'hero-clock')+'<small>hourly cycle lock 중이면 자동 SKIP</small></div><div><span>LAST EXECUTION SYNC</span>'+(w.updated?timePairHtml(w.updated):'<b>—</b>')+'<small>execution ledger latest update</small></div><div><span>ORDER</span><b>Reconcile → Trade → Mirror</b><small>position_manager → '+E(runner)+' → trade_mirror</small></div></div></section>';
+  return '<section id="execution-watcher" class="watchercard"><div class="watcherhead"><div><span class="eyebrow">5M EXECUTION WATCHER</span><b>체결 · 리스크 · 신규진입 감시</b><small>모델 재계산 없음 · R5.1 signal은 60분 cadence 유지</small></div><span class="sessionstate '+cls+'">'+state+'</span></div><div class="watchergrid"><div><span>WATCH CADENCE</span><b>Every 5 min</b><small>09:25–15:55 ET · Toss market-calendar gate · DST safe</small></div><div><span>NEXT WATCH</span>'+timePairHtml(w.next,'hero-clock')+'<small>hourly cycle lock 중이면 자동 SKIP</small></div><div><span>LAST EXECUTION SYNC</span>'+(w.updated?timePairHtml(w.updated):'<b>—</b>')+'<small>execution ledger latest update</small></div><div><span>ORDER</span><b>Reconcile → Trade → Mirror</b><small>position_manager → '+E(runner)+' → trade_mirror</small></div></div></section>';
 }
 function engineSignalState(){
   let s=C?.latest_model_signal||null;
@@ -154,6 +156,30 @@ function conditionalExecutionHtml(){
   if(cth!=null)meta.push('conf≤'+cth.toFixed(6));
   let status=legs.map(x=>String(x.status||'—')).join(' / ');
   return '<div class="detail"><div class="sectiontitle"><div><b>ACTUAL CONDITIONAL DECISION · '+E(regime)+'</b><small>'+E(run||'—')+' · '+E(status)+'</small></div><span class="badge">'+E(regime)+'</span></div><div class="signalgrid"><div class="sig"><span>ALLOCATION</span><b>'+legText+(cash>0?' + CASH '+money(cash):'')+'</b></div><div class="sig"><span>RANK 1</span><b>'+E(latest.rank1Symbol||'—')+' · '+score(latest.rank1Score)+'</b></div><div class="sig"><span>RANK 2</span><b>'+E(latest.rank2Symbol||'—')+' · '+score(latest.rank2Score)+'</b></div><div class="sig"><span>GATE</span><b>'+E(meta.join(' · ')||'—')+'</b></div></div><div class="note">Signal '+E(DT(latest.signalAsOf))+' · 실제 server-side order telemetry 기준 · 화면 재계산값 아님</div></div>';
+}
+function holdingEvaluationLabel(v){
+  let x=String(v||'').toUpperCase(),m={
+    MANAGED_HOLD:'HOLD · 자동관리',
+    MANAGED_EXIT_PENDING:'SELL 대기',
+    UNMANAGED_HOLD:'HOLD · 기존보유',
+    UNMANAGED_MODEL_SUPPORTED:'HOLD · 모델지지',
+    UNMANAGED_EXIT_REVIEW:'매도 검토',
+    UNMANAGED_STRONG_SELL_REVIEW:'강한 매도 검토'
+  };
+  return m[x]||v||'평가 중';
+}
+function holdingsEvaluationHtml(){
+  let ev=liveTradingStatus()?.holdingsEvaluation||{}, rows=Array.isArray(ev.holdings)?ev.holdings:[];
+  if(!rows.length)return '<section class="dailybox holdingsbox"><div class="sectiontitle"><div><b>보유종목 평가</b><small>Broker holdings · 5분 평가</small></div><span class="badge info">NO DATA</span></div><div class="note">현재 holdings evaluation 데이터가 없습니다.</div></section>';
+  let cards=rows.map(x=>{
+    let pnl=N(x.pnl_rate),day=N(x.daily_pnl_rate),rank=N(x.model_support_rank),score=N(x.model_score);
+    let label=holdingEvaluationLabel(x.evaluation),cls=String(x.evaluation||'').includes('SELL')||String(x.evaluation||'').includes('EXIT')?'bad':(pnl!=null&&pnl>=0?'good':'');
+    let support=rank!=null?'현재 모델 #'+rank+(score!=null?' · score '+score.toFixed(4):''):'현재 TOP 모델 밖';
+    let manage=x.managed?'MANAGED · 자동매도 적용':'UNMANAGED · 자동매도 미적용';
+    return '<div class="holdingeval '+cls+'"><div class="holdingevalhead"><div><b>'+E(x.symbol)+'</b><small>'+E(x.name||'')+'</small></div><span class="status '+(cls==='bad'?'bad':'open')+'">'+E(label)+'</span></div><div class="holdingevalgrid"><div><span>현재 / 평단</span><b>'+USD(x.last_price)+' / '+USD(x.average_purchase_price)+'</b></div><div><span>총 손익</span><b class="'+(pnl==null?'':pnl>=0?'pos':'neg')+'">'+PCT2(pnl)+'</b></div><div><span>오늘</span><b class="'+(day==null?'':day>=0?'pos':'neg')+'">'+PCT2(day)+'</b></div><div><span>모델 지지</span><b>'+E(support)+'</b></div></div><div class="holdingevalfoot"><span>'+E(manage)+'</span>'+(x.managed_exit_pending_reason?'<b>'+E(exitReasonLabel(x.managed_exit_pending_reason))+'</b>':'')+'</div></div>';
+  }).join('');
+  let sm=ev.summary||{};
+  return '<section class="dailybox holdingsbox"><div class="sectiontitle"><div><b>보유종목 평가 · '+rows.length+'</b><small>실제 Broker 보유 · Signal과 별도 평가</small></div><span class="badge">'+E(sm.managed_count??0)+' managed · '+E(sm.unmanaged_count??0)+' existing</span></div><div class="holdingevals">'+cards+'</div><div class="note">모델 지지는 현재 rank/score 참고값입니다. Managed 포지션의 실제 매도 권한은 position_manager가 담당합니다.</div></section>';
 }
 function tradeActionHtml(){
   let ledger=C?.execution_ledger||[],active=ledger.filter(x=>!['CLOSED','CANCELLED','ABORTED','FAILED'].includes(String(x.state||'').toUpperCase()));
@@ -191,14 +217,23 @@ function tradeActionHtml(){
   }
   let sellTitle=exitPending.length?'SELL 진행 중 · '+exitPending.map(x=>x.symbol).join(', '):(open.length?'SELL 감시 · '+open.map(x=>x.symbol).join(', '):'SELL 예정 없음');
   let sellMeta=exitPending.length?'Exit order submitted':(open.length?'Stop -3% · Take +20% · max 4 hourly buckets':'활성 포지션 없음');
-  let posRows=open.map(x=>{let st=String(x.state||'OPEN').toUpperCase(),label=st==='OPEN'?'HOLD':st.replace('_SUBMITTED','');return '<div class="positionrow"><span class="status open">'+E(label)+'</span><b>'+E(x.symbol)+'</b><span>Qty '+E(x.entry_filled_quantity||'—')+'</span><span>Avg '+E(x.entry_average_price?USD(x.entry_average_price):'—')+'</span><span>'+timePairHtml(x.entry_signal_as_of)+'</span></div>'}).join('');
+  let canonicalAsOf=sig?.as_of?new Date(sig.as_of):null;
+  let posRows=open.map(x=>{
+    let st=String(x.state||'OPEN').toUpperCase(),label=st==='OPEN'?'HOLD':st.replace('_SUBMITTED','');
+    let target=Math.max(1,Math.round(N(x.target_exit_buckets)??4)),entry=x.entry_signal_as_of?new Date(x.entry_signal_as_of):null;
+    let elapsed=(entry&&canonicalAsOf&&!Number.isNaN(entry.getTime())&&!Number.isNaN(canonicalAsOf.getTime()))?Math.max(0,Math.floor((canonicalAsOf-entry)/3600000)):0;
+    elapsed=Math.min(target,elapsed);
+    let dots=Array.from({length:target},(_,i)=>'<i class="'+(i<elapsed?'done':'')+'"></i>').join('');
+    let bucket='<span class="bucketcount"><b>Bucket '+elapsed+' / '+target+'</b><span class="bucketdots">'+dots+'</span></span>';
+    return '<div class="positionrow"><span class="status open">'+E(label)+'</span><b>'+E(x.symbol)+'</b><span>Qty '+E(x.entry_filled_quantity||'—')+'</span><span>Avg '+E(x.entry_average_price?USD(x.entry_average_price):'—')+'</span>'+bucket+'<span>'+timePairHtml(x.entry_signal_as_of)+'</span></div>'
+  }).join('');
   let latest=sig?('<div class="actionfoot"><span>MODEL</span><b>'+E(sig.symbol)+'</b><span>BAR START '+E(timePair(sig.bar_start))+'</span><span>COMPLETE '+E(timePair(sig.bar_complete))+'</span></div>'):'';
   return '<section id="trade-action" class="dailybox actionbox"><div class="sectiontitle"><div><b>ACTION · BUY / SELL</b><small>실제 execution ledger 기준</small></div><span class="badge info">'+E(C?.status||'—')+'</span></div><div class="actiongrid"><div class="actioncell buy"><span>BUY</span><b>'+E(buyTitle)+'</b><small>'+E(buyMeta)+'</small>'+(buyTime?timePairHtml(buyTime,'action-clock'):'')+'</div><div class="actioncell sell"><span>SELL</span><b>'+E(sellTitle)+'</b><small>'+E(sellMeta)+'</small></div></div>'+conditionalExecutionHtml()+(posRows?'<div class="positionlist"><div class="positionlabel">LIVE POSITIONS · '+open.length+'</div>'+posRows+'</div>':'')+latest+'</section>';
 }
 function sessionStatusHtml(){
   let x=usSessionContext(),pct=Math.round(x.done/x.slots.length*100),sameSession=x.next>=x.slots[0]&&x.next<=x.slots.at(-1);
   let steps=x.slots.map((t,i)=>{let cls=x.generated&&x.generated>=t?'done':(new Date()>=t?(new Date()-t<20*60000?'running':'late'):'upcoming');return '<div class="sessionstep '+cls+'"><span>'+(i+1)+'</span><div><b>'+fmtKstHM(t)+'</b><small>KST</small></div><i>·</i><div><b>'+fmtEtHM(t)+'</b><small>ET</small></div></div>'}).join('');
-  return '<section id="us-session-status" class="sessioncard"><div class="sessiontop"><div><span class="eyebrow">US SESSION · KST END DATE</span><b class="sessiondate">'+E(x.kstSessionDate)+'</b><small>미국 정규장 세션 · ET는 KST보다 이전 날짜일 수 있음</small></div><span class="sessionstate '+x.statusClass+'">'+E(x.status)+'</span></div><div class="sessionprogress"><div style="width:'+pct+'%"></div></div><div class="sessionmeta"><b>'+x.done+'/'+x.slots.length+' hourly cycles reflected</b><span>Latest web update '+E(S?.generated_at?timePair(S.generated_at):'—')+'</span></div><div class="sessionsteps">'+steps+'</div><div class="nextgrid"><div><span>NEXT HOURLY CYCLE</span>'+timePairHtml(x.next,'hero-clock')+'<small>'+(sameSession?'R5.1 pipeline + trade':'Next US session')+'</small></div><div><span>EXPECTED WEB UPDATE</span>'+timePairHtml(x.nextUpdate,'hero-clock')+'<small>observed post-cycle lag estimate</small></div></div></section>';
+  return '<section id="us-session-status" class="sessioncard"><div class="sessiontop"><div><span class="eyebrow">US SESSION · KST END DATE</span><b class="sessiondate">'+E(x.kstSessionDate)+'</b><small>정규장 09:30 ET · execution watcher 09:25 ET · 모델은 첫 60m 봉 완성 후 10:35 ET부터</small></div><span class="sessionstate '+x.statusClass+'">'+E(x.status)+'</span></div><div class="sessionprogress"><div style="width:'+pct+'%"></div></div><div class="sessionmeta"><b>'+x.done+'/'+x.slots.length+' hourly cycles reflected</b><span>Latest web update '+E(S?.generated_at?timePair(S.generated_at):'—')+'</span></div><div class="sessionsteps">'+steps+'</div><div class="nextgrid"><div><span>NEXT HOURLY MODEL CYCLE</span>'+timePairHtml(x.next,'hero-clock')+'<small>'+(sameSession?'R5.1 pipeline + trade':'Next US session')+'</small></div><div><span>EXPECTED WEB UPDATE</span>'+timePairHtml(x.nextUpdate,'hero-clock')+'<small>observed post-cycle lag estimate</small></div></div></section>';
 }
 function renderSessionStatus(){let el=$('#us-session-status');if(el)el.outerHTML=sessionStatusHtml()}
 async function pollSessionStatus(){
@@ -227,6 +262,27 @@ function benchmarkHtml(){
   if(!t1.snapshots&&!t6.snapshots)return '';
   const card=(label,x)=>'<div class="benchcard"><div class="benchlabel">'+label+'</div><b class="'+(N(x.compounded)>=0?'pos':'neg')+'">'+PCT2(x.compounded)+'</b><small>'+E(x.snapshots||0)+' snapshots · avg '+PCT2(x.avg_net)+' · σ '+PCT2(x.std_net)+'</small><small>'+E(String(x.first_as_of||'').slice(0,10))+' → '+E(String(x.last_as_of||'').slice(0,10))+'</small></div>';
   return '<section class="dailybox benchmarkbox"><div class="sectiontitle"><div><b>Research Benchmark · TOP-1 vs TOP-6</b><small>4-bar · 10bp · research tracking only</small></div><span class="badge info">BENCHMARK</span></div><div class="benchgrid">'+card('TOP-1',t1)+card('TOP-6 equal',t6)+'</div><div class="note">벤치마크는 연구용 관측치이며 실제 주문/체결 성과가 아닙니다.</div></section>';
+}
+function exitReasonLabel(v){
+  let x=String(v||'').toUpperCase(),m={
+    STOP_LOSS_3PCT:'손절 · -3%',
+    TAKE_PROFIT_20PCT:'익절 · +20%',
+    PROFIT_TO_LOSS_FLIP:'수익→손실 전환',
+    FRIDAY_FLAT:'금요일 포지션 정리',
+    MAX_HOLD_4_BUCKETS:'최대 보유 · 4 Bucket',
+    MODEL_ROTATION:'모델 교체',
+    MANUAL_BROKER_FLAT:'브로커 수동 정리',
+    LEGACY_UNSAFE_WINDOW_CARRY:'Legacy 안전창 이월 정리'
+  };
+  return m[x]||v||'—';
+}
+function liveTradeHistoryHtml(){
+  let z=(C?.execution_ledger||[]).filter(x=>['CLOSED','CLOSED_MANUAL'].includes(String(x.state||'').toUpperCase())||x.exit_reason);
+  if(!z.length)return '<div class="note">실거래 매도 내역이 아직 없습니다.</div>';
+  return '<div class="tw"><table class="tinytable livehistory"><thead><tr><th>Symbol</th><th>Entry</th><th>Exit / Sync</th><th>Return</th><th>매도 이유</th></tr></thead><tbody>'+z.map(x=>{
+    let r=N(x.realized_return_pct),reason=exitReasonLabel(x.exit_reason);
+    return '<tr><td><b>'+E(x.symbol||'—')+'</b></td><td>'+E(DT(x.entry_signal_as_of))+'<br><small>'+USD(x.entry_average_price)+'</small></td><td>'+E(DT(x.updated_at))+'<br><small>'+USD(x.exit_average_price)+'</small></td><td class="'+(r==null?'':r>=0?'pos':'neg')+'"><b>'+PCT2(r)+'</b></td><td><span class="exitreason">'+E(reason)+'</span><br><small>'+E(x.exit_reason||'—')+'</small></td></tr>';
+  }).join('')+'</tbody></table></div>';
 }
 function ledgerHtml(){
   let a=S?.payload?.source_payload?.r5_shadow_ledger?.annual_2026||{},r=a.reconstructed?.summary||{},f=a.forward?.summary||{};
@@ -267,8 +323,13 @@ async function load(){
   $('#m').innerHTML=
     '<section class="appbar"><div class="appbrand">US Investment Hub</div>'+siteNav('US')+
     '<div class="appmarket"><b>'+E(sm.market_risk||'US')+'</b><span>'+E(j.model_version)+'</span><span class="badge '+(j.effective_stale?'bad':'')+'">'+(j.effective_stale?'STALE':'FRESH')+'</span></div><small>DATA BAR START · '+E(timePair(j.data_as_of))+'</small></section>'+
-    marketPulseHtml()+sessionStatusHtml()+conditionalPolicyHtml()+watcherStatusHtml()+tradeActionHtml()+top3Html()+modelSignalHtml()+performanceHtml()+benchmarkHtml()+forwardShadowHtml()+
-    '<section class="card"><div class="sw"><input id="q" class="search" placeholder="🔎 US ticker 검색 · NVDA, ORCL, AAPL"><div id="sg" class="sg hide"></div></div><div id="d"></div></section>'+
+    marketPulseHtml()+tradeActionHtml()+holdingsEvaluationHtml()+
+    fold('실거래 History','최근 실제 체결 · 수익률 · 매도 이유',liveTradeHistoryHtml(),true)+
+    top3Html()+sessionStatusHtml()+
+    fold('Execution Monitor','5분 감시 · 주문 정책 · 실행 상태',watcherStatusHtml()+conditionalPolicyHtml()+conditionalExecutionHtml())+
+    fold('Model Signal 상세','선정 종목 · 4H target · risk band',modelSignalHtml())+
+    fold('성과 · Research','replay · benchmark · forward shadow',performanceHtml()+benchmarkHtml()+forwardShadowHtml())+
+    fold('종목 검색','차트 · 모델 상세','<div class="sw"><input id="q" class="search" placeholder="🔎 US ticker 검색 · NVDA, ORCL, AAPL"><div id="sg" class="sg hide"></div></div><div id="d"></div>')+
     fold('R5.1 2026 Ledger','replay + prospective 상세',ledgerHtml()+forwardTradesHtml())+
     fold('Model Context','R5.1_BASE_HGB · 4H relative-return','<div class="note">Primary lineage: '+E(sm.primary_lineage)+' · Evidence: '+E(sm.evidence_confidence)+' · Trade policy: '+E(liveTradingStatus()?.signalPolicy||'—')+'</div>')+
     fold('US Universe',A.length+' stocks · rank order',universe());

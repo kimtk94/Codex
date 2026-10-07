@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 MODE="${1:-}"
 APP_ROOT="${KALMAN_APP_ROOT:-/opt/kalman/app}"
@@ -17,12 +17,12 @@ fi
 
 case "$MODE" in
   cycle)
-    if (( NY_MIN == 35 && NY_HOUR >= 9 && NY_HOUR <= 15 )); then
+    if (( NY_MIN == 35 && NY_HOUR >= 10 && NY_HOUR <= 15 )); then
       exec "$APP_ROOT/scripts/run_us_cycle.sh"
     fi
     ;;
   watchdog)
-    if (( NY_MIN == 50 && NY_HOUR >= 9 && NY_HOUR <= 15 )); then
+    if (( NY_MIN == 50 && NY_HOUR >= 10 && NY_HOUR <= 15 )); then
       exec "$APP_ROOT/scripts/us_auto_watchdog.sh"
     fi
     ;;

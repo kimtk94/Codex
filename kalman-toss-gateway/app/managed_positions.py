@@ -91,6 +91,8 @@ class ManagedPositionStore:
                 'profit_flip_negative_count': "ALTER TABLE managed_position ADD COLUMN profit_flip_negative_count INTEGER NOT NULL DEFAULT 0",
                 'exit_pending_reason': "ALTER TABLE managed_position ADD COLUMN exit_pending_reason TEXT",
                 'exit_pending_since': "ALTER TABLE managed_position ADD COLUMN exit_pending_since TEXT",
+                'bucket_exit_enabled': "ALTER TABLE managed_position ADD COLUMN bucket_exit_enabled INTEGER NOT NULL DEFAULT 1",
+                'model_rotation_enabled': "ALTER TABLE managed_position ADD COLUMN model_rotation_enabled INTEGER NOT NULL DEFAULT 1",
             }
             for name, ddl in migrations.items():
                 if name not in cols:
@@ -168,6 +170,50 @@ class ManagedPositionStore:
                     'ENTRY_RESERVED',
                     now,
                     now,
+                ),
+            )
+            cur = conn.execute('SELECT * FROM managed_position WHERE position_id=?', (pid,))
+            row = self._dict(cur, cur.fetchone())
+            conn.commit()
+            return True, row
+
+    def adopt_broker_holding(
+        self,
+        *,
+        symbol: str,
+        strategy_version: str,
+        quantity: Decimal,
+        average_price: str,
+        note: str = 'adopted existing broker holding; canonical entry anchor unknown',
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """Adopt an existing broker holding for risk exits without inventing a bucket anchor."""
+        symbol = symbol.upper()
+        run_id = f'adopted-broker-{symbol}'
+        pid = position_id_for(run_id, strategy_version, symbol)
+        now = utc_now()
+        client_order_id = f'adopted-{symbol.lower()}'
+        with self._connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            marks = ','.join('?' for _ in ACTIVE_STATES)
+            cur = conn.execute(
+                f"SELECT * FROM managed_position WHERE state IN ({marks}) AND upper(symbol)=upper(?) ORDER BY created_at LIMIT 1",
+                (*ACTIVE_STATES, symbol),
+            )
+            existing = self._dict(cur, cur.fetchone())
+            if existing:
+                conn.rollback()
+                return False, existing
+            conn.execute(
+                """INSERT INTO managed_position (
+                    position_id,symbol,strategy_version,entry_run_id,entry_signal_as_of,
+                    entry_client_order_id,entry_status,entry_filled_quantity,entry_avg_fill_price,
+                    remaining_quantity,entry_count,last_entry_run_id,last_entry_signal_as_of,
+                    target_exit_buckets,bucket_exit_enabled,model_rotation_enabled,state,note,created_at,updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    pid,symbol,strategy_version,run_id,now,client_order_id,'ADOPTED',
+                    str(quantity),str(average_price),str(quantity),1,run_id,now,
+                    4,0,0,'OPEN',note,now,now,
                 ),
             )
             cur = conn.execute('SELECT * FROM managed_position WHERE position_id=?', (pid,))
