@@ -21,12 +21,15 @@ from engine.macro_consensus_provider_v1 import (
     refresh_consensus_observations,
     within_active_window,
 )
+from engine.macro_equity_confirmation_v1 import compute_equity_confirmation
+from engine.macro_intraday_us2y_provider_v1 import fetch_intraday_us2y_reaction
 
 
 FEATURE_VERSION = "macro-event-feature-v1"
 FRED_OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
 UTC = timezone.utc
 NY = ZoneInfo("America/New_York")
+SURPRISE_EVENT_FAMILIES = {"CPI", "NFP", "PCE"}
 
 
 def utc_now() -> datetime:
@@ -343,32 +346,37 @@ def select_us_reaction_anchor(
 
     duplicate_minutes = float(config.get("structured_official_match_minutes", 30.0))
     if latest_structured and latest_official:
-        s_at, s_row = latest_structured
+        s_available_at, s_row = latest_structured
+        s_release_at = parse_dt(s_row.get("release_at")) or s_available_at
         o_at, o_row = latest_official
-        if abs((s_at - o_at).total_seconds()) <= duplicate_minutes * 60.0:
-            return s_at, {
+        if abs((s_release_at - o_at).total_seconds()) <= duplicate_minutes * 60.0:
+            return s_release_at, {
                 "kind": "STRUCTURED_US_RELEASE",
                 "source": s_row.get("source"),
                 "event_name": s_row.get("event_name"),
                 "indicator_key": s_row.get("indicator_key"),
-                "available_at": iso(s_at),
+                "release_at": iso(s_release_at),
+                "available_at": iso(s_available_at),
             }
-        if o_at > s_at:
+        if o_at > s_available_at:
             return o_at, {
                 "kind": "US_OFFICIAL_NEWS_PROXY",
                 "source": o_row.get("source"),
                 "event_name": o_row.get("title"),
                 "indicator_key": None,
+                "release_at": iso(o_at),
                 "available_at": iso(o_at),
             }
 
     if latest_structured:
         available_at, row = latest_structured
-        return available_at, {
+        release_at = parse_dt(row.get("release_at")) or available_at
+        return release_at, {
             "kind": "STRUCTURED_US_RELEASE",
             "source": row.get("source"),
             "event_name": row.get("event_name"),
             "indicator_key": row.get("indicator_key"),
+            "release_at": iso(release_at),
             "available_at": iso(available_at),
         }
 
@@ -379,6 +387,7 @@ def select_us_reaction_anchor(
             "source": row.get("source"),
             "event_name": row.get("title"),
             "indicator_key": None,
+            "release_at": iso(available_at),
             "available_at": iso(available_at),
         }
 
@@ -387,6 +396,7 @@ def select_us_reaction_anchor(
         "source": None,
         "event_name": None,
         "indicator_key": None,
+        "release_at": None,
         "available_at": None,
     }
 
@@ -426,12 +436,19 @@ def macro_event_family(
         return str(family_map[indicator]).upper()
 
     source = str(reaction_anchor_meta.get("source") or "")
+    event_name = str(reaction_anchor_meta.get("event_name") or "").lower()
     if source == "fed_monetary":
         return "FOMC"
     if source == "bls_cpi":
         return "CPI"
     if source == "bls_employment":
         return "NFP"
+    if source == "bea_releases" and (
+        "personal income and outlays" in event_name
+        or "personal consumption expenditures" in event_name
+        or "pce" in event_name
+    ):
+        return "PCE"
     return "OTHER"
 
 
@@ -441,7 +458,7 @@ def select_event_bundle(
     event_family: str,
     config: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    if reaction_anchor is None or event_family not in {"CPI", "NFP"}:
+    if reaction_anchor is None or event_family not in SURPRISE_EVENT_FAMILIES:
         return []
     scoring = config.get("event_scoring") or {}
     family_map = scoring.get("indicator_family") or {}
@@ -517,7 +534,7 @@ def compute_shadow_event_score(
         "policy_confirmation_z": policy_z,
     }
 
-    if event_family in {"CPI", "NFP"}:
+    if event_family in SURPRISE_EVENT_FAMILIES:
         if bundle_surprise is None:
             blockers.append("EVENT_BUNDLE_SURPRISE_UNAVAILABLE")
         if reaction_z is None:
@@ -534,7 +551,7 @@ def compute_shadow_event_score(
 
     score = None
     if not blockers:
-        if event_family in {"CPI", "NFP"}:
+        if event_family in SURPRISE_EVENT_FAMILIES:
             score = (
                 float(weights.get("surprise", 0.50)) * float(bundle_surprise)
                 + float(weights.get("us2y", 0.30)) * float(reaction_z)
@@ -598,7 +615,7 @@ def compute_free_reaction_shadow_score(
         else None
     )
     blockers: list[str] = []
-    if event_family not in {"CPI", "NFP", "FOMC"}:
+    if event_family not in SURPRISE_EVENT_FAMILIES | {"FOMC"}:
         blockers.append("UNSUPPORTED_EVENT_FAMILY")
     if reaction_z is None:
         blockers.append("US2Y_EVENT_REACTION_UNAVAILABLE")
@@ -608,7 +625,7 @@ def compute_free_reaction_shadow_score(
     score = None
     weights = (scoring.get("weights") or {}).get(event_family) or {}
     if not blockers:
-        if event_family in {"CPI", "NFP"}:
+        if event_family in SURPRISE_EVENT_FAMILIES:
             us2y_weight = float(weights.get("us2y", 0.30))
             policy_weight = float(weights.get("policy", 0.20))
         else:
@@ -887,6 +904,40 @@ def build_feature_payload(
     event_bundle = select_event_bundle(
         scored_releases, reaction_anchor, event_family, config
     )
+    intraday_cfg = config.get("intraday_us2y") or {}
+    intraday_families = {
+        str(x).upper()
+        for x in intraday_cfg.get(
+            "event_families", ["CPI", "PCE", "NFP", "FOMC"]
+        )
+    }
+    if event_family in intraday_families:
+        intraday_us2y = fetch_intraday_us2y_reaction(
+            config,
+            event_at=reaction_anchor,
+            as_of=as_of,
+        )
+    else:
+        intraday_us2y = {
+            "status": "UNSUPPORTED_EVENT_FAMILY",
+            "event_family": event_family,
+            "trade_execution": False,
+        }
+    intraday_horizon_key = str(
+        intraday_cfg.get("confirmation_horizon", "15m")
+    )
+    intraday_horizon = (
+        (intraday_us2y.get("horizons") or {}).get(intraday_horizon_key) or {}
+    )
+    intraday_reaction_bps = intraday_horizon.get("reaction_bps")
+    intraday_scale_bps = max(
+        1e-9, float(intraday_cfg.get("reaction_scale_bps", 5.0))
+    )
+    intraday_reaction_z = (
+        _clip5(float(intraday_reaction_bps) / intraday_scale_bps)
+        if intraday_reaction_bps is not None
+        else None
+    )
 
     state_by_source = {str(r.get("source")): r for r in source_states}
     healthy_official = 0
@@ -923,6 +974,14 @@ def build_feature_payload(
         policy_proxy_event_bps=proxy_event.get("reaction_bps"),
         config=config,
     )
+    intraday_shadow_score = compute_shadow_event_score(
+        event_family=event_family,
+        event_bundle=event_bundle,
+        reaction_z=intraday_reaction_z,
+        matched_policy=matched_policy,
+        policy_proxy_event_bps=proxy_event.get("reaction_bps"),
+        config=config,
+    )
     free_reaction_score = compute_free_reaction_shadow_score(
         event_family=event_family,
         reaction_z=reaction_z,
@@ -932,6 +991,11 @@ def build_feature_payload(
     us_target_event_score = target_market_event_score(shadow_score, "US", config)
     kr_us_spillover_event_score = target_market_event_score(shadow_score, "KR", config)
     event_bundle_surprise = shadow_score.get("bundle_surprise")
+    equity_confirmation = compute_equity_confirmation(
+        config,
+        event_at=reaction_anchor,
+        surprise_score=event_bundle_surprise,
+    )
     shock_interaction = (
         float(event_bundle_surprise) * reaction_z
         if event_bundle_surprise is not None and reaction_z is not None
@@ -986,7 +1050,7 @@ def build_feature_payload(
     coverage = max(0.0, min(1.0, coverage))
 
     payload: dict[str, Any] = {
-        "schema_version": "macro-event-feature-v1.8",
+        "schema_version": "macro-event-feature-v1.12",
         "as_of": iso(as_of),
         "official_macro_count_6h": _count_within(official_rows, as_of, 6),
         "official_macro_count_24h": _count_within(official_rows, as_of, 24),
@@ -1057,6 +1121,7 @@ def build_feature_payload(
         "reaction_anchor_source": reaction_anchor_meta["source"],
         "reaction_anchor_event_name": reaction_anchor_meta["event_name"],
         "reaction_anchor_indicator": reaction_anchor_meta["indicator_key"],
+        "reaction_anchor_release_at": reaction_anchor_meta.get("release_at"),
         "reaction_anchor_available_at": reaction_anchor_meta["available_at"],
         "us2y_series": str(fred_cfg.get("series_id", "DGS2")),
         "us2y_latest_date": dgs2["latest_date"],
@@ -1073,6 +1138,25 @@ def build_feature_payload(
             fred_cfg.get("reaction_quality", "DAILY_PROXY")
         ),
         "us2y_error": dgs2_error,
+        "intraday_us2y_provider": intraday_us2y.get("provider"),
+        "intraday_us2y_symbol": intraday_us2y.get("symbol"),
+        "intraday_us2y_status": intraday_us2y.get("status"),
+        "intraday_us2y_quality": intraday_us2y.get("quality"),
+        "intraday_us2y_baseline_ts": intraday_us2y.get("baseline_ts"),
+        "intraday_us2y_baseline_yield_pct": intraday_us2y.get(
+            "baseline_yield_pct"
+        ),
+        "intraday_us2y_horizons": intraday_us2y.get("horizons"),
+        "intraday_us2y_confirmation_horizon": intraday_horizon_key,
+        "intraday_us2y_confirmation_bps": intraday_reaction_bps,
+        "intraday_us2y_confirmation_z": intraday_reaction_z,
+        "intraday_us2y_fallback_used": intraday_us2y.get("fallback_used"),
+        "intraday_us2y_primary_provider_status": intraday_us2y.get(
+            "primary_provider_status"
+        ),
+        "intraday_us2y_data_min_ts": intraday_us2y.get("data_min_ts"),
+        "intraday_us2y_data_max_ts": intraday_us2y.get("data_max_ts"),
+        "intraday_us2y_cache_time": intraday_us2y.get("cache_time"),
         "policy_proxy_series": str(
             fred_cfg.get("policy_proxy_series_id", "DFF")
         ),
@@ -1117,6 +1201,26 @@ def build_feature_payload(
         },
         "macro_event_shadow_score_range": shadow_score.get("score_range"),
         "macro_event_shadow_positive_direction": shadow_score.get("positive_direction"),
+        "macro_event_intraday_shadow_score": intraday_shadow_score.get("score"),
+        "macro_event_intraday_shadow_direction": intraday_shadow_score.get(
+            "direction"
+        ),
+        "macro_event_intraday_shadow_ready": (
+            bool(intraday_shadow_score.get("ready"))
+            and intraday_reaction_z is not None
+        ),
+        "macro_event_intraday_shadow_components": {
+            "bundle_surprise": intraday_shadow_score.get("bundle_surprise"),
+            "intraday_us2y_reaction_z": intraday_reaction_z,
+            "intraday_us2y_confirmation_horizon": intraday_horizon_key,
+            "policy_confirmation_z": intraday_shadow_score.get(
+                "policy_confirmation_z"
+            ),
+            "policy_confirmation_source": intraday_shadow_score.get(
+                "policy_confirmation_source"
+            ),
+        },
+        "equity_confirmation": equity_confirmation,
         "us_target_macro_event_score": us_target_event_score.get("score"),
         "us_target_macro_event_weight": us_target_event_score.get("impact_weight"),
         "kr_us_spillover_event_score": kr_us_spillover_event_score.get("score"),
@@ -1160,14 +1264,31 @@ def build_feature_payload(
             },
             "us2y_event_reaction": {
                 "status": (
-                    "READY"
+                    "READY_DAILY_PROXY"
                     if event_reaction.get("reaction_bps") is not None
-                    else "PENDING_MARKET_OBSERVATION"
+                    else "PENDING_DAILY_OBSERVATION"
                     if reaction_anchor is not None
                     else "NO_US_EVENT_ANCHOR"
                 ),
+                "quality": str(fred_cfg.get("reaction_quality", "DAILY_PROXY")),
+                "intraday_confirmation": intraday_us2y.get("status"),
                 "anchor_kind": reaction_anchor_meta["kind"],
                 "anchor_source": reaction_anchor_meta["source"],
+            },
+            "intraday_us2y": {
+                "status": intraday_us2y.get("status"),
+                "provider": intraday_us2y.get("provider"),
+                "symbol": intraday_us2y.get("symbol"),
+                "quality": intraday_us2y.get("quality"),
+                "confirmation_horizon": intraday_horizon_key,
+                "reaction_bps": intraday_reaction_bps,
+                "reaction_z": intraday_reaction_z,
+                "shadow_only": True,
+            },
+            "equity_confirmation": {
+                "status": equity_confirmation.get("status"),
+                "quality": equity_confirmation.get("quality"),
+                "shadow_only": True,
             },
             "consensus_surprise_provider": {
                 "status": "READY" if surprise_provider_ready else "UNAVAILABLE"
@@ -1212,6 +1333,22 @@ def build_feature_payload(
                 "shadow_score": shadow_score.get("score"),
                 "direction": shadow_score.get("direction"),
                 "blockers": signal_blockers,
+            },
+            "macro_event_intraday_signal": {
+                "status": (
+                    "READY"
+                    if intraday_shadow_score.get("ready")
+                    and intraday_reaction_z is not None
+                    else "BLOCKED"
+                ),
+                "quality": intraday_us2y.get("quality"),
+                "event_family": event_family,
+                "shadow_score": intraday_shadow_score.get("score"),
+                "direction": intraday_shadow_score.get("direction"),
+                "us2y_confirmation_horizon": intraday_horizon_key,
+                "us2y_reaction_bps": intraday_reaction_bps,
+                "provider_status": intraday_us2y.get("status"),
+                "shadow_only": True,
             },
             "macro_event_free_reaction": {
                 "status": (

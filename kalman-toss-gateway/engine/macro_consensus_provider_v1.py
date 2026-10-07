@@ -5,6 +5,7 @@ import json
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -39,6 +40,130 @@ def parse_dt(value: str | datetime | None) -> datetime | None:
 
 def _norm_text(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+class PublicCalendarParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[dict[str, Any]] = []
+        self.current: dict[str, Any] | None = None
+        self.row_depth = 0
+        self.outer_td_index = -1
+        self.active_td: int | None = None
+
+    @staticmethod
+    def _attrs(attrs: list[tuple[str, str | None]]) -> dict[str, str]:
+        return {str(k): str(v or "") for k, v in attrs}
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        tag = tag.lower()
+        a = self._attrs(attrs)
+        if tag == "tr":
+            if self.current is None:
+                if a.get("data-country", "").strip().lower() != "united states":
+                    return
+                self.current = {
+                    "CalendarId": a.get("data-id") or None,
+                    "Country": "United States",
+                    "Category": a.get("data-category") or "",
+                    "Event": a.get("data-event") or "",
+                    "Symbol": a.get("data-symbol") or "",
+                    "Ticker": a.get("data-symbol") or "",
+                    "Url": a.get("data-url") or "",
+                    "cells": {},
+                    "date": None,
+                }
+                self.row_depth = 1
+                self.outer_td_index = -1
+                self.active_td = None
+                return
+            self.row_depth += 1
+            return
+
+        if self.current is None:
+            return
+
+        if tag == "td" and self.row_depth == 1:
+            self.outer_td_index += 1
+            self.active_td = self.outer_td_index
+            self.current["cells"].setdefault(self.active_td, [])
+            classes = a.get("class", "")
+            match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", classes)
+            if self.outer_td_index == 0 and match:
+                self.current["date"] = match.group(1)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if self.current is None:
+            return
+        if tag == "td" and self.row_depth == 1:
+            self.active_td = None
+            return
+        if tag == "tr":
+            self.row_depth -= 1
+            if self.row_depth == 0:
+                cells = {
+                    idx: " ".join(" ".join(parts).split())
+                    for idx, parts in self.current["cells"].items()
+                }
+                self.current["cells"] = cells
+                self.rows.append(self.current)
+                self.current = None
+                self.active_td = None
+                self.outer_td_index = -1
+
+    def handle_data(self, data: str) -> None:
+        if (
+            self.current is not None
+            and self.row_depth == 1
+            and self.active_td is not None
+        ):
+            text = str(data or "").strip()
+            if text:
+                self.current["cells"][self.active_td].append(text)
+
+
+def parse_public_calendar_html(html: str) -> list[dict[str, Any]]:
+    parser = PublicCalendarParser()
+    parser.feed(html)
+    rows: list[dict[str, Any]] = []
+    for raw in parser.rows:
+        date_text = str(raw.get("date") or "").strip()
+        cells = raw.get("cells") or {}
+        time_text = str(cells.get(0) or "").strip()
+        if not date_text or not time_text:
+            continue
+        try:
+            release_at = datetime.strptime(
+                f"{date_text} {time_text}",
+                "%Y-%m-%d %I:%M %p",
+            ).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+        rows.append(
+            {
+                "CalendarId": raw.get("CalendarId"),
+                "Date": release_at.isoformat(),
+                "Country": "United States",
+                "Category": raw.get("Category"),
+                "Event": raw.get("Event"),
+                "Symbol": raw.get("Symbol"),
+                "Ticker": raw.get("Ticker"),
+                "Actual": cells.get(3) or None,
+                "Previous": cells.get(4) or None,
+                "Forecast": cells.get(5) or None,
+                "TEForecast": cells.get(6) or None,
+                "Source": "Trading Economics public calendar",
+                "SourceURL": "https://tradingeconomics.com/united-states/calendar",
+                "DateSpan": "0",
+                "PublicCalendarSnapshot": True,
+            }
+        )
+    return rows
 
 
 def parse_calendar_value(value: Any, target_unit: str | None) -> float | None:
@@ -140,19 +265,36 @@ def normalize_calendar_row(
     target_unit = str(indicator_spec.get("unit") or "").strip() or None
 
     release_at = parse_dt(row.get("Date"))
-    if release_at is None or release_at > as_of:
+    if release_at is None:
         return None
 
-    last_update = parse_dt(row.get("LastUpdate"))
-    available_at = max(release_at, last_update) if last_update else release_at
-    if available_at > as_of:
-        return None
-
-    actual = parse_calendar_value(row.get("Actual"), target_unit)
-    consensus = parse_calendar_value(row.get("Forecast"), target_unit)
+    actual_raw = parse_calendar_value(row.get("Actual"), target_unit)
+    consensus_raw = parse_calendar_value(row.get("Forecast"), target_unit)
     previous = parse_calendar_value(row.get("Previous"), target_unit)
-    if actual is None:
-        return None
+    snapshot_phase = "PRE_RELEASE" if as_of < release_at else "POST_RELEASE"
+
+    if snapshot_phase == "PRE_RELEASE":
+        if consensus_raw is None:
+            return None
+        actual = None
+        consensus = consensus_raw
+        available_at = release_at
+    else:
+        if actual_raw is None:
+            return None
+        actual = actual_raw
+        consensus = None
+        last_update = parse_dt(row.get("LastUpdate"))
+        if row.get("PublicCalendarSnapshot"):
+            available_at = as_of
+        else:
+            available_at = (
+                max(release_at, last_update)
+                if last_update
+                else max(release_at, as_of)
+            )
+        if available_at > as_of:
+            return None
 
     calendar_id = str(row.get("CalendarId") or row.get("CalendarID") or "").strip()
     event_name = str(row.get("Event") or row.get("Category") or indicator_key).strip()
@@ -178,7 +320,15 @@ def normalize_calendar_row(
     time_quality = "PROVIDER_RELEASE_TS" if date_span == "0" else "PROVIDER_ESTIMATED_TS"
 
     payload = {
-        "provider": "trading_economics",
+        "provider": (
+            "trading_economics_public_calendar"
+            if row.get("PublicCalendarSnapshot")
+            else "trading_economics"
+        ),
+        "consensus_snapshot_phase": snapshot_phase,
+        "post_release_consensus_ignored": (
+            consensus_raw is not None and snapshot_phase == "POST_RELEASE"
+        ),
         "market": market,
         "calendar_id": calendar_id or None,
         "country": row.get("Country"),
@@ -195,6 +345,10 @@ def normalize_calendar_row(
         "raw_unit": row.get("Unit"),
         "last_update": row.get("LastUpdate"),
     }
+    if snapshot_phase == "PRE_RELEASE":
+        payload["consensus_captured_at"] = as_of.isoformat()
+    elif row.get("PublicCalendarSnapshot"):
+        payload["actual_first_seen_at"] = as_of.isoformat()
 
     return {
         "observation_id": observation_id,
@@ -275,6 +429,94 @@ def within_active_window(as_of: datetime, provider: dict[str, Any]) -> bool:
     return _minute_in_window(current, start, end)
 
 
+def fetch_public_calendar_rows(
+    config: dict[str, Any],
+    as_of: datetime,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    provider = config.get("trading_economics") or {}
+    public = provider.get("public_calendar_fallback") or {}
+    if not public.get("enabled", False):
+        return [], {
+            "status": "PUBLIC_FALLBACK_DISABLED",
+            "rows_seen": 0,
+            "rows_mapped": 0,
+        }
+
+    us_spec = None
+    for spec in _provider_market_specs(config):
+        if str(spec.get("market") or "").upper() == "US":
+            us_spec = spec
+            break
+    if us_spec is None:
+        return [], {
+            "status": "PUBLIC_FALLBACK_US_UNCONFIGURED",
+            "rows_seen": 0,
+            "rows_mapped": 0,
+        }
+    if not within_active_window(as_of, us_spec):
+        return [], {
+            "status": "OUTSIDE_ACTIVE_WINDOW",
+            "rows_seen": 0,
+            "rows_mapped": 0,
+            "provider": "trading_economics_public_calendar",
+        }
+
+    url = str(
+        public.get("url")
+        or "https://tradingeconomics.com/united-states/calendar"
+    )
+    try:
+        with httpx.Client(
+            timeout=float(public.get("timeout_seconds", 20)),
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 KalmanResearch/1.0",
+                "Accept": "text/html,application/xhtml+xml",
+            },
+        ) as client:
+            response = client.get(url)
+            response.raise_for_status()
+            raw_rows = parse_public_calendar_html(response.text)
+
+        mapped: list[dict[str, Any]] = []
+        for row in raw_rows:
+            normalized = normalize_calendar_row(
+                row,
+                config,
+                as_of,
+                us_spec,
+            )
+            if normalized is not None:
+                mapped.append(normalized)
+
+        return mapped, {
+            "status": "READY",
+            "rows_seen": len(raw_rows),
+            "rows_mapped": len(mapped),
+            "provider": "trading_economics_public_calendar",
+            "market_status": {
+                "US": {
+                    "status": "READY",
+                    "rows_seen": len(raw_rows),
+                    "rows_mapped": len(mapped),
+                },
+                "KR": {
+                    "status": "UNAVAILABLE_NO_PUBLIC_FALLBACK",
+                    "rows_seen": 0,
+                    "rows_mapped": 0,
+                },
+            },
+        }
+    except Exception as exc:
+        return [], {
+            "status": "PUBLIC_FALLBACK_ERROR",
+            "rows_seen": 0,
+            "rows_mapped": 0,
+            "provider": "trading_economics_public_calendar",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
 def fetch_calendar_rows(
     config: dict[str, Any],
     as_of: datetime,
@@ -282,15 +524,27 @@ def fetch_calendar_rows(
     provider = config.get("trading_economics") or {}
     if not provider.get("enabled", True):
         return [], {"status": "DISABLED_CONFIG", "rows_seen": 0, "rows_mapped": 0}
-    if not env_bool("KALMAN_MACRO_CONSENSUS_ENABLED", False):
+    runtime_default = bool(provider.get("runtime_enabled_default", False))
+    if not env_bool("KALMAN_MACRO_CONSENSUS_ENABLED", runtime_default):
         return [], {"status": "DISABLED_RUNTIME", "rows_seen": 0, "rows_mapped": 0}
 
     credentials = (os.environ.get("TRADING_ECONOMICS_API_KEY") or "").strip()
-    if not credentials:
-        return [], {"status": "UNCONFIGURED", "rows_seen": 0, "rows_mapped": 0}
-    if credentials.lower() in {"guest", "guest:guest"}:
+    if not credentials or credentials.lower() in {"guest", "guest:guest"}:
+        primary_status = (
+            "UNCONFIGURED"
+            if not credentials
+            else "DEMO_CREDENTIALS_REJECTED"
+        )
+        if bool((provider.get("public_calendar_fallback") or {}).get("enabled")):
+            rows, status = fetch_public_calendar_rows(config, as_of)
+            return rows, {
+                **status,
+                "primary_provider": "trading_economics_authenticated_api",
+                "primary_provider_status": primary_status,
+                "fallback_used": True,
+            }
         return [], {
-            "status": "DEMO_CREDENTIALS_REJECTED",
+            "status": primary_status,
             "rows_seen": 0,
             "rows_mapped": 0,
             "provider": "trading_economics",
@@ -382,7 +636,14 @@ def fetch_calendar_rows(
     if ready:
         overall = "DEGRADED" if errors else "READY"
     elif attempted and errors:
-        overall = "ERROR"
+        public_rows, public_status = fetch_public_calendar_rows(config, as_of)
+        return public_rows, {
+            **public_status,
+            "primary_provider": "trading_economics_authenticated_api",
+            "primary_provider_status": "ERROR",
+            "primary_market_status": market_status,
+            "fallback_used": True,
+        }
     else:
         overall = "OUTSIDE_ACTIVE_WINDOW"
 
@@ -406,17 +667,31 @@ def upsert_observations(
         seen += 1
         result = conn.execute(
             """
-            INSERT INTO public.macro_release_observation(
+            INSERT INTO public.macro_release_observation AS mro(
               observation_id,indicator_key,event_name,market,
               release_at,available_at,actual,consensus,previous,
               unit,source,source_item_id,time_quality,payload,updated_at
             ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,now())
             ON CONFLICT(observation_id) DO UPDATE SET
-              actual=excluded.actual,
-              consensus=excluded.consensus,
-              previous=excluded.previous,
-              available_at=excluded.available_at,
-              payload=excluded.payload,
+              actual=COALESCE(
+                excluded.actual,
+                mro.actual
+              ),
+              consensus=CASE
+                WHEN excluded.payload->>'consensus_snapshot_phase' = 'PRE_RELEASE'
+                     AND excluded.consensus IS NOT NULL
+                THEN excluded.consensus
+                ELSE mro.consensus
+              END,
+              previous=COALESCE(
+                excluded.previous,
+                mro.previous
+              ),
+              available_at=GREATEST(
+                mro.available_at,
+                excluded.available_at
+              ),
+              payload=mro.payload || excluded.payload,
               updated_at=now()
             RETURNING (xmax = 0) AS inserted
             """,
