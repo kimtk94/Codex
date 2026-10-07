@@ -9,27 +9,16 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # KR: after regular close, Monday-Friday KST.
 20 16 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh KR_GLOBAL >> /opt/kalman/logs/kr.log 2>&1
 
-# US R5.1: each cycle starts after the :30 canonical ET hourly boundary.
-# Schedule both possible KST hours across DST/standard time; the wrapper admits only
-# 09:35-14:35 America/New_York and skips the extra KST invocation.
-# run_us_cycle.sh serializes: US pipeline commit -> position/ledger sync -> auto-trade.
-# R5.1 freshness uses bar completion (stored as_of is the immutable 60m BAR START).
-35 22-23 * * 1-5 root bash /opt/kalman/app/scripts/run_us_cycle_scheduled.sh >> /opt/kalman/logs/us-cycle.log 2>&1
-35 0-4 * * 2-6 root bash /opt/kalman/app/scripts/run_us_cycle_scheduled.sh >> /opt/kalman/logs/us-cycle.log 2>&1
+# US R5.1 / execution automation: DST-safe New York market clock.
+# Cron wakes dispatchers every 5 minutes in KST; each dispatcher evaluates
+# America/New_York and only acts in its ET window. No manual EDT/EST shift.
+*/5 * * * * root bash /opt/kalman/app/scripts/run_us_market_clock.sh cycle >> /opt/kalman/logs/us-cycle.log 2>&1
+*/5 * * * * root bash /opt/kalman/app/scripts/run_us_market_clock.sh execution >> /opt/kalman/logs/execution-watch.log 2>&1
 
 # US daytime managed-position watch: monitor P/L only, no BUY/model rebuild.
 # This catches profit -> loss deterioration while Toss fractional orders are closed.
 */30 9-21 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh >> /opt/kalman/logs/position-watch.log 2>&1
 0 22 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh >> /opt/kalman/logs/position-watch.log 2>&1
-
-# US execution watcher: begin before the earliest regular open and rely on the
-# Toss market calendar to fail closed until fractional execution is actually allowed.
-# This provides opening revalidation at 22:25+ KST during DST and remains safe
-# when standard time shifts the executable window later.
-25-55/5 22 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
-0,5,10,15,20,25,30,40,45,55 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
-0,5,10,15,20,25,30,40,45,55 0-4 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
-*/5 5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh >> /opt/kalman/logs/execution-watch.log 2>&1
 
 # Seeking Alpha collector -> US/BTC feature refresh (DISABLED BY DEFAULT).
 # Enable only after the authorized SA input method and snapshot timing are verified.
