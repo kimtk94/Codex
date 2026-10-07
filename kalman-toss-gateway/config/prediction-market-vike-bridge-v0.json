@@ -1,0 +1,43 @@
+{
+  "version": "prediction-market-vike-bridge-v0.1.0",
+  "frozen_at_utc": "2026-10-07T14:15:00Z",
+  "source": {
+    "provider": "Vike",
+    "manifest_url": "https://data.vike.io/archive/manifest.json",
+    "api_base": "https://data.vike.io/v1/polymarket",
+    "archive_base": "https://data.vike.io/archive",
+    "license": "CC BY 4.0",
+    "family_asset": "other",
+    "family_tenor": "other",
+    "stream": "l1_quotes"
+  },
+  "discovery_bridge": {
+    "reference_release": "data-2026-09-13",
+    "reference_cutoff_utc": "2026-09-13T11:50:00Z",
+    "overlap_start_utc": "2026-09-08T00:00:00Z",
+    "overlap_end_utc": "2026-09-13T11:50:00Z",
+    "market_queries": ["cpi", "inflation", "consumer-price"],
+    "target_theme": "INFLATION",
+    "target_channel": "INFLATION_UPSIDE",
+    "bucket_minutes": 10
+  },
+  "bridge_gate": {
+    "shared_markets_min": 8,
+    "matched_points_min": 1000,
+    "orientation_consistency_min": 0.90,
+    "median_market_mae_max": 0.03,
+    "pooled_correlation_min": 0.95,
+    "median_abs_delta_1h_diff_max": 0.02,
+    "shock_threshold": 0.15,
+    "shock_pairs_min": 5,
+    "shock_sign_agreement_min": 0.90
+  },
+  "safety": {
+    "research_only": true,
+    "bridge_required_before_oos": true,
+    "auto_promote": false,
+    "r51_mutation_allowed": false,
+    "trade_execution_allowed": false,
+    "retuning_allowed": false
+  }
+}
