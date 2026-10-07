@@ -1,0 +1,67 @@
+{
+  "version": "prediction-market-layer-v0.1.0",
+  "feature_version": "prediction-market-v0",
+  "mode": "READ_ONLY_SHADOW",
+  "retention_days": 180,
+  "provider": {
+    "name": "POLYMARKET",
+    "gamma_markets_url": "https://gamma-api.polymarket.com/markets",
+    "data_history_url": "https://data-api.polymarket.com/v2/prices-history",
+    "page_size": 250,
+    "max_markets": 1000,
+    "timeout_seconds": 20
+  },
+  "quality_gate": {
+    "min_liquidity_usd": 5000,
+    "min_volume_24h_usd": 1000,
+    "max_spread": 0.10,
+    "min_hours_to_event": 2,
+    "max_source_age_minutes": 360
+  },
+  "theme_keywords": {
+    "FED_POLICY": ["fed", "federal reserve", "fomc", "interest rate", "rate cut", "rate hike"],
+    "INFLATION": ["inflation", "cpi", "pce", "consumer price"],
+    "RECESSION_GROWTH": ["recession", "gdp", "economic growth", "unemployment"],
+    "FISCAL_POLICY": ["government shutdown", "debt ceiling", "budget deficit", "tariff"],
+    "GEOPOLITICS": ["war", "ceasefire", "invasion", "sanction", "iran", "ukraine", "taiwan"],
+    "US_POLICY": ["executive order", "congress", "supreme court", "policy"]
+  },
+  "semantic_rules": {
+    "FED_EASING": {
+      "patterns": [["fed", "cut"], ["federal reserve", "cut"], ["interest rate", "decrease"]],
+      "risk_prior_sign": 1
+    },
+    "FED_TIGHTENING": {
+      "patterns": [["fed", "hike"], ["federal reserve", "hike"], ["interest rate", "increase"]],
+      "risk_prior_sign": -1
+    },
+    "RECESSION_RISK": {
+      "patterns": [["recession"], ["economic", "contraction"]],
+      "risk_prior_sign": -1
+    },
+    "INFLATION_UPSIDE": {
+      "patterns": [["inflation", "above"], ["cpi", "above"], ["pce", "above"]],
+      "risk_prior_sign": -1
+    },
+    "GOVERNMENT_SHUTDOWN": {
+      "patterns": [["government", "shutdown"]],
+      "risk_prior_sign": -1
+    },
+    "GEOPOLITICAL_RISK": {
+      "patterns": [["war"], ["invasion"]],
+      "risk_prior_sign": -1
+    }
+  },
+  "output": {
+    "latest_json": "/opt/kalman/state/prediction-market-v0/latest.json",
+    "sqlite_db": "/opt/kalman/state/prediction-market-v0/history.sqlite3"
+  },
+  "safety": {
+    "read_only": true,
+    "allow_order_submission": false,
+    "allow_wallet_auth": false,
+    "allow_geo_bypass": false,
+    "r51_scoring_enabled": false,
+    "trade_execution_enabled": false
+  }
+}

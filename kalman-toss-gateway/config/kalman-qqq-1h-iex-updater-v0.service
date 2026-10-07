@@ -1,0 +1,21 @@
+[Unit]
+Description=Kalman QQQ 1h Alpaca IEX Research Updater v0
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/kalman/qqq-updater-v0
+EnvironmentFile=/opt/kalman/.env
+Environment=KALMAN_APP_ROOT=/opt/kalman/qqq-updater-v0
+Environment=KALMAN_QQQ_UPDATER_PYTHON=/opt/kalman/qqq-updater-v0/.venv/bin/python
+Environment=KALMAN_RCLONE_CONFIG=/opt/kalman/qqq-updater-v0/rclone.conf
+ExecStart=/bin/bash /opt/kalman/qqq-updater-v0/scripts/run_qqq_1h_iex_updater_v0.sh
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+UMask=0077

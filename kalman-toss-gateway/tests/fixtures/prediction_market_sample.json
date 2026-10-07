@@ -1,0 +1,37 @@
+[
+  {
+    "id": "demo-fed-cut",
+    "conditionId": "cond-fed-cut",
+    "question": "Will the Fed cut interest rates at the next meeting?",
+    "outcomes": "[\"Yes\",\"No\"]",
+    "outcomePrices": "[\"0.64\",\"0.36\"]",
+    "clobTokenIds": "[\"yes-token\",\"no-token\"]",
+    "liquidityNum": 25000,
+    "volume24hr": 120000,
+    "spread": 0.02,
+    "bestBid": 0.63,
+    "bestAsk": 0.65,
+    "lastTradePrice": 0.64,
+    "oneHourPriceChange": 0.04,
+    "oneDayPriceChange": 0.11,
+    "endDate": "2030-01-01T00:00:00Z",
+    "updatedAt": "2026-10-07T11:39:00Z",
+    "enableOrderBook": true,
+    "acceptingOrders": true
+  },
+  {
+    "id": "demo-recession",
+    "conditionId": "cond-recession",
+    "question": "Will the US enter a recession before 2030?",
+    "outcomes": "[\"Yes\",\"No\"]",
+    "outcomePrices": "[\"0.31\",\"0.69\"]",
+    "clobTokenIds": "[\"yes-r\",\"no-r\"]",
+    "liquidityNum": 16000,
+    "volume24hr": 45000,
+    "spread": 0.04,
+    "endDate": "2030-01-01T00:00:00Z",
+    "updatedAt": "2026-10-07T11:38:00Z",
+    "enableOrderBook": true,
+    "acceptingOrders": true
+  }
+]
