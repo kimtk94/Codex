@@ -1,0 +1,95 @@
+name: Kalman Prediction Market v0
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/config/prediction-market-layer-v0.json"
+      - "kalman-toss-gateway/config/prediction-market-v0.cron.example"
+      - "kalman-toss-gateway/engine/prediction_market_layer_v0.py"
+      - "kalman-toss-gateway/scripts/run_prediction_market_layer_v0.sh"
+      - "kalman-toss-gateway/docs/PREDICTION_MARKET_LAYER_V0.md"
+      - "kalman-toss-gateway/tests/test_prediction_market_layer_v0.py"
+      - "kalman-toss-gateway/tests/fixtures/prediction_market_sample.json"
+      - ".github/workflows/kalman-prediction-market-v0.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prediction-market-v0:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest httpx
+
+      - name: Compile module
+        run: python -m py_compile engine/prediction_market_layer_v0.py
+
+      - name: Validate shell syntax
+        run: bash -n scripts/run_prediction_market_layer_v0.sh
+
+      - name: Validate read-only contracts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          cfg = json.loads(Path("config/prediction-market-layer-v0.json").read_text())
+          safety = cfg["safety"]
+          assert safety["read_only"] is True
+          assert safety["allow_order_submission"] is False
+          assert safety["allow_wallet_auth"] is False
+          assert safety["allow_geo_bypass"] is False
+          assert safety["r51_scoring_enabled"] is False
+          assert safety["trade_execution_enabled"] is False
+
+          cron = Path("config/prediction-market-v0.cron.example").read_text()
+          active = [
+              line for line in cron.splitlines()
+              if line.strip()
+              and not line.lstrip().startswith("#")
+              and "run_prediction_market_layer_v0.sh collect" in line
+          ]
+          assert active == [], active
+          print("[PASS] read-only + no active cron")
+          PY
+
+      - name: Run regression tests
+        env:
+          PYTHONPATH: .
+        run: pytest -q tests/test_prediction_market_layer_v0.py
+
+      - name: Run fixture smoke
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m engine.prediction_market_layer_v0 collect \
+            --config config/prediction-market-layer-v0.json \
+            --fixture tests/fixtures/prediction_market_sample.json \
+            --output /tmp/prediction-market-v0.json \
+            --db /tmp/prediction-market-v0.sqlite3
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path("/tmp/prediction-market-v0.json").read_text())
+          assert p["status"] == "READY"
+          assert p["record_count"] == 2
+          assert p["eligible_count"] == 2
+          assert p["safety"]["trade_execution_enabled"] is False
+          print("[PASS] fixture smoke")
+          PY
