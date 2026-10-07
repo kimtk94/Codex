@@ -117,3 +117,40 @@ The installer copies the working user rclone configuration into
 The root service uses only that deployed copy. This prevents token refreshes
 from changing the ownership or contents of
 `/home/taehoon/.config/rclone/rclone.conf`.
+
+## First installed run audit — 2026-10-07
+
+The privileged one-shot validation completed successfully before the timer was
+enabled.
+
+Observed result:
+
+- status: `UPDATED`
+- overlap rows checked: 44
+- overlap mismatches: 0 for close/high/low/open/VWAP/trade-count/volume
+- fetched rows: 280
+- appended rows: 236
+- canonical rows: 13,112 -> 13,348
+- old maximum timestamp: `2026-08-28T20:00:00Z`
+- new maximum timestamp: `2026-10-07T13:00:00Z`
+- local backup:
+  `QQQ_1h_2017plus.pre_qqq_update_20261007T140010Z.parquet`
+- Drive backup:
+  `QQQ_1h_2017plus.pre_qqq_update_20261007T140011Z.parquet`
+- new local SHA256:
+  `49a766b3deefa775124388f7e244b3f11a9deefc54f6a2b3e8cd97b281dbfd44`
+- verified Drive SHA256:
+  `49a766b3deefa775124388f7e244b3f11a9deefc54f6a2b3e8cd97b281dbfd44`
+- canonical owner/mode after root-run update:
+  `taehoon:taehoon 0664`
+- systemd service result: success
+- hourly timer: enabled and active
+
+A manual prediction-market OOS watcher check immediately afterward observed the
+same 13,348-row QQQ canonical and the same SHA256. Its status remained
+`NO_NEW_RELEASE` because the latest public prediction-market archive is still
+`data-2026-09-13`.
+
+Therefore the QQQ outcome-freshness blocker is resolved. The remaining
+confirmatory OOS blocker is a prediction-market archive release newer than the
+frozen discovery release.
