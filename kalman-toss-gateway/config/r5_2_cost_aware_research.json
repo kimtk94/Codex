@@ -1,40 +1,131 @@
 {
-  "version": "R5.2_COST_AWARE_RESEARCH_V1",
+  "version": "R5.2_COST_AWARE_RESEARCH_V2",
   "research_only": true,
   "live_execution": false,
   "broker_orders": false,
   "source_model": "R5.1_BASE_HGB",
-  "candidate": {
-    "target_horizon_bars": 20,
-    "entry_lag_bars": 1,
-    "admission_score_threshold_bps": 20.0,
-    "non_overlap": true,
-    "position_policy": "ONE_ACTIVE_RESEARCH_TRADE"
-  },
+  "decision": "BLOCK_CURRENT_LIVE_POLICY",
+  "live_entry_gate": "KEEP_DISABLED",
+  "decision_reasons": [
+    "20H_HOLD_ONLY_ALPHA_DOES_NOT_SURVIVE_CURRENT_STOP3_PLUS_FRIDAY_FLAT_POLICY",
+    "DIRECT_20H_RETRAIN_DOES_NOT_DOMINATE_FROZEN_R5_SCORE_RANKING",
+    "CURRENT_LIVE_POLICY_GRID_HAS_NO_ROBUST_COST_STRESSED_CANDIDATE",
+    "FRIDAY_AWARE_ADMISSION_DOES_NOT_RESTORE_ROBUST_ECONOMICS",
+    "FULL_POINT_IN_TIME_UNIVERSE_NOT_AVAILABLE",
+    "NEW_20H_MODEL_HAS_NO_PROSPECTIVE_SHADOW"
+  ],
   "execution_cost": {
     "empirical_observations": 69,
     "empirical_p90_round_trip_bps": 36.59673953005761,
     "backtest_cost_floor_bps": 36.59673953005761,
     "stress_bps": [45.0, 50.0, 60.0]
   },
-  "observed_exploratory_result": {
-    "static_93": {
-      "trades": 75,
-      "cagr": 0.27630524442260485,
-      "max_drawdown": -0.31669350963402454
+  "completed_validation": {
+    "same_bar_execution_removed": true,
+    "entry_contract": "SIGNAL_T_CLOSE_TO_ENTRY_T_PLUS_1_OPEN",
+    "purged_walk_forward_20h": true,
+    "oos_folds": [
+      "E2_2023H2",
+      "E3_2024H1",
+      "E4_2024H2",
+      "E5_2025H1",
+      "E6_2025H2",
+      "E7_2026_JAN_APR",
+      "E8_2026_MAY_CUTOFF"
+    ],
+    "oos_rows": 428865,
+    "panel_ready_symbols": 92,
+    "missing_panel_symbols": ["BRK.B"],
+    "target_coverage_panel_ready": 0.9794165345652426,
+    "timestamp_min_80_symbol_coverage": 0.9869987181834828,
+    "pit_conservative_tested": true,
+    "cost_stress_tested": true,
+    "stop3_take20_tested": true,
+    "friday_flat_tested": true,
+    "friday_aware_admission_tested": true
+  },
+  "hold_only_exploratory_result": {
+    "invalidated_for_live_by_exit_policy": true,
+    "frozen_r5_score_pit_20h_no_floor": {
+      "trades": 236,
+      "cagr": 0.285375,
+      "max_drawdown": -0.388855
     },
-    "pit_conservative": {
-      "trades": 69,
-      "cagr": 0.319633,
-      "max_drawdown": -0.239651
+    "frozen_r5_score_pit_20h_score_ge_20bp": {
+      "trades": 90,
+      "cagr": 0.263108,
+      "max_drawdown": -0.310586
+    },
+    "retrained_raw20_hgb_pit": {
+      "trades": 236,
+      "cagr": 0.265820,
+      "max_drawdown": -0.533313
     }
   },
-  "promotion_requirements": [
-    "RETRAIN_MODEL_ON_20_BAR_TARGET",
-    "PURGED_WALK_FORWARD_OUT_OF_SAMPLE",
-    "FULL_POINT_IN_TIME_UNIVERSE_OR_EXPLICIT_UNIVERSE_LIMITATION",
-    "EMPIRICAL_EXECUTION_COST_FLOOR",
-    "COST_STRESS_45_50_60_BPS",
-    "NO_LIVE_PROMOTION_FROM_4H_SCORE_OVERLAY"
+  "current_exit_policy_result": {
+    "policy": "STOP3_TAKE20_FRIDAY_FLAT",
+    "frozen_r5_score_pit_20h_no_floor": {
+      "trades": 236,
+      "cagr": -0.064566,
+      "max_drawdown": -0.373627
+    },
+    "frozen_r5_score_pit_20h_score_ge_20bp": {
+      "trades": 90,
+      "cagr": -0.031110,
+      "max_drawdown": -0.224490
+    },
+    "retrained_raw20_hgb_pit": {
+      "trades": 236,
+      "cagr": -0.303656,
+      "max_drawdown": -0.755206
+    },
+    "best_grid_scenario": {
+      "horizon_bars": 20,
+      "r5_score_threshold_bps": 25.0,
+      "trades": 64,
+      "cagr_at_36_6bps": 0.027090,
+      "max_drawdown_at_36_6bps": -0.209763,
+      "cagr_at_45bps": 0.009107,
+      "cagr_at_50bps": -0.001450,
+      "cagr_at_60bps": -0.022249,
+      "robust": false
+    }
+  },
+  "friday_aware_admission_result": {
+    "policy": "SKIP_IF_SCHEDULED_HORIZON_CROSSES_FRIDAY_FLAT",
+    "best_scenario": {
+      "horizon_bars": 12,
+      "r5_score_threshold_bps": 25.0,
+      "trades": 56,
+      "cagr_at_36_6bps": 0.002460,
+      "max_drawdown_at_36_6bps": -0.255548,
+      "cagr_at_45bps": -0.012930,
+      "robust": false
+    }
+  },
+  "direct_20h_retrain": {
+    "fixed_model_family": "HistGradientBoostingRegressor",
+    "model_params": {
+      "learning_rate": 0.05,
+      "max_iter": 160,
+      "max_leaf_nodes": 31,
+      "min_samples_leaf": 100,
+      "l2_regularization": 1.0,
+      "early_stopping": false,
+      "random_state": 42
+    },
+    "targets": [
+      "execution_aligned_raw_return_20h",
+      "cross_sectional_relative_return_20h",
+      "cross_sectional_ordinal_return_20h"
+    ],
+    "best_target": "execution_aligned_raw_return_20h",
+    "architecture_limitation": "Original frozen R5 HGB joblib was not available on the server, so exact estimator cloning was not possible."
+  },
+  "next_research_tracks": [
+    "DECOMPOSE_REALIZED_EXECUTION_COST_BY_BUY_SELL_SPREAD_SLIPPAGE_COMMISSION_AND_SESSION",
+    "TEST_LOWER_TURNOVER_SIGNAL_WITHOUT_CHANGING_LIVE_RISK_POLICY",
+    "TEST_ALTERNATIVE_MULTI_DAY_RISK_DESIGN_ONLY_IN_RESEARCH_SHADOW",
+    "DO_NOT_REENABLE_LIVE_BUYS_FROM_R5_2_RESULTS"
   ]
 }
