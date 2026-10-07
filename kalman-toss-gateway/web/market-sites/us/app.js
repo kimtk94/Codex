@@ -92,7 +92,7 @@ function usSessionContext(now=new Date()){
   let p=kstParts(now),mins=p.h*60+p.min,today={y:p.y,m:p.m,d:p.d},base;
   if(mins<360){let prev=addKstDays(today,-1);base=isKstTradeStartDay(prev)?prev:nextKstTradeStartDay(today)}
   else base=isKstTradeStartDay(today)?today:nextKstTradeStartDay(today);
-  let slots=[];for(let h=9;h<=14;h++)slots.push(nyDate(base,h,35));
+  let slots=[];for(let h=10;h<=15;h++)slots.push(nyDate(base,h,35));
   let nextDay=addKstDays(base,1);
   let generated=S?.generated_at?new Date(S.generated_at):null,done=slots.filter(x=>generated&&generated>=x).length,due=slots.filter(x=>now>=x).length;
   let status='WAITING',statusClass='waiting';
@@ -103,14 +103,14 @@ function usSessionContext(now=new Date()){
     else {status='UPDATE LATE';statusClass='late'}
   }
   let next=slots.find(x=>x>now),nextBase=base;
-  if(!next){nextBase=nextKstTradeStartDay(addKstDays(base,1));next=nyDate(nextBase,9,35)}
+  if(!next){nextBase=nextKstTradeStartDay(addKstDays(base,1));next=nyDate(nextBase,10,35)}
   let latestDone=[...slots].reverse().find(x=>generated&&generated>=x),lag=5;
   if(latestDone&&generated){lag=Math.max(2,Math.min(15,Math.round((generated-latestDone)/60000)))}
   let nextUpdate=new Date(next.getTime()+lag*60000);
   return {base,nextDay,slots,generated,done,due,status,statusClass,next,nextUpdate,nextBase,usDate:fmtNyYMD(slots[0]),kstSessionDate:fmtKstMD(slots.at(-1))};
 }
 function watcherContext(now=new Date()){
-  let s=usSessionContext(now),start=kstDate(s.base,22,25),end=kstDate(s.nextDay,5,55),next;
+  let s=usSessionContext(now),start=nyDate(s.base,9,25),end=nyDate(s.base,15,55),next;
   if(now<start)next=start;
   else if(now<=end){
     let p=kstParts(now),nextMin=Math.floor(p.min/5)*5+5,day={y:p.y,m:p.m,d:p.d};
@@ -118,8 +118,8 @@ function watcherContext(now=new Date()){
       let nd=p.h>=23?addKstDays(day,1):day,nh=p.h>=23?0:p.h+1;
       next=kstDate(nd,nh,0);
     }else next=kstDate(day,p.h,nextMin);
-    if(next>end){let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,22,25)}
-  }else{let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,22,25)}
+    if(next>end){let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=nyDate(nb,9,25)}
+  }else{let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=nyDate(nb,9,25)}
   let active=now>=start&&now<=end;
   let ledger=C?.execution_ledger||[],updated=ledger.map(x=>x.updated_at).filter(Boolean).map(x=>new Date(x)).filter(x=>!Number.isNaN(x.getTime())).sort((a,b)=>b-a)[0]||null;
   return {active,start,end,next,updated};
@@ -127,7 +127,7 @@ function watcherContext(now=new Date()){
 function watcherStatusHtml(){
   let w=watcherContext(),state=w.active?'ACTIVE':'WAITING',cls=w.active?'track':'waiting',conditional=liveConditional();
   let runner=conditional?'r5_conditional_live':'auto_trade';
-  return '<section id="execution-watcher" class="watchercard"><div class="watcherhead"><div><span class="eyebrow">5M EXECUTION WATCHER</span><b>체결 · 리스크 · 신규진입 감시</b><small>모델 재계산 없음 · R5.1 signal은 60분 cadence 유지</small></div><span class="sessionstate '+cls+'">'+state+'</span></div><div class="watchergrid"><div><span>WATCH CADENCE</span><b>Every 5 min</b><small>22:25–05:55 KST · Toss market-calendar gate · DST safe</small></div><div><span>NEXT WATCH</span>'+timePairHtml(w.next,'hero-clock')+'<small>hourly cycle lock 중이면 자동 SKIP</small></div><div><span>LAST EXECUTION SYNC</span>'+(w.updated?timePairHtml(w.updated):'<b>—</b>')+'<small>execution ledger latest update</small></div><div><span>ORDER</span><b>Reconcile → Trade → Mirror</b><small>position_manager → '+E(runner)+' → trade_mirror</small></div></div></section>';
+  return '<section id="execution-watcher" class="watchercard"><div class="watcherhead"><div><span class="eyebrow">5M EXECUTION WATCHER</span><b>체결 · 리스크 · 신규진입 감시</b><small>모델 재계산 없음 · R5.1 signal은 60분 cadence 유지</small></div><span class="sessionstate '+cls+'">'+state+'</span></div><div class="watchergrid"><div><span>WATCH CADENCE</span><b>Every 5 min</b><small>09:25–15:55 ET · Toss market-calendar gate · DST safe</small></div><div><span>NEXT WATCH</span>'+timePairHtml(w.next,'hero-clock')+'<small>hourly cycle lock 중이면 자동 SKIP</small></div><div><span>LAST EXECUTION SYNC</span>'+(w.updated?timePairHtml(w.updated):'<b>—</b>')+'<small>execution ledger latest update</small></div><div><span>ORDER</span><b>Reconcile → Trade → Mirror</b><small>position_manager → '+E(runner)+' → trade_mirror</small></div></div></section>';
 }
 function engineSignalState(){
   let s=C?.latest_model_signal||null;
@@ -233,7 +233,7 @@ function tradeActionHtml(){
 function sessionStatusHtml(){
   let x=usSessionContext(),pct=Math.round(x.done/x.slots.length*100),sameSession=x.next>=x.slots[0]&&x.next<=x.slots.at(-1);
   let steps=x.slots.map((t,i)=>{let cls=x.generated&&x.generated>=t?'done':(new Date()>=t?(new Date()-t<20*60000?'running':'late'):'upcoming');return '<div class="sessionstep '+cls+'"><span>'+(i+1)+'</span><div><b>'+fmtKstHM(t)+'</b><small>KST</small></div><i>·</i><div><b>'+fmtEtHM(t)+'</b><small>ET</small></div></div>'}).join('');
-  return '<section id="us-session-status" class="sessioncard"><div class="sessiontop"><div><span class="eyebrow">US SESSION · KST END DATE</span><b class="sessiondate">'+E(x.kstSessionDate)+'</b><small>미국 정규장 세션 · ET는 KST보다 이전 날짜일 수 있음</small></div><span class="sessionstate '+x.statusClass+'">'+E(x.status)+'</span></div><div class="sessionprogress"><div style="width:'+pct+'%"></div></div><div class="sessionmeta"><b>'+x.done+'/'+x.slots.length+' hourly cycles reflected</b><span>Latest web update '+E(S?.generated_at?timePair(S.generated_at):'—')+'</span></div><div class="sessionsteps">'+steps+'</div><div class="nextgrid"><div><span>NEXT HOURLY CYCLE</span>'+timePairHtml(x.next,'hero-clock')+'<small>'+(sameSession?'R5.1 pipeline + trade':'Next US session')+'</small></div><div><span>EXPECTED WEB UPDATE</span>'+timePairHtml(x.nextUpdate,'hero-clock')+'<small>observed post-cycle lag estimate</small></div></div></section>';
+  return '<section id="us-session-status" class="sessioncard"><div class="sessiontop"><div><span class="eyebrow">US SESSION · KST END DATE</span><b class="sessiondate">'+E(x.kstSessionDate)+'</b><small>정규장 09:30 ET · execution watcher 09:25 ET · 모델은 첫 60m 봉 완성 후 10:35 ET부터</small></div><span class="sessionstate '+x.statusClass+'">'+E(x.status)+'</span></div><div class="sessionprogress"><div style="width:'+pct+'%"></div></div><div class="sessionmeta"><b>'+x.done+'/'+x.slots.length+' hourly cycles reflected</b><span>Latest web update '+E(S?.generated_at?timePair(S.generated_at):'—')+'</span></div><div class="sessionsteps">'+steps+'</div><div class="nextgrid"><div><span>NEXT HOURLY MODEL CYCLE</span>'+timePairHtml(x.next,'hero-clock')+'<small>'+(sameSession?'R5.1 pipeline + trade':'Next US session')+'</small></div><div><span>EXPECTED WEB UPDATE</span>'+timePairHtml(x.nextUpdate,'hero-clock')+'<small>observed post-cycle lag estimate</small></div></div></section>';
 }
 function renderSessionStatus(){let el=$('#us-session-status');if(el)el.outerHTML=sessionStatusHtml()}
 async function pollSessionStatus(){
