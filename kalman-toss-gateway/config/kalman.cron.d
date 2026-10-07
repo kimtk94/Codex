@@ -9,12 +9,13 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # KR: after regular close, Monday-Friday KST.
 20 16 * * 1-5 root /opt/kalman/app/scripts/run_pipeline.sh KR_GLOBAL >> /opt/kalman/logs/kr.log 2>&1
 
-# US R5.1: each cycle starts after the :30 canonical hourly boundary.
+# US R5.1: each cycle starts after the :30 canonical ET hourly boundary.
+# Schedule both possible KST hours across DST/standard time; the wrapper admits only
+# 09:35-14:35 America/New_York and skips the extra KST invocation.
 # run_us_cycle.sh serializes: US pipeline commit -> position/ledger sync -> auto-trade.
-# This avoids evaluating the previous signal while the ~40m US pipeline is still running.
 # R5.1 freshness uses bar completion (stored as_of is the immutable 60m BAR START).
-35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
-35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh >> /opt/kalman/logs/us-cycle.log 2>&1
+35 22-23 * * 1-5 root bash /opt/kalman/app/scripts/run_us_cycle_scheduled.sh >> /opt/kalman/logs/us-cycle.log 2>&1
+35 0-4 * * 2-6 root bash /opt/kalman/app/scripts/run_us_cycle_scheduled.sh >> /opt/kalman/logs/us-cycle.log 2>&1
 
 # US daytime managed-position watch: monitor P/L only, no BUY/model rebuild.
 # This catches profit -> loss deterioration while Toss fractional orders are closed.
