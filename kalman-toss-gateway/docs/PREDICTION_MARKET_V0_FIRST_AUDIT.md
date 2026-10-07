@@ -228,3 +228,51 @@ scripts/run_prediction_market_research_v0.sh stratified \
   --thresholds 0.05,0.10,0.15 \
   --max-entry-lag-minutes 90
 ```
+
+## Frozen confirmatory OOS contract
+
+The nominal inflation hypothesis is now frozen before any new data tranche is
+evaluated.
+
+Frozen hypothesis:
+
+- hypothesis ID: `PMOOS-INFLATION-UP-QQQ-7B-V1`
+- freeze time: `2026-10-07T12:55:00Z`
+- discovery cutoff: `2026-09-13T11:50:00Z`
+- shock threshold: 15 percentage points
+- dominant semantic channel: `INFLATION_UPSIDE`
+- asset: QQQ
+- horizon: 7 hourly bars
+- expected direction: downside
+- maximum event-to-entry lag: 90 minutes
+- frozen spec SHA256:
+  `d758c821107bec0c0be25da9d4b448558ca654b6a01f8b75d473a7a96f4acb8a`
+
+The evaluator rejects all prediction rows at or before the discovery cutoff.
+The confirmatory gate is evaluated only after at least 20 valid OOS observations
+across at least 8 unique event dates. The statistical/effect gates remain the
+predeclared research thresholds: hit rate >=55%, positive-date rate >=60%,
+mean signed return >0, cluster-bootstrap lower 95% bound >0, and cluster
+sign-flip p <=0.10.
+
+Passing this gate does **not** automatically alter R5.x. It only creates a
+candidate for manual review. The OOS evaluator always reports
+`production_promotion=false`, `r51_mutated=false`, and `auto_promote=false`.
+
+Current status on the frozen 2026-09-13 archive:
+
+- prediction rows after cutoff: 0
+- status: `WAITING_FOR_OOS_DATA`
+
+Run the frozen OOS evaluator after importing a genuinely newer public data
+tranche:
+
+```bash
+KALMAN_PYTHON=/path/to/python \
+  scripts/run_prediction_market_research_v0.sh oos \
+  --asset /path/to/QQQ_1h.parquet
+```
+
+Do not change the threshold, semantic channel, asset, horizon, or discovery
+cutoff in response to the next tranche. Any changed hypothesis must receive a
+new hypothesis ID and begin a new discovery/OOS cycle.
