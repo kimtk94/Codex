@@ -77,6 +77,8 @@ function fmtKstHM(d){return new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seou
 function fmtNyYMD(d){return new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(d)}
 function fmtEtMD(d){return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',month:'2-digit',day:'2-digit'}).format(d)}
 function fmtEtHM(d){return new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(d)}
+function nyOffsetMinutes(d){let z=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',timeZoneName:'shortOffset',hour:'2-digit'}).formatToParts(d).find(x=>x.type==='timeZoneName')?.value||'GMT-5',m=z.match(/GMT([+-])(\d{1,2})(?::(\d{2}))?/);if(!m)return -300;let v=(+m[2]*60 + +(m[3]||0));return m[1]==='-'?-v:v}
+function nyDate(v,h=0,min=0){let wall=Date.UTC(v.y,v.m-1,v.d,h,min),guess=new Date(wall),off=nyOffsetMinutes(guess),out=new Date(wall-off*60000),off2=nyOffsetMinutes(out);return off2===off?out:new Date(wall-off2*60000)}
 function zonePair(d){if(!d||Number.isNaN(new Date(d).getTime()))return '—';let x=new Date(d);return fmtKstMD(x)+' '+fmtKstHM(x)+' KST · '+fmtEtMD(x)+' '+fmtEtHM(x)+' ET'}
 function timePair(d){if(!d||Number.isNaN(new Date(d).getTime()))return '—';let x=new Date(d);return fmtKstHM(x)+' KST · '+fmtEtHM(x)+' ET'}
 function timePairHtml(d,klass=''){if(!d||Number.isNaN(new Date(d).getTime()))return '<span class="timepair '+klass+'">—</span>';let x=new Date(d);return '<span class="timepair '+klass+'"><b>'+E(fmtKstHM(x))+'</b><em>KST</em><i>·</i><b>'+E(fmtEtHM(x))+'</b><em>ET</em></span>'}
@@ -85,8 +87,8 @@ function usSessionContext(now=new Date()){
   let p=kstParts(now),mins=p.h*60+p.min,today={y:p.y,m:p.m,d:p.d},base;
   if(mins<360){let prev=addKstDays(today,-1);base=isKstTradeStartDay(prev)?prev:nextKstTradeStartDay(today)}
   else base=isKstTradeStartDay(today)?today:nextKstTradeStartDay(today);
-  let nextDay=addKstDays(base,1),slots=[kstDate(base,23,35)];
-  for(let h=0;h<=4;h++)slots.push(kstDate(nextDay,h,35));
+  let slots=[];for(let h=9;h<=14;h++)slots.push(nyDate(base,h,35));
+  let nextDay=addKstDays(base,1);
   let generated=S?.generated_at?new Date(S.generated_at):null,done=slots.filter(x=>generated&&generated>=x).length,due=slots.filter(x=>now>=x).length;
   let status='WAITING',statusClass='waiting';
   if(now>=slots[0]&&now<=new Date(slots.at(-1).getTime()+45*60000)){
@@ -96,14 +98,14 @@ function usSessionContext(now=new Date()){
     else {status='UPDATE LATE';statusClass='late'}
   }
   let next=slots.find(x=>x>now),nextBase=base;
-  if(!next){nextBase=nextKstTradeStartDay(addKstDays(base,1));next=kstDate(nextBase,23,35)}
+  if(!next){nextBase=nextKstTradeStartDay(addKstDays(base,1));next=nyDate(nextBase,9,35)}
   let latestDone=[...slots].reverse().find(x=>generated&&generated>=x),lag=5;
   if(latestDone&&generated){lag=Math.max(2,Math.min(15,Math.round((generated-latestDone)/60000)))}
   let nextUpdate=new Date(next.getTime()+lag*60000);
   return {base,nextDay,slots,generated,done,due,status,statusClass,next,nextUpdate,nextBase,usDate:fmtNyYMD(slots[0]),kstSessionDate:fmtKstMD(slots.at(-1))};
 }
 function watcherContext(now=new Date()){
-  let s=usSessionContext(now),start=s.slots[0],end=kstDate(s.nextDay,5,55),next;
+  let s=usSessionContext(now),start=kstDate(s.base,22,25),end=kstDate(s.nextDay,5,55),next;
   if(now<start)next=start;
   else if(now<=end){
     let p=kstParts(now),nextMin=Math.floor(p.min/5)*5+5,day={y:p.y,m:p.m,d:p.d};
@@ -111,8 +113,8 @@ function watcherContext(now=new Date()){
       let nd=p.h>=23?addKstDays(day,1):day,nh=p.h>=23?0:p.h+1;
       next=kstDate(nd,nh,0);
     }else next=kstDate(day,p.h,nextMin);
-    if(next>end){let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,23,0)}
-  }else{let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,23,0)}
+    if(next>end){let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,22,25)}
+  }else{let nb=nextKstTradeStartDay(addKstDays(s.base,1));next=kstDate(nb,22,25)}
   let active=now>=start&&now<=end;
   let ledger=C?.execution_ledger||[],updated=ledger.map(x=>x.updated_at).filter(Boolean).map(x=>new Date(x)).filter(x=>!Number.isNaN(x.getTime())).sort((a,b)=>b-a)[0]||null;
   return {active,start,end,next,updated};
@@ -120,7 +122,7 @@ function watcherContext(now=new Date()){
 function watcherStatusHtml(){
   let w=watcherContext(),state=w.active?'ACTIVE':'WAITING',cls=w.active?'track':'waiting',conditional=liveConditional();
   let runner=conditional?'r5_conditional_live':'auto_trade';
-  return '<section id="execution-watcher" class="watchercard"><div class="watcherhead"><div><span class="eyebrow">5M EXECUTION WATCHER</span><b>체결 · 리스크 · 신규진입 감시</b><small>모델 재계산 없음 · R5.1 signal은 60분 cadence 유지</small></div><span class="sessionstate '+cls+'">'+state+'</span></div><div class="watchergrid"><div><span>WATCH CADENCE</span><b>Every 5 min</b><small>23:00–05:55 KST · 10:00–16:55 ET</small></div><div><span>NEXT WATCH</span>'+timePairHtml(w.next,'hero-clock')+'<small>hourly cycle lock 중이면 자동 SKIP</small></div><div><span>LAST EXECUTION SYNC</span>'+(w.updated?timePairHtml(w.updated):'<b>—</b>')+'<small>execution ledger latest update</small></div><div><span>ORDER</span><b>Reconcile → Trade → Mirror</b><small>position_manager → '+E(runner)+' → trade_mirror</small></div></div></section>';
+  return '<section id="execution-watcher" class="watchercard"><div class="watcherhead"><div><span class="eyebrow">5M EXECUTION WATCHER</span><b>체결 · 리스크 · 신규진입 감시</b><small>모델 재계산 없음 · R5.1 signal은 60분 cadence 유지</small></div><span class="sessionstate '+cls+'">'+state+'</span></div><div class="watchergrid"><div><span>WATCH CADENCE</span><b>Every 5 min</b><small>22:25–05:55 KST · Toss market-calendar gate · DST safe</small></div><div><span>NEXT WATCH</span>'+timePairHtml(w.next,'hero-clock')+'<small>hourly cycle lock 중이면 자동 SKIP</small></div><div><span>LAST EXECUTION SYNC</span>'+(w.updated?timePairHtml(w.updated):'<b>—</b>')+'<small>execution ledger latest update</small></div><div><span>ORDER</span><b>Reconcile → Trade → Mirror</b><small>position_manager → '+E(runner)+' → trade_mirror</small></div></div></section>';
 }
 function engineSignalState(){
   let s=C?.latest_model_signal||null;
