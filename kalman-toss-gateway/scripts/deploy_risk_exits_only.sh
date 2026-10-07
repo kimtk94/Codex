@@ -38,10 +38,20 @@ if [ "$RC" -ne 0 ]; then
 fi
 
 mkdir -p "$BACKUP/app" "$BACKUP/engine" "$BACKUP/scripts"
-cp -a "$APP/app/executor.py" "$BACKUP/app/"
-cp -a "$APP/engine/auto_trade.py" "$BACKUP/engine/"
-cp -a "$APP/engine/r5_conditional_live.py" "$BACKUP/engine/"
-cp -a "$APP/engine/open_carry_live.py" "$BACKUP/engine/"
+for f in \
+  "$APP/app/executor.py" \
+  "$APP/engine/auto_trade.py" \
+  "$APP/engine/r5_conditional_live.py" \
+  "$APP/engine/open_carry_live.py"; do
+  if [ -f "$f" ]; then
+    case "$f" in
+      */app/*) cp -a "$f" "$BACKUP/app/" ;;
+      */engine/*) cp -a "$f" "$BACKUP/engine/" ;;
+    esac
+  else
+    echo "[INFO] no pre-existing file to back up: $f"
+  fi
+done
 if [ -f "$APP/scripts/set_risk_exits_only.py" ]; then
   cp -a "$APP/scripts/set_risk_exits_only.py" "$BACKUP/scripts/"
 fi
