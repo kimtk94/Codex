@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import json
 import os
@@ -80,7 +81,21 @@ class TossClient:
                 except FileNotFoundError:
                     pass
 
-    def _invalidate_rejected_token(self, rejected_token: str) -> None:
+    @staticmethod
+    async def _acquire_token_lock(lock_file) -> None:
+        # No synchronous waiting for a shared token lock inside an event loop.
+        # The asyncio scheduler must stay runnable for the current lock holder.
+        deadline = time.monotonic() + 30.0
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Toss OAuth token cache lock timed out")
+                await asyncio.sleep(0.10)
+
+    async def _invalidate_rejected_token(self, rejected_token: str) -> None:
         if not rejected_token:
             return
 
@@ -93,7 +108,7 @@ class TossClient:
         lock_path = cache_path.with_suffix(cache_path.suffix + '.lock')
         with open(lock_path, 'a+', encoding='utf-8') as lock_file:
             os.chmod(lock_path, 0o600)
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            await self._acquire_token_lock(lock_file)
             try:
                 try:
                     payload = json.loads(cache_path.read_text(encoding='utf-8'))
@@ -139,7 +154,7 @@ class TossClient:
         lock_path = cache_path.with_suffix(cache_path.suffix + '.lock')
         with open(lock_path, 'a+', encoding='utf-8') as lock_file:
             os.chmod(lock_path, 0o600)
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            await self._acquire_token_lock(lock_file)
             try:
                 token, expires_at = self._read_shared_token()
                 if not token:
@@ -185,7 +200,7 @@ class TossClient:
                 if response.status_code == 401:
                     self._capture_response_meta(response)
                     rejected_token = headers.get('Authorization', '').removeprefix('Bearer ').strip()
-                    self._invalidate_rejected_token(rejected_token)
+                    await self._invalidate_rejected_token(rejected_token)
                     if attempt == 0:
                         continue
 
