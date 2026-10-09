@@ -42,6 +42,8 @@ on:
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_live_readiness_conditional_contract.py"
       - "kalman-toss-gateway/tests/test_r5_conditional_chunking.py"
+      - "kalman-toss-gateway/tests/test_toss_oauth_lock_nonblocking.py"
+      - "kalman-toss-gateway/tests/test_toss_token_refresh.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - "kalman-toss-gateway/tests/test_same_cycle_rebalance.py"
       - "kalman-toss-gateway/tests/test_exit_window_safety.py"
@@ -90,6 +92,8 @@ on:
       - "kalman-toss-gateway/tests/test_gateway_risk.py"
       - "kalman-toss-gateway/tests/test_live_readiness_conditional_contract.py"
       - "kalman-toss-gateway/tests/test_r5_conditional_chunking.py"
+      - "kalman-toss-gateway/tests/test_toss_oauth_lock_nonblocking.py"
+      - "kalman-toss-gateway/tests/test_toss_token_refresh.py"
       - "kalman-toss-gateway/tests/test_no_symbol_allowlist.py"
       - "kalman-toss-gateway/tests/test_same_cycle_rebalance.py"
       - "kalman-toss-gateway/tests/test_exit_window_safety.py"
@@ -125,7 +129,7 @@ jobs:
 
       - name: Compile gateway code
         run: |
-          python -m compileall app engine/auto_trade.py engine/position_manager.py engine/benchmark_ledger.py engine/r5_strategy_ledger_sync.py engine/trade_mirror.py engine/execution_telemetry_sync.py engine/news_ingest_v1.py engine/macro_event_features_v1.py engine/macro_consensus_provider_v1.py engine/macro_shadow_eval_v1.py tests/test_live_readiness_conditional_contract.py tests/test_r5_conditional_chunking.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py tests/test_exit_window_safety.py tests/test_trade_mirror_status.py tests/test_execution_telemetry.py tests/test_r5_strategy_ledger_sync.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py
+          python -m compileall app engine/auto_trade.py engine/position_manager.py engine/benchmark_ledger.py engine/r5_strategy_ledger_sync.py engine/trade_mirror.py engine/execution_telemetry_sync.py engine/news_ingest_v1.py engine/macro_event_features_v1.py engine/macro_consensus_provider_v1.py engine/macro_shadow_eval_v1.py tests/test_live_readiness_conditional_contract.py tests/test_r5_conditional_chunking.py tests/test_toss_oauth_lock_nonblocking.py tests/test_toss_token_refresh.py tests/test_gateway_risk.py tests/test_no_symbol_allowlist.py tests/test_same_cycle_rebalance.py tests/test_exit_window_safety.py tests/test_trade_mirror_status.py tests/test_execution_telemetry.py tests/test_r5_strategy_ledger_sync.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py
 
       - name: Shell syntax checks
         run: |
@@ -293,5 +297,5 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
-          python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist tests.test_same_cycle_rebalance tests.test_exit_window_safety tests.test_live_readiness_conditional_contract -v
+          python -m unittest tests.test_gateway_risk tests.test_no_symbol_allowlist tests.test_same_cycle_rebalance tests.test_exit_window_safety tests.test_live_readiness_conditional_contract tests.test_toss_token_refresh tests.test_toss_oauth_lock_nonblocking -v
           pytest -q tests/test_r5_conditional_chunking.py tests/test_r5_conditional_policy.py tests/test_r5_conditional_live_snapshot.py tests/test_trade_mirror_status.py tests/test_execution_telemetry.py tests/test_news_ingest_v1.py tests/test_macro_event_features_v1.py tests/test_macro_shadow_eval_v1.py
