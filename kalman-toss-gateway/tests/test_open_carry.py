@@ -1,5 +1,7 @@
+import json
 from decimal import Decimal
 
+from engine import open_carry_shadow
 from engine.open_carry_policy import (
     evaluate_leg1,
     evaluate_leg2,
@@ -84,3 +86,24 @@ def test_execution_contract_requires_two_entry_cap():
     )
     assert ok is False
     assert reason == "OPEN_CARRY_MAX_ENTRIES_MUST_BE_2"
+
+
+def test_shadow_save_state_writes_user_readable_mirror(tmp_path, monkeypatch):
+    state_path = tmp_path / "state" / "open_carry_shadow.json"
+    mirror_path = tmp_path / "mirror" / "open-carry-shadow-latest.json"
+    monkeypatch.setenv("OPEN_CARRY_SHADOW_STATE_PATH", str(state_path))
+    monkeypatch.setenv("OPEN_CARRY_SHADOW_MIRROR_PATH", str(mirror_path))
+
+    payload = {
+        "schema_version": "kalman-open-carry-shadow-v1",
+        "mode": "SHADOW_NO_BROKER_ORDERS",
+        "session_date_et": "2026-10-09",
+        "symbol": "AMD",
+        "leg1": None,
+        "leg2": None,
+    }
+    open_carry_shadow._save_state(payload)
+
+    assert json.loads(state_path.read_text()) == payload
+    assert json.loads(mirror_path.read_text()) == payload
+    assert (mirror_path.stat().st_mode & 0o777) == 0o644

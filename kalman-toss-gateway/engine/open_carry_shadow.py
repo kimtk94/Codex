@@ -59,8 +59,30 @@ def _save_state(payload: dict) -> None:
     path = _state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
     os.replace(tmp, path)
+
+    mirror = Path(
+        os.environ.get(
+            "OPEN_CARRY_SHADOW_MIRROR_PATH",
+            "/home/taehoon/kalman-data/trading/open-carry-shadow-latest.json",
+        )
+    )
+    try:
+        mirror.parent.mkdir(parents=True, exist_ok=True)
+        mirror_tmp = mirror.with_suffix(mirror.suffix + ".tmp")
+        mirror_tmp.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        os.chmod(mirror_tmp, 0o644)
+        os.replace(mirror_tmp, mirror)
+        os.chmod(mirror, 0o644)
+    except OSError as exc:
+        print(f"OPEN_CARRY_SHADOW_MIRROR_WARN error={type(exc).__name__}:{exc}")
 
 
 def _session_open_utc(now_ny: datetime) -> datetime:
