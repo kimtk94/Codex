@@ -7,6 +7,12 @@ from app.config import Settings
 from app.managed_positions import ManagedPositionStore
 from app.market_guard import unwrap, us_fractional_order_window
 from app.toss_client import TossClient
+from engine.r5_conditional_live import (
+    CONFIRM_30000,
+    CONFIRM_CHUNKED,
+    CONFIRM_LEGACY,
+    _conditional_execution_contract,
+)
 from engine.auto_trade import (
     TARGET_EXIT_BUCKETS,
     _entry_exit_window_check,
@@ -24,6 +30,25 @@ def _enabled(name: str, default: str = "false") -> bool:
     return os.environ.get(name, default).strip().lower() == "true"
 
 
+def _conditional_contract_readiness(settings: Settings, policy: str) -> tuple[bool, bool]:
+    """Use the same profile and contract validation as the LIVE executor.
+
+    This is a local diagnostic only; it never initiates any order.
+    """
+    if policy != "R5_LIVE_CONDITIONAL":
+        return True, True
+    token = os.environ.get("AUTO_TRADE_CONDITIONAL_CONFIRM", "")
+    confirmed = token in {CONFIRM_LEGACY, CONFIRM_CHUNKED, CONFIRM_30000}
+    if not confirmed:
+        return False, False
+    try:
+        total_krw = int(os.environ.get("AUTO_TRADE_CONDITIONAL_TOTAL_KRW", "20000"))
+        _conditional_execution_contract(settings, total_krw=total_krw)
+    except (RuntimeError, ValueError, TypeError):
+        return True, False
+    return True, True
+
+
 async def evaluate_live_readiness(settings: Settings) -> dict:
     """Read-only evaluation of the same entry gates used by engine.auto_trade.
 
@@ -39,10 +64,8 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         policy != "SHADOW_CANARY"
         or os.environ.get("AUTO_TRADE_SHADOW_CONFIRM", "") == "CONFIRM_SHADOW_CANARY"
     )
-    conditional_confirmed = (
-        policy != "R5_LIVE_CONDITIONAL"
-        or os.environ.get("AUTO_TRADE_CONDITIONAL_CONFIRM", "")
-        == "CONFIRM_R5_LIVE_CONDITIONAL_20000"
+    conditional_confirmed, conditional_contract_valid = _conditional_contract_readiness(
+        settings, policy
     )
 
     signal = None
@@ -94,6 +117,7 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         "signal_policy_valid": policy in valid_policies,
         "shadow_confirmed": shadow_confirmed,
         "conditional_confirmed": conditional_confirmed,
+        "conditional_contract_valid": conditional_contract_valid,
         "live_gate_open": settings.live_gate_open,
         "eligible_signal_found": signal is not None,
         "managed_position_clear": len(active_positions) == 0,
@@ -112,6 +136,7 @@ async def evaluate_live_readiness(settings: Settings) -> dict:
         ("signal_policy_valid", "SIGNAL_POLICY_INVALID"),
         ("shadow_confirmed", "SHADOW_CANARY_CONFIRMATION_MISSING"),
         ("conditional_confirmed", "R5_CONDITIONAL_CONFIRMATION_MISSING"),
+        ("conditional_contract_valid", "R5_CONDITIONAL_CONTRACT_INVALID"),
         ("live_gate_open", "LIVE_GATE_CLOSED"),
         ("eligible_signal_found", "NO_ELIGIBLE_SIGNAL"),
         ("managed_position_clear", "MANAGED_POSITION_ACTIVE"),
