@@ -148,33 +148,56 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          text = Path("config/kalman.cron.d").read_text(encoding="utf-8")
-          required = [
-              "35 23 * * 1-5 root /opt/kalman/app/scripts/run_us_cycle.sh",
-              "35 0-4 * * 2-6 root /opt/kalman/app/scripts/run_us_cycle.sh",
+          main = Path("config/kalman.cron.d").read_text(encoding="utf-8")
+          active = [
+              line.strip() for line in main.splitlines()
+              if line.strip() and not line.lstrip().startswith("#")
+          ]
+          required = (
+              "*/5 * * * * root /opt/kalman/app/scripts/run_us_market_clock.sh cycle",
+              "*/5 * * * * root /opt/kalman/app/scripts/run_us_market_clock.sh execution",
               "*/30 9-21 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
               "0 22 * * 1-5 root bash /opt/kalman/app/scripts/run_position_watch.sh",
-              "25-55/5 22 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
-              "0,5,10,15,20,25,30,40,45,55 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh",
-              "0,5,10,15,20,25,30,40,45,55 0-4 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
-              "*/5 5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh",
+          )
+          for prefix in required:
+              assert sum(line.startswith(prefix + " ") for line in active) == 1, prefix
+
+          # Direct KST cron schedules were replaced by ET dispatchers; never
+          # re-introduce hourly DST drift or duplicate execution loops.
+          forbidden = ("run_us_cycle.sh", "run_execution_watch.sh",
+                       "run_auto_trade.sh", "run_pipeline.sh US")
+          for command in forbidden:
+              assert not any(command in line for line in active), command
+          assert sum("run_us_market_clock.sh" in line for line in active) == 2
+
+          watchdog = Path("config/kalman-us-watchdog.cron.d").read_text(encoding="utf-8")
+          watchdog_active = [
+              line.strip() for line in watchdog.splitlines()
+              if line.strip() and not line.lstrip().startswith("#")
           ]
-          for line in required:
-              assert line in text, line
+          watchdog_prefix = (
+              "*/5 * * * * root "
+              "/opt/kalman/app/scripts/run_us_market_clock.sh watchdog"
+          )
+          assert sum(line.startswith(watchdog_prefix + " ")
+                     for line in watchdog_active) == 1
 
-          assert "run_pipeline.sh US" not in text
-          assert "run_auto_trade.sh" not in text
-          assert "*/5 23 * * 1-5 root /opt/kalman/app/scripts/run_execution_watch.sh" not in text
-          assert "*/5 0-5 * * 2-6 root /opt/kalman/app/scripts/run_execution_watch.sh" not in text
+          dispatcher = Path("scripts/run_us_market_clock.sh").read_text(encoding="utf-8")
+          required_dispatch = (
+              "TZ=America/New_York",
+              "NY_DOW < 1 || NY_DOW > 5",
+              "NY_MIN == 35 && NY_HOUR >= 9 && NY_HOUR <= 15",
+              "NY_MIN == 50 && NY_HOUR >= 9 && NY_HOUR <= 15",
+              "NY_MIN % 5 == 0",
+              "NY_HOUR == 9 && NY_MIN >= 25",
+              'exec "$APP_ROOT/scripts/run_us_cycle.sh"',
+              'exec "$APP_ROOT/scripts/us_auto_watchdog.sh"',
+              'exec "$APP_ROOT/scripts/run_execution_watch.sh"',
+          )
+          for term in required_dispatch:
+              assert term in dispatcher, term
 
-          rollout = Path("scripts/apply_live_canary_5000.sh").read_text(encoding="utf-8")
-          for line in required:
-              if "run_execution_watch.sh" in line:
-                  assert line in rollout, line
-          assert "old_collision = [" in rollout
-          assert "collision schedule remains=" in rollout
-
-          print("[PASS] US cron and live rollout both reserve :35 model / :50 watchdog")
+          print("[PASS] ET dispatcher cron: :35 cycle / :50 watchdog / 5m execution with no direct KST collisions")
           PY
 
       - name: Validate US cycle ordering
@@ -198,13 +221,20 @@ jobs:
           text = Path("scripts/run_execution_watch.sh").read_text(encoding="utf-8")
           assert "run_pipeline.sh" not in text
           assert "engine.benchmark_ledger" not in text
-          pm = text.index("engine.position_manager")
-          entry = text.index("engine.auto_trade")
-          mirror = text.index("engine.trade_mirror")
-          assert pm < entry < mirror
+          pm = text.index('"$PY" -m engine.position_manager')
+          evaluation = text.index('"$PY" -m engine.holdings_evaluator')
+          mirror_before = text.index('"$PY" -m engine.trade_mirror')
+          conditional_entry = text.index('"$PY" -m engine.r5_conditional_live')
+          general_entry = text.index('"$PY" -m engine.auto_trade')
+          mirror_after = text.rindex('"$PY" -m engine.trade_mirror')
+          assert pm < evaluation < mirror_before < conditional_entry < mirror_after
+          assert pm < evaluation < mirror_before < general_entry < mirror_after
+          assert text.count('"$PY" -m engine.trade_mirror') == 2
+          assert 'HOLDINGS_EVALUATION_FAILED' in text
+          assert 'HOLDINGS_STRONG_SELL_REVIEW' in text
           assert 'us-cycle.lock' in text
           assert 'auto-trade.lock' in text
-          print("[PASS] watcher = reconcile/risk -> catch-up entry -> mirror; no model refresh")
+          print("[PASS] watcher risk/reconcile -> evaluate -> mirror -> guarded entry -> mirror")
           PY
 
       - name: Validate daytime position watcher contract
