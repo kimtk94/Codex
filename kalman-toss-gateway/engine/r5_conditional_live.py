@@ -1,18 +1,19 @@
 """R5.1 conditional LIVE executor.
 
-Allocation contract:
-- low confidence: Rank1 target KRW 10,000 + KRW 10,000 cash
-- close Rank1/Rank2 score gap: Rank1 target KRW 10,000 + Rank2 target KRW 10,000
-- otherwise: Rank1 target KRW 20,000
+The allocation budget is configurable but fail-closed by an explicit confirmation
+profile. The 2026-10-08 30K profile uses:
+- low confidence: Rank1 KRW 10,000 + cash KRW 20,000
+- close Rank1/Rank2 score gap: Rank1 KRW 10,000 + Rank2 KRW 10,000 + cash KRW 10,000
+- otherwise: Rank1 target KRW 30,000
 
-Execution contract for the 5K chunk profile:
-- each broker BUY is capped at KRW 5,000
+Execution contract for the 30K profile:
+- each broker BUY is capped at KRW 10,000
 - at most one BUY per symbol per 60-minute signal bucket
-- each symbol may accumulate at most 3 entries / KRW 15,000
-- a KRW 10,000 target therefore fills as two 5K entries across buckets
-- a KRW 20,000 target is intentionally capped at three 5K entries (KRW 15,000)
+- each symbol may accumulate at most 3 entries / KRW 30,000
+- active Kalman strategy exposure is capped at KRW 30,000 and recycles after exits
 
-Existing managed-position reconciliation and exit guards remain authoritative.
+Existing 20K profiles remain available for rollback. Managed-position
+reconciliation and exit guards remain authoritative.
 """
 from __future__ import annotations
 
@@ -56,6 +57,7 @@ from engine.r5_conditional_policy import (
 POLICY = "R5_LIVE_CONDITIONAL"
 CONFIRM_LEGACY = "CONFIRM_R5_LIVE_CONDITIONAL_20000"
 CONFIRM_CHUNKED = "CONFIRM_R5_LIVE_CONDITIONAL_5000"
+CONFIRM_30000 = "CONFIRM_R5_LIVE_CONDITIONAL_10000_30000"
 
 
 def _score(value):
@@ -255,15 +257,36 @@ def _conditional_client_order_id(
     return _client_order_id(stable_run_key, symbol)
 
 
-def _conditional_execution_contract(settings: Settings) -> dict[str, int | str | bool]:
+def _conditional_execution_contract(
+    settings: Settings,
+    *,
+    total_krw: int,
+) -> dict[str, int | str | bool]:
     confirm = os.environ.get("AUTO_TRADE_CONDITIONAL_CONFIRM", "")
     order_krw = int(os.environ.get("AUTO_TRADE_ORDER_KRW", "20000") or 20000)
     max_entries = int(os.environ.get("AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL", "1") or 1)
     add_on_gap_buckets = int(os.environ.get("AUTO_TRADE_ADD_ON_MIN_BUCKET_GAP", "1") or 1)
     max_symbol_notional = int(os.environ.get("AUTO_TRADE_MAX_SYMBOL_NOTIONAL_KRW", "0") or 0)
 
-    chunked = confirm == CONFIRM_CHUNKED
-    if chunked:
+    chunked = confirm in {CONFIRM_CHUNKED, CONFIRM_30000}
+    if confirm == CONFIRM_30000:
+        if total_krw != 30000:
+            raise RuntimeError("30K conditional LIVE requires total KRW 30000")
+        if order_krw != 10000:
+            raise RuntimeError("30K conditional LIVE requires AUTO_TRADE_ORDER_KRW=10000")
+        if settings.max_single_order_krw != 10000:
+            raise RuntimeError("30K conditional LIVE requires MAX_SINGLE_ORDER_KRW=10000")
+        if settings.live_micro_total_limit_krw != 30000:
+            raise RuntimeError("30K conditional LIVE requires active exposure cap KRW 30000")
+        if max_entries != 3:
+            raise RuntimeError("30K conditional LIVE requires AUTO_TRADE_MAX_ENTRIES_PER_SYMBOL=3")
+        if add_on_gap_buckets < 1:
+            raise RuntimeError("30K conditional LIVE requires add-on gap >= 1 bucket")
+        if max_symbol_notional != 30000:
+            raise RuntimeError("30K conditional LIVE requires symbol cap KRW 30000")
+    elif confirm == CONFIRM_CHUNKED:
+        if total_krw != 20000:
+            raise RuntimeError("5K chunked conditional LIVE requires total KRW 20000")
         if order_krw != 5000:
             raise RuntimeError("chunked conditional LIVE requires AUTO_TRADE_ORDER_KRW=5000")
         if settings.max_single_order_krw != 5000:
@@ -275,6 +298,8 @@ def _conditional_execution_contract(settings: Settings) -> dict[str, int | str |
         if max_symbol_notional != 15000:
             raise RuntimeError("chunked conditional LIVE requires symbol cap KRW 15000")
     elif confirm == CONFIRM_LEGACY:
+        if total_krw != 20000:
+            raise RuntimeError("legacy conditional LIVE requires total KRW 20000")
         if max_entries != 1:
             raise RuntimeError("legacy conditional LIVE requires max_entries_per_symbol=1")
     else:
@@ -313,12 +338,19 @@ async def main_async() -> int:
     gap_threshold = float(os.environ["AUTO_TRADE_CONDITIONAL_GAP_THRESHOLD"])
     confidence_threshold = float(os.environ["AUTO_TRADE_CONDITIONAL_CONFIDENCE_THRESHOLD"])
     total_krw = int(os.environ.get("AUTO_TRADE_CONDITIONAL_TOTAL_KRW", "20000"))
-    if total_krw != 20000:
-        raise RuntimeError("conditional LIVE total must be KRW 20000")
+    base_leg_krw = int(
+        os.environ.get(
+            "AUTO_TRADE_CONDITIONAL_BASE_LEG_KRW",
+            str(total_krw // 2),
+        )
+    )
 
     settings = Settings()
     try:
-        execution_contract = _conditional_execution_contract(settings)
+        execution_contract = _conditional_execution_contract(
+            settings,
+            total_krw=total_krw,
+        )
     except RuntimeError as exc:
         print(str(exc))
         return 2
@@ -367,6 +399,7 @@ async def main_async() -> int:
         gap_threshold=gap_threshold,
         confidence_threshold=confidence_threshold,
         total_krw=total_krw,
+        base_leg_krw=base_leg_krw,
     )
 
     client = TossClient(settings)
@@ -410,16 +443,21 @@ async def main_async() -> int:
         for p in active
         if str(p.get("symbol") or "").strip()
     }
+    strategy_active = [
+        p for p in active
+        if str(p.get("entry_status") or "").upper() != "ADOPTED"
+    ]
     planned_new = {
         s.upper()
         for s, _ in decision.legs_krw
         if s.upper() not in active_by_symbol
     }
-    if len(active) + len(planned_new) > max_active:
+    if len(strategy_active) + len(planned_new) > max_active:
         print(json.dumps({
             "executionAttempted": False,
             "reason": "MAX_ACTIVE_POSITIONS_REACHED",
-            "active": len(active),
+            "active": len(strategy_active),
+            "adoptedRiskOnly": len(active) - len(strategy_active),
             "plannedNew": len(planned_new),
             "maxActive": max_active,
             "decision": decision.__dict__,
