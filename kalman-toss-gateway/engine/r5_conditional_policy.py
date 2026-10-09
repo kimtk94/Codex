@@ -79,9 +79,12 @@ def decide(
     gap_threshold: float,
     confidence_threshold: float,
     total_krw: int = 20000,
+    base_leg_krw: int | None = None,
 ) -> ConditionalDecision:
     rank1_symbol = rank1_symbol.upper()
-    half = total_krw // 2
+    base_leg = total_krw // 2 if base_leg_krw is None else int(base_leg_krw)
+    if total_krw <= 0 or base_leg <= 0 or base_leg * 2 > total_krw:
+        raise ValueError("invalid conditional allocation budget")
 
     if rank1_score is None:
         return ConditionalDecision(
@@ -93,7 +96,7 @@ def decide(
     if rank1_score <= confidence_threshold:
         return ConditionalDecision(
             "LOW_CONFIDENCE", rank1_symbol, rank1_score, rank2_symbol, rank2_score,
-            None, ((rank1_symbol, half),), total_krw - half,
+            None, ((rank1_symbol, base_leg),), total_krw - base_leg,
             "rank1 score at/below frozen confidence threshold",
         )
 
@@ -107,7 +110,7 @@ def decide(
         if gap <= gap_threshold:
             return ConditionalDecision(
                 "CLOSE_GAP", rank1_symbol, rank1_score, rank2_symbol.upper(), rank2_score,
-                gap, ((rank1_symbol, half), (rank2_symbol.upper(), total_krw - half)), 0,
+                gap, ((rank1_symbol, base_leg), (rank2_symbol.upper(), base_leg)), total_krw - (2 * base_leg),
                 "relative score gap at/below frozen gap threshold",
             )
         return ConditionalDecision(

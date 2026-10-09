@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from decimal import Decimal
+from datetime import datetime, timezone
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -16,6 +17,13 @@ sys.path.insert(0, str(ROOT))
 
 from app.managed_positions import ManagedPositionStore
 from engine import auto_trade
+
+
+class FrozenFridayDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        frozen = datetime(2026, 9, 25, 14, 35, tzinfo=timezone.utc)
+        return frozen.astimezone(tz) if tz is not None else frozen.replace(tzinfo=None)
 
 
 class ExitWindowSafetyTests(unittest.TestCase):
@@ -41,12 +49,15 @@ class ExitWindowSafetyTests(unittest.TestCase):
             },
             clear=False,
         ):
-            allowed, detail = auto_trade._entry_exit_window_check(
-                self._window(),
-                anchor_signal_as_of='2026-09-25T17:30:00+00:00',
-                strategy_version='R5.1_BASE_HGB',
-                target_exit_buckets=4,
-            )
+            # Reproduce the window's fixed 2026-09-25 clock rather than
+            # comparing a historical fixture to today's wall-clock time.
+            with patch.object(auto_trade, 'datetime', FrozenFridayDatetime):
+                allowed, detail = auto_trade._entry_exit_window_check(
+                    self._window(),
+                    anchor_signal_as_of='2026-09-25T17:30:00+00:00',
+                    strategy_version='R5.1_BASE_HGB',
+                    target_exit_buckets=4,
+                )
 
         self.assertTrue(allowed)
         self.assertEqual(detail['reason'], 'FRIDAY_ENTRY_SAFE')
@@ -124,12 +135,15 @@ class ExitWindowSafetyTests(unittest.TestCase):
             },
             clear=False,
         ):
-            allowed, detail = auto_trade._entry_exit_window_check(
-                self._window(),
-                anchor_signal_as_of='2026-09-25T13:30:00+00:00',
-                strategy_version='R5.1_BASE_HGB',
-                target_exit_buckets=4,
-            )
+            # Reproduce the window's fixed 2026-09-25 clock rather than
+            # comparing a historical fixture to today's wall-clock time.
+            with patch.object(auto_trade, 'datetime', FrozenFridayDatetime):
+                allowed, detail = auto_trade._entry_exit_window_check(
+                    self._window(),
+                    anchor_signal_as_of='2026-09-25T13:30:00+00:00',
+                    strategy_version='R5.1_BASE_HGB',
+                    target_exit_buckets=4,
+                )
 
         self.assertTrue(allowed)
         self.assertEqual(detail['selectedTargetExitBuckets'], 4)
