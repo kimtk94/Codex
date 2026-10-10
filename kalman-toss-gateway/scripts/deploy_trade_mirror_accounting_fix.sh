@@ -48,10 +48,16 @@ if [[ ! -d "$STATE_ROOT" ]]; then
   exit 3
 fi
 
-# Prevent concurrent execution_watch code import during the short copy window.
-exec 9>"$STATE_ROOT/auto-trade.lock"
+# Respect the LIVE lock ordering: us-cycle.lock BEFORE auto-trade.lock.
+# Blocks cycle/watch execution during the short source copy and import check.
+exec 9>"$STATE_ROOT/us-cycle.lock"
 if ! flock -n 9; then
-  echo "[FAIL] Execution lock busy; no live files changed" >&2
+  echo "[FAIL] US cycle lock busy; no live files changed" >&2
+  exit 4
+fi
+exec 8>"$STATE_ROOT/auto-trade.lock"
+if ! flock -n 8; then
+  echo "[FAIL] Auto-trade lock busy; no live files changed" >&2
   exit 4
 fi
 umask 077
