@@ -104,7 +104,7 @@ def run_path(monitor, entry_price, cap_at, threshold, cost_bps, friday_flat=True
     return {"status":"CENSORED_NO_EXIT"}
 
 
-def run_one(trade, raw_bars, cost_bps=10, friday_flat=True, entry_mode='sip'): 
+def run_one(trade, raw_bars, cost_bps=10, friday_flat=True, entry_mode='sip'):
     bars=prepare_bars(raw_bars)
     entry_end=effective_hour_end(trade["entry_time"])
     cap_end=effective_hour_end(trade["exit_time"])
@@ -193,7 +193,7 @@ def main():
     output=ROOT/("replay_"+args.feed+"_cost"+str(args.cost_bps).replace(".","_")+("_no_friday" if args.no_friday_flat else "")+("_legacy_entry" if args.entry_mode=='legacy' else "") )
     good=[x for x in results if x["status"]=="PASS"]
     if good:
-        pd.DataFrame([{k:v for k,v in r.items() if k!="scenarios"} | 
+        pd.DataFrame([{k:v for k,v in r.items() if k!="scenarios"} |
           {f"{n}_net":s.get("net") for n,s in r["scenarios"].items()} |
           {f"{n}_reason":s.get("reason") for n,s in r["scenarios"].items()} for r in good
           ]).to_csv(str(output)+"_detail.csv",index=False)
