@@ -1,0 +1,26 @@
+name: Kalman Grid PAPER tests
+on:
+  push:
+    branches:
+      - research/kalman-grid-v25-20261012
+    paths:
+      - 'research/kalman_grid/**'
+      - '.github/workflows/kalman-grid-paper.yml'
+  workflow_dispatch:
+jobs:
+  paper-unit-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run paper ledger and Upbit price tests (no brokers)
+        working-directory: research/kalman_grid
+        run: |
+          python -m unittest discover -v
+          python kalman_grid_v22/test_order_ledger.py
+          python -m unittest test_upbit_krw_rules_v33 test_upbit_grid_contract_v34 test_upbit_paper_grid_v35 -v
