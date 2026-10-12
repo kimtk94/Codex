@@ -7,7 +7,9 @@ from datetime import datetime,timezone
 
 FIELDS=["t","o","h","l","c","v"]
 def utc(text):
-    return datetime.fromisoformat(text.replace("Z","+00:00")).astimezone(timezone.utc)
+    dt=datetime.fromisoformat(text.replace("Z","+00:00"))
+    if dt.tzinfo is None:dt=dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 def fetch(market,unit,to,count=200,retries=4):
     args=urllib.parse.urlencode({"market":market,"to":to,"count":count})
     url=f"https://api.upbit.com/v1/candles/minutes/{unit}?{args}"
