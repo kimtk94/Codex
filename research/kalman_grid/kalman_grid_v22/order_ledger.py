@@ -26,15 +26,15 @@ class Ledger:
         self.initial=D(cash); self.cash=D(cash); self.asset=D(0); self.fees=D(0)
         self.fee=D(fee_pct)/100; self.min_qty=D(min_qty); self.min_notional=D(min_notional)
         self.exposure_cap=D(exposure_cap) if exposure_cap is not None else None
-        self.orders={}; self.lots={}; self.events=[]; self.realized=D(0); self._seq=0
+        self.orders={}; self.active_ids=set(); self.lots={}; self.events=[]; self.realized=D(0); self._seq=0
         if self.cash<0 or self.fee<0 or self.fee>=1 or self.min_qty<=0: raise ValueError('bad configuration')
     def _id(self): self._seq+=1; return f'P{self._seq:08d}'
     @property
-    def locked(self): return sum((o.reserved for o in self.orders.values()), D(0))
+    def locked(self): return sum((o.reserved for oid in self.active_ids for o in [self.orders[oid]]), D(0))
     @property
     def free(self): return self.cash-self.locked
     @property
-    def sell_locked(self): return sum((o.remaining for o in self.orders.values() if o.side=='SELL' and o.state not in TERMINAL),D(0))
+    def sell_locked(self): return sum((o.remaining for oid in self.active_ids for o in [self.orders[oid]] if o.side=='SELL' and o.state not in TERMINAL),D(0))
     def place(self,side,price,qty,parent_id=None):
         side=side.upper(); price=D(price); qty=D(qty)
         if side not in ('BUY','SELL') or price<=0 or qty<self.min_qty or price*qty<self.min_notional: raise ValueError('invalid order')
@@ -44,9 +44,9 @@ class Ledger:
         if side=='SELL' and qty>self.asset-self.sell_locked: raise ValueError('insufficient available inventory')
         if side=='BUY' and self.exposure_cap is not None:
             inventory_limit=sum((lot['qty']*lot['buy_price'] for lot in self.lots.values()),D(0))
-            reserved_buy=sum((o.price*o.remaining for o in self.orders.values() if o.side=='BUY' and o.state not in TERMINAL),D(0))
+            reserved_buy=sum((o.price*o.remaining for oid in self.active_ids for o in [self.orders[oid]] if o.side=='BUY' and o.state not in TERMINAL),D(0))
             if inventory_limit+reserved_buy+price*qty>self.exposure_cap: raise ValueError('exposure cap')
-        oid=self._id(); self.orders[oid]=Order(oid,side,price,qty,State.OPEN,reserved=locked,parent_id=parent_id)
+        oid=self._id(); self.orders[oid]=Order(oid,side,price,qty,State.OPEN,reserved=locked,parent_id=parent_id);self.active_ids.add(oid)
         self.events.append(('PLACE',oid,side,str(price),str(qty))); self.audit_fast(); return oid
     def fill(self,oid,qty,execution_price=None,lot_id=None):
         o=self.orders[oid]; qty=D(qty); px=o.price if execution_price is None else D(execution_price)
@@ -69,12 +69,13 @@ class Ledger:
             self.asset-=qty; self.cash+=qty*px-fee; self.realized+=qty*px-fee-basis
             o.proceeds+=qty*px-fee; o.cost_basis+=basis
         o.filled+=qty; self.fees+=fee; o.state=State.FILLED if o.remaining==0 else State.PARTIAL
+        if o.state==State.FILLED: self.active_ids.discard(oid)
         self.events.append(('FILL',oid,str(qty),str(px),str(fee),lot_id))
         self.audit_fast();return o.state
     def cancel(self,oid):
         o=self.orders[oid]
         if o.state in TERMINAL: raise ValueError('order already final')
-        o.reserved=D(0);o.state=State.CANCELLED;self.events.append(('CANCEL',oid));self.audit_fast()
+        o.reserved=D(0);o.state=State.CANCELLED;self.active_ids.discard(oid);self.events.append(('CANCEL',oid));self.audit_fast()
     def replace(self,oid,new_price,new_qty):
         o=self.orders[oid]
         if o.state in TERMINAL: raise ValueError('order already final')
