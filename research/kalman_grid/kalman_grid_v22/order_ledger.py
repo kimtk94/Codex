@@ -47,7 +47,7 @@ class Ledger:
             reserved_buy=sum((o.price*o.remaining for o in self.orders.values() if o.side=='BUY' and o.state not in TERMINAL),D(0))
             if inventory_limit+reserved_buy+price*qty>self.exposure_cap: raise ValueError('exposure cap')
         oid=self._id(); self.orders[oid]=Order(oid,side,price,qty,State.OPEN,reserved=locked,parent_id=parent_id)
-        self.events.append(('PLACE',oid,side,str(price),str(qty))); self.audit(); return oid
+        self.events.append(('PLACE',oid,side,str(price),str(qty))); self.audit_fast(); return oid
     def fill(self,oid,qty,execution_price=None,lot_id=None):
         o=self.orders[oid]; qty=D(qty); px=o.price if execution_price is None else D(execution_price)
         if o.state in TERMINAL or qty<=0 or qty>o.remaining or px<=0: raise ValueError('invalid fill')
@@ -70,11 +70,11 @@ class Ledger:
             o.proceeds+=qty*px-fee; o.cost_basis+=basis
         o.filled+=qty; self.fees+=fee; o.state=State.FILLED if o.remaining==0 else State.PARTIAL
         self.events.append(('FILL',oid,str(qty),str(px),str(fee),lot_id))
-        self.audit();return o.state
+        self.audit_fast();return o.state
     def cancel(self,oid):
         o=self.orders[oid]
         if o.state in TERMINAL: raise ValueError('order already final')
-        o.reserved=D(0);o.state=State.CANCELLED;self.events.append(('CANCEL',oid));self.audit()
+        o.reserved=D(0);o.state=State.CANCELLED;self.events.append(('CANCEL',oid));self.audit_fast()
     def replace(self,oid,new_price,new_qty):
         o=self.orders[oid]
         if o.state in TERMINAL: raise ValueError('order already final')
@@ -83,6 +83,13 @@ class Ledger:
         side=o.side;parent=o.parent_id
         self.cancel(oid)
         return self.place(side,new_price,new_qty,parent)
+    def audit_fast(self):
+        # O(active positions) instead of O(all historical orders).
+        assert self.cash >= 0 and self.free >= 0 and self.asset >= 0
+        assert self.sell_locked <= self.asset
+        assert sum((x['qty'] for x in self.lots.values()), D(0)) == self.asset
+        assert self.initial + self.realized == self.cash + self.inventory_cost()
+        return True
     def audit(self):
         assert self.cash>=0 and self.free>=0 and self.asset>=0
         assert self.sell_locked<=self.asset
