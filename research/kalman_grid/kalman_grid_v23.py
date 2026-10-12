@@ -18,7 +18,7 @@ class Grid:
     def _fund(self):
         for k in self.buy_levels:
             if k in self.buys or any(x['level']==k for x in self.sells.values()):continue
-            p=self.price(k);q=self.notional/p
+            p=self.price(k);q=(self.notional/p).quantize(D('0.000000000001'))
             try: oid=self.ledger.place('BUY',p,q);self.buys[k]=oid
             except ValueError:break
     def update(self,price,timestamp=''):
