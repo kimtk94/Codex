@@ -14,7 +14,7 @@ class TestV35(unittest.TestCase):
   entry=next(iter(g.buys.values()))
   px=g.ledger.orders[entry].price
   g.update(px,"entry")
-  for sid in g.sells:
+  for sid in list(g.sells):
    o=g.ledger.orders[sid]
    self.assertEqual(o.price%Decimal("1000"),0)
    self.assertGreaterEqual(o.price*o.quantity,Decimal("5000"))
