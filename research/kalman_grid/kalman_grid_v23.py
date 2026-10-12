@@ -42,7 +42,7 @@ class Grid:
                 self.ledger.fill(soid,qty,lot_id=info['lot_id'])
                 del self.sells[soid]
                 self.fills.append({'time':timestamp,'side':'SELL','price':str(order.price),'qty':str(qty),'order_id':soid})
-        self._fund();self.ledger.audit()
+        self._fund();self.ledger.audit_fast()
         equity=self.ledger.cash+self.ledger.asset*price
         self.high=max(self.high,equity)
         self.mdd=max(self.mdd,(self.high-equity)/self.high)
