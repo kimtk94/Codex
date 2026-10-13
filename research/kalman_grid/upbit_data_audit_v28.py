@@ -2,7 +2,11 @@
 import argparse,csv,json
 from pathlib import Path
 from datetime import datetime,timezone
-def parse(s):\n    dt=datetime.fromisoformat(s.replace("Z","+00:00"))\n    if dt.tzinfo is None:dt=dt.replace(tzinfo=timezone.utc)\n    return dt.astimezone(timezone.utc)
+def parse(s):
+    dt=datetime.fromisoformat(s.replace("Z","+00:00"))
+    if dt.tzinfo is None:
+        dt=dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 def audit(file,unit,start=None,end=None):
     with Path(file).open(newline="") as fh:raw=list(csv.DictReader(fh))
     if not raw:return {"status":"FAIL","reason":"EMPTY"}
