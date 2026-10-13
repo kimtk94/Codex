@@ -31,9 +31,16 @@ def main():
   pages=(days*1440+199)//200+8
   csvs=[str(dest/f"{market}_1m_history.csv") for market in ("KRW-BTC","KRW-ETH")]
   collection=[sys.executable,str(script),"--unit","1","--start",start,"--end",end,"--out-dir",str(dest),"--max-pages",str(pages)]
-  last=f"{ny:04d}-{nm:02d}-01T00:00:00Z"\n  from datetime import datetime,timedelta,timezone\n  last=(datetime.fromisoformat(last.replace("Z","+00:00"))-timedelta(minutes=1)).isoformat()\n  check=[sys.executable,str(audit),"--unit","1","--start",start,"--end",last,*csvs]
+  last=f"{ny:04d}-{nm:02d}-01T00:00:00Z"
+  from datetime import datetime,timedelta,timezone
+  last=(datetime.fromisoformat(last.replace("Z","+00:00"))-timedelta(minutes=1)).isoformat()
+  check=[sys.executable,str(audit),"--unit","1","--start",start,"--end",last,*csvs]
   print(json.dumps({"month":f"{y:04d}-{m:02d}","collection":collection,"audit":check}),flush=True)
   if a.execute:
-   missing=[market for market,csv_path in zip(("KRW-BTC","KRW-ETH"),csvs) if not Path(csv_path).exists()]\n   if missing:\n    subprocess.run(collection+["--markets",",".join(missing)],check=True)\n   else:\n    print("EXISTING_INPUT_REAUDIT",dest,flush=True)
+   missing=[market for market,csv_path in zip(("KRW-BTC","KRW-ETH"),csvs) if not Path(csv_path).exists()]
+   if missing:
+    subprocess.run(collection+["--markets",",".join(missing)],check=True)
+   else:
+    print("EXISTING_INPUT_REAUDIT",dest,flush=True)
    subprocess.run(check,check=True)
 if __name__=="__main__":main()
