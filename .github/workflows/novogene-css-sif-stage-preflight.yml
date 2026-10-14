@@ -6,6 +6,7 @@ on:
       - 'audit/novogene-css-sif-staging-20261014'
     paths:
       - '.github/workflows/novogene-css-sif-stage-preflight.yml'
+      - 'css-upgrade/staging-20261014/**'
 
 permissions:
   contents: read
