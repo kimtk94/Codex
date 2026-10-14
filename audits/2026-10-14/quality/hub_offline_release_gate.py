@@ -77,6 +77,14 @@ def verify_source(files: dict[str, bytes]) -> dict:
         fail("WEB_READ_ONLY_CONTRACT_MISSING")
     if "v_live_trade_ledger" not in api or "net_return" not in api:
         fail("LIVE_LEDGER_API_CONTRACT_MISSING")
+    # The existing production view contains five known P1 overstatements.
+    # Until independently verified broker provenance exists, the generated API
+    # MUST return typed NULL for monetary net return and cost, not stale values.
+    if ("NULL::numeric AS net_return" not in api
+            or "NULL::numeric AS round_trip_cost_bps" not in api):
+        fail("UNGUARDED_NET_RETURN_API_CONTRACT")
+    if "realized_return_pct,net_return,round_trip_cost_bps" in api:
+        fail("RAW_NET_RETURN_LEAKAGE")
     if "function renderExecutionLedger(ctl)" not in app:
         fail("EXECUTION_LEDGER_UI_MISSING")
     # Require all evidence flags IN THE FINAL produced JS, not in a generator.
@@ -101,6 +109,7 @@ def verify_source(files: dict[str, bytes]) -> dict:
         "manifest_files": len(files),
         "api_js_files": sum(x.startswith("api/") and x.endswith(".js") for x in files),
         "ui_net_evidence_guard": True,
+        "api_net_return_masked": True,
         "web_read_only_contract": True,
         "release_authorized": False,
         "source_hashes": {
