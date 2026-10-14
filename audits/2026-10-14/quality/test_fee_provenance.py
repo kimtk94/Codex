@@ -120,6 +120,13 @@ class FeeEvidenceTests(unittest.TestCase):
         self.assertIsNone(r["net_return_pct"])
         self.assertIsNone(r["round_trip_cost_bps"])
 
+    def test_mirror_decimal_parser_rejects_nonfinite_and_booleans(self):
+        parser=ns["_dec"]
+        for value in ("NaN", "Infinity", "-Infinity", float("nan"),
+                      float("inf"), True, False):
+            with self.subTest(value=value):
+                self.assertIsNone(parser(value))
+
     def test_source_contains_no_missing_fee_zero_coercion(self):
         self.assertNotIn('_dec(broker.get("commission")) or Decimal("0")',SOURCE)
         self.assertNotIn('_dec(broker.get("tax")) or Decimal("0")',SOURCE)
