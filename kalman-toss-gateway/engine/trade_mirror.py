@@ -10,6 +10,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from dotenv import load_dotenv
 from engine.broker_status_evidence import historical_broker_fill
+from engine.order_position_link import explicit_buy_link
 
 
 def _rows(conn: sqlite3.Connection, sql: str) -> list[dict]:
@@ -309,9 +310,19 @@ def main() -> int:
                 )
 
             for o in orders:
+                telemetry = _json_dict(o.get("telemetry_json"))
                 match = pos_by_client.get(o.get("client_order_id"))
                 pos = match[0] if match else None
                 leg = match[1] if match else None
+                position_link_source = "MANAGED_POSITION_ORDER_ID" if match else None
+                if match is None:
+                    explicit_link = explicit_buy_link(o, telemetry, positions)
+                    if explicit_link.get("status") == "EXPLICIT_LOCAL_LINK":
+                        # The contract matches exactly one position; never infer by
+                        # symbol/time. This is a LOCAL link, not broker confirmation.
+                        pos = next(p for p in positions if p["position_id"] == explicit_link["position_id"])
+                        leg = explicit_link["leg"]
+                        position_link_source = "EXPLICIT_SIGNAL_CONTEXT"
                 filled = avg = None
                 if pos and leg == "ENTRY":
                     filled = _dec(pos.get("entry_filled_quantity"))
@@ -323,7 +334,6 @@ def main() -> int:
                         filled = max(Decimal("0"), entry_filled - remaining)
                     avg = _dec(pos.get("exit_avg_fill_price"))
 
-                telemetry = _json_dict(o.get("telemetry_json"))
                 signal_context = (
                     telemetry.get("signal_context")
                     if isinstance(telemetry.get("signal_context"), dict)
@@ -334,12 +344,15 @@ def main() -> int:
                 row_strategy_version = (
                     pos.get("strategy_version") if pos else None
                 ) or signal_context.get("strategy_version") or strategy_default
+                # An ADD_ON has its own signal run/time, distinct from initial entry.
                 row_run_id = (
-                    pos.get("entry_run_id") if pos else None
-                ) or signal_context.get("run_id")
+                    signal_context.get("run_id") if leg == "ADD_ON" else
+                    (pos.get("entry_run_id") if pos else None) or signal_context.get("run_id")
+                )
                 row_signal_as_of = (
-                    pos.get("entry_signal_as_of") if pos else None
-                ) or signal_context.get("signal_as_of")
+                    signal_context.get("signal_as_of") if leg == "ADD_ON" else
+                    (pos.get("entry_signal_as_of") if pos else None) or signal_context.get("signal_as_of")
+                )
                 execution_quality = _execution_quality(o.get("side"), avg, telemetry)
                 execution_status, status_source = _execution_status(o, pos, leg, telemetry)
                 if status_source == "broker_order_telemetry":
@@ -400,6 +413,7 @@ def main() -> int:
                             "trade_date_kst": o.get("trade_date_kst"),
                             "local_created_at": o.get("created_at"),
                             "position_leg": leg,
+                            "position_link_source": position_link_source,
                             "exit_reason": pos.get("exit_reason") if pos else None,
                             "order_guard_status": o.get("status"),
                             "reconciled_position_status": reconciled_position_status,
