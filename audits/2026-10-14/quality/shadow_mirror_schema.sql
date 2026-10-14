@@ -1,0 +1,47 @@
+-- Synthetic integration-test schema ONLY. Never apply to Neon Production.
+-- CI spins up disposable postgres:16. Contains no actual account data.
+CREATE TABLE IF NOT EXISTS managed_position_mirror (
+    position_id TEXT PRIMARY KEY,
+    run_id TEXT,
+    market TEXT,
+    symbol TEXT,
+    strategy_version TEXT,
+    state TEXT,
+    entry_signal_as_of TIMESTAMPTZ,
+    entry_client_order_id TEXT,
+    entry_order_id TEXT,
+    entry_filled_quantity NUMERIC,
+    entry_average_price NUMERIC,
+    remaining_quantity NUMERIC,
+    target_exit_buckets INTEGER,
+    exit_client_order_id TEXT,
+    exit_order_id TEXT,
+    exit_filled_quantity NUMERIC,
+    exit_average_price NUMERIC,
+    exit_reason TEXT,
+    note TEXT,
+    metadata JSONB,
+    first_seen_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS trade_execution (
+    client_order_id TEXT PRIMARY KEY,
+    broker_order_id TEXT,
+    run_id TEXT,
+    market TEXT,
+    symbol TEXT,
+    side TEXT,
+    strategy_version TEXT,
+    execution_mode TEXT,
+    signal_policy TEXT,
+    signal_as_of TIMESTAMPTZ,
+    status TEXT,
+    filled_quantity NUMERIC,
+    average_filled_price NUMERIC,
+    estimated_notional_krw NUMERIC,
+    position_id TEXT,
+    error TEXT,
+    metadata JSONB,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+);
