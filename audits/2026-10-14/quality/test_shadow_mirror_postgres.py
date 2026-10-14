@@ -176,7 +176,10 @@ class ShadowMirrorPostgres(unittest.TestCase):
 
     def one(self, sql, params=()):
         with self.con.cursor() as cur:
-            cur.execute(sql, params)
+            if params:
+                cur.execute(sql, params)
+            else:
+                cur.execute(sql)
             return cur.fetchone()
 
     def test_full_97_event_replay(self):
@@ -236,7 +239,7 @@ class ShadowMirrorPostgres(unittest.TestCase):
         self.assertEqual(row[0],"UNVERIFIED_FEE_CURRENCY")
         self.assertIsNone(row[1])
 
-    def test_illustrative_documented_fee_currency_fixture_only(self):
+    def test_hypothetical_fee_currency_fixture_only(self):
         row=self.one("""
           SELECT metadata #>> '{execution_quality,round_trip,quality_status}',
                  metadata #>> '{execution_quality,round_trip,net_return}'
