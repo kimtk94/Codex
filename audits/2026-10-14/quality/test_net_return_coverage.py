@@ -29,7 +29,8 @@ def quality(qty, price, fee="0.01"):
     q = Decimal(qty)
     p = Decimal(price)
     return {"filled_quantity": float(q), "exact_notional": float(q * p),
-            "commission": float(Decimal(fee)), "tax": 0.0}
+            "commission": float(Decimal(fee)), "tax": 0.0,
+            "broker_currency": "USD", "fee_currency": "USD"}
 
 
 class NetReturnCoverage(unittest.TestCase):
