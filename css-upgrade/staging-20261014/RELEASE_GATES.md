@@ -5,7 +5,7 @@
 ## Change scope
 - Existing server runtime: `/home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py`.
 - Expected original SHA-256: `a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840`.
-- Staged candidate SHA-256: `125a0ec6ba9733660deb3828d073777d8912a19965155e58f5e16b7b4e4f367c`.
+- Final **three-patch** staged SHA-256: `d675a490007a75c69b7fa408076879e9a52a1078bcc62a32f6fe093da0a32555`.
 - Fix source of Prepayment follow-up suppression: permanent active SQLite skips rather than the 30-day `CSS Contract-SIF Skipped` view.
 - Create a read-only `CSS Contract-SIF Skip History` tab with no edit/restore checkbox. Existing manual flags and 30-day tracker retention are unchanged.
 
@@ -51,6 +51,13 @@
 - Current live `overview_project_snoozes` had **0 rows** at preflight; this corroborates that no Prepayment snooze has been created in production yet. This is a pre-deployment baseline, **not** a user-state change.
 - **Important product behavior:** Prepayment SIF projects will **not appear in Active Dashboard** while in SIF stage; the fix does *not* merely flip `attention=Yes` to `No`. Such projects should reappear when a subsequent QC / Library / Data stage occurs. Verify this is acceptable before approved rollout.
 - [Detailed large-batch report](LARGE_SCALE_VALIDATION.md).
+
+## Portfolio-visible SIF suppression — latest release candidate
+
+- [43/43 portfolio/action integration checks PASS](https://github.com/kimtk94/Codex/actions/runs/38656873265) using **1,200 synthetic projects**, all three patches, exact main AST branch and output-builder arguments, QC re-entry, unchanged non-Prepayment attention, and byte-exact triple-patch rollback.
+- [26/26 consolidated server release preflight PASS](https://github.com/kimtk94/Codex/actions/runs/38656996540) for the three-patch staged SHA `d675a490007a75c69b7fa408076879e9a52a1078bcc62a32f6fe093da0a32555`; live DB read-only `quick_check`/FK PASS and five Skip records. **Still no live deployment.**
+- Updated policy: **Keep Prepayment SIF projects visible on Dashboard and in Customer 360 / Summary; mark their SIF attention No and exclude them from action-only inputs until QC**. This avoids portfolio undercounting in the earlier two-patch candidate. See [Portfolio Visibility Policy](PORTFOLIO_VISIBILITY_POLICY.md).
+- The third patch does not authorize any production writes. **Business acceptance of display semantics remains an approval gate.**
 
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
