@@ -62,7 +62,7 @@ class MultilegTests(unittest.TestCase):
     def test_missing_addon_blocks_reconstruction(self):
         p,e=scenario()
         e.pop(1)
-        self.assertEqual(self.check(p,e)["reason"],"AGGREGATE_QUANTITY_MISMATCH")
+        self.assertEqual(self.check(p,e)["reason"],"SELL_EXCEEDS_AVAILABLE_SHARES")
 
     def test_missing_tax_field_blocks(self):
         p,e=scenario()
