@@ -15,7 +15,7 @@ def load(path):
     for file in files:
         frame = pd.read_parquet(file)
         frame.columns = [str(c).strip().lower() for c in frame.columns]
-        time_key = next((c for c in ("open_time", "timestamp", "datetime", "date", "time") if c in frame), None)
+        time_key = next((c for c in ("open_time_ms", "open_time", "timestamp_ms", "timestamp", "datetime", "date", "time") if c in frame), None)
         if time_key is None and isinstance(frame.index, pd.DatetimeIndex):
             frame = frame.reset_index().rename(columns={frame.index.name or "index": "datetime"})
             time_key = "datetime"
