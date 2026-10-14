@@ -128,3 +128,48 @@ jobs:
                   print(label+"_UNAVAILABLE",type(e).__name__)
           print("NO_FILES_MODIFIED")
           PY
+
+      - name: Read-only compatibility check against actual server code
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          from pathlib import Path
+          import subprocess
+          src=Path("/home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py")
+          print("SERVER_PATCH_COMPATIBILITY_AUDIT",src.is_file())
+          if not src.is_file():
+              raise SystemExit(1)
+          txt=src.read_text(encoding="utf-8")
+          tokens=[
+              "SAMPLE_INTAKE_SKIPPED_SHEET_NAME =",
+              "SAMPLE_INTAKE_SKIPPED_COLUMNS = [",
+              "def load_active_contract_sif_skips(",
+              "def split_contract_sif_active_and_skipped(",
+              "def sync_overview_prepayment_snoozes(",
+              "prepayment_project_ids = set()",
+              "if not df_sample_intake_skipped.empty:",
+              "SAMPLE_INTAKE_RETENTION_DAYS = 30",
+              "sample_intake_skipped_ws = worksheets[SAMPLE_INTAKE_SKIPPED_SHEET_NAME]",
+              "counts[\"contract_sif_skipped_count\"] = len(df_sample_intake_skipped)",
+              "def build_contract_sif_skip_history(",
+          ]
+          for marker in tokens:
+              print("TOKEN_COUNT",marker.split("(")[0][:55],txt.count(marker))
+          cron=subprocess.run(["crontab","-l"],capture_output=True,text=True,timeout=15)
+          for line in cron.stdout.splitlines():
+              line=line.strip()
+              if not line or line.startswith("#"):
+                  continue
+              if not any(k in line.lower() for k in ("novogene","css","mail_sync","backup")):
+                  continue
+              parts=line.split()
+              schedule=" ".join(parts[:5]) if len(parts)>=6 else "@special"
+              cmd=" ".join(parts[5:]) if len(parts)>=6 else ""
+              tags=[tag for tag in ("backup","collector","css","mail","sync") if tag in cmd.lower()]
+              print("CRON_CSS_SCHEDULE",schedule,"TAGS",",".join(tags))
+          print("NO_FILES_MODIFIED")
+          PY
