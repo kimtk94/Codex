@@ -1,0 +1,30 @@
+[
+  {
+    "market": "CRYPTO",
+    "status": "READY",
+    "generated_at": "2026-10-14T11:05:16.477Z",
+    "data_as_of": "2026-10-14T04:00:00Z",
+    "stale_after": "2026-10-14T09:00:00Z"
+  },
+  {
+    "market": "GLOBAL",
+    "status": "READY",
+    "generated_at": "2026-10-14T11:05:19.157Z",
+    "data_as_of": "2026-10-14T11:05:19.157Z",
+    "stale_after": "2026-10-14T11:05:18.157Z"
+  },
+  {
+    "market": "KR",
+    "status": "READY",
+    "generated_at": "2026-09-29T07:20:57.758Z",
+    "data_as_of": "2026-09-29T00:00:00Z",
+    "stale_after": "2026-09-30T08:30:00Z"
+  },
+  {
+    "market": "US",
+    "status": "READY",
+    "generated_at": "2026-10-13T19:38:41.309Z",
+    "data_as_of": "2026-10-13T18:30:00Z",
+    "stale_after": "2026-10-14T23:38:41.309Z"
+  }
+]
