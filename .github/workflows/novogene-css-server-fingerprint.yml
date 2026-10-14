@@ -79,3 +79,52 @@ jobs:
                   print("SOURCE_READ_FAILURE", str(path), type(exc).__name__)
           print("NO_FILES_MODIFIED")
           PY
+
+      - name: Read-only CSS runtime and backup schedule inventory
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          from pathlib import Path
+          from datetime import datetime, timezone
+          import os
+          import subprocess
+          root = Path("/home/taehoon/services/novogene-css")
+          print("CSS_SCHEDULER_AUDIT", datetime.now(timezone.utc).isoformat())
+          print("CSS_SERVICE_DIR_EXISTS", root.is_dir())
+          if root.is_dir():
+              for part in [root, root / "app"]:
+                  print("DIRECTORY", str(part), "FILES", ",".join(sorted(p.name for p in part.iterdir() if p.is_file() and p.suffix in (".py",".sh",".service",".timer"))[:60]))
+              backup_dirs=[]
+              for current, dirs, files in os.walk(root):
+                  depth=len(Path(current).relative_to(root).parts)
+                  if depth>=5:
+                      dirs[:]=[]
+                  else:
+                      dirs[:]=[x for x in dirs if x not in {".git",".venv","venv","node_modules","__pycache__"}]
+                  if "backup" in Path(current).name.lower():
+                      snaps=[f for f in files if f.endswith(".sqlite3")]
+                      backup_dirs.append((current,len(snaps)))
+              for name, count in backup_dirs[:20]:
+                  print("BACKUP_DIRECTORY",name,"SQLITE_SNAPSHOTS",count)
+          for label,cmd in [
+              ("USER_CRONTAB",["crontab","-l"]),
+              ("TIMER_LIST",["systemctl","list-timers","--all","--no-pager","--plain"]),
+              ("SERVICE_LIST",["systemctl","list-units","--all","--no-pager","--plain","--type=service"])
+          ]:
+              try:
+                  out=subprocess.run(cmd,capture_output=True,text=True,timeout=15)
+                  rows=[line for line in out.stdout.splitlines() if any(k in line.lower() for k in ("novogene","css","mail_sync","css_project_manager","db-backup","db_backup"))]
+                  if label=="USER_CRONTAB":
+                      print("CRON_MATCH_COUNT",len(rows))
+                  else:
+                      print(label+"_MATCH_COUNT",len(rows))
+                      for line in rows[:20]:
+                          print(label+"_MATCH",line[:240])
+              except Exception as e:
+                  print(label+"_UNAVAILABLE",type(e).__name__)
+          print("NO_FILES_MODIFIED")
+          PY
