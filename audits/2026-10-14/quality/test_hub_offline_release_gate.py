@@ -15,7 +15,9 @@ def synthetic_bundle():
         "',trade_enabled:false,account_trade_execution:false};"
     ).encode()
     bundle["api/assets.js"] = (
-        "const query='FROM v_live_trade_ledger';const x='net_return';"
+        "const query='FROM v_live_trade_ledger';"
+        "const x='NULL::numeric AS net_return';"
+        "const y='NULL::numeric AS round_trip_cost_bps';"
     ).encode()
     bundle["app.js"] = (
         "function renderExecutionLedger(ctl){"
@@ -53,6 +55,15 @@ class FullBundleGateUnitTests(unittest.TestCase):
         f = synthetic_bundle()
         f["api/assets.js"] = b"const values=[];"
         with self.assertRaisesRegex(ReleaseGateError, "LIVE_LEDGER_API_CONTRACT_MISSING"):
+            verify_source(f)
+
+    def test_api_direct_net_return_is_rejected(self):
+        f=synthetic_bundle()
+        f["api/assets.js"]=(
+            b"const x='FROM v_live_trade_ledger';"
+            b"const q='realized_return_pct,net_return,round_trip_cost_bps';"
+        )
+        with self.assertRaisesRegex(ReleaseGateError, "UNGUARDED_NET_RETURN_API_CONTRACT"):
             verify_source(f)
 
     def test_exact_whitelisted_manifest_paths(self):
