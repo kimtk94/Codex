@@ -33,11 +33,12 @@ def stamp(value):
 
 
 def reconstruct(position, fills, *, inventory_complete=False,
+                expected_broker_order_ids=None,
                 qty_tolerance="0.00000001", price_tolerance="0.02"):
     """Calculate native-currency net return or return UNVERIFIED.
 
     Each fill is a final, unique broker-order aggregate (not a partial update).
-    Inventory completeness and association must be independently attested.
+    Inventory completeness and association must be independently attested.\n    expected_broker_order_ids MUST originate from an independent complete\n    inventory, not be inferred from the same fills being evaluated.
     Historical broker evidence alone does not verify current account balances.
     """
     def block(reason):
@@ -47,6 +48,12 @@ def reconstruct(position, fills, *, inventory_complete=False,
         return block("INCOMPLETE_EVENT_INVENTORY")
     if not isinstance(position, dict) or not isinstance(fills, list) or not fills:
         return block("INVALID_INPUT")
+    if not isinstance(expected_broker_order_ids, (list, tuple)):
+        return block("INDEPENDENT_ORDER_MANIFEST_MISSING")
+    if (not expected_broker_order_ids
+        or any(not isinstance(x, str) or not x for x in expected_broker_order_ids)
+        or len(expected_broker_order_ids) != len(set(expected_broker_order_ids))):
+        return block("INVALID_ORDER_MANIFEST")
     pid, symbol, ccy = position.get("position_id"), position.get("symbol"), position.get("currency")
     if not all(isinstance(x, str) and x.strip() for x in (pid, symbol, ccy)):
         return block("POSITION_ID_SYMBOL_CURRENCY_MISSING")
@@ -92,6 +99,8 @@ def reconstruct(position, fills, *, inventory_complete=False,
         if any(x is None for x in (quantity, price, commission, tax)):
             return block("MISSING_OR_INVALID_FILL_OR_FEES")
         records.append((when, side, quantity, price, commission+tax))
+    if seen != set(expected_broker_order_ids):
+        return block("ORDER_MANIFEST_MISMATCH")
     records.sort(key=lambda x: x[0])
     inventory, qty, notionals, fees, counts = Decimal(0), {}, {}, {}, {}
     for side in ("BUY", "SELL"):
