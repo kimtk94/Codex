@@ -18,7 +18,7 @@
 | G04 | Independent Google Sheets synthetic output 5/3 + readback | PASS | [Canary](https://docs.google.com/spreadsheets/d/1eKMPMnRYeZB8tuPE2dblcSaHXSZ58REHPQgJSq2RIjA/edit) |
 | G05 | Actual server ADC gspread write to **canary only** | PASS | [run](https://github.com/kimtk94/Codex/actions/runs/38595199510) |
 | G06 | Current live SQLite snapshot -> temporary DB restoration and integrity | PASS | [run](https://github.com/kimtk94/Codex/actions/runs/38595531615) |
-| G07 | Historical offsite Drive project DB restore | PARTIAL | Historical 21:24 KST project DB restored, integrity PASS, latest/mail backups outstanding |
+| G07 | Latest offsite Drive project AND mail DB restore | PASS | [Drive checksum and independent restores](https://github.com/kimtk94/Codex/actions/runs/38643175074) |
 
 ## Additional isolation findings — verified 2026-10-15
 
@@ -62,14 +62,14 @@
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
-3. **Safe rollout approval + rollback rehearsal (two patches):** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
+3. **Safe rollout approval + rollback rehearsal (three patches):** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
 4. **System service wrappers:** Confirm the `v8.92.1-server-local-adc` wrapper, systemd/cron schedules and 10-minute mail collector interactions before a controlled run.
 
 ## Backup retention — sampled dry-run only
 - Scoped to the **100 most recently returned files** in the Drive `server_backup` folder, **not entire backup history**.
 - 83 `mail_sync_fast` files, 17 `css_project_manager` files; sampled total **27.61 GiB**.
-- With a one-per-hour representative plus latest-two policy, 65 mail DB files (about **20.57 GiB**) enter *review candidacy*. No CSS project DB file from the sample enters candidacy.
-- **NO DELETE** before offsite restore PASS, coverage across entire backup inventory, last-two-by-type protection, and explicit age/size retention criteria. Never delete current raw databases, source data, or logs.
+- Full Drive inventory: **984 backups / 271.69 GiB**, including 827 mail and 157 project backups. Tiered retention simulation protects 64 and identifies 920 files (about **258.82 GiB**) as *review-only* candidates. Actual deletion requires separate approval.
+- **NO DELETE** before retention/RPO/RTO/whole-host recovery policy approval, last-two-by-type protection, and explicit age/size criteria. Never delete current raw databases, source data, or logs.
 - Longer-term retention proposal: hourly 24h; daily 14d; weekly 8wk; monthly 6mo. Adjust after inventory.
 
 ## Controlled production deployment — not authorized yet
