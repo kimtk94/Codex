@@ -44,6 +44,14 @@
 - **No additional Google Drive folder permissions** were granted. Existing authorized rclone was used.
 - Latest individual project and mail backup restore condition is now **PASS**. Operational disaster recovery of an entire host, backup retention approval and a production application rollout remain separate tests.
 
+## Consolidated preflight + production branch regression (2026-10-15)
+
+- [Server-wide SIF release preflight](https://github.com/kimtk94/Codex/actions/runs/38644135441): **22/22 PASS**. Exact source hash, both patches staged, expected combined SHA `a42d8d5a80dbb8effa0a9598236d1ea37d90ad0c5616e726aac9b0bd3b42400d`, Python compile, preservation of **433** functions, byte-exact two-patch reverse, latest SQLite `quick_check`, FK check and five active skips. Source and live DB unchanged.
+- [1,200-record real-main-branch regression](https://github.com/kimtk94/Codex/actions/runs/38644452604): **51/51 PASS**. Extracts the **exact Prepayment `if` branch from server's `main()` AST**, never calls `main()`. Ensures only Prepayment projects in `SIF requested` / `SIF revision required` are **removed from Active Dashboard/Action Center input**, no unrelated rows disappear, Sample QC projects stay included and stage advancement restores the row; repeats are idempotent; empty Prepayment set leaves input unchanged. Manual Hold/Skip collision and output retry tests remain PASS.
+- Current live `overview_project_snoozes` had **0 rows** at preflight; this corroborates that no Prepayment snooze has been created in production yet. This is a pre-deployment baseline, **not** a user-state change.
+- **Important product behavior:** Prepayment SIF projects will **not appear in Active Dashboard** while in SIF stage; the fix does *not* merely flip `attention=Yes` to `No`. Such projects should reappear when a subsequent QC / Library / Data stage occurs. Verify this is acceptable before approved rollout.
+- [Detailed large-batch report](LARGE_SCALE_VALIDATION.md).
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
