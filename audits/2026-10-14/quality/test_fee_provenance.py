@@ -12,7 +12,9 @@ nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef)
 ns={"Decimal":Decimal}
 exec(compile(ast.Module(body=nodes,type_ignores=[]),"<audit-fee>", "exec"),ns)
 quality=ns["_execution_quality"]
-net=ns["_round_trip_quality"]
+def net(entry, exit, *, position=None, broker_fills_verified=True):
+    return ns["_round_trip_quality"](entry,exit,position=position,
+                                      broker_fills_verified=broker_fills_verified)
 
 def broker(commission="0",tax="0",fee_currency="USD",ccy="USD",qty="0.1",px="100"):
     data={"filled_quantity":qty,"average_filled_price":px,
