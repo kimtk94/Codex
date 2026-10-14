@@ -125,6 +125,92 @@ jobs:
               if observed != {'AMEA2026100001','AMEA2026100002'}:
                   raise SystemExit('PREPAYMENT_FUNCTIONAL_TEST_FAILED')
               print('PREPAYMENT_FUNCTIONAL_TEST_PASS')
+              # Read the CURRENT operating database through a query-only SQLite connection.
+              import sqlite3
+              import json
+              import re
+              import importlib.util
+              base = source.parent.parent
+              db_candidates=[
+                  base/'state'/'css_project_manager.sqlite3',
+                  base/'data'/'css_project_manager.sqlite3',
+                  base/'app'/'state'/'css_project_manager.sqlite3',
+                  base/'css_project_manager.sqlite3',
+              ]
+              db=next((p for p in db_candidates if p.is_file() and p.stat().st_size>4096),None)
+              if db is None:
+                  for top in (base/'state',base/'data'):
+                      if top.is_dir():
+                          db=next((p for p in top.glob('**/css_project_manager.sqlite3')
+                                   if p.is_file() and 'backup' not in str(p).lower()),None)
+                          if db is not None:
+                              break
+              if db is None:
+                  raise SystemExit('LIVE_DB_LOCATION_NOT_FOUND')
+              live=sqlite3.connect('file:'+str(db.resolve())+'?mode=ro',uri=True,timeout=20)
+              try:
+                  live.execute('PRAGMA query_only=ON')
+                  live.execute('BEGIN')
+                  active=live.execute('SELECT record_id, skip_reason, snapshot_json FROM contract_sif_skips WHERE is_active=1').fetchall()
+                  total=live.execute('SELECT COUNT(*) FROM contract_sif_skips').fetchone()[0]
+                  def is_true(value):
+                      return str(value or '').strip().lower() in ('true','1','yes','y','checked')
+                  independent=set()
+                  for record_id,reason,snapshot_raw in active:
+                      try:
+                          snapshot=json.loads(snapshot_raw or '{}')
+                      except (ValueError,TypeError):
+                          snapshot={}
+                      if not isinstance(snapshot,dict):
+                          snapshot={}
+                      if str(reason or '').strip().lower().startswith('prepayment') or is_true(snapshot.get('Prepayment')):
+                          match=re.search(r'\\bAMEA\\d{10}\\b',str(snapshot.get('project_id') or snapshot.get('AMEA No.') or '').upper())
+                          if match:
+                              independent.add(match.group())
+                  load_fn=next(n for n in new.body if isinstance(n,ast.FunctionDef)
+                               and n.name=='load_active_contract_sif_skips')
+                  live_namespace={
+                      'json':json,
+                      'clean_text':lambda value: '' if value is None else str(value).strip(),
+                      'normalize_text':lambda value:str(value or '').strip().lower(),
+                      'checkbox_is_checked':is_true,
+                      'canonical_sif_project_id':lambda value:(re.search(r'\\bAMEA\\d{10}\\b',str(value or '').upper()).group()
+                         if re.search(r'\\bAMEA\\d{10}\\b',str(value or '').upper()) else ''),
+                      'SAMPLE_INTAKE_PREPAYMENT_COLUMN':'Prepayment',
+                  }
+                  exec(compile(ast.Module(body=[load_fn,helper],type_ignores=[]),'live-helpers','exec'),live_namespace)
+                  actual=live_namespace['collect_active_prepayment_project_ids'](live)
+                  if actual!=independent or len(actual)<3 or len(active)<5:
+                      raise SystemExit('LIVE_DURABLE_PREPAYMENT_REGRESSION')
+                  print('LIVE_ACTIVE_SKIP_COUNT',len(active))
+                  print('LIVE_SKIP_HISTORY_ROW_COUNT',total)
+                  print('LIVE_PREPAYMENT_COUNT',len(actual))
+                  print('LIVE_DURABLE_PREPAYMENT_PASS')
+                  if importlib.util.find_spec('pandas') is None:
+                      print('HISTORY_PANDAS_IMPORT_NOT_AVAILABLE_IN_SYSTEM_PYTHON')
+                  else:
+                      import pandas as pd
+                      from datetime import datetime
+                      from zoneinfo import ZoneInfo
+                      columns=['record_id','is_active','Contract No.','AMEA No.','Institution','Customer Name',
+                           'skip_reason','Prepayment','skipped_at','restored_at','reference_date','age_days',
+                           'workflow_status','tracker_visibility','history_note']
+                      live_namespace.update({
+                          'pd':pd,'datetime':datetime,'KST':ZoneInfo('Asia/Seoul'),
+                          'SAMPLE_INTAKE_TERMINAL_STATUSES':{'SIF approved'},
+                          'SAMPLE_INTAKE_RETENTION_DAYS':30,
+                          'SAMPLE_INTAKE_SKIP_HISTORY_COLUMNS':columns,
+                      })
+                      history_fn=next(n for n in new.body if isinstance(n,ast.FunctionDef)
+                                      and n.name=='build_contract_sif_skip_history')
+                      exec(compile(ast.Module(body=[history_fn],type_ignores=[]),'history-helper','exec'),live_namespace)
+                      history=live_namespace['build_contract_sif_skip_history'](live)
+                      if len(history)!=total or int(history['is_active'].sum())!=len(active) or int(history['Prepayment'].sum())!=len(actual):
+                          raise SystemExit('LIVE_HISTORY_RENDER_REGRESSION')
+                      print('LIVE_HISTORY_RENDER_PASS')
+                  live.rollback()
+              finally:
+                  live.close()
               if apply('-R','--check').returncode or apply('-R').returncode:
                   raise SystemExit('PATCH_REVERSE_FAILED')
               if sha(staged.read_bytes())!=expected:
