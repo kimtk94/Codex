@@ -9,6 +9,7 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    environment: TaehoonServer
     timeout-minutes: 5
     steps:
       - name: Validate SSH configuration
