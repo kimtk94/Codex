@@ -19,11 +19,12 @@ def _rows(conn: sqlite3.Connection, sql: str) -> list[dict]:
 
 
 def _dec(v):
-    if v in (None, ""):
+    if v is None or v == "" or isinstance(v, bool):
         return None
     try:
-        return Decimal(str(v))
-    except Exception:
+        value = Decimal(str(v))
+        return value if value.is_finite() else None
+    except (ValueError, TypeError, ArithmeticError):
         return None
 
 
