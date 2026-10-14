@@ -212,6 +212,47 @@ jobs:
                       if len(history)!=total or int(history['is_active'].sum())!=len(active) or int(history['Prepayment'].sum())!=len(actual):
                           raise SystemExit('LIVE_HISTORY_RENDER_REGRESSION')
                       print('LIVE_HISTORY_RENDER_PASS')
+                      # Exercise actual snooze writer ONLY against an in-memory SQLite fixture.
+                      frame=pd.DataFrame([{'project_id':pid,'current_stage':'SIF requested'} for pid in actual])
+                      memory=sqlite3.connect(':memory:')
+                      try:
+                          memory.execute("""CREATE TABLE overview_project_snoozes(
+                              project_id TEXT PRIMARY KEY, mode TEXT NOT NULL,
+                              hold_until TEXT, baseline_mail_marker TEXT,
+                              created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+                          memory.executemany(
+                              'INSERT INTO overview_project_snoozes VALUES(?,?,?,?,?,?)',
+                              [('FIXTURE_MANUAL_HOLD','Hold','','','2026-01-01','2026-01-01'),
+                               ('FIXTURE_MANUAL_SKIP','Skip','','','2026-01-01','2026-01-01')])
+                          names={'_upsert_overview_snooze','sync_overview_prepayment_snoozes'}
+                          writer_nodes=[n for n in new.body if isinstance(n,ast.FunctionDef) and n.name in names]
+                          if len(writer_nodes)!=2:
+                              raise SystemExit('SHADOW_SNOOZE_WRITER_MISSING')
+                          shadow_env={
+                              'pd':pd,'KST':ZoneInfo('Asia/Seoul'),
+                              'clean_text':lambda value: '' if value is None else str(value).strip(),
+                              'iter_dataframe_records':lambda df:df.to_dict(orient='records'),
+                              'dataframe_row_text':lambda row,key:str(row.get(key,'') or '').strip(),
+                              'overview_mail_marker':lambda row:'isolation-marker',
+                          }
+                          exec(compile(ast.Module(body=writer_nodes,type_ignores=[]),'shadow-helpers','exec'),shadow_env)
+                          writer=shadow_env['sync_overview_prepayment_snoozes']
+                          first=writer(memory,frame,actual)
+                          if first.get('overview_prepayment_skip_active')!=len(actual):
+                              raise SystemExit('SHADOW_SNOOZE_INSERT_REGRESSION')
+                          if len(frame)<3:
+                              raise SystemExit('SHADOW_FIXTURE_TOO_SMALL')
+                          frame.loc[frame.index[0],'current_stage']='Sample QC review'
+                          second=writer(memory,frame,actual)
+                          if second.get('overview_prepayment_skip_released')!=1 or second.get('overview_prepayment_skip_active')!=len(actual)-1:
+                              raise SystemExit('SHADOW_SNOOZE_RELEASE_REGRESSION')
+                          held=set(memory.execute("SELECT mode FROM overview_project_snoozes WHERE project_id LIKE 'FIXTURE_MANUAL_%'").fetchall())
+                          if held!={('Hold',),('Skip',)}:
+                              raise SystemExit('SHADOW_MANUAL_STATE_OVERWRITTEN')
+                          print('SHADOW_PREPAYMENT_SNOOZE_LIFECYCLE_PASS')
+                          print('SHADOW_MANUAL_HOLD_SKIP_PRESERVATION_PASS')
+                      finally:
+                          memory.close()
                   live.rollback()
               finally:
                   live.close()
