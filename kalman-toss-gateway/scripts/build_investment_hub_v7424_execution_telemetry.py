@@ -71,6 +71,15 @@ def patch_app(src: Path) -> None:
     var x=n(v);if(x==null)return '—';
     return x>=1000?fmt(x/1000,2)+'s':fmt(x,0)+'ms';
   }
+  // Never present cached P1 net figures without independent order & fee
+  // reconciliation. A local mirror FILLED flag is not that evidence.
+  function verifiedNet(x){
+    return x && x.net_return_evidence_status==='BROKER_RECONCILED'
+      && x.independent_order_manifest_verified===true
+      && x.fee_currency_verified===true
+      && x.position_fill_coverage_verified===true
+      ? n(x.net_return) : null;
+  }
   if(!rows.length){
     if(state){state.className='pill';state.textContent='기록 없음';}
     box.innerHTML='<div class="execution-empty"><div><b>Neon 실매매 미러 기록 없음</b><span>현재 자동매매 주문·체결이 Neon에 기록되지 않았다는 뜻입니다. Toss 전체 거래내역이 0건이라는 뜻은 아닙니다.</span></div></div>';
@@ -79,7 +88,7 @@ def patch_app(src: Path) -> None:
   if(state){state.className='pill ok';state.textContent=rows.length+'건 기록';}
   box.innerHTML='<div class="table-scroll"><table class="data-table"><thead><tr><th>신호 시각</th><th>종목</th><th>상태</th><th>진입 / 청산</th><th>가격수익</th><th>순수익</th><th>슬리피지</th><th>실제 비용</th><th>체결 지연</th><th>청산 사유</th></tr></thead><tbody>'+
     rows.map(function(x){
-      var gross=n(x.realized_return_pct),net=n(x.net_return),cost=n(x.round_trip_cost_bps);
+      var gross=n(x.realized_return_pct),net=verifiedNet(x),cost=net==null?null:n(x.round_trip_cost_bps);
       var slip=pair(x.entry_slippage_bps,x.exit_slippage_bps,bps);
       var lag=pair(x.entry_fill_latency_ms,x.exit_fill_latency_ms,latency);
       return '<tr>'+
@@ -88,7 +97,7 @@ def patch_app(src: Path) -> None:
         '<td>'+esc(executionStateLabel(x.state))+'</td>'+
         '<td>'+money(x.entry_average_price,'USD')+' / '+(x.exit_average_price==null?'—':money(x.exit_average_price,'USD'))+'</td>'+
         '<td class="'+(gross==null?'':gross>=0?'good':'bad')+'">'+(gross==null?'—':pct(gross,100))+'</td>'+
-        '<td class="'+(net==null?'':net>=0?'good':'bad')+'">'+(net==null?'—':pct(net,100))+'</td>'+
+        '<td class="'+(net==null?'':net>=0?'good':'bad')+'">'+(net==null?'검증 전':pct(net,100))+'</td>'+
         '<td>'+esc(slip)+'</td>'+
         '<td>'+(cost==null?'—':bps(cost))+'</td>'+
         '<td>'+esc(lag)+'</td>'+
@@ -96,7 +105,7 @@ def patch_app(src: Path) -> None:
       '</tr>';
     }).join('')+
     '</tbody></table></div>'+
-    '<div class="next-actions-note"><b>Execution Quality:</b> 슬리피지는 주문 직전 executable touch 대비 실제 평균 체결가 기준이며 양수일수록 불리합니다. 순수익은 Toss가 제공한 실제 commission·tax를 반영합니다. 과거 주문은 당시 호가를 복원할 수 없어 slippage가 비어 있을 수 있습니다.</div>';
+    '<div class="next-actions-note"><b>Execution Quality:</b> 가격수익률은 미러의 평균 진입·청산 가격 기반이며 수수료 전입니다. 순수익률은 독립적인 주문·수수료·수량 검증이 완료된 경우에만 표시합니다. 검증 전 값은 실제 수익으로 해석할 수 없습니다. 슬리피지는 당시 호가 부재 시 표시하지 않습니다.</div>';
 }
 """
     text = text[:start] + replacement + text[end:]
@@ -130,7 +139,7 @@ def validate(src: Path) -> dict:
     ):
         if marker not in assets:
             raise SystemExit(f"assets missing {marker}")
-    for marker in ("Execution Quality:", "순수익", "슬리피지", "실제 비용", "체결 지연"):
+    for marker in ("Execution Quality:", "순수익", "슬리피지", "실제 비용", "체결 지연", "verifiedNet(x)", "검증 전", "BROKER_RECONCILED"):
         if marker not in app:
             raise SystemExit(f"app missing {marker}")
     if TARGET not in index or TARGET not in health:
