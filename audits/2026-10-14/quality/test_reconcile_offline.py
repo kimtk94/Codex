@@ -86,6 +86,10 @@ class TestReconcile(unittest.TestCase):
         self.assertEqual(self.check(expected_submitted=-1)["reason"],
                          "INVALID_SUBMITTED_COUNT")
 
+    def test_nonfinite_skew_limit(self):
+        self.assertEqual(self.check(max_skew_seconds=float('inf'))['reason'],
+                         'INVALID_TIME_BOUNDS')
+
     def test_invalid_tolerance(self):
         self.assertEqual(self.check(tolerance="NaN")["reason"],
                          "INVALID_TOLERANCE")
