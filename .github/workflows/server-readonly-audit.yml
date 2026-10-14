@@ -2,6 +2,9 @@ name: Server Read-Only Audit
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/audit-triggers/server-readonly-*'
 
 permissions:
   contents: read
