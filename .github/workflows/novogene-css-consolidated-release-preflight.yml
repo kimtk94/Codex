@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/novogene-css-consolidated-release-preflight.yml'
       - 'css-upgrade/staging-20261014/sif_release_preflight.py'
+      - 'css-upgrade/staging-20261014/novogene_sif_portfolio_visibility.patch'
       - 'css-upgrade/staging-20261014/novogene_sif_manual_override_collision.patch'
 
 permissions:
@@ -51,13 +52,15 @@ jobs:
           SSH_USER: ${{ secrets.SERVER_SSH_USER }}
         run: |
           PREFIX="/tmp/css-release-preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f ${PREFIX}.py ${PREFIX}.a.patch ${PREFIX}.b.patch" >/dev/null 2>&1 || true' EXIT
+          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f ${PREFIX}.py ${PREFIX}.a.patch ${PREFIX}.b.patch ${PREFIX}.c.patch" >/dev/null 2>&1 || true' EXIT
           scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             css-upgrade/staging-20261014/sif_release_preflight.py "$SSH_USER@$SSH_HOST:${PREFIX}.py"
           scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             css-upgrade/staging-20261014/novogene_sif_history_candidate.patch "$SSH_USER@$SSH_HOST:${PREFIX}.a.patch"
           scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             css-upgrade/staging-20261014/novogene_sif_manual_override_collision.patch "$SSH_USER@$SSH_HOST:${PREFIX}.b.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_sif_portfolio_visibility.patch "$SSH_USER@$SSH_HOST:${PREFIX}.c.patch"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
             -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" \
-            "/home/taehoon/services/novogene-css/.venv/bin/python '${PREFIX}.py' --first '${PREFIX}.a.patch' --second '${PREFIX}.b.patch'"
+            "/home/taehoon/services/novogene-css/.venv/bin/python '${PREFIX}.py' --first '${PREFIX}.a.patch' --second '${PREFIX}.b.patch' --third '${PREFIX}.c.patch'"
