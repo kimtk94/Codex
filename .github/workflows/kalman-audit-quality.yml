@@ -29,9 +29,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Unit tests
-        run: python3 -m unittest -v test_quality_gate.py test_reconcile_offline.py test_broker_snapshot_contract.py test_broker_cache_preflight.py test_broker_audit_get.py test_broker_status_evidence.py test_trade_status_projection_regression.py test_net_return_coverage.py test_position_link_contract.py
+        run: python3 -m unittest -v test_quality_gate.py test_reconcile_offline.py test_broker_snapshot_contract.py test_broker_cache_preflight.py test_broker_audit_get.py test_broker_status_evidence.py test_trade_status_projection_regression.py test_net_return_coverage.py test_position_link_contract.py test_order_position_link_integration.py
       - name: Compile audit-branch mirror patch
-        run: python3 -m py_compile ../../../kalman-toss-gateway/engine/broker_status_evidence.py ../../../kalman-toss-gateway/engine/trade_mirror.py
+        run: python3 -m py_compile ../../../kalman-toss-gateway/engine/broker_status_evidence.py ../../../kalman-toss-gateway/engine/order_position_link.py ../../../kalman-toss-gateway/engine/auto_trade.py ../../../kalman-toss-gateway/engine/trade_mirror.py
       - name: Reproduce pinned snapshot
         run: python3 quality_gate.py --at 2026-10-14T11:35:00Z --output quality_report.json
       - name: Upload audit artifact
