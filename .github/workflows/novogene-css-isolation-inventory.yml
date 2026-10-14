@@ -94,5 +94,32 @@ jobs:
           print('OUTPUT_DATAFRAME_WRITES',counts['overwrite_dataframe_if_changed'])
           print('FAILURE_PATH_WRITES_PRESENT',all(counts[k]>0 for k in ['finalize_system_run','backup_runtime_db','publish_system_health_best_effort']))
           print('MAIN_CAN_RUN_UNSANDBOXED',False)
+          # Top-level imports also need isolation, because module import can be active.
+          top_names=sorted(set(callname(n) for n in top_calls))
+          print('TOP_LEVEL_PIP_INSTALL_CALL', 'subprocess.run' in top_names)
+          print('TOP_LEVEL_COLAB_IMPORT', 'google.colab' in src.decode('utf-8',errors='replace'))
+          print('TOP_LEVEL_CALL_NAMES', ','.join(top_names)[:1500])
+          collector=app.parent/'Novogene_Mail_Collector_server.py'
+          if not collector.is_file():
+              collector=app.parent/'Novogene_Mail_Collector.py'
+          if collector.is_file():
+              collector_ast=ast.parse(collector.read_bytes())
+              collector_guard=any(isinstance(n,ast.If) and
+                  any(isinstance(z,ast.Name) and z.id=='__name__' for z in ast.walk(n.test))
+                  for n in collector_ast.body)
+              collector_calls=[]
+              for stmt in collector_ast.body:
+                  if isinstance(stmt,(ast.FunctionDef,ast.ClassDef,ast.AsyncFunctionDef)):
+                      continue
+                  for node in ast.walk(stmt):
+                      if isinstance(node,ast.Call):
+                          collector_calls.append(callname(node))
+              risky=['sqlite3.connect','gspread.authorize','subprocess.run','gc.open_by_key','publish_mail_state_to_drive']
+              found=sorted(x for x in risky if x in collector_calls)
+              print('COLLECTOR_TOP_LEVEL_CALL_COUNT',len(collector_calls))
+              print('COLLECTOR_NAME_GUARD_PRESENT',collector_guard)
+              print('COLLECTOR_RISK_CALLS',','.join(found))
+          else:
+              print('COLLECTOR_DISCOVERY_MISSING', True)
           print('NO_PRODUCTION_CODE_OR_DB_WRITTEN',True)
           PY
