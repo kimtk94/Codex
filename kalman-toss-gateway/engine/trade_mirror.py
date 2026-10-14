@@ -258,8 +258,10 @@ def main() -> int:
                 exit_order = orders_by_client.get(p.get("exit_client_order_id")) or {}
                 entry_telemetry = _json_dict(entry_order.get("telemetry_json"))
                 exit_telemetry = _json_dict(exit_order.get("telemetry_json"))
-                entry_quality = _execution_quality("BUY", p.get("entry_avg_fill_price"), entry_telemetry)
-                exit_quality = _execution_quality("SELL", p.get("exit_avg_fill_price"), exit_telemetry)
+                # Execution quality is per broker order. Never multiply the
+                # first order's quantity by the aggregate position average.
+                entry_quality = _execution_quality("BUY", None, entry_telemetry)
+                exit_quality = _execution_quality("SELL", None, exit_telemetry)
                 round_trip_quality = _round_trip_quality(entry_quality, exit_quality, position=p)
 
                 cur.execute(
@@ -344,16 +346,13 @@ def main() -> int:
                         pos = next(p for p in positions if p["position_id"] == explicit_link["position_id"])
                         leg = explicit_link["leg"]
                         position_link_source = "EXPLICIT_SIGNAL_CONTEXT"
-                filled = avg = None
-                if pos and leg == "ENTRY":
-                    filled = _dec(pos.get("entry_filled_quantity"))
-                    avg = _dec(pos.get("entry_avg_fill_price"))
-                elif pos and leg == "EXIT":
-                    entry_filled = _dec(pos.get("entry_filled_quantity"))
-                    remaining = _dec(pos.get("remaining_quantity"))
-                    if entry_filled is not None and remaining is not None:
-                        filled = max(Decimal("0"), entry_filled - remaining)
-                    avg = _dec(pos.get("exit_avg_fill_price"))
+                # A managed-position total is NOT an individual order's fill.
+                # Never duplicate the total initial entry across ADD_ON trades.
+                # A broker-order-specific fill is mandatory for event quantities.
+                broker_fill = historical_broker_fill(o, telemetry)
+                filled = broker_fill["filled_quantity"] if broker_fill else None
+                avg = broker_fill["average_filled_price"] if broker_fill else None
+                fill_source = "BROKER_ORDER_TELEMETRY" if broker_fill else "UNVERIFIED"
 
                 signal_context = (
                     telemetry.get("signal_context")
@@ -376,10 +375,6 @@ def main() -> int:
                 )
                 execution_quality = _execution_quality(o.get("side"), avg, telemetry)
                 execution_status, status_source = _execution_status(o, pos, leg, telemetry)
-                if status_source == "broker_order_telemetry":
-                    broker_fill = historical_broker_fill(o, telemetry)
-                    filled = broker_fill["filled_quantity"]
-                    avg = broker_fill["average_filled_price"]
                 reconciled_position_status = None
                 if pos and leg == "ENTRY":
                     reconciled_position_status = pos.get("entry_status")
@@ -435,6 +430,7 @@ def main() -> int:
                             "local_created_at": o.get("created_at"),
                             "position_leg": leg,
                             "position_link_source": position_link_source,
+                            "order_fill_source": fill_source,
                             "exit_reason": pos.get("exit_reason") if pos else None,
                             "order_guard_status": o.get("status"),
                             "reconciled_position_status": reconciled_position_status,
