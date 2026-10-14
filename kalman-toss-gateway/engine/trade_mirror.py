@@ -85,11 +85,15 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
             slippage_bps = (reference_price - fill_price) / reference_price * Decimal("10000")
 
     filled_amount = _dec(broker.get("filled_amount"))
-    commission = _dec(broker.get("commission")) or Decimal("0")
-    tax = _dec(broker.get("tax")) or Decimal("0")
+    # Never silently promote MISSING, NaN, infinity or negative fees to zero.
+    # An explicit 0 is valid; a missing field is not a zero fee.
+    commission = _dec(broker.get("commission"))
+    tax = _dec(broker.get("tax"))
+    commission = commission if commission is not None and commission.is_finite() and commission >= 0 else None
+    tax = tax if tax is not None and tax.is_finite() and tax >= 0 else None
     cost_basis = exact_notional if exact_notional is not None and exact_notional > 0 else filled_amount
     cost_bps = None
-    if cost_basis is not None and cost_basis > 0:
+    if commission is not None and tax is not None and cost_basis is not None and cost_basis > 0:
         cost_bps = (commission + tax) / cost_basis * Decimal("10000")
 
     def n(value):
@@ -102,6 +106,8 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
 
     return {
         "currency": broker.get("currency") or quote.get("currency"),
+        "broker_currency": broker.get("currency"),
+        "fee_currency": broker.get("fee_currency"),
         "quote_timestamp": quote.get("timestamp"),
         "best_bid": n(quote.get("best_bid")),
         "best_ask": n(quote.get("best_ask")),
@@ -112,8 +118,8 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
         "average_filled_price": float(fill_price) if fill_price is not None else None,
         "filled_amount": float(filled_amount) if filled_amount is not None else None,
         "exact_notional": float(exact_notional) if exact_notional is not None else None,
-        "commission": float(commission),
-        "tax": float(tax),
+        "commission": float(commission) if commission is not None else None,
+        "tax": float(tax) if tax is not None else None,
         "cost_bps": float(cost_bps) if cost_bps is not None else None,
         "broker_ordered_at": broker.get("ordered_at"),
         "broker_filled_at": broker.get("filled_at"),
@@ -174,6 +180,21 @@ def _round_trip_quality(
                 "exit_covered_quantity": float(observed_exit) if observed_exit is not None else None,
                 "exit_position_quantity": float(expected_exit) if expected_exit is not None else None,
             }
+    # Net P&L requires explicitly reported fees for EACH leg, plus a proved
+    # same-currency fee basis. Currency inferred from quote context is insufficient.
+    for q in (entry_quality, exit_quality):
+        comm, tax = _dec(q.get("commission")), _dec(q.get("tax"))
+        if any(v is None or not v.is_finite() or v < 0 for v in (comm, tax)):
+            return {"quality_status": "INCOMPLETE_FEE_EVIDENCE",
+                    "net_return": None, "net_return_pct": None,
+                    "round_trip_cost_bps": None}
+    entry_ccy, exit_ccy = entry_quality.get("broker_currency"), exit_quality.get("broker_currency")
+    if (entry_ccy not in ("USD", "KRW") or entry_ccy != exit_ccy
+            or entry_quality.get("fee_currency") != entry_ccy
+            or exit_quality.get("fee_currency") != exit_ccy):
+        return {"quality_status": "UNVERIFIED_FEE_CURRENCY",
+                "net_return": None, "net_return_pct": None,
+                "round_trip_cost_bps": None}
     entry_amount = _dec(entry_quality.get("exact_notional")) or _dec(entry_quality.get("filled_amount"))
     exit_amount = _dec(exit_quality.get("exact_notional")) or _dec(exit_quality.get("filled_amount"))
     if entry_amount is None or exit_amount is None or entry_amount <= 0:
