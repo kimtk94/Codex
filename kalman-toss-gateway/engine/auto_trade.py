@@ -797,6 +797,7 @@ async def main_async() -> int:
                 'max_active_positions': max_active_positions,
                 'active_positions_before_entry': len(active_positions),
                 'entry_type': 'ADD_ON' if is_add_on else 'INITIAL',
+                'managed_position_id': position['position_id'],
                 'entry_count_before': entry_count_before,
                 'max_entries_per_symbol': max_entries_per_symbol,
                 'max_symbol_notional_krw': str(max_symbol_notional_krw),
