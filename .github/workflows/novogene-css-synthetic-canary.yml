@@ -46,7 +46,7 @@ jobs:
         run: |
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
             -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+            "$SSH_USER@$SSH_HOST" 'for PY in /home/taehoon/services/novogene-css/.venv/bin/python /home/taehoon/services/novogene-css/venv/bin/python /home/taehoon/services/novogene-css/app/.venv/bin/python /usr/local/bin/python3 /usr/bin/python3; do if [ -x "$PY" ] && "$PY" -c "import gspread; import google.auth" >/dev/null 2>&1; then echo "CANARY_RUNTIME_FOUND"; exec "$PY" -; fi; done; echo "CANARY_RUNTIME_MISSING"; exit 1' <<'PY'
           TEST_ID='1eKMPMnRYeZB8tuPE2dblcSaHXSZ58REHPQgJSq2RIjA'
           ORIGINAL_PRODUCTION_ID='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
           if TEST_ID == ORIGINAL_PRODUCTION_ID:
