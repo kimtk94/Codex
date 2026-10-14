@@ -36,7 +36,9 @@ def patch_api(src: Path) -> None:
           FROM v_live_trade_ledger ORDER BY updated_at DESC LIMIT 20`,"""
     new = """      sql`SELECT position_id,symbol,strategy_version,state,entry_signal_as_of,entry_order_id,
                  entry_filled_quantity,entry_average_price,exit_order_id,exit_filled_quantity,
-                 exit_average_price,exit_reason,realized_return_pct,net_return,round_trip_cost_bps,
+                 exit_average_price,exit_reason,realized_return_pct,
+                 NULL::numeric AS net_return,
+                 NULL::numeric AS round_trip_cost_bps,
                  entry_slippage_bps,exit_slippage_bps,entry_spread_bps,exit_spread_bps,
                  entry_cost_bps,exit_cost_bps,entry_fill_latency_ms,exit_fill_latency_ms,
                  entry_submit_latency_ms,exit_submit_latency_ms,
@@ -130,6 +132,8 @@ def validate(src: Path) -> dict:
     assets = (src / "api/assets.js").read_text(encoding="utf-8")
     health = (src / "api/health.js").read_text(encoding="utf-8")
     for marker in (
+        "NULL::numeric AS net_return",
+        "NULL::numeric AS round_trip_cost_bps",
         "net_return",
         "round_trip_cost_bps",
         "entry_slippage_bps",
