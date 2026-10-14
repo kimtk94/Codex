@@ -178,6 +178,79 @@ def test_snooze_collision_and_transitions(ns,conn,board,prepay):
     require(modes=={skip_id:"skip_until_new_mail"},"all_auto_skips_cleaned_only_manual_remains")
     require(fifth["overview_prepayment_skip_active"]==0,"empty_prepayment_set_empty_auto_state")
 
+def test_actual_main_prepayment_branch(ns,conn,board,source):
+    """Execute only the real main() Prepayment branch; never import/call main()."""
+    tree=ast.parse(source)
+    main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="main")
+    branches=[n for n in ast.walk(main)
+              if isinstance(n,ast.If)
+              and isinstance(n.test,ast.BoolOp)
+              and any(isinstance(t,ast.Name) and t.id=="prepayment_project_ids"
+                      for t in ast.walk(n.test))
+              and any(isinstance(z,ast.Name) and z.id=="prepayment_mask"
+                      for z in ast.walk(n))]
+    require(len(branches)==1,"main_branch_exactly_one")
+    node=branches[0]
+    ids=ns["collect_active_prepayment_project_ids"](conn)
+    fresh=board.copy()
+    expected={
+        r["project_id"] for r in ns["iter_dataframe_records"](fresh)
+        if r["project_id"] in ids and r["current_stage"] in
+        {"SIF requested","SIF revision required"}
+    }
+    assert len(expected)>100
+    outer=dict(ns)
+    outer.update({
+      "conn":conn,
+      "df_dashboard":fresh,
+      "prepayment_project_ids":ids,
+      "counts":{},
+      "df_overview_snoozes":pd.DataFrame(columns=["mode"]),
+      "_sync_overview_snooze_actions_from_records":
+          lambda con, dashboard, requests, snapshots: (pd.DataFrame(columns=["mode"]),{}),
+    })
+    exec(compile(ast.Module(body=[node],type_ignores=[]),"actual-main-prepayment-if","exec"),outer)
+    actual=outer["df_dashboard"]
+    remain=set(actual["project_id"])
+    before=set(fresh["project_id"])
+    require(before-remain==expected,"main_only_active_SIF_prepayment_removed")
+    require(len(actual)+len(expected)==len(fresh),"main_no_unintended_row_loss")
+    require(outer["counts"]["prepayment_project_followup_excluded"]==len(expected),
+            "main_prepayment_exclusion_count_exact")
+    require(set(outer["counts"]["prepayment_project_followup_project_ids"])==expected,
+            "main_prepayment_exclusion_ids_exact")
+    qc_ids=set(board.loc[board["current_stage"]=="Sample QC review","project_id"])
+    require(qc_ids.issubset(remain),"main_QC_projects_remain_visible")
+    normal_ids=set(board["project_id"])-ids
+    require(normal_ids.issubset(remain),"main_nonprepayment_projects_remain_visible")
+    # Rerunning the same section on a fresh source board must not change output.
+    outer["df_dashboard"]=fresh.copy()
+    outer["counts"]={}
+    exec(compile(ast.Module(body=[node],type_ignores=[]),"main-prepayment-repeat","exec"),outer)
+    require(set(outer["df_dashboard"]["project_id"])==remain,"main_repeat_same_output")
+    # Simulate advancing a suppressed project from SIF to QC in original input.
+    transitioned=sorted(expected)[0]
+    promoted=fresh.copy()
+    promoted.loc[promoted["project_id"]==transitioned,"current_stage"]="Sample QC review"
+    outer["df_dashboard"]=promoted
+    outer["counts"]={}
+    exec(compile(ast.Module(body=[node],type_ignores=[]),"main-prepayment-QC","exec"),outer)
+    require(transitioned in set(outer["df_dashboard"]["project_id"]),
+            "main_SIF_to_QC_reappears")
+    require(outer["counts"]["prepayment_project_followup_excluded"]==len(expected)-1,
+            "main_QC_reappearance_count")
+    # Negative case: no Prepayment qualifies. Branch may only clean auto snoozes,
+    # never erase unrelated manual modes or drop Dashboard rows.
+    outer["df_dashboard"]=promoted.copy()
+    outer["prepayment_project_ids"]=set()
+    outer["counts"]={}
+    exec(compile(ast.Module(body=[node],type_ignores=[]),"main-prepayment-empty","exec"),outer)
+    require(len(outer["df_dashboard"])==len(promoted),"main_zero_prepayment_rows_retained")
+    require(outer["counts"]["prepayment_project_followup_excluded"]==0,
+            "main_zero_prepayment_count")
+    print("ACTUAL_MAIN_BRANCH_EXTRACTED_NOT_EXECUTED_ENTIRE_MAIN",True)
+
+
 def test_restore_and_writer(ns,conn,board):
     rec="REC-00003"
     require(ns["restore_contract_sif_skip"](conn,rec),"manual_restore_applied")
@@ -233,6 +306,7 @@ def main():
         try:
             ids=test_big_batch(ns,conn,df)
             test_snooze_collision_and_transitions(ns,conn,df,ids)
+            test_actual_main_prepayment_branch(ns,conn,df,source)
             test_restore_and_writer(ns,conn,df)
         finally:
             conn.close()
