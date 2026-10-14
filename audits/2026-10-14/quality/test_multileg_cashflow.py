@@ -32,10 +32,12 @@ def scenario():
 
 
 class MultilegTests(unittest.TestCase):
-    def check(self, p=None, e=None, complete=True):
+    def check(self, p=None, e=None, complete=True, manifest=None):
         pp, ee=scenario()
+        manifest_ids=["initial", "add", "exit"] if manifest is None else manifest
         return reconstruct(pp if p is None else p, ee if e is None else e,
-                           inventory_complete=complete)
+                           inventory_complete=complete,
+                           expected_broker_order_ids=manifest_ids)
 
     def test_two_buys_one_sell_cashflows(self):
         out=self.check()
@@ -52,7 +54,8 @@ class MultilegTests(unittest.TestCase):
     def test_hypothetical_fees_not_actual(self):
         p,e=scenario()
         for v in e: v["commission"]="0"
-        no_fee=reconstruct(p,e,inventory_complete=True)
+        no_fee=reconstruct(p,e,inventory_complete=True,
+                           expected_broker_order_ids=["initial","add","exit"])
         with_fee=self.check()
         self.assertLess(Decimal(with_fee["net_pnl"]),Decimal(no_fee["net_pnl"]))
 
@@ -62,7 +65,20 @@ class MultilegTests(unittest.TestCase):
     def test_missing_addon_blocks_reconstruction(self):
         p,e=scenario()
         e.pop(1)
-        self.assertEqual(self.check(p,e)["reason"],"SELL_EXCEEDS_AVAILABLE_SHARES")
+        self.assertEqual(self.check(p,e)["reason"],"ORDER_MANIFEST_MISMATCH")
+
+    def test_manifest_absent_fails_even_when_quantities_match(self):
+        p,e=scenario()
+        out=reconstruct(p,e,inventory_complete=True)
+        self.assertEqual(out["reason"],"INDEPENDENT_ORDER_MANIFEST_MISSING")
+
+    def test_manifest_duplicate_order_ids_block(self):
+        self.assertEqual(self.check(manifest=["initial","add","add"])["reason"],
+                         "INVALID_ORDER_MANIFEST")
+
+    def test_manifest_extra_order_blocks(self):
+        self.assertEqual(self.check(manifest=["initial","add","exit","unknown"])["reason"],
+                         "ORDER_MANIFEST_MISMATCH")
 
     def test_missing_tax_field_blocks(self):
         p,e=scenario()
