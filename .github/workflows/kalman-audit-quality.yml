@@ -45,7 +45,7 @@ jobs:
       - name: Install pinned isolated replay dependencies
         run: python3 -m pip install 'psycopg[binary]==3.2.10' 'python-dotenv==1.1.1'
       - name: Unit tests
-        run: python3 -m unittest -v test_quality_gate.py test_reconcile_offline.py test_broker_snapshot_contract.py test_broker_cache_preflight.py test_broker_audit_get.py test_broker_status_evidence.py test_trade_status_projection_regression.py test_net_return_coverage.py test_position_link_contract.py test_order_position_link_integration.py test_multileg_cashflow.py test_fee_provenance.py test_toss_order_fee_schema.py
+        run: python3 -m unittest -v test_quality_gate.py test_reconcile_offline.py test_broker_snapshot_contract.py test_broker_cache_preflight.py test_broker_audit_get.py test_broker_status_evidence.py test_trade_status_projection_regression.py test_net_return_coverage.py test_position_link_contract.py test_order_position_link_integration.py test_multileg_cashflow.py test_fee_provenance.py test_toss_order_fee_schema.py test_multileg_randomized.py
       - name: Synthetic SQLite to disposable PostgreSQL mirror integration
         env:
           KALMAN_AUDIT_E2E: '1'
