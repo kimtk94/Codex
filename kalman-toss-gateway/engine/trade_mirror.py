@@ -135,6 +135,7 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
 
 def _round_trip_quality(
     entry_quality: dict, exit_quality: dict, *, position: dict | None = None,
+    broker_fills_verified: bool = False,
 ) -> dict:
     """Net return requires full entry AND exit execution/fee coverage.
 
@@ -181,6 +182,13 @@ def _round_trip_quality(
                 "exit_covered_quantity": float(observed_exit) if observed_exit is not None else None,
                 "exit_position_quantity": float(expected_exit) if expected_exit is not None else None,
             }
+    # Managed-position status is NOT enough: require both matched order IDs
+    # to carry terminal broker FILLED evidence with HTTP 200, quantity and time.
+    # Never treat populated execution values on SUBMITTED as a verified fill.
+    if broker_fills_verified is not True:
+        return {"quality_status": "BROKER_FILL_UNVERIFIED",
+                "net_return": None, "net_return_pct": None,
+                "round_trip_cost_bps": None}
     # Net P&L requires explicitly reported fees for EACH leg, plus a proved
     # same-currency fee basis. Currency inferred from quote context is insufficient.
     for q in (entry_quality, exit_quality):
@@ -263,7 +271,13 @@ def main() -> int:
                 # first order's quantity by the aggregate position average.
                 entry_quality = _execution_quality("BUY", None, entry_telemetry)
                 exit_quality = _execution_quality("SELL", None, exit_telemetry)
-                round_trip_quality = _round_trip_quality(entry_quality, exit_quality, position=p)
+                round_trip_quality = _round_trip_quality(
+                    entry_quality, exit_quality, position=p,
+                    broker_fills_verified=bool(
+                        historical_broker_fill(entry_order, entry_telemetry)
+                        and historical_broker_fill(exit_order, exit_telemetry)
+                    ),
+                )
 
                 cur.execute(
                     """
