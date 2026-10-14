@@ -25,27 +25,62 @@ RISKY_IMPORT_CALLS = frozenset({
 
 
 def audit_import_time_calls(source: str) -> tuple[str, ...]:
-    """Parse source without importing it; flag unsafe module-level calls."""
+    """Find calls reachable at module import time without executing source.
+
+    For a standard __name__ == '__main__' guard, skip only its body,
+    *not* the else branch. Unknown guard forms are treated as import risks.
+    """
     tree = ast.parse(source)
     found = set()
+
+    def record_calls(nodes):
+        for root in nodes:
+            for call in ast.walk(root):
+                if not isinstance(call, ast.Call):
+                    continue
+                try:
+                    name = ast.unparse(call.func)
+                except Exception:
+                    continue
+                if name in RISKY_IMPORT_CALLS:
+                    found.add(name)
+
     for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # Default argument expressions/decorators run during import.
+            record_calls(list(node.decorator_list) +
+                         list(node.args.defaults) +
+                         [x for x in node.args.kw_defaults if x is not None])
             continue
-        # The canonical __name__ guard is not evaluated when imported.
-        if isinstance(node, ast.If) and any(
-            isinstance(x, ast.Name) and x.id == "__name__"
-            for x in ast.walk(node.test)
-        ):
+        if isinstance(node, ast.ClassDef):
+            # Class body executes on import. Skip only member function bodies.
+            record_calls(list(node.decorator_list) + list(node.bases))
+            for member in node.body:
+                if not isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    record_calls([member])
             continue
-        for call in ast.walk(node):
-            if not isinstance(call, ast.Call):
-                continue
-            try:
-                name = ast.unparse(call.func)
-            except Exception:
-                continue
-            if name in RISKY_IMPORT_CALLS:
-                found.add(name)
+        is_main_guard = (
+            isinstance(node, ast.If)
+            and isinstance(node.test, ast.Compare)
+            and len(node.test.ops) == 1
+            and isinstance(node.test.ops[0], ast.Eq)
+            and len(node.test.comparators) == 1
+            and (
+                (isinstance(node.test.left, ast.Name) and
+                 node.test.left.id == "__name__" and
+                 isinstance(node.test.comparators[0], ast.Constant) and
+                 node.test.comparators[0].value == "__main__")
+                or
+                (isinstance(node.test.left, ast.Constant) and
+                 node.test.left.value == "__main__" and
+                 isinstance(node.test.comparators[0], ast.Name) and
+                 node.test.comparators[0].id == "__name__")
+            )
+        )
+        if is_main_guard:
+            record_calls(node.orelse)
+        else:
+            record_calls([node])
     return tuple(sorted(found))
 
 
@@ -67,7 +102,10 @@ class CanaryPolicy:
     salesforce_writes_disabled: bool
 
     def validate(self) -> None:
-        root = Path(self.root).resolve()
+        raw_root = Path(self.root)
+        if raw_root.is_symlink():
+            raise IsolationViolation("isolated root may not be a symlink")
+        root = raw_root.resolve()
         temp_root = Path(tempfile.gettempdir()).resolve()
         if root == temp_root or not root.is_relative_to(temp_root):
             raise IsolationViolation("isolated root must be a dedicated temporary subdirectory")
