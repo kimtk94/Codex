@@ -180,6 +180,10 @@ jobs:
                   }
                   exec(compile(ast.Module(body=[load_fn,helper],type_ignores=[]),'live-helpers','exec'),live_namespace)
                   actual=live_namespace['collect_active_prepayment_project_ids'](live)
+                  print('LIVE_SQL_ACTIVE_SKIP_COUNT',len(active))
+                  print('LIVE_SQL_PREPAYMENT_COUNT',len(independent))
+                  print('LIVE_HELPER_PREPAYMENT_COUNT',len(actual))
+                  print('LIVE_SQL_HELPER_SET_EQUAL',actual==independent)
                   if actual!=independent or len(actual)<3 or len(active)<5:
                       raise SystemExit('LIVE_DURABLE_PREPAYMENT_REGRESSION')
                   print('LIVE_ACTIVE_SKIP_COUNT',len(active))
