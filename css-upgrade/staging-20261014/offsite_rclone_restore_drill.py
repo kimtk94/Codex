@@ -56,7 +56,7 @@ def inspect(path,kind):
         if db.execute("PRAGMA foreign_key_check").fetchone():
             raise RuntimeError("SQLITE_FOREIGN_KEY_"+kind)
         tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if len(tables)<5:
+        if (kind=="project" and len(tables)<5) or (kind=="mail" and len(tables)<1):
             raise RuntimeError("SQLITE_TOO_FEW_TABLES_"+kind)
         if kind=="project":
             mandatory=["contract_sif_skips","mail_ledger","project_timeline"]
