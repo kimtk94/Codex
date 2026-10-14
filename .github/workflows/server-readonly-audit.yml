@@ -29,8 +29,26 @@ jobs:
             fi
           done
           install -m 700 -d "$HOME/.ssh"
-          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/server_key"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw = os.environ["SSH_KEY"].strip()
+          if "\\n" in raw and "\n" not in raw:
+              raw = raw.replace("\\n", "\n")
+          raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+          if not (raw.startswith("-----BEGIN OPENSSH PRIVATE KEY-----") or
+                  raw.startswith("-----BEGIN RSA PRIVATE KEY-----") or
+                  raw.startswith("-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID: SERVER_SSH_KEY must contain the full private key, not a filename or public key")
+          Path.home().joinpath(".ssh/server_key").write_text(raw + "\n")
+          print("SSH_KEY_STRUCTURE_OK")
+          PY
           chmod 600 "$HOME/.ssh/server_key"
+          if ! ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1; then
+            echo "::error::SSH_KEY_UNUSABLE: malformed, incomplete, or passphrase-protected private key"
+            exit 1
+          fi
+          echo "SSH_KEY_VALIDATED"
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 \
