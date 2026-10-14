@@ -1,0 +1,90 @@
+name: Novogene CSS Synthetic Sheet Canary
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-synthetic-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 5
+    steps:
+      - name: Validate SSH credentials
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::SSH configuration missing"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw=os.environ["SSH_KEY"].strip().replace("\\n","\n").replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          (Path.home()/'.ssh/server_key').write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
+      - name: Server ADC isolated canary Sheet read/write test
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          TEST_ID='1eKMPMnRYeZB8tuPE2dblcSaHXSZ58REHPQgJSq2RIjA'
+          ORIGINAL_PRODUCTION_ID='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+          if TEST_ID == ORIGINAL_PRODUCTION_ID:
+              raise SystemExit('CANARY_PROD_ID_COLLISION')
+          try:
+              import gspread
+              import google.auth
+              credentials,project=google.auth.default(scopes=['https://www.googleapis.com/auth/spreadsheets'])
+              gc=gspread.authorize(credentials)
+          except Exception as exc:
+              raise SystemExit('CANARY_AUTH_UNAVAILABLE_'+type(exc).__name__)
+          test=gc.open_by_key(TEST_ID)
+          if test.title!='CSS SIF Upgrade Canary - Synthetic 2026-10-15':
+              raise SystemExit('CANARY_TITLE_MISMATCH')
+          hist=test.worksheet('SIF Skip History')
+          expected=['record_id','is_active','Contract No.','AMEA No.','Institution','Customer Name',
+                    'skip_reason','Prepayment','skipped_at','restored_at','reference_date',
+                    'age_days','workflow_status','tracker_visibility','history_note']
+          if hist.get('A1:O1')[0] != expected:
+              raise SystemExit('CANARY_HEADER_MISMATCH')
+          cases=hist.get('A2:O6')
+          if len(cases)!=5 or sum(str(r[7]).strip().upper()=='TRUE' for r in cases)!=3:
+              raise SystemExit('CANARY_HISTORY_COUNT_MISMATCH')
+          manual=test.worksheet('Manual Override QA')
+          manual_before=manual.get('A1:H3')
+          gate=test.worksheet('Release Gate')
+          gate_row=gate.get('A8:E8')[0]
+          if gate_row[0]!='G07':
+              raise SystemExit('CANARY_GATE_ID_MISMATCH')
+          gate.update(range_name='C8:E8',values=[['PASS','Server ADC scoped API read/write + readback','No']],value_input_option='RAW')
+          if gate.get('C8:E8')[0]!=['PASS','Server ADC scoped API read/write + readback','No']:
+              raise SystemExit('CANARY_READBACK_MISMATCH')
+          if manual.get('A1:H3')!=manual_before:
+              raise SystemExit('CANARY_MANUAL_OVERRIDES_MODIFIED')
+          if hist.get('A1:O1')[0]!=expected:
+              raise SystemExit('CANARY_HEADER_CHANGED')
+          print('CANARY_SERVER_ADC_WRITE_PASS')
+          print('CANARY_5_ROWS_3_PREPAYMENT_PASS')
+          print('CANARY_MANUAL_OVERRIDES_PRESERVED_PASS')
+          print('CANARY_PRODUCTION_SPREADSHEET_UNTOUCHED_BY_THIS_TEST')
+          PY
