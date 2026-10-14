@@ -1,5 +1,6 @@
 """Offline broker/mirror reconciliation. No network, filesystem, or credentials."""
 from decimal import Decimal, InvalidOperation
+import math
 from broker_snapshot_contract import _utc_now, ts, validate
 
 
@@ -36,7 +37,8 @@ def reconcile(mirror, broker, tolerance="0.000001", *,
     try:
         age_limit = float(max_age_seconds)
         skew_limit = float(max_skew_seconds)
-        if not (age_limit > 0 and skew_limit >= 0):
+        if not (math.isfinite(age_limit) and math.isfinite(skew_limit) and
+                age_limit > 0 and skew_limit >= 0):
             raise ValueError("Invalid bounds")
     except (TypeError, ValueError, OverflowError):
         return {"status": "UNKNOWN", "reason": "INVALID_TIME_BOUNDS"}
