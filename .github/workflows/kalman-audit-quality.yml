@@ -1,0 +1,41 @@
+name: Kalman audit offline quality gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - audit/kalman-control-20261014
+    paths:
+      - 'audits/2026-10-14/quality/**'
+      - '.github/workflows/kalman-audit-quality.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: audits/2026-10-14/quality
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Unit tests
+        run: python3 -m unittest -v test_quality_gate.py
+      - name: Reproduce pinned snapshot
+        run: python3 quality_gate.py --at 2026-10-14T11:35:00Z --output quality_report.json
+      - name: Upload audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-quality-audit-${{ github.run_id }}
+          path: audits/2026-10-14/quality/quality_report.json
+          if-no-files-found: error
+          retention-days: 30
