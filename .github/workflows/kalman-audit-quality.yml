@@ -7,6 +7,8 @@ on:
       - audit/kalman-control-20261014
     paths:
       - 'audits/2026-10-14/quality/**'
+      - 'audits/2026-10-15/vercel_link_attestation_snapshot.json'
+      - 'kalman-toss-gateway/scripts/build_investment_hub_v7424_execution_telemetry.py'
       - '.github/workflows/kalman-audit-quality.yml'
 
 permissions:
@@ -45,7 +47,7 @@ jobs:
       - name: Install pinned isolated replay dependencies
         run: python3 -m pip install 'psycopg[binary]==3.2.10' 'python-dotenv==1.1.1'
       - name: Unit tests
-        run: python3 -m unittest -v test_quality_gate.py test_reconcile_offline.py test_broker_snapshot_contract.py test_broker_cache_preflight.py test_broker_audit_get.py test_broker_status_evidence.py test_trade_status_projection_regression.py test_net_return_coverage.py test_position_link_contract.py test_order_position_link_integration.py test_multileg_cashflow.py test_fee_provenance.py test_toss_order_fee_schema.py test_multileg_randomized.py
+        run: python3 -m unittest -v test_quality_gate.py test_reconcile_offline.py test_broker_snapshot_contract.py test_broker_cache_preflight.py test_broker_audit_get.py test_broker_status_evidence.py test_trade_status_projection_regression.py test_net_return_coverage.py test_position_link_contract.py test_order_position_link_integration.py test_multileg_cashflow.py test_fee_provenance.py test_toss_order_fee_schema.py test_multileg_randomized.py test_investment_hub_net_display.py test_deployment_source_gate.py
       - name: Synthetic SQLite to disposable PostgreSQL mirror integration
         env:
           KALMAN_AUDIT_E2E: '1'
