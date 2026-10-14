@@ -18,9 +18,10 @@
 | G04 | Independent Google Sheets synthetic output 5/3 + readback | PASS | [Canary](https://docs.google.com/spreadsheets/d/1eKMPMnRYeZB8tuPE2dblcSaHXSZ58REHPQgJSq2RIjA/edit) |
 | G05 | Actual server ADC gspread write to **canary only** | PASS | [run](https://github.com/kimtk94/Codex/actions/runs/38595199510) |
 | G06 | Current live SQLite snapshot -> temporary DB restoration and integrity | PASS | [run](https://github.com/kimtk94/Codex/actions/runs/38595531615) |
+| G07 | Historical offsite Drive project DB restore | PARTIAL | Historical 21:24 KST project DB restored, integrity PASS, latest/mail backups outstanding |
 
 ## Unresolved release blockers
-1. **Offsite Google Drive backup restore:** Copy a selected recent historical *Drive* backup to isolated storage, verify complete bytes/SHA, restore, and compare schema and counts. Temporary snapshot restore above is not an offsite restore.
+1. **Offsite Google Drive backup restore:** A historical project-manager Drive backup (`2026-10-14 21:24 KST`) was restored from its previously downloaded copy: integrity PASS, 26 tables, FK=0, 5 active SIF skips. **PARTIAL:** the newest Drive backup and the large mail DB remain untested; Google Drive did not expose a remote checksum for byte-level origin matching. All remain release blockers until complete.
 2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
 3. **Safe rollout approval + rollback rehearsal:** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
 4. **System service wrappers:** Confirm the `v8.92.1-server-local-adc` wrapper, systemd/cron schedules and 10-minute mail collector interactions before a controlled run.
