@@ -59,7 +59,9 @@ class FeeEvidenceTests(unittest.TestCase):
         x=quality("BUY",None,{})
         self.assertIsNone(x["tax"])
         self.assertIsNone(x["commission"])
-        self.assertEqual(net(x,y,position=position())["quality_status"],"INCOMPLETE_FEE_EVIDENCE")
+        # A completely absent broker payload fails earlier on fill-quantity
+        # coverage. That is more specific and should not be downgraded.
+        self.assertEqual(net(x,y,position=position())["quality_status"],"INCOMPLETE_LEG_COVERAGE")
 
     def test_negative_fee_is_unverified(self):
         x,y=inputs()
