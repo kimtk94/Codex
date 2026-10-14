@@ -36,8 +36,16 @@
 - These tests cover selected *real SIF functions*, not full CSS `main()`. New manual-state preservation should be a mandatory rollout acceptance criterion, not merely a shadow fixture.
 - [Detailed large-batch report](LARGE_SCALE_VALIDATION.md). A formal dual-patch bundle and a full E2E isolation gate remain pending.
 
+## Offsite restore and full backup policy completed (2026-10-15)
+
+- [Drive project **AND mail** offsite recovery PASS](https://github.com/kimtk94/Codex/actions/runs/38643175074): both newest backups copied with existing rclone credentials; MD5 matched Google Drive, `integrity_check` and foreign keys PASS before/after isolated SQLite restore, source/restored row counts agree. Project: 26 tables, 40,444 ledger / 4,777 timeline; Mail: 3 tables, 40,444 messages.
+- [Full 984-file Drive backup retention analysis](https://github.com/kimtk94/Codex/actions/runs/38643111610): 271.690 GiB stored; hourly/daily/weekly/monthly model protects 64 copies (12.872 GiB) and marks 920 copies (258.818 GiB) for **review only**. **No deletion or remote write**.
+- [Full restore and inventory report](OFFSITE_BACKUP_RESTORE_FULL_INVENTORY_20261015.md).
+- **No additional Google Drive folder permissions** were granted. Existing authorized rclone was used.
+- Latest individual project and mail backup restore condition is now **PASS**. Operational disaster recovery of an entire host, backup retention approval and a production application rollout remain separate tests.
+
 ## Unresolved release blockers
-1. **Offsite Google Drive backup restore:** A historical project-manager Drive backup (`2026-10-14 21:24 KST`) was restored from its previously downloaded copy: integrity PASS, 26 tables, FK=0, 5 active SIF skips. **PARTIAL:** the newest Drive backup and the large mail DB remain untested; Google Drive did not expose a remote checksum for byte-level origin matching. All remain release blockers until complete.
+1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
 3. **Safe rollout approval + rollback rehearsal (two patches):** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
 4. **System service wrappers:** Confirm the `v8.92.1-server-local-adc` wrapper, systemd/cron schedules and 10-minute mail collector interactions before a controlled run.
