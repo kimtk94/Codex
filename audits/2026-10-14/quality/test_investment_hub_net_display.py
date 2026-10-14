@@ -66,7 +66,7 @@ process.stdout.write(JSON.stringify({html:box.innerHTML,state:state.textContent}
         text=self.render(self.base())
         self.assertNotIn("198.70%",text)
         self.assertNotIn("198.69%",text)
-        self.assertIn("검증 전",text)
+        self.assertIn('<td class="">검증 전</td>',text)
         self.assertIn("-0.21%",text)
 
     def test_legacy_local_quality_covered_does_not_authorize(self):
@@ -76,7 +76,7 @@ process.stdout.write(JSON.stringify({html:box.innerHTML,state:state.textContent}
         row["fee_currency_verified"]=True
         row["position_fill_coverage_verified"]=True
         self.assertNotIn("198.70%",self.render(row))
-        self.assertIn("검증 전",self.render(row))
+        self.assertIn('<td class="">검증 전</td>',self.render(row))
 
     def test_fake_broker_reconciled_without_all_fields_masked(self):
         for field in ("independent_order_manifest_verified","fee_currency_verified",
@@ -89,7 +89,7 @@ process.stdout.write(JSON.stringify({html:box.innerHTML,state:state.textContent}
                            position_fill_coverage_verified=True)
                 row[field]=False
                 html=self.render(row)
-                self.assertIn("검증 전",html)
+                self.assertIn('<td class="">검증 전</td>',html)
                 self.assertNotIn("198.70%",html)
 
     def test_all_flags_attested_allows_pure_display_helper(self):
@@ -100,7 +100,7 @@ process.stdout.write(JSON.stringify({html:box.innerHTML,state:state.textContent}
                    position_fill_coverage_verified=True)
         html=self.render(row)
         self.assertIn("198.70%",html)
-        self.assertNotIn("검증 전",html)
+        self.assertIn('<td class="good">198.70%</td>',html)
         # This checks renderer behavior only, NOT that an external source
         # truly verified the flags.
 
@@ -113,7 +113,7 @@ process.stdout.write(JSON.stringify({html:box.innerHTML,state:state.textContent}
         for val in (None, "", "NaN", "Infinity"):
             with self.subTest(value=val):
                 row["net_return"]=val
-                self.assertIn("검증 전",self.render(row))
+                self.assertIn('<td class="">검증 전</td>',self.render(row))
 
 
 if __name__=="__main__":
