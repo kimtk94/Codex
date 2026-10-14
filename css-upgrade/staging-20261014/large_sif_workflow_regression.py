@@ -34,6 +34,14 @@ def staging(source,patch1,patch2,folder):
     txt=path.read_text()
     ast.parse(txt)
     require("v8.92.1-server-local-adc" in txt,"runtime_version_preserved")
+    print("COMBINED_PATCH_SHA256",hashlib.sha256(path.read_bytes()).hexdigest())
+    # Validate exact rollback of BOTH patches in inverse order, on temp copy only.
+    for p in (patch2,patch1):
+        for flags in (("-R","--check"),("-R",)):
+            out=subprocess.run(["git","apply",*flags,str(Path(p).resolve())],
+                 cwd=folder,capture_output=True,text=True,timeout=60)
+            require(out.returncode==0,"reverse_"+str(Path(p).name)+"_"+str(flags[-1]))
+    require(path.read_bytes()==raw,"two_patch_rollback_byte_exact")
     return txt
 
 def load_functions(txt):
