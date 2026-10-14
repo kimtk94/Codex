@@ -22,6 +22,13 @@ Manual overrides take precedence until a user releases them, at which point the 
 - [Canary spreadsheet](https://docs.google.com/spreadsheets/d/1eKMPMnRYeZB8tuPE2dblcSaHXSZ58REHPQgJSq2RIjA/edit): `SIF 1200 Load Canary` tab is test-only and contains synthetic data.
 - [Dual-patch rollback/byte-integrity follow-up](https://github.com/kimtk94/Codex/actions/runs/38640063806): tests temporary copy reversal of both patches; inspect Actions conclusion before calling this gate PASS.
 
+## Latest expanded validation — 2026-10-15
+
+- [**51/51 real workflow assertions PASS**](https://github.com/kimtk94/Codex/actions/runs/38644452604) across 1,200 synthetic project records. In addition to the existing 39 checks, the exact `main()` Prepayment filtering branch (extracted by AST, without running `main()`) is executed against synthetic DataFrames and in-memory SQLite.
+- Verified active SIF Prepayment projects are **excluded from the Active Dashboard**, not merely flagged attention=No; non-Prepayment and QC projects remain visible, and advancing an excluded project to QC causes it to reappear.
+- `main()` branch stable across identical reruns, removes zero rows when no Prepayment projects are present, and reports exact excluded project count / IDs.
+- [**22/22 consolidated server release checks PASS**](https://github.com/kimtk94/Codex/actions/runs/38644135441): exact server source SHA, compilation, 433 existing functions retained, patch apply and byte-exact reverse, DB read-only integrity, no live source/DB write. Deployment intentionally remains BLOCKED.
+
 ## Important limits
 - Google Sheets `overwrite_dataframe_if_changed` uses the actual production function and real gspread API, but some sheet layout, obsolete-tail clearing, cache and hash helpers are mocked to avoid canary touching unrelated tabs. This is **not** a production-equivalent full CSS engine execution.
 - The 1,200-record load is artificial and does not measure actual mail collector correctness, network faults, Salesforce sync, cross-service lock contention, or business SLA metrics.
