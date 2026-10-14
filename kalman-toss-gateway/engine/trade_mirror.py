@@ -125,7 +125,54 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
     }
 
 
-def _round_trip_quality(entry_quality: dict, exit_quality: dict) -> dict:
+def _round_trip_quality(
+    entry_quality: dict, exit_quality: dict, *, position: dict | None = None,
+) -> dict:
+    """Net return requires full entry AND exit execution/fee coverage.
+
+    An add-on changes managed position quantities, but entry telemetry usually
+    refers only to the first entry order. Treat incomplete coverage as UNKNOWN
+    rather than calculating fictitious multi-bagger net returns.
+    """
+    if position is not None:
+        if str(position.get("state") or "").upper() != "CLOSED":
+            return {"quality_status": "POSITION_NOT_CLOSED", "net_return": None}
+        expected_entry = _dec(position.get("entry_filled_quantity"))
+        remaining = _dec(position.get("remaining_quantity"))
+        expected_exit = (
+            expected_entry - remaining
+            if expected_entry is not None and remaining is not None
+            else None
+        )
+        observed_entry = _dec(entry_quality.get("filled_quantity"))
+        observed_exit = _dec(exit_quality.get("filled_quantity"))
+        complete = (
+            expected_entry is not None and expected_entry > 0
+            and expected_exit is not None and expected_exit > 0
+            and observed_entry is not None and observed_exit is not None
+            and abs(expected_entry - observed_entry) <= Decimal("0.00000001")
+            and abs(expected_exit - observed_exit) <= Decimal("0.00000001")
+        )
+        if not complete:
+            entry_avg = _dec(position.get("entry_avg_fill_price"))
+            exit_avg = _dec(position.get("exit_avg_fill_price"))
+            gross = (
+                exit_avg / entry_avg - Decimal("1")
+                if entry_avg is not None and exit_avg is not None and entry_avg > 0
+                else None
+            )
+            return {
+                "quality_status": "INCOMPLETE_LEG_COVERAGE",
+                "gross_return": float(gross) if gross is not None else None,
+                "gross_return_pct": float(gross * 100) if gross is not None else None,
+                "net_return": None,
+                "net_return_pct": None,
+                "round_trip_cost_bps": None,
+                "entry_covered_quantity": float(observed_entry) if observed_entry is not None else None,
+                "entry_position_quantity": float(expected_entry) if expected_entry is not None else None,
+                "exit_covered_quantity": float(observed_exit) if observed_exit is not None else None,
+                "exit_position_quantity": float(expected_exit) if expected_exit is not None else None,
+            }
     entry_amount = _dec(entry_quality.get("exact_notional")) or _dec(entry_quality.get("filled_amount"))
     exit_amount = _dec(exit_quality.get("exact_notional")) or _dec(exit_quality.get("filled_amount"))
     if entry_amount is None or exit_amount is None or entry_amount <= 0:
@@ -139,6 +186,7 @@ def _round_trip_quality(entry_quality: dict, exit_quality: dict) -> dict:
         net_return = (exit_amount - exit_cost) / net_denominator - Decimal("1")
     total_cost = entry_cost + exit_cost
     return {
+        "quality_status": "FULL_LEG_COVERAGE",
         "gross_return": float(gross_return),
         "net_return": float(net_return) if net_return is not None else None,
         "gross_return_pct": float(gross_return * Decimal("100")),
@@ -190,7 +238,7 @@ def main() -> int:
                 exit_telemetry = _json_dict(exit_order.get("telemetry_json"))
                 entry_quality = _execution_quality("BUY", p.get("entry_avg_fill_price"), entry_telemetry)
                 exit_quality = _execution_quality("SELL", p.get("exit_avg_fill_price"), exit_telemetry)
-                round_trip_quality = _round_trip_quality(entry_quality, exit_quality)
+                round_trip_quality = _round_trip_quality(entry_quality, exit_quality, position=p)
 
                 cur.execute(
                     """
