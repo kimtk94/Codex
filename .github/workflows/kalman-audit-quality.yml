@@ -15,7 +15,21 @@ permissions:
 jobs:
   offline-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: audit
+          POSTGRES_PASSWORD: audit
+          POSTGRES_DB: kalman_audit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U audit -d kalman_audit"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     defaults:
       run:
         working-directory: audits/2026-10-14/quality
@@ -28,8 +42,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install pinned isolated replay dependencies
+        run: python3 -m pip install 'psycopg[binary]==3.2.10' 'python-dotenv==1.1.1'
       - name: Unit tests
         run: python3 -m unittest -v test_quality_gate.py test_reconcile_offline.py test_broker_snapshot_contract.py test_broker_cache_preflight.py test_broker_audit_get.py test_broker_status_evidence.py test_trade_status_projection_regression.py test_net_return_coverage.py test_position_link_contract.py test_order_position_link_integration.py test_multileg_cashflow.py test_fee_provenance.py test_toss_order_fee_schema.py
+      - name: Synthetic SQLite to disposable PostgreSQL mirror integration
+        env:
+          KALMAN_AUDIT_E2E: '1'
+          KALMAN_AUDIT_PG_DSN: postgresql://audit:audit@127.0.0.1:5432/kalman_audit
+        run: python3 -m unittest -v test_shadow_mirror_postgres.py
       - name: Compile audit-branch mirror patch
         run: python3 -m py_compile ../../../kalman-toss-gateway/engine/broker_status_evidence.py ../../../kalman-toss-gateway/engine/order_position_link.py ../../../kalman-toss-gateway/engine/auto_trade.py ../../../kalman-toss-gateway/engine/trade_mirror.py
       - name: Reproduce pinned snapshot
