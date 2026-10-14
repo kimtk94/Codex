@@ -141,6 +141,8 @@ class ShadowMirrorPostgres(unittest.TestCase):
         cls.con = psycopg.connect(DSN)
         with cls.con.cursor() as cur:
             cur.execute(SCHEMA.read_text(encoding="utf-8"))
+            cur.execute(SCHEMA.with_name("captured_live_trade_ledger_view.sql").read_text(encoding="utf-8"))
+            cur.execute(SCHEMA.with_name("guarded_live_ledger_candidate.sql").read_text(encoding="utf-8"))
             cur.execute("TRUNCATE TABLE trade_execution, managed_position_mirror")
         cls.con.commit()
         cls.run_mirror()
@@ -275,6 +277,100 @@ class ShadowMirrorPostgres(unittest.TestCase):
           SELECT count(*) FROM trade_execution
           WHERE client_order_id='orphan-15' AND filled_quantity IS NULL
             AND status='SUBMITTED'
+        """)[0],1)
+
+    def test_real_neon_view_sql_reads_40_positions_with_fraction_returns(self):
+        count=self.one("SELECT count(*) FROM v_live_trade_ledger")[0]
+        self.assertEqual(count,40)
+        row=self.one("""
+          SELECT realized_return_pct, net_return
+          FROM v_live_trade_ledger WHERE position_id='pos-lrcx-audit'
+        """)
+        self.assertLess(row[0],0)
+        self.assertGreater(row[0],-0.03)
+        self.assertIsNone(row[1])
+
+    def test_release_gate_masked_until_independent_manifest_evidence(self):
+        self.assertEqual(self.one("""
+          SELECT count(*) FROM v_live_trade_ledger_guarded_candidate
+          WHERE net_return IS NOT NULL
+        """)[0],0)
+        self.assertEqual(self.one("""
+          SELECT count(*) FROM v_live_trade_ledger
+          WHERE net_return IS NOT NULL
+        """)[0],37)
+        self.assertEqual(self.one("""
+          SELECT count(*) FROM v_live_trade_ledger_guarded_candidate
+          WHERE net_return_evidence_status='UNVERIFIED'
+        """)[0],40)
+
+    def test_disposable_explicit_manifest_allows_one_synthetic_position(self):
+        # Attestation below is synthetic ONLY. No production records or migration.
+        with self.con.cursor() as cur:
+            cur.execute("""
+              UPDATE managed_position_mirror
+              SET metadata=jsonb_set(metadata,
+                '{execution_quality,round_trip,independent_order_manifest_verified}',
+                'true'::jsonb, true)
+              WHERE position_id='pos-shadow-001'
+            """)
+            cur.execute("""
+              SELECT net_return,net_return_evidence_status
+              FROM v_live_trade_ledger_guarded_candidate
+              WHERE position_id='pos-shadow-001'
+            """)
+            row=cur.fetchone()
+        self.assertIsNotNone(row[0])
+        self.assertEqual(row[1],'LOCAL_PROVENANCE_ATTESTED')
+        self.con.rollback()  # Never persist synthetic eligibility evidence.
+
+    def test_legacy_corrupted_net_is_masked_by_candidate_consumer(self):
+        # Simulates old 100%+ net-return metadata in shadow DB only.
+        with self.con.cursor() as cur:
+            cur.execute("""
+              UPDATE managed_position_mirror
+              SET metadata=jsonb_set(metadata,
+                '{execution_quality,round_trip,net_return}',
+                '1.98697'::jsonb, true)
+              WHERE position_id='pos-lrcx-audit'
+            """)
+            cur.execute("""
+              SELECT net_return FROM v_live_trade_ledger
+              WHERE position_id='pos-lrcx-audit'
+            """)
+            old=cur.fetchone()[0]
+            cur.execute("""
+              SELECT net_return,net_return_evidence_status
+              FROM v_live_trade_ledger_guarded_candidate
+              WHERE position_id='pos-lrcx-audit'
+            """)
+            safe=cur.fetchone()
+        self.assertAlmostEqual(float(old),1.98697)
+        self.assertIsNone(safe[0])
+        self.assertEqual(safe[1],"UNVERIFIED")
+        self.con.rollback()
+
+    def test_observed_production_schema_constraints_are_present(self):
+        self.assertEqual(self.one("""
+          SELECT count(*) FROM pg_constraint
+          WHERE conrelid='trade_execution'::regclass
+            AND conname IN ('trade_execution_market_check',
+                            'trade_execution_side_check',
+                            'trade_execution_execution_mode_check',
+                            'trade_execution_client_order_id_key',
+                            'trade_execution_pkey')
+        """)[0],5)
+        self.assertEqual(self.one("""
+          SELECT count(*) FROM pg_indexes
+          WHERE tablename='trade_execution'
+            AND indexname IN ('idx_trade_execution_symbol_updated',
+                              'idx_trade_execution_position')
+        """)[0],2)
+        self.assertEqual(self.one("""
+          SELECT count(*) FROM information_schema.columns
+          WHERE table_name='trade_execution'
+            AND column_name='execution_id'
+            AND data_type='uuid'
         """)[0],1)
 
     def test_repeated_mirror_run_is_idempotent(self):
