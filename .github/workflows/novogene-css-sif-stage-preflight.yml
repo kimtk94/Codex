@@ -50,6 +50,8 @@ jobs:
           SSH_USER: ${{ secrets.SERVER_SSH_USER }}
         run: |
           REMOTE_PATCH="/tmp/novogene-css-sif-stage-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.patch"
+          # Remove only this run's temporary patch and two artifacts from earlier failed attempts.
+          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f $REMOTE_PATCH /tmp/novogene-css-sif-stage-38583895224-1.patch /tmp/novogene-css-sif-stage-38584026980-1.patch" >/dev/null 2>&1 || true' EXIT
           scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
             -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             "css-upgrade/staging-20261014/novogene_sif_history_candidate.patch" \
@@ -104,6 +106,25 @@ jobs:
                   raise SystemExit('DURABLE_PREPAYMENT_CHECK_FAILED')
               if b'v8.92.1-server-local-adc' not in candidate:
                   raise SystemExit('SERVER_RUNTIME_VERSION_NOT_PRESERVED')
+              # Extract only the newly added helper; never execute the module's top-level code.
+              helper=next(n for n in new.body if isinstance(n,ast.FunctionDef)
+                          and n.name=='collect_active_prepayment_project_ids')
+              namespace={
+                  'load_active_contract_sif_skips':lambda conn: {
+                      'one': {'skip_reason':'Prepayment - manual', 'snapshot':{'project_id':'AMEA2026100001'}},
+                      'two': {'skip_reason':'', 'snapshot':{'project_id':'AMEA2026100002','Prepayment':True}},
+                      'three': {'skip_reason':'Other','snapshot':{'project_id':'AMEA2026100003','Prepayment':False}},
+                  },
+                  'normalize_text': lambda value:str(value or '').strip().lower(),
+                  'checkbox_is_checked':lambda value: str(value).strip().lower() in ('true','yes','1'),
+                  'canonical_sif_project_id':lambda value:str(value or '').strip().upper(),
+                  'SAMPLE_INTAKE_PREPAYMENT_COLUMN':'Prepayment',
+              }
+              exec(compile(ast.Module(body=[helper],type_ignores=[]),'helper','exec'),namespace)
+              observed=namespace['collect_active_prepayment_project_ids'](None)
+              if observed != {'AMEA2026100001','AMEA2026100002'}:
+                  raise SystemExit('PREPAYMENT_FUNCTIONAL_TEST_FAILED')
+              print('PREPAYMENT_FUNCTIONAL_TEST_PASS')
               if apply('-R','--check').returncode or apply('-R').returncode:
                   raise SystemExit('PATCH_REVERSE_FAILED')
               if sha(staged.read_bytes())!=expected:
