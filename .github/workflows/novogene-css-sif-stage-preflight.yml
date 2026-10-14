@@ -164,7 +164,7 @@ jobs:
                       if not isinstance(snapshot,dict):
                           snapshot={}
                       if str(reason or '').strip().lower().startswith('prepayment') or is_true(snapshot.get('Prepayment')):
-                          match=re.search(r'\\bAMEA\\d{10}\\b',str(snapshot.get('project_id') or snapshot.get('AMEA No.') or '').upper())
+                          match=re.search(r'\bAMEA\d{10}\b',str(snapshot.get('project_id') or snapshot.get('AMEA No.') or '').upper())
                           if match:
                               independent.add(match.group())
                   load_fn=next(n for n in new.body if isinstance(n,ast.FunctionDef)
@@ -174,8 +174,8 @@ jobs:
                       'clean_text':lambda value: '' if value is None else str(value).strip(),
                       'normalize_text':lambda value:str(value or '').strip().lower(),
                       'checkbox_is_checked':is_true,
-                      'canonical_sif_project_id':lambda value:(re.search(r'\\bAMEA\\d{10}\\b',str(value or '').upper()).group()
-                         if re.search(r'\\bAMEA\\d{10}\\b',str(value or '').upper()) else ''),
+                      'canonical_sif_project_id':lambda value:(re.search(r'\bAMEA\d{10}\b',str(value or '').upper()).group()
+                         if re.search(r'\bAMEA\d{10}\b',str(value or '').upper()) else ''),
                       'SAMPLE_INTAKE_PREPAYMENT_COLUMN':'Prepayment',
                   }
                   exec(compile(ast.Module(body=[load_fn,helper],type_ignores=[]),'live-helpers','exec'),live_namespace)
