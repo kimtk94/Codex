@@ -15,7 +15,9 @@ FUNCS = [x for x in TREE.body if isinstance(x, ast.FunctionDef)
          and x.name in {"_dec", "_round_trip_quality"}]
 ns = {"Decimal": Decimal}
 exec(compile(ast.Module(body=FUNCS, type_ignores=[]), str(FILE), "exec"), ns)
-round_trip = ns["_round_trip_quality"]
+def round_trip(entry, exit, *, position=None, broker_fills_verified=True):
+    return ns["_round_trip_quality"](entry, exit, position=position,
+                                      broker_fills_verified=broker_fills_verified)
 
 
 def position(total="0.049034", remaining="0", entry_price="295.9079954725292654",
@@ -55,6 +57,13 @@ class NetReturnCoverage(unittest.TestCase):
         self.assertLess(result["net_return"], 0)
         self.assertGreater(result["net_return"], -0.1)
 
+    def test_nonterminal_broker_fill_blocks_complete_position(self):
+        entry = quality("0.049034", "295.9079954725292654")
+        result = round_trip(entry, self.exit, position=position(),
+                            broker_fills_verified=False)
+        self.assertEqual(result["quality_status"], "BROKER_FILL_UNVERIFIED")
+        self.assertIsNone(result["net_return"])
+
     def test_missing_entry_fill_qty_fails_closed(self):
         entry = {**self.entry, "filled_quantity": None}
         self.assertIsNone(round_trip(entry, self.exit, position=position())["net_return"])
@@ -78,7 +87,9 @@ class NetReturnCoverage(unittest.TestCase):
         self.assertEqual(result["quality_status"], "FULL_LEG_COVERAGE")
 
     def test_main_callsite_passes_full_position(self):
-        self.assertIn("_round_trip_quality(entry_quality, exit_quality, position=p)", SOURCE)
+        self.assertIn("broker_fills_verified=bool(", SOURCE)
+        self.assertIn("historical_broker_fill(entry_order, entry_telemetry)", SOURCE)
+        self.assertIn("historical_broker_fill(exit_order, exit_telemetry)", SOURCE)
 
     def test_add_on_does_not_change_aggregate_position(self):
         before = position()
