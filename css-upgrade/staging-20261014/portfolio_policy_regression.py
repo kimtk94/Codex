@@ -131,9 +131,12 @@ def exercise_main(source):
           "SUMMARY_ATTENTION_COUNT_CORRECT")
 
     # Real output assignment happens after action/review/summary building.
-    restore=assignment(main,"df_dashboard")
-    check(isinstance(restore.value,ast.Name) and restore.value.id=="df_dashboard_portfolio",
-          "SHEET_OUTPUT_RESTORES_PORTFOLIO")
+    restore_nodes=[n for n in ast.walk(main)
+         if isinstance(n,ast.Assign)
+         and any(isinstance(t,ast.Name) and t.id=="df_dashboard" for t in n.targets)
+         and isinstance(n.value,ast.Name) and n.value.id=="df_dashboard_portfolio"]
+    check(len(restore_nodes)==1,"SHEET_OUTPUT_RESTORES_PORTFOLIO")
+    restore=restore_nodes[0]
     execnode(restore,env,"portfolio_restore")
     check(len(env["df_dashboard"])==N,"DASHBOARD_SHEET_1200_ROWS")
     check(env["df_dashboard"]["attention"].eq("Yes").sum()==len(unsuppressed),
