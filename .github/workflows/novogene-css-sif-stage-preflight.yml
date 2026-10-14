@@ -81,7 +81,11 @@ jobs:
               def apply(*args):
                   return subprocess.run(['git','apply',*args,str(patch)],cwd=stage,text=True,
                                         capture_output=True,timeout=90)
-              if apply('--check','--whitespace=error').returncode:
+              check=apply('--check','--whitespace=error')
+              if check.returncode:
+                  for line in check.stderr.splitlines():
+                      if ('patch failed' in line or 'patch does not apply' in line or 'error:' in line):
+                          print('PATCH_CONTEXT_DIAGNOSTIC', line[:180])
                   raise SystemExit('PATCH_CONTEXT_CONFLICT: patch not applicable to current server file')
               if apply('--whitespace=error').returncode:
                   raise SystemExit('PATCH_APPLY_FAILED')
