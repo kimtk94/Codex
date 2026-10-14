@@ -79,8 +79,8 @@ class TestReconcile(unittest.TestCase):
         self.assertIn("STALE_BROKER_SNAPSHOT", result["errors"])
 
     def test_snapshot_time_skew(self):
-        b = {**self.broker, "captured_at": "2026-10-14T12:25:50Z"}
-        self.assertEqual(self.check(broker=b)["reason"], "SNAPSHOT_TIME_SKEW")
+        b = {**self.broker, "captured_at": "2026-10-14T12:28:00Z"}
+        self.assertEqual(self.check(broker=b, max_skew_seconds=120)["reason"], "SNAPSHOT_TIME_SKEW")
 
     def test_bad_submitted_count(self):
         self.assertEqual(self.check(expected_submitted=-1)["reason"],
