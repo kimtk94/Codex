@@ -1,0 +1,81 @@
+name: Novogene CSS Server Fingerprint (Read Only)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/audit-triggers/css-fingerprint-*'
+
+permissions:
+  contents: read
+
+jobs:
+  fingerprint:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 5
+    steps:
+      - name: Validate SSH key and known hosts
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::Missing SSH secret"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw = os.environ["SSH_KEY"].strip().replace("\\n", "\n").replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          Path.home().joinpath(".ssh/server_key").write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" >/dev/null 2>&1 || exit 1
+
+      - name: Read-only CSS source fingerprints
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          from pathlib import Path
+          import hashlib
+          import os
+          from datetime import datetime, timezone
+
+          target = "Novogene_Mail_CSS_DashBoard.py"
+          roots = [Path("/home/taehoon"), Path("/srv"), Path("/opt")]
+          skips = {".git", ".venv", "venv", "node_modules", "__pycache__", ".cache"}
+          matches = []
+          for root in roots:
+              if not root.is_dir():
+                  continue
+              for current, dirs, files in os.walk(root):
+                  dirs[:] = [d for d in dirs if d not in skips]
+                  if target in files:
+                      matches.append(Path(current) / target)
+                  if len(matches) >= 15:
+                      break
+              if len(matches) >= 15:
+                  break
+          print("CSS_FINGERPRINT_AUDIT_UTC", datetime.now(timezone.utc).isoformat())
+          print("SOURCE_MATCH_COUNT", len(matches))
+          for path in matches:
+              try:
+                  data = path.read_bytes()
+                  digest = hashlib.sha256(data).hexdigest()
+                  version = next((line.strip()[:180] for line in data.decode("utf-8", errors="replace").splitlines() if line.lstrip().startswith("CODE_VERSION =")), "UNKNOWN")
+                  print("SOURCE", str(path), "BYTES", len(data), "SHA256", digest, "VERSION", version)
+              except (OSError, PermissionError) as exc:
+                  print("SOURCE_READ_FAILURE", str(path), type(exc).__name__)
+          print("NO_FILES_MODIFIED")
+          PY
