@@ -113,6 +113,29 @@ def exercise_main(source):
           and ast.unparse(summary.value.args[1])=="df_dashboard_portfolio",
           "SUMMARY_USES_FULL_PORTFOLIO")
 
+    action_calls=[n for n in ast.walk(main)
+        if isinstance(n,ast.Assign)
+        and isinstance(n.value,ast.Call)
+        and ast.unparse(n.value.func)=="build_action_center_output"]
+    review_calls=[n for n in ast.walk(main)
+        if isinstance(n,ast.Assign)
+        and isinstance(n.value,ast.Call)
+        and ast.unparse(n.value.func)=="build_review_queue_output"]
+    check(len(action_calls)==1 and len(review_calls)==1,
+          "ACTION_REVIEW_OUTPUT_CALLS_FOUND")
+    check(ast.unparse(action_calls[0].value.args[0])=="df_dashboard_portfolio",
+          "ACTION_CENTER_FULL_CUSTOMER_CONTEXT")
+    check(ast.unparse(review_calls[0].value.args[0])=="df_dashboard_portfolio",
+          "REVIEW_QUEUE_FULL_CUSTOMER_CONTEXT")
+    # The suppression is in the view-level 'attention' value. Independent
+    # unanswered/CRM/manual task sources are passed unchanged to the builders.
+    unchanged_fields={"df_unanswered","df_salesforce_leads",
+        "df_salesforce_enquiries","df_manual_issues"}
+    arg_names={ast.unparse(a) for a in action_calls[0].value.args}
+    kw_names={ast.unparse(k.value) for k in action_calls[0].value.keywords}
+    check(unchanged_fields.issubset(arg_names|kw_names),
+          "INDEPENDENT_ACTION_SOURCES_REMAIN_CONNECTED")
+
     recorded={}
     env.update({
         "df_invoice_list":pd.DataFrame(),
@@ -172,11 +195,12 @@ def main():
     parser.add_argument("--history",required=True)
     parser.add_argument("--manual",required=True)
     parser.add_argument("--portfolio",required=True)
+    parser.add_argument("--independent",required=True)
     args=parser.parse_args()
     original=Path(args.source).read_bytes()
     check(hashlib.sha256(original).hexdigest()==EXPECTED_ORIGINAL,
           "PRODUCTION_SOURCE_SHA_UNCHANGED")
-    patches=[Path(args.history).resolve(),Path(args.manual).resolve(),Path(args.portfolio).resolve()]
+    patches=[Path(args.history).resolve(),Path(args.manual).resolve(),Path(args.portfolio).resolve(),Path(args.independent).resolve()]
     with tempfile.TemporaryDirectory(prefix="css-portfolio-") as td:
         staged=Path(td)/"Novogene_Mail_CSS_DashBoard.py"
         staged.write_bytes(original)
@@ -190,7 +214,7 @@ def main():
         b=staged.read_bytes()
         compile(ast.parse(b),"staged_portfolio.py","exec")
         print("PORTFOLIO_COMBINED_SHA256",hashlib.sha256(b).hexdigest(),flush=True)
-        check(True,"TRIPLE_PATCH_COMPILE")
+        check(True,"FOUR_PATCH_COMPILE")
         exercise_main(b)
         for i,patch in reversed(list(enumerate(patches,1))):
             for flags in (("-R","--check"),("-R",)):
@@ -199,7 +223,7 @@ def main():
                 if proc.returncode:
                     raise RuntimeError("REVERSE_FAILED_"+str(i)+"_"+str(flags))
                 check(True,"REVERSE_"+str(i)+"_"+("CHECK" if "--check" in flags else "APPLY"))
-        check(staged.read_bytes()==original,"TRIPLE_PATCH_ROLLBACK_BYTE_EXACT")
+        check(staged.read_bytes()==original,"FOUR_PATCH_ROLLBACK_BYTE_EXACT")
     check(hashlib.sha256(Path(args.source).read_bytes()).hexdigest()==EXPECTED_ORIGINAL,
           "PRODUCTION_SOURCE_NEVER_CHANGED")
     print("PORTFOLIO_ACTION_SPLIT_ALL_PASS",len(results),flush=True)
