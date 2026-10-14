@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/novogene-css-portfolio-policy-regression.yml'
       - 'css-upgrade/staging-20261014/portfolio_policy_regression.py'
+      - 'css-upgrade/staging-20261014/novogene_sif_portfolio_visibility.patch'
       - 'css-upgrade/staging-20261014/novogene_sif_manual_override_collision.patch'
 
 permissions:
