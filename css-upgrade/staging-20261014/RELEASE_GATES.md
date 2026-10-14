@@ -28,10 +28,18 @@
 - [Real-server import/main block check](https://github.com/kimtk94/Codex/actions/runs/38638533644): CSS import, mail collector import, and full-main are blocked by the test policy; operational modules are **not actually imported or run**.
 - See [isolation matrix](ISOLATION_MATRIX.md) for all required sink interception and network isolation. **Passing the guard tests does not imply the complete pipeline is isolated.**
 
+## Large-batch integration upgrade (verified 2026-10-15)
+
+- New **manual override collision**: on the SAME project, automatic Prepayment `skip_prepayment` previously overwrote user mode `hold` or `skip_until_new_mail`. A narrow second patch now excludes manually controlled projects from the automatic snooze writer; separate dashboard Prepayment follow-up suppression remains active.
+- [1,200 synthetic project scenario CI](https://github.com/kimtk94/Codex/actions/runs/38640063806): **39/39 assertions PASS** including both patches applied in sequence and **byte-exact reversal**. Combined staged SHA-256: `a42d8d5a80dbb8effa0a9598236d1ea37d90ad0c5616e726aac9b0bd3b42400d`.
+- [1,200-row actual Google Sheets writer load CI](https://github.com/kimtk94/Codex/actions/runs/38639854155): **PASS**. Dedicated synthetic Canary tab stored 1,200 unique IDs, 400 Prepayment flags; actual engine data-frame writer second identical call skipped; manual QA unchanged. Google Sheets connector independently re-read all rows.
+- These tests cover selected *real SIF functions*, not full CSS `main()`. New manual-state preservation should be a mandatory rollout acceptance criterion, not merely a shadow fixture.
+- [Detailed large-batch report](LARGE_SCALE_VALIDATION.md). A formal dual-patch bundle and a full E2E isolation gate remain pending.
+
 ## Unresolved release blockers
 1. **Offsite Google Drive backup restore:** A historical project-manager Drive backup (`2026-10-14 21:24 KST`) was restored from its previously downloaded copy: integrity PASS, 26 tables, FK=0, 5 active SIF skips. **PARTIAL:** the newest Drive backup and the large mail DB remain untested; Google Drive did not expose a remote checksum for byte-level origin matching. All remain release blockers until complete.
 2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
-3. **Safe rollout approval + rollback rehearsal:** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
+3. **Safe rollout approval + rollback rehearsal (two patches):** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
 4. **System service wrappers:** Confirm the `v8.92.1-server-local-adc` wrapper, systemd/cron schedules and 10-minute mail collector interactions before a controlled run.
 
 ## Backup retention — sampled dry-run only
