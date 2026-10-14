@@ -1,0 +1,35 @@
+name: Server Read-Only Audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate SSH configuration
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          for var in SSH_HOST SSH_USER SSH_KEY SSH_KNOWN_HOSTS; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Required SSH secret is missing"
+              exit 1
+            fi
+          done
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/server_key"
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" \
+            'printf "HOST: "; hostname; printf "TIME: "; date -u; printf "DISK:\n"; df -h /; printf "MEMORY:\n"; free -h; printf "UPTIME:\n"; uptime'
