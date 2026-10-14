@@ -53,7 +53,7 @@ jobs:
           REMOTE_SCRIPT="/tmp/css-offsite-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.py"
           trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f $REMOTE_SCRIPT" >/dev/null 2>&1 || true' EXIT
           scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            css-upgrade/staging-20261014/offsite_restore_drill.py "$SSH_USER@$SSH_HOST:$REMOTE_SCRIPT"
+            css-upgrade/staging-20261014/offsite_rclone_restore_drill.py "$SSH_USER@$SSH_HOST:$REMOTE_SCRIPT"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
             -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             "$SSH_USER@$SSH_HOST" "/home/taehoon/services/novogene-css/.venv/bin/python '$REMOTE_SCRIPT' --max-minutes 13"
