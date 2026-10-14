@@ -71,3 +71,4 @@
  
          sheet_writes = {}
          sheet_writes["timeline"] = overwrite_dataframe_if_changed(
+             conn, timeline_ws, df_timeline, typed=False
