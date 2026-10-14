@@ -155,6 +155,43 @@ if __name__ == '__main__':
         self.assertEqual(audit_import_time_calls(source),())
         refuse_unsafe_import(source)
 
+    def test_main_guard_else_import_is_rejected(self):
+        source="""import sqlite3
+if __name__ == '__main__':
+    print('standalone only')
+else:
+    sqlite3.connect('import-runs-this.db')
+"""
+        self.assertEqual(audit_import_time_calls(source),("sqlite3.connect",))
+
+    def test_wrong_name_guard_never_trusted(self):
+        source="""import sqlite3
+if __name__ != '__main__':
+    sqlite3.connect('import-runs-this.db')
+"""
+        self.assertEqual(audit_import_time_calls(source),("sqlite3.connect",))
+
+    def test_import_default_arg_is_flagged(self):
+        source="""import sqlite3
+def later(db=sqlite3.connect('side-effect.db')):
+    return db
+"""
+        self.assertEqual(audit_import_time_calls(source),("sqlite3.connect",))
+
+    def test_import_class_body_is_flagged(self):
+        source="""import subprocess
+class SideEffect:
+    proc=subprocess.run(['echo','yes'])
+"""
+        self.assertEqual(audit_import_time_calls(source),("subprocess.run",))
+
+    def test_symlink_root_is_denied(self):
+        linked=self.root.parent / (self.root.name+'-alias')
+        linked.symlink_to(self.root, target_is_directory=True)
+        self.addCleanup(lambda: linked.unlink(missing_ok=True))
+        with self.assertRaises(IsolationViolation):
+            replace(self.policy,root=linked).validate()
+
     def test_full_main_always_blocked(self):
         with self.assertRaisesRegex(IsolationViolation,"FULL_MAIN_BLOCKED"):
             run_full_main()
