@@ -91,7 +91,7 @@ def build_sqlite(path):
         fee_ccy = None if i == 0 else "USD"
         order(entry_id, "broker-"+entry_id, sym, "BUY", "0.1", "100",
               context=make_context(pid, sym, run, "INITIAL", 0),
-              fee_currency=fee_ccy)
+              fee_currency=fee_ccy, valid=(i != 2))
         order(exit_id, "broker-"+exit_id, sym, "SELL", "0.1", "101",
               fee_currency=fee_ccy)
 
@@ -229,6 +229,19 @@ class ShadowMirrorPostgres(unittest.TestCase):
         self.assertEqual(result[0],"INCOMPLETE_LEG_COVERAGE")
         self.assertIsNone(result[1])
         self.assertLess(float(result[2]),0)
+
+    def test_managed_filled_without_broker_evidence_has_no_order_quantity(self):
+        row=self.one("""
+          SELECT status,filled_quantity,
+                 metadata->>'order_fill_source',
+                 metadata->>'status_source'
+          FROM trade_execution
+          WHERE client_order_id LIKE 'kalman-S002-%' AND side='BUY'
+        """)
+        self.assertEqual(row[0],"FILLED")
+        self.assertIsNone(row[1])
+        self.assertEqual(row[2],"UNVERIFIED")
+        self.assertEqual(row[3],"managed_position")
 
     def test_missing_fee_currency_is_not_zero_fee_success(self):
         row=self.one("""
