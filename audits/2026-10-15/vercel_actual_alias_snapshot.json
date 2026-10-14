@@ -1,0 +1,51 @@
+{
+  "observed_date_kst": "2026-10-15",
+  "observation_type": "Vercel GET-only alias/deployment/file-tree",
+  "target_project": "kalman-investment-hub-v2",
+  "intended_repo": "kimtk94/Codex",
+  "linked_repo": "kimtk94/IS_Analysis_V3",
+  "connected_main_git_deployment": {
+    "id": "dpl_CYit6nBjGeR4ghkmPHE7ksNKUF68",
+    "status": "READY",
+    "git_repo": "kimtk94/IS_Analysis_V3",
+    "git_commit": "2615e63e3b3c31014ea75e99b88e81b871f76ba3",
+    "is_active_main_alias": false
+  },
+  "domains": {
+    "kalman-investment-hub-v2.vercel.app": {
+      "role": "shared_api_origin",
+      "project_id": "prj_KCDIl7qLqtBloI7pjRFQk2Itq7V1",
+      "alias_deployment_id": "dpl_BJDfGryiDg2Z5AdQvVYNG9GqeV8L",
+      "source": "cli",
+      "has_api_assets_file": true,
+      "deployment_files_access": "YES",
+      "full_runtime_js_attested": false
+    },
+    "kalman-investment-hub-us.vercel.app": {
+      "role": "market_client",
+      "project_id": "prj_xvEw2HKkknxRSSj8s7mtATcz4zz2",
+      "alias_deployment_id": "dpl_FkCb25iWLwiQVy6EAk6eXxLFZAix",
+      "source": "cli",
+      "api_rewrite": "https://kalman-investment-hub-v2.vercel.app/api/:path*",
+      "full_runtime_js_attested": false
+    },
+    "kalman-investment-hub-kr.vercel.app": {
+      "role": "market_client",
+      "project_id": "prj_1nWivN1icAZCBF9CVKWeI6nYQhhp",
+      "alias_deployment_id": "dpl_HuDFT3yJrSjfpC63ZYDknB58ixkK",
+      "source": "cli",
+      "api_rewrite": "https://kalman-investment-hub-v2.vercel.app/api/:path*",
+      "full_runtime_js_attested": false
+    },
+    "kalman-investment-hub-v2-staging.vercel.app": {
+      "role": "staging",
+      "project_id": "prj_MpQ3qSpSW4QBRvw6aPvS3BYUtFFt",
+      "alias_deployment_id": "dpl_8V5GjXVpU2tEixvcNEh6hwKiY32C",
+      "full_runtime_js_attested": false
+    }
+  },
+  "historical_p1_mirror_net_returns_corrected": false,
+  "independent_broker_fee_provenance": false,
+  "server_runtime_sha_verified": false,
+  "operator_approved_production_change": false
+}
