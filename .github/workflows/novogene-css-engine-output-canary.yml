@@ -16,6 +16,7 @@ jobs:
     environment: TaehoonServer
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
       - name: Validate SSH credentials
         env:
           SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
@@ -50,7 +51,7 @@ jobs:
             css-upgrade/staging-20261014/novogene_sif_history_candidate.patch "$SSH_USER@$SSH_HOST:$REMOTE_PATCH" || exit 1
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
             -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "$SSH_USER@$SSH_HOST" "PATCH_FILE='$REMOTE_PATCH'; export PATCH_FILE; for PY in /home/taehoon/services/novogene-css/.venv/bin/python /home/taehoon/services/novogene-css/venv/bin/python /home/taehoon/services/novogene-css/app/.venv/bin/python /usr/local/bin/python3 /usr/bin/python3; do if [ -x "$PY" ] && "$PY" -c "import gspread; import google.auth" >/dev/null 2>&1; then echo "CANARY_RUNTIME_FOUND"; exec "$PY" -; fi; done; echo "CANARY_RUNTIME_MISSING"; exit 1' <<'PY'
+            "$SSH_USER@$SSH_HOST" "PATCH_FILE='$REMOTE_PATCH' /home/taehoon/services/novogene-css/.venv/bin/python -" <<'PY'
           import os
           import ast
           import hashlib
