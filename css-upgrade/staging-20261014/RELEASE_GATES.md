@@ -20,6 +20,14 @@
 | G06 | Current live SQLite snapshot -> temporary DB restoration and integrity | PASS | [run](https://github.com/kimtk94/Codex/actions/runs/38595531615) |
 | G07 | Historical offsite Drive project DB restore | PARTIAL | Historical 21:24 KST project DB restored, integrity PASS, latest/mail backups outstanding |
 
+## Additional isolation findings — verified 2026-10-15
+
+- [Production AST inventory](https://github.com/kimtk94/Codex/actions/runs/38637725484): 584 main call sites, 205 unique callees, 25 dataframe-to-sheet write sites. Counts are static call sites.
+- [Module import boundary inventory](https://github.com/kimtk94/Codex/actions/runs/38637952229): CSS module can install dependencies on import; mail collector has 139 top-level call expressions including SQLite/Sheets/Drive effects, without a canonical `__main__` guard.
+- [Synthetic fail-closed guard](https://github.com/kimtk94/Codex/actions/runs/38638413462): 19/19 tests PASS (production Sheet ID rejection, temp-path/symlink rejection, import side effects, and full-main refusal).
+- [Real-server import/main block check](https://github.com/kimtk94/Codex/actions/runs/38638533644): CSS import, mail collector import, and full-main are blocked by the test policy; operational modules are **not actually imported or run**.
+- See [isolation matrix](ISOLATION_MATRIX.md) for all required sink interception and network isolation. **Passing the guard tests does not imply the complete pipeline is isolated.**
+
 ## Unresolved release blockers
 1. **Offsite Google Drive backup restore:** A historical project-manager Drive backup (`2026-10-14 21:24 KST`) was restored from its previously downloaded copy: integrity PASS, 26 tables, FK=0, 5 active SIF skips. **PARTIAL:** the newest Drive backup and the large mail DB remain untested; Google Drive did not expose a remote checksum for byte-level origin matching. All remain release blockers until complete.
 2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
