@@ -9,6 +9,7 @@ from pathlib import Path
 import psycopg
 from psycopg.types.json import Jsonb
 from dotenv import load_dotenv
+from engine.broker_status_evidence import historical_broker_fill
 
 
 def _rows(conn: sqlite3.Connection, sql: str) -> list[dict]:
@@ -25,16 +26,26 @@ def _dec(v):
         return None
 
 
-def _execution_status(order: dict, pos: dict | None, leg: str | None) -> tuple[str | None, str]:
-    """Prefer broker-reconciled managed-position status over submission-ledger status."""
+def _execution_status(
+    order: dict, pos: dict | None, leg: str | None,
+    telemetry: dict | None = None,
+) -> tuple[str | None, str]:
+    """Prefer managed position, then verified historical broker fill, then order guard.
+
+    Broker telemetry is historical evidence, not an assertion about current open orders.
+    """
     guard_status = str(order.get("status") or "").upper() or None
     if not pos or leg not in {"ENTRY", "EXIT"}:
+        if guard_status == "SUBMITTED" and historical_broker_fill(order, telemetry):
+            return "FILLED", "broker_order_telemetry"
         return guard_status, "order_guard"
 
     status_key = "entry_status" if leg == "ENTRY" else "exit_status"
     reconciled_status = str(pos.get(status_key) or "").upper() or None
     if reconciled_status:
         return reconciled_status, "managed_position"
+    if guard_status == "SUBMITTED" and historical_broker_fill(order, telemetry):
+        return "FILLED", "broker_order_telemetry"
     return guard_status, "order_guard"
 
 
@@ -282,7 +293,11 @@ def main() -> int:
                     pos.get("entry_signal_as_of") if pos else None
                 ) or signal_context.get("signal_as_of")
                 execution_quality = _execution_quality(o.get("side"), avg, telemetry)
-                execution_status, status_source = _execution_status(o, pos, leg)
+                execution_status, status_source = _execution_status(o, pos, leg, telemetry)
+                if status_source == "broker_order_telemetry":
+                    broker_fill = historical_broker_fill(o, telemetry)
+                    filled = broker_fill["filled_quantity"]
+                    avg = broker_fill["average_filled_price"]
                 reconciled_position_status = None
                 if pos and leg == "ENTRY":
                     reconciled_position_status = pos.get("entry_status")
