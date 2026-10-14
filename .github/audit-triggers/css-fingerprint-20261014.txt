@@ -3,3 +3,5 @@ Read-only source fingerprint audit for Novogene CSS. No deployment, no database 
 Second read-only pass: scheduler and backup job inventory; no runtime mutation.
 
 Third read-only pass: distinguish generic source and server-specific entrypoint SHA.
+
+Fourth read-only pass: verify server patch anchor compatibility and cron cadence.
