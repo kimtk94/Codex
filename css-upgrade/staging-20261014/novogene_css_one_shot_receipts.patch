@@ -1,0 +1,85 @@
+--- a/Novogene_Mail_CSS_DashBoard.py
++++ b/Novogene_Mail_CSS_DashBoard.py
+@@ -10686,6 +10686,30 @@
+         "overview_prepayment_invalid": 0,
+     }
+ 
++    # Durable one-shot receipts distinguish a replayed Overview control from
++    # an explicitly changed or rearmed command, even after Hold expiration.
++    # Stored with the manual state inside sync_overview_snooze_actions SAVEPOINT.
++    conn.execute("""
++        CREATE TABLE IF NOT EXISTS overview_control_receipts (
++            project_id TEXT NOT NULL,
++            source TEXT NOT NULL,
++            signature TEXT NOT NULL,
++            consumed_at TEXT NOT NULL,
++            PRIMARY KEY(project_id, source)
++        )
++    """)
++
++    def claim_control(project_id, source, signature):
++        return bool(conn.execute("""
++            INSERT INTO overview_control_receipts
++                (project_id, source, signature, consumed_at)
++            VALUES (?, ?, ?, ?)
++            ON CONFLICT(project_id, source) DO UPDATE SET
++                signature=excluded.signature,
++                consumed_at=excluded.consumed_at
++            WHERE overview_control_receipts.signature <> excluded.signature
++        """, (project_id, source, signature, now_text)).rowcount)
++
+     for record in priority_records:
+         project_id = clean_text(record.get("AMEA Project", "")).upper()
+         action = clean_text(record.get("Normal Action", "")).casefold()
+@@ -10705,6 +10729,23 @@
+         if not action and days_value is not None and days_value > 0:
+             action = "hold"
+         if action not in {"hold", "skip", "release"}:
++            # An observed empty command rearms this project. Disappearing from
++            # the rendered priority list does not rearm a stale command.
++            if not action:
++                conn.execute(
++                    "DELETE FROM overview_control_receipts "
++                    "WHERE project_id=? AND source='priority'", (project_id,)
++                )
++            continue
++        # Hold validation must happen BEFORE claiming the one-shot receipt:
++        # an invalid Hold must remain editable and must not be consumed.
++        if action == "hold" and (days_value is None or days_value <= 0):
++            counts["overview_invalid_hold"] += 1
++            continue
++        # Do not use Mail Marker in this signature: it can refresh with new
++        # mail even when the human has not changed the Hold/Skip command.
++        signature = f"{action}:{days_value if action == 'hold' else ''}"
++        if not claim_control(project_id, "priority", signature):
+             continue
+ 
+         if action == "release":
+@@ -10720,9 +10761,6 @@
+             clean_text(record.get("Mail Marker", "")) or current_marker
+         )
+         if action == "hold":
+-            if days_value is None or days_value <= 0:
+-                counts["overview_invalid_hold"] += 1
+-                continue
+             hold_until = (now + pd.Timedelta(days=days_value)).isoformat()
+             _upsert_overview_snooze(
+                 conn,
+@@ -10747,7 +10785,16 @@
+     for record in management_records:
+         project_id = clean_text(record.get("AMEA Project", "")).upper()
+         action = clean_text(record.get("Action", "")).casefold()
+-        if not project_id or action != "release":
++        if not project_id:
++            continue
++        if action != "release":
++            if not action:
++                conn.execute(
++                    "DELETE FROM overview_control_receipts "
++                    "WHERE project_id=? AND source='management'", (project_id,)
++                )
++            continue
++        if not claim_control(project_id, "management", "release"):
+             continue
+         deleted = conn.execute(
+             "DELETE FROM overview_project_snoozes WHERE project_id=?",
