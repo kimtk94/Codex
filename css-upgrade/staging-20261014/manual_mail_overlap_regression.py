@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""Synthetic mail/manual/Prepayment race and replay analysis against real CSS functions.
+No real CSS main import, Google Sheets, mail, production SQLite, or service writes.
+"""
+import argparse, ast, hashlib, json, sqlite3, subprocess, tempfile
+from pathlib import Path
+from zoneinfo import ZoneInfo
+import pandas as pd
+
+ORIGINAL_SHA="a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840"
+PREVIOUS_SHA="851469d0aa53757fd55d5d31357d06068952d3983e79d8ee8b2d15ccb2cbf4fb"
+TZ=ZoneInfo("Asia/Seoul")
+CHECKS=[]
+
+def check(ok,name):
+    if not ok:
+        raise AssertionError(name)
+    CHECKS.append(name)
+    print("COLLISION_PASS",name,flush=True)
+
+def stage(src,patches,directory):
+    original=Path(src).read_bytes()
+    check(hashlib.sha256(original).hexdigest()==ORIGINAL_SHA,"ORIGINAL_SOURCE_SHA")
+    out=Path(directory)/"Novogene_Mail_CSS_DashBoard.py"
+    out.write_bytes(original)
+    for n,patch in enumerate(patches,1):
+        for args in (("--check",),()):
+            p=subprocess.run(["git","apply",*args,str(Path(patch).resolve())],cwd=directory,
+                  capture_output=True,text=True,timeout=90)
+            check(p.returncode==0,"PATCH_"+str(n)+"_"+("CHECK" if args else "APPLY"))
+    data=out.read_bytes()
+    check(hashlib.sha256(data).hexdigest()==PREVIOUS_SHA,"STAGED_4_PATCH_SHA")
+    ast.parse(data)
+    return data,original,out
+
+def extract(data):
+    root=ast.parse(data)
+    names=("overview_mail_marker","_overview_control_rows_from_values",
+       "read_overview_control_snapshots","_upsert_overview_snooze",
+       "_sync_overview_snooze_actions_from_records",
+       "sync_overview_snooze_actions","sync_overview_prepayment_snoozes")
+    funs={n.name:n for n in root.body if isinstance(n,ast.FunctionDef)}
+    check(all(n in funs for n in names),"REAL_SYNCHRONIZATION_FUNCTIONS_FOUND")
+    ns={
+       "pd":pd,"KST":TZ,
+       "OVERVIEW_PRIORITY_HEADER_ROW":10,"OVERVIEW_PRIORITY_DATA_START_ROW":11,
+       "OVERVIEW_PRIORITY_ROWS":20,"OVERVIEW_SNOOZE_HEADER_ROW":41,
+       "OVERVIEW_SNOOZE_DATA_START_ROW":42,
+       "OVERVIEW_SNOOZE_MANAGEMENT_ROWS":40,
+       "OVERVIEW_PREPAYMENT_COLUMN":"Prepayment",
+       "OVERVIEW_SNOOZE_COLUMNS": [
+           "project_id","institution","customer_name","service","mode",
+           "hold_until","baseline_mail_marker","current_mail_marker",
+           "latest_email_at","status","created_at","updated_at"],
+       "CLOSED_PROJECT_STAGES":{"Completed","Invoice issued","Project finished","Terminated"},
+    }
+    ns.update({
+       "clean_text":lambda v:"" if v is None else str(v).strip(),
+       "dataframe_row_text":lambda row,key:str(row.get(key,"") or "").strip(),
+       "iter_dataframe_records":lambda df:df.to_dict(orient="records"),
+       "safe_int":lambda v:int(v) if str(v).strip().isdigit() else None,
+       "checkbox_is_checked":lambda v:str(v).strip().lower() in {"true","1","yes","y"},
+       "project_customer_name":lambda *a:"",
+    })
+    for n in names:
+        exec(compile(ast.Module(body=[funs[n]],type_ignores=[]),
+             "actual-css-"+n,"exec"),ns)
+    return ns
+
+class FakeSheet:
+    def __init__(self):
+        self.priority=[]
+        self.management=[]
+        self.fail=False
+        self.incorrect_response=False
+        self.calls=0
+    def batch_get(self,ranges,**kwargs):
+        self.calls+=1
+        if self.fail:
+            raise RuntimeError("Synthetic sheet read failure")
+        h1=["AMEA Project","Normal Action","Hold Days","Mail Marker","Prepayment"]
+        h2=["AMEA Project","Action"]
+        result=[
+            [h1]+[[str(record.get(k,"")) for k in h1] for record in self.priority],
+            [h2]+[[str(record.get(k,"")) for k in h2] for record in self.management]
+        ]
+        return result[:1] if self.incorrect_response else result
+
+def connect():
+    conn=sqlite3.connect(":memory:")
+    conn.execute("""CREATE TABLE overview_project_snoozes(
+        project_id TEXT PRIMARY KEY, mode TEXT NOT NULL, hold_until TEXT,
+        baseline_mail_marker TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    conn.execute("""CREATE TABLE overview_prepayment_requests(
+        project_id TEXT PRIMARY KEY, created_at TEXT, updated_at TEXT)""")
+    return conn
+
+def board(pid,mail="A",stage="SIF requested"):
+    return pd.DataFrame([{
+       "project_id":pid,"latest_uid":mail,"email_count":1,
+       "latest_email_at":"2026-10-15T08:00:00+09:00",
+       "current_stage":stage,"institution":"Synthetic Univ",
+       "customer_name":"SYNTHETIC_PI","service":"mRNA-Seq",
+       "project_description":"TEST ONLY"}])
+
+def row(con,pid):
+    return con.execute("""SELECT mode,hold_until,baseline_mail_marker,
+                                  created_at,updated_at FROM overview_project_snoozes
+                           WHERE project_id=?""",(pid,)).fetchone()
+
+def main():
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--source",required=True)
+    ap.add_argument("--patch",action="append",required=True)
+    args=ap.parse_args()
+    with tempfile.TemporaryDirectory(prefix="css-overlap-case-") as folder:
+        src,original,path=stage(args.source,args.patch,folder)
+        ns=extract(src)
+        now=pd.Timestamp("2026-10-15T09:00:00",tz=TZ)
+        p1="AMEA2099000001"; p2="AMEA2099000002"; p3="AMEA2099000003"
+        con=connect()
+        sheet=FakeSheet()
+        # Same project: explicit manual Hold wins over new mail + Prepayment.
+        sheet.priority=[{"AMEA Project":p1,"Normal Action":"Hold","Hold Days":"3"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p1,"M1"),now=now)
+        hold=row(con,p1)
+        check(hold is not None and hold[0]=="hold","MANUAL_HOLD_CREATED")
+        ns["sync_overview_prepayment_snoozes"](con,board(p1,"M1"),{p1},now=now)
+        check(row(con,p1)==hold,"PREPAYMENT_DOES_NOT_REPLACE_MANUAL_HOLD")
+        sheet.priority=[]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p1,"M2"),
+            now=now+pd.Timedelta(hours=1))
+        check(row(con,p1)==hold,"NEW_MAIL_DOES_NOT_CANCEL_HOLD")
+        ns["sync_overview_prepayment_snoozes"](con,board(p1,"M2"),{p1},
+            now=now+pd.Timedelta(hours=1))
+        check(row(con,p1)==hold,"PREPAYMENT_AFTER_NEW_MAIL_PRESERVES_HOLD")
+        # Hold expiry permits automatic Prepayment Skip.
+        ns["sync_overview_snooze_actions"](con,sheet,board(p1,"M2"),
+            now=now+pd.Timedelta(days=4))
+        check(row(con,p1) is None,"MANUAL_HOLD_EXPIRED")
+        ns["sync_overview_prepayment_snoozes"](con,board(p1,"M2"),{p1},
+            now=now+pd.Timedelta(days=4))
+        check(row(con,p1)[0]=="skip_prepayment",
+              "AUTO_PREPAYMENT_CREATED_AFTER_HOLD_EXPIRES")
+        # Prepayment skip persists even when new mail changes the marker.
+        sheet.priority=[]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p1,"M3"),
+            now=now+pd.Timedelta(days=4,hours=1))
+        ns["sync_overview_prepayment_snoozes"](con,board(p1,"M3"),{p1},
+            now=now+pd.Timedelta(days=4,hours=1))
+        check(row(con,p1)[0]=="skip_prepayment","NEW_MAIL_DOES_NOT_CLEAR_PREPAYMENT")
+        ns["sync_overview_prepayment_snoozes"](con,board(p1,"M3","Sample QC review"),
+            {p1},now=now+pd.Timedelta(days=4,hours=2))
+        check(row(con,p1) is None,"QC_STAGE_RELEASES_PREPAYMENT")
+        # Normal manual Skip must release on NEW mail and not be re-created.
+        sheet.priority=[{"AMEA Project":p2,"Normal Action":"Skip",
+                         "Mail Marker":"B0||1||2026-10-15T08:00:00+09:00"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p2,"B0"),now=now)
+        check(row(con,p2)[0]=="skip_until_new_mail","NORMAL_MANUAL_SKIP_CREATED")
+        sheet.priority=[]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p2,"B1"),
+             now=now+pd.Timedelta(minutes=5))
+        check(row(con,p2) is None,"NORMAL_SKIP_RELEASED_ON_NEW_MAIL")
+        # If Prepayment still applies, manual Skip release becomes auto Skip.
+        sheet.priority=[{"AMEA Project":p2,"Normal Action":"Skip",
+                         "Mail Marker":"B1||1||2026-10-15T08:00:00+09:00"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p2,"B1"),
+             now=now+pd.Timedelta(minutes=6))
+        sheet.priority=[]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p2,"B2"),
+             now=now+pd.Timedelta(minutes=7))
+        ns["sync_overview_prepayment_snoozes"](con,board(p2,"B2"),{p2},
+             now=now+pd.Timedelta(minutes=7))
+        check(row(con,p2)[0]=="skip_prepayment",
+              "MANUAL_SKIP_RELEASE_WITH_PREPAYMENT_STILL_SUPPRESSED")
+        # A newer mail between render and user click cannot create a sticky Skip.
+        sheet.priority=[{"AMEA Project":p3,"Normal Action":"Skip",
+                         "Mail Marker":"OLD||1||2026-10-15T08:00:00+09:00"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p3,"NEW"),now=now)
+        check(row(con,p3) is None,"STALE_SHEET_MARKER_SKIP_NOT_STICKY")
+        # A single malformed control read must never partially update DB.
+        before=list(con.execute("SELECT * FROM overview_project_snoozes ORDER BY 1"))
+        sheet.fail=True
+        try:ns["sync_overview_snooze_actions"](con,sheet,board(p1,"M3"),now)
+        except RuntimeError:pass
+        else:raise AssertionError("SHEET_READ_FAILURE_NOT_PROPAGATED")
+        check(before==list(con.execute("SELECT * FROM overview_project_snoozes ORDER BY 1")),
+             "FAILED_SNAPSHOT_READ_NO_DB_MUTATION")
+        sheet.fail=False
+        sheet.incorrect_response=True
+        try:ns["sync_overview_snooze_actions"](con,sheet,board(p1,"M3"),now)
+        except RuntimeError:pass
+        else:raise AssertionError("PARTIAL_SNAPSHOT_NOT_REJECTED")
+        check(before==list(con.execute("SELECT * FROM overview_project_snoozes ORDER BY 1")),
+             "PARTIAL_SHEET_RESPONSE_NO_DB_MUTATION")
+        sheet.incorrect_response=False
+        # Exception after first manual row forces complete SAVEPOINT rollback.
+        old_func=ns["overview_mail_marker"]
+        call_count=[0]
+        def injected(row):
+            call_count[0]+=1
+            if call_count[0]==2:
+                raise RuntimeError("synthetic marker parsing fault")
+            return old_func(row)
+        ns["overview_mail_marker"]=injected
+        sheet.priority=[
+          {"AMEA Project":p1,"Normal Action":"Hold","Hold Days":"4"},
+          {"AMEA Project":p3,"Normal Action":"Hold","Hold Days":"4"}]
+        frame=pd.concat([board(p1,"A"),board(p3,"B")],ignore_index=True)
+        try:ns["sync_overview_snooze_actions"](con,sheet,frame,now)
+        except RuntimeError:pass
+        else:raise AssertionError("INJECTED_FAILURE_NOT_PROPAGATED")
+        ns["overview_mail_marker"]=old_func
+        check(before==list(con.execute("SELECT * FROM overview_project_snoozes ORDER BY 1")),
+             "SAVEPOINT_PARTIAL_MANUAL_ACTION_ROLLBACK")
+        # Explicit release of Hold allows Prepayment to be reinstated.
+        sheet.priority=[{"AMEA Project":p1,"Normal Action":"Hold","Hold Days":"2"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p1,"X"),now)
+        sheet.priority=[]
+        sheet.management=[{"AMEA Project":p1,"Action":"Release"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p1,"X"),now+pd.Timedelta(minutes=1))
+        check(row(con,p1) is None,"MANUAL_RELEASE_REMOVES_HOLD")
+        sheet.management=[]
+        ns["sync_overview_prepayment_snoozes"](con,board(p1,"X"),{p1},now)
+        check(row(con,p1)[0]=="skip_prepayment",
+              "EXPLICIT_HOLD_RELEASE_REENABLES_PREPAYMENT")
+        # Two repeat-cycle states to DIAGNOSE (not treat known behavior as PASS).
+        initial=row(con,p1)
+        ns["sync_overview_prepayment_snoozes"](con,board(p1,"X"),{p1},
+              now+pd.Timedelta(minutes=10))
+        repeated=row(con,p1)
+        print("DIAGNOSTIC_AUTOSKIP_TIMESTAMP_REWRITE",initial[4]!=repeated[4],flush=True)
+        sheet.priority=[{"AMEA Project":p3,"Normal Action":"Hold","Hold Days":"3"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p3,"Y"),now)
+        original_hold=row(con,p3)
+        ns["sync_overview_snooze_actions"](con,sheet,board(p3,"Y"),
+             now+pd.Timedelta(hours=1))
+        repeated_hold=row(con,p3)
+        print("DIAGNOSTIC_HOLD_DEADLINE_EXTENDED_ON_UNCHANGED_COMMAND",
+              repeated_hold[1]!=original_hold[1],flush=True)
+        # REPRODUCE manual-update race deterministically between read and upsert.
+        ns["sync_overview_prepayment_snoozes"](con,board(p2,"B2","Sample QC review"),
+             {p2},now)
+        check(row(con,p2) is None,"RACE_TEST_PREPARED")
+        base_upsert=ns["_upsert_overview_snooze"]
+        injected_count=[0]
+        def concurrent_manual(conn,project_id,mode,hold_until,marker,now_text):
+            if project_id==p2 and mode=="skip_prepayment" and injected_count[0]==0:
+                injected_count[0]+=1
+                base_upsert(conn,project_id,"hold","2030-01-01",
+                            "MANUAL_NEWER_MARKER",now_text)
+            return base_upsert(conn,project_id,mode,hold_until,marker,now_text)
+        ns["_upsert_overview_snooze"]=concurrent_manual
+        ns["sync_overview_prepayment_snoozes"](con,board(p2,"B3"),{p2},now)
+        ns["_upsert_overview_snooze"]=base_upsert
+        print("DIAGNOSTIC_RACE_OVERWROTE_MANUAL_HOLD",row(con,p2)[0]!="hold",flush=True)
+        check(hashlib.sha256(Path(args.source).read_bytes()).hexdigest()==ORIGINAL_SHA,
+              "LIVE_SOURCE_UNCHANGED")
+        con.close()
+        print("COLLISION_BASELINE_CHECKS_PASS",len(CHECKS),flush=True)
+        print("REAL_CSS_FUNCTIONS_EXECUTED_SYNTHETIC_ONLY",True,flush=True)
+
+if __name__=="__main__":
+    main()
