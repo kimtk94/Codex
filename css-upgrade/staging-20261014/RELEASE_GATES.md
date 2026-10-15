@@ -66,6 +66,14 @@
 - The previous three-patch candidate SHA and tests remain historical evidence only, **not** the approved final artifact. The fourth patch is `novogene_sif_independent_actions.patch`. No actual end-to-end CRM/mail refresh has been run.
 - [Policy rationale and limitations](PORTFOLIO_VISIBILITY_POLICY.md).
 
+## Real Action Center and Review Queue generator regression (2026-10-15)
+
+- [**23/23 real-generator assertions PASS**](https://github.com/kimtk94/Codex/actions/runs/38658186666): exact production CSS SHA checked, actual `build_action_center_output` and `build_review_queue_output` AST bodies executed with **1,200 synthetic projects** and stubbed effectful helpers. Output was **861 Action Center tasks**, **one review**, **342 active SIF Prepayment projects**, and **zero generic SIF tasks for those 342 projects**.
+- On the **same Prepayment project**, an unanswered customer email and separate manual issue remained actionable. A Salesforce inquiry and a Quotation-Invoice review were retained. All task/review IDs were unique and deterministic across reruns.
+- **Source-level regression demonstration:** Feeding the previously filtered dashboard to the *real generator* loses the unanswered inquiry's customer name (becomes `확인 필요`) and omits the Quotation-Invoice review's institution; feeding the full, SIF-attention-suppressed portfolio preserves them without increasing the number of tasks.
+- These are real function bodies but **supporting mail, CRM, calendar, ID and merge helper implementations were stubbed** to ensure no outbound effects. It is not a full CSS main E2E or proof that every external connector state persists correctly.
+- Action outputs were synthetic only; the production Action Center / Review Queue sheets were not written. See [script](real_action_review_generator_regression.py).
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
