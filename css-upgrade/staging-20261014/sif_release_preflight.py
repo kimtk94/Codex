@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 EXPECTED_SHA = "a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840"
-EXPECTED_COMBINED_SHA = "851469d0aa53757fd55d5d31357d06068952d3983e79d8ee8b2d15ccb2cbf4fb"
+EXPECTED_COMBINED_SHA = "a75fac886bd4cb881acbd7a4cf860c7246f05a00b5d2a0dc461934cbfddce083"
 BASE = Path("/home/taehoon/services/novogene-css")
 SOURCE = BASE / "app/Novogene_Mail_CSS_DashBoard_server.py"
 MANDATORY_FUNCTIONS = {
@@ -168,13 +168,15 @@ def main():
     args.add_argument("--second",required=True,type=Path)
     args.add_argument("--third",required=True,type=Path)
     args.add_argument("--fourth",required=True,type=Path)
+    args.add_argument("--fifth",required=True,type=Path)
+    args.add_argument("--sixth",required=True,type=Path)
     ns = args.parse_args()
     checks=[]
     require(SOURCE.is_file(),"PRODUCTION_SOURCE_EXISTS",checks)
     original = SOURCE.read_bytes()
     require(hashlib.sha256(original).hexdigest()==EXPECTED_SHA,"LIVE_SOURCE_EXPECTED_SHA",checks)
     require(b"v8.92.1-server-local-adc" in original,"LIVE_RUNTIME_VERSION",checks)
-    patches=patch_preview(original,[ns.first,ns.second,ns.third,ns.fourth],checks)
+    patches=patch_preview(original,[ns.first,ns.second,ns.third,ns.fourth,ns.fifth,ns.sixth],checks)
     db = database_audit(checks)
     telemetry = process_telemetry()
     require(hashlib.sha256(SOURCE.read_bytes()).hexdigest()==EXPECTED_SHA,
