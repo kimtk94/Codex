@@ -21,12 +21,14 @@ def require(condition,name):
     checks.append(name)
     print("PASS",name)
 
-def staging(source,patch1,patch2,folder):
+def staging(source,patches,folder):
     raw=Path(source).read_bytes()
     require(hashlib.sha256(raw).hexdigest()==SOURCE_SHA,"original_server_sha")
     path=Path(folder)/"Novogene_Mail_CSS_DashBoard.py"
     path.write_bytes(raw)
-    for p in (patch1,patch2):
+    if len(patches)!=6:
+        raise AssertionError('six_patch_candidate_required')
+    for p in patches:
         for args in (("--check","--whitespace=error"),("--whitespace=error",)):
             z=subprocess.run(["git","apply",*args,str(Path(p).resolve())],
                          cwd=folder,capture_output=True,text=True,timeout=60)
@@ -34,14 +36,17 @@ def staging(source,patch1,patch2,folder):
     txt=path.read_text()
     ast.parse(txt)
     require("v8.92.1-server-local-adc" in txt,"runtime_version_preserved")
-    print("COMBINED_PATCH_SHA256",hashlib.sha256(path.read_bytes()).hexdigest())
-    # Validate exact rollback of BOTH patches in inverse order, on temp copy only.
-    for p in (patch2,patch1):
+    candidate_sha=hashlib.sha256(path.read_bytes()).hexdigest()
+    require(candidate_sha=="a75fac886bd4cb881acbd7a4cf860c7246f05a00b5d2a0dc461934cbfddce083",
+            "six_patch_candidate_sha")
+    print("COMBINED_PATCH_SHA256",candidate_sha)
+    # Validate exact rollback of SIX patches in reverse order, on temp copy only.
+    for p in reversed(patches):
         for flags in (("-R","--check"),("-R",)):
             out=subprocess.run(["git","apply",*flags,str(Path(p).resolve())],
                  cwd=folder,capture_output=True,text=True,timeout=60)
             require(out.returncode==0,"reverse_"+str(Path(p).name)+"_"+str(flags[-1]))
-    require(path.read_bytes()==raw,"two_patch_rollback_byte_exact")
+    require(path.read_bytes()==raw,"six_patch_rollback_byte_exact")
     return txt
 
 def load_functions(txt):
@@ -296,11 +301,10 @@ def test_restore_and_writer(ns,conn,board):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--source",required=True)
-    parser.add_argument("--history",required=True)
-    parser.add_argument("--manual",required=True)
+    parser.add_argument("--patch",action="append",required=True)
     args=parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="css-sif-1200-") as tmp:
-        source=staging(args.source,args.history,args.manual,tmp)
+        source=staging(args.source,args.patch,tmp)
         ns=load_functions(source)
         conn,df=synthetic_db()
         try:
