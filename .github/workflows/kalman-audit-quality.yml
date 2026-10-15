@@ -71,6 +71,8 @@ jobs:
         run: python3 ../../../baseline_main/kalman-toss-gateway/scripts/build_investment_hub_v7436_shadow_freshness.py
       - name: Compare active Vercel file SHA1 to baseline and audit candidate
         run: python3 active_bundle_fingerprint_audit.py --baseline-root ../../../baseline_main --output active_bundle_fingerprint_report.json
+      - name: Synthetic loopback HTTP smoke of built API handlers
+        run: node staging_local_http_smoke.js > staging_local_http_report.json
       - name: Audit full built API surface and staging protection (no deployment)
         run: python3 staging_api_surface_gate.py --output staging_api_surface_report.json
       - name: Reproduce pinned snapshot
@@ -84,5 +86,6 @@ jobs:
             audits/2026-10-14/quality/hub_offline_build_report.json
             audits/2026-10-14/quality/active_bundle_fingerprint_report.json
             audits/2026-10-14/quality/staging_api_surface_report.json
+            audits/2026-10-14/quality/staging_local_http_report.json
           if-no-files-found: error
           retention-days: 30
