@@ -23,13 +23,17 @@ def stage(src,patches,directory):
     check(hashlib.sha256(original).hexdigest()==ORIGINAL_SHA,"ORIGINAL_SOURCE_SHA")
     out=Path(directory)/"Novogene_Mail_CSS_DashBoard.py"
     out.write_bytes(original)
+    check(len(patches)==6,"SIX_PATCH_CANDIDATE")
     for n,patch in enumerate(patches,1):
         for args in (("--check",),()):
             p=subprocess.run(["git","apply",*args,str(Path(patch).resolve())],cwd=directory,
                   capture_output=True,text=True,timeout=90)
             check(p.returncode==0,"PATCH_"+str(n)+"_"+("CHECK" if args else "APPLY"))
+        if n==4:
+            check(hashlib.sha256(out.read_bytes()).hexdigest()==PREVIOUS_SHA,
+                  "STAGED_4_PATCH_SHA")
     data=out.read_bytes()
-    check(hashlib.sha256(data).hexdigest()==PREVIOUS_SHA,"STAGED_4_PATCH_SHA")
+    print("STAGED_6_PATCH_SHA256",hashlib.sha256(data).hexdigest(),flush=True)
     ast.parse(data)
     return data,original,out
 
@@ -229,35 +233,52 @@ def main():
         ns["sync_overview_prepayment_snoozes"](con,board(p1,"X"),{p1},
               now+pd.Timedelta(minutes=10))
         repeated=row(con,p1)
-        print("DIAGNOSTIC_AUTOSKIP_TIMESTAMP_REWRITE",initial[4]!=repeated[4],flush=True)
+        check(initial[4]==repeated[4],"AUTO_SKIP_NOOP_PRESERVES_UPDATED_AT")
         sheet.priority=[{"AMEA Project":p3,"Normal Action":"Hold","Hold Days":"3"}]
         ns["sync_overview_snooze_actions"](con,sheet,board(p3,"Y"),now)
         original_hold=row(con,p3)
         ns["sync_overview_snooze_actions"](con,sheet,board(p3,"Y"),
              now+pd.Timedelta(hours=1))
         repeated_hold=row(con,p3)
-        print("DIAGNOSTIC_HOLD_DEADLINE_EXTENDED_ON_UNCHANGED_COMMAND",
-              repeated_hold[1]!=original_hold[1],flush=True)
+        check(repeated_hold[1]==original_hold[1],
+              "REPLAYED_HOLD_DOES_NOT_EXTEND_DEADLINE")
         # REPRODUCE manual-update race deterministically between read and upsert.
         ns["sync_overview_prepayment_snoozes"](con,board(p2,"B2","Sample QC review"),
              {p2},now)
         check(row(con,p2) is None,"RACE_TEST_PREPARED")
         base_upsert=ns["_upsert_overview_snooze"]
-        injected_count=[0]
-        def concurrent_manual(conn,project_id,mode,hold_until,marker,now_text):
-            if project_id==p2 and mode=="skip_prepayment" and injected_count[0]==0:
-                injected_count[0]+=1
-                base_upsert(conn,project_id,"hold","2030-01-01",
-                            "MANUAL_NEWER_MARKER",now_text)
-            return base_upsert(conn,project_id,mode,hold_until,marker,now_text)
-        ns["_upsert_overview_snooze"]=concurrent_manual
-        ns["sync_overview_prepayment_snoozes"](con,board(p2,"B3"),{p2},now)
-        ns["_upsert_overview_snooze"]=base_upsert
-        print("DIAGNOSTIC_RACE_OVERWROTE_MANUAL_HOLD",row(con,p2)[0]!="hold",flush=True)
+        class RaceConnection:
+            def __init__(self,inner):
+                self.inner=inner
+                self.intercepted=False
+            def execute(self,sql,params=()):
+                if ("INSERT INTO overview_project_snoozes" in sql
+                        and not self.intercepted):
+                    self.intercepted=True
+                    base_upsert(self.inner,p2,"hold","2030-01-01",
+                                "MANUAL_NEWER_MARKER",now.isoformat())
+                return self.inner.execute(sql,params)
+            def commit(self):
+                return self.inner.commit()
+        racing=RaceConnection(con)
+        race_outcome=ns["sync_overview_prepayment_snoozes"](
+            racing,board(p2,"B3"),{p2},now)
+        check(racing.intercepted,"RACE_INJECTED_BETWEEN_READ_AND_UPSERT")
+        check(row(con,p2)[0]=="hold","LATEST_MANUAL_HOLD_SURVIVES_AUTO_UPSERT")
+        check(race_outcome["overview_prepayment_skip_created"]==0,
+              "RACE_NO_FALSE_AUTOSKIP_CREATED_COUNT")
+        check(race_outcome["overview_prepayment_skip_active"]==0,
+              "RACE_NO_FALSE_AUTOSKIP_ACTIVE_COUNT")
         check(hashlib.sha256(Path(args.source).read_bytes()).hexdigest()==ORIGINAL_SHA,
               "LIVE_SOURCE_UNCHANGED")
         con.close()
-        print("COLLISION_BASELINE_CHECKS_PASS",len(CHECKS),flush=True)
+        for n,patch in reversed(list(enumerate(args.patch,1))):
+            for flags in (("-R","--check"),("-R",)):
+                v=subprocess.run(["git","apply",*flags,str(Path(patch).resolve())],
+                       cwd=folder,capture_output=True,text=True,timeout=90)
+                check(v.returncode==0,"REVERSE_PATCH_"+str(n)+"_"+str(flags[-1]))
+        check(path.read_bytes()==original,"SIX_PATCH_ROLLBACK_BYTE_EXACT")
+        print("COLLISION_HARDENED_CHECKS_PASS",len(CHECKS),flush=True)
         print("REAL_CSS_FUNCTIONS_EXECUTED_SYNTHETIC_ONLY",True,flush=True)
 
 if __name__=="__main__":
