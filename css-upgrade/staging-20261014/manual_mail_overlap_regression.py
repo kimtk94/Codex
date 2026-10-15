@@ -2,7 +2,7 @@
 """Synthetic mail/manual/Prepayment race and replay analysis against real CSS functions.
 No real CSS main import, Google Sheets, mail, production SQLite, or service writes.
 """
-import argparse, ast, hashlib, json, sqlite3, subprocess, tempfile
+import argparse, ast, hashlib, json, multiprocessing, sqlite3, subprocess, tempfile, time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import pandas as pd
@@ -111,6 +111,110 @@ def row(con,pid):
     return con.execute("""SELECT mode,hold_until,baseline_mail_marker,
                                   created_at,updated_at FROM overview_project_snoozes
                            WHERE project_id=?""",(pid,)).fetchone()
+
+def two_process_manual_worker(dbpath,pid,mode,start_signal,lock_ready,actual_upsert,now_text):
+    """Second process uses a DIFFERENT SQLite connection and real snooze writer."""
+    if not start_signal.wait(timeout=8):
+        raise RuntimeError("worker not started")
+    second=sqlite3.connect(dbpath,timeout=5)
+    try:
+        second.execute("PRAGMA busy_timeout=5000")
+        second.execute("BEGIN IMMEDIATE")
+        actual_upsert(second,pid,mode,
+                      "2030-01-01T00:00:00+09:00" if mode=="hold" else "",
+                      "CHILD_MANUAL_MAIL",now_text)
+        lock_ready.set()
+        time.sleep(0.12)
+        second.commit()
+    finally:
+        second.close()
+
+def test_two_process_sqlite_interleavings(ns,now):
+    """Cross-process SQLite: child manual writer LOCKS a real temp SQLite file.
+
+    Parent's auto writer first reads then tries a conditional UPSERT/DELETE,
+    blocks on the second process' transaction, and must observe newer mode.
+    """
+    mp=multiprocessing.get_context("fork")
+    base_upsert=ns["_upsert_overview_snooze"]
+    pid="AMEA2099555000"
+    round_count=0
+    for scenario in ("insert_then_hold","update_then_skip","delete_then_hold"):
+        for iteration in range(8):
+            with tempfile.TemporaryDirectory(prefix="css-two-process-sqlite-") as td:
+                dbpath=str(Path(td)/"css_synthetic.sqlite3")
+                setup=sqlite3.connect(dbpath,timeout=5)
+                setup.execute("PRAGMA journal_mode=WAL")
+                setup.execute("""CREATE TABLE overview_project_snoozes(
+                    project_id TEXT PRIMARY KEY, mode TEXT NOT NULL, hold_until TEXT,
+                    baseline_mail_marker TEXT, created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL)""")
+                setup.commit()
+                if scenario in ("update_then_skip","delete_then_hold"):
+                    base_upsert(setup,pid,"skip_prepayment","",
+                                "AUTO_OLD_MAIL",now.isoformat())
+                    setup.commit()
+                setup.close()
+                parent=sqlite3.connect(dbpath,timeout=5)
+                parent.execute("PRAGMA busy_timeout=5000")
+                start=mp.Event()
+                acquired=mp.Event()
+                mode="skip_until_new_mail" if scenario=="update_then_skip" else "hold"
+                p=mp.Process(
+                    target=two_process_manual_worker,
+                    args=(dbpath,pid,mode,start,acquired,base_upsert,now.isoformat()))
+                p.start()
+                class ConcurrentSQLiteProxy:
+                    def __init__(self,real):
+                        self.real=real
+                        self.intercepted=False
+                        self.wait_seconds=0.
+                    def execute(self,sql,params=()):
+                        target="DELETE FROM overview_project_snoozes" if scenario=="delete_then_hold" else "INSERT INTO overview_project_snoozes"
+                        if target in sql and not self.intercepted:
+                            self.intercepted=True
+                            start.set()
+                            if not acquired.wait(timeout=5):
+                                raise AssertionError("CHILD_WRITER_DID_NOT_ACQUIRE_LOCK")
+                            t=time.monotonic()
+                            result=self.real.execute(sql,params)
+                            self.wait_seconds=time.monotonic()-t
+                            return result
+                        return self.real.execute(sql,params)
+                    def commit(self):
+                        return self.real.commit()
+                proxy=ConcurrentSQLiteProxy(parent)
+                stage="Sample QC review" if scenario=="delete_then_hold" else "SIF requested"
+                outcome=None
+                try:
+                    outcome=ns["sync_overview_prepayment_snoozes"](
+                        proxy,board(pid,"LIVE_"+str(iteration),stage),
+                        {pid},now=now+pd.Timedelta(minutes=iteration))
+                    p.join(timeout=5)
+                    check(not p.is_alive() and p.exitcode==0,
+                          "SECOND_PROCESS_TRANSACTION_COMPLETED_"+scenario+"_"+str(iteration))
+                    actual=row(parent,pid)
+                    check(actual is not None and actual[0]==mode,
+                          "NEWER_MANUAL_MODE_SURVIVES_"+scenario+"_"+str(iteration))
+                    check(proxy.intercepted and proxy.wait_seconds>=0.05,
+                          "REAL_SQLITE_WRITE_LOCK_SERIALIZATION_"+scenario+"_"+str(iteration))
+                    check(outcome["overview_prepayment_skip_active"]==0,
+                          "AUTO_ACTIVE_COUNT_CORRECT_"+scenario+"_"+str(iteration))
+                    if scenario=="insert_then_hold":
+                        check(outcome["overview_prepayment_skip_created"]==0,
+                              "NO_GHOST_AUTO_CREATE_"+str(iteration))
+                    if scenario=="delete_then_hold":
+                        check(outcome["overview_prepayment_skip_released"]==0,
+                              "NO_GHOST_AUTO_RELEASE_"+str(iteration))
+                    round_count+=1
+                finally:
+                    if p.is_alive():
+                        p.terminate()
+                    p.join(timeout=2)
+                    parent.close()
+    check(round_count==24,"TWO_PROCESS_24_SERIALIZATION_ROUNDS")
+    print("TWO_PROCESS_SEPARATE_CONNECTION_LOCK_TEST_PASS",round_count,flush=True)
+
 
 def main():
     ap=argparse.ArgumentParser()
@@ -269,6 +373,7 @@ def main():
               "RACE_NO_FALSE_AUTOSKIP_CREATED_COUNT")
         check(race_outcome["overview_prepayment_skip_active"]==0,
               "RACE_NO_FALSE_AUTOSKIP_ACTIVE_COUNT")
+        test_two_process_sqlite_interleavings(ns,now)
         check(hashlib.sha256(Path(args.source).read_bytes()).hexdigest()==ORIGINAL_SHA,
               "LIVE_SOURCE_UNCHANGED")
         con.close()
