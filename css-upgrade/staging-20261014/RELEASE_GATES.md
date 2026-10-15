@@ -79,10 +79,19 @@
 - **185/185 one-shot and two-process tests PASS:** 24 true two-process SQLite file/WAL race rounds, expiry/replay, read failures, manual Hold/Skip and receipt durability. [Actions](https://github.com/kimtk94/Codex/actions/runs/38660918748).
 - **42/42 seven-patch read-only production-source preflight PASS.** [Actions](https://github.com/kimtk94/Codex/actions/runs/38661084055).
 - **72/72 seven-patch 1,200-synthetic-record regression PASS.** [Actions](https://github.com/kimtk94/Codex/actions/runs/38661130690).
-- **Current seven-patch SHA-256:** `2c45c940e35790944a1e0abde9b0312161e3b49a2b7d31993643d2d864fa338a`.
+- **Historical seven-patch SHA-256 (superseded):** `2c45c940e35790944a1e0abde9b0312161e3b49a2b7d31993643d2d864fa338a`.
 - Patch 7, `novogene_css_one_shot_receipts.patch`, creates SQLite `overview_control_receipts` to block stale identical Hold/Skip/Release inputs even after expiry. This **adds a table** when manual controls run, which must be accounted for in the migration and rollback plan.
 - **UI acceptance needed:** to reissue identical Hold, clear both Action and Hold Days in an observed cycle, or Release then Hold. Editing the Hold duration while the current Hold remains valid is not currently a supported extension path.
 - Actual Google Sheet edit-after-read synchronization and full CSS `main()` isolation remain unresolved. [Details](ONESHOT_7_PATCH_VALIDATION.md); [Issue 165](https://github.com/kimtk94/Codex/issues/165).
+
+## Eighth patch: actual Google Sheets snapshot race hardening (2026-10-15)
+
+- **[200/200 eight-patch manual/mail/SQLite/Sheets conflict tests PASS](https://github.com/kimtk94/Codex/actions/runs/38701293956)**, including synthetic edits before and after DB writes, one-shot receipt rollback, 24 genuine two-process file-based WAL race rounds and full reverse patch.
+- **[46/46 eight-patch exact-source preflight PASS](https://github.com/kimtk94/Codex/actions/runs/38701555123)** with 433 original functions preserved, source unchanged, live DB query-only integrity/FK and byte-exact rollback.
+- **[76/76 eight-patch 1,200-project regression PASS](https://github.com/kimtk94/Codex/actions/runs/38701659819)**.
+- **[19/19 actual Google Sheets API Canary edit-race checks PASS](https://github.com/kimtk94/Codex/actions/runs/38702155598)**: dedicated synthetic tab was edited on the second and third `batch_get`. The real CSS sync function detected the changed snapshot, rolled back the corresponding synthetic snooze / receipt and committed only when the three reads remained unchanged.
+- Patch 8 `novogene_css_snapshot_conflict_guard.patch` detects changes **between** observations, but **does not give Google Sheets and SQLite one atomic commit**. A change after the final read but before DB commit, or an A→B→A change between samples, remains a theoretical risk. Two extra Sheets API reads per cycle require quota/latency assessment.
+- **Current eight-patch candidate SHA-256**: `3963b6cbd60205c2738943e4b28e2a88a1987776bfdda05ee8cba269d6ea3806`. Prior seven-patch SHA is superseded, not a current deployment artifact. [Full report](SHEET_SNAPSHOT_RACE_8_PATCH.md).
 
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
