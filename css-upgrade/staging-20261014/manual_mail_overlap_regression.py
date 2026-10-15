@@ -23,7 +23,7 @@ def stage(src,patches,directory):
     check(hashlib.sha256(original).hexdigest()==ORIGINAL_SHA,"ORIGINAL_SOURCE_SHA")
     out=Path(directory)/"Novogene_Mail_CSS_DashBoard.py"
     out.write_bytes(original)
-    check(len(patches)==6,"SIX_PATCH_CANDIDATE")
+    check(len(patches)==7,"SEVEN_PATCH_CANDIDATE")
     for n,patch in enumerate(patches,1):
         for args in (("--check",),()):
             p=subprocess.run(["git","apply",*args,str(Path(patch).resolve())],cwd=directory,
@@ -32,8 +32,11 @@ def stage(src,patches,directory):
         if n==4:
             check(hashlib.sha256(out.read_bytes()).hexdigest()==PREVIOUS_SHA,
                   "STAGED_4_PATCH_SHA")
+        if n==6:
+            check(hashlib.sha256(out.read_bytes()).hexdigest()=="a75fac886bd4cb881acbd7a4cf860c7246f05a00b5d2a0dc461934cbfddce083",
+                  "STAGED_6_PATCH_SHA")
     data=out.read_bytes()
-    print("STAGED_6_PATCH_SHA256",hashlib.sha256(data).hexdigest(),flush=True)
+    print("STAGED_7_PATCH_SHA256",hashlib.sha256(data).hexdigest(),flush=True)
     ast.parse(data)
     return data,original,out
 
@@ -269,6 +272,10 @@ def main():
         ns["sync_overview_snooze_actions"](con,sheet,board(p2,"B1"),
              now=now+pd.Timedelta(minutes=5))
         check(row(con,p2) is None,"NORMAL_SKIP_RELEASED_ON_NEW_MAIL")
+        # User clears the old command on the sheet before entering a new Skip.
+        sheet.priority=[{"AMEA Project":p2,"Normal Action":"","Hold Days":""}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p2,"B1"),
+             now=now+pd.Timedelta(minutes=5,seconds=30))
         # If Prepayment still applies, manual Skip release becomes auto Skip.
         sheet.priority=[{"AMEA Project":p2,"Normal Action":"Skip",
                          "Mail Marker":"B1||1||2026-10-15T08:00:00+09:00"}]
@@ -346,6 +353,74 @@ def main():
         repeated_hold=row(con,p3)
         check(repeated_hold[1]==original_hold[1],
               "REPLAYED_HOLD_DOES_NOT_EXTEND_DEADLINE")
+        # One-shot receipt: unchanged Hold must NOT recreate after expiry.
+        p4="AMEA2099000004"
+        sheet.priority=[{"AMEA Project":p4,"Normal Action":"Hold","Hold Days":"2"}]
+        sheet.management=[]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p4,"FIRST"),now)
+        check(row(con,p4)[0]=="hold","ONESHOT_HOLD_FIRST_CREATED")
+        ns["sync_overview_snooze_actions"](con,sheet,board(p4,"SECOND"),
+             now=now+pd.Timedelta(days=3))
+        check(row(con,p4) is None,"ONESHOT_HOLD_EXPIRED_WITH_STALE_COMMAND")
+        ns["sync_overview_snooze_actions"](con,sheet,board(p4,"THIRD"),
+             now=now+pd.Timedelta(days=5))
+        check(row(con,p4) is None,"ONESHOT_STALE_HOLD_CANNOT_RESTART")
+        rec=con.execute(
+            "SELECT signature FROM overview_control_receipts "
+            "WHERE project_id=? AND source='priority'",(p4,)).fetchone()
+        check(rec is not None and rec[0]=="hold:2","ONESHOT_RECEIPT_PERSISTED")
+        # Human clears control, then issues a fresh Hold with same duration.
+        sheet.priority=[{"AMEA Project":p4,"Normal Action":"","Hold Days":""}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p4,"THIRD"),
+             now=now+pd.Timedelta(days=5,minutes=1))
+        check(con.execute("SELECT COUNT(*) FROM overview_control_receipts "
+              "WHERE project_id=? AND source='priority'",(p4,)).fetchone()[0]==0,
+              "ONESHOT_BLANK_CONTROL_REARMS")
+        sheet.priority=[{"AMEA Project":p4,"Normal Action":"Hold","Hold Days":"2"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p4,"THIRD"),
+             now=now+pd.Timedelta(days=5,minutes=2))
+        check(row(con,p4)[0]=="hold","ONESHOT_EXPLICIT_REENTRY_WORKS")
+        # Management Release is one-shot too, and cannot cancel a later Hold.
+        sheet.priority=[]
+        sheet.management=[{"AMEA Project":p4,"Action":"Release"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p4,"THIRD"),
+             now=now+pd.Timedelta(days=5,minutes=3))
+        check(row(con,p4) is None,"ONESHOT_MANAGEMENT_RELEASE_ONCE")
+        sheet.priority=[{"AMEA Project":p4,"Normal Action":"Release"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p4,"THIRD"),
+             now=now+pd.Timedelta(days=5,minutes=4))
+        sheet.priority=[{"AMEA Project":p4,"Normal Action":"Hold","Hold Days":"2"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p4,"THIRD"),
+             now=now+pd.Timedelta(days=5,minutes=5))
+        check(row(con,p4)[0]=="hold","ONESHOT_MANUAL_PRIORITY_NEW_HOLD_CREATED")
+        # Management control is STILL 'Release' from the last sheet snapshot.
+        ns["sync_overview_snooze_actions"](con,sheet,board(p4,"THIRD"),
+             now=now+pd.Timedelta(days=5,minutes=6))
+        check(row(con,p4)[0]=="hold","ONESHOT_OLD_MANAGEMENT_RELEASE_CANNOT_DELETE_NEW_HOLD")
+        sheet.management=[]
+        sheet.priority=[]
+        # A stale Skip command also does not reapply on later new mail.
+        p5="AMEA2099000005"
+        sheet.priority=[{"AMEA Project":p5,"Normal Action":"Skip","Mail Marker":"FIRST||1||t1"}]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p5,"FIRST"),now)
+        check(row(con,p5)[0]=="skip_until_new_mail","ONESHOT_SKIP_FIRST_CREATED")
+        ns["sync_overview_snooze_actions"](con,sheet,board(p5,"SECOND"),
+             now=now+pd.Timedelta(minutes=1))
+        check(row(con,p5) is None,"ONESHOT_SKIP_RELEASED_BY_NEW_MAIL")
+        ns["sync_overview_snooze_actions"](con,sheet,board(p5,"THIRD"),
+             now=now+pd.Timedelta(minutes=2))
+        check(row(con,p5) is None,"ONESHOT_STALE_SKIP_DOES_NOT_RESTART")
+        sheet.priority=[]
+        # Receipt schema must survive a SQLite backup/restore.
+        with tempfile.TemporaryDirectory(prefix="css-receipts-durability-") as td:
+            durable=sqlite3.connect(str(Path(td)/"restored.sqlite3"))
+            con.backup(durable)
+            check(durable.execute(
+                "SELECT signature FROM overview_control_receipts "
+                "WHERE project_id=? AND source='priority'",(p4,)).fetchone()[0]=="hold:2",
+                "ONESHOT_RECEIPT_IN_SQLITE_BACKUP")
+            durable.close()
+
         # REPRODUCE manual-update race deterministically between read and upsert.
         ns["sync_overview_prepayment_snoozes"](con,board(p2,"B2","Sample QC review"),
              {p2},now)
@@ -382,7 +457,7 @@ def main():
                 v=subprocess.run(["git","apply",*flags,str(Path(patch).resolve())],
                        cwd=folder,capture_output=True,text=True,timeout=90)
                 check(v.returncode==0,"REVERSE_PATCH_"+str(n)+"_"+str(flags[-1]))
-        check(path.read_bytes()==original,"SIX_PATCH_ROLLBACK_BYTE_EXACT")
+        check(path.read_bytes()==original,"SEVEN_PATCH_ROLLBACK_BYTE_EXACT")
         print("COLLISION_HARDENED_CHECKS_PASS",len(CHECKS),flush=True)
         print("REAL_CSS_FUNCTIONS_EXECUTED_SYNTHETIC_ONLY",True,flush=True)
 
