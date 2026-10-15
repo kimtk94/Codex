@@ -84,7 +84,19 @@ def audit(baseline_root:Path, candidate_root:Path, snapshot:dict):
         raise ValueError("BUILT_AUDIT_CANDIDATE_MISSING")
     candidate_scan=digest_report(live,candidate)
     best=sorted(baseline,key=lambda x:len(x["matched_files"]),reverse=True)[:3]
+    exact_vulnerable=[
+        x for x in baseline
+        if len(x["matched_files"])==len(KEY_FILES)
+        and x["static_source_flags"]["legacy_direct_net_renderer"]
+        and x["static_source_flags"]["legacy_raw_net_api_projection"]
+    ]
+    source_p1_status=(
+        "P1_ACTIVE_SOURCE_UNGUARDED_NET_RETURN" if exact_vulnerable
+        else "ACTIVE_SOURCE_NOT_PROVEN_UNGUARDED"
+    )
     return {
+      "source_p1_status":source_p1_status,
+      "exact_unguarded_release_matches":[x["release"] for x in exact_vulnerable],
       "verdict":"SOURCE_FINGERPRINT_AUDIT_COMPLETE_RELEASE_HOLD",
       "observed_active_alias_deployment":host["deployment"],
       "comparison_rule":"sha1(source bytes) equals Vercel file UID; not runtime attestation",
@@ -96,6 +108,7 @@ def audit(baseline_root:Path, candidate_root:Path, snapshot:dict):
       "candidate_source_sha1":candidate_scan["sha1"],
       "candidate_source_guards":legacy_exposure_flags(candidate),
       "runtime_http_attested":False,
+      "source_fingerprint_not_http_response":True,
       "release_authorized":False,
     }
 
