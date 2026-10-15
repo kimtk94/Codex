@@ -28,6 +28,8 @@ def stage(src,patches,directory):
         for args in (("--check",),()):
             p=subprocess.run(["git","apply",*args,str(Path(patch).resolve())],cwd=directory,
                   capture_output=True,text=True,timeout=90)
+            if p.returncode:
+                print("PATCH_ERROR_DIAGNOSTIC",n,str(args),p.stderr[:450],flush=True)
             check(p.returncode==0,"PATCH_"+str(n)+"_"+("CHECK" if args else "APPLY"))
         if n==4:
             check(hashlib.sha256(out.read_bytes()).hexdigest()==PREVIOUS_SHA,
