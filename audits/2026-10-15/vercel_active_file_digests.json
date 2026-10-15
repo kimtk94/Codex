@@ -1,0 +1,44 @@
+{
+  "observed_date": "2026-10-15",
+  "provenance": "Authenticated Vercel GET alias then list_deployment_files for alias deployment",
+  "digest_semantics": "Vercel file uid verified equals SHA-1 of an independently retrieved, complete active main src/vercel.json",
+  "hosts": {
+    "kalman-investment-hub-v2.vercel.app": {
+      "deployment": "dpl_BJDfGryiDg2Z5AdQvVYNG9GqeV8L",
+      "files": {
+        "app.js": "499cca92b14df9a35dae41f766ef6865eb111ffc",
+        "api/assets.js": "4ac771b009e8e36555f13819272a72a9ff06d14f",
+        "api/health.js": "440892bae71b46381030746ab121338bf1dc43bb",
+        "index.html": "f1c237f2eeb6751f7b8028a7572f669c8b344855",
+        "vercel.json": "9723f05d2db2db77e41caa039c5ee9aa209a700a"
+      }
+    },
+    "kalman-investment-hub-us.vercel.app": {
+      "deployment": "dpl_FkCb25iWLwiQVy6EAk6eXxLFZAix",
+      "files": {
+        "app.js": "33939cb51182d3f17d938e94c4f3ddda5793ea9f",
+        "index.html": "f696e0215e04eef33ab5505ab9a5730b76139019",
+        "vercel.json": "fe5c412d7602d2eb7fd6099dee3a21075b3bb3ca",
+        "api/market-kpis.js": "156b563a754d8f0539afd57e9de38d236aa395d8"
+      }
+    },
+    "kalman-investment-hub-kr.vercel.app": {
+      "deployment": "dpl_HuDFT3yJrSjfpC63ZYDknB58ixkK",
+      "files": {
+        "app.js": "40f602dc3d176a0fd6c4a29152327a9cbedb9613",
+        "index.html": "75a2558a427718b17caa66bb76e852a3ec89c2fd",
+        "vercel.json": "792f7353053b205b6c8bae670d58be46c01f7160",
+        "api/market-kpis.js": "156b563a754d8f0539afd57e9de38d236aa395d8"
+      }
+    },
+    "kalman-investment-hub-v2-staging.vercel.app": {
+      "deployment": "dpl_8V5GjXVpU2tEixvcNEh6hwKiY32C",
+      "files": {
+        "api/assets.js": "548dbc8761c8da5af731498b364b30a873a34592",
+        "api/health.js": "34cdea7db5b2d4f1fae346c333c523ee8452a719",
+        "index.html": "22cae421732c545db1cda846717c3ab626ff2e3d",
+        "vercel.json": "7b7d6ed90c87c3815634c612d4435d15fe3973e7"
+      }
+    }
+  }
+}
