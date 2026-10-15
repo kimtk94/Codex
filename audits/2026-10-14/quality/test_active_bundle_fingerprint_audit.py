@@ -61,6 +61,10 @@ class FingerprintTests(unittest.TestCase):
             r=audit(Path("/main"),Path("/audit"),self.snapshot)
         self.assertIn("v7.4.23",r["baseline_app_api_exact_versions"])
         self.assertFalse(r["audit_candidate_app_api_exact_active"])
+        self.assertEqual(r["source_p1_status"],
+                         "P1_ACTIVE_SOURCE_UNGUARDED_NET_RETURN")
+        self.assertIn("v7.4.23",r["exact_unguarded_release_matches"])
+        self.assertTrue(r["source_fingerprint_not_http_response"])
         self.assertFalse(r["runtime_http_attested"])
         self.assertFalse(r["release_authorized"])
 
