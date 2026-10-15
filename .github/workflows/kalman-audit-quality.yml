@@ -45,7 +45,8 @@ jobs:
       - name: Read-only checkout of current main for historical build fingerprint
         uses: actions/checkout@v4
         with:
-          ref: main
+          # Pin the verified pre-patch main build for reproducible fingerprints.
+          ref: 60dcbef3afc342ffa2156a2f650eda968df1f177
           path: baseline_main
           persist-credentials: false
       - name: Set up Python
