@@ -5,7 +5,7 @@
 ## Change scope
 - Existing server runtime: `/home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py`.
 - Expected original SHA-256: `a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840`.
-- Final **four-patch** staged SHA-256: `851469d0aa53757fd55d5d31357d06068952d3983e79d8ee8b2d15ccb2cbf4fb`.
+- **Historical four-patch** staged SHA-256 (superseded): `851469d0aa53757fd55d5d31357d06068952d3983e79d8ee8b2d15ccb2cbf4fb`. **Current release candidate is seven patches; see latest gate below.**
 - Fix source of Prepayment follow-up suppression: permanent active SQLite skips rather than the 30-day `CSS Contract-SIF Skipped` view.
 - Create a read-only `CSS Contract-SIF Skip History` tab with no edit/restore checkbox. Existing manual flags and 30-day tracker retention are unchanged.
 
