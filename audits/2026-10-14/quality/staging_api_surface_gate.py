@@ -26,7 +26,7 @@ SENSITIVE_API_PATHS={
   "api/position-ledger.js",
   "api/position.js",
 }
-MUTATING_SQL=re.compile(r"\b(INSERT\s+INTO|UPDATE\s+[A-Za-z_]|DELETE\s+FROM|TRUNCATE\s+|CREATE\s+TABLE|DROP\s+TABLE|ALTER\s+TABLE)\b",re.I)
+MUTATING_SQL=re.compile(r"\b(INSERT\s+INTO|UPDATE\s+[A-Za-z_][A-Za-z0-9_]*|DELETE\s+FROM|TRUNCATE\s+|CREATE\s+TABLE|DROP\s+TABLE|ALTER\s+TABLE)\b",re.I)
 WRITE_METHOD=re.compile(r"\b(?:POST|PUT|PATCH|DELETE)\b")
 METHOD_DISPATCH=re.compile(r"\b(?:req|request)\.method\b")
 ENV_NAME=re.compile(r"\bprocess\.env\.([A-Za-z_][A-Za-z0-9_]*)")
