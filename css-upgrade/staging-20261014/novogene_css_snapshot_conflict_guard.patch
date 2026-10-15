@@ -1,6 +1,6 @@
 --- a/Novogene_Mail_CSS_DashBoard.py
 +++ b/Novogene_Mail_CSS_DashBoard.py
-@@ -10927,12 +10927,32 @@
+@@ -10927,13 +10927,29 @@
      savepoint = "overview_snooze_sync"
      conn.execute(f"SAVEPOINT {savepoint}")
      try:
