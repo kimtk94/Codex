@@ -74,6 +74,16 @@
 - These are real function bodies but **supporting mail, CRM, calendar, ID and merge helper implementations were stubbed** to ensure no outbound effects. It is not a full CSS main E2E or proof that every external connector state persists correctly.
 - Action outputs were synthetic only; the production Action Center / Review Queue sheets were not written. See [script](real_action_review_generator_regression.py).
 
+## Latest seven-patch gate — 2026-10-15
+
+- **185/185 one-shot and two-process tests PASS:** 24 true two-process SQLite file/WAL race rounds, expiry/replay, read failures, manual Hold/Skip and receipt durability. [Actions](https://github.com/kimtk94/Codex/actions/runs/38660918748).
+- **42/42 seven-patch read-only production-source preflight PASS.** [Actions](https://github.com/kimtk94/Codex/actions/runs/38661084055).
+- **72/72 seven-patch 1,200-synthetic-record regression PASS.** [Actions](https://github.com/kimtk94/Codex/actions/runs/38661130690).
+- **Current seven-patch SHA-256:** `2c45c940e35790944a1e0abde9b0312161e3b49a2b7d31993643d2d864fa338a`.
+- Patch 7, `novogene_css_one_shot_receipts.patch`, creates SQLite `overview_control_receipts` to block stale identical Hold/Skip/Release inputs even after expiry. This **adds a table** when manual controls run, which must be accounted for in the migration and rollback plan.
+- **UI acceptance needed:** to reissue identical Hold, clear both Action and Hold Days in an observed cycle, or Release then Hold. Editing the Hold duration while the current Hold remains valid is not currently a supported extension path.
+- Actual Google Sheet edit-after-read synchronization and full CSS `main()` isolation remain unresolved. [Details](ONESHOT_7_PATCH_VALIDATION.md); [Issue 165](https://github.com/kimtk94/Codex/issues/165).
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
