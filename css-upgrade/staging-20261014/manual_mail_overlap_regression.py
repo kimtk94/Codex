@@ -23,7 +23,7 @@ def stage(src,patches,directory):
     check(hashlib.sha256(original).hexdigest()==ORIGINAL_SHA,"ORIGINAL_SOURCE_SHA")
     out=Path(directory)/"Novogene_Mail_CSS_DashBoard.py"
     out.write_bytes(original)
-    check(len(patches)==7,"SEVEN_PATCH_CANDIDATE")
+    check(len(patches)==8,"EIGHT_PATCH_CANDIDATE")
     for n,patch in enumerate(patches,1):
         for args in (("--check",),()):
             p=subprocess.run(["git","apply",*args,str(Path(patch).resolve())],cwd=directory,
@@ -38,7 +38,7 @@ def stage(src,patches,directory):
             check(hashlib.sha256(out.read_bytes()).hexdigest()=="a75fac886bd4cb881acbd7a4cf860c7246f05a00b5d2a0dc461934cbfddce083",
                   "STAGED_6_PATCH_SHA")
     data=out.read_bytes()
-    print("STAGED_7_PATCH_SHA256",hashlib.sha256(data).hexdigest(),flush=True)
+    print("STAGED_8_PATCH_SHA256",hashlib.sha256(data).hexdigest(),flush=True)
     ast.parse(data)
     return data,original,out
 
@@ -424,6 +424,88 @@ def main():
                 "ONESHOT_RECEIPT_IN_SQLITE_BACKUP")
             durable.close()
 
+        # Optimistic Google Sheet conflict defense: real sync function reads
+        # controls BEFORE the SAVEPOINT, again before writing, and after DB
+        # changes before committing. User edits in either gap abort the update.
+        p6="AMEA2099000006"
+        def current_db_state():
+            return (
+                tuple(con.execute("SELECT * FROM overview_project_snoozes ORDER BY 1")),
+                tuple(con.execute("SELECT * FROM overview_control_receipts ORDER BY 1")),
+                tuple(con.execute("SELECT * FROM overview_prepayment_requests ORDER BY 1")),
+            )
+        sheet.priority=[]
+        sheet.management=[]
+        ns["sync_overview_snooze_actions"](con,sheet,board(p6,"INIT"),now)
+        baseline=current_db_state()
+        sheet.priority=[{"AMEA Project":p6,"Normal Action":"Hold","Hold Days":"2"}]
+        def inject_sheet_edit_at_call(change_at,new_action,new_days):
+            original_batch=sheet.batch_get
+            counts=[0]
+            def changed_batch(*args,**kwargs):
+                counts[0]+=1
+                if counts[0]==change_at:
+                    sheet.priority=[{"AMEA Project":p6,
+                        "Normal Action":new_action,"Hold Days":new_days}]
+                return original_batch(*args,**kwargs)
+            sheet.batch_get=changed_batch
+            return original_batch,counts
+        old_batch,ct=inject_sheet_edit_at_call(2,"Hold","5")
+        try:
+            ns["sync_overview_snooze_actions"](con,sheet,board(p6,"INPUT_A"),now)
+        except RuntimeError as exc:
+            check("변경" in str(exc),"EDIT_BETWEEN_FIRST_SECOND_READ_DETECTED")
+        else:
+            raise AssertionError("SHEET_EDIT_BETWEEN_READS_NOT_DETECTED")
+        finally:
+            sheet.batch_get=old_batch
+        check(ct[0]==2,"PREWRITE_CONFLICT_DETECTED_BEFORE_THIRD_READ")
+        check(current_db_state()==baseline,"PREWRITE_EDIT_NO_DB_OR_RECEIPT_COMMITTED")
+
+        sheet.priority=[{"AMEA Project":p6,"Normal Action":"Hold","Hold Days":"2"}]
+        old_batch,ct=inject_sheet_edit_at_call(3,"Skip","")
+        try:
+            ns["sync_overview_snooze_actions"](con,sheet,board(p6,"INPUT_B"),now)
+        except RuntimeError as exc:
+            check("변경" in str(exc),"EDIT_DURING_WRITE_DETECTED")
+        else:
+            raise AssertionError("SHEET_EDIT_DURING_WRITE_NOT_DETECTED")
+        finally:
+            sheet.batch_get=old_batch
+        check(ct[0]==3,"POSTWRITE_CONFLICT_DETECTED_AFTER_THIRD_READ")
+        check(current_db_state()==baseline,"POSTWRITE_EDIT_ROLLS_BACK_SNOOZE_AND_RECEIPT")
+
+        # Re-read fails at third snapshot; no partial DB or receipt persists.
+        sheet.priority=[{"AMEA Project":p6,"Normal Action":"Hold","Hold Days":"2"}]
+        orig_batch=sheet.batch_get
+        calls=[0]
+        def fail_third(*args,**kwargs):
+            calls[0]+=1
+            if calls[0]==3:
+                raise RuntimeError("synthetic transient Sheets read fault")
+            return orig_batch(*args,**kwargs)
+        sheet.batch_get=fail_third
+        try:
+            ns["sync_overview_snooze_actions"](con,sheet,board(p6,"INPUT_C"),now)
+        except RuntimeError:
+            check(True,"THIRD_SNAPSHOT_API_FAILURE_PROPAGATES")
+        else:
+            raise AssertionError("THIRD_READ_FAILURE_NOT_RAISED")
+        finally:
+            sheet.batch_get=orig_batch
+        check(current_db_state()==baseline,"THIRD_SNAPSHOT_ERROR_ROLLBACK")
+
+        # A stable unmodified input passes all three reads and commits receipt.
+        sheet.priority=[{"AMEA Project":p6,"Normal Action":"Hold","Hold Days":"2"}]
+        before_calls=sheet.calls
+        ns["sync_overview_snooze_actions"](con,sheet,board(p6,"INPUT_D"),now)
+        check(sheet.calls-before_calls==3,"STABLE_CONTROLS_THREE_SNAPSHOTS")
+        check(row(con,p6) is not None and row(con,p6)[0]=="hold",
+              "STABLE_CONTROL_COMMITS_HOLD")
+        check(con.execute("SELECT signature FROM overview_control_receipts "
+              "WHERE project_id=? AND source='priority'",(p6,)).fetchone()[0]=="hold:2",
+              "STABLE_CONTROL_COMMITS_RECEIPT")
+        sheet.priority=[]
         # REPRODUCE manual-update race deterministically between read and upsert.
         ns["sync_overview_prepayment_snoozes"](con,board(p2,"B2","Sample QC review"),
              {p2},now)
@@ -460,7 +542,7 @@ def main():
                 v=subprocess.run(["git","apply",*flags,str(Path(patch).resolve())],
                        cwd=folder,capture_output=True,text=True,timeout=90)
                 check(v.returncode==0,"REVERSE_PATCH_"+str(n)+"_"+str(flags[-1]))
-        check(path.read_bytes()==original,"SEVEN_PATCH_ROLLBACK_BYTE_EXACT")
+        check(path.read_bytes()==original,"EIGHT_PATCH_ROLLBACK_BYTE_EXACT")
         print("COLLISION_HARDENED_CHECKS_PASS",len(CHECKS),flush=True)
         print("REAL_CSS_FUNCTIONS_EXECUTED_SYNTHETIC_ONLY",True,flush=True)
 
