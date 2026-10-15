@@ -1,0 +1,20 @@
+{
+  "observed_at_kst": "2026-10-15",
+  "source": "Vercel authenticated GET get_project, sanitized fields only",
+  "staging_project_id": "prj_MpQ3qSpSW4QBRvw6aPvS3BYUtFFt",
+  "staging_project_name": "kalman-investment-hub-v2-staging",
+  "staging_alias": "kalman-investment-hub-v2-staging.vercel.app",
+  "staging_alias_deployment": "dpl_8V5GjXVpU2tEixvcNEh6hwKiY32C",
+  "staging_sso_enabled": false,
+  "staging_password_protection_enabled": false,
+  "staging_trusted_ip_rule_count": 0,
+  "staging_custom_bypass_count": 0,
+  "staging_runtime_api_access_verified": false,
+  "staging_network_isolation_verified": false,
+  "staging_credentials_isolated_verified": false,
+  "staging_database_isolation_verified": false,
+  "staging_operator_approved": false,
+  "main_sso_enabled": true,
+  "us_sso_enabled": true,
+  "kr_sso_enabled": true
+}
