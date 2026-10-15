@@ -75,6 +75,10 @@ jobs:
         run: node staging_local_http_smoke.js > staging_local_http_report.json
       - name: Audit full built API surface and staging protection (no deployment)
         run: python3 staging_api_surface_gate.py --output staging_api_surface_report.json
+      - name: Build isolated synthetic-only Staging package (NOT deployed)
+        run: python3 build_demo_only_staging.py --report staging_demo_only_report.json
+      - name: Synthetic-only Staging sandbox regression
+        run: python3 -m unittest -v test_demo_only_staging.py
       - name: Reproduce pinned snapshot
         run: python3 quality_gate.py --at 2026-10-14T11:35:00Z --output quality_report.json
       - name: Upload audit artifact
@@ -87,5 +91,6 @@ jobs:
             audits/2026-10-14/quality/active_bundle_fingerprint_report.json
             audits/2026-10-14/quality/staging_api_surface_report.json
             audits/2026-10-14/quality/staging_local_http_report.json
+            audits/2026-10-14/quality/staging_demo_only_report.json
           if-no-files-found: error
           retention-days: 30
