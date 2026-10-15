@@ -5,7 +5,7 @@
 ## Change scope
 - Existing server runtime: `/home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py`.
 - Expected original SHA-256: `a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840`.
-- Final **three-patch** staged SHA-256: `d675a490007a75c69b7fa408076879e9a52a1078bcc62a32f6fe093da0a32555`.
+- Final **four-patch** staged SHA-256: `851469d0aa53757fd55d5d31357d06068952d3983e79d8ee8b2d15ccb2cbf4fb`.
 - Fix source of Prepayment follow-up suppression: permanent active SQLite skips rather than the 30-day `CSS Contract-SIF Skipped` view.
 - Create a read-only `CSS Contract-SIF Skip History` tab with no edit/restore checkbox. Existing manual flags and 30-day tracker retention are unchanged.
 
@@ -59,10 +59,17 @@
 - Updated policy: **Keep Prepayment SIF projects visible on Dashboard and in Customer 360 / Summary; mark their SIF attention No and exclude them from action-only inputs until QC**. This avoids portfolio undercounting in the earlier two-patch candidate. See [Portfolio Visibility Policy](PORTFOLIO_VISIBILITY_POLICY.md).
 - The third patch does not authorize any production writes. **Business acceptance of display semantics remains an approval gate.**
 
+## Production-safe action metadata refinement — four-patch candidate (2026-10-15)
+
+- [**51/51 four-patch portfolio and action-source regression**](https://github.com/kimtk94/Codex/actions/runs/38657405886) on 1,200 synthetic projects: Dashboard / Customer 360 / Summary retain portfolio, SIF attention is No only on Prepayment SIF stages, **Action Center and Review Queue builders receive full portfolio context** to preserve independent mail/CRM/manual tasks and project metadata; QC recovery and all four reverse patches byte-exact.
+- [**30/30 integrated server preflight PASS**](https://github.com/kimtk94/Codex/actions/runs/38657533752) for SHA `851469d0aa53757fd55d5d31357d06068952d3983e79d8ee8b2d15ccb2cbf4fb`; 433 original functions preserved, production source unchanged, live SQLite read-only quick/FK checks.
+- The previous three-patch candidate SHA and tests remain historical evidence only, **not** the approved final artifact. The fourth patch is `novogene_sif_independent_actions.patch`. No actual end-to-end CRM/mail refresh has been run.
+- [Policy rationale and limitations](PORTFOLIO_VISIBILITY_POLICY.md).
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
-3. **Safe rollout approval + rollback rehearsal (three patches):** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
+3. **Safe rollout approval + rollback rehearsal (four patches):** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
 4. **System service wrappers:** Confirm the `v8.92.1-server-local-adc` wrapper, systemd/cron schedules and 10-minute mail collector interactions before a controlled run.
 
 ## Backup retention — sampled dry-run only
