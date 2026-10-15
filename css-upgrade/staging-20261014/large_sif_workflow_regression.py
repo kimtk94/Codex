@@ -26,8 +26,8 @@ def staging(source,patches,folder):
     require(hashlib.sha256(raw).hexdigest()==SOURCE_SHA,"original_server_sha")
     path=Path(folder)/"Novogene_Mail_CSS_DashBoard.py"
     path.write_bytes(raw)
-    if len(patches)!=6:
-        raise AssertionError('six_patch_candidate_required')
+    if len(patches)!=7:
+        raise AssertionError('seven_patch_candidate_required')
     for p in patches:
         for args in (("--check","--whitespace=error"),("--whitespace=error",)):
             z=subprocess.run(["git","apply",*args,str(Path(p).resolve())],
@@ -37,8 +37,8 @@ def staging(source,patches,folder):
     ast.parse(txt)
     require("v8.92.1-server-local-adc" in txt,"runtime_version_preserved")
     candidate_sha=hashlib.sha256(path.read_bytes()).hexdigest()
-    require(candidate_sha=="a75fac886bd4cb881acbd7a4cf860c7246f05a00b5d2a0dc461934cbfddce083",
-            "six_patch_candidate_sha")
+    require(candidate_sha=="2c45c940e35790944a1e0abde9b0312161e3b49a2b7d31993643d2d864fa338a",
+            "seven_patch_candidate_sha")
     print("COMBINED_PATCH_SHA256",candidate_sha)
     # Validate exact rollback of SIX patches in reverse order, on temp copy only.
     for p in reversed(patches):
@@ -46,7 +46,7 @@ def staging(source,patches,folder):
             out=subprocess.run(["git","apply",*flags,str(Path(p).resolve())],
                  cwd=folder,capture_output=True,text=True,timeout=60)
             require(out.returncode==0,"reverse_"+str(Path(p).name)+"_"+str(flags[-1]))
-    require(path.read_bytes()==raw,"six_patch_rollback_byte_exact")
+    require(path.read_bytes()==raw,"seven_patch_rollback_byte_exact")
     return txt
 
 def load_functions(txt):
