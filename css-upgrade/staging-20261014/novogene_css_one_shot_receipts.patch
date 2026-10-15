@@ -55,16 +55,6 @@
              continue
  
          if action == "release":
-@@ -10720,9 +10761,6 @@
-             clean_text(record.get("Mail Marker", "")) or current_marker
-         )
-         if action == "hold":
--            if days_value is None or days_value <= 0:
--                counts["overview_invalid_hold"] += 1
--                continue
-             hold_until = (now + pd.Timedelta(days=days_value)).isoformat()
-             _upsert_overview_snooze(
-                 conn,
 @@ -10747,7 +10785,16 @@
      for record in management_records:
          project_id = clean_text(record.get("AMEA Project", "")).upper()
