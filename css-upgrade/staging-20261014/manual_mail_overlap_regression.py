@@ -401,7 +401,8 @@ def main():
         sheet.priority=[]
         # A stale Skip command also does not reapply on later new mail.
         p5="AMEA2099000005"
-        sheet.priority=[{"AMEA Project":p5,"Normal Action":"Skip","Mail Marker":"FIRST||1||t1"}]
+        displayed=ns["overview_mail_marker"](board(p5,"FIRST").to_dict("records")[0])
+        sheet.priority=[{"AMEA Project":p5,"Normal Action":"Skip","Mail Marker":displayed}]
         ns["sync_overview_snooze_actions"](con,sheet,board(p5,"FIRST"),now)
         check(row(con,p5)[0]=="skip_until_new_mail","ONESHOT_SKIP_FIRST_CREATED")
         ns["sync_overview_snooze_actions"](con,sheet,board(p5,"SECOND"),
