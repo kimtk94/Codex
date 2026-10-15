@@ -1,0 +1,32 @@
+--- a/Novogene_Mail_CSS_DashBoard.py
++++ b/Novogene_Mail_CSS_DashBoard.py
+@@ -10927,12 +10927,32 @@
+     savepoint = "overview_snooze_sync"
+     conn.execute(f"SAVEPOINT {savepoint}")
+     try:
++        # Re-read user controls under the SAVEPOINT. Never process a command
++        # already changed by the user after our first Google Sheets snapshot.
++        before_write = read_overview_control_snapshots(overview_ws)
++        if before_write != (priority_records, management_records):
++            raise RuntimeError(
++                "Overview 사용자 입력이 읽기 이후 변경되었습니다: 재시도 필요"
++            )
+         result = _sync_overview_snooze_actions_from_records(
+             conn,
+             df_dashboard,
+             priority_records,
+             management_records,
+             now=now,
+         )
++        # A second observation protects changes that arrive during DB updates.
++        # It also rolls back one-shot receipts because they share this SAVEPOINT.
++        # This is an optimistic conflict detector, not an atomic Google Sheets
++        # transaction: edits after this observation remain possible.
++        after_write = read_overview_control_snapshots(overview_ws)
++        if after_write != (priority_records, management_records):
++            raise RuntimeError(
++                "Overview 사용자 입력이 처리 도중 변경되었습니다: DB 롤백"
++            )
+         conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+         conn.commit()
+         return result
