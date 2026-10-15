@@ -208,6 +208,7 @@ def test_actual_main_prepayment_branch(ns,conn,board,source):
     outer.update({
       "conn":conn,
       "df_dashboard":fresh,
+      "df_dashboard_portfolio":fresh.copy(),
       "prepayment_project_ids":ids,
       "counts":{},
       "df_overview_snoozes":pd.DataFrame(columns=["mode"]),
@@ -230,6 +231,7 @@ def test_actual_main_prepayment_branch(ns,conn,board,source):
     require(normal_ids.issubset(remain),"main_nonprepayment_projects_remain_visible")
     # Rerunning the same section on a fresh source board must not change output.
     outer["df_dashboard"]=fresh.copy()
+    outer["df_dashboard_portfolio"]=fresh.copy()
     outer["counts"]={}
     exec(compile(ast.Module(body=[node],type_ignores=[]),"main-prepayment-repeat","exec"),outer)
     require(set(outer["df_dashboard"]["project_id"])==remain,"main_repeat_same_output")
@@ -238,6 +240,7 @@ def test_actual_main_prepayment_branch(ns,conn,board,source):
     promoted=fresh.copy()
     promoted.loc[promoted["project_id"]==transitioned,"current_stage"]="Sample QC review"
     outer["df_dashboard"]=promoted
+    outer["df_dashboard_portfolio"]=promoted.copy()
     outer["counts"]={}
     exec(compile(ast.Module(body=[node],type_ignores=[]),"main-prepayment-QC","exec"),outer)
     require(transitioned in set(outer["df_dashboard"]["project_id"]),
@@ -247,6 +250,7 @@ def test_actual_main_prepayment_branch(ns,conn,board,source):
     # Negative case: no Prepayment qualifies. Branch may only clean auto snoozes,
     # never erase unrelated manual modes or drop Dashboard rows.
     outer["df_dashboard"]=promoted.copy()
+    outer["df_dashboard_portfolio"]=promoted.copy()
     outer["prepayment_project_ids"]=set()
     outer["counts"]={}
     exec(compile(ast.Module(body=[node],type_ignores=[]),"main-prepayment-empty","exec"),outer)
