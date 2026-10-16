@@ -52,3 +52,15 @@ The companion `g16_synthetic_pipeline.py` implements a **model**, not the produc
 2. The memory-based fake Sheet does not demonstrate real Google Sheets/SQLite distributed transaction atomicity. No automatic rollback can be claimed if real Sheets commits and SQLite later fails, or vice versa.
 3. OS network and write boundaries are verified for this specific minimal container configuration, not for every production helper reachable by the full engine.
 4. Full G16 sink coverage, G12 full-engine integration, operational deployment, and migration gates all remain blocked until a private production-equivalent isolated harness is complete.
+
+## Strict mock ports integration (2026-10-16)
+
+- Synthetic-only adapter module: `g16_mock_ports.py`; regression suite: `test_g16_mock_ports.py`.
+- A factory injects a **guarded temporary SQLite connection** into the synthetic fixture engine. Allowed SQL is deliberately narrow and explicitly rejects external attach/export/DDL mutation beyond the fixture bootstrap.
+- Fake Sheets permits publication of `TEST-` portfolio/action records only. Fake Mail and CRM return synthetic fixtures only; missing/unknown adapter methods fail closed.
+- Fake filesystem output writes aggregate numeric/boolean metrics to a disposable `/tmp` directory only; path traversal, symlink targets, and string payload export are rejected.
+- A method-count ledger contains only adapter category and operation names, never raw SQL, mail subjects, customer IDs or credentials.
+- Container-level `--network none`, readonly filesystem, non-root UID and no capabilities remain required. **Python objects and their private attributes are not a security sandbox.**
+- Latest CI: https://github.com/kimtk94/Codex/actions/runs/38892621133 — 15 synthetic pipeline + nine AST scanner + 16 adapter tests PASS (40 total).
+
+**Explicit limitations:** fake Sheets uses in-memory state; rollback is tested only before its publish operation mutates output, not cross-service atomicity after a real API commit. The SQLite adapter exposes an actual fixture connection internally. These adapters have **not** been injected into proprietary CSS source, and they do not cover unregistered direct network/client/file construction in the real engine. G16 remains BLOCKED and G12 has not run. A private OS-isolated runtime and explicit connector interception are required before production-equivalent execution.
