@@ -8,6 +8,8 @@ on:
       - '.github/workflows/novogene-css-g16-boundary-probe.yml'
       - 'css-upgrade/staging-20261014/g16_boundary_probe.py'
       - 'css-upgrade/staging-20261014/G16_BOUNDARY_PROBE.md'
+      - 'css-upgrade/staging-20261014/g16_synthetic_pipeline.py'
+      - 'css-upgrade/staging-20261014/test_g16_synthetic_pipeline.py'
   workflow_dispatch:
 
 permissions:
@@ -25,7 +27,10 @@ jobs:
           persist-credentials: false
       - name: Validate fixture syntax
         run: |
-          python3 -m py_compile css-upgrade/staging-20261014/g16_boundary_probe.py
+          python3 -m py_compile \
+            css-upgrade/staging-20261014/g16_boundary_probe.py \
+            css-upgrade/staging-20261014/g16_synthetic_pipeline.py \
+            css-upgrade/staging-20261014/test_g16_synthetic_pipeline.py
       - name: Prove network-disabled read-only synthetic container
         run: |
           docker run --rm \
@@ -41,7 +46,8 @@ jobs:
             --mount "type=bind,src=${GITHUB_WORKSPACE}/css-upgrade/staging-20261014,dst=/input,readonly" \
             --env G16_SYNTHETIC_ONLY=1 \
             python:3.11-slim \
-            python /input/g16_boundary_probe.py
+            sh -c 'python /input/g16_boundary_probe.py && python -m unittest discover -s /input -p test_g16_synthetic_pipeline.py -v'
           echo "G16_SYNTHETIC_CONTAINER_BOUNDARY_CI_PASS"
+          echo "G16_SYNTHETIC_ADAPTER_REGRESSION_PASS"
           echo "NO_SSH_NO_PRODUCTION_SHEETS_NO_LIVE_SQLITE_NO_MAIL_SEND"
           echo "G12_G16_RELEASE_GATES_REMAIN_BLOCKED"
