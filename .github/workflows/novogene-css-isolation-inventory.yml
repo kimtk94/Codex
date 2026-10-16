@@ -3,7 +3,7 @@ name: Novogene CSS Isolation Boundary AST Audit
 on:
   push:
     branches:
-      - 'audit/novogene-css-sif-staging-20261014'
+      - 'audit/css-g16-boundary-20261016'
     paths:
       - '.github/workflows/novogene-css-isolation-inventory.yml'
 
@@ -39,87 +39,20 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
           ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
-      - name: Read-only production source AST isolation inventory
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run aggregate-only AST sink audit over existing SSH
         env:
           SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
           SSH_USER: ${{ secrets.SERVER_SSH_USER }}
         run: |
+          python3 -m py_compile css-upgrade/staging-20261014/g16_static_sink_inventory.py
+          python3 -m unittest discover \
+            -s css-upgrade/staging-20261014 \
+            -p test_g16_static_sink_inventory.py -v
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
             -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
-          import ast
-          import collections
-          import hashlib
-          from pathlib import Path
-          app=Path('/home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py')
-          expected='a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840'
-          src=app.read_bytes()
-          if hashlib.sha256(src).hexdigest()!=expected:
-              raise SystemExit('SOURCE_SHA_CHANGED_FAIL_CLOSED')
-          tree=ast.parse(src)
-          main=next((n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main'),None)
-          if main is None:
-              raise SystemExit('NO_MAIN_FUNCTION')
-          top_calls=[]
-          for stmt in tree.body:
-              if isinstance(stmt,ast.If) and any(isinstance(n,ast.Name) and n.id=='__name__' for n in ast.walk(stmt.test)):
-                  continue
-              if isinstance(stmt,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)):
-                  continue
-              for n in ast.walk(stmt):
-                  if isinstance(n,ast.Call):
-                      top_calls.append(n)
-          def callname(node):
-              try:
-                  return ast.unparse(node.func)
-              except Exception:
-                  return ''
-          counts=collections.Counter(callname(n) for n in ast.walk(main) if isinstance(n,ast.Call))
-          categories={
-              'spreadsheet_output':('overwrite_dataframe_if_changed','get_or_create_worksheets','open_configured_spreadsheet','sync_ledger_sheet_from_db','apply_operational_sheet_formats','publish_system_health_best_effort'),
-              'database_mutation':('connect_db','prepare_runtime_db','sync_contract_sif_skip_actions_from_frames','start_system_run','set_meta','finalize_system_run','commit_mail_batch','sync_overview_prepayment_snoozes'),
-              'mail_ingest_or_sync':('get_incremental_uid_rows','commit_mail_batch','sync_reply_tracking_from_source','sync_sent_contact_index'),
-              'backup_files_or_logs':('backup_runtime_db','save_json','initialize_drive_runtime_layout'),
-              'authentication_and_network':('gspread.authorize','auth.authenticate_user','open_configured_spreadsheet')
-          }
-          print('AUDIT_TYPE', 'NOVOGENE_CSS_AST_NO_EXECUTION')
-          print('SOURCE_SHA_VERIFIED',True)
-          print('MAIN_LINES',main.end_lineno-main.lineno+1)
-          print('TOTAL_MAIN_CALLS',sum(counts.values()))
-          print('UNIQUE_MAIN_CALLEES',len(counts))
-          print('TOP_LEVEL_CALL_EXPRESSIONS',len(top_calls))
-          for key,indicators in categories.items():
-              matches={k:counts[k] for k in indicators if counts[k]}
-              print('CATEGORY',key,'COUNT',sum(matches.values()),'MATCHES',','.join(sorted(matches)))
-          print('OUTPUT_DATAFRAME_WRITES',counts['overwrite_dataframe_if_changed'])
-          print('FAILURE_PATH_WRITES_PRESENT',all(counts[k]>0 for k in ['finalize_system_run','backup_runtime_db','publish_system_health_best_effort']))
-          print('MAIN_CAN_RUN_UNSANDBOXED',False)
-          # Top-level imports also need isolation, because module import can be active.
-          top_names=sorted(set(callname(n) for n in top_calls))
-          print('TOP_LEVEL_PIP_INSTALL_CALL', 'subprocess.run' in top_names)
-          print('TOP_LEVEL_COLAB_IMPORT', 'google.colab' in src.decode('utf-8',errors='replace'))
-          print('TOP_LEVEL_CALL_NAMES', ','.join(top_names)[:1500])
-          collector=app.parent/'Novogene_Mail_Collector_server.py'
-          if not collector.is_file():
-              collector=app.parent/'Novogene_Mail_Collector.py'
-          if collector.is_file():
-              collector_ast=ast.parse(collector.read_bytes())
-              collector_guard=any(isinstance(n,ast.If) and
-                  any(isinstance(z,ast.Name) and z.id=='__name__' for z in ast.walk(n.test))
-                  for n in collector_ast.body)
-              collector_calls=[]
-              for stmt in collector_ast.body:
-                  if isinstance(stmt,(ast.FunctionDef,ast.ClassDef,ast.AsyncFunctionDef)):
-                      continue
-                  for node in ast.walk(stmt):
-                      if isinstance(node,ast.Call):
-                          collector_calls.append(callname(node))
-              risky=['sqlite3.connect','gspread.authorize','subprocess.run','gc.open_by_key','publish_mail_state_to_drive']
-              found=sorted(x for x in risky if x in collector_calls)
-              print('COLLECTOR_TOP_LEVEL_CALL_COUNT',len(collector_calls))
-              print('COLLECTOR_NAME_GUARD_PRESENT',collector_guard)
-              print('COLLECTOR_RISK_CALLS',','.join(found))
-          else:
-              print('COLLECTOR_DISCOVERY_MISSING', True)
-          print('NO_PRODUCTION_CODE_OR_DB_WRITTEN',True)
-          PY
+            "$SSH_USER@$SSH_HOST" 'G16_AST_AUDIT_READONLY=1 python3 -' \
+            < css-upgrade/staging-20261014/g16_static_sink_inventory.py
+          echo "G16_PRODUCTION_AST_ONLY_NO_IMPORT_NO_MAIL_OR_DB_WRITES"
