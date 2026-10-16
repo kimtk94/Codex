@@ -67,7 +67,18 @@ def safe_function(func: ast.FunctionDef) -> bool:
     for child in ast.walk(func):
         if isinstance(child, BANNED):
             return False
-        if isinstance(child, (ast.Call,)):
+        # A non-called attribute can leak Python internals just as a method can.
+        # Only explicitly enumerated methods and direct approved module calls
+        # are eligible; reject every dunder and unknown attribute expression.
+        if isinstance(child, ast.Attribute):
+            explicit = (isinstance(child.value, ast.Name) and
+                        child.value.id in ("re", "hashlib") and
+                        child.value.id + "." + child.attr in SAFE_CALLS)
+            if child.attr not in SAFE_ATTRIBUTES and not explicit:
+                return False
+            if child.attr.startswith("_"):
+                return False
+        if isinstance(child, ast.Call):
             n = callable_name(child.func)
             if not (n in SAFE_CALLS or
                     (n == "<method>" and isinstance(child.func, ast.Attribute)
@@ -150,6 +161,12 @@ def main() -> None:
         else:
             print("G16_PRIVATE_REAL_HELPER_UNVERIFIED_" + name.upper())
     check(passing >= 2, "MINIMUM_TWO_PURE_HELPERS")
+    # Do not treat two unrelated passing helpers as proof that the
+    # adapter entrypoint itself was verified.
+    check("clean_text" in vetted and
+          "clean_text" in namespace and
+          passing >= 2,
+          "REAL_TRANSFORM_CONTRACT_VERIFIED")
 
     # Connect a SHA-vetted *real extracted helper* to the strict, synthetic
     # Sheets adapter. No production ID or data is passed to any adapter.
