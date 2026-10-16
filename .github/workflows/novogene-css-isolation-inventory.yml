@@ -56,3 +56,24 @@ jobs:
             "$SSH_USER@$SSH_HOST" 'G16_AST_AUDIT_READONLY=1 python3 -' \
             < css-upgrade/staging-20261014/g16_static_sink_inventory.py
           echo "G16_PRODUCTION_AST_ONLY_NO_IMPORT_NO_MAIL_OR_DB_WRITES"
+
+      - name: Check private server container prerequisites (read-only)
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import shutil,subprocess
+          binary=shutil.which('docker')
+          print('PRIVATE_DOCKER_BINARY_PRESENT',bool(binary))
+          if binary:
+              test=subprocess.run([binary,'info','--format','{{.ServerVersion}}'],capture_output=True,text=True,timeout=10)
+              print('PRIVATE_DOCKER_DAEMON_READABLE',test.returncode==0)
+              if test.returncode==0:
+                  for image in ('python:3.11-slim','python:3.12-slim'):
+                      inspect=subprocess.run([binary,'image','inspect',image,'--format','{{.Id}}'],capture_output=True,text=True,timeout=10)
+                      print('PRIVATE_DOCKER_LOCAL_IMAGE_'+image.replace(':','_').replace('.','_').replace('-','_'),inspect.returncode==0)
+          print('NO_IMAGES_PULL_NO_CONTAINER_RUN_NO_SOURCE_EXECUTION')
+          PY
