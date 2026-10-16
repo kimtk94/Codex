@@ -1,0 +1,47 @@
+name: Novogene CSS G16 Container Boundary (Synthetic Only)
+
+on:
+  push:
+    branches:
+      - 'audit/css-g16-boundary-20261016'
+    paths:
+      - '.github/workflows/novogene-css-g16-boundary-probe.yml'
+      - 'css-upgrade/staging-20261014/g16_boundary_probe.py'
+      - 'css-upgrade/staging-20261014/G16_BOUNDARY_PROBE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  boundary-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate fixture syntax
+        run: |
+          python3 -m py_compile css-upgrade/staging-20261014/g16_boundary_probe.py
+      - name: Prove network-disabled read-only synthetic container
+        run: |
+          docker run --rm \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 32 \
+            --memory 256m \
+            --cpus 1 \
+            --user 65534:65534 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777 \
+            --mount "type=bind,src=${GITHUB_WORKSPACE}/css-upgrade/staging-20261014,dst=/input,readonly" \
+            --env G16_SYNTHETIC_ONLY=1 \
+            python:3.11-slim \
+            python /input/g16_boundary_probe.py
+          echo "G16_SYNTHETIC_CONTAINER_BOUNDARY_CI_PASS"
+          echo "NO_SSH_NO_PRODUCTION_SHEETS_NO_LIVE_SQLITE_NO_MAIL_SEND"
+          echo "G12_G16_RELEASE_GATES_REMAIN_BLOCKED"
