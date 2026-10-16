@@ -97,9 +97,10 @@ class FakeSheets:
 class FixtureEngine:
     SIF = frozenset({"SIF requested", "SIF revision required"})
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, sqlite_factory=None):
         assert_tmp_database(db_path)
-        self.db = sqlite3.connect(str(db_path), isolation_level=None)
+        self.db = (sqlite_factory.connect(db_path) if sqlite_factory is not None
+                   else sqlite3.connect(str(db_path), isolation_level=None))
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript("""
           CREATE TABLE IF NOT EXISTS projects(
