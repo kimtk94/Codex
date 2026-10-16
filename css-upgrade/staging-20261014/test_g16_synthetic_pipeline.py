@@ -134,5 +134,16 @@ class SyntheticPipelineTests(unittest.TestCase):
                 self.engine.run(self.mails, self.crm, self.sheet)
 
 
+    def test_015_conflicting_mail_uid_fails_closed(self):
+        self.engine.run(self.mails, self.crm, self.sheet)
+        initial = self.engine.counts()
+        incoming = FakeMail([
+            SyntheticMail("test:1", "synthetic:conflict", "TEST-A", "Data ready")
+        ])
+        with self.assertRaisesRegex(IsolationError, "conflicting reuse"):
+            self.engine.run(incoming, self.crm, self.sheet)
+        self.assertEqual(self.engine.counts(), initial)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
