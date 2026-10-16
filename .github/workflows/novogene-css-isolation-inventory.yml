@@ -101,3 +101,36 @@ jobs:
                   print('PRIVATE_'+label,'UNKNOWN')
           print('NO_SANDBOX_OR_SOURCE_EXECUTED')
           PY
+
+      - name: Smoke-test private Bubblewrap isolation with harmless Python (no CSS)
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import os, subprocess, shutil
+          if not shutil.which('bwrap'):
+              print('G16_PRIVATE_BWRAP_SMOKE_SKIPPED_NO_BINARY')
+              raise SystemExit(0)
+          argv=[
+            'bwrap','--unshare-user','--unshare-net','--unshare-pid',
+            '--unshare-ipc','--unshare-uts','--new-session',
+            '--die-with-parent',
+            '--ro-bind','/usr','/usr','--ro-bind','/lib','/lib',
+            '--ro-bind','/lib64','/lib64','--ro-bind','/bin','/bin',
+            '--dev','/dev','--tmpfs','/tmp','--clearenv',
+            '--setenv','G16_SYNTHETIC_ONLY','1',
+            '/usr/bin/python3','-c',
+            "import os,socket; assert not os.path.exists('/home/taehoon'); s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); denied=False;\ntry: s.connect(('198.51.100.1',9))\nexcept OSError: denied=True\ns.close(); assert denied; print('G16_PRIVATE_BWRAP_SANDBOX_SMOKE_PASS')"
+          ]
+          proc=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=15)
+          print('G16_PRIVATE_BWRAP_SMOKE_RETURN_CODE',proc.returncode)
+          if 'G16_PRIVATE_BWRAP_SANDBOX_SMOKE_PASS' in proc.stdout:
+              print('G16_PRIVATE_BWRAP_ISOLATION_AVAILABLE',True)
+          else:
+              print('G16_PRIVATE_BWRAP_ISOLATION_AVAILABLE',False)
+              print('G16_NO_CSS_TEST_DUE_TO_SANDBOX_UNAVAILABLE')
+          print('G16_NO_CSS_SOURCE_IMPORTED_OR_EXECUTED')
+          PY
