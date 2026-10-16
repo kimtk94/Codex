@@ -33,3 +33,22 @@ The probe does not verify interception of each SQL/Google Sheets/mail/CRM/Drive 
 7. Report a minimal redacted CI artifact; still require **explicit** approval for the production patch and migration.
 
 **Prohibited for this phase:** production CSS `main()` execution, importing the live collector, service changes, scheduled job changes, real customer data export, public code dump, live Google Sheet or SQLite writes, mail sends, backup deletion and production deployment.
+
+## Synthetic adapter integration milestone (2026-10-16)
+
+The companion `g16_synthetic_pipeline.py` implements a **model**, not the production CSS engine:
+- An in-container throwaway SQLite database under `/tmp` stores TEST-prefixed projects, synthetic mail ledger keys, per-sample timeline events and manual/auto snooze state.
+- `FakeMail` emits static `test:` UIDs and `synthetic:` Message IDs only; `FakeCRM` returns static synthetic inquiries; `FakeSheets` holds results in memory, with a deterministic injected failure before write.
+- The synthetic model suppresses only a generic SIF follow-up during Prepayment SIF stages while retaining portfolio rows and independent CRM inquiries.
+- Sample IDs deduplicate events even if Message IDs are absent or separate UID records refer to the same sample.
+- Manual Hold/Skip supersedes automatic Prepayment snooze; QC advancement releases only automatic snoozes.
+- Transaction rollback is tested for a **fake sheet failure before it applies any output** and an orphan project FK failure.
+- Reusing a UID for a conflicting project/message fails closed.
+
+`test_g16_synthetic_pipeline.py` runs these lifecycle cases inside the existing network-disabled, read-only Docker CI, using a disposable `/tmp` SQLite file and **no SSH, customer data, live API credentials or production module imports**.
+
+### Known limits / next milestones
+1. This synthetic model does not execute even an isolated AST extraction of the actual CSS source. It demonstrates desired invariants and is **not proof of the production implementation**.
+2. The memory-based fake Sheet does not demonstrate real Google Sheets/SQLite distributed transaction atomicity. No automatic rollback can be claimed if real Sheets commits and SQLite later fails, or vice versa.
+3. OS network and write boundaries are verified for this specific minimal container configuration, not for every production helper reachable by the full engine.
+4. Full G16 sink coverage, G12 full-engine integration, operational deployment, and migration gates all remain blocked until a private production-equivalent isolated harness is complete.
