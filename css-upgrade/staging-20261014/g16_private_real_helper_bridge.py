@@ -106,6 +106,21 @@ def main() -> None:
               if name in names and safe_function(names[name])}
     print("G16_PRIVATE_HELPERS_PRESENT", sum(x in names for x in TARGETS))
     print("G16_PRIVATE_HELPERS_STATIC_ALLOWLISTED", len(vetted))
+    for name in TARGETS:
+        node = names.get(name)
+        if node is None:
+            continue
+        print("G16_PRIVATE_HELPER_STATIC_ELIGIBLE_" + name.upper(), name in vetted)
+        roots = {}
+        for call in (n for n in ast.walk(node) if isinstance(n, ast.Call)):
+            callname = callable_name(call.func)
+            root = callname.split(".")[0] if "." in callname else callname
+            category = (root if root in ("pd", "re", "hashlib", "unicodedata", "datetime", "json")
+                        else ("safe_builtin" if root in SAFE_BUILTINS else
+                              "local_helper" if root in TARGETS else "other"))
+            roots[category] = roots.get(category, 0) + 1
+        print("G16_PRIVATE_HELPER_DEPENDENCY_CLASSES_" + name.upper(),
+              ",".join(k + ":" + str(v) for k, v in sorted(roots.items())))
     namespace = {"__builtins__": SAFE_BUILTINS, "re": re, "hashlib": hashlib}
     for value in vetted.values():
         node = stripped_copy(value)
@@ -126,7 +141,8 @@ def main() -> None:
         try:
             result = namespace[name](*args)
             success = condition(result)
-        except Exception:
+        except Exception as e:
+            print("G16_PRIVATE_HELPER_EXCEPTION_KIND_" + name.upper(), type(e).__name__)
             success = False
         if success:
             check(True, name.upper())
