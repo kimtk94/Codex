@@ -66,5 +66,27 @@ class G16PrivateBridgeGuardTests(unittest.TestCase):
         self.assertTrue(safe_function(f))
         self.assertNotIn("CONFIDENTIAL_CONSTANT", callable_name(f))
 
+
+    def test_direct_dunder_attribute_denied(self):
+        f=get_function("def clean_text(x):\n    return x.__class__\n")
+        self.assertFalse(safe_function(f))
+
+    def test_python_class_introspection_denied(self):
+        f=get_function("def clean_text(x):\n    return x.__class__.__mro__\n")
+        self.assertFalse(safe_function(f))
+
+    def test_module_private_attribute_denied(self):
+        f=get_function("def clean_text(x):\n    return re.__dict__\n")
+        self.assertFalse(safe_function(f))
+
+    def test_plain_unapproved_attribute_denied(self):
+        f=get_function("def clean_text(x):\n    return x.remote_api\n")
+        self.assertFalse(safe_function(f))
+
+    def test_explicit_re_function_still_allowed(self):
+        f=get_function("def clean_text(x):\n    return re.fullmatch('TEST', x) is not None\n")
+        self.assertTrue(safe_function(f))
+
+
 if __name__=="__main__":
     unittest.main(verbosity=2)
