@@ -14,6 +14,7 @@ on:
       - 'css-upgrade/staging-20261014/test_g16_static_sink_inventory.py'
       - 'css-upgrade/staging-20261014/g16_mock_ports.py'
       - 'css-upgrade/staging-20261014/test_g16_mock_ports.py'
+      - 'css-upgrade/staging-20261014/g16_private_real_helper_bridge.py'
   workflow_dispatch:
 
 permissions:
@@ -38,7 +39,8 @@ jobs:
             css-upgrade/staging-20261014/g16_static_sink_inventory.py \
             css-upgrade/staging-20261014/test_g16_static_sink_inventory.py \
             css-upgrade/staging-20261014/g16_mock_ports.py \
-            css-upgrade/staging-20261014/test_g16_mock_ports.py
+            css-upgrade/staging-20261014/test_g16_mock_ports.py \
+            css-upgrade/staging-20261014/g16_private_real_helper_bridge.py
       - name: Prove network-disabled read-only synthetic container
         run: |
           docker run --rm \
