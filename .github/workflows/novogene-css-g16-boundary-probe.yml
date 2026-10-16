@@ -15,6 +15,7 @@ on:
       - 'css-upgrade/staging-20261014/g16_mock_ports.py'
       - 'css-upgrade/staging-20261014/test_g16_mock_ports.py'
       - 'css-upgrade/staging-20261014/g16_private_real_helper_bridge.py'
+      - 'css-upgrade/staging-20261014/test_g16_private_helper_bridge.py'
   workflow_dispatch:
 
 permissions:
@@ -40,7 +41,8 @@ jobs:
             css-upgrade/staging-20261014/test_g16_static_sink_inventory.py \
             css-upgrade/staging-20261014/g16_mock_ports.py \
             css-upgrade/staging-20261014/test_g16_mock_ports.py \
-            css-upgrade/staging-20261014/g16_private_real_helper_bridge.py
+            css-upgrade/staging-20261014/g16_private_real_helper_bridge.py \
+            css-upgrade/staging-20261014/test_g16_private_helper_bridge.py
       - name: Prove network-disabled read-only synthetic container
         run: |
           docker run --rm \
@@ -56,9 +58,10 @@ jobs:
             --mount "type=bind,src=${GITHUB_WORKSPACE}/css-upgrade/staging-20261014,dst=/input,readonly" \
             --env G16_SYNTHETIC_ONLY=1 \
             python:3.11-slim \
-            sh -c 'python /input/g16_boundary_probe.py && python -m unittest discover -s /input -p test_g16_synthetic_pipeline.py -v && python -m unittest discover -s /input -p test_g16_static_sink_inventory.py -v && python -m unittest discover -s /input -p test_g16_mock_ports.py -v'
+            sh -c 'python /input/g16_boundary_probe.py && python -m unittest discover -s /input -p test_g16_synthetic_pipeline.py -v && python -m unittest discover -s /input -p test_g16_static_sink_inventory.py -v && python -m unittest discover -s /input -p test_g16_mock_ports.py -v && python -m unittest discover -s /input -p test_g16_private_helper_bridge.py -v'
           echo "G16_SYNTHETIC_CONTAINER_BOUNDARY_CI_PASS"
           echo "G16_SYNTHETIC_ADAPTER_REGRESSION_PASS"
           echo "G16_STRICT_PORTS_REGRESSION_PASS"
+          echo "G16_PRIVATE_AST_BRIDGE_STATIC_GUARD_TESTS_PASS"
           echo "NO_SSH_NO_PRODUCTION_SHEETS_NO_LIVE_SQLITE_NO_MAIL_SEND"
           echo "G12_G16_RELEASE_GATES_REMAIN_BLOCKED"
