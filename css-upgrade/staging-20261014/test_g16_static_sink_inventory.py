@@ -82,7 +82,7 @@ def main():
         self.assertNotIn("/private/client-db", rendered)
 
     def test_module_source_proprietary_not_exposed(self):
-        src = b"def secret_impl():\\n    pass\\n"
+        src = b"def secret_impl():\n    pass\n"
         result = inventory(src)
         self.assertNotIn("secret_impl", str(result))
 
