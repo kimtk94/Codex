@@ -1,0 +1,4 @@
+Purpose: Novogene CSS P0 read-only verification
+Date: 2026-10-16
+Scope: SSH authentication, source fingerprints, runtime inventory, backup schedule.
+No production changes authorized.
