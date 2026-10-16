@@ -166,6 +166,11 @@ class FixtureEngine:
         self.db.execute("BEGIN")
         try:
             for item in mail.receive():
+                prior = self.db.execute(
+                    "SELECT message_id,project FROM mail_ledger WHERE uid=?", (item.uid,)
+                ).fetchone()
+                if prior is not None and prior != (item.message_id, item.project):
+                    raise IsolationError("conflicting reuse of a synthetic mail UID")
                 self.db.execute(
                     "INSERT OR IGNORE INTO mail_ledger(uid,message_id,project) VALUES(?,?,?)",
                     (item.uid, item.message_id, item.project),
