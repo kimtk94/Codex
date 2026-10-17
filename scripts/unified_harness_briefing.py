@@ -11,7 +11,7 @@ VALID={"COMPLETE","RUNNING","BLOCKED","REVIEW_REQUIRED","UNKNOWN"}
 MAX_AGE_HOURS=26
 def clean(value,limit=240):
     text=str(value or "").replace("\r"," ").replace("\n"," ")
-    text=re.sub(r"(?i)(bearer\\s+|gh[pousr]_|sk-[a-z0-9_-]+|password\\s*[:=]|token\\s*[:=])\\S+", "[REDACTED]",text)
+    text=re.sub(r"(?i)(bearer\s+|gh[pousr]_|sk-[a-z0-9_-]+|password\s*[:=]|token\s*[:=])\S+", "[REDACTED]",text)
     return text[:limit]
 def load(folder,domain,now):
     item={"domain":domain,"status":"UNKNOWN","summary":"No verified fresh snapshot",
