@@ -73,3 +73,14 @@ The companion `g16_synthetic_pipeline.py` implements a **model**, not the produc
 - `25/25` assertions passed, including two added in-memory fault tests (synthetic ID generation failure propagates; subsequent clean invocation recovers stable IDs).
 - CI evidence: https://github.com/kimtk94/Codex/actions/runs/39012994698.
 - **This is a selected real-function integration test, not full-engine E2E.** The private Bubblewrap environment does not yet intercept every dependency reachable by the entire CSS pipeline. G16 overall remains BLOCKED, G12 remains NOT_RUN, and no production deployment is authorized.
+
+## SIF workflow and manual-collision real-function isolation (2026-10-17)
+
+Two existing **real CSS AST function** regressions now run inside a private rootless Bubblewrap sandbox. The server source is mounted read-only after SHA verification; the **eight SIF improvement patches** are applied only to a **disposable temporary copy** inside a tmpfs. Production source is not patched or deployed.
+
+- SIF large regression, 1,200 synthetic records: **76/76 PASS**. Includes durable skip history, Prepayment exclusion, manual Hold/Skip priority, QC auto-release, repeat idempotency, real `main()` Prepayment *branch* extraction only, mock sheet write retry, eight-patch SHA verification and byte-exact reverse. CI: https://github.com/kimtk94/Codex/actions/runs/39013315045.
+- Manual/new-mail concurrency regression: **200/200 PASS**, including 24 separate-connection SQLite write-lock serialization rounds, user override preservation and prevention of ghost automatic skip releases/creates. CI: https://github.com/kimtk94/Codex/actions/runs/39013411524.
+- Rootless sandbox: unshared network/user/PID/IPC/UTS, no host home/credentials/service state mounts, read-only source/venv/patch fixtures, disposable tmpfs for SQLite and patches. Scripts do not import live Mail Collector or run the entire CSS `main()`.
+- Selected Action/Review real-function regression also remains **25/25 PASS** inside private Bubblewrap: https://github.com/kimtk94/Codex/actions/runs/39012994698.
+
+**Gate boundaries unchanged:** These isolated function regressions are strong evidence for the staged SIF candidate; they do **not** verify all full-engine sinks, actual end-to-end Google Sheets/SQLite consistency, Mail Collector import-time effects, or post-commit cross-service failure recovery. **G16 remains partial/BLOCKED; G12 NOT_RUN; production rollout NOT_AUTHORIZED.** A production release requires separate approval, a complete isolation guarantee, and an explicit migration/rollback procedure.
