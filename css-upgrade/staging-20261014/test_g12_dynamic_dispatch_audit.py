@@ -43,6 +43,14 @@ class DynamicTests(unittest.TestCase):
                          {"OTHER_LITERAL_METHOD":1})
         self.assertEqual(out["sheet_name_hint_counts"],{})
 
+    def test_qualified_attribute_method_not_mistaken_for_builtin(self):
+        raw=b"def f(obj):\n obj.getattr('update')\n getattr(obj,'clear')\n"
+        out=inspect_dispatch(raw)
+        self.assertEqual(out["primitive_counts"],{"getattr":1})
+        self.assertEqual(out["qualified_attribute_dispatch_name_counts"],{"getattr":1})
+        self.assertEqual(out["broad_dispatch_name_matches"],2)
+        self.assertEqual(out["attribute_target_method_counts"],{"clear":1})
+
     def test_direct_attr_method_calls_not_counted_as_getattr(self):
         raw=b"def f(ws):\n return ws.update(values=[1])\n"
         self.assertEqual(inspect_dispatch(raw)["total_dynamic_primitive_calls"],0)
