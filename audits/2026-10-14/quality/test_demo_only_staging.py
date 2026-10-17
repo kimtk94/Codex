@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import unittest
 from build_demo_only_staging import (
-    create, verify, DEMO_DISABLED, DEMO_HEALTH, BROWSER_GUARD,
+    create, verify, DEMO_DISABLED, DEMO_HEALTH, DEMO_APP, DEMO_INDEX, DEMO_STYLE,
     MARKER, API, LIB, DATA, EXPECTED_NAMES,
 )
 
@@ -49,7 +49,9 @@ class DemoOnlyStagingTests(unittest.TestCase):
     def test_visible_warning_before_main_ui(self):
         html=self.f["index.html"].decode()
         self.assertIn("SYNTHETIC DEMO ONLY",html)
-        self.assertLess(html.index("SYNTHETIC DEMO ONLY"),html.index("Investment Intelligence"))
+        self.assertNotIn("Investment Intelligence",html)
+        self.assertNotIn("BUY",html)
+        self.assertNotIn("SELL",html)
 
     def test_mutations_to_demo_protection_fail_closed(self):
         f=dict(self.f)
@@ -58,11 +60,22 @@ class DemoOnlyStagingTests(unittest.TestCase):
             verify(f)
         f=dict(self.f)
         f["app.js"]=b"const dashboard=1;"
-        with self.assertRaisesRegex(RuntimeError,"EXTERNAL_BROWSER_FETCH_NOT_BLOCKED"):
+        with self.assertRaisesRegex(RuntimeError,"DEMO_APP_NOT_ISOLATED"):
             verify(f)
 
+    def test_full_demo_ui_has_no_original_app_or_remote_network_calls(self):
+        app=self.f["app.js"].decode()
+        self.assertEqual(app,DEMO_APP)
+        self.assertEqual(self.f["index.html"].decode(),DEMO_INDEX)
+        self.assertEqual(self.f["style.css"].decode(),DEMO_STYLE)
+        for marker in ("fetch(", "XMLHttpRequest", "WebSocket(", "EventSource(", "sendBeacon",
+                       "document.cookie", "localStorage", "sessionStorage",
+                       "buyOrder", "sellOrder", "renderExecutionLedger", "open.er-api.com"):
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker,app)
+
     @unittest.skipUnless(shutil.which("node"),"Node.js required")
-    def test_synthetic_http_handler_statuses_and_fetch_guard(self):
+    def test_synthetic_http_handlers_and_zero_network_demo_boot(self):
         script=r"""
 const vm=require('node:vm'),assert=require('node:assert/strict');
 const a=JSON.parse(process.argv[1]);
@@ -84,21 +97,21 @@ async function invoke(source,method){
   assert.equal((await invoke(a.health,'POST')).status,405);
   assert.equal((await invoke(a.disabled,'GET')).status,503);
   assert.equal((await invoke(a.disabled,'POST')).status,405);
-  let hits=0;
-  const globalThis={fetch:async ()=>{hits++;return {ok:true}}};
-  const sandbox={globalThis,URL,location:{origin:'https://preview.invalid'},Promise};
+  const dom={
+    'demo-environment':{textContent:''},
+    'demo-health':{textContent:''}
+  };
+  const sandbox={document:{getElementById:id=>dom[id]||null}};
   vm.runInNewContext(a.browser,sandbox,{timeout:1000});
-  await assert.rejects(globalThis.fetch('https://open.er-api.com/test'));
-  assert.equal(hits,0);
-  await globalThis.fetch('/api/health');
-  assert.equal(hits,1);
-  process.stdout.write('DEMO_HANDLER_AND_FETCH_GUARD_OK\n');
+  assert.equal(dom['demo-environment'].textContent,'SYNTHETIC DEMO — NO CONNECTION');
+  assert.match(dom['demo-health'].textContent,/synthetic mock only/);
+  process.stdout.write('DEMO_HANDLER_AND_ISOLATED_BOOT_OK\n');
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1});
 """
         p=subprocess.run(["node","-e",script,
                           json.dumps({"health":DEMO_HEALTH,
                                       "disabled":DEMO_DISABLED,
-                                      "browser":BROWSER_GUARD})],
+                                      "browser":DEMO_APP})],
                          capture_output=True,text=True,timeout=12,check=False)
         self.assertEqual(p.returncode,0,p.stderr)
         self.assertIn("DEMO_HANDLER_AND_FETCH_GUARD_OK",p.stdout)
