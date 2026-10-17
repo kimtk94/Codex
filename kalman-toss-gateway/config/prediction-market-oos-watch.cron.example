@@ -1,0 +1,5 @@
+# Research-only prediction-market OOS watcher.
+# Checks every 6 hours. It never submits trades and never mutates R5.x.
+# Install only in the taehoon user crontab.
+#
+# 17 */6 * * * /bin/bash /home/taehoon/Codex-PREDICTION-MARKET-20261007/kalman-toss-gateway/scripts/run_prediction_market_oos_watch_v0.sh >> /home/taehoon/kalman-data/prediction-market/oos-watch-v0/cron.log 2>&1

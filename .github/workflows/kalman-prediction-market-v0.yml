@@ -1,0 +1,203 @@
+name: Kalman Prediction Market v0
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "kalman-toss-gateway/config/prediction-market-layer-v0.json"
+      - "kalman-toss-gateway/config/prediction-market-oos-v0.json"
+      - "kalman-toss-gateway/config/prediction-market-vike-bridge-v0.json"
+      - "kalman-toss-gateway/config/prediction-market-us-live-v0.json"
+      - "kalman-toss-gateway/config/prediction-market-oos-watch.cron.example"
+      - "kalman-toss-gateway/config/kalman-qqq-1h-iex-updater-v0.service"
+      - "kalman-toss-gateway/config/kalman-qqq-1h-iex-updater-v0.timer"
+      - "kalman-toss-gateway/config/prediction-market-v0.cron.example"
+      - "kalman-toss-gateway/engine/prediction_market_layer_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_archive_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_leadlag_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_stratified_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_oos_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_oos_watch_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_vike_bridge_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_vike_blind_bridge_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_vike_fetch_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_us_live_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_us_oos_ledger_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/prediction_market_source_health_v0.py"
+      - "kalman-toss-gateway/research/quant_stack/qqq_1h_iex_updater_v0.py"
+      - "kalman-toss-gateway/scripts/run_prediction_market_layer_v0.sh"
+      - "kalman-toss-gateway/scripts/fetch_prediction_market_archive_v0.sh"
+      - "kalman-toss-gateway/scripts/run_prediction_market_research_v0.sh"
+      - "kalman-toss-gateway/scripts/run_prediction_market_oos_watch_v0.sh"
+      - "kalman-toss-gateway/scripts/run_prediction_market_vike_bridge_v0.sh"
+      - "kalman-toss-gateway/scripts/run_prediction_market_vike_overlap_v0.sh"
+      - "kalman-toss-gateway/scripts/run_prediction_market_us_live_v0.sh"
+      - "kalman-toss-gateway/scripts/run_qqq_1h_iex_updater_v0.sh"
+      - "kalman-toss-gateway/scripts/install_qqq_1h_iex_updater_v0.sh"
+      - "kalman-toss-gateway/docs/PREDICTION_MARKET_LAYER_V0.md"
+      - "kalman-toss-gateway/docs/PREDICTION_MARKET_V0_FIRST_AUDIT.md"
+      - "kalman-toss-gateway/docs/PREDICTION_MARKET_VIKE_BRIDGE_V0.md"
+      - "kalman-toss-gateway/docs/PREDICTION_MARKET_US_LIVE_V0.md"
+      - "kalman-toss-gateway/docs/QQQ_1H_IEX_UPDATER_V0.md"
+      - "kalman-toss-gateway/tests/test_prediction_market_layer_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_archive_leadlag_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_oos_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_oos_watch_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_vike_bridge_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_vike_blind_bridge_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_vike_fetch_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_us_live_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_us_oos_ledger_v0.py"
+      - "kalman-toss-gateway/tests/test_prediction_market_source_health_v0.py"
+      - "kalman-toss-gateway/tests/test_qqq_1h_iex_updater_v0.py"
+      - "kalman-toss-gateway/tests/fixtures/prediction_market_sample.json"
+      - ".github/workflows/kalman-prediction-market-v0.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prediction-market-v0:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest httpx pandas numpy pyarrow duckdb
+
+      - name: Compile modules
+        run: |
+          python -m py_compile engine/prediction_market_layer_v0.py
+          python -m py_compile research/quant_stack/prediction_market_archive_v0.py
+          python -m py_compile research/quant_stack/prediction_market_leadlag_v0.py
+          python -m py_compile research/quant_stack/prediction_market_stratified_v0.py
+          python -m py_compile research/quant_stack/prediction_market_oos_v0.py
+          python -m py_compile research/quant_stack/prediction_market_oos_watch_v0.py
+          python -m py_compile research/quant_stack/prediction_market_vike_bridge_v0.py
+          python -m py_compile research/quant_stack/prediction_market_vike_blind_bridge_v0.py
+          python -m py_compile research/quant_stack/prediction_market_vike_fetch_v0.py
+          python -m py_compile research/quant_stack/prediction_market_us_live_v0.py
+          python -m py_compile research/quant_stack/prediction_market_us_oos_ledger_v0.py
+          python -m py_compile research/quant_stack/prediction_market_source_health_v0.py
+          python -m py_compile research/quant_stack/qqq_1h_iex_updater_v0.py
+
+      - name: Validate shell syntax
+        run: |
+          bash -n scripts/run_prediction_market_layer_v0.sh
+          bash -n scripts/fetch_prediction_market_archive_v0.sh
+          bash -n scripts/run_prediction_market_research_v0.sh
+          bash -n scripts/run_prediction_market_oos_watch_v0.sh
+          bash -n scripts/run_prediction_market_vike_bridge_v0.sh
+          bash -n scripts/run_prediction_market_vike_overlap_v0.sh
+          bash -n scripts/run_prediction_market_us_live_v0.sh
+          bash -n scripts/run_qqq_1h_iex_updater_v0.sh
+          bash -n scripts/install_qqq_1h_iex_updater_v0.sh
+
+      - name: Validate read-only contracts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          cfg = json.loads(Path("config/prediction-market-layer-v0.json").read_text())
+          safety = cfg["safety"]
+          assert safety["read_only"] is True
+          assert safety["allow_order_submission"] is False
+          assert safety["allow_wallet_auth"] is False
+          assert safety["allow_geo_bypass"] is False
+          assert safety["r51_scoring_enabled"] is False
+          assert safety["trade_execution_enabled"] is False
+
+          oos = json.loads(Path("config/prediction-market-oos-v0.json").read_text())
+          oos_safety = oos["safety"]
+          assert oos_safety["research_only"] is True
+          assert oos_safety["auto_promote"] is False
+          assert oos_safety["r51_mutation_allowed"] is False
+          assert oos_safety["trade_execution_allowed"] is False
+
+          vike = json.loads(Path("config/prediction-market-vike-bridge-v0.json").read_text())
+          vike_safety = vike["safety"]
+          assert vike_safety["research_only"] is True
+          assert vike_safety["bridge_required_before_oos"] is True
+          assert vike_safety["auto_promote"] is False
+          assert vike_safety["r51_mutation_allowed"] is False
+          assert vike_safety["trade_execution_allowed"] is False
+          assert vike_safety["retuning_allowed"] is False
+
+          us = json.loads(Path("config/prediction-market-us-live-v0.json").read_text())
+          us_safety = us["safety"]
+          assert us_safety["read_only"] is True
+          assert us_safety["public_api_only"] is True
+          assert us_safety["allow_auth"] is False
+          assert us_safety["allow_order_submission"] is False
+          assert us_safety["allow_geo_bypass"] is False
+          assert us_safety["research_only"] is True
+          assert us_safety["auto_promote"] is False
+          assert us_safety["r51_mutation_allowed"] is False
+          assert us_safety["trade_execution_allowed"] is False
+
+          cron = Path("config/prediction-market-v0.cron.example").read_text()
+          active = [
+              line for line in cron.splitlines()
+              if line.strip()
+              and not line.lstrip().startswith("#")
+              and "run_prediction_market_layer_v0.sh collect" in line
+          ]
+          assert active == [], active
+
+          svc = Path("config/kalman-qqq-1h-iex-updater-v0.service").read_text()
+          assert "EnvironmentFile=/opt/kalman/.env" in svc
+          assert "WorkingDirectory=/opt/kalman/qqq-updater-v0" in svc
+          assert "KALMAN_RCLONE_CONFIG=/opt/kalman/qqq-updater-v0/rclone.conf" in svc
+          assert "User=taehoon" not in svc
+          assert "/home/taehoon/Codex-PREDICTION-MARKET-20261007" not in svc
+          print("[PASS] read-only + no active cron + secure QQQ updater unit")
+          PY
+
+      - name: Run regression tests
+        env:
+          PYTHONPATH: .
+        run: |
+          pytest -q tests/test_prediction_market_layer_v0.py
+          pytest -q tests/test_prediction_market_archive_leadlag_v0.py
+          pytest -q tests/test_prediction_market_oos_v0.py
+          pytest -q tests/test_prediction_market_oos_watch_v0.py
+          pytest -q tests/test_prediction_market_vike_bridge_v0.py
+          pytest -q tests/test_prediction_market_vike_blind_bridge_v0.py
+          pytest -q tests/test_prediction_market_vike_fetch_v0.py
+          pytest -q tests/test_prediction_market_us_live_v0.py
+          pytest -q tests/test_prediction_market_us_oos_ledger_v0.py
+          pytest -q tests/test_prediction_market_source_health_v0.py
+          pytest -q tests/test_qqq_1h_iex_updater_v0.py
+
+      - name: Run fixture smoke
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m engine.prediction_market_layer_v0 collect \
+            --config config/prediction-market-layer-v0.json \
+            --fixture tests/fixtures/prediction_market_sample.json \
+            --output /tmp/prediction-market-v0.json \
+            --db /tmp/prediction-market-v0.sqlite3
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = json.loads(Path("/tmp/prediction-market-v0.json").read_text())
+          assert p["status"] == "READY"
+          assert p["record_count"] == 2
+          assert p["eligible_count"] == 2
+          assert p["safety"]["trade_execution_enabled"] is False
+          print("[PASS] fixture smoke")
+          PY

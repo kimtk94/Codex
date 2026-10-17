@@ -1,0 +1,79 @@
+{
+  "version": "prediction-market-vike-bridge-v0.1.0",
+  "frozen_at_utc": "2026-10-07T14:15:00Z",
+  "source": {
+    "provider": "Vike",
+    "manifest_url": "https://data.vike.io/archive/manifest.json",
+    "api_base": "https://data.vike.io/v1/polymarket",
+    "archive_base": "https://data.vike.io/archive",
+    "license": "CC BY 4.0",
+    "family_asset": "other",
+    "family_tenor": "other",
+    "stream": "l1_quotes"
+  },
+  "discovery_bridge": {
+    "reference_release": "data-2026-09-13",
+    "reference_cutoff_utc": "2026-09-13T11:50:00Z",
+    "overlap_start_utc": "2026-09-08T00:00:00Z",
+    "overlap_end_utc": "2026-09-13T11:50:00Z",
+    "market_queries": [],
+    "target_theme": "INFLATION",
+    "target_channel": "INFLATION_UPSIDE",
+    "bucket_minutes": 10,
+    "mapping_train_start_utc": "2026-09-08T00:00:00Z",
+    "mapping_train_end_utc": "2026-09-09T23:50:00Z",
+    "validation_start_utc": "2026-09-10T00:00:00Z",
+    "validation_end_utc": "2026-09-11T09:00:00Z",
+    "identity_mode": "blind_time_series_match",
+    "frozen_overlap_partitions": [
+      {
+        "date": "2026-09-08",
+        "rows": 13808690,
+        "bytes": 155019170
+      },
+      {
+        "date": "2026-09-09",
+        "rows": 17742612,
+        "bytes": 196293165
+      },
+      {
+        "date": "2026-09-10",
+        "rows": 17493366,
+        "bytes": 188230848
+      },
+      {
+        "date": "2026-09-11",
+        "rows": 17636943,
+        "bytes": 184275664
+      }
+    ],
+    "partition_plan_provenance": {
+      "manifest_generated_at": "2026-10-07T00:45:08Z",
+      "manifest_observed_before_authenticated_archive_access": true,
+      "total_bytes": 723818847
+    }
+  },
+  "bridge_gate": {
+    "shared_markets_min": 8,
+    "matched_points_min": 1000,
+    "median_market_mae_max": 0.03,
+    "pooled_correlation_min": 0.95,
+    "median_abs_delta_1h_diff_max": 0.02,
+    "shock_threshold": 0.15,
+    "shock_pairs_min": 5,
+    "shock_sign_agreement_min": 0.9,
+    "identity_train_points_min": 150,
+    "identity_train_mae_max": 0.03,
+    "identity_train_correlation_min": 0.95,
+    "identity_margin_mae_min": 0.005,
+    "identity_unique_conditions_required": true
+  },
+  "safety": {
+    "research_only": true,
+    "bridge_required_before_oos": true,
+    "auto_promote": false,
+    "r51_mutation_allowed": false,
+    "trade_execution_allowed": false,
+    "retuning_allowed": false
+  }
+}

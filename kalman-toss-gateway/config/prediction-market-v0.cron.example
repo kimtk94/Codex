@@ -1,0 +1,8 @@
+# /etc/cron.d/kalman-prediction-market-v0
+# READ-ONLY shadow collector. No order submission. Install only where lawful API access is available.
+CRON_TZ=Asia/Seoul
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Disabled by default because the current Korea-hosted Kalman server receives HTTP 451.
+# */10 * * * * root /opt/kalman/app/scripts/run_prediction_market_layer_v0.sh collect >> /opt/kalman/logs/prediction-market-v0.log 2>&1
