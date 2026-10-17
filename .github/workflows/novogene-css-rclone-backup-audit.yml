@@ -1,0 +1,81 @@
+name: Novogene CSS Rclone Backup Read Audit
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-rclone-backup-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 5
+    steps:
+      - name: Validate SSH credentials
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::SSH configuration missing"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw=os.environ["SSH_KEY"].strip().replace("\\n","\n").replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          (Path.home()/'.ssh/server_key').write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
+      - name: Detect original rclone backup remote read-only
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import shutil,subprocess,re
+          binary=shutil.which("rclone")
+          if not binary:raise SystemExit("RCLONE_NOT_INSTALLED")
+          res=subprocess.run([binary,"listremotes"],capture_output=True,text=True,timeout=45)
+          if res.returncode:raise SystemExit("RCLONE_CONFIG_NOT_ACCESSIBLE")
+          remotes=[x.strip() for x in res.stdout.splitlines() if re.fullmatch(r"[A-Za-z0-9_-]+:",x.strip())]
+          print("RCLONE_REMOTE_COUNT",len(remotes))
+          if not remotes:raise SystemExit("RCLONE_NO_CONFIGURED_REMOTES")
+          paths=("Novogene_CSS/server_backup","server_backup")
+          found=[]
+          for remote in remotes[:8]:
+              for dirname in paths:
+                  dest=remote+dirname
+                  q=subprocess.run([binary,"lsf",dest,"--max-depth","1","--files-only"],
+                                   capture_output=True,text=True,timeout=75)
+                  if q.returncode:continue
+                  files=[line.strip() for line in q.stdout.splitlines()]
+                  mail=sorted(x for x in files if re.fullmatch(r"mail_sync_fast_\d{8}_\d{6}\.sqlite3",x))
+                  css=sorted(x for x in files if re.fullmatch(r"css_project_manager_\d{8}_\d{6}\.sqlite3",x))
+                  if not mail or not css:continue
+                  print("RCLONE_BACKUP_PATH_ACCESS_PASS")
+                  print("RCLONE_BACKUP_PREFIX",dest)
+                  print("RCLONE_BACKUP_MAIL_COUNT",len(mail))
+                  print("RCLONE_BACKUP_PROJECT_COUNT",len(css))
+                  print("RCLONE_LATEST_MAIL_NAME",mail[-1])
+                  print("RCLONE_LATEST_PROJECT_NAME",css[-1])
+                  found.append(dest)
+          if len(found)!=1:
+              raise SystemExit("RCLONE_BACKUP_REMOTE_MISSING_OR_AMBIGUOUS")
+          print("RCLONE_READ_ONLY_CHECK_PASS")
+          print("NO_BACKUP_DOWNLOAD_OR_DELETE")
+          PY

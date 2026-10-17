@@ -1,0 +1,128 @@
+name: Novogene CSS SQLite Temporary Restore Drill
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-sqlite-restore-drill.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 8
+    steps:
+      - name: Verify SSH transport
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::Missing SSH config"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw=os.environ["SSH_KEY"].strip().replace("\\n","\n").replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          (Path.home()/'.ssh/server_key').write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
+      - name: Current SQLite snapshot and temporary restore rehearsal
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import sqlite3
+          import shutil
+          import tempfile
+          from pathlib import Path
+
+          base=Path('/home/taehoon/services/novogene-css')
+          candidates=[
+              base/'state/css_project_manager.sqlite3',
+              base/'data/css_project_manager.sqlite3',
+              base/'app/state/css_project_manager.sqlite3',
+              base/'css_project_manager.sqlite3',
+          ]
+          source=next((p for p in candidates if p.is_file() and p.stat().st_size>4096),None)
+          if source is None:
+              for folder in (base/'state',base/'data'):
+                  if folder.is_dir():
+                      source=next((p for p in folder.glob('**/css_project_manager.sqlite3') if p.is_file() and
+                                   'backup' not in str(p).lower()),None)
+                      if source is not None: break
+          if source is None:
+              raise SystemExit('SQLITE_RESTORE_SOURCE_NOT_FOUND')
+          source=source.resolve()
+          if not source.is_relative_to(base.resolve()):
+              raise SystemExit('SQLITE_SOURCE_OUTSIDE_EXPECTED_ROOT')
+          with tempfile.TemporaryDirectory(prefix='novogene-css-restore-drill-') as td:
+              work=Path(td)
+              size=source.stat().st_size
+              free=shutil.disk_usage(work).free
+              if free < (3*size+180_000_000):
+                  raise SystemExit('SQLITE_RESTORE_INSUFFICIENT_TEMP_DISK')
+              source_conn=sqlite3.connect('file:'+str(source)+'?mode=ro',uri=True,timeout=20)
+              source_conn.execute('PRAGMA query_only=ON')
+              snap_path=work/'consistent_snapshot.sqlite3'
+              out_path=work/'restored.sqlite3'
+              snapshot=sqlite3.connect(str(snap_path))
+              try:
+                  source_conn.backup(snapshot,pages=2048,sleep=0.05)
+              finally:
+                  snapshot.close()
+                  source_conn.close()
+              snap=sqlite3.connect('file:'+str(snap_path)+'?mode=ro',uri=True)
+              snap.execute('PRAGMA query_only=ON')
+              try:
+                  if snap.execute('PRAGMA quick_check').fetchone()[0]!='ok':
+                      raise SystemExit('SNAPSHOT_QUICK_CHECK_FAILED')
+                  snap_counts={
+                      k:snap.execute('SELECT COUNT(*) FROM '+k).fetchone()[0]
+                      for k in ['contract_sif_skips','system_run_history','mail_ledger']
+                  }
+                  restored=sqlite3.connect(str(out_path))
+                  try:
+                      snap.backup(restored,pages=2048,sleep=0.05)
+                  finally:
+                      restored.close()
+              finally:
+                  snap.close()
+              validate=sqlite3.connect('file:'+str(out_path)+'?mode=ro',uri=True)
+              validate.execute('PRAGMA query_only=ON')
+              try:
+                  if validate.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
+                      raise SystemExit('RESTORED_INTEGRITY_CHECK_FAILED')
+                  fk_errors=validate.execute('PRAGMA foreign_key_check').fetchall()
+                  if fk_errors:
+                      raise SystemExit('RESTORED_FOREIGN_KEY_VIOLATIONS')
+                  for k,n in snap_counts.items():
+                      if validate.execute('SELECT COUNT(*) FROM '+k).fetchone()[0]!=n:
+                          raise SystemExit('RESTORED_RECORD_COUNT_MISMATCH')
+                  assert validate.execute("SELECT COUNT(*) FROM contract_sif_skips WHERE is_active=1").fetchone()[0]>=5
+                  print('CONSISTENT_LIVE_SQLITE_SNAPSHOT_PASS')
+                  print('TEMPORARY_SQLITE_RESTORE_PASS')
+                  print('RESTORED_INTEGRITY_CHECK_PASS')
+                  print('RESTORED_FOREIGN_KEYS_PASS')
+                  print('RESTORED_ROW_COUNT_MATCH_PASS')
+                  print('SIF_SKIP_HISTORY_ROW_COUNT',snap_counts['contract_sif_skips'])
+                  print('PRODUCTION_DB_NEVER_WRITTEN')
+                  print('TEMP_FILES_AUTO_CLEANED')
+              finally:
+                  validate.close()
+          PY
