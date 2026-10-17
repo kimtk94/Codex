@@ -94,6 +94,10 @@ jobs:
         run: |
           python3 -m unittest -v test_staging_env_scope_gate.py
           python3 staging_env_scope_gate.py > staging_env_scope_report.json
+      - name: Isolated Preview build-only preflight (no Vercel operations)
+        run: |
+          python3 -m unittest -v test_isolated_preview_preflight.py
+          python3 isolated_preview_preflight.py --output isolated_preview_preflight_report.json
       - name: Reproduce pinned snapshot
         run: python3 quality_gate.py --at 2026-10-14T11:35:00Z --output quality_report.json
       - name: Upload audit artifact
@@ -110,5 +114,6 @@ jobs:
             audits/2026-10-14/quality/staging_demo_browser_report.json
             audits/2026-10-14/quality/staging_release_gate_report.json
             audits/2026-10-14/quality/staging_env_scope_report.json
+            audits/2026-10-14/quality/isolated_preview_preflight_report.json
           if-no-files-found: error
           retention-days: 30
