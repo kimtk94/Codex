@@ -6,6 +6,7 @@ on:
       - 'audit/css-g16-boundary-20261016'
     paths:
       - '.github/workflows/novogene-css-isolation-inventory.yml'
+      - 'css-upgrade/staging-20261014/g16_manual_write_static_audit.py'
 
 permissions:
   contents: read
@@ -55,6 +56,10 @@ jobs:
             -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             "$SSH_USER@$SSH_HOST" 'G16_AST_AUDIT_READONLY=1 python3 -' \
             < css-upgrade/staging-20261014/g16_static_sink_inventory.py
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'G16_AST_AUDIT_READONLY=1 python3 -' \
+            < css-upgrade/staging-20261014/g16_manual_write_static_audit.py
           echo "G16_PRODUCTION_AST_ONLY_NO_IMPORT_NO_MAIL_OR_DB_WRITES"
 
       - name: Check private server container prerequisites (read-only)
