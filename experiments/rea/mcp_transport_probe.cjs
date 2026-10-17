@@ -41,7 +41,8 @@ child.stdout.on('data', chunk=>{
       console.log('REA_ANALYZE_SCHEMA='+JSON.stringify(schema).slice(0,1800));
       const props=schema.properties||{};
       const required=schema.required||[];
-      const candidate=['path','application_path','target_path','root_path','directory','artifact_path'].find(k=>k in props);
+      const candidate=['input_path','path','application_path','target_path','root_path','directory','artifact_path'].find(k=>k in props);
+      console.log('REA_ANALYZE_REQUIRED='+JSON.stringify(required));
       if(!candidate || required.some(k=>k!==candidate)) {clearTimeout(timer);stop('REA_MCP_TOOL_SCHEMA_REQUIRES_REVIEW');return;}
       send({jsonrpc:'2.0',id:3,method:'tools/call',params:{name:analysisTool.name,arguments:{[candidate]:fixture}}});
     } else if(message.id===3){
