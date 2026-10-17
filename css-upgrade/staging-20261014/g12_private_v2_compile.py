@@ -14,6 +14,7 @@ from g12_writer_coverage_gate import SITES
 from g12_v2_receiver_provenance import audit_receiver_provenance
 from g12_dynamic_dispatch_audit import inspect_dispatch
 from g12_v2_review_queue import build_queue
+from g12_p0_receiver_origin import inspect_p0
 
 
 def triage_local_receivers(raw):
@@ -97,6 +98,7 @@ def main():
         if "G12_UNCLASSIFIED_WRITER_CANDIDATES" not in str(exc):
             raise
         strict_accepted=False
+    p0=inspect_p0(raw)
     review=build_queue(raw)
     if (review["candidate_count"]!=summary["unknown_writer_candidates"] or
         review["counts_by_method"]!=summary["unknown_method_counts"] or
@@ -126,6 +128,7 @@ def main():
         "unclassified_local_hints":triage,
         "unclassified_provenance_hints":provenance["provenance_hint_counts"],
         "review_queue_priority_counts":review["counts_by_priority"],
+        "p0_receiver_origins":p0,
         "review_queue_all_sites":review["review_queue"],
         "review_queue_target_verified":False,
         "dynamic_dispatch_audit":dispatch,
