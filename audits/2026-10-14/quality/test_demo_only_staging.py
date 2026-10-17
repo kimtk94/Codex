@@ -114,7 +114,7 @@ async function invoke(source,method){
                                       "browser":DEMO_APP})],
                          capture_output=True,text=True,timeout=12,check=False)
         self.assertEqual(p.returncode,0,p.stderr)
-        self.assertIn("DEMO_HANDLER_AND_FETCH_GUARD_OK",p.stdout)
+        self.assertIn("DEMO_HANDLER_AND_ISOLATED_BOOT_OK",p.stdout)
 
 
 if __name__=="__main__":
