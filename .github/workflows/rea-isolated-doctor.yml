@@ -87,6 +87,25 @@ jobs:
           console.log('REA_FIXTURE_REFERENCED=true');
           console.log('REA_STATIC_SMOKE_PASS=true');
           JS
+      - name: Probe Codex MCP and REA server interfaces (runner only)
+        env:
+          npm_config_update_notifier: 'false'
+          CODEX_HOME: ${{ runner.temp }}/codex-rea
+        run: |
+          mkdir -p "$CODEX_HOME"
+          npx --yes @openai/codex --version
+          npx --yes @openai/codex mcp --help > "$RUNNER_TEMP/codex-mcp-help.txt"
+          npx --yes rea-agents@6.5.0 --help > "$RUNNER_TEMP/rea-help.txt"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          base=Path(os.environ['RUNNER_TEMP'])
+          a=(base/'codex-mcp-help.txt').read_text()
+          b=(base/'rea-help.txt').read_text()
+          print('CODEX_MCP_COMMANDS='+','.join(x for x in ('add','list','get','remove') if x in a))
+          print('REA_MCP_INTERFACE_MENTIONED='+str('mcp' in b.lower()).lower())
+          print('INTERFACE_HELP_CAPTURED=true')
+          PY
       - name: Upload doctor and evidence for review
         if: always()
         uses: actions/upload-artifact@v4
@@ -97,6 +116,8 @@ jobs:
             ${{ runner.temp }}/rea-doctor.stderr
             ${{ runner.temp }}/rea-evidence.json
             ${{ runner.temp }}/rea-analyze.stderr
+            ${{ runner.temp }}/codex-mcp-help.txt
+            ${{ runner.temp }}/rea-help.txt
           if-no-files-found: warn
           retention-days: 7
       - name: Record final test outcome
