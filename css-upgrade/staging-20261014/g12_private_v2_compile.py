@@ -38,6 +38,7 @@ def main():
         "in_memory_compile":"PASS",
         "instrumented_calls":summary["known_writer_calls_instrumented"],
         "unclassified_candidate_calls":summary["unknown_writer_candidates"],
+        "unclassified_method_counts":summary["unknown_method_counts"],
         "strict_unclassified_gate_accepted":strict_accepted,
         "real_css_main_executed":False,
         "production_module_imported":False,
