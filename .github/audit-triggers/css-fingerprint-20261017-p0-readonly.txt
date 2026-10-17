@@ -1,0 +1,3 @@
+Novogene CSS P0 read-only fingerprint request (2026-10-17).
+Scope: existing GitHub Actions source-fingerprint and scheduler-only audit.
+No production changes, no email send, no database writes.
