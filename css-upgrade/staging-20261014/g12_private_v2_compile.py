@@ -58,7 +58,10 @@ def triage_local_receivers(raw):
                                 elif isinstance(value,ast.ListComp):
                                     hint="LOCAL_LIST_COMPREHENSION_HINT"
                                 elif isinstance(value,ast.Call):
-                                    hint="LOCAL_CALL_ASSIGNMENT_UNRESOLVED"
+                                    if isinstance(value.func,ast.Name) and value.func.id in ("dict","list","set"):
+                                        hint="LOCAL_BUILTIN_CONSTRUCTOR_HINT"
+                                    else:
+                                        hint="LOCAL_CALL_ASSIGNMENT_UNRESOLVED"
                                 else:
                                     hint="NAME_OTHER_ASSIGNMENT_UNRESOLVED"
                             else:
