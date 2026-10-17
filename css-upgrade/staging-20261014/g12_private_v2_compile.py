@@ -16,7 +16,7 @@ def triage_local_receivers(raw):
     """Syntactic hints only; never claim actual receiver type or Sheet safety."""
     import ast
     from collections import Counter
-    from g12_css_ast_guard_v2 import SHEET_METHODS, SHEET_HINTS, _name
+    from g12_css_ast_guard_v2 import SHEET_METHODS, _looks_like_sheet_receiver, _name
     stats=Counter()
     class Visitor(ast.NodeVisitor):
         def __init__(self):
@@ -29,7 +29,7 @@ def triage_local_receivers(raw):
         def visit_Call(self,node):
             if isinstance(node.func,ast.Attribute) and node.func.attr in SHEET_METHODS:
                 receiver=node.func.value
-                if not any(h in _name(receiver).lower() for h in SHEET_HINTS):
+                if not _looks_like_sheet_receiver(_name(receiver)):
                     shape=type(receiver).__name__
                     hint=shape.upper()+"_UNRESOLVED"
                     if isinstance(receiver,ast.Name) and self.scope:
