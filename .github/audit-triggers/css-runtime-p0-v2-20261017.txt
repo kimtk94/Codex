@@ -1,0 +1,1 @@
+Read-only v2 CSS runtime health audit using 12-test validated collector counters. No writes, no customer fields, and no operational source/DB changes.
