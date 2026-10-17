@@ -128,6 +128,14 @@
 - **Mandatory fail-closed gate:** `complete_os_egress_isolation=false`, `full_main_execution_allowed=false`, `production_write_permitted=false`. Next full-engine step must classify effects, isolate file/DB paths and enforce actual outbound network denial at process/container level before any `main()` invocation.
 - [Static CI implementation](full_main_sink_gate.py).
 
+## Full-main external call triage — latest read-only CI
+
+- [**Transitive main call triage PASS**](https://github.com/kimtk94/Codex/actions/runs/39043594620): source hash verified; 337 reachable functions. Distinct *unresolved expression names* counted as **1,508** with the new builtin allowlist, not exactly the previously reported 1,519 (different lexical filtering). These are expression names, not actual resource endpoints or invocations.
+- Heuristic classification: database 13 names / 239 AST occurrences; external/network-related 40 / 85; filesystem/process-related 112 / 143; dynamic 1 / 1; common library 84 / 571; and **1,258 unknown names / 2,610 occurrences**. Prefix/string heuristics are imperfect: `dataframe.copy`, `value.replace`, `gspread.utils.rowcol_to_a1`, `delete_requests.append` can be benign and inflate risk buckets. Conversely indirect aliases can hide effects. No bucket should be treated as proof of a safe sink.
+- Explicit likely effectful call sites include `spreadsheet.batch_update` (13), `worksheet.update` (6), `conn.execute` (166), `conn.commit` (24), `os.replace` (5). Static sites may execute zero or multiple times during a cycle.
+- **Still BLOCKED:** do not import/run whole `main()` until exhaustive resource binding and a real **process/container-level filesystem/DB/network deny** is demonstrated. A policy object with `network_disabled=True` is not an OS enforcement boundary.
+- [Triage script](main_sink_triage.py); no operating DB/Sheet/mail changes.
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent full-engine canary outstanding:** Targeted actual SIF functions, actual Action Center/Review Queue generators, a 1,200-row real Canary Sheets write, and real Canary sheet edit races passed. The complete `main()` with every external client isolated **has not** been executed; no production deployment authorization is implied.
