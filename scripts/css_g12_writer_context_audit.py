@@ -61,6 +61,55 @@ def reference_tabs(fn, module_symbols):
             out.add(module_symbols[node.id])
     return sorted(out)
 
+def node_name(expr):
+    return expr.id if isinstance(expr,ast.Name) else None
+
+
+def possible_worksheet_aliases(fn, symbols):
+    """Conservative syntactic hints, never an authenticated target mapping.
+
+    Capture only direct worksheets[KNOWN_TAB], book.worksheet(KNOWN_TAB) or
+    assignments from those aliases. Any unrecognized later assignment to a
+    variable makes it unknown. Branch-sensitive identity is NOT proved.
+    """
+    def known_key(expr):
+        if isinstance(expr,ast.Constant) and isinstance(expr.value,str):
+            return TABS.get(expr.value)
+        if isinstance(expr,ast.Name):
+            return symbols.get(expr.id)
+        return None
+
+    assignments={}
+    for n in ast.walk(fn):
+        targets = (n.targets if isinstance(n,ast.Assign) else [n.target]
+                   if isinstance(n,ast.AnnAssign) else [])
+        for t in targets:
+            if isinstance(t,ast.Name):
+                assignments.setdefault(t.id,[]).append(n.value)
+
+    resolved={}
+    for _ in range(4):  # bounded alias propagation
+        for var, rhs_list in assignments.items():
+            values=[]
+            for rhs in rhs_list:
+                result=None
+                if isinstance(rhs,ast.Subscript) and any(
+                    hint in name(rhs.value).lower() for hint in SHEET_HINT
+                ):
+                    result=known_key(rhs.slice)
+                elif isinstance(rhs,ast.Call) and isinstance(rhs.func,ast.Attribute):
+                    if rhs.func.attr == "worksheet" and rhs.args:
+                        result=known_key(rhs.args[0])
+                elif isinstance(rhs,ast.Name):
+                    result=resolved.get(rhs.id)
+                values.append(result)
+            if values and all(v is not None and v == values[0] for v in values):
+                resolved[var]=values[0]
+            elif var in resolved:
+                resolved.pop(var)
+    return resolved
+
+
 def inspect(source:bytes):
     tree=ast.parse(source)
     symbols=identify_named_tab_constants(tree)
@@ -71,6 +120,7 @@ def inspect(source:bytes):
         if not isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
             continue
         context=reference_tabs(node,symbols)
+        aliases=possible_worksheet_aliases(node,symbols)
         for call in ast.walk(node):
             if not isinstance(call,ast.Call):
                 continue
@@ -98,6 +148,9 @@ def inspect(source:bytes):
                     "tab_reference_is_write_target_proof":False,
                     "first_three_arg_shapes":arg_shapes,
                     "keyword_arg_count":len(call.keywords),
+                    "simple_alias_possible_target":(aliases.get(node_name(call.func.value))
+                        if isinstance(call.func,ast.Attribute) else None),
+                    "alias_match_is_runtime_proof":False,
                 })
     return {
         "source_sha256":hashlib.sha256(source).hexdigest(),
