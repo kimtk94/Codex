@@ -41,11 +41,15 @@ def inspect_dispatch(source):
     primitives=Counter()
     sheet_hints=Counter()
     direct_invocations=Counter()
+    qualified=Counter()
     unresolved=0
     for call in ast.walk(tree):
         if not isinstance(call,ast.Call):
             continue
         f=call.func
+        if isinstance(f,ast.Attribute) and f.attr in PRIMITIVES:
+            qualified[f.attr]+=1
+            continue
         if not isinstance(f,ast.Name) or f.id not in PRIMITIVES:
             if isinstance(f,ast.Call) and isinstance(f.func,ast.Name) and f.func.id=="getattr":
                 direct_invocations["CALL_OF_GETATTR_RESULT"]+=1
@@ -69,6 +73,8 @@ def inspect_dispatch(source):
     return {
         "total_dynamic_primitive_calls":sum(primitives.values()),
         "primitive_counts":dict(sorted(primitives.items())),
+        "qualified_attribute_dispatch_name_counts":dict(sorted(qualified.items())),
+        "broad_dispatch_name_matches":sum(primitives.values())+sum(qualified.values()),
         "attribute_target_method_counts":dict(sorted(methods.items())),
         "sheet_name_hint_counts":dict(sorted(sheet_hints.items())),
         "direct_getattr_result_invocations":sum(direct_invocations.values()),
