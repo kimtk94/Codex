@@ -1,0 +1,25 @@
+name: Novogene CSS G12 Writer AST Regression (Offline)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/css_g12_writer_surface_audit.py'
+      - 'scripts/test_css_g12_writer_surface_audit.py'
+      - '.github/workflows/novogene-css-g12-writer-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise synthetic Sheets writer and privacy classifications
+        run: python3 -m unittest discover -s scripts -p test_css_g12_writer_surface_audit.py -v
