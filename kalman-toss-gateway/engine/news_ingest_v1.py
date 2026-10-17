@@ -500,8 +500,11 @@ def parse_feed(raw: bytes, source: str, entities: tuple[Entity, ...],
             sid = t("guid") or url
             published = parse_dt(t("pubDate") or t("date"))
             summary = t("description")
-            quality = "PUBLISHER_TS" if published else "FIRST_SEEN_TS"
-            available = max(published, now) if published and published > now else (published or now)
+            # For trading/PIT semantics, an RSS item cannot be used before this
+            # collector actually observed it. Keep publisher time separately, but make
+            # decision availability first-seen based.
+            quality = "FIRST_SEEN_TS"
+            available = now
             payload = {"feed_source": source}
             aid = stable_id(source, sid, url, title, published)
             out.append(Article(
@@ -527,8 +530,11 @@ def parse_feed(raw: bytes, source: str, entities: tuple[Entity, ...],
         sid = atag("id") or url
         published = parse_dt(atag("published") or atag("updated"))
         summary = atag("summary") or atag("content")
-        quality = "PUBLISHER_TS" if published else "FIRST_SEEN_TS"
-        available = max(published, now) if published and published > now else (published or now)
+        # For trading/PIT semantics, an Atom item cannot be used before this
+        # collector actually observed it. Keep publisher time separately, but make
+        # decision availability first-seen based.
+        quality = "FIRST_SEEN_TS"
+        available = now
         aid = stable_id(source, sid, url, title, published)
         out.append(Article(
             aid, source, sid, url, title, summary, published, now, available,
@@ -1537,7 +1543,8 @@ def selftest() -> None:
     <description>sample</description></item></channel></rss>"""
     a = parse_feed(sample, "test_rss", (Entity("GLOBAL", "GLOBAL", 1.0, "test"),))[0]
     assert a.canonical_url == "https://example.com/a"
-    assert a.time_quality == "PUBLISHER_TS"
+    assert a.time_quality == "FIRST_SEEN_TS"
+    assert a.available_at == a.first_seen_at
     assert event_classify(a.title, a.source, {})[0] == "MACRO"
     aliases = {
         "US": {"NVDA": ("Nvidia", "NVIDIA")},

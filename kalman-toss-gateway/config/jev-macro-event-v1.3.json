@@ -1,0 +1,33 @@
+{
+  "version": "jev-macro-event-v1.3.2",
+  "market": "US",
+  "strategy_version": "R5.1_BASE_HGB",
+  "model": "typesafe-ai/jev",
+  "endpoint": "https://ai-gateway.vercel.sh/v1/evaluate",
+  "gateway_key_file": "/home/taehoon/.config/kalman/secure/jev_gateway_key_create.out",
+  "macro_feature_version": "macro-event-feature-v1",
+  "start_at_utc": "2026-10-07T13:30:00Z",
+  "signal_bar_minutes": 60,
+  "official_event_max_age_hours": 6,
+  "official_event_sources": [
+    "fed_monetary",
+    "bls_cpi",
+    "bls_employment",
+    "bls_jolts",
+    "bea_releases"
+  ],
+  "max_candidates_per_run": 24,
+  "timeout_seconds": 20,
+  "research_contract": {
+    "macro_event_only": true,
+    "baseline_model_features_excluded": true,
+    "r5_score_excluded": true,
+    "execution_policy_flags_excluded": true,
+    "shadow_only": true,
+    "changes_r51": false,
+    "changes_trade_execution": false,
+    "can_veto_live": false,
+    "can_size_live": false,
+    "promotion_allowed": false
+  }
+}
