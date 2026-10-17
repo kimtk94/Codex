@@ -94,7 +94,7 @@ def inventory(root):
             d for d in dirs if d.lower() not in EXCLUDE_DIRS
             and not (Path(here) / d).is_symlink()
         ]
-        for name in TARGETS:
+        for name in TARGETS.values():
             if name in files:
                 path = Path(here) / name
                 if not path.is_symlink() and path.is_file():
