@@ -60,13 +60,13 @@ class GuardTransformer(ast.NodeTransformer):
             if node.args:
                 target=copy.deepcopy(node.args[0])
             else:
-                self.unknown_calls.append({"line":node.lineno,"method":method})
+                self.unknown_calls.append({"line":node.lineno,"method":method,"receiver_shape":"MissingArgument"})
         elif isinstance(node.func,ast.Attribute) and method in SHEET_METHODS:
             owner=_name(node.func.value).lower()
             if any(h in owner for h in SHEET_HINTS):
                 target=copy.deepcopy(node.func.value)
             else:
-                self.unknown_calls.append({"line":node.lineno,"method":method})
+                self.unknown_calls.append({"line":node.lineno,"method":method,"receiver_shape":type(node.func.value).__name__})
         if target is None:
             return node
         # Bind the potentially effectful receiver ONCE before guard + write.
@@ -109,12 +109,17 @@ def guard_ast(source:bytes,*,exact_sha:str|None=None,reject_unclassified:bool=Fa
     for item in transformer.unknown_calls:
         method=item["method"]
         unknown_by_method[method]=unknown_by_method.get(method,0)+1
+    unknown_shapes={}
+    for item in transformer.unknown_calls:
+        shape=item["receiver_shape"]
+        unknown_shapes[shape]=unknown_shapes.get(shape,0)+1
     return compiled,{
         "source_sha256":digest,
         "known_writer_calls_instrumented":len(transformer.instrumented),
         "method_counts":dict(sorted(by_method.items())),
         "unknown_writer_candidates":len(transformer.unknown_calls),
         "unknown_method_counts":dict(sorted(unknown_by_method.items())),
+        "unknown_receiver_shapes":dict(sorted(unknown_shapes.items())),
         "runtime_guard_executed_on_real_css":False,
         "unknown_sites_require_review":bool(transformer.unknown_calls),
         "expression_receiver_evaluated_once_in_wrapped_sites":True,
