@@ -29,7 +29,7 @@ jobs:
         env:
           npm_config_update_notifier: 'false'
         run: |
-          npx --yes rea-agents@latest doctor --json > "$RUNNER_TEMP/rea-doctor.json" || result=$?
+          npx --yes rea-agents@latest doctor --json > "$RUNNER_TEMP/rea-doctor.json" 2> "$RUNNER_TEMP/rea-doctor.stderr" || result=$?
           result=${result:-0}
           node - "$RUNNER_TEMP/rea-doctor.json" <<'JS'
           const fs=require('node:fs');
@@ -72,6 +72,7 @@ jobs:
           name: rea-isolated-evidence
           path: |
             ${{ runner.temp }}/rea-doctor.json
+            ${{ runner.temp }}/rea-doctor.stderr
             ${{ runner.temp }}/rea-evidence.json
           if-no-files-found: warn
           retention-days: 7
