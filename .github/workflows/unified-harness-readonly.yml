@@ -1,0 +1,30 @@
+name: Unified Harness Read-only Briefing
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 23 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unified-harness-readonly
+  cancel-in-progress: false
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only snapshot briefing (never SSH or trade)
+        run: |
+          python3 -m py_compile scripts/unified_harness_briefing.py
+          python3 scripts/unified_harness_briefing.py --snapshots unified_harness_snapshots > briefing.md
+          cat briefing.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unified-harness-daily-briefing
+          path: briefing.md
+          retention-days: 7
