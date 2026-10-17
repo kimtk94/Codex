@@ -45,6 +45,24 @@ def load(folder,domain,now):
                 "evidence":[clean(x,180) for x in ev[:5]]}
     except (OSError,ValueError,TypeError,UnicodeError,OverflowError):
         return item
+def review_queue(folder,now):
+    """Deterministic human review queue, never an execution queue."""
+    severity={"BLOCKED":0,"REVIEW_REQUIRED":1,"UNKNOWN":2,"RUNNING":3,"COMPLETE":4}
+    tasks=[]
+    for item in (load(folder,d,now) for d in DOMAINS):
+        if item["status"] in ("BLOCKED","REVIEW_REQUIRED","UNKNOWN") or item["requires_approval"]:
+            tasks.append({
+                "id":item["domain"]+":review",
+                "domain":item["domain"],
+                "status":item["status"],
+                "priority":severity[item["status"]],
+                "requires_approval":item["requires_approval"],
+                "next_action":item["next_action"],
+                "evidence":item["evidence"],
+                "execution_allowed":False
+            })
+    return sorted(tasks,key=lambda item:(item["priority"],item["domain"]))
+
 def report(folder,now):
     items=[load(folder,d,now) for d in DOMAINS]
     lines=["# Unified Daily Briefing", "", "Generated UTC: "+now.isoformat(),
@@ -64,7 +82,14 @@ def report(folder,now):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--snapshots",required=True,type=Path)
+    p.add_argument("--queue-json",type=Path,default=None)
     args=p.parse_args()
-    print(report(args.snapshots,dt.datetime.now(dt.timezone.utc)),end="")
+    now=dt.datetime.now(dt.timezone.utc)
+    if args.queue_json is not None:
+        payload={"schema":"unified-human-review-queue-v1",
+                 "generated_at":now.isoformat(),
+                 "tasks":review_queue(args.snapshots,now)}
+        args.queue_json.write_text(json.dumps(payload,indent=2,ensure_ascii=False)+"\\n",encoding="utf-8")
+    print(report(args.snapshots,now),end="")
 if __name__=="__main__":
     main()
