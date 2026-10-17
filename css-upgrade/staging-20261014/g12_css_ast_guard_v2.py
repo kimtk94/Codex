@@ -124,6 +124,7 @@ def guard_ast(source:bytes,*,exact_sha:str|None=None,reject_unclassified:bool=Fa
         "source_sha256":digest,
         "known_writer_calls_instrumented":len(transformer.instrumented),
         "method_counts":dict(sorted(by_method.items())),
+        "instrumented_sites":sorted(transformer.instrumented,key=lambda x:(x["line"],x["method"])),
         "unknown_writer_candidates":len(transformer.unknown_calls),
         "unknown_method_counts":dict(sorted(unknown_by_method.items())),
         "unknown_receiver_shapes":dict(sorted(unknown_shapes.items())),
