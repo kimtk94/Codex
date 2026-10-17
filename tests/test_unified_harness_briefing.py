@@ -3,7 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from scripts.unified_harness_briefing import load, report, clean
+from scripts.unified_harness_briefing import load, report, clean, review_queue
 
 class BriefingTests(unittest.TestCase):
     def setUp(self):
@@ -43,6 +43,12 @@ class BriefingTests(unittest.TestCase):
     def test_invalid_approval_type_unknown(self):
         self.write(requires_approval="no")
         self.assertEqual(load(self.folder,"is_ckd",self.now)["status"],"UNKNOWN")
+    def test_review_queue_deterministic_non_executable(self):
+        self.write(status="BLOCKED",requires_approval=True,next_action="Review blocked evidence")
+        tasks=review_queue(self.folder,self.now)
+        self.assertEqual(tasks[0]["id"],"is_ckd:review")
+        self.assertFalse(tasks[0]["execution_allowed"])
+        self.assertEqual(len(set(t["id"] for t in tasks)),4)
     def test_symlink_unknown(self):
         target=self.folder/"elsewhere.json"
         target.write_text("{}")
