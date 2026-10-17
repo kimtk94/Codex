@@ -52,3 +52,12 @@ jobs:
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
             -o ForwardAgent=no -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             "$SSH_USER@$SSH_HOST" 'CSS_G12_STATIC_READONLY=1 python3 -' < scripts/css_g12_writer_surface_audit.py
+
+      - name: Read-only contextual AST map of writer call sites
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o ForwardAgent=no -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'G12_STATIC_CONTEXT_READONLY=1 python3 -' < scripts/css_g12_writer_context_audit.py
