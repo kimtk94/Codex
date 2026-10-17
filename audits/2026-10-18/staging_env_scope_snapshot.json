@@ -1,0 +1,51 @@
+{
+  "observed_kst": "2026-10-18",
+  "source": "Vercel GET filter_project_envs decrypt=false; names and target scopes only",
+  "project_id": "prj_MpQ3qSpSW4QBRvw6aPvS3BYUtFFt",
+  "project": "kalman-investment-hub-v2-staging",
+  "sso_enabled": false,
+  "password_protection": false,
+  "variables": [
+    {
+      "key": "INVESTMENT_HUB_RUNTIME_KEY_SUFFIX",
+      "target": [
+        "production",
+        "preview",
+        "development"
+      ],
+      "type": "plain"
+    },
+    {
+      "key": "INVESTMENT_HUB_CACHE_NAMESPACE",
+      "target": [
+        "production",
+        "preview",
+        "development"
+      ],
+      "type": "plain"
+    },
+    {
+      "key": "BLOB_READ_WRITE_TOKEN",
+      "target": [
+        "production",
+        "preview",
+        "development"
+      ],
+      "type": "encrypted"
+    },
+    {
+      "key": "INVESTMENT_HUB_INGEST_SECRET",
+      "target": [
+        "production",
+        "preview",
+        "development"
+      ],
+      "type": "sensitive"
+    }
+  ],
+  "connector_count": 0,
+  "decrypted_values_retrieved": false,
+  "shared_credential_identity_verified": false,
+  "blob_isolation_verified": false,
+  "ingest_isolation_verified": false
+}
