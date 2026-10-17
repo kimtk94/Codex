@@ -39,6 +39,7 @@ def main():
         "instrumented_calls":summary["known_writer_calls_instrumented"],
         "unclassified_candidate_calls":summary["unknown_writer_candidates"],
         "unclassified_method_counts":summary["unknown_method_counts"],
+        "unclassified_receiver_shapes":summary["unknown_receiver_shapes"],
         "strict_unclassified_gate_accepted":strict_accepted,
         "real_css_main_executed":False,
         "production_module_imported":False,
