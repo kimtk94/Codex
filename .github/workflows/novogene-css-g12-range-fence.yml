@@ -13,6 +13,8 @@ on:
       - 'css-upgrade/staging-20261014/test_g12_writer_coverage_gate.py'
       - 'css-upgrade/staging-20261014/g12_css_ast_guard_v2.py'
       - 'css-upgrade/staging-20261014/test_g12_css_ast_guard_v2.py'
+      - 'css-upgrade/staging-20261014/g12_v2_receiver_provenance.py'
+      - 'css-upgrade/staging-20261014/test_g12_v2_receiver_provenance.py'
       - '.github/workflows/novogene-css-g12-range-fence.yml'
   workflow_dispatch:
 
@@ -36,6 +38,8 @@ jobs:
         run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_writer_coverage_gate.py -v
       - name: G12 V2 receiver single-evaluation and adversarial regression
         run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_css_ast_guard_v2.py -v
+      - name: G12 receiver provenance, alias, parameter and rebind synthetic tests
+        run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_v2_receiver_provenance.py -v
       - name: Confirm source-only release boundary
         run: |
           python3 - <<'PY'
