@@ -129,6 +129,7 @@ jobs:
       - name: Verify REA MCP JSON-RPC transport
         env:
           npm_config_update_notifier: 'false'
+          REA_FIXTURE_PATH: ${{ runner.temp }}/rea-fixture
         run: |
           node experiments/rea/mcp_transport_probe.cjs
       - name: Upload doctor and evidence for review
