@@ -114,6 +114,12 @@
 - This closes the **combined additive schema + actual function + source-only rollback rehearsal gate**. Still unresolved: full legacy `main()` execution against the migrated clone, full eight-patch `main()` E2E with isolated external clients, and explicit production deployment authorization.
 - [Test script](real_receipt_rollback_drill.py) and [Actions CI](https://github.com/kimtk94/Codex/actions/runs/39042402745).
 
+## Legacy function compatibility on receipt-bearing database — 2026-10-17
+
+- [**40/40 combined migration, source rollback and actual legacy sync PASS**](https://github.com/kimtk94/Codex/actions/runs/39043083398). Actual current production SQLite was cloned read-only. The staged eight-patch sync inserted a synthetic Hold and receipt. Eight patches were then reversed byte-exactly, and the original **legacy `_sync_overview_snooze_actions_from_records`** successfully released that Hold while leaving the receipt intact. Its legacy upsert helper then created a new Hold. Existing 26 table counts (plus one deliberate synthetic Hold), receipts and `PRAGMA integrity_check` remained valid.
+- The database and source being exercised were isolated copies only. **Not verified:** full legacy `main()` against the migrated clone, external Sheets/Drive/CRM behavior, scheduled-cycle integration, and permission to deploy.
+- This closes **targeted legacy function compatibility**, not the complete production rollback gate. No migration table drop or rollback of real operational data was attempted.
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent full-engine canary outstanding:** Targeted actual SIF functions, actual Action Center/Review Queue generators, a 1,200-row real Canary Sheets write, and real Canary sheet edit races passed. The complete `main()` with every external client isolated **has not** been executed; no production deployment authorization is implied.
