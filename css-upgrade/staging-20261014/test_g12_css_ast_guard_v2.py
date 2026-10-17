@@ -113,6 +113,7 @@ class V2Tests(unittest.TestCase):
         raw=b"def main(data):\n data.update({'sensitive@example.test':1})\n data.clear()\n"
         _,report=guard_ast(raw)
         self.assertEqual(report["unknown_method_counts"],{"clear":1,"update":1})
+        self.assertEqual(report["unknown_receiver_shapes"],{"Name":2})
         self.assertNotIn("sensitive@example.test",str(report))
 
     def test_unclassified_path_exposed_without_strict(self):
