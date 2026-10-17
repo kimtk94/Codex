@@ -6,7 +6,53 @@ import json
 import os
 from pathlib import Path
 
-from css_g12_writer_surface_audit import extract, function_path
+# Standalone by design: this module is streamed via SSH as python3 -.
+# Never rely on importing scripts that may not exist on the private server.
+def function_path(expr):
+    if isinstance(expr, ast.Name):
+        return expr.id
+    if isinstance(expr, ast.Attribute):
+        left = function_path(expr.value)
+        return (left + "." if left else "") + expr.attr
+    return ""
+
+CANDIDATES = frozenset((
+    "overwrite_dataframe", "set_with_dataframe", "update_cells",
+    "batch_update", "batch_clear", "clear", "resize", "sort",
+    "insert_rows", "delete_rows", "append_rows", "update",
+    "update_dataframe", "write_dataframe", "write_dataframe_to_sheet",
+    "sync_dataframe_to_sheet", "write_sheet", "update_sheet",
+    "format", "batch_format",
+))
+AMBIGUOUS = frozenset(("update","clear","sort","format","resize","batch_update"))
+SHEET_HINTS = ("ws","sheet","spread","worksheet","gspread")
+STRUCTURAL = frozenset((
+    "batch_clear", "clear", "resize", "sort", "insert_rows",
+    "delete_rows", "set_with_dataframe", "overwrite_dataframe",
+))
+
+def extract(source):
+    tree = ast.parse(source)
+    selected = []
+    for fn in tree.body:
+        if not isinstance(fn,(ast.FunctionDef,ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(fn):
+            if not isinstance(node,ast.Call):
+                continue
+            callpath = function_path(node.func)
+            method = callpath.rsplit(".",1)[-1]
+            if method not in CANDIDATES:
+                continue
+            if method in AMBIGUOUS and not any(h in callpath.lower() for h in SHEET_HINTS):
+                continue
+            risk = ("DESTRUCTIVE_OR_FULL_REWRITE_CANDIDATE" if method in STRUCTURAL
+                    else "STRUCTURAL_APPEND_CANDIDATE" if method == "append_rows"
+                    else "API_EFFECT_UNKNOWN")
+            selected.append({"line":node.lineno,"method":method,"risk":risk})
+    selected.sort(key=lambda s:(s["line"],s["method"]))
+    return {"candidate_count":len(selected),"sites":selected[:150],"sites_truncated":len(selected)>150}
+
 
 SOURCE = Path("/home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py")
 PIN = "a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840"
