@@ -10,7 +10,7 @@ EXPECTED="a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840"
 REMOTE_DIR="${1:-}"
 SCRIPT="${2:-}"
 [[ "$REMOTE_DIR" =~ ^/tmp/css-sif-bwrap-[0-9]+-[0-9]+$ ]] || { echo "G16_SIF_DENY_REMOTE_DIR"; exit 40; }
-[[ "$SCRIPT" == "large_sif_workflow_regression.py" || "$SCRIPT" == "manual_mail_overlap_regression.py" ]] || { echo "G16_SIF_DENY_SCRIPT"; exit 41; }
+[[ "$SCRIPT" == "large_sif_workflow_regression.py" || "$SCRIPT" == "manual_mail_overlap_regression.py" || "$SCRIPT" == "g12_sif_action_handoff.py" ]] || { echo "G16_SIF_DENY_SCRIPT"; exit 41; }
 [[ -f "$REMOTE_DIR/$SCRIPT" && ! -L "$REMOTE_DIR/$SCRIPT" ]] || { echo "G16_SIF_MISSING_SCRIPT"; exit 42; }
 [[ -r "$SOURCE" && -x "$VENV/bin/python" && -d "$VENV/lib" ]] || { echo "G16_SIF_MISSING_READONLY_INPUT"; exit 43; }
 [[ "$(sha256sum "$SOURCE" | cut -d' ' -f1)" == "$EXPECTED" ]] || { echo "G16_SIF_SOURCE_CHANGED"; exit 44; }
