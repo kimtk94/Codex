@@ -85,6 +85,10 @@ jobs:
           python3 -m playwright install chromium
       - name: Demo-only Chromium browser E2E (desktop + mobile)
         run: python3 demo_browser_e2e.py > staging_demo_browser_report.json
+      - name: Staging approval evidence gate (no deployment)
+        run: |
+          python3 -m unittest -v test_staging_release_approval_gate.py
+          python3 staging_release_approval_gate.py > staging_release_gate_report.json
       - name: Reproduce pinned snapshot
         run: python3 quality_gate.py --at 2026-10-14T11:35:00Z --output quality_report.json
       - name: Upload audit artifact
@@ -99,5 +103,6 @@ jobs:
             audits/2026-10-14/quality/staging_local_http_report.json
             audits/2026-10-14/quality/staging_demo_only_report.json
             audits/2026-10-14/quality/staging_demo_browser_report.json
+            audits/2026-10-14/quality/staging_release_gate_report.json
           if-no-files-found: error
           retention-days: 30
