@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from engine import macro_event_features_v1 as macro
 from engine import macro_consensus_provider_v1 as consensus
@@ -449,7 +449,9 @@ def test_trading_economics_calendar_row_maps_actual_and_consensus():
     assert mapped is not None
     assert mapped["indicator_key"] == "CPI_HEADLINE_YOY"
     assert mapped["actual"] == 3.2
-    assert mapped["consensus"] == 3.0
+    assert mapped["consensus"] is None
+    assert mapped["payload"]["consensus_snapshot_phase"] == "POST_RELEASE"
+    assert mapped["payload"]["post_release_consensus_ignored"] is True
     assert mapped["previous"] == 3.1
     assert mapped["time_quality"] == "PROVIDER_RELEASE_TS"
     assert mapped["source"] == "trading_economics_calendar"
@@ -990,7 +992,8 @@ def test_korea_calendar_row_maps_to_kr_without_touching_us_contract():
     assert mapped["market"] == "KR"
     assert mapped["indicator_key"] == "KR_CPI_YOY"
     assert mapped["actual"] == 2.4
-    assert mapped["consensus"] == 2.2
+    assert mapped["consensus"] is None
+    assert mapped["payload"]["consensus_snapshot_phase"] == "POST_RELEASE"
     assert mapped["payload"]["market"] == "KR"
 
 
@@ -1088,3 +1091,247 @@ def test_target_market_event_score_applies_cross_market_family_weight():
     assert kr["score"] == 1.7
     assert us["ready"] is True
     assert kr["ready"] is True
+
+
+def test_structured_reaction_anchor_uses_release_time_not_provider_delay():
+    cfg = config()
+    cfg["us_reaction_anchor_sources"] = ["bea_releases"]
+    releases = [
+        {
+            "market": "US",
+            "source": "trading_economics_calendar",
+            "event_name": "Core PCE Price Index MoM",
+            "indicator_key": "CORE_PCE_MOM",
+            "release_at": datetime(2026, 10, 29, 12, 30, tzinfo=UTC),
+            "available_at": datetime(2026, 10, 29, 12, 34, tzinfo=UTC),
+            "actual": 0.3,
+            "consensus": 0.2,
+        }
+    ]
+    official_rows = [
+        {
+            "source": "bea_releases",
+            "title": "Personal Income and Outlays",
+            "available_at": datetime(2026, 10, 29, 12, 31, tzinfo=UTC),
+        }
+    ]
+    anchor, meta = macro.select_us_reaction_anchor(releases, official_rows, cfg)
+    assert anchor == datetime(2026, 10, 29, 12, 30, tzinfo=UTC)
+    assert meta["release_at"] == "2026-10-29T12:30:00+00:00"
+    assert meta["available_at"] == "2026-10-29T12:34:00+00:00"
+
+
+def test_pce_bundle_is_supported_as_surprise_event_family():
+    cfg = config()
+    cfg["indicator_normalization"]["CORE_PCE_MOM"] = {
+        "scale": 0.1,
+        "policy_sign": 1.0,
+        "unit": "pct",
+    }
+    cfg["indicator_normalization"]["CORE_PCE_YOY"] = {
+        "scale": 0.1,
+        "policy_sign": 1.0,
+        "unit": "pct",
+    }
+    cfg["event_scoring"]["indicator_family"].update(
+        {
+            "CORE_PCE_MOM": "PCE",
+            "CORE_PCE_YOY": "PCE",
+        }
+    )
+    cfg["event_scoring"]["weights"]["PCE"] = {
+        "surprise": 0.50,
+        "us2y": 0.30,
+        "policy": 0.20,
+    }
+    anchor = datetime(2026, 10, 29, 12, 30, tzinfo=UTC)
+    releases = [
+        {
+            "indicator_key": "CORE_PCE_MOM",
+            "available_at_dt": anchor,
+            "policy_pressure_surprise": 1.0,
+        },
+        {
+            "indicator_key": "CORE_PCE_YOY",
+            "available_at_dt": anchor + timedelta(minutes=1),
+            "policy_pressure_surprise": 1.0,
+        },
+    ]
+    bundle = macro.select_event_bundle(releases, anchor, "PCE", cfg)
+    assert [x["indicator_key"] for x in bundle] == [
+        "CORE_PCE_MOM",
+        "CORE_PCE_YOY",
+    ]
+    score = macro.compute_shadow_event_score(
+        event_family="PCE",
+        event_bundle=bundle,
+        reaction_z=1.0,
+        matched_policy={"repricing_bps": 5.0},
+        policy_proxy_event_bps=None,
+        config=cfg,
+    )
+    assert score["ready"] is True
+    assert score["event_family"] == "PCE"
+    assert score["bundle_surprise"] == 1.0
+    assert score["score"] == 1.0
+
+
+def test_pce_family_resolves_from_structured_indicator():
+    cfg = config()
+    cfg["event_scoring"]["indicator_family"]["CORE_PCE_MOM"] = "PCE"
+    meta = {
+        "indicator_key": "CORE_PCE_MOM",
+        "source": "trading_economics_calendar",
+    }
+    assert macro.macro_event_family(meta, cfg) == "PCE"
+
+
+def test_bea_personal_income_outlays_fallback_maps_to_pce():
+    cfg = config()
+    meta = {
+        "indicator_key": None,
+        "source": "bea_releases",
+        "event_name": "Personal Income and Outlays, September 2026",
+    }
+    assert macro.macro_event_family(meta, cfg) == "PCE"
+
+
+def test_generic_bea_release_does_not_false_map_to_pce():
+    cfg = config()
+    meta = {
+        "indicator_key": None,
+        "source": "bea_releases",
+        "event_name": "GDP (Advance Estimate), 3rd Quarter 2026",
+    }
+    assert macro.macro_event_family(meta, cfg) == "OTHER"
+
+
+def _public_calendar_html(actual="", consensus="3.5%", forecast="3.6%"):
+    return f"""
+    <table><tbody>
+      <tr data-url="/united-states/inflation-cpi"
+          data-id="399075"
+          data-country="united states"
+          data-category="inflation rate"
+          data-event="inflation rate yoy"
+          data-symbol="CPI YOY">
+        <td class=" 2026-10-14"><span>12:30 PM</span></td>
+        <td><table><tr><td>US</td></tr></table></td>
+        <td>Inflation Rate YoY <span>SEP</span></td>
+        <td><span id="actual">{actual}</span></td>
+        <td><span id="previous">3.4%</span></td>
+        <td><a id="consensus">{consensus}</a></td>
+        <td><a id="forecast">{forecast}</a></td>
+      </tr>
+    </tbody></table>
+    """
+
+
+def test_public_calendar_parser_keeps_consensus_separate_from_te_forecast():
+    rows = consensus.parse_public_calendar_html(_public_calendar_html())
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["CalendarId"] == "399075"
+    assert row["Date"] == "2026-10-14T12:30:00+00:00"
+    assert row["Forecast"] == "3.5%"
+    assert row["TEForecast"] == "3.6%"
+    assert row["Actual"] is None
+
+
+def test_pre_release_consensus_is_model_hidden_until_release():
+    cfg = config()
+    cfg["trading_economics"] = {
+        "enabled": True,
+        "event_map": {
+            "Inflation Rate YoY": "CPI_HEADLINE_YOY",
+        },
+    }
+    row = consensus.parse_public_calendar_html(_public_calendar_html())[0]
+    mapped = consensus.normalize_calendar_row(
+        row,
+        cfg,
+        datetime(2026, 10, 14, 12, 0, tzinfo=UTC),
+    )
+    assert mapped is not None
+    assert mapped["actual"] is None
+    assert mapped["consensus"] == 3.5
+    assert mapped["available_at"] == datetime(2026, 10, 14, 12, 30, tzinfo=UTC)
+    assert mapped["payload"]["consensus_snapshot_phase"] == "PRE_RELEASE"
+    assert mapped["payload"]["consensus_captured_at"] == "2026-10-14T12:00:00+00:00"
+
+
+def test_post_release_public_calendar_ignores_new_consensus():
+    cfg = config()
+    cfg["trading_economics"] = {
+        "enabled": True,
+        "event_map": {
+            "Inflation Rate YoY": "CPI_HEADLINE_YOY",
+        },
+    }
+    pre_row = consensus.parse_public_calendar_html(
+        _public_calendar_html(actual="", consensus="3.5%", forecast="3.6%")
+    )[0]
+    post_row = consensus.parse_public_calendar_html(
+        _public_calendar_html(actual="3.7%", consensus="3.6%", forecast="3.6%")
+    )[0]
+
+    pre = consensus.normalize_calendar_row(
+        pre_row,
+        cfg,
+        datetime(2026, 10, 14, 12, 0, tzinfo=UTC),
+    )
+    post = consensus.normalize_calendar_row(
+        post_row,
+        cfg,
+        datetime(2026, 10, 14, 12, 45, tzinfo=UTC),
+    )
+    assert pre is not None and post is not None
+    assert pre["observation_id"] == post["observation_id"]
+    assert post["actual"] == 3.7
+    assert post["consensus"] is None
+    assert post["available_at"] == datetime(2026, 10, 14, 12, 45, tzinfo=UTC)
+    assert post["payload"]["consensus_snapshot_phase"] == "POST_RELEASE"
+    assert post["payload"]["post_release_consensus_ignored"] is True
+
+
+def test_missing_api_key_uses_public_calendar_when_enabled(monkeypatch):
+    monkeypatch.delenv("TRADING_ECONOMICS_API_KEY", raising=False)
+    monkeypatch.delenv("KALMAN_MACRO_CONSENSUS_ENABLED", raising=False)
+    cfg = {
+        "trading_economics": {
+            "enabled": True,
+            "runtime_enabled_default": True,
+            "public_calendar_fallback": {"enabled": True},
+        }
+    }
+    monkeypatch.setattr(
+        consensus,
+        "fetch_public_calendar_rows",
+        lambda config, as_of: (
+            [{"observation_id": "x"}],
+            {
+                "status": "READY",
+                "rows_seen": 1,
+                "rows_mapped": 1,
+                "provider": "trading_economics_public_calendar",
+            },
+        ),
+    )
+    rows, status = consensus.fetch_calendar_rows(
+        cfg,
+        datetime(2026, 10, 14, 12, 0, tzinfo=UTC),
+    )
+    assert rows == [{"observation_id": "x"}]
+    assert status["status"] == "READY"
+    assert status["primary_provider_status"] == "UNCONFIGURED"
+    assert status["fallback_used"] is True
+
+
+def test_consensus_upsert_sql_freezes_post_release_consensus():
+    import inspect
+
+    source = inspect.getsource(consensus.upsert_observations)
+    assert "consensus_snapshot_phase' = 'PRE_RELEASE'" in source
+    assert "THEN excluded.consensus" in source
+    assert "ELSE mro.consensus" in source
+    assert "payload=mro.payload || excluded.payload" in source
