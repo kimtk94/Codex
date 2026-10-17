@@ -9,6 +9,7 @@ on:
       - 'css-upgrade/staging-20261014/g12_private_v2_compile.py'
       - 'css-upgrade/staging-20261014/g12_v2_receiver_provenance.py'
       - 'css-upgrade/staging-20261014/g12_dynamic_dispatch_audit.py'
+      - 'css-upgrade/staging-20261014/g12_v2_review_queue.py'
       - 'css-upgrade/staging-20261014/g12_writer_coverage_gate.py'
       - '.github/workflows/novogene-css-g12-v2-private-compile.yml'
   workflow_dispatch:
@@ -63,12 +64,13 @@ jobs:
             css-upgrade/staging-20261014/g12_css_ast_guard_v2.py \
             css-upgrade/staging-20261014/g12_private_v2_compile.py \
             css-upgrade/staging-20261014/g12_v2_receiver_provenance.py \
-            css-upgrade/staging-20261014/g12_dynamic_dispatch_audit.py
+            css-upgrade/staging-20261014/g12_dynamic_dispatch_audit.py \
+            css-upgrade/staging-20261014/g12_v2_review_queue.py
           REMOTE_DIR="/tmp/css-g12-v2-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           SSH_ARGS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key")
           cleanup() {
             ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
-              "rm -f '$REMOTE_DIR/g12_css_ast_guard_v2.py' '$REMOTE_DIR/g12_private_v2_compile.py' '$REMOTE_DIR/g12_writer_coverage_gate.py' '$REMOTE_DIR/g12_v2_receiver_provenance.py' '$REMOTE_DIR/g12_dynamic_dispatch_audit.py'; rmdir '$REMOTE_DIR' 2>/dev/null || true" || true
+              "rm -f '$REMOTE_DIR/g12_css_ast_guard_v2.py' '$REMOTE_DIR/g12_private_v2_compile.py' '$REMOTE_DIR/g12_writer_coverage_gate.py' '$REMOTE_DIR/g12_v2_receiver_provenance.py' '$REMOTE_DIR/g12_dynamic_dispatch_audit.py' '$REMOTE_DIR/g12_v2_review_queue.py'; rmdir '$REMOTE_DIR' 2>/dev/null || true" || true
           }
           trap cleanup EXIT
           if ! ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" "mkdir -m 700 -p '$REMOTE_DIR'"; then
@@ -81,6 +83,7 @@ jobs:
             css-upgrade/staging-20261014/g12_writer_coverage_gate.py \
             css-upgrade/staging-20261014/g12_v2_receiver_provenance.py \
             css-upgrade/staging-20261014/g12_dynamic_dispatch_audit.py \
+            css-upgrade/staging-20261014/g12_v2_review_queue.py \
             "$SSH_USER@$SSH_HOST:$REMOTE_DIR/"; then
             echo "::error::G12_STAGE_TEST_FILES_FAILED"
             exit 1
