@@ -144,6 +144,24 @@ def main():
           "RERUN_STABLE_ACTION_IDS")
     check(set(re_again["review_id"])==set(review["review_id"]),
           "RERUN_STABLE_REVIEW_IDS")
+    # Exercise an exceptional path of the real extracted generator with an
+    # intentionally failing in-memory helper; no external connector exists.
+    original_id_helper=ns["stable_record_id"]
+    def fail_synthetic_id(*_args):
+        raise RuntimeError("SYNTHETIC_ID_FAILURE")
+    ns["stable_record_id"]=fail_synthetic_id
+    failure_propagated=False
+    try:
+        run_case(ns,board,unanswered,manual,crm,quote)
+    except RuntimeError as exc:
+        failure_propagated=str(exc)=="SYNTHETIC_ID_FAILURE"
+    finally:
+        ns["stable_record_id"]=original_id_helper
+    check(failure_propagated,"SYNTHETIC_ID_FAILURE_PROPAGATED")
+    recovered_action,recovered_review=run_case(ns,board,unanswered,manual,crm,quote)
+    check(set(recovered_action["task_id"])==set(action["task_id"]) and
+          set(recovered_review["review_id"])==set(review["review_id"]),
+          "SYNTHETIC_FAILURE_RECOVERY_IDEMPOTENT")
     check(hashlib.sha256(Path(p).read_bytes()).hexdigest()==SHA,
           "PRODUCTION_SOURCE_UNTOUCHED")
     print("REAL_GENERATOR_REGRESSION_PASS",len(PASS),flush=True)
