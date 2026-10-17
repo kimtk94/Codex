@@ -11,6 +11,7 @@ on:
       - 'audits/2026-10-15/vercel_actual_alias_snapshot.json'
       - 'audits/2026-10-15/vercel_active_file_digests.json'
       - 'audits/2026-10-15/staging_protection_snapshot.json'
+      - 'audits/2026-10-18/staging_env_scope_snapshot.json'
       - 'kalman-toss-gateway/scripts/build_investment_hub_v7424_execution_telemetry.py'
       - '.github/workflows/kalman-audit-quality.yml'
 
@@ -89,6 +90,10 @@ jobs:
         run: |
           python3 -m unittest -v test_staging_release_approval_gate.py
           python3 staging_release_approval_gate.py > staging_release_gate_report.json
+      - name: Stage env names and scopes gate (no secrets)
+        run: |
+          python3 -m unittest -v test_staging_env_scope_gate.py
+          python3 staging_env_scope_gate.py > staging_env_scope_report.json
       - name: Reproduce pinned snapshot
         run: python3 quality_gate.py --at 2026-10-14T11:35:00Z --output quality_report.json
       - name: Upload audit artifact
@@ -104,5 +109,6 @@ jobs:
             audits/2026-10-14/quality/staging_demo_only_report.json
             audits/2026-10-14/quality/staging_demo_browser_report.json
             audits/2026-10-14/quality/staging_release_gate_report.json
+            audits/2026-10-14/quality/staging_env_scope_report.json
           if-no-files-found: error
           retention-days: 30
