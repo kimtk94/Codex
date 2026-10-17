@@ -1,0 +1,1 @@
+SHA-pinned, source-read-only G12 V2 heuristic coverage audit; aggregate candidate sites only. No CSS execution, no DB or sheet writes.
