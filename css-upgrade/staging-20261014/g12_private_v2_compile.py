@@ -12,6 +12,7 @@ from types import CodeType
 from g12_css_ast_guard_v2 import guard_ast, EXPECTED_SHA
 from g12_writer_coverage_gate import SITES
 from g12_v2_receiver_provenance import audit_receiver_provenance
+from g12_dynamic_dispatch_audit import inspect_dispatch
 
 
 def triage_local_receivers(raw):
@@ -95,6 +96,7 @@ def main():
         if "G12_UNCLASSIFIED_WRITER_CANDIDATES" not in str(exc):
             raise
         strict_accepted=False
+    dispatch=inspect_dispatch(raw)
     provenance=audit_receiver_provenance(raw)
     if provenance["unclassified_site_count"] != summary["unknown_writer_candidates"]:
         raise SystemExit("G12_PROVENANCE_CALLSITE_PARITY_FAILED")
@@ -117,6 +119,7 @@ def main():
         "unclassified_receiver_shapes":summary["unknown_receiver_shapes"],
         "unclassified_local_hints":triage,
         "unclassified_provenance_hints":provenance["provenance_hint_counts"],
+        "dynamic_dispatch_audit":dispatch,
         "provenance_is_runtime_proof":False,
         "local_hints_are_runtime_proof":False,
         "strict_unclassified_gate_accepted":strict_accepted,
