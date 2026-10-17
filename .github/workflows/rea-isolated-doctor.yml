@@ -35,7 +35,7 @@ jobs:
         env:
           npm_config_update_notifier: 'false'
         run: |
-          npx --yes rea-agents@latest doctor --json > "$RUNNER_TEMP/rea-doctor.json" 2> "$RUNNER_TEMP/rea-doctor.stderr" || result=$?
+          npx --yes rea-agents@6.5.0 doctor --json > "$RUNNER_TEMP/rea-doctor.json" 2> "$RUNNER_TEMP/rea-doctor.stderr" || result=$?
           result=${result:-0}
           node - "$RUNNER_TEMP/rea-doctor.json" <<'JS'
           const fs=require('node:fs');
@@ -73,7 +73,7 @@ jobs:
           node --check "$RUNNER_TEMP/rea-fixture/planner.js"
           node --check "$RUNNER_TEMP/rea-fixture/index.js"
           node "$RUNNER_TEMP/rea-fixture/index.js"
-          npx --yes rea-agents@latest analyze-javascript-application "$RUNNER_TEMP/rea-fixture" --json > "$RUNNER_TEMP/rea-evidence.json" 2> "$RUNNER_TEMP/rea-analyze.stderr"
+          npx --yes rea-agents@6.5.0 analyze-javascript-application "$RUNNER_TEMP/rea-fixture" --json > "$RUNNER_TEMP/rea-evidence.json" 2> "$RUNNER_TEMP/rea-analyze.stderr"
           node - "$RUNNER_TEMP/rea-evidence.json" <<'JS'
           const fs=require('node:fs');
           const file=process.argv[2];
