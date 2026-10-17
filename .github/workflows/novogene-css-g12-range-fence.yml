@@ -7,6 +7,8 @@ on:
     paths:
       - 'css-upgrade/staging-20261014/g12_sheet_range_fence.py'
       - 'css-upgrade/staging-20261014/test_g12_sheet_range_fence.py'
+      - 'css-upgrade/staging-20261014/g12_scoped_writer.py'
+      - 'css-upgrade/staging-20261014/test_g12_scoped_writer.py'
       - '.github/workflows/novogene-css-g12-range-fence.yml'
   workflow_dispatch:
 
@@ -24,6 +26,8 @@ jobs:
       - name: Synthetic live-schema range and field-mask regression
         run: |
           python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_sheet_range_fence.py -v
+      - name: Synthetic gspread-shaped writer and edit-race tests
+        run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_scoped_writer.py -v
       - name: Confirm source-only release boundary
         run: |
           python3 - <<'PY'
