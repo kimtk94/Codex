@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from types import CodeType
 from g12_css_ast_guard_v2 import guard_ast, EXPECTED_SHA
+from g12_writer_coverage_gate import SITES
 
 
 def triage_local_receivers(raw):
@@ -96,10 +97,17 @@ def main():
     triage=triage_local_receivers(raw)
     if sum(triage.values()) != summary["unknown_writer_candidates"]:
         raise SystemExit("G12_TRIAGE_COVERAGE_MISMATCH")
+    baseline={(row,method) for row,method,_ in SITES}
+    matched={(site["line"],site["method"]) for site in summary["instrumented_sites"]}
+    missing=sorted(baseline-matched)
     result={
         "source_sha256":summary["source_sha256"],
         "in_memory_compile":"PASS",
         "instrumented_calls":summary["known_writer_calls_instrumented"],
+        "baseline_calls":len(baseline),
+        "baseline_wrapped_calls":len(baseline & matched),
+        "baseline_unwrapped_sites":[{"line":line,"method":method} for line,method in missing],
+        "extra_heuristic_sites":len(matched-baseline),
         "unclassified_candidate_calls":summary["unknown_writer_candidates"],
         "unclassified_method_counts":summary["unknown_method_counts"],
         "unclassified_receiver_shapes":summary["unknown_receiver_shapes"],
