@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/novogene-css-real-receipt-rollback.yml'
       - 'css-upgrade/staging-20261014/real_receipt_rollback_drill.py'
+      - 'css-upgrade/staging-20261014/manual_mail_overlap_regression.py'
 
 permissions:
   contents: read
@@ -67,6 +68,8 @@ jobs:
             "css-upgrade/staging-20261014/novogene_css_snapshot_conflict_guard.patch" "$SSH_USER@$SSH_HOST:${PREFIX}/novogene_css_snapshot_conflict_guard.patch"
           scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             css-upgrade/staging-20261014/real_receipt_rollback_drill.py "$SSH_USER@$SSH_HOST:${PREFIX}/drill.py"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/manual_mail_overlap_regression.py "$SSH_USER@$SSH_HOST:${PREFIX}/fixture.py"
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             "$SSH_USER@$SSH_HOST" \
-            "/home/taehoon/services/novogene-css/.venv/bin/python ${PREFIX}/drill.py --source /home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py --db /home/taehoon/services/novogene-css/state/css_project_manager.sqlite3 --patch-dir ${PREFIX}"
+            "/home/taehoon/services/novogene-css/.venv/bin/python ${PREFIX}/drill.py --source /home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py --db /home/taehoon/services/novogene-css/state/css_project_manager.sqlite3 --patch-dir ${PREFIX} --helper ${PREFIX}/fixture.py"
