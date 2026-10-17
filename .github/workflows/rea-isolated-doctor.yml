@@ -43,7 +43,7 @@ jobs:
           }
           JS
           echo "REA_DOCTOR_EXIT=$result"
-          echo "Doctor may report optional native providers missing; static JS smoke test is the acceptance gate."
+          echo "Doctor result recorded separately; optional native providers do not block static JS analysis."
       - name: REA static JavaScript smoke test (local fixture only)
         env:
           npm_config_update_notifier: 'false'
@@ -62,4 +62,16 @@ jobs:
           console.log('REA_STATIC_SMOKE_PASS=true');
           console.log('REA_EVIDENCE_BYTES='+Buffer.byteLength(raw));
           console.log('REA_EVIDENCE_TOP_LEVEL_FIELDS='+Object.keys(data).slice(0,20).join(','));
+          if(!raw.includes('grid.js') && !raw.includes('gridLevel')) throw new Error('REA_FIXTURE_NOT_REFERENCED');
+          console.log('REA_FIXTURE_REFERENCED=true');
           JS
+      - name: Upload doctor and evidence for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-isolated-evidence
+          path: |
+            ${{ runner.temp }}/rea-doctor.json
+            ${{ runner.temp }}/rea-evidence.json
+          if-no-files-found: warn
+          retention-days: 7
