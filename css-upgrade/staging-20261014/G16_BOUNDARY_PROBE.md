@@ -84,3 +84,25 @@ Two existing **real CSS AST function** regressions now run inside a private root
 - Selected Action/Review real-function regression also remains **25/25 PASS** inside private Bubblewrap: https://github.com/kimtk94/Codex/actions/runs/39012994698.
 
 **Gate boundaries unchanged:** These isolated function regressions are strong evidence for the staged SIF candidate; they do **not** verify all full-engine sinks, actual end-to-end Google Sheets/SQLite consistency, Mail Collector import-time effects, or post-commit cross-service failure recovery. **G16 remains partial/BLOCKED; G12 NOT_RUN; production rollout NOT_AUTHORIZED.** A production release requires separate approval, a complete isolation guarantee, and an explicit migration/rollback procedure.
+
+## G12 preflight: synthetic dual-store recovery and scoped real-function handoff (2026-10-17)
+
+G12 full CSS `main()` is **still NOT RUN / BLOCKED**. Two narrower experiments were completed:
+
+### A. SQLite-to-fake-Sheets delivery / recovery model (20/20 PASS)
+- `g12_outbox_sim.py` and `test_g12_outbox_sim.py` model **durable SQLite outbox intents** and an idempotent in-memory fake Sheet with synthetic row versions and delivery receipts.
+- Tests include no publish before committed intent; repeat delivery; fake Sheets failure before write; **fake Sheets successful write followed by lost response**; SQLite acknowledgement failure after fake publish; process restart; stale manual-edit version conflict; ordered subsequent revision; partial multi-project publication; same-revision conflict; corrupted payload; unsafe ID/path/operation denial.
+- Offline no-network Docker evidence: https://github.com/kimtk94/Codex/actions/runs/39014723532 — baseline 57 + new 20 = **77/77 PASS**.
+- **Important limitation:** Actual Google Sheets does not offer an atomic compare-and-swap + receipt transaction shared with SQLite. The model does not prove that retry is exactly-once against a real Sheet, nor is this Outbox integrated with operational CSS.
+
+### B. Real SIF branch -> real Action/Review handoff (22/22 PASS)
+- `g12_sif_action_handoff.py` runs inside the private rootless Bubblewrap sandbox using the SHA-pinned server CSS source. The eight SIF patches are applied to an ephemeral source copy, and the *actual patched `main()` Prepayment branch only* is extracted into an isolated synthetic namespace.
+- The handoff takes the resulting portfolio and calls the actual AST-extracted Action Center and Review Queue builders with 1,200 synthetic projects and synthetic independent mail/manual/CRM/Quotation inputs.
+- **22/22 PASS:** 309 Prepayment SIF-stage projects had generic SIF follow-up suppressed while remaining in the 1,200-row portfolio; Action output had 894 rows and Review output one row; unrelated same-project mail/manual/CRM/Quotation tasks preserved; QC transition re-enters the Action input; deterministic IDs across replay.
+- Evidence: https://github.com/kimtk94/Codex/actions/runs/39014961981 (the same workflow also re-runs the existing 76 SIF large-batch assertions).
+- 309 suppressed here is **not directly comparable** with 342 in the separate Action-only fixture; population and active/durable skip selection differ.
+
+### G12 / G16 blockers
+- No isolated full CSS `main()` execution has occurred. This preflight explicitly never imports/executes the operational Collector, service schedulers, customer mail data, live credentials or operational DB/Sheets.
+- Real Sheets CAS/receipts, transactional outbox behaviour, complete import-time and exception-path sink interception, real mail-DB refresh and operational backup/log paths remain **UNPROVEN**.
+- Review integration design, migration, backward compatibility, source diff, rollback and separate explicit approval before rollout. Keep PR #168 in Draft.
