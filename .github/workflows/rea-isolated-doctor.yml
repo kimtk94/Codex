@@ -49,10 +49,23 @@ jobs:
           npm_config_update_notifier: 'false'
         run: |
           mkdir -p "$RUNNER_TEMP/rea-fixture"
-          printf 'export function gridLevel(price,spacing){return price*(1+spacing)}\\n' > "$RUNNER_TEMP/rea-fixture/grid.js"
-          printf 'import { gridLevel } from "./grid.js";\\nexport function planGrid(p,s,n){return Array.from({length:n},(_,i)=>gridLevel(p,s*(i+1)))}\\n' > "$RUNNER_TEMP/rea-fixture/planner.js"
-          printf 'import { planGrid } from "./planner.js";\\nconsole.log(planGrid(100,0.0014,3));\\n' > "$RUNNER_TEMP/rea-fixture/index.js"
-          printf '{"name":"rea-fixture","version":"0.0.1","type":"module","main":"index.js"}\\n' > "$RUNNER_TEMP/rea-fixture/package.json"
+          cat > "$RUNNER_TEMP/rea-fixture/grid.js" <<'JS'
+          export function gridLevel(price,spacing){return price*(1+spacing)}
+          JS
+          cat > "$RUNNER_TEMP/rea-fixture/planner.js" <<'JS'
+          import { gridLevel } from "./grid.js";
+          export function planGrid(p,s,n){return Array.from({length:n},(_,i)=>gridLevel(p,s*(i+1)))}
+          JS
+          cat > "$RUNNER_TEMP/rea-fixture/index.js" <<'JS'
+          import { planGrid } from "./planner.js";
+          console.log(planGrid(100,0.0014,3));
+          JS
+          cat > "$RUNNER_TEMP/rea-fixture/package.json" <<'JSON'
+          {"name":"rea-fixture","version":"0.0.1","type":"module","main":"index.js"}
+          JSON
+          node --check "$RUNNER_TEMP/rea-fixture/grid.js"
+          node --check "$RUNNER_TEMP/rea-fixture/planner.js"
+          node --check "$RUNNER_TEMP/rea-fixture/index.js"
           node "$RUNNER_TEMP/rea-fixture/index.js"
           npx --yes rea-agents@latest analyze-javascript-application "$RUNNER_TEMP/rea-fixture" --json > "$RUNNER_TEMP/rea-evidence.json"
           node - "$RUNNER_TEMP/rea-evidence.json" <<'JS'
