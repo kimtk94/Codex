@@ -94,7 +94,7 @@ def audit_receiver_provenance(raw):
     evidence=Counter()
     method_counts=Counter()
     all_calls=0
-    for fn in tree.body:
+    for fn in ast.walk(tree):
         if not isinstance(fn,(ast.FunctionDef,ast.AsyncFunctionDef)):
             continue
         stores=_collect_bindings(fn)
