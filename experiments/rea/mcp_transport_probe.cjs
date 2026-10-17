@@ -5,7 +5,8 @@ const child = spawn('npx', ['--yes', 'rea-agents@6.5.0', '--mcp'], {
   env: { ...process.env, npm_config_update_notifier: 'false' }
 });
 let stdout='', stderr='', done=false;
-const pending = new Map();
+const fixture = process.env.REA_FIXTURE_PATH;
+let analysisTool = null;
 const stop = (error) => {
   if (done) return;
   done = true;
@@ -33,7 +34,20 @@ child.stdout.on('data', chunk=>{
       console.log('REA_MCP_TOOL_COUNT='+message.result.tools.length);
       console.log('REA_MCP_TOOL_NAMES='+message.result.tools.map(t=>t.name).join(','));
       if(!message.result.tools.length) return stop('REA_MCP_NO_TOOLS');
-      clearTimeout(timer); console.log('REA_MCP_TRANSPORT_PASS=true'); stop();
+      console.log('REA_MCP_TRANSPORT_PASS=true');
+      analysisTool=message.result.tools.find(t=>t.name==='analyze_javascript_application');
+      if(!fixture || !analysisTool){clearTimeout(timer);stop();return;}
+      const schema=analysisTool.inputSchema || {};
+      console.log('REA_ANALYZE_SCHEMA='+JSON.stringify(schema).slice(0,1800));
+      const props=schema.properties||{};
+      const required=schema.required||[];
+      const candidate=['path','application_path','target_path','root_path','directory','artifact_path'].find(k=>k in props);
+      if(!candidate || required.some(k=>k!==candidate)) {clearTimeout(timer);stop('REA_MCP_TOOL_SCHEMA_REQUIRES_REVIEW');return;}
+      send({jsonrpc:'2.0',id:3,method:'tools/call',params:{name:analysisTool.name,arguments:{[candidate]:fixture}}});
+    } else if(message.id===3){
+      if(message.error || message.result?.isError) return stop('REA_MCP_TOOL_CALL_FAILED='+JSON.stringify(message.error||message.result).slice(0,1200));
+      if(!Array.isArray(message.result?.content)||!message.result.content.length) return stop('REA_MCP_TOOL_RESULT_EMPTY');
+      console.log('REA_MCP_TOOL_CALL_PASS=true');clearTimeout(timer);stop();
     }
   }
 });
