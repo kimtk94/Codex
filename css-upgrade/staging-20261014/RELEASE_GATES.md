@@ -95,12 +95,12 @@
 
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
-2. **Production-equivalent engine canary:** Execute the patched output code against a cloned isolated DB and separate spreadsheet without touching the main Google Sheet or production sender; check source writes, skip history output, dashboard follow-ups, and manual state preservation.
-3. **Safe rollout approval + rollback rehearsal (four patches):** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
+2. **Production-equivalent full-engine canary outstanding:** Targeted actual SIF functions, actual Action Center/Review Queue generators, a 1,200-row real Canary Sheets write, and real Canary sheet edit races passed. The complete `main()` with every external client isolated **has not** been executed; no production deployment authorization is implied.
+3. **Safe rollout approval + rollback rehearsal (eight patches):** Snapshot current source and live DB, ensure executable rollback is tested, then deploy only after explicit authorization.
 4. **System service wrappers:** Confirm the `v8.92.1-server-local-adc` wrapper, systemd/cron schedules and 10-minute mail collector interactions before a controlled run.
 
 ## Backup retention — sampled dry-run only
-- Scoped to the **100 most recently returned files** in the Drive `server_backup` folder, **not entire backup history**.
+- Initial sample was the **100 most recently returned files**; subsequently the entire backup folder was inventoried.
 - 83 `mail_sync_fast` files, 17 `css_project_manager` files; sampled total **27.61 GiB**.
 - Full Drive inventory: **984 backups / 271.69 GiB**, including 827 mail and 157 project backups. Tiered retention simulation protects 64 and identifies 920 files (about **258.82 GiB**) as *review-only* candidates. Actual deletion requires separate approval.
 - **NO DELETE** before retention/RPO/RTO/whole-host recovery policy approval, last-two-by-type protection, and explicit age/size criteria. Never delete current raw databases, source data, or logs.
