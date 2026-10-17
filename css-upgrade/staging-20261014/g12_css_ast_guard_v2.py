@@ -39,6 +39,13 @@ def _name(expr):
         return left+"."+expr.attr if left else expr.attr
     return ""
 
+def _looks_like_sheet_receiver(owner):
+    """Match complete identifier tokens only; 'rows' and 'news' are not ws."""
+    tokens=owner.lower().replace(".", "_").split("_")
+    return any(token in {"ws","worksheet","sheet","sheets","spreadsheet","gspread","gsheet"}
+               for token in tokens)
+
+
 class GuardTransformer(ast.NodeTransformer):
     def __init__(self, reserved_names):
         self.instrumented=[]
@@ -63,7 +70,7 @@ class GuardTransformer(ast.NodeTransformer):
                 self.unknown_calls.append({"line":node.lineno,"method":method,"receiver_shape":"MissingArgument"})
         elif isinstance(node.func,ast.Attribute) and method in SHEET_METHODS:
             owner=_name(node.func.value).lower()
-            if any(h in owner for h in SHEET_HINTS):
+            if _looks_like_sheet_receiver(owner):
                 target=copy.deepcopy(node.func.value)
             else:
                 self.unknown_calls.append({"line":node.lineno,"method":method,"receiver_shape":type(node.func.value).__name__})
