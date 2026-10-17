@@ -1,0 +1,46 @@
+name: REA Isolated Doctor (Runner Only)
+
+on:
+  push:
+    branches:
+      - feat/rea-isolated-pilot-20261017
+    paths:
+      - '.github/workflows/rea-isolated-doctor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  doctor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Use isolated Node.js 24 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          check-latest: true
+      - name: Verify supported runtime
+        run: |
+          node -p "'NODE_VERSION='+process.version"
+          node -e 'const [major,minor]=process.versions.node.split(".").map(Number); if (!(major===24 && minor>=11)) process.exit(2)'
+      - name: REA doctor without server access
+        env:
+          npm_config_update_notifier: 'false'
+        run: |
+          npx --yes rea-agents@latest doctor --json > "$RUNNER_TEMP/rea-doctor.json"
+          result=$?
+          node - "$RUNNER_TEMP/rea-doctor.json" <<'JS'
+          const fs=require('node:fs');
+          const f=process.argv[2];
+          try {
+            const value=JSON.parse(fs.readFileSync(f,'utf8'));
+            console.log('REA_DOCTOR_JSON_VALID=true');
+            console.log('REA_DOCTOR_TOP_LEVEL_FIELDS='+Object.keys(value).join(','));
+          } catch (error) {
+            console.log('REA_DOCTOR_JSON_VALID=false');
+          }
+          JS
+          echo "REA_DOCTOR_EXIT=$result"
+          exit "$result"
