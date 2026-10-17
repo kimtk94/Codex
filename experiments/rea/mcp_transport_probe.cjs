@@ -48,6 +48,15 @@ child.stdout.on('data', chunk=>{
     } else if(message.id===3){
       if(message.error || message.result?.isError) return stop('REA_MCP_TOOL_CALL_FAILED='+JSON.stringify(message.error||message.result).slice(0,1200));
       if(!Array.isArray(message.result?.content)||!message.result.content.length) return stop('REA_MCP_TOOL_RESULT_EMPTY');
+      const contentText=message.result.content.filter(x=>x.type==='text').map(x=>x.text||'').join('\n');
+      if(!contentText.trim()) return stop('REA_MCP_ANALYSIS_TEXT_EMPTY');
+      let parsed;
+      try { parsed=JSON.parse(contentText); } catch {}
+      const fingerprint=JSON.stringify(message.result);
+      if(!fingerprint.includes('grid.js') && !fingerprint.includes('gridLevel')) return stop('REA_MCP_ANALYSIS_FIXTURE_NOT_REFERENCED');
+      console.log('REA_MCP_ANALYSIS_RESPONSE_BYTES='+Buffer.byteLength(contentText));
+      console.log('REA_MCP_ANALYSIS_JSON='+Boolean(parsed));
+      console.log('REA_MCP_ANALYSIS_FIXTURE_REFERENCED=true');
       console.log('REA_MCP_TOOL_CALL_PASS=true');clearTimeout(timer);stop();
     }
   }
