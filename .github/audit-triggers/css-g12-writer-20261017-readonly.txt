@@ -1,0 +1,1 @@
+Run SHA-pinned AST classification against production CSS source: read-only, output only aggregate candidate method and source-line metadata; no imports, outbound actions, customer data, or live Sheet writes.
