@@ -136,6 +136,13 @@
 - **Still BLOCKED:** do not import/run whole `main()` until exhaustive resource binding and a real **process/container-level filesystem/DB/network deny** is demonstrated. A policy object with `network_disabled=True` is not an OS enforcement boundary.
 - [Triage script](main_sink_triage.py); no operating DB/Sheet/mail changes.
 
+## 2026-10-18 exact source-line effect ledger / isolation plan
+
+- [Read-only exact source-to-sink ledger PASS](https://github.com/kimtk94/Codex/actions/runs/39050808293) based on SHA-verified live source: 337 reachable functions and **278 selected AST call sites**, broken into SQLite access (211 sites, 63 owners), Sheets output (53 sites, 23 owners), file copy/replace (12 sites, five owners), and Google connection (two sites, two owners). Call-site counts **do not measure executed writes**; SQLite `execute` may be a read and nested wrappers can be counted together.
+- Concrete owner boundaries now documented for `connect_db`, `backup_runtime_db`, `save_json`, `publish_daily_db_backup`, `open_configured_spreadsheet`, `overwrite_dataframe_if_changed`, and `overwrite_typed_worksheet`.
+- [Full-main effect isolation matrix](FULL_MAIN_EFFECT_ISOLATION_MATRIX.md) specifies mandatory OS-level deny for network and operational filesystem access, a disposable SQLite DB, fake mail/CRM/Drive/Sheets, no credential mounts, and negative tests before attempting full `main()`.
+- **Still BLOCKED:** no complete process sandbox yet. This step classified candidate effects and designed the isolation gate; it did **not** run the whole engine or prove network/filesystem enforcement.
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent full-engine canary outstanding:** Targeted actual SIF functions, actual Action Center/Review Queue generators, a 1,200-row real Canary Sheets write, and real Canary sheet edit races passed. The complete `main()` with every external client isolated **has not** been executed; no production deployment authorization is implied.
