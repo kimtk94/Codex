@@ -64,7 +64,7 @@ def main():
         record=cloned.execute("SELECT source,signature FROM overview_control_receipts WHERE project_id=?",(pid,)).fetchone()
         require(record==("priority","hold:2"),"REAL_FUNCTION_CREATED_RECEIPT")
         require(cloned.execute("SELECT mode FROM overview_project_snoozes WHERE project_id=?",(pid,)).fetchone()[0]=="hold","REAL_FUNCTION_CREATED_HOLD")
-        require(all(cloned.execute('SELECT COUNT(*) FROM "'+n.replace('"','""')+'"').fetchone()[0]==v for n,v in counts.items()),"EXISTING_ROWS_PRESERVED")
+        require(all(cloned.execute('SELECT COUNT(*) FROM "'+n.replace('"','""')+'"').fetchone()[0]==v+(1 if n=="overview_project_snoozes" else 0) for n,v in counts.items()),"EXISTING_ROWS_PRESERVED")
         require(cloned.execute("PRAGMA integrity_check").fetchone()[0]=="ok","MIGRATED_INTEGRITY")
         cloned.close()
         for i,p in reversed(list(enumerate(patches,1))):
@@ -73,7 +73,7 @@ def main():
         require(staged.read_bytes()==raw,"SOURCE_BYTE_EXACT_ROLLBACK")
         legacy=sqlite3.connect(database)
         require(legacy.execute("SELECT signature FROM overview_control_receipts WHERE project_id=?",(pid,)).fetchone()[0]=="hold:2","RECEIPT_RETAINED_AFTER_SOURCE_ROLLBACK")
-        require(all(legacy.execute('SELECT COUNT(*) FROM "'+n.replace('"','""')+'"').fetchone()[0]==v for n,v in counts.items()),"LEGACY_TABLE_COUNTS_PRESERVED")
+        require(all(legacy.execute('SELECT COUNT(*) FROM "'+n.replace('"','""')+'"').fetchone()[0]==v+(1 if n=="overview_project_snoozes" else 0) for n,v in counts.items()),"LEGACY_TABLE_COUNTS_PRESERVED")
         require(legacy.execute("PRAGMA integrity_check").fetchone()[0]=="ok","POST_ROLLBACK_DB_INTEGRITY")
         legacy.close()
         require(hashlib.sha256(Path(x.source).read_bytes()).hexdigest()==SHA,"PRODUCTION_SOURCE_UNMODIFIED")
