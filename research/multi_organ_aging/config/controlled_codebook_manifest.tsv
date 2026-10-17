@@ -1,0 +1,28 @@
+organ	concept	controlled_alias_candidates	codebook_support	preflight_status	note
+cardiovascular	sbp	SBP|BPSIT2S|BPSIT3S|BPSIT1S	A01-A05 repeated BP measurements	READY_EXPECTED	Prefer a prespecified repeated seated BP measurement definition.
+cardiovascular	dbp	DBP|BPSIT2D|BPSIT3D|BPSIT1D	A01-A05 repeated BP measurements	READY_EXPECTED	Use the matching systolic/diastolic measurement pair.
+cardiovascular	bmi	BMI	A01-A05 repeated	READY_EXPECTED	May also be recomputed from height/weight when needed.
+cardiovascular	waist_cm	WAIST1|WAIST2|WAIST3	A01-A05 repeated	READY_EXPECTED	Freeze one measurement or a prespecified mean before inference.
+metabolic	glucose	GLU0	A01-A05 repeated	READY_EXPECTED	Fasting glucose.
+metabolic	hba1c	HBA1C	A01-A05 repeated	READY_EXPECTED	Repeated HbA1c.
+metabolic	insulin	INS0	A01-A05 repeated	READY_EXPECTED	Fasting insulin.
+metabolic	total_cholesterol	TCHL	A01-A05 repeated	READY_EXPECTED	Repeated total cholesterol.
+metabolic	hdl	HDL	A01-A05 repeated	READY_EXPECTED	Repeated HDL cholesterol.
+metabolic	triglyceride	TG|TRIGLY	A01-A05 repeated	READY_EXPECTED	Repeated triglyceride.
+metabolic	ldl	LDL	Not identified in reviewed repeated-codebook snippets	OPTIONAL	Do not require for clock feasibility.
+renal	bun	BUN	A01-A05 repeated	READY_EXPECTED	Strong repeated renal marker.
+renal	creatinine	CREATININ|CREATININE|CREATINE	A01-A05 repeated	READY_EXPECTED	Use age-independent creatinine; derive eGFR only as outcome/validation.
+renal	uacr	UACR	Not confirmed as repeated; urine albumin/microalbumin shown mainly baseline	OPTIONAL	Do not assume repeated UACR until raw audit.
+renal	uric_acid	URICACID	Serum repeated uric acid not confirmed; urine uric acid mainly baseline	OPTIONAL	Do not confuse urine uric acid with serum uric acid.
+hepatic	ast	AST	A01-A05 repeated	PARTIAL	Repeated.
+hepatic	alt	ALT	A01-A05 repeated	PARTIAL	Repeated.
+hepatic	ggt	R_GTP|GGT	Mostly baseline-only in reviewed integrated codebook	NOT_READY_EXPECTED	Insufficient for min_features=3 by current prespecification.
+hepatic	albumin	ALBUMIN	Baseline-only in reviewed integrated codebook	NOT_READY_EXPECTED	Do not count as longitudinal hepatic feature.
+hepatic	bilirubin	TOTBIL|BILIRUBIN	Baseline-only in reviewed integrated codebook	NOT_READY_EXPECTED	Do not count as longitudinal hepatic feature.
+inflammatory_hematologic	wbc	WBC|WBC_B	A01-A05 repeated	READY_EXPECTED	Repeated WBC.
+inflammatory_hematologic	hemoglobin	HB|HGB|HEMOGLOBIN	A01-A05 repeated	READY_EXPECTED	Repeated hemoglobin.
+inflammatory_hematologic	platelet	PLAT|PLT|PLATELET	A01-A05 repeated	READY_EXPECTED	Repeated platelet; measurement-platform harmonization may be required.
+inflammatory_hematologic	crp	CRP|HSCRP	CRP/hsCRP assay definition changes across waves	HARMONIZATION_REQUIRED	Treat CRP and hsCRP as assay-harmonization problem; not needed for minimum 3 features.
+pulmonary	fvc	SP1_2|SPFVCB	A01-A05 repeated best FVC	READY_EXPECTED	Use measured/best FVC rather than predicted FVC for age clock.
+pulmonary	fev1	SP2_2|SPFEVB	A01-A05 repeated best FEV1	READY_EXPECTED	Use measured/best FEV1 rather than predicted FEV1.
+pulmonary	fev1_fvc	SP3_2|SPFEV_FVCB	A01-A05 repeated ratio; can also derive from FEV1/FVC	READY_EXPECTED	Prefer derived ratio from matched measured values if units are compatible.
