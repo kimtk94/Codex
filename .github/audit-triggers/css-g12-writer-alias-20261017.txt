@@ -1,0 +1,1 @@
+SHA-pinned read-only G12 AST alias hints. Only known sheet title/ID labels and callsite shapes; no customer data, no imports or writes.
