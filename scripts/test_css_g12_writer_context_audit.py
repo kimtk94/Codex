@@ -44,6 +44,35 @@ def f(sheet_ws):
         self.assertEqual(len(obj["contextual_sites"]),1)
         self.assertFalse(obj["source_or_function_executed"])
 
+    def test_conservative_worksheet_alias_is_context_only(self):
+        src=b'''TAB="CSS Contract-SIF Tracker"
+def main():
+    input_ws=worksheets[TAB]
+    input_ws.clear()
+'''
+        report=inspect(src)
+        site=report["contextual_sites"][0]
+        self.assertEqual(site["simple_alias_possible_target"],"sif_tracker")
+        self.assertFalse(site["alias_match_is_runtime_proof"])
+
+    def test_worksheet_factory_method_uses_known_tab_literal(self):
+        src=b'''def run():
+    temp_ws=book.worksheet("CSS Project Dashboard")
+    temp_ws.batch_update([])
+'''
+        site=inspect(src)["contextual_sites"][0]
+        self.assertEqual(site["simple_alias_possible_target"],"dashboard")
+
+    def test_ambiguous_reassignment_does_not_claim_target(self):
+        src=b'''TAB="CSS Project Dashboard"
+def main():
+    tab_ws=worksheets[TAB]
+    tab_ws=other
+    tab_ws.clear()
+'''
+        site=inspect(src)["contextual_sites"][0]
+        self.assertIsNone(site["simple_alias_possible_target"])
+
     def test_missing_tab_not_interpreted_as_safe(self):
         src=b"def main():\n    ws.clear()\n"
         obj=inspect(src)
