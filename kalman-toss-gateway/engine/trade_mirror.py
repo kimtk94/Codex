@@ -9,6 +9,9 @@ from pathlib import Path
 import psycopg
 from psycopg.types.json import Jsonb
 from dotenv import load_dotenv
+from .trade_mirror_accounting import (
+    broker_fill, broker_reconciled_status, link_position_orders, position_round_trip,
+)
 
 
 def _rows(conn: sqlite3.Connection, sql: str) -> list[dict]:
@@ -57,7 +60,7 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
     submit_meta = submit.get("response_meta") if isinstance(submit.get("response_meta"), dict) else {}
     broker_meta = broker.get("response_meta") if isinstance(broker.get("response_meta"), dict) else {}
 
-    fill_price = _dec(average_fill) or _dec(broker.get("average_filled_price"))
+    fill_price = _dec(broker.get("average_filled_price")) or _dec(average_fill)
     fill_quantity = _dec(broker.get("filled_quantity"))
     exact_notional = None
     if fill_price is not None and fill_quantity is not None and fill_quantity > 0:
@@ -114,29 +117,6 @@ def _execution_quality(side: str | None, average_fill, telemetry: dict) -> dict:
     }
 
 
-def _round_trip_quality(entry_quality: dict, exit_quality: dict) -> dict:
-    entry_amount = _dec(entry_quality.get("exact_notional")) or _dec(entry_quality.get("filled_amount"))
-    exit_amount = _dec(exit_quality.get("exact_notional")) or _dec(exit_quality.get("filled_amount"))
-    if entry_amount is None or exit_amount is None or entry_amount <= 0:
-        return {}
-    entry_cost = (_dec(entry_quality.get("commission")) or Decimal("0")) + (_dec(entry_quality.get("tax")) or Decimal("0"))
-    exit_cost = (_dec(exit_quality.get("commission")) or Decimal("0")) + (_dec(exit_quality.get("tax")) or Decimal("0"))
-    gross_return = exit_amount / entry_amount - Decimal("1")
-    net_denominator = entry_amount + entry_cost
-    net_return = None
-    if net_denominator > 0:
-        net_return = (exit_amount - exit_cost) / net_denominator - Decimal("1")
-    total_cost = entry_cost + exit_cost
-    return {
-        "gross_return": float(gross_return),
-        "net_return": float(net_return) if net_return is not None else None,
-        "gross_return_pct": float(gross_return * Decimal("100")),
-        "net_return_pct": float(net_return * Decimal("100")) if net_return is not None else None,
-        "total_cost_native": float(total_cost),
-        "round_trip_cost_bps": float(total_cost / entry_amount * Decimal("10000")),
-    }
-
-
 def main() -> int:
     load_dotenv(os.environ.get("KALMAN_ENV_FILE", "/opt/kalman/.env"), override=True)
     db_url = os.environ.get("DATABASE_URL_WRITER")
@@ -157,12 +137,13 @@ def main() -> int:
         orders = _rows(local, "SELECT * FROM order_guard ORDER BY created_at")
 
     orders_by_client = {o.get("client_order_id"): o for o in orders if o.get("client_order_id")}
-    pos_by_client = {}
-    for p in positions:
-        if p.get("entry_client_order_id"):
-            pos_by_client[p["entry_client_order_id"]] = (p, "ENTRY")
-        if p.get("exit_client_order_id"):
-            pos_by_client[p["exit_client_order_id"]] = (p, "EXIT")
+    pos_by_client = link_position_orders(positions, orders)
+    matched_by_position = {}
+    for order in orders:
+        match = pos_by_client.get(order.get("client_order_id"))
+        if match:
+            pos, leg = match
+            matched_by_position.setdefault(pos["position_id"], []).append((order, leg))
 
     with psycopg.connect(db_url) as conn:
         with conn.cursor() as cur:
@@ -179,7 +160,9 @@ def main() -> int:
                 exit_telemetry = _json_dict(exit_order.get("telemetry_json"))
                 entry_quality = _execution_quality("BUY", p.get("entry_avg_fill_price"), entry_telemetry)
                 exit_quality = _execution_quality("SELL", p.get("exit_avg_fill_price"), exit_telemetry)
-                round_trip_quality = _round_trip_quality(entry_quality, exit_quality)
+                round_trip_quality = position_round_trip(
+                    p, matched_by_position.get(p["position_id"], [])
+                )
 
                 cur.execute(
                     """
@@ -254,15 +237,20 @@ def main() -> int:
                 pos = match[0] if match else None
                 leg = match[1] if match else None
                 filled = avg = None
-                if pos and leg == "ENTRY":
-                    filled = _dec(pos.get("entry_filled_quantity"))
-                    avg = _dec(pos.get("entry_avg_fill_price"))
+                if pos and leg in {"ENTRY", "ADD_ON"}:
+                    order_fill = broker_fill(o)
+                    filled = order_fill["quantity"] if order_fill else None
+                    avg = order_fill["price"] if order_fill else None
                 elif pos and leg == "EXIT":
-                    entry_filled = _dec(pos.get("entry_filled_quantity"))
-                    remaining = _dec(pos.get("remaining_quantity"))
-                    if entry_filled is not None and remaining is not None:
-                        filled = max(Decimal("0"), entry_filled - remaining)
-                    avg = _dec(pos.get("exit_avg_fill_price"))
+                    order_fill = broker_fill(o)
+                    if order_fill:
+                        filled, avg = order_fill["quantity"], order_fill["price"]
+                    else:
+                        entry_filled = _dec(pos.get("entry_filled_quantity"))
+                        remaining = _dec(pos.get("remaining_quantity"))
+                        if entry_filled is not None and remaining is not None:
+                            filled = max(Decimal("0"), entry_filled - remaining)
+                        avg = _dec(pos.get("exit_avg_fill_price"))
 
                 telemetry = _json_dict(o.get("telemetry_json"))
                 signal_context = (
@@ -283,11 +271,16 @@ def main() -> int:
                 ) or signal_context.get("signal_as_of")
                 execution_quality = _execution_quality(o.get("side"), avg, telemetry)
                 execution_status, status_source = _execution_status(o, pos, leg)
+                broker_status, broker_source = broker_reconciled_status(o)
+                if broker_status == "FILLED" and (leg in ("ENTRY", "ADD_ON", "EXIT") or pos is None):
+                    execution_status, status_source = broker_status, broker_source
                 reconciled_position_status = None
                 if pos and leg == "ENTRY":
                     reconciled_position_status = pos.get("entry_status")
                 elif pos and leg == "EXIT":
                     reconciled_position_status = pos.get("exit_status")
+                elif pos and leg == "ADD_ON":
+                    reconciled_position_status = broker_status if broker_source == "broker_fill_telemetry" else None
 
                 cur.execute(
                     """
