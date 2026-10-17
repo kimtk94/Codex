@@ -67,7 +67,7 @@ jobs:
           node --check "$RUNNER_TEMP/rea-fixture/planner.js"
           node --check "$RUNNER_TEMP/rea-fixture/index.js"
           node "$RUNNER_TEMP/rea-fixture/index.js"
-          npx --yes rea-agents@latest analyze-javascript-application "$RUNNER_TEMP/rea-fixture" --json > "$RUNNER_TEMP/rea-evidence.json"
+          npx --yes rea-agents@latest analyze-javascript-application "$RUNNER_TEMP/rea-fixture" --json > "$RUNNER_TEMP/rea-evidence.json" 2> "$RUNNER_TEMP/rea-analyze.stderr"
           node - "$RUNNER_TEMP/rea-evidence.json" <<'JS'
           const fs=require('node:fs');
           const file=process.argv[2];
@@ -75,11 +75,11 @@ jobs:
           if(!raw.trim()) throw new Error('REA_EVIDENCE_EMPTY');
           const data=JSON.parse(raw);
           if(typeof data!=='object'||data===null) throw new Error('REA_EVIDENCE_INVALID');
-          console.log('REA_STATIC_SMOKE_PASS=true');
           console.log('REA_EVIDENCE_BYTES='+Buffer.byteLength(raw));
           console.log('REA_EVIDENCE_TOP_LEVEL_FIELDS='+Object.keys(data).slice(0,20).join(','));
           if(!raw.includes('grid.js') && !raw.includes('gridLevel')) throw new Error('REA_FIXTURE_NOT_REFERENCED');
           console.log('REA_FIXTURE_REFERENCED=true');
+          console.log('REA_STATIC_SMOKE_PASS=true');
           JS
       - name: Upload doctor and evidence for review
         if: always()
@@ -90,5 +90,22 @@ jobs:
             ${{ runner.temp }}/rea-doctor.json
             ${{ runner.temp }}/rea-doctor.stderr
             ${{ runner.temp }}/rea-evidence.json
+            ${{ runner.temp }}/rea-analyze.stderr
           if-no-files-found: warn
           retention-days: 7
+      - name: Record final test outcome
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## REA isolated test"
+            echo ""
+            echo "- Job status: ${JOB_STATUS}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Node.js: $(node --version)"
+            echo "- LIVE server accessed: no"
+            echo "- Evidence: rea-isolated-evidence artifact"
+            echo ""
+            echo "A green job means fixture evidence passed; a red job requires review of stderr artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
