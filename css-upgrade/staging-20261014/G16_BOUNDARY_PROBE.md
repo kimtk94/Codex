@@ -64,3 +64,12 @@ The companion `g16_synthetic_pipeline.py` implements a **model**, not the produc
 - Latest CI: https://github.com/kimtk94/Codex/actions/runs/38892621133 — 15 synthetic pipeline + nine AST scanner + 16 adapter tests PASS (40 total).
 
 **Explicit limitations:** fake Sheets uses in-memory state; rollback is tested only before its publish operation mutates output, not cross-service atomicity after a real API commit. The SQLite adapter exposes an actual fixture connection internally. These adapters have **not** been injected into proprietary CSS source, and they do not cover unregistered direct network/client/file construction in the real engine. G16 remains BLOCKED and G12 has not run. A private OS-isolated runtime and explicit connector interception are required before production-equivalent execution.
+
+## Private real Action/Review function isolation (2026-10-17)
+
+- The existing real Action Center and Review Queue generator regression now runs in a dedicated rootless Bubblewrap namespace on the private server.
+- The isolated process has no network namespace access, uses only read-only mounts for the SHA-pinned CSS source, Python virtual environment and regression script, and has a disposable writable `/tmp` filesystem. The collector and full CSS `main()` are never imported or executed.
+- Only the two actual generator function AST bodies are evaluated with 1,200 synthetic projects and stubbed effectful dependencies. No live mailbox, Google Sheet, SQLite, CRM, or backup path is mounted.
+- `25/25` assertions passed, including two added in-memory fault tests (synthetic ID generation failure propagates; subsequent clean invocation recovers stable IDs).
+- CI evidence: https://github.com/kimtk94/Codex/actions/runs/39012994698.
+- **This is a selected real-function integration test, not full-engine E2E.** The private Bubblewrap environment does not yet intercept every dependency reachable by the entire CSS pipeline. G16 overall remains BLOCKED, G12 remains NOT_RUN, and no production deployment is authorized.
