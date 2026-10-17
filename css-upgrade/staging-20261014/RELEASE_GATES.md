@@ -143,6 +143,13 @@
 - [Full-main effect isolation matrix](FULL_MAIN_EFFECT_ISOLATION_MATRIX.md) specifies mandatory OS-level deny for network and operational filesystem access, a disposable SQLite DB, fake mail/CRM/Drive/Sheets, no credential mounts, and negative tests before attempting full `main()`.
 - **Still BLOCKED:** no complete process sandbox yet. This step classified candidate effects and designed the isolation gate; it did **not** run the whole engine or prove network/filesystem enforcement.
 
+## OS sandbox negative-controls gate — 2026-10-18
+
+- [**Disposable Docker isolation test PASS**](https://github.com/kimtk94/Codex/actions/runs/39051111730). The workflow used `--network none`, `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, a small synthetic-only `/tmp` tmpfs, and one read-only mounted test script. It did not pass any production credentials, source or database into the container.
+- Negative controls **observed**: only loopback network interface, no default route, outbound TCP denied, operational CSS source and DB paths inaccessible, root filesystem write denied; temporary synthetic write permitted. `main()` was never executed.
+- This proves **the proposed container restriction works for the test fixture**, not that the full CSS engine or its dependencies are safely isolated. Do not introduce production source, credentials or live data into the container. Before whole-engine execution: stage only an approved source copy plus synthetic fixtures, block direct connector creation, and validate all external sink adapters.
+- [Negative-control script](os_sandbox_negative_controls.py) · [CI workflow](../../.github/workflows/novogene-css-os-sandbox-negative.yml)
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent full-engine canary outstanding:** Targeted actual SIF functions, actual Action Center/Review Queue generators, a 1,200-row real Canary Sheets write, and real Canary sheet edit races passed. The complete `main()` with every external client isolated **has not** been executed; no production deployment authorization is implied.
