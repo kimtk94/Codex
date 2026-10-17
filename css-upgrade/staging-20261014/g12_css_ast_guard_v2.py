@@ -105,11 +105,16 @@ def guard_ast(source:bytes,*,exact_sha:str|None=None,reject_unclassified:bool=Fa
     by_method={}
     for item in transformer.instrumented:
         by_method[item["method"]]=by_method.get(item["method"],0)+1
+    unknown_by_method={}
+    for item in transformer.unknown_calls:
+        method=item["method"]
+        unknown_by_method[method]=unknown_by_method.get(method,0)+1
     return compiled,{
         "source_sha256":digest,
         "known_writer_calls_instrumented":len(transformer.instrumented),
         "method_counts":dict(sorted(by_method.items())),
         "unknown_writer_candidates":len(transformer.unknown_calls),
+        "unknown_method_counts":dict(sorted(unknown_by_method.items())),
         "runtime_guard_executed_on_real_css":False,
         "unknown_sites_require_review":bool(transformer.unknown_calls),
         "expression_receiver_evaluated_once_in_wrapped_sites":True,
