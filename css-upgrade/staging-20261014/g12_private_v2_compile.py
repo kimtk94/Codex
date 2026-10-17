@@ -11,6 +11,7 @@ from pathlib import Path
 from types import CodeType
 from g12_css_ast_guard_v2 import guard_ast, EXPECTED_SHA
 from g12_writer_coverage_gate import SITES
+from g12_v2_receiver_provenance import audit_receiver_provenance
 
 
 def triage_local_receivers(raw):
@@ -94,6 +95,9 @@ def main():
         if "G12_UNCLASSIFIED_WRITER_CANDIDATES" not in str(exc):
             raise
         strict_accepted=False
+    provenance=audit_receiver_provenance(raw)
+    if provenance["unclassified_site_count"] != summary["unknown_writer_candidates"]:
+        raise SystemExit("G12_PROVENANCE_CALLSITE_PARITY_FAILED")
     triage=triage_local_receivers(raw)
     if sum(triage.values()) != summary["unknown_writer_candidates"]:
         raise SystemExit("G12_TRIAGE_COVERAGE_MISMATCH")
@@ -112,6 +116,8 @@ def main():
         "unclassified_method_counts":summary["unknown_method_counts"],
         "unclassified_receiver_shapes":summary["unknown_receiver_shapes"],
         "unclassified_local_hints":triage,
+        "unclassified_provenance_hints":provenance["provenance_hint_counts"],
+        "provenance_is_runtime_proof":False,
         "local_hints_are_runtime_proof":False,
         "strict_unclassified_gate_accepted":strict_accepted,
         "real_css_main_executed":False,
