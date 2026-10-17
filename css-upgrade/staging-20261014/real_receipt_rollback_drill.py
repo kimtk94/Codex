@@ -71,7 +71,42 @@ def main():
             z=subprocess.run(["git","apply","-R",str(p.resolve())],cwd=root,capture_output=True,text=True)
             require(z.returncode==0,"SOURCE_REVERSE_"+str(i))
         require(staged.read_bytes()==raw,"SOURCE_BYTE_EXACT_ROLLBACK")
+        # Execute actual LEGACY sync helper against the migrated clone.
+        # Only the safe AST-extracted function is used; never import/run main.
+        legacy_ns=helper.extract(raw)
         legacy=sqlite3.connect(database)
+        baseline_receipt=legacy.execute(
+            "SELECT source,signature,consumed_at FROM overview_control_receipts WHERE project_id=?",
+            (pid,)).fetchone()
+        baseline_count=legacy.execute(
+            "SELECT COUNT(*) FROM overview_project_snoozes").fetchone()[0]
+        # Legacy release should continue to function without querying/dropping
+        # the extra receipt table. This deliberately tests reverse compatibility.
+        legacy.execute("SAVEPOINT legacy_cycle")
+        try:
+            legacy_ns["_sync_overview_snooze_actions_from_records"](
+                legacy,pd.DataFrame([{"project_id":pid,"latest_uid":"SYNTH"}]),
+                [{"AMEA Project":pid,"Normal Action":"Release","Hold Days":""}],[],
+                now=pd.Timestamp("2026-10-17T12:01:00+09:00"))
+            legacy.execute("RELEASE SAVEPOINT legacy_cycle")
+            legacy.commit()
+        except:
+            legacy.execute("ROLLBACK TO SAVEPOINT legacy_cycle")
+            legacy.execute("RELEASE SAVEPOINT legacy_cycle")
+            raise
+        require(legacy.execute("SELECT COUNT(*) FROM overview_project_snoozes").fetchone()[0]
+                ==baseline_count-1,"LEGACY_FUNCTION_RELEASES_SYNTHETIC_HOLD")
+        require(legacy.execute("SELECT source,signature,consumed_at FROM overview_control_receipts WHERE project_id=?",
+                 (pid,)).fetchone()==baseline_receipt,"LEGACY_FUNCTION_PRESERVES_RECEIPT")
+        # Restore one synthetic Hold for the existing row-count checks while
+        # keeping the receipt untouched.
+        legacy_ns["_upsert_overview_snooze"](
+            legacy,pid,"hold","2026-10-19T12:00:00+09:00",
+            "SYNTHETIC_MAIL","2026-10-17T12:02:00+09:00")
+        legacy.commit()
+        require(legacy.execute("SELECT COUNT(*) FROM overview_project_snoozes").fetchone()[0]
+                ==baseline_count,"LEGACY_HELPER_REINSERTS_HOLD")
+
         require(legacy.execute("SELECT signature FROM overview_control_receipts WHERE project_id=?",(pid,)).fetchone()[0]=="hold:2","RECEIPT_RETAINED_AFTER_SOURCE_ROLLBACK")
         require(all(legacy.execute('SELECT COUNT(*) FROM "'+n.replace('"','""')+'"').fetchone()[0]==v+(1 if n=="overview_project_snoozes" else 0) for n,v in counts.items()),"LEGACY_TABLE_COUNTS_PRESERVED")
         require(legacy.execute("PRAGMA integrity_check").fetchone()[0]=="ok","POST_ROLLBACK_DB_INTEGRITY")
