@@ -1,0 +1,1 @@
+Run only SHA-pinned AST classification and safe known-tab reference counts. No operational code import, no Sheets/DB writes, no customer data.
