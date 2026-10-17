@@ -85,7 +85,7 @@ def interpret_runlog(info, *, kind, now):
 
 
 def inventory(root):
-    matches = {name: [] for name in TARGETS}
+    matches = {filename: [] for filename in TARGETS.values()}
     if not root.is_dir():
         return matches
     for here, dirs, files in os.walk(root, followlinks=False):
