@@ -1,0 +1,167 @@
+name: REA Isolated Doctor (Runner Only)
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/rea-isolated-doctor.yml'
+      - 'experiments/rea/**'
+  push:
+    branches:
+      - feat/rea-isolated-pilot-20261017
+    paths:
+      - '.github/workflows/rea-isolated-doctor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  doctor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use isolated Node.js 24 runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          check-latest: true
+      - name: Verify supported runtime
+        run: |
+          node -p "'NODE_VERSION='+process.version"
+          node -e 'const [major,minor]=process.versions.node.split(".").map(Number); if (!(major===24 && minor>=11)) process.exit(2)'
+      - name: REA doctor without server access
+        env:
+          npm_config_update_notifier: 'false'
+        run: |
+          npx --yes rea-agents@6.5.0 doctor --json > "$RUNNER_TEMP/rea-doctor.json" 2> "$RUNNER_TEMP/rea-doctor.stderr" || result=$?
+          result=${result:-0}
+          node - "$RUNNER_TEMP/rea-doctor.json" <<'JS'
+          const fs=require('node:fs');
+          const f=process.argv[2];
+          try {
+            const value=JSON.parse(fs.readFileSync(f,'utf8'));
+            console.log('REA_DOCTOR_JSON_VALID=true');
+            console.log('REA_DOCTOR_TOP_LEVEL_FIELDS='+Object.keys(value).join(','));
+          } catch (error) {
+            console.log('REA_DOCTOR_JSON_VALID=false');
+          }
+          JS
+          echo "REA_DOCTOR_EXIT=$result"
+          echo "Doctor result recorded separately; optional native providers do not block static JS analysis."
+      - name: REA static JavaScript smoke test (local fixture only)
+        env:
+          npm_config_update_notifier: 'false'
+        run: |
+          mkdir -p "$RUNNER_TEMP/rea-fixture"
+          cat > "$RUNNER_TEMP/rea-fixture/grid.js" <<'JS'
+          export function gridLevel(price,spacing){return price*(1+spacing)}
+          JS
+          cat > "$RUNNER_TEMP/rea-fixture/planner.js" <<'JS'
+          import { gridLevel } from "./grid.js";
+          export function planGrid(p,s,n){return Array.from({length:n},(_,i)=>gridLevel(p,s*(i+1)))}
+          JS
+          cat > "$RUNNER_TEMP/rea-fixture/index.js" <<'JS'
+          import { planGrid } from "./planner.js";
+          console.log(planGrid(100,0.0014,3));
+          JS
+          cat > "$RUNNER_TEMP/rea-fixture/package.json" <<'JSON'
+          {"name":"rea-fixture","version":"0.0.1","type":"module","main":"index.js"}
+          JSON
+          node --check "$RUNNER_TEMP/rea-fixture/grid.js"
+          node --check "$RUNNER_TEMP/rea-fixture/planner.js"
+          node --check "$RUNNER_TEMP/rea-fixture/index.js"
+          node "$RUNNER_TEMP/rea-fixture/index.js"
+          npx --yes rea-agents@6.5.0 analyze-javascript-application "$RUNNER_TEMP/rea-fixture" --json > "$RUNNER_TEMP/rea-evidence.json" 2> "$RUNNER_TEMP/rea-analyze.stderr"
+          node - "$RUNNER_TEMP/rea-evidence.json" <<'JS'
+          const fs=require('node:fs');
+          const file=process.argv[2];
+          const raw=fs.readFileSync(file,'utf8');
+          if(!raw.trim()) throw new Error('REA_EVIDENCE_EMPTY');
+          const data=JSON.parse(raw);
+          if(typeof data!=='object'||data===null) throw new Error('REA_EVIDENCE_INVALID');
+          console.log('REA_EVIDENCE_BYTES='+Buffer.byteLength(raw));
+          console.log('REA_EVIDENCE_TOP_LEVEL_FIELDS='+Object.keys(data).slice(0,20).join(','));
+          if(!raw.includes('grid.js') && !raw.includes('gridLevel')) throw new Error('REA_FIXTURE_NOT_REFERENCED');
+          console.log('REA_FIXTURE_REFERENCED=true');
+          console.log('REA_STATIC_SMOKE_PASS=true');
+          JS
+      - name: Probe Codex MCP and REA server interfaces (runner only)
+        env:
+          npm_config_update_notifier: 'false'
+          CODEX_HOME: ${{ runner.temp }}/codex-rea
+        run: |
+          mkdir -p "$CODEX_HOME"
+          npx --yes @openai/codex --version
+          npx --yes @openai/codex mcp --help > "$RUNNER_TEMP/codex-mcp-help.txt"
+          npx --yes rea-agents@6.5.0 --help > "$RUNNER_TEMP/rea-help.txt"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          base=Path(os.environ['RUNNER_TEMP'])
+          a=(base/'codex-mcp-help.txt').read_text()
+          b=(base/'rea-help.txt').read_text()
+          print('CODEX_MCP_COMMANDS='+','.join(x for x in ('add','list','get','remove') if x in a))
+          print('REA_MCP_INTERFACE_MENTIONED='+str('mcp' in b.lower()).lower())
+          print('INTERFACE_HELP_CAPTURED=true')
+          PY
+      - name: Register and verify REA as Codex MCP (isolated runner)
+        env:
+          npm_config_update_notifier: 'false'
+          CODEX_HOME: ${{ runner.temp }}/codex-rea-registration
+        run: |
+          mkdir -p "$CODEX_HOME"
+          npx --yes @openai/codex mcp add rea-isolated -- npx --yes rea-agents@6.5.0 --mcp
+          npx --yes @openai/codex mcp list > "$RUNNER_TEMP/codex-mcp-list.txt"
+          npx --yes @openai/codex mcp get rea-isolated > "$RUNNER_TEMP/codex-mcp-get.txt"
+          grep -q 'rea-isolated' "$RUNNER_TEMP/codex-mcp-list.txt"
+          grep -q 'rea-agents@6.5.0' "$RUNNER_TEMP/codex-mcp-get.txt"
+          echo 'REA_CODEX_MCP_REGISTERED=true'
+          npx --yes @openai/codex mcp remove rea-isolated
+          npx --yes @openai/codex mcp list > "$RUNNER_TEMP/codex-mcp-list-after.txt"
+          if grep -q 'rea-isolated' "$RUNNER_TEMP/codex-mcp-list-after.txt"; then
+            echo 'REA_CODEX_MCP_REMOVAL_FAILED'
+            exit 1
+          fi
+          echo 'REA_CODEX_MCP_REMOVAL_PASS=true'
+      - name: Verify REA MCP JSON-RPC transport
+        env:
+          npm_config_update_notifier: 'false'
+          REA_FIXTURE_PATH: ${{ runner.temp }}/rea-fixture
+        run: |
+          node experiments/rea/mcp_transport_probe.cjs
+      - name: Upload doctor and evidence for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-isolated-evidence
+          path: |
+            ${{ runner.temp }}/rea-doctor.json
+            ${{ runner.temp }}/rea-doctor.stderr
+            ${{ runner.temp }}/rea-evidence.json
+            ${{ runner.temp }}/rea-analyze.stderr
+            ${{ runner.temp }}/codex-mcp-help.txt
+            ${{ runner.temp }}/rea-help.txt
+            ${{ runner.temp }}/codex-mcp-list.txt
+            ${{ runner.temp }}/codex-mcp-get.txt
+            ${{ runner.temp }}/codex-mcp-list-after.txt
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Record final test outcome
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## REA isolated test"
+            echo ""
+            echo "- Job status: ${JOB_STATUS}"
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Node.js: $(node --version)"
+            echo "- LIVE server accessed: no"
+            echo "- Evidence: rea-isolated-evidence artifact"
+            echo ""
+            echo "A green job means fixture evidence passed; a red job requires review of stderr artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
