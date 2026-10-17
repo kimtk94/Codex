@@ -109,6 +109,12 @@ class V2Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"FINGERPRINT_MISMATCH"):
             guard_ast(b"def run():\n pass\n",exact_sha="f"*64)
 
+    def test_unclassified_api_method_breakdown_is_aggregate_only(self):
+        raw=b"def main(data):\n data.update({'sensitive@example.test':1})\n data.clear()\n"
+        _,report=guard_ast(raw)
+        self.assertEqual(report["unknown_method_counts"],{"clear":1,"update":1})
+        self.assertNotIn("sensitive@example.test",str(report))
+
     def test_unclassified_path_exposed_without_strict(self):
         _,result=guard_ast(b"def run(data):\n data.update({})\n")
         self.assertEqual(result["unknown_writer_candidates"],1)
