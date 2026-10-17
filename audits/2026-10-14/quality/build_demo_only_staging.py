@@ -62,6 +62,48 @@ BROWSER_GUARD="""// Demo-only: all network access is restricted to same-origin /
   }
 })();
 """
+DEMO_INDEX="""<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Kalman — Synthetic Preview (No Trading)</title>
+<link rel="stylesheet" href="/style.css"></head>
+<body><main class="demo-wrap">
+  <header class="demo-warning" role="status">SYNTHETIC DEMO ONLY — LIVE DATA DISABLED — DO NOT TRADE</header>
+  <h1>Kalman Preview</h1>
+  <p>모든 거래·잔고·수익률은 비활성화되어 있습니다. 계좌와 연결되지 않습니다.</p>
+  <section class="demo-status" aria-label="Demo environment">
+    <h2>격리 환경 확인</h2>
+    <dl><dt>Trade execution</dt><dd>DISABLED</dd>
+    <dt>Account connection</dt><dd>DISABLED</dd>
+    <dt>Market data</dt><dd>SYNTHETIC ONLY</dd>
+    <dt>Net return</dt><dd>UNVERIFIED — HIDDEN</dd>
+    <dt>Environment</dt><dd id="demo-environment">OFFLINE PREVIEW</dd></dl>
+  </section>
+  <section><h2>운영 기능</h2>
+    <p>매수, 매도, 인증 키 입력, 수익률 조회 기능은 제공하지 않습니다.</p>
+    <output id="demo-health">No API request has been made</output>
+  </section>
+</main><script src="/app.js" defer></script></body></html>
+"""
+DEMO_APP="""'use strict';
+// Synthetic display only: no fetch, XHR, WebSocket, EventSource, beacon,
+// storage, timers, account input, trading actions, or remote resources.
+(() => {
+  const el=document.getElementById('demo-environment');
+  if(el)el.textContent='SYNTHETIC DEMO — NO CONNECTION';
+  const health=document.getElementById('demo-health');
+  if(health)health.textContent='Health endpoint available as synthetic mock only';
+})();
+"""
+DEMO_STYLE="""html{font-family:system-ui,-apple-system,sans-serif;background:#f8fafc;color:#0f172a}
+body{margin:0}.demo-wrap{max-width:760px;margin:0 auto;padding:24px}
+.demo-warning{background:#fee2e2;color:#7f1d1d;border:2px solid #b91c1c;
+ padding:18px;text-align:center;font-weight:800;border-radius:8px}
+.demo-status{background:white;border:1px solid #cbd5e1;border-radius:12px;
+ padding:20px}dl{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+dt{font-weight:700}dd{margin:0;color:#334155}output{display:block;padding:12px}
+"""
 NOTICE="""<div id="kalman-demo-isolation-banner" role="status"
  style="position:sticky;top:0;z-index:9999;background:#fee2e2;color:#7f1d1d;padding:12px;text-align:center;font-weight:700;">
  SYNTHETIC DEMO ONLY — LIVE DATA DISABLED — DO NOT TRADE
@@ -91,10 +133,11 @@ def create():
     for name in DATA:
         files[name]=json.dumps({"demo_mode":MARKER,"data_source":"NONE",
                                 "live_values":None},sort_keys=True).encode()
-    html=files["index.html"].decode("utf-8")
-    if html.count("<body>")!=1:raise RuntimeError("UNEXPECTED_BODY_COUNT")
-    files["index.html"]=html.replace("<body>","<body>\n"+NOTICE,1).encode("utf-8")
-    files["app.js"]=(BROWSER_GUARD+files["app.js"].decode("utf-8")).encode("utf-8")
+    # Use a distinct non-trading entrypoint. Do NOT ship the original
+    # trading dashboard with an inert API and merely intercept fetch().
+    files["index.html"]=DEMO_INDEX.encode("utf-8")
+    files["app.js"]=DEMO_APP.encode("utf-8")
+    files["style.css"]=DEMO_STYLE.encode("utf-8")
     files["vercel.json"]=(json.dumps(CONFIG,sort_keys=True,indent=2)+"\n").encode()
     files["package.json"]=json.dumps({"name":"kalman-staging-demo-only",
                          "version":"0.0.0-demo","private":True,
@@ -115,11 +158,18 @@ def verify(files):
                 raise RuntimeError("HEALTH_NOT_DEMO")
         elif "STAGING_DEMO_ONLY_NO_BACKEND" not in txt:
             raise RuntimeError("BACKEND_NOT_DISABLED:"+name)
-    if MARKER not in files["index.html"].decode() and "SYNTHETIC DEMO ONLY" not in files["index.html"].decode():
+    if "SYNTHETIC DEMO ONLY" not in files["index.html"].decode():
         raise RuntimeError("VISIBLE_DEMO_BANNER_MISSING")
+    if "<script src=\"/app.js\" defer>" not in files["index.html"].decode():
+        raise RuntimeError("DEMO_SCRIPT_ENTRY_MISSING")
     app=files["app.js"].decode()
-    if "DEMO_EXTERNAL_NETWORK_DISABLED" not in app or "target.origin!==location.origin" not in app:
-        raise RuntimeError("EXTERNAL_BROWSER_FETCH_NOT_BLOCKED")
+    # Verify exact known-safe app source, not a broad string/blocklist.
+    if app != DEMO_APP:
+        raise RuntimeError("DEMO_APP_NOT_ISOLATED")
+    if files["index.html"] != DEMO_INDEX.encode("utf-8"):
+        raise RuntimeError("DEMO_INDEX_NOT_ISOLATED")
+    if files["style.css"] != DEMO_STYLE.encode("utf-8"):
+        raise RuntimeError("DEMO_STYLE_NOT_ISOLATED")
     c=json.loads(files["vercel.json"])
     if "connect-src 'self'" not in c["headers"][0]["headers"][2]["value"]:
         raise RuntimeError("CSP_EXTERNAL_CONNECT_ALLOWED")
@@ -150,7 +200,8 @@ def main():
       "synthetic_health_handler":True,
       "all_libraries_stubbed":len(LIB),
       "synthetic_data_files":len(DATA),
-      "browser_external_fetch_restricted":True,
+      "browser_has_no_network_code":True,
+      "original_trading_ui_removed":True,
       "backend_credentials_used":False,
       "network_calls_made":False,
       "public_staging_deployment_authorized":False,
