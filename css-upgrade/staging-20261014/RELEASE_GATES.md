@@ -120,6 +120,14 @@
 - The database and source being exercised were isolated copies only. **Not verified:** full legacy `main()` against the migrated clone, external Sheets/Drive/CRM behavior, scheduled-cycle integration, and permission to deploy.
 - This closes **targeted legacy function compatibility**, not the complete production rollback gate. No migration table drop or rollback of real operational data was attempted.
 
+## 2026-10-17 transitive full-main static sink census
+
+- [**Full `main()` AST sink census PASS / execution BLOCKED**](https://github.com/kimtk94/Codex/actions/runs/39043353098). Verified current source SHA. The `main()` body has **584 AST call sites**, including **25 direct `overwrite_dataframe_if_changed` call sites**. Transitive local-function traversal reached **337 defined functions**, accounting for **6,880 call sites**. This is **static code coverage only**, not execution.
+- Transitive selected sink occurrences: `overwrite_dataframe_if_changed` 26, `overwrite_typed_worksheet` 5, `worksheet.update` 6, `gc.open_by_key` 1, `gspread.authorize` 1; `conn.execute` 166, `conn.executemany` 9, `conn.commit` 24, `sqlite3.connect` 3, `conn.backup` 1, `os.replace` 5. These counts are AST occurrences and **not actual API calls or mutations**.
+- **1,519 unique unresolved external call expressions** remain (this includes benign methods and unknown side effects). Empty categories in the selected sink dictionary do **not** mean mail/network effects are absent. Indirect calls, dynamic dispatch and import-time hazards are not exhaustively covered by this pass.
+- **Mandatory fail-closed gate:** `complete_os_egress_isolation=false`, `full_main_execution_allowed=false`, `production_write_permitted=false`. Next full-engine step must classify effects, isolate file/DB paths and enforce actual outbound network denial at process/container level before any `main()` invocation.
+- [Static CI implementation](full_main_sink_gate.py).
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent full-engine canary outstanding:** Targeted actual SIF functions, actual Action Center/Review Queue generators, a 1,200-row real Canary Sheets write, and real Canary sheet edit races passed. The complete `main()` with every external client isolated **has not** been executed; no production deployment authorization is implied.
