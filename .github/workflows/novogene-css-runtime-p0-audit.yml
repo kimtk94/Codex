@@ -15,6 +15,7 @@ jobs:
     environment: TaehoonServer
     timeout-minutes: 8
     steps:
+      - uses: actions/checkout@v4
       - name: Configure existing SSH credential without logging secrets
         env:
           SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
@@ -49,70 +50,5 @@ jobs:
           SSH_USER: ${{ secrets.SERVER_SSH_USER }}
         run: |
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
-            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
-          import datetime as dt
-          import json
-          import os
-          import sqlite3
-          import time
-          from pathlib import Path
-
-          root = Path('/home/taehoon/services/novogene-css')
-          now = dt.datetime.now(dt.timezone.utc)
-          names = {
-            'css_project_manager.sqlite3':'PROJECT_DB',
-            'mail_sync_fast.sqlite3':'MAIL_DB',
-            'css_project_manager_run_log.json':'PROJECT_LAST_RUN',
-            'all_email_fast_run_log.json':'MAIL_LAST_RUN',
-          }
-          skip = {'.git', '.venv', 'venv', '__pycache__', 'node_modules'}
-          matches = {k: [] for k in names}
-          if root.is_dir():
-              for current, dirs, files in os.walk(root, followlinks=False):
-                  depth = len(Path(current).relative_to(root).parts)
-                  dirs[:] = [] if depth >= 6 else [d for d in dirs if d not in skip]
-                  for name in names:
-                      if name in files:
-                          matches[name].append(Path(current) / name)
-
-          print('CSS_P0_READONLY_UTC', now.isoformat())
-          print('CSS_ROOT_EXISTS', root.is_dir())
-          for filename,label in names.items():
-              found = sorted(matches[filename], key=lambda p:p.stat().st_mtime, reverse=True)
-              print(label+'_MATCH_COUNT',len(found))
-              if not found:
-                  print(label+'_STATUS','NOT_VERIFIED')
-                  continue
-              path=found[0]
-              age_hours = round((time.time()-path.stat().st_mtime)/3600,2)
-              print(label+'_FILE_AGE_HOURS', age_hours)
-              if filename.endswith('.sqlite3'):
-                  try:
-                      conn=sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True,timeout=5)
-                      conn.execute('PRAGMA query_only=ON')
-                      check=conn.execute('PRAGMA quick_check(1)').fetchone()[0]
-                      tables=conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
-                      conn.close()
-                      print(label+'_QUICK_CHECK', 'PASS' if check == 'ok' else 'FAIL')
-                      print(label+'_TABLE_COUNT', tables)
-                  except Exception as exc:
-                      print(label+'_QUICK_CHECK',type(exc).__name__)
-              else:
-                  try:
-                      info=json.loads(path.read_text(encoding='utf-8'))
-                      if not isinstance(info,dict):
-                          raise ValueError('RUN_LOG_NOT_OBJECT')
-                      status=info.get('status')
-                      if status not in ('SUCCESS','FAILED','RUNNING','PARTIAL'):
-                          status='UNKNOWN'
-                      raw=info.get('run_at',info.get('updated_at'))
-                      run_at=dt.datetime.fromisoformat(raw.replace('Z','+00:00')) if isinstance(raw,str) else None
-                      if run_at is not None and run_at.tzinfo is not None:
-                          print(label+'_AGE_HOURS',round((now-run_at.astimezone(dt.timezone.utc)).total_seconds()/3600,2))
-                      print(label+'_STATUS',status)
-                  except Exception as exc:
-                      print(label+'_STATUS',type(exc).__name__)
-          print('CSS_P0_NO_CUSTOMER_FIELDS_OUTPUT')
-          print('CSS_P0_NO_FILES_MODIFIED')
-          PY
+            -o ForwardAgent=no -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' < scripts/css_readonly_runtime_health.py
