@@ -6,7 +6,7 @@
 
 The live CSS source fingerprint remains `a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840`.
 
-- [17/17 static AST regression assertions PASS](https://github.com/kimtk94/Codex/actions/runs/39025177832) (prior 9 + 8 base + 3 conservative-alias test additions are now 9 + 11 = **20** tests in the latest run; use the latest run for test counts).
+- [20/20 static AST regression assertions PASS](https://github.com/kimtk94/Codex/actions/runs/39025177832): 9 writer classifier + 11 context/alias tests.
 - [Latest static G12 writer source inspection](https://github.com/kimtk94/Codex/actions/runs/39025200696) identified 28 candidate writer call sites: 8 destructive or full-frame candidates, 19 unknown-effect API candidates and 1 append candidate. 26 occur in helpers, 2 in `main()`.
 - All four known operator-control tab titles occur as module constants. The `main()` 20921 `clear()` and 22107 `batch_update()` calls are **contextually associated** with a function referencing the known tabs, but neither is proven to write those tabs. A conservative worksheet-alias analyzer found **no syntactically resolved direct worksheet alias** for the 10 highlighted calls; this is an unresolved proof gap, not a negative finding.
 - [Staging protection and coverage CI 36/36 PASS](https://github.com/kimtk94/Codex/actions/runs/39025321253): 11 range ownership tests + 13 synthetic gspread-shaped adapter tests + 12 new 28-site inventory freeze tests.
