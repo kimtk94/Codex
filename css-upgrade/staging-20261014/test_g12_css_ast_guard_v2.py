@@ -139,5 +139,36 @@ class V2Tests(unittest.TestCase):
         self.assertEqual(ns["go"](),"ok")
         self.assertEqual(len(counts),1)
 
+class TriageTests(unittest.TestCase):
+    def test_receiver_literal_and_constructor_hints_only(self):
+        from g12_private_v2_compile import triage_local_receivers
+        raw=b"""def example():
+    data = {}
+    data.update({"email": "secret@demo.invalid"})
+    rows = []
+    rows.sort()
+    built = dict()
+    built.update({"x": 1})
+    uncertain = factory()
+    uncertain.update({"x": 1})
+"""
+        report=triage_local_receivers(raw)
+        self.assertEqual(report["update:LOCAL_DICT_LITERAL_HINT"],1)
+        self.assertEqual(report["sort:LOCAL_LIST_LITERAL_HINT"],1)
+        self.assertEqual(report["update:LOCAL_BUILTIN_CONSTRUCTOR_HINT"],1)
+        self.assertEqual(report["update:LOCAL_CALL_ASSIGNMENT_UNRESOLVED"],1)
+        self.assertEqual(sum(report.values()),4)
+        self.assertNotIn("secret@demo.invalid",str(report))
+
+    def test_unknown_receiver_remains_unknown(self):
+        from g12_private_v2_compile import triage_local_receivers
+        raw=b"""def example(source):
+    source.update({"x": 1})
+    source.clear()
+"""
+        result=triage_local_receivers(raw)
+        self.assertEqual(result["update:FUNCTION_PARAMETER_UNRESOLVED"],1)
+        self.assertEqual(result["clear:FUNCTION_PARAMETER_UNRESOLVED"],1)
+
 if __name__=="__main__":
     unittest.main()
