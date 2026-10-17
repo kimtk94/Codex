@@ -1,0 +1,25 @@
+name: Novogene CSS Runtime Health Classifier (Offline)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/css_readonly_runtime_health.py'
+      - 'scripts/test_css_readonly_runtime_health.py'
+      - '.github/workflows/novogene-css-runtime-health-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise synthetic counter, freshness and SQLite cases
+        run: python3 -m unittest discover -s scripts -p test_css_readonly_runtime_health.py -v
