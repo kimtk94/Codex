@@ -101,6 +101,12 @@
 - Monitoring and changes to schedules are **not** authorized. `main()` end-to-end / actual production Google Sheets write remains BLOCKED.
 - The 2026-10-17 audit is the newest *operational* baseline; older fixture tests remain targeted verification, not current production acceptance.
 
+## 2026-10-17 receipt schema clone rehearsal
+
+- [**Real current project DB snapshot + receipt table drill PASS**](https://github.com/kimtk94/Codex/actions/runs/39041961564): opened production SQLite query-only, snapshotted it to disposable temp SQLite, verified baseline **26** application tables, added `overview_control_receipts` only to the clone, inserted synthetic receipt, checked `integrity_check`/foreign keys, original table row counts, and receipt persistence after a fresh SQLite connection.
+- Source/live DB/Sheet/mail/scheduler remained unchanged. This is **an additive schema migration smoke test**, not yet a full real-function migration plus eight-patch source-only rollback rehearsal. Existing byte-exact eight-patch source rollback was tested separately.
+- Keep the schema/release and source-only rollback gate open until both are exercised together. Do not drop receipts in a source-only rollback.
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent full-engine canary outstanding:** Targeted actual SIF functions, actual Action Center/Review Queue generators, a 1,200-row real Canary Sheets write, and real Canary sheet edit races passed. The complete `main()` with every external client isolated **has not** been executed; no production deployment authorization is implied.
