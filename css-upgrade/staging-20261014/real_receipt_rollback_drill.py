@@ -1,4 +1,4 @@
-import argparse,ast,hashlib,sqlite3,subprocess,tempfile
+import argparse,ast,hashlib,sqlite3,subprocess,tempfile,importlib.util
 from pathlib import Path
 import pandas as pd
 from zoneinfo import ZoneInfo
@@ -17,6 +17,7 @@ def main():
     a.add_argument("--source",required=True)
     a.add_argument("--db",required=True)
     a.add_argument("--patch-dir",required=True)
+    a.add_argument("--helper",required=True)
     x=a.parse_args()
     raw=Path(x.source).read_bytes()
     require(hashlib.sha256(raw).hexdigest()==SHA,"ORIGINAL_SOURCE_IDENTITY")
@@ -43,14 +44,10 @@ def main():
         candidate=staged.read_bytes()
         require(hashlib.sha256(candidate).hexdigest()==CANDIDATE,"EIGHT_PATCH_SHA")
         tree=ast.parse(candidate)
-        fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="_sync_overview_snooze_actions_from_records")
-        ns={"pd":pd,"KST":ZoneInfo("Asia/Seoul"),"clean_text":lambda v: "" if v is None else str(v).strip(),
-          "dataframe_row_text":lambda r,k:str(r.get(k,"") or "").strip(),
-          "iter_dataframe_records":lambda d:d.to_dict("records"),
-          "overview_mail_marker":lambda r:"SYNTHETIC_MAIL",
-          "safe_int":lambda v:int(v) if str(v).strip().isdigit() else None}
-        up=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="_upsert_overview_snooze")
-        exec(compile(ast.Module(body=[up,fn],type_ignores=[]),"real_css_extract","exec"),ns)
+        spec=importlib.util.spec_from_file_location("css_sync_fixture",x.helper)
+        helper=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        ns=helper.extract(candidate)
         pid="AMEA2099555123"
         cloned.execute("SAVEPOINT control_cycle")
         try:
