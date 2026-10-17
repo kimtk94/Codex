@@ -2,6 +2,11 @@ name: Unified Harness Read-only Briefing
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/unified_harness_briefing.py'
+      - 'tests/test_unified_harness_briefing.py'
+      - '.github/workflows/unified-harness-readonly.yml'
   schedule:
     - cron: '30 23 * * *'
 
