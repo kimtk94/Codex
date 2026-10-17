@@ -21,6 +21,7 @@ jobs:
       - name: Read-only snapshot briefing (never SSH or trade)
         run: |
           python3 -m py_compile scripts/unified_harness_briefing.py
+          python3 -m unittest discover -s tests -p 'test_unified_harness_briefing.py' -v
           python3 scripts/unified_harness_briefing.py --snapshots unified_harness_snapshots > briefing.md
           cat briefing.md
       - uses: actions/upload-artifact@v4
