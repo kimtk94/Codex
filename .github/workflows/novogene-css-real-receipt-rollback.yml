@@ -8,6 +8,7 @@ on:
       - '.github/workflows/novogene-css-real-receipt-rollback.yml'
       - 'css-upgrade/staging-20261014/real_receipt_rollback_drill.py'
       - 'css-upgrade/staging-20261014/manual_mail_overlap_regression.py'
+      - 'css-upgrade/staging-20261014/manual_mail_overlap_regression.py'
 
 permissions:
   contents: read
