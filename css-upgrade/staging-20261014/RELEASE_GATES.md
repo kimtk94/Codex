@@ -93,6 +93,14 @@
 - Patch 8 `novogene_css_snapshot_conflict_guard.patch` detects changes **between** observations, but **does not give Google Sheets and SQLite one atomic commit**. A change after the final read but before DB commit, or an A→B→A change between samples, remains a theoretical risk. Two extra Sheets API reads per cycle require quota/latency assessment.
 - **Current eight-patch candidate SHA-256**: `3963b6cbd60205c2738943e4b28e2a88a1987776bfdda05ee8cba269d6ea3806`. Prior seven-patch SHA is superseded, not a current deployment artifact. [Full report](SHEET_SNAPSHOT_RACE_8_PATCH.md).
 
+## Operational readiness — 2026-10-17 (read-only)
+
+- [Server schedule/API budget audit PASS](https://github.com/kimtk94/Codex/actions/runs/39041451785): operating source SHA still matches baseline, project SQLite `PRAGMA quick_check=ok`, service user's crontab has **two jobs** (`*/10 * * * *` and `20 * * * *`), temporary storage available, no live source/DB changes.
+- The current manual control synchronization reads Google Sheets controls via **one batch snapshot**; staged patch 8 makes **three snapshots** per invocation (two additional batch reads). At a nominal hourly CSS run, this implies **48 more reads/day** or **1,440 per 30-day month**. This is a **modelled request budget**, not measurement of actual requests nor proof that Google API quotas have sufficient headroom.
+- Production `overview_control_receipts` **does not exist** yet, consistent with no schema deployment. The migration must be rehearsed against a cloned project SQLite and the table **retained after source-only rollback**.
+- Monitoring and changes to schedules are **not** authorized. `main()` end-to-end / actual production Google Sheets write remains BLOCKED.
+- The 2026-10-17 audit is the newest *operational* baseline; older fixture tests remain targeted verification, not current production acceptance.
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent full-engine canary outstanding:** Targeted actual SIF functions, actual Action Center/Review Queue generators, a 1,200-row real Canary Sheets write, and real Canary sheet edit races passed. The complete `main()` with every external client isolated **has not** been executed; no production deployment authorization is implied.
