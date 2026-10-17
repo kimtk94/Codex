@@ -107,6 +107,13 @@
 - Source/live DB/Sheet/mail/scheduler remained unchanged. This is **an additive schema migration smoke test**, not yet a full real-function migration plus eight-patch source-only rollback rehearsal. Existing byte-exact eight-patch source rollback was tested separately.
 - Keep the schema/release and source-only rollback gate open until both are exercised together. Do not drop receipts in a source-only rollback.
 
+## 2026-10-17 actual function + cloned DB + eight-patch source rollback
+
+- **[37/37 integrated migration and rollback assertions PASS](https://github.com/kimtk94/Codex/actions/runs/39042402745)**. The actual current production SQLite was opened **read-only** and backed up into temporary SQLite; the exact SHA-verified server code was staged with all eight patches; its actual extracted `_sync_overview_snooze_actions_from_records` and `_upsert_overview_snooze` functions created a synthetic manual Hold and a persisted one-shot receipt in the clone. Each existing application's table count was preserved, allowing the one intended synthetic Hold increment.
+- Reversed **all eight** patches and confirmed source byte-exact rollback. Reopened the clone while legacy source was staged and verified **receipt persists**, original table counts plus the one expected Hold, and SQLite integrity remains `ok`. Temporary clone was removed. Live source/database/Sheets/mail/schedule unchanged.
+- This closes the **combined additive schema + actual function + source-only rollback rehearsal gate**. Still unresolved: full legacy `main()` execution against the migrated clone, full eight-patch `main()` E2E with isolated external clients, and explicit production deployment authorization.
+- [Test script](real_receipt_rollback_drill.py) and [Actions CI](https://github.com/kimtk94/Codex/actions/runs/39042402745).
+
 ## Unresolved release blockers
 1. **Offsite backup restore completed:** Latest project and mail backups fully restored with independent checksum and integrity verification. Host-level disaster recovery is still untested; see verified section above.
 2. **Production-equivalent full-engine canary outstanding:** Targeted actual SIF functions, actual Action Center/Review Queue generators, a 1,200-row real Canary Sheets write, and real Canary sheet edit races passed. The complete `main()` with every external client isolated **has not** been executed; no production deployment authorization is implied.
