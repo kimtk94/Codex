@@ -9,6 +9,8 @@ on:
       - 'scripts/test_css_g12_writer_surface_audit.py'
       - 'scripts/css_g12_writer_context_audit.py'
       - 'scripts/test_css_g12_writer_context_audit.py'
+      - 'scripts/css_g12_v2_coverage_audit.py'
+      - 'scripts/test_css_g12_v2_coverage_audit.py'
       - '.github/workflows/novogene-css-g12-writer-tests.yml'
   workflow_dispatch:
 
@@ -27,3 +29,4 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p test_css_g12_writer_surface_audit.py -v
           python3 -m unittest discover -s scripts -p test_css_g12_writer_context_audit.py -v
+          python3 -m unittest discover -s scripts -p test_css_g12_v2_coverage_audit.py -v
