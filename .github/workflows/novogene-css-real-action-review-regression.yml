@@ -3,10 +3,11 @@ name: Novogene CSS Real Action Review Generator Regression
 on:
   push:
     branches:
-      - 'audit/novogene-css-sif-staging-20261014'
+      - 'audit/css-g16-boundary-20261016'
     paths:
       - '.github/workflows/novogene-css-real-action-review-regression.yml'
       - 'css-upgrade/staging-20261014/real_action_review_generator_regression.py'
+      - 'css-upgrade/staging-20261014/g16_private_action_bwrap.sh'
 
 permissions:
   contents: read
@@ -44,17 +45,24 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
           ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
-      - name: Run real Action Center and Review Queue against 1200 synthetic projects
+      - name: Verify exact real functions inside private no-network Bubblewrap
         env:
           SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
           SSH_USER: ${{ secrets.SERVER_SSH_USER }}
         run: |
-          TEST_SCRIPT="/tmp/css-real-generator-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.py"
-          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f $TEST_SCRIPT" >/dev/null 2>&1 || true' EXIT
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
-            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            css-upgrade/staging-20261014/real_action_review_generator_regression.py "$SSH_USER@$SSH_HOST:$TEST_SCRIPT"
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
-            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "$SSH_USER@$SSH_HOST" \
-            "/home/taehoon/services/novogene-css/.venv/bin/python $TEST_SCRIPT --source /home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py"
+          set -euo pipefail
+          REMOTE_DIR="/tmp/css-real-bwrap-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_ARGS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key")
+          cleanup() {
+            ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
+              "rm -f '$REMOTE_DIR/real_action_review_generator_regression.py' '$REMOTE_DIR/g16_private_action_bwrap.sh'; rmdir '$REMOTE_DIR' 2>/dev/null || true" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" "mkdir -m 700 -p '$REMOTE_DIR'"
+          scp -q "${SSH_ARGS[@]}" \
+            css-upgrade/staging-20261014/real_action_review_generator_regression.py \
+            css-upgrade/staging-20261014/g16_private_action_bwrap.sh \
+            "$SSH_USER@$SSH_HOST:$REMOTE_DIR/"
+          ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
+            "bash '$REMOTE_DIR/g16_private_action_bwrap.sh' '$REMOTE_DIR/real_action_review_generator_regression.py'"
+          echo "G16_PRIVATE_REAL_ACTION_REVIEW_TEST_DONE"
