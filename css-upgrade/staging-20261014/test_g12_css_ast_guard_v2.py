@@ -100,6 +100,21 @@ class V2Tests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"UNCLASSIFIED"):
             guard_ast(b"def run(mapping):\n mapping.update({})\n",reject_unclassified=True)
 
+    def test_rows_and_news_are_not_sheet_objects_by_substring(self):
+        source=b"def run(rows, news):\n    rows.sort()\n    news.update({'x': 1})\n"
+        ns,metrics=sandbox(source,{})
+        rows=[3,1,2]
+        news={}
+        ns["run"](rows,news)
+        self.assertEqual(rows,[1,2,3])
+        self.assertEqual(news,{"x":1})
+        self.assertEqual(metrics["known_writer_calls_instrumented"],0)
+        self.assertEqual(metrics["unknown_writer_candidates"],2)
+
+    def test_actual_worksheet_token_still_guarded(self):
+        _,report=guard_ast(b"def run(contract_ws):\n contract_ws.clear()\n")
+        self.assertEqual(report["known_writer_calls_instrumented"],1)
+
     def test_dynamic_getattr_bypass_is_not_proven_safe(self):
         _,report=guard_ast(b"def run(ws):\n getattr(ws,'clear')()\n")
         self.assertEqual(report["known_writer_calls_instrumented"],0)
