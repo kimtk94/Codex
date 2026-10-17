@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
       - name: Use isolated Node.js 24 runtime
         uses: actions/setup-node@v4
         with:
@@ -125,6 +126,11 @@ jobs:
             exit 1
           fi
           echo 'REA_CODEX_MCP_REMOVAL_PASS=true'
+      - name: Verify REA MCP JSON-RPC transport
+        env:
+          npm_config_update_notifier: 'false'
+        run: |
+          node experiments/rea/mcp_transport_probe.cjs
       - name: Upload doctor and evidence for review
         if: always()
         uses: actions/upload-artifact@v4
