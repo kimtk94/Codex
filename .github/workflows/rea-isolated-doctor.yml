@@ -49,8 +49,11 @@ jobs:
           npm_config_update_notifier: 'false'
         run: |
           mkdir -p "$RUNNER_TEMP/rea-fixture"
-          printf 'export function gridLevel(price,spacing){return price*(1+spacing)}\n' > "$RUNNER_TEMP/rea-fixture/grid.js"
-          printf '{"name":"rea-fixture","version":"0.0.1","type":"module"}\n' > "$RUNNER_TEMP/rea-fixture/package.json"
+          printf 'export function gridLevel(price,spacing){return price*(1+spacing)}\\n' > "$RUNNER_TEMP/rea-fixture/grid.js"
+          printf 'import { gridLevel } from "./grid.js";\\nexport function planGrid(p,s,n){return Array.from({length:n},(_,i)=>gridLevel(p,s*(i+1)))}\\n' > "$RUNNER_TEMP/rea-fixture/planner.js"
+          printf 'import { planGrid } from "./planner.js";\\nconsole.log(planGrid(100,0.0014,3));\\n' > "$RUNNER_TEMP/rea-fixture/index.js"
+          printf '{"name":"rea-fixture","version":"0.0.1","type":"module","main":"index.js"}\\n' > "$RUNNER_TEMP/rea-fixture/package.json"
+          node "$RUNNER_TEMP/rea-fixture/index.js"
           npx --yes rea-agents@latest analyze-javascript-application "$RUNNER_TEMP/rea-fixture" --json > "$RUNNER_TEMP/rea-evidence.json"
           node - "$RUNNER_TEMP/rea-evidence.json" <<'JS'
           const fs=require('node:fs');
