@@ -1,0 +1,96 @@
+name: Novogene CSS G12 V2 Private Source Compile (No Execution)
+
+on:
+  push:
+    branches:
+      - audit/css-g16-boundary-20261016
+    paths:
+      - 'css-upgrade/staging-20261014/g12_css_ast_guard_v2.py'
+      - 'css-upgrade/staging-20261014/g12_private_v2_compile.py'
+      - '.github/workflows/novogene-css-g12-v2-private-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-compile:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure pinned SSH and known hosts
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+          from pathlib import Path
+          required=('SSH_HOST','SSH_USER','SSH_KEY','SSH_KNOWN_HOSTS')
+          if not all(os.environ.get(x) for x in required):
+              raise SystemExit('G12_SSH_SECRETS_MISSING')
+          root=Path.home()/'.ssh'
+          root.mkdir(mode=0o700,exist_ok=True)
+          private=os.environ['SSH_KEY'].strip().replace('\\n','\n').replace('\r\n','\n').replace('\r','\n')
+          if not private.startswith(('-----BEGIN OPENSSH PRIVATE KEY-----',
+              '-----BEGIN RSA PRIVATE KEY-----','-----BEGIN EC PRIVATE KEY-----')):
+              raise SystemExit('G12_SSH_KEY_INVALID')
+          key=root/'server_key'
+          key.write_text(private+'\n')
+          key.chmod(0o600)
+          hostfile=root/'known_hosts'
+          hostfile.write_text(os.environ['SSH_KNOWN_HOSTS'].strip()+'\n')
+          hostfile.chmod(0o600)
+          subprocess.run(['ssh-keygen','-y','-P','','-f',str(key)],
+                         stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=True)
+          print('G12_EXISTING_KEY_VALID')
+          PY
+      - name: Compile pinned CSS AST exclusively inside disconnected private sandbox
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          python3 -m py_compile \
+            css-upgrade/staging-20261014/g12_css_ast_guard_v2.py \
+            css-upgrade/staging-20261014/g12_private_v2_compile.py
+          REMOTE_DIR="/tmp/css-g12-v2-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_ARGS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ForwardAgent=no -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key")
+          cleanup() {
+            ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
+              "rm -f '$REMOTE_DIR/g12_css_ast_guard_v2.py' '$REMOTE_DIR/g12_private_v2_compile.py'; rmdir '$REMOTE_DIR' 2>/dev/null || true" || true
+          }
+          trap cleanup EXIT
+          if ! ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" "mkdir -m 700 -p '$REMOTE_DIR'"; then
+            echo "::error::G12_TEMP_SANDBOX_SETUP_FAILED"
+            exit 1
+          fi
+          if ! scp -q "${SSH_ARGS[@]}" \
+            css-upgrade/staging-20261014/g12_css_ast_guard_v2.py \
+            css-upgrade/staging-20261014/g12_private_v2_compile.py \
+            "$SSH_USER@$SSH_HOST:$REMOTE_DIR/"; then
+            echo "::error::G12_STAGE_TEST_FILES_FAILED"
+            exit 1
+          fi
+          if ! ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
+            "bwrap --unshare-user --unshare-net --unshare-pid --unshare-ipc --unshare-uts \
+             --new-session --die-with-parent \
+             --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --ro-bind /bin /bin \
+             --dev /dev --proc /proc --tmpfs /tmp --dir /private --dir /mock \
+             --ro-bind /home/taehoon/services/novogene-css/.venv /venv \
+             --ro-bind /home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py /private/css.py \
+             --ro-bind '$REMOTE_DIR' /mock \
+             --clearenv --setenv G16_SYNTHETIC_ONLY 1 --setenv PYTHONPATH /mock \
+             --setenv HOME /tmp --setenv PYTHONDONTWRITEBYTECODE 1 \
+             /venv/bin/python /mock/g12_private_v2_compile.py"; then
+            echo "::error::G12_PRIVATE_V2_COMPILATION_FAILED"
+            exit 1
+          fi
+          echo "G12_FULL_SOURCE_AST_COMPILED_WITHOUT_IMPORT_OR_EXECUTION"
+          echo "NO_PRODUCTION_DB_SHEETS_MAIL_CRM_WRITES"
+          echo "G12_G16_RELEASE_STILL_BLOCKED"
