@@ -41,6 +41,9 @@ jobs:
       - name: Causal daily regime no-lookahead tests
         run: |
           python3 -m unittest discover -s experiments/rea/tests -p 'test_grid_daily_regime.py' -v
+      - name: Regime attribution unit tests
+        run: |
+          python3 -m unittest discover -s experiments/rea/tests -p 'test_grid_regime_attribution.py' -v
       - name: REA doctor without server access
         env:
           npm_config_update_notifier: 'false'
