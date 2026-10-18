@@ -19,6 +19,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Prepare test evidence directory
+        run: mkdir -p "$RUNNER_TEMP/css-evidence"
       - name: Synthetic contracts in OS-denied container
         shell: bash
         run: |
@@ -45,3 +47,35 @@ jobs:
               print(result.strip(), flush=True)
           print("CSS_P0_SYNTHETIC_ISOLATION_GATE_PASS", flush=True)
           '
+      - name: Record execution result
+        if: always()
+        shell: bash
+        env:
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = {
+              "suite": "CSS_P0_SYNTHETIC_ISOLATION_GATE",
+              "job_status": os.environ["JOB_RESULT"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "commit": os.environ["GITHUB_SHA"],
+              "production_source_mounted": False,
+              "production_db_mounted": False,
+              "credentials_provided_to_container": False,
+              "css_main_executed": False,
+              "is_full_css_e2e": False,
+          }
+          p = Path(os.environ["RUNNER_TEMP"])/"css-evidence"/"result.json"
+          p.parent.mkdir(parents=True, exist_ok=True)
+          p.write_text(json.dumps(data, indent=2)+"\n")
+          print("CSS_P0_EVIDENCE_JSON", str(p))
+          PY
+      - name: Upload synthetic-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: css-p0-synthetic-evidence
+          path: ${{ runner.temp }}/css-evidence/result.json
+          retention-days: 14
