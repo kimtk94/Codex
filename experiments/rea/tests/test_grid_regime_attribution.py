@@ -25,6 +25,15 @@ class TestRegimeAttribution(unittest.TestCase):
         results=[simulate(policy,rows,"DOWN") for policy in m.POLICIES]
         self.assertTrue(all(r["fills"]==0 for r in results))
         self.assertTrue(all(r.get("policy_violations",0)==0 for r in results))
+    def test_exposure_metrics_bounded(self):
+        rows=[bar(0),bar(1),bar(2)]
+        for policy in m.POLICIES[1:]:
+            r=simulate(policy,rows,"DOWN")
+            self.assertGreater(r["measured_bars"],0)
+            self.assertGreaterEqual(r["exposure_mean_pct"],0)
+            self.assertLessEqual(r["exposure_max_pct"],100)
+            self.assertEqual(r["down_bars"],r["measured_bars"])
+
     def test_inhibit_gap_no_reseed_buys(self):
         rows=[bar(0),bar(8,high=3e6,low=1e6)]
         r=simulate("inhibit_new_buys",rows,"DOWN")
