@@ -25,6 +25,12 @@ class TestRegimeAttribution(unittest.TestCase):
         results=[simulate(policy,rows,"DOWN") for policy in m.POLICIES]
         self.assertTrue(all(r["fills"]==0 for r in results))
         self.assertTrue(all(r.get("policy_violations",0)==0 for r in results))
+    def test_inhibit_gap_no_reseed_buys(self):
+        rows=[bar(0),bar(8,high=3e6,low=1e6)]
+        r=simulate("inhibit_new_buys",rows,"DOWN")
+        self.assertEqual(r["gap_resets"],1)
+        self.assertEqual(r["gap_buy_violations"],0)
+
     def test_baseline_matches_original(self):
         rows=[bar(0),bar(1,low=1979500),bar(2)]
         a=simulate("baseline",rows,"UP")
@@ -37,4 +43,5 @@ class TestRegimeAttribution(unittest.TestCase):
             r=simulate(arm,rows,"DOWN")
             self.assertEqual(r["gap_resets"],1)
             self.assertEqual(r["policy_violations"],0)
+            self.assertEqual(r["gap_buy_violations"],0)
 if __name__=="__main__":unittest.main()
