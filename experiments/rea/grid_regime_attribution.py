@@ -41,6 +41,18 @@ def build(source,policy):
     # On a data gap all prior orders are invalidated, so DOWN gap reseeding
     # keeps only sells even for inhibit_new_buys. On contiguous bars existing
     # buys remain live for that policy; other policies cancel them.
+    # Measurement-only counters: no order or cash mutation.
+    replacements.extend([
+      (" orders={};fills=ambiguous=gaps=0;fees=0.;peak=capital;mdd=0.;turnover=0.",
+       " orders={};fills=ambiguous=gaps=0;fees=0.;peak=capital;mdd=0.;turnover=0.;exposure_sum=0.;exposure_n=0;exposure_max=0.;down_bars=0"),
+      ("  if min(krw,eth,hold_krw,hold_eth)<-1e-5:raise RuntimeError(\"balance invariant\")",
+       """  if min(krw,eth,hold_krw,hold_eth)<-1e-5:raise RuntimeError("balance invariant")
+  exposure=(eth+hold_eth)*close/(krw+hold_krw+(eth+hold_eth)*close)
+  exposure_sum+=exposure;exposure_n+=1;exposure_max=max(exposure_max,exposure)
+  if rg!='UP':down_bars+=1"""),
+      (" return dict(policy_violations=policy_violations,gap_buy_violations=gap_buy_violations,year=y,spacing_pct=",
+       " return dict(exposure_mean_pct=round(100*exposure_sum/max(exposure_n,1),4),exposure_max_pct=round(100*exposure_max,4),measured_bars=exposure_n,down_bars=down_bars,policy_violations=policy_violations,gap_buy_violations=gap_buy_violations,year=y,spacing_pct="),
+    ])
     generated=source
     for old,new in replacements:
       if generated.count(old)!=1:raise RuntimeError("SOURCE_PATCH_MISMATCH "+old[:64])
