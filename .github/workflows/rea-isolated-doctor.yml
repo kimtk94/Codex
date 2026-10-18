@@ -34,7 +34,7 @@ jobs:
           node -e 'const [major,minor]=process.versions.node.split(".").map(Number); if (!(major===24 && minor>=11)) process.exit(2)'
       - name: Offline ETH Grid V3 regression tests
         run: |
-          python3 -m unittest discover -s experiments/rea/tests -p 'test_grid_v3_regression.py' -v
+          python3 -m unittest discover -s experiments/rea/tests -p 'test_grid_v3_*.py' -v
       - name: REA doctor without server access
         env:
           npm_config_update_notifier: 'false'
