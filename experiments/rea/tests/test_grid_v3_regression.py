@@ -29,13 +29,13 @@ class GridRegression(unittest.TestCase):
         self.assertAlmostEqual(r["return_pct"],0,places=4)
 
     def test_strict_touch_equality_is_not_fill(self):
-        # First bid: floor(2m/1.01 to 100-KRW tick) = 1,980,100
-        bid=1_980_100
+        # First bid: floor(2m/1.01 to 500-KRW tick) = 1,980,000
+        bid=1_980_000
         r=run([bar(0),bar(1,h=2_000_000,l=bid,c=2_000_000)])
         self.assertEqual(r["fills"],0)
 
     def test_buy_crossing_executes(self):
-        r=run([bar(0),bar(1,h=2_000_000,l=1_980_000,c=2_000_000)])
+        r=run([bar(0),bar(1,h=2_000_000,l=1_979_500,c=2_000_000)])
         self.assertGreaterEqual(r["fills"],1)
         self.assertGreater(r["fees_krw"],0)
 
