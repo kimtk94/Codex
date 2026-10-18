@@ -1,0 +1,47 @@
+name: Novogene CSS P0 Synthetic Isolation Gate
+on:
+  push:
+    branches:
+      - audit/novogene-css-sif-staging-20261014
+    paths:
+      - .github/workflows/novogene-css-p0-synthetic-gate.yml
+      - css-upgrade/staging-20261014/css_source_admission.py
+      - css-upgrade/staging-20261014/synthetic_adapter_contract.py
+      - css-upgrade/staging-20261014/os_sandbox_negative_controls.py
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integration-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Synthetic contracts in OS-denied container
+        shell: bash
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 64 \
+            --tmpfs /tmp:rw,nosuid,noexec,size=32m \
+            --mount type=bind,src="$PWD/css-upgrade/staging-20261014",dst=/app,readonly \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            python:3.12-slim python -c '
+          import contextlib, io, runpy, sys
+          from pathlib import Path
+          for filename, arg, marker in [
+              ("os_sandbox_negative_controls.py", None, "SANDBOX_NEGATIVE_CONTROLS_PASS True"),
+              ("css_source_admission.py", "--selftest", "CSS_SOURCE_ADMISSION_SELFTEST_PASS"),
+              ("synthetic_adapter_contract.py", None, "CSS_SYNTHETIC_ADAPTER_CONTRACT_PASS")
+          ]:
+              sys.argv = [filename] + ([arg] if arg else [])
+              output = io.StringIO()
+              with contextlib.redirect_stdout(output):
+                  runpy.run_path(str(Path("/app") / filename), run_name="__main__")
+              result = output.getvalue()
+              if marker not in result:
+                  raise AssertionError("MISSING_PASS_MARKER:" + filename)
+              print(result.strip(), flush=True)
+          print("CSS_P0_SYNTHETIC_ISOLATION_GATE_PASS", flush=True)
+          '
