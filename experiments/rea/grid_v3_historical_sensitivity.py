@@ -7,7 +7,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parents[3]
+BASE = Path(__file__).resolve().parents[2]
 SOURCE = BASE / "research/upbit_eth/grid_event_v3.py"
 def load_sim(mode):
     code=SOURCE.read_text()
