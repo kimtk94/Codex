@@ -10,7 +10,8 @@ con.execute("PRAGMA query_only=ON")
 kst=dt.timezone(dt.timedelta(hours=9))
 closing={}
 end=dt.datetime(P["year"]+1,1,1,tzinfo=kst).astimezone(dt.timezone.utc).isoformat()
-for ts,close in con.execute("SELECT ts_utc,close FROM candles WHERE ts_utc<? ORDER BY ts_utc",(end,)):
+start=(dt.datetime(P["year"],1,1,tzinfo=kst)-dt.timedelta(days=90)).astimezone(dt.timezone.utc).isoformat()
+for ts,close in con.execute("SELECT ts_utc,close FROM candles WHERE ts_utc>=? AND ts_utc<? ORDER BY ts_utc",(start,end)):
     closing[dt.datetime.fromisoformat(ts).astimezone(kst).date()]=float(close)
 days=sorted(closing)
 regimes={}
@@ -21,8 +22,8 @@ for i,day in enumerate(days):
         regimes[day]="UP" if sum(vals[-20:])/20>sum(vals)/60 else "DOWN"
 ns={"__name__":"attribution_module","__file__":"<memory>"}
 exec(compile(P["module"],"<attribution-module>","exec"),ns)
-results={}
-for policy in ns["POLICIES"]:
-    results[policy]=ns["simulate"](P["source"],con,P["year"],P["spacing"],P["levels"],P["capital"],P["fee"],regimes,kst,policy)
+policy=P["policy"]
+if policy not in ns["POLICIES"]:raise SystemExit("INVALID_POLICY")
+results={policy:ns["simulate"](P["source"],con,P["year"],P["spacing"],P["levels"],P["capital"],P["fee"],regimes,kst,policy)}
 con.close()
 print(json.dumps({"year":P["year"],"spacing":P["spacing"],"levels":P["levels"],"results":results,"read_only":True,"limitation":"Exploratory OHLC-only attribution; not orderbook fill verification"}))
