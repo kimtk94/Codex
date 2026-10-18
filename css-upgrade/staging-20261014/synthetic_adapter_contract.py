@@ -83,8 +83,11 @@ def scenario(root):
 def main():
     assert not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     with tempfile.TemporaryDirectory(dir="/tmp") as temp:
-        a=scenario(Path(temp))
-        b=scenario(Path(temp))
+        first=Path(temp)/"first"
+        second=Path(temp)/"second"
+        first.mkdir(); second.mkdir()
+        a=scenario(first)
+        b=scenario(second)
         assert a==b,"NONDETERMINISTIC_FIXTURE"
         print("CSS_SYNTHETIC_ADAPTER_CONTRACT_PASS",a,flush=True)
 
