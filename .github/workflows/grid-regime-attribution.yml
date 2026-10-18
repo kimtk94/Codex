@@ -44,20 +44,23 @@ jobs:
           src=Path('research/upbit_eth/grid_event_v3.py').read_text()
           worker=Path('experiments/rea/grid_regime_attribution_ssh_worker.py').read_bytes()
           remote='import base64;exec(base64.b64decode('+repr(base64.b64encode(worker).decode())+'))'
-          ssh_cmd=['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=12','-o','ForwardAgent=no','-o','IdentitiesOnly=yes','-i',str(ssh/'server_key'),os.environ['SSH_USER']+'@'+os.environ['SSH_HOST'],'python3 -c '+shlex.quote(remote)]
+          ssh_cmd=['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','ConnectTimeout=12','-o','ServerAliveInterval=15','-o','ServerAliveCountMax=8','-o','ForwardAgent=no','-o','IdentitiesOnly=yes','-i',str(ssh/'server_key'),os.environ['SSH_USER']+'@'+os.environ['SSH_HOST'],'python3 -c '+shlex.quote(remote)]
           module=Path('experiments/rea/grid_regime_attribution.py').read_text()
           results=[]
           for spacing in (.01,.015):
-              payload=dict(db='~/research/upbit_eth/krw_eth_1m.sqlite3',source=src,module=module,year=2025,spacing=spacing,levels=100,capital=1_000_000,fee=.001)
-              p=subprocess.run(ssh_cmd,input=json.dumps(payload),text=True,capture_output=True,timeout=480)
-              if p.returncode:
-                  print('REGIME_PILOT_FAILED='+str(spacing)+':'+p.stderr[-1000:])
-                  raise SystemExit(p.returncode)
-              data=json.loads(p.stdout.strip())
-              if not data.get('read_only') or not data.get('results') or len(data['results'])!=4:
-                  raise SystemExit('REGIME_RESULT_INVALID')
-              results.append(data)
-              print('ATTRIBUTION_COMPARE='+json.dumps({'spacing':spacing,'results':{k:{'return_pct':v['return_pct'],'mdd_pct':v['mdd_pct'],'fills':v['fills']} for k,v in data['results'].items()}},sort_keys=True))
+              entry={'spacing':spacing,'results':{}}
+              for policy in ('baseline','inhibit_new_buys','cancel_resting_buys','reseed_on_up'):
+                  payload=dict(db='~/research/upbit_eth/krw_eth_1m.sqlite3',source=src,module=module,policy=policy,year=2025,spacing=spacing,levels=100,capital=1_000_000,fee=.001)
+                  p=subprocess.run(ssh_cmd,input=json.dumps(payload),text=True,capture_output=True,timeout=240)
+                  if p.returncode:
+                      print('REGIME_ATTRIBUTION_FAILED='+str(spacing)+'/'+policy+':'+p.stderr[-1000:])
+                      raise SystemExit(p.returncode)
+                  data=json.loads(p.stdout.strip())
+                  if not data.get('read_only') or policy not in data.get('results',{}):
+                      raise SystemExit('REGIME_RESULT_INVALID')
+                  entry['results'][policy]=data['results'][policy]
+                  print('ATTRIBUTION_ARM='+json.dumps({'spacing':spacing,'policy':policy,'return_pct':data['results'][policy]['return_pct'],'mdd_pct':data['results'][policy]['mdd_pct']},sort_keys=True),flush=True)
+              results.append(entry)
           out=Path(os.environ['RUNNER_TEMP'])/'grid_regime_attribution_2025.json'
           out.write_text(json.dumps(results,ensure_ascii=False,indent=2))
           print('REGIME_ATTRIBUTION_READ_ONLY_PASS=true')
