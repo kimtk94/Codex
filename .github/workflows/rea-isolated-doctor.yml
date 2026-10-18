@@ -35,6 +35,9 @@ jobs:
       - name: Offline ETH Grid V3 regression tests
         run: |
           python3 -m unittest discover -s experiments/rea/tests -p 'test_grid_v3_*.py' -v
+      - name: Historical sensitivity fixture
+        run: |
+          python3 -m unittest discover -s experiments/rea/tests -p 'test_grid_v3_historical.py' -v
       - name: REA doctor without server access
         env:
           npm_config_update_notifier: 'false'
