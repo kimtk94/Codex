@@ -1,10 +1,6 @@
 name: Grid Regime Pilot (SSH Read Only)
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/grid-regime-ssh-pilot.yml'
   workflow_dispatch:
 
 permissions:
