@@ -70,6 +70,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: grid-v3-real-2024-2026-parameter-sweep
-          path: ${{ runner.temp }}/grid_v3_actual_2024_2026_sensitivity.json
-          if-no-files-found: warn
+          path: ${{ runner.temp }}/grid_v3_actual_2024_2026_parameter_sweep.json
+          if-no-files-found: error
           retention-days: 7
