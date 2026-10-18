@@ -10,7 +10,7 @@ from pathlib import Path
 class MemorySheets:
     def __init__(self): self.tabs = {}
     def overwrite(self, tab, rows):
-        if not tab.startswith("SYNTHETIC_"): raise PermissionError("PRODUCTION_SHEET_FORBIDDEN")
+        if tab not in {"SYNTHETIC_CSS"}: raise PermissionError("PRODUCTION_SHEET_FORBIDDEN")
         canonical = json.loads(json.dumps(rows, ensure_ascii=False))
         changed = self.tabs.get(tab) != canonical
         if changed: self.tabs[tab] = canonical
@@ -20,7 +20,7 @@ class MemorySheets:
 class MemoryMail:
     def __init__(self): self.drafts = []; self.sent = []
     def draft(self, to, subject):
-        if not to.endswith("@example.invalid"): raise PermissionError("REAL_RECIPIENT_FORBIDDEN")
+        if not isinstance(to, str) or not to.startswith("test") or to != "test@example.invalid": raise PermissionError("REAL_RECIPIENT_FORBIDDEN")
         self.drafts.append((to, subject))
     def send(self, *args, **kwargs): raise PermissionError("OUTBOUND_EMAIL_FORBIDDEN")
 
@@ -66,7 +66,9 @@ def scenario(root):
     mail.draft("test@example.invalid", "Synthetic SIF Followup")
     assert len(mail.drafts)==1 and not mail.sent
     for action in (lambda: sheets.overwrite("CSS Contract-SIF Tracker", []),
+                   lambda: sheets.overwrite("SYNTHETIC_LIVE_BYPASS", []),
                    lambda: mail.draft("customer@gmail.com","No"),
+                   lambda: mail.draft("customer@gmail.com,test@example.invalid","No"),
                    lambda: mail.send("test@example.invalid","No")):
         try: action()
         except PermissionError: pass
