@@ -6,7 +6,22 @@ POLICIES=("baseline","inhibit_new_buys","cancel_resting_buys","reseed_on_up")
 
 def build(source,policy):
     if policy not in POLICIES: raise ValueError(policy)
-    if policy=="baseline": return source
+    if policy=="baseline":
+        # Read-only counters injected into the unchanged reference decisions.
+        changes=[
+          (" orders={};fills=ambiguous=gaps=0;fees=0.;peak=capital;mdd=0.;turnover=0.",
+           " orders={};fills=ambiguous=gaps=0;fees=0.;peak=capital;mdd=0.;turnover=0.;exposure_sum=0.;exposure_n=0;exposure_max=0."),
+          ("  if min(krw,eth,hold_krw,hold_eth)<-1e-5:raise RuntimeError(\"balance invariant\")",
+           """  if min(krw,eth,hold_krw,hold_eth)<-1e-5:raise RuntimeError("balance invariant")
+  exposure=(eth+hold_eth)*close/(krw+hold_krw+(eth+hold_eth)*close)
+  exposure_sum+=exposure;exposure_n+=1;exposure_max=max(exposure_max,exposure)"""),
+          (" return dict(year=y,spacing_pct=",
+           " return dict(exposure_mean_pct=round(100*exposure_sum/max(exposure_n,1),4),exposure_max_pct=round(100*exposure_max,4),measured_bars=exposure_n,year=y,spacing_pct="),
+        ]
+        for old,new in changes:
+            if source.count(old)!=1:raise RuntimeError("BASELINE_MEASUREMENT_PATCH_MISMATCH "+old[:60])
+            source=source.replace(old,new,1)
+        return source
     replacements=[
       (" seed(anchor);prev=dt.datetime.fromisoformat(first[0]);last=anchor",
        " seed(anchor);prev=dt.datetime.fromisoformat(first[0]);last=anchor;prior_regime=None;policy_violations=0;gap_buy_violations=0"),
