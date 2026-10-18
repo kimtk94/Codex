@@ -20,8 +20,12 @@ def inventory(raw, expected=SOURCE_SHA):
             if not isinstance(node,ast.FunctionDef) or node.decorator_list:
                 raise ValueError("UNSAFE_DEFINITION_"+node.name)
             # Function defaults, annotations and decorators may execute during def creation.
-            if node.args.defaults or any(x is not None for x in node.args.kw_defaults):
-                raise ValueError("UNSAFE_DEFAULT_"+node.name)
+            defaults=list(node.args.defaults)+[x for x in node.args.kw_defaults if x is not None]
+            for default in defaults:
+                try:
+                    ast.literal_eval(default)
+                except (ValueError,TypeError,MemoryError,RecursionError):
+                    raise ValueError("UNSAFE_DEFAULT_"+node.name) from None
             if node.returns is not None or any(a.annotation is not None for a in
                    node.args.posonlyargs+node.args.args+node.args.kwonlyargs) or (
                    node.args.vararg is not None and node.args.vararg.annotation is not None) or (
@@ -41,9 +45,11 @@ def selftest():
     body="\n".join(f"def {name}(x):\n    return x\n" for name in ALLOWED).encode()
     digest=hashlib.sha256(body).hexdigest()
     assert inventory(body,digest)["selected_count"]==len(ALLOWED)
+    safe=body.replace(b"(x):",b"(x=None):",1)
+    assert inventory(safe,hashlib.sha256(safe).hexdigest())["selected_count"]==len(ALLOWED)
     cases=[(body,b"wrong".hex(),"CSS_SOURCE_SHA_MISMATCH"),
            (body.replace(b"return x",b"return eval('1')",1),None,"DIRECT_BLOCKED_CALLS_DETECTED"),
-           (body.replace(b"def "+ALLOWED[0].encode()+b"(x):",b"def "+ALLOWED[0].encode()+b"(x=1):"),None,"UNSAFE_DEFAULT_")]
+           (body.replace(b"def "+ALLOWED[0].encode()+b"(x):",b"def "+ALLOWED[0].encode()+b"(x=eval(1)):"),None,"UNSAFE_DEFAULT_")]
     for raw,wrong,expected_error in cases:
         try: inventory(raw,wrong or hashlib.sha256(raw).hexdigest())
         except ValueError as ex: assert str(ex).startswith(expected_error),(ex,expected_error)
