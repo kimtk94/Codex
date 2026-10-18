@@ -9,7 +9,7 @@ def build(source,policy):
     if policy=="baseline": return source
     replacements=[
       (" seed(anchor);prev=dt.datetime.fromisoformat(first[0]);last=anchor",
-       " seed(anchor);prev=dt.datetime.fromisoformat(first[0]);last=anchor;prior_regime=None;policy_violations=0"),
+       " seed(anchor);prev=dt.datetime.fromisoformat(first[0]);last=anchor;prior_regime=None;policy_violations=0;gap_buy_violations=0"),
       ("   gaps+=1;cancel();seed(close)",
        """   gaps+=1;cancel();seed(close)
    # Gap candle cannot infer fills. Apply regime gate immediately after reseed.
@@ -17,7 +17,8 @@ def build(source,policy):
    if rg!='UP':
     for key in list(orders):
      if key[0]=='B':
-      v=orders.pop(key);krw+=v*(1+fee);hold_krw-=v*(1+fee)"""),
+      v=orders.pop(key);krw+=v*(1+fee);hold_krw-=v*(1+fee)
+   gap_buy_violations+=sum(1 for side,p in orders if side=='B') if rg!='UP' else 0"""),
       ("  prev=t\n  bs=[key for key in orders",
        """  prev=t
   rg=regimes.get(t.astimezone(kst).date(),'WARMUP')
@@ -35,11 +36,11 @@ def build(source,policy):
        """   for side,px,amount in pending:
     if side!='B' or rg=='UP':add(side,px,amount)"""),
       (" return dict(year=y,spacing_pct=",
-       " return dict(policy_violations=policy_violations,year=y,spacing_pct="),
+       " return dict(policy_violations=policy_violations,gap_buy_violations=gap_buy_violations,year=y,spacing_pct="),
     ]
-    # Inhibit buys does not cancel resting bids, but disables replacement buys.
-    if policy=="inhibit_new_buys":
-      replacements[2]=(replacements[2][0],replacements[2][1])
+    # On a data gap all prior orders are invalidated, so DOWN gap reseeding
+    # keeps only sells even for inhibit_new_buys. On contiguous bars existing
+    # buys remain live for that policy; other policies cancel them.
     generated=source
     for old,new in replacements:
       if generated.count(old)!=1:raise RuntimeError("SOURCE_PATCH_MISMATCH "+old[:64])
