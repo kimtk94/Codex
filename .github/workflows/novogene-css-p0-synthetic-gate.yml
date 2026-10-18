@@ -63,3 +63,4 @@ jobs:
           name: css-p0-synthetic-evidence
           path: ${{ runner.temp }}/css-evidence/result.json
           retention-days: 14
+# P0 synthetic CI revalidation trigger; no production access or credentials.
