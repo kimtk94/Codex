@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "default": "deny",
+  "actions": {
+    "research.analysis_qc": "allow",
+    "research.docs_web_update": "allow",
+    "github.code_pr": "allow",
+    "deployment.production": "allow_if_verified",
+    "css.email_send": "approval",
+    "kalman.backtest": "allow",
+    "kalman.live_order": "approval",
+    "kalman.risk_limit_change": "approval",
+    "database.schema_change": "approval"
+  },
+  "production_deploy_requirements": [
+    "ci_passed",
+    "security_checks_passed",
+    "artifact_verified",
+    "rollback_ready",
+    "environment_allowed"
+  ],
+  "protected_effects": [
+    "live_order",
+    "risk_limit_change",
+    "email_send",
+    "database_schema_change"
+  ]
+}
