@@ -1,0 +1,52 @@
+name: Research Input Handoff
+on:
+  workflow_dispatch:
+    inputs:
+      input_path:
+        description: 'Existing repository-relative sanitized TSV (never raw data)'
+        required: true
+        type: string
+      sha256:
+        description: 'Expected SHA-256 of the TSV'
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - 'automation_policy/research_handoff.py'
+      - 'automation_policy/test_research_handoff.py'
+      - '.github/workflows/research-input-handoff.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test fail-closed input gate
+        run: python3 -m unittest automation_policy.test_research_handoff -v
+      - name: Validate supplied input (dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_PATH: ${{ inputs.input_path }}
+          INPUT_SHA256: ${{ inputs.sha256 }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path(os.environ["INPUT_PATH"])
+          if p.is_absolute() or ".." in p.parts or not str(p).startswith("sanitized_inputs/"):
+              raise SystemExit("Only sanitized_inputs/ repository files allowed")
+          PY
+          python3 -m automation_policy.research_handoff --path "$INPUT_PATH" --sha256 "$INPUT_SHA256"
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-input-handoff
+          path: artifacts/research-handoff.json
+          if-no-files-found: ignore
+          retention-days: 14
