@@ -42,6 +42,8 @@ jobs:
         run: python3 -m automation_policy.next_actions
       - name: Run bounded unattended local executor
         run: python3 -m automation_policy.runner
+      - name: Emit safe next-run checkpoint metadata
+        run: python3 -m automation_policy.checkpoint_cli
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -56,5 +58,6 @@ jobs:
             artifacts/research-code-contract.json
             artifacts/harness-next-actions.json
             artifacts/runner-evidence.json
+            artifacts/checkpoint.json
           if-no-files-found: warn
           retention-days: 14
