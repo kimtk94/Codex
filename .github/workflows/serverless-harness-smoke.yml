@@ -40,6 +40,8 @@ jobs:
         run: python3 -m automation_policy.research_contract
       - name: Produce machine-readable next actions
         run: python3 -m automation_policy.next_actions
+      - name: Run bounded unattended local executor
+        run: python3 -m automation_policy.runner
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -53,5 +55,6 @@ jobs:
             artifacts/executor-result.json
             artifacts/research-code-contract.json
             artifacts/harness-next-actions.json
+            artifacts/runner-evidence.json
           if-no-files-found: warn
           retention-days: 14
