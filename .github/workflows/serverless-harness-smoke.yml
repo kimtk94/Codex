@@ -38,6 +38,8 @@ jobs:
         run: python3 -m automation_policy.execute_ci
       - name: Check actual IS V3 source contract
         run: python3 -m automation_policy.research_contract
+      - name: Produce machine-readable next actions
+        run: python3 -m automation_policy.next_actions
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,5 +52,6 @@ jobs:
             artifacts/qc-report.md
             artifacts/executor-result.json
             artifacts/research-code-contract.json
+            artifacts/harness-next-actions.json
           if-no-files-found: warn
           retention-days: 14
