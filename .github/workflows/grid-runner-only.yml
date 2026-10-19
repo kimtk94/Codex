@@ -1,0 +1,62 @@
+name: ETH Grid Runner-Only CI (No Server)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'smoke or full-year (full-year downloads ~15 months of public minute candles)'
+        required: true
+        type: choice
+        options: [smoke, full-year]
+        default: smoke
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/grid-runner-only.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  grid:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout isolated research branch (no live repository deployment)
+        uses: actions/checkout@v4
+        with:
+          ref: feat/rea-isolated-pilot-20261017
+          persist-credentials: false
+      - name: Select data window
+        id: mode
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.mode }}" = "full-year" ]; then
+            echo "mode=full-year" >> "$GITHUB_OUTPUT"
+            echo "start=2024-10-01T00:00:00Z" >> "$GITHUB_OUTPUT"
+            echo "end=2026-01-01T00:00:00Z" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=smoke" >> "$GITHUB_OUTPUT"
+            echo "start=2025-01-01T00:00:00Z" >> "$GITHUB_OUTPUT"
+            echo "end=2025-01-03T00:00:00Z" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download public Upbit 1m candles to ephemeral runner (no SSH)
+        run: |
+          python3 experiments/rea/grid_ci_upbit_collector.py --db "${{ runner.temp }}/upbit_ci_1m.sqlite3" --start "${{ steps.mode.outputs.start }}" --end "${{ steps.mode.outputs.end }}"
+      - name: Validate runner-only data and run research
+        run: |
+          if [ "${{ steps.mode.outputs.mode }}" = "full-year" ]; then
+            python3 experiments/rea/grid_regime_local_ci.py --db "${{ runner.temp }}/upbit_ci_1m.sqlite3" --year 2025 --output "${{ runner.temp }}/eth_regime_runner_2025.json"
+          else
+            python3 experiments/rea/grid_regime_local_ci.py --db "${{ runner.temp }}/upbit_ci_1m.sqlite3" --year 2025 --output "${{ runner.temp }}/eth_regime_runner_2025.json" --smoke
+          fi
+      - name: Upload aggregate research results, never SQLite
+        if: ${{ steps.mode.outputs.mode == 'full-year' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eth-regime-runner-only-2025
+          path: ${{ runner.temp }}/eth_regime_runner_2025.json
+          if-no-files-found: error
+          retention-days: 14
