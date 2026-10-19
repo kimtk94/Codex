@@ -1,0 +1,41 @@
+name: Automatic IS Research Input Intake
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '19 * * * *'
+  pull_request:
+    paths:
+      - 'automation_policy/auto_input.py'
+      - 'automation_policy/test_auto_input.py'
+      - '.github/workflows/is-auto-input.yml'
+permissions:
+  contents: read
+concurrency:
+  group: is-auto-input-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  intake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kimtk94/IS_Analysis_V3
+          path: research_source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test intake guards
+        run: python3 -m unittest automation_policy.test_auto_input -v
+      - name: Automatically inspect reviewed upstream manifest
+        run: python3 -m automation_policy.auto_input
+      - name: Save input status and batch plan
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: is-auto-input-evidence
+          path: artifacts/auto-input/**
+          if-no-files-found: warn
+          retention-days: 14
