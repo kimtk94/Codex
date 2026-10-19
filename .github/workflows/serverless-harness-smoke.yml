@@ -26,11 +26,15 @@ jobs:
         run: python3 -m unittest discover -s automation_policy -p 'test_*.py' -t . -v
       - name: Run isolated harness smoke
         run: python3 -m automation_policy.smoke
+      - name: Export planned DAG (no business execution)
+        run: python3 -m automation_policy.export_plan
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: serverless-policy-evidence
-          path: artifacts/automation-policy-smoke.json
+          path: |
+            artifacts/automation-policy-smoke.json
+            artifacts/harness-plan.json
           if-no-files-found: warn
           retention-days: 14
