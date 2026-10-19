@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "mode": "plan_only",
+  "steps": [
+    {
+      "id": "ckd-qc",
+      "action": "research.analysis_qc",
+      "executor": "not_connected",
+      "needs": []
+    },
+    {
+      "id": "ckd-docs",
+      "action": "research.docs_web_update",
+      "executor": "not_connected",
+      "needs": [
+        "ckd-qc"
+      ]
+    },
+    {
+      "id": "kalman-backtest",
+      "action": "kalman.backtest",
+      "executor": "not_connected",
+      "needs": [
+        "ckd-qc"
+      ]
+    }
+  ]
+}

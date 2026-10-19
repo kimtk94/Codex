@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "kind": "ckd_stage_qc",
+  "project": "CKD",
+  "source_commit": "0000000000000000000000000000000000000000",
+  "input_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "synthetic": true,
+  "qc_metrics": {
+    "example_count": 1
+  },
+  "checks": [
+    {
+      "name": "example_only",
+      "passed": true
+    }
+  ]
+}
