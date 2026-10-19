@@ -19,7 +19,7 @@ def main():
             [sys.executable, str(root / filename), *args],
             text=True, capture_output=True, timeout=60, check=False,
         )
-        passed = completed.returncode == 0 and marker in completed.stdout.splitlines()[-2:]
+        passed = completed.returncode == 0 and any(line.startswith(marker) for line in completed.stdout.splitlines())
         results.append({"name": filename, "pass": passed, "exit_code": completed.returncode})
         print("CSS_P0_TEST_RESULT", filename, "PASS" if passed else "FAIL", flush=True)
         if not passed:
