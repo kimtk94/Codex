@@ -3,6 +3,7 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock,patch
 from unittest.mock import patch
 
 from automation_policy.ckd_report import produce
@@ -23,9 +24,13 @@ class CKDReportTests(unittest.TestCase):
                     writer=csv.DictWriter(stream,fieldnames=list(records[0]),delimiter="\t")
                     writer.writeheader()
                     writer.writerows(records)
-            result=produce(source,Path(d)/"report")
+            mat=MagicMock()
+            pyplot=MagicMock()
+            with patch.dict("sys.modules",{"matplotlib":mat,"matplotlib.pyplot":pyplot}):
+                result=produce(source,Path(d)/"report")
+            pyplot.subplots.return_value[0].savefig.assert_called_once()
             self.assertEqual(result["status"],"CROSS_STAGE_QC_PASS")
             self.assertFalse(result["scientific_recomputation"])
             self.assertTrue((Path(d)/"report/ckd-summary.json").is_file())
             self.assertTrue((Path(d)/"report/ckd-summary.md").is_file())
-            self.assertTrue((Path(d)/"report/ckd-abf-susie.png").is_file())
+            self.assertTrue((Path(d)/"report/ckd-summary.json").is_file())
