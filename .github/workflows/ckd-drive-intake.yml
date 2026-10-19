@@ -1,0 +1,43 @@
+name: CKD Drive Readonly Intake
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '43 2 * * *'
+  pull_request:
+    paths:
+      - 'automation_policy/ckd_drive_intake.py'
+      - 'automation_policy/test_ckd_drive_intake.py'
+      - '.github/workflows/ckd-drive-intake.yml'
+permissions:
+  contents: read
+jobs:
+  intake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run intake guards
+        run: python3 -m unittest automation_policy.test_ckd_drive_intake automation_policy.test_ckd_coloc_qc -v
+      - name: Install bounded Google auth dependencies
+        if: github.event_name != 'pull_request'
+        run: python3 -m pip install 'google-auth>=2,<3' 'requests>=2,<3'
+      - name: Pull private approved Drive results and verify hashes
+        if: github.event_name != 'pull_request'
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          CKD_DRIVE_FILES_JSON: ${{ secrets.CKD_DRIVE_FILES_JSON }}
+        run: python3 -m automation_policy.ckd_drive_intake
+      - name: Remove private inputs before artifact upload
+        if: always()
+        run: python3 -c "import shutil;shutil.rmtree('artifacts/ckd-drive/inputs',ignore_errors=True)"
+      - name: Upload status only (no original research TSV)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ckd-drive-intake-status
+          path: artifacts/ckd-drive/status.json
+          if-no-files-found: ignore
+          retention-days: 14
