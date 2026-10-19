@@ -1,0 +1,33 @@
+name: Serverless Harness Policy Smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation_policy/**'
+      - '.github/workflows/serverless-harness-smoke.yml'
+permissions:
+  contents: read
+concurrency:
+  group: serverless-harness-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test policy and queue
+        run: python3 -m unittest discover -s automation_policy -p 'test_*.py' -t . -v
+      - name: Run isolated harness smoke
+        run: python3 -m automation_policy.smoke
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serverless-policy-evidence
+          path: artifacts/automation-policy-smoke.json
+          if-no-files-found: warn
+          retention-days: 14
