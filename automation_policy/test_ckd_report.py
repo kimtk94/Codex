@@ -28,6 +28,7 @@ class CKDReportTests(unittest.TestCase):
             pyplot=MagicMock()
             fig,ax=MagicMock(),MagicMock()
             pyplot.subplots.return_value=(fig,ax)
+            mat.pyplot=pyplot
             with patch.dict("sys.modules",{"matplotlib":mat,"matplotlib.pyplot":pyplot}):
                 result=produce(source,Path(d)/"report")
             fig.savefig.assert_called_once()
