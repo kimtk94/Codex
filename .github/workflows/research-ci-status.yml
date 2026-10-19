@@ -37,6 +37,8 @@ jobs:
           RESEARCH_SHA="$(git -C research_source rev-parse HEAD)"
           export RESEARCH_SHA
           python3 -m automation_policy.research_status
+      - name: Check research stage readiness (block absent data)
+        run: python3 -m automation_policy.research_stages
       - name: Archive report
         if: always()
         uses: actions/upload-artifact@v4
@@ -45,5 +47,6 @@ jobs:
           path: |
             artifacts/research-ci-status.json
             artifacts/research-ci-status.md
+            artifacts/research-stage-readiness.json
           if-no-files-found: warn
           retention-days: 30
