@@ -12,6 +12,12 @@ on:
       - css-upgrade/staging-20261014/test_canary_isolation_gate.py
       - css-upgrade/staging-20261014/canary_isolation_gate.py
       - css-upgrade/staging-20261014/selected_function_ast_admission.py
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/novogene-css-p0-synthetic-gate.yml
+      - css-upgrade/staging-20261014/**
   workflow_dispatch:
 permissions:
   contents: read
