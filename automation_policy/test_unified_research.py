@@ -13,7 +13,7 @@ class UnifiedResearchTests(unittest.TestCase):
             out = Path(tmp) / "out"
             with patch("automation_policy.unified_research.subprocess.run") as proc:
                 proc.return_value.returncode = 0
-                proc.return_value.stdout = "a"*40 + "\\n"
+                proc.return_value.stdout = "a"*40 + chr(10)
                 report = run(source,out)
             self.assertEqual(report["completed_stage_count"],1)
             self.assertFalse(report["real_analysis"]["mr"])
