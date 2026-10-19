@@ -26,9 +26,11 @@ class CKDReportTests(unittest.TestCase):
                     writer.writerows(records)
             mat=MagicMock()
             pyplot=MagicMock()
+            fig,ax=MagicMock(),MagicMock()
+            pyplot.subplots.return_value=(fig,ax)
             with patch.dict("sys.modules",{"matplotlib":mat,"matplotlib.pyplot":pyplot}):
                 result=produce(source,Path(d)/"report")
-            pyplot.subplots.return_value[0].savefig.assert_called_once()
+            fig.savefig.assert_called_once()
             self.assertEqual(result["status"],"CROSS_STAGE_QC_PASS")
             self.assertFalse(result["scientific_recomputation"])
             self.assertTrue((Path(d)/"report/ckd-summary.json").is_file())
