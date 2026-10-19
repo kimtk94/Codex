@@ -3,10 +3,13 @@ name: Novogene CSS 1200-Record Large SIF Regression
 on:
   push:
     branches:
-      - 'audit/novogene-css-sif-staging-20261014'
+      - 'audit/css-g16-boundary-20261016'
     paths:
       - '.github/workflows/novogene-css-large-sif-regression.yml'
       - 'css-upgrade/staging-20261014/large_sif_workflow_regression.py'
+      - 'css-upgrade/staging-20261014/g16_private_sif_bwrap.sh'
+      - 'css-upgrade/staging-20261014/g12_sif_action_handoff.py'
+      - 'css-upgrade/staging-20261014/real_action_review_generator_regression.py'
       - 'css-upgrade/staging-20261014/novogene_sif_manual_override_collision.patch'
       - 'css-upgrade/staging-20261014/novogene_sif_atomic_auto_skip.patch'
       - 'css-upgrade/staging-20261014/novogene_css_hold_replay_guard.patch'
@@ -49,31 +52,38 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
           ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
-      - name: Run 1200-record real functions and main section against all six patches
+      - name: Run staged SIF real functions in private rootless Bubblewrap
         env:
           SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
           SSH_USER: ${{ secrets.SERVER_SSH_USER }}
         run: |
-          PREFIX="/tmp/css-large-six-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f ${PREFIX}.py ${PREFIX}.p1 ${PREFIX}.p2 ${PREFIX}.p3 ${PREFIX}.p4 ${PREFIX}.p5 ${PREFIX}.p6 ${PREFIX}.p7 ${PREFIX}.p8" >/dev/null 2>&1 || true' EXIT
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "css-upgrade/staging-20261014/novogene_sif_history_candidate.patch" "$SSH_USER@$SSH_HOST:${PREFIX}.p1"
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "css-upgrade/staging-20261014/novogene_sif_manual_override_collision.patch" "$SSH_USER@$SSH_HOST:${PREFIX}.p2"
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "css-upgrade/staging-20261014/novogene_sif_portfolio_visibility.patch" "$SSH_USER@$SSH_HOST:${PREFIX}.p3"
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "css-upgrade/staging-20261014/novogene_sif_independent_actions.patch" "$SSH_USER@$SSH_HOST:${PREFIX}.p4"
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "css-upgrade/staging-20261014/novogene_sif_atomic_auto_skip.patch" "$SSH_USER@$SSH_HOST:${PREFIX}.p5"
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "css-upgrade/staging-20261014/novogene_css_hold_replay_guard.patch" "$SSH_USER@$SSH_HOST:${PREFIX}.p6"
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "css-upgrade/staging-20261014/novogene_css_one_shot_receipts.patch" "$SSH_USER@$SSH_HOST:${PREFIX}.p7"
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "css-upgrade/staging-20261014/novogene_css_snapshot_conflict_guard.patch" "$SSH_USER@$SSH_HOST:${PREFIX}.p8"
-          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
-            "css-upgrade/staging-20261014/large_sif_workflow_regression.py" "$SSH_USER@$SSH_HOST:${PREFIX}.py"
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
-            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" \
-            "/home/taehoon/services/novogene-css/.venv/bin/python ${PREFIX}.py --source /home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py --patch ${PREFIX}.p1 --patch ${PREFIX}.p2 --patch ${PREFIX}.p3 --patch ${PREFIX}.p4 --patch ${PREFIX}.p5 --patch ${PREFIX}.p6 --patch ${PREFIX}.p7 --patch ${PREFIX}.p8"
+          set -euo pipefail
+          REMOTE_DIR="/tmp/css-sif-bwrap-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_ARGS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key")
+          cleanup() {
+            ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
+              "rm -f '$REMOTE_DIR/large_sif_workflow_regression.py' '$REMOTE_DIR/g12_sif_action_handoff.py' '$REMOTE_DIR/real_action_review_generator_regression.py' '$REMOTE_DIR/g16_private_sif_bwrap.sh' '$REMOTE_DIR/'*.patch; rmdir '$REMOTE_DIR' 2>/dev/null || true" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" "mkdir -m 700 -p '$REMOTE_DIR'"
+          scp -q "${SSH_ARGS[@]}" \
+            css-upgrade/staging-20261014/large_sif_workflow_regression.py \
+            css-upgrade/staging-20261014/g12_sif_action_handoff.py \
+            css-upgrade/staging-20261014/real_action_review_generator_regression.py \
+            css-upgrade/staging-20261014/g16_private_sif_bwrap.sh \
+            css-upgrade/staging-20261014/novogene_sif_history_candidate.patch \
+            css-upgrade/staging-20261014/novogene_sif_manual_override_collision.patch \
+            css-upgrade/staging-20261014/novogene_sif_portfolio_visibility.patch \
+            css-upgrade/staging-20261014/novogene_sif_independent_actions.patch \
+            css-upgrade/staging-20261014/novogene_sif_atomic_auto_skip.patch \
+            css-upgrade/staging-20261014/novogene_css_hold_replay_guard.patch \
+            css-upgrade/staging-20261014/novogene_css_one_shot_receipts.patch \
+            css-upgrade/staging-20261014/novogene_css_snapshot_conflict_guard.patch \
+            "$SSH_USER@$SSH_HOST:$REMOTE_DIR/"
+          ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
+            "bash '$REMOTE_DIR/g16_private_sif_bwrap.sh' '$REMOTE_DIR' large_sif_workflow_regression.py"
+          ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
+            "bash '$REMOTE_DIR/g16_private_sif_bwrap.sh' '$REMOTE_DIR' g12_sif_action_handoff.py"
+          echo "G12_SCOPED_REAL_FUNCTION_HANDOFF_BWRAP_COMPLETE"
+          echo "G12_FULL_MAIN_REMAINS_BLOCKED"
+          echo "G16_STAGED_SIF_BWRAP_JOB_COMPLETE"

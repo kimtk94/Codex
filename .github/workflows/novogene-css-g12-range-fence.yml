@@ -1,0 +1,59 @@
+name: Novogene CSS G12 Protected Cell Range Fence (Staging)
+
+on:
+  push:
+    branches:
+      - audit/css-g16-boundary-20261016
+    paths:
+      - 'css-upgrade/staging-20261014/g12_sheet_range_fence.py'
+      - 'css-upgrade/staging-20261014/test_g12_sheet_range_fence.py'
+      - 'css-upgrade/staging-20261014/g12_scoped_writer.py'
+      - 'css-upgrade/staging-20261014/test_g12_scoped_writer.py'
+      - 'css-upgrade/staging-20261014/g12_writer_coverage_gate.py'
+      - 'css-upgrade/staging-20261014/test_g12_writer_coverage_gate.py'
+      - 'css-upgrade/staging-20261014/g12_css_ast_guard_v2.py'
+      - 'css-upgrade/staging-20261014/test_g12_css_ast_guard_v2.py'
+      - 'css-upgrade/staging-20261014/g12_v2_receiver_provenance.py'
+      - 'css-upgrade/staging-20261014/test_g12_v2_receiver_provenance.py'
+      - 'css-upgrade/staging-20261014/g12_dynamic_dispatch_audit.py'
+      - 'css-upgrade/staging-20261014/test_g12_dynamic_dispatch_audit.py'
+      - 'css-upgrade/staging-20261014/g12_v2_review_queue.py'
+      - 'css-upgrade/staging-20261014/test_g12_v2_review_queue.py'
+      - '.github/workflows/novogene-css-g12-range-fence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protected-range:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Synthetic live-schema range and field-mask regression
+        run: |
+          python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_sheet_range_fence.py -v
+      - name: Synthetic gspread-shaped writer and edit-race tests
+        run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_scoped_writer.py -v
+      - name: Source-pinned G12 callsite coverage gate (expected to block release)
+        run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_writer_coverage_gate.py -v
+      - name: G12 V2 receiver single-evaluation and adversarial regression
+        run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_css_ast_guard_v2.py -v
+      - name: G12 receiver provenance, alias, parameter and rebind synthetic tests
+        run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_v2_receiver_provenance.py -v
+      - name: G12 reflective dispatch and dynamic Sheet sink audit regressions
+        run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_dynamic_dispatch_audit.py -v
+      - name: G12 complete unknown-writer line queue tests
+        run: python3 -m unittest discover -s css-upgrade/staging-20261014 -p test_g12_v2_review_queue.py -v
+      - name: Confirm source-only release boundary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          code = Path('css-upgrade/staging-20261014/g12_sheet_range_fence.py').read_text()
+          for forbidden in ('import gspread', 'google.auth', 'sqlite3.connect', 'subprocess.run'):
+              assert forbidden not in code
+          print('G12_POLICY_STAGING_ONLY_NO_LIVE_IO')
+          PY

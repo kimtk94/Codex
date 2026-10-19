@@ -1,0 +1,30 @@
+name: Novogene CSS P0 Readiness Gate (Synthetic Only)
+
+on:
+  push:
+    branches:
+      - audit/css-g16-boundary-20261016
+    paths:
+      - 'css-upgrade/staging-20261014/css_release_readiness.py'
+      - 'css-upgrade/staging-20261014/test_css_release_readiness.py'
+      - 'css-upgrade/staging-20261014/P0_RELEASE_READINESS.md'
+      - '.github/workflows/novogene-css-p0-readiness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Standard library regression tests (no production secrets)
+        working-directory: css-upgrade/staging-20261014
+        run: python3 -m unittest -v test_css_release_readiness.py
+      - name: Confirm test evidence fails closed
+        working-directory: css-upgrade/staging-20261014
+        run: python3 css_release_readiness.py --synthetic-demo --expect-blocked

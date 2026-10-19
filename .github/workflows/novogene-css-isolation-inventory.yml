@@ -3,9 +3,10 @@ name: Novogene CSS Isolation Boundary AST Audit
 on:
   push:
     branches:
-      - 'audit/novogene-css-sif-staging-20261014'
+      - 'audit/css-g16-boundary-20261016'
     paths:
       - '.github/workflows/novogene-css-isolation-inventory.yml'
+      - 'css-upgrade/staging-20261014/g16_manual_write_static_audit.py'
 
 permissions:
   contents: read
@@ -39,7 +40,29 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
           ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
-      - name: Read-only production source AST isolation inventory
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run aggregate-only AST sink audit over existing SSH
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          python3 -m py_compile css-upgrade/staging-20261014/g16_static_sink_inventory.py
+          python3 -m unittest discover \
+            -s css-upgrade/staging-20261014 \
+            -p test_g16_static_sink_inventory.py -v
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'G16_AST_AUDIT_READONLY=1 python3 -' \
+            < css-upgrade/staging-20261014/g16_static_sink_inventory.py
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'G16_AST_AUDIT_READONLY=1 python3 -' \
+            < css-upgrade/staging-20261014/g16_manual_write_static_audit.py
+          echo "G16_PRODUCTION_AST_ONLY_NO_IMPORT_NO_MAIL_OR_DB_WRITES"
+
+      - name: Check private server container prerequisites (read-only)
         env:
           SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
           SSH_USER: ${{ secrets.SERVER_SSH_USER }}
@@ -47,79 +70,103 @@ jobs:
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
             -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
             "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
-          import ast
-          import collections
-          import hashlib
-          from pathlib import Path
-          app=Path('/home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py')
-          expected='a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840'
-          src=app.read_bytes()
-          if hashlib.sha256(src).hexdigest()!=expected:
-              raise SystemExit('SOURCE_SHA_CHANGED_FAIL_CLOSED')
-          tree=ast.parse(src)
-          main=next((n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main'),None)
-          if main is None:
-              raise SystemExit('NO_MAIN_FUNCTION')
-          top_calls=[]
-          for stmt in tree.body:
-              if isinstance(stmt,ast.If) and any(isinstance(n,ast.Name) and n.id=='__name__' for n in ast.walk(stmt.test)):
-                  continue
-              if isinstance(stmt,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)):
-                  continue
-              for n in ast.walk(stmt):
-                  if isinstance(n,ast.Call):
-                      top_calls.append(n)
-          def callname(node):
-              try:
-                  return ast.unparse(node.func)
-              except Exception:
-                  return ''
-          counts=collections.Counter(callname(n) for n in ast.walk(main) if isinstance(n,ast.Call))
-          categories={
-              'spreadsheet_output':('overwrite_dataframe_if_changed','get_or_create_worksheets','open_configured_spreadsheet','sync_ledger_sheet_from_db','apply_operational_sheet_formats','publish_system_health_best_effort'),
-              'database_mutation':('connect_db','prepare_runtime_db','sync_contract_sif_skip_actions_from_frames','start_system_run','set_meta','finalize_system_run','commit_mail_batch','sync_overview_prepayment_snoozes'),
-              'mail_ingest_or_sync':('get_incremental_uid_rows','commit_mail_batch','sync_reply_tracking_from_source','sync_sent_contact_index'),
-              'backup_files_or_logs':('backup_runtime_db','save_json','initialize_drive_runtime_layout'),
-              'authentication_and_network':('gspread.authorize','auth.authenticate_user','open_configured_spreadsheet')
-          }
-          print('AUDIT_TYPE', 'NOVOGENE_CSS_AST_NO_EXECUTION')
-          print('SOURCE_SHA_VERIFIED',True)
-          print('MAIN_LINES',main.end_lineno-main.lineno+1)
-          print('TOTAL_MAIN_CALLS',sum(counts.values()))
-          print('UNIQUE_MAIN_CALLEES',len(counts))
-          print('TOP_LEVEL_CALL_EXPRESSIONS',len(top_calls))
-          for key,indicators in categories.items():
-              matches={k:counts[k] for k in indicators if counts[k]}
-              print('CATEGORY',key,'COUNT',sum(matches.values()),'MATCHES',','.join(sorted(matches)))
-          print('OUTPUT_DATAFRAME_WRITES',counts['overwrite_dataframe_if_changed'])
-          print('FAILURE_PATH_WRITES_PRESENT',all(counts[k]>0 for k in ['finalize_system_run','backup_runtime_db','publish_system_health_best_effort']))
-          print('MAIN_CAN_RUN_UNSANDBOXED',False)
-          # Top-level imports also need isolation, because module import can be active.
-          top_names=sorted(set(callname(n) for n in top_calls))
-          print('TOP_LEVEL_PIP_INSTALL_CALL', 'subprocess.run' in top_names)
-          print('TOP_LEVEL_COLAB_IMPORT', 'google.colab' in src.decode('utf-8',errors='replace'))
-          print('TOP_LEVEL_CALL_NAMES', ','.join(top_names)[:1500])
-          collector=app.parent/'Novogene_Mail_Collector_server.py'
-          if not collector.is_file():
-              collector=app.parent/'Novogene_Mail_Collector.py'
-          if collector.is_file():
-              collector_ast=ast.parse(collector.read_bytes())
-              collector_guard=any(isinstance(n,ast.If) and
-                  any(isinstance(z,ast.Name) and z.id=='__name__' for z in ast.walk(n.test))
-                  for n in collector_ast.body)
-              collector_calls=[]
-              for stmt in collector_ast.body:
-                  if isinstance(stmt,(ast.FunctionDef,ast.ClassDef,ast.AsyncFunctionDef)):
-                      continue
-                  for node in ast.walk(stmt):
-                      if isinstance(node,ast.Call):
-                          collector_calls.append(callname(node))
-              risky=['sqlite3.connect','gspread.authorize','subprocess.run','gc.open_by_key','publish_mail_state_to_drive']
-              found=sorted(x for x in risky if x in collector_calls)
-              print('COLLECTOR_TOP_LEVEL_CALL_COUNT',len(collector_calls))
-              print('COLLECTOR_NAME_GUARD_PRESENT',collector_guard)
-              print('COLLECTOR_RISK_CALLS',','.join(found))
-          else:
-              print('COLLECTOR_DISCOVERY_MISSING', True)
-          print('NO_PRODUCTION_CODE_OR_DB_WRITTEN',True)
+          import shutil,subprocess
+          binary=shutil.which('docker')
+          print('PRIVATE_DOCKER_BINARY_PRESENT',bool(binary))
+          if binary:
+              test=subprocess.run([binary,'info','--format','{{.ServerVersion}}'],capture_output=True,text=True,timeout=10)
+              print('PRIVATE_DOCKER_DAEMON_READABLE',test.returncode==0)
+              if test.returncode==0:
+                  for image in ('python:3.11-slim','python:3.12-slim'):
+                      inspect=subprocess.run([binary,'image','inspect',image,'--format','{{.Id}}'],capture_output=True,text=True,timeout=10)
+                      print('PRIVATE_DOCKER_LOCAL_IMAGE_'+image.replace(':','_').replace('.','_').replace('-','_'),inspect.returncode==0)
+          print('NO_IMAGES_PULL_NO_CONTAINER_RUN_NO_SOURCE_EXECUTION')
           PY
+
+      - name: Inspect non-Docker private isolation alternatives (read-only)
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import shutil, subprocess
+          from pathlib import Path
+          for name in ('podman','bwrap','bubblewrap','unshare','systemd-run','chroot'):
+              print('PRIVATE_SANDBOX_BINARY_'+name.upper().replace('-','_'),bool(shutil.which(name)))
+          for path,label in (
+              ('/proc/sys/kernel/unprivileged_userns_clone','UNPRIVILEGED_USERNS_ENABLED'),
+              ('/proc/sys/user/max_user_namespaces','USER_NAMESPACE_QUOTA_POSITIVE'),
+          ):
+              try:
+                  content=Path(path).read_text().strip()
+                  print('PRIVATE_'+label,(content=='1' if 'enabled' in label.lower() else int(content)>0))
+              except Exception:
+                  print('PRIVATE_'+label,'UNKNOWN')
+          print('NO_SANDBOX_OR_SOURCE_EXECUTED')
+          PY
+
+      - name: Smoke-test private Bubblewrap isolation with harmless Python (no CSS)
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import os, subprocess, shutil
+          if not shutil.which('bwrap'):
+              print('G16_PRIVATE_BWRAP_SMOKE_SKIPPED_NO_BINARY')
+              raise SystemExit(0)
+          argv=[
+            'bwrap','--unshare-user','--unshare-net','--unshare-pid',
+            '--unshare-ipc','--unshare-uts','--new-session',
+            '--die-with-parent',
+            '--ro-bind','/usr','/usr','--ro-bind','/lib','/lib',
+            '--ro-bind','/lib64','/lib64','--ro-bind','/bin','/bin',
+            '--dev','/dev','--tmpfs','/tmp','--clearenv',
+            '--setenv','G16_SYNTHETIC_ONLY','1',
+            '/usr/bin/python3','-c',
+            "import os,socket; assert not os.path.exists('/home/taehoon'); s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); denied=False;\ntry: s.connect(('198.51.100.1',9))\nexcept OSError: denied=True\ns.close(); assert denied; print('G16_PRIVATE_BWRAP_SANDBOX_SMOKE_PASS')"
+          ]
+          proc=subprocess.run(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=15)
+          print('G16_PRIVATE_BWRAP_SMOKE_RETURN_CODE',proc.returncode)
+          if 'G16_PRIVATE_BWRAP_SANDBOX_SMOKE_PASS' in proc.stdout:
+              print('G16_PRIVATE_BWRAP_ISOLATION_AVAILABLE',True)
+          else:
+              print('G16_PRIVATE_BWRAP_ISOLATION_AVAILABLE',False)
+              print('G16_NO_CSS_TEST_DUE_TO_SANDBOX_UNAVAILABLE')
+          print('G16_NO_CSS_SOURCE_IMPORTED_OR_EXECUTED')
+          PY
+
+      - name: Run allowlisted real pure helpers in private Bubblewrap with synthetic mock
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          set -eu
+          REMOTE_DIR="/tmp/css-g16-real-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SSH_ARGS=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key")
+          ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" "mkdir -m 700 -p '$REMOTE_DIR'"
+          cleanup() {
+            ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
+              "rm -f '$REMOTE_DIR/g16_private_real_helper_bridge.py' '$REMOTE_DIR/g16_synthetic_pipeline.py' '$REMOTE_DIR/g16_mock_ports.py'; rmdir '$REMOTE_DIR' 2>/dev/null || true" || true
+          }
+          trap cleanup EXIT
+          scp -q "${SSH_ARGS[@]}" \
+            css-upgrade/staging-20261014/g16_private_real_helper_bridge.py \
+            css-upgrade/staging-20261014/g16_synthetic_pipeline.py \
+            css-upgrade/staging-20261014/g16_mock_ports.py \
+            "$SSH_USER@$SSH_HOST:$REMOTE_DIR/"
+          ssh "${SSH_ARGS[@]}" "$SSH_USER@$SSH_HOST" \
+            "bwrap --unshare-user --unshare-net --unshare-pid --unshare-ipc --unshare-uts \
+              --new-session --die-with-parent \
+              --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --ro-bind /bin /bin \
+              --dev /dev --tmpfs /tmp \
+              --ro-bind '$REMOTE_DIR' /mock \
+              --ro-bind /home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py /private/css.py \
+              --clearenv --setenv G16_SYNTHETIC_ONLY 1 --setenv PYTHONPATH /mock \
+              /usr/bin/python3 /mock/g16_private_real_helper_bridge.py"
+          echo "G16_PRIVATE_BWRAP_REAL_HELPER_TEST_FINISHED"
+          echo "G12_FULL_MAIN_NOT_EXECUTED"
