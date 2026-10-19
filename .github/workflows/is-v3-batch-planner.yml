@@ -1,0 +1,59 @@
+name: IS V3 Actual Batch Planner
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_path:
+        description: 'Committed non-sensitive manifest under sanitized_inputs/'
+        required: true
+        type: string
+      manifest_sha256:
+        description: 'Expected manifest SHA256'
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - 'automation_policy/is_batch_executor.py'
+      - '.github/workflows/is-v3-batch-planner.yml'
+permissions:
+  contents: read
+jobs:
+  batch-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kimtk94/IS_Analysis_V3
+          path: research_source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check research policy
+        run: python3 -m automation_policy.gate '{"action":"research.analysis_qc"}'
+      - name: Enforce sanitized manifest path
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_PATH: ${{ inputs.manifest_path }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path(os.environ['INPUT_PATH'])
+          if p.is_absolute() or '..' in p.parts or not str(p).startswith('sanitized_inputs/'):
+              raise SystemExit('Rejected unsafe manifest path')
+          PY
+      - name: Run upstream analysis planning function on verified manifest
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_PATH: ${{ inputs.manifest_path }}
+          EXPECTED_SHA: ${{ inputs.manifest_sha256 }}
+        run: python3 -m automation_policy.is_batch_executor --source research_source --manifest "$INPUT_PATH" --sha256 "$EXPECTED_SHA"
+      - name: Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: is-v3-actual-batch-plan
+          path: artifacts/is-v3-batch-plan.json
+          if-no-files-found: ignore
