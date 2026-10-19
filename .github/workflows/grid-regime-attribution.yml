@@ -1,10 +1,6 @@
 name: Grid Regime Four-Arm Attribution (Read Only)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'experiments/rea/TRIGGER_EXPOSURE_ONCE.md'
   workflow_dispatch:
 
 permissions:
@@ -12,14 +8,12 @@ permissions:
 
 jobs:
   research:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/rea-isolated-pilot-20261017'
+    if: github.ref == 'refs/heads/feat/rea-isolated-pilot-20261017'
     runs-on: ubuntu-24.04
     environment: TaehoonServer
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: feat/rea-isolated-pilot-20261017
       - name: Compare 2025 four causal regime policies on server read-only data
         env:
           SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
