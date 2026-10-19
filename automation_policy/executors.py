@@ -28,4 +28,4 @@ def create_qc_report(workdir: Path) -> dict:
     (workdir / "qc-report.md").write_text(text)
     return {"report": "qc-report.md", "verified_input": True}
 
-EXECUTORS = {"plan-policy-integrity": run_qc, "qc-report": create_qc}
+EXECUTORS = {"plan-policy-integrity": run_qc, "qc-report": create_qc_report}
