@@ -28,7 +28,7 @@ jobs:
           repository: kimtk94/IS_Analysis_V3
           path: research_source
           persist-credentials: false
-      - name: Test policy and queue
+      - name: Test policy, queue and sanitized research evidence contracts
         run: python3 -m unittest discover -s automation_policy -p 'test_*.py' -t . -v
       - name: Run isolated harness smoke
         run: python3 -m automation_policy.smoke
