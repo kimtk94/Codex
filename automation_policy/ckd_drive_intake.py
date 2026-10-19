@@ -48,9 +48,10 @@ def main():
     output=Path("artifacts/ckd-drive")
     output.mkdir(parents=True,exist_ok=True)
     credential=os.environ.get("CKD_DRIVE_SA_JSON","")
-    manifest=os.environ.get("CKD_DRIVE_FILES_JSON","")
-    if not credential or not manifest:
-        status={"status":"BLOCKED_EXTERNAL","reason":"DRIVE_READONLY_CREDENTIALS_OR_MANIFEST_MISSING","scientific_analysis_executed":False}
+    manifest_path=Path(__file__).with_name("ckd_drive_files.lock.json")
+    manifest=manifest_path.read_text(encoding="utf-8")
+    if not credential:
+        status={"status":"BLOCKED_EXTERNAL","reason":"DRIVE_READONLY_CREDENTIALS_MISSING","scientific_analysis_executed":False}
         (output/"status.json").write_text(json.dumps(status,indent=2)+"\n")
         print(json.dumps(status))
         return

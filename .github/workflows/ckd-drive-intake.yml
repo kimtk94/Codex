@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - 'automation_policy/ckd_drive_intake.py'
+      - 'automation_policy/ckd_drive_files.lock.json'
       - 'automation_policy/test_ckd_drive_intake.py'
       - '.github/workflows/ckd-drive-intake.yml'
 permissions:
@@ -28,7 +29,6 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
-          CKD_DRIVE_FILES_JSON: ${{ secrets.CKD_DRIVE_FILES_JSON }}
         run: python3 -m automation_policy.ckd_drive_intake
       - name: Remove private inputs before artifact upload
         if: always()
