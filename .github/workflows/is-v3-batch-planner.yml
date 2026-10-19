@@ -58,7 +58,7 @@ jobs:
           import hashlib, subprocess
           from pathlib import Path
           p=Path('/tmp/is-v3-fixture/paired.tsv')
-          p.write_text('gene\\tancestry\\tsource_url\\nIDO1\\tEUR\\tfile:///synthetic1\\nIDO1\\tEAS\\tfile:///synthetic2\\n')
+          p.write_text(chr(9).join(['gene','ancestry','source_url'])+chr(10)+chr(10).join([chr(9).join(['IDO1','EUR','file:///synthetic1']),chr(9).join(['IDO1','EAS','file:///synthetic2'])])+chr(10))
           digest=hashlib.sha256(p.read_bytes()).hexdigest()
           subprocess.run(['python3','-m','automation_policy.is_batch_executor','--source','research_source','--manifest',str(p),'--sha256',digest],check=True)
           PY
