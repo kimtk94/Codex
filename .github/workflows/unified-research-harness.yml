@@ -1,0 +1,43 @@
+name: Unified IS CKD Research Harness
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '29 */3 * * *'
+  pull_request:
+    paths:
+      - 'automation_policy/unified_research.py'
+      - 'automation_policy/test_unified_research.py'
+      - '.github/workflows/unified-research-harness.yml'
+permissions:
+  contents: read
+concurrency:
+  group: unified-research-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kimtk94/IS_Analysis_V3
+          path: research_source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Enforce unattended research policy
+        run: python3 -m automation_policy.gate '{"action":"research.analysis_qc"}'
+      - name: Validate unified research safety tests
+        run: python3 -m unittest automation_policy.test_unified_research automation_policy.test_auto_input -v
+      - name: Run automatic input + upstream batch + stage gating + report
+        run: python3 -m automation_policy.unified_research
+      - name: Archive verified results and blocked-stage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unified-is-ckd-evidence
+          path: artifacts/unified-research/**
+          if-no-files-found: warn
+          retention-days: 30
