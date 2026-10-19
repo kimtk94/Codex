@@ -1,0 +1,23 @@
+name: Automation Policy Gate Tests
+on:
+  pull_request:
+    paths:
+      - 'automation_policy/**'
+      - '.github/workflows/automation-policy-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Policy unit tests
+        run: python3 -m unittest automation_policy.test_gate -v
+      - name: LIVE order must be denied
+        run: |
+          python3 -m automation_policy.gate '{"action":"kalman.live_order"}' && exit 1 || test "$?" -eq 3
