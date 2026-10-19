@@ -1,0 +1,41 @@
+name: IS V3 Research Regression CI
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/is-v3-research-regression.yml'
+permissions:
+  contents: read
+jobs:
+  research-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout orchestrator policy
+        uses: actions/checkout@v4
+      - name: Checkout research source
+        uses: actions/checkout@v4
+        with:
+          repository: kimtk94/IS_Analysis_V3
+          path: research_source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check fail-closed research permission
+        run: python3 -m automation_policy.gate '{"action":"research.analysis_qc"}'
+      - name: Compile research modules
+        run: python3 -m compileall -q research_source/scripts research_source/workflow
+      - name: Execute upstream research fixture regression tests
+        working-directory: research_source
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Verify upstream runner contract
+        run: python3 -m automation_policy.research_contract
+      - name: Store executable research verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: is-v3-regression-evidence
+          path: artifacts/research-code-contract.json
+          if-no-files-found: warn
+          retention-days: 14
