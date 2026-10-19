@@ -4,6 +4,7 @@ Never follows source URLs, downloads raw data, or marks missing input as complet
 import argparse
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 from .is_batch_executor import execute
 
@@ -15,7 +16,9 @@ ALLOWED_PATHS=(
 
 def ingest(source:Path, output:Path):
     output.mkdir(parents=True,exist_ok=True)
-    evidence={"source":"IS_Analysis_V3","source_kind":"git_checkout",
+    proc=subprocess.run(['git','-C',str(source),'rev-parse','HEAD'],capture_output=True,text=True,check=False)
+    source_commit=proc.stdout.strip() if proc.returncode==0 else None
+    evidence={"source_commit":source_commit,"source":"IS_Analysis_V3","source_kind":"git_checkout",
               "input_discovered":False,"analysis_executed":False,
               "state":"BLOCKED_EXTERNAL","reason":"REVIEWED_MANIFEST_NOT_FOUND"}
     for relative in ALLOWED_PATHS:
@@ -35,6 +38,8 @@ def ingest(source:Path, output:Path):
                          "state":"COMPUTATION_COMPLETE","reason":"UPSTREAM_BATCH_PLAN_READY",
                          "input_repository_path":relative,"input_sha256":digest,
                          "paired_gene_count":result["paired_gene_count"],
+                         "batch_count":len(result["batches"]),
+                         "batch_plan_sha256":hashlib.sha256((output/"is-v3-batch-plan.json").read_bytes()).hexdigest(),
                          "scientific_analysis_completed":False})
         break
     (output/"auto-input-status.json").write_text(json.dumps(evidence,indent=2)+"\n")
