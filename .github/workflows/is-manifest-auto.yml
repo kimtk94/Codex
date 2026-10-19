@@ -1,0 +1,47 @@
+name: Automated IS Manifest Discovery
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '11 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'sanitized_inputs/**'
+      - 'automation_policy/discover_is.py'
+      - '.github/workflows/is-manifest-auto.yml'
+  pull_request:
+    paths:
+      - 'automation_policy/discover_is.py'
+      - 'automation_policy/test_discover_is.py'
+      - '.github/workflows/is-manifest-auto.yml'
+permissions:
+  contents: read
+concurrency:
+  group: is-manifest-auto-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  discover-and-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kimtk94/IS_Analysis_V3
+          path: research_source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify discovery unit tests
+        run: python3 -m unittest automation_policy.test_discover_is -v
+      - name: Discover and compute available manifests
+        run: python3 -m automation_policy.discover_is
+      - name: Upload discovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: is-manifest-discovery
+          path: artifacts/research-auto/**
+          if-no-files-found: warn
+          retention-days: 14
