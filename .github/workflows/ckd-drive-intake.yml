@@ -10,6 +10,7 @@ on:
       - 'automation_policy/test_ckd_drive_intake.py'
       - '.github/workflows/ckd-drive-intake.yml'
       - 'automation_policy/ckd_report.py'
+      - 'automation_policy/test_ckd_report.py'
 permissions:
   contents: read
 jobs:
@@ -22,8 +23,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Run intake guards
-        run: python3 -m unittest automation_policy.test_ckd_drive_intake automation_policy.test_ckd_coloc_qc -v
+      - name: Run intake and report regression tests
+        run: |
+          python3 -m pip install 'matplotlib>=3.8,<4'
+          python3 -m unittest automation_policy.test_ckd_drive_intake automation_policy.test_ckd_coloc_qc automation_policy.test_ckd_report -v
       - name: Install bounded Google auth dependencies
         if: github.event_name != 'pull_request'
         run: python3 -m pip install 'google-auth>=2,<3' 'requests>=2,<3'
@@ -35,8 +38,7 @@ jobs:
       - name: Generate cross-stage QC report and figure
         if: github.event_name != 'pull_request'
         run: |
-          python3 -m pip install 'matplotlib>=3.8,<4'
-          if [ -d artifacts/ckd-drive/inputs ]; then python3 -m automation_policy.ckd_report; fi
+          python3 -m automation_policy.ckd_report
       - name: Remove private inputs before artifact upload
         if: always()
         run: python3 -c "import shutil;shutil.rmtree('artifacts/ckd-drive/inputs',ignore_errors=True)"

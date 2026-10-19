@@ -54,7 +54,7 @@ def main():
         status={"status":"BLOCKED_EXTERNAL","reason":"DRIVE_READONLY_CREDENTIALS_MISSING","scientific_analysis_executed":False}
         (output/"status.json").write_text(json.dumps(status,indent=2)+"\n")
         print(json.dumps(status))
-        return
+        raise SystemExit(2)
     from google.oauth2 import service_account
     from google.auth.transport.requests import AuthorizedSession
     creds=service_account.Credentials.from_service_account_info(json.loads(credential),scopes=["https://www.googleapis.com/auth/drive.readonly"])
