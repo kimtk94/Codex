@@ -9,6 +9,7 @@ on:
       - '.github/workflows/serverless-harness-smoke.yml'
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: serverless-harness-smoke-${{ github.ref }}
   cancel-in-progress: true
@@ -42,6 +43,31 @@ jobs:
         run: python3 -m automation_policy.next_actions
       - name: Run bounded unattended local executor
         run: python3 -m automation_policy.runner
+      - name: Inspect previous successful artifact metadata (best effort)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          mkdir -p previous_artifact
+          gh run list --repo "$GH_REPO" --workflow serverless-harness-smoke.yml --branch main --status success --limit 10 --json databaseId,headSha,event,conclusion > previous_artifact/candidates.json
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          runs=json.loads(Path('previous_artifact/candidates.json').read_text())
+          sha=os.environ['GITHUB_SHA']
+          candidates=[r for r in runs if r.get('headSha')==sha and r.get('event') in ('schedule','workflow_dispatch') and r.get('conclusion')=='success' and str(r['databaseId'])!=os.environ['GITHUB_RUN_ID']]
+          if candidates:
+              run_id=str(candidates[0]['databaseId'])
+              result=subprocess.run(['gh','api',f'repos/{os.environ["GH_REPO"]}/actions/runs/{run_id}'],capture_output=True,text=True)
+              if result.returncode==0:
+                  Path('previous_artifact/run.json').write_text(result.stdout)
+              # Download only to a quarantined directory. Contents never authorize completion.
+              subprocess.run(['gh','run','download',run_id,'--repo',os.environ['GH_REPO'],'-n','serverless-policy-evidence','-D','previous_artifact/quarantine'],capture_output=True,text=True)
+          PY
+      - name: Audit prior-run provenance (never attest completion)
+        run: python3 -m automation_policy.prior_run
       - name: Emit safe next-run checkpoint metadata
         run: python3 -m automation_policy.checkpoint_cli
       - name: Upload evidence
@@ -59,5 +85,6 @@ jobs:
             artifacts/harness-next-actions.json
             artifacts/runner-evidence.json
             artifacts/checkpoint.json
+            artifacts/previous-artifact-audit.json
           if-no-files-found: warn
           retention-days: 14
