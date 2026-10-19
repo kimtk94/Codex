@@ -1,10 +1,6 @@
 name: Grid Regime Four-Arm Attribution (Read Only)
 
 on:
-  push:
-    branches: [feat/rea-isolated-pilot-20261017]
-    paths:
-      - '.github/workflows/grid-regime-attribution.yml'
   workflow_dispatch:
 
 permissions:
