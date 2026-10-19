@@ -50,6 +50,18 @@ jobs:
           INPUT_PATH: ${{ inputs.manifest_path }}
           EXPECTED_SHA: ${{ inputs.manifest_sha256 }}
         run: python3 -m automation_policy.is_batch_executor --source research_source --manifest "$INPUT_PATH" --sha256 "$EXPECTED_SHA"
+      - name: Exercise real upstream batch function with synthetic fixture
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p /tmp/is-v3-fixture
+          python3 - <<'PY'
+          import hashlib, subprocess
+          from pathlib import Path
+          p=Path('/tmp/is-v3-fixture/paired.tsv')
+          p.write_text('gene\\tancestry\\tsource_url\\nIDO1\\tEUR\\tfile:///synthetic1\\nIDO1\\tEAS\\tfile:///synthetic2\\n')
+          digest=hashlib.sha256(p.read_bytes()).hexdigest()
+          subprocess.run(['python3','-m','automation_policy.is_batch_executor','--source','research_source','--manifest',str(p),'--sha256',digest],check=True)
+          PY
       - name: Artifact
         if: always()
         uses: actions/upload-artifact@v4
