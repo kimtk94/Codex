@@ -68,6 +68,34 @@ jobs:
         with:
           ref: research-status
           persist-credentials: true
+      - name: Download sanitized CKD summary artifact
+        if: ${{ needs.intake.result == 'success' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ckd-drive-intake-status
+          path: _ckd_published
+      - name: Publish verified CKD summary for research web
+        if: ${{ needs.intake.result == 'success' }}
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,shutil
+          source=pathlib.Path("_ckd_published/reports")
+          expected=("ckd-summary.json","ckd-summary.md","ckd-abf-susie.png")
+          for name in expected:
+              item=source/name
+              if not item.is_file() or item.stat().st_size>2_000_000: raise ValueError("missing_or_oversized_sanitized_artifact:"+name)
+          payload=json.loads((source/"ckd-summary.json").read_text())
+          if payload.get("status")!="CROSS_STAGE_QC_PASS" or payload.get("scientific_recomputation") is not False or payload.get("genes")!=9:
+              raise ValueError("research_summary_not_verified")
+          output=pathlib.Path("ckd-public")
+          output.mkdir(exist_ok=True)
+          for name in expected: shutil.copyfile(source/name,output/name)
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ckd-public/ckd-summary.json ckd-public/ckd-summary.md ckd-public/ckd-abf-susie.png
+          git diff --staged --quiet || git commit -m "status: publish CKD verified summary for ${{ github.run_id }}"
+          git push origin HEAD:research-status
       - name: Save sanitized latest run index
         env:
           INTAKE_RESULT: ${{ needs.intake.result }}
