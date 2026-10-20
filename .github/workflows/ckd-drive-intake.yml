@@ -2,7 +2,7 @@ name: CKD Drive Readonly Intake
 on:
   workflow_dispatch:
   schedule:
-    - cron: '43 2 * * *'
+    - cron: '7,37 * * * *'
   pull_request:
     paths:
       - 'automation_policy/ckd_drive_intake.py'
@@ -13,6 +13,9 @@ on:
       - 'automation_policy/test_ckd_report.py'
       - 'automation_policy/ckd_next_action.py'
       - 'automation_policy/test_ckd_next_action.py'
+concurrency:
+  group: ckd-drive-intake-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
