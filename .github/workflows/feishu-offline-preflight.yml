@@ -1,0 +1,26 @@
+name: Feishu offline preflight
+on:
+  push:
+    paths:
+      - 'integrations/feishu/**'
+      - '.github/workflows/feishu-offline-preflight.yml'
+  pull_request:
+    paths:
+      - 'integrations/feishu/**'
+      - '.github/workflows/feishu-offline-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Feishu Python files
+        run: python3 -m compileall -q integrations/feishu
+      - name: Run isolated tests without credentials or network
+        env:
+          FEISHU_APP_ID: ""
+          FEISHU_APP_SECRET: ""
+        run: python3 -m unittest discover -s integrations/feishu -p 'test_*.py' -v
