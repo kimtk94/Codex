@@ -1,0 +1,33 @@
+name: CSS Drive Backup Audit (read only)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 0,12 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: css-drive-backup-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only auth dependencies
+        run: python -m pip install 'google-auth>=2.30,<3' 'requests>=2.31,<3'
+      - name: Enumerate Drive backup metadata (no delete)
+        env:
+          GCP_SA_JSON: ${{ secrets.NOVOGENE_CSS_GCP_SA_JSON }}
+        run: python scripts/css_drive_backup_audit.py
+      - name: Upload inventory summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: css-drive-backup-inventory
+          path: css_drive_backup_inventory.json
+          if-no-files-found: ignore
+          retention-days: 14
