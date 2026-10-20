@@ -1,0 +1,52 @@
+{
+  "status": "CROSS_STAGE_QC_PASS",
+  "genes": 9,
+  "scientific_recomputation": false,
+  "results": [
+    {
+      "gene": "SDCCAG8",
+      "abf_pph4": 0.979449584116725,
+      "susie_max_pph4": 0.979411627866642
+    },
+    {
+      "gene": "GSTA3",
+      "abf_pph4": 0.951982793577668,
+      "susie_max_pph4": 0.964851262243242
+    },
+    {
+      "gene": "INHBC",
+      "abf_pph4": 0.9512705477372,
+      "susie_max_pph4": 3.43590210528791e-14
+    },
+    {
+      "gene": "ACP1",
+      "abf_pph4": 0.925481654245927,
+      "susie_max_pph4": 0.908666004735391
+    },
+    {
+      "gene": "GSTA1",
+      "abf_pph4": 0.816406296019396,
+      "susie_max_pph4": 0.770432377034859
+    },
+    {
+      "gene": "CPVL",
+      "abf_pph4": 0.661941443959121,
+      "susie_max_pph4": null
+    },
+    {
+      "gene": "HLA-E",
+      "abf_pph4": 1.15014228994264e-07,
+      "susie_max_pph4": 0.000210061123812758
+    },
+    {
+      "gene": "UMOD",
+      "abf_pph4": 5.53978464463315e-41,
+      "susie_max_pph4": null
+    },
+    {
+      "gene": "F12",
+      "abf_pph4": 2.61620269792263e-92,
+      "susie_max_pph4": 1.11561112027832e-05
+    }
+  ]
+}
