@@ -1,0 +1,27 @@
+name: Feishu read-only connection probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Check required secrets are configured (no values printed)
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: |
+          if [ -z "$FEISHU_APP_ID" ] || [ -z "$FEISHU_APP_SECRET" ]; then
+            echo "CONFIG_MISSING: Configure FEISHU_APP_ID and FEISHU_APP_SECRET in Actions secrets."
+            exit 2
+          fi
+          echo "CONFIG_OK: both secrets are present"
+      - name: Test authentication and read-only Base access
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: python3 integrations/feishu/readonly_probe.py
