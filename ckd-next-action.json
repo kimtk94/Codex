@@ -1,0 +1,6 @@
+{
+  "state": "BLOCKED_EXTERNAL",
+  "next_stage": "real_mr_coloc_susie_or_web_integration",
+  "reason": "NUMERIC_INPUTS_AND_WEB_SOURCE_NOT_CONNECTED",
+  "auto_execute": false
+}\n
