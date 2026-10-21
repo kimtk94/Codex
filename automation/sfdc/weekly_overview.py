@@ -71,8 +71,12 @@ def main():
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     meta=call(sess,"GET",root+"?fields=sheets.properties",stage="weekly_metadata")
     if TAB not in {x["properties"]["title"] for x in meta["sheets"]}:
-        call(sess,"POST",root+":batchUpdate",json={"requests":[{"addSheet":{"properties":{"title":TAB,"index":2,"hidden":False}}}]},stage="weekly_create")
+        call(sess,"POST",root+":batchUpdate",json={"requests":[{"addSheet":{"properties":{"title":TAB,"hidden":True}}}]},stage="weekly_create")
     replace_tab(sess,TAB,result)
+    metadata=call(sess,'GET',root+'?fields=sheets.properties',stage='weekly_visibility')
+    tab=next(v['properties'] for v in metadata['sheets'] if v['properties']['title']==TAB)
+    if not tab.get('hidden'):
+        call(sess,'POST',root+':batchUpdate',json={'requests':[{'updateSheetProperties':{'properties':{'sheetId':tab['sheetId'],'hidden':True},'fields':'hidden'}}]},stage='weekly_hide')
     print(json.dumps({"weeks":len(result)-1,"opportunity_rows":len(op)-1,
         "quotation_active_unknown_global":audit.get("unknown_status","UNAVAILABLE"),
         "latest_week":str(keys[0]) if keys else None}))
