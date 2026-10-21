@@ -18,6 +18,14 @@ JOBS = [
     ("SFDC Invoice Index", SFDC_AUTO_ID, "Issued Invoice", 2000),
     ("Quotation Approvals", SOURCE_ID, "Quotation Approval List", 2000),
     ("Quotation Invoice Match", SOURCE_ID, "Quotation Invoice Match", 2000),
+    ("CSS Action Center", SOURCE_ID, "CSS Action Center", 2000),
+    ("CSS Customer 360", SOURCE_ID, "CSS Customer 360", 2000),
+    ("CSS Project Timeline", SOURCE_ID, "CSS Project Timeline", 2000),
+    ("CSS Contract-SIF", SOURCE_ID, "CSS Contract-SIF Tracker", 2000),
+    ("CSS Review Queue", SOURCE_ID, "CSS Review Queue", 2000),
+    ("CSS Manual Issues", SOURCE_ID, "CSS Manual Issues", 2000),
+    ("CSS Tax Invoices", SOURCE_ID, "CSS Tax Invoice List", 2000),
+    ("CSS System Health", SOURCE_ID, "CSS System Health", 2000),
 ]
 AUDIT_TAB = "SFDC Source Audit"
 READINESS_TAB = "SFDC Report Readiness"
