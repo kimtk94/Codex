@@ -38,7 +38,12 @@ def auth():
 
 def call(session, method, url, **kwargs):
     r = session.request(method, url, timeout=90, **kwargs)
-    r.raise_for_status()
+    if not r.ok:
+        try:
+            reason = r.json().get("error", {}).get("status", "UNKNOWN")
+        except (ValueError, AttributeError):
+            reason = "UNKNOWN"
+        raise RuntimeError("Google Sheets HTTP=%s status=%s method=%s" % (r.status_code, reason, method))
     return r.json() if r.content else {}
 
 
@@ -160,5 +165,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        print(f"SFDC stage1 failed: {type(e).__name__}",file=sys.stderr)
+        print("SFDC stage1 failed: %s: %s" % (type(e).__name__, str(e) if isinstance(e, RuntimeError) else "details withheld"), file=sys.stderr)
         sys.exit(1)
