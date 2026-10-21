@@ -28,10 +28,10 @@ def main():
     now=dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).isoformat()
     rows=[["section","metric","value","data_origin","checked_at_kst","warning"],
           ["SUMMARY","Opportunity records",len(opp)-1,"SFDC_Auto snapshot",now,"Snapshot is not live SFDC"],
-          ["SUMMARY","Quotation records",len(quote)-1,"SFDC_Auto snapshot",now,"Do not sum as additional opportunities"],
+          ["SUMMARY","Quotation snapshot records (active unverified)",len(quote)-1,"SFDC_Auto snapshot",now,"Do not sum as additional opportunities"],
           ["SUMMARY","Opportunity-CSS verified links",matched,"SFDC CSS Match Audit",now,"No verified AMEA links in previous audit"]]
     for k,n in sorted(stage.items()):rows.append(["OPPORTUNITY_STAGE",k,n,"Opportunity mirror",now,""])
-    for k,n in sorted(qstage.items()):rows.append(["QUOTATION_STAGE",k,n,"Quotation mirror",now,""])
+    for k,n in sorted(qstage.items()):rows.append(["QUOTATION_STAGE (unverified)",k,n,"Quotation mirror",now,"Not Active Quote count"])
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     meta=call(session,"GET",root+"?fields=sheets.properties",stage="overview_metadata")
     if TAB not in {s["properties"]["title"] for s in meta["sheets"]}:
