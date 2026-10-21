@@ -20,6 +20,7 @@ jobs:
     env:
       CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
       CSS_MAIL_LOOKBACK_HOURS: "48"
       CSS_MAIL_REPORT_PATH: css_mail_probe.json
     steps:
@@ -35,6 +36,10 @@ jobs:
           PY
       - name: Read-only QQ IMAP probe
         run: python3 automation/css_mail/readonly_probe.py
+      - name: Install Google Sheets client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Sync inbound and sent mail metadata to CSS staging
+        run: python3 automation/css_mail/incremental_sync.py
       - name: Upload sanitized counts
         if: success()
         uses: actions/upload-artifact@v4
