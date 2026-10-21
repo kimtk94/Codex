@@ -54,12 +54,12 @@ jobs:
       - name: Reconcile Opportunity and CSS projects
         if: steps.credentials.outputs.ready == 'true'
         run: python automation/sfdc/project_bridge.py
-      - name: Build SFDC Sales Overview
-        if: steps.credentials.outputs.ready == 'true'
-        run: python automation/sfdc/sales_overview.py
       - name: Build Weekly SFDC Overview
         if: steps.credentials.outputs.ready == 'true'
         run: python automation/sfdc/weekly_overview.py
+      - name: Build SFDC Sales Overview
+        if: steps.credentials.outputs.ready == 'true'
+        run: python automation/sfdc/sales_overview.py
       - name: Build Unified Action Dashboard
         if: steps.credentials.outputs.ready == 'true'
         run: python automation/sfdc/action_dashboard.py
