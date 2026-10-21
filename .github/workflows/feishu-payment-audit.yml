@@ -1,14 +1,20 @@
 name: Feishu Payment Table Audit
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '13 0 * * *' # approx 09:13 KST daily; GitHub scheduling may be delayed
   push:
     branches: [main]
     paths:
       - automation/feishu/.trigger-payment-audit
 permissions:
   contents: read
+concurrency:
+  group: feishu-payment-audit
+  cancel-in-progress: false
 jobs:
   inspect:
+    # GitHub Environment stores Feishu credentials; no access to a physical server.
     environment: TaehoonServer
     runs-on: ubuntu-latest
     timeout-minutes: 6
