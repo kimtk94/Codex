@@ -15,8 +15,7 @@ OUTPUT = "Unanswered Emails Auto"
 SOURCE = "CSS Git Ingest"
 EXCLUDED = "Unanswered Email Exclusions"
 SENDER_EXCLUDED = "Unanswered Sender Exclusions"
-HEADER = ["received_at","from_email","subject","project_ids","review_status",
-          "reply_evidence","ingest_key","source_message_id","last_checked_utc"]
+HEADER = ["waiting_days","received_at","from_name","subject","source_link","work_status","category","owner","from_email","exclude_reason","exclude","exclude_sender","to","cc","project_ids","reply_status","thread_subject","uid","source_row","last_checked_utc","review_status"]
 MAX_READ = 100000
 
 def table(s, tab, columns, end):
@@ -43,14 +42,35 @@ def when(value):
         return parsed.astimezone(dt.timezone.utc) if parsed.tzinfo else None
     except (ValueError,TypeError):return None
 
-def candidates(messages, exclusions, senders):
+def truth(value):
+    return str(value or "").strip().upper() in ("TRUE", "YES", "1")
+
+def config_from_rows(rows):
+    config = {"unanswered_lookback_days": 180, "action_unanswered_max_age_days": 30}
+    for row in rows:
+        key = row.get("rule_key", "")
+        if row.get("rule_group") == "Mail" and truth(row.get("enabled")) and key in config:
+            try:
+                config[key] = max(1, min(365, int(row.get("value", ""))))
+            except (ValueError, TypeError):
+                pass
+    return config
+
+def candidates(messages, exclusions, senders, rules=None):
+    config = config_from_rows(rules or [])
+    now_utc = dt.datetime.now(dt.timezone.utc)
+    today = now_utc.astimezone(src.KST).date()
+    previous_thread_exclusions = []
     banned_ids=set()
     for r in exclusions:
-        if str(r.get("restore","")).upper() in ("TRUE","1","YES"):continue
-        if r.get("uid"):banned_ids.add(r["uid"].strip())
+        if truth(r.get("restore")): continue
+        if r.get("uid"): banned_ids.add(r["uid"].strip().casefold())
+        cutoff = when(r.get("excluded_through_at")) or when(r.get("excluded_at"))
+        if cutoff and r.get("from_email") and (r.get("thread_subject") or r.get("subject")):
+            previous_thread_exclusions.append((addresses(r["from_email"]), norm_subject(r.get("thread_subject") or r.get("subject")), cutoff))
     banned_sender=[]
     for r in senders:
-        if str(r.get("restore","")).upper() in ("TRUE","1","YES"):continue
+        if truth(r.get("restore")):continue
         pat=str(r.get("sender_pattern","")).strip().casefold()
         typ=str(r.get("match_type","")).strip().casefold()
         if pat and typ in ("exact","domain","contains"):banned_sender.append((pat,typ))
@@ -67,9 +87,12 @@ def candidates(messages, exclusions, senders):
     for m in sorted(inbound,key=lambda x:x["_at"] or dt.datetime.min.replace(tzinfo=dt.timezone.utc),reverse=True):
         mail_from=addresses(m.get("from_email"))
         if not m["_at"] or not m["_sub"] or not mail_from:continue
+        if not dt.timedelta(0) <= now_utc - m["_at"] <= dt.timedelta(days=config["unanswered_lookback_days"]):continue
         key=str(m.get("ingest_key","")).strip()
         legacy_uid="inbox:"+str(m.get("imap_uid","")).strip()
-        if key in banned_ids or legacy_uid in banned_ids or m.get("imap_uid","") in banned_ids:continue
+        if key.casefold() in banned_ids or legacy_uid.casefold() in banned_ids or str(m.get("imap_uid","")).casefold() in banned_ids:continue
+        if any((mail_from & senders_set) and m["_sub"]==subject and m["_at"]<=cutoff
+               for senders_set,subject,cutoff in previous_thread_exclusions):continue
         excluded=False
         for address in mail_from:
             for pat,typ in banned_sender:
@@ -86,9 +109,17 @@ def candidates(messages, exclusions, senders):
         if matched:continue
         projects=" | ".join(filter(None,[str(m.get(c,"")) for c in
             ("amea_numbers","h_project_numbers","sam_numbers","batch_numbers")]))
-        result.append([m.get("received_at",""),m.get("from_email",""),m.get("subject",""),
-                      projects,"REVIEW_ONLY","No matching later sent header within collected window",
-                      key,m.get("message_id",""),now])
+        local = m["_at"].astimezone(src.KST)
+        days = max(0, (today-local.date()).days)
+        weekday = "월화수목금토일"[local.weekday()]
+        display_date = local.strftime("%m/%d")+"("+weekday+") "+local.strftime("%H:%M")
+        review_note = "회신 여부 검토 필요 (수집 범위 한정)"
+        if days > config["action_unanswered_max_age_days"]:
+            review_note = "30일 초과: Action Center 대상 제외"
+        result.append([str(days)+"일",display_date,m.get("from_email",""),m.get("subject",""),
+                       "","신규","","",m.get("from_email",""),"","FALSE","FALSE",
+                       m.get("recipient_to",""),m.get("cc",""),projects,review_note,
+                       m["_sub"],"inbox:"+str(m.get("imap_uid","")),"",now,"REVIEW_ONLY"])
         if len(result)>=1500:break
     return result
 
@@ -97,14 +128,15 @@ def main():
     mail=table(s,SOURCE,"P",MAX_READ)
     excludes=table(s,EXCLUDED,"L",10000)
     senders=table(s,SENDER_EXCLUDED,"F",10000)
-    result=candidates(mail,excludes,senders)
+    rules=table(s,"CSS Rules & SLA","I",300)
+    result=candidates(mail,excludes,senders,rules)
     props=src.api(s,"GET",src.endpoint()+"?fields=sheets.properties.title")
     titles={x["properties"]["title"] for x in props.get("sheets",[])}
     if OUTPUT not in titles:
         src.api(s,"POST",src.endpoint(":batchUpdate"),json={"requests":[{"addSheet":{"properties":{"title":OUTPUT,"gridProperties":{"frozenRowCount":1}}}}]})
     def rng(cell):return urllib.parse.quote("'"+OUTPUT+"'!"+cell,safe="")
     # Only this generated sheet is cleared. Existing manual lists remain intact.
-    src.api(s,"POST",src.endpoint("/values/"+rng("A1:I1600")+":clear"),json={})
+    src.api(s,"POST",src.endpoint("/values/"+rng("A1:U1600")+":clear"),json={})
     src.api(s,"PUT",src.endpoint("/values/"+rng("A1"))+"?valueInputOption=RAW",
             json={"values":[HEADER]+result})
     print("CSS_UNANSWERED_AUTO_PASS candidates="+str(len(result))+
