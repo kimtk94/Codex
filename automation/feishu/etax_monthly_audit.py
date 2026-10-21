@@ -17,7 +17,7 @@ def parse_etax_month(name, reference_year):
     if len(set(word_months)) == 1:
         month = word_months[0]
         # Do not infer a month if another explicit numeric YYYY-MM disagrees.
-        numeric = re.search(r"\\b(20\\d\\d)[-/._ ](0?[1-9]|1[0-2])\\b", s)
+        numeric = re.search(r"\b(20\d\d)[-/._ ](0?[1-9]|1[0-2])\b", s)
         if numeric and int(numeric.group(2)) != month: return None
     elif len(set(word_months)) > 1:
         return None
