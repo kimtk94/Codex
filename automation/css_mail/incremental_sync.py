@@ -66,13 +66,15 @@ def existing_keys(s):
     return {r[0] for r in rows if r and r[0]}
 
 def folder_names(im):
-    status, rows=im.list()
-    if status!="OK": raise RuntimeError("IMAP LIST failed")
-    found=[]
+    status, rows = im.list()
+    if status != "OK":
+        raise RuntimeError("IMAP LIST failed")
+    found = []
     for raw in rows or []:
-        # Select INBOX and provider sent by standard special-use or known names.
-        val=raw.decode("utf-8","replace")
-        match=re.search(r' (?:"([^"]+)"|([^ "]+))
+        val = raw.decode("utf-8", "replace")
+        match = re.search(r' (?:"([^"]+)"|([^ "]+))$', val)
+        if match:
+            found.append((match.group(1) or match.group(2), val.lower()))
     return found
 
 def decode_address(raw):
