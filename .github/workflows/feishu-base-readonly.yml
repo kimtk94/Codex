@@ -20,5 +20,6 @@ jobs:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
-          FEISHU_TABLE_NAME: Taehoon
+          FEISHU_TABLE_NAME: 표
+          FEISHU_VIEW_NAME: Taehoon
         run: python3 automation/feishu/base_readonly_probe.py
