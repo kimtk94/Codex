@@ -16,7 +16,8 @@ def api(path, bearer=None, payload=None):
     except urllib.error.HTTPError as exc:
         raise RuntimeError("HTTP_STATUS_"+str(exc.code)) from None
     if result.get("code")!=0: raise RuntimeError("FEISHU_CODE_"+str(result.get("code")))
-    return result.get("data") or {}
+    data=result.get("data")
+    return data if isinstance(data,dict) else result
 
 def main():
     app_id=os.environ["FEISHU_APP_ID"]

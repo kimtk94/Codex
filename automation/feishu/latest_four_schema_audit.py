@@ -12,7 +12,8 @@ from latest_four_formats import select
 def main():
     auth=api("/open-apis/auth/v3/tenant_access_token/internal",payload={
         "app_id":os.environ["FEISHU_APP_ID"],"app_secret":os.environ["FEISHU_APP_SECRET"]})
-    bearer=auth["tenant_access_token"]
+    bearer=auth.get("tenant_access_token")
+    if not bearer: raise RuntimeError("AUTH_TOKEN_MISSING")
     root="/open-apis/sheets/v3/spreadsheets/"+urllib.parse.quote(TOKEN,safe="")
     sheets=api(root+"/sheets/query",bearer).get("sheets")
     if not isinstance(sheets,list): raise RuntimeError("Sheet listing unavailable")
@@ -23,7 +24,9 @@ def main():
         # A1:AZ1 is header-only; structural fingerprints do not disclose names.
         span=urllib.parse.quote(entry["sheet_id"]+"!A1:AZ1",safe="")
         result=api(root+"/values/"+span,bearer)
-        values=result.get("valueRange",{}).get("values",[])
+        value_range=result.get("valueRange")
+        if not isinstance(value_range,dict): raise RuntimeError("VALUE_RANGE_MISSING")
+        values=value_range.get("values") or []
         header=values[0] if values else []
         normalized=[str(x).strip().casefold() for x in header]
         if not any(normalized): raise RuntimeError("Empty header for "+fmt)
@@ -37,5 +40,6 @@ def main():
 if __name__=="__main__":
     try: main()
     except Exception as exc:
-        print("SCHEMA_AUDIT_FAILED:",type(exc).__name__,file=sys.stderr)
+        diagnostic=str(exc) if isinstance(exc,RuntimeError) else type(exc).__name__
+        print("SCHEMA_AUDIT_FAILED:",diagnostic,file=sys.stderr)
         sys.exit(1)
