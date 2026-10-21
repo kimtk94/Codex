@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """SFDC Opportunity and Quotation mirror via existing Google Sheets. No Salesforce API."""
 import datetime as dt
+import hashlib
 import json
 import os
 import sys
@@ -18,6 +19,8 @@ JOBS = [
     ("Quotation Approvals", SOURCE_ID, "Quotation Approval List", 2000),
     ("Quotation Invoice Match", SOURCE_ID, "Quotation Invoice Match", 2000),
 ]
+AUDIT_TAB = "SFDC Source Audit"
+AUDIT_HEADER = ["source_tab","record_count","first_seen_this_snapshot","last_checked_kst","content_changed","fingerprint_sha256","source_kind","freshness_verified"]
 
 def range_data(session, source_id, tab, maxrows):
     q=urllib.parse.quote("'%s'!A1:AZ%d" % (tab.replace("'","''"), maxrows), safe="")
@@ -28,7 +31,7 @@ def ensure_tabs(session):
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     metadata=call(session,"GET",root+"?fields=sheets.properties",stage="mirror_metadata")
     existing={s["properties"]["title"] for s in metadata.get("sheets",[])}
-    todo=[{"addSheet":{"properties":{"title":tab}}} for tab,*_ in JOBS if tab not in existing]
+    todo=[{"addSheet":{"properties":{"title":tab}}} for tab in [job[0] for job in JOBS] + [AUDIT_TAB] if tab not in existing]
     if todo:
         call(session,"POST",root+":batchUpdate",json={"requests":todo},stage="mirror_create_tabs")
 
@@ -45,6 +48,13 @@ def main():
     session=auth()
     ensure_tabs(session)
     summary={}
+    previous={}
+    try:
+        prior=range_data(session,OUTPUT_ID,AUDIT_TAB,100)
+        previous={row[0]:row for row in prior[1:] if len(row)>=6}
+    except RuntimeError:
+        pass
+    audit=[AUDIT_HEADER]
     for tab,source_id,source_tab,maxrows in JOBS:
         try:
             rows=range_data(session,source_id,source_tab,maxrows)
@@ -56,8 +66,16 @@ def main():
         if not rows:
             summary[tab]={"status":"empty_source_preserved"}
             continue
+        digest=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(",",":")).encode("utf-8")).hexdigest()
+        prior=previous.get(tab,[])
+        changed="UNKNOWN" if not prior else ("YES" if prior[5]!=digest else "NO")
+        first_seen=dt.datetime.now(KST).isoformat() if changed!="NO" else prior[2]
+        audit.append([tab,max(0,len(rows)-1),first_seen,dt.datetime.now(KST).isoformat(),changed,digest,
+                      "SFDC_Auto snapshot" if source_id==SFDC_AUTO_ID else "CSS email-derived sheet","NO"])
         replace_tab(session,tab,rows)
-        summary[tab]={"status":"ok","records":max(0,len(rows)-1)}
+        summary[tab]={"status":"ok","records":max(0,len(rows)-1),"snapshot_changed":changed}
+    if len(audit)>1:
+        replace_tab(session,AUDIT_TAB,audit)
     print(json.dumps({"status":"complete","sheets":summary,"checked_at":dt.datetime.now(KST).isoformat()},ensure_ascii=False))
     if summary["Opportunity"]["status"]!="ok" or summary["Quotation"]["status"]!="ok":
         print("NOTICE: SFDC_Auto needs Viewer sharing with the CKD service account.",file=sys.stderr)
