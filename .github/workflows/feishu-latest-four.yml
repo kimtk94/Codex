@@ -1,6 +1,10 @@
 name: Feishu Latest Four Formats
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - automation/feishu/.trigger-latest-four
   schedule:
     - cron: "12,42 * * * *"
 permissions:
