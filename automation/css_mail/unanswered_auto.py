@@ -6,6 +6,7 @@ Headers only: missing replies outside collection window remain uncertain.
 """
 import datetime as dt
 import re
+import os
 import sys
 import urllib.parse
 from email.utils import getaddresses
@@ -68,6 +69,7 @@ def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
         p=str(rule.get("sender_pattern","")).strip().casefold()
         kind=str(rule.get("match_type","")).strip().casefold()
         if p:auto_exclusions.append((p,kind))
+    own_addresses=addresses(os.environ.get('CSS_QQ_MAIL_ADDRESS',''))
     banned_ids=set()
     for r in exclusions:
         if truth(r.get("restore")): continue
@@ -91,9 +93,11 @@ def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
         (inbound if direction=="INBOUND" else outbound).append(r)
     now=dt.datetime.now(dt.timezone.utc).isoformat()
     result=[]
+    seen_conversations=set()
     for m in sorted(inbound,key=lambda x:x["_at"] or dt.datetime.min.replace(tzinfo=dt.timezone.utc),reverse=True):
         mail_from=addresses(m.get("from_email"))
         if not m["_at"] or not m["_sub"] or not mail_from:continue
+        if own_addresses and not (own_addresses & (addresses(m.get("recipient_to")) | addresses(m.get("cc")))):continue
         if not dt.timedelta(0) <= now_utc - m["_at"] <= dt.timedelta(days=config["unanswered_lookback_days"]):continue
         key=str(m.get("ingest_key","")).strip()
         legacy_uid="inbox:"+str(m.get("imap_uid","")).strip()
@@ -118,6 +122,9 @@ def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
             for sent in outbound
         )
         if matched:continue
+        conversation=(tuple(sorted(mail_from)),m["_sub"])
+        if conversation in seen_conversations:continue
+        seen_conversations.add(conversation)
         projects=" | ".join(filter(None,[str(m.get(c,"")) for c in
             ("amea_numbers","h_project_numbers","sam_numbers","batch_numbers")]))
         local = m["_at"].astimezone(src.KST)
@@ -145,6 +152,8 @@ def main():
     senders=table(s,SENDER_EXCLUDED,"F",10000)
     rules=table(s,"CSS Rules & SLA","I",300)
     sender_rules=table(s,"CSS Sender Rules","G",200)
+    if not mail:
+        raise RuntimeError("CSS Git Ingest empty; preserving previous review results")
     result=candidates(mail,excludes,senders,rules,sender_rules)
     props=src.api(s,"GET",src.endpoint()+"?fields=sheets.properties.title")
     titles={x["properties"]["title"] for x in props.get("sheets",[])}
