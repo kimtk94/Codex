@@ -2,6 +2,8 @@
 """Unified read-only action dashboard from independently labelled source ledgers."""
 import datetime as dt
 import json
+import re
+import urllib.parse
 from followup_stage1 import auth, call, OUTPUT_ID, SOURCE_ID
 from opportunity_quote_mirror import range_data, replace_tab
 
@@ -13,9 +15,29 @@ def records(session,tab,limit=6000):
     header=[str(c).strip() for c in data[0]]
     return [{k:(row[i] if i<len(row) else "") for i,k in enumerate(header)} for row in data[1:] if any(str(v).strip() for v in row)]
 def s(v):return str(v or "").strip()
+def sent_by_project(session):
+    # BatchGet three narrow source columns, not full message bodies or recipient data.
+    root="https://sheets.googleapis.com/v4/spreadsheets/"+SOURCE_ID+"/values:batchGet"
+    ranges=["'CSS Mail Ledger'!D2:D45000","'CSS Mail Ledger'!F2:F45000","'CSS Mail Ledger'!R2:R45000"]
+    url=root+"?"+urllib.parse.urlencode([("ranges",v) for v in ranges])
+    payload=call(session,"GET",url,stage="action_project_mail_evidence")
+    blocks=payload.get("valueRanges",[])
+    if len(blocks)!=3:raise RuntimeError("Mail evidence columns missing")
+    dates,senders,ids=[[row[0] if row else "" for row in b.get("values",[])] for b in blocks]
+    by_project={}
+    for i in range(max(map(len,(dates,senders,ids)))):
+        sender=(senders[i] if i<len(senders) else "").strip().lower()
+        if sender!="taehoon.kim@novogene.com":continue
+        when=dates[i] if i<len(dates) else ""
+        for key in set(re.findall(r"AMEA20[0-9]{8}", ids[i] if i<len(ids) else "",re.I)):
+            old=by_project.get(key.upper())
+            if when and (old is None or when>old[0]):by_project[key.upper()]=(when,i+2)
+    return by_project
+
 def main():
     session=auth()
     data=[HEADER]
+    project_mail=sent_by_project(session)
     tracker=range_data(session,SOURCE_ID,"Salesforce Lead Tracker",3000)
     tracker_lookup={}
     if tracker:
@@ -55,6 +77,23 @@ def main():
                     evidence="Lead Tracker: last_sent_at; assignment timing unverified"
                 else:
                     evidence="Lead Tracker: no confirmed sent evidence"
+        if workstream in ("CSS Action","Contract / SIF"):
+            project=re.search(r"AMEA20[0-9]{8}",str(ref),re.I)
+            if project:
+                mail=project_mail.get(project.group(0).upper())
+                if mail:
+                    last_out=mail[0]
+                    # A message for a project can concern another issue.
+                    # Require a dated action, and sent time not earlier than its evidence date.
+                    action_ref_date=str(date)[:10]
+                    if len(action_ref_date)==10 and last_out[:10]>=action_ref_date:
+                        comm="SENT_SAME_PROJECT_REVIEW"
+                        evidence="CSS Mail Ledger: Taehoon outbound; exact AMEA project; not issue-specific"
+                        lane="IN_PROGRESS_REVIEW"
+                        bucket="WAIT_REPLY"
+                    else:
+                        comm="SENT_SAME_PROJECT_OLDER"
+                        evidence="CSS Mail Ledger: outgoing project mail; action timing not verified"
         if comm=="IN_PROGRESS_SENT_AFTER_ASSIGNMENT":
             lane="IN_PROGRESS"
             bucket="WAIT_REPLY"
@@ -84,7 +123,7 @@ def main():
             "Not invoiced does not by itself mean overdue or ready to invoice",s(x.get("uid")))
     ranks={"긴급":0,"높음":1,"보통":2,"낮음":3}
     buckets={"OVERDUE":0,"TODAY":1,"CHECK_DATE":2,"VERIFY":3,"UPCOMING":4}
-    lane_order={"ACTION_REVIEW":0,"VERIFY_ONLY":1,"IN_PROGRESS":2}
+    lane_order={"ACTION_REVIEW":0,"VERIFY_ONLY":1,"IN_PROGRESS_REVIEW":2,"IN_PROGRESS":3}
     data[1:]=sorted(data[1:],key=lambda row:(lane_order.get(row[12],9),buckets.get(row[11],5),ranks.get(row[0],4),row[1],row[4]))
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     meta=call(session,"GET",root+"?fields=sheets.properties",stage="action_metadata")
@@ -103,6 +142,6 @@ def main():
        "textFormat":{"bold":True,"foregroundColor":{"red":1,"green":1,"blue":1}}}},
        "fields":"userEnteredFormat(backgroundColor,textFormat)"}}
     ]})
-    lanes={k:sum(1 for row in data[1:] if row[12]==k) for k in ("ACTION_REVIEW","VERIFY_ONLY","IN_PROGRESS")}
+    lanes={k:sum(1 for row in data[1:] if row[12]==k) for k in ("ACTION_REVIEW","VERIFY_ONLY","IN_PROGRESS_REVIEW","IN_PROGRESS")}
     print(json.dumps({"status":"ok","action_rows":len(data)-1,"by_source":tally,"lanes":lanes},ensure_ascii=False))
 if __name__=="__main__":main()
