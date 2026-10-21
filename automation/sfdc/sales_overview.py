@@ -50,7 +50,7 @@ def main():
         "Quote Created in Week","CSS Invoice Count","CSS Invoice KRW"])
     for w in weekly[1:9]:
         wr={k:(w[i] if i<len(w) else "") for i,k in enumerate(wh)}
-        period=str(wr["week_start"])+" ~ "+str(wr["week_end"])
+        period=str(wr["week_start"])+" ~ "+str(wr["week_end"])+(" [진행 중]" if wr.get("weekly_basis")=="FRI_THU_IN_PROGRESS" else "")
         rows.append(["WEEKLY_ROW",period,wr["opportunity_created"],
             wr["opportunity_closed_target"],wr["opportunity_closed_won_target"],
             wr["quotation_approvals"],wr["approvals_created_in_week"],
