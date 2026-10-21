@@ -1,0 +1,25 @@
+name: Feishu Payment Table Audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - automation/feishu/.trigger-payment-audit
+permissions:
+  contents: read
+jobs:
+  inspect:
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Inspect existing Payment Outstanding table
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+        run: python3 automation/feishu/payment_table_audit.py
