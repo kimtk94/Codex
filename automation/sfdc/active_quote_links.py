@@ -76,6 +76,40 @@ def main():
            ["opportunity_id_column_present",str(opportunity_id is not None)],
            ["name_match_unique",match_stats["NAME_MATCH_UNIQUE"]],["name_match_ambiguous",match_stats["NAME_AMBIGUOUS"]],["name_match_missing",match_stats["NO_NAME_MATCH"]],["source","SFDC_Auto exported snapshot; not live Salesforce"]]
     replace_tab(sess,AUDIT,audit)
+    # Enrich the visible Opportunity mirror AFTER the raw mirror refresh.
+    # Only uniquely matched names or verified record IDs may contribute to counts.
+    summary={}
+    for linkrow in rows[1:]:
+        if linkrow[6] not in ("MATCHED_BY_ID","NAME_MATCH_UNIQUE"):
+            continue
+        key=normalized(linkrow[9]) if linkrow[9] else ""
+        if not key and linkrow[6]=="MATCHED_BY_ID":
+            source_id=linkrow[2]
+            candidates_by_id=[opp for opp in o[1:] if get(opp,opportunity_id)==source_id]
+            if len(candidates_by_id)==1:key=normalized(get(candidates_by_id[0],oname))
+        if not key:continue
+        bucket=summary.setdefault(key,{"total":0,"active":0,"unknown":0,"inactive":0})
+        bucket["total"]+=1
+        if linkrow[7]=="YES":bucket["active"]+=1
+        elif linkrow[7]=="NO":bucket["inactive"]+=1
+        else:bucket["unknown"]+=1
+    extra=["linked_quote_count_name_or_id","active_quote_count_confirmed",
+           "quote_active_unknown_count","inactive_quote_count_confirmed","quote_relationship_evidence"]
+    base_header=list(o[0])
+    # Do not carry forward previous enrichment columns.
+    for column in extra:
+        if column in base_header:
+            base_header=base_header[:base_header.index(column)]
+            break
+    width=len(base_header)
+    enriched=[base_header+extra]
+    for opp in o[1:]:
+        original=(list(opp)+[""]*width)[:width]
+        namekey=normalized(get(opp,oname))
+        count=summary.get(namekey,{"total":0,"active":0,"unknown":0,"inactive":0})
+        confidence="NAME_MATCH_UNIQUE (not Salesforce Related ID)" if count["total"] else "NO_VERIFIED_QUOTE_RELATION"
+        enriched.append(original+[count["total"],count["active"],count["unknown"],count["inactive"],confidence])
+    replace_tab(sess,"Opportunity",enriched)
     print(json.dumps({"quote_rows":len(q)-1,"active":stats["YES"],"inactive":stats["NO"],
       "unknown":stats["UNKNOWN"],"related_ids_available":oi is not None and opportunity_id is not None}))
 if __name__=="__main__":main()
