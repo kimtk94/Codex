@@ -1,5 +1,10 @@
 name: SFDC API-free Followup Stage 1
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sfdc_api_free_followup.yml'
+      - 'automation/sfdc/**'
   schedule:
     - cron: '7,37 * * * *'
   workflow_dispatch:
