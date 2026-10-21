@@ -15,7 +15,7 @@ jobs:
     env:
       SFDC_SOURCE_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
       SFDC_OUTPUT_SHEET_ID: '1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI'
-      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
     steps:
       - uses: actions/checkout@v4
       - name: Check credentials
