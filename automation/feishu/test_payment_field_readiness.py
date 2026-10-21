@@ -14,3 +14,7 @@ assert field_readiness([{"field_name":"Invoice Number"}])=={"invoice_id":True,"a
 assert field_readiness([{"field_name":"세금계산서 번호"},{"field_name":"미수금"},{"field_name":"입금액"}])=={"invoice_id":True,"amount":True,"payment_evidence":True}
 assert field_readiness([{"field_name":"Unrelated"}])=={"invoice_id":False,"amount":False,"payment_evidence":False}
 print("PAYMENT_FIELD_READINESS_SYNTHETIC_TEST: PASS")
+
+real_headers=["ERP Invoice Number","CMS Invoice Number","Project Number","e-tax Number"," Invoice Amount "," Balance ","Remark _ Payment Status","Expected \n payment date"]
+assert field_readiness([{"field_name":x} for x in real_headers])=={"invoice_id":True,"amount":True,"payment_evidence":True}
+print("PAYMENT_REAL_HEADER_REGRESSION: PASS")
