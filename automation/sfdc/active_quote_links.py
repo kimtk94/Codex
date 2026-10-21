@@ -9,7 +9,7 @@ from opportunity_quote_mirror import range_data, replace_tab
 
 TAB="SFDC Active Quote Links"
 AUDIT="SFDC Quote Link Audit"
-HEAD=["sfdc_quotation_id","amea_quotation_id","opportunity_id","quote_name","quote_status","is_active","link_result","valid_quote","reason"]
+HEAD=["sfdc_quotation_id","amea_quotation_id","opportunity_id","quote_name","quote_status","is_active","link_result","valid_quote","reason","matched_opportunity_name","match_method"]
 def pick(h,options):
     normalized={str(k).strip().lower():i for i,k in enumerate(h)}
     for candidate in options:
@@ -30,17 +30,39 @@ def main():
     name=pick(q[0],["Quote Name","Quotation Name","Name","Opportunity Name"])
     opportunity_id=pick(o[0],["Opportunity ID","OpportunityId","Id"])
     known={get(row,opportunity_id) for row in o[1:] if get(row,opportunity_id)} if opportunity_id is not None else set()
-    rows=[HEAD];stats=Counter()
+    def normalized(v):return " ".join(str(v or "").strip().casefold().split())
+    qname=pick(q[0],["Opportunity Name"])
+    oname=pick(o[0],["Opportunity Name"])
+    names={}
+    if oname is not None:
+        for opp in o[1:]:
+            key=normalized(get(opp,oname))
+            if key:names.setdefault(key,[]).append(opp)
+    rows=[HEAD];stats=Counter();match_stats=Counter()
     for row in q[1:]:
         status=get(row,st)
         flag=get(row,active).lower()
         valid="YES" if flag in ("true","yes","1","✓","✔","checked") else "NO" if flag in ("false","no","0","unchecked") else "UNKNOWN"
         qid=get(row,qi);oid=get(row,oi)
-        link="MATCHED" if oid and oid in known else "NO_OPPORTUNITY_ID" if not oid else "UNVERIFIED_OPPORTUNITY"
+        candidates=names.get(normalized(get(row,qname)),[]) if qname is not None else []
+        matched_name=""
+        method="NONE"
+        if oid and oid in known:
+            link="MATCHED_BY_ID"
+            method="OPPORTUNITY_ID"
+        elif len(candidates)==1:
+            link="NAME_MATCH_UNIQUE"
+            matched_name=get(candidates[0],oname)
+            method="EXACT_NORMALIZED_NAME"
+        elif len(candidates)>1:
+            link="NAME_AMBIGUOUS"
+        else:
+            link="NO_NAME_MATCH"
+        match_stats[link]+=1
         reason=("missing Active checkbox" if valid=="UNKNOWN" else
                 "not explicitly active" if valid=="NO" else
                 "active but related Opportunity ID not verified" if link!="MATCHED" else "verified")
-        rows.append([qid,get(row,amea),oid,get(row,name),status,flag,link,valid,reason])
+        rows.append([qid,get(row,amea),oid,get(row,name),status,flag,link,valid,reason,matched_name,method])
         stats[valid]+=1
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     meta=call(sess,"GET",root+"?fields=sheets.properties",stage="quote_link_metadata")
@@ -52,7 +74,7 @@ def main():
            ["inactive",stats["NO"]],["unknown_status",stats["UNKNOWN"]],
            ["sfdc_quote_id_column_present",str(qi is not None)],["amea_quote_id_column_present",str(amea is not None)],["related_opportunity_id_column_present",str(oi is not None)],
            ["opportunity_id_column_present",str(opportunity_id is not None)],
-           ["source","SFDC_Auto exported snapshot; not live Salesforce"]]
+           ["name_match_unique",match_stats["NAME_MATCH_UNIQUE"]],["name_match_ambiguous",match_stats["NAME_AMBIGUOUS"]],["name_match_missing",match_stats["NO_NAME_MATCH"]],["source","SFDC_Auto exported snapshot; not live Salesforce"]]
     replace_tab(sess,AUDIT,audit)
     print(json.dumps({"quote_rows":len(q)-1,"active":stats["YES"],"inactive":stats["NO"],
       "unknown":stats["UNKNOWN"],"related_ids_available":oi is not None and opportunity_id is not None}))
