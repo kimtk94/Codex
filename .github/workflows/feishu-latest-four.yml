@@ -1,0 +1,22 @@
+name: Feishu Latest Four Formats
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "12,42 * * * *"
+permissions:
+  contents: read
+jobs:
+  select:
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Detect latest dated tab per format without writes
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: python3 automation/feishu/latest_four_formats.py
