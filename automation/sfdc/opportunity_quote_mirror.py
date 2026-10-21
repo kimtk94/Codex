@@ -12,6 +12,9 @@ KST = dt.timezone(dt.timedelta(hours=9))
 JOBS = [
     ("Opportunity", SFDC_AUTO_ID, "Oppo list", 2000),
     ("Quotation", SFDC_AUTO_ID, "Quotation", 2000),
+    ("SFDC Contacts", SFDC_AUTO_ID, "Contact", 2000),
+    ("SFDC Settlement Raw", SFDC_AUTO_ID, "Setteled_Rawdata", 2000),
+    ("SFDC Invoice Index", SFDC_AUTO_ID, "Issued Invoice", 2000),
     ("Quotation Approvals", SOURCE_ID, "Quotation Approval List", 2000),
     ("Quotation Invoice Match", SOURCE_ID, "Quotation Invoice Match", 2000),
 ]
