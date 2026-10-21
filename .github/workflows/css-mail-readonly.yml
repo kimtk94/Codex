@@ -1,0 +1,43 @@
+name: CSS QQ Mail Read-only Probe
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7,37 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: css-qq-mail-readonly
+  cancel-in-progress: false
+
+jobs:
+  css-mail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      CSS_MAIL_LOOKBACK_HOURS: "48"
+      CSS_MAIL_REPORT_PATH: css_mail_probe.json
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate QQ Mail configuration
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          keys = ["CSS_QQ_MAIL_ADDRESS", "CSS_QQ_MAIL_AUTH_CODE"]
+          ok = all(os.getenv(key) for key in keys)
+          print("CSS QQ IMAP configuration:", "READY" if ok else "MISSING")
+          sys.exit(0 if ok else 1)
+          PY
+      - name: Read-only QQ IMAP probe
+        run: python3 automation/css_mail/readonly_probe.py
+      - name: Upload sanitized counts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: css-qq-mail-counts
+          path: css_mail_probe.json
+          retention-days: 7
