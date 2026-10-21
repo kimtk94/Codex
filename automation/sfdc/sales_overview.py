@@ -42,19 +42,22 @@ def main():
     weekly_columns=["week_start","week_end","opportunity_created",
         "opportunity_closed_target","opportunity_closed_won_target",
         "quotation_approvals","approvals_created_in_week",
-        "approval_invoice_count","realized_invoice_amount_krw"]
+        "approval_invoice_count","realized_invoice_amount_krw",
+        "approved_active_count","approved_active_krw","approved_active_k_usd","approved_active_status"]
     if any(k not in wh for k in weekly_columns):
         raise RuntimeError("Weekly source missing required columns")
     rows.append(["WEEKLY_TABLE","Week (Fri-Thu)","Opp Created",
         "Opp Planned Close","Closed Won (planned)","CSS Quote Approvals",
-        "Quote Created in Week","CSS Invoice Count","CSS Invoice KRW"])
+        "Quote Created in Week","CSS Invoice Count","CSS Invoice KRW",
+        "Approved + Active Quotes","Approved Active KRW","Approved Active K USD","Quote Verification"])
     for w in weekly[1:9]:
         wr={k:(w[i] if i<len(w) else "") for i,k in enumerate(wh)}
         period=str(wr["week_start"])+" ~ "+str(wr["week_end"])+(" [진행 중]" if wr.get("weekly_basis")=="FRI_THU_IN_PROGRESS" else "")
         rows.append(["WEEKLY_ROW",period,wr["opportunity_created"],
             wr["opportunity_closed_target"],wr["opportunity_closed_won_target"],
             wr["quotation_approvals"],wr["approvals_created_in_week"],
-            wr["approval_invoice_count"],wr["realized_invoice_amount_krw"]])
+            wr["approval_invoice_count"],wr["realized_invoice_amount_krw"],
+            wr["approved_active_count"],wr["approved_active_krw"],wr["approved_active_k_usd"],wr["approved_active_status"]])
     for k,n in sorted(stage.items()):rows.append(["OPPORTUNITY_STAGE",k,n,"Opportunity mirror",now,""])
     for k,n in sorted(qstage.items()):rows.append(["QUOTATION_STAGE (unverified)",k,n,"Quotation mirror",now,"Not Active Quote count"])
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
