@@ -1,0 +1,15 @@
+"""Synthetic monthly Feishu eTAX discovery tests."""
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from etax_monthly_audit import parse_etax_month,select_etax
+
+assert parse_etax_month("eTAX - Oct Invoice",2026)==(2026,10)
+assert parse_etax_month("eTAX - Nov Invoice",2026)==(2026,11)
+assert parse_etax_month("eTAX 2026-12 Invoice",2026)==(2026,12)
+assert parse_etax_month("Payment Outstanding 10.20",2026) is None
+assert parse_etax_month("eTAX - Oct Invoice",2026)!=(2026,11)
+assert select_etax([{"name":"eTAX - Oct Invoice","table_id":"a"},{"name":"eTAX - Sep Invoice","table_id":"b"}],2026,10)[0]["table_id"]=="a"
+assert select_etax([],2026,10)==(None,0)
+assert select_etax([{"name":"eTAX - Oct Invoice"},{"name":"eTAX - Oct Invoice"}],2026,10)==(None,2)
+print("ETAX_MONTHLY_SYNTHETIC_TEST: PASS")
