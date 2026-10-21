@@ -56,7 +56,12 @@ def main():
     print("TABLE_COUNT:", len(tables))
     for table in tables:
         print("TABLE:", table["table_id"], json.dumps(table["name"], ensure_ascii=False))
-    table_id = os.environ.get("FEISHU_TABLE_ID", "").strip()
+    requested_name = os.environ.get("FEISHU_TABLE_NAME", "Taehoon").strip()
+    matching = [t for t in tables if t["name"] == requested_name]
+    if len(matching) != 1:
+        raise RuntimeError(f"Expected exactly one table named {requested_name!r}; found {len(matching)}")
+    table_id = matching[0]["table_id"]
+    print("TARGET_TABLE:", requested_name, table_id)
     if table_id:
         path = prefix + "/tables/" + urllib.parse.quote(table_id, safe="")
         response = request("GET", path + "/records?page_size=1", token=token)
