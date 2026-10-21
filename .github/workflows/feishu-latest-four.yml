@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Offline selection regression tests
+        run: python3 automation/feishu/test_latest_four_formats.py
       - name: Detect latest dated tab per format without writes
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
