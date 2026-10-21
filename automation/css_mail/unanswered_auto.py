@@ -94,6 +94,9 @@ def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
     now=dt.datetime.now(dt.timezone.utc).isoformat()
     result=[]
     seen_conversations=set()
+    own_domain="novogene.com"
+    system_senders={"css@novogene-amea.com"}
+    buckets={"CUSTOMER_REVIEW":0,"INTERNAL_COORDINATION":0,"SYSTEM_NOTICE":0}
     for m in sorted(inbound,key=lambda x:x["_at"] or dt.datetime.min.replace(tzinfo=dt.timezone.utc),reverse=True):
         mail_from=addresses(m.get("from_email"))
         if not m["_at"] or not m["_sub"] or not mail_from:continue
@@ -131,6 +134,10 @@ def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
         days = max(0, (today-local.date()).days)
         weekday = "월화수목금토일"[local.weekday()]
         display_date = local.strftime("%m/%d")+"("+weekday+") "+local.strftime("%H:%M")
+        is_system = bool(mail_from & system_senders)
+        is_internal = all(address.endswith("@"+own_domain) or address.endswith("@novogene-amea.com") for address in mail_from)
+        bucket = "SYSTEM_NOTICE" if is_system else ("INTERNAL_COORDINATION" if is_internal else "CUSTOMER_REVIEW")
+        buckets[bucket] += 1
         review_note = "회신 여부 검토 필요 (수집 범위 한정)"
         if days < config["action_unanswered_min_age_days"]:
             review_note = "관찰 중 (최소 경과일 미달)"
@@ -139,9 +146,9 @@ def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
         else:
             review_note = "2~30일: 후속조치 검토 (확정 아님)"
         result.append([str(days)+"일",display_date,m.get("from_email",""),m.get("subject",""),
-                       "","신규","","",m.get("from_email",""),"","FALSE","FALSE",
+                       "","신규",bucket,"",m.get("from_email",""),"","FALSE","FALSE",
                        m.get("recipient_to",""),m.get("cc",""),projects,review_note,
-                       m["_sub"],"inbox:"+str(m.get("imap_uid","")),"",now,"REVIEW_ONLY"])
+                       m["_sub"],"inbox:"+str(m.get("imap_uid","")),"",now,bucket])
         if len(result)>=1500:break
     return result
 
@@ -166,7 +173,7 @@ def main():
             json={"values":[HEADER]+result})
     print("CSS_UNANSWERED_AUTO_PASS candidates="+str(len(result))+
           " exclusions="+str(len(excludes))+" sender_rules="+str(len(senders))+
-          " status=REVIEW_ONLY")
+          " status=CLASSIFIED_ADVISORY")
 if __name__=="__main__":
     try:main()
     except Exception as e:
