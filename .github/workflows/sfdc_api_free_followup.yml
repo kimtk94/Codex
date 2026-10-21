@@ -48,3 +48,6 @@ jobs:
       - name: Mirror Opportunity and Quotation
         if: steps.credentials.outputs.ready == 'true'
         run: python automation/sfdc/opportunity_quote_mirror.py
+      - name: Reconcile Opportunity and CSS projects
+        if: steps.credentials.outputs.ready == 'true'
+        run: python automation/sfdc/project_bridge.py
