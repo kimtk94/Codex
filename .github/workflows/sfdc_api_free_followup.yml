@@ -57,3 +57,6 @@ jobs:
       - name: Build Unified Action Dashboard
         if: steps.credentials.outputs.ready == 'true'
         run: python automation/sfdc/action_dashboard.py
+      - name: Validate Active Quote Relations
+        if: steps.credentials.outputs.ready == 'true'
+        run: python automation/sfdc/active_quote_links.py
