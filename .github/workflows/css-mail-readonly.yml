@@ -1,6 +1,11 @@
 name: CSS QQ Mail Read-only Probe
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/**'
+      - '.github/workflows/css-mail-readonly.yml'
   workflow_dispatch:
   schedule:
     - cron: "7,37 * * * *"
