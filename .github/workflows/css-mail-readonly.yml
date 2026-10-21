@@ -15,6 +15,7 @@ concurrency:
 jobs:
   css-mail:
     runs-on: ubuntu-latest
+    environment: TaehoonServer
     timeout-minutes: 10
     env:
       CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
