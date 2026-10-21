@@ -46,13 +46,15 @@ jobs:
       - name: Install Google Sheets client
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Compile CSS mail Python scripts
-        run: python3 -m py_compile automation/css_mail/readonly_probe.py automation/css_mail/incremental_sync.py automation/css_mail/mail_operations.py automation/css_mail/unanswered_auto.py
+        run: python3 -m py_compile automation/css_mail/readonly_probe.py automation/css_mail/incremental_sync.py automation/css_mail/mail_operations.py automation/css_mail/unanswered_auto.py automation/css_mail/tax_invoice_extract.py
       - name: Sync inbound and sent mail metadata to CSS staging
         run: python3 automation/css_mail/incremental_sync.py
       - name: Build mail-only operations review (no SFDC updates)
         run: python3 automation/css_mail/mail_operations.py
       - name: Build unanswered email review using existing exclusions
         run: python3 automation/css_mail/unanswered_auto.py
+      - name: Extract TAX INVOICE amounts from attachment filenames
+        run: python3 automation/css_mail/tax_invoice_extract.py
       - name: Upload sanitized counts
         if: success()
         uses: actions/upload-artifact@v4
