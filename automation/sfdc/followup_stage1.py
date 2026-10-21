@@ -32,7 +32,11 @@ def auth():
     value = os.environ.get("GCP_SERVICE_ACCOUNT_JSON", "").strip()
     if not value:
         raise RuntimeError("GCP_SERVICE_ACCOUNT_JSON secret missing")
-    creds = service_account.Credentials.from_service_account_info(json.loads(value), scopes=SCOPES)
+    info = json.loads(value)
+    account = str(info.get("client_email", "")).lower()
+    shared_account = "novogene-css-server@novogene-css-automation.iam.gserviceaccount.com"
+    print("SFDC source shared-SA identity match: %s" % ("YES" if account == shared_account else "NO"), flush=True)
+    creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
     return AuthorizedSession(creds)
 
 
