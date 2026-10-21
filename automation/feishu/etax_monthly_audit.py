@@ -13,7 +13,6 @@ def parse_etax_month(name, reference_year):
     s = " ".join(str(name or "").strip().lower().split())
     if not re.search(r"\be[\s_-]*tax\b", s) or not re.search(r"\binvoices?\b", s):
         return None
-    matches = [(int(n), m.start()) for m in re.finditer(r"(?<!\d)(0?[1-9]|1[0-2])(?=[./ _-])", s) for n in [m.group(1)]]
     word_months = [i for k,i in MONTHS.items() if re.search(r"\b"+k+r"[a-z]*\b", s)]
     if len(set(word_months)) == 1:
         month = word_months[0]
