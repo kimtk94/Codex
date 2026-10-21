@@ -34,7 +34,8 @@ def main():
     linked=defaultdict(int)
     for r in links:
         if r.get("link_result") in ("NAME_MATCH_UNIQUE","NAME_DATE_MATCH_UNIQUE","MATCHED_BY_ID"):
-            linked[clean(r.get("matched_opportunity_name"))]+=1
+            key=(clean(r.get("matched_opportunity_name")),str(r.get("matched_close_date") or ""))
+            linked[key]+=1
     base=[x for x in h if x not in EXTRA]
     width=len(base)
     output=[base+EXTRA]
@@ -46,11 +47,11 @@ def main():
         cs=contactbyaccount.get(inst,[])
         emailname=lambda c:clean((str(c.get("First Name") or "")+" "+str(c.get("Last Name") or "")).strip())
         mains=sum(1 for x in os for c in cs if emailname(c)==clean(x.get("Main Contact")) and emailname(c))
-        projects=set(re.findall(r"AMEA\\d+",str(data.get("project_ids") or ""),flags=re.I))
+        projects=set(re.findall(r"AMEA\d+",str(data.get("project_ids") or ""),flags=re.I))
         project_upper={x.upper() for x in projects}
         contractset=[x for x in contracts if str(x.get("AMEA No.") or "").upper() in project_upper]
         contractnums=sorted({str(x.get("Contract No.") or "") for x in contractset if x.get("Contract No.")})
-        quote_count=sum(linked[clean(x.get("Opportunity Name"))] for x in os)
+        quote_count=sum(linked[(clean(x.get("Opportunity Name")),str(x.get("Close Date") or ""))] + linked[(clean(x.get("Opportunity Name")),"")] for x in os)
         quality="AMEA_CONTRACT_AND_ACCOUNT_EXACT" if contractset and os else "AMEA_CONTRACT_ONLY" if contractset else "ACCOUNT_NAME_EXACT_ONLY" if os or cs else "NO_SFDC_EXACT_ACCOUNT_MATCH"
         if os or cs:summary["account_matches"]+=1
         summary["contract_links"]+=len(contractset)
