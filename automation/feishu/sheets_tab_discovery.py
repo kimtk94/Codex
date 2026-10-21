@@ -18,6 +18,11 @@ def api(path, bearer=None, payload=None):
             response=json.loads(exc.read().decode("utf-8"))
             code=response.get("code") if isinstance(response,dict) else None
             if not isinstance(code,int): code="UNKNOWN"
+            if code==99991672:
+                violations=(response.get("error") or {}).get("permission_violations") or []
+                scopes=sorted({v.get("subject") for v in violations if isinstance(v,dict) and isinstance(v.get("subject"),str) and
+                               all(c.isalnum() or c in ":._-" for c in v["subject"]) and len(v["subject"])<100})
+                print("MISSING_API_SCOPES:",json.dumps(scopes),flush=True)
         except (ValueError,UnicodeError):
             code="UNPARSEABLE"
         raise RuntimeError("HTTP_STATUS_"+str(exc.code)+"_FEISHU_CODE_"+str(code)) from None
