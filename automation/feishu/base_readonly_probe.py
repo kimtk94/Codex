@@ -56,20 +56,40 @@ def main():
     print("TABLE_COUNT:", len(tables))
     for table in tables:
         print("TABLE:", table["table_id"], json.dumps(table["name"], ensure_ascii=False))
-    requested_name = os.environ.get("FEISHU_TABLE_NAME", "Taehoon").strip()
-    matching = [t for t in tables if t["name"] == requested_name]
+    table_name = os.environ.get("FEISHU_TABLE_NAME", "표").strip()
+    view_name = os.environ.get("FEISHU_VIEW_NAME", "Taehoon").strip()
+    matching = [t for t in tables if t["name"] == table_name]
     if len(matching) != 1:
-        raise RuntimeError(f"Expected exactly one table named {requested_name!r}; found {len(matching)}")
+        raise RuntimeError(f"Expected exactly one table named {table_name!r}; found {len(matching)}")
     table_id = matching[0]["table_id"]
-    print("TARGET_TABLE:", requested_name, table_id)
-    if table_id:
-        path = prefix + "/tables/" + urllib.parse.quote(table_id, safe="")
-        response = request("GET", path + "/records?page_size=1", token=token)
+    print("TARGET_TABLE:", table_name, table_id)
+    path = prefix + "/tables/" + urllib.parse.quote(table_id, safe="")
+    views = []
+    cursor = ""
+    while True:
+        qs = "?page_size=100" + ("&page_token=" + urllib.parse.quote(cursor, safe="") if cursor else "")
+        response = request("GET", path + "/views" + qs, token=token)
         if response.get("code") != 0:
-            raise RuntimeError("Record read failed: code=" + str(response.get("code")))
+            raise RuntimeError("View list failed: code=" + str(response.get("code")))
         d = response.get("data") or {}
-        print("RECORD_READ: PASS (fields and values suppressed)")
-        print("SAMPLE_RECORD_COUNT:", len(d.get("items") or []))
+        views.extend(d.get("items") or [])
+        if not d.get("has_more"):
+            break
+        cursor = d.get("page_token")
+        if not cursor:
+            raise RuntimeError("Missing views pagination cursor")
+    selected = [v for v in views if v.get("view_name") == view_name]
+    if len(selected) != 1:
+        raise RuntimeError(f"Expected exactly one view named {view_name!r}; found {len(selected)}")
+    view_id = selected[0]["view_id"]
+    print("TARGET_VIEW:", view_name, view_id)
+    qs = urllib.parse.urlencode({"page_size": 1, "view_id": view_id})
+    response = request("GET", path + "/records?" + qs, token=token)
+    if response.get("code") != 0:
+        raise RuntimeError("View record read failed: code=" + str(response.get("code")))
+    d = response.get("data") or {}
+    print("RECORD_READ: PASS (fields and values suppressed)")
+    print("SAMPLE_RECORD_COUNT:", len(d.get("items") or []))
 
 if __name__ == "__main__":
     try:
