@@ -1,13 +1,13 @@
 # Feishu Base integration — P0 read-only
 
-This integration only requests an access token, lists Base tables, and optionally reads one sample record while suppressing its values. It never writes to Feishu.
+This integration only requests an access token, lists Base tables, and reads one sample record from the `Taehoon` table while suppressing its values. It never writes to Feishu.
 
 ## Repository secrets
 
 - `FEISHU_APP_ID`: custom app identifier (previously configured in Feishu developer console)
 - `FEISHU_APP_SECRET`: application secret, **do not commit**
 - `FEISHU_BASE_APP_TOKEN`: Base app token (not wiki node token, not table view ID)
-- `FEISHU_TABLE_ID` (optional): actual table ID for a one-record test
+- Target table name: `Taehoon` (set in workflow; resolved automatically from Base table list). No table ID secret required
 
 The previously shared Feishu wiki URL with `table=wbp...` does not establish the Base app token or table ID. Obtain the app token from the Base's actual URL or API after permissions are granted.
 
