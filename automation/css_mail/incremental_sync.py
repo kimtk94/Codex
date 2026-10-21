@@ -97,20 +97,38 @@ def collect(im, folder, direction, seen, limit):
     status,uv=im.response("UIDVALIDITY")
     if not uv or not uv[0]: raise RuntimeError("UIDVALIDITY unavailable")
     uidvalidity=uv[0].decode("ascii","replace")
-    days=int(os.environ.get("CSS_IMAP_SCAN_DAYS","3"))
-    if days<1 or days>14: raise RuntimeError("Scan days out of bounds")
+    days=int(os.environ.get("CSS_IMAP_SCAN_DAYS","60"))
+    if days<1 or days>60: raise RuntimeError("Scan days out of bounds (1..60)")
     date=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(days=days)).strftime("%d-%b-%Y")
     status,hit=im.uid("SEARCH",None,"SINCE",date)
     if status!="OK": raise RuntimeError("IMAP UID search failed")
     ids=(hit[0] or b"").split()
-    # Limit per run without silently skipping oldest items: reject backlog and
-    # require explicit resync plan rather than advancing checkpoint.
-    if len(ids)>limit:
-        raise RuntimeError("BACKLOG_LIMIT: widen batching after reviewing mailbox volume")
+    # A 60-day mailbox can be much larger than one Actions run.
+    # Reserve most slots for recent mail, then fill remaining slots from the
+    # oldest uncollected historical messages. Existing keys are persistent.
+    fresh_date=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(days=3)).strftime("%d-%b-%Y")
+    status,recent_hit=im.uid("SEARCH",None,"SINCE",fresh_date)
+    if status!="OK": raise RuntimeError("IMAP fresh UID search failed")
+    recent_set=set((recent_hit[0] or b"").split())
+    unseen=[uid for uid in ids if folder+"|"+uidvalidity+"|"+uid.decode("ascii") not in seen]
+    # A bounded per-folder batch is required to fit the 10-minute job timeout.
+    per_run=min(max(1,int(os.environ.get("CSS_IMAP_BATCH_PER_FOLDER","120"))),300)
+    reserve=max(1,per_run*2//3)
+    recent=[uid for uid in unseen if uid in recent_set]
+    historical=[uid for uid in unseen if uid not in recent_set]
+    selected=recent[-reserve:]
+    slots=per_run-len(selected)
+    selected+=historical[:slots]
+    slots=per_run-len(selected)
+    if slots:
+        used=set(selected)
+        selected+=[uid for uid in recent if uid not in used][-slots:]
+    print("CSS_BACKFILL folder="+direction+" pending="+str(len(unseen))+
+          " selected="+str(len(selected))+" recent="+str(len(recent))+
+          " historical="+str(len(historical)),flush=True)
     output=[]
-    for uid in ids:
+    for uid in selected:
         key=folder+"|"+uidvalidity+"|"+uid.decode("ascii")
-        if key in seen: continue
         status,body=im.uid("FETCH",uid,"(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID DATE FROM TO CC SUBJECT)])")
         if status!="OK": raise RuntimeError("IMAP header fetch failed")
         payload=next((r[1] for r in body if isinstance(r,tuple) and isinstance(r[1],bytes)),None)
