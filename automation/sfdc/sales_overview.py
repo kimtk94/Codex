@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""SFDC snapshot sales dashboard. No unverified cross-entity joins."""
+import collections
+import datetime as dt
+import json
+from followup_stage1 import auth, OUTPUT_ID, call
+from opportunity_quote_mirror import range_data, replace_tab
+
+TAB="SFDC Sales Overview"
+def val(row,index):
+    return row[index] if index is not None and index < len(row) else ""
+def find(header,key):
+    try: return header.index(key)
+    except ValueError: return None
+def main():
+    session=auth()
+    opp=range_data(session,OUTPUT_ID,"Opportunity",2000)
+    quote=range_data(session,OUTPUT_ID,"Quotation",2000)
+    if not opp or not quote: raise RuntimeError("Opportunity or Quotation mirror missing")
+    oh=opp[0]; qh=quote[0]
+    for c in ["Stage","Opportunity Name","Amount"]:
+        if c not in oh: raise RuntimeError("Opportunity missing "+c)
+    if "Stage" not in qh: raise RuntimeError("Quotation missing Stage")
+    stage=collections.Counter(str(val(r,find(oh,"Stage"))).strip() or "BLANK" for r in opp[1:])
+    qstage=collections.Counter(str(val(r,find(qh,"Stage"))).strip() or "BLANK" for r in quote[1:])
+    now=dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).isoformat()
+    rows=[["section","metric","value","data_origin","checked_at_kst","warning"],
+          ["SUMMARY","Opportunity records",len(opp)-1,"SFDC_Auto snapshot",now,"Snapshot is not live SFDC"],
+          ["SUMMARY","Quotation records",len(quote)-1,"SFDC_Auto snapshot",now,"Do not sum as additional opportunities"],
+          ["SUMMARY","Opportunity-CSS verified links",0,"SFDC CSS Match Audit",now,"No verified AMEA links in previous audit"]]
+    for k,n in sorted(stage.items()):rows.append(["OPPORTUNITY_STAGE",k,n,"Opportunity mirror",now,""])
+    for k,n in sorted(qstage.items()):rows.append(["QUOTATION_STAGE",k,n,"Quotation mirror",now,""])
+    root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
+    meta=call(session,"GET",root+"?fields=sheets.properties",stage="overview_metadata")
+    if TAB not in {s["properties"]["title"] for s in meta["sheets"]}:
+        call(session,"POST",root+":batchUpdate",json={"requests":[{"addSheet":{"properties":{"title":TAB}}}]},stage="overview_create")
+    replace_tab(session,TAB,rows)
+    print(json.dumps({"status":"ok","opportunities":len(opp)-1,"quotations":len(quote)-1,
+                      "opportunity_stage_categories":len(stage),"quotation_stage_categories":len(qstage)}))
+if __name__=="__main__":main()
