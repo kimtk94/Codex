@@ -36,6 +36,8 @@ def main():
         rows.append(["QUOTE_RELATION",metric,link_metrics.get(key,"NOT_CHECKED"),"SFDC Quote Link Audit",now,
             "Name-only join is provisional; Active must be explicitly checked"])
     weekly=range_data(session,OUTPUT_ID,"SFDC Weekly Overview",400)
+    if not weekly or len(weekly)<=1 or weekly[0][0]!="week_start":
+        raise RuntimeError("Weekly source not ready; refusing incomplete Sales Overview publication")
     if weekly and len(weekly)>1:
         wh=weekly[0]
         for w in weekly[1:9]:
@@ -51,6 +53,10 @@ def main():
     if TAB not in {s["properties"]["title"] for s in meta["sheets"]}:
         call(session,"POST",root+":batchUpdate",json={"requests":[{"addSheet":{"properties":{"title":TAB}}}]},stage="overview_create")
     replace_tab(session,TAB,rows)
+    check=range_data(session,OUTPUT_ID,TAB,150)
+    observed=sum(1 for r in check[1:] if r and r[0]=="WEEKLY_FRI_THU")
+    if observed!=48:
+        raise RuntimeError(f"Weekly display publication failed: expected 48 rows, got {observed}")
     print(json.dumps({"status":"ok","opportunities":len(opp)-1,"quotations":len(quote)-1,
                       "opportunity_stage_categories":len(stage),"quotation_stage_categories":len(qstage)}))
 if __name__=="__main__":main()
