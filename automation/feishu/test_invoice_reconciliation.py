@@ -22,3 +22,9 @@ except ValueError: pass
 else: raise AssertionError("Duplicate invoice must fail")
 print("INVOICE_RECONCILIATION_OFFLINE_TEST: PASS")
 print("SOURCE_WRITE_OPERATIONS: 0")
+
+# Currency suffix and unparseable amounts must fail closed.
+with_currency,_=reconcile([{"invoice_number":"INV004","amount_krw":"4,438,500 KRW"}],[{"invoice_number":"INV004","invoice_amount_krw":"4438500"}])
+assert with_currency[0]["status"]=="MATCHED_EXACT_ID"
+invalid,_=reconcile([{"invoice_number":"INV005","amount_krw":"UNAVAILABLE"}],[{"invoice_number":"INV005","invoice_amount_krw":"4438500"}])
+assert invalid[0]["status"]=="REVIEW_AMOUNT_UNPARSEABLE"
