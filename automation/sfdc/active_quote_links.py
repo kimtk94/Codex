@@ -21,7 +21,7 @@ def get(row,i):
 def main():
     sess=auth()
     q=range_data(sess,OUTPUT_ID,"Quotation",2000)
-    o=range_data(sess,OUTPUT_ID,"Opportunity",2000)
+    o=range_data(sess,OUTPUT_ID,"SFDC Opportunity Raw",2000)
     if not q or not o: raise RuntimeError("Missing mirrored Opportunity/Quotation")
     qi=pick(q[0],["SFDC Quotation ID","Salesforce Quotation ID","Quote Record ID","Id"])
     amea=pick(q[0],["Quotation ID","AMEA No.","AMEA ID"])
