@@ -30,12 +30,12 @@ def list_pages(path, token):
 def field_readiness(fields):
     """Check candidate schema only. Presence is not a proof of paid status."""
     def normalize(v):
-        return str(v or "").strip().casefold().replace("_", " ").replace("-", " ")
+        return " ".join(str(v or "").casefold().replace("_", " ").replace("-", " ").split())
     available = {normalize(f.get("field_name")) for f in fields}
     aliases = {
-        "invoice_id": ("invoice number", "invoice no", "invoice id", "세금계산서 번호"),
-        "amount": ("invoice amount", "outstanding amount", "청구금액", "미수금"),
-        "payment_evidence": ("payment date", "paid date", "payment amount", "paid amount", "입금일", "입금액"),
+        "invoice_id": ("invoice number", "invoice no", "invoice id", "erp invoice number", "cms invoice number", "e tax number", "세금계산서 번호"),
+        "amount": ("invoice amount", "outstanding amount", "balance", "청구금액", "미수금"),
+        "payment_evidence": ("payment date", "paid date", "payment amount", "paid amount", "remark payment status", "입금일", "입금액"),
     }
     return {k: any(normalize(a) in available for a in values) for k, values in aliases.items()}
 
@@ -66,6 +66,7 @@ def main():
     for key,value in found.items():
         print("PAYMENT_FIELD_"+key.upper()+"_PRESENT:",value)
     print("RECONCILIATION_READINESS:", "READY_FOR_MAPPING_REVIEW" if all(found.values()) else "MISSING_REQUIRED_FIELDS")
+    print("PAYMENT_SETTLEMENT_PROOF: UNVERIFIED")
     # Do not print field names or customer record values.
     print("PAYMENT_TABLE_FOUND: 1")
     print("PAYMENT_TABLE_ID:",table_id)
