@@ -10,11 +10,13 @@ from sheets_tab_discovery import api, TOKEN
 from latest_four_formats import select
 
 def main():
+    print("STAGE: authenticate",flush=True)
     auth=api("/open-apis/auth/v3/tenant_access_token/internal",payload={
         "app_id":os.environ["FEISHU_APP_ID"],"app_secret":os.environ["FEISHU_APP_SECRET"]})
     bearer=auth.get("tenant_access_token")
     if not bearer: raise RuntimeError("AUTH_TOKEN_MISSING")
     root="/open-apis/sheets/v3/spreadsheets/"+urllib.parse.quote(TOKEN,safe="")
+    print("STAGE: sheets_list",flush=True)
     sheets=api(root+"/sheets/query",bearer).get("sheets")
     if not isinstance(sheets,list): raise RuntimeError("Sheet listing unavailable")
     selected,unclassified=select(sheets,dt.datetime.now(ZoneInfo("Asia/Seoul")).date())
@@ -22,8 +24,9 @@ def main():
     print("FORMAT_COUNT:",len(selected))
     for fmt,entry in sorted(selected.items()):
         # A1:AZ1 is header-only; structural fingerprints do not disclose names.
-        span=urllib.parse.quote(entry["sheet_id"]+"!A1:AZ1",safe="")
+        span=urllib.parse.quote(entry["sheet_id"]+"!A1:AZ1",safe="!:")
         value_root="/open-apis/sheets/v2/spreadsheets/"+urllib.parse.quote(TOKEN,safe="")
+        print("STAGE: header_read FORMAT:",fmt,flush=True)
         result=api(value_root+"/values/"+span,bearer)
         value_range=result.get("valueRange")
         if not isinstance(value_range,dict): raise RuntimeError("VALUE_RANGE_MISSING")
