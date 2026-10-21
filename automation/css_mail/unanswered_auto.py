@@ -39,14 +39,14 @@ def addresses(value):
 def when(value):
     try:
         parsed=dt.datetime.fromisoformat(str(value))
-        return parsed.astimezone(dt.timezone.utc) if parsed.tzinfo else None
+        return (parsed if parsed.tzinfo else parsed.replace(tzinfo=src.KST)).astimezone(dt.timezone.utc)
     except (ValueError,TypeError):return None
 
 def truth(value):
     return str(value or "").strip().upper() in ("TRUE", "YES", "1")
 
 def config_from_rows(rows):
-    config = {"unanswered_lookback_days": 180, "action_unanswered_max_age_days": 30}
+    config = {"unanswered_lookback_days": 180, "action_unanswered_max_age_days": 30, "action_unanswered_min_age_days": 2}
     for row in rows:
         key = row.get("rule_key", "")
         if row.get("rule_group") == "Mail" and truth(row.get("enabled")) and key in config:
@@ -56,11 +56,18 @@ def config_from_rows(rows):
                 pass
     return config
 
-def candidates(messages, exclusions, senders, rules=None):
+def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
     config = config_from_rows(rules or [])
     now_utc = dt.datetime.now(dt.timezone.utc)
     today = now_utc.astimezone(src.KST).date()
     previous_thread_exclusions = []
+    auto_exclusions=[]
+    for rule in (sender_rules or []):
+        if not truth(rule.get("active")):continue
+        if rule.get("default_action","").upper() not in ("IGNORE","ARCHIVE","SALESFORCE_PIPELINE"):continue
+        p=str(rule.get("sender_pattern","")).strip().casefold()
+        kind=str(rule.get("match_type","")).strip().casefold()
+        if p:auto_exclusions.append((p,kind))
     banned_ids=set()
     for r in exclusions:
         if truth(r.get("restore")): continue
@@ -101,6 +108,10 @@ def candidates(messages, exclusions, senders, rules=None):
                     break
             if excluded:break
         if excluded:continue
+        if any((kind=="exact" and address==p) or
+               (kind=="prefix" and address.split("@")[0].startswith(p)) or
+               (kind=="contains" and p in address)
+               for address in mail_from for p,kind in auto_exclusions):continue
         matched=any(
             sent["_at"] and sent["_at"]>=m["_at"] and sent["_sub"]==m["_sub"]
             and bool(mail_from & (addresses(sent.get("recipient_to")) | addresses(sent.get("cc"))))
@@ -114,8 +125,12 @@ def candidates(messages, exclusions, senders, rules=None):
         weekday = "월화수목금토일"[local.weekday()]
         display_date = local.strftime("%m/%d")+"("+weekday+") "+local.strftime("%H:%M")
         review_note = "회신 여부 검토 필요 (수집 범위 한정)"
-        if days > config["action_unanswered_max_age_days"]:
+        if days < config["action_unanswered_min_age_days"]:
+            review_note = "관찰 중 (최소 경과일 미달)"
+        elif days > config["action_unanswered_max_age_days"]:
             review_note = "30일 초과: Action Center 대상 제외"
+        else:
+            review_note = "2~30일: 후속조치 검토 (확정 아님)"
         result.append([str(days)+"일",display_date,m.get("from_email",""),m.get("subject",""),
                        "","신규","","",m.get("from_email",""),"","FALSE","FALSE",
                        m.get("recipient_to",""),m.get("cc",""),projects,review_note,
@@ -129,7 +144,8 @@ def main():
     excludes=table(s,EXCLUDED,"L",10000)
     senders=table(s,SENDER_EXCLUDED,"F",10000)
     rules=table(s,"CSS Rules & SLA","I",300)
-    result=candidates(mail,excludes,senders,rules)
+    sender_rules=table(s,"CSS Sender Rules","G",200)
+    result=candidates(mail,excludes,senders,rules,sender_rules)
     props=src.api(s,"GET",src.endpoint()+"?fields=sheets.properties.title")
     titles={x["properties"]["title"] for x in props.get("sheets",[])}
     if OUTPUT not in titles:
