@@ -50,6 +50,18 @@ def main():
     identifiers=[r.get("record_id") for r in records]
     if not all(identifiers) or len(identifiers)!=len(set(identifiers)):
         raise RuntimeError("Missing/duplicate record IDs")
+    # Metadata-only presence checks; no customer field names or values in logs.
+    normalize = lambda v: str(v or "").strip().casefold().replace("_", " ").replace("-", " ")
+    available = {normalize(f.get("field_name")) for f in fields}
+    aliases = {
+        "invoice_id": ("invoice number", "invoice no", "invoice id", "세금계산서 번호"),
+        "amount": ("invoice amount", "outstanding amount", "청구금액", "미수금"),
+        "payment_evidence": ("payment date", "paid date", "payment amount", "paid amount", "입금일", "입금액"),
+    }
+    found = {k:any(normalize(a) in available for a in values) for k,values in aliases.items()}
+    for key,value in found.items():
+        print("PAYMENT_FIELD_"+key.upper()+"_PRESENT:",value)
+    print("RECONCILIATION_READINESS:", "READY_FOR_MAPPING_REVIEW" if all(found.values()) else "MISSING_REQUIRED_FIELDS")
     # Do not print field names or customer record values.
     print("PAYMENT_TABLE_FOUND: 1")
     print("PAYMENT_TABLE_ID:",table_id)
