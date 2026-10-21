@@ -1,0 +1,22 @@
+name: Feishu Invoice Reconciliation Offline Test
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - automation/feishu/invoice_reconciliation.py
+      - automation/feishu/test_invoice_reconciliation.py
+      - .github/workflows/feishu-invoice-reconciliation-tests.yml
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run synthetic offline reconciliation tests
+        run: python3 automation/feishu/test_invoice_reconciliation.py
