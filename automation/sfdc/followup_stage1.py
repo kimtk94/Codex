@@ -37,20 +37,21 @@ def auth():
 
 
 def call(session, method, url, **kwargs):
+    stage = kwargs.pop("stage", "unknown")
     r = session.request(method, url, timeout=90, **kwargs)
     if not r.ok:
         try:
             reason = r.json().get("error", {}).get("status", "UNKNOWN")
         except (ValueError, AttributeError):
             reason = "UNKNOWN"
-        raise RuntimeError("Google Sheets HTTP=%s status=%s method=%s" % (r.status_code, reason, method))
+        raise RuntimeError("Google Sheets stage=%s HTTP=%s status=%s method=%s" % (stage, r.status_code, reason, method))
     return r.json() if r.content else {}
 
 
 def read_table(session, sheet):
     import urllib.parse
     rng = urllib.parse.quote(f"'{sheet}'!A1:AG3000", safe="")
-    data = call(session, "GET", f"https://sheets.googleapis.com/v4/spreadsheets/{SOURCE_ID}/values/{rng}")
+    data = call(session, "GET", f"https://sheets.googleapis.com/v4/spreadsheets/{SOURCE_ID}/values/{rng}", stage="source_read:"+sheet)
     rows = data.get("values", [])
     if not rows:
         return []
@@ -142,14 +143,14 @@ def build(tables):
 
 def write_output(session, rows):
     # Dedicated output spreadsheet only. Sheet1 is the default tab of a newly created workbook.
-    meta = call(session,"GET",f"https://sheets.googleapis.com/v4/spreadsheets/{OUTPUT_ID}?fields=sheets.properties")
+    meta = call(session,"GET",f"https://sheets.googleapis.com/v4/spreadsheets/{OUTPUT_ID}?fields=sheets.properties", stage="output_metadata")
     sheet = meta["sheets"][0]["properties"]["title"]
     import urllib.parse
     prefix = f"https://sheets.googleapis.com/v4/spreadsheets/{OUTPUT_ID}/values/"
     target = urllib.parse.quote(f"'{sheet}'!A1:P",safe="")
-    call(session,"POST",prefix+target+":clear",json={})
+    call(session,"POST",prefix+target+":clear",json={},stage="output_clear")
     target = urllib.parse.quote(f"'{sheet}'!A1",safe="")
-    call(session,"PUT",prefix+target+"?valueInputOption=RAW",json={"range":f"'{sheet}'!A1","majorDimension":"ROWS","values":[HEADER]+rows})
+    call(session,"PUT",prefix+target+"?valueInputOption=RAW",stage="output_write",json={"range":f"'{sheet}'!A1","majorDimension":"ROWS","values":[HEADER]+rows})
 
 
 def main():
