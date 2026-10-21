@@ -1,6 +1,10 @@
 name: Feishu Multi-source Dry Run
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - automation/feishu/.trigger-dryrun
 permissions:
   contents: read
 jobs:
