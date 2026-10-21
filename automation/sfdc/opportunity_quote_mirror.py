@@ -31,9 +31,10 @@ def ensure_tabs(session):
 
 def replace_tab(session, tab, values):
     base="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID+"/values/"
-    encoded=urllib.parse.quote("'%s'!A1" % tab,safe="")
-    call(session,"POST",base+encoded+":clear",json={},stage="mirror_clear:"+tab)
+    clear_range=urllib.parse.quote("'%s'!A:AZ" % tab,safe="")
+    call(session,"POST",base+clear_range+":clear",json={},stage="mirror_clear:"+tab)
     if values:
+        encoded=urllib.parse.quote("'%s'!A1" % tab,safe="")
         call(session,"PUT",base+encoded+"?valueInputOption=RAW",
              json={"majorDimension":"ROWS","values":values},stage="mirror_write:"+tab)
 
