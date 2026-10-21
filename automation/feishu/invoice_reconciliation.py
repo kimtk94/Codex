@@ -12,7 +12,9 @@ def norm_id(v):
 def money(v):
     if v is None or str(v).strip()=="": return None
     try:
-        d=Decimal(str(v).replace(",","").replace("₩","").strip())
+        s=str(v).strip().upper().replace(",", "").replace("₩", "").strip()
+        if s.endswith("KRW"): s=s[:-3].strip()
+        d=Decimal(s)
         if not d.is_finite():return None
         return d
     except InvalidOperation:return None
@@ -41,7 +43,9 @@ def reconcile(invoices, payments, quotations=()):
             idx,p=candidates[0]
             amount=money(invoice.get("amount_krw"))
             claimed=money(p.get("invoice_amount_krw"))
-            if amount is not None and claimed is not None and amount!=claimed:
+            if amount is None or claimed is None:
+                status="REVIEW_AMOUNT_UNPARSEABLE"
+            elif amount!=claimed:
                 status="REVIEW_AMOUNT_MISMATCH"
             else:
                 status="MATCHED_EXACT_ID"
