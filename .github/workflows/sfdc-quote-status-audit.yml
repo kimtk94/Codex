@@ -1,0 +1,29 @@
+name: SFDC Quote Status Audit
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "22,52 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - automation/feishu/.trigger-quote-audit
+permissions:
+  contents: read
+jobs:
+  audit:
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Google auth dependencies
+        run: python3 -m pip install google-auth requests
+      - name: Run synthetic tests
+        run: python3 automation/feishu/test_sfdc_quote_status_audit.py
+      - name: Audit private SFDC Quote data read-only
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+        run: python3 automation/feishu/sfdc_quote_status_audit.py
