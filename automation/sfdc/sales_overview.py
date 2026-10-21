@@ -23,11 +23,13 @@ def main():
     if "Stage" not in qh: raise RuntimeError("Quotation missing Stage")
     stage=collections.Counter(str(val(r,find(oh,"Stage"))).strip() or "BLANK" for r in opp[1:])
     qstage=collections.Counter(str(val(r,find(qh,"Stage"))).strip() or "BLANK" for r in quote[1:])
+    audit=range_data(session,OUTPUT_ID,"SFDC CSS Match Audit",20)
+    matched=next((int(r[1]) for r in audit[1:] if len(r)>1 and r[0]=="MATCHED"),0) if audit else 0
     now=dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).isoformat()
     rows=[["section","metric","value","data_origin","checked_at_kst","warning"],
           ["SUMMARY","Opportunity records",len(opp)-1,"SFDC_Auto snapshot",now,"Snapshot is not live SFDC"],
           ["SUMMARY","Quotation records",len(quote)-1,"SFDC_Auto snapshot",now,"Do not sum as additional opportunities"],
-          ["SUMMARY","Opportunity-CSS verified links",0,"SFDC CSS Match Audit",now,"No verified AMEA links in previous audit"]]
+          ["SUMMARY","Opportunity-CSS verified links",matched,"SFDC CSS Match Audit",now,"No verified AMEA links in previous audit"]]
     for k,n in sorted(stage.items()):rows.append(["OPPORTUNITY_STAGE",k,n,"Opportunity mirror",now,""])
     for k,n in sorted(qstage.items()):rows.append(["QUOTATION_STAGE",k,n,"Quotation mirror",now,""])
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
