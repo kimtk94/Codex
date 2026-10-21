@@ -8,7 +8,7 @@ import os
 import sys
 
 KST = dt.timezone(dt.timedelta(hours=9))
-IMAP_HOST = "imap.qq.com"
+IMAP_HOST = "imap.exmail.qq.com"
 IMAP_PORT = 993
 
 def required(name):
