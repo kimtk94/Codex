@@ -1,6 +1,10 @@
 name: Feishu Invoice Reconciliation Offline Test
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/feishu/**'
+      - '.github/workflows/feishu-invoice-reconciliation-tests.yml'
   push:
     branches: [main]
     paths:
@@ -8,6 +12,8 @@ on:
       - automation/feishu/test_invoice_reconciliation.py
       - automation/feishu/payment_table_audit.py
       - automation/feishu/test_payment_field_readiness.py
+      - automation/feishu/etax_monthly_audit.py
+      - automation/feishu/test_etax_monthly_audit.py
       - .github/workflows/feishu-invoice-reconciliation-tests.yml
 permissions:
   contents: read
@@ -24,3 +30,4 @@ jobs:
         run: |
           python3 automation/feishu/test_invoice_reconciliation.py
           python3 automation/feishu/test_payment_field_readiness.py
+          python3 automation/feishu/test_etax_monthly_audit.py

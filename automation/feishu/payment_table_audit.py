@@ -70,6 +70,10 @@ def main():
     print("PAYMENT_TABLE_FOUND: 1")
     print("PAYMENT_TABLE_ID:",table_id)
     print("PAYMENT_FIELD_COUNT:",len(fields))
+    # Schema metadata only: names are needed to map real invoice identifiers.
+    # Customer record values and tokens are never printed.
+    if os.getenv("FEISHU_AUDIT_FIELD_NAMES") == "1":
+        print("PAYMENT_FIELD_NAMES:",json.dumps([f.get("field_name") for f in fields],ensure_ascii=False))
     print("PAYMENT_FIELD_TYPE_COUNTS:",json.dumps({str(t):sum(f.get("type")==t for f in fields)
        for t in sorted({f.get("type") for f in fields})},sort_keys=True))
     print("PAYMENT_RECORD_COUNT:",len(records))

@@ -35,3 +35,8 @@ amount_test,_=reconcile([{"invoice_number":"INV004","amount_krw":"4,438,500 KRW"
 assert amount_test[0]["status"]=="MATCHED_EXACT_ID"
 bad_test,_=reconcile([{"invoice_number":"INV005","amount_krw":"NOT_AVAILABLE"}],[{"invoice_number":"INV005","invoice_amount_krw":"1000"}])
 assert bad_test[0]["status"]=="REVIEW_AMOUNT_UNPARSEABLE"
+
+# eTAX - Oct Invoice contains invoices not yet issued (explicit source evidence).
+etax=operational_status(["AMEA1","AMEA2","AMEA3"],[{"project_id":"AMEA1"},{"project_id":"AMEA2"}],[{"project_id":"AMEA1"}],[{"project_id":"AMEA1"},{"project_id":"AMEA3"}])
+assert [r["operational_status"] for r in etax]==["ETAX_INVOICE_NOT_ISSUED","INVOICE_ISSUED_OK_PAYMENT_UNVERIFIED","ETAX_INVOICE_NOT_ISSUED"]
+print("ETAX_UNISSUED_REGRESSION: PASS")
