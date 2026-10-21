@@ -27,6 +27,8 @@ jobs:
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       CSS_MAIL_LOOKBACK_HOURS: "48"
+      CSS_IMAP_SCAN_DAYS: "60"
+      CSS_IMAP_BATCH_PER_FOLDER: "120"
       CSS_MAIL_REPORT_PATH: css_mail_probe.json
     steps:
       - uses: actions/checkout@v4
