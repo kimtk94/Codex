@@ -72,8 +72,97 @@ def folder_names(im):
     for raw in rows or []:
         # Select INBOX and provider sent by standard special-use or known names.
         val=raw.decode("utf-8","replace")
-        match=re.search(r' "([^"]+)"$',val)
-        if match: found.append((match.group(1),val.lower()))
+        match=re.search(r' (?:"([^"]+)"|([^ "]+))
+    return found
+
+def decode_address(raw):
+    from email.utils import getaddresses
+    return ", ".join(addr.lower() for _,addr in getaddresses([str(raw or "")]) if addr)[:1000]
+
+def date_str(raw):
+    try:
+        value=email.utils.parsedate_to_datetime(str(raw))
+        return value.isoformat() if value else ""
+    except (ValueError,TypeError,IndexError):
+        return ""
+
+def pattern(p, value):
+    return ", ".join(sorted(set(re.findall(p,value,re.I))))
+
+def collect(im, folder, direction, seen, limit):
+    status,_=im.select('"'+folder.replace('"','')+'"',readonly=True)
+    if status!="OK": raise RuntimeError("IMAP folder select failed")
+    status,uv=im.response("UIDVALIDITY")
+    if not uv or not uv[0]: raise RuntimeError("UIDVALIDITY unavailable")
+    uidvalidity=uv[0].decode("ascii","replace")
+    days=int(os.environ.get("CSS_IMAP_SCAN_DAYS","3"))
+    if days<1 or days>14: raise RuntimeError("Scan days out of bounds")
+    date=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(days=days)).strftime("%d-%b-%Y")
+    status,hit=im.uid("SEARCH",None,"SINCE",date)
+    if status!="OK": raise RuntimeError("IMAP UID search failed")
+    ids=(hit[0] or b"").split()
+    # Limit per run without silently skipping oldest items: reject backlog and
+    # require explicit resync plan rather than advancing checkpoint.
+    if len(ids)>limit:
+        raise RuntimeError("BACKLOG_LIMIT: widen batching after reviewing mailbox volume")
+    output=[]
+    for uid in ids:
+        key=folder+"|"+uidvalidity+"|"+uid.decode("ascii")
+        if key in seen: continue
+        status,body=im.uid("FETCH",uid,"(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID DATE FROM TO CC SUBJECT)])")
+        if status!="OK": raise RuntimeError("IMAP header fetch failed")
+        payload=next((r[1] for r in body if isinstance(r,tuple) and isinstance(r[1],bytes)),None)
+        if payload is None: raise RuntimeError("IMAP missing header data")
+        msg=BytesParser(policy=default).parsebytes(payload,headersonly=True)
+        subject=str(msg.get("Subject",""))[:500]
+        now=dt.datetime.now(dt.timezone.utc).isoformat()
+        row=[key,str(msg.get("Message-ID",""))[:300],uid.decode("ascii"),folder,uidvalidity,
+             date_str(msg.get("Date")) ,decode_address(msg.get("From")),
+             decode_address(msg.get("To")),decode_address(msg.get("Cc")),subject,
+             pattern(r"AMEA\d{7,}",subject),pattern(r"\bH[- ]?\d{5,}\b",subject),
+             pattern(r"\bSAM[- ]?\d{4,}\b",subject),pattern(r"\bBATCH[- ]?\d{4,}\b",subject),
+             now,direction]
+        output.append(row)
+    return output
+
+def main():
+    # Check Sheets access BEFORE retrieving customer metadata.
+    s=authorize()
+    ensure_tab(s)
+    seen=existing_keys(s)
+    user=os.environ["CSS_QQ_MAIL_ADDRESS"]
+    password=os.environ["CSS_QQ_MAIL_AUTH_CODE"]
+    limit=int(os.environ.get("CSS_IMAP_MAX_FOLDER_SCAN","1500"))
+    collected=[]
+    with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=45) as im:
+        im.login(user,password)
+        folders=folder_names(im)
+        sent=next((f for f,t in folders if "\\sent" in t or f.lower() in
+                   ("sent messages","sent","sent items")),None)
+        if not sent:
+            raise RuntimeError("Sent folder mapping missing; check IMAP LIST and Exmail special-use names")
+        collected+=collect(im,"INBOX","INBOUND",seen,limit)
+        collected+=collect(im,sent,"OUTBOUND",seen,limit)
+        im.logout()
+    # Read again to prevent replay after partial success. Concurrency is serialized
+    # by GitHub Actions, and old data is never overwritten.
+    seen=existing_keys(s)
+    new=[r for r in collected if r[0] not in seen]
+    if new:
+        rng=urllib.parse.quote("'"+TAB+"'!A:P",safe="")
+        api(s,"POST",endpoint("/values/"+rng+":append")+"?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+            json={"values":new})
+    print("CSS_MAIL_SYNC_PASS new="+str(len(new))+" existing_keys="+str(len(seen))+
+          " fetched_headers="+str(len(collected))+" direction=both")
+if __name__=="__main__":
+    try: main()
+    except Exception as e:
+        print("CSS_MAIL_SYNC_FAILED "+str(e) if isinstance(e,RuntimeError) else
+              "CSS_MAIL_SYNC_FAILED "+type(e).__name__,file=sys.stderr)
+        sys.exit(1)
+,val)
+        if match:
+            found.append(((match.group(1) or match.group(2)),val.lower()))
     return found
 
 def decode_address(raw):
