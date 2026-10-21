@@ -20,6 +20,8 @@ JOBS = [
     ("Quotation Invoice Match", SOURCE_ID, "Quotation Invoice Match", 2000),
 ]
 AUDIT_TAB = "SFDC Source Audit"
+READINESS_TAB = "SFDC Report Readiness"
+REQUIRED_FIELDS = {"Opportunity": ["Opportunity ID", "Last Modified Date", "Stage", "Close Date"], "Quotation": ["Quote ID", "Opportunity ID", "Last Modified Date", "Status"], "SFDC Contacts": ["Contact ID", "Last Modified Date", "Account ID"]}
 AUDIT_HEADER = ["source_tab","record_count","first_seen_this_snapshot","last_checked_kst","content_changed","fingerprint_sha256","source_kind","freshness_verified"]
 
 def range_data(session, source_id, tab, maxrows):
@@ -31,7 +33,7 @@ def ensure_tabs(session):
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     metadata=call(session,"GET",root+"?fields=sheets.properties",stage="mirror_metadata")
     existing={s["properties"]["title"] for s in metadata.get("sheets",[])}
-    todo=[{"addSheet":{"properties":{"title":tab}}} for tab in [job[0] for job in JOBS] + [AUDIT_TAB] if tab not in existing]
+    todo=[{"addSheet":{"properties":{"title":tab}}} for tab in [job[0] for job in JOBS] + [AUDIT_TAB, READINESS_TAB] if tab not in existing]
     if todo:
         call(session,"POST",root+":batchUpdate",json={"requests":todo},stage="mirror_create_tabs")
 
@@ -55,6 +57,7 @@ def main():
     except RuntimeError:
         pass
     audit=[AUDIT_HEADER]
+    readiness=[["object","records","stable_id","modified_timestamp","required_field_check","missing_fields","promotion_status","source"]]
     for tab,source_id,source_tab,maxrows in JOBS:
         try:
             rows=range_data(session,source_id,source_tab,maxrows)
@@ -72,10 +75,20 @@ def main():
         first_seen=dt.datetime.now(KST).isoformat() if changed!="NO" else prior[2]
         audit.append([tab,max(0,len(rows)-1),first_seen,dt.datetime.now(KST).isoformat(),changed,digest,
                       "SFDC_Auto snapshot" if source_id==SFDC_AUTO_ID else "CSS email-derived sheet","NO"])
+        if tab in REQUIRED_FIELDS:
+            headers={str(h).strip().lower() for h in rows[0]}
+            missing=[field for field in REQUIRED_FIELDS[tab] if field.lower() not in headers]
+            readiness.append([tab,max(0,len(rows)-1),
+                              "NO" if any(" id" in x.lower() for x in missing) else "YES",
+                              "NO" if "Last Modified Date" in missing else "YES",
+                              "PASS" if not missing else "FAIL",", ".join(missing),
+                              "HOLD - report export not verified","SFDC_Auto snapshot"])
         replace_tab(session,tab,rows)
         summary[tab]={"status":"ok","records":max(0,len(rows)-1),"snapshot_changed":changed}
     if len(audit)>1:
         replace_tab(session,AUDIT_TAB,audit)
+    if len(readiness)>1:
+        replace_tab(session,READINESS_TAB,readiness)
     print(json.dumps({"status":"complete","sheets":summary,"checked_at":dt.datetime.now(KST).isoformat()},ensure_ascii=False))
     if summary["Opportunity"]["status"]!="ok" or summary["Quotation"]["status"]!="ok":
         print("NOTICE: SFDC_Auto needs Viewer sharing with the CKD service account.",file=sys.stderr)
