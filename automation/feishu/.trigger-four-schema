@@ -1,1 +1,1 @@
-Rerun Feishu schema check after safe range delimiter fix; no writes. PR211.
+Retry read-only Feishu header audit with safe numeric HTTP 400 error code diagnostics. PR212.
