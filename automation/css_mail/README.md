@@ -33,3 +33,12 @@ Tencent Exmail IMAP: `imap.exmail.qq.com:993` with TLS. SMTP is intentionally NO
 4. Reconnect CSS Customer 360, unanswered mail, quotation/invoice matching,
    SFDC and Feishu derived views after staged verification.
 5. Outbound email remains a separately approved operation, not part of this job.
+
+## Incremental staged sync (2026-10-21)
+- Workflow now runs `incremental_sync.py` after the existing QQ IMAP probe.
+- Requires `GCP_SERVICE_ACCOUNT_JSON` in `TaehoonServer` with **Editor** access to the private spreadsheet `Novogene_All_Emails`.
+- The script creates a dedicated tab `CSS Git Ingest`, never mutates existing `All Emails`, `CSS Mail Ledger`, or other CSS reports.
+- It records only message headers and project identifiers, no email bodies or attachments.
+- It scans a 3-day IMAP date window each run, uses `folder|UIDVALIDITY|UID` for deduplication, and aborts safely on large backlogs or sent-folder mapping failures.
+- Full CSS extraction, attachment parsing, classification, matching, dashboards, and existing report refresh are **not yet connected**; this is the upstream data-collection stage.
+- Verify the new workflow run and staging tab before further expansion. A 403 means grant the precise `GCP_SERVICE_ACCOUNT_JSON` service account Editor on the target Sheet; do not log credentials.
