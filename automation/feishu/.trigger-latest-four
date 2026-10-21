@@ -1,1 +1,2 @@
-Read-only latest-of-four selection request. No writes.
+Run latest-of-four MM.DD parser validation on Feishu Sheets.
+No customer data writes.
