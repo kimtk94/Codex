@@ -1,3 +1,4 @@
 Read-only audit of existing Payment Outstanding 10.20 table. No writes.
 Triggered after serverless workflow merge on 2026-10-21.
 Triggered after Feishu Payment field readiness merge on 2026-10-21.
+Triggered eTAX monthly overlap live audit after PR 226 merge (2026-10-21).
