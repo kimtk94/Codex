@@ -35,6 +35,15 @@ def main():
     for metric,key in [("Opportunity name-unique Quote links","name_match_unique"),("Name and date unique Quote links","name_date_match_unique"),("Ambiguous Quote links","name_match_ambiguous"),("Unmatched Quote links","name_match_missing"),("Active confirmed Quotes","active"),("Active status unknown Quotes","unknown_status")]:
         rows.append(["QUOTE_RELATION",metric,link_metrics.get(key,"NOT_CHECKED"),"SFDC Quote Link Audit",now,
             "Name-only join is provisional; Active must be explicitly checked"])
+    weekly=range_data(session,OUTPUT_ID,"SFDC Weekly Overview",400)
+    if weekly and len(weekly)>1:
+        wh=weekly[0]
+        for w in weekly[1:9]:
+            wr={k:(w[i] if i<len(w) else "") for i,k in enumerate(wh)}
+            period=str(wr.get("week_start",""))+" ~ "+str(wr.get("week_end",""))
+            for key,label in [("opportunity_created","Opportunity created"),("opportunity_closed_target","Opportunity planned close"),("opportunity_closed_won_target","Closed Won by planned close"),("quotation_approvals","CSS quotation approvals"),("approval_invoice_count","CSS invoice count"),("realized_invoice_amount_krw","CSS realized invoice KRW")]:
+                rows.append(["WEEKLY_FRI_THU",period+" | "+label,wr.get(key,""),"SFDC Weekly Overview",now,
+                    "Close Date is planned, not actual; Active Quote not verified"])
     for k,n in sorted(stage.items()):rows.append(["OPPORTUNITY_STAGE",k,n,"Opportunity mirror",now,""])
     for k,n in sorted(qstage.items()):rows.append(["QUOTATION_STAGE (unverified)",k,n,"Quotation mirror",now,"Not Active Quote count"])
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
