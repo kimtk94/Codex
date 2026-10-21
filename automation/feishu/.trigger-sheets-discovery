@@ -1,1 +1,3 @@
-Trigger initial read-only Feishu Sheets tab inventory; no data writes.
+Trigger Feishu Sheets inventory using updated safe error diagnostic.
+Run identifier: P0-discovery-followup-20261021
+No personal data and no writes.
