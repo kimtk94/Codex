@@ -64,19 +64,22 @@ def reconcile(invoices, payments, quotations=()):
     return results,stats
 
 
-def operational_status(project_ids, issued_invoices, outstanding_rows):
-    """Project-level workflow status. Outstanding always takes precedence.
+def operational_status(project_ids, issued_invoices, outstanding_rows, etax_unissued_rows=()):
+    """Project-level workflow status. eTAX unissued is an explicit issuance blocker.
 
     Inputs are already-normalized private project IDs. Never infer payment receipt.
     A missing ID cannot be reliably joined and remains review-needed.
     """
     issued={norm_id(x.get("project_id")) for x in issued_invoices if norm_id(x.get("project_id"))}
     outstanding={norm_id(x.get("project_id")) for x in outstanding_rows if norm_id(x.get("project_id"))}
+    unissued={norm_id(x.get("project_id")) for x in etax_unissued_rows if norm_id(x.get("project_id"))}
     results=[]
     for project_id in project_ids:
         key=norm_id(project_id)
         if not key:
             status="REVIEW_MISSING_PROJECT_ID"
+        elif key in unissued:
+            status="ETAX_INVOICE_NOT_ISSUED"
         elif key in outstanding:
             status="OUTSTANDING_UNPAID"
         elif key in issued:
