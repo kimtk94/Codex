@@ -1,2 +1,1 @@
-Run Feishu four-format schema audit after v2 values endpoint fix.
-No writes.
+Rerun Feishu schema check after safe range delimiter fix; no writes. PR211.
