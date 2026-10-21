@@ -127,31 +127,39 @@ def collect(im, folder, direction, seen, limit):
 
 def main():
     # Check Sheets access BEFORE retrieving customer metadata.
+    print("CSS_SYNC_STAGE: google_auth", flush=True)
     s=authorize()
+    print("CSS_SYNC_STAGE: sheet_access", flush=True)
     ensure_tab(s)
+    print("CSS_SYNC_STAGE: staging_ready", flush=True)
     seen=existing_keys(s)
     user=os.environ["CSS_QQ_MAIL_ADDRESS"]
     password=os.environ["CSS_QQ_MAIL_AUTH_CODE"]
     limit=int(os.environ.get("CSS_IMAP_MAX_FOLDER_SCAN","1500"))
     collected=[]
+    print("CSS_SYNC_STAGE: qq_connect", flush=True)
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=45) as im:
         im.login(user,password)
+        print("CSS_SYNC_STAGE: qq_authenticated", flush=True)
         folders=folder_names(im)
         sent=next((f for f,t in folders if "\\sent" in t or f.lower() in
                    ("sent messages","sent","sent items")),None)
         if not sent:
             raise RuntimeError("Sent folder mapping missing; check IMAP LIST and Exmail special-use names")
+        print("CSS_SYNC_STAGE: folders_resolved", flush=True)
         collected+=collect(im,"INBOX","INBOUND",seen,limit)
         collected+=collect(im,sent,"OUTBOUND",seen,limit)
         im.logout()
     # Read again to prevent replay after partial success. Concurrency is serialized
     # by GitHub Actions, and old data is never overwritten.
+    print("CSS_SYNC_STAGE: headers_collected", flush=True)
     seen=existing_keys(s)
     new=[r for r in collected if r[0] not in seen]
     if new:
         rng=urllib.parse.quote("'"+TAB+"'!A:P",safe="")
         api(s,"POST",endpoint("/values/"+rng+":append")+"?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
             json={"values":new})
+    print("CSS_SYNC_STAGE: sheet_write_complete", flush=True)
     print("CSS_MAIL_SYNC_PASS new="+str(len(new))+" existing_keys="+str(len(seen))+
           " fetched_headers="+str(len(collected))+" direction=both")
 if __name__=="__main__":
