@@ -1,1 +1,1 @@
-Retry read-only Feishu header audit with safe numeric HTTP 400 error code diagnostics. PR212.
+Rerun read-only Feishu Sheets schema audit to identify required scope on error 99991672. PR213.
