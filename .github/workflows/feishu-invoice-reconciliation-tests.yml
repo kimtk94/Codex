@@ -6,6 +6,8 @@ on:
     paths:
       - automation/feishu/invoice_reconciliation.py
       - automation/feishu/test_invoice_reconciliation.py
+      - automation/feishu/payment_table_audit.py
+      - automation/feishu/test_payment_field_readiness.py
       - .github/workflows/feishu-invoice-reconciliation-tests.yml
 permissions:
   contents: read
@@ -19,4 +21,6 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run synthetic offline reconciliation tests
-        run: python3 automation/feishu/test_invoice_reconciliation.py
+        run: |
+          python3 automation/feishu/test_invoice_reconciliation.py
+          python3 automation/feishu/test_payment_field_readiness.py
