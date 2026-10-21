@@ -1,1 +1,2 @@
 Read-only audit of existing Payment Outstanding 10.20 table. No writes.
+Triggered after serverless workflow merge on 2026-10-21.
