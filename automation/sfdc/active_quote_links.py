@@ -90,11 +90,13 @@ def main():
     if requests:call(sess,"POST",root+":batchUpdate",json={"requests":requests},stage="quote_link_create")
     replace_tab(sess,TAB,rows)
     audit=[["metric","value"],["quote_rows",len(q)-1],["active",stats["YES"]],
-           ["inactive",stats["NO"]],["unknown_status",stats["UNKNOWN"]],
+           ["inactive",stats["NO"]],["unknown_status",stats["UNKNOWN"]],["active_checkbox_column_present",str(active is not None)],["active_validation_ready",str(active is not None and stats["UNKNOWN"]==0)],
            ["sfdc_quote_id_column_present",str(qi is not None)],["amea_quote_id_column_present",str(amea is not None)],["related_opportunity_id_column_present",str(oi is not None)],
            ["opportunity_id_column_present",str(opportunity_id is not None)],
            ["name_match_unique",match_stats["NAME_MATCH_UNIQUE"]],["name_date_match_unique",match_stats["NAME_DATE_MATCH_UNIQUE"]],["name_match_ambiguous",match_stats["NAME_AMBIGUOUS"]],["name_match_missing",match_stats["NO_NAME_MATCH"]],["source","SFDC_Auto exported snapshot; not live Salesforce"]]
     replace_tab(sess,AUDIT,audit)
+    if active is None:
+        print("WARNING: Active checkbox absent; no valid Quote promotion")
     # Enrich the visible Opportunity mirror AFTER the raw mirror refresh.
     # Only uniquely matched names or verified record IDs may contribute to counts.
     summary={}
