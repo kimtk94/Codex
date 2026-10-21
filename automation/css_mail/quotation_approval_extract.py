@@ -37,6 +37,25 @@ def main():
     previous=read(s,TAB,"A1:L10000") if TAB in tabs else []
     known={str(x.get("uid","")).strip().lower() for x in existing}
     output={r["ingest_key"]:r for r in previous if r.get("ingest_key")}
+    legacy_by_uid={str(r.get("uid","")).strip().lower():r for r in existing}
+    reconciled=0
+    for row in original:
+        key=row.get("ingest_key","")
+        if not key or key in output:continue
+        uid="inbox:"+str(row.get("imap_uid",""))
+        old=legacy_by_uid.get(uid.lower())
+        if not old:continue
+        output[key]={
+            "approval_mail_at_kst":old.get("approved_at_kst",""),
+            "quotation_id":old.get("quotation_id",""),
+            "quotation_name":old.get("quotation_name",""),
+            "salesforce_record_id":old.get("salesforce_record_id",""),
+            "quotation_created_date":old.get("quotation_created_date",""),
+            "approval_evidence":"VERIFIED_LEGACY_RECORD",
+            "subject":row.get("subject",""),"uid":uid,"ingest_key":key,
+            "message_id":row.get("message_id",""),"review_status":"APPROVED_IN_LEGACY",
+            "checked_at_utc":dt.datetime.now(dt.timezone.utc).isoformat()}
+        reconciled+=1
     pending=[r for r in original if r.get("ingest_key") not in output]
     pending.sort(key=lambda m:m.get("received_at",""),reverse=True)
     batch=pending[:int(os.getenv("CSS_APPROVAL_BATCH","70"))]
@@ -89,7 +108,7 @@ def main():
     # Dedicated generated tab only. Legacy data and SFDC fields untouched.
     mail.api(s,"POST",mail.endpoint("/values/"+addr("A1:L10000")+":clear"),json={})
     mail.api(s,"PUT",mail.endpoint("/values/"+addr("A1"))+"?valueInputOption=RAW",json={"values":data})
-    print("CSS_QUOTE_APPROVAL_PASS legacy="+str(len(existing))+" selected="+str(len(batch))+" total="+str(len(output))+" price_enrichment=SFDC_LATER")
+    print("CSS_QUOTE_APPROVAL_PASS legacy="+str(len(existing))+" selected="+str(len(batch))+" total="+str(len(output))+" reconciled_legacy="+str(reconciled)+" price_enrichment=SFDC_LATER")
 if __name__=="__main__":
     try:main()
     except Exception as e:
