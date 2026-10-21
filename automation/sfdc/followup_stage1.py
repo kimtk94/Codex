@@ -35,7 +35,10 @@ def auth():
     info = json.loads(value)
     account = str(info.get("client_email", "")).lower()
     shared_account = "novogene-css-server@novogene-css-automation.iam.gserviceaccount.com"
+    print("SFDC credential service account: %s" % account, flush=True)
     print("SFDC source shared-SA identity match: %s" % ("YES" if account == shared_account else "NO"), flush=True)
+    if account != shared_account:
+        raise RuntimeError("Credential identity differs from the known Sheets shared account; grant this service account Viewer on source and Editor on output, or use the authorized CSS service account credential.")
     creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
     return AuthorizedSession(creds)
 
