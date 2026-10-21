@@ -1,3 +1,2 @@
-Retry latest-four Feishu schema audit after fixing top-level auth response.
-Trigger: 2026-10-21-p209
+Run Feishu four-format schema audit after v2 values endpoint fix.
 No writes.
