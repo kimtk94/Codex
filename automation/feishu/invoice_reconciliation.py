@@ -12,7 +12,9 @@ def norm_id(v):
 def money(v):
     if v is None or str(v).strip()=="": return None
     try:
-        d=Decimal(str(v).replace(",","").replace("₩","").strip())
+        s=str(v).upper().replace(",","").replace("₩","").strip()
+        if s.endswith("KRW"): s=s[:-3].strip()
+        d=Decimal(s)
         if not d.is_finite():return None
         return d
     except InvalidOperation:return None
@@ -41,7 +43,9 @@ def reconcile(invoices, payments, quotations=()):
             idx,p=candidates[0]
             amount=money(invoice.get("amount_krw"))
             claimed=money(p.get("invoice_amount_krw"))
-            if amount is not None and claimed is not None and amount!=claimed:
+            if amount is None or claimed is None:
+                status="REVIEW_AMOUNT_UNPARSEABLE"
+            elif amount!=claimed:
                 status="REVIEW_AMOUNT_MISMATCH"
             else:
                 status="MATCHED_EXACT_ID"
@@ -58,3 +62,26 @@ def reconcile(invoices, payments, quotations=()):
     stats["TOTAL_INVOICES"]=len(invoices)
     stats["TOTAL_PAYMENTS"]=len(payments)
     return results,stats
+
+
+def operational_status(project_ids, issued_invoices, outstanding_rows):
+    """Project-level workflow status. Outstanding always takes precedence.
+
+    Inputs are already-normalized private project IDs. Never infer payment receipt.
+    A missing ID cannot be reliably joined and remains review-needed.
+    """
+    issued={norm_id(x.get("project_id")) for x in issued_invoices if norm_id(x.get("project_id"))}
+    outstanding={norm_id(x.get("project_id")) for x in outstanding_rows if norm_id(x.get("project_id"))}
+    results=[]
+    for project_id in project_ids:
+        key=norm_id(project_id)
+        if not key:
+            status="REVIEW_MISSING_PROJECT_ID"
+        elif key in outstanding:
+            status="OUTSTANDING_UNPAID"
+        elif key in issued:
+            status="INVOICE_ISSUED_OK_PAYMENT_UNVERIFIED"
+        else:
+            status="REVIEW_NO_INVOICE_NO_OUTSTANDING"
+        results.append({"project_id":project_id,"operational_status":status})
+    return results
