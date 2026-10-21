@@ -4,7 +4,7 @@ import re
 import sys
 import urllib.parse
 from base_readonly_probe import request, require
-from payment_table_audit import list_pages
+from payment_table_audit import list_pages, TARGET as OUTSTANDING_TABLE
 
 MONTHS = {m:i for i,m in enumerate(("jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"),1)}
 
@@ -60,6 +60,37 @@ def main():
     print("ETAX_SOURCE_STATUS: FOUND")
     print("ETAX_FIELD_COUNT:",len(fields))
     print("ETAX_UNISSUED_RECORD_COUNT:",len(records))
+    outstanding=[t for t in tables if t.get("name")==OUTSTANDING_TABLE]
+    if len(outstanding)!=1:
+        print("ETAX_OUTSTANDING_OVERLAP: UNVERIFIED_OUTSTANDING_SOURCE")
+    else:
+        pay_root=prefix+"/tables/"+urllib.parse.quote(outstanding[0]["table_id"],safe="")
+        pf=list(list_pages(pay_root+"/fields",token))
+        pr=list(list_pages(pay_root+"/records",token))
+        aliases={"project id","amea project id","project number","project no"}
+        def keyname(fs):
+            found=[f.get("field_name") for f in fs if str(f.get("field_name") or "").lower().strip().replace("_"," ") in aliases]
+            return found[0] if len(found)==1 else None
+        ek,pk=keyname(fields),keyname(pf)
+        if not ek or not pk:
+            print("ETAX_OUTSTANDING_OVERLAP: UNVERIFIED_PROJECT_ID_SCHEMA")
+        else:
+            def ids(rows,key):
+                out=set()
+                for r in rows:
+                    value=(r.get("fields") or {}).get(key)
+                    if isinstance(value,str):
+                        v=re.sub(r"[^A-Z0-9]","",value.upper())
+                        if v: out.add(v)
+                return out
+            a,b=ids(records,ek),ids(pr,pk)
+            if not a or not b:
+                print("ETAX_OUTSTANDING_OVERLAP: UNVERIFIED_IDS")
+            else:
+                print("ETAX_OUTSTANDING_OVERLAP: VERIFIED")
+                print("ETAX_OUTSTANDING_OVERLAP_PROJECT_COUNT:",len(a&b))
+                print("ETAX_ONLY_PROJECT_COUNT:",len(a-b))
+                print("OUTSTANDING_ONLY_PROJECT_COUNT:",len(b-a))
     print("ETAX_WRITE_OPERATIONS: 0")
     return 0
 
