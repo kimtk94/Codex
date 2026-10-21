@@ -35,8 +35,13 @@ def run():
     boundary = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)).date()
     since = boundary.strftime("%d-%b-%Y")
     mailbox_counts = {}
+    stage = "connect"
+    print("CSS_QQ_IMAP_STAGE: connect", flush=True)
     with imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=30) as imap:
+        print("CSS_QQ_IMAP_STAGE: connected", flush=True)
+        print("CSS_QQ_IMAP_STAGE: authenticate", flush=True)
         status, _ = imap.login(user, auth_code)
+        print("CSS_QQ_IMAP_STAGE: authenticated", flush=True)
         if status != "OK":
             raise RuntimeError("QQ IMAP login failed")
         for label, candidates in {
@@ -44,10 +49,12 @@ def run():
             # QQ Mail may use localized or provider-specific Sent folder names.
             "sent": ["Sent Messages", "Sent", "Sent Items"],
         }.items():
+            print("CSS_QQ_IMAP_STAGE: select_" + label, flush=True)
             found = False
             for name in candidates:
                 status, _ = imap.select('"' + name + '"', readonly=True)
                 if status == "OK":
+                    print("CSS_QQ_IMAP_STAGE: search_" + label, flush=True)
                     mailbox_counts[label] = {"recent_since_utc_date": search_count(imap, "SINCE", since)}
                     if label == "inbox":
                         mailbox_counts[label]["unread_recent_since_utc_date"] = search_count(imap, "UNSEEN", "SINCE", since)
@@ -55,6 +62,7 @@ def run():
                     break
             if not found:
                 mailbox_counts[label] = {"status": "FOLDER_NOT_FOUND"}
+        print("CSS_QQ_IMAP_STAGE: logout", flush=True)
         imap.logout()
     output = {
         "status": "PASS",
