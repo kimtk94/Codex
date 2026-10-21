@@ -27,6 +27,18 @@ def list_pages(path, token):
         seen.add(nxt)
         cursor = nxt
 
+def field_readiness(fields):
+    """Check candidate schema only. Presence is not a proof of paid status."""
+    def normalize(v):
+        return str(v or "").strip().casefold().replace("_", " ").replace("-", " ")
+    available = {normalize(f.get("field_name")) for f in fields}
+    aliases = {
+        "invoice_id": ("invoice number", "invoice no", "invoice id", "세금계산서 번호"),
+        "amount": ("invoice amount", "outstanding amount", "청구금액", "미수금"),
+        "payment_evidence": ("payment date", "paid date", "payment amount", "paid amount", "입금일", "입금액"),
+    }
+    return {k: any(normalize(a) in available for a in values) for k, values in aliases.items()}
+
 def main():
     auth = request("POST","/open-apis/auth/v3/tenant_access_token/internal",
         body={"app_id":require("FEISHU_APP_ID"),"app_secret":require("FEISHU_APP_SECRET")})
@@ -50,15 +62,7 @@ def main():
     identifiers=[r.get("record_id") for r in records]
     if not all(identifiers) or len(identifiers)!=len(set(identifiers)):
         raise RuntimeError("Missing/duplicate record IDs")
-    # Metadata-only presence checks; no customer field names or values in logs.
-    normalize = lambda v: str(v or "").strip().casefold().replace("_", " ").replace("-", " ")
-    available = {normalize(f.get("field_name")) for f in fields}
-    aliases = {
-        "invoice_id": ("invoice number", "invoice no", "invoice id", "세금계산서 번호"),
-        "amount": ("invoice amount", "outstanding amount", "청구금액", "미수금"),
-        "payment_evidence": ("payment date", "paid date", "payment amount", "paid amount", "입금일", "입금액"),
-    }
-    found = {k:any(normalize(a) in available for a in values) for k,values in aliases.items()}
+    found = field_readiness(fields)
     for key,value in found.items():
         print("PAYMENT_FIELD_"+key.upper()+"_PRESENT:",value)
     print("RECONCILIATION_READINESS:", "READY_FOR_MAPPING_REVIEW" if all(found.values()) else "MISSING_REQUIRED_FIELDS")
