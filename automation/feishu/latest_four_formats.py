@@ -11,10 +11,10 @@ from zoneinfo import ZoneInfo
 from sheets_tab_discovery import api, TOKEN
 
 FORMATS = {
-    "Payment Outstanding": re.compile(r"^Payment Outstanding\s+(\d{1,2})\\.(\d{1,2})$", re.I),
-    "eTax Invoice": re.compile(r"^eTax\s*-\s*[A-Za-z]+\s+Invoice\s+(\d{1,2})\\.(\d{1,2})$", re.I),
-    "Payment Receipt": re.compile(r"^Payment Receipt\s+(\d{1,2})\\.(\d{1,2})$", re.I),
-    "Prepayments": re.compile(r"^Prepayments\s+(\d{1,2})\\.(\d{1,2})$", re.I),
+    "Payment Outstanding": re.compile(r"^Payment Outstanding\s+(\d{1,2})\.(\d{1,2})$", re.I),
+    "eTax Invoice": re.compile(r"^eTax\s*-\s*[A-Za-z]+\s+Invoice\s+(\d{1,2})\.(\d{1,2})$", re.I),
+    "Payment Receipt": re.compile(r"^Payment Receipt\s+(\d{1,2})\.(\d{1,2})$", re.I),
+    "Prepayments": re.compile(r"^Prepayments\s+(\d{1,2})\.(\d{1,2})$", re.I),
 }
 
 def classify(title, today):
