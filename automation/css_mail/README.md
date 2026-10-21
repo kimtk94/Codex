@@ -12,7 +12,7 @@ IMAP/SMTP Service to enable IMAP and generate an authorization code.
 Account security requirements may require confirmation.
 
 Never commit authorization codes or real mail contents to GitHub.
-QQ IMAP: `imap.qq.com:993` with TLS. SMTP is intentionally NOT used.
+Tencent Exmail IMAP: `imap.exmail.qq.com:993` with TLS. SMTP is intentionally NOT used.
 
 ## Operation and limitations
 - Manual trigger or GitHub schedule at UTC minutes 07,37 (KST minutes 07,37).
