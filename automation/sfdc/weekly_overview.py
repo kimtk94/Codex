@@ -6,9 +6,10 @@ import json
 import re
 from followup_stage1 import auth,call,SOURCE_ID,OUTPUT_ID
 from opportunity_quote_mirror import range_data,replace_tab
+from approved_active_quote import weekly_verified,RATE
 
 TAB="SFDC Weekly Overview"
-HEAD=["week_start","week_end","weekly_basis","opportunity_created","opportunity_closed_target","opportunity_closed_won_target","quotation_approvals","approvals_created_in_week","approval_invoice_count","realized_invoice_amount_krw","active_quote_count","quote_active_unknown","source","data_quality"]
+HEAD=["week_start","week_end","weekly_basis","opportunity_created","opportunity_closed_target","opportunity_closed_won_target","quotation_approvals","approvals_created_in_week","approval_invoice_count","realized_invoice_amount_krw","active_quote_count","quote_active_unknown","source","data_quality","approved_active_count","approved_active_krw","approved_active_k_usd","approved_active_status","krw_per_usd"]
 KST=dt.timezone(dt.timedelta(hours=9))
 def get(row,i):
     return str(row[i]).strip() if i is not None and i<len(row) and row[i] is not None else ""
@@ -37,6 +38,8 @@ def main():
     audits=range_data(sess,OUTPUT_ID,"SFDC Quote Link Audit",40)
     approvals=range_data(sess,SOURCE_ID,"Quotation Approval List",2000)
     invoices=range_data(sess,SOURCE_ID,"CSS Tax Invoice List",2000)
+    quotation_details=range_data(sess,OUTPUT_ID,"Quotation",2000)
+    approved_values,approved_state=weekly_verified(approvals,quotation_details)
     if not op or not css:raise RuntimeError("Required weekly source missing")
     oh=op[0]; ch=css[0]
     if not {"week_start","week_end","quotation_count"}.issubset(set(ch)):
@@ -94,7 +97,11 @@ def main():
             created[wk],closed[wk],won[wk],
             acount,created_count,icount,iamount,
             "", "", "SFDC_Auto Oppo list + CSS Quotation Weekly Summary",
-            "IN PROGRESS: event-level CSS approvals and tax invoices (deduplicated); SFDC snapshot may be stale; Active unverified" if is_current else "Quote Active not in snapshot; invoice realized from CSS source; Close Date is target, not actual close"])
+            "IN PROGRESS: event-level CSS approvals and tax invoices (deduplicated); SFDC snapshot may be stale; Active unverified" if is_current else "Quote Active not in snapshot; invoice realized from CSS source; Close Date is target, not actual close",
+            approved_values[wk][0] if approved_state=="VERIFIED" and wk in approved_values else "",
+            approved_values[wk][1] if approved_state=="VERIFIED" and wk in approved_values else "",
+            approved_values[wk][2] if approved_state=="VERIFIED" and wk in approved_values else "",
+            approved_state,RATE])
     audit={get(r,0):get(r,1) for r in audits[1:] if len(r)>1}
     # Do not spread global Active status across weeks: Quote's date and status are not both known.
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
