@@ -41,7 +41,7 @@ def main():
     reconciled=0
     for row in original:
         key=row.get("ingest_key","")
-        if not key or key in output:continue
+        if not key:continue
         uid="inbox:"+str(row.get("imap_uid",""))
         old=legacy_by_uid.get(uid.lower())
         if not old:continue
@@ -56,7 +56,7 @@ def main():
             "message_id":row.get("message_id",""),"review_status":"APPROVED_IN_LEGACY",
             "checked_at_utc":dt.datetime.now(dt.timezone.utc).isoformat()}
         reconciled+=1
-    pending=[r for r in original if r.get("ingest_key") not in output]
+    pending=[r for r in original if r.get("ingest_key") not in output or output[r["ingest_key"]].get("review_status")=="REVIEW_REQUIRED"]
     pending.sort(key=lambda m:m.get("received_at",""),reverse=True)
     batch=pending[:int(os.getenv("CSS_APPROVAL_BATCH","70"))]
     if batch:
@@ -68,9 +68,9 @@ def main():
             valid=(uv[0] or b"").decode() if uv else ""
             for r in batch:
                 if r.get("uidvalidity")!=valid:continue
-                state,pieces=im.uid("FETCH",r["imap_uid"],"(BODY.PEEK[HEADER] BODY.PEEK[TEXT])")
+                state,pieces=im.uid("FETCH",r["imap_uid"],"(BODY.PEEK[])")
                 if state!="OK":raise RuntimeError("Approval mail fetch failed")
-                content=b"\n".join(x[1] for x in pieces or [] if isinstance(x,tuple) and isinstance(x[1],bytes))
+                content=b"".join(x[1] for x in pieces or [] if isinstance(x,tuple) and isinstance(x[1],bytes))
                 if not content:continue
                 # Parse plain text evidence only; do not retain private body contents.
                 message=email.message_from_bytes(content,policy=policy.default)
