@@ -29,7 +29,7 @@ JOBS = [
 ]
 AUDIT_TAB = "SFDC Source Audit"
 READINESS_TAB = "SFDC Report Readiness"
-REQUIRED_FIELDS = {"SFDC Opportunity Raw": ["Opportunity ID", "Last Modified Date", "Stage", "Close Date"], "Quotation": ["Quote ID", "Opportunity ID", "Last Modified Date", "Status"], "SFDC Contacts": ["Contact ID", "Last Modified Date", "Account ID"]}
+REQUIRED_FIELDS = {"SFDC Opportunity Raw": ["Opportunity ID", "Last Modified Date", "Stage", "Close Date"], "Quotation": ["SFDC Quotation ID", "Quotation ID", "Opportunity Name", "Active", "Last Modified Date"], "SFDC Contacts": ["Contact ID", "Last Modified Date", "Account ID"]}
 AUDIT_HEADER = ["source_tab","record_count","first_seen_this_snapshot","last_checked_kst","content_changed","fingerprint_sha256","source_kind","freshness_verified"]
 
 def range_data(session, source_id, tab, maxrows):
