@@ -1,6 +1,10 @@
 name: Feishu Latest Four Schema Audit
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - automation/feishu/.trigger-four-schema
   schedule:
     - cron: "17,47 * * * *"
 permissions:
