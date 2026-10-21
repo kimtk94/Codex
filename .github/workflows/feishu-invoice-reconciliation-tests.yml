@@ -1,6 +1,10 @@
 name: Feishu Invoice Reconciliation Offline Test
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/feishu/**'
+      - '.github/workflows/feishu-invoice-reconciliation-tests.yml'
   push:
     branches: [main]
     paths:
