@@ -53,19 +53,22 @@ def main():
         end=parse_date(get(row,index(ch,"week_end")))
         if not begin or end!=begin+dt.timedelta(days=6):continue
         all_week[begin]=row
-    keys=sorted(set(created)|set(closed)|set(all_week),reverse=True)
+    today=dt.datetime.now(KST).date()
+    current=week_start(today)
+    keys=sorted(set(created)|set(closed)|set(all_week)|{current},reverse=True)
     result=[HEAD]
     for wk in keys:
         w=all_week.get(wk,[])
         value=lambda key:get(w,index(ch,key))
-        result.append([wk.isoformat(),(wk+dt.timedelta(days=6)).isoformat(),"FRI_THU_CSS_EXISTING",
+        is_current=wk==current and today<wk+dt.timedelta(days=6)
+        result.append([wk.isoformat(),(wk+dt.timedelta(days=6)).isoformat(),"FRI_THU_IN_PROGRESS" if is_current else "FRI_THU_CSS_EXISTING",
             created[wk],closed[wk],won[wk],
             numeric(value("quotation_count")) if w else "",
             numeric(value("created_in_week_count")) if w else "",
             numeric(value("realized_invoice_count")) if w else "",
             value("realized_amount_krw") if w else "",
             "", "", "SFDC_Auto Oppo list + CSS Quotation Weekly Summary",
-            "Quote Active not in snapshot; invoice realized from CSS source; Close Date is target, not actual close"])
+            "IN PROGRESS: weekly CSS values may be absent or incomplete; SFDC snapshot may be stale; Active unverified" if is_current else "Quote Active not in snapshot; invoice realized from CSS source; Close Date is target, not actual close"])
     audit={get(r,0):get(r,1) for r in audits[1:] if len(r)>1}
     # Do not spread global Active status across weeks: Quote's date and status are not both known.
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
