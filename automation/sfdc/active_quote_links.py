@@ -4,12 +4,13 @@ Only the Salesforce Active checkbox is authoritative; quote lifecycle status is 
 """
 import json
 from collections import Counter
+from datetime import datetime
 from followup_stage1 import auth, call, OUTPUT_ID
 from opportunity_quote_mirror import range_data, replace_tab
 
 TAB="SFDC Active Quote Links"
 AUDIT="SFDC Quote Link Audit"
-HEAD=["sfdc_quotation_id","amea_quotation_id","opportunity_id","quote_name","quote_status","is_active","link_result","valid_quote","reason","matched_opportunity_name","match_method"]
+HEAD=["sfdc_quotation_id","amea_quotation_id","opportunity_id","quote_name","quote_status","is_active","link_result","valid_quote","reason","matched_opportunity_name","match_method","matched_close_date"]
 def pick(h,options):
     normalized={str(k).strip().lower():i for i,k in enumerate(h)}
     for candidate in options:
@@ -38,6 +39,14 @@ def main():
         for opp in o[1:]:
             key=normalized(get(opp,oname))
             if key:names.setdefault(key,[]).append(opp)
+    qclose=pick(q[0],["Close Date"])
+    oclose=pick(o[0],["Close Date"])
+    def normdate(v):
+        v=str(v or "").strip()
+        for pattern in ("%m/%d/%Y","%Y-%m-%d","%m/%d/%y"):
+            try:return datetime.strptime(v,pattern).strftime("%Y-%m-%d")
+            except ValueError:pass
+        return v
     rows=[HEAD];stats=Counter();match_stats=Counter()
     for row in q[1:]:
         status=get(row,st)
@@ -47,6 +56,7 @@ def main():
         candidates=names.get(normalized(get(row,qname)),[]) if qname is not None else []
         matched_name=""
         method="NONE"
+        matched_date=""
         if oid and oid in known:
             link="MATCHED_BY_ID"
             method="OPPORTUNITY_ID"
@@ -54,15 +64,24 @@ def main():
             link="NAME_MATCH_UNIQUE"
             matched_name=get(candidates[0],oname)
             method="EXACT_NORMALIZED_NAME"
+            matched_date=normdate(get(candidates[0],oclose))
         elif len(candidates)>1:
-            link="NAME_AMBIGUOUS"
+            qdate=normdate(get(row,qclose))
+            dated=[v for v in candidates if qdate and normdate(get(v,oclose))==qdate]
+            if len(dated)==1:
+                link="NAME_DATE_MATCH_UNIQUE"
+                matched_name=get(dated[0],oname)
+                matched_date=qdate
+                method="EXACT_NAME_AND_CLOSE_DATE"
+            else:
+                link="NAME_AMBIGUOUS"
         else:
             link="NO_NAME_MATCH"
         match_stats[link]+=1
         reason=("missing Active checkbox" if valid=="UNKNOWN" else
                 "not explicitly active" if valid=="NO" else
                 "active but related Opportunity ID not verified" if link!="MATCHED" else "verified")
-        rows.append([qid,get(row,amea),oid,get(row,name),status,flag,link,valid,reason,matched_name,method])
+        rows.append([qid,get(row,amea),oid,get(row,name),status,flag,link,valid,reason,matched_name,method,matched_date])
         stats[valid]+=1
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     meta=call(sess,"GET",root+"?fields=sheets.properties",stage="quote_link_metadata")
@@ -74,13 +93,13 @@ def main():
            ["inactive",stats["NO"]],["unknown_status",stats["UNKNOWN"]],
            ["sfdc_quote_id_column_present",str(qi is not None)],["amea_quote_id_column_present",str(amea is not None)],["related_opportunity_id_column_present",str(oi is not None)],
            ["opportunity_id_column_present",str(opportunity_id is not None)],
-           ["name_match_unique",match_stats["NAME_MATCH_UNIQUE"]],["name_match_ambiguous",match_stats["NAME_AMBIGUOUS"]],["name_match_missing",match_stats["NO_NAME_MATCH"]],["source","SFDC_Auto exported snapshot; not live Salesforce"]]
+           ["name_match_unique",match_stats["NAME_MATCH_UNIQUE"]],["name_date_match_unique",match_stats["NAME_DATE_MATCH_UNIQUE"]],["name_match_ambiguous",match_stats["NAME_AMBIGUOUS"]],["name_match_missing",match_stats["NO_NAME_MATCH"]],["source","SFDC_Auto exported snapshot; not live Salesforce"]]
     replace_tab(sess,AUDIT,audit)
     # Enrich the visible Opportunity mirror AFTER the raw mirror refresh.
     # Only uniquely matched names or verified record IDs may contribute to counts.
     summary={}
     for linkrow in rows[1:]:
-        if linkrow[6] not in ("MATCHED_BY_ID","NAME_MATCH_UNIQUE"):
+        if linkrow[6] not in ("MATCHED_BY_ID","NAME_MATCH_UNIQUE","NAME_DATE_MATCH_UNIQUE"):
             continue
         key=normalized(linkrow[9]) if linkrow[9] else ""
         if not key and linkrow[6]=="MATCHED_BY_ID":
@@ -88,6 +107,7 @@ def main():
             candidates_by_id=[opp for opp in o[1:] if get(opp,opportunity_id)==source_id]
             if len(candidates_by_id)==1:key=normalized(get(candidates_by_id[0],oname))
         if not key:continue
+        if linkrow[6]=="NAME_DATE_MATCH_UNIQUE":key+="|"+linkrow[11]
         bucket=summary.setdefault(key,{"total":0,"active":0,"unknown":0,"inactive":0})
         bucket["total"]+=1
         if linkrow[7]=="YES":bucket["active"]+=1
@@ -106,6 +126,7 @@ def main():
     for opp in o[1:]:
         original=(list(opp)+[""]*width)[:width]
         namekey=normalized(get(opp,oname))
+        if len(names.get(namekey,[]))>1:namekey+="|"+normdate(get(opp,oclose))
         count=summary.get(namekey,{"total":0,"active":0,"unknown":0,"inactive":0})
         confidence="NAME_MATCH_UNIQUE (not Salesforce Related ID)" if count["total"] else "NO_VERIFIED_QUOTE_RELATION"
         enriched.append(original+[count["total"],count["active"],count["unknown"],count["inactive"],confidence])
