@@ -69,7 +69,7 @@ def main():
         pr=list(list_pages(pay_root+"/records",token))
         aliases={"project id","amea project id","project number","project no"}
         def keyname(fs):
-            found=[f.get("field_name") for f in fs if str(f.get("field_name") or "").lower().strip().replace("_"," ") in aliases]
+            found=[f.get("field_name") for f in fs if " ".join(str(f.get("field_name") or "").lower().replace("_"," ").split()) in aliases]
             return found[0] if len(found)==1 else None
         ek,pk=keyname(fields),keyname(pf)
         if not ek or not pk:
