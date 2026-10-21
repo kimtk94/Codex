@@ -10,6 +10,7 @@ from followup_stage1 import call
 KEY=re.compile(r"AMEA20[0-9]{8}",re.I)
 TAB="SFDC CSS Project Bridge"
 SUMMARY="SFDC CSS Match Audit"
+REVIEW="SFDC CSS Link Review"
 HEAD=["match_status","amea_id","opportunity_name","account","stage","amount","css_status","contract_number","sif_number","css_institution","match_basis"]
 def keys(v):
     return set(k.upper() for k in KEY.findall(str(v or "")))
@@ -31,12 +32,25 @@ def main():
         for key in keys(value(row,ch["AMEA No."])):
             indexed[key].append(row)
     out=[HEAD]
+    review=[["opportunity_name","account","stage","amount","candidate_amea","css_project_name","css_institution","basis","decision"]]
     stats=defaultdict(int)
     for row in opp[1:]:
         name=value(row,oh["Opportunity Name"])
         found=keys(name)
         base=[name,value(row,oh["Account Name"]),value(row,oh["Stage"]),value(row,oh["Amount"])]
         if len(found)!=1:
+            # Candidate hints are never promoted to a relationship without verified IDs.
+            name_n=re.sub(r"[^a-z0-9가-힣]","",str(name).lower())
+            account_n=re.sub(r"[^a-z0-9가-힣]","",str(value(row,oh["Account Name"])).lower())
+            for c in css[1:]:
+                css_name=str(value(c,ch.get("AMEA Full Name",ch["AMEA No."])))
+                css_inst=str(value(c,ch["Institution"]))
+                cn=re.sub(r"[^a-z0-9가-힣]","",css_name.lower())
+                ci=re.sub(r"[^a-z0-9가-힣]","",css_inst.lower())
+                # Restrict to substantive common project-name signatures, not institution-only.
+                if len(name_n)>=24 and len(cn)>=24 and (name_n in cn or cn in name_n):
+                    review.append([name,value(row,oh["Account Name"]),value(row,oh["Stage"]),value(row,oh["Amount"]),
+                                   value(c,ch["AMEA No."]),css_name,css_inst,"PROJECT_NAME_SIMILARITY","REVIEW_ONLY"])
             status="NO_AMEA" if not found else "MULTIPLE_AMEA"
             out.append([status,", ".join(sorted(found)),*base,"","","","","NO_SAFE_KEY"])
             stats[status]+=1
@@ -55,10 +69,11 @@ def main():
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     meta=call(session,"GET",root+"?fields=sheets.properties",stage="bridge_metadata")
     existing={s["properties"]["title"] for s in meta["sheets"]}
-    req=[{"addSheet":{"properties":{"title":title}}} for title in [TAB,SUMMARY] if title not in existing]
+    req=[{"addSheet":{"properties":{"title":title}}} for title in [TAB,SUMMARY,REVIEW] if title not in existing]
     if req: call(session,"POST",root+":batchUpdate",json={"requests":req},stage="bridge_tabs")
     replace_tab(session,TAB,out)
-    replace_tab(session,SUMMARY,[["metric","count"],["total_opportunity",len(opp)-1]]+[[k,stats[k]] for k in ["MATCHED","NO_AMEA","MULTIPLE_AMEA","UNMATCHED","AMBIGUOUS_CSS"]])
+    replace_tab(session,REVIEW,review)
+    replace_tab(session,SUMMARY,[["metric","count"],["total_opportunity",len(opp)-1],["review_candidates",len(review)-1]]+[[k,stats[k]] for k in ["MATCHED","NO_AMEA","MULTIPLE_AMEA","UNMATCHED","AMBIGUOUS_CSS"]])
     print(json.dumps({"status":"ok","total_opportunity":len(opp)-1,"match_counts":dict(stats)},ensure_ascii=False))
 if __name__=="__main__":
     try: main()
