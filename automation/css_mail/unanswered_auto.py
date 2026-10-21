@@ -85,21 +85,33 @@ def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
         if pat and typ in ("exact","domain","contains"):banned_sender.append((pat,typ))
     outbound=[]
     inbound=[]
+    delegates={"masiyuan8900@novogene.com","jiin.yoo@novogene.com"}
+    system_senders={"css@novogene-amea.com"}
+    def internal_address(addr):
+        return addr.endswith("@novogene.com") or addr.endswith("@novogene-amea.com")
     for r in messages:
         direction=r.get("direction","")
         if direction not in ("INBOUND","OUTBOUND"):continue
         r["_at"]=when(r.get("received_at"))
         r["_sub"]=norm_subject(r.get("subject"))
         (inbound if direction=="INBOUND" else outbound).append(r)
+        # Delegates' customer-directed messages may be delivered to this inbox
+        # via CC. Treat them as reply evidence, never as customer enquiries.
+        if direction=="INBOUND" and addresses(r.get("from_email")) & delegates:
+            recipients=addresses(r.get("recipient_to")) | addresses(r.get("cc"))
+            if any(not internal_address(addr) for addr in recipients):
+                outbound.append(r)
     now=dt.datetime.now(dt.timezone.utc).isoformat()
     result=[]
     seen_conversations=set()
-    own_domain="novogene.com"
-    system_senders={"css@novogene-amea.com"}
-    buckets={"CUSTOMER_REVIEW":0,"INTERNAL_COORDINATION":0,"SYSTEM_NOTICE":0}
+    buckets={"CUSTOMER_REVIEW":0}
     for m in sorted(inbound,key=lambda x:x["_at"] or dt.datetime.min.replace(tzinfo=dt.timezone.utc),reverse=True):
         mail_from=addresses(m.get("from_email"))
         if not m["_at"] or not m["_sub"] or not mail_from:continue
+        # Internal threads are not the customer's unanswered requests.
+        # The delegated outbound evidence above remains usable.
+        if mail_from & system_senders:continue
+        if all(internal_address(addr) for addr in mail_from):continue
         if own_addresses and not (own_addresses & (addresses(m.get("recipient_to")) | addresses(m.get("cc")))):continue
         if not dt.timedelta(0) <= now_utc - m["_at"] <= dt.timedelta(days=config["unanswered_lookback_days"]):continue
         key=str(m.get("ingest_key","")).strip()
@@ -134,9 +146,7 @@ def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
         days = max(0, (today-local.date()).days)
         weekday = "월화수목금토일"[local.weekday()]
         display_date = local.strftime("%m/%d")+"("+weekday+") "+local.strftime("%H:%M")
-        is_system = bool(mail_from & system_senders)
-        is_internal = all(address.endswith("@"+own_domain) or address.endswith("@novogene-amea.com") for address in mail_from)
-        bucket = "SYSTEM_NOTICE" if is_system else ("INTERNAL_COORDINATION" if is_internal else "CUSTOMER_REVIEW")
+        bucket = "CUSTOMER_REVIEW"
         buckets[bucket] += 1
         review_note = "회신 여부 검토 필요 (수집 범위 한정)"
         if days < config["action_unanswered_min_age_days"]:
