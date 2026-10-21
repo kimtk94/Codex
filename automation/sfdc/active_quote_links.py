@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Strict Salesforce Opportunity/Quote related-ID reconciliation.
-Only explicitly Active quotes are valid; absence of status is UNKNOWN, not inactive.
+Only the Salesforce Active checkbox is authoritative; quote lifecycle status is separate.
 """
 import json
 from collections import Counter
@@ -9,7 +9,7 @@ from opportunity_quote_mirror import range_data, replace_tab
 
 TAB="SFDC Active Quote Links"
 AUDIT="SFDC Quote Link Audit"
-HEAD=["quote_id","opportunity_id","quote_name","quote_status","is_active","link_result","valid_quote","reason"]
+HEAD=["sfdc_quotation_id","amea_quotation_id","opportunity_id","quote_name","quote_status","is_active","link_result","valid_quote","reason"]
 def pick(h,options):
     normalized={str(k).strip().lower():i for i,k in enumerate(h)}
     for candidate in options:
@@ -22,7 +22,8 @@ def main():
     q=range_data(sess,OUTPUT_ID,"Quotation",2000)
     o=range_data(sess,OUTPUT_ID,"Opportunity",2000)
     if not q or not o: raise RuntimeError("Missing mirrored Opportunity/Quotation")
-    qi=pick(q[0],["Quote ID","Quotation ID","Id"])
+    qi=pick(q[0],["SFDC Quotation ID","Salesforce Quotation ID","Quote Record ID","Id"])
+    amea=pick(q[0],["Quotation ID","AMEA No.","AMEA ID"])
     oi=pick(q[0],["Opportunity ID","OpportunityId","Opportunity: ID"])
     st=pick(q[0],["Quote Status","Quotation Status","Status"])
     active=pick(q[0],["IsActive","Is Active","Active","Is Active Quote"])
@@ -33,16 +34,13 @@ def main():
     for row in q[1:]:
         status=get(row,st)
         flag=get(row,active).lower()
-        explicitly_active=(status.lower()=="active" or flag in ("true","yes","1"))
-        explicitly_inactive=(flag in ("false","no","0") or (status and status.lower()!="active"))
-        # An explicit inactive boolean always overrides an ambiguous status.
-        valid="YES" if explicitly_active and flag not in ("false","no","0") else "NO" if explicitly_inactive else "UNKNOWN"
+        valid="YES" if flag in ("true","yes","1","✓","✔","checked") else "NO" if flag in ("false","no","0","unchecked") else "UNKNOWN"
         qid=get(row,qi);oid=get(row,oi)
         link="MATCHED" if oid and oid in known else "NO_OPPORTUNITY_ID" if not oid else "UNVERIFIED_OPPORTUNITY"
-        reason=("missing Quote Status/IsActive" if valid=="UNKNOWN" else
+        reason=("missing Active checkbox" if valid=="UNKNOWN" else
                 "not explicitly active" if valid=="NO" else
                 "active but related Opportunity ID not verified" if link!="MATCHED" else "verified")
-        rows.append([qid,oid,get(row,name),status,flag,link,valid,reason])
+        rows.append([qid,get(row,amea),oid,get(row,name),status,flag,link,valid,reason])
         stats[valid]+=1
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     meta=call(sess,"GET",root+"?fields=sheets.properties",stage="quote_link_metadata")
@@ -52,7 +50,7 @@ def main():
     replace_tab(sess,TAB,rows)
     audit=[["metric","value"],["quote_rows",len(q)-1],["active",stats["YES"]],
            ["inactive",stats["NO"]],["unknown_status",stats["UNKNOWN"]],
-           ["quote_id_column_present",str(qi is not None)],["related_opportunity_id_column_present",str(oi is not None)],
+           ["sfdc_quote_id_column_present",str(qi is not None)],["amea_quote_id_column_present",str(amea is not None)],["related_opportunity_id_column_present",str(oi is not None)],
            ["opportunity_id_column_present",str(opportunity_id is not None)],
            ["source","SFDC_Auto exported snapshot; not live Salesforce"]]
     replace_tab(sess,AUDIT,audit)
