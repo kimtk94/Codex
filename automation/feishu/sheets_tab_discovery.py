@@ -14,7 +14,13 @@ def api(path, bearer=None, payload=None):
     try:
         with urllib.request.urlopen(req,timeout=30) as resp: result=json.load(resp)
     except urllib.error.HTTPError as exc:
-        raise RuntimeError("HTTP_STATUS_"+str(exc.code)) from None
+        try:
+            response=json.loads(exc.read().decode("utf-8"))
+            code=response.get("code") if isinstance(response,dict) else None
+            if not isinstance(code,int): code="UNKNOWN"
+        except (ValueError,UnicodeError):
+            code="UNPARSEABLE"
+        raise RuntimeError("HTTP_STATUS_"+str(exc.code)+"_FEISHU_CODE_"+str(code)) from None
     if result.get("code")!=0: raise RuntimeError("FEISHU_CODE_"+str(result.get("code")))
     data=result.get("data")
     return data if isinstance(data,dict) else result
