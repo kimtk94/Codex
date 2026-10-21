@@ -23,7 +23,8 @@ def main():
     for fmt,entry in sorted(selected.items()):
         # A1:AZ1 is header-only; structural fingerprints do not disclose names.
         span=urllib.parse.quote(entry["sheet_id"]+"!A1:AZ1",safe="")
-        result=api(root+"/values/"+span,bearer)
+        value_root="/open-apis/sheets/v2/spreadsheets/"+urllib.parse.quote(TOKEN,safe="")
+        result=api(value_root+"/values/"+span,bearer)
         value_range=result.get("valueRange")
         if not isinstance(value_range,dict): raise RuntimeError("VALUE_RANGE_MISSING")
         values=value_range.get("values") or []
