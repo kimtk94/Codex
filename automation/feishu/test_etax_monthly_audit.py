@@ -12,4 +12,6 @@ assert parse_etax_month("eTAX - Oct Invoice",2026)!=(2026,11)
 assert select_etax([{"name":"eTAX - Oct Invoice","table_id":"a"},{"name":"eTAX - Sep Invoice","table_id":"b"}],2026,10)[0]["table_id"]=="a"
 assert select_etax([],2026,10)==(None,0)
 assert select_etax([{"name":"eTAX - Oct Invoice"},{"name":"eTAX - Oct Invoice"}],2026,10)==(None,2)
+assert parse_etax_month("eTAX 2026-11 Oct Invoice",2026) is None
+assert parse_etax_month("eTAX - Jan Invoice",2027)==(2027,1)
 print("ETAX_MONTHLY_SYNTHETIC_TEST: PASS")
