@@ -12,6 +12,59 @@ EXTRA=["sfdc_account_name_matches","sfdc_opportunities_name_matched",
        "sfdc_quote_candidates_name_date","css_contracts_amea_matched",
        "css_contract_numbers","relation_quality"]
 def clean(v):return " ".join(str(v or "").strip().casefold().split())
+# Explicit institution aliases; never fuzzy-match customer or contact names.
+# A canonical account may aggregate multiple legal Account names from the same institution.
+ALIASES={
+"yonsei univ.":["yonsei university","yonsei university health system"],
+"kyungpook national univ.":["kyungpook national university"],
+"chungang univ.":["chung ang university"],
+"konkuk univ.":["konkuk university"],
+"ewha univ.":["ewha university","ehwa woman university"],
+"jeju univ.":["jeju national university"],
+"labs mro":["labsmro"],
+"labsmro":["labsmro"],
+"sogang univ.":["sogang university"],
+"aginglab":["aginglab"],
+"bioto":["bioto"],
+"inha univ.":["inha university"],
+"daegu catholic univ.":["daegu catholic university"],
+"keimyung univ.":["keimyung university"],
+"chungbuk univ.":["chungbuk national university"],
+"gyeongkuk univ.":["gyeongkuk national university"],
+"eulji univ.":["eulji university"],
+"soonchunhyang univ.":["soonchunhyang university","soonchunhyanguniversity"],
+"sookmyung womens univ.":["sookmyung women's university"],
+"sookmyung womens university":["sookmyung women's university"],
+"gyeongsang national univ.":["gyeongsang national university"],
+"gyeongsang univ.":["gyeongsang national university"],
+"gnu":["gyeongsang national university"],
+"kaist":["kaist"],
+"incheon univ.":["incheon university"],
+"dgist univ.":["dgist"],
+"unist":["unist","ulsan national institute of science and technology"],
+"unist univ.":["unist","ulsan national institute of science and technology"],
+"kist":["kist"],
+"gist":["gist"],
+"kopri":["korea polar research institute"],
+"kbiohealth":["kbiohealth"],
+"kbri":["korea brain research institute"],
+"rokit genomics":["rokit genomics"],
+"rokit genoics":["rokit genomics"],
+"aibiotics":["aibiotics"],
+"medytox":["medytox"],
+"decodecell":["decodecell"],
+"geromics":["geromics"],
+"yeungnam univ.":["yeungnam university"],
+"kongju univ.":["kongju university"],
+"hannam univ.":["hannamuniversity"],
+"the province of chungcheongnamdo":["the province of chungcheongnam-do"],
+}
+def matching_account(account, institution):
+    account=clean(account);institution=clean(institution)
+    if account==institution:return True
+    # Boundaries prevent 'unist' accidentally matching an unrelated long word.
+    return any(re.search(r"(?<![a-z])"+re.escape(alias)+r"(?![a-z])",account)
+               for alias in ALIASES.get(institution,[]))
 def rows(source):
     if not source:return []
     h=source[0]
@@ -43,8 +96,9 @@ def main():
     for r in customer[1:]:
         data=dict(zip(h,r))
         inst=clean(data.get("institution"))
-        os=opbyaccount.get(inst,[])
-        cs=contactbyaccount.get(inst,[])
+        account_keys={k for k in set(opbyaccount)|set(contactbyaccount) if matching_account(k,inst)}
+        os=[item for k in account_keys for item in opbyaccount.get(k,[])]
+        cs=[item for k in account_keys for item in contactbyaccount.get(k,[])]
         emailname=lambda c:clean((str(c.get("First Name") or "")+" "+str(c.get("Last Name") or "")).strip())
         mains=sum(1 for x in os for c in cs if emailname(c)==clean(x.get("Main Contact")) and emailname(c))
         projects=set(re.findall(r"AMEA\d+",str(data.get("project_ids") or ""),flags=re.I))
