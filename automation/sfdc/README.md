@@ -11,7 +11,7 @@
 
 ## Setup
 1. Give the Google service account **Viewer** access to the source spreadsheet and **Editor** access to the output spreadsheet.
-2. Set GitHub Actions repository secret `GCP_SERVICE_ACCOUNT_JSON` to the service-account JSON (single-line or multiline JSON accepted). Do NOT commit it.
+2. Use existing GitHub Actions repository secret `CKD_DRIVE_SA_JSON` to the service-account JSON (single-line or multiline JSON accepted). Do NOT commit it.
 3. Merge this branch into `main`, then trigger the workflow manually once to verify the output. Scheduled workflows only run from the default branch.
 4. Check action logs (counts only), output sheet records, and permission scope.
 
