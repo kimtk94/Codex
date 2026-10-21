@@ -134,6 +134,14 @@ def main():
     check=range_data(sess,OUTPUT_ID,"Opportunity",2000)
     if not check or check[0][:len(enriched[0])]!=enriched[0]:
         raise RuntimeError("Opportunity enrichment missing after write")
+    if len(check)!=len(o):
+        raise RuntimeError(f"Opportunity row preservation failed: raw={len(o)-1}, published={len(check)-1}")
+    expected_names=[get(r,oname) for r in o[1:]]
+    published_names=[get(r,oname) for r in check[1:]]
+    if expected_names!=published_names:
+        raise RuntimeError("Opportunity identity/order mismatch (duplicate records must remain separate)")
+    if len(rows)-1!=len(q)-1:
+        raise RuntimeError("Quotation rows lost during reconciliation")
     observed=sum(int(r[check[0].index("linked_quote_count_name_or_id")] or 0) for r in check[1:])
     expected=sum(1 for r in rows[1:] if r[6] in ("MATCHED_BY_ID","NAME_MATCH_UNIQUE","NAME_DATE_MATCH_UNIQUE"))
     if observed!=expected:
