@@ -131,6 +131,13 @@ def main():
         confidence="NAME_MATCH_UNIQUE (not Salesforce Related ID)" if count["total"] else "NO_VERIFIED_QUOTE_RELATION"
         enriched.append(original+[count["total"],count["active"],count["unknown"],count["inactive"],confidence])
     replace_tab(sess,"Opportunity",enriched)
+    check=range_data(sess,OUTPUT_ID,"Opportunity",2000)
+    if not check or check[0][:len(enriched[0])]!=enriched[0]:
+        raise RuntimeError("Opportunity enrichment missing after write")
+    observed=sum(int(r[check[0].index("linked_quote_count_name_or_id")] or 0) for r in check[1:])
+    expected=sum(1 for r in rows[1:] if r[6] in ("MATCHED_BY_ID","NAME_MATCH_UNIQUE","NAME_DATE_MATCH_UNIQUE"))
+    if observed!=expected:
+        raise RuntimeError(f"Opportunity quote count mismatch: observed={observed} expected={expected}")
     print(json.dumps({"quote_rows":len(q)-1,"active":stats["YES"],"inactive":stats["NO"],
       "unknown":stats["UNKNOWN"],"related_ids_available":oi is not None and opportunity_id is not None}))
 if __name__=="__main__":main()
