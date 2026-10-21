@@ -21,7 +21,7 @@ PROJECT=re.compile(r"AMEA\d{7,}(?:-\d+)?",re.I)
 QID=re.compile(r"QID[- ]\d{4}[- ]\d{2}[- ]\d{2}[- ]\d+",re.I)
 SFID=re.compile(r"\b(?:a0P[A-Za-z0-9]{12,15})\b")
 CREATED=re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
-APPROVED=re.compile(r"\\bapproved\\b|approval\\s+completed|승인\\s*완료",re.I)
+APPROVED=re.compile(r"\bapproved\b|approval\s+completed|승인\s*완료",re.I)
 class HtmlText(HTMLParser):
     def __init__(self):super().__init__();self.parts=[]
     def handle_data(self,data):self.parts.append(data)
