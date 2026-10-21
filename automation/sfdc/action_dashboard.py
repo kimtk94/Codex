@@ -6,7 +6,7 @@ from followup_stage1 import auth, call, OUTPUT_ID
 from opportunity_quote_mirror import range_data, replace_tab
 
 TAB="Action Dashboard"
-HEADER=["priority","workstream","institution","customer","reference_id","status","next_action","due_or_event_date","source_tab","source_note","source_uid","attention_bucket"]
+HEADER=["priority","workstream","institution","customer","reference_id","status","next_action","due_or_event_date","source_tab","source_note","source_uid","attention_bucket","handling_lane"]
 def records(session,tab,limit=6000):
     data=range_data(session,OUTPUT_ID,tab,limit)
     if not data:return []
@@ -28,7 +28,8 @@ def main():
         except (ValueError,TypeError):pass
         bucket=("OVERDUE" if due and due<today else "TODAY" if due==today else "UPCOMING" if due and due>today else "CHECK_DATE")
         if workstream in ("SFDC Follow-up","Quote / Invoice"):bucket="VERIFY"
-        data.append([priority,workstream,inst,customer,ref,status,action,date,tab,note,uid,bucket])
+        lane="ACTION_REVIEW" if workstream in ("CSS Action","Contract / SIF") else "VERIFY_ONLY"
+        data.append([priority,workstream,inst,customer,ref,status,action,date,tab,note,uid,bucket,lane])
         tally[workstream]=tally.get(workstream,0)+1
     for x in records(session,"SFDC Follow-up",1200):
         add(s(x.get("priority")), "SFDC Follow-up",s(x.get("institution")),s(x.get("customer_name")),s(x.get("record_id")),
@@ -54,7 +55,7 @@ def main():
             "Not invoiced does not by itself mean overdue or ready to invoice",s(x.get("uid")))
     ranks={"긴급":0,"높음":1,"보통":2,"낮음":3}
     buckets={"OVERDUE":0,"TODAY":1,"CHECK_DATE":2,"VERIFY":3,"UPCOMING":4}
-    data[1:]=sorted(data[1:],key=lambda row:(buckets.get(row[11],5),ranks.get(row[0],4),row[1],row[4]))
+    data[1:]=sorted(data[1:],key=lambda row:(0 if row[12]=="ACTION_REVIEW" else 1,buckets.get(row[11],5),ranks.get(row[0],4),row[1],row[4]))
     root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
     meta=call(session,"GET",root+"?fields=sheets.properties",stage="action_metadata")
     if TAB not in {x["properties"]["title"] for x in meta["sheets"]}:
@@ -72,5 +73,6 @@ def main():
        "textFormat":{"bold":True,"foregroundColor":{"red":1,"green":1,"blue":1}}}},
        "fields":"userEnteredFormat(backgroundColor,textFormat)"}}
     ]})
-    print(json.dumps({"status":"ok","action_rows":len(data)-1,"by_source":tally},ensure_ascii=False))
+    lanes={k:sum(1 for row in data[1:] if row[12]==k) for k in ("ACTION_REVIEW","VERIFY_ONLY")}
+    print(json.dumps({"status":"ok","action_rows":len(data)-1,"by_source":tally,"lanes":lanes},ensure_ascii=False))
 if __name__=="__main__":main()
