@@ -32,7 +32,7 @@ def main():
           ["SUMMARY","Opportunity records",len(opp)-1,"SFDC_Auto snapshot",now,"Snapshot is not live SFDC"],
           ["SUMMARY","Quotation snapshot records (active unverified)",len(quote)-1,"SFDC_Auto snapshot",now,"Do not sum as additional opportunities"],
           ["SUMMARY","Opportunity-CSS verified links",matched,"SFDC CSS Match Audit",now,"No verified AMEA links in previous audit"]]
-    for metric,key in [("Opportunity name-unique Quote links","name_match_unique"),("Ambiguous Quote links","name_match_ambiguous"),("Unmatched Quote links","name_match_missing"),("Active confirmed Quotes","active"),("Active status unknown Quotes","unknown_status")]:
+    for metric,key in [("Opportunity name-unique Quote links","name_match_unique"),("Name and date unique Quote links","name_date_match_unique"),("Ambiguous Quote links","name_match_ambiguous"),("Unmatched Quote links","name_match_missing"),("Active confirmed Quotes","active"),("Active status unknown Quotes","unknown_status")]:
         rows.append(["QUOTE_RELATION",metric,link_metrics.get(key,"NOT_CHECKED"),"SFDC Quote Link Audit",now,
             "Name-only join is provisional; Active must be explicitly checked"])
     for k,n in sorted(stage.items()):rows.append(["OPPORTUNITY_STAGE",k,n,"Opportunity mirror",now,""])
