@@ -1,0 +1,44 @@
+name: CSS Mail Read-only Probe
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7,37 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: css-mail-readonly
+  cancel-in-progress: false
+
+jobs:
+  css-mail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GMAIL_CLIENT_ID: ${{ secrets.CSS_GMAIL_CLIENT_ID }}
+      GMAIL_CLIENT_SECRET: ${{ secrets.CSS_GMAIL_CLIENT_SECRET }}
+      GMAIL_REFRESH_TOKEN: ${{ secrets.CSS_GMAIL_REFRESH_TOKEN }}
+      CSS_MAIL_LOOKBACK_HOURS: "48"
+      CSS_MAIL_REPORT_PATH: css_mail_probe.json
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Gmail secret configuration
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          keys = ["GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN"]
+          missing = [key for key in keys if not os.getenv(key)]
+          print("CSS Gmail configuration:", "READY" if not missing else "MISSING")
+          sys.exit(0 if not missing else 1)
+          PY
+      - name: Read-only probe
+        run: python3 automation/css_mail/readonly_probe.py
+      - name: Upload sanitized metrics
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: css-mail-metrics
+          path: css_mail_probe.json
+          retention-days: 7
