@@ -147,7 +147,9 @@ def build(tables):
 def write_output(session, rows):
     # Dedicated output spreadsheet only. Sheet1 is the default tab of a newly created workbook.
     meta = call(session,"GET",f"https://sheets.googleapis.com/v4/spreadsheets/{OUTPUT_ID}?fields=sheets.properties", stage="output_metadata")
-    sheet = meta["sheets"][0]["properties"]["title"]
+    sheet = "SFDC Follow-up"
+    if sheet not in {item["properties"]["title"] for item in meta["sheets"]}:
+        raise RuntimeError("Required dedicated SFDC Follow-up sheet not found; refusing to write another tab")
     import urllib.parse
     prefix = f"https://sheets.googleapis.com/v4/spreadsheets/{OUTPUT_ID}/values/"
     target = urllib.parse.quote(f"'{sheet}'!A1:P",safe="")
