@@ -40,3 +40,6 @@ jobs:
       - name: Consolidate SFDC Followups
         if: steps.credentials.outputs.ready == 'true'
         run: python automation/sfdc/followup_stage1.py
+      - name: Mirror Opportunity and Quotation
+        if: steps.credentials.outputs.ready == 'true'
+        run: python automation/sfdc/opportunity_quote_mirror.py
