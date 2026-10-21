@@ -61,6 +61,27 @@ def main():
     } else []
     known={str(x.get("invoice_number","")).strip() for x in existing if x.get("invoice_number")}
     output={str(x.get("ingest_key","")):x for x in previous if x.get("ingest_key")}
+    # Reconcile known historical invoice evidence before IMAP metadata calls.
+    # These are verified earlier by the legacy filename extraction; label provenance.
+    legacy_by_uid={str(r.get("uid","")).strip().lower():r for r in existing if r.get("invoice_number")}
+    reconciled=0
+    for row in source:
+        if row.get("direction")!="INBOUND" or row.get("ingest_key") in output:continue
+        legacy=legacy_by_uid.get(("inbox:"+str(row.get("imap_uid",""))).lower())
+        if not legacy:continue
+        amount_text=str(legacy.get("amount_krw","")).replace(",","").replace(" KRW","").strip()
+        if not amount_text.isdigit():continue
+        key=row["ingest_key"]
+        output[key]={"invoice_number":legacy.get("invoice_number",""),
+            "amount_krw":int(amount_text),"project_id":legacy.get("project_id",""),
+            "h_project_number":legacy.get("h_project_number",""),
+            "po_reference":legacy.get("po_reference",""),
+            "attachment_filename":legacy.get("attachment_filename",""),
+            "subject":row.get("subject",""),"received_at":row.get("received_at",""),
+            "imap_uid":row.get("imap_uid",""),"ingest_key":key,
+            "validation_status":"VERIFIED_LEGACY_RECORD",
+            "extracted_at_utc":dt.datetime.now(dt.timezone.utc).isoformat()}
+        reconciled+=1
     candidates=[x for x in source if x.get("direction")=="INBOUND" and
                 ISSUED.search(str(x.get("subject",""))) and x.get("ingest_key") not in output]
     # Newest first; per-run bound avoids exceeding the 10-minute Actions job.
@@ -108,7 +129,7 @@ def main():
     src.api(session,"PUT",src.endpoint("/values/"+rng("A1"))+"?valueInputOption=RAW",
             json={"values":values})
     print("CSS_INVOICE_PASS candidates="+str(len(candidates))+" fetched="+str(len(batch))+
-          " extracted_total="+str(len(output))+" filename_only=true")
+          " extracted_total="+str(len(output))+" reconciled_legacy="+str(reconciled)+" filename_only=true")
 if __name__=="__main__":
     try:main()
     except Exception as e:
