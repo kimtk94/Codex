@@ -8,6 +8,8 @@ import re
 import sys
 import urllib.parse
 from email import policy
+from html import unescape
+from html.parser import HTMLParser
 import incremental_sync as mail
 
 TAB="Quotation Approval Auto"
@@ -19,7 +21,24 @@ PROJECT=re.compile(r"AMEA\d{7,}(?:-\d+)?",re.I)
 QID=re.compile(r"QID[- ]\d{4}[- ]\d{2}[- ]\d{2}[- ]\d+",re.I)
 SFID=re.compile(r"\b(?:a0P[A-Za-z0-9]{12,15})\b")
 CREATED=re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
-APPROVED=re.compile(r"\bapproved\b|approval\s+completed|승인\s*완료",re.I)
+APPROVED=re.compile(r"\\bapproved\\b|approval\\s+completed|승인\\s*완료",re.I)
+class HtmlText(HTMLParser):
+    def __init__(self):super().__init__();self.parts=[]
+    def handle_data(self,data):self.parts.append(data)
+    def handle_starttag(self,tag,attrs):
+        if tag=="a":
+            self.parts.extend(value for k,value in attrs if k=="href" and value)
+    def text(self):return unescape(" ".join(self.parts))
+def body_text(message):
+    values=[]
+    for part in message.walk():
+        if part.get_content_type() not in ("text/plain","text/html"):continue
+        try: content=part.get_content()
+        except (ValueError,UnicodeError,LookupError):continue
+        if part.get_content_type()=="text/html":
+            parser=HtmlText();parser.feed(str(content));content=parser.text()
+        values.append(str(content))
+    return "\\n".join(values)[:120000]
 
 def read(s,tab,a1):
     u=urllib.parse.quote("'"+tab+"'!"+a1,safe="")
@@ -74,8 +93,7 @@ def main():
                 if not content:continue
                 # Parse plain text evidence only; do not retain private body contents.
                 message=email.message_from_bytes(content,policy=policy.default)
-                raw=message.get_body(preferencelist=("plain",))
-                value=(raw.get_content() if raw else content.decode("utf-8","replace"))[:80000]
+                value=body_text(message)
                 combined=r.get("subject","")+"\n"+value
                 projects=PROJECT.findall(combined)
                 qids=QID.findall(combined)
