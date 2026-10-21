@@ -53,10 +53,10 @@ jobs:
         run: python3 automation/css_mail/mail_operations.py
       - name: Build unanswered email review using existing exclusions
         run: python3 automation/css_mail/unanswered_auto.py
-      - name: Extract TAX INVOICE amounts from attachment filenames
-        run: python3 automation/css_mail/tax_invoice_extract.py
       - name: Collect quotation approval evidence without amounts
         run: python3 automation/css_mail/quotation_approval_extract.py
+      - name: Extract TAX INVOICE amounts from attachment filenames
+        run: python3 automation/css_mail/tax_invoice_extract.py
       - name: Upload sanitized counts
         if: success()
         uses: actions/upload-artifact@v4
