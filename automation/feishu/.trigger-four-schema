@@ -1,1 +1,3 @@
-Read-only schema audit trigger. No writes. 
+Retry latest-four Feishu schema audit after fixing top-level auth response.
+Trigger: 2026-10-21-p209
+No writes.
