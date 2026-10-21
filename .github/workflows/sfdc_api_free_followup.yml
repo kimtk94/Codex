@@ -23,8 +23,8 @@ jobs:
         shell: bash
         run: |
           if [ -z "$GCP_SERVICE_ACCOUNT_JSON" ]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::GCP_SERVICE_ACCOUNT_JSON missing. Skipping SFDC sync."
+            echo "::error::CKD_DRIVE_SA_JSON is empty or unavailable to this workflow. Configure repository Actions secret and check environment/org access restrictions."
+            exit 1
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
