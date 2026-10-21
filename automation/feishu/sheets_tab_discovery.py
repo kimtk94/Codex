@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Detect Feishu Sheets tabs without reading cell values or modifying either document."""
-import json, os, sys, urllib.parse, urllib.request
+import json, os, sys, urllib.parse, urllib.request, urllib.error
 from pathlib import Path
 TOKEN = "MoZasLAK8hUlsAtIhumjVHjYpQe"
 BASELINE = Path(__file__).with_name("sheet_ids_baseline.json")
@@ -11,8 +11,11 @@ def api(path, bearer=None, payload=None):
     req=urllib.request.Request("https://open.feishu.cn"+path,
         data=json.dumps(payload).encode() if payload is not None else None,
         headers=headers,method="POST" if payload is not None else "GET")
-    with urllib.request.urlopen(req,timeout=30) as resp: result=json.load(resp)
-    if result.get("code")!=0: raise RuntimeError("Feishu API code="+str(result.get("code")))
+    try:
+        with urllib.request.urlopen(req,timeout=30) as resp: result=json.load(resp)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError("HTTP_STATUS_"+str(exc.code)) from None
+    if result.get("code")!=0: raise RuntimeError("FEISHU_CODE_"+str(result.get("code")))
     return result.get("data") or {}
 
 def main():
@@ -48,5 +51,6 @@ def main():
 if __name__=="__main__":
     try: main()
     except Exception as exc:
-        print("DISCOVERY_FAILED:",type(exc).__name__,file=sys.stderr)
+        reason=str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
+        print("DISCOVERY_FAILED:",reason,file=sys.stderr)
         sys.exit(1)
