@@ -1,0 +1,21 @@
+name: Feishu Multi-source Dry Run
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dry_run:
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Metadata and write-safety preflight
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+        run: python3 automation/feishu/multisource_dryrun.py
