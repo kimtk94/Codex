@@ -11,7 +11,7 @@ from followup_stage1 import auth, call, SOURCE_ID, OUTPUT_ID
 SFDC_AUTO_ID = os.getenv("SFDC_AUTO_SHEET_ID", "11Kb6V-y5BYqHdbxZ_X3ZmOxsIFEk683yqELVjafcCac")
 KST = dt.timezone(dt.timedelta(hours=9))
 JOBS = [
-    ("Opportunity", SFDC_AUTO_ID, "Oppo list", 2000),
+    ("SFDC Opportunity Raw", SFDC_AUTO_ID, "Oppo list", 2000),
     ("Quotation", SFDC_AUTO_ID, "Quotation", 2000),
     ("SFDC Contacts", SFDC_AUTO_ID, "Contact", 2000),
     ("SFDC Settlement Raw", SFDC_AUTO_ID, "Setteled_Rawdata", 2000),
@@ -29,7 +29,7 @@ JOBS = [
 ]
 AUDIT_TAB = "SFDC Source Audit"
 READINESS_TAB = "SFDC Report Readiness"
-REQUIRED_FIELDS = {"Opportunity": ["Opportunity ID", "Last Modified Date", "Stage", "Close Date"], "Quotation": ["Quote ID", "Opportunity ID", "Last Modified Date", "Status"], "SFDC Contacts": ["Contact ID", "Last Modified Date", "Account ID"]}
+REQUIRED_FIELDS = {"SFDC Opportunity Raw": ["Opportunity ID", "Last Modified Date", "Stage", "Close Date"], "Quotation": ["Quote ID", "Opportunity ID", "Last Modified Date", "Status"], "SFDC Contacts": ["Contact ID", "Last Modified Date", "Account ID"]}
 AUDIT_HEADER = ["source_tab","record_count","first_seen_this_snapshot","last_checked_kst","content_changed","fingerprint_sha256","source_kind","freshness_verified"]
 
 def range_data(session, source_id, tab, maxrows):
@@ -93,12 +93,21 @@ def main():
                               "HOLD - report export not verified","SFDC_Auto snapshot"])
         replace_tab(session,tab,rows)
         summary[tab]={"status":"ok","records":max(0,len(rows)-1),"snapshot_changed":changed}
+    # Keep the raw opportunity mirror hidden; the enriched visible Opportunity is
+    # published only by active_quote_links.py after reconciliation.
+    root="https://sheets.googleapis.com/v4/spreadsheets/"+OUTPUT_ID
+    m=call(session,"GET",root+"?fields=sheets.properties",stage="raw_opportunity_visibility")
+    raw=next((v["properties"] for v in m["sheets"] if v["properties"]["title"]=="SFDC Opportunity Raw"),None)
+    if raw and not raw.get("hidden"):
+        call(session,"POST",root+":batchUpdate",
+             json={"requests":[{"updateSheetProperties":{"properties":{"sheetId":raw["sheetId"],"hidden":True},"fields":"hidden"}}]},
+             stage="hide_raw_opportunity")
     if len(audit)>1:
         replace_tab(session,AUDIT_TAB,audit)
     if len(readiness)>1:
         replace_tab(session,READINESS_TAB,readiness)
     print(json.dumps({"status":"complete","sheets":summary,"checked_at":dt.datetime.now(KST).isoformat()},ensure_ascii=False))
-    if summary["Opportunity"]["status"]!="ok" or summary["Quotation"]["status"]!="ok":
+    if summary["SFDC Opportunity Raw"]["status"]!="ok" or summary["Quotation"]["status"]!="ok":
         print("NOTICE: SFDC_Auto needs Viewer sharing with the CKD service account.",file=sys.stderr)
 
 if __name__=="__main__":
