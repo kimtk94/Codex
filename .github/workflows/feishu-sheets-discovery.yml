@@ -1,6 +1,10 @@
 name: Feishu Sheets Tab Discovery
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - automation/feishu/.trigger-sheets-discovery
   schedule:
     - cron: "7,37 * * * *"
 permissions:
