@@ -28,7 +28,7 @@ jobs:
         run: |
           python3 automation/ntis/ntis_collect.py --start-year "${{ inputs.start_year }}" --end-year "${{ inputs.end_year }}"
       - name: Upload NTIS results
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ntis-rnd-export
