@@ -84,7 +84,7 @@ def main():
             msg=email.message_from_bytes(payload,policy=policy.default)
             diagnostics["scanned"]+=1
             sender=str(msg.get("from","")).lower()
-            sf_sender=bool(re.search(r"@(?:[a-z0-9-]+\\.)*salesforce\\.com\\b",sender))
+            sf_sender=bool(re.search(r"@(?:[a-z0-9-]+\.)*salesforce\.com\b",sender))
             if sf_sender:diagnostics["salesforce_sender"]+=1
             subject=str(msg.get("subject",""))
             if not any(term in subject.lower() for term in ("salesforce","quotation","report","quote")):
