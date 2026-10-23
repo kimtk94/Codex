@@ -34,5 +34,7 @@ jobs:
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Syntax check
         run: python3 -m py_compile automation/sfdc/quotation_email_ingest.py
+      - name: Test EUC-KR Quotation export parser
+        run: python3 automation/sfdc/test_quotation_email_ingest.py
       - name: Read subscription email and import valid quotation attachment
         run: python3 automation/sfdc/quotation_email_ingest.py
