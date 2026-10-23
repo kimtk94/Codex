@@ -16,7 +16,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: unified-sales-followup
+  group: sales-weekly-writer
   cancel-in-progress: false
 jobs:
   sync:
