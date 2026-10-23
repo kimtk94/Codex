@@ -38,7 +38,9 @@ def amount(v):
     return val if val>=0 else None
 def main():
     s=css.authorize()
-    rows=get(s,DST,"Quotation","A1:Z1000")
+    rows=get(s,DST,"SFDC Quote Export","A1:J5000")
+    if len(rows)<=1:
+        rows=get(s,DST,"Quotation","A1:Z1000")
     if not rows:raise RuntimeError("SFDC_QUOTATION_SOURCE_NOT_FOUND")
     absent=missing(rows[0]);ensure(s,DST,"Automation Health")
     timestamp=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
