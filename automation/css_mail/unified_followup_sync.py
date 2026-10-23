@@ -82,16 +82,27 @@ def main():
     # Quote-ID based master: preserve unknown relationships and values as blanks.
     ensure(s,DST,"Sales Master")
     master=[["Account ID","Account Name","Contact ID","Contact Name","Opportunity ID","Opportunity Name","Quote Record ID","AMEA Quotation ID","Quote Approval","Quote Active","Quote Amount","Currency","Relation Verification","Last Updated KST"]]
+    previous=get(s,DST,"Sales Master","A2:N2000")
+    prior_by_quote={str(r[6])[:15]:r for r in previous if len(r)>6 and str(r[6]).strip()}
     for r in items:
-        master.append(["","","","","","",r["id"],r["quote"],"APPROVED","UNVERIFIED","","","QUOTE_ID_VERIFIED_RELATION_UNVERIFIED",r["date"]])
+        prev=prior_by_quote.get(str(r["id"])[:15],[])
+        if len(prev)>9 and prev[9] in ("ACTIVE","INACTIVE") and len(prev)>12 and prev[12]=="QUOTE_ID_AND_OPPORTUNITY_ID_VERIFIED":
+            saved=(prev+[""]*14)[:14]
+            saved[6:9]=[r["id"],r["quote"],"APPROVED"]
+            master.append(saved)
+        else:
+            master.append(["","","","","","",r["id"],r["quote"],"APPROVED","UNVERIFIED","","","QUOTE_ID_VERIFIED_RELATION_UNVERIFIED",r["date"]])
     put(s,DST,"Sales Master","A1",master,"RAW")
     old_master=get(s,DST,"Sales Master","G1:G2000")
     if len(old_master)>len(master):
         put(s,DST,"Sales Master","A"+str(len(master)+1),[[""]*14 for _ in range(len(old_master)-len(master))],"RAW")
     ensure(s,DST,"Weekly Performance")
     weekly_perf=[["Week Start","Week End","Approved Quotes","Approved and Active Quotes","Active KRW","Active kUSD","Invoices Issued","Invoice KRW","Data Quality"]]
+    previous_weeks=get(s,DST,"Weekly Performance","A2:I1000")
+    prior_weeks={r[0]:r for r in previous_weeks if r}
     for (ws,we),n in sorted(per_week.items(),reverse=True):
-        weekly_perf.append([ws.isoformat(),we.isoformat(),n,"","","","","","ACTIVE_AMOUNT_UNVERIFIED"])
+        old=prior_weeks.get(ws.isoformat(),[])
+        weekly_perf.append([ws.isoformat(),we.isoformat(),n]+(old[3:9] if len(old)>=9 and old[8] in ("VERIFIED","PARTIAL_SFDC_QUOTE_VERIFICATION") else ["","","","","","ACTIVE_AMOUNT_UNVERIFIED"]))
     put(s,DST,"Weekly Performance","A1",weekly_perf,"RAW")
     ensure(s,DST,"SFDC Import QC")
     qc=[["Entity","Source Report","Imported At KST","Rows","Unique IDs","Duplicate IDs","Missing IDs","Missing Required Fields","Validation","Notes"],
