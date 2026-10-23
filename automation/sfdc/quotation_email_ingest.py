@@ -52,7 +52,8 @@ def parse_attachment(blob,filename):
     for record in table[1:]:
         if len(record)<len(heads):continue
         sid=record[idx["Quotation: ID"]].strip()
-        flag=record[idx["Active"]].strip()
+        flag=record[idx["Active"]].strip().lower()
+        flag={"true":"1","yes":"1","false":"0","no":"0"}.get(flag,flag)
         qid=record[idx["Quotation: SFDC Quotation ID"]].strip()
         amount=record[idx["Exclude Tax After Discount USD"]].replace(",","").strip()
         if not re.fullmatch(r"a0P[A-Za-z0-9]{12,15}",sid):continue
