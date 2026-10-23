@@ -1,0 +1,50 @@
+name: NTIS backfill (approved IP self-hosted)
+on:
+  workflow_dispatch:
+    inputs:
+      start_year:
+        description: First year
+        required: true
+        default: '2021'
+        type: string
+      end_year:
+        description: Last year
+        required: true
+        default: '2026'
+        type: string
+      max_pages:
+        description: Maximum pages per keyword/year
+        required: true
+        default: '500'
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: ntis-backfill-approved-ip
+  cancel-in-progress: false
+jobs:
+  ntis:
+    runs-on: [self-hosted, linux, x64, ntis]
+    environment: Taehoonserver
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify approved outbound IP (fail closed)
+        env:
+          NTIS_APPROVED_IP: '182.208.98.218'
+        run: python3 automation/ntis/check_egress_ip.py
+      - name: Read NTIS project data
+        env:
+          NTIS_API_KEY: ${{ secrets.NTIS_API_KEY }}
+        run: |
+          python3 automation/ntis/ntis_collect.py --start-year "${{ inputs.start_year }}" --end-year "${{ inputs.end_year }}" --max-pages "${{ inputs.max_pages }}" --output outputs/ntis
+      - name: Preserve audit and exports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ntis-approved-ip-export
+          path: outputs/ntis/
+          retention-days: 30
