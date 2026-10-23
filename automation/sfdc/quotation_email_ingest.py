@@ -26,7 +26,13 @@ class TableParser(HTMLParser):
             if self.row:self.rows.append(self.row)
             self.row=None
 def parse_attachment(blob,filename):
-    raw=blob.decode("utf-8-sig","replace")
+    probe=blob[:500].lower()
+    if b"euc-kr" in probe or b"ks_c_5601" in probe:
+        raw=blob.decode("euc-kr")
+    elif b"charset=cp949" in probe:
+        raw=blob.decode("cp949")
+    else:
+        raw=blob.decode("utf-8-sig")
     if "<table" in raw[:10000].lower() or "<tr" in raw[:10000].lower():
         parser=TableParser();parser.feed(raw);table=parser.rows
     else:
