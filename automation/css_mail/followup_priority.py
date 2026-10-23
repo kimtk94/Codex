@@ -28,5 +28,8 @@ def main():
     out.sort(key=lambda x:(-x[0],x[6],x[2]))
     ensure(s,DST,"Follow-up Priority")
     put(s,DST,"Follow-up Priority","A1",[HEAD]+out)
+    ensure(s,DST,"Automation Health")
+    updated=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
+    put(s,DST,"Automation Health","A6",[["Follow-up Priority",updated,"PASS","open="+str(len(out))+" p0="+str(sum(x[1]=="P0" for x in out))]])
     print("FOLLOWUP_PRIORITY_PASS open="+str(len(out))+" p0="+str(sum(r[1]=="P0" for r in out)))
 if __name__=="__main__":main()
