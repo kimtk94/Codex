@@ -10,7 +10,7 @@ from google.auth.transport.requests import AuthorizedSession
 
 SHEET=os.getenv("SFDC_UNIFIED_SHEET_ID","1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI")
 KST=dt.timezone(dt.timedelta(hours=9))
-HEADER=["Salesforce Record ID","IsActive","Grand Total","CurrencyIsoCode","Opportunity ID","Last Modified Date","Quotation Name","AMEA Quotation ID","Source URL","Exported At KST"]
+HEADER=["Salesforce Record ID","IsActive","Exclude Tax After Discount USD","CurrencyIsoCode","Opportunity ID","Last Modified Date","Quotation Name","AMEA Quotation ID","Source URL","Exported At KST"]
 FIELDS=["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID","Quotation Name","Active","Exclude Tax After Discount USD"]
 class TableParser(HTMLParser):
     def __init__(self):super().__init__();self.rows=[];self.row=None;self.cell=None
