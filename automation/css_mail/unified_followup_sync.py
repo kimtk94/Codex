@@ -78,6 +78,7 @@ def main():
     existing=get(s,DST,"SFDC Weekly Overview","A1:P1000")
     idx={str(r[0]):i+1 for i,r in enumerate(existing[1:],2) if r}
     # Weekly row is updated at its own calendar key; never replace a previous week.
+    per_week.setdefault((this_start,this_start+dt.timedelta(days=6)),0)
     for (first,last),count in sorted(per_week.items(),reverse=True):
         label=first.isoformat()
         if label not in idx:
