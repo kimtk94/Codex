@@ -5,7 +5,7 @@ on:
       start_year:
         description: First project year
         required: true
-        default: '2025'
+        default: '2021'
       end_year:
         description: Last project year
         required: true
@@ -16,7 +16,7 @@ jobs:
   ntis-projects:
     environment: Taehoonserver
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
