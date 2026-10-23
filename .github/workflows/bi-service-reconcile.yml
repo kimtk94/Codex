@@ -1,0 +1,32 @@
+name: BI Service Canonical Reconciliation
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bi-service-reconcile.yml'
+  schedule:
+    - cron: '15,45 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: bi-service-canonical-reconcile
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheets client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify script
+        run: python3 -m py_compile automation/css_mail/bi_service_reconcile.py
+      - name: Restore canonical BI classifications
+        run: python3 automation/css_mail/bi_service_reconcile.py
