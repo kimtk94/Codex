@@ -36,4 +36,8 @@ jobs:
       - name: Test EUC-KR Quotation export parser
         run: python3 automation/sfdc/test_quotation_email_ingest.py
       - name: Read subscription email and import valid quotation attachment
+        id: quote_import
         run: python3 automation/sfdc/quotation_email_ingest.py
+      - name: Reconcile approved Quote IDs, Active amounts, weekly totals and master
+        if: steps.quote_import.outputs.imported == 'true'
+        run: python3 automation/css_mail/sfdc_quote_validation.py
