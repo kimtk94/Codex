@@ -5,7 +5,7 @@ Both eTAX (not issued) and Outstanding (unpaid) are independently retained.
 Missing project IDs are excluded and counted; a failed audit cannot erase history.
 """
 import datetime as dt
-import json, os, re, sys, urllib.parse
+import json, os, re, sys, urllib.parse, time, random
 from collections import defaultdict
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
@@ -31,7 +31,7 @@ def group(records,field):
             val=val.get("text") or val.get("name") or val.get("value") or ""
         if not isinstance(val,str):missing+=1;continue
         key=normalize(val)
-        if len(key)<6 or len(key)>120:missing+=1;continue
+        if len(key)<6 or len(key)>120 or not any(ch.isdigit() for ch in key):missing+=1;continue
         out[key]+=1
     return out,missing
 def status(issued,outstanding):
@@ -45,9 +45,14 @@ def google():
     creds=service_account.Credentials.from_service_account_info(json.loads(raw),scopes=["https://www.googleapis.com/auth/spreadsheets"])
     return AuthorizedSession(creds)
 def api(s,method,suffix,**kw):
-    r=s.request(method,"https://sheets.googleapis.com/v4/spreadsheets/"+SHEET+suffix,timeout=45,**kw)
-    if not r.ok:raise RuntimeError("SHEETS_HTTP_"+str(r.status_code))
-    return r.json() if r.content else {}
+    for attempt in range(7):
+        r=s.request(method,"https://sheets.googleapis.com/v4/spreadsheets/"+SHEET+suffix,timeout=45,**kw)
+        if r.status_code in (429,500,502,503,504) and attempt<6:
+            time.sleep(min(60,2**attempt+random.uniform(0,1)))
+            continue
+        if not r.ok:raise RuntimeError("SHEETS_HTTP_"+str(r.status_code))
+        return r.json() if r.content else {}
+
 def sheet(s,title):
     meta=api(s,"GET","?fields=sheets.properties.title")
     if title not in {x["properties"]["title"] for x in meta.get("sheets",[])}:
