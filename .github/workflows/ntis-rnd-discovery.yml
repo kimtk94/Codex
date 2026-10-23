@@ -14,6 +14,7 @@ permissions:
   contents: read
 jobs:
   ntis-projects:
+    environment: Taehoonserver
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
