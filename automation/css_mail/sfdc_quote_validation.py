@@ -8,7 +8,7 @@ import datetime as dt
 import re
 from collections import defaultdict
 import incremental_sync as css
-from unified_followup_sync import DST, KST, get, put, ensure
+from unified_followup_sync import DST, KST, get, put, ensure, base
 
 REQUIRED={
     "salesforce record id":("salesforce record id","sfdc quotation id","quote id","quotation record id"),
@@ -33,7 +33,7 @@ def active(v):
     return True if value in ("true","yes","1","active") else False if value in ("false","no","0","inactive") else None
 def amount(v):
     cleaned=re.sub("[,₩$ ]","",str(v or ""))
-    if not re.fullmatch(r"-?\\d+(?:\\.\\d+)?",cleaned):return None
+    if not re.fullmatch(r"-?\d+(?:\.\d+)?",cleaned):return None
     val=float(cleaned)
     return val if val>=0 else None
 def main():
@@ -76,6 +76,11 @@ def main():
                     summary[period]["kusd"]+=val/1000 if curr=="USD" else 0
         output.append(values)
     # Append to generated quote table only; original approval and source fields stay intact.
+    meta=css.api(s,"GET",base(DST)+"?fields=sheets.properties(title,sheetId,gridProperties)")
+    prop=next((x["properties"] for x in meta.get("sheets",[]) if x["properties"]["title"]=="Quote Approval Dedup"),None)
+    if not prop:raise RuntimeError("QUOTE_TAB_MISSING")
+    if prop.get("gridProperties",{}).get("columnCount",0)<17:
+        css.api(s,"POST",base(DST)+":batchUpdate",json={"requests":[{"updateSheetProperties":{"properties":{"sheetId":prop["sheetId"],"gridProperties":{"columnCount":17}},"fields":"gridProperties.columnCount"}}]})
     put(s,DST,"Quote Approval Dedup","L1",output)
     weekly=get(s,DST,"SFDC Weekly Overview","A1:P1000")
     put(s,DST,"SFDC Weekly Overview","Q1",[["approved_active_kusd"]])
