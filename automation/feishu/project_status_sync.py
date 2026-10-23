@@ -79,11 +79,23 @@ def main():
         priority,action=status(issue,unpaid)
         output.append([key,"YES" if issue else "NO","YES" if unpaid else "NO",priority,time,etax_rows.get(key,0),pay_rows.get(key,0),"eTAX "+now.strftime("%Y-%m")+" + "+OUTSTANDING_TABLE,"UNVERIFIED",action])
     s=google();sheet(s,"Feishu Project Status");sheet(s,"Automation Health")
+    # Preserve projects seen in prior snapshots as REVIEW_CARRYOVER; disappearance
+    # from a rotating month table is never evidence of issuance or payment.
+    prior_addr=urllib.parse.quote("'Feishu Project Status'!A2:J2000",safe="")
+    prior=api(s,"GET","/values/"+prior_addr).get("values",[])
+    current=set(projects)
+    carryover=0
+    for previous in prior:
+        previous=previous+[""]*max(0,10-len(previous))
+        prior_id=previous[0]
+        if not prior_id or prior_id in current:continue
+        output.append([prior_id,"UNKNOWN","UNKNOWN","REVIEW_CARRYOVER",time,0,0,"Prior Feishu snapshot, absent from current-month source","UNVERIFIED","Confirm invoice issue and settlement before closing"])
+        current.add(prior_id);carryover+=1
     # Snapshot is a generated table; do not clear or mutate historical invoice source tabs.
     values(s,"Feishu Project Status","A1",output)
     # A stable project count or month shift never implies paid or issued; changes require source evidence.
-    values(s,"Automation Health","A4",[["Feishu",time,"PASS","projects="+str(len(projects))+" eTAX_records="+str(etax_raw)+" outstanding_records="+str(pay_raw)+" unmatched="+str(etax_missing+pay_missing)]])
-    print("FEISHU_PROJECT_SYNC_PASS projects="+str(len(projects))+" overlap="+str(len(set(etax_rows)&set(pay_rows)))+" etax_unmatched="+str(etax_missing)+" pay_unmatched="+str(pay_missing))
+    values(s,"Automation Health","A4",[["Feishu",time,"PASS","projects="+str(len(projects))+" eTAX_records="+str(etax_raw)+" outstanding_records="+str(pay_raw)+" unmatched="+str(etax_missing+pay_missing)+" carryover="+str(carryover)]])
+    print("FEISHU_PROJECT_SYNC_PASS projects="+str(len(projects))+" overlap="+str(len(set(etax_rows)&set(pay_rows)))+" etax_unmatched="+str(etax_missing)+" pay_unmatched="+str(pay_missing)+" carryover="+str(carryover))
 if __name__=="__main__":
     try:main()
     except Exception as e:
