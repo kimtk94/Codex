@@ -1,0 +1,45 @@
+name: Unified Sales Follow-up Sync
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CSS QQ Mail Read-only Probe"]
+    types: [completed]
+  schedule:
+    - cron: "17,47 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/unified_followup_sync.py'
+      - 'automation/css_mail/sfdc_quote_validation.py'
+      - 'automation/css_mail/followup_priority.py'
+      - '.github/workflows/unified-sales-followup.yml'
+permissions:
+  contents: read
+concurrency:
+  group: unified-sales-followup
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_SHEET_ID: 1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Google Sheets client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Compile and validate code syntax
+        run: python3 -m py_compile automation/css_mail/unified_followup_sync.py automation/css_mail/sfdc_quote_validation.py automation/css_mail/followup_priority.py
+      - name: Backfill quote approvals and preserve weekly history
+        run: python3 automation/css_mail/unified_followup_sync.py
+      - name: Verify Salesforce Quote Active and native-currency amounts
+        run: python3 automation/css_mail/sfdc_quote_validation.py
+      - name: Rebuild follow-up priority from CSS Action Center
+        run: python3 automation/css_mail/followup_priority.py
