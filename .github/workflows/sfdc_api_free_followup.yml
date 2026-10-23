@@ -11,7 +11,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: sfdc-api-free-stage1
+  group: sales-weekly-writer
   cancel-in-progress: false
 jobs:
   followup:
