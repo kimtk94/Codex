@@ -4,3 +4,4 @@ Triggered after Feishu Payment field readiness merge on 2026-10-21.
 Triggered eTAX monthly overlap live audit after PR 226 merge (2026-10-21).
 Trigger after real Outstanding header mapping PR227 merge 2026-10-21.
 Audit request: 2026-10-22 KST, refresh Feishu eTAX and Outstanding snapshot (read-only).
+2026-10-23: trigger Feishu project-level reconciliation and write-back test.
