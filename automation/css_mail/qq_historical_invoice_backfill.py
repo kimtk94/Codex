@@ -61,7 +61,7 @@ def main():
                         if state!="FILENAME_PARSED":continue
                         issued=filename # attachment lacks issue date; use IMAP INTERNALDATE month below
                         status,dtparts=im.uid("FETCH",uid,"(INTERNALDATE)")
-                        dates=" ".join(str(p[0],errors="replace") if isinstance(p,tuple) else p.decode("utf-8","replace") for p in dtparts if isinstance(p,(tuple,bytes))) if status=="OK" else ""
+                        dates=" ".join(p[0].decode("utf-8","replace") if isinstance(p,tuple) else p.decode("utf-8","replace") for p in dtparts if isinstance(p,(tuple,bytes))) if status=="OK" else ""
                         found_dt=re.search(r'INTERNALDATE "([0-9]{2}-[A-Za-z]{3}-[0-9]{4})',dates)
                         month=""
                         if found_dt:
