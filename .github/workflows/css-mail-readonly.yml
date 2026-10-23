@@ -49,6 +49,8 @@ jobs:
         run: python3 -m py_compile automation/css_mail/readonly_probe.py automation/css_mail/incremental_sync.py automation/css_mail/mail_operations.py automation/css_mail/unanswered_auto.py automation/css_mail/tax_invoice_extract.py automation/css_mail/quotation_approval_extract.py
       - name: Sync inbound and sent mail metadata to CSS staging
         run: python3 automation/css_mail/incremental_sync.py
+      - name: Verify mail ingestion heartbeat in Google Sheets
+        run: python3 automation/css_mail/mail_health.py
       - name: Build mail-only operations review (no SFDC updates)
         run: python3 automation/css_mail/mail_operations.py
       - name: Build unanswered email review using existing exclusions
