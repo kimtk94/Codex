@@ -3,6 +3,7 @@
 No outbound emails, no mailbox mutations, no Salesforce writes.
 """
 import csv, datetime as dt, email, imaplib, io, json, os, re, sys, time, urllib.parse
+from openpyxl import load_workbook
 from email import policy
 from html.parser import HTMLParser
 from google.oauth2 import service_account
@@ -26,17 +27,23 @@ class TableParser(HTMLParser):
             if self.row:self.rows.append(self.row)
             self.row=None
 def parse_attachment(blob,filename):
-    probe=blob[:500].lower()
-    if b"euc-kr" in probe or b"ks_c_5601" in probe:
-        raw=blob.decode("euc-kr")
-    elif b"charset=cp949" in probe:
-        raw=blob.decode("cp949")
+    if filename.lower().endswith(".xlsx"):
+        wb=load_workbook(io.BytesIO(blob),read_only=True,data_only=True)
+        try: table=[["" if v is None else str(v) for v in row] for row in wb.active.iter_rows(values_only=True)]
+        finally: wb.close()
     else:
-        raw=blob.decode("utf-8-sig")
-    if "<table" in raw[:10000].lower() or "<tr" in raw[:10000].lower():
-        parser=TableParser();parser.feed(raw);table=parser.rows
-    else:
-        table=list(csv.reader(io.StringIO(raw)))
+        probe=blob[:500].lower()
+        if b"euc-kr" in probe or b"ks_c_5601" in probe:
+            raw=blob.decode("euc-kr")
+        elif b"charset=cp949" in probe:
+            raw=blob.decode("cp949")
+        else:
+            try:raw=blob.decode("utf-8-sig")
+            except UnicodeDecodeError:raw=blob.decode("cp949")
+        if "<table" in raw[:10000].lower() or "<tr" in raw[:10000].lower():
+            parser=TableParser();parser.feed(raw);table=parser.rows
+        else:
+            table=list(csv.reader(io.StringIO(raw)))
     if not table:return []
     heads=table[0]
     if not set(FIELDS).issubset(set(heads)):return []
@@ -64,6 +71,7 @@ def main():
     user=os.environ["CSS_QQ_MAIL_ADDRESS"];auth=os.environ["CSS_QQ_MAIL_AUTH_CODE"]
     since=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(days=3)).strftime("%d-%b-%Y")
     selected=None
+    diagnostics={"scanned":0,"report_like":0,"attachments":0,"parseable":0,"valid":0,"other_mail":0}
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=45) as im:
         im.login(user,auth);im.select("INBOX",readonly=True)
         ok,hits=im.uid("SEARCH",None,"SINCE",since)
@@ -74,23 +82,30 @@ def main():
             payload=next((p[1] for p in parts if isinstance(p,tuple)),None)
             if not payload:continue
             msg=email.message_from_bytes(payload,policy=policy.default)
+            diagnostics["scanned"]+=1
             subject=str(msg.get("subject",""))
-            if "quotation report" not in subject.lower() and "quotation" not in subject.lower():continue
+            if not any(term in subject.lower() for term in ("salesforce","quotation","report","quote")):
+                diagnostics["other_mail"]+=1
+                continue
+            diagnostics["report_like"]+=1
             for part in msg.walk():
                 filename=str(part.get_filename() or "")
                 if not filename.lower().endswith((".xls",".xlsx",".csv")):continue
                 data=part.get_payload(decode=True)
+                diagnostics["attachments"]+=1
                 if not data or len(data)>8_000_000:continue
-                if filename.lower().endswith(".xlsx"):continue  # Requires a separate XLSX parser, fail closed.
-                rows=parse_attachment(data,filename)
-                if len(rows)<100 or len(rows)!=len({r[0] for r in rows}):continue
+                try:rows=parse_attachment(data,filename)
+                except (UnicodeError,ValueError,ImportError,IndexError,TypeError):continue
+                if rows:diagnostics["parseable"]+=1
+                if not rows or len(rows)!=len({r[0] for r in rows}):continue
+                diagnostics["valid"]+=1
                 try:date=email.utils.parsedate_to_datetime(str(msg["date"]))
                 except (ValueError,TypeError):continue
                 if not date:continue
                 stamp=date.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST")
                 if selected is None or date>selected[0]:selected=(date,stamp,rows)
     if selected is None:
-        print("SFDC_QUOTE_EMAIL: NO_VALID_ATTACHMENT (no source overwritten)")
+        print("SFDC_QUOTE_EMAIL: NO_VALID_ATTACHMENT (no source overwritten) "+json.dumps(diagnostics,sort_keys=True))
         return 0
     stamp=selected[1];rows=selected[2]
     for row in rows:row[-1]=stamp
@@ -103,7 +118,7 @@ def main():
     sheet_call(session,"PUT","/values/"+cell+"?valueInputOption=RAW",json={"values":[HEADER]+rows})
     health=urllib.parse.quote("'Automation Health'!A7",safe="")
     sheet_call(session,"PUT","/values/"+health+"?valueInputOption=RAW",json={"values":[["SFDC Quote Report Email",stamp,"PASS","rows="+str(len(rows))+" active="+str(sum(r[1]=="1" for r in rows))]]})
-    print("SFDC_QUOTE_EMAIL_PASS rows="+str(len(rows))+" active="+str(sum(r[1]=="1" for r in rows)))
+    print("SFDC_QUOTE_EMAIL_PASS rows="+str(len(rows))+" active="+str(sum(r[1]=="1" for r in rows))+" "+json.dumps(diagnostics,sort_keys=True))
     return 0
 if __name__=="__main__":
     try:sys.exit(main())
