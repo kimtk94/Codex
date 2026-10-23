@@ -1,0 +1,26 @@
+name: NTIS API smoke 2021 (one-time)
+on:
+  push:
+    paths:
+      - '.github/workflows/ntis-smoke-20261023.yml'
+permissions:
+  contents: read
+jobs:
+  ntis-smoke:
+    environment: Taehoonserver
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify NTIS project search API
+        env:
+          NTIS_API_KEY: ${{ secrets.NTIS_API_KEY }}
+        run: |
+          python3 automation/ntis/ntis_collect.py --start-year 2021 --end-year 2021 --keywords 유전체 --max-pages 1 --page-size 20 --output outputs/ntis-smoke
+      - name: Save audit and sample results even if partial
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ntis-smoke-2021
+          path: outputs/ntis-smoke/
+          retention-days: 7
