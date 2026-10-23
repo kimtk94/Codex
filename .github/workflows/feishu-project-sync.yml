@@ -35,3 +35,4 @@ jobs:
         run: python3 -m py_compile automation/feishu/project_status_sync.py
       - name: Sync project-level unissued and unpaid flags
         run: python3 automation/feishu/project_status_sync.py
+# First-run verification requested 2026-10-23 KST.
