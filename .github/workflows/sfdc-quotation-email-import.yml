@@ -2,9 +2,8 @@ name: SFDC Quotation Report Email Import
 on:
   workflow_dispatch:
   schedule:
-    # Salesforce subscriptions at 09:00, 11:00, 17:00 KST.
-    # Allow 25 min for report generation/delivery.
-    - cron: '25 0,2,8 * * *'
+    # Check each hour, including 16:25 KST after a 16:00 report subscription.
+    - cron: '25 * * * *'
   push:
     branches: [main]
     paths:
@@ -31,7 +30,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install Google Sheets API client
-        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3' 'openpyxl>=3.1,<4'
       - name: Syntax check
         run: python3 -m py_compile automation/sfdc/quotation_email_ingest.py
       - name: Test EUC-KR Quotation export parser
