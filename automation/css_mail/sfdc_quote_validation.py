@@ -13,7 +13,7 @@ from unified_followup_sync import DST, KST, get, put, ensure, base
 REQUIRED={
     "salesforce record id":("salesforce record id","sfdc quotation id","quote id","quotation record id"),
     "active":("isactive","is active","active"),
-    "amount":("total amount","grand total","quotation total","quote amount"),
+    "amount":("total amount","grand total","exclude tax after discount usd","quotation total","quote amount"),
     "currency":("currency","currencyisocode","quote currency"),
     "opportunity id":("opportunity id","related opportunity id")
 }
