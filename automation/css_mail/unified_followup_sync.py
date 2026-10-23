@@ -4,7 +4,7 @@
 No customer email is sent and no Salesforce object is mutated. Never infer IsActive.
 """
 import datetime as dt
-import json, os, re, sys, urllib.parse
+import json, os, re, sys, urllib.parse, time, random
 from collections import defaultdict
 import incremental_sync as css
 
@@ -13,7 +13,12 @@ SRC=os.getenv("CSS_SHEET_ID","1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 KST=dt.timezone(dt.timedelta(hours=9))
 HEAD=["Approval KST","AMEA Quotation ID","Quotation Name","SFDC Record ID","Approval Evidence","Week Status","SFDC Direct Link","Active","Amount KRW","Source","Link Verification"]
 def req(s,method,url,**kw):
-    return css.api(s,method,url,**kw)
+    for attempt in range(7):
+        try:
+            return css.api(s,method,url,**kw)
+        except RuntimeError as exc:
+            if "HTTP=429" not in str(exc) or attempt==6:raise
+            time.sleep(min(60,2**attempt+random.uniform(0,1)))
 def base(book):return "https://sheets.googleapis.com/v4/spreadsheets/"+book
 def get(s,book,tab,cell):
     addr=urllib.parse.quote("'"+tab+"'!"+cell,safe="")
