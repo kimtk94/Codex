@@ -24,7 +24,7 @@ def main():
     if old and old[0]!=HEAD:raise RuntimeError("BACKFILL_HEADER_MISMATCH")
     by_invoice={str(row[0]):row for row in old[1:] if row and row[0]}
     year=int(os.getenv("BACKFILL_YEAR","2025"))
-    scanned=0; matches=0; fetched=0; folders=0; limit=int(os.getenv("BACKFILL_MAX_MATCHES","2500"))
+    scanned=0; matches=0; fetched=0; folders=0; filename_candidates=0; filename_parsed=0; limit=int(os.getenv("BACKFILL_MAX_MATCHES","2500"))
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=60) as im:
         im.login(os.environ["CSS_QQ_MAIL_ADDRESS"],os.environ["CSS_QQ_MAIL_AUTH_CODE"])
         status,listing=im.list()
@@ -55,10 +55,12 @@ def main():
                 blocks +=[p[0] for p in parts if isinstance(p,tuple) and isinstance(p[0],bytes)]
                 for block in blocks:
                     for filename in bodystructure_filenames(block):
+                        filename_candidates+=1
                         parsed=extract(filename)
                         if not parsed:continue
                         inv,hnum,po,amea,amount,state=parsed
                         if state!="FILENAME_PARSED":continue
+                        filename_parsed+=1
                         issued=filename # attachment lacks issue date; use IMAP INTERNALDATE month below
                         status,dtparts=im.uid("FETCH",uid,"(INTERNALDATE)")
                         dates=" ".join(p[0].decode("utf-8","replace") if isinstance(p,tuple) else p.decode("utf-8","replace") for p in dtparts if isinstance(p,(tuple,bytes))) if status=="OK" else ""
@@ -76,6 +78,9 @@ def main():
                 if scanned>=limit:break
             if scanned>=limit:break
         im.logout()
+    print("QQ_BACKFILL_DIAGNOSTIC year="+str(year)+" folders="+str(folders)+" matches="+str(matches)+" scanned="+str(scanned)+" attachment_candidates="+str(filename_candidates)+" parsed_invoices="+str(filename_parsed)+" new="+str(fetched),flush=True)
+    if matches==0 or (scanned>0 and filename_parsed==0):
+        raise RuntimeError("QQ_BACKFILL_NO_INVOICE_EVIDENCE_CHECK_SUBJECT_SEARCH_OR_BODYSTRUCTURE")
     values=[HEAD]+list(by_invoice.values())
     if len(values)>10000:raise RuntimeError("BACKFILL_ROWS_EXCEED_LIMIT")
     call(s,"PUT","/values/"+quote("A1")+"?valueInputOption=RAW",json={"values":values})
