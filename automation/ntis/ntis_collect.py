@@ -10,6 +10,7 @@ import re
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 import xml.etree.ElementTree as ET
 
 URL = "https://www.ntis.go.kr/rndopen/openApi/pjtSearch/project"
@@ -48,18 +49,25 @@ def classify(d):
     return [k for k,v in found.items() if v], sorted(set(t for vals in found.values() for t in vals))
 
 def records_from_xml(body):
-    root = ET.fromstring(body)
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        raise ValueError("Non-XML API response; check endpoint and HTTP response type") from None
+    root_name = local_name(root.tag)
     errors = [(local_name(x.tag), (x.text or "").strip()) for x in root.iter()
               if local_name(x.tag) in ("error", "errormessage", "errmsg")]
     if errors:
-        raise RuntimeError("NTIS error response: " + str(errors)[:500])
+        codes = [(local_name(x.tag), (x.text or "").strip()[:24]) for x in root.iter() if local_name(x.tag) in ("code", "errorcode", "resultcode")]
+        raise ValueError(f"NTIS service error: root={root_name}, codes={codes}; message redacted")
     # NTIS XML formats can vary by approved service; fail closed if no identifiable record.
-    items = [x for x in root.iter() if local_name(x.tag) in ("item", "record", "result", "project")]
+    items = [x for x in root.iter() if local_name(x.tag) in ("item", "record", "result", "project", "result_1", "result_2")]
     items = [x for x in items if any(len(y) == 0 and (y.text or "").strip() for y in x.iter())]
     if not items:
         if any(local_name(x.tag) in ("totalcount","totalcnt") and (x.text or "").strip() == "0" for x in root.iter()):
             return []
-        raise RuntimeError("Unrecognized XML record layout; inspect schema before scheduling")
+        tags = sorted({local_name(x.tag) for x in root.iter()})[:35]
+        codes = [(local_name(x.tag), (x.text or "").strip()[:24]) for x in root.iter() if local_name(x.tag) in ("code", "errorcode", "resultcode")]
+        raise ValueError(f"Unrecognized NTIS XML layout: root={root_name}, tags={tags}, codes={codes}; no response data logged")
     return [flatten(x) for x in items]
 
 def normalize(raw, query):
@@ -84,8 +92,11 @@ def fetch(key, keyword, position, count, year=None):
         params["addQuery"] = f"PY={year}/SAME"
     url = URL + "?" + urllib.parse.urlencode(params)
     request = urllib.request.Request(url, headers={"User-Agent":"ntis-rnd-pipeline/0.1"})
-    with urllib.request.urlopen(request, timeout=35) as response:
-        return response.read()
+    try:
+        with urllib.request.urlopen(request, timeout=35) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"NTIS HTTP error status={exc.code}; response redacted") from None
 
 def run(args):
     key = os.getenv("NTIS_API_KEY","").strip()
@@ -108,7 +119,7 @@ def run(args):
                         break
                     except Exception as exc:
                         if attempt == 2:
-                            raise RuntimeError(f"API failed for keyword={keyword!r} year={year} position={position}: {type(exc).__name__}") from None
+                            raise RuntimeError(f"API failed for keyword={keyword!r} year={year} position={position}: {type(exc).__name__}: {exc}") from None
                         time.sleep(2**attempt)
                 signature = hashlib.sha256(json.dumps(recs,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
                 if signature in seen_pages and recs:
