@@ -125,6 +125,8 @@ def main():
     sheet_call(session,"PUT","/values/"+cell+"?valueInputOption=RAW",json={"values":[HEADER]+rows})
     health=urllib.parse.quote("'Automation Health'!A7",safe="")
     sheet_call(session,"PUT","/values/"+health+"?valueInputOption=RAW",json={"values":[["SFDC Quote Report Email",stamp,"PASS","rows="+str(len(rows))+" active="+str(sum(r[1]=="1" for r in rows))]]})
+    if os.getenv("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:out.write("imported=true\\n")
     print("SFDC_QUOTE_EMAIL_PASS rows="+str(len(rows))+" active="+str(sum(r[1]=="1" for r in rows))+" "+json.dumps(diagnostics,sort_keys=True))
     return 0
 if __name__=="__main__":
