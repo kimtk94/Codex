@@ -25,9 +25,13 @@ def group(records,field):
     out=defaultdict(int);missing=0
     for row in records:
         val=(row.get("fields") or {}).get(field)
+        if isinstance(val,list):
+            val=" ".join(str(v.get("text") or v.get("name") or "") if isinstance(v,dict) else str(v) for v in val)
+        elif isinstance(val,dict):
+            val=val.get("text") or val.get("name") or val.get("value") or ""
         if not isinstance(val,str):missing+=1;continue
         key=normalize(val)
-        if not re.fullmatch("AMEA[0-9]{8,}(?:[0-9]{2})?",key):missing+=1;continue
+        if len(key)<6 or len(key)>120:missing+=1;continue
         out[key]+=1
     return out,missing
 def status(issued,outstanding):
