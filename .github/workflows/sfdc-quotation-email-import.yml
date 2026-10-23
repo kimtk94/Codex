@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - 'automation/sfdc/quotation_email_ingest.py'
+      - 'automation/sfdc/test_quotation_email_ingest.py'
       - '.github/workflows/sfdc-quotation-email-import.yml'
 permissions:
   contents: read
