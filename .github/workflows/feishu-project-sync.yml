@@ -1,0 +1,37 @@
+name: Feishu Project Status Sync
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '21 0 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/project_status_sync.py'
+      - '.github/workflows/feishu-project-sync.yml'
+permissions:
+  contents: read
+concurrency:
+  group: feishu-project-sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install private Google Sheets client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Validate source integration
+        run: python3 -m py_compile automation/feishu/project_status_sync.py
+      - name: Sync project-level unissued and unpaid flags
+        run: python3 automation/feishu/project_status_sync.py
