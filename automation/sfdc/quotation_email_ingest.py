@@ -11,7 +11,7 @@ from google.auth.transport.requests import AuthorizedSession
 
 SHEET=os.getenv("SFDC_UNIFIED_SHEET_ID","1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI")
 KST=dt.timezone(dt.timedelta(hours=9))
-HEADER=["Salesforce Record ID","IsActive","Exclude Tax After Discount USD","CurrencyIsoCode","Opportunity ID","Last Modified Date","Quotation Name","AMEA Quotation ID","Source URL","Exported At KST"]
+HEADER=["Salesforce Record ID","IsActive","Exclude Tax After Discount USD","CurrencyIsoCode","Opportunity ID","Last Modified Date","Quotation Name","AMEA Quotation ID","Source URL","Exported At KST","Account ID","Account Name","Contact ID","Contact Name","Opportunity Name"]
 FIELDS=["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID","Quotation Name","Active","Exclude Tax After Discount USD"]
 class TableParser(HTMLParser):
     def __init__(self):super().__init__();self.rows=[];self.row=None;self.cell=None
@@ -58,7 +58,7 @@ def parse_attachment(blob,filename):
         amount=record[idx["Exclude Tax After Discount USD"]].replace(",","").strip()
         if not re.fullmatch(r"a0P[A-Za-z0-9]{12,15}",sid):continue
         if flag not in ("0","1") or not re.fullmatch(r"\d+(?:\.\d+)?",amount):continue
-        rows.append([sid,flag,float(amount),"USD",record[idx["Opportunity ID"]],"",record[idx["Quotation Name"]],qid,"",""])
+        rows.append([sid,flag,float(amount),"USD",record[idx["Opportunity ID"]],"",record[idx["Quotation Name"]],qid,"",""]+[record[heads.index(col)] if col in heads else "" for col in ("*Account Id","Account Name","Contact ID","Contact Name","Opportunity Name")])
     return rows
 def sheet_call(session,method,suffix,**kwargs):
     base="https://sheets.googleapis.com/v4/spreadsheets/"+SHEET
@@ -127,6 +127,10 @@ def main():
     session=AuthorizedSession(credentials)
     meta=sheet_call(session,"GET","?fields=sheets.properties.title")
     if "SFDC Quote Export" not in {x["properties"]["title"] for x in meta["sheets"]}:raise RuntimeError("TARGET_SHEET_MISSING")
+    full=sheet_call(session,"GET","?fields=sheets.properties(title,sheetId,gridProperties.columnCount)")
+    quote_props=next(x["properties"] for x in full["sheets"] if x["properties"]["title"]=="SFDC Quote Export")
+    if quote_props["gridProperties"]["columnCount"]<len(HEADER):
+        sheet_call(session,"POST",":batchUpdate",json={"requests":[{"updateSheetProperties":{"properties":{"sheetId":quote_props["sheetId"],"gridProperties":{"columnCount":len(HEADER)}},"fields":"gridProperties.columnCount"}}]})
     # One single update of the generated Quote Export, with no changes to other tabs.
     cell=urllib.parse.quote("'SFDC Quote Export'!A1",safe="")
     sheet_call(session,"PUT","/values/"+cell+"?valueInputOption=RAW",json={"values":[HEADER]+rows})
