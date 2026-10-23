@@ -86,7 +86,8 @@ def main():
             idx[label]=row;existing.append([])
             put(s,DST,"SFDC Weekly Overview","A"+str(row),[[label,last.isoformat(),"FRI_THU_IN_PROGRESS" if first==this_start else "FRI_THU_VERIFIED",0,0,0,0,0,0,0]])
         row=idx[label]
-        put(s,DST,"SFDC Weekly Overview","G"+str(row),[[count,count]])
+        formula='=COUNTIF(\'Quote Approval Dedup\'!F2:F,"'+first.isoformat()+' ~ '+last.isoformat()+'")'
+        put(s,DST,"SFDC Weekly Overview","G"+str(row),[[formula,formula]])
     # Dashboard links to the true current-week row even if data is not in row 2.
     ensure(s,DST,"Executive Dashboard")
     current_row=idx.get(this_start.isoformat())
