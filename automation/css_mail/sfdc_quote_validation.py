@@ -84,6 +84,44 @@ def main():
     if prop.get("gridProperties",{}).get("columnCount",0)<17:
         css.api(s,"POST",base(DST)+":batchUpdate",json={"requests":[{"updateSheetProperties":{"properties":{"sheetId":prop["sheetId"],"gridProperties":{"columnCount":17}},"fields":"gridProperties.columnCount"}}]})
     put(s,DST,"Quote Approval Dedup","L1",output)
+    # Propagate verified quote attributes by the stable Salesforce Quote ID.
+    # Unified backfill runs first; keep unverified relationships blank.
+    master=[["Account ID","Account Name","Contact ID","Contact Name","Opportunity ID","Opportunity Name","Quote Record ID","AMEA Quotation ID","Quote Approval","Quote Active","Quote Amount","Currency","Relation Verification","Last Updated KST"]]
+    for idx,r in enumerate(approvals[1:],1):
+        rid=r[3] if len(r)>3 else ""
+        matches=by_id.get(rid,[])
+        rec=["","","","","","","", "", "APPROVED","UNVERIFIED","","","QUOTE_ID_VERIFIED_RELATION_UNVERIFIED",r[0] if r else ""]
+        rec[6]=rid
+        rec[7]=r[1] if len(r)>1 else ""
+        if len(matches)==1:
+            hit=matches[0]
+            flag=active(hit[fields["active"]])
+            val=amount(hit[fields["amount"]])
+            curr=str(hit[fields["currency"]]).strip().upper()
+            opp=str(hit[fields["opportunity id"]]).strip()
+            if flag is not None and val is not None and curr in ("USD","KRW") and opp:
+                rec[4]=opp
+                rec[9]="ACTIVE" if flag else "INACTIVE"
+                rec[10]=val
+                rec[11]=curr
+                rec[12]="QUOTE_ID_AND_OPPORTUNITY_ID_VERIFIED"
+        master.append(rec)
+    ensure(s,DST,"Sales Master")
+    put(s,DST,"Sales Master","A1",master,"RAW")
+    ensure(s,DST,"Weekly Performance")
+    week_rows=[["Week Start","Week End","Approved Quotes","Approved and Active Quotes","Active KRW","Active kUSD","Invoices Issued","Invoice KRW","Data Quality"]]
+    per_week=defaultdict(int)
+    for r in approvals[1:]:
+        period=r[5] if len(r)>5 else ""
+        per_week[period]+=1
+    for period,total in sorted(per_week.items(),reverse=True):
+        parts=period.split(" ~ ")
+        if len(parts)!=2:continue
+        srow=summary.get(period,{"count":0,"krw":0.0,"kusd":0.0})
+        week_rows.append([parts[0],parts[1],total,srow["count"],round(srow["krw"],2),round(srow["kusd"],4),"","","PARTIAL_SFDC_QUOTE_VERIFICATION" if matched<len(approvals)-1 else "VERIFIED"])
+    put(s,DST,"Weekly Performance","A1",week_rows,"RAW")
+    ensure(s,DST,"SFDC Import QC")
+    put(s,DST,"SFDC Import QC","A3",[["SFDC Quote","SFDC Quote Export",timestamp,len(rows)-1,len(by_id),sum(len(v)-1 for v in by_id.values()),sum(not (r[fields["salesforce record id"]] if len(r)>fields["salesforce record id"] else "") for r in rows[1:]),"","PARTIAL" if matched<len(approvals)-1 else "PASS","Approved matched="+str(matched)+" ambiguous="+str(ambiguous)]],"RAW")
     weekly=get(s,DST,"SFDC Weekly Overview","A1:P1000")
     put(s,DST,"SFDC Weekly Overview","Q1",[["approved_active_kusd"]])
     for idx,r in enumerate(weekly[1:],2):
