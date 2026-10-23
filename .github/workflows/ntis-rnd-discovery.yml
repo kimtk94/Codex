@@ -1,0 +1,36 @@
+name: NTIS R&D discovery (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      start_year:
+        description: First project year
+        required: true
+        default: '2025'
+      end_year:
+        description: Last project year
+        required: true
+        default: '2026'
+permissions:
+  contents: read
+jobs:
+  ntis-projects:
+    environment: Taehoonserver
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fetch NTIS and export CSV
+        env:
+          NTIS_API_KEY: ${{ secrets.NTIS_API_KEY }}
+        run: |
+          python3 automation/ntis/ntis_collect.py --start-year "${{ inputs.start_year }}" --end-year "${{ inputs.end_year }}"
+      - name: Upload NTIS results
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ntis-rnd-export
+          path: outputs/ntis/
+          retention-days: 30
