@@ -79,6 +79,24 @@ def main():
     if len(prior)>len(data):
         tail=[[""]*11 for _ in range(len(prior)-len(data))]
         put(s,DST,"Quote Approval Dedup","A"+str(len(data)+1),tail,"RAW")
+    # Quote-ID based master: preserve unknown relationships and values as blanks.
+    ensure(s,DST,"Sales Master")
+    master=[["Account ID","Account Name","Contact ID","Contact Name","Opportunity ID","Opportunity Name","Quote Record ID","AMEA Quotation ID","Quote Approval","Quote Active","Quote Amount","Currency","Relation Verification","Last Updated KST"]]
+    for r in items:
+        master.append(["","","","","","",r["id"],r["quote"],"APPROVED","UNVERIFIED","","","QUOTE_ID_VERIFIED_RELATION_UNVERIFIED",r["date"]])
+    put(s,DST,"Sales Master","A1",master,"RAW")
+    old_master=get(s,DST,"Sales Master","G1:G2000")
+    if len(old_master)>len(master):
+        put(s,DST,"Sales Master","A"+str(len(master)+1),[[""]*14 for _ in range(len(old_master)-len(master))],"RAW")
+    ensure(s,DST,"Weekly Performance")
+    weekly_perf=[["Week Start","Week End","Approved Quotes","Approved and Active Quotes","Active KRW","Active kUSD","Invoices Issued","Invoice KRW","Data Quality"]]
+    for (ws,we),n in sorted(per_week.items(),reverse=True):
+        weekly_perf.append([ws.isoformat(),we.isoformat(),n,"","","","","","ACTIVE_AMOUNT_UNVERIFIED"])
+    put(s,DST,"Weekly Performance","A1",weekly_perf,"RAW")
+    ensure(s,DST,"SFDC Import QC")
+    qc=[["Entity","Source Report","Imported At KST","Rows","Unique IDs","Duplicate IDs","Missing IDs","Missing Required Fields","Validation","Notes"],
+        ["Quote approvals","CSS approval mail",dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S"),len(items),len(set(x["id"] for x in items)),len(items)-len(set(x["id"] for x in items)),sum(not x["id"] for x in items),"Active, Quote amount, Opportunity ID","PARTIAL","Quote IDs verified from approval mail; SFDC Quote report not yet imported"]]
+    put(s,DST,"SFDC Import QC","A1",qc,"RAW")
     today=dt.datetime.now(KST).date(); this_start=week_start(today)
     existing=get(s,DST,"SFDC Weekly Overview","A1:P1000")
     idx={str(r[0]):i+1 for i,r in enumerate(existing[1:],2) if r}
