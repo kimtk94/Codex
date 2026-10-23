@@ -8,6 +8,7 @@ on:
       - '.github/workflows/css-mail-readonly.yml'
   workflow_dispatch:
   schedule:
+    # Manual re-sync checkpoint 2026-10-23; keep normal 30-minute schedule.
     - cron: "7,37 * * * *"
 
 permissions:
