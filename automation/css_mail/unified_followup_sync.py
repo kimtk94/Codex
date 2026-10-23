@@ -97,8 +97,8 @@ def main():
             elif address=="H10":formula='=IF('+p+'C'+str(current_row)+'="FRI_THU_IN_PROGRESS","진행 중","마감")'
             else:formula='=IFERROR('+p+col+str(current_row)+',0)'
             put(s,DST,"Executive Dashboard",address,[[formula]])
-        put(s,DST,"Executive Dashboard","F14",[["=IF("+p+"O"+str(current_row)+"=\\\"\\\",\\\"미검증\\\","+p+"O"+str(current_row)+")"]])
-        put(s,DST,"Executive Dashboard","H14",[["=IF("+p+"P"+str(current_row)+"=\\\"\\\",\\\"미검증\\\","+p+"P"+str(current_row)+")"]])
+        put(s,DST,"Executive Dashboard","F14",[[f'=IF({p}O{current_row}="","미검증",{p}O{current_row})']])
+        put(s,DST,"Executive Dashboard","H14",[[f'=IF({p}P{current_row}="","미검증",{p}P{current_row})']])
     ensure(s,DST,"Automation Health")
     stamp=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
     put(s,DST,"Automation Health","A1",[["Component","Last success KST","State","Detail"],["CSS Quotes",stamp,"PASS","Unique="+str(len(items))+" current_week="+str(per_week.get((this_start,this_start+dt.timedelta(days=6)),0))]])
