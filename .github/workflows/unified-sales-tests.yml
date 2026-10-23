@@ -5,6 +5,8 @@ on:
       - 'automation/css_mail/**'
       - 'automation/feishu/**'
       - 'automation/sfdc/weekly_overview.py'
+      - 'automation/sfdc/quotation_email_ingest.py'
+      - 'automation/sfdc/test_quotation_email_ingest.py'
       - '.github/workflows/unified-sales-tests.yml'
   push:
     branches: [main]
@@ -35,3 +37,4 @@ jobs:
           python3 automation/css_mail/test_unified_followup.py
           python3 automation/css_mail/test_sfdc_quote_validation.py
           python3 automation/feishu/test_project_status_sync.py
+          python3 automation/sfdc/test_quotation_email_ingest.py
