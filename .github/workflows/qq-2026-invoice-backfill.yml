@@ -20,6 +20,7 @@ jobs:
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       BACKFILL_YEAR: '2026'
+      BACKFILL_TAB: 'QQ 2026 Invoice Backfill'
       BACKFILL_MAX_MATCHES: '2500'
     steps:
       - uses: actions/checkout@v4
