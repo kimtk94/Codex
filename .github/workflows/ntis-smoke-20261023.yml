@@ -1,4 +1,4 @@
-name: NTIS API smoke 2021 (one-time)
+name: NTIS API smoke 2021 (diagnostic rerun)
 on:
   push:
     paths:
