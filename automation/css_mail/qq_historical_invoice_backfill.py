@@ -29,28 +29,31 @@ def main():
     known_uids=set()
     seeded=0
     if year==2026:
-        source=call(s,"GET","/values/"+urllib.parse.quote("'CSS Tax Invoice Extract'!A1:L1000",safe="")).get("values",[])
+        # The canonical legacy invoice ledger covers Jan-Oct 2026; the newer
+        # CSS Tax Invoice Extract is only a partial 90-row derived view.
+        source=call(s,"GET","/values/"+urllib.parse.quote("'CSS Tax Invoice List'!A1:N1000",safe="")).get("values",[])
         fields=source[0] if source else []
         for values in source[1:]:
             item=dict(zip(fields,values))
             inv=str(item.get("invoice_number","")).strip()
-            amount=str(item.get("amount_krw","")).strip().replace(",","")
-            received=str(item.get("received_at",""))
-            if not (inv and amount.isdigit() and received.startswith("2026-")):continue
-            folder="INBOX"
-            uid=str(item.get("imap_uid","")).strip()
-            if uid:known_uids.add((folder,uid))
+            month=str(item.get("invoice_month","")).strip()
+            amount=re.sub(r"[^0-9]","",str(item.get("amount_krw","")))
+            if not (inv and month.startswith("2026-") and amount.isdigit()):continue
+            source_uid=str(item.get("uid","")).strip()
+            folder,_,uid=source_uid.partition(":")
+            folder="INBOX" if folder.lower()=="inbox" else folder
+            if folder and uid:known_uids.add((folder,uid))
             if inv in by_invoice:
                 if len(by_invoice[inv])>2 and str(by_invoice[inv][2])!=amount:
                     raise RuntimeError("VERIFIED_SEED_AMOUNT_CONFLICT")
                 continue
-            month=received[:7]
             by_invoice[inv]=[inv,month,amount,item.get("project_id",""),
                 item.get("h_project_number",""),item.get("po_reference",""),
                 folder,uid,item.get("attachment_filename",""),
-                "CSS_TAX_INVOICE_VERIFIED_LEGACY_RECORD",dt.datetime.now(dt.timezone.utc).isoformat()]
+                "CSS_TAX_INVOICE_LIST_VERIFIED_LEGACY",dt.datetime.now(dt.timezone.utc).isoformat()]
             seeded+=1
-        print("QQ_BACKFILL_SEEDED year=2026 verified_existing="+str(seeded)+" known_uids="+str(len(known_uids)),flush=True)
+        print("QQ_BACKFILL_SEEDED year=2026 verified_existing="+str(seeded)+
+              " known_uids="+str(len(known_uids)),flush=True)
         if seeded:
             call(s,"PUT","/values/"+quote("A1")+"?valueInputOption=RAW",
                 json={"values":[HEAD]+list(by_invoice.values())})
