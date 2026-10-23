@@ -14,6 +14,19 @@ class QuotationEmailTests(unittest.TestCase):
         self.assertEqual(found[0][2],2500.0)
         self.assertEqual(found[0][3],"USD")
         self.assertIn("이화",found[0][6])
+    def test_small_xlsx_true_active(self):
+        import io
+        from openpyxl import Workbook
+        wb=Workbook()
+        ws=wb.active
+        ws.append(["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID","Quotation Name","Active","Exclude Tax After Discount USD"])
+        ws.append(["QID-2026-10-23-12345","006TEST","a0PTK00000za6F3","Test Quote","TRUE","1,250.50"])
+        out=io.BytesIO()
+        wb.save(out)
+        found=parse_attachment(out.getvalue(),"report.xlsx")
+        self.assertEqual(len(found),1)
+        self.assertEqual(found[0][1],"1")
+        self.assertEqual(found[0][2],1250.5)
     def test_missing_quote_fields_is_not_accepted(self):
         html=b"<table><tr><th>Opportunity Name</th><th>Amount</th></tr><tr><td>A</td><td>250</td></tr></table>"
         self.assertEqual(parse_attachment(html,"bad.xls"),[])
