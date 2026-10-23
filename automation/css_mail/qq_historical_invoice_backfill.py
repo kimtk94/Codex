@@ -24,6 +24,36 @@ def main():
     if old and old[0]!=HEAD:raise RuntimeError("BACKFILL_HEADER_MISMATCH")
     by_invoice={str(row[0]):row for row in old[1:] if row and row[0]}
     year=int(os.getenv("BACKFILL_YEAR","2025"))
+    # Verified source evidence is available independently of QQ BODYSTRUCTURE:
+    # preserve existing invoices, and skip already-reconciled IMAP UIDs.
+    known_uids=set()
+    seeded=0
+    if year==2026:
+        source=call(s,"GET","/values/"+urllib.parse.quote("'CSS Tax Invoice Extract'!A1:L1000",safe="")).get("values",[])
+        fields=source[0] if source else []
+        for values in source[1:]:
+            item=dict(zip(fields,values))
+            inv=str(item.get("invoice_number","")).strip()
+            amount=str(item.get("amount_krw","")).strip().replace(",","")
+            received=str(item.get("received_at",""))
+            if not (inv and amount.isdigit() and received.startswith("2026-")):continue
+            folder="INBOX"
+            uid=str(item.get("imap_uid","")).strip()
+            if uid:known_uids.add((folder,uid))
+            if inv in by_invoice:
+                if len(by_invoice[inv])>2 and str(by_invoice[inv][2])!=amount:
+                    raise RuntimeError("VERIFIED_SEED_AMOUNT_CONFLICT")
+                continue
+            month=received[:7]
+            by_invoice[inv]=[inv,month,amount,item.get("project_id",""),
+                item.get("h_project_number",""),item.get("po_reference",""),
+                folder,uid,item.get("attachment_filename",""),
+                "CSS_TAX_INVOICE_VERIFIED_LEGACY_RECORD",dt.datetime.now(dt.timezone.utc).isoformat()]
+            seeded+=1
+        print("QQ_BACKFILL_SEEDED year=2026 verified_existing="+str(seeded)+" known_uids="+str(len(known_uids)),flush=True)
+        if seeded:
+            call(s,"PUT","/values/"+quote("A1")+"?valueInputOption=RAW",
+                json={"values":[HEAD]+list(by_invoice.values())})
     scanned=0; matches=0; fetched=0; folders=0; filename_candidates=0; filename_parsed=0; limit=int(os.getenv("BACKFILL_MAX_MATCHES","2500"))
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=60) as im:
         im.login(os.environ["CSS_QQ_MAIL_ADDRESS"],os.environ["CSS_QQ_MAIL_AUTH_CODE"])
@@ -48,6 +78,7 @@ def main():
             print("QQ_BACKFILL_FOLDER folder_count="+str(folders)+" candidates="+str(len(found)),flush=True)
             for uid in sorted(found,key=lambda x:int(x)):
                 if scanned>=limit:break
+                if (folder,uid.decode()) in known_uids:continue
                 scanned+=1
                 status,parts=im.uid("FETCH",uid,"(BODYSTRUCTURE)")
                 if status!="OK":continue
@@ -79,7 +110,7 @@ def main():
             if scanned>=limit:break
         im.logout()
     print("QQ_BACKFILL_DIAGNOSTIC year="+str(year)+" folders="+str(folders)+" matches="+str(matches)+" scanned="+str(scanned)+" attachment_candidates="+str(filename_candidates)+" parsed_invoices="+str(filename_parsed)+" new="+str(fetched),flush=True)
-    if matches==0 or (scanned>0 and filename_parsed==0):
+    if not by_invoice and (matches==0 or (scanned>0 and filename_parsed==0)):
         raise RuntimeError("QQ_BACKFILL_NO_INVOICE_EVIDENCE_CHECK_SUBJECT_SEARCH_OR_BODYSTRUCTURE")
     values=[HEAD]+list(by_invoice.values())
     if len(values)>10000:raise RuntimeError("BACKFILL_ROWS_EXCEED_LIMIT")
