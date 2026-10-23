@@ -77,7 +77,7 @@ def main():
         for wk, unique in quote_by_week.items():
             for entry in unique.values():
                 qname=get(entry,index(dedup[0],"Quotation Name"))
-                match=re.search(r"QID[- ](20\\d{2}-\\d{2}-\\d{2})",qname,re.I)
+                match=re.search(r"QID[- ](20\d{2}-\d{2}-\d{2})",qname,re.I)
                 if match:
                     made=parse_date(match.group(1))
                     if made and week_start(made)==wk:qcreated[wk]+=1
