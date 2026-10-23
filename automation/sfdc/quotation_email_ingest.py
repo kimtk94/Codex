@@ -77,7 +77,13 @@ def main():
         im.login(user,auth);im.select("INBOX",readonly=True)
         ok,hits=im.uid("SEARCH",None,"SINCE",since)
         if ok!="OK":raise RuntimeError("IMAP_SEARCH_FAILED")
-        for uid in (hits[0] or b"").split()[-500:]:
+        # Always include exact Report results subject matches, even in busy inboxes.
+        ok2,report_hits=im.uid("SEARCH",None,"SINCE",since,"SUBJECT",'"Report results"')
+        direct=(report_hits[0] or b"").split() if ok2=="OK" else []
+        recent=(hits[0] or b"").split()[-500:]
+        selected_uids=sorted(set(recent+direct),key=lambda x:int(x))
+        print("SFDC_REPORT_SEARCH inbox_recent="+str(len(recent))+" exact_subject_hits="+str(len(direct))+" selected="+str(len(selected_uids)))
+        for uid in selected_uids:
             ok,parts=im.uid("FETCH",uid,"(BODY.PEEK[])")
             if ok!="OK":continue
             payload=next((p[1] for p in parts if isinstance(p,tuple)),None)
