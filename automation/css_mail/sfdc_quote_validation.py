@@ -38,7 +38,7 @@ def amount(v):
     return val if val>=0 else None
 def main():
     s=css.authorize()
-    rows=get(s,DST,"SFDC Quote Export","A1:J5000")
+    rows=get(s,DST,"SFDC Quote Export","A1:O5000")
     if len(rows)<=1:
         rows=get(s,DST,"Quotation","A1:Z1000")
     if not rows:raise RuntimeError("SFDC_QUOTATION_SOURCE_NOT_FOUND")
@@ -101,6 +101,12 @@ def main():
             opp=str(hit[fields["opportunity id"]]).strip()
             if flag is not None and val is not None and curr in ("USD","KRW") and opp:
                 rec[4]=opp
+                # Account / researcher attributes come only from the same Quote report record.
+                if len(hit)>10:rec[0]=str(hit[10]).strip()
+                if len(hit)>11:rec[1]=str(hit[11]).strip()
+                if len(hit)>12:rec[2]=str(hit[12]).strip()
+                if len(hit)>13:rec[3]=str(hit[13]).strip()
+                if len(hit)>14:rec[5]=str(hit[14]).strip()
                 rec[9]="ACTIVE" if flag else "INACTIVE"
                 rec[10]=val
                 rec[11]=curr
