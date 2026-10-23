@@ -71,7 +71,7 @@ def main():
     user=os.environ["CSS_QQ_MAIL_ADDRESS"];auth=os.environ["CSS_QQ_MAIL_AUTH_CODE"]
     since=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(days=3)).strftime("%d-%b-%Y")
     selected=None
-    diagnostics={"scanned":0,"report_like":0,"attachments":0,"parseable":0,"valid":0,"other_mail":0}
+    diagnostics={"scanned":0,"report_like":0,"attachments":0,"parseable":0,"valid":0,"other_mail":0,"salesforce_sender":0,"salesforce_sender_with_file":0,"report_like_without_file":0,"report_link_only":0}
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=45) as im:
         im.login(user,auth);im.select("INBOX",readonly=True)
         ok,hits=im.uid("SEARCH",None,"SINCE",since)
@@ -83,11 +83,18 @@ def main():
             if not payload:continue
             msg=email.message_from_bytes(payload,policy=policy.default)
             diagnostics["scanned"]+=1
+            sender=str(msg.get("from","")).lower()
+            sf_sender=bool(re.search(r"@(?:[a-z0-9-]+\\.)*salesforce\\.com\\b",sender))
+            if sf_sender:diagnostics["salesforce_sender"]+=1
             subject=str(msg.get("subject",""))
             if not any(term in subject.lower() for term in ("salesforce","quotation","report","quote")):
                 diagnostics["other_mail"]+=1
                 continue
             diagnostics["report_like"]+=1
+            file_parts=[p for p in msg.walk() if p.get_filename()]
+            if not file_parts:diagnostics["report_like_without_file"]+=1
+            if sf_sender and file_parts:diagnostics["salesforce_sender_with_file"]+=1
+            if not file_parts and any("salesforce.com/" in str(p.get_payload() or "").lower() for p in msg.walk() if p.get_content_type().startswith("text/")):diagnostics["report_link_only"]+=1
             for part in msg.walk():
                 filename=str(part.get_filename() or "")
                 if not filename.lower().endswith((".xls",".xlsx",".csv")):continue
