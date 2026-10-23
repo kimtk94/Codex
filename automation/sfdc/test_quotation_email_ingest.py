@@ -27,6 +27,13 @@ class QuotationEmailTests(unittest.TestCase):
         self.assertEqual(len(found),1)
         self.assertEqual(found[0][1],"1")
         self.assertEqual(found[0][2],1250.5)
+    def test_related_account_contact_fields(self):
+        cols=["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID","Quotation Name","Active","Exclude Tax After Discount USD","*Account Id","Account Name","Contact ID","Contact Name","Opportunity Name"]
+        vals=["QID-2026-10-23-12345","Opp-2026-10-23-12345","a0PTK00000za6F3","Quote", "1","2500","001ABC","Yonsei","003ABC","Researcher","Project"]
+        payload=",".join(cols)+"\\n"+",".join(vals)+"\\n"
+        got=parse_attachment(payload.encode("utf-8"),"report.csv")
+        self.assertEqual(len(got),1)
+        self.assertEqual(got[0][10:15],["001ABC","Yonsei","003ABC","Researcher","Project"])
     def test_missing_quote_fields_is_not_accepted(self):
         html=b"<table><tr><th>Opportunity Name</th><th>Amount</th></tr><tr><td>A</td><td>250</td></tr></table>"
         self.assertEqual(parse_attachment(html,"bad.xls"),[])
