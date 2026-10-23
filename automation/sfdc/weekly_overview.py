@@ -39,6 +39,7 @@ def main():
     approvals=range_data(sess,SOURCE_ID,"Quotation Approval List",2000)
     invoices=range_data(sess,SOURCE_ID,"CSS Tax Invoice List",2000)
     quotation_details=range_data(sess,OUTPUT_ID,"Quotation",2000)
+    dedup=range_data(sess,OUTPUT_ID,"Quote Approval Dedup",2000)
     approved_values,approved_state=weekly_verified(approvals,quotation_details)
     if not op or not css:raise RuntimeError("Required weekly source missing")
     oh=op[0]; ch=css[0]
@@ -59,9 +60,38 @@ def main():
         end=parse_date(get(row,index(ch,"week_end")))
         if not begin or end!=begin+dt.timedelta(days=6):continue
         all_week[begin]=row
+    # Stable-ID quote approvals and issued invoices are authoritative for all
+    # Fri–Thu weeks, including weeks absent from legacy CSS weekly summaries.
+    quote_by_week=collections.defaultdict(dict)
+    qcreated=collections.Counter()
+    if dedup and {"Approval KST","SFDC Record ID","Quotation Name"}.issubset(set(dedup[0])):
+        dh=dedup[0]
+        for entry in dedup[1:]:
+            date=parse_date(get(entry,index(dh,"Approval KST")))
+            rid=get(entry,index(dh,"SFDC Record ID"))
+            qname=get(entry,index(dh,"Quotation Name"))
+            identity=rid or qname
+            if not date or not identity:continue
+            wk=week_start(date)
+            quote_by_week[wk][identity]=entry
+        for wk, unique in quote_by_week.items():
+            for entry in unique.values():
+                qname=get(entry,index(dedup[0],"Quotation Name"))
+                match=re.search(r"QID[- ](20\\d{2}-\\d{2}-\\d{2})",qname,re.I)
+                if match:
+                    made=parse_date(match.group(1))
+                    if made and week_start(made)==wk:qcreated[wk]+=1
+    invoice_by_week=collections.defaultdict(dict)
+    if invoices and {"issued_at","invoice_number","amount_krw"}.issubset(set(invoices[0])):
+        ih=invoices[0]
+        for entry in invoices[1:]:
+            issued=parse_date(get(entry,index(ih,"issued_at")))
+            number=get(entry,index(ih,"invoice_number"))
+            if issued and number:
+                invoice_by_week[week_start(issued)].setdefault(number,entry)
     today=dt.datetime.now(KST).date()
     current=week_start(today)
-    keys=sorted(set(created)|set(closed)|set(all_week)|{current},reverse=True)
+    keys=sorted(set(created)|set(closed)|set(all_week)|set(quote_by_week)|set(invoice_by_week)|{current},reverse=True)
     def current_items(source,date_col,key_cols):
         if not source or any(k not in source[0] for k in [date_col]+key_cols):return None
         header=source[0]
@@ -93,6 +123,12 @@ def main():
         if is_current and invoice_items is not None:
             icount=len(invoice_items)
             iamount=sum(invoice_amount(get(x,index(invoices[0],"amount_krw"))) for x in invoice_items)
+        if wk in quote_by_week:
+            acount=len(quote_by_week[wk])
+            created_count=qcreated[wk]
+        if wk in invoice_by_week:
+            icount=len(invoice_by_week[wk])
+            iamount=sum(invoice_amount(get(x,index(invoices[0],"amount_krw"))) for x in invoice_by_week[wk].values())
         result.append([wk.isoformat(),(wk+dt.timedelta(days=6)).isoformat(),"FRI_THU_IN_PROGRESS" if is_current else "FRI_THU_CSS_EXISTING",
             created[wk],closed[wk],won[wk],
             acount,created_count,icount,iamount,
@@ -109,10 +145,6 @@ def main():
     if TAB not in {x["properties"]["title"] for x in meta["sheets"]}:
         call(sess,"POST",root+":batchUpdate",json={"requests":[{"addSheet":{"properties":{"title":TAB,"hidden":True}}}]},stage="weekly_create")
     replace_tab(sess,TAB,result)
-    metadata=call(sess,'GET',root+'?fields=sheets.properties',stage='weekly_visibility')
-    tab=next(v['properties'] for v in metadata['sheets'] if v['properties']['title']==TAB)
-    if not tab.get('hidden'):
-        call(sess,'POST',root+':batchUpdate',json={'requests':[{'updateSheetProperties':{'properties':{'sheetId':tab['sheetId'],'hidden':True},'fields':'hidden'}}]},stage='weekly_hide')
     print(json.dumps({"weeks":len(result)-1,"opportunity_rows":len(op)-1,
         "quotation_active_unknown_global":audit.get("unknown_status","UNAVAILABLE"),
         "latest_week":str(keys[0]) if keys else None}))
