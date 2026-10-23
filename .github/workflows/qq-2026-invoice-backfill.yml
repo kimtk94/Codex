@@ -14,15 +14,15 @@ jobs:
   backfill:
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       BACKFILL_YEAR: '2026'
       BACKFILL_TAB: 'QQ 2026 Invoice Backfill'
-      BACKFILL_MAX_MATCHES: '2500'
-      BACKFILL_DIAGNOSTIC_VERSION: '2026-10-23-v2'
+      BACKFILL_MAX_MATCHES: '4500'
+      BACKFILL_DIAGNOSTIC_VERSION: '2026-10-23-v3-seed'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
