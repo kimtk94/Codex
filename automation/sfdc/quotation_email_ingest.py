@@ -49,7 +49,7 @@ def parse_attachment(blob,filename):
         qid=record[idx["Quotation: SFDC Quotation ID"]].strip()
         amount=record[idx["Exclude Tax After Discount USD"]].replace(",","").strip()
         if not re.fullmatch(r"a0P[A-Za-z0-9]{12,15}",sid):continue
-        if flag not in ("0","1") or not re.fullmatch(r"\d+(?:\\.\d+)?",amount):continue
+        if flag not in ("0","1") or not re.fullmatch(r"\d+(?:\.\d+)?",amount):continue
         rows.append([sid,flag,float(amount),"USD",record[idx["Opportunity ID"]],"",record[idx["Quotation Name"]],qid,"",""])
     return rows
 def sheet_call(session,method,suffix,**kwargs):
