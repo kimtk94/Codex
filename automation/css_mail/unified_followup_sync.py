@@ -79,6 +79,7 @@ def main():
     idx={str(r[0]):i+1 for i,r in enumerate(existing[1:],2) if r}
     # Weekly row is updated at its own calendar key; never replace a previous week.
     per_week.setdefault((this_start,this_start+dt.timedelta(days=6)),0)
+    weekly_batch=[]
     for (first,last),count in sorted(per_week.items(),reverse=True):
         label=first.isoformat()
         if label not in idx:
@@ -87,7 +88,9 @@ def main():
             put(s,DST,"SFDC Weekly Overview","A"+str(row),[[label,last.isoformat(),"FRI_THU_IN_PROGRESS" if first==this_start else "FRI_THU_VERIFIED",0,0,0,0,0,0,0]])
         row=idx[label]
         formula='=COUNTIF(\'Quote Approval Dedup\'!F2:F,"'+first.isoformat()+' ~ '+last.isoformat()+'")'
-        put(s,DST,"SFDC Weekly Overview","G"+str(row),[[formula,formula]])
+        weekly_batch.append({"range":"SFDC Weekly Overview!G"+str(row),"values":[[formula,formula]]})
+    if weekly_batch:
+        req(s,"POST",base(DST)+"/values:batchUpdate",json={"valueInputOption":"USER_ENTERED","data":weekly_batch})
     # Dashboard links to the true current-week row even if data is not in row 2.
     ensure(s,DST,"Executive Dashboard")
     current_row=idx.get(this_start.isoformat())
