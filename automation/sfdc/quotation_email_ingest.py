@@ -122,7 +122,7 @@ def main():
         print("SFDC_QUOTE_EMAIL: NO_VALID_ATTACHMENT (no source overwritten) "+json.dumps(diagnostics,sort_keys=True))
         return 0
     stamp=selected[1];rows=selected[2]
-    for row in rows:row[-1]=stamp
+    for row in rows:row[9]=stamp
     credentials=service_account.Credentials.from_service_account_info(json.loads(os.environ["GCP_SERVICE_ACCOUNT_JSON"]),scopes=["https://www.googleapis.com/auth/spreadsheets"])
     session=AuthorizedSession(credentials)
     meta=sheet_call(session,"GET","?fields=sheets.properties.title")
