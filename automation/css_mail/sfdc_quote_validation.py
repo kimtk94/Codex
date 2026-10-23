@@ -53,7 +53,7 @@ def main():
     for row in rows[1:]:
         row=row+[""]*max(0,len(rows[0])-len(row))
         rid=str(row[fields["salesforce record id"]]).strip()
-        if re.fullmatch(r"a0P[A-Za-z0-9]{12,15}",rid):by_id[rid].append(row)
+        if re.fullmatch(r"a0P[A-Za-z0-9]{12,15}",rid):by_id[rid[:15]].append(row)
     approvals=get(s,DST,"Quote Approval Dedup","A1:K2000")
     if not approvals:raise RuntimeError("APPROVED_QUOTE_LIST_NOT_FOUND")
     output=[["Quote Status","Currency","Amount Native","Approved AND Active","Verified Amount KRW","Verified Amount kUSD"]]
@@ -61,7 +61,7 @@ def main():
     matched=0;ambiguous=0
     for r in approvals[1:]:
         rid=r[3] if len(r)>3 else ""
-        matches=by_id.get(rid,[])
+        matches=by_id.get(str(rid)[:15],[])
         values=["UNKNOWN","","","UNVERIFIED","",""]
         if len(matches)>1:ambiguous+=1
         elif len(matches)==1:
