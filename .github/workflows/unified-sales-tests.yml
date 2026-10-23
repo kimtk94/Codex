@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install test dependencies
-        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3' 'openpyxl>=3.1,<4'
       - name: Compile all new automation modules
         run: |
           python3 -m py_compile automation/css_mail/unified_followup_sync.py automation/css_mail/followup_priority.py automation/css_mail/sfdc_quote_validation.py automation/feishu/project_status_sync.py automation/sfdc/weekly_overview.py
