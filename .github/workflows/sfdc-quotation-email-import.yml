@@ -1,0 +1,38 @@
+name: SFDC Quotation Report Email Import
+on:
+  workflow_dispatch:
+  schedule:
+    # Salesforce subscriptions at 09:00, 11:00, 17:00 KST.
+    # Allow 25 min for report generation/delivery.
+    - cron: '25 0,2,8 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/sfdc/quotation_email_ingest.py'
+      - '.github/workflows/sfdc-quotation-email-import.yml'
+permissions:
+  contents: read
+concurrency:
+  group: sales-weekly-writer
+  cancel-in-progress: false
+jobs:
+  import:
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheets API client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Syntax check
+        run: python3 -m py_compile automation/sfdc/quotation_email_ingest.py
+      - name: Read subscription email and import valid quotation attachment
+        run: python3 automation/sfdc/quotation_email_ingest.py
