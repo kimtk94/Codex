@@ -21,7 +21,7 @@ jobs:
   css-mail:
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 10
+    timeout-minutes: 16
     env:
       CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
@@ -61,6 +61,10 @@ jobs:
         env:
           SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
         run: python3 automation/css_mail/unified_followup_sync.py
+      - name: Validate Salesforce Quote Active and amount readiness
+        run: python3 automation/css_mail/sfdc_quote_validation.py
+      - name: Build follow-up priority queue
+        run: python3 automation/css_mail/followup_priority.py
       - name: Upload sanitized counts
         if: success()
         uses: actions/upload-artifact@v4
