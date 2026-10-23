@@ -95,8 +95,11 @@ def run(args):
     out.mkdir(parents=True,exist_ok=True)
     all_rows = {}
     audit = []
+    truncated = []
     for keyword in args.keywords:
         for year in range(args.start_year,args.end_year+1):
+            completed = False
+            seen_pages = set()
             for page in range(args.max_pages):
                 position = 1 + page*args.page_size
                 for attempt in range(3):
@@ -107,6 +110,10 @@ def run(args):
                         if attempt == 2:
                             raise RuntimeError(f"API failed for keyword={keyword!r} year={year} position={position}: {type(exc).__name__}") from None
                         time.sleep(2**attempt)
+                signature = hashlib.sha256(json.dumps(recs,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+                if signature in seen_pages and recs:
+                    raise RuntimeError(f"Repeated API page: query={keyword!r} year={year} position={position}; verify pagination")
+                seen_pages.add(signature)
                 audit.append({"query":keyword,"year":year,"position":position,"records":len(recs)})
                 for rec in recs:
                     row = normalize(rec,keyword)
@@ -118,8 +125,11 @@ def run(args):
                     else:
                         all_rows[dedup_key]=row
                 if len(recs) < args.page_size:
+                    completed = True
                     break
                 time.sleep(args.delay)
+            if not completed:
+                truncated.append({"query":keyword,"year":year,"max_pages":args.max_pages})
     rows = list(all_rows.values())
     with (out/"ntis_projects.csv").open("w",newline="",encoding="utf-8-sig") as f:
         writer=csv.DictWriter(f,fieldnames=FIELDS);writer.writeheader();writer.writerows(rows)
@@ -127,16 +137,18 @@ def run(args):
         writer=csv.DictWriter(f,fieldnames=FIELDS);writer.writeheader()
         writer.writerows([r for r in rows if r["topic_labels"]])
     with (out/"ntis_audit.json").open("w",encoding="utf-8") as f:
-        json.dump({"records":len(rows),"requests":audit,"warning":"budget_raw is unnormalized; verify NTIS units and schema"},f,ensure_ascii=False,indent=2)
-    print(json.dumps({"records":len(rows),"requests":len(audit),"output":str(out)},ensure_ascii=False))
+        json.dump({"records":len(rows),"requests":audit,"truncated":truncated,"complete":not bool(truncated),"warning":"budget_raw is unnormalized; verify NTIS units and schema"},f,ensure_ascii=False,indent=2)
+    print(json.dumps({"records":len(rows),"requests":len(audit),"truncated":len(truncated),"output":str(out)},ensure_ascii=False))
+    if truncated:
+        raise SystemExit(f"Incomplete backfill: {len(truncated)} keyword-year searches reached max-pages; inspect audit JSON")
 
 if __name__=="__main__":
     p=argparse.ArgumentParser()
     p.add_argument("--keywords",nargs="+",default=["NGS","RNA-seq","유전체","단백체","대사체"])
-    p.add_argument("--start-year",type=int,default=2025)
+    p.add_argument("--start-year",type=int,default=2021)
     p.add_argument("--end-year",type=int,default=2026)
     p.add_argument("--page-size",type=int,default=20)
-    p.add_argument("--max-pages",type=int,default=2)
+    p.add_argument("--max-pages",type=int,default=500)
     p.add_argument("--delay",type=float,default=0.5)
     p.add_argument("--output",default="outputs/ntis")
     a=p.parse_args()
