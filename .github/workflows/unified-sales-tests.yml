@@ -33,4 +33,5 @@ jobs:
       - name: Offline regression test
         run: |
           python3 automation/css_mail/test_unified_followup.py
+          python3 automation/css_mail/test_sfdc_quote_validation.py
           python3 automation/feishu/test_project_status_sync.py
