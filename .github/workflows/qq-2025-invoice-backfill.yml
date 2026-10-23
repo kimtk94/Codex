@@ -1,0 +1,35 @@
+name: QQ Historical Tax Invoice Backfill 2025
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qq-2025-invoice-backfill.yml'
+permissions:
+  contents: read
+concurrency:
+  group: qq-historical-invoice-backfill-shared-2025
+  cancel-in-progress: false
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 45
+    env:
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      BACKFILL_YEAR: '2025'
+      BACKFILL_TAB: 'QQ Historical Invoice Backfill'
+      BACKFILL_MAX_MATCHES: '4500'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheets dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Validate Python syntax
+        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/tax_invoice_extract.py
+      - name: Backfill 2025 tax invoice attachments from QQ read-only IMAP
+        run: python3 automation/css_mail/qq_historical_invoice_backfill.py
