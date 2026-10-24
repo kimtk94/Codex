@@ -7,6 +7,7 @@ import argparse
 import datetime as dt
 import json
 import math
+import re
 import os
 import pathlib
 import urllib.parse
@@ -22,7 +23,7 @@ DEFAULT_ID = "1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
 def header_rows(values, fields):
     if not values:
         raise ValueError("Source tab returned no rows")
-    header = values[0]
+    header = [str(v).strip() for v in values[0]]
     absent = set(fields).difference(header)
     if absent:
         raise ValueError(f"Missing required header(s): {sorted(absent)}")
@@ -41,18 +42,24 @@ def build_aggregate(kpi_values, service_values, as_of):
     kpi_rows = header_rows(kpi_values, FIELDS["kpi"])
     services = header_rows(service_values, FIELDS["service"])
     metrics = {str(x["Metric"]).strip(): x for x in kpi_rows}
+    if not kpi_rows:
+        raise ValueError("No KPI source records")
     rev = metrics.get("Invoice Revenue")
     # KPI source may be cumulative; explicitly label scope unknown.
     total = valid_money(rev["Value"]) if rev else None
+    if total is None:
+        raise ValueError("Invoice Revenue KPI missing")
     groups = {}
     coverage = set()
     for row in services:
         month = str(row["Invoice Month"]).strip()
-        if len(month) != 7 or month[4] != "-" or not (1 <= int(month[5:]) <= 12):
+        if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
             raise ValueError("Invalid invoice month")
         if row["Invoice Source"] != "TAX_INVOICE":
             raise ValueError("Non-invoice revenue source found")
         service = str(row["Service Group"]).strip()
+        if not service:
+            raise ValueError("Empty service group")
         key = (month, service)
         if key in groups:
             raise ValueError(f"Duplicate month/service group: {key}")
@@ -66,11 +73,13 @@ def build_aggregate(kpi_values, service_values, as_of):
         coverage.add(str(row.get("Coverage", "UNKNOWN")))
     if not services:
         raise ValueError("No monthly service rows; aggregate not published")
+    usd = metrics.get("Invoice Revenue K USD")
+    total_k_usd = valid_money(usd["Value"]) if usd else round(total / 1500000, 6)
     return {
         "asOf": as_of, "basis": "TAX_INVOICE",
         "reportingFxKrwPerUsd": 1500,
         "coverage": sorted(coverage),
-        "revenue": {"krw": total, "scope": "source_KPI_scope_unverified", "kUsd": None},
+        "revenue": {"krw": total, "scope": "source_KPI_scope_unverified", "kUsd": total_k_usd},
         "serviceMonthly": sorted(groups.values(), key=lambda x: (x["month"], x["service"])),
         "sourceTabs": ["BI Monthly KPI", "BI Service Monthly 10"],
         "dataSecurity": "approved_aggregate_only",
