@@ -28,3 +28,13 @@ def test_double_barrier_stop_first():
 
 def test_no_horizon_default_assumed():
     assert 100 in [5,10,20,40,60,100]
+
+
+def test_equal_notional_not_equal_shares():
+    data=bars()
+    data.loc[0,["open","high","low","close"]]=[100.,100.,100.,100.]
+    data.loc[1:,["open","high","low","close"]]=[200.,200.,200.,200.]
+    # First leg exits at 200, second leg enters at 200; no stops with wide barriers.
+    result=m.simulate(data,0,3,1,2,tp=2.,sl=.99,fee_bps=0)
+    assert result["legs_filled"]==2
+    assert result["return_pct"]==pytest.approx(50.)
