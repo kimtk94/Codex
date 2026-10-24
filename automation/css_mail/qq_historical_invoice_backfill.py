@@ -15,6 +15,30 @@ def call(session,method,path,**kw):
     resp=session.request(method,url,timeout=65,**kw)
     if not resp.ok:raise RuntimeError("SHEETS_"+str(resp.status_code)+" "+resp.text[:220])
     return resp.json() if resp.content else {}
+def resolve_uidvalidity(im, folder):
+    """Prefer the selected mailbox response, then request STATUS explicitly.
+
+    Exmail may omit an unsolicited UIDVALIDITY response on EXAMINE.
+    Refuse to advance persistent cursors when neither source is available.
+    """
+    status, values = im.response("UIDVALIDITY")
+    values = values or []
+    for value in values:
+        if value:
+            raw = value.decode("ascii", "replace") if isinstance(value,bytes) else str(value)
+            match = re.search(r"(?:UIDVALIDITY\\s+)?([0-9]+)", raw, re.I)
+            if match:
+                return match.group(1)
+    quoted = '"' + folder.replace('\\\\', '\\\\\\\\').replace('"', '\\\\"') + '"'
+    status, values = im.status(quoted, "(UIDVALIDITY)")
+    if status == "OK":
+        for value in values or []:
+            raw = value.decode("ascii","replace") if isinstance(value,bytes) else str(value)
+            match = re.search(r"UIDVALIDITY\\s+([0-9]+)",raw,re.I)
+            if match:
+                return match.group(1)
+    raise RuntimeError("UIDVALIDITY_UNAVAILABLE_AFTER_STATUS")
+
 def main():
     cred=service_account.Credentials.from_service_account_info(json.loads(os.environ["CKD_DRIVE_SA_JSON"]),scopes=["https://www.googleapis.com/auth/spreadsheets"])
     s=AuthorizedSession(cred)
@@ -93,9 +117,7 @@ def main():
             status,_=im.select('"'+folder.replace('"','')+'"',readonly=True)
             if status!="OK":continue
             folders+=1
-            status,uv=im.response("UIDVALIDITY")
-            uidvalidity=(uv[0] or b"").decode("ascii","replace") if uv else ""
-            if not uidvalidity:raise RuntimeError("UIDVALIDITY_MISSING")
+            uidvalidity=resolve_uidvalidity(im, folder)
             old_cursor=cursors.get((year,folder))
             checkpoint=int(old_cursor[3]) if old_cursor and old_cursor[2]==uidvalidity else 0
             start=f"01-Jan-{year}";end=f"01-Jan-{year+1}"
