@@ -17,6 +17,11 @@ on:
         required: true
         default: "1TQaaCu0x96CcqF0wKoHHLLnZttRjgDbL"
         type: string
+      include_overlapping_sweep:
+        description: "Also run expensive overlapping research sweep"
+        required: false
+        default: false
+        type: boolean
       symbol:
         description: "Symbol label"
         required: true
@@ -68,6 +73,10 @@ jobs:
           cp /tmp/kalman_1min.profile.json outputs/minute_audit/minute_profile.json
           python research/kalman_triple_barrier/nonoverlap_diagnostic.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit
           python research/kalman_triple_barrier/cash_ledger.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit
+
+      - name: Optional overlapping exploratory sweep
+        if: inputs.include_overlapping_sweep == true
+        run: |
           python research/kalman_triple_barrier/staggered_sweep.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit --horizons 5,10,20,40,60,100,120,180,240 --fee-bps 5 --max-samples-per-block 60
       - name: Save successful audit state
         if: success()
