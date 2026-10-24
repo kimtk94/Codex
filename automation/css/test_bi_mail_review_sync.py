@@ -89,6 +89,7 @@ class ReviewSyncTests(unittest.TestCase):
         self.assertEqual(len(add),1)
         self.assertEqual(len(add[0][2]),1)
         self.assertEqual(add[0][2][0][4],"inbox:2")
+        self.assertEqual(add[0][2][0][9],"10/22(목) 15:00")
 
 
     def test_conflicting_sender_actions_fail_closed(self):
