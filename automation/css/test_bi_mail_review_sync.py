@@ -90,5 +90,19 @@ class ReviewSyncTests(unittest.TestCase):
         self.assertEqual(len(add[0][2]),1)
         self.assertEqual(add[0][2][0][4],"inbox:2")
 
+
+    def test_conflicting_sender_actions_fail_closed(self):
+        records={app.REVIEW:[review("EXCLUDE_SENDER","inbox:1","a@test.com"),review("RESTORE_SENDER","inbox:2","a@test.com")],app.SOURCE:[source("inbox:1","a@test.com"),source("inbox:2","a@test.com")],app.MAIL:[],app.SENDERS:[[False,"a@test.com","exact"]]}
+        fake=FakeSheets(records)
+        with patch.object(app,"auth",return_value=fake),patch.dict(os.environ,{"DRY_RUN":"false"}),contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError,"Conflicting review actions"):
+                app.main()
+        self.assertEqual(fake.vals.writes,[])
+
+    def test_synced_action_is_not_replayed(self):
+        records={app.REVIEW:[review("EXCLUDE_MAIL","inbox:1","a@test.com","SYNCED:EXCLUDE_MAIL")],app.SOURCE:[source("inbox:1","a@test.com")],app.MAIL:[[False,"inbox:1"]],app.SENDERS:[]}
+        writes,_=self.run_case(records,True)
+        self.assertEqual(writes,[])
+
 if __name__=="__main__":
     unittest.main()
