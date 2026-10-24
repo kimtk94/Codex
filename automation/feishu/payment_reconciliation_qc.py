@@ -100,7 +100,7 @@ def main():
     session = AuthorizedSession(creds)
     meta = request(session, "GET", "?fields=sheets.properties(title,sheetId)")
     titles = {s["properties"]["title"] for s in meta["sheets"]}
-    if not {SOURCE_INVOICE, SOURCE_FEISHU, "Quote Invoice Ledger"}.issubset(titles):
+    if not {SOURCE_INVOICE, SOURCE_FEISHU, "Quote Invoice Ledger", "CSS Tax Invoices"}.issubset(titles):
         raise RuntimeError("REQUIRED_SOURCE_TABS_MISSING")
     invoices = value_range(session, SOURCE_INVOICE, "A1:P2000")
     projects = value_range(session, SOURCE_FEISHU, "A1:J2000")
@@ -111,22 +111,34 @@ def main():
     if invoices[0][0] != "Invoice Number" or projects[0][0] != "Project ID" or ledger[0][0] != "Invoice Number":
         raise RuntimeError("SOURCE_HEADER_CHANGED")
     stats, by_h, flags = analyze(invoices, projects, bridge)
-    ledger_h = {norm(r[0]):norm(r[4]) for r in []}  # H is not in payment ledger; use Quote Invoice Ledger via project link only.
-    # Feishu X is never equated to AMEA or CSS H without explicit mapping evidence.
-    ledger_by_inv = {norm(r[0]):r for r in ledger[1:] if r and r[0]}
-    validated_links = 0
-    outstanding_linked = 0
-    issued_linked = 0
-    for row in invoices[1:]:
-        if not row or not row[0]:
+    # Source invoice notification explicitly contains X and H IDs alongside
+    # the invoice number; this provides an evidence-backed bridge.
+    css = value_range(session, "CSS Tax Invoices", "A1:N2000")
+    if not css or css[0][:6] != ["invoice_month", "issued_at", "invoice_number", "amount_krw", "project_id", "h_project_number"]:
+        raise RuntimeError("CSS_INVOICE_HEADER_CHANGED")
+    invoice_set = {norm(r[0]) for r in invoices[1:] if r and r[0]}
+    candidates = {}
+    collisions = set()
+    for row in css[1:]:
+        row = row + [""] * max(0, 12 - len(row))
+        inv, h, subject = norm(row[2]), norm(row[5]), str(row[11])
+        x_ids = set(re.findall(r"(?<![A-Z0-9])X209SC[0-9]+(?![A-Z0-9])", subject.upper()))
+        if inv not in invoice_set or len(x_ids) != 1 or h not in subject.upper() or inv not in norm(subject):
             continue
-        key = norm(row[0])
-        l = ledger_by_inv.get(key)
-        if not l:
-            continue
-        # Quote Invoice Ledger does not store a verified H project key.
-        # Do not claim a match from its AMEA or quote identifier.
-        continue
+        x = next(iter(x_ids))
+        if inv in candidates and candidates[inv] != (x, h):
+            collisions.add(inv)
+        candidates[inv] = (x, h)
+    for inv in collisions:
+        candidates.pop(inv, None)
+    stats["INVOICE_X_H_SUBJECT_BRIDGES"] = len(candidates)
+    stats["INVOICE_SUBJECT_CONFLICTS"] = len(collisions)
+    # Exact X from Feishu project status; bridge must be anchored by invoice number.
+    validated_links = sum(x in flags for x, h in candidates.values())
+    outstanding_linked = sum(x in flags and len(flags[x]) > 2 and str(flags[x][2]).upper() == "YES"
+                            for x, h in candidates.values())
+    issued_linked = sum(x in flags and len(flags[x]) > 1 and str(flags[x][1]).upper() == "YES"
+                        for x, h in candidates.values())
     stats["INVOICE_TO_FEISHU_EXACT_VERIFIED"] = validated_links
     stats["LINKED_OUTSTANDING_FLAGS"] = outstanding_linked
     stats["LINKED_UNISSUED_FLAGS"] = issued_linked
@@ -140,12 +152,12 @@ def main():
         ["Feishu eTAX unissued flags", stats["ETAX_UNISSUED_FLAG_PROJECTS"], "Not verified against CSS invoice number"],
         ["Verified X-to-H bridge pairs", stats["VERIFIED_X_TO_H_BRIDGES"], "Explicit bridge evidence only"],
         ["Bridge conflicts", stats["BRIDGE_CONFLICTS"], "Conflicting mappings excluded"],
-        ["Invoice-to-Feishu verified links", stats["INVOICE_TO_FEISHU_EXACT_VERIFIED"], "Requires canonical invoice and project linkage; none inferred"],
+        ["Invoice-to-Feishu verified links", stats["INVOICE_TO_FEISHU_EXACT_VERIFIED"], "Invoice subject contains matching invoice number, X and H; X is present in Feishu"],\n        ["Invoice notification X/H bridges", stats["INVOICE_X_H_SUBJECT_BRIDGES"], "Explicit subject evidence, excludes conflicting invoice IDs"],\n        ["Invoice subject conflicts", stats["INVOICE_SUBJECT_CONFLICTS"], "Ambiguous evidence excluded"],\n        ["Linked Feishu outstanding flags", stats["LINKED_OUTSTANDING_FLAGS"], "Project flags only: NOT proven unpaid invoice amounts"],\n        ["Linked Feishu eTAX unissued flags", stats["LINKED_UNISSUED_FLAGS"], "Review mismatched timing or invoice cycle"],
         ["Invoice-level verified paid count", "UNKNOWN", "Remittance and receipt evidence absent"],
         ["Invoice-level verified collected KRW", "UNKNOWN", "Never interpret as zero"],
         ["Invoice-level verified outstanding KRW", "UNKNOWN", "Never sum project flags as unpaid balances"],
         ["Duplicate invoice keys", stats["DUPLICATE_INVOICE_ID"], "Investigate if nonzero"],
-        ["Status", "REVIEW_REQUIRED", "Provide verified X↔H mapping AND invoice→H link plus remittance references"],
+        ["Status", "PAYMENT_PROOF_REQUIRED", "Project flags matched where explicit invoice subject evidence exists; bank remittance still required"],
         ["Source tabs", SOURCE_INVOICE + "; " + SOURCE_FEISHU + "; Quote Invoice Ledger", "No operational source values modified"],
     ]
     if TITLE not in titles:
@@ -154,7 +166,7 @@ def main():
     request(session, "PUT", "/values/" + address + "?valueInputOption=RAW", json={"values":out})
     print("PAYMENT_RECONCILIATION_QC_PASS invoices=%d projects=%d outstanding_flags=%d verified_invoice_links=%d" %
           (stats["INVOICES"], stats["FEISHU_PROJECTS"], stats["OUTSTANDING_FLAG_PROJECTS"], validated_links))
-    if stats["DUPLICATE_INVOICE_ID"] or stats["BRIDGE_CONFLICTS"]:
+    if stats["DUPLICATE_INVOICE_ID"] or stats["BRIDGE_CONFLICTS"] or stats["INVOICE_SUBJECT_CONFLICTS"]:
         raise RuntimeError("QC_CONFLICT_REVIEW_REQUIRED")
 
 if __name__ == "__main__":
