@@ -35,8 +35,11 @@ def simulate(g,start,holding,spacing,legs,tp=.03,sl=.03,fee_bps=0):
             if bar.open>=cap:price=float(bar.open);wins+=1;break
             if bar.low<=floor:price=floor;stops+=1;break
             if bar.high>=cap:price=cap;wins+=1;break
-        total_cost+=entry*(1+fee_bps/10000)
-        total_proceeds+=price*(1-fee_bps/10000)
+        # Equal-notional legs: each filled leg buys 1/entry shares, not 1 share.
+        # This normalizes different entry prices without implying portfolio cash recycling.
+        shares=1.0/entry
+        total_cost+=shares*entry*(1+fee_bps/10000)
+        total_proceeds+=shares*price*(1-fee_bps/10000)
         entries+=1
     if not entries:return None
     return {'return_pct':100*(total_proceeds/total_cost-1),'legs_filled':entries,'tp_hits':wins,'sl_hits':stops}
@@ -85,7 +88,7 @@ def main():
     output.to_csv(out/'sweep.csv',index=False)
     meta={'status':'RESEARCH_ONLY','source':'actual_input_bars','observation_horizons_minutes':hs,
       'horizon_is_provisional':True,'spacing_minutes':ss,'planned_legs':ls,
-      'limitations':'Overlapping windows; gross equal-leg performance, NOT real capital-constrained portfolio return/MDD. No R5 signals unless provided externally. No fabricated market data.',
+      'limitations':'Overlapping windows; equal-notional leg performance, NOT real capital-constrained portfolio return/MDD. No R5 signals unless provided externally. No fabricated market data.',
       'data_rows':len(df),'symbols':sorted(df.symbol.unique().tolist()),'evaluated_combinations':len(output)}
     (out/'manifest.json').write_text(json.dumps(meta,indent=2))
     print(json.dumps(meta))
