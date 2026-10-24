@@ -55,6 +55,8 @@ class ReconcileTests(unittest.TestCase):
         p=[PH,row("x","F001","EXCLUDED","",0)]
         m,review,counts,control=reconcile_rows(i,p,"now",{"X123":"2026-12"},with_control=True)
         self.assertEqual(m[-1][8],1)
+    def test_blank_manual_month_is_not_an_error(self):
+        self.assertEqual(month_overrides([["Sub-Project Number","Manual Completion Month (YYYY-MM)"],["X123",None],["X124",""]]),{"X123":"","X124":""})
     def test_invalid_manual_month_rejected(self):
         with self.assertRaisesRegex(RuntimeError,"CONTROL_MONTH_INVALID"):
             month_overrides([["Sub-Project Number","Manual Completion Month (YYYY-MM)"],["X123","2026-13"]])
