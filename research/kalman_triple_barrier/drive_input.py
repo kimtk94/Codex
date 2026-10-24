@@ -16,6 +16,15 @@ def main():
     from googleapiclient.http import MediaIoBaseDownload
     creds=service_account.Credentials.from_service_account_info(json.loads(base64.b64decode(encoded)),scopes=['https://www.googleapis.com/auth/drive.readonly'])
     api=build('drive','v3',credentials=creds,cache_discovery=False)
+    # Check Drive ACL without disclosing service-account email or metadata.
+    from googleapiclient.errors import HttpError
+    try:
+        api.files().get(fileId=a.file_id,fields='id,mimeType',supportsAllDrives=True).execute()
+    except HttpError as exc:
+        status=getattr(exc.resp,'status',0)
+        if status in (403,404):
+            raise SystemExit('BLOCKED: private Drive file unavailable to CI service account; grant service-account Viewer access to this file (or a parent folder)') from None
+        raise
     req=api.files().get_media(fileId=a.file_id)
     output=Path(a.output);output.parent.mkdir(parents=True,exist_ok=True)
     tmp=output.with_suffix('.part')
