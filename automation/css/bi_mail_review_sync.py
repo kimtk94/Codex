@@ -31,7 +31,7 @@ def col(v):return str(v).strip().lower() in ("true","1","yes")
 def at(row,i):return row[i] if len(row)>i else ""
 def main():
     s=auth();read_only=os.getenv("DRY_RUN","true").lower()!="false"
-    review=get(s,REVIEW,"A2:I1250")
+    review=get(s,REVIEW,"A2:J1250")
     source=get(s,SOURCE,"A2:U1000")
     mail=get(s,MAIL,"A2:L5500")
     sender=get(s,SENDERS,"A2:F1000")
@@ -46,7 +46,7 @@ def main():
     # Never overwrite an existing reviewer decision; append new UIDs only.
     for uid,r in source_by_uid.items():
         if uid not in review_uid:
-            to_append_review.append(["NONE",at(r,8),at(r,3),at(r,0),uid,at(r,20),"","NOT_SUBMITTED",ts[:10]])
+            to_append_review.append(["NONE",at(r,8),at(r,3),at(r,0),uid,at(r,20),"","NOT_SUBMITTED",ts[:10],at(r,1)])
     for i,r in enumerate(review,start=2):
         action=str(at(r,0)).strip().upper();uid=str(at(r,4)).strip();addr=str(at(r,1)).strip().lower()
         state=str(at(r,7)).strip()
