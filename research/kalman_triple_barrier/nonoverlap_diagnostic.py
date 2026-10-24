@@ -46,7 +46,7 @@ def main():
     out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
     result.to_csv(out/'nonoverlap.csv',index=False)
     manifest={'status':'RESEARCH_ONLY','evaluated_combinations':len(result),
-      'limitations':'Non-overlapping fixed-horizon intervals but still no out-of-sample signals, equity curve, portfolio MDD or cash constraints. Equal-share legs, subject to further validation.',
+      'limitations':'Non-overlapping fixed-horizon intervals but still no out-of-sample signals, equity curve, portfolio MDD or cash constraints. Equal-notional legs; no independent signal or portfolio accounting yet.',
       'no_live_trading':True}
     (out/'nonoverlap_manifest.json').write_text(json.dumps(manifest,indent=2))
     print(json.dumps(manifest))
