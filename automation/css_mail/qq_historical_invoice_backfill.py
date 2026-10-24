@@ -2,6 +2,9 @@
 """Read-only historical QQ TAX INVOICE backfill; never changes source or mail."""
 import datetime as dt, imaplib, json, os, re, sys, urllib.parse
 from collections import Counter
+from email.parser import BytesParser
+from email.policy import default
+from invoice_fallback import corroborated_filename
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 from tax_invoice_extract import extract,bodystructure_filenames
@@ -105,6 +108,7 @@ def main():
     limit=int(os.getenv("BACKFILL_MAX_MATCHES","2500"))
     unfinished=False; prior_skipped=0; last_by_folder={}
     reject_reasons=Counter()
+    fallback_matched=0
     no_uidvalidity_folders=0
 
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=60) as im:
@@ -157,13 +161,25 @@ def main():
                         filename_candidates+=1
                         parsed=extract(filename)
                         if not parsed:
-                            reject_reasons["PATTERN_MISMATCH"]+=1
-                            if "AMEA" not in filename.upper():reject_reasons["MISSING_AMEA"]+=1
-                            if "KRW" not in filename.upper():reject_reasons["MISSING_KRW"]+=1
-                            if not re.search(r"H[0-9]{5,}",filename,re.I):reject_reasons["MISSING_H"]+=1
-                            continue
+                            # An H identifier may be absent from the attachment filename.
+                            # Corroborate invoice/AMEA with the same email subject and
+                            # require an explicit KRW amount in filename; never guess.
+                            status_hdr, hdr = im.uid("FETCH",uid,"(BODY.PEEK[HEADER.FIELDS (SUBJECT)])")
+                            payload = next((v[1] for v in hdr or [] if isinstance(v,tuple) and isinstance(v[1],bytes)),None)
+                            subject = ""
+                            if status_hdr=="OK" and payload:
+                                subject=str(BytesParser(policy=default).parsebytes(payload,headersonly=True).get("Subject",""))
+                            parsed=corroborated_filename(filename,subject)
+                            if parsed:
+                                fallback_matched+=1
+                            else:
+                                reject_reasons["PATTERN_MISMATCH"]+=1
+                                if "AMEA" not in filename.upper():reject_reasons["MISSING_AMEA"]+=1
+                                if "KRW" not in filename.upper():reject_reasons["MISSING_KRW"]+=1
+                                if not re.search(r"H[0-9]{5,}",filename,re.I):reject_reasons["MISSING_H"]+=1
+                                continue
                         inv,hnum,po,amea,amount,state=parsed
-                        if state!="FILENAME_PARSED":
+                        if state not in ("FILENAME_PARSED","SUBJECT_CORROBORATED_FILENAME"):
                             reject_reasons[state]+=1
                             continue
                         filename_parsed+=1
@@ -175,7 +191,7 @@ def main():
                         if found_dt:
                             try:month=dt.datetime.strptime(found_dt.group(1),"%d-%b-%Y").strftime("%Y-%m")
                             except ValueError:pass
-                        row=[inv,month,str(amount),amea,hnum,po,folder,uid.decode(),filename,"ATTACHMENT_FILENAME_ONLY",dt.datetime.now(dt.timezone.utc).isoformat()]
+                        row=[inv,month,str(amount),amea,hnum,po,folder,uid.decode(),filename,state,dt.datetime.now(dt.timezone.utc).isoformat()]
                         previous=by_invoice.get(inv)
                         if previous and previous[2]!=str(amount):
                             print("QQ_BACKFILL_CONFLICT invoice_hash_suffix="+inv[-4:],flush=True)
@@ -183,7 +199,7 @@ def main():
                         if not previous:by_invoice[inv]=row;fetched+=1
                 if scanned>=limit:break
         im.logout()
-    print("QQ_BACKFILL_PARSER_DIAGNOSTIC "+json.dumps(dict(sorted(reject_reasons.items())),sort_keys=True),flush=True)
+    print("QQ_BACKFILL_PARSER_DIAGNOSTIC "+json.dumps(dict(sorted(reject_reasons.items())),sort_keys=True)+" fallback_verified="+str(fallback_matched),flush=True)
     print("QQ_BACKFILL_DIAGNOSTIC year="+str(year)+" folders="+str(folders)+" matches="+str(matches)+" scanned="+str(scanned)+" attachment_candidates="+str(filename_candidates)+" parsed_invoices="+str(filename_parsed)+" new="+str(fetched),flush=True)
     if not by_invoice and (matches==0 or (scanned>0 and filename_parsed==0)):
         raise RuntimeError("QQ_BACKFILL_NO_INVOICE_EVIDENCE_CHECK_SUBJECT_SEARCH_OR_BODYSTRUCTURE")
