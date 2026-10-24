@@ -51,7 +51,7 @@ def main():
         state=str(at(r,7)).strip()
         if not uid or action not in {"EXCLUDE_MAIL","EXCLUDE_SENDER","RESTORE_MAIL","RESTORE_SENDER"}:continue
         # Already synchronized decisions are not replayed.
-        if state=="SYNCED":continue
+        if state=="SYNCED:"+action:continue
         src=source_by_uid.get(uid,[])
         if action.endswith("MAIL"):
             old=mail_by_uid.get(uid)
@@ -79,7 +79,7 @@ def main():
                 counts["restore_sender_not_found"]+=1
                 continue
         else:continue
-        processed.append(i);counts[action]+=1
+        processed.append((i,action));counts[action]+=1
     print(json.dumps({"dry_run":read_only,"new_inbox":len(to_append_review),"mail_exclusions_new":len(to_append_mail),"sender_exclusions_new":len(to_append_sender),"requested":dict(counts)},ensure_ascii=False))
     if read_only:return
     # Apply all writes before recording success. Reruns are safe by UID/address.
@@ -87,7 +87,7 @@ def main():
     append(s,MAIL,to_append_mail)
     append(s,SENDERS,to_append_sender)
     append(s,REVIEW,to_append_review)
-    batch(s,[("'"+REVIEW+"'!H"+str(i),["SYNCED"]) for i in processed])
+    batch(s,[("'"+REVIEW+"'!H"+str(i),["SYNCED:"+action]) for i,action in processed])
     print(json.dumps({"synced":len(processed),"new_review_records":len(to_append_review)},ensure_ascii=False))
 if __name__=="__main__":
     try:main()
