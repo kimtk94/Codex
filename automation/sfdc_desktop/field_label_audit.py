@@ -1,75 +1,92 @@
 #!/usr/bin/env python3
-"""Read-only field-label inventory for Salesforce Lightning. No field values or saving.
-
-Runs inside browser already authenticated interactively. Generates local aggregate
-metadata by visible label; no text entered by users is read or logged.
-"""
+"""Read-only Salesforce Lightning field-label probe. No field values or screenshots."""
 import argparse
 import json
-from playwright.sync_api import sync_playwright
+import time
+from collections import Counter
+from playwright.sync_api import sync_playwright, Error as PlaywrightError
 from runner import check_url, PROFILE
 
-EXPECTED = ["Opportunity Name","Account Name","Main Contact","Amount","Opportunity Currency","Close Date","Service Line","Stage","Forecast Category","Progress Description","Status"]
-
-JS = """() => {
- const expected = arguments[0]; // playwright evaluate passes arg separately; use function param below
-}"""
-JS = """(expected) => {
- const found = {};
- for (const name of expected) found[name] = {label_matches:0, required_labels:0};
+VERSION="field-label-v2"
+EXPECTED=["Opportunity Name","Account Name","Main Contact","Amount","Opportunity Currency",
+          "Close Date","Service Line","Stage","Forecast Category","Progress Description","Status"]
+JS=r"""(expected) => {
+ const found = Object.fromEntries(expected.map(name => [name,{label_matches:0,required_labels:0}]));
  const seen = new Set();
  function visit(root) {
    if (!root || seen.has(root)) return;
    seen.add(root);
-   for (const el of root.querySelectorAll('*')) {
-     if (el.matches('label,[class*="form-element__label"],legend')) {
-       const text = (el.textContent || '').replace(/\\s+/g,' ').replace(/^\\s*\\*/,'').trim();
-       for (const name of expected) {
-         if (text === name) {
-           found[name].label_matches++;
-           if (el.querySelector('abbr[title="required"]') ||
-               el.getAttribute('aria-required')==='true' ||
-               el.textContent.trim().startsWith('*')) found[name].required_labels++;
-         }
+   for(const el of root.querySelectorAll('*')) {
+     if(el.matches('label,legend,.slds-form-element__label')) {
+       const original=(el.textContent || '');
+       const label=original.replace(/\s+/g,' ').replace(/^\s*\*\s*/,'').trim();
+       if (Object.prototype.hasOwnProperty.call(found,label)) {
+         found[label].label_matches++;
+         if(el.querySelector('abbr[title="required"]') ||
+            el.getAttribute('aria-required')==='true' ||
+            original.trim().startsWith('*')) found[label].required_labels++;
        }
      }
-     if (el.shadowRoot) visit(el.shadowRoot);
+     if(el.shadowRoot) visit(el.shadowRoot);
    }
  }
  visit(document);
  return found;
 }"""
 
+def error_category(exc):
+    msg=str(exc).lower()
+    if "execution context was destroyed" in msg or "navigation" in msg:
+        return "NAVIGATION"
+    if "syntaxerror" in msg or "unexpected token" in msg:
+        return "JAVASCRIPT_SYNTAX"
+    if "timeout" in msg:
+        return "TIMEOUT"
+    if "detached" in msg:
+        return "FRAME_DETACHED"
+    return "EVALUATION_ERROR"
+
 def inspect(context):
-    outcome={x:{"label_matches":0,"required_labels":0} for x in EXPECTED}
-    inspected=0; errors=0
+    counts={name:{"label_matches":0,"required_labels":0} for name in EXPECTED}
+    failures=Counter(); successful=0; frames=0
     for page in context.pages:
         if page.is_closed(): continue
         for frame in page.frames:
-            try:
-                found=frame.evaluate(JS, EXPECTED)
-                inspected+=1
-                for key,item in found.items():
-                    outcome[key]["label_matches"]+=item["label_matches"]
-                    outcome[key]["required_labels"]+=item["required_labels"]
-            except Exception:
-                errors+=1
-    return {"version":"field-label-v1","frames_inspected":inspected,
-            "frames_unavailable":errors,"field_labels":outcome,
-            "note":"No values or selectors collected; duplicated labels across page may inflate counts."}
+            frames+=1
+            for attempt in range(5):
+                try:
+                    found=frame.evaluate(JS,EXPECTED)
+                    successful+=1
+                    for name in EXPECTED:
+                        row=found.get(name,{})
+                        for col in ("label_matches","required_labels"):
+                            counts[name][col]+=int(row.get(col,0))
+                    break
+                except PlaywrightError as exc:
+                    category=error_category(exc)
+                    if category in ("NAVIGATION","FRAME_DETACHED") and attempt<4:
+                        time.sleep(0.5)
+                        continue
+                    failures[category]+=1
+                    break
+    return {"version":VERSION,"frames_total":frames,"frames_inspected":successful,
+            "frames_unavailable":sum(failures.values()),"failure_categories":dict(failures),
+            "field_labels":counts,"note":"Only expected field names and counts; no customer values or selectors."}
 
 def main():
-    p=argparse.ArgumentParser()
-    p.add_argument("--url",required=True)
-    args=p.parse_args()
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--url",required=True)
+    args=parser.parse_args()
     check_url(args.url)
+    print("SFDC_FIELD_AUDIT_VERSION="+VERSION,flush=True)
     with sync_playwright() as pw:
         ctx=pw.chromium.launch_persistent_context(user_data_dir=str(PROFILE),
-                        channel="chrome",headless=False)
+                       channel="chrome",headless=False)
         try:
             page=ctx.pages[0] if ctx.pages else ctx.new_page()
             page.goto(args.url,wait_until="domcontentloaded")
-            input("Open New Opportunity in this Chrome window. Press Enter when ready: ")
+            input("Open New Opportunity in THIS Chrome window, then press Enter: ")
+            time.sleep(0.8)
             print(json.dumps(inspect(ctx),ensure_ascii=False,indent=2))
         finally:
             ctx.close()
