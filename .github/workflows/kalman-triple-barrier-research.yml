@@ -1,0 +1,62 @@
+name: Kalman Triple Barrier Research
+on:
+  workflow_dispatch:
+    inputs:
+      signals_path:
+        description: 'Committed historical signals CSV (signal_id,strategy,symbol,date,regime)'
+        required: true
+        type: string
+      bars_path:
+        description: 'Committed OHLC bars CSV (symbol,date,open,high,low,close)'
+        required: true
+        type: string
+      baseline_path:
+        description: 'Optional original R5 trades CSV (signal_id,strategy,net_return)'
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - 'research/kalman_triple_barrier/**'
+      - '.github/workflows/kalman-triple-barrier-research.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check pandas numpy pytest
+      - run: pytest -q research/kalman_triple_barrier/test_engine.py
+  backtest:
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check pandas numpy
+      - name: Historical inputs only / no synthetic results
+        env:
+          SIGNALS: ${{ inputs.signals_path }}
+          BARS: ${{ inputs.bars_path }}
+          BASE: ${{ inputs.baseline_path }}
+        run: |
+          test -f "$SIGNALS" || { echo "Missing signals input"; exit 2; }
+          test -f "$BARS" || { echo "Missing bars input"; exit 2; }
+          ARGS=(--signals "$SIGNALS" --bars "$BARS" --out outputs/triple_barrier --tp 0.03 --sl 0.03 --sessions 4)
+          if [ -n "$BASE" ]; then
+            test -f "$BASE" || { echo "Missing baseline input"; exit 2; }
+            ARGS+=(--baseline-trades "$BASE")
+          fi
+          python research/kalman_triple_barrier/engine.py "${ARGS[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kalman-triple-barrier-results
+          path: outputs/triple_barrier/
+          if-no-files-found: warn
