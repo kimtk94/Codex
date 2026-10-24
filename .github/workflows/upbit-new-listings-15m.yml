@@ -1,5 +1,10 @@
 name: Upbit New Listings 15m Research
 on:
+  push:
+    branches: [research/upbit-new-listings-15m-20261024]
+    paths:
+      - 'research/upbit_new_listings/**'
+      - '.github/workflows/upbit-new-listings-15m.yml'
   workflow_dispatch:
     inputs:
       limit:
@@ -22,7 +27,7 @@ jobs:
       - run: python -m pip install requests
       - name: Collect and evaluate historical listing cohorts
         env:
-          LIMIT: ${{ inputs.limit || '0' }}
+          LIMIT: ${{ inputs.limit || (github.event_name == 'push' && '20' || '0') }}
         run: python research/upbit_new_listings/study.py --out outputs/upbit-new-listings --limit "$LIMIT"
       - uses: actions/upload-artifact@v4
         if: always()
