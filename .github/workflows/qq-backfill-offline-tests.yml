@@ -39,5 +39,7 @@ jobs:
           assert 'if uidvalidity:last_by_folder[folder]' in s
           assert 'no_uidvalidity_folders+=1' in s
           assert 'unfinished=True' in s
+          assert 'QQ_BACKFILL_PARSER_DIAGNOSTIC' in s
+          assert 'PATTERN_MISMATCH' in s
           print("QQ_CURSOR_OFFLINE_SAFETY_PASS")
           PY
