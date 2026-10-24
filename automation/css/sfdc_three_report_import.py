@@ -34,7 +34,8 @@ def read_report(path):
     if raw[:4]==bytes.fromhex("d0cf11e0") or raw[:2]==b"PK":
         raise ValueError("Native binary Excel detected: export as SFDC HTML .xls, not binary workbook")
     parser=Tables()
-    parser.feed(raw.decode("utf-8-sig",errors="replace"))
+    encoding="euc-kr" if b"charset=euc-kr" in raw[:512].lower() else "utf-8-sig"
+    parser.feed(raw.decode(encoding,errors="replace"))
     if len(parser.rows)<2: raise ValueError("No data table found: "+str(path))
     header=parser.rows[0]
     if len(header)!=len(set(header)):
@@ -87,7 +88,7 @@ def main():
         key=(r["SFDC Quotation ID"],r["Quotation Product ID"])
         if key in products:
             prev=products[key]
-            for col in ("Total Price USD (converted)","Sales Price USD (converted)","Sample Quantity","Data Size"):
+            for col in ("Total Price USD (converted)","Sales Price USD (converted)"):
                 if prev.get(col,"")!=r.get(col,"") and prev.get(col,"") and r.get(col,""):
                     money_conflicts.append({"quote":key[0],"product":key[1],"field":col})
         else: products[key]=r
@@ -109,6 +110,7 @@ def main():
         "quote_process_duplicate_rows":len(quotes)-len(dedup),
         "quote_process_conflicting_duplicate_rows":conflicts,
         "quote_product_conflicts":money_conflicts[:100],
+        "note":"Sample Quantity and Data Size can vary by process; refer to quotation_process.csv.",
         "quote_product_conflict_count":len(money_conflicts),
         "quote_rows_with_known_opportunity":sum(r["Opportunity ID"] in opps_by_id for r in quotes),
         "leads_with_converted_id_match":sum(r["Lead ID"] in {o["Lead Converted ID"] for o in opps} for r in leads),
