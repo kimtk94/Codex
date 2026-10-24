@@ -34,7 +34,7 @@ def test_gap_stop_worse_than_barrier():
     signals,bars=fixture()
     d=signals.iloc[0]["date"]
     next_idx=bars.index[bars.date.eq(d)][0]+1
-    bars.loc[next_idx,["open","high","low","close"]]=[95.,98.,94.,97.]
+    bars.loc[next_idx+1,["open","high","low","close"]]=[95.,98.,94.,97.]
     df=engine.simulate(signals,bars,"fixed",.03,.03,4,0,14,.02)
     assert df.iloc[0].exit_reason=="SL_GAP"
     assert df.iloc[0].net_return==pytest.approx(-.05)
