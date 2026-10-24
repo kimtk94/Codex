@@ -132,11 +132,16 @@ def reconcile_rows(invoice_rows,project_rows,snapshot):
         if decision.startswith("REVIEW_"):
             by_month[month]["review"]+=1
         if decision!=NO_MATCH:
+            if decision=="REVIEW_MISSING_PLANNED_AMOUNT":
+                reason="No planned amount in the Feishu forecast; verify amount before totaling"
+            elif dedup:
+                reason="Exact H + AMEA on eligible completed first-stage project"
+            else:
+                reason="Invoice or contract linkage requires manual stage attribution"
             reviews.append([project.get("Contract Number",""),project.get("Sub-Project Number",""),
                 project.get("Staging Number",""),month,round(planned),
                 len(candidates),round(sum(i["_amount"] for i in candidates)),
-                decision,"Invoice issuance proven by identifiers; stage attribution requires review"
-                if not dedup else "Exact H + AMEA on completed-status project",
+                decision,reason,
                 ", ".join(sorted(set(i["_month"] for i in candidates)))])
     monthly=[MONTHLY_HEADER]
     for month,v in sorted(by_month.items()):
