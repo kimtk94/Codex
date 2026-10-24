@@ -1,6 +1,8 @@
 name: QQ Historical Tax Invoice Backfill 2026
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '31 1 * * *'
   push:
     branches: [main]
     paths:
