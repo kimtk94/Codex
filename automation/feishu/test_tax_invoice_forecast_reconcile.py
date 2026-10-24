@@ -37,6 +37,12 @@ class ReconcileTests(unittest.TestCase):
         m,r,c=reconcile_rows(i,p,"now")
         self.assertEqual(m[1][1],100000)
         self.assertEqual(m[1][7],1)
+    def test_completed_later_stage_not_auto_deduped(self):
+        i=[IH,["INV1","2026-10",100000,"AMEA2026101234","H123"]]
+        p=[PH,row("x","X123-F002","COMPLETED","2026-10")]
+        m,r,c=reconcile_rows(i,p,"now")
+        self.assertEqual(m[1][3],100000)
+        self.assertEqual(m[1][9],0)
     def test_mismatched_duplicate_id_fails(self):
         i=[IH,["INV1","2026-10",100000,"AMEA2026101234","H123"],
               ["INV1","2026-10",120000,"AMEA2026101234","H123"]]
