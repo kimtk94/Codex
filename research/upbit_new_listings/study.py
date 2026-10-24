@@ -28,7 +28,7 @@ def dt(s):return datetime.fromisoformat(s.replace("Z","+00:00")).replace(tzinfo=
 def day_exists(m,day):
     # Upbit day candles are UTC-day buckets; exclusive next midnight.
     data=get("/candles/days",market=m,to=iso(day+timedelta(days=1)),count=1)
-    return bool(data)
+    return bool(data) and dt(data[0]["candle_date_time_utc"]).date()==day.date()
 def first_day(m,cutoff,today):
     # Only markets that have never printed a daily candle before cutoff.
     if day_exists(m,cutoff-timedelta(days=1)):return None
