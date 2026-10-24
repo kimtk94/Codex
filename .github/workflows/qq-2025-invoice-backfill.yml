@@ -1,6 +1,8 @@
 name: QQ Historical Tax Invoice Backfill 2025
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '20 3 * * *'
   push:
     branches: [main]
     paths:
@@ -21,7 +23,9 @@ jobs:
       CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       BACKFILL_YEAR: '2025'
       BACKFILL_TAB: 'QQ Historical Invoice Backfill'
-      BACKFILL_MAX_MATCHES: '4500'
+      BACKFILL_MAX_MATCHES: '1200'
+      BACKFILL_CURSOR_TAB: 'QQ Backfill Cursor 2025'
+      BACKFILL_AUDIT_TAB: 'QQ Backfill Audit 2025'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,6 +34,10 @@ jobs:
       - name: Install Google Sheets dependencies
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Validate Python syntax
-        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/tax_invoice_extract.py
+        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/tax_invoice_extract.py automation/css_mail/qq_2025_bi_sync.py
+      - name: Verify 2025 BI sync evidence policy (offline)
+        run: python3 -m unittest discover -s automation/css_mail -p 'test_qq_2025_bi_sync.py' -v
       - name: Backfill 2025 tax invoice attachments from QQ read-only IMAP
         run: python3 automation/css_mail/qq_historical_invoice_backfill.py
+      - name: Mirror newly verified 2025 invoices to BI master
+        run: python3 automation/css_mail/qq_2025_bi_sync.py
