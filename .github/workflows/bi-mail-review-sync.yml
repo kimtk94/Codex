@@ -1,0 +1,79 @@
+name: BI Mail Review Sync
+on:
+  pull_request:
+    paths:
+      - 'automation/css/bi_mail_review_sync.py'
+      - 'automation/css/test_bi_mail_review_sync.py'
+      - '.github/workflows/bi-mail-review-sync.yml'
+      - 'automation/css/bi_mail_isolated_write_probe.py'
+      - 'automation/css/test_bi_mail_sync_google_integration.py'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run, no changes"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "*/30 * * * *"
+permissions:
+  contents: read
+concurrency:
+  group: bi-mail-review-sync
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install google-api-python-client google-auth
+      - run: python -m unittest discover -s automation/css -p 'test_bi_mail_review_sync.py' -v
+  sheets_auth_probe:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install google-api-python-client google-auth
+      - name: Read-only service account access probe
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+          DRY_RUN: 'true'
+        run: python automation/css/bi_mail_review_sync.py
+      - name: Verify isolated write and cleanup (no email ledgers)
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+        run: python automation/css/bi_mail_isolated_write_probe.py
+      - name: Validate full exclude / restore sync on disposable tabs
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+        run: python automation/css/test_bi_mail_sync_google_integration.py
+  sync:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install google-api-python-client google-auth
+      - name: Sync reviewer exclusions and new mail
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+          DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run && 'true' || 'false' }}
+        run: python automation/css/bi_mail_review_sync.py
