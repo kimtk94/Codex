@@ -1,0 +1,26 @@
+name: Online Project TAT Schema Audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - automation/feishu/online_project_schema_audit.py
+      - .github/workflows/online-project-tat-audit.yml
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Inspect Online Project field schema and stage counts
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+        run: python3 automation/feishu/online_project_schema_audit.py
