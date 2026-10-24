@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only historical QQ TAX INVOICE backfill; never changes source or mail."""
 import datetime as dt, imaplib, json, os, re, sys, urllib.parse
+from collections import Counter
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
 from tax_invoice_extract import extract,bodystructure_filenames
@@ -103,6 +104,7 @@ def main():
     scanned=0; matches=0; fetched=0; folders=0; filename_candidates=0; filename_parsed=0
     limit=int(os.getenv("BACKFILL_MAX_MATCHES","2500"))
     unfinished=False; prior_skipped=0; last_by_folder={}
+    reject_reasons=Counter()
     no_uidvalidity_folders=0
 
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=60) as im:
@@ -154,9 +156,16 @@ def main():
                     for filename in bodystructure_filenames(block):
                         filename_candidates+=1
                         parsed=extract(filename)
-                        if not parsed:continue
+                        if not parsed:
+                            reject_reasons["PATTERN_MISMATCH"]+=1
+                            if "AMEA" not in filename.upper():reject_reasons["MISSING_AMEA"]+=1
+                            if "KRW" not in filename.upper():reject_reasons["MISSING_KRW"]+=1
+                            if not re.search(r"H[0-9]{5,}",filename,re.I):reject_reasons["MISSING_H"]+=1
+                            continue
                         inv,hnum,po,amea,amount,state=parsed
-                        if state!="FILENAME_PARSED":continue
+                        if state!="FILENAME_PARSED":
+                            reject_reasons[state]+=1
+                            continue
                         filename_parsed+=1
                         issued=filename # attachment lacks issue date; use IMAP INTERNALDATE month below
                         status,dtparts=im.uid("FETCH",uid,"(INTERNALDATE)")
@@ -174,6 +183,7 @@ def main():
                         if not previous:by_invoice[inv]=row;fetched+=1
                 if scanned>=limit:break
         im.logout()
+    print("QQ_BACKFILL_PARSER_DIAGNOSTIC "+json.dumps(dict(sorted(reject_reasons.items())),sort_keys=True),flush=True)
     print("QQ_BACKFILL_DIAGNOSTIC year="+str(year)+" folders="+str(folders)+" matches="+str(matches)+" scanned="+str(scanned)+" attachment_candidates="+str(filename_candidates)+" parsed_invoices="+str(filename_parsed)+" new="+str(fetched),flush=True)
     if not by_invoice and (matches==0 or (scanned>0 and filename_parsed==0)):
         raise RuntimeError("QQ_BACKFILL_NO_INVOICE_EVIDENCE_CHECK_SUBJECT_SEARCH_OR_BODYSTRUCTURE")
