@@ -35,16 +35,18 @@ jobs:
       - name: Verify read-only Drive access is configured
         env:
           GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
         run: |
-          if [ -z "$GDRIVE_SA_JSON_B64" ]; then
-            echo '{"status":"BLOCKED","reason":"GDRIVE_SA_JSON_B64_MISSING","live_policy_modified":false}' > outputs/minute_audit/status.json
-            echo 'BLOCKED: GitHub secret GDRIVE_SA_JSON_B64 is not configured.'
+          if [ -z "$GDRIVE_SA_JSON_B64" ] && [ -z "$CKD_DRIVE_SA_JSON" ]; then
+            echo '{"status":"BLOCKED","reason":"DRIVE_CREDENTIAL_MISSING","live_policy_modified":false}' > outputs/minute_audit/status.json
+            echo 'BLOCKED: Neither CKD_DRIVE_SA_JSON nor GDRIVE_SA_JSON_B64 is configured.'
             exit 2
           fi
       - run: pip install pandas numpy pyarrow google-api-python-client google-auth
       - name: Fetch historical sample privately
         env:
           GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           INPUT_ID: ${{ inputs.file_id || '1TQaaCu0x96CcqF0wKoHHLLnZttRjgDbL' }}
         run: |
           python research/kalman_triple_barrier/drive_input.py --file-id "$INPUT_ID" --output /tmp/kalman_sample.parquet
