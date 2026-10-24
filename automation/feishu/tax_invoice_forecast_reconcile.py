@@ -85,7 +85,7 @@ def month_overrides(control_rows):
     result={}
     for row in control_rows[1:]:
         key=norm_id(row[i]) if len(row)>i else ""
-        month=str(row[j]).strip() if len(row)>j else ""
+        month=str(row[j] or "").strip() if len(row)>j else ""
         if not key:continue
         if key in result:raise RuntimeError("CONTROL_DUPLICATE_PROJECT")
         if month and not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])",month):
