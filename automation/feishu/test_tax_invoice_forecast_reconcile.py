@@ -1,7 +1,7 @@
 import sys
 import unittest
 sys.path.insert(0,"automation/feishu")
-from tax_invoice_forecast_reconcile import reconcile_rows, resolution, mea_from_title
+from tax_invoice_forecast_reconcile import reconcile_rows, resolution, mea_from_title, month_overrides
 
 IH=["Invoice No","Year-Month","Revenue KRW (Tax Invoice)","AMEA ID","H Project ID"]
 PH=["Contract Number","Contract Name","Sub-Project Number","Staging Number",
@@ -43,6 +43,21 @@ class ReconcileTests(unittest.TestCase):
         m,r,c=reconcile_rows(i,p,"now")
         self.assertEqual(m[1][3],100000)
         self.assertEqual(m[1][9],0)
+    def test_override_moves_project_from_november_to_december(self):
+        i=[IH,["INV1","2026-10",100000,"AMEA2026108888","H888"]]
+        p=[PH,row("x","F001","FORECAST","2026-11",250000)]
+        monthly,reviews,counts,control=reconcile_rows(i,p,"now",{"X123":"2026-12"},with_control=True)
+        data={r[0]:r for r in monthly[1:]}
+        self.assertEqual(data["2026-12"][3],250000)
+        self.assertEqual(control[1][3],"2026-12")
+    def test_manual_month_includes_blocked_with_zero_amount(self):
+        i=[IH,["INV1","2026-10",100000,"AMEA2026108888","H888"]]
+        p=[PH,row("x","F001","EXCLUDED","",0)]
+        m,review,counts,control=reconcile_rows(i,p,"now",{"X123":"2026-12"},with_control=True)
+        self.assertEqual(m[-1][8],1)
+    def test_invalid_manual_month_rejected(self):
+        with self.assertRaisesRegex(RuntimeError,"CONTROL_MONTH_INVALID"):
+            month_overrides([["Sub-Project Number","Manual Completion Month (YYYY-MM)"],["X123","2026-13"]])
     def test_mismatched_duplicate_id_fails(self):
         i=[IH,["INV1","2026-10",100000,"AMEA2026101234","H123"],
               ["INV1","2026-10",120000,"AMEA2026101234","H123"]]
