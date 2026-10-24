@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/feishu-two-sheets-readonly.yml"
+      - "automation/feishu/two_sheets_readonly.py"
   workflow_dispatch:
   schedule:
     - cron: "12,42 * * * *"
