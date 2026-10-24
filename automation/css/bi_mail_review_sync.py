@@ -39,9 +39,10 @@ def main():
     review_uid={str(at(r,4)) for r in review if at(r,4)}
     sender_by_addr={str(at(r,1)).lower():i+2 for i,r in enumerate(sender) if at(r,1)}
     mail_by_uid={str(at(r,1)):i+2 for i,r in enumerate(mail) if at(r,1)}
-    active_sender={str(at(r,1)).lower():not col(at(r,0)) for r in sender if at(r,1)}
+    # Preserve existing exclusion ledgers; only act on explicit reviewer choices.
     to_append_review=[];to_append_mail=[];to_append_sender=[]
     updates=[];processed=[];counts=Counter();ts=datetime.datetime.now(datetime.timezone.utc).isoformat()
+    pending_mail=set();pending_sender=set();sender_actions={};uid_actions={}
     # Never overwrite an existing reviewer decision; append new UIDs only.
     for uid,r in source_by_uid.items():
         if uid not in review_uid:
@@ -52,13 +53,26 @@ def main():
         if not uid or action not in {"EXCLUDE_MAIL","EXCLUDE_SENDER","RESTORE_MAIL","RESTORE_SENDER"}:continue
         # Already synchronized decisions are not replayed.
         if state=="SYNCED:"+action:continue
+        if action.endswith("SENDER"):
+            prior=sender_actions.get(addr)
+            if prior and prior!=action:
+                counts["conflicting_sender_requests"]+=1
+                continue
+            sender_actions[addr]=action
+        else:
+            prior=uid_actions.get(uid)
+            if prior and prior!=action:
+                counts["conflicting_uid_requests"]+=1
+                continue
+            uid_actions[uid]=action
         src=source_by_uid.get(uid,[])
         if action.endswith("MAIL"):
             old=mail_by_uid.get(uid)
             if action=="EXCLUDE_MAIL":
-                if old:
+                if old and old>0:
                     updates.append(("'"+MAIL+"'!A"+str(old),[False]))
-                else:
+                elif uid not in pending_mail:
+                    pending_mail.add(uid)
                     to_append_mail.append([False,uid,"BI reviewer exclude",ts,addr,at(src,3) or at(r,2),at(src,1),at(src,16),at(src,18),ts,"","UID only"])
                     mail_by_uid[uid]=-1
             elif old and old>0:
@@ -69,8 +83,9 @@ def main():
         elif addr:
             old=sender_by_addr.get(addr)
             if action=="EXCLUDE_SENDER":
-                if old: updates.append(("'"+SENDERS+"'!A"+str(old),[False]))
-                else:
+                if old and old>0: updates.append(("'"+SENDERS+"'!A"+str(old),[False]))
+                elif addr not in pending_sender:
+                    pending_sender.add(addr)
                     to_append_sender.append([False,addr,"exact","BI reviewer exclude",ts,0])
                     sender_by_addr[addr]=-1
             elif old and old>0:
@@ -82,6 +97,8 @@ def main():
         processed.append((i,action));counts[action]+=1
     print(json.dumps({"dry_run":read_only,"new_inbox":len(to_append_review),"mail_exclusions_new":len(to_append_mail),"sender_exclusions_new":len(to_append_sender),"requested":dict(counts)},ensure_ascii=False))
     if read_only:return
+    if counts["conflicting_sender_requests"] or counts["conflicting_uid_requests"]:
+        raise RuntimeError("Conflicting review actions detected; resolve before live sync")
     # Apply all writes before recording success. Reruns are safe by UID/address.
     batch(s,updates)
     append(s,MAIL,to_append_mail)
