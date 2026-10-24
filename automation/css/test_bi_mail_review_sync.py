@@ -50,7 +50,7 @@ def source(uid,sender):
     return row
 
 def review(action,uid,sender,state="NOT_SUBMITTED"):
-    return [action,sender,"Subject",3,uid,"REVIEW_2D","",state,"2026-10-24"]
+    return [action,sender,"10/22(목) 15:00",3,uid,"REVIEW_2D","",state,"2026-10-24","Subject"]
 
 class ReviewSyncTests(unittest.TestCase):
     def run_case(self,records,write=False):
@@ -89,7 +89,8 @@ class ReviewSyncTests(unittest.TestCase):
         self.assertEqual(len(add),1)
         self.assertEqual(len(add[0][2]),1)
         self.assertEqual(add[0][2][0][4],"inbox:2")
-        self.assertEqual(add[0][2][0][9],"10/22(목) 15:00")
+        self.assertEqual(add[0][2][0][2],"10/22(목) 15:00")
+        self.assertEqual(add[0][2][0][9],"Subject")
 
 
     def test_conflicting_sender_actions_fail_closed(self):
