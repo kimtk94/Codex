@@ -68,7 +68,7 @@ def resolution(project,invoices_by_h):
     stage=str(project.get("Staging Number") or "").upper()
     # Only first/sole stage may be automatically netted against contract-level invoices.
     # F002+ is an additional stage and cannot be inferred from prior billing.
-    if project.get("Forecast Category") == "COMPLETED" and (not re.search(r"-F\\d{3}$",stage) or stage.endswith("-F001")):
+    if project.get("Forecast Category") == "COMPLETED" and (not re.search(r"-F\d{3}$",stage) or stage.endswith("-F001")):
         return "DEDUPE_ISSUED_COMPLETED",exact,True
     # Historic invoices might relate to earlier stage, e.g., F001 vs F002/F005.
     return "REVIEW_PARTIAL_OR_PRIOR_STAGE",exact,False
@@ -118,8 +118,12 @@ def reconcile_rows(invoice_rows,project_rows,snapshot):
         if category not in ("FORECAST","COMPLETED"):
             # No projected value for excluded/pending source records.
             continue
-        if planned is None or not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])",month):
-            raise RuntimeError("INVALID_PROJECT_FORECAST")
+        if not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])",month):
+            raise RuntimeError("INVALID_PROJECT_MONTH")
+        if planned is None:
+            planned=0
+            if not dedup and decision==NO_MATCH:
+                decision="REVIEW_MISSING_PLANNED_AMOUNT"
         if dedup:
             by_month[month]["dedup"]+=1
         else:
