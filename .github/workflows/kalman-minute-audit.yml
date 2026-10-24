@@ -9,6 +9,7 @@ on:
       - 'research/kalman_triple_barrier/staggered_sweep.py'
       - 'research/kalman_triple_barrier/test_staggered_sweep.py'
       - 'research/kalman_triple_barrier/cash_ledger.py'
+      - 'research/kalman_triple_barrier/test_cash_ledger.py'
   workflow_dispatch:
     inputs:
       file_id:
@@ -36,7 +37,7 @@ jobs:
       - name: Run sizing regression tests
         run: |
           pip install pandas numpy pytest
-          pytest -q research/kalman_triple_barrier/test_staggered_sweep.py
+          pytest -q research/kalman_triple_barrier/test_staggered_sweep.py research/kalman_triple_barrier/test_cash_ledger.py
       - name: Initialize audit status
         run: |
           mkdir -p outputs/minute_audit
