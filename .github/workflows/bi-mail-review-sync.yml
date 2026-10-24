@@ -5,6 +5,7 @@ on:
       - 'automation/css/bi_mail_review_sync.py'
       - 'automation/css/test_bi_mail_review_sync.py'
       - '.github/workflows/bi-mail-review-sync.yml'
+      - 'automation/css/bi_mail_isolated_write_probe.py'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -47,6 +48,11 @@ jobs:
           CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
           DRY_RUN: 'true'
         run: python automation/css/bi_mail_review_sync.py
+      - name: Verify isolated write and cleanup (no email ledgers)
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+        run: python automation/css/bi_mail_isolated_write_probe.py
   sync:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
