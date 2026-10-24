@@ -9,12 +9,13 @@ def main():
     p.add_argument('--file-id',required=True)
     p.add_argument('--output',required=True)
     a=p.parse_args()
-    encoded=os.environ.get('GDRIVE_SA_JSON_B64')
-    if not encoded:raise SystemExit('BLOCKED: GDRIVE_SA_JSON_B64 secret missing; no public-data fallback')
+    raw=os.environ.get('CKD_DRIVE_SA_JSON','').strip()
+    encoded=os.environ.get('GDRIVE_SA_JSON_B64','').strip()
+    if not raw and not encoded:raise SystemExit('BLOCKED: no configured Drive credential (CKD_DRIVE_SA_JSON / GDRIVE_SA_JSON_B64)')
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaIoBaseDownload
-    creds=service_account.Credentials.from_service_account_info(json.loads(base64.b64decode(encoded)),scopes=['https://www.googleapis.com/auth/drive.readonly'])
+    creds=service_account.Credentials.from_service_account_info(json.loads(raw) if raw else json.loads(base64.b64decode(encoded)),scopes=['https://www.googleapis.com/auth/drive.readonly'])
     api=build('drive','v3',credentials=creds,cache_discovery=False)
     # Check Drive ACL without disclosing service-account email or metadata.
     from googleapiclient.errors import HttpError
