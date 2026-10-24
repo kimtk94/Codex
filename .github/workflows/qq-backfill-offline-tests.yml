@@ -1,0 +1,35 @@
+name: QQ Backfill Cursor Offline Tests
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - '.github/workflows/qq-backfill-offline-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/qq_historical_invoice_backfill.py'
+      - '.github/workflows/qq-backfill-offline-tests.yml'
+permissions:
+  contents: read
+jobs:
+  syntax-and-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile QQ backfill and invoice parser
+        run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/tax_invoice_extract.py
+      - name: Check cursor status and fail-closed safety invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path("automation/css_mail/qq_historical_invoice_backfill.py").read_text()
+          for text in ("UIDVALIDITY", "PARTIAL_SCAN", "SCAN_COMPLETE", "QQ Backfill Cursor", "QQ Backfill Audit", "BACKFILL_HEADER_MISMATCH"):
+              assert text in s, text
+          assert s.index('json={"values":values}') < s.index('cursor_values=[cursor_header]')
+          print("QQ_CURSOR_OFFLINE_SAFETY_PASS")
+          PY
