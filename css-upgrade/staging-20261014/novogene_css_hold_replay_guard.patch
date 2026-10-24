@@ -1,0 +1,25 @@
+--- a/Novogene_Mail_CSS_DashBoard.py
++++ b/Novogene_Mail_CSS_DashBoard.py
+@@ -10741,8 +10741,22 @@
+         if action == "hold":
+             if days_value is None or days_value <= 0:
+                 counts["overview_invalid_hold"] += 1
+                 continue
++            # A failed sheet refresh may replay the same Hold command.
++            # While the current Hold is valid, do not extend its expiry on
++            # every CSS execution. Explicit Release then Hold starts a new one.
++            previous_hold = conn.execute(
++                "SELECT hold_until FROM overview_project_snoozes "
++                "WHERE project_id=? AND mode='hold'",
++                (project_id,),
++            ).fetchone()
++            if previous_hold:
++                previous_until = pd.to_datetime(
++                    previous_hold[0], errors="coerce", utc=True
++                )
++                if pd.notna(previous_until) and now.tz_convert("UTC") < previous_until:
++                    continue
+             hold_until = (now + pd.Timedelta(days=days_value)).isoformat()
+             _upsert_overview_snooze(
+                 conn,
+                 project_id,
