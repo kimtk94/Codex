@@ -73,7 +73,10 @@ def main():
 
     # Verified source evidence is available independently of QQ BODYSTRUCTURE:
     # preserve existing invoices, and skip already-reconciled IMAP UIDs.
-    known_uids=set()
+    # Existing historical rows were already validated; avoid refetching them.
+    # These UID hints never advance the cursor and do not imply full coverage.
+    known_uids={(str(r[6]),str(r[7])) for r in by_invoice.values()
+                if len(r)>7 and r[6] and str(r[7]).isdigit()}
     seeded=0
     if year==2026:
         # The canonical legacy invoice ledger covers Jan-Oct 2026; the newer
