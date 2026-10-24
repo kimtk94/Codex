@@ -45,6 +45,9 @@ def main():
             x[17]=uid
             x[20]="CUSTOMER_REVIEW"
             return x
+        # Legacy ledgers have header rows: Google values.append starts at A1 otherwise.
+        for key in names:
+            put(names[key],"A1:B1",[["header","uid"]])
         put(names["SOURCE"],"A2:U4",[sr(uid1),sr(uid2),sr(uid3)])
         put(names["REVIEW"],"A2:I3",[
             ["EXCLUDE_MAIL",addr,"Subject",3,uid1,"REVIEW_2D","","NOT_SUBMITTED","2026-10-24"],
