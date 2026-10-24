@@ -120,6 +120,11 @@ def main():
             line=item.decode("utf-8","replace")
             mt=re.search(r' (?:"([^"]+)"|([^ "]+))$',line)
             if mt:names.append(mt.group(1) or mt.group(2))
+        # On historical backfills, prioritize INBOX over Sent Messages: source
+        # invoice notifications arrive inbound; a capped scan must not spend
+        # the entire run on outgoing quotations or statements.
+        if year == 2025:
+            names.sort(key=lambda name: (0 if name.upper() == "INBOX" else 1, name.lower()))
         for folder in names:
             status,_=im.select('"'+folder.replace('"','')+'"',readonly=True)
             if status!="OK":continue
