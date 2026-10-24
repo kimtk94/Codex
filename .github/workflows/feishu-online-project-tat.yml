@@ -1,0 +1,35 @@
+name: Feishu Online Project TAT Forecast
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "automation/feishu/online_project_tat_forecast.py"
+      - ".github/workflows/feishu-online-project-tat.yml"
+  schedule:
+    - cron: "27 0 * * *"
+permissions:
+  contents: read
+concurrency:
+  group: feishu-online-project-tat
+  cancel-in-progress: false
+jobs:
+  forecast:
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Sheets dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Read Feishu and refresh private monthly forecast
+        run: python3 automation/feishu/online_project_tat_forecast.py
