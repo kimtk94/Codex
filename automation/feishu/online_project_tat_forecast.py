@@ -150,6 +150,13 @@ def main():
                      v["source"],v["stage"],v["done"]])
     session=google()
     sheet(session,DEST);sheet(session,SUMMARY)
+    meta=api(session,"GET","?fields=sheets.properties")
+    resize=[]
+    for tab in meta.get("sheets",[]):
+        props=tab.get("properties") or {}
+        if props.get("title")==DEST and (props.get("gridProperties") or {}).get("columnCount",0)<19:
+            resize.append({"updateSheetProperties":{"properties":{"sheetId":props["sheetId"],"gridProperties":{"columnCount":20}},"fields":"gridProperties.columnCount"}})
+    if resize:api(session,"POST",":batchUpdate",json={"requests":resize})
     # Replace generated destination tabs only; other source/history tabs remain untouched.
     for title in (DEST,SUMMARY):
         range_name=urllib.parse.quote("'"+title+"'!A1:S2000",safe="")
