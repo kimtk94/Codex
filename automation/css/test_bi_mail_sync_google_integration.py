@@ -49,7 +49,7 @@ def main():
         for key in names:
             put(names[key],"A1:B1",[["header","uid"]])
         put(names["SOURCE"],"A2:U4",[sr(uid1),sr(uid2),sr(uid3)])
-        put(names["REVIEW"],"A2:I3",[
+        put(names["REVIEW"],"A2:J3",[
             ["EXCLUDE_MAIL",addr,"2026-10-24 10:00",3,uid1,"REVIEW_2D","","NOT_SUBMITTED","2026-10-24","Subject"],
             ["EXCLUDE_SENDER",addr,"2026-10-24 10:00",3,uid2,"REVIEW_2D","","NOT_SUBMITTED","2026-10-24","Subject"]
         ])
