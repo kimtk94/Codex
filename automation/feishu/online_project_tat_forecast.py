@@ -170,6 +170,9 @@ def main():
         api(session,"POST","/values/"+range_name+":clear",json={})
     values(session,DEST,"A1",output)
     values(session,SUMMARY,"A1",sums)
+    # Refresh issued-invoice actuals and deduplicated forecast after source snapshot is written.
+    from tax_invoice_forecast_reconcile import publish
+    publish(session)
     print("TAT_FORECAST_PASS records="+str(len(records))+" months="+str(len(monthly))+
           " stage_source="+str(categories["SOURCE_REMAINING_TAT"])+
           " stage_fallback="+str(categories["STAGE_ESTIMATE"])+
