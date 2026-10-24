@@ -1,0 +1,40 @@
+name: Sales Payment Reconciliation QC
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Feishu Project Status Sync"]
+    types: [completed]
+  schedule:
+    - cron: '43 0 * * *' # approx 09:43 KST; may be delayed
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/payment_reconciliation_qc.py'
+      - '.github/workflows/sales-payment-reconciliation.yml'
+permissions:
+  contents: read
+concurrency:
+  group: sales-payment-reconciliation-qc
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install spreadsheet client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Compile QC and run offline safety checks
+        run: |
+          python3 -m py_compile automation/feishu/payment_reconciliation_qc.py
+          python3 automation/feishu/test_payment_reconciliation_qc.py
+      - name: Refresh invoice, Feishu and receipt proof QC
+        run: python3 automation/feishu/payment_reconciliation_qc.py
