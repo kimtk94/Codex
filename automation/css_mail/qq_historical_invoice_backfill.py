@@ -26,15 +26,15 @@ def resolve_uidvalidity(im, folder):
     for value in values:
         if value:
             raw = value.decode("ascii", "replace") if isinstance(value,bytes) else str(value)
-            match = re.search(r"(?:UIDVALIDITY\\s+)?([0-9]+)", raw, re.I)
+            match = re.search(r"(?:UIDVALIDITY\s+)?([0-9]+)", raw, re.I)
             if match:
                 return match.group(1)
-    quoted = '"' + folder.replace('\\\\', '\\\\\\\\').replace('"', '\\\\"') + '"'
+    quoted = '"' + folder.replace('"', '') + '"'
     status, values = im.status(quoted, "(UIDVALIDITY)")
     if status == "OK":
         for value in values or []:
             raw = value.decode("ascii","replace") if isinstance(value,bytes) else str(value)
-            match = re.search(r"UIDVALIDITY\\s+([0-9]+)",raw,re.I)
+            match = re.search(r"UIDVALIDITY\s+([0-9]+)",raw,re.I)
             if match:
                 return match.group(1)
     raise RuntimeError("UIDVALIDITY_UNAVAILABLE_AFTER_STATUS")
