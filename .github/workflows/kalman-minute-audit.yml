@@ -26,11 +26,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Initialize audit status
+        run: |
+          mkdir -p outputs/minute_audit
+          echo '{"status":"STARTED","market":"US_EQUITY","source":"GOOGLE_DRIVE_PRIVATE","live_policy_modified":false}' > outputs/minute_audit/status.json
       - name: Verify read-only Drive access is configured
         env:
           GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
         run: |
           if [ -z "$GDRIVE_SA_JSON_B64" ]; then
+            echo '{"status":"BLOCKED","reason":"GDRIVE_SA_JSON_B64_MISSING","live_policy_modified":false}' > outputs/minute_audit/status.json
             echo 'BLOCKED: GitHub secret GDRIVE_SA_JSON_B64 is not configured.'
             exit 2
           fi
@@ -47,6 +52,12 @@ jobs:
         run: |
           python research/kalman_triple_barrier/minute_adapter.py --input /tmp/kalman_sample.parquet --symbol "$SYMBOL" --out /tmp/kalman_1min.csv
           python research/kalman_triple_barrier/staggered_sweep.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit --horizons 5,10,20,40,60,100
+      - name: Preserve failure category without private input data
+        if: failure()
+        run: |
+          if [ ! -f outputs/minute_audit/status.json ]; then
+            echo '{"status":"FAILED","reason":"INSPECT_CI_STEP_LOGS","live_policy_modified":false}' > outputs/minute_audit/status.json
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
