@@ -16,3 +16,9 @@ def test_15m_must_not_masquerade_as_1m():
 def test_reject_duplicate_timestamps():
     d=sample();d.loc[1,'datetime']=d.loc[0,'datetime']
     with pytest.raises(ValueError,match='duplicate'):m.convert(d)
+
+def test_coverage_gap_flagged():
+    d=sample(); d.loc[3:,'datetime']=d.loc[3:,'datetime']+pd.Timedelta(minutes=4)
+    _,meta=m.convert(d)
+    assert meta['TSLA']['gaps_over_60_seconds']==1
+    assert meta['TSLA']['one_minute_edges']==4
