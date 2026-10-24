@@ -46,7 +46,7 @@ def main():
     # Never overwrite an existing reviewer decision; append new UIDs only.
     for uid,r in source_by_uid.items():
         if uid not in review_uid:
-            to_append_review.append(["NONE",at(r,8),at(r,3),at(r,0),uid,at(r,20),"","NOT_SUBMITTED",ts[:10],at(r,1)])
+            to_append_review.append(["NONE",at(r,8),at(r,1),at(r,0),uid,at(r,20),"","NOT_SUBMITTED",ts[:10],at(r,3)])
     for i,r in enumerate(review,start=2):
         action=str(at(r,0)).strip().upper();uid=str(at(r,4)).strip();addr=str(at(r,1)).strip().lower()
         state=str(at(r,7)).strip()
@@ -73,7 +73,7 @@ def main():
                     updates.append(("'"+MAIL+"'!A"+str(old),[False]))
                 elif uid not in pending_mail:
                     pending_mail.add(uid)
-                    to_append_mail.append([False,uid,"BI reviewer exclude",ts,addr,at(src,3) or at(r,2),at(src,1),at(src,16),at(src,18),ts,"","UID only"])
+                    to_append_mail.append([False,uid,"BI reviewer exclude",ts,addr,at(src,3) or at(r,9),at(src,1),at(src,16),at(src,18),ts,"","UID only"])
                     mail_by_uid[uid]=-1
             elif old and old>0:
                 updates.append(("'"+MAIL+"'!A"+str(old),[True]))
