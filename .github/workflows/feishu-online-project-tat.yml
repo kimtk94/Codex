@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "automation/feishu/online_project_tat_forecast.py"
+      - "automation/feishu/tax_invoice_forecast_reconcile.py"
+      - "automation/feishu/test_tax_invoice_forecast_reconcile.py"
       - ".github/workflows/feishu-online-project-tat.yml"
   schedule:
     - cron: "27 0 * * *"
@@ -31,5 +33,7 @@ jobs:
           python-version: "3.11"
       - name: Install Sheets dependencies
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Validate invoice-forecast deduplication rules
+        run: python3 -m unittest discover -s automation/feishu -p "test_tax_invoice_forecast_reconcile.py"
       - name: Read Feishu and refresh private monthly forecast
         run: python3 automation/feishu/online_project_tat_forecast.py
