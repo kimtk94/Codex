@@ -25,18 +25,18 @@ def get(path,**params):
     raise RuntimeError(f"API retry exhausted: {path} {params}")
 def iso(d):return d.strftime("%Y-%m-%dT%H:%M:%SZ")
 def dt(s):return datetime.fromisoformat(s.replace("Z","+00:00")).replace(tzinfo=UTC) if "+" not in s else datetime.fromisoformat(s)
-def day_exists(m,day):
-    # Upbit day candles are UTC-day buckets; exclusive next midnight.
+def latest_candle_by(m,day):
+    # Last candle at/before a UTC calendar day, not necessarily on that day.
     data=get("/candles/days",market=m,to=iso(day+timedelta(days=1)),count=1)
-    return bool(data) and dt(data[0]["candle_date_time_utc"]).date()==day.date()
+    return dt(data[0]["candle_date_time_utc"]) if data else None
 def first_day(m,cutoff,today):
-    # Only markets that have never printed a daily candle before cutoff.
-    if day_exists(m,cutoff-timedelta(days=1)):return None
-    if not day_exists(m,today):return None
+    # Cumulative predicate stays monotone even on days without trades.
+    if latest_candle_by(m,cutoff-timedelta(days=1)) is not None:return None
+    if latest_candle_by(m,today) is None:return None
     lo=cutoff;hi=today
     while lo<hi:
         mid=lo+timedelta(days=(hi-lo).days//2)
-        if day_exists(m,mid):hi=mid
+        if latest_candle_by(m,mid) is not None:hi=mid
         else:lo=mid+timedelta(days=1)
     return lo
 def candles_first_week(m,first):
