@@ -37,13 +37,16 @@ jobs:
     steps:
       - name: Check presence only, never expose secret values
         env:
+          HAS_CKD_NAME: ${{ contains(toJSON(secrets), '"CKD') }}
+          HAS_CKD_GOOGLE_NAME: ${{ contains(toJSON(secrets), '"CKD_GOOGLE') }}
+          HAS_CKD_GC_NAME: ${{ contains(toJSON(secrets), '"CKD_GC') }}
           HAS_CKD: ${{ secrets.CKD != '' }}
           HAS_GC: ${{ secrets.GC != '' }}
           HAS_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON != '' }}
           HAS_GCP_SA_KEY: ${{ secrets.GCP_SA_KEY != '' }}
           HAS_GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS != '' }}
         run: |
-          for name in HAS_CKD HAS_GC HAS_GOOGLE_SERVICE_ACCOUNT_JSON HAS_GCP_SA_KEY HAS_GOOGLE_CREDENTIALS; do
+          for name in HAS_CKD_NAME HAS_CKD_GOOGLE_NAME HAS_CKD_GC_NAME HAS_CKD HAS_GC HAS_GOOGLE_SERVICE_ACCOUNT_JSON HAS_GCP_SA_KEY HAS_GOOGLE_CREDENTIALS; do
             echo "$name=${!name}"
           done
   sheets_auth_probe:
