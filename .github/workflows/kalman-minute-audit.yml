@@ -58,8 +58,8 @@ jobs:
         run: |
           python research/kalman_triple_barrier/minute_adapter.py --input /tmp/kalman_sample.parquet --symbol "$SYMBOL" --out /tmp/kalman_1min.csv
           cp /tmp/kalman_1min.profile.json outputs/minute_audit/minute_profile.json
-          python research/kalman_triple_barrier/staggered_sweep.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit --horizons 5,10,20,40,60,100,120,180,240 --fee-bps 5
           python research/kalman_triple_barrier/nonoverlap_diagnostic.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit
+          python research/kalman_triple_barrier/staggered_sweep.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit --horizons 5,10,20,40,60,100,120,180,240 --fee-bps 5 --max-samples-per-block 60
       - name: Save successful audit state
         if: success()
         run: |
