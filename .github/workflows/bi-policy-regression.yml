@@ -1,0 +1,26 @@
+name: BI Policy Regression Tests
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/css_mail/bi_policy_rules.py'
+      - 'automation/css_mail/test_bi_policy_rules.py'
+      - '.github/workflows/bi-policy-regression.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/bi_policy_rules.py'
+      - 'automation/css_mail/test_bi_policy_rules.py'
+      - '.github/workflows/bi-policy-regression.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m unittest discover -s automation/css_mail -p 'test_bi_policy_rules.py' -v
