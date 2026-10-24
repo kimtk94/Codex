@@ -1,0 +1,25 @@
+name: Feishu Two Sheets Readonly
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "12,42 * * * *"
+permissions:
+  contents: read
+concurrency:
+  group: feishu-two-sheets-readonly
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Read two Feishu Sheets safely
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: python3 automation/feishu/two_sheets_readonly.py
