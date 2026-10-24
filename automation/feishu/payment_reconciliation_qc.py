@@ -16,6 +16,7 @@ from google.auth.transport.requests import AuthorizedSession
 
 SHEET = os.getenv("SFDC_UNIFIED_SHEET_ID", "1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI")
 TITLE = "Payment Reconciliation QC"
+DETAIL_TITLE = "Payment Invoice Match Detail"
 SOURCE_INVOICE = "Payment & Tax Invoice"
 SOURCE_FEISHU = "Feishu Project Status"
 BRIDGE = "Project ID Bridge Verified"
@@ -139,6 +140,39 @@ def main():
                             for x, h in candidates.values())
     issued_linked = sum(x in flags and len(flags[x]) > 1 and str(flags[x][1]).upper() == "YES"
                         for x, h in candidates.values())
+    # Detailed derived ledger: never equate a project outstanding flag with
+    # an invoice-level unpaid balance or received payment.
+    evidence_by_invoice = {}
+    for row in css[1:]:
+        if len(row) > 2 and norm(row[2]) not in evidence_by_invoice:
+            evidence_by_invoice[norm(row[2])] = row
+    detail = [["Invoice Number", "Institution", "Invoice KRW", "AMEA ID", "CSS H ID",
+               "Feishu X ID", "Link Status", "Feishu Outstanding Flag",
+               "Feishu eTAX Unissued Flag", "Verified Paid KRW", "Verified Outstanding KRW", "Evidence"]]
+    for inv_row in invoices[1:]:
+        if not inv_row or not str(inv_row[0]).strip():
+            continue
+        inv_row = inv_row + [""] * max(0, 16 - len(inv_row))
+        number = norm(inv_row[0])
+        proof = evidence_by_invoice.get(number, [])
+        pair = candidates.get(number)
+        x_id = pair[0] if pair else ""
+        h_id = pair[1] if pair else ""
+        flag = flags.get(x_id) if x_id else None
+        status = "EXACT_X_FEISHU_PROJECT" if flag else ("INVOICE_SUBJECT_X_H_ONLY" if pair else "REVIEW_SOURCE_LINK")
+        if number in collisions:
+            status = "CONFLICT_REVIEW"
+        detail.append([
+            number, inv_row[4], inv_row[6], inv_row[3],
+            h_id, x_id, status,
+            str(flag[2]).upper() if flag and len(flag)>2 else "UNKNOWN",
+            str(flag[1]).upper() if flag and len(flag)>1 else "UNKNOWN",
+            "UNKNOWN", "UNKNOWN",
+            "INVOICE_NUMBER_X_H_IN_NOTIFICATION; FEISHU_X_EXACT" if flag else
+            ("INVOICE_NUMBER_X_H_IN_NOTIFICATION" if pair else "UNMATCHED_EVIDENCE")
+        ])
+    if len(detail) - 1 != stats["INVOICES"]:
+        raise RuntimeError("DETAIL_INVOICE_COUNT_MISMATCH")
     stats["INVOICE_TO_FEISHU_EXACT_VERIFIED"] = validated_links
     stats["LINKED_OUTSTANDING_FLAGS"] = outstanding_linked
     stats["LINKED_UNISSUED_FLAGS"] = issued_linked
@@ -164,6 +198,10 @@ def main():
         ["Status", "PAYMENT_PROOF_REQUIRED", "Project flags matched where explicit invoice subject evidence exists; bank remittance still required"],
         ["Source tabs", SOURCE_INVOICE + "; " + SOURCE_FEISHU + "; Quote Invoice Ledger", "No operational source values modified"],
     ]
+    if DETAIL_TITLE not in titles:
+        request(session, "POST", ":batchUpdate", json={"requests":[{"addSheet":{"properties":{"title":DETAIL_TITLE,"gridProperties":{"rowCount":1000,"columnCount":12,"frozenRowCount":1}}}}]})
+    detail_address = urllib.parse.quote("'" + DETAIL_TITLE + "'!A1:L" + str(len(detail)), safe="")
+    request(session, "PUT", "/values/" + detail_address + "?valueInputOption=RAW", json={"values":detail})
     if TITLE not in titles:
         request(session, "POST", ":batchUpdate", json={"requests":[{"addSheet":{"properties":{"title":TITLE,"gridProperties":{"rowCount":100,"columnCount":5,"frozenRowCount":2}}}}]})
     address = urllib.parse.quote("'" + TITLE + "'!A1:C" + str(len(out)), safe="")
