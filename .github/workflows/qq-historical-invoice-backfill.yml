@@ -1,13 +1,6 @@
 name: QQ Historical Tax Invoice Backfill 2025
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '7 1 * * *'
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/qq-historical-invoice-backfill.yml'
-      - 'automation/css_mail/qq_historical_invoice_backfill.py'
 permissions:
   contents: read
 concurrency:
