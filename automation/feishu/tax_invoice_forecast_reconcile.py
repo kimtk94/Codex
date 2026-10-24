@@ -65,7 +65,10 @@ def resolution(project,invoices_by_h):
     if any(i["_amea"]!=mea for i in matched):
         # Multiple AMEA IDs on same H contract: cannot attribute billed amount to a stage.
         return "REVIEW_CONTRACT_MULTIPLE_AMEA",matched,False
-    if project.get("Forecast Category") == "COMPLETED":
+    stage=str(project.get("Staging Number") or "").upper()
+    # Only first/sole stage may be automatically netted against contract-level invoices.
+    # F002+ is an additional stage and cannot be inferred from prior billing.
+    if project.get("Forecast Category") == "COMPLETED" and (not re.search(r"-F\\d{3}$",stage) or stage.endswith("-F001")):
         return "DEDUPE_ISSUED_COMPLETED",exact,True
     # Historic invoices might relate to earlier stage, e.g., F001 vs F002/F005.
     return "REVIEW_PARTIAL_OR_PRIOR_STAGE",exact,False
