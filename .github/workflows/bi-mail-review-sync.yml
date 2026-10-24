@@ -75,5 +75,5 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
           CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
-          DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run && 'true' || 'false' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
         run: python automation/css/bi_mail_review_sync.py
