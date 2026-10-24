@@ -103,6 +103,7 @@ def main():
     scanned=0; matches=0; fetched=0; folders=0; filename_candidates=0; filename_parsed=0
     limit=int(os.getenv("BACKFILL_MAX_MATCHES","2500"))
     unfinished=False; prior_skipped=0; last_by_folder={}
+    no_uidvalidity_folders=0
 
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=60) as im:
         im.login(os.environ["CSS_QQ_MAIL_ADDRESS"],os.environ["CSS_QQ_MAIL_AUTH_CODE"])
@@ -117,7 +118,14 @@ def main():
             status,_=im.select('"'+folder.replace('"','')+'"',readonly=True)
             if status!="OK":continue
             folders+=1
-            uidvalidity=resolve_uidvalidity(im, folder)
+            try:
+                uidvalidity=resolve_uidvalidity(im, folder)
+            except RuntimeError as exc:
+                if str(exc)!="UIDVALIDITY_UNAVAILABLE_AFTER_STATUS":raise
+                uidvalidity=""
+                no_uidvalidity_folders+=1
+                unfinished=True
+                print("QQ_BACKFILL_WARNING UIDVALIDITY unavailable; cursor disabled for folder="+str(folders),flush=True)
             old_cursor=cursors.get((year,folder))
             checkpoint=int(old_cursor[3]) if old_cursor and old_cursor[2]==uidvalidity else 0
             start=f"01-Jan-{year}";end=f"01-Jan-{year+1}"
@@ -135,7 +143,7 @@ def main():
                 if scanned>=limit:
                     unfinished=True
                     break
-                last_by_folder[folder]=(uidvalidity,int(uid))
+                if uidvalidity:last_by_folder[folder]=(uidvalidity,int(uid))
                 if (folder,uid.decode()) in known_uids:continue
                 scanned+=1
                 status,parts=im.uid("FETCH",uid,"(BODYSTRUCTURE)")
@@ -185,5 +193,5 @@ def main():
     audit_by_year[str(year)]=[str(year),now,status_label,matches,scanned,filename_candidates,filename_parsed,fetched]
     audit_values=[audit_header]+[audit_by_year[key] for key in sorted(audit_by_year)]
     call(s,"PUT","/values/"+sheet_a1(AUDIT_TAB)+"?valueInputOption=RAW",json={"values":audit_values})
-    print("QQ_BACKFILL_"+status_label+" year="+str(year)+" folders="+str(folders)+" candidates="+str(matches)+" scanned="+str(scanned)+" new="+str(fetched)+" total="+str(len(by_invoice))+" checkpoint_folders="+str(len(last_by_folder))+" prior_skipped="+str(prior_skipped))
+    print("QQ_BACKFILL_"+status_label+" year="+str(year)+" folders="+str(folders)+" candidates="+str(matches)+" scanned="+str(scanned)+" new="+str(fetched)+" total="+str(len(by_invoice))+" checkpoint_folders="+str(len(last_by_folder))+" prior_skipped="+str(prior_skipped)+" missing_uidvalidity_folders="+str(no_uidvalidity_folders))
 if __name__=="__main__":main()
