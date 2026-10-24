@@ -1,77 +1,74 @@
 #!/usr/bin/env python3
-"""Local-only Lightning modal control audit. No values, screenshots, or API requests."""
+"""Salesforce Lightning read-only control census: all open tabs and same-origin frames.
+Prints aggregate control counts only. Does not capture values, DOM HTML, or screenshots.
+"""
 import argparse
 import json
 import time
-from playwright.sync_api import Error as PlaywrightError
-from urllib.parse import urlsplit
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
-ALLOWED = {"input", "select", "textarea", "button", "lightning-input", "lightning-combobox", "lightning-dual-listbox"}
-def classify(tag):
-    return tag.lower() if tag and tag.lower() in ALLOWED else "other"
+JS = """() => {
+  const selectors = 'input,select,textarea,button,lightning-input,lightning-combobox,lightning-dual-listbox';
+  const dialogs = [...document.querySelectorAll('[role="dialog"],section.slds-modal')];
+  const scopes = dialogs.length ? dialogs : [document.body];
+  const controls = scopes.flatMap(el => [...el.querySelectorAll(selectors)]);
+  const totals = {};
+  for (const el of controls) {
+    const tag = el.tagName.toLowerCase();
+    totals[tag] = (totals[tag] || 0) + 1;
+  }
+  return {dialog_found:dialogs.length>0, control_count:controls.length,
+    control_types:totals,
+    required_count:controls.filter(e=>e.hasAttribute('required') || e.getAttribute('aria-required')==='true').length,
+    mode:dialogs.length?'dialog':'document'};
+}"""
 
 def inspect(page):
-    # Avoid .inputValue(), HTML dumping, selectors containing record values.
-    script = """() => {
-      const dialog = document.querySelector('[role="dialog"]');
-      if (!dialog) return {dialog_found:false, controls:[]};
-      const els = [...dialog.querySelectorAll('input,select,textarea,button,lightning-input,lightning-combobox,lightning-dual-listbox')];
-      return {dialog_found:true, controls:els.map(e => ({
-        tag:e.tagName.toLowerCase(),
-        role:e.getAttribute('role') || '',
-        type:e.getAttribute('type') || '',
-        required:e.hasAttribute('required') || e.getAttribute('aria-required') === 'true',
-        label_present: !!(e.getAttribute('aria-label') || e.labels?.length || e.querySelector('label'))
-      }))};
-    }"""
-    raw = None
-    for attempt in range(8):
-        try:
-            raw = page.evaluate(script)
-            break
-        except PlaywrightError as exc:
-            message = str(exc).lower()
-            transient = ("execution context was destroyed" in message
-                         or "navigation" in message
-                         or "cannot find context" in message)
-            if not transient or attempt == 7:
-                raise
-            page.wait_for_load_state("domcontentloaded", timeout=15000)
-            time.sleep(0.6)
-    return {"dialog_found": bool(raw.get("dialog_found")),
-            "control_count": len(raw.get("controls", [])),
-            "control_types": {name: sum(1 for item in raw.get("controls", []) if classify(item["tag"]) == name)
-                              for name in sorted({classify(item["tag"]) for item in raw.get("controls", [])})},
-            "required_count": sum(bool(item.get("required")) for item in raw.get("controls", [])),
-            "unlabeled_count": sum(not bool(item.get("label_present")) for item in raw.get("controls", [])),
-            "note":"Counts only: no names, values, selectors, IDs, URLs, or customer data."}
+    raw = page.evaluate(JS)
+    return {"dialog_found":raw["dialog_found"], "control_count":raw["control_count"],
+            "control_types":raw["control_types"],
+            "required_count":raw["required_count"], "mode":raw["mode"]}
+
+def inspect_context(context):
+    results = []
+    # Every open Playwright tab and attached frame is inspected, not just pages[0].
+    for page in context.pages:
+        if page.is_closed():
+            continue
+        for frame in page.frames:
+            for attempt in range(6):
+                try:
+                    result = inspect(frame)
+                    if result["control_count"] or result["dialog_found"]:
+                        results.append(result)
+                    break
+                except PlaywrightError as exc:
+                    if "execution context was destroyed" not in str(exc).lower() and "navigation" not in str(exc).lower():
+                        break
+                    time.sleep(0.5)
+    return {"inspected_tabs":len([p for p in context.pages if not p.is_closed()]),
+            "frames_with_controls":len(results),
+            "results":results,
+            "note":"Aggregate UI statistics only, no URLs, labels, entered values, or customer data"}
 
 def main():
-    p=argparse.ArgumentParser()
-    p.add_argument("--url", required=True)
-    args=p.parse_args()
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--url",required=True)
+    args=parser.parse_args()
     from runner import check_url, PROFILE
     check_url(args.url)
     with sync_playwright() as pw:
-        context=pw.chromium.launch_persistent_context(user_data_dir=str(PROFILE),
-               channel="chrome", headless=False)
+        ctx=pw.chromium.launch_persistent_context(user_data_dir=str(PROFILE),
+                channel="chrome",headless=False)
         try:
-            page=context.pages[0] if context.pages else context.new_page()
-            page.goto(args.url, wait_until="domcontentloaded")
-            input("Log in normally and open the New Opportunity modal; then press Enter here: ")
-            # Login redirects can still be completing when Enter is pressed.
-            for attempt in range(8):
-                try:
-                    check_url(page.url)
-                    if page.locator('[role="dialog"]').count() > 0:
-                        break
-                except PlaywrightError:
-                    pass
-                time.sleep(0.75)
-            print(json.dumps(inspect(page), ensure_ascii=False, indent=2))
+            page=ctx.pages[0] if ctx.pages else ctx.new_page()
+            page.goto(args.url,wait_until="domcontentloaded")
+            input("In the opened automated Chrome window, log in and open New Opportunity. Press Enter: ")
+            # Leave time for Lightning render/navigation; inspect every tab/frame.
+            time.sleep(1)
+            print(json.dumps(inspect_context(ctx),ensure_ascii=False,indent=2))
         finally:
-            context.close()
+            ctx.close()
 
 if __name__=="__main__":
     main()
