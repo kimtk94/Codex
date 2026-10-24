@@ -55,7 +55,8 @@ jobs:
           SYMBOL: ${{ inputs.symbol || 'TSLA' }}
         run: |
           python research/kalman_triple_barrier/minute_adapter.py --input /tmp/kalman_sample.parquet --symbol "$SYMBOL" --out /tmp/kalman_1min.csv
-          python research/kalman_triple_barrier/staggered_sweep.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit --horizons 5,10,20,40,60,100
+          cp /tmp/kalman_1min.profile.json outputs/minute_audit/minute_profile.json
+          python research/kalman_triple_barrier/staggered_sweep.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit --horizons 5,10,20,40,60,100,120,180,240 --fee-bps 5
       - name: Save successful audit state
         if: success()
         run: |
@@ -63,9 +64,14 @@ jobs:
       - name: Preserve failure category without private input data
         if: failure()
         run: |
-          if [ ! -f outputs/minute_audit/status.json ]; then
-            echo '{"status":"FAILED","reason":"INSPECT_CI_STEP_LOGS","live_policy_modified":false}' > outputs/minute_audit/status.json
-          fi
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('outputs/minute_audit/status.json')
+          d=json.loads(p.read_text()) if p.exists() else {}
+          if d.get('status') != 'BLOCKED':
+              d={'status':'FAILED','reason':'INSPECT_CI_STEP_LOGS','live_policy_modified':False}
+          p.write_text(json.dumps(d))
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
