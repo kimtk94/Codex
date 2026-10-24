@@ -2,6 +2,8 @@
 """Local-only Lightning modal control audit. No values, screenshots, or API requests."""
 import argparse
 import json
+import time
+from playwright.sync_api import Error as PlaywrightError
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
@@ -23,7 +25,20 @@ def inspect(page):
         label_present: !!(e.getAttribute('aria-label') || e.labels?.length || e.querySelector('label'))
       }))};
     }"""
-    raw = page.evaluate(script)
+    raw = None
+    for attempt in range(8):
+        try:
+            raw = page.evaluate(script)
+            break
+        except PlaywrightError as exc:
+            message = str(exc).lower()
+            transient = ("execution context was destroyed" in message
+                         or "navigation" in message
+                         or "cannot find context" in message)
+            if not transient or attempt == 7:
+                raise
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+            time.sleep(0.6)
     return {"dialog_found": bool(raw.get("dialog_found")),
             "control_count": len(raw.get("controls", [])),
             "control_types": {name: sum(1 for item in raw.get("controls", []) if classify(item["tag"]) == name)
@@ -45,7 +60,15 @@ def main():
             page=context.pages[0] if context.pages else context.new_page()
             page.goto(args.url, wait_until="domcontentloaded")
             input("Log in normally and open the New Opportunity modal; then press Enter here: ")
-            check_url(page.url)
+            # Login redirects can still be completing when Enter is pressed.
+            for attempt in range(8):
+                try:
+                    check_url(page.url)
+                    if page.locator('[role="dialog"]').count() > 0:
+                        break
+                except PlaywrightError:
+                    pass
+                time.sleep(0.75)
             print(json.dumps(inspect(page), ensure_ascii=False, indent=2))
         finally:
             context.close()
