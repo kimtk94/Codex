@@ -6,6 +6,8 @@ on:
       - '.github/workflows/kalman-minute-audit.yml'
       - 'research/kalman_triple_barrier/drive_input.py'
       - 'research/kalman_triple_barrier/nonoverlap_diagnostic.py'
+      - 'research/kalman_triple_barrier/staggered_sweep.py'
+      - 'research/kalman_triple_barrier/test_staggered_sweep.py'
   workflow_dispatch:
     inputs:
       file_id:
@@ -30,6 +32,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Run sizing regression tests
+        run: |
+          pip install pandas numpy pytest
+          pytest -q research/kalman_triple_barrier/test_staggered_sweep.py
       - name: Initialize audit status
         run: |
           mkdir -p outputs/minute_audit
