@@ -1,0 +1,44 @@
+name: Kalman Minute Data Audit
+on:
+  workflow_dispatch:
+    inputs:
+      file_id:
+        description: "Private Google Drive parquet file id (default TSLA sample)"
+        required: true
+        default: "1TQaaCu0x96CcqF0wKoHHLLnZttRjgDbL"
+        type: string
+      symbol:
+        description: "Symbol label"
+        required: true
+        default: "TSLA"
+        type: string
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy pyarrow google-api-python-client google-auth
+      - name: Fetch historical sample privately
+        env:
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+          INPUT_ID: ${{ inputs.file_id }}
+        run: |
+          python research/kalman_triple_barrier/drive_input.py --file-id "$INPUT_ID" --output /tmp/kalman_sample.parquet
+      - name: Confirm actual 1-minute cadence and produce sanitized CSV
+        env:
+          SYMBOL: ${{ inputs.symbol }}
+        run: |
+          python research/kalman_triple_barrier/minute_adapter.py --input /tmp/kalman_sample.parquet --symbol "$SYMBOL" --out /tmp/kalman_1min.csv
+          python research/kalman_triple_barrier/staggered_sweep.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit --horizons 5,10,20,40,60,100
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kalman-minute-research-summary
+          path: outputs/minute_audit/
+          if-no-files-found: warn

@@ -1,0 +1,61 @@
+name: Kalman Staggered Entry Research
+on:
+  push:
+    paths:
+      - "research/kalman_triple_barrier/staggered_sweep.py"
+      - "research/kalman_triple_barrier/test_staggered_sweep.py"
+      - "research/kalman_triple_barrier/minute_adapter.py"
+      - "research/kalman_triple_barrier/test_minute_adapter.py"
+      - ".github/workflows/kalman-staggered-entry.yml"
+  pull_request:
+    paths:
+      - "research/kalman_triple_barrier/staggered_sweep.py"
+      - "research/kalman_triple_barrier/test_staggered_sweep.py"
+      - "research/kalman_triple_barrier/minute_adapter.py"
+      - "research/kalman_triple_barrier/test_minute_adapter.py"
+      - ".github/workflows/kalman-staggered-entry.yml"
+  workflow_dispatch:
+    inputs:
+      bars_path:
+        description: "Tracked 1-minute OHLC CSV path with symbol,timestamp,open,high,low,close"
+        required: true
+        type: string
+      horizons:
+        description: "Provisional horizons (minutes), can be changed"
+        default: "5,10,20,40,60,100"
+        type: string
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy pytest
+      - run: pytest -q research/kalman_triple_barrier/test_staggered_sweep.py research/kalman_triple_barrier/test_minute_adapter.py
+  backtest:
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy
+      - name: Backtest verified intraday file
+        env:
+          BARS: ${{ inputs.bars_path }}
+          HORIZONS: ${{ inputs.horizons }}
+        run: |
+          test -f "$BARS" || { echo "DATA_INPUT_MISSING $BARS"; exit 2; }
+          python research/kalman_triple_barrier/staggered_sweep.py --bars "$BARS" --horizons "$HORIZONS" --out outputs/staggered_sweep
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: staggered-entry-horizon-results
+          path: outputs/staggered_sweep/
+          if-no-files-found: warn
