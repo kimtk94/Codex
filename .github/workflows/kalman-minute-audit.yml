@@ -2,7 +2,9 @@ name: Kalman Minute Data Audit
 on:
   push:
     branches: [main]
-    paths: ['.github/workflows/kalman-minute-audit.yml']
+    paths:
+      - '.github/workflows/kalman-minute-audit.yml'
+      - 'research/kalman_triple_barrier/drive_input.py'
   workflow_dispatch:
     inputs:
       file_id:
@@ -52,6 +54,10 @@ jobs:
         run: |
           python research/kalman_triple_barrier/minute_adapter.py --input /tmp/kalman_sample.parquet --symbol "$SYMBOL" --out /tmp/kalman_1min.csv
           python research/kalman_triple_barrier/staggered_sweep.py --bars /tmp/kalman_1min.csv --out outputs/minute_audit --horizons 5,10,20,40,60,100
+      - name: Save successful audit state
+        if: success()
+        run: |
+          python -c 'import json,pathlib; p=pathlib.Path("outputs/minute_audit/status.json"); d=json.loads(p.read_text()); d["status"]="RESULTS_GENERATED"; p.write_text(json.dumps(d))'
       - name: Preserve failure category without private input data
         if: failure()
         run: |
