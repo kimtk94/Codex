@@ -1,0 +1,29 @@
+name: BI Mail Review Sync
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run, no changes"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "*/30 * * * *"
+permissions:
+  contents: read
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install google-api-python-client google-auth
+      - name: Sync reviewer exclusions and new mail
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: python automation/css/bi_mail_review_sync.py
