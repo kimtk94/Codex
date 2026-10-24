@@ -36,7 +36,9 @@ def convert(df, symbol=None):
     intervals={}
     for sym,g in df.groupby('symbol'):
         dif=g.timestamp.diff().dt.total_seconds().dropna()
-        intervals[sym]={'rows':len(g),'one_minute_edges':int((dif==60).sum()),'edges':len(dif),
+        intervals[sym]={'rows':len(g),'start_utc':str(g.timestamp.min()),'end_utc':str(g.timestamp.max()),
+           'median_interval_seconds':float(dif.median()) if len(dif) else None,
+           'gaps_over_60_seconds':int((dif>60).sum()),'one_minute_edges':int((dif==60).sum()),'edges':len(dif),
            'one_minute_fraction':round(float((dif==60).mean()),5) if len(dif) else 0.0}
     if not any(x['one_minute_edges']>=2 for x in intervals.values()):
         raise ValueError('NOT_1MIN: no verified consecutive 1-minute bars')
@@ -48,7 +50,8 @@ def main():
     p.add_argument('--out',required=True)
     args=p.parse_args()
     inp=Path(args.input)
-    df=pd.read_parquet(inp) if inp.suffix.lower() in ('.parquet','.pq') else pd.read_csv(inp)
+    is_parquet=inp.suffix.lower() in ('.parquet','.pq') or inp.name.lower().endswith(('.parquet.bin','.pq.bin'))
+    df=pd.read_parquet(inp) if is_parquet else pd.read_csv(inp)
     converted,profile=convert(df,args.symbol)
     dst=Path(args.out);dst.parent.mkdir(parents=True,exist_ok=True)
     converted.to_csv(dst,index=False)
