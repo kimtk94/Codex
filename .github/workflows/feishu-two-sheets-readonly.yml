@@ -1,5 +1,9 @@
 name: Feishu Two Sheets Readonly
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/feishu-two-sheets-readonly.yml"
   workflow_dispatch:
   schedule:
     - cron: "12,42 * * * *"
