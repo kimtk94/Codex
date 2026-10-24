@@ -28,8 +28,25 @@ def request(path, token=None, body=None):
         with urllib.request.urlopen(req, timeout=25) as response:
             result = json.load(response)
     except urllib.error.HTTPError as exc:
-        # Never echo the raw Feishu response, credentials, or cell contents.
-        raise RuntimeError("HTTP_STATUS_" + str(exc.code)) from None
+        # Surface only numeric Feishu error code and vetted scope identifiers.
+        # Never echo the raw response, credentials, or cell contents.
+        try:
+            error_response = json.loads(exc.read().decode("utf-8"))
+            code = error_response.get("code", "UNKNOWN")
+            if not isinstance(code, int):
+                code = "UNKNOWN"
+            violations = (error_response.get("error") or {}).get("permission_violations") or []
+            scopes = sorted({
+                entry["subject"] for entry in violations
+                if isinstance(entry, dict) and isinstance(entry.get("subject"), str)
+                and len(entry["subject"]) <= 100
+                and all(ch.isalnum() or ch in ":._-" for ch in entry["subject"])
+            })
+            if scopes:
+                print("MISSING_API_SCOPES=" + json.dumps(scopes), flush=True)
+        except (ValueError, UnicodeError, AttributeError, TypeError):
+            code = "UNPARSEABLE"
+        raise RuntimeError("HTTP_STATUS_" + str(exc.code) + "_FEISHU_CODE_" + str(code)) from None
     if not isinstance(result, dict) or result.get("code") != 0:
         code = result.get("code") if isinstance(result, dict) else "INVALID_RESPONSE"
         raise RuntimeError("FEISHU_CODE_" + str(code))
