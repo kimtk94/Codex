@@ -5,6 +5,7 @@ on:
     paths:
       - 'automation/css_mail/qq_historical_invoice_backfill.py'
       - '.github/workflows/qq-backfill-offline-tests.yml'
+      - 'automation/css_mail/test_qq_uidvalidity.py'
   push:
     branches: [main]
     paths:
@@ -23,6 +24,10 @@ jobs:
           python-version: '3.11'
       - name: Compile QQ backfill and invoice parser
         run: python3 -m py_compile automation/css_mail/qq_historical_invoice_backfill.py automation/css_mail/tax_invoice_extract.py
+      - name: Test IMAP UIDVALIDITY fallback
+        run: |
+          python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+          python3 automation/css_mail/test_qq_uidvalidity.py
       - name: Check cursor status and fail-closed safety invariants
         run: |
           python3 - <<'PY'
