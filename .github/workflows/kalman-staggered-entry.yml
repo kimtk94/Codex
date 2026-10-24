@@ -4,11 +4,15 @@ on:
     paths:
       - "research/kalman_triple_barrier/staggered_sweep.py"
       - "research/kalman_triple_barrier/test_staggered_sweep.py"
+      - "research/kalman_triple_barrier/minute_adapter.py"
+      - "research/kalman_triple_barrier/test_minute_adapter.py"
       - ".github/workflows/kalman-staggered-entry.yml"
   pull_request:
     paths:
       - "research/kalman_triple_barrier/staggered_sweep.py"
       - "research/kalman_triple_barrier/test_staggered_sweep.py"
+      - "research/kalman_triple_barrier/minute_adapter.py"
+      - "research/kalman_triple_barrier/test_minute_adapter.py"
       - ".github/workflows/kalman-staggered-entry.yml"
   workflow_dispatch:
     inputs:
@@ -31,7 +35,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install pandas numpy pytest
-      - run: pytest -q research/kalman_triple_barrier/test_staggered_sweep.py
+      - run: pytest -q research/kalman_triple_barrier/test_staggered_sweep.py research/kalman_triple_barrier/test_minute_adapter.py
   backtest:
     if: github.event_name == 'workflow_dispatch'
     needs: test
