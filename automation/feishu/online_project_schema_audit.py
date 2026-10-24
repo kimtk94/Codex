@@ -30,7 +30,7 @@ def main():
         print("FIELD_SCHEMA:",json.dumps({"name":name,"type":f.get("type")},ensure_ascii=False))
     for f in fields:
         name=str(f.get("field_name",""))
-        if not re.search(r"status|stage|progress|step|workflow|process|状态|进度|단계|진행",name,re.I):
+        if name != "Project Status":
             continue
         values=collections.Counter()
         for rec in records:
