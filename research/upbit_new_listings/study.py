@@ -137,6 +137,12 @@ def main():
                     if r:stats.append({"lag_bars":lag,"tp":tp,"sl":sl,"split":split,"n":len(r),
                         "mean_net_pct":round(sum(r)/len(r),5),"win_pct":round(100*sum(x>0 for x in r)/len(r),3)})
     write_csv(out/"strategy_summary.csv",stats,["lag_bars","tp","sl","split","n","mean_net_pct","win_pct"])
+    fixed=[x for x in stats if x["lag_bars"]==4 and x["tp"]==.10 and x["sl"]==.03]
+    (out/"fixed_60m_tp10_sl3.json").write_text(json.dumps({
+        "policy":"60m after listing, +10% TP, -3% SL, 7d maximum",
+        "train":next((x for x in fixed if x["split"]=="train"),None),
+        "test":next((x for x in fixed if x["split"]=="test"),None)
+    },indent=2))
     eligible=[x for x in stats if x["split"]=="train" and x["n"]>=10]
     best=max(eligible,key=lambda x:x["mean_net_pct"]) if eligible else None
     test=next((x for x in stats if best and x["split"]=="test" and
