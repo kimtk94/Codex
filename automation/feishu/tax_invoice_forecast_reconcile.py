@@ -12,6 +12,8 @@ INVOICE_TAB = "Revenue Invoice Base"
 FORECAST_TAB = "Feishu Project TAT Forecast"
 OUTPUT_TAB = "BI Revenue Actual Forecast"
 REVIEW_TAB = "BI Revenue Duplicate Review"
+CONTROL_TAB = "BI Project Month Control"
+CONTROL_HEADER = ["Sub-Project Number","Contract Number","Staging Number","Manual Completion Month (YYYY-MM)","Project Status","Default Completion Month","Applied Completion Month","Category","Planned KRW","Invoice Decision","Updated KST"]
 SOURCE_RANGE = {
     INVOICE_TAB: "A1:M1800",
     FORECAST_TAB: "A1:S2000",
@@ -73,7 +75,27 @@ def resolution(project,invoices_by_h):
     # Historic invoices might relate to earlier stage, e.g., F001 vs F002/F005.
     return "REVIEW_PARTIAL_OR_PRIOR_STAGE",exact,False
 
-def reconcile_rows(invoice_rows,project_rows,snapshot):
+def month_overrides(control_rows):
+    if not control_rows:return {}
+    header=control_rows[0]
+    if "Sub-Project Number" not in header or "Manual Completion Month (YYYY-MM)" not in header:
+        raise RuntimeError("CONTROL_SCHEMA_INVALID")
+    i=header.index("Sub-Project Number")
+    j=header.index("Manual Completion Month (YYYY-MM)")
+    result={}
+    for row in control_rows[1:]:
+        key=norm_id(row[i]) if len(row)>i else ""
+        month=str(row[j]).strip() if len(row)>j else ""
+        if not key:continue
+        if key in result:raise RuntimeError("CONTROL_DUPLICATE_PROJECT")
+        if month and not re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])",month):
+            raise RuntimeError("CONTROL_MONTH_INVALID")
+        result[key]=month
+    return result
+
+def reconcile_rows(invoice_rows,project_rows,snapshot,overrides=None,with_control=False):
+    overrides=overrides or {}
+    controls=[CONTROL_HEADER]
     invoices=objects(invoice_rows,["Invoice No","Year-Month","Revenue KRW (Tax Invoice)","AMEA ID","H Project ID"])
     projects=objects(project_rows,["Contract Number","Contract Name","Sub-Project Number",
         "Staging Number","Forecast Completion Month","Forecast Category","Projected KRW @1500"])
@@ -108,13 +130,19 @@ def reconcile_rows(invoice_rows,project_rows,snapshot):
                      norm_id(project.get("Sub-Project Number")))
         if project_key in seen_project:raise RuntimeError("DUPLICATED_PROJECT_KEY")
         seen_project.add(project_key)
-        month=str(project.get("Forecast Completion Month") or "")[:7]
-        category=str(project.get("Forecast Category") or "")
+        default_month=str(project.get("Forecast Completion Month") or "")[:7]
+        override=overrides.get(norm_id(project.get("Sub-Project Number")),"")
+        month=override or default_month
+        category="FORECAST" if override else str(project.get("Forecast Category") or "")
         planned=money(project.get("Projected KRW @1500"))
         decision,candidates,dedup=resolution(project,invoice_by_h)
         if candidates and project_h_counts[project_key[0]]>1:
             decision="REVIEW_MULTIPLE_STAGING";dedup=False
         decision_counts[decision]+=1
+        controls.append([project.get("Sub-Project Number",""),project.get("Contract Number",""),
+            project.get("Staging Number",""),override,project.get("Project Status",""),
+            default_month,month,category,project.get("Projected KRW @1500",""),
+            decision,snapshot])
         if category not in ("FORECAST","COMPLETED"):
             # No projected value for excluded/pending source records.
             continue
@@ -150,19 +178,23 @@ def reconcile_rows(invoice_rows,project_rows,snapshot):
             forecast,round(forecast/FX/1000,3),
             actual+forecast,round((actual+forecast)/FX/1000,3),
             v["invoices"],v["forecast_projects"],v["dedup"],v["review"],snapshot])
-    return monthly,reviews,decision_counts
+    return (monthly,reviews,decision_counts,controls) if with_control else (monthly,reviews,decision_counts)
 
 def publish(session):
     snapshot=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     invoices=read(session,INVOICE_TAB)
     forecast=read(session,FORECAST_TAB)
-    monthly,reviews,counts=reconcile_rows(invoices,forecast,snapshot)
+    sheet(session,CONTROL_TAB)
+    control_address=urllib.parse.quote("'"+CONTROL_TAB+"'!A1:K2000",safe="")
+    prior=api(session,"GET","/values/"+control_address).get("values",[])
+    overrides=month_overrides(prior)
+    monthly,reviews,counts,control=reconcile_rows(invoices,forecast,snapshot,overrides,with_control=True)
     sheet(session,OUTPUT_TAB);sheet(session,REVIEW_TAB)
     meta=api(session,"GET","?fields=sheets.properties")
     requests=[]
     for x in meta.get("sheets",[]):
         p=x.get("properties") or {}
-        desired=14 if p.get("title") in (OUTPUT_TAB,REVIEW_TAB) else None
+        desired=14 if p.get("title") in (OUTPUT_TAB,REVIEW_TAB,CONTROL_TAB) else None
         if desired and (p.get("gridProperties") or {}).get("columnCount",0)<desired:
             requests.append({"updateSheetProperties":{"properties":{"sheetId":p["sheetId"],
                 "gridProperties":{"columnCount":desired}},"fields":"gridProperties.columnCount"}})
@@ -173,6 +205,10 @@ def publish(session):
         api(session,"POST","/values/"+span+":clear",json={})
     values(session,OUTPUT_TAB,"A1",monthly)
     values(session,REVIEW_TAB,"A1",reviews)
+    # Read old overrides before rewriting the generated control view.
+    api(session,"POST","/values/"+control_address+":clear",json={})
+    values(session,CONTROL_TAB,"A1",control)
+    print("MANUAL_MONTH_OVERRIDES:",sum(bool(x) for x in overrides.values()))
     print("INVOICE_FORECAST_RECONCILIATION_PASS months="+str(len(monthly)-1)+
           " review_rows="+str(len(reviews)-1)+
           " dedup="+str(counts["DEDUPE_ISSUED_COMPLETED"]))
