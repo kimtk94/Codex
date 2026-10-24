@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 INV = re.compile(r"(?<!\d)\d{12}(?!\d)")
 AMEA = re.compile(r"AMEA\d{8,}(?:-\d{1,3})?", re.I)
 H_ID = re.compile(r"H209SC\d{6,}", re.I)
-AMOUNT = re.compile(r"KRW\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?![0-9.])", re.I)
+AMOUNT = re.compile(r"KRW\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?=\.pdf$)", re.I)
 
 def corroborated_filename(filename, subject):
     filename = str(filename or "")
