@@ -47,8 +47,10 @@ HEAD = ["Snapshot KST","Sub-Project Number","Contract Number","Contract Name",
         "Forecast Completion Month","Forecast Category","Source Planned Settled Month",
         "Source Planned USD Excl Tax","Projected KRW @1500","Projected K USD",
         "Difference vs Source Month","Next Action"]
-SUMHEAD = ["Completion Month","Expected Projects","Projected KRW @1500","Projected K USD",
-           "Source TAT Count","Stage Estimate Count","Completed Count"]
+SUMHEAD = ["Completion Month","Total Projects","Total KRW @1500","Total K USD",
+           "Source TAT Count","Stage Estimate Count","Completed-status Count",
+           "Completed-status Projects","Forecast Projects","Completed-status KRW @1500",
+           "Forecast KRW @1500","Completed-status K USD","Forecast K USD"]
 FX=1500.0
 
 def textval(x):
@@ -115,7 +117,7 @@ def main():
     ids=[x.get("record_id") for x in records]
     if not all(ids) or len(ids)!=len(set(ids)):raise RuntimeError("RECORD_ID_INTEGRITY")
     output=[HEAD]
-    monthly=collections.defaultdict(lambda:{"n":0,"usd":0.0,"source":0,"stage":0,"done":0})
+    monthly=collections.defaultdict(lambda:{"n":0,"usd":0.0,"source":0,"stage":0,"done":0,"done_usd":0.0,"forecast_usd":0.0})
     categories=collections.Counter()
     for record in records:
         fields=record.get("fields") or {}
@@ -144,18 +146,23 @@ def main():
             item["source"]+=basis=="SOURCE_REMAINING_TAT"
             item["stage"]+=basis=="STAGE_ESTIMATE"
             item["done"]+=category=="COMPLETED"
+            if category=="COMPLETED":item["done_usd"]+=usd_amount or 0
+            else:item["forecast_usd"]+=usd_amount or 0
     sums=[SUMHEAD]
     for month,v in sorted(monthly.items()):
         sums.append([month,v["n"],round(v["usd"]*FX),round(v["usd"]/1000,3),
-                     v["source"],v["stage"],v["done"]])
+                     v["source"],v["stage"],v["done"],v["done"],v["n"]-v["done"],
+                     round(v["done_usd"]*FX),round(v["forecast_usd"]*FX),
+                     round(v["done_usd"]/1000,3),round(v["forecast_usd"]/1000,3)])
     session=google()
     sheet(session,DEST);sheet(session,SUMMARY)
     meta=api(session,"GET","?fields=sheets.properties")
     resize=[]
     for tab in meta.get("sheets",[]):
         props=tab.get("properties") or {}
-        if props.get("title")==DEST and (props.get("gridProperties") or {}).get("columnCount",0)<19:
-            resize.append({"updateSheetProperties":{"properties":{"sheetId":props["sheetId"],"gridProperties":{"columnCount":20}},"fields":"gridProperties.columnCount"}})
+        needed=20 if props.get("title")==DEST else 14 if props.get("title")==SUMMARY else None
+        if needed and (props.get("gridProperties") or {}).get("columnCount",0)<needed:
+            resize.append({"updateSheetProperties":{"properties":{"sheetId":props["sheetId"],"gridProperties":{"columnCount":needed}},"fields":"gridProperties.columnCount"}})
     if resize:api(session,"POST",":batchUpdate",json={"requests":resize})
     # Replace generated destination tabs only; other source/history tabs remain untouched.
     for title in (DEST,SUMMARY):
