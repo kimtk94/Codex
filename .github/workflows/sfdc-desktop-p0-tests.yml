@@ -1,0 +1,27 @@
+name: Salesforce Desktop RPA P0 tests
+
+on:
+  pull_request:
+    paths:
+      - 'automation/sfdc_desktop/**'
+      - '.github/workflows/sfdc-desktop-p0-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install offline test dependency
+        run: python -m pip install "playwright>=1.50,<2"
+      - name: Compile worker and tests
+        run: python -m py_compile automation/sfdc_desktop/runner.py automation/sfdc_desktop/test_runner.py
+      - name: Test safety contracts without Salesforce access
+        run: python -m unittest discover -s automation/sfdc_desktop -p 'test_*.py' -v
