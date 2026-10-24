@@ -1,0 +1,31 @@
+name: Feishu Base Three Tables Readonly
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/feishu-base-three-tables.yml"
+      - "automation/feishu/base_three_tables_readonly.py"
+  schedule:
+    - cron: "17,47 * * * *"
+permissions:
+  contents: read
+concurrency:
+  group: feishu-base-three-tables-readonly
+  cancel-in-progress: false
+jobs:
+  read:
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Read three Base tables (no data export)
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+        run: python3 automation/feishu/base_three_tables_readonly.py
