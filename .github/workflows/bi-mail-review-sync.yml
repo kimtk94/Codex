@@ -29,6 +29,23 @@ jobs:
           python-version: '3.11'
       - run: pip install google-api-python-client google-auth
       - run: python -m unittest discover -s automation/css -p 'test_bi_mail_review_sync.py' -v
+  sheets_auth_probe:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install google-api-python-client google-auth
+      - name: Read-only service account access probe
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+          DRY_RUN: 'true'
+        run: python automation/css/bi_mail_review_sync.py
   sync:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
