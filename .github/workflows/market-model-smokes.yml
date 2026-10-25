@@ -1,0 +1,47 @@
+name: Kalman VectorBT and Qlib Isolated Smokes
+on:
+  pull_request:
+    paths:
+      - 'research/market_tool_lab/vectorbt_smoke.py'
+      - 'research/market_tool_lab/qlib_smoke.py'
+      - '.github/workflows/market-model-smokes.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  vectorbt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'vectorbt>=0.28,<0.29'
+      - run: python research/market_tool_lab/vectorbt_smoke.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vectorbt-smoke
+          path: artifacts/market-tool-lab/vectorbt_smoke.json
+          if-no-files-found: warn
+  qlib:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install pyqlib
+      - run: python research/market_tool_lab/qlib_smoke.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qlib-smoke
+          path: artifacts/market-tool-lab/qlib_smoke.json
+          if-no-files-found: warn
