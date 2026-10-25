@@ -38,21 +38,21 @@ jobs:
       - name: Verify live source access and capacity (no writes)
         if: ${{ github.event_name != 'pull_request' }}
         env:
-          NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.NBA_GOOGLE_SERVICE_ACCOUNT_JSON }}
+          NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           NBA_DRY_RUN: 'true'
         run: |
           python automation/css/nba_refresh_pool.py
       - name: Update Pool only after successful validation
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_pool }}
         env:
-          NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.NBA_GOOGLE_SERVICE_ACCOUNT_JSON }}
+          NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           NBA_DRY_RUN: 'false'
         run: |
           python automation/css/nba_refresh_pool.py
       - name: Append new checkbox IDs
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_pool }}
         env:
-          NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.NBA_GOOGLE_SERVICE_ACCOUNT_JSON }}
+          NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           NBA_DRY_RUN: 'false'
         run: |
           python automation/css/nba_sync_checkbox_ids.py
