@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install 'vectorbt>=0.28,<0.29'
+      - run: python -m pip install 'vectorbt>=0.28,<0.29' 'plotly>=5,<6'
       - run: python research/market_tool_lab/vectorbt_smoke.py
       - if: always()
         uses: actions/upload-artifact@v4
