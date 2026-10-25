@@ -63,15 +63,16 @@ def sync(api, dry_run=True):
     if dry_run:
         print(f"NBA_POOL_DRY_RUN={len(rows)} GRID={grid}")
         return len(rows)
-    # Never touch O:P (completion and rank formulas), nor checkbox ledger.
-    api.values().clear(spreadsheetId=BOOK, range="'NBA Action Pool'!A2:N"+str(grid), body={}).execute()
-    chunk = 250
-    for offset in range(0, len(rows), chunk):
-        start = offset + 2
-        values = rows[offset:offset+chunk]
-        api.values().update(spreadsheetId=BOOK,
-                            range=f"'NBA Action Pool'!A{start}:N{start+len(values)-1}",
-                            valueInputOption="RAW", body={"values":values}).execute()
+    # One values batch update: never clear the active pool before its replacement is ready.
+    # Blank stale A:N tail in the same request; leave O:P and checkbox ledger untouched.
+    replacement = rows + [[""] * len(FIELDS) for _ in range(grid - 1 - len(rows))]
+    api.values().batchUpdate(
+        spreadsheetId=BOOK,
+        body={"valueInputOption":"RAW","data":[{
+            "range":f"'NBA Action Pool'!A2:N{grid}",
+            "values":replacement,
+        }]},
+    ).execute()
     print(f"NBA_POOL_UPDATED={len(rows)} DECISIONS_UNCHANGED=true")
     return len(rows)
 
