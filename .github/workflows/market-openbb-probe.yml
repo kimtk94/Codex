@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'research/market_tool_lab/openbb_probe.py'
+      - 'research/market_tool_lab/openbb_intraday_probe.py'
       - '.github/workflows/market-openbb-probe.yml'
 permissions:
   contents: read
@@ -22,6 +23,16 @@ jobs:
         run: python3 -m pip install 'openbb-core>=2,<3' openbb-cboe
       - name: Fetch read-only delayed equity history
         run: python3 research/market_tool_lab/openbb_probe.py
+      - name: Probe Cboe intraday capability and coverage
+        run: python3 research/market_tool_lab/openbb_intraday_probe.py
+      - name: Save intraday evidence even on provider failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-openbb-intraday-probe
+          path: artifacts/market-tool-lab/openbb-intraday/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Save evidence even on provider failure
         if: always()
         uses: actions/upload-artifact@v4
