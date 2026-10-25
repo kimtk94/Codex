@@ -46,9 +46,10 @@ def evaluate(df,horizon,spacing,legs,capital=1000000.,allocation=.3,tp=.03,sl=.0
                 equity_points.append((str(bar.timestamp),eq))
     return {'status':'RESEARCH_ONLY_NO_KALMAN_SIGNALS','initial_capital':capital,'final_equity':round(cash,4),
             'return_pct':round(100*(cash/capital-1),5),'intrabar_marked_mdd_pct':round(worst_dd,5),
-            'max_marked_exposure_pct':round(max_exposure*100,4),'nonoverlap_windows':trades,
+            'max_marked_exposure_pct':round(max_exposure*100,4),'initial_capital_entry_budget_pct':round(allocation*100,4),
+            'exposure_budget_is_dynamic_cap':False,'nonoverlap_windows':trades,
             'leg_fills':fills,'equity_points':len(equity_points),
-            'limitations':'Single-symbol, chronological windows; no live entry signals, overnight carry, slippage, corporate action adjustment, or cross-asset constraints.'}
+            'limitations':'Single-symbol, chronological windows; no live entry signals, overnight carry, slippage, corporate action adjustment, or cross-asset constraints. Allocation is based on initial capital: marked exposure can exceed allocation percentage after equity declines or prices rise.'}
 
 def main():
     p=argparse.ArgumentParser()
