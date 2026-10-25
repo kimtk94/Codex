@@ -20,7 +20,7 @@ SIGNALS = {
     "harness": ("harness",),
     "ci": (".github/workflows/",),
 }
-SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next"}
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", "tool_adoption"}
 MAX_FILE_SIZE = 1024 * 1024
 TEXT_EXTS = {".py", ".yml", ".yaml", ".toml", ".json", ".md", ".sh", ".txt", ".ini", ".cfg"}
 EVIDENCE_LIMIT = 15
@@ -50,7 +50,7 @@ def inventory(root: Path):
                 continue
             scanned += 1
             content = ""
-            if path.suffix.lower() in TEXT_EXTS or filename in {"Dockerfile", "Makefile"}:
+            if (path.suffix.lower() in TEXT_EXTS or filename in {"Dockerfile", "Makefile"}) and not lower_rel.endswith("vercel_manifest.json"):
                 try:
                     content = path.read_text(encoding="utf-8", errors="replace").lower()
                 except OSError:
@@ -65,7 +65,7 @@ def inventory(root: Path):
         "files_scanned": scanned,
         "large_files_skipped": skipped_large,
         "signals": {name: {"evidence": evidence, "detected": bool(evidence)} for name, evidence in found.items()},
-        "interpretation": "Static text/path hints only. No match does not prove absence; a match does not prove installation or operational use.",
+        "interpretation": "Static text/path hints only; audit source directory and generated Vercel manifests excluded to reduce self-matches. No match does not prove absence; a match does not prove installation or operational use.",
     }
 
 
