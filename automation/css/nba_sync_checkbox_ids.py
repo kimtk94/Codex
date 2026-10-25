@@ -7,7 +7,7 @@ Runs after an upstream ETL refreshes 'NBA Action Pool' (if any).
 import os
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
-from bi_mail_review_sync import auth
+from nba_google_auth import auth
 from nba_register_new_ids import record_key
 
 BOOK = os.getenv("NBA_SHEET_ID", "1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI")
