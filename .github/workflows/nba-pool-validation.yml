@@ -6,9 +6,6 @@ on:
       - 'automation/css/test_nba_refresh_pool.py'
       - 'automation/css/test_nba_refresh_pool_safety.py'
       - '.github/workflows/nba-pool-validation.yml'
-  schedule:
-    # Audit the live source snapshot at 08:00, 12:00, 17:00 KST (dry-run only)
-    - cron: '0 23,3,8 * * *'
   workflow_dispatch:
 
 permissions:

@@ -1,8 +1,5 @@
 name: NBA New ID Sync
 on:
-  schedule:
-    # 08:00, 12:00, 17:00 Asia/Seoul (UTC+9)
-    - cron: '0 23,3,8 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
