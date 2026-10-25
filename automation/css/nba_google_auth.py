@@ -8,7 +8,7 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 def auth():
-    raw = os.getenv("NBA_GOOGLE_SERVICE_ACCOUNT_JSON") or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    raw = os.getenv("NBA_GOOGLE_SERVICE_ACCOUNT_JSON")
     if not raw:
         raise RuntimeError("NBA sales Sheets credential missing: configure NBA_GOOGLE_SERVICE_ACCOUNT_JSON")
     try:
