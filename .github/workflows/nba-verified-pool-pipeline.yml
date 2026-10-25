@@ -36,6 +36,7 @@ jobs:
           cd automation/css
           python -m unittest -v test_nba_refresh_pool test_nba_refresh_pool_safety test_nba_register_new_ids test_nba_preserve_decisions
       - name: Verify live source access and capacity (no writes)
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
