@@ -46,6 +46,23 @@ jobs:
         run: |
           python research/kalman_triple_barrier/nonoverlap_diagnostic.py --bars /tmp/minute_input.csv --out outputs/multisymbol
           python research/kalman_triple_barrier/cash_ledger.py --bars /tmp/minute_input.csv --out outputs/multisymbol
+      - name: Record unavailable source without misreporting research performance
+        if: failure()
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('outputs/multisymbol/status.json')
+          p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text(json.dumps({'status':'FAILED','reason':'CHECK_PRIVATE_SOURCE_ACCESS_OR_STEP_LOG','live_policy_modified':False}))
+          PY
+      - name: Record completed diagnostic
+        if: success()
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('outputs/multisymbol/status.json')
+          p.write_text(json.dumps({'status':'COMPLETE','live_policy_modified':False}))
+          PY
       - name: Remove raw data
         if: always()
         run: rm -f /tmp/minute_input.csv /tmp/minute_input.parquet /tmp/minute_input.profile.json
