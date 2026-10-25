@@ -12,6 +12,8 @@ on:
       - '.github/workflows/css-next-best-action-ci.yml'
       - 'automation/css/nba_preserve_decisions.py'
       - 'automation/css/test_nba_preserve_decisions.py'
+      - 'automation/css/nba_register_new_ids.py'
+      - 'automation/css/test_nba_register_new_ids.py'
   workflow_dispatch:
 
 permissions:
@@ -29,8 +31,8 @@ jobs:
           python-version: '3.11'
       - name: Compile modules
         run: |
-          python -m py_compile automation/css/next_best_action_leads.py automation/css/today_action_top10.py automation/css/today_action_v2.py automation/css/nba_preserve_decisions.py
+          python -m py_compile automation/css/next_best_action_leads.py automation/css/today_action_top10.py automation/css/today_action_v2.py automation/css/nba_preserve_decisions.py automation/css/nba_register_new_ids.py
       - name: Run isolated tests
         run: |
           cd automation/css
-          python -m unittest -v test_next_best_action_leads test_today_action_top10 test_today_action_v2 test_nba_preserve_decisions
+          python -m unittest -v test_next_best_action_leads test_today_action_top10 test_today_action_v2 test_nba_preserve_decisions test_nba_register_new_ids
