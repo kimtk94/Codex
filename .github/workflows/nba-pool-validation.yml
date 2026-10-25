@@ -4,6 +4,7 @@ on:
     paths:
       - 'automation/css/nba_refresh_pool.py'
       - 'automation/css/test_nba_refresh_pool.py'
+      - 'automation/css/test_nba_refresh_pool_safety.py'
       - '.github/workflows/nba-pool-validation.yml'
   workflow_dispatch:
 
@@ -24,7 +25,7 @@ jobs:
       - name: Run tests
         run: |
           cd automation/css
-          python -m unittest -v test_nba_refresh_pool test_nba_register_new_ids test_nba_preserve_decisions
+          python -m unittest -v test_nba_refresh_pool test_nba_refresh_pool_safety test_nba_register_new_ids test_nba_preserve_decisions
   sheets-dry-run:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
