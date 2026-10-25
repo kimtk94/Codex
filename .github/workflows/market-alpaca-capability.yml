@@ -1,0 +1,32 @@
+name: Kalman Alpaca Historical Capability Probe
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'research/market_tool_lab/alpaca_capability.py'
+      - '.github/workflows/market-alpaca-capability.yml'
+permissions:
+  contents: read
+jobs:
+  capability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Query selected historical windows (no orders)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        run: python3 research/market_tool_lab/alpaca_capability.py
+      - name: Upload metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-alpaca-capability
+          path: artifacts/market-tool-lab/alpaca-capability.json
+          retention-days: 7
