@@ -74,7 +74,18 @@ def assemble(css,leads,mail,quotes,today,limit=10):
     for r in candidates:
         key=(r["Source"].upper(),r["Record ID"].upper())
         if key not in unique or r["Score"]>unique[key]["Score"]: unique[key]=r
-    output=sorted(unique.values(),key=lambda r:(-r["Score"],r["Source"],r["Record ID"]))[:limit]
+    ranked=sorted(unique.values(),key=lambda r:(-r["Score"],r["Source"],r["Record ID"]))
+    caps={"SFDC":3,"CSS":3,"LEAD":2,"QQ_MAIL":2,"SFDC_QUOTE":2}
+    counts={}
+    output=[]
+    for row in ranked:
+        source=row["Source"].upper()
+        if counts.get(source,0)>=caps.get(source,2):
+            continue
+        output.append(row)
+        counts[source]=counts.get(source,0)+1
+        if len(output)>=limit:
+            break
     for idx,r in enumerate(output,1):r["Rank"]=idx
     return output,len(unique)
 
