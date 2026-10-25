@@ -31,7 +31,9 @@ def mail_rows(rows):
         if queue in MONITOR or queue.startswith("MONITOR_"): continue
         try: days=int(float(clean(r.get("Aging Days"))))
         except (ValueError,TypeError): days=-1
-        # Older threads remain available in the 60-day review ledger, but\n        # are not actionable in the current 2-30 day Action Center.\n        if days < 2 or days > 30: continue
+        # Older threads remain available in the 60-day review ledger, but
+        # are not actionable in the current 2-30 day Action Center.
+        if days < 2 or days > 30: continue
         evidence=clean(r.get("Reply Evidence") or r.get("reply_status"))
         # Not every reply_status is proof. Only explicit sent evidence suppresses.
         if evidence.upper() in {"SENT_CONFIRMED","REPLIED","ANSWERED","REPLY_SENT","DONE","PC_REPLIED","TS_REPLIED","DELEGATE_REPLIED"}: continue
