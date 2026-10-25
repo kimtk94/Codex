@@ -5,6 +5,7 @@ on:
     paths:
       - 'research/market_tool_lab/openbb_probe.py'
       - 'research/market_tool_lab/openbb_intraday_probe.py'
+      - 'research/market_tool_lab/clean_aggregate_intraday.py'
       - '.github/workflows/market-openbb-probe.yml'
 permissions:
   contents: read
@@ -25,6 +26,15 @@ jobs:
         run: python3 research/market_tool_lab/openbb_probe.py
       - name: Probe Cboe intraday capability and coverage
         run: python3 research/market_tool_lab/openbb_intraday_probe.py
+      - name: Reconcile exact duplicates and aggregate complete 15m/60m buckets
+        if: always()
+        run: |
+          python3 -m pip install pandas
+          for symbol in QQQ QLD; do
+            if [ -f "artifacts/market-tool-lab/openbb-intraday/${symbol}_1m.csv" ]; then
+              python3 research/market_tool_lab/clean_aggregate_intraday.py --input "artifacts/market-tool-lab/openbb-intraday/${symbol}_1m.csv" --output artifacts/market-tool-lab/openbb-intraday --symbol "$symbol"
+            fi
+          done
       - name: Save intraday evidence even on provider failure
         if: always()
         uses: actions/upload-artifact@v4
