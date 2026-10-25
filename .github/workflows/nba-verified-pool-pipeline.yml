@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/nba-verified-pool-pipeline.yml'
+      - 'automation/css/nba_mail_evidence_audit.py'
+      - 'automation/css/test_nba_mail_evidence_audit.py'
   schedule:
     - cron: '0 23,3,8 * * *' # 08:00, 12:00, 17:00 KST
   workflow_dispatch:
@@ -35,7 +37,7 @@ jobs:
       - name: Unit tests
         run: |
           cd automation/css
-          python -m unittest -v test_nba_refresh_pool test_nba_refresh_pool_safety test_nba_register_new_ids test_nba_preserve_decisions
+          python -m unittest -v test_nba_refresh_pool test_nba_refresh_pool_safety test_nba_register_new_ids test_nba_preserve_decisions test_nba_mail_evidence_audit
       - name: Verify live source access and capacity (no writes)
         if: ${{ github.event_name != 'pull_request' }}
         env:
@@ -43,6 +45,12 @@ jobs:
           NBA_DRY_RUN: 'true'
         run: |
           python automation/css/nba_refresh_pool.py
+      - name: Audit QQ reply evidence (read only)
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: |
+          python automation/css/nba_mail_evidence_audit.py
       - name: Update Pool only after successful validation
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply_pool) }}
         env:
