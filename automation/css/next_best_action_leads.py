@@ -59,6 +59,14 @@ def classify(row, today):
         score += 15
     if not present(row.get("Email")):
         score -= 15
+    # Historical lead inquiries without any recent contact must not crowd out
+    # current customer requests merely because their due date is very old.
+    # Keep them in the review pool as P2 rather than silently deleting them.
+    created = parse_date(row.get("Created Date"))
+    last_contact = parse_date(row.get("Final Contact Date"))
+    most_recent = max((d for d in (due, created, last_contact) if d), default=None)
+    if most_recent is not None and (today - most_recent).days > 90:
+        score = min(score, 39)
     score = max(0, min(100, score))
     return ("P0" if score >= 75 else "P1" if score >= 50 else "P2"), score, (
         "문의내용 기반 고객 회신 확인 및 연락" if has_description else "전달성 Lead: 내용 확인"
