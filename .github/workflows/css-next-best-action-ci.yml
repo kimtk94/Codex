@@ -1,0 +1,40 @@
+name: CSS Next Best Action CI
+
+on:
+  pull_request:
+    paths:
+      - 'automation/css/next_best_action_leads.py'
+      - 'automation/css/today_action_top10.py'
+      - 'automation/css/today_action_v2.py'
+      - 'automation/css/test_next_best_action_leads.py'
+      - 'automation/css/test_today_action_top10.py'
+      - 'automation/css/test_today_action_v2.py'
+      - '.github/workflows/css-next-best-action-ci.yml'
+      - 'automation/css/nba_preserve_decisions.py'
+      - 'automation/css/test_nba_preserve_decisions.py'
+      - 'automation/css/nba_register_new_ids.py'
+      - 'automation/css/test_nba_register_new_ids.py'
+      - 'automation/css/nba_sync_checkbox_ids.py'
+      - '.github/workflows/nba-new-id-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile modules
+        run: |
+          python -m py_compile automation/css/next_best_action_leads.py automation/css/today_action_top10.py automation/css/today_action_v2.py automation/css/nba_preserve_decisions.py automation/css/nba_register_new_ids.py automation/css/nba_sync_checkbox_ids.py
+      - name: Run isolated tests
+        run: |
+          cd automation/css
+          python -m unittest -v test_next_best_action_leads test_today_action_top10 test_today_action_v2 test_nba_preserve_decisions test_nba_register_new_ids

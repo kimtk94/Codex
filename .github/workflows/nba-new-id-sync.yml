@@ -1,0 +1,39 @@
+name: NBA New ID Sync
+on:
+  schedule:
+    # 08:00, 12:00, 17:00 Asia/Seoul (UTC+9)
+    - cron: '0 23,3,8 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Read only (no checkbox IDs appended)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nba-checkbox-id-sync
+  cancel-in-progress: false
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheets client
+        run: |
+          python -m pip install google-api-python-client google-auth
+      - name: Register new IDs without modifying existing checkboxes
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          NBA_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+          NBA_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          python automation/css/nba_sync_checkbox_ids.py
