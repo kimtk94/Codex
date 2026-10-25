@@ -1,5 +1,8 @@
 name: NBA Verified Pool Pipeline
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/nba-verified-pool-pipeline.yml'
   schedule:
     - cron: '10 23,3,8 * * *' # 08:10, 12:10, 17:10 KST
   workflow_dispatch:
