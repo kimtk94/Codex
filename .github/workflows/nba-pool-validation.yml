@@ -6,6 +6,9 @@ on:
       - 'automation/css/test_nba_refresh_pool.py'
       - 'automation/css/test_nba_refresh_pool_safety.py'
       - '.github/workflows/nba-pool-validation.yml'
+  schedule:
+    # Audit the live source snapshot at 08:00, 12:00, 17:00 KST (dry-run only)
+    - cron: '0 23,3,8 * * *'
   workflow_dispatch:
 
 permissions:
@@ -27,7 +30,7 @@ jobs:
           cd automation/css
           python -m unittest -v test_nba_refresh_pool test_nba_refresh_pool_safety test_nba_register_new_ids test_nba_preserve_decisions
   sheets-dry-run:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
