@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Unit tests (no external APIs)
+      - name: Install local Parquet test dependencies\n        run: python3 -m pip install 'pandas>=2,<3' 'pyarrow>=18,<24'\n      - name: Unit tests (no external APIs)
         run: python3 -m unittest discover -s research/market_tool_lab -p 'test_*.py' -v
       - name: Compile
         run: python3 -m py_compile research/market_tool_lab/ohlcv_audit.py
