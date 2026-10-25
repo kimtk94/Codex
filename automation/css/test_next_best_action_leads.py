@@ -32,7 +32,7 @@ class NextBestActionTests(unittest.TestCase):
         self.assertLessEqual(score, 39)
 
     def test_recent_inquiry_remains_high_priority(self):
-        row = {"Created Date":"2026-10-24","Due Date":"2026-10-24",
+        row = {"Created Date":"2026-10-24","Due Date":"2026-10-24","Email":"new@example.org",
                "Description Class":"DESCRIPTION_PRESENT","Description Intent":"SERVICE_INQUIRY"}
         status, score, _ = classify(row, self.TODAY)
         self.assertEqual(status, "P0")
