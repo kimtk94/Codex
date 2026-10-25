@@ -25,16 +25,18 @@ def mail_rows(rows):
         if not uid or yes(r.get("Excluded?") or r.get("exclude")): continue
         if yes(r.get("exclude_sender")) or clean(r.get("Sender Exclusion") or r.get("Mail UID Exclusion")): continue
         action=clean(r.get("Reviewer Mail Action")).upper()
-        if action in DONE or action in {"IGNORE","REMOVE"}: continue
+        if action in DONE or action in {"IGNORE","REMOVE","REPLIED","ANSWERED","REPLY_SENT","SENT_CONFIRMED","DELEGATE_REPLIED"}: continue
         queue=clean(r.get("Effective Queue") or r.get("Triage Priority")).upper()
         if not queue: queue=clean(r.get("review_status")).upper()
         if queue in MONITOR or queue.startswith("MONITOR_"): continue
         try: days=int(float(clean(r.get("Aging Days"))))
         except (ValueError,TypeError): days=-1
-        if days < 2: continue
+        # Older threads remain available in the 60-day review ledger, but
+        # are not actionable in the current 2-30 day Action Center.
+        if days < 2 or days > 30: continue
         evidence=clean(r.get("Reply Evidence") or r.get("reply_status"))
         # Not every reply_status is proof. Only explicit sent evidence suppresses.
-        if evidence.upper() in {"SENT_CONFIRMED","REPLIED","ANSWERED","REPLY_SENT","DONE"}: continue
+        if evidence.upper() in {"SENT_CONFIRMED","REPLIED","ANSWERED","REPLY_SENT","DONE","PC_REPLIED","TS_REPLIED","DELEGATE_REPLIED"}: continue
         score=min(89,65+min(14,days))
         result.append({"Priority":"P1","Score":score,"Source":"QQ_MAIL","Record ID":uid,
           "Institution":"","Customer":clean(r.get("Sender Email") or r.get("from_email")),
