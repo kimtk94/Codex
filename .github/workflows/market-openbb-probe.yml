@@ -22,6 +22,10 @@ jobs:
           python-version: '3.11'
       - name: Install OpenBB V5 keyless provider
         run: python3 -m pip install 'openbb-core>=2,<3' openbb-cboe
+      - name: Verify strict cross-provider parity contract
+        run: |
+          python3 -m pip install pandas pytest
+          python3 -m pytest -q research/market_tool_lab/test_intraday_parity.py
       - name: Fetch read-only delayed equity history
         run: python3 research/market_tool_lab/openbb_probe.py
       - name: Probe Cboe intraday capability and coverage
