@@ -1,0 +1,57 @@
+name: NBA Verified Pool Pipeline
+on:
+  schedule:
+    - cron: '10 23,3,8 * * *' # 08:10, 12:10, 17:10 KST
+  workflow_dispatch:
+    inputs:
+      apply_pool:
+        description: 'After validation, write the Pool and register IDs'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nba-verified-pool-pipeline
+  cancel-in-progress: false
+
+jobs:
+  validate-and-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install google-api-python-client google-auth
+      - name: Unit tests
+        run: |
+          cd automation/css
+          python -m unittest -v test_nba_refresh_pool test_nba_refresh_pool_safety test_nba_register_new_ids test_nba_preserve_decisions
+      - name: Verify live source access and capacity (no writes)
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          NBA_DRY_RUN: 'true'
+        run: |
+          python automation/css/nba_refresh_pool.py
+      - name: Update Pool only after successful validation
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_pool }}
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          NBA_DRY_RUN: 'false'
+        run: |
+          python automation/css/nba_refresh_pool.py
+      - name: Append new checkbox IDs
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_pool }}
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          NBA_DRY_RUN: 'false'
+        run: |
+          python automation/css/nba_sync_checkbox_ids.py
