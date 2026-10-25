@@ -28,6 +28,18 @@ class AuditP0Tests(unittest.TestCase):
             self.assertFalse(result["signals"]["n8n"]["detected"])
             self.assertTrue(result["signals"]["harness"]["detected"])
 
+    def test_ignores_self_references_and_generated_manifests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tool_adoption").mkdir()
+            (root / "tool_adoption" / "scan.py").write_text("superpowers openclaw")
+            (root / "vercel_manifest.json").write_text("n8n ecc")
+            result = inventory(root)
+            self.assertFalse(result["signals"]["superpowers"]["detected"])
+            self.assertFalse(result["signals"]["openclaw"]["detected"])
+            self.assertFalse(result["signals"]["n8n"]["detected"])
+            self.assertFalse(result["signals"]["ecc"]["detected"])
+
     def test_output_is_path_only_no_secret_values(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
