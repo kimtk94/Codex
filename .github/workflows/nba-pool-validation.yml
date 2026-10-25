@@ -41,8 +41,7 @@ jobs:
           python -m pip install google-api-python-client google-auth
       - name: Validate live source data without writes
         env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.NBA_GOOGLE_SERVICE_ACCOUNT_JSON }}
           NBA_DRY_RUN: 'true'
         run: |
           python automation/css/nba_refresh_pool.py

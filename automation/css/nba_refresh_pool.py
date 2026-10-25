@@ -7,7 +7,7 @@ Stops safely before writing if candidate count exceeds pool grid capacity.
 import os
 from datetime import date
 from googleapiclient.discovery import build
-from bi_mail_review_sync import auth
+from nba_google_auth import auth
 from today_action_v2 import mail_rows
 from today_action_top10 import css_rows, lead_rows
 
