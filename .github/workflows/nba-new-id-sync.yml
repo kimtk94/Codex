@@ -31,7 +31,7 @@ jobs:
           python -m pip install google-api-python-client google-auth
       - name: Register new IDs without modifying existing checkboxes
         env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.NBA_GOOGLE_SERVICE_ACCOUNT_JSON }}
+          NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.NBA_GOOGLE_SERVICE_ACCOUNT_JSON }}
           NBA_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
           NBA_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
         run: |
