@@ -24,6 +24,20 @@ class NextBestActionTests(unittest.TestCase):
         _, low, _ = classify({**common, "Description Class": "DESCRIPTION_MISSING"}, self.TODAY)
         self.assertGreater(high, low)
 
+    def test_stale_2025_inquiry_does_not_dominate_today(self):
+        row = {"Created Date":"2025-03-18","Due Date":"2025-03-19",
+               "Description Class":"DESCRIPTION_PRESENT","Description Intent":"SERVICE_INQUIRY"}
+        status, score, _ = classify(row, self.TODAY)
+        self.assertEqual(status, "P2")
+        self.assertLessEqual(score, 39)
+
+    def test_recent_inquiry_remains_high_priority(self):
+        row = {"Created Date":"2026-10-24","Due Date":"2026-10-24","Email":"new@example.org",
+               "Description Class":"DESCRIPTION_PRESENT","Description Intent":"SERVICE_INQUIRY"}
+        status, score, _ = classify(row, self.TODAY)
+        self.assertEqual(status, "P0")
+        self.assertGreaterEqual(score, 75)
+
     def test_overdue_age_is_capped(self):
         common = {"Description Class": "DESCRIPTION_PRESENT"}
         _, old, _ = classify({**common, "Due Date": "2025-01-01"}, self.TODAY)
