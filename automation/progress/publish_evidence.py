@@ -115,6 +115,8 @@ def main():
         "spreadsheet_id": SHEET_ID,
         "target_tab": TAB,
         "verified_cells": readback,
+        "cell_sha256": {cell: hashlib.sha256(value.encode("utf-8")).hexdigest()
+                        for cell, value in edits if cell in readback},
         "verified_cell_count": len(readback),
         "payload_sha256": hashlib.sha256(json.dumps(edits, ensure_ascii=False,
             separators=(",", ":")).encode("utf-8")).hexdigest(),
