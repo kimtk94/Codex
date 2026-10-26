@@ -22,6 +22,11 @@ class MailEvidenceTests(unittest.TestCase):
             {"folder":"INBOX","message_id":"<in-2>","from_email":"other@example.org","recipient_to":"taehoon.kim@novogene.com","in_reply_to":"<out-1>"},
         ]
         self.assertEqual(exact_header_reply_links(rows)["strict_reply_links"],1)
+        duplicated = rows + [dict(rows[1], ingest_key="duplicate-copy")]
+        summary = exact_header_reply_links(duplicated)
+        self.assertEqual(summary["strict_reply_links"],1)
+        self.assertEqual(summary["duplicate_incoming_rows"],1)
+        self.assertEqual(summary["review_required"],1)
 
     def test_sent_and_closed_are_not_reply_proof(self):
         rows=[
