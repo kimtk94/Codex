@@ -32,6 +32,8 @@ jobs:
           fi
       - name: Verify Python syntax
         run: python -m py_compile automation/css/sfdc_email_decision_sync.py automation/css/bi_mail_review_sync.py automation/css/sfdc_email_decision_ack.py
+      - name: Verify access to SFDC and QQ Sheets
+        run: python automation/css/sfdc_sheets_preflight.py
       - name: Validate decisions without writes
         run: |
           python automation/css/sfdc_email_decision_sync.py
