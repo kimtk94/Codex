@@ -18,5 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install test import dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Run read-only invoice forecast regression tests
         run: python3 -m unittest discover -s automation/feishu -p "test_tax_invoice_forecast_reconcile.py" -v
