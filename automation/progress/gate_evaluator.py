@@ -28,8 +28,11 @@ def evaluate(manifest, signed_records):
 
 def main():
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    # No signed acceptance ledger has been authorized yet. Candidate PRs are deliberately excluded.
-    verdicts = evaluate(manifest, {})
+    from acceptance_registry import REGISTRY, verify
+    from tracker import tasks, MASTER
+    registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    task_ids = {t["id"] for t in tasks(Path(MASTER).read_text(encoding="utf-8"))}
+    verdicts = verify(registry, manifest, task_ids)
     folder = Path("progress-audit")
     folder.mkdir(exist_ok=True)
     (folder/"gate-summary.json").write_text(json.dumps(verdicts,indent=2),encoding="utf-8")
