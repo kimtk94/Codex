@@ -26,6 +26,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
+    environment: TaehoonServer
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
