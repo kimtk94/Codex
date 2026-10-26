@@ -1,0 +1,22 @@
+name: Feishu Revenue Regression (Read Only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "automation/feishu/tax_invoice_forecast_reconcile.py"
+      - "automation/feishu/test_tax_invoice_forecast_reconcile.py"
+      - ".github/workflows/feishu-revenue-regression.yml"
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run read-only invoice forecast regression tests
+        run: python3 -m unittest discover -s automation/feishu -p "test_tax_invoice_forecast_reconcile.py" -v
