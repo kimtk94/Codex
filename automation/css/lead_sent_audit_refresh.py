@@ -88,13 +88,14 @@ def main():
     if len(details)>=100000 or len(flags)>=100000:
         raise RuntimeError("CSS Git Ingest scan limit reached")
     stage_sent=0
+    historical_cutoff=source_latest
     for idx in range(1,max(len(details),len(flags))):
         if idx>=len(flags) or val(flags[idx],0).upper()!="OUTBOUND":
             continue
         row=details[idx] if idx<len(details) else []
         sender=val(row,1).lower()
         at=date(val(row,0))
-        if sender not in ALLOWED_SENDERS or not at:
+        if sender not in ALLOWED_SENDERS or not at or (historical_cutoff and at<=historical_cutoff):
             continue
         for recipient in set(x.lower() for x in MAIL_RE.findall(val(row,2))):
             sent.setdefault(recipient,[]).append(at)
