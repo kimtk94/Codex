@@ -70,3 +70,18 @@ jobs:
         env:
           SYNC_JOB_STATUS: FAILURE
         run: python automation/css/sfdc_email_sync_health.py
+      - name: Publish execution diagnostics
+        if: always()
+        shell: bash
+        env:
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          {
+            echo '## SFDC Email Decision Sync'
+            echo "- Workflow result: ${JOB_RESULT}"
+            echo "- Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Attempt: ${GITHUB_RUN_ATTEMPT}"
+            echo '- Validation order: credentials → dry run → QQ apply → SFDC acknowledgement → snapshot → parity → health'
+            echo '- A PASS requires all preceding steps, including QQ/SFDC parity, to succeed.'
+            echo '- Check the first failed step in this run if health remains UNVERIFIED.'
+          } >> "$GITHUB_STEP_SUMMARY"
