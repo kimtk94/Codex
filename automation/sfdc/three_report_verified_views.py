@@ -77,6 +77,57 @@ def build(leads, opportunities, quotations, timestamp):
         ])
     return verified, review
 
+
+OPPORTUNITY_QUEUE = "SFDC Opportunity Review Queue"
+EXCEPTION_QUEUE = "SFDC Quote Exception Queue"
+
+def build_review_queues(verified, review, timestamp):
+    """Review-only snapshots; never imply a new actionable item or overwrite decisions."""
+    h = {v: i for i, v in enumerate(verified[0])}
+    grouped = collections.defaultdict(list)
+    for row in verified[1:]:
+        if row[h["Opportunity Stage"]] in ("Negotiation", "Quotation Issued", "PO Received"):
+            grouped[row[h["Opportunity ID"]]].append(row)
+    queue = [["Priority", "Opportunity ID", "Institution", "Opportunity Name",
+              "Stage", "Owner", "Quote Count", "Quote IDs",
+              "Active Quote Count", "Inactive Quote Count", "Lead Converted ID",
+              "Lead Match", "Next Verification", "Evidence", "Queue State",
+              "Source Snapshot"]]
+    for oppid, rows in grouped.items():
+        first = rows[0]
+        stage = first[h["Opportunity Stage"]]
+        active = sum(str(r[h["Quote Active (report only)"]]) == "1" for r in rows)
+        action = {
+            "Negotiation": "협상 진행 및 고객 회신·견적 유효성 확인",
+            "Quotation Issued": "견적 발송 후 고객 응답 및 승인 여부 확인",
+            "PO Received": "PO 수령 후 계약·샘플 입고·프로젝트 진행 여부 확인"
+        }[stage]
+        if active < len(rows):
+            action = "비활성 Quote 포함: 최신 유효 Quote 확인; " + action
+        queue.append([
+            "P2" if stage == "PO Received" else "P1",
+            oppid, first[h["Account Name"]], first[h["Opportunity Name"]],
+            stage, first[h["Opportunity Owner"]], len(rows),
+            " | ".join(str(r[h["Quotation ID"]]) for r in rows),
+            active, len(rows) - active, first[h["Lead Converted ID"]],
+            first[h["Lead Match"]], action, VERIFIED,
+            "REVIEW_ONLY_NO_NEW_ACTION", timestamp
+        ])
+    queue[1:] = sorted(queue[1:], key=lambda r: (r[0], r[4], r[1]))
+    exceptions = [["Priority", "Quotation ID", "Process Rows",
+                   "Opportunity ID Missing Rows", "Opportunity Not In Export",
+                   "Reason", "Next Verification", "Queue State", "Source Snapshot"]]
+    for r in review[1:]:
+        missing = int(r[3] or 0)
+        exceptions.append([
+            "P0" if missing else "P1", r[0], int(r[1]), missing, int(r[4]),
+            r[5], "원본 Quote의 Opportunity ID 확인 및 보고서 필터 점검"
+            if missing else "해당 Opportunity가 SFDC Report 범위 밖인지 확인",
+            "REVIEW_ONLY_NO_NEW_ACTION", timestamp
+        ])
+    exceptions[1:] = sorted(exceptions[1:], key=lambda r: (r[0], r[1]))
+    return queue, exceptions
+
 def replace_generated(session, tab, rows):
     meta = request(session, "GET", "?fields=sheets.properties(title,sheetId,gridProperties)")
     tabs = {x["properties"]["title"]: x["properties"] for x in meta.get("sheets", [])}
@@ -136,6 +187,10 @@ def main():
         return
     replace_generated(session, VERIFIED, verified)
     replace_generated(session, REVIEW, review)
+    queue, exceptions = build_review_queues(verified, review, stamp)
+    replace_generated(session, OPPORTUNITY_QUEUE, queue)
+    replace_generated(session, EXCEPTION_QUEUE, exceptions)
+    print("SFDC_REVIEW_QUEUES_UPDATED=" + json.dumps({"opportunities": len(queue)-1, "quote_exceptions": len(exceptions)-1}))
     print("SFDC_RELATIONS_GENERATED_TABS_UPDATED=true")
 
 if __name__ == "__main__":
