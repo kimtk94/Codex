@@ -1,5 +1,5 @@
 import unittest
-from nba_mail_evidence_audit import summarize
+from nba_mail_evidence_audit import summarize, exact_header_reply_links
 
 class MailEvidenceTests(unittest.TestCase):
     def test_ambiguous_review_notes_not_confirmed(self):
@@ -14,6 +14,14 @@ class MailEvidenceTests(unittest.TestCase):
         self.assertEqual(out["nonproof_status_text"],2)
         self.assertEqual(out["historical_over_30d"],1)
         self.assertEqual(out["nba_actionable"],1)
+
+    def test_exact_header_link_requires_original_recipient(self):
+        rows=[
+            {"folder":"Sent","message_id":"<out-1>","from_email":"taehoon.kim@novogene.com","recipient_to":"client@example.org"},
+            {"folder":"INBOX","message_id":"<in-1>","from_email":"client@example.org","recipient_to":"taehoon.kim@novogene.com","in_reply_to":"<out-1>"},
+            {"folder":"INBOX","message_id":"<in-2>","from_email":"other@example.org","recipient_to":"taehoon.kim@novogene.com","in_reply_to":"<out-1>"},
+        ]
+        self.assertEqual(exact_header_reply_links(rows)["strict_reply_links"],1)
 
     def test_sent_and_closed_are_not_reply_proof(self):
         rows=[
