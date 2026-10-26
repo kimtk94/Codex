@@ -1,0 +1,57 @@
+name: Kalman OpenBB V5 Provider Probe
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'research/market_tool_lab/openbb_probe.py'
+      - 'research/market_tool_lab/openbb_intraday_probe.py'
+      - 'research/market_tool_lab/clean_aggregate_intraday.py'
+      - '.github/workflows/market-openbb-probe.yml'
+permissions:
+  contents: read
+jobs:
+  provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install OpenBB V5 keyless provider
+        run: python3 -m pip install 'openbb-core>=2,<3' openbb-cboe
+      - name: Verify strict cross-provider parity contract
+        run: |
+          python3 -m pip install pandas pytest
+          python3 -m pytest -q research/market_tool_lab/test_intraday_parity.py
+      - name: Fetch read-only delayed equity history
+        run: python3 research/market_tool_lab/openbb_probe.py
+      - name: Probe Cboe intraday capability and coverage
+        run: python3 research/market_tool_lab/openbb_intraday_probe.py
+      - name: Reconcile exact duplicates and aggregate complete 15m/60m buckets
+        if: always()
+        run: |
+          python3 -m pip install pandas
+          for symbol in QQQ QLD; do
+            if [ -f "artifacts/market-tool-lab/openbb-intraday/${symbol}_1m.csv" ]; then
+              python3 research/market_tool_lab/clean_aggregate_intraday.py --input "artifacts/market-tool-lab/openbb-intraday/${symbol}_1m.csv" --output artifacts/market-tool-lab/openbb-intraday --symbol "$symbol"
+            fi
+          done
+      - name: Save intraday evidence even on provider failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-openbb-intraday-probe
+          path: artifacts/market-tool-lab/openbb-intraday/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Save evidence even on provider failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-openbb-v5-probe
+          path: artifacts/market-tool-lab/openbb/
+          if-no-files-found: warn
+          retention-days: 7

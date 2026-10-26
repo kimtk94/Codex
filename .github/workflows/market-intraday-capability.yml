@@ -1,0 +1,32 @@
+name: Kalman Intraday Provider Capability
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'research/market_tool_lab/cboe_intraday_probe.py'
+      - '.github/workflows/market-intraday-capability.yml'
+permissions:
+  contents: read
+jobs:
+  cboe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated OpenBB provider
+        run: python3 -m pip install 'openbb-core>=2,<3' openbb-cboe
+      - name: Query latest-session one-minute bars only
+        run: python3 research/market_tool_lab/cboe_intraday_probe.py
+      - name: Upload capability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-intraday-capability
+          path: artifacts/market-tool-lab/capability/
+          if-no-files-found: warn
+          retention-days: 14
