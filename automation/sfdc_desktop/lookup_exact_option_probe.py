@@ -84,6 +84,48 @@ PILL_JS=r"""(input,expected) => {
  return deep(node.shadowRoot||node).some(p=>equal(p.querySelector('.slds-pill__label')?.textContent||p.textContent));
 }"""
 
+SELECTED_JS = r"""(label, expected) => {
+ const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
+ const seen=new Set(),labels=[];
+ function walk(root){
+   if(!root||seen.has(root))return;
+   seen.add(root);
+   for(const e of root.querySelectorAll('*')){
+     if(e.shadowRoot)walk(e.shadowRoot);
+     if(e.matches('label') && norm(e.textContent).replace(/^\*\s*/,'')===norm(label))labels.push(e);
+   }
+ }
+ walk(document);
+ for(const el of labels){
+   let n=el;
+   for(let depth=0;n&&depth<7;depth++){
+     const found=[];
+     function scan(root){
+       if(!root?.querySelectorAll)return;
+       for(const e of root.querySelectorAll('*')){
+         if(e.shadowRoot)scan(e.shadowRoot);
+         if(e.matches('lightning-pill,.slds-pill,[class*="pill"]'))found.push(e);
+       }
+     }
+     scan(n.shadowRoot||n);
+     const matched=found.filter(x=>norm(x.innerText||x.textContent).includes(norm(expected)) &&
+       !!x.querySelector('button,[title*="Remove"],[aria-label*="Remove"],[class*="remove"]'));
+     if(matched.length===1)return true;
+     n=n.parentElement||n.getRootNode()?.host||null;
+   }
+ }
+ return false;
+}"""
+
+def verify_selected(context,label,name):
+    for page in context.pages:
+        if page.is_closed():continue
+        for frame in page.frames:
+            try:
+                if frame.evaluate(SELECTED_JS,label,name):return True
+            except PWError:continue
+    return False
+
 def select(context,label,name):
     inp,status=find_input(context,label)
     if inp is None:return {"status":status}
@@ -144,8 +186,7 @@ def select(context,label,name):
                                   "note":"Lookup search icon triggered; inspect actual dropdown."}
         found[0].click(timeout=3500)
         time.sleep(0.4)
-        try:verified=bool(inp.evaluate(PILL_JS,name))
-        except PWError:verified=False
+        verified=verify_selected(context,label,name)
         return {"status":"SELECTED_PILL_VERIFIED" if verified else "CLICKED_NOT_VERIFIED"}
     except PWError:
         return {"status":"LOOKUP_UI_CHANGED"}
@@ -155,15 +196,23 @@ def main():
     p.add_argument("--url",required=True);p.add_argument("--draft",required=True)
     p.add_argument("--account-query",default="",help="Override catalog account label with actual Salesforce account name")
     p.add_argument("--output",default="")
+    p.add_argument("--cdp-url",default="",help="Attach to already authenticated Chrome debugging port instead of launching Chrome")
     a=p.parse_args();check_url(a.url)
     values=prepare_lookup(json.loads(Path(a.draft).read_text(encoding="utf-8-sig")))
     if a.account_query:values["Account Name"]=a.account_query
     with sync_playwright() as pw:
-        ctx=pw.chromium.launch_persistent_context(user_data_dir=str(PROFILE),headless=False,channel="chrome")
+        attached=bool(a.cdp_url)
+        browser=None
+        if attached:
+            browser=pw.chromium.connect_over_cdp(a.cdp_url)
+            if not browser.contexts:raise RuntimeError("No active Chrome context attached")
+            ctx=browser.contexts[0]
+        else:
+            ctx=pw.chromium.launch_persistent_context(user_data_dir=str(PROFILE),headless=False,channel="chrome")
         try:
             page=ctx.pages[0] if ctx.pages else ctx.new_page()
-            page.goto(a.url,wait_until="domcontentloaded")
-            input("Complete MFA, open New Opportunity, press Enter ONCE: ")
+            if not attached:page.goto(a.url,wait_until="domcontentloaded")
+            input("Use THIS authenticated Chrome, open New Opportunity, press Enter ONCE: ")
             result={}
             for label in ("Account Name","Main Contact"):
                 result[label]=select(ctx,label,values[label])
@@ -173,6 +222,9 @@ def main():
             out=Path(a.output) if a.output else Path(a.draft).with_name("lookup_selection_report.json")
             out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
             print(json.dumps(report,ensure_ascii=False,indent=2));print("REPORT:",out)
-            input("Inspect UI; press Enter to close: ")
-        finally:ctx.close()
+            input("Inspect UI; press Enter to finish: ")
+        finally:
+            if not attached:ctx.close()
+            # When attached over CDP, leave Chrome and its authenticated session running.
+
 if __name__=="__main__":main()
