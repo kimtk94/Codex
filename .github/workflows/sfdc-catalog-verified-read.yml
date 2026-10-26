@@ -1,0 +1,45 @@
+name: SFDC Catalog Verified Read (CKD Secret)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-catalog:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Google auth dependencies
+        run: python -m pip install google-auth requests
+      - name: Verify source catalog using approved environment secret
+        env:
+          CKD_CATALOG_CREDENTIALS: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          from urllib.parse import quote
+          from google.oauth2 import service_account
+          from google.auth.transport.requests import AuthorizedSession
+          raw = os.environ.get("CKD_CATALOG_CREDENTIALS", "")
+          if not raw:
+              sys.exit("CKD_DRIVE_SA_JSON secret missing in TaehoonServer environment")
+          credentials = service_account.Credentials.from_service_account_info(
+              json.loads(raw), scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+          sheet_id = "1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
+          name = "'SFDC Opportunity Template Catalog'!M1:M2500"
+          endpoint = "https://sheets.googleapis.com/v4/spreadsheets/" + sheet_id + "/values/" + quote(name, safe="!':")
+          response = AuthorizedSession(credentials).get(endpoint, timeout=40)
+          if response.status_code != 200:
+              sys.exit("Catalog read failed (HTTP " + str(response.status_code) + "). Verify spreadsheet sharing and secret scope.")
+          values = response.json().get("values", [])
+          if not values or values[0][0] != "Opportunity ID":
+              sys.exit("Unexpected catalog header or empty response")
+          record_ids = [r[0] for r in values[1:] if r and r[0].strip()]
+          if not record_ids:
+              sys.exit("No Opportunity IDs found")
+          distinct = len(set(record_ids))
+          print(f"SFDC_CATALOG_READ_PASS rows={len(record_ids)} unique_opportunities={distinct} duplicates={len(record_ids)-distinct}")
+          PY
