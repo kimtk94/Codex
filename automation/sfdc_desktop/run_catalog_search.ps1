@@ -53,7 +53,12 @@ if (-not (Test-Path $report)) { throw "Artifact matches.json missing" }
 $data = Get-Content $report -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($data.salesforce_save_performed -ne $false) { throw "Unexpected report safety flag" }
 if ($OpportunityId) {
-    if (@($data.matches).Count -ne 1) { throw "Expected exactly one match for requested Opportunity ID" }
+    if (@($data.matches).Count -eq 0) {
+        Write-Host "NOT_FOUND: Opportunity ID is absent from Catalog; see $report"
+        Write-Host "No Salesforce record was saved."
+        return
+    }
+    if (@($data.matches).Count -ne 1) { throw "Ambiguous Opportunity ID matches; refusing auto-link." }
     $returnedId = [string]$data.matches[0].opportunity_id
     if ($returnedId.Length -lt 15 -or $returnedId.Substring(0,15) -cne $OpportunityId.Substring(0,15)) {
         throw "Downloaded match does not correspond to requested Opportunity ID."
