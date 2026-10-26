@@ -56,6 +56,22 @@ jobs:
           if not os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'):
               raise SystemExit('TaehoonServer CKD_DRIVE_SA_JSON is not configured.')
           rows = load_sheet()
+          from collections import Counter
+          valid_ids=[str(row.get('Opportunity ID') or '').strip()[:15] for row in rows
+                     if re.fullmatch(r'[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?',
+                                     str(row.get('Opportunity ID') or '').strip())]
+          counts=Counter(valid_ids)
+          dates=[str(row.get('Opportunity Created Date') or '').strip() for row in rows]
+          dates=[d for d in dates if d]
+          audit={'rows':len(rows),
+                 'valid_id_rows':len(valid_ids),
+                 'distinct_valid_ids':len(counts),
+                 'duplicate_id_rows':sum(n-1 for n in counts.values()),
+                 'missing_or_invalid_id_rows':len(rows)-len(valid_ids),
+                 'earliest_created_date_as_text':min(dates) if dates else None,
+                 'latest_created_date_as_text':max(dates) if dates else None,
+                 'date_sort_note':'Lexical bounds only; verify format before treating as chronological'}
+          print('CATALOG_AUDIT_COUNTS:',json.dumps({k:v for k,v in audit.items() if 'date' not in k}))
           if opportunity_id:
               if not re.fullmatch(r'[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?',opportunity_id):
                   raise SystemExit('Invalid Salesforce Opportunity ID format.')
@@ -80,6 +96,7 @@ jobs:
               matches = search(rows, account=account, contact=contact, service=service, top=10)
           report = {'source_rows':len(rows),'unique_opportunities':len(dedupe(rows)),
                     'matches':matches,'draft':make_draft(matches[0]) if matches else None,
+                    'catalog_audit':audit,
                     'salesforce_save_performed':False,'lookup_status':('NOT_FOUND' if opportunity_id and not matches else 'MATCHED')}
           path=os.path.join(os.environ['RUNNER_TEMP'],'sfdc-search','matches.json')
           with open(path,'w',encoding='utf-8') as f:
