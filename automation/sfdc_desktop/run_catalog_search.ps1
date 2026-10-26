@@ -1,5 +1,6 @@
 param(
     [string]$OpportunityId = "",
+    [long]$RunId = 0,
     [string]$Account = "",
     [string]$Service = "",
     [string]$Contact = "",
@@ -7,7 +8,7 @@ param(
     [string]$OutputDir = "$env:LOCALAPPDATA\SFDC\Catalog"
 )
 $ErrorActionPreference = "Stop"
-if (-not ($OpportunityId.Trim() -or $Account.Trim() -or $Service.Trim() -or $Contact.Trim())) {
+if (-not ($RunId -gt 0 -or $OpportunityId.Trim() -or $Account.Trim() -or $Service.Trim() -or $Contact.Trim())) {
     throw "Provide -OpportunityId or at least one of -Account, -Service, -Contact."
 }
 if ($OpportunityId -and $OpportunityId -notmatch '^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$') {
@@ -19,19 +20,28 @@ if (-not $gh) { throw "GitHub CLI (gh) is required." }
 if ($LASTEXITCODE -ne 0) { throw "GitHub CLI is not authenticated. Run: gh auth login" }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $workflow = "sfdc-opportunity-search.yml"
-$start = [DateTimeOffset]::UtcNow
-$inputs = @("-f", "opportunity_id=$OpportunityId", "-f", "account=$Account", "-f", "service=$Service", "-f", "contact=$Contact")
-& gh workflow run $workflow --repo $Repo --ref main @inputs
-if ($LASTEXITCODE -ne 0) { throw "Could not dispatch workflow." }
-# Stop if the workflow run identity cannot be established unambiguously.
-Start-Sleep -Seconds 4
-$runsJson = & gh run list --repo $Repo --workflow $workflow --event workflow_dispatch --limit 10 --json databaseId,createdAt,status,headBranch
-if ($LASTEXITCODE -ne 0) { throw "Failed to list workflow runs" }
-$recent = @($runsJson | ConvertFrom-Json | Where-Object {
-    $_.headBranch -eq "main" -and ([DateTimeOffset]$_.createdAt) -ge $start.AddSeconds(-10)
-})
-if ($recent.Count -ne 1) { throw "Run identity ambiguous (matches=$($recent.Count)). Select the exact run manually." }
-$id = $recent[0].databaseId
+if ($RunId -gt 0) {
+    $id = $RunId
+    $metaJson = & gh run view $id --repo $Repo --json workflowName,event,headBranch
+    if ($LASTEXITCODE -ne 0) { throw "Unable to verify existing run identity." }
+    $meta = $metaJson | ConvertFrom-Json
+    if ($meta.event -ne "workflow_dispatch" -or $meta.headBranch -ne "main" -or $meta.workflowName -ne "SFDC Opportunity Similarity Search") {
+        throw "Run does not match expected SFDC workflow, event or branch."
+    }
+} else {
+    $start = [DateTimeOffset]::UtcNow
+    $inputs = @("-f", "opportunity_id=$OpportunityId", "-f", "account=$Account", "-f", "service=$Service", "-f", "contact=$Contact")
+    & gh workflow run $workflow --repo $Repo --ref main @inputs
+    if ($LASTEXITCODE -ne 0) { throw "Could not dispatch workflow." }
+    Start-Sleep -Seconds 4
+    $runsJson = & gh run list --repo $Repo --workflow $workflow --event workflow_dispatch --limit 10 --json databaseId,createdAt,status,headBranch
+    if ($LASTEXITCODE -ne 0) { throw "Failed to list workflow runs" }
+    $recent = @((($runsJson | Out-String) | ConvertFrom-Json) | Where-Object {
+        $_.headBranch -eq "main" -and ([DateTimeOffset]::Parse([string]$_.createdAt)) -ge $start.AddSeconds(-10)
+    })
+    if ($recent.Count -ne 1) { throw "Run identity ambiguous (matches=$($recent.Count)). Use -RunId with GitHub's printed run number." }
+    $id = $recent[0].databaseId
+}
 & gh run watch $id --repo $Repo --exit-status
 if ($LASTEXITCODE -ne 0) { throw "GitHub Actions run failed: $id" }
 $destination = Join-Path $OutputDir ([string]$id)
