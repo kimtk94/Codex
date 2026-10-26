@@ -42,3 +42,27 @@ Chrome must be installed (channel=chrome); if not, remove channel setting and ru
 4. Verify saved record detail URL/ID, Sheet ledger write-back, and exclusive queue claiming to avoid duplicates.
 5. Explicit approval for Quote / Contract and bulk mutations, redact logs and apply rate limits. Do not attempt CAPTCHA/MFA bypass.
 6. Ensure Windows interactive session stays unlocked where required; use Windows Task Scheduler only after reliable UI tests.
+
+## Reuse the existing Opportunity catalog (read-only)
+
+The source is the existing Google Sheet `SFDC_Automation_Followup_2026`,
+tab `SFDC Opportunity Template Catalog`. No new CSV is necessary.
+
+On Windows, use a Git-enabled terminal, or portable Git using its full executable path:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\PortableGit\cmd\git.exe" pull origin feat/sfdc-playwright-desktop-p0
+py -3.12 -m pip install -r automation\sfdc_desktop\requirements.txt
+$env:GOOGLE_APPLICATION_CREDENTIALS = "$env:USERPROFILE\.config\sfdc-google-reader.json"
+py -3.12 automation\sfdc_desktop\catalog_reuse.py --account "Yonsei" --service "mRNA" --top 10 --output "$env:LOCALAPPDATA\sfdc_catalog_matches.json"
+```
+
+The service account must already have access to the Sheet. The JSON key must stay
+outside the repo and must never be committed or sent to chat. You may use the
+existing company-approved Google authentication mechanism instead by configuring
+`GOOGLE_SERVICE_ACCOUNT_JSON` in the environment.
+
+Optional offline mode: `--csv path.csv`. Search results are **historical** and do
+not validate Salesforce Lookup relations, permissions, or current opportunity status.
+The draft intentionally leaves amount, close date, stage, and service blank. The
+command never submits anything to Salesforce.
