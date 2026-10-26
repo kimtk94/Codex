@@ -47,9 +47,14 @@ jobs:
       - name: Install Google Sheets client
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Compile CSS mail Python scripts
-        run: python3 -m py_compile automation/css_mail/readonly_probe.py automation/css_mail/incremental_sync.py automation/css_mail/mail_operations.py automation/css_mail/unanswered_auto.py automation/css_mail/tax_invoice_extract.py automation/css_mail/quotation_approval_extract.py
+        run: python3 -m py_compile automation/css_mail/readonly_probe.py automation/css_mail/incremental_sync.py automation/css_mail/mail_operations.py automation/css_mail/unanswered_auto.py automation/css_mail/tax_invoice_extract.py automation/css_mail/quotation_approval_extract.py automation/css_mail/thread_header_backfill.py
       - name: Sync inbound and sent mail metadata to CSS staging
         run: python3 automation/css_mail/incremental_sync.py
+      - name: Dry-run existing mail thread header backfill
+        env:
+          DRY_RUN: 'true'
+          CSS_THREAD_BACKFILL_BATCH: '50'
+        run: python3 automation/css_mail/thread_header_backfill.py
       - name: Verify mail ingestion heartbeat in Google Sheets
         run: python3 automation/css_mail/mail_health.py
       - name: Build mail-only operations review (no SFDC updates)
