@@ -198,6 +198,17 @@ def write_verified(session, selected, dry_run=False):
             audit.append([kind, item["stamp"], checked, stats["rows"], stats["unique"], stats["duplicates"], stats["missing"], item["sha"], "STAGED_NOT_PROMOTED", "QQ IMAP"])
     request(session, "PUT", "/values/" + a1(AUDIT_TAB, "A1") + "?valueInputOption=RAW", json={"values": audit})
 
+def trusted_report_message(sender, subject):
+    """Trust only the actual subscription sender and Report results subjects.
+
+    All attachments still undergo strict entity schema and ID validation.
+    """
+    address = parseaddr(str(sender))[1].strip().casefold()
+    title = str(subject).strip().casefold()
+    authorized = os.getenv("SFDC_REPORT_SENDER", "taehoon.kim@novogene.com").strip().casefold()
+    vendor = bool(re.fullmatch(r"[^@]+@(?:[a-z0-9-]+\.)*salesforce\.com", address))
+    return title.startswith("report results (") and (address == authorized or vendor)
+
 def collect(im, days=4):
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).strftime("%d-%b-%Y")
     ok, result = im.uid("SEARCH", None, "SINCE", since)
@@ -218,8 +229,9 @@ def collect(im, days=4):
             continue
         msg = email.message_from_bytes(raw, policy=policy.default)
         diagnostics["fetched"] += 1
-        sender = parseaddr(str(msg.get("from", "")))[1].lower()
-        if not re.fullmatch(r"[^@]+@(?:[a-z0-9-]+\.)*salesforce\.com", sender):
+        sender = str(msg.get("from", ""))
+        subject = str(msg.get("subject", ""))
+        if not trusted_report_message(sender, subject):
             continue
         diagnostics["salesforce_sender"] += 1
         try:

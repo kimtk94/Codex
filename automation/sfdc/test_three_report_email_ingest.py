@@ -5,7 +5,7 @@ import sys
 import pathlib
 import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from three_report_email_ingest import matrix, classify, validate, digest, filter_fresh, missing_report_types
+from three_report_email_ingest import matrix, classify, validate, digest, filter_fresh, missing_report_types, trusted_report_message
 from three_report_relationship_qc import compare
 
 class ReportIngestTests(unittest.TestCase):
@@ -76,6 +76,14 @@ class ReportIngestTests(unittest.TestCase):
         self.assertEqual(missing_report_types({}), ["Leads", "Opportunities", "Quotation"])
         self.assertEqual(missing_report_types({"Quotation": {}}), ["Leads", "Opportunities"])
         self.assertEqual(missing_report_types({kind: {} for kind in ("Leads", "Opportunities", "Quotation")}), [])
+
+    def test_actual_qq_subscription_sender(self):
+        self.assertTrue(trusted_report_message("Taehoon <taehoon.kim@novogene.com>", "Report results (Automation | Leads)"))
+        self.assertTrue(trusted_report_message("taehoon.kim@novogene.com", "Report results (Copy of Automation | Opportunities)"))
+        self.assertTrue(trusted_report_message("taehoon.kim@novogene.com", "Report results (Automation | Quotation)"))
+        self.assertFalse(trusted_report_message("salesforce@novogene.com", "Report results (Automation | Leads)"))
+        self.assertFalse(trusted_report_message("taehoon.kim@novogene.com", "New enquiry, please follow up ASAP"))
+        self.assertFalse(trusted_report_message("spoof@other.example", "Report results (Automation | Leads)"))
 
     def test_unknown_attachment_rejected(self):
         with self.assertRaisesRegex(ValueError, "UNRECOGNIZED_REPORT_SCHEMA"):
