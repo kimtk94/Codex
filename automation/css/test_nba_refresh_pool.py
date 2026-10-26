@@ -24,6 +24,10 @@ class PoolRefreshTests(unittest.TestCase):
         self.assertEqual(sorted(r[0] for r in rows),[1,2,3])
         self.assertTrue(all(len(r)==14 for r in rows))
 
+    def test_confirmed_sent_lead_excluded(self):
+        lead = {'Lead ID':'L-1','Sent Mail Status':'SENT_CONFIRMED','Sent Mail Count':'1'}
+        self.assertEqual(build_candidates([], [lead], [], self.TODAY), [])
+
     def test_no_items(self):
         self.assertEqual(build_candidates([],[],[],self.TODAY),[])
 
