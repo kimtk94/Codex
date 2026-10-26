@@ -33,6 +33,12 @@ jobs:
         run: python automation/progress/ops_evidence.py
       - name: Optional read-only Sheets client
         run: python -m pip install google-auth requests
+      - name: Collect actual OPS-01 scheduled and sheet evidence
+        if: github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: python automation/progress/ops_live_collector.py
       - name: Generate read-only audit
         env:
           GITHUB_TOKEN: ${{ github.token }}
