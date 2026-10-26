@@ -7,10 +7,10 @@ from collections import Counter
 from today_action_v2 import mail_rows
 
 CONFIRMED = {
-    "SENT_CONFIRMED", "REPLIED", "ANSWERED", "REPLY_SENT", "DONE",
+    "REPLIED", "ANSWERED", "REPLY_SENT",
     "PC_REPLIED", "TS_REPLIED", "DELEGATE_REPLIED",
 }
-CONFIRMED_ACTION = CONFIRMED | {"COMPLETED", "CLOSED"}
+CONFIRMED_ACTION = {"DONE", "COMPLETED", "CLOSED", "EXCLUDED", "SKIP"}
 
 
 def summarize(rows):
@@ -25,8 +25,12 @@ def summarize(rows):
             age = -1
         reply = str(r.get("Reply Evidence") or "").strip().upper()
         reviewer = str(r.get("Reviewer Mail Action") or "").strip().upper()
-        if reply in CONFIRMED or reviewer in CONFIRMED_ACTION:
+        if reply in CONFIRMED:
             counts["explicit_reply_evidence"] += 1
+        elif reviewer in CONFIRMED:
+            counts["explicit_reply_evidence"] += 1
+        elif reviewer in CONFIRMED_ACTION:
+            counts["reviewer_closed_not_reply_proof"] += 1
         elif reply and reply not in {"NONE", "UNKNOWN"}:
             counts["ambiguous_reply_evidence"] += 1
         if age > 30:
