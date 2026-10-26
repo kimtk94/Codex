@@ -41,7 +41,10 @@ def app(values_path):
     hint=escape(str(historical.get(key,"")),quote=True)
     if key=="Progress Description":tag=f'<textarea name="{key}" rows="3">{escape(str(d.get(key,"")))}</textarea>'
     else:tag=f'<input name="{key}" value="{v}" placeholder="{hint}" />'
-    entries.append(f'<label>{escape(key)} {tag}</label>')
+    if key=="Opportunity Name":
+     ref_name=escape(str(historical.get(key,"")),quote=True)
+     entries.append(f'<label>{escape(key)} {tag}</label><button type="button" id="copy-historical-name" data-reference="{ref_name}">기존 Opportunity 이름 불러오기</button>')
+    else:entries.append(f'<label>{escape(key)} {tag}</label>')
    html="""<!doctype html><html lang="ko"><meta charset="utf-8"><title>SFDC Deal Editor</title>
    <style>body{font:15px system-ui;max-width:850px;margin:35px auto;padding:0 20px}
    label{display:block;margin:13px 0}input,textarea{display:block;width:100%;box-sizing:border-box;
@@ -59,6 +62,17 @@ def app(values_path):
    const unit=document.getElementById('unit');
    const nameInput=document.querySelector('[name="Opportunity Name"]');
    const amountInput=document.querySelector('[name="Amount"]');
+   const copyName=document.getElementById('copy-historical-name');
+   if(copyName)copyName.addEventListener('click',()=>{
+     const source=copyName.dataset.reference||'';
+     if(!source)return;
+     if(nameInput.value.trim() && !confirm('현재 Opportunity 이름을 기존 이름으로 바꾸시겠습니까?'))return;
+     nameInput.value=source;
+     nameBase=source;
+     const idx=quantityIndex(source);
+     if(idx>=0)qty.value=source.split('-')[idx];
+     nameInput.focus();
+   });
    // Apply quantity/name synchronization only when exactly one known service is present.
    const services=/(?:mRNA-Seq|ncRNA-Seq|RNA-Seq|WGS|WES|16S|metagenom(?:ics|e)|PacBio|Nanopore|LC-MS|Olink)/gi;
    let nameBase=nameInput.value||nameInput.placeholder||'';
