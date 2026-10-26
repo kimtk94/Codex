@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "policy": "strict evidence, no automatic promotion",
+  "gates": {
+    "SRC-01": {"tasks":["A01","A02","A03","A04","A05","A06","A07","A08"],"required":["source_timestamp","run_url","count_reconciliation","negative_test"]},
+    "SRC-02": {"tasks":["A09","A10","A11"],"required":["source_timestamp","content_hash","run_url","stale_replay_test"]},
+    "ID-01": {"tasks":["A12","A13","A14","A15"],"required":["exact_id_audit","unmatched_counts","run_url"]},
+    "FIN-01": {"tasks":["A31","A32"],"required":["monthly_reconciliation","source_basis","run_url"]},
+    "FIN-02": {"tasks":["A34","A35","A36"],"required":["dedup_test","monthly_actual_sum","chart_regression","run_url"]},
+    "FIN-03": {"tasks":["A33","A40"],"required":["issued_vs_paid_test","unissued_review_evidence","run_url"]},
+    "NBA-01": {"tasks":["A24","A25","A26","A27","A28","A29","A30"],"required":["three_replays","manual_decision_diff","run_url"]},
+    "TAT-01": {"tasks":["A37","A38","A39","A41"],"required":["override_roundtrip","monthly_rollup","run_url"]},
+    "RPA-01": {"tasks":["A16","A17","A18","A19","A20","A21"],"required":["active_window_identity","lookup_pill_record_id","field_readback","authorized_test"]},
+    "RPA-02": {"tasks":["A22","A23"],"required":["approval","saved_record_id","idempotent_replay","sheets_receipt"]},
+    "WEB-01": {"tasks":["A42","A43","A44","A45","A46"],"required":["authenticated_preview","authorization_negative_test","freshness_label","run_url"]},
+    "OPS-01": {"tasks":["A47","A48"],"required":["three_scheduled_successes","failure_injection","alert_receipt"]},
+    "OPS-02": {"tasks":["A49","A50"],"required":["end_to_end_snapshot_diff","recovery_drill","approval"]}
+  },
+  "acceptances": {}
+}
