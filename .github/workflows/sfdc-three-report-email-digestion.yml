@@ -53,3 +53,6 @@ jobs:
       - name: Audit staged Lead-Opportunity-Quote relationships (read only)
         if: ${{ github.event_name != 'pull_request' }}
         run: python automation/sfdc/three_report_relationship_qc.py
+      - name: Refresh generated SFDC relationship views
+        if: github.event_name != 'pull_request'
+        run: python automation/sfdc/three_report_verified_views.py
