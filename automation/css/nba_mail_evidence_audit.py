@@ -82,7 +82,20 @@ def main():
     rows = fetch(auth(), MAIL_BOOK, "BI Unanswered Triage", "U20000")
     print("NBA_MAIL_EVIDENCE_AUDIT", summarize(rows))
     stage = fetch(auth(), MAIL_BOOK, "CSS Git Ingest", "R12000")
-    print("NBA_EXACT_HEADER_REPLY_AUDIT", exact_header_reply_links(stage))
+    evidence = exact_header_reply_links(stage)
+    triage_by_uid = {str(r.get("Thread UID") or "").strip().lower(): r for r in rows}
+    linked_uids = sorted({("inbox:" + key.rsplit("|", 1)[-1]).lower()
+                         for key in evidence["linked_incoming_keys"]
+                         if key.upper().startswith("INBOX|")})
+    matched = [uid for uid in linked_uids if uid in triage_by_uid]
+    print("NBA_EXACT_HEADER_REPLY_AUDIT", evidence)
+    print("NBA_REPLY_TRIAGE_JOIN", {
+        "unique_linked_uids": len(linked_uids),
+        "triage_matched_uids": len(matched),
+        "triage_missing_uids": sorted(set(linked_uids) - set(matched)),
+        "matched_queue_states": {uid: str(triage_by_uid[uid].get("Effective Queue") or "")
+                                 for uid in matched},
+    })
 
 
 if __name__ == "__main__":
