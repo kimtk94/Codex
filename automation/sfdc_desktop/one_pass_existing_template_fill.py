@@ -143,6 +143,9 @@ def main():
   p.error("Only verified historical source Opp-2026-10-23-291068 supported")
  values=historical_data(draft)
  overrides=read(a.values) if a.values else {}
+ if a.values:
+  for k in ("Opportunity Name","Amount","Close Date","Service Line","Stage","Progress Description"):
+   values[k]=""  # per-deal values must be explicitly reviewed; no historical fallback
  for k,v in overrides.items():
   if k in LABELS:values[k]=str(v).strip() if k=="Progress Description" else normalized(v)
  if values["Amount"]:values["Amount"]=amount_numeric(values["Amount"])
