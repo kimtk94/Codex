@@ -34,6 +34,27 @@ def window_inventory(ctx):
                      "frame_count":frames,"lookup_label_count":labels})
     return rows
 
+def focus_and_maximize(page):
+    """Focus the chosen Salesforce tab and maximize its OWN browser window."""
+    outcome={"front":False,"maximized":False}
+    page.bring_to_front()
+    outcome["front"]=True
+    session=page.context.new_cdp_session(page)
+    try:
+        info=session.send("Browser.getWindowForTarget")
+        window_id=info["windowId"]
+        try:
+            session.send("Browser.setWindowBounds",{
+                "windowId":window_id,"bounds":{"windowState":"maximized"}})
+            outcome["maximized"]=True
+        except PWError as e:
+            outcome["maximized_error"]=type(e).__name__
+    except (PWError,KeyError) as e:
+        outcome["maximized_error"]=type(e).__name__
+    finally:
+        session.detach()
+    return outcome
+
 def audit(ctx,label,name):
     d={"input":"NOT_FOUND","search":"NOT_RUN","selection":"NOT_RUN"}
     loc,status=find_input(ctx,label)
@@ -78,8 +99,8 @@ def main():
                 print(json.dumps(report,ensure_ascii=False,indent=2))
                 raise SystemExit("Open exactly ONE New Opportunity form in the CDP Chrome; no input attempted.")
             active=ctx.pages[matches[0]["tab_index"]]
-            active.bring_to_front()
-            print("Selected target tab:",matches[0]["tab_index"])
+            focus=focus_and_maximize(active)
+            print("Selected target tab:",matches[0]["tab_index"],"focus/maximize:",focus)
             report={"version":"lookup-batch-audit-v2","target_tab":matches[0]["tab_index"],
                     "tabs":inventory,"fields":{},"save_clicked":False}
             for label in ("Account Name","Main Contact"):
