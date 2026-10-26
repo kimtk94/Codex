@@ -35,25 +35,30 @@ def window_inventory(ctx):
     return rows
 
 def focus_and_maximize(page):
-    """Focus the chosen Salesforce tab and maximize its OWN browser window."""
-    outcome={"front":False,"maximized":False}
+    """CDP window bounds verification; never claim max without readback."""
+    result={"front":False,"maximized":False,"method":"CDP"}
     page.bring_to_front()
-    outcome["front"]=True
+    result["front"]=True
     session=page.context.new_cdp_session(page)
     try:
-        info=session.send("Browser.getWindowForTarget")
-        window_id=info["windowId"]
-        try:
-            session.send("Browser.setWindowBounds",{
-                "windowId":window_id,"bounds":{"windowState":"maximized"}})
-            outcome["maximized"]=True
-        except PWError as e:
-            outcome["maximized_error"]=type(e).__name__
-    except (PWError,KeyError) as e:
-        outcome["maximized_error"]=type(e).__name__
+        window=session.send("Browser.getWindowForTarget")
+        wid=window["windowId"]
+        result["window_id"]=wid
+        before=session.send("Browser.getWindowBounds",{"windowId":wid})["bounds"]
+        result["before_state"]=before.get("windowState")
+        if before.get("windowState") in ("fullscreen","minimized"):
+            session.send("Browser.setWindowBounds",{"windowId":wid,"bounds":{"windowState":"normal"}})
+        session.send("Browser.setWindowBounds",{"windowId":wid,"bounds":{"windowState":"maximized"}})
+        after=session.send("Browser.getWindowBounds",{"windowId":wid})["bounds"]
+        result["after_state"]=after.get("windowState")
+        result["maximized"]=after.get("windowState")=="maximized"
+        if not result["maximized"]:
+            result["error"]="CDP_MAXIMIZE_NOT_CONFIRMED"
+    except (PWError,KeyError) as exc:
+        result["error_type"]=type(exc).__name__
     finally:
         session.detach()
-    return outcome
+    return result
 
 def audit(ctx,label,name):
     d={"input":"NOT_FOUND","search":"NOT_RUN","selection":"NOT_RUN"}
