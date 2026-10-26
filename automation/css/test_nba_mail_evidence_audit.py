@@ -28,6 +28,13 @@ class MailEvidenceTests(unittest.TestCase):
         self.assertEqual(summary["duplicate_incoming_rows"],1)
         self.assertEqual(summary["review_required"],1)
 
+    def test_dashboard_does_not_overwrite_manual_decision_column(self):
+        from pathlib import Path
+        src = Path("nba_mail_evidence_audit.py").read_text(encoding="utf-8")
+        self.assertIn("A{target}:I{target}", src)
+        self.assertIn("K{target}", src)
+        self.assertNotIn("J{target}", src)
+
     def test_followup_requires_later_outbound_and_dedups_message_id(self):
         rows=[
             {"message_id":"<r>","from_email":"client@example.org","recipient_to":"taehoon.kim@novogene.com","received_at":"2026-10-26T10:00:00+09:00","direction":"INBOUND"},
