@@ -72,7 +72,7 @@ class ReconcileTests(unittest.TestCase):
         self.assertIn("for name in (OUTPUT_TAB,REVIEW_TAB)",source)
         self.assertIn("!A1:N2000",source)
         self.assertIn("!A1:K2000",inspect.getsource(__import__("tax_invoice_forecast_reconcile")).replace("'", ""))
-        self.assertNotIn("BI 2026 Forecast Overview",source)
+        self.assertIn("UNSAFE_REVENUE_WRITE_TARGET",source)
         self.assertNotIn("Unissued Invoice Watch",source)
         self.assertNotIn("Partial Invoice Reconciliation",source)
     def test_publish_runtime_writes_only_approved_ranges(self):
