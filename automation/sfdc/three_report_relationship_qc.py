@@ -22,7 +22,10 @@ def compare(leads, opportunities, quotations):
     qh, qr=quotations[0], quotations[1:]
     li, oi, qi=make_index(lh),make_index(oh),make_index(qh)
     known_opportunities={field(row,oi,"Opportunity ID") for row in op if field(row,oi,"Opportunity ID")}
-    known_leads={field(row,li,"Lead ID") for row in lr if field(row,li,"Lead ID")}
+    # Opportunity Lead Converted ID uses the human-readable Salesforce Lead ID,
+    # not the raw 00Q CRM record key stored under Lead ID.
+    lead_key = "SFDC Lead ID" if "sfdc lead id" in li else "Lead ID"
+    known_leads={field(row,li,lead_key) for row in lr if field(row,li,lead_key)}
     joined_opportunities=[field(row,qi,"Opportunity ID") for row in qr]
     missing_quote_opportunity=sum(not x for x in joined_opportunities)
     orphan_quote_rows=sum(bool(x) and x not in known_opportunities for x in joined_opportunities)
@@ -30,6 +33,7 @@ def compare(leads, opportunities, quotations):
     quote_unlinked_ids={field(r,qi,"SFDC Quotation ID") for r in qr if not field(r,qi,"Opportunity ID") or field(r,qi,"Opportunity ID") not in known_opportunities}
     converted=[field(row,oi,"Lead Converted ID") for row in op if field(row,oi,"Lead Converted ID")]
     lead_orphans=sum(value not in known_leads for value in converted)
+    lead_external = {value for value in converted if value not in known_leads}
     return {"lead_rows":len(lr),"opportunity_rows":len(op),"quotation_process_rows":len(qr),
             "unique_quote_ids":len(quote_ids),"linked_quote_rows":len(qr)-missing_quote_opportunity-orphan_quote_rows,
             "quote_rows_missing_opp_id":missing_quote_opportunity,
@@ -37,6 +41,8 @@ def compare(leads, opportunities, quotations):
             "unique_quote_ids_with_link_issue":len(quote_unlinked_ids),
             "opportunities_with_lead_id":len(converted),
             "opportunities_without_matching_export_lead":lead_orphans,
+            "unique_converted_leads_outside_export":len(lead_external),
+            "lead_join_field":lead_key,
             "qc":"REVIEW" if missing_quote_opportunity or orphan_quote_rows else "PASS"}
 
 def read_tab(session,name):
@@ -52,10 +58,18 @@ def main():
     tabs=request(session,"GET","?fields=sheets.properties.title")
     existing={s["properties"]["title"] for s in tabs.get("sheets",[])}
     missing=[obj for obj,cfg in SCHEMAS.items() if cfg["tab"] not in existing]
-    if missing:
+    if any(kind in missing for kind in ("Opportunities", "Quotation")):
         print("SFDC_RELATIONSHIP_QC_PENDING_STAGE="+",".join(missing))
         return
-    sources={kind:read_tab(session,cfg["tab"]) for kind,cfg in SCHEMAS.items()}
+    sources={kind:read_tab(session,cfg["tab"]) for kind,cfg in SCHEMAS.items() if kind not in missing}
+    if "Leads" in missing:
+        # Historical import is for diagnostic comparison only, never a production
+        # promotion or proof that the new Lead subscription was ingested.
+        if "SFDC Import Leads" not in existing:
+            print("SFDC_RELATIONSHIP_QC_PENDING_LEAD_SOURCE")
+            return
+        sources["Leads"]=read_tab(session,"SFDC Import Leads")
+        print("SFDC_RELATIONSHIP_LEADS_SOURCE=HISTORICAL_IMPORT_NOT_LIVE_STAGE")
     audit=compare(sources["Leads"],sources["Opportunities"],sources["Quotation"])
     print("SFDC_RELATIONSHIP_QC="+json.dumps(audit,sort_keys=True))
     # Explicit REVIEW does not overwrite staging or existing dashboards.
