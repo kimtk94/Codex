@@ -5,6 +5,7 @@ No baseline status, acceptance, owner, blocker, decisions, or business cells are
 import argparse
 import datetime as dt
 import json
+import hashlib
 import os
 from pathlib import Path
 
@@ -83,9 +84,43 @@ def main():
     if edits:
         response = session.post(base + "/values:batchUpdate", json=body, timeout=35)
         response.raise_for_status()
-    preview["state"] = "APPLIED"
+    # Re-read the exact written cells. Do not claim success on a 2xx write alone.
+    readback = []
+    if edits:
+        response = session.get(base + "/values:batchGet",
+            params={"ranges": ["'" + TAB + "'!" + cell for cell, _ in edits],
+                    "valueRenderOption": "UNFORMATTED_VALUE"}, timeout=35)
+        response.raise_for_status()
+        value_ranges = response.json().get("valueRanges", [])
+        if len(value_ranges) != len(edits):
+            raise RuntimeError("Readback range count mismatch")
+        for (cell, expected), item in zip(edits, value_ranges):
+            values = item.get("values", [])
+            actual = str(values[0][0]) if values and values[0] else ""
+            if actual != expected:
+                raise RuntimeError("Readback mismatch for " + cell)
+            readback.append(cell)
+    receipt = {
+        "state": "VERIFIED_WRITE_RECEIPT",
+        "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
+        "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "local"),
+        "workflow": os.environ.get("GITHUB_WORKFLOW", "local"),
+        "commit_sha": os.environ.get("GITHUB_SHA", ""),
+        "checked_at_kst": stamp,
+        "spreadsheet_id": SHEET_ID,
+        "target_tab": TAB,
+        "verified_cells": readback,
+        "verified_cell_count": len(readback),
+        "payload_sha256": hashlib.sha256(json.dumps(edits, ensure_ascii=False,
+            separators=(",", ":")).encode("utf-8")).hexdigest(),
+        "note": "Verified immediate readback only; independent scheduled-run corroboration required"
+    }
+    receipt_path = dest.parent / "publisher-write-receipt.json"
+    receipt_path.write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+    preview["state"] = "APPLIED_AND_READBACK_VERIFIED"
+    preview["verified_cell_count"] = len(readback)
     dest.write_text(json.dumps(preview, indent=2), encoding="utf-8")
-    print("Published", len(edits), "evidence-only cells")
+    print("Readback verified", len(readback), "evidence-only cells")
 
 if __name__ == "__main__":
     main()
