@@ -69,6 +69,11 @@ class SyncBehaviorTest(unittest.TestCase):
                      "sfdc_email_sync_health.py"):
             with self.subTest(name=name):
                 ast.parse((ROOT/name).read_text(encoding="utf-8"))
+    def test_parity_rejects_empty_or_changed_headers(self):
+        source=(ROOT/"sfdc_email_consistency_check.py").read_text(encoding="utf-8")
+        self.assertIn("Empty mail snapshot cannot be certified PASS",source)
+        self.assertIn("Unexpected mail snapshot column layout",source)
+        self.assertIn("Unexpected decision column layout",source)
     def test_dry_run_never_writes(self):
         self.assertEqual(self.execute_case([row("EXCLUDE_MAIL","inbox:1")],[],True),[])
     def test_new_uid_enqueues_once(self):
