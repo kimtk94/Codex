@@ -163,7 +163,16 @@ def update_followup_dashboard(api, rows, evidence, triage):
         updates.append({"range": f"'{tab}'!K{target}", "values": [[datetime.now(kst).date().isoformat()]]})
     if updates:
         api.values().batchUpdate(spreadsheetId=MAIL_BOOK, body={"valueInputOption": "RAW", "data": updates}).execute()
-    print("NBA_REPLY_DASHBOARD_UPDATED", len(dedup), "MANUAL_DECISIONS_UNCHANGED=true")
+        verified = api.values().get(spreadsheetId=MAIL_BOOK, range=f"\u0027{tab}\u0027!A2:K500").execute().get("values", [])
+        by_uid = {str(r[0]).strip().lower(): r for r in verified if r and str(r[0]).strip()}
+        for item in updates:
+            if ":I" not in item["range"]:
+                continue
+            values = item["values"][0]
+            actual = by_uid.get(values[0].lower(), [])
+            if len(actual) < 9 or actual[:9] != values:
+                raise ValueError("NBA reply dashboard write verification failed: " + values[0])
+    print("NBA_REPLY_DASHBOARD_UPDATED", len(dedup), "READBACK_VERIFIED=true MANUAL_DECISIONS_UNCHANGED=true")
 
 
 
