@@ -55,6 +55,14 @@ def sync(api, dry_run=True):
     leads = fetch(api, BOOK, "Lead Email Followup", "AD700")
     mail = fetch(api, MAIL_BOOK, "BI Unanswered Triage", "U1200")
     rows = build_candidates(css, leads, mail, today)
+    # Independent safeguard: never reintroduce an already-contacted Lead.
+    contacted = {str(r.get("Lead ID", "")).strip().upper() for r in leads
+                 if str(r.get("Sent Mail Status", "")).strip().upper() == "SENT_CONFIRMED"
+                 or str(r.get("Sent Mail Count", "")).strip().isdigit()
+                 and int(str(r.get("Sent Mail Count", "")).strip()) > 0}
+    leaks = [r[4] for r in rows if r[3] == "LEAD" and str(r[4]).upper() in contacted]
+    if leaks:
+        raise ValueError("Confirmed-sent Leads leaked into NBA candidates: " + ",".join(leaks[:10]))
     metadata = api.get(spreadsheetId=BOOK, fields="sheets(properties(title,gridProperties(rowCount)))").execute()
     grid = next((x["properties"]["gridProperties"]["rowCount"] for x in metadata["sheets"]
                  if x["properties"]["title"] == "NBA Action Pool"), 0)
