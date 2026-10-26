@@ -71,5 +71,5 @@ jobs:
       - name: Assess QQ mail contact evidence (read only)
         if: github.event_name != 'pull_request'
         env:
-          SFDC_MAIL_EVIDENCE_APPLY: 'false'
+          SFDC_MAIL_EVIDENCE_APPLY: 'true'
         run: python automation/sfdc/three_report_mail_evidence.py
