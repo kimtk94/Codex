@@ -39,6 +39,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
         run: python automation/progress/ops_live_collector.py
+      - name: Independently verify scheduled publisher receipt against Sheets
+        if: github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: python automation/progress/independent_receipt.py
       - name: Generate read-only audit
         env:
           GITHUB_TOKEN: ${{ github.token }}
