@@ -24,6 +24,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install google-api-python-client google-auth
+      - name: Verify Python syntax
+        run: python -m py_compile automation/css/sfdc_email_decision_sync.py automation/css/bi_mail_review_sync.py automation/css/sfdc_email_decision_ack.py
       - name: Validate decisions without writes
         run: |
           python automation/css/sfdc_email_decision_sync.py
@@ -38,3 +40,5 @@ jobs:
         run: python automation/css/bi_mail_review_sync.py
       - name: Acknowledge synchronized decisions in SFDC
         run: python automation/css/sfdc_email_decision_ack.py
+      - name: Verify outstanding SFDC decisions
+        run: python automation/css/sfdc_email_decision_sync.py
