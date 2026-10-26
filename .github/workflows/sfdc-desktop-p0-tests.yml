@@ -20,8 +20,8 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install offline test dependency
-        run: python -m pip install "playwright>=1.50,<2"
+        run: python -m pip install -r automation/sfdc_desktop/requirements.txt
       - name: Compile worker and tests
-        run: python -m py_compile automation/sfdc_desktop/runner.py automation/sfdc_desktop/test_runner.py
+        run: python -m compileall -q automation/sfdc_desktop
       - name: Test safety contracts without Salesforce access
         run: python -m unittest discover -s automation/sfdc_desktop -p 'test_*.py' -v
