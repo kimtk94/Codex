@@ -85,6 +85,21 @@ class ReportIngestTests(unittest.TestCase):
         self.assertFalse(trusted_report_message("taehoon.kim@novogene.com", "New enquiry, please follow up ASAP"))
         self.assertFalse(trusted_report_message("spoof@other.example", "Report results (Automation | Leads)"))
 
+    def test_lead_export_duplicate_opportunity_id_is_lossless(self):
+        headers = ["SFDC Lead ID", "Lead ID", "Opportunity ID", "Opportunity ID", "Description"]
+        rows = [[f"00Q-{i}", f"Lead-{i}", f"Opp-A-{i}", f"Opp-B-{i}", "hello"] for i in range(60)]
+        html = "<table><tr>" + "".join("<th>"+h+"</th>" for h in headers) + "</tr>"
+        html += "".join("<tr>"+"".join("<td>"+v+"</td>" for v in row)+"</tr>" for row in rows)+"</table>"
+        actual_headers, actual_rows = matrix(html.encode(), "Leads.xls")
+        self.assertEqual(actual_headers, ["SFDC Lead ID", "Lead ID", "Opportunity ID", "Opportunity ID.1", "Description"])
+        self.assertEqual(actual_rows[0][2:4], ["Opp-A-0", "Opp-B-0"])
+        self.assertEqual(validate(classify(actual_headers), actual_headers, actual_rows)["rows"], 60)
+
+    def test_duplicate_primary_key_header_is_rejected(self):
+        from three_report_email_ingest import unique_headers
+        with self.assertRaisesRegex(ValueError, "DUPLICATE_PRIMARY_HEADER"):
+            unique_headers(["SFDC Lead ID", "SFDC Lead ID", "Lead ID"])
+
     def test_unknown_attachment_rejected(self):
         with self.assertRaisesRegex(ValueError, "UNRECOGNIZED_REPORT_SCHEMA"):
             matrix(b"<table><tr><th>Other</th><th>Amount</th></tr><tr><td>A</td><td>100</td></tr></table>", "x.xls")
