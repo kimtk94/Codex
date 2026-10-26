@@ -39,8 +39,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
         run: python automation/progress/publish_evidence.py
-      - name: Publish evidence-only columns (manual opt-in)
-        if: github.event_name == 'workflow_dispatch' && inputs.apply
+      - name: Publish evidence-only columns (scheduled or manual opt-in)
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply)
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
