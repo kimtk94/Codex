@@ -92,14 +92,7 @@ def main():
                     "valueRenderOption": "UNFORMATTED_VALUE"}, timeout=35)
         response.raise_for_status()
         value_ranges = response.json().get("valueRanges", [])
-        if len(value_ranges) != len(edits):
-            raise RuntimeError("Readback range count mismatch")
-        for (cell, expected), item in zip(edits, value_ranges):
-            values = item.get("values", [])
-            actual = str(values[0][0]) if values and values[0] else ""
-            if actual != expected:
-                raise RuntimeError("Readback mismatch for " + cell)
-            readback.append(cell)
+        readback = validate_readback(edits, value_ranges)
     receipt = {
         "state": "VERIFIED_WRITE_RECEIPT" if readback else "NO_WRITES",
         "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
