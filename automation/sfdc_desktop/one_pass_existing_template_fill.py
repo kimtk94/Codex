@@ -4,6 +4,9 @@ Copies observed historical source values only, never invents missing fields.
 A historical source is not a valid new sale until reviewed; Save is forbidden.
 """
 import argparse,json,re
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from playwright.sync_api import sync_playwright,Error as PWError
 from runner import check_url
@@ -16,6 +19,32 @@ LABELS=("Opportunity Name","Account Name","Main Contact","Amount",
  "Close Date","Service Line","Stage","Forecast Category","Progress Description","Status")
 def read(path):return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 def normalized(s):return re.sub(r"\s+"," ",str(s or "")).strip()
+def amount_numeric(value):
+ raw=str(value or "").strip()
+ # Accept Salesforce-rendered KRW amounts, but never send currency text
+ # into an HTML numeric input.
+ raw=re.sub(r"^(?:KRW|₩)\\s*", "", raw, flags=re.I).replace(",", "").strip()
+ if not re.fullmatch(r"[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)",raw):
+  raise ValueError("Invalid Amount; explicit numeric amount required")
+ try: number=Decimal(raw)
+ except InvalidOperation as exc:raise ValueError("Invalid Amount") from exc
+ if not number.is_finite() or number < 0:raise ValueError("Invalid Amount")
+ return format(number,"f")
+
+def progress_for_today(value, stage):
+ text=str(value or "").strip()
+ today=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%m%d")
+ # Existing convention: MMDD Stage, newline, service/sample calculation.
+ # Preserve description body and update leading date only.
+ match=re.match(r"^\\d{4}\\s+([^\\r\\n]+)(?:\\r?\\n|\\s+)(.*)$",text,re.S)
+ if match:
+  original_stage=match.group(1).strip()
+  rest=match.group(2).strip()
+  if rest:
+   return today+" "+(stage or original_stage)+"\\n"+rest
+ # Do not manufacture descriptions if template cannot be parsed safely.
+ return text
+
 def first(*values):
  for v in values:
   if normalized(v):return normalized(v)
@@ -32,7 +61,7 @@ def historical_data(draft):
   "Service Line":first(web.get("Service Line"),catalog.get("service_line")),
   "Stage":first(web.get("Stage"),catalog.get("historical_stage")),
   "Forecast Category":first(web.get("Forecast Category"),catalog.get("forecast_category")),
-  "Progress Description":first(web.get("Progress Description"),catalog.get("progress_description")),
+  "Progress Description":str(web.get("Progress Description") or catalog.get("progress_description") or "").strip(),
   "Status":first(web.get("Status"),catalog.get("status"))
  }
 def find_page(ctx):
@@ -90,8 +119,11 @@ def main():
  values=historical_data(draft)
  overrides=read(a.values) if a.values else {}
  for k,v in overrides.items():
-  if k in LABELS:values[k]=normalized(v)
- missing=[x for x in LABELS if not values.get(x)]
+  if k in LABELS:values[k]=str(v).strip() if k=="Progress Description" else normalized(v)
+ if values["Amount"]:values["Amount"]=amount_numeric(values["Amount"])
+ if values["Progress Description"]:
+  values["Progress Description"]=progress_for_today(values["Progress Description"],values.get("Stage",""))
+ missing=[x for x in LABELS if x!="Forecast Category" and not values.get(x)]
  print("SOURCE:",draft["source_opportunity_id"],"MODE: historical template, NOT an approved new sale")
  print("VALUES:",json.dumps(values,ensure_ascii=False))
  print("MISSING:",", ".join(missing) or "(none)")
@@ -111,9 +143,10 @@ def main():
   for label in ("Opportunity Name","Amount","Close Date","Progress Description"):
    result["fields"][label]=do_fill(ctx,label,values[label])
    print(label,result["fields"][label]["status"])
-  for label in ("Stage","Forecast Category","Status"):
+  for label in ("Stage","Status"):
    result["fields"][label]=do_pick(ctx,label,values[label])
    print(label,result["fields"][label]["status"])
+  result["fields"]["Forecast Category"]={"status":"AUTO_FROM_STAGE_NOT_TOUCHED"}
   result["fields"]["Service Line"]=service_line(page,values["Service Line"])
   print("Service Line",result["fields"]["Service Line"]["status"])
   result["fields"]["Opportunity Currency"]={"status":"KEEP_EXISTING_DEFAULT_NOT_TOUCHED"}
