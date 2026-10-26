@@ -28,6 +28,12 @@ def main():
     sf_decisions=read(SFDC,"Email Review Decisions","A1:J1300")
     if any(not t for t in (qq_mails,sf_mails,qq_decisions,sf_decisions)):
         raise RuntimeError("Missing expected review sheet")
+    if col(qq_mails[0],8)!="Thread UID" or col(sf_mails[0],8)!="Thread UID":
+        raise RuntimeError("Unexpected mail snapshot column layout")
+    if col(qq_decisions[0],4)!="Mail UID (Key)" or col(sf_decisions[0],4)!="Mail UID (Key)":
+        raise RuntimeError("Unexpected decision column layout")
+    if len(qq_mails)<2 or len(sf_mails)<2:
+        raise RuntimeError("Empty mail snapshot cannot be certified PASS")
     if indexed(qq_mails,8)!=indexed(sf_mails,8):
         raise RuntimeError("Email UIDs differ between QQ and SFDC")
     def decisions(rows):
