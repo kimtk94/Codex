@@ -15,7 +15,7 @@ Source of truth: [SFDC_Automation_Followup_2026](https://docs.google.com/spreads
 | A04 | QQ Mail / CSS | 60-day unanswered evaluation | partial | - | - | - |
 | A05 | QQ Mail / CSS | SYSTEM_NOTICE and delegated PC/TS exclusions | done | - | - | - |
 | A06 | QQ Mail / CSS | UID exclude/restore decision ledger | done | - | - | - |
-| A07 | QQ Mail / CSS | received timestamp backfill/audit | done | - | - | - |
+| A07 | QQ Mail / CSS | received timestamp backfill/audit | partial | - | - | - |
 | A08 | QQ Mail / CSS | same-thread response verification | partial | - | - | - |
 | A09 | SFDC report intake | Lead/Oppo/Quote parser | done | - | - | - |
 | A10 | SFDC report intake | sender and duplicate header handling | done | - | - | - |
@@ -36,7 +36,7 @@ Source of truth: [SFDC_Automation_Followup_2026](https://docs.google.com/spreads
 | A25 | NBA / follow-up | decision preservation | done | - | - | - |
 | A26 | NBA / follow-up | unified candidate pool | partial | - | - | - |
 | A27 | NBA / follow-up | Today Top 10 | partial | - | - | - |
-| A28 | NBA / follow-up | sent-mail reconciliation | partial | - | - | - |
+| A28 | NBA / follow-up | sent-mail reconciliation | todo | - | - | - |
 | A29 | NBA / follow-up | manual done/exclude propagation | partial | - | - | - |
 | A30 | NBA / follow-up | P0/P1 autonomous sequencing | todo | - | - | - |
 | A31 | Revenue / BI | 2025 official historical basis | done | - | - | - |
@@ -47,12 +47,12 @@ Source of truth: [SFDC_Automation_Followup_2026](https://docs.google.com/spreads
 | A36 | Revenue / BI | formula and bar chart regression | todo | - | - | - |
 | A37 | Feishu | read-only Base source | done | - | - | - |
 | A38 | Feishu | project TAT forecast | partial | - | - | - |
-| A39 | Feishu | user override of forecast month | partial | - | - | - |
+| A39 | Feishu | user override of forecast month | todo | - | - | - |
 | A40 | Feishu | outstanding vs invoice issuance vs receipt | todo | - | - | - |
 | A41 | Feishu | bidirectional update contract | todo | - | - | - |
 | A42 | Sheets / Web | unified master spreadsheet | done | - | - | - |
 | A43 | Sheets / Web | institution/service normalization | partial | - | - | - |
-| A44 | Sheets / Web | deprecated tab registry | partial | - | - | - |
+| A44 | Sheets / Web | deprecated tab registry | todo | - | - | - |
 | A45 | Sheets / Web | Figma-aligned preview | partial | - | - | - |
 | A46 | Sheets / Web | authenticated production dashboard | todo | - | - | - |
 | A47 | CI / operations | CI suites and regression | partial | - | - | - |
