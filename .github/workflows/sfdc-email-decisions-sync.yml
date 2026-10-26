@@ -1,0 +1,40 @@
+name: SFDC Email Decision Sync
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,37 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: sfdc-email-decision-sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+      SFDC_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+      CSS_SHEET_ID: 1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install google-api-python-client google-auth
+      - name: Validate decisions without writes
+        run: |
+          python automation/css/sfdc_email_decision_sync.py
+          python automation/css/bi_mail_review_sync.py
+      - name: Send SFDC decisions to QQ
+        env:
+          DRY_RUN: 'false'
+        run: python automation/css/sfdc_email_decision_sync.py
+      - name: Apply QQ exclusions
+        env:
+          DRY_RUN: 'false'
+        run: python automation/css/bi_mail_review_sync.py
+      - name: Acknowledge synchronized decisions in SFDC
+        run: python automation/css/sfdc_email_decision_ack.py
