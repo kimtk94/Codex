@@ -136,6 +136,7 @@ def main():
  p.add_argument("--values",default="",help="Optional JSON of explicitly approved current opportunity values")
  p.add_argument("--cdp-url",default="http://127.0.0.1:9222")
  p.add_argument("--output",default="")
+ p.add_argument("--no-prompt",action="store_true",help="For editor handoff when exactly one New Opportunity is already open")
  a=p.parse_args()
  draft=read(a.draft)
  prepare_lookup(draft)
@@ -153,7 +154,7 @@ def main():
   values["Progress Description"]=progress_for_today(values["Progress Description"],values.get("Stage",""))
  elif not values["Progress Description"] and draft.get("source_opportunity_id")=="Opp-2026-10-23-291068":
   # Explicitly supplied by user for this specific verified source record.
-  values["Progress Description"]=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%m%d")+" Quote Issued\nmRNA-Seq 5 samples * 180,000KRW"
+  values["Progress Description"]=datetime.now(timezone(timedelta(hours=9))).strftime("%m%d")+" Quote Issued\nmRNA-Seq 5 samples * 180,000KRW"
  missing=[x for x in LABELS if x!="Forecast Category" and not values.get(x)]
  if not a.values:
   print("NOTE: historical defaults are for reference only. Use --values for each new deal.")
@@ -164,7 +165,8 @@ def main():
   browser=pw.chromium.connect_over_cdp(a.cdp_url)
   if not browser.contexts:raise RuntimeError("No CDP Chrome context")
   ctx=browser.contexts[0]
-  input("Open ONE unsaved New Opportunity. Enter to populate all available values, WITHOUT Save: ")
+  if not a.no_prompt:
+   input("Open ONE unsaved New Opportunity. Enter to populate all available values, WITHOUT Save: ")
   page=find_page(ctx)
   focus_and_maximize(page)
   result={"version":"one-pass-historical-v1","source_id":draft["source_opportunity_id"],
