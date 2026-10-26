@@ -5,6 +5,7 @@ Exports visible field labels, rendered values and non-sensitive structural count
 Contains customer data; keep JSON local.
 """
 import argparse,json,re
+from urllib.parse import urlparse
 from pathlib import Path
 from playwright.sync_api import sync_playwright,Error as PWError
 from runner import check_url
@@ -100,8 +101,11 @@ def main():
             raise RuntimeError("Expected exactly one existing Opportunity tab; tabs matched: "+str(len(candidate)))
         page=candidate[0]
         page.bring_to_front()
+        route_match=re.search(r"/lightning/r/Opportunity/([a-zA-Z0-9]{15,18})(?:/|$)",urlparse(page.url).path,re.I)
+        route_id=route_match.group(1) if route_match else None
         result={"version":"existing-opportunity-live-v2","title":page.title(),
                 "source":"Salesforce visible UI","saved_or_modified":False,
+                "record_id_from_url":route_id,"record_id_evidence":"lightning_opportunity_route" if route_id else "NOT_FOUND",
                 "frames":[]}
         for frame in page.frames:
             try:
@@ -113,6 +117,7 @@ def main():
         path.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
         print("LIVE FIELD PAIRS:",sum(len(f["fields"]) for f in result["frames"]))
         print("FRAME INSPECTION:",json.dumps([{"shadow_roots":x["shadow_roots"],"selector_counts":{"inspected_count":x["inspected_count"]},"field_count":len(x["fields"])} for x in result["frames"]],ensure_ascii=False))
+        print("OPPORTUNITY RECORD ID FROM URL:",route_id or "NOT_FOUND")
         print("REPORT:",path)
         print("READ ONLY; Salesforce data not modified.")
 if __name__=="__main__":main()
