@@ -27,6 +27,12 @@ class LeadAuditSafetyTest(unittest.TestCase):
         for expected in ("Duplicate audit Lead ID", "Duplicate source Lead ID", "Unexpected email evidence columns"):
             self.assertIn(expected, source)
 
+    def test_stale_source_blocks_scheduled_writes(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("if not dry and source_stale:", source)
+        self.assertIn("raise RuntimeError('Lead audit source is stale; refusing writes')", source)
+        self.assertLess(source.index("if not dry and source_stale:"), source.index("if not dry:"))
+
     def test_independent_reconciliation_and_default_dry_run(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn('if not dry:', source)
