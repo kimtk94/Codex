@@ -5,7 +5,7 @@ import sys
 import pathlib
 import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from three_report_email_ingest import matrix, classify, validate, digest, filter_fresh
+from three_report_email_ingest import matrix, classify, validate, digest, filter_fresh, missing_report_types
 from three_report_relationship_qc import compare
 
 class ReportIngestTests(unittest.TestCase):
@@ -71,6 +71,11 @@ class ReportIngestTests(unittest.TestCase):
         self.assertEqual(result["linked_quote_rows"],2)
         self.assertEqual(result["unique_quote_ids_with_link_issue"],2)
         self.assertEqual(result["qc"],"REVIEW")
+
+    def test_missing_report_types_are_explicit(self):
+        self.assertEqual(missing_report_types({}), ["Leads", "Opportunities", "Quotation"])
+        self.assertEqual(missing_report_types({"Quotation": {}}), ["Leads", "Opportunities"])
+        self.assertEqual(missing_report_types({kind: {} for kind in ("Leads", "Opportunities", "Quotation")}), [])
 
     def test_unknown_attachment_rejected(self):
         with self.assertRaisesRegex(ValueError, "UNRECOGNIZED_REPORT_SCHEMA"):

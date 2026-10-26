@@ -257,6 +257,9 @@ def collect(im, days=4):
     print("SFDC_3REPORT_DISCOVERY=" + json.dumps(diagnostics, sort_keys=True))
     return selected
 
+def missing_report_types(selected):
+    return sorted(set(SCHEMAS) - set(selected))
+
 def main():
     dry = os.getenv("SFDC_REPORT_DRY_RUN", "true").lower() != "false"
     with imaplib.IMAP4_SSL("imap.exmail.qq.com", 993, timeout=45) as im:
@@ -265,6 +268,8 @@ def main():
         selected = collect(im)
     # Print counts and checksums; never log customer contents.
     print("SFDC_3REPORT_AUDIT=" + json.dumps({k: {"received": v["stamp"], **v["stats"], "sha256": v["sha"]} for k, v in selected.items()}, sort_keys=True))
+    missing = missing_report_types(selected)
+    print("SFDC_3REPORT_COVERAGE=" + json.dumps({"present": sorted(selected), "missing": missing}, sort_keys=True))
     if dry:
         print("SFDC_3REPORT_DRY_RUN=true")
         return
@@ -275,6 +280,8 @@ def main():
     # Never clear previously staged raw records in that case.
     write_verified(AuthorizedSession(cred), selected)
     print("SFDC_3REPORT_STAGED=" + ",".join(sorted(selected)))
+    if missing and os.getenv("SFDC_REQUIRE_ALL_REPORTS", "true").lower() == "true":
+        raise RuntimeError("SFDC_REPORT_COVERAGE_INCOMPLETE_" + "_".join(missing))
 
 if __name__ == "__main__":
     try:
