@@ -102,6 +102,8 @@ def main():
                                'values':[[effective_latest,str(count),'SENT_CONFIRMED']]})
     dry=os.getenv("DRY_RUN","true").lower()!="false"
     print(json.dumps({"dry_run":dry,"source_mails":max(map(len,(dates,senders,recipients,directions)))-1,"sent_addresses":len(sent),"audit_updates":changed,"sfdc_updates":len(sf_updates),"source_latest":source_latest.isoformat() if source_latest else None,"source_stale":source_stale}))
+    if not dry and source_stale:
+        raise RuntimeError('Lead audit source is stale; refusing writes')
     if not dry:
         if updates:
             api.batchUpdate(spreadsheetId=QQ,body={"valueInputOption":"RAW","data":updates}).execute()
