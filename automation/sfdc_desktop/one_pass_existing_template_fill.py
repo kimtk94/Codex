@@ -6,7 +6,7 @@ A historical source is not a valid new sale until reviewed; Save is forbidden.
 import argparse,json,re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from zoneinfo import ZoneInfo
+from datetime import timezone, timedelta
 from pathlib import Path
 from playwright.sync_api import sync_playwright,Error as PWError
 from runner import check_url
@@ -33,7 +33,7 @@ def amount_numeric(value):
 
 def progress_for_today(value, stage):
  text=str(value or "").strip()
- today=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%m%d")
+ today=datetime.now(timezone(timedelta(hours=9))).strftime("%m%d")
  # Accept either multiline or the existing single-line description convention.
  m=re.match(r"^\d{4}\s+",text)
  if not m:return text
