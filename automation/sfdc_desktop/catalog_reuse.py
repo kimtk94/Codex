@@ -31,7 +31,7 @@ def load_sheet(sheet_id=SHEET_ID, tab=TAB):
         from google.auth.transport.requests import AuthorizedSession
         import google.auth
     except ImportError as exc:
-        raise RuntimeError("Install google-auth: py -3.12 -m pip install google-auth") from exc
+        raise RuntimeError("Install project dependencies: py -3.12 -m pip install -r automation/sfdc_desktop/requirements.txt") from exc
     key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     key_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     if key_path:
