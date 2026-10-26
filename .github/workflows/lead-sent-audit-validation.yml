@@ -8,6 +8,12 @@ on:
         default: false
   schedule:
     - cron: '17,47 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css/lead_sent_audit_refresh.py'
+      - 'automation/css/test_lead_sent_audit_safety.py'
+      - '.github/workflows/lead-sent-audit-validation.yml'
 permissions:
   contents: read
 concurrency:
