@@ -34,6 +34,18 @@ def payload(report, ids, checked_at):
             writes.append((f"H{index}", checked_at))
     return writes
 
+def validate_readback(edits, value_ranges):
+    if len(value_ranges) != len(edits):
+        raise RuntimeError("Readback range count mismatch")
+    verified = []
+    for (cell, expected), item in zip(edits, value_ranges):
+        values = item.get("values", [])
+        actual = str(values[0][0]) if values and values[0] else ""
+        if actual != expected:
+            raise RuntimeError("Readback mismatch for " + cell)
+        verified.append(cell)
+    return verified
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--apply", action="store_true")
