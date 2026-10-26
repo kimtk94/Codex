@@ -32,6 +32,5 @@ Write-Host "Opening editor: $editorUrl"
 Write-Host "Use the 'save and fill open New Opportunity' button after reviewing all deal values."
 Write-Host "Salesforce Save is NEVER clicked by this launcher."
 if ($OpenSalesforce) { Start-Process "https://novogene.lightning.force.com/lightning/o/Opportunity/list" }
-Start-Process $editorUrl
-& py -3.12 "automation\sfdc_desktop\deal_editor.py" --values $values
+& py -3.12 "automation\sfdc_desktop\deal_editor.py" --values $values --open-browser
 if ($LASTEXITCODE -ne 0) { throw "Local editor exited with an error" }
