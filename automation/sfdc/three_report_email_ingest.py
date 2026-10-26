@@ -39,6 +39,29 @@ AUDIT_HEADER = ["Entity", "Source Received KST", "Ingest Checked KST", "Rows", "
 def normalize(name):
     return re.sub(r"\s+", " ", str(name or "").replace("\ufeff", "").strip()).casefold()
 
+def unique_headers(raw):
+    """Keep duplicate Salesforce non-key columns without discarding values."""
+    taken = set()
+    names = []
+    for column in raw:
+        base = str(column).strip()
+        if not base:
+            raise ValueError("EMPTY_HEADER")
+        key = normalize(base)
+        if key not in taken:
+            name = base
+        else:
+            # Never silently choose between conflicting primary identifiers.
+            if key in {normalize(cfg["key"]) for cfg in SCHEMAS.values()}:
+                raise ValueError("DUPLICATE_PRIMARY_HEADER")
+            number = 1
+            while normalize(f"{base}.{number}") in taken:
+                number += 1
+            name = f"{base}.{number}"
+        taken.add(normalize(name))
+        names.append(name)
+    return names
+
 def matrix(blob, filename):
     if len(blob) > 12_000_000:
         raise ValueError("ATTACHMENT_TOO_LARGE")
@@ -72,9 +95,7 @@ def matrix(blob, filename):
     for pos, row in enumerate(values[:12]):
         names = {normalize(v) for v in row}
         if any({normalize(x) for x in conf["required"]}.issubset(names) for conf in SCHEMAS.values()):
-            columns = [str(v).strip() for v in row]
-            if len(columns) != len({normalize(v) for v in columns}) or any(not c for c in columns):
-                raise ValueError("DUPLICATE_OR_EMPTY_HEADER")
+            columns = unique_headers(row)
             rows = [(r + [""] * len(columns))[:len(columns)] for r in values[pos + 1:]]
             return columns, rows
     raise ValueError("UNRECOGNIZED_REPORT_SCHEMA")
