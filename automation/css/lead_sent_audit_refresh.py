@@ -26,22 +26,30 @@ def main():
         return api.get(spreadsheetId=book,range="'"+tab+"'!"+area,valueRenderOption="FORMATTED_VALUE").execute().get("values",[])
     leads=read(SFDC,"Lead Email Followup","A1:G600")
     audits=read(QQ,"SFDC Lead Sent Audit","A1:E600")
-    mails=read(QQ,"All Emails","A1:U30000")
+    # Read narrow columns only: date (C), sender (E), recipient (F), direction (U).
+    # A:U includes large mail bodies in Q; do not download those bodies.
+    dates=read(QQ,"All Emails","C1:C60000")
+    senders=read(QQ,"All Emails","E1:E60000")
+    recipients=read(QQ,"All Emails","F1:F60000")
+    directions=read(QQ,"All Emails","U1:U60000")
     sf_evidence=read(SFDC,"Lead Email Followup","X2:Z600")
-    if val(leads[0],0)!="Lead ID" or val(audits[0],0)!="Lead ID" or val(mails[0],20)!="direction":
+    if not leads or not audits or not directions:
+        raise RuntimeError("Missing audit source")
+    if val(leads[0],0)!="Lead ID" or val(audits[0],0)!="Lead ID" or val(directions[0],0)!="direction":
         raise RuntimeError("Unexpected source header; no writes")
-    if len(mails)>=30000:raise RuntimeError("Mail scan capacity reached; refuse partial audit")
-    if not leads or not audits or not mails:raise RuntimeError("Missing audit source")
+    if max(map(len,(dates,senders,recipients,directions)))>=60000:
+        raise RuntimeError("Mail scan capacity reached; refuse partial audit")
     # Audit index by Lead ID and existing row number.
     existing={val(r,0):(i,r) for i,r in enumerate(audits[1:],start=2) if val(r,0)}
     sent={}
-    for r in mails[1:]:
-        if val(r,20).lower() not in ("sent","outbound"):continue
-        sender=val(r,4).lower()
+    for idx in range(1,max(map(len,(dates,senders,recipients,directions)))):
+        direction=val(directions[idx],0).lower() if idx<len(directions) else ""
+        if direction not in ("sent","outbound"):continue
+        sender=val(senders[idx],0).lower() if idx<len(senders) else ""
         if sender not in ALLOWED_SENDERS:continue
-        at=date(val(r,2))
+        at=date(val(dates[idx],0)) if idx<len(dates) else None
         if not at:continue
-        for addr in set(x.lower() for x in MAIL_RE.findall(val(r,5))):
+        for addr in set(x.lower() for x in MAIL_RE.findall(val(recipients[idx],0) if idx<len(recipients) else "")):
             sent.setdefault(addr,[]).append(at)
     updates=[];sf_updates=[];changed=0
     for lead_row,r in enumerate(leads[1:],start=2):
@@ -66,7 +74,7 @@ def main():
             sf_updates.append({"range":"\'Lead Email Followup\'!X"+str(lead_row)+":Z"+str(lead_row),
                                "values":[[latest,str(max(len(qualifying),int(val(old,3) or 0))),"SENT_CONFIRMED"]]})
     dry=os.getenv("DRY_RUN","true").lower()!="false"
-    print(json.dumps({"dry_run":dry,"source_mails":len(mails)-1,"sent_addresses":len(sent),"audit_updates":changed,"sfdc_updates":len(sf_updates)}))
+    print(json.dumps({"dry_run":dry,"source_mails":max(map(len,(dates,senders,recipients,directions)))-1,"sent_addresses":len(sent),"audit_updates":changed,"sfdc_updates":len(sf_updates)}))
     if not dry and updates:
         api.batchUpdate(spreadsheetId=QQ,body={"valueInputOption":"RAW","data":updates}).execute()
         if sf_updates:
