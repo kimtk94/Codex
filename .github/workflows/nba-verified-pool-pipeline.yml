@@ -5,6 +5,13 @@ on:
       - '.github/workflows/nba-verified-pool-pipeline.yml'
       - 'automation/css/nba_mail_evidence_audit.py'
       - 'automation/css/test_nba_mail_evidence_audit.py'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css/test_nba_refresh_pool.py'
+      - 'automation/css/next_best_action_leads.py'
+      - 'automation/css/nba_refresh_pool.py'
+      - '.github/workflows/nba-verified-pool-pipeline.yml'
   schedule:
     - cron: '0 23,3,8 * * *' # 08:00, 12:00, 17:00 KST
   workflow_dispatch:
