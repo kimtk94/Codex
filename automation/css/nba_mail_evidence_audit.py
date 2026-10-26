@@ -32,7 +32,7 @@ def summarize(rows):
         elif reviewer in CONFIRMED_ACTION:
             counts["reviewer_closed_not_reply_proof"] += 1
         elif reply and reply not in {"NONE", "UNKNOWN"}:
-            counts["ambiguous_reply_evidence"] += 1
+            counts["nonproof_status_text"] += 1
         if age > 30:
             counts["historical_over_30d"] += 1
     counts["nba_actionable"] = len(mail_rows(rows))
