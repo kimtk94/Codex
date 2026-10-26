@@ -17,7 +17,7 @@ import sys
 import time
 import urllib.parse
 from email import policy
-from email.utils import parsedate_to_datetime
+from email.utils import parsedate_to_datetime, parseaddr
 from pathlib import Path
 
 from google.auth.transport.requests import AuthorizedSession
@@ -208,6 +208,7 @@ def collect(im, days=4):
     if ok2 == "OK":
         uids.update((targeted[0] or b"").split())
     selected = {}
+    diagnostics = {"uids": len(uids), "fetched": 0, "salesforce_sender": 0, "attachment_candidates": 0, "recognized": 0, "rejected": {}, "selected": {}}
     for uid in sorted(uids, key=lambda b: int(b)):
         ok, records = im.uid("FETCH", uid, "(BODY.PEEK[])")
         if ok != "OK":
@@ -216,10 +217,11 @@ def collect(im, days=4):
         if not raw:
             continue
         msg = email.message_from_bytes(raw, policy=policy.default)
-        subject = str(msg.get("subject", "")).lower()
-        sender = str(msg.get("from", "")).lower()
-        if not re.search(r"@(?:[a-z0-9-]+\.)*salesforce\.com\b", sender):
+        diagnostics["fetched"] += 1
+        sender = parseaddr(str(msg.get("from", "")))[1].lower()
+        if not re.fullmatch(r"[^@]+@(?:[a-z0-9-]+\.)*salesforce\.com", sender):
             continue
+        diagnostics["salesforce_sender"] += 1
         try:
             when = parsedate_to_datetime(str(msg["date"]))
             if when is None or when.tzinfo is None:
@@ -231,19 +233,28 @@ def collect(im, days=4):
             filename = str(part.get_filename() or "")
             if not filename.lower().endswith((".xls", ".xlsx", ".csv")):
                 continue
+            diagnostics["attachment_candidates"] += 1
             payload = part.get_payload(decode=True)
             if not payload or len(payload) > 12_000_000:
+                diagnostics["rejected"]["SIZE_OR_EMPTY"] = diagnostics["rejected"].get("SIZE_OR_EMPTY", 0) + 1
                 continue
             try:
                 columns, rows = matrix(payload, filename)
                 kind = classify(columns)
                 stats = validate(kind, columns, rows)
-            except (UnicodeError, ValueError, TypeError, IndexError):
+            except (UnicodeError, ValueError, TypeError, IndexError) as exc:
+                reason = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+                if reason not in ("ATTACHMENT_TOO_LARGE", "EMPTY_REPORT", "UNRECOGNIZED_REPORT_SCHEMA", "DUPLICATE_OR_EMPTY_HEADER", "AMBIGUOUS_REPORT_SCHEMA", "TOO_FEW_ROWS", "MISSING_REQUIRED_IDS", "DUPLICATE_PRIMARY_IDS"):
+                    reason = type(exc).__name__
+                diagnostics["rejected"][reason] = diagnostics["rejected"].get(reason, 0) + 1
                 continue
+            diagnostics["recognized"] += 1
             old = selected.get(kind)
             if old is not None and when <= old["when"]:
                 continue
             selected[kind] = {"when": when, "stamp": when.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST"), "headers": columns, "rows": rows, "stats": stats, "sha": digest(columns, rows)}
+    diagnostics["selected"] = {name: item["stats"]["rows"] for name, item in selected.items()}
+    print("SFDC_3REPORT_DISCOVERY=" + json.dumps(diagnostics, sort_keys=True))
     return selected
 
 def main():
