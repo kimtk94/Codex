@@ -39,11 +39,40 @@ def summarize(rows):
     return dict(counts)
 
 
+
+def exact_header_reply_links(rows):
+    """Count strict sender/recipient reversed links; never auto-close a thread."""
+    import re
+    pattern = re.compile(r"<[^<>\\s]+>")
+    outgoing = {}
+    for row in rows:
+        folder = str(row.get("folder") or "").upper()
+        sender = str(row.get("from_email") or "").strip().lower()
+        recipient = str(row.get("recipient_to") or "").strip().lower()
+        message_id = str(row.get("message_id") or "").strip()
+        # Folder identity takes precedence over a derived direction label.
+        if ("SENT" in folder or str(row.get("direction") or "").upper() == "OUTBOUND") and message_id and sender.endswith("@novogene.com"):
+            outgoing[message_id] = (sender, set(re.findall(r"[\\w.+-]+@[\\w.-]+", recipient)))
+    links = set()
+    for row in rows:
+        sender = str(row.get("from_email") or "").strip().lower()
+        if not sender or sender.endswith("@novogene.com"):
+            continue
+        to = str(row.get("recipient_to") or "").lower()
+        refs = pattern.findall(str(row.get("in_reply_to") or "") + " " + str(row.get("references") or ""))
+        for ref in refs:
+            evidence = outgoing.get(ref)
+            if evidence and sender in evidence[1] and evidence[0] in to:
+                links.add((ref, str(row.get("message_id") or "")))
+    return {"outgoing_ids": len(outgoing), "strict_reply_links": len(links)}
+
 def main():
     from nba_google_auth import auth
     from nba_refresh_pool import fetch, MAIL_BOOK
     rows = fetch(auth(), MAIL_BOOK, "BI Unanswered Triage", "U20000")
     print("NBA_MAIL_EVIDENCE_AUDIT", summarize(rows))
+    stage = fetch(auth(), MAIL_BOOK, "CSS Git Ingest", "R12000")
+    print("NBA_EXACT_HEADER_REPLY_AUDIT", exact_header_reply_links(stage))
 
 
 if __name__ == "__main__":
