@@ -71,10 +71,31 @@ SNAPSHOT_JS=r"""() => {
    }
  }
  visit(document);
+ const businessIdCandidates=[];
+ // Inspect rendered text only; require a nearby Opportunity ID label to avoid
+ // treating unrelated links, list rows or menus as authoritative record IDs.
+ function scanIds(root){
+   for(const el of root.querySelectorAll('*')){
+     if(el.shadowRoot)scanIds(el.shadowRoot);
+     if(!el.matches('.slds-form-element,lightning-formatted-text,span,div'))continue;
+     if(el.children.length>5)continue;
+     const visible=tidy(el.innerText);
+     if(!visible || visible.length>300)continue;
+     const ids=visible.match(/Opp-\\d{4}-\\d{2}-\\d{2}-\\d+/g)||[];
+     for(const id of ids){
+       const parent=tidy(el.parentElement?.innerText).slice(0,280);
+       const grand=tidy(el.parentElement?.parentElement?.innerText).slice(0,400);
+       if(/Opportunity ID|Opportunity Number/i.test(parent+' '+grand))
+         businessIdCandidates.push({id,context:grand,confidence:'LABEL_NEARBY_NOT_VERIFIED'});
+     }
+   }
+ }
+ scanIds(document);
  const unique=new Map();
  for(const x of pairs)unique.set(x.label+'|'+x.value,x);
  return {shadow_roots:seen.size-1,inspected_count:structures.length,
-   structures:structures.slice(0,60),fields:[...unique.values()].slice(0,250)};
+   structures:structures.slice(0,60),fields:[...unique.values()].slice(0,250),
+   business_id_candidates:businessIdCandidates.slice(0,20)};
 }"""
 
 def main():
@@ -118,6 +139,7 @@ def main():
         print("LIVE FIELD PAIRS:",sum(len(f["fields"]) for f in result["frames"]))
         print("FRAME INSPECTION:",json.dumps([{"shadow_roots":x["shadow_roots"],"selector_counts":{"inspected_count":x["inspected_count"]},"field_count":len(x["fields"])} for x in result["frames"]],ensure_ascii=False))
         print("OPPORTUNITY RECORD ID FROM URL:",route_id or "NOT_FOUND")
+        print("BUSINESS ID CANDIDATES:",sum(len(x.get("business_id_candidates",[])) for x in result["frames"]))
         print("REPORT:",path)
         print("READ ONLY; Salesforce data not modified.")
 if __name__=="__main__":main()
