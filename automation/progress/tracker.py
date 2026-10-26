@@ -82,9 +82,27 @@ def sheet_probe():
     except Exception as exc:
         return {"state": "FAILED", "reason_type": type(exc).__name__}
 
-def build(master, pr_lookup, runs, sheet):
+def validate_manifest(manifest, task_ids):
+    if manifest.get("schema_version") != 1:
+        raise ValueError("Unsupported acceptance manifest version")
+    assigned = {}
+    for gate, definition in manifest["gates"].items():
+        requirements = definition.get("required", [])
+        if not requirements or len(set(requirements)) != len(requirements):
+            raise ValueError("Invalid gate requirements: " + gate)
+        for task_id in definition.get("tasks", []):
+            if task_id not in task_ids or task_id in assigned:
+                raise ValueError("Missing or duplicate task mapping: " + task_id)
+            assigned[task_id] = gate
+    if set(assigned) != set(task_ids):
+        raise ValueError("Acceptance manifest must cover all 50 tasks")
+    return assigned
+
+def build(master, pr_lookup, runs, sheet, manifest=None):
+    ledger = tasks(master)
+    gate_by_task = validate_manifest(manifest, {t["id"] for t in ledger}) if manifest else {}
     result = []
-    for task in tasks(master):
+    for task in ledger:
         prs = []
         for num in EVIDENCE.get(task["id"], []):
             if num in pr_lookup:
@@ -92,7 +110,7 @@ def build(master, pr_lookup, runs, sheet):
                 p["number"] = num
                 p["recent_runs"] = runs.get(p.get("head_sha"), [])[:3]
                 prs.append(p)
-        result.append({**task, "pr_candidates": prs, "accepted": False,
+        result.append({**task, "gate_id": gate_by_task.get(task["id"]), "pr_candidates": prs, "accepted": False,
             "acceptance_state": "NOT_VERIFIED",
             "note": "PR/CI observations are candidate evidence; never auto-promote completion"})
     counts = {k: sum(x["baseline"] == k for x in result) for k in ("done", "partial", "todo")}
@@ -138,7 +156,8 @@ def main():
             prs, runs = {}, {}
             github_error = type(exc).__name__
         sheet = sheet_probe()
-    output = build(master, prs, runs, sheet)
+    manifest = json.loads(Path("automation/progress/acceptance_manifest.json").read_text(encoding="utf-8"))
+    output = build(master, prs, runs, sheet, manifest)
     if github_error:
         output["github_error_type"] = github_error
     folder = Path(args.out_dir)
