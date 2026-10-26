@@ -65,4 +65,14 @@ class ReconcileTests(unittest.TestCase):
               ["INV1","2026-10",120000,"AMEA2026101234","H123"]]
         with self.assertRaisesRegex(RuntimeError,"DUPLICATE_INVOICE_CONFLICT"):
             reconcile_rows(i,[PH,row("x","F001")],"now")
+    def test_revenue_writer_preserves_dashboard_formula_columns(self):
+        import inspect
+        from tax_invoice_forecast_reconcile import publish
+        source=inspect.getsource(publish)
+        self.assertIn("for name in (OUTPUT_TAB,REVIEW_TAB)",source)
+        self.assertIn("!A1:N2000",source)
+        self.assertIn("!A1:K2000",inspect.getsource(__import__("tax_invoice_forecast_reconcile")).replace("'", ""))
+        self.assertNotIn("BI 2026 Forecast Overview",source)
+        self.assertNotIn("Unissued Invoice Watch",source)
+        self.assertNotIn("Partial Invoice Reconciliation",source)
 if __name__=="__main__":unittest.main()
