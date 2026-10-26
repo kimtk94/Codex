@@ -182,7 +182,7 @@ def select(context,label,name):
             for frame in page.frames:
                 try:
                     handles=frame.evaluate_handle("""expected => {
-                      const norm=s=>(s||'').replace(/\\s+/g,' ').trim().toLowerCase();
+                      const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
                       const seen=new Set(),out=[];
                       function walk(root){
                         if(!root||seen.has(root))return;
@@ -192,7 +192,7 @@ def select(context,label,name):
                           if(!el.matches('li,[role="option"],lightning-base-combobox-item,.slds-listbox__option'))continue;
                           if(!el.getClientRects().length)continue;
                           const txt=(el.innerText||el.textContent||'').trim();
-                          const first=(txt.split('\\n')[0]||'').trim();
+                          const first=(txt.split('\n')[0]||'').trim();
                           if(norm(first)!==norm(expected))continue;
                           if(!el.closest('.slds-listbox_lookup,.slds-listbox,[role="listbox"]') &&
                              !el.matches('lightning-base-combobox-item'))continue;
