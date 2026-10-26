@@ -45,7 +45,7 @@ def timestamp(value):
         return None
 
 def qq_mail_rows(session, chunk=3000):
-    """Bounded source read; only received_at/from/to/cc, not subjects or bodies."""
+    """Bounded source read; received_at/from/to/cc/subject; no body content."""
     root = "https://sheets.googleapis.com/v4/spreadsheets/" + QQ_SHEET
     meta = session.get(root + "?fields=sheets.properties(title,gridProperties.rowCount)", timeout=60)
     if not meta.ok:
@@ -57,7 +57,7 @@ def qq_mail_rows(session, chunk=3000):
     bound = min(props["gridProperties"]["rowCount"], 100000)
     for start in range(2, bound + 1, chunk):
         stop = min(bound, start + chunk - 1)
-        a = urllib.parse.quote("'All Emails'!C" + str(start) + ":G" + str(stop), safe="")
+        a = urllib.parse.quote("'All Emails'!C" + str(start) + ":I" + str(stop), safe="")
         result = session.get(root + "/values/" + a, timeout=60)
         if not result.ok:
             raise RuntimeError("QQ_MAIL_READ_HTTP_" + str(result.status_code))
