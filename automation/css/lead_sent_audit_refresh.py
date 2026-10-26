@@ -37,7 +37,7 @@ def main():
     recipients=read(QQ,"All Emails","F1:F60000")
     directions=read(QQ,"All Emails","U1:U60000")
     sf_evidence=read(SFDC,"Lead Email Followup","X2:Z600")
-    if not leads or not audits or not directions:
+    if not leads or not audits or not directions or not dates or not senders or not recipients:
         raise RuntimeError("Missing audit source")
     if val(leads[0],0)!="Lead ID" or val(audits[0],0)!="Lead ID" or val(directions[0],0)!="direction":
         raise RuntimeError("Unexpected source header; no writes")
@@ -50,6 +50,9 @@ def main():
     if len(audit_ids)!=len(set(audit_ids)):
         raise RuntimeError("Duplicate audit Lead ID; no writes")
     existing={val(r,0):(i,r) for i,r in enumerate(audits[1:],start=2) if val(r,0)}
+    lead_ids=[val(r,0) for r in leads[1:] if val(r,0)]
+    if len(lead_ids)!=len(set(lead_ids)):
+        raise RuntimeError('Duplicate source Lead ID; no writes')
     sent={}
     for idx in range(1,max(map(len,(dates,senders,recipients,directions)))):
         direction=val(directions[idx],0).lower() if idx<len(directions) else ""
@@ -73,19 +76,24 @@ def main():
         latest=max(qualifying).isoformat()
         prior=date(val(old,2))
         if prior and prior.tzinfo is None:prior=prior.replace(tzinfo=created.tzinfo)
-        if val(old,4)=="SENT_CONFIRMED" and prior and prior>=max(qualifying):continue
-        # Exact outgoing address and post-creation timestamp only, not thread-level reply proof.
-        updates.append({"range":"'SFDC Lead Sent Audit'!C"+str(i)+":E"+str(i),
-                        "values":[[latest,str(max(len(qualifying),int(val(old,3) or 0))),"SENT_CONFIRMED"]]})
-        changed+=1
+        effective_at=max(prior,max(qualifying)) if prior else max(qualifying)
+        effective_latest=effective_at.isoformat()
+        count=max(len(qualifying),int(val(old,3) or 0))
+        if val(old,4)!='SENT_CONFIRMED' or not prior or prior<max(qualifying):
+            updates.append({'range':"'SFDC Lead Sent Audit'!C"+str(i)+':E'+str(i),
+                            'values':[[effective_latest,str(count),'SENT_CONFIRMED']]})
+            changed+=1
         sf_current=sf_evidence[lead_row-2] if lead_row-2<len(sf_evidence) else []
-        if val(sf_current,0)!=latest or val(sf_current,2)!="SENT_CONFIRMED":
-            sf_updates.append({"range":"\'Lead Email Followup\'!X"+str(lead_row)+":Z"+str(lead_row),
-                               "values":[[latest,str(max(len(qualifying),int(val(old,3) or 0))),"SENT_CONFIRMED"]]})
+        sf_prior=date(val(sf_current,0))
+        if sf_prior and sf_prior>effective_at:continue
+        if sf_prior!=effective_at or val(sf_current,2)!='SENT_CONFIRMED' or val(sf_current,1)!=str(count):
+            sf_updates.append({'range':"'Lead Email Followup'!X"+str(lead_row)+':Z'+str(lead_row),
+                               'values':[[effective_latest,str(count),'SENT_CONFIRMED']]})
     dry=os.getenv("DRY_RUN","true").lower()!="false"
     print(json.dumps({"dry_run":dry,"source_mails":max(map(len,(dates,senders,recipients,directions)))-1,"sent_addresses":len(sent),"audit_updates":changed,"sfdc_updates":len(sf_updates)}))
-    if not dry and updates:
-        api.batchUpdate(spreadsheetId=QQ,body={"valueInputOption":"RAW","data":updates}).execute()
+    if not dry:
+        if updates:
+            api.batchUpdate(spreadsheetId=QQ,body={"valueInputOption":"RAW","data":updates}).execute()
         if sf_updates:
             api.batchUpdate(spreadsheetId=SFDC,body={"valueInputOption":"RAW","data":sf_updates}).execute()
 if __name__=="__main__":
