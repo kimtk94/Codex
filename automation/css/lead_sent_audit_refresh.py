@@ -122,7 +122,7 @@ def main():
         if prior and prior.tzinfo is None:prior=prior.replace(tzinfo=created.tzinfo)
         effective_at=max(prior,max(qualifying)) if prior else max(qualifying)
         effective_latest=effective_at.isoformat()
-        count=max(len(qualifying),int(val(old,3) or 0))
+        count=max(len(qualifying),int(val(old,3) or 0) if str(val(old,3) or '0').isdigit() else 0)
         if val(old,4)!='SENT_CONFIRMED' or not prior or prior<max(qualifying):
             updates.append({'range':"'SFDC Lead Sent Audit'!C"+str(i)+':E'+str(i),
                             'values':[[effective_latest,str(count),'SENT_CONFIRMED']]})
