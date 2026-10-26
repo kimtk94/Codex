@@ -20,11 +20,26 @@ HEADER = ["waiting_days","received_at","from_name","subject","source_link","work
 MAX_READ = 100000
 
 def table(s, tab, columns, end):
-    a1=urllib.parse.quote("'"+tab+"'!A1:"+columns+str(end),safe="")
-    rows=src.api(s,"GET",src.endpoint("/values/"+a1)).get("values",[])
-    if not rows:return []
-    head=[str(x).strip() for x in rows[0]]
-    return [dict(zip(head,r+[""]*(len(head)-len(r)))) for r in rows[1:] if any(r)]
+    # Bounded reads avoid request timeouts as QQ history grows.
+    page_size=1000
+    header=None
+    result=[]
+    for start in range(1,end+1,page_size):
+        last=min(end,start+page_size-1)
+        a1=urllib.parse.quote("'"+tab+"'!A"+str(start)+":"+columns+str(last),safe="")
+        rows=src.api(s,"GET",src.endpoint("/values/"+a1)).get("values",[])
+        if start==1:
+            if not rows:return []
+            header=[str(x).strip() for x in rows[0]]
+            rows=rows[1:]
+        for row in rows:
+            if any(row):
+                result.append(dict(zip(header,row+[""]*(len(header)-len(row)))))
+        # Sheets trims trailing empty rows. A short page can still contain blank
+        # interior rows, so stop only when the final requested row is absent.
+        if len(rows)<last-start+1-(1 if start==1 else 0):
+            break
+    return result
 
 def norm_subject(value):
     value=str(value or "").strip()
