@@ -1,0 +1,49 @@
+name: Automation Progress Evidence Publisher
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Publish evidence-only F/H/J cells after preview'
+        required: true
+        type: boolean
+        default: false
+  schedule:
+    - cron: '25 0 * * *'
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+concurrency:
+  group: automation-progress-evidence-publisher
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests
+        run: python -m unittest discover -s automation/progress -p 'test_*.py'
+      - name: Install Google read client
+        run: python -m pip install google-auth requests
+      - name: Preview evidence diff
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: python automation/progress/publish_evidence.py
+      - name: Publish evidence-only columns (manual opt-in)
+        if: github.event_name == 'workflow_dispatch' && inputs.apply
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          PROGRESS_SHEET_APPLY: 'true'
+        run: python automation/progress/publish_evidence.py --apply
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: automation-evidence-publisher-preview
+          path: progress-audit/publisher-preview.json
+          retention-days: 30
