@@ -5,7 +5,6 @@ import json
 import os
 import zipfile
 from pathlib import Path
-import requests
 from tracker import SHEET_ID
 
 RUNS_API="https://api.github.com/repos/kimtk94/Codex/actions/workflows/automation-progress-evidence-publisher.yml/runs"
@@ -36,6 +35,7 @@ def verify_receipt(run, receipt, current):
     return "OBSERVED","MATCHING_SCHEDULED_WRITE_AND_CURRENT_CELLS"
 
 def collect():
+    import requests
     token=os.getenv("GITHUB_TOKEN")
     raw=os.getenv("CKD_DRIVE_SA_JSON") or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not token or not raw:
