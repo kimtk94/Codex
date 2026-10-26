@@ -105,6 +105,68 @@ def followup_after_verified_reply(rows, linked_message_ids):
     return result
 
 
+
+def update_followup_dashboard(api, rows, evidence, triage):
+    """Update verified replies by UID, preserving dashboard manual decisions (column J)."""
+    from datetime import datetime
+    from nba_refresh_pool import MAIL_BOOK
+    tab = "NBA Verified Reply Followup"
+    current = api.values().get(spreadsheetId=MAIL_BOOK, range=f"'{tab}'!A2:K500").execute().get("values", [])
+    index = {str(r[0]).strip().lower(): i + 2 for i, r in enumerate(current) if r and str(r[0]).strip()}
+    outgoing = []
+    for r in rows:
+        sender = str(r.get("from_email") or "").strip().lower()
+        recipient = str(r.get("recipient_to") or "").strip().lower()
+        if not sender.endswith("@novogene.com"):
+            continue
+        if "SENT" not in str(r.get("folder") or "").upper() and str(r.get("direction") or "").upper() != "OUTBOUND":
+            continue
+        try:
+            timestamp = datetime.fromisoformat(str(r.get("received_at") or "").replace("Z", "+00:00"))
+            if timestamp.tzinfo:
+                outgoing.append((recipient, timestamp))
+        except (ValueError, TypeError):
+            pass
+    verified = set(evidence["linked_message_ids"])
+    dedup = {}
+    for r in rows:
+        mid = str(r.get("message_id") or "")
+        key = str(r.get("ingest_key") or "")
+        if mid not in verified or not key.upper().startswith("INBOX|"):
+            continue
+        uid = "inbox:" + key.rsplit("|", 1)[-1]
+        if uid not in triage or mid in dedup:
+            continue
+        try:
+            reply_at = datetime.fromisoformat(str(r.get("received_at") or "").replace("Z", "+00:00"))
+            if not reply_at.tzinfo:
+                continue
+        except (ValueError, TypeError):
+            continue
+        dedup[mid] = (uid, str(r.get("from_email") or "").strip().lower(), reply_at, triage[uid])
+    updates = []
+    from datetime import timezone, timedelta
+    kst = timezone(timedelta(hours=9))
+    for uid, customer, reply_at, triage_row in dedup.values():
+        later = [dt for recipient, dt in outgoing if customer in recipient and dt > reply_at]
+        prior = [dt for recipient, dt in outgoing if customer in recipient and dt <= reply_at]
+        status = "LATER_OUTBOUND_CONFIRMED" if later else "LATER_OUTBOUND_NOT_FOUND"
+        stamp = lambda dt: dt.astimezone(kst).strftime("%Y-%m-%d %H:%M:%S") if dt else ""
+        row = [uid, customer, str(triage_row.get("Subject / Thread") or ""), stamp(reply_at),
+               stamp(max(prior) if prior else None), status, "HEADER_EXACT",
+               str(triage_row.get("Effective Queue") or ""), "CSS Git Ingest / Message-ID"]
+        target = index.get(uid)
+        if target is None:
+            target = max([1] + list(index.values())) + 1
+            index[uid] = target
+        updates.append({"range": f"'{tab}'!A{target}:I{target}", "values": [row]})
+        updates.append({"range": f"'{tab}'!K{target}", "values": [[datetime.now(kst).date().isoformat()]]})
+    if updates:
+        api.values().batchUpdate(spreadsheetId=MAIL_BOOK, body={"valueInputOption": "RAW", "data": updates}).execute()
+    print("NBA_REPLY_DASHBOARD_UPDATED", len(dedup), "MANUAL_DECISIONS_UNCHANGED=true")
+
+
+
 def main():
     from nba_google_auth import auth
     from nba_refresh_pool import fetch, MAIL_BOOK
@@ -119,6 +181,9 @@ def main():
     matched = [uid for uid in linked_uids if uid in triage_by_uid]
     print("NBA_EXACT_HEADER_REPLY_AUDIT", evidence)
     print("NBA_REPLY_FOLLOWUP_AUDIT", followup_after_verified_reply(stage, evidence["linked_message_ids"]))
+    import os
+    if os.getenv("NBA_REPLY_DASHBOARD_WRITE", "false").lower() == "true":
+        update_followup_dashboard(auth(), stage, evidence, triage_by_uid)
     print("NBA_REPLY_TRIAGE_JOIN", {
         "unique_linked_uids": len(linked_uids),
         "triage_matched_uids": len(matched),
