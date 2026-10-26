@@ -69,6 +69,26 @@ def historical_data(draft):
   "Progress Description":str(web.get("Progress Description") or catalog.get("progress_description") or "").strip(),
   "Status":first(web.get("Status"),catalog.get("status"))
  }
+def fill_progress(page,value):
+ if not value:return {"status":"NO_SOURCE_VALUE"}
+ targets=[]
+ for frame in page.frames:
+  for loc in (frame.get_by_role("textbox",name="Progress Description",exact=True),
+              frame.locator('textarea[aria-label="Progress Description"]')):
+   try:
+    if loc.count()==1 and loc.is_visible() and loc.is_enabled():
+     targets.append(loc)
+   except PWError:pass
+ if not targets:return {"status":"PROGRESS_TEXTAREA_NOT_FOUND"}
+ # Prefer semantic accessible textbox. Duplicate selector paths may name same field.
+ loc=targets[0]
+ try:
+  loc.fill(value,timeout=3000)
+  actual=loc.input_value(timeout=1000)
+  return {"status":"FILLED_NOT_SAVED" if actual==value else "VALUE_MISMATCH",
+          "value":actual}
+ except PWError:return {"status":"PROGRESS_FILL_FAILED"}
+
 def find_page(ctx):
  hits=[]
  for pg in ctx.pages:
@@ -128,6 +148,9 @@ def main():
  if values["Amount"]:values["Amount"]=amount_numeric(values["Amount"])
  if values["Progress Description"]:
   values["Progress Description"]=progress_for_today(values["Progress Description"],values.get("Stage",""))
+ elif draft.get("source_opportunity_id")=="Opp-2026-10-23-291068":
+  # Explicitly supplied by user for this specific verified source record.
+  values["Progress Description"]=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%m%d")+" Quote Issued\nmRNA-Seq 5 samples * 180,000KRW"
  missing=[x for x in LABELS if x!="Forecast Category" and not values.get(x)]
  print("SOURCE:",draft["source_opportunity_id"],"MODE: historical template, NOT an approved new sale")
  print("VALUES:",json.dumps(values,ensure_ascii=False))
@@ -146,7 +169,7 @@ def main():
    result["fields"][label]=select_lookup(page,label,values[label]) if values[label] else {"status":"NO_SOURCE_VALUE"}
    print(label,result["fields"][label]["status"])
   for label in ("Opportunity Name","Amount","Close Date","Progress Description"):
-   result["fields"][label]=do_fill(ctx,label,values[label])
+   result["fields"][label]=fill_progress(page,values[label]) if label=="Progress Description" else do_fill(ctx,label,values[label])
    print(label,result["fields"][label]["status"])
   for label in ("Stage","Status"):
    result["fields"][label]=do_pick(ctx,label,values[label])
