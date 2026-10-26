@@ -1,6 +1,11 @@
 name: Automation Progress Incident Watch
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Simulate failure and recovery without creating issues'
+        type: boolean
+        default: true
   schedule:
     - cron: '55 0 * * *'
 permissions:
@@ -18,7 +23,11 @@ jobs:
           python-version: '3.12'
       - name: Check incident classifier tests
         run: python -m unittest discover -s automation/progress -p 'test_*.py'
+      - name: Isolated incident simulation (no writes)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: python automation/progress/incident_watch.py --dry-run
       - name: Detect unresolved scheduled failures and open GitHub issues
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python automation/progress/incident_watch.py
