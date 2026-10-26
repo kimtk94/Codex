@@ -48,6 +48,7 @@ jobs:
       CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_QQ_MAIL_CACHE_PATH: ${{ runner.temp }}/sfdc-qq-mail-snapshot.jsonl
       SFDC_REQUIRE_ALL_REPORTS: 'false'
       SFDC_REPORT_DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.apply_staging != true) && 'true' || 'false' }}
     steps:
