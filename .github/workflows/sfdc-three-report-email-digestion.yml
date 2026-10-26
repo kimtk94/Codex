@@ -80,5 +80,5 @@ jobs:
       - name: Check QQ exact ID thread evidence (read only)
         if: github.event_name != 'pull_request'
         env:
-          SFDC_THREAD_EVIDENCE_APPLY: 'false'
+          SFDC_THREAD_EVIDENCE_APPLY: 'true'
         run: python automation/sfdc/three_report_thread_evidence.py
