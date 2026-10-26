@@ -1,5 +1,6 @@
 param(
     [string]$OpportunityId = "",
+    [string]$OpportunityName = "",
     [long]$RunId = 0,
     [string]$Account = "",
     [string]$Service = "",
@@ -8,7 +9,7 @@ param(
     [string]$OutputDir = "$env:LOCALAPPDATA\SFDC\Catalog"
 )
 $ErrorActionPreference = "Stop"
-if (-not ($RunId -gt 0 -or $OpportunityId.Trim() -or $Account.Trim() -or $Service.Trim() -or $Contact.Trim())) {
+if (-not ($RunId -gt 0 -or $OpportunityName.Trim() -or $OpportunityId.Trim() -or $Account.Trim() -or $Service.Trim() -or $Contact.Trim())) {
     throw "Provide -OpportunityId or at least one of -Account, -Service, -Contact."
 }
 if ($OpportunityId -and $OpportunityId -notmatch '^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$') {
@@ -30,7 +31,7 @@ if ($RunId -gt 0) {
     }
 } else {
     $start = [DateTimeOffset]::UtcNow
-    $inputs = @("-f", "opportunity_id=$OpportunityId", "-f", "account=$Account", "-f", "service=$Service", "-f", "contact=$Contact")
+    $inputs = @("-f", "opportunity_name=$OpportunityName", "-f", "opportunity_id=$OpportunityId", "-f", "account=$Account", "-f", "service=$Service", "-f", "contact=$Contact")
     & gh workflow run $workflow --repo $Repo --ref main @inputs
     if ($LASTEXITCODE -ne 0) { throw "Could not dispatch workflow." }
     Start-Sleep -Seconds 4
@@ -57,7 +58,16 @@ if ($null -ne $data.catalog_audit) {
     Write-Host "CREATED DATE RANGE (raw text): $($audit.earliest_created_date_as_text) ... $($audit.latest_created_date_as_text)"
 }
 if ($data.salesforce_save_performed -ne $false) { throw "Unexpected report safety flag" }
-if ($OpportunityId) {
+if ($OpportunityName) {
+    if (@($data.matches).Count -eq 0) {
+        Write-Host "NOT_FOUND: Exact Opportunity Name absent from Catalog."
+        return
+    }
+    $different = @($data.matches | Where-Object { $_.opportunity_name -cne $OpportunityName })
+    if ($different.Count -gt 0) { throw "Returned Opportunity Name mismatch." }
+    Write-Host "EXACT NAME CANDIDATES: $(@($data.matches).Count)"
+}
+if ($OpportunityId -and -not $OpportunityName) {
     if (@($data.matches).Count -eq 0) {
         Write-Host "NOT_FOUND: Opportunity ID is absent from Catalog; see $report"
         Write-Host "No Salesforce record was saved."
