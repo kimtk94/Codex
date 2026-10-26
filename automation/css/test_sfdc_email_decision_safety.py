@@ -64,7 +64,9 @@ class SyncBehaviorTest(unittest.TestCase):
         return fake.writes
     def test_python_syntax(self):
         for name in ("sfdc_email_decision_sync.py","bi_mail_review_sync.py",
-                     "sfdc_email_decision_ack.py","sfdc_sheets_preflight.py"):
+                     "sfdc_email_decision_ack.py","sfdc_sheets_preflight.py",
+                     "sfdc_email_snapshot_refresh.py","sfdc_email_consistency_check.py",
+                     "sfdc_email_sync_health.py"):
             with self.subTest(name=name):
                 ast.parse((ROOT/name).read_text(encoding="utf-8"))
     def test_dry_run_never_writes(self):
