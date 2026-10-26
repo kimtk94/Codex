@@ -1,6 +1,7 @@
 import unittest
+import json
 from pathlib import Path
-from tracker import tasks, build, markdown
+from tracker import tasks, build, markdown, validate_manifest
 
 MASTER = "docs/automation-architecture-20261026/AUTOMATION_MASTER_PLAN.md"
 
@@ -13,6 +14,17 @@ class TrackerTest(unittest.TestCase):
         self.assertEqual({"done": 11, "partial": 27, "todo": 12}, report["counts"])
         self.assertEqual(49.0, report["baseline_progress_percent"])
         self.assertTrue(all(not t["accepted"] for t in report["tasks"]))
+    def test_acceptance_manifest_maps_every_task_once(self):
+        txt = Path(MASTER).read_text(encoding="utf-8")
+        manifest = json.loads(Path("automation/progress/acceptance_manifest.json").read_text(encoding="utf-8"))
+        mapping = validate_manifest(manifest, {x["id"] for x in tasks(txt)})
+        self.assertEqual(50, len(mapping))
+        self.assertEqual("RPA-02", mapping["A22"])
+        with self.assertRaises(ValueError):
+            bad = json.loads(json.dumps(manifest))
+            bad["gates"]["RPA-02"]["tasks"].append("A16")
+            validate_manifest(bad, {x["id"] for x in tasks(txt)})
+
     def test_pr_not_automatically_accepted(self):
         txt = Path(MASTER).read_text(encoding="utf-8")
         report = build(txt, {263: {"url":"https://github.com/kimtk94/Codex/pull/263",
