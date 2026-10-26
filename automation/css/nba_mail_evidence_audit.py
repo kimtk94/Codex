@@ -76,6 +76,35 @@ def exact_header_reply_links(rows):
         "review_required": len(incoming_ids),
     }
 
+
+def followup_after_verified_reply(rows, linked_message_ids):
+    """Read-only correspondent/time check; not a completed-thread decision."""
+    from datetime import datetime
+    linked = set(linked_message_ids)
+    replies, outgoing = {}, {}
+    for row in rows:
+        mid = str(row.get("message_id") or "").strip()
+        sender = str(row.get("from_email") or "").strip().lower()
+        recipient = str(row.get("recipient_to") or "").strip().lower()
+        try:
+            when = datetime.fromisoformat(str(row.get("received_at") or "").replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if when.tzinfo is None:
+            continue
+        if mid in linked and sender and not sender.endswith("@novogene.com"):
+            replies[mid] = (sender, when)
+        if sender.endswith("@novogene.com") and ("SENT" in str(row.get("folder") or "").upper()
+             or str(row.get("direction") or "").upper() == "OUTBOUND"):
+            outgoing[mid] = (recipient, when)
+    result = {"verified_replies": len(replies), "later_outbound_confirmed": 0,
+              "later_outbound_not_found": 0}
+    for customer, reply_at in replies.values():
+        answered = any(customer in recipient and when > reply_at for recipient, when in outgoing.values())
+        result["later_outbound_confirmed" if answered else "later_outbound_not_found"] += 1
+    return result
+
+
 def main():
     from nba_google_auth import auth
     from nba_refresh_pool import fetch, MAIL_BOOK
@@ -89,6 +118,7 @@ def main():
                          if key.upper().startswith("INBOX|")})
     matched = [uid for uid in linked_uids if uid in triage_by_uid]
     print("NBA_EXACT_HEADER_REPLY_AUDIT", evidence)
+    print("NBA_REPLY_FOLLOWUP_AUDIT", followup_after_verified_reply(stage, evidence["linked_message_ids"]))
     print("NBA_REPLY_TRIAGE_JOIN", {
         "unique_linked_uids": len(linked_uids),
         "triage_matched_uids": len(matched),
