@@ -39,7 +39,7 @@ AUDIT_HEADER = ["Entity", "Source Received KST", "Ingest Checked KST", "Rows", "
 def normalize(name):
     return re.sub(r"\s+", " ", str(name or "").replace("\ufeff", "").strip()).casefold()
 
-def unique_headers(raw):
+def unique_headers(raw, report_kind):
     """Keep duplicate Salesforce non-key columns without discarding values."""
     taken = set()
     names = []
@@ -52,7 +52,7 @@ def unique_headers(raw):
             name = base
         else:
             # Never silently choose between conflicting primary identifiers.
-            if key in {normalize(cfg["key"]) for cfg in SCHEMAS.values()}:
+            if key == normalize(SCHEMAS[report_kind]["key"]):
                 raise ValueError("DUPLICATE_PRIMARY_HEADER")
             number = 1
             while normalize(f"{base}.{number}") in taken:
@@ -95,7 +95,7 @@ def matrix(blob, filename):
     for pos, row in enumerate(values[:12]):
         names = {normalize(v) for v in row}
         if any({normalize(x) for x in conf["required"]}.issubset(names) for conf in SCHEMAS.values()):
-            columns = unique_headers(row)
+            columns = unique_headers(row, classify(row))
             rows = [(r + [""] * len(columns))[:len(columns)] for r in values[pos + 1:]]
             return columns, rows
     raise ValueError("UNRECOGNIZED_REPORT_SCHEMA")
