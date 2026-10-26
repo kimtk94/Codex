@@ -66,3 +66,27 @@ Optional offline mode: `--csv path.csv`. Search results are **historical** and d
 not validate Salesforce Lookup relations, permissions, or current opportunity status.
 The draft intentionally leaves amount, close date, stage, and service blank. The
 command never submits anything to Salesforce.
+
+### Single-command read-only catalog smoke test (Windows)
+
+From the Git clone (not a ZIP directory), run:
+
+```powershell
+$ErrorActionPreference = "Stop"
+$repo = "$env:USERPROFILE\Codex\Codex-SFDC-Git"
+Set-Location $repo
+if (-not (Test-Path ".git")) { throw "Clone the GitHub repository first; this is not a Git working tree." }
+$git = (Get-Command git.exe -ErrorAction SilentlyContinue).Source
+if (-not $git) { $git = "$env:LOCALAPPDATA\Programs\PortableGit\cmd\git.exe" }
+if (-not (Test-Path $git)) { throw "Git is not installed in a known location." }
+& $git pull --ff-only origin feat/sfdc-playwright-desktop-p0
+if ($LASTEXITCODE -ne 0) { throw "Git pull failed" }
+py -3.12 -m pip install -r automation\sfdc_desktop\requirements.txt
+py -3.12 -m pytest automation\sfdc_desktop -q
+py -3.12 automation\sfdc_desktop\catalog_reuse.py --account "Yonsei" --service "mRNA" --top 5 --output "$env:LOCALAPPDATA\sfdc_catalog_matches.json"
+```
+
+The catalog command first tries the configured service account (environment variable),
+then Google Application Default Credentials (ADC). If no credentials are available,
+the command fails safely without Salesforce writes. Grant read permission to the
+existing account as appropriate; never paste credential JSON into chat or commit it.
