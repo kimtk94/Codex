@@ -18,6 +18,8 @@ on:
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
   pull_request:
     paths:
+      - 'automation/sfdc/three_report_verified_views.py'
+      - 'automation/sfdc/test_three_report_verified_views.py'
       - 'automation/sfdc/three_report_email_ingest.py'
       - 'automation/sfdc/test_three_report_email_ingest.py'
       - 'automation/sfdc/three_report_relationship_qc.py'
