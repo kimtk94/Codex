@@ -3,7 +3,7 @@
 Usage: py -3.12 automation/sfdc_desktop/deal_editor.py --values PATH
 Open localhost URL printed by script; select Apply to write reviewed deal values.
 """
-import argparse,json,re,subprocess,sys
+import argparse,json,re,subprocess,sys,webbrowser
 from decimal import Decimal,InvalidOperation
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -150,6 +150,7 @@ def main():
  p=argparse.ArgumentParser()
  p.add_argument("--values",required=True)
  p.add_argument("--port",type=int,default=8765)
+ p.add_argument("--open-browser",action="store_true")
  a=p.parse_args()
  path=Path(a.values)
  if not path.is_file():p.error("Editable values JSON does not exist")
@@ -157,6 +158,7 @@ def main():
  server=ThreadingHTTPServer(("127.0.0.1",a.port),app(path))
  print(f"EDIT: http://127.0.0.1:{a.port} (Ctrl+C to stop)")
  print("Changes affect local JSON only; Salesforce untouched.")
+ if a.open_browser:webbrowser.open(f"http://127.0.0.1:{a.port}")
  try:server.serve_forever()
  except KeyboardInterrupt:pass
  finally:server.server_close()
