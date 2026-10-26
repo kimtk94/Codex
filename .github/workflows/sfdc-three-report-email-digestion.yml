@@ -8,6 +8,12 @@ on:
         default: false
   schedule:
     - cron: '40 0,3,8 * * *' # 09:40, 12:40, 17:40 KST; mail delivery may lag
+  push:
+    branches: [main]
+    paths:
+      - 'automation/sfdc/three_report_email_ingest.py'
+      - 'automation/sfdc/three_report_relationship_qc.py'
+      - '.github/workflows/sfdc-three-report-email-digestion.yml'
   pull_request:
     paths:
       - 'automation/sfdc/three_report_email_ingest.py'
