@@ -23,6 +23,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   gate-gap-sheet:
+    environment: TaehoonServer
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
