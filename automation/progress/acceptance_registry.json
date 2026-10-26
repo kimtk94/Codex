@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "policy": "Only explicit, authorized and fully evidenced reviews can grant acceptance",
+  "records": {}
+}
