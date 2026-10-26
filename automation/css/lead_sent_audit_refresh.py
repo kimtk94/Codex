@@ -26,6 +26,7 @@ def main():
     leads=read(SFDC,"Lead Email Followup","A1:G600")
     audits=read(QQ,"SFDC Lead Sent Audit","A1:E600")
     mails=read(QQ,"All Emails","A1:U30000")
+    sf_evidence=read(SFDC,"Lead Email Followup","X2:Z600")
     if val(leads[0],0)!="Lead ID" or val(audits[0],0)!="Lead ID" or val(mails[0],20)!="direction":
         raise RuntimeError("Unexpected source header; no writes")
     if len(mails)>=30000:raise RuntimeError("Mail scan capacity reached; refuse partial audit")
@@ -40,8 +41,8 @@ def main():
         if not at:continue
         for addr in set(x.lower() for x in MAIL_RE.findall(val(r,5))):
             sent.setdefault(addr,[]).append(at)
-    updates=[];changed=0
-    for r in leads[1:]:
+    updates=[];sf_updates=[];changed=0
+    for lead_row,r in enumerate(leads[1:],start=2):
         lead_id=val(r,0);email=val(r,3).lower()
         if not lead_id or not email or lead_id not in existing:continue
         i,old=existing[lead_id]
@@ -58,10 +59,16 @@ def main():
         updates.append({"range":"'SFDC Lead Sent Audit'!C"+str(i)+":E"+str(i),
                         "values":[[latest,str(max(len(qualifying),int(val(old,3) or 0))),"SENT_CONFIRMED"]]})
         changed+=1
+        sf_current=sf_evidence[lead_row-2] if lead_row-2<len(sf_evidence) else []
+        if val(sf_current,0)!=latest or val(sf_current,2)!="SENT_CONFIRMED":
+            sf_updates.append({"range":"\'Lead Email Followup\'!X"+str(lead_row)+":Z"+str(lead_row),
+                               "values":[[latest,str(max(len(qualifying),int(val(old,3) or 0))),"SENT_CONFIRMED"]]})
     dry=os.getenv("DRY_RUN","true").lower()!="false"
-    print(json.dumps({"dry_run":dry,"source_mails":len(mails)-1,"sent_addresses":len(sent),"audit_updates":changed}))
+    print(json.dumps({"dry_run":dry,"source_mails":len(mails)-1,"sent_addresses":len(sent),"audit_updates":changed,"sfdc_updates":len(sf_updates)}))
     if not dry and updates:
         api.batchUpdate(spreadsheetId=QQ,body={"valueInputOption":"RAW","data":updates}).execute()
+        if sf_updates:
+            api.batchUpdate(spreadsheetId=SFDC,body={"valueInputOption":"RAW","data":sf_updates}).execute()
 if __name__=="__main__":
     try:main()
     except Exception as ex:
