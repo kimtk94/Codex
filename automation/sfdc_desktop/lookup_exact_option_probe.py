@@ -271,7 +271,7 @@ def main():
             result={}
             for label in ("Account Name","Main Contact"):
                 result[label]=select(ctx,label,values[label])
-                if result[label]["status"]!="SELECTED_PILL_VERIFIED":break
+                if result[label]["status"] not in ("SELECTED_PILL_VERIFIED","CLICKED_NOT_VERIFIED"):break
             report={"lookup":result,"lookup_verified":all(result.get(x,{}).get("status")=="SELECTED_PILL_VERIFIED" for x in ("Account Name","Main Contact")),
                 "save_clicked":False,"note":"No Salesforce Save. Inspect selected lookup pills and account/contact affiliation."}
             out=Path(a.output) if a.output else Path(a.draft).with_name("lookup_selection_report.json")
