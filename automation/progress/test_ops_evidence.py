@@ -6,6 +6,9 @@ class OpsEvidenceTest(unittest.TestCase):
         self.assertEqual("NOT_VERIFIED",x["gate_OPS_01"])
         self.assertTrue(x["workflow_checks"]["progress_audit"]["pr_ci_success"])
         self.assertFalse(x["workflow_checks"]["progress_audit"]["three_scheduled_successes"])
+    def test_manual_link_and_timestamp_are_not_publish_receipt(self):
+        x=assess({},{"state":"READ_OK","last_checked_kst":"2026-10-26 20:00:00 KST","evidence_url":"https://github.com/kimtk94/Codex/pull/297","verified_publish_receipt":False})
+        self.assertEqual("NOT_OBSERVED",x["sheet_publish_readback"])
     def test_three_runs_without_sheet_or_incident_remain_unverified(self):
         records={k:[{"id":i,"event":"schedule","conclusion":"success"} for i in (1,2,3)] for k in ("progress_audit","evidence_publisher","gate_gap_sync")}
         x=assess(records,{"last_checked_kst":"","evidence_url":""})
