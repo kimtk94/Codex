@@ -10,6 +10,7 @@ def main():
  p.add_argument("--snapshot",required=True)
  p.add_argument("--matches",required=True)
  p.add_argument("--output",default="")
+ p.add_argument("--observed-business-id",default="",help="Opportunity ID visibly confirmed in System Information; requires manual review")
  a=p.parse_args()
  snap=json.loads(Path(a.snapshot).read_text(encoding="utf-8-sig"))
  matches=json.loads(Path(a.matches).read_text(encoding="utf-8-sig")).get("matches",[])
@@ -26,9 +27,16 @@ def main():
    if re.fullmatch(r"Opp-\\d{4}-\\d{2}-\\d{2}-\\d+",found):
     evidence.append({"label":"Opportunity ID nearby",
                      "business_id":found,"source":"labeled_rendered_context_candidate"})
+ if a.observed_business_id:
+  if not re.fullmatch(r"Opp-\d{4}-\d{2}-\d{2}-\d+",a.observed_business_id):
+   p.error("Invalid observed business ID format")
+  evidence.append({"label":"System Information > Opportunity ID",
+                   "business_id":a.observed_business_id,
+                   "source":"user_confirmed_visible_system_information"})
  unique=sorted(set(item["business_id"] for item in evidence))
  direct=[m for m in matches if str(m.get("opportunity_id")) in unique]
- status=("VERIFIED_BUSINESS_ID_MATCH" if len(unique)==1 and len(direct)==1 and any(x["source"]=="visible_field_value" for x in evidence) else
+ status=("VERIFIED_BY_USER_SYSTEM_INFORMATION" if len(unique)==1 and len(direct)==1 and any(x["source"]=="user_confirmed_visible_system_information" for x in evidence) else
+         "VERIFIED_BUSINESS_ID_MATCH" if len(unique)==1 and len(direct)==1 and any(x["source"]=="visible_field_value" for x in evidence) else
          "CANDIDATE_MATCH_NEEDS_REVIEW" if len(unique)==1 and len(direct)==1 else
          "CONFLICTING_BUSINESS_IDS" if len(unique)>1 else "BUSINESS_ID_NOT_FOUND_OR_NOT_UNIQUE")
  result={"version":"business-id-bridge-v1","web_record_id":snap.get("record_id_from_url"),
