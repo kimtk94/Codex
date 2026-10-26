@@ -181,6 +181,11 @@ def reconcile_rows(invoice_rows,project_rows,snapshot,overrides=None,with_contro
     return (monthly,reviews,decision_counts,controls) if with_control else (monthly,reviews,decision_counts)
 
 def publish(session):
+    # Fail closed if output targets drift into manually maintained dashboard tabs.
+    if (OUTPUT_TAB, REVIEW_TAB, CONTROL_TAB) != (
+        "BI Revenue Actual Forecast", "BI Revenue Duplicate Review", "BI Project Month Control"
+    ):
+        raise RuntimeError("UNSAFE_REVENUE_WRITE_TARGET")
     snapshot=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     invoices=read(session,INVOICE_TAB)
     forecast=read(session,FORECAST_TAB)
