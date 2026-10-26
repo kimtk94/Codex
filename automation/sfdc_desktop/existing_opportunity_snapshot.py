@@ -10,31 +10,45 @@ from playwright.sync_api import sync_playwright,Error as PWError
 from runner import check_url
 
 SNAPSHOT_JS=r"""() => {
- const seen=new Set(), labels=[], inputs=[];
+ const visited=new Set(), pairs=[], counts={};
  const tidy=s=>(s||'').replace(/\s+/g,' ').trim();
- function walk(root) {
-  if(!root||seen.has(root))return;
-  seen.add(root);
+ function inspect(root) {
+  if(!root||visited.has(root))return;
+  visited.add(root);
   for(const el of root.querySelectorAll('*')){
-   if(el.shadowRoot)walk(el.shadowRoot);
-   if(el.matches('label,dt,[class*="field-label"],[class*="fieldLabel"]')){
-    const label=tidy(el.textContent).slice(0,100);
-    if(!label)continue;
-    const parent=el.closest('lightning-output-field,lightning-record-view-form,.slds-form-element,dl');
-    const value=tidy(parent?.querySelector('dd,.slds-form-element__static,lightning-formatted-text,lightning-formatted-number,lightning-formatted-date-time')?.textContent||'').slice(0,350);
-    if(value)labels.push({label,value});
+   if(el.shadowRoot)inspect(el.shadowRoot);
+   for(const selector of ['lightning-output-field','records-record-layout-item',
+       '.slds-form-element','dt','[data-field-name]']){
+     if(!el.matches(selector))continue;
+     counts[selector]=(counts[selector]||0)+1;
    }
-   if(el.matches('lightning-output-field')) {
-    const label=tidy(el.getAttribute('field-name')||'');
-    const value=tidy(el.innerText||el.textContent).slice(0,350);
-    if(label&&value)labels.push({label,value});
+   let label='',value='',method='';
+   if(el.matches('lightning-output-field')){
+     label=el.getAttribute('field-name')||'';
+     value=tidy(el.textContent);method='output_field';
+   }else if(el.matches('.slds-form-element')){
+     label=tidy(el.querySelector('.slds-form-element__label')?.textContent);
+     value=tidy(el.querySelector('.slds-form-element__static')?.textContent);
+     method='slds_form_element';
+   }else if(el.matches('dt')){
+     label=tidy(el.textContent);
+     value=tidy(el.nextElementSibling?.textContent);
+     method='definition_list';
+   }else if(el.matches('[data-field-name]')){
+     label=el.getAttribute('data-field-name')||'';
+     value=tidy(el.querySelector('lightning-formatted-text,lightning-formatted-number,.slds-form-element__static')?.textContent);
+     method='data_field_name';
    }
+   if(label&&value&&label!==value&&label.length<120)
+     pairs.push({label:label.slice(0,120),value:value.slice(0,350),method});
   }
  }
- walk(document);
- const dedup=new Map();
- for(const x of labels)dedup.set(x.label+'|'+x.value,x);
- return {shadow_roots:seen.size-1,fields:[...dedup.values()].slice(0,250)};
+ inspect(document);
+ const unique=new Map();
+ for(const x of pairs)unique.set(x.label+'|'+x.value,x);
+ const visibleText=tidy(document.body?.innerText).slice(0,500);
+ return {shadow_roots:visited.size-1,selector_counts:counts,
+   visible_text_sample:visibleText, fields:[...unique.values()].slice(0,250)};
 }"""
 
 def main():
@@ -67,12 +81,13 @@ def main():
         for frame in page.frames:
             try:
                 data=frame.evaluate(SNAPSHOT_JS)
-                if data["fields"]:result["frames"].append(data)
+                result["frames"].append(data)
             except PWError:pass
         path=Path(args.output) if args.output else Path.home()/"sfdc_existing_opportunity_snapshot.json"
         path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
         print("LIVE FIELD PAIRS:",sum(len(f["fields"]) for f in result["frames"]))
+        print("FRAME INSPECTION:",json.dumps([{"shadow_roots":x["shadow_roots"],"selector_counts":x["selector_counts"],"field_count":len(x["fields"])} for x in result["frames"]],ensure_ascii=False))
         print("REPORT:",path)
         print("READ ONLY; Salesforce data not modified.")
 if __name__=="__main__":main()
