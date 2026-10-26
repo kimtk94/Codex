@@ -126,9 +126,32 @@ def column_name(index):
         value = chr(65 + rem) + value
     return value
 
+def previous_audit(session, titles):
+    """Read persisted source timestamps before allowing any staging overwrite."""
+    if AUDIT_TAB not in titles:
+        return {}
+    result = request(session, "GET", "/values/" + a1(AUDIT_TAB, "A1:J5"))
+    values = result.get("values", [])
+    return {row[0]: (row + [""] * 10)[:10] for row in values[1:] if row and row[0] in SCHEMAS}
+
+def filter_fresh(selected, previous):
+    accepted = {}
+    for kind, item in selected.items():
+        old = previous.get(kind)
+        if not old or not old[1]:
+            accepted[kind] = item
+            continue
+        prior = old[1].replace(" KST", "")
+        candidate = item["stamp"].replace(" KST", "")
+        if candidate > prior or (candidate == prior and item["sha"] != old[7]):
+            accepted[kind] = item
+    return accepted
+
 def write_verified(session, selected, dry_run=False):
     meta = request(session, "GET", "?fields=sheets.properties(title,sheetId,gridProperties)")
     existing = {s["properties"]["title"]: s["properties"] for s in meta.get("sheets", [])}
+    previous = previous_audit(session, existing)
+    selected = filter_fresh(selected, previous)
     changes = []
     for kind, item in selected.items():
         tab = SCHEMAS[kind]["tab"]
@@ -165,7 +188,11 @@ def write_verified(session, selected, dry_run=False):
     for kind in SCHEMAS:
         item = selected.get(kind)
         if item is None:
-            audit.append([kind, "", checked, 0, 0, 0, 0, "", "NO_VALID_REPORT_PRESERVED", "QQ IMAP"])
+            old = previous.get(kind)
+            if old:
+                audit.append([kind, old[1], checked, old[3], old[4], old[5], old[6], old[7], "PRESERVED_NO_NEW_REPORT", old[9] or "QQ IMAP"])
+            else:
+                audit.append([kind, "", checked, 0, 0, 0, 0, "", "NO_VALID_REPORT_PRESERVED", "QQ IMAP"])
         else:
             stats = item["stats"]
             audit.append([kind, item["stamp"], checked, stats["rows"], stats["unique"], stats["duplicates"], stats["missing"], item["sha"], "STAGED_NOT_PROMOTED", "QQ IMAP"])
