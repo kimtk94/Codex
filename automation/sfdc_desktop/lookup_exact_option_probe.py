@@ -149,6 +149,10 @@ def verify_selected_field(context,label,name):
     return verify_selected(context,label,name)
 
 def select(context,label,name):
+    # Check selection first: after a successful click the input may disappear.
+    prior=selected_state(context,label,name)
+    if prior.get("verified"):
+        return {"status":"SELECTED_PILL_VERIFIED","source":"existing_selection","evidence":prior}
     inp,status=find_input(context,label)
     if inp is None:
         if verify_selected(context,label,name) or verify_selected_field(context,label,name):return {"status":"SELECTED_PILL_VERIFIED","source":"already_selected"}
@@ -211,7 +215,8 @@ def select(context,label,name):
                                   "note":"Lookup search icon triggered; inspect actual dropdown."}
         found[0].click(timeout=3500)
         time.sleep(0.4)
-        verified=verify_selected(context,label,name) or verify_selected_field(context,label,name)
+        # Preserve working search/click; independently record post-click evidence.
+        verified=selected_state(context,label,name)["verified"]
         return {"status":"SELECTED_PILL_VERIFIED" if verified else "CLICKED_NOT_VERIFIED",
                 "option_clicked":True, "evidence":selected_state(context,label,name)}
     except PWError as exc:
