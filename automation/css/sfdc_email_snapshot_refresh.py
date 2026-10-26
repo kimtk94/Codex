@@ -24,11 +24,20 @@ def main():
                        valueRenderOption="FORMATTED_VALUE").execute().get("values",[])
     triage=read(QQ,"BI Unanswered Triage","A1:U1200")
     ledger=read(SFDC,"Email Review Decisions","A1:J1300")
+    previous=read(SFDC,"Unanswered Emails","A1:U1000")
     if not triage or value(triage[0],8)!="Thread UID":
         raise RuntimeError("Unexpected QQ triage columns; no writes performed")
     if not ledger or value(ledger[0],4)!="Mail UID (Key)":
         raise RuntimeError("Unexpected SFDC decision columns; no writes performed")
+    if not previous or value(previous[0],8)!="Thread UID":
+        raise RuntimeError("Unexpected SFDC snapshot columns; no writes performed")
     items=[r for r in triage[1:] if value(r,8)]
+    previous_items=[r for r in previous[1:] if value(r,8)]
+    if not items and previous_items:
+        raise RuntimeError("QQ triage unexpectedly empty; preserving SFDC data")
+    uids=[value(r,8) for r in items]
+    if len(uids)!=len(set(uids)):
+        raise RuntimeError("Duplicate QQ thread UIDs; preserving SFDC data")
     if len(items)>999:raise RuntimeError("SFDC snapshot limit exceeded; refusing truncation")
     existing={value(r,4) for r in ledger[1:] if value(r,4)}
     new=[]
@@ -44,15 +53,23 @@ def main():
     print(json.dumps({"dry_run":dry,"qq_triage":len(items),"new_decisions":len(new)},
                      ensure_ascii=False))
     if dry:return
-    # A:U is an imported projection. V is a live formula and is never modified.
-    api.clear(spreadsheetId=SFDC,range="'Unanswered Emails'!A2:U1000",body={}).execute()
-    if items:
-        api.update(spreadsheetId=SFDC,range="'Unanswered Emails'!A2",
-                   valueInputOption="RAW",body={"values":[(r+[""]*21)[:21] for r in items]}).execute()
+    # Append newly observed UIDs before changing the visible snapshot.
     if new:
         start=len(ledger)+1
-        api.update(spreadsheetId=SFDC,range="'Email Review Decisions'!A"+str(start),
+        api.update(spreadsheetId=SFDC,range="\'Email Review Decisions\'!A"+str(start),
                    valueInputOption="RAW",body={"values":new}).execute()
+    # Write the replacement first; do not wipe the operational view beforehand.
+    if items:
+        api.update(spreadsheetId=SFDC,range="\'Unanswered Emails\'!A2",
+                   valueInputOption="RAW",body={"values":[(r+[""]*21)[:21] for r in items]}).execute()
+        check=read(SFDC,"Unanswered Emails","I2:I"+str(len(items)+1))
+        if [value(r,0) for r in check]!=uids:
+            raise RuntimeError("SFDC UID verification failed; trailing data retained")
+    if len(previous_items)>len(items):
+        first=len(items)+2
+        api.clear(spreadsheetId=SFDC,
+                  range="\'Unanswered Emails\'!A"+str(first)+":U"+str(len(previous_items)+1),
+                  body={}).execute()
     print("SFDC_MAIL_SNAPSHOT_REFRESH=PASS")
 if __name__=="__main__":
     try:main()
