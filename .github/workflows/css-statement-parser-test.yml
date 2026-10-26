@@ -1,0 +1,20 @@
+name: CSS Statement Parser Tests
+on:
+  pull_request:
+    paths:
+      - 'automation/css/css_statement_parser.py'
+      - 'automation/css/test_css_statement_parser.py'
+      - '.github/workflows/css-statement-parser-test.yml'
+  workflow_dispatch:
+jobs:
+  parser-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run isolated tests
+        run: |
+          cd automation/css
+          python -m unittest -v test_css_statement_parser
