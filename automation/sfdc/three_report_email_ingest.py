@@ -147,7 +147,7 @@ def filter_fresh(selected, previous):
             accepted[kind] = item
     return accepted
 
-def write_verified(session, selected, dry_run=False):
+def write_verified(session, selected, dry_run=False, diagnostics=None):
     meta = request(session, "GET", "?fields=sheets.properties(title,sheetId,gridProperties)")
     existing = {s["properties"]["title"]: s["properties"] for s in meta.get("sheets", [])}
     previous = previous_audit(session, existing)
@@ -196,6 +196,14 @@ def write_verified(session, selected, dry_run=False):
         else:
             stats = item["stats"]
             audit.append([kind, item["stamp"], checked, stats["rows"], stats["unique"], stats["duplicates"], stats["missing"], item["sha"], "STAGED_NOT_PROMOTED", "QQ IMAP"])
+    if diagnostics is not None:
+        state = ("NO_TRUSTED_REPORT" if not diagnostics.get("trusted_report") else
+                 "LINK_ONLY_OR_NO_ATTACHMENT" if not diagnostics.get("attachment_candidates") else
+                 "ATTACHMENTS_REJECTED" if not diagnostics.get("recognized") else "CANDIDATES_FOUND")
+        audit.append(["DISCOVERY", checked, checked, diagnostics.get("fetched", 0),
+                      diagnostics.get("trusted_report", 0), diagnostics.get("attachment_candidates", 0),
+                      diagnostics.get("recognized", 0),
+                      json.dumps(diagnostics.get("rejected", {}), sort_keys=True), state, "QQ IMAP"])
     request(session, "PUT", "/values/" + a1(AUDIT_TAB, "A1") + "?valueInputOption=RAW", json={"values": audit})
 
 def trusted_report_message(sender, subject):
@@ -209,7 +217,7 @@ def trusted_report_message(sender, subject):
     vendor = bool(re.fullmatch(r"[^@]+@(?:[a-z0-9-]+\.)*salesforce\.com", address))
     return title.startswith("report results (") and (address == authorized or vendor)
 
-def collect(im, days=4):
+def collect(im, days=4, diagnostics_out=None):
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).strftime("%d-%b-%Y")
     ok, result = im.uid("SEARCH", None, "SINCE", since)
     if ok != "OK":
@@ -219,7 +227,7 @@ def collect(im, days=4):
     if ok2 == "OK":
         uids.update((targeted[0] or b"").split())
     selected = {}
-    diagnostics = {"uids": len(uids), "fetched": 0, "salesforce_sender": 0, "attachment_candidates": 0, "recognized": 0, "rejected": {}, "selected": {}}
+    diagnostics = {"uids": len(uids), "fetched": 0, "salesforce_sender": 0, "trusted_report": 0, "report_no_attachments": 0, "attachment_candidates": 0, "recognized": 0, "rejected": {}, "selected": {}}
     for uid in sorted(uids, key=lambda b: int(b)):
         ok, records = im.uid("FETCH", uid, "(BODY.PEEK[])")
         if ok != "OK":
@@ -234,6 +242,9 @@ def collect(im, days=4):
         if not trusted_report_message(sender, subject):
             continue
         diagnostics["salesforce_sender"] += 1
+        diagnostics["trusted_report"] += 1
+        if not any(str(p.get_filename() or "").lower().endswith((".xls", ".xlsx", ".csv")) for p in msg.walk()):
+            diagnostics["report_no_attachments"] += 1
         try:
             when = parsedate_to_datetime(str(msg["date"]))
             if when is None or when.tzinfo is None:
@@ -267,6 +278,8 @@ def collect(im, days=4):
             selected[kind] = {"when": when, "stamp": when.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST"), "headers": columns, "rows": rows, "stats": stats, "sha": digest(columns, rows)}
     diagnostics["selected"] = {name: item["stats"]["rows"] for name, item in selected.items()}
     print("SFDC_3REPORT_DISCOVERY=" + json.dumps(diagnostics, sort_keys=True))
+    if diagnostics_out is not None:
+        diagnostics_out.update(diagnostics)
     return selected
 
 def missing_report_types(selected):
@@ -277,7 +290,8 @@ def main():
     with imaplib.IMAP4_SSL("imap.exmail.qq.com", 993, timeout=45) as im:
         im.login(os.environ["CSS_QQ_MAIL_ADDRESS"], os.environ["CSS_QQ_MAIL_AUTH_CODE"])
         im.select("INBOX", readonly=True)
-        selected = collect(im)
+        discovery = {}
+        selected = collect(im, diagnostics_out=discovery)
     # Print counts and checksums; never log customer contents.
     print("SFDC_3REPORT_AUDIT=" + json.dumps({k: {"received": v["stamp"], **v["stats"], "sha256": v["sha"]} for k, v in selected.items()}, sort_keys=True))
     missing = missing_report_types(selected)
@@ -290,7 +304,7 @@ def main():
     cred = service_account.Credentials.from_service_account_info(json.loads(os.environ["GCP_SERVICE_ACCOUNT_JSON"]), scopes=["https://www.googleapis.com/auth/spreadsheets"])
     # Record an observable heartbeat even when all three reports were missing/invalid.
     # Never clear previously staged raw records in that case.
-    write_verified(AuthorizedSession(cred), selected)
+    write_verified(AuthorizedSession(cred), selected, diagnostics=discovery)
     print("SFDC_3REPORT_STAGED=" + ",".join(sorted(selected)))
     if missing and os.getenv("SFDC_REQUIRE_ALL_REPORTS", "true").lower() == "true":
         raise RuntimeError("SFDC_REPORT_COVERAGE_INCOMPLETE_" + "_".join(missing))
