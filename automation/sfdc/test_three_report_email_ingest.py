@@ -53,7 +53,7 @@ class ReportIngestTests(unittest.TestCase):
         self.assertGreater(stats["duplicates"], 0)
     def test_unknown_attachment_rejected(self):
         with self.assertRaisesRegex(ValueError, "UNRECOGNIZED_REPORT_SCHEMA"):
-            matrix(b"Other,Amount\\nA,100\\n", "x.csv")
+            matrix(b"<table><tr><th>Other</th><th>Amount</th></tr><tr><td>A</td><td>100</td></tr></table>", "x.xls")
 
 if __name__ == "__main__":
     unittest.main()
