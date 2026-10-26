@@ -62,7 +62,7 @@ def qq_get_with_backoff(session, url):
         time.sleep(delay)
     raise RuntimeError("QQ_SHEETS_RETRY_UNREACHABLE")
 
-def qq_mail_rows(session, chunk=3000):
+def qq_mail_rows(session, chunk=12000):
     """Bounded source read; received_at/from/to/cc/subject; no body content."""
     root = "https://sheets.googleapis.com/v4/spreadsheets/" + QQ_SHEET
     meta = qq_get_with_backoff(session, root + "?fields=sheets.properties(title,gridProperties.rowCount)")
