@@ -15,5 +15,16 @@ class MailEvidenceTests(unittest.TestCase):
         self.assertEqual(out["historical_over_30d"],1)
         self.assertEqual(out["nba_actionable"],1)
 
+    def test_sent_and_closed_are_not_reply_proof(self):
+        rows=[
+            {"Thread UID":"inbox:4","Reply Evidence":"SENT_CONFIRMED"},
+            {"Thread UID":"inbox:5","Reviewer Mail Action":"DONE"},
+            {"Thread UID":"inbox:6","Reply Evidence":"REPLIED"},
+        ]
+        result=summarize(rows)
+        self.assertEqual(result["explicit_reply_evidence"],1)
+        self.assertEqual(result["reviewer_closed_not_reply_proof"],1)
+        self.assertEqual(result["ambiguous_reply_evidence"],1)
+
 if __name__=="__main__":
     unittest.main()
