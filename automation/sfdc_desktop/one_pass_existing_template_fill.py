@@ -46,7 +46,7 @@ def progress_for_today(value, stage):
  for original in ("Quote Issued","Quotation Issued","Closed Won"):
   if body.casefold().startswith(original.casefold()):
    detail=body[len(original):].strip()
-   return today+" "+(known_stage or original)+("\n"+detail if detail else "")
+   return today+" "+original+("\n"+detail if detail else "")
  # Unknown text pattern must not be transformed or invented.
  return text
 
