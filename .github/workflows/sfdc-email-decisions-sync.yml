@@ -40,6 +40,7 @@ jobs:
         run: |
           python automation/css/sfdc_email_decision_sync.py
           python automation/css/bi_mail_review_sync.py
+          python automation/css/sfdc_email_snapshot_refresh.py
       - name: Send SFDC decisions to QQ
         env:
           DRY_RUN: 'false'
