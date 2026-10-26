@@ -15,8 +15,8 @@ def main():
     if status not in {"PASS","FAILURE","UNVERIFIED"}:raise ValueError("Invalid sync status")
     rows=api.get(spreadsheetId=SFDC,range="'Email Review Decisions'!A2:N1300",
                  valueRenderOption="FORMATTED_VALUE").execute().get("values",[])
-    pending=sum(1 for r in rows if len(r)>13 and r[13].startswith("PENDING"))
-    synced=sum(1 for r in rows if len(r)>13 and r[13]=="SYNCED")
+    pending=sum(1 for r in rows if len(r)>13 and str(r[13]).startswith("PENDING"))
+    synced=sum(1 for r in rows if len(r)>13 and str(r[13])=="SYNCED")
     now=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9))).strftime("%Y-%m-%d %H:%M:%S KST")
     # Row 8 reserved for this workflow. Do not imply the last success on a failed run.
     old=api.get(spreadsheetId=SFDC,range="'Automation Health'!A8:D8").execute().get("values",[])
