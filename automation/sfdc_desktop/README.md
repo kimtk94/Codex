@@ -90,3 +90,20 @@ The catalog command first tries the configured service account (environment vari
 then Google Application Default Credentials (ADC). If no credentials are available,
 the command fails safely without Salesforce writes. Grant read permission to the
 existing account as appropriate; never paste credential JSON into chat or commit it.
+
+## Windows search via GitHub Actions, without a Google key
+
+Install GitHub CLI (`gh`) and authenticate once with `gh auth login` (never
+paste a token into chat). The workflow reads the Google Sheet from the
+`TaehoonServer` environment secret `CKD_DRIVE_SA_JSON`.
+
+```powershell
+git pull --ff-only origin feat/sfdc-playwright-desktop-p0
+gh auth status
+.\automation\sfdc_desktop\run_catalog_search.ps1 -Account "Yonsei" -Service "mRNA"
+```
+
+The script triggers the main-branch GitHub workflow, watches its run, and downloads
+`matches.json` to `%LOCALAPPDATA%\SFDC\Catalog\<run-id>`. It fails closed
+if multiple runs could belong to the invocation. This is read-only; the result
+requires human review before any Salesforce Lookup selection or Save.
