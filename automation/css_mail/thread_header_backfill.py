@@ -57,7 +57,7 @@ def main():
     with imaplib.IMAP4_SSL("imap.exmail.qq.com", 993, timeout=45) as im:
         im.login(os.environ["CSS_QQ_MAIL_ADDRESS"], os.environ["CSS_QQ_MAIL_AUTH_CODE"])
         folders = folder_names(im)
-        sent = next((f for f,t in folders if "\\\\sent" in t or f.lower() in ("sent messages","sent","sent items")), None)
+        sent = next((f for f,t in folders if "\\sent" in t or f.lower() in ("sent messages","sent","sent items")), None)
         if not sent:
             raise RuntimeError("Sent folder not found")
         for folder in ("INBOX", sent):
