@@ -18,7 +18,7 @@ def main():
   for item in frame.get("fields",[]):
    label=str(item.get("label") or "")
    value=str(item.get("value") or "")
-   for found in re.findall(r"Opp-\\d{4}-\\d{2}-\\d{2}-\\d+",value):
+   for found in re.findall(r"Opp-\d{4}-\d{2}-\d{2}-\d+",value):
     evidence.append({"label":label,"business_id":found,"source":"visible_field_value"})
  unique=sorted(set(item["business_id"] for item in evidence))
  direct=[m for m in matches if str(m.get("opportunity_id")) in unique]
