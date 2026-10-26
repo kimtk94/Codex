@@ -13,6 +13,8 @@ on:
     paths:
       - 'automation/sfdc/three_report_email_ingest.py'
       - 'automation/sfdc/three_report_relationship_qc.py'
+      - 'automation/sfdc/three_report_verified_views.py'
+      - 'automation/sfdc/test_three_report_verified_views.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
   pull_request:
     paths:
@@ -45,9 +47,16 @@ jobs:
         run: python -m pip install 'openpyxl>=3.1,<4' 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Run offline parser regression tests
         run: python automation/sfdc/test_three_report_email_ingest.py
+      - name: Test verified relation views
+        run: python automation/sfdc/test_three_report_verified_views.py
       - name: Read authorized subscription mail and conditionally stage
         if: ${{ github.event_name != 'pull_request' }}
         run: python automation/sfdc/three_report_email_ingest.py
       - name: Audit staged Lead-Opportunity-Quote relationships (read only)
         if: ${{ github.event_name != 'pull_request' }}
         run: python automation/sfdc/three_report_relationship_qc.py
+      - name: Refresh generated SFDC relationship views
+        if: github.event_name != 'pull_request'
+        env:
+          SFDC_RELATIONS_APPLY: 'true'
+        run: python automation/sfdc/three_report_verified_views.py
