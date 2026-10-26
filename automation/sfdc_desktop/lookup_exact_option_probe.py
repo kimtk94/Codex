@@ -88,39 +88,67 @@ def select(context,label,name):
     inp,status=find_input(context,label)
     if inp is None:return {"status":status}
     try:
+        inp.click(timeout=2500)
         inp.fill(name,timeout=3500)
-        snapshot=None
-        for _ in range(6):
-            time.sleep(0.4)
-            snapshot=inp.evaluate_handle(SUGGESTION_JS)
-            items=snapshot.get_property("items")
-            count=items.evaluate("(x)=>x.length")
-            if count: break
-            snapshot.dispose()
-        if not count:return {"status":"NO_SCOPED_SUGGESTIONS","count":0}
-        matches=[]
-        for i in range(count):
-            item=items.evaluate_handle("(xs,i)=>xs[i]",i)
-            primary=item.get_property("primary").json_value()
-            text=item.get_property("text").json_value()
-            if norm(primary)==norm(name):
-                matches.append((item,text))
-            else:item.dispose()
-        if len(matches)!=1:
-            return {"status":"NO_EXACT_UNIQUE_SUGGESTION","count":len(matches),
-                    "scoped_candidates":[items.evaluate("(xs,i)=>xs[i].primary",i) for i in range(min(count,10))]}
-        matches[0][0].get_property("element").as_element().click(timeout=3500)
+        # Salesforce lookup uses a search affordance; fill alone may NOT open the dropdown.
+        inp.press("ArrowDown",timeout=2000)
         time.sleep(0.3)
-        # A lookup is NOT verified just because a suggestion was clicked.
-        # Salesforce selection usually creates a pill and clears editable search.
-        try:
-            verified=bool(inp.evaluate(PILL_JS,name))
-        except PWError:
-            verified=False
-        return {"status":"SELECTED_PILL_VERIFIED" if verified else "CLICKED_NOT_VERIFIED",
-                "option_text":matches[0][1]}
-    except PWError as e:
-        return {"status":"LOOKUP_UI_CHANGED","reason_type":type(e).__name__}
+        # Search icon is often adjacent to the input. Scoped click only; never click other forms.
+        trigger=inp.evaluate_handle("""el => {
+          let n=el;
+          while(n && n.localName!=='lightning-grouped-combobox')
+            n=n.parentElement||n.getRootNode()?.host||null;
+          if(!n)return null;
+          const r=n.shadowRoot||n;
+          return [...r.querySelectorAll('button,[role="button"]')].find(x=>
+            /search/i.test((x.getAttribute('title')||'')+' '+(x.getAttribute('aria-label')||'')+
+              ' '+(x.className?.baseVal||x.className||'')))||null;
+        }""").as_element()
+        if trigger and trigger.is_visible():trigger.click(timeout=2500)
+        else:inp.press("ArrowDown",timeout=2000)
+        time.sleep(1.0)
+        # Salesforce may portal the list outside the lookup host, into a sibling shadow root.
+        # Match text AND Lookup row design; do not mistake the Service Line dual-list options.
+        found=[]
+        for page in context.pages:
+            if page.is_closed():continue
+            for frame in page.frames:
+                try:
+                    handles=frame.evaluate_handle("""expected => {
+                      const norm=s=>(s||'').replace(/\\s+/g,' ').trim().toLowerCase();
+                      const seen=new Set(),out=[];
+                      function walk(root){
+                        if(!root||seen.has(root))return;
+                        seen.add(root);
+                        for(const el of root.querySelectorAll('*')){
+                          if(el.shadowRoot)walk(el.shadowRoot);
+                          if(!el.matches('li,[role="option"],lightning-base-combobox-item,.slds-listbox__option'))continue;
+                          if(!el.getClientRects().length)continue;
+                          const txt=(el.innerText||el.textContent||'').trim();
+                          const first=(txt.split('\\n')[0]||'').trim();
+                          if(norm(first)!==norm(expected))continue;
+                          if(!el.closest('.slds-listbox_lookup,.slds-listbox,[role="listbox"]') &&
+                             !el.matches('lightning-base-combobox-item'))continue;
+                          out.push(el);
+                        }
+                      }
+                      walk(document);
+                      return out.filter(el=>!out.some(other=>other!==el&&el.contains(other)));
+                    }""",name)
+                    n=handles.evaluate("(xs)=>xs.length")
+                    for i in range(min(n,10)):
+                        candidate=handles.evaluate_handle("(xs,i)=>xs[i]",i).as_element()
+                        if candidate and candidate.is_visible():found.append(candidate)
+                except PWError:continue
+        if len(found)!=1:return {"status":"NO_EXACT_UNIQUE_SUGGESTION","count":len(found),
+                                  "note":"Lookup search icon triggered; inspect actual dropdown."}
+        found[0].click(timeout=3500)
+        time.sleep(0.4)
+        try:verified=bool(inp.evaluate(PILL_JS,name))
+        except PWError:verified=False
+        return {"status":"SELECTED_PILL_VERIFIED" if verified else "CLICKED_NOT_VERIFIED"}
+    except PWError:
+        return {"status":"LOOKUP_UI_CHANGED"}
 
 def main():
     p=argparse.ArgumentParser()
