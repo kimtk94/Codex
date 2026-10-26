@@ -1,10 +1,10 @@
 const { OAuth2Client, GoogleAuth } = require('google-auth-library');
 const SPREADSHEET_ID = '1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const RANGES = {
-  unanswered: "'Unanswered Emails'!A1:P151",
-  priority: "'Email Action Priority'!A1:P151",
-  leads: "'Lead Action Priority'!A1:P151",
-  health: "'Automation Health'!A1:H51"
+  unanswered: "'Unanswered Emails'!A1:A10001",
+  priority: "'Email Action Priority'!A1:A10001",
+  leads: "'Lead Action Priority'!A1:A10001",
+  health: "'Automation Health'!A1:A101"
 };
 function configuredOwners() {
   const allowed = (process.env.ALLOWED_OWNER_EMAILS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
