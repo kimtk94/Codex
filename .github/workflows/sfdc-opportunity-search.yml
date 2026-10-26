@@ -2,6 +2,10 @@ name: SFDC Opportunity Similarity Search
 on:
   workflow_dispatch:
     inputs:
+      opportunity_name:
+        description: "Exact existing Opportunity Name; return all matching Catalog rows"
+        required: false
+        type: string
       opportunity_id:
         description: "Exact Salesforce Opportunity record ID (15/18 characters, optional)"
         required: false
@@ -37,6 +41,7 @@ jobs:
       - name: Search existing Opportunity catalog (no record data in logs)
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          OPPORTUNITY_NAME_QUERY: ${{ inputs.opportunity_name }}
           OPPORTUNITY_ID_QUERY: ${{ inputs.opportunity_id }}
           ACCOUNT_QUERY: ${{ inputs.account }}
           SERVICE_QUERY: ${{ inputs.service }}
@@ -51,19 +56,22 @@ jobs:
           service = os.getenv('SERVICE_QUERY','').strip()
           contact = os.getenv('CONTACT_QUERY','').strip()
           opportunity_id=os.getenv('OPPORTUNITY_ID_QUERY','').strip()
-          if not any((account,service,contact,opportunity_id)):
+          opportunity_name=os.getenv('OPPORTUNITY_NAME_QUERY','').strip()
+          if not any((account,service,contact,opportunity_id,opportunity_name)):
               raise SystemExit('Enter at least one search keyword.')
           if not os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'):
               raise SystemExit('TaehoonServer CKD_DRIVE_SA_JSON is not configured.')
           rows = load_sheet()
           from collections import Counter
-          valid_ids=[str(row.get('Opportunity ID') or '').strip()[:15] for row in rows
-                     if re.fullmatch(r'[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?',
-                                     str(row.get('Opportunity ID') or '').strip())]
+          catalog_ids=[str(row.get('Opportunity ID') or '').strip() for row in rows]
+          id_kind={'business_opp':sum(bool(re.fullmatch(r'Opp-\\d{4}-\\d{2}-\\d{2}-\\d+',x)) for x in catalog_ids),
+                   'salesforce_record':sum(bool(re.fullmatch(r'[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?',x)) for x in catalog_ids),
+                   'other_or_missing':sum(not (bool(re.fullmatch(r'Opp-\\d{4}-\\d{2}-\\d{2}-\\d+',x)) or bool(re.fullmatch(r'[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?',x))) for x in catalog_ids)}
+          valid_ids=[x for x in catalog_ids if x]
           counts=Counter(valid_ids)
           dates=[str(row.get('Opportunity Created Date') or '').strip() for row in rows]
           dates=[d for d in dates if d]
-          audit={'rows':len(rows),
+          audit={'rows':len(rows),'id_format_counts':id_kind,
                  'valid_id_rows':len(valid_ids),
                  'distinct_valid_ids':len(counts),
                  'duplicate_id_rows':sum(n-1 for n in counts.values()),
@@ -72,7 +80,18 @@ jobs:
                  'latest_created_date_as_text':max(dates) if dates else None,
                  'date_sort_note':'Lexical bounds only; verify format before treating as chronological'}
           print('CATALOG_AUDIT_COUNTS:',json.dumps({k:v for k,v in audit.items() if 'date' not in k}))
-          if opportunity_id:
+          if opportunity_name:
+              found=[row for row in rows if str(row.get('Opportunity Name','')).strip().casefold()==opportunity_name.casefold()]
+              matches=[{'score':1.0,'opportunity_id':row.get('Opportunity ID'),
+                        'account':row.get('Account Name'),'account_id':row.get('Account ID'),
+                        'contact':row.get('Main Contact'),'contact_cms_id':row.get('Main Contact CMS ID'),
+                        'opportunity_name':row.get('Opportunity Name'),
+                        'historical_stage':row.get('Stage'),'historical_currency':row.get('Amount Currency'),
+                        'historical_amount':row.get('Amount'),'historical_close_date':row.get('Close Date'),
+                        'historical_created_date':row.get('Opportunity Created Date'),
+                        'match_type':'EXACT_OPPORTUNITY_NAME_NOT_RECORD_ID'} for row in found]
+              print('EXACT_NAME_CANDIDATE_COUNT:',len(matches))
+          elif opportunity_id:
               if not re.fullmatch(r'[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?',opportunity_id):
                   raise SystemExit('Invalid Salesforce Opportunity ID format.')
               found=[row for row in rows if str(row.get('Opportunity ID','')).strip()[:15]==opportunity_id[:15]]
