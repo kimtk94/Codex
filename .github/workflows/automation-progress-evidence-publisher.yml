@@ -1,5 +1,9 @@
 name: Automation Progress Evidence Publisher
 on:
+  pull_request:
+    paths:
+      - 'automation/progress/**'
+      - '.github/workflows/automation-progress-evidence-publisher.yml'
   workflow_dispatch:
     inputs:
       apply:
@@ -30,6 +34,7 @@ jobs:
       - name: Install Google read client
         run: python -m pip install google-auth requests
       - name: Preview evidence diff
+        if: github.event_name != 'pull_request'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
