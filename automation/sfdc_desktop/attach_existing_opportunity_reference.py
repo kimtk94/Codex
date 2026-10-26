@@ -31,13 +31,24 @@ def main():
     preferred=("Opportunity Name","Account Name","Main Contact","Amount",
                "Opportunity Currency","Close Date","Service Line","Stage",
                "Forecast Category","Progress Description","Status")
+    catalog_id=str(draft.get("source_opportunity_id") or "").strip()
+    live_id=str(snapshot.get("record_id_from_url") or "").strip()
+    if live_id and catalog_id and live_id==catalog_id:
+        identity="VERIFIED_ID_MATCH"
+    elif live_id and catalog_id and len(live_id)>=15 and len(catalog_id)>=15 and live_id[:15]==catalog_id[:15]:
+        identity="VERIFIED_ID_MATCH_15_PREFIX"
+    elif live_id and catalog_id:
+        identity="ID_MISMATCH"
+    else:
+        identity="NOT_VERIFIED"
     result={
         "version":"sfdc-opportunity-reference-v1",
         "source_opportunity_id_from_catalog":draft.get("source_opportunity_id"),
         "source_opportunity_name_from_catalog":draft.get("Existing Opportunity Name (reference only)"),
         "source_page_title":snapshot.get("title"),
-        "identity_match":"NOT_VERIFIED",
-        "note":"A Salesforce page title or matching name does NOT prove record ID. Confirm the source record manually.",
+        "identity_match":identity,
+        "source_opportunity_id_from_salesforce_url":live_id or None,
+        "note":"Only Lightning Opportunity route ID can verify identity; mismatch blocks historical reuse.",
         "fields_from_live_ui":fields,
         "missing_preferred_fields":[x for x in preferred if x not in fields],
         "conflicting_field_values":{k:v for k,v in fields.items() if len(v)>1},
@@ -50,7 +61,7 @@ def main():
     target.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
     print("LIVE UI FIELDS:",len(fields))
     print("MISSING PREFERRED:",", ".join(result["missing_preferred_fields"]) or "none")
-    print("SOURCE IDENTITY: NOT_VERIFIED (do not auto-copy historical values)")
+    print("SOURCE IDENTITY:",identity,"(historical values are reference-only)")
     print("REPORT:",target)
     print("READ ONLY. New Opportunity draft left unchanged.")
 if __name__=="__main__":
