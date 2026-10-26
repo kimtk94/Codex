@@ -71,7 +71,7 @@ def build(leads, opportunities, quotations, timestamp):
             qid, oppid, field(opp, oi, "Opportunity Name"), field(opp, oi, "Account Name"),
             field(opp, oi, "Stage"), field(opp, oi, "Opportunity Owner"), leadid,
             ("MATCHED" if lead else "OUTSIDE_CURRENT_LEAD_REPORT") if leadid else "NO_CONVERTED_LEAD",
-            field(lead, li, "Lead Status") if lead else "",
+            field(lead, li, "Lead Status") if lead is not None else "",
             active, len(rows), len(product_ids), amount,
             "QUOTE_OPPORTUNITY_ID_VERIFIED_NOT_REVENUE", timestamp
         ])
