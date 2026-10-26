@@ -4,10 +4,11 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from catalog_reuse import load_sheet, search, dedupe, make_draft
+from catalog_reuse import load_sheet, load_csv, search, dedupe, make_draft
 
 def main():
     parser=argparse.ArgumentParser(description="Prepare reviewed SFDC draft from live Sheet, no Salesforce writes")
+    parser.add_argument("--csv",default="",help="Use a local artifact CSV instead of Google credentials")
     parser.add_argument("--account",default="")
     parser.add_argument("--contact",default="")
     parser.add_argument("--service",default="")
@@ -15,7 +16,7 @@ def main():
     args=parser.parse_args()
     if not any((args.account.strip(),args.contact.strip(),args.service.strip())):
         parser.error("Provide account, contact, or service")
-    rows=load_sheet()
+    rows=load_csv(args.csv) if args.csv else load_sheet()
     matches=search(rows,args.account,args.contact,args.service,top=10)
     report={"status":"REVIEW_REQUIRED" if matches else "NO_MATCH","total_unique_opportunities":len(dedupe(rows)),
         "matches":matches,
