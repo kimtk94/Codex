@@ -61,7 +61,9 @@ SNAPSHOT_JS=r"""() => {
        if(!value && fullRendered.startsWith(label))
          value=tidy(fullRendered.slice(label.length));
        // Never interpret the inline Edit action itself as a value.
-       value=value.replace(new RegExp('\\s*Edit\\s+'+label.replace(/[.*+?^${}()|[\\]\\]/g,'\\\\     if(labels.length && values.length) pairs.push({label:labels[0],value:values[0],method:'deep_scoped'});')+'\\s*
+       const editSuffix='Edit '+label;
+       if(value.toLowerCase().endsWith(editSuffix.toLowerCase()))
+         value=value.slice(0,-editSuffix.length).trim();
    }
  }
  visit(document);
