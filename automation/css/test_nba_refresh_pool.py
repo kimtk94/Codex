@@ -28,6 +28,11 @@ class PoolRefreshTests(unittest.TestCase):
         lead = {'Lead ID':'L-1','Sent Mail Status':'SENT_CONFIRMED','Sent Mail Count':'1'}
         self.assertEqual(build_candidates([], [lead], [], self.TODAY), [])
 
+    def test_guard_exists_for_sent_lead_reentry(self):
+        from pathlib import Path
+        source = Path("nba_refresh_pool.py").read_text(encoding="utf-8")
+        self.assertIn("Confirmed-sent Leads leaked into NBA candidates", source)
+
     def test_no_items(self):
         self.assertEqual(build_candidates([],[],[],self.TODAY),[])
 
