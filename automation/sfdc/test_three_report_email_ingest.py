@@ -98,7 +98,7 @@ class ReportIngestTests(unittest.TestCase):
     def test_duplicate_primary_key_header_is_rejected(self):
         from three_report_email_ingest import unique_headers
         with self.assertRaisesRegex(ValueError, "DUPLICATE_PRIMARY_HEADER"):
-            unique_headers(["SFDC Lead ID", "SFDC Lead ID", "Lead ID"])
+            unique_headers(["SFDC Lead ID", "SFDC Lead ID", "Lead ID"], "Leads")
 
     def test_unknown_attachment_rejected(self):
         with self.assertRaisesRegex(ValueError, "UNRECOGNIZED_REPORT_SCHEMA"):
