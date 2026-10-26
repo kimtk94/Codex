@@ -15,11 +15,16 @@ def gap_rows(manifest, signed=None):
 
 def main():
     manifest=json.loads(Path("automation/progress/acceptance_manifest.json").read_text())
-    report=gap_rows(manifest)
+    from acceptance_registry import REGISTRY, verify
+    from tracker import tasks, MASTER
+    registry=json.loads(REGISTRY.read_text(encoding="utf-8"))
+    task_ids={t["id"] for t in tasks(Path(MASTER).read_text(encoding="utf-8"))}
+    verify(registry,manifest,task_ids)
+    report=gap_rows(manifest,registry["records"])
     folder=Path("progress-audit")
     folder.mkdir(exist_ok=True)
     (folder/"gate-gaps.json").write_text(json.dumps(report,indent=2))
-    lines=["# Acceptance evidence gaps","","No signed task approvals have been registered; PR and CI links are not approvals.","",
+    lines=["# Acceptance evidence gaps","","Gate states reflect the validated explicit-review registry; PR and CI links alone are not approvals.","",
     "| Gate | State | Missing tasks | Reason |","|---|---|---|---|"]
     for x in report:
         lines.append("| "+x["gate_id"]+" | "+x["state"]+" | "+", ".join(x["missing_task_ids"])+" | "+", ".join(x["missing_reasons"])+" |")
