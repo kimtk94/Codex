@@ -24,7 +24,7 @@ BOOK = os.environ.get("CSS_SHEET_ID", "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbF
 TAB = "CSS Git Ingest"
 COLS = ["ingest_key","message_id","imap_uid","folder","uidvalidity","received_at","from_email",
         "recipient_to","cc","subject","amea_numbers","h_project_numbers","sam_numbers","batch_numbers",
-        "fetched_at_utc","direction"]
+        "fetched_at_utc","direction","in_reply_to","references"]
 KST = dt.timezone(dt.timedelta(hours=9))
 
 def api(s,method,url,**kw):
@@ -51,11 +51,14 @@ def ensure_tab(s):
     if TAB not in found:
         api(s,"POST",endpoint(":batchUpdate"),json={"requests":[{"addSheet":{"properties":{
             "title":TAB,"gridProperties":{"frozenRowCount":1}}}}]})
-    rng=urllib.parse.quote("'"+TAB+"'!A1:P1",safe="")
+    rng=urllib.parse.quote("'"+TAB+"'!A1:R1",safe="")
     rows=api(s,"GET",endpoint("/values/"+rng)).get("values",[])
     if not rows:
         api(s,"PUT",endpoint("/values/"+rng)+"?valueInputOption=RAW",
             json={"values":[COLS]})
+    elif rows[0]==COLS[:-2]:
+        extra=urllib.parse.quote("'"+TAB+"'!Q1:R1",safe="")
+        api(s,"PUT",endpoint("/values/"+extra)+"?valueInputOption=RAW",json={"values":[COLS[-2:]]})
     elif rows[0]!=COLS:
         raise RuntimeError("Staging header mismatch; aborting to protect existing data")
 
@@ -129,7 +132,7 @@ def collect(im, folder, direction, seen, limit):
     output=[]
     for uid in selected:
         key=folder+"|"+uidvalidity+"|"+uid.decode("ascii")
-        status,body=im.uid("FETCH",uid,"(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID DATE FROM TO CC SUBJECT)])")
+        status,body=im.uid("FETCH",uid,"(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO REFERENCES DATE FROM TO CC SUBJECT)])")
         if status!="OK": raise RuntimeError("IMAP header fetch failed")
         payload=next((r[1] for r in body if isinstance(r,tuple) and isinstance(r[1],bytes)),None)
         if payload is None: raise RuntimeError("IMAP missing header data")
@@ -141,7 +144,7 @@ def collect(im, folder, direction, seen, limit):
              decode_address(msg.get("To")),decode_address(msg.get("Cc")),subject,
              pattern(r"AMEA\d{7,}",subject),pattern(r"\bH[- ]?\d{5,}\b",subject),
              pattern(r"\bSAM[- ]?\d{4,}\b",subject),pattern(r"\bBATCH[- ]?\d{4,}\b",subject),
-             now,direction]
+             now,direction,str(msg.get("In-Reply-To",""))[:500],str(msg.get("References",""))[:2000]]
         output.append(row)
     return output
 
@@ -176,7 +179,7 @@ def main():
     seen=existing_keys(s)
     new=[r for r in collected if r[0] not in seen]
     if new:
-        rng=urllib.parse.quote("'"+TAB+"'!A:P",safe="")
+        rng=urllib.parse.quote("'"+TAB+"'!A:R",safe="")
         api(s,"POST",endpoint("/values/"+rng+":append")+"?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
             json={"values":new})
     print("CSS_SYNC_STAGE: sheet_write_complete", flush=True)
