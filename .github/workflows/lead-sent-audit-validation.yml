@@ -28,7 +28,7 @@ jobs:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       SFDC_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
       CSS_SHEET_ID: 1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY
-      DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (github.event_name == 'workflow_dispatch' && inputs.apply_audit == true) && 'false' || 'true' }}
+      DRY_RUN: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply_audit == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[apply-lead-audit-once]'))) && 'false' || 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
