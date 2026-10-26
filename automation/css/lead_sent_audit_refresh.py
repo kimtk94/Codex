@@ -32,10 +32,14 @@ def main():
     audits=read(QQ,"SFDC Lead Sent Audit","A1:E600")
     # Read narrow columns only: date (C), sender (E), recipient (F), direction (U).
     # A:U includes large mail bodies in Q; do not download those bodies.
-    dates=read(QQ,"All Emails","C1:C60000")
-    senders=read(QQ,"All Emails","E1:E60000")
-    recipients=read(QQ,"All Emails","F1:F60000")
-    directions=read(QQ,"All Emails","U1:U60000")
+    # One API request for four narrow columns; avoids repeated Sheets quota charges.
+    mail_ranges=["'All Emails'!C1:C60000","'All Emails'!E1:E60000",
+                 "'All Emails'!F1:F60000","'All Emails'!U1:U60000"]
+    mail_blocks=api.batchGet(spreadsheetId=QQ,ranges=mail_ranges,
+                              valueRenderOption="FORMATTED_VALUE").execute().get("valueRanges",[])
+    if len(mail_blocks)!=len(mail_ranges):
+        raise RuntimeError("Incomplete QQ mail batch read; no writes")
+    dates,senders,recipients,directions=[block.get("values",[]) for block in mail_blocks]
     sf_evidence=read(SFDC,"Lead Email Followup","X2:Z600")
     if not leads or not audits or not directions or not dates or not senders or not recipients:
         raise RuntimeError("Missing audit source")
