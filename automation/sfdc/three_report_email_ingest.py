@@ -65,7 +65,7 @@ def matrix(blob, filename):
             values = parser.rows
         else:
             values = list(csv.reader(io.StringIO(content)))
-    values = [[str(v or "").strip() for v in row] for row in values if any(str(v or "").strip() for v in row)]
+    values = [[("" if v is None else str(v).strip()) for v in row] for row in values if any(v is not None and str(v).strip() for v in row)]
     if len(values) < 2:
         raise ValueError("EMPTY_REPORT")
     # Salesforce HTML reports can contain a title/banner before the real table header.
