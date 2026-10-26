@@ -1,0 +1,68 @@
+name: SFDC Opportunity Similarity Search
+on:
+  workflow_dispatch:
+    inputs:
+      account:
+        description: "Account keyword (optional)"
+        required: false
+        type: string
+      service:
+        description: "Service keyword (optional)"
+        required: false
+        type: string
+      contact:
+        description: "Contact keyword (optional)"
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/sfdc-playwright-desktop-p0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install google-auth requests
+      - name: Search existing Opportunity catalog (no record data in logs)
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          ACCOUNT_QUERY: ${{ inputs.account }}
+          SERVICE_QUERY: ${{ inputs.service }}
+          CONTACT_QUERY: ${{ inputs.contact }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/sfdc-search"
+          python - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, 'automation/sfdc_desktop')
+          from catalog_reuse import load_sheet, dedupe, search, make_draft
+          account = os.getenv('ACCOUNT_QUERY','').strip()
+          service = os.getenv('SERVICE_QUERY','').strip()
+          contact = os.getenv('CONTACT_QUERY','').strip()
+          if not any((account,service,contact)):
+              raise SystemExit('Enter at least one search keyword.')
+          if not os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'):
+              raise SystemExit('TaehoonServer CKD_DRIVE_SA_JSON is not configured.')
+          rows = load_sheet()
+          matches = search(rows, account=account, contact=contact, service=service, top=10)
+          report = {'source_rows':len(rows),'unique_opportunities':len(dedupe(rows)),
+                    'matches':matches,'draft':make_draft(matches[0]) if matches else None,
+                    'salesforce_save_performed':False}
+          path=os.path.join(os.environ['RUNNER_TEMP'],'sfdc-search','matches.json')
+          with open(path,'w',encoding='utf-8') as f:
+              json.dump(report,f,ensure_ascii=False,indent=2)
+          print('SFDC catalog search completed. Candidate count:', len(matches))
+          print('Download the restricted-run artifact to review the candidates; record details are not printed.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sfdc-catalog-matches
+          path: ${{ runner.temp }}/sfdc-search/matches.json
+          retention-days: 1
+          if-no-files-found: error
