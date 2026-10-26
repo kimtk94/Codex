@@ -191,7 +191,7 @@ def collect(im, days=4):
         msg = email.message_from_bytes(raw, policy=policy.default)
         subject = str(msg.get("subject", "")).lower()
         sender = str(msg.get("from", "")).lower()
-        if not (re.search(r"@(?:[a-z0-9-]+\.)*salesforce\.com\b", sender) or "salesforce" in subject or "report results" in subject):
+        if not re.search(r"@(?:[a-z0-9-]+\.)*salesforce\.com\b", sender):
             continue
         try:
             when = parsedate_to_datetime(str(msg["date"]))
