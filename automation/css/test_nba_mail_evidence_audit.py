@@ -1,5 +1,5 @@
 import unittest
-from nba_mail_evidence_audit import summarize, exact_header_reply_links
+from nba_mail_evidence_audit import summarize, exact_header_reply_links, followup_after_verified_reply
 
 class MailEvidenceTests(unittest.TestCase):
     def test_ambiguous_review_notes_not_confirmed(self):
@@ -27,6 +27,16 @@ class MailEvidenceTests(unittest.TestCase):
         self.assertEqual(summary["strict_reply_links"],1)
         self.assertEqual(summary["duplicate_incoming_rows"],1)
         self.assertEqual(summary["review_required"],1)
+
+    def test_followup_requires_later_outbound_and_dedups_message_id(self):
+        rows=[
+            {"message_id":"<r>","from_email":"client@example.org","recipient_to":"taehoon.kim@novogene.com","received_at":"2026-10-26T10:00:00+09:00","direction":"INBOUND"},
+            {"message_id":"<r>","from_email":"client@example.org","recipient_to":"taehoon.kim@novogene.com","received_at":"2026-10-26T10:00:00+09:00","direction":"INBOUND"},
+            {"message_id":"<old>","from_email":"taehoon.kim@novogene.com","recipient_to":"client@example.org","received_at":"2026-10-26T09:00:00+09:00","direction":"OUTBOUND"},
+        ]
+        self.assertEqual(followup_after_verified_reply(rows,["<r>"])["later_outbound_not_found"],1)
+        rows.append({"message_id":"<later>","from_email":"taehoon.kim@novogene.com","recipient_to":"client@example.org","received_at":"2026-10-26T11:00:00+09:00","direction":"OUTBOUND"})
+        self.assertEqual(followup_after_verified_reply(rows,["<r>"])["later_outbound_confirmed"],1)
 
     def test_sent_and_closed_are_not_reply_proof(self):
         rows=[
