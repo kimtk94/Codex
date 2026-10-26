@@ -74,6 +74,38 @@ def main():
     source_stale=source_age_days is None or source_age_days>2
     if source_stale:
         print("LEAD_SENT_AUDIT_SOURCE_STALE=true; historical sent matches only",flush=True)
+    # Current metadata-only IMAP staging supplements the historical All Emails source.
+    # Exact recipient plus authorized sender and OUTBOUND direction are required.
+    staging_ranges=["'CSS Git Ingest'!F1:H100000","'CSS Git Ingest'!P1:P100000"]
+    stage=api.batchGet(spreadsheetId=QQ,ranges=staging_ranges,
+                       valueRenderOption="FORMATTED_VALUE").execute().get("valueRanges",[])
+    if len(stage)!=2:
+        raise RuntimeError("Incomplete CSS Git Ingest read")
+    details=stage[0].get("values",[])
+    flags=stage[1].get("values",[])
+    if not details or details[0][:3]!=["received_at","from_email","recipient_to"] or not flags or val(flags[0],0)!="direction":
+        raise RuntimeError("Unexpected CSS Git Ingest headers")
+    if len(details)>=100000 or len(flags)>=100000:
+        raise RuntimeError("CSS Git Ingest scan limit reached")
+    stage_sent=0
+    for idx in range(1,max(len(details),len(flags))):
+        if idx>=len(flags) or val(flags[idx],0).upper()!="OUTBOUND":
+            continue
+        row=details[idx] if idx<len(details) else []
+        sender=val(row,1).lower()
+        at=date(val(row,0))
+        if sender not in ALLOWED_SENDERS or not at:
+            continue
+        for recipient in set(x.lower() for x in MAIL_RE.findall(val(row,2))):
+            sent.setdefault(recipient,[]).append(at)
+            stage_sent+=1
+    stage_dates=[date(val(row,0)) for row in details[1:] if row]
+    stage_latest=max((x for x in stage_dates if x),default=None)
+    if stage_latest and (not source_latest or stage_latest>source_latest):
+        source_latest=stage_latest
+    source_age_days=(datetime.datetime.now(datetime.timezone.utc)-source_latest.astimezone(datetime.timezone.utc)).total_seconds()/86400 if source_latest else None
+    source_stale=source_age_days is None or source_age_days>2
+    print("LEAD_SENT_AUDIT_CSS_STAGE_OUTBOUND_MATCHES="+str(stage_sent),flush=True)
     updates=[];sf_updates=[];changed=0
     for lead_row,r in enumerate(leads[1:],start=2):
         lead_id=val(r,0);email=val(r,3).lower()
