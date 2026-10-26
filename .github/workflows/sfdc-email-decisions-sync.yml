@@ -31,7 +31,7 @@ jobs:
             exit 1
           fi
       - name: Verify Python syntax
-        run: python -m py_compile automation/css/sfdc_email_decision_sync.py automation/css/bi_mail_review_sync.py automation/css/sfdc_email_decision_ack.py
+        run: python -m py_compile automation/css/sfdc_email_decision_sync.py automation/css/bi_mail_review_sync.py automation/css/sfdc_email_decision_ack.py automation/css/sfdc_email_snapshot_refresh.py
       - name: Offline safety regression checks
         run: python -m unittest discover -s automation/css -p 'test_sfdc_email_decision_safety.py' -v
       - name: Verify access to SFDC and QQ Sheets
@@ -50,5 +50,9 @@ jobs:
         run: python automation/css/bi_mail_review_sync.py
       - name: Acknowledge synchronized decisions in SFDC
         run: python automation/css/sfdc_email_decision_ack.py
+      - name: Refresh SFDC email snapshot without changing decisions
+        env:
+          DRY_RUN: 'false'
+        run: python automation/css/sfdc_email_snapshot_refresh.py
       - name: Verify outstanding SFDC decisions
         run: python automation/css/sfdc_email_decision_sync.py
