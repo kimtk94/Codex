@@ -59,6 +59,8 @@ jobs:
         run: python automation/css/sfdc_email_decision_sync.py
       - name: Verify QQ and SFDC mail and decision parity
         run: python automation/css/sfdc_email_consistency_check.py
+      - name: Audit Lead sent evidence safely (dry run)
+        run: python automation/css/lead_sent_audit_refresh.py
       - name: Record successful sync health
         if: success()
         env:
