@@ -101,7 +101,7 @@ def main():
                 raise RuntimeError("Readback mismatch for " + cell)
             readback.append(cell)
     receipt = {
-        "state": "VERIFIED_WRITE_RECEIPT",
+        "state": "VERIFIED_WRITE_RECEIPT" if readback else "NO_WRITES",
         "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
         "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "local"),
         "workflow": os.environ.get("GITHUB_WORKFLOW", "local"),
