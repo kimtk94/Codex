@@ -84,99 +84,69 @@ PILL_JS=r"""(input,expected) => {
  return deep(node.shadowRoot||node).some(p=>equal(p.querySelector('.slds-pill__label')?.textContent||p.textContent));
 }"""
 
-SELECTED_JS = r"""({label, expected}) => {
- const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
- const seen=new Set(), labels=[];
+# Inspect a field-specific selected record, not an arbitrary pill elsewhere in the form.
+# Return evidence rather than treating a click as a verified SFDC relationship.
+SELECTED_STATE_JS = r"""({label,expected}) => {
+ const norm=s=>(s||'').replace(/\s+/g,' ').replace(/^\*\s*/,'').trim().toLowerCase();
+ const visited=new Set(), labels=[];
  function walk(root) {
-   if(!root||seen.has(root))return;
-   seen.add(root);
-   for(const el of root.querySelectorAll('*')) {
-     if(el.shadowRoot)walk(el.shadowRoot);
-     if(el.matches('label') && norm(el.textContent).replace(/^\*\s*/,'')===norm(label))
-       labels.push(el);
+   if(!root||visited.has(root))return;
+   visited.add(root);
+   for(const e of root.querySelectorAll('*')) {
+     if(e.shadowRoot)walk(e.shadowRoot);
+     if(e.matches('label')&&norm(e.textContent)===norm(label))labels.push(e);
    }
  }
  walk(document);
- if(labels.length!==1)return false;
- let n=labels[0];
- for(let depth=0;n&&depth<6;depth++) {
-   const pills=new Set();
-   function scan(root) {
-     if(!root?.querySelectorAll)return;
-     for(const e of root.querySelectorAll('*')) {
-       if(e.shadowRoot)scan(e.shadowRoot);
-       if(e.matches('lightning-pill,.slds-pill,[class*="pill"]'))pills.add(e);
-     }
-   }
-   scan(n.shadowRoot||n);
-   // Lightning pills may have a remove button in their own shadow root.
-   const selected=[...pills].filter(p=>{
-     const text=norm(p.getAttribute('label')||p.getAttribute('title')||
-                    p.querySelector('.slds-pill__label')?.textContent||p.textContent);
-     return text===norm(expected) || text.startsWith(norm(expected)+' ');
-   });
-   if(selected.length===1)return true;
-   n=n.parentElement||n.getRootNode()?.host||null;
+ const out={label_count:labels.length,selected_count:0,remove_control_count:0,raw_input_count:0};
+ if(labels.length!==1)return out;
+ let node=labels[0], field=null;
+ for(let j=0;j<8&&node;j++){
+   if(node.localName==='lightning-grouped-combobox'){field=node;break;}
+   node=node.parentElement||node.getRootNode()?.host||null;
  }
- return false;
+ if(!field)return out;
+ const nodes=[],seen=new Set();
+ function collect(root){
+   if(!root||seen.has(root))return;
+   seen.add(root);
+   for(const e of root.querySelectorAll('*')){
+     nodes.push(e);if(e.shadowRoot)collect(e.shadowRoot);
+   }
+ }
+ collect(field.shadowRoot||field);
+ const matched=nodes.filter(e=>e.matches('lightning-pill,.slds-pill,[data-selection]') &&
+   (norm(e.getAttribute('label'))===norm(expected) ||
+    norm(e.querySelector('.slds-pill__label')?.textContent)===norm(expected) ||
+    norm(e.textContent)===norm(expected)));
+ out.selected_count=matched.length;
+ out.remove_control_count=nodes.filter(e=>
+   e.matches('button,[role="button"]') &&
+   /remove|clear|delete/i.test((e.getAttribute('title')||'')+' '+(e.getAttribute('aria-label')||'')) &&
+   e.getClientRects().length>0).length;
+ out.raw_input_count=nodes.filter(e=>e.matches('input')&&norm(e.value)===norm(expected)).length;
+ return out;
 }"""
 
-def verify_selected(context,label,name):
+def selected_state(context,label,name):
+    observed=[]
     for page in context.pages:
         if page.is_closed():continue
         for frame in page.frames:
             try:
-                if frame.evaluate(SELECTED_JS,{"label":label,"expected":name}):return True
+                item=frame.evaluate(SELECTED_STATE_JS,{"label":label,"expected":name})
+                if item["label_count"]: observed.append(item)
             except PWError:continue
-    return False
+    if len(observed)!=1:return {"verified":False,"reason":"FIELD_NOT_UNIQUE","field_instances":len(observed)}
+    d=observed[0]
+    verified=d["selected_count"]==1 and d["remove_control_count"]>=1
+    return {"verified":verified,**d}
 
-SELECTED_FIELD_JS = r"""({label,expected}) => {
- const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
- const seen=new Set(),labels=[];
- function walk(root) {
-  if(!root||seen.has(root))return;
-  seen.add(root);
-  for(const e of root.querySelectorAll('*')){
-   if(e.shadowRoot)walk(e.shadowRoot);
-   if(e.matches('label') && norm(e.textContent).replace(/^\*\s*/,'')===norm(label))labels.push(e);
-  }
- }
- walk(document);
- if(labels.length!==1)return false;
- let n=labels[0];
- for(let i=0;n&&i<7;i++) {
-  const text=norm(n.innerText||n.textContent);
-  if(text.includes(norm(expected))) {
-   const pills=[];
-   function scan(root) {
-    if(!root?.querySelectorAll)return;
-    for(const el of root.querySelectorAll('*')){
-     if(el.shadowRoot)scan(el.shadowRoot);
-     if(el.matches('lightning-pill,.slds-pill'))pills.push(el);
-    }
-   }
-   scan(n.shadowRoot||n);
-   if(pills.some(p=>norm(p.getAttribute('label')||p.textContent).includes(norm(expected))))return true;
-   // Salesforce grouped combobox selected record contains a remove action.
-   if(n.localName==='lightning-grouped-combobox'){
-     const buttons=[...n.querySelectorAll('button,[role="button"]')];
-     if(buttons.some(b=>/remove|clear/i.test((b.getAttribute('title')||'')+' '+(b.getAttribute('aria-label')||''))))
-       return true;
-   }
-  }
-  n=n.parentElement||n.getRootNode()?.host||null;
- }
- return false;
-}"""
+def verify_selected(context,label,name):
+    return selected_state(context,label,name)["verified"]
 
 def verify_selected_field(context,label,name):
- for page in context.pages:
-  if page.is_closed():continue
-  for frame in page.frames:
-   try:
-    if frame.evaluate(SELECTED_FIELD_JS,{"label":label,"expected":name}):return True
-   except PWError:continue
- return False
+    return verify_selected(context,label,name)
 
 def select(context,label,name):
     inp,status=find_input(context,label)
@@ -243,7 +213,7 @@ def select(context,label,name):
         time.sleep(0.4)
         verified=verify_selected(context,label,name) or verify_selected_field(context,label,name)
         return {"status":"SELECTED_PILL_VERIFIED" if verified else "CLICKED_NOT_VERIFIED",
-                "option_clicked":True, "verification_strategy":"pill_or_field"}
+                "option_clicked":True, "evidence":selected_state(context,label,name)}
     except PWError as exc:
         return {"status":"LOOKUP_UI_CHANGED","error_class":type(exc).__name__}
 
