@@ -50,10 +50,11 @@ jobs:
         run: python3 -m py_compile automation/css_mail/readonly_probe.py automation/css_mail/incremental_sync.py automation/css_mail/mail_operations.py automation/css_mail/unanswered_auto.py automation/css_mail/tax_invoice_extract.py automation/css_mail/quotation_approval_extract.py automation/css_mail/thread_header_backfill.py
       - name: Sync inbound and sent mail metadata to CSS staging
         run: python3 automation/css_mail/incremental_sync.py
-      - name: Dry-run existing mail thread header backfill
+      - name: Backfill verified mail thread headers (Q:R only)
         env:
-          DRY_RUN: 'true'
-          CSS_THREAD_BACKFILL_BATCH: '50'
+          DRY_RUN: 'false'
+          CSS_THREAD_BACKFILL_WRITE: 'true'
+          CSS_THREAD_BACKFILL_BATCH: '20'
         run: python3 automation/css_mail/thread_header_backfill.py
       - name: Verify mail ingestion heartbeat in Google Sheets
         run: python3 automation/css_mail/mail_health.py
