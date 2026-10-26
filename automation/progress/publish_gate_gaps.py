@@ -34,7 +34,12 @@ def main():
     response.raise_for_status()
     ids=[r[0] if r else "" for r in response.json().get("values",[])]
     manifest=json.loads(Path("automation/progress/acceptance_manifest.json").read_text())
-    rows=prepare(gap_rows(manifest),ids)
+    from acceptance_registry import REGISTRY, verify
+    from tracker import tasks, MASTER
+    registry=json.loads(REGISTRY.read_text(encoding="utf-8"))
+    task_ids={t["id"] for t in tasks(Path(MASTER).read_text(encoding="utf-8"))}
+    verify(registry,manifest,task_ids)
+    rows=prepare(gap_rows(manifest,registry["records"]),ids)
     output=Path("progress-audit/gate-sheet-preview.json")
     output.parent.mkdir(exist_ok=True)
     state={"gate_count":len(rows),"range":"'Automation Gate Summary'!G5:I17",
