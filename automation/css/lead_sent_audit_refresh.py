@@ -13,7 +13,11 @@ ALLOWED_SENDERS={"taehoon.kim@novogene.com","masiyuan8900@novogene.com","jiin.yo
 MAIL_RE=re.compile(r"(?<![\w.+-])([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})(?![\w.-])")
 def val(row,i):return str(row[i]).strip() if i<len(row) and row[i] is not None else ""
 def date(text):
-    try:return datetime.datetime.fromisoformat(text.replace("Z","+00:00"))
+    try:
+        parsed=datetime.datetime.fromisoformat(text.replace("Z","+00:00"))
+        if parsed.tzinfo is None:
+            parsed=parsed.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=9)))
+        return parsed
     except ValueError:return None
 def main():
     raw=os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
@@ -37,11 +41,15 @@ def main():
         raise RuntimeError("Missing audit source")
     if val(leads[0],0)!="Lead ID" or val(audits[0],0)!="Lead ID" or val(directions[0],0)!="direction":
         raise RuntimeError("Unexpected source header; no writes")
+    if [val(dates[0],0),val(senders[0],0),val(recipients[0],0)]!=["received_at","from_email","to"]:
+        raise RuntimeError("Unexpected email evidence columns; no writes")
     if max(map(len,(dates,senders,recipients,directions)))>=60000:
         raise RuntimeError("Mail scan capacity reached; refuse partial audit")
     # Audit index by Lead ID and existing row number.
     existing={val(r,0):(i,r) for i,r in enumerate(audits[1:],start=2) if val(r,0)}
     sent={}
+    if len(set(existing))!=len(existing):
+        raise RuntimeError("Duplicate audit Lead ID")
     for idx in range(1,max(map(len,(dates,senders,recipients,directions)))):
         direction=val(directions[idx],0).lower() if idx<len(directions) else ""
         if direction not in ("sent","outbound"):continue
