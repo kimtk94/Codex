@@ -37,7 +37,13 @@ def app(values_path):
    historical=d.get("_historical_reference") or {}
    entries=[]
    for key in FIELD_KEYS:
-    v=escape(str(d.get(key,"")),quote=True)
+    current=str(d.get(key,"") or "")
+    if not current and key in ("Opportunity Name","Amount","Close Date","Service Line","Stage"):
+     current=str(historical.get(key,"") or "")
+     if key=="Amount":
+      match=re.fullmatch(r"\s*(?:KRW|₩)?\s*([\d,]+(?:\.\d+)?)\s*",current,re.I)
+      current=match.group(1).replace(",","") if match else ""
+    v=escape(current,quote=True)
     hint=escape(str(historical.get(key,"")),quote=True)
     if key=="Progress Description":tag=f'<textarea name="{key}" rows="3">{escape(str(d.get(key,"")))}</textarea>'
     else:tag=f'<input name="{key}" value="{v}" placeholder="{hint}" />'
@@ -50,7 +56,7 @@ def app(values_path):
    label{display:block;margin:13px 0}input,textarea{display:block;width:100%;box-sizing:border-box;
    padding:10px;border:1px solid #999;border-radius:6px;font:inherit}button{padding:12px 20px}
    .help{color:#555;font-size:13px}.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}</style>
-   <h2>SFDC 신규 거래 편집</h2><p class="help">회색 힌트는 기존 거래 참조값입니다.
+   <h2>SFDC 신규 거래 편집</h2><p class="help">빈 입력란에는 기존 거래값이 기본 표시됩니다. 금액·마감일 등은 신규 거래에 맞게 반드시 확인하세요.
    저장은 로컬 current_deal.json만 변경하며 Salesforce는 절대 저장하지 않습니다.</p>
    <div class="row"><label>샘플 수<input id="qty" type="number" min="1" step="1"></label>
    <label>샘플당 단가 (KRW)<input id="unit" type="number" min="0" step="1"></label></div>
