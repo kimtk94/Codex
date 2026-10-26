@@ -100,6 +100,15 @@ class ReportIngestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "DUPLICATE_PRIMARY_HEADER"):
             unique_headers(["SFDC Lead ID", "SFDC Lead ID", "Lead ID"], "Leads")
 
+    def test_sfdc_lead_id_not_raw_crm_id_join(self):
+        leads=[["Lead ID","SFDC Lead ID"],["00QTEST","Lead-2025-01-01-12345"]]
+        opps=[["Opportunity ID","Lead Converted ID"],["Opp-1","Lead-2025-01-01-12345"]]
+        quotes=[["SFDC Quotation ID","Opportunity ID"],["Q1","Opp-1"]]
+        audit=compare(leads,opps,quotes)
+        self.assertEqual(audit["lead_join_field"],"SFDC Lead ID")
+        self.assertEqual(audit["opportunities_without_matching_export_lead"],0)
+        self.assertEqual(audit["qc"],"PASS")
+
     def test_unknown_attachment_rejected(self):
         with self.assertRaisesRegex(ValueError, "UNRECOGNIZED_REPORT_SCHEMA"):
             matrix(b"<table><tr><th>Other</th><th>Amount</th></tr><tr><td>A</td><td>100</td></tr></table>", "x.xls")
