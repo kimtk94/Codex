@@ -75,4 +75,43 @@ class ReconcileTests(unittest.TestCase):
         self.assertNotIn("BI 2026 Forecast Overview",source)
         self.assertNotIn("Unissued Invoice Watch",source)
         self.assertNotIn("Partial Invoice Reconciliation",source)
+    def test_publish_runtime_writes_only_approved_ranges(self):
+        from unittest.mock import patch
+        import tax_invoice_forecast_reconcile as mod
+        calls=[]
+        def fake_api(session,method,path,**kwargs):
+            calls.append((method,path))
+            if method=="GET" and path=="?fields=sheets.properties":
+                return {"sheets":[]}
+            return {"values":[]}
+        def fake_values(session,tab,start,rows):
+            calls.append(("WRITE",tab,start))
+        with patch.object(mod,"read",return_value=[["header"]]), \
+             patch.object(mod,"sheet",return_value=None), \
+             patch.object(mod,"api",side_effect=fake_api), \
+             patch.object(mod,"values",side_effect=fake_values), \
+             patch.object(mod,"month_overrides",return_value={}), \
+             patch.object(mod,"reconcile_rows",return_value=(
+                 [["Month"],["2026-10"]],[["Contract"]],{"DEDUPE_ISSUED_COMPLETED":0},[["Sub-Project Number"]])):
+            mod.publish(object())
+        writes=[x for x in calls if x[0]=="WRITE"]
+        self.assertEqual([(x[1],x[2]) for x in writes],[
+            ("BI Revenue Actual Forecast","A1"),
+            ("BI Revenue Duplicate Review","A1"),
+            ("BI Project Month Control","A1")])
+        clear_paths=[x[1] for x in calls if x[0]=="POST" and x[1].endswith(":clear")]
+        import urllib.parse
+        actual=set(urllib.parse.unquote(x) for x in clear_paths)
+        self.assertEqual(actual,{
+            "/values/'BI Revenue Actual Forecast'!A1:N2000:clear",
+            "/values/'BI Revenue Duplicate Review'!A1:N2000:clear",
+            "/values/'BI Project Month Control'!A1:K2000:clear"})
+        self.assertFalse(any("BI 2026 Forecast Overview" in str(x) for x in calls))
+
+    def test_publish_blocks_unapproved_dashboard_target(self):
+        from unittest.mock import patch
+        import tax_invoice_forecast_reconcile as mod
+        with patch.object(mod,"OUTPUT_TAB","BI 2026 Forecast Overview"):
+            with self.assertRaisesRegex(RuntimeError,"UNSAFE_REVENUE_WRITE_TARGET"):
+                mod.publish(object())
 if __name__=="__main__":unittest.main()
