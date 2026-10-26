@@ -270,8 +270,9 @@ def main():
         return
     if not selected:
         print("SFDC_3REPORT_NO_VALID_ATTACHMENT; previous staging preserved")
-        return
     cred = service_account.Credentials.from_service_account_info(json.loads(os.environ["GCP_SERVICE_ACCOUNT_JSON"]), scopes=["https://www.googleapis.com/auth/spreadsheets"])
+    # Record an observable heartbeat even when all three reports were missing/invalid.
+    # Never clear previously staged raw records in that case.
     write_verified(AuthorizedSession(cred), selected)
     print("SFDC_3REPORT_STAGED=" + ",".join(sorted(selected)))
 
