@@ -84,7 +84,7 @@ PILL_JS=r"""(input,expected) => {
  return deep(node.shadowRoot||node).some(p=>equal(p.querySelector('.slds-pill__label')?.textContent||p.textContent));
 }"""
 
-SELECTED_JS = r"""(label, expected) => {
+SELECTED_JS = r"""({label, expected}) => {
  const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
  const seen=new Set(),labels=[];
  function walk(root){
@@ -122,7 +122,7 @@ def verify_selected(context,label,name):
         if page.is_closed():continue
         for frame in page.frames:
             try:
-                if frame.evaluate(SELECTED_JS,label,name):return True
+                if frame.evaluate(SELECTED_JS,{"label":label,"expected":name}):return True
             except PWError:continue
     return False
 
