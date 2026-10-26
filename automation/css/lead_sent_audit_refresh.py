@@ -46,10 +46,11 @@ def main():
     if max(map(len,(dates,senders,recipients,directions)))>=60000:
         raise RuntimeError("Mail scan capacity reached; refuse partial audit")
     # Audit index by Lead ID and existing row number.
+    audit_ids=[val(r,0) for r in audits[1:] if val(r,0)]
+    if len(audit_ids)!=len(set(audit_ids)):
+        raise RuntimeError("Duplicate audit Lead ID; no writes")
     existing={val(r,0):(i,r) for i,r in enumerate(audits[1:],start=2) if val(r,0)}
     sent={}
-    if len(set(existing))!=len(existing):
-        raise RuntimeError("Duplicate audit Lead ID")
     for idx in range(1,max(map(len,(dates,senders,recipients,directions)))):
         direction=val(directions[idx],0).lower() if idx<len(directions) else ""
         if direction not in ("sent","outbound"):continue
