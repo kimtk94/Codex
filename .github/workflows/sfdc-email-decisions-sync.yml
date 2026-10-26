@@ -13,17 +13,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
-      GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.NBA_GOOGLE_SERVICE_ACCOUNT_JSON }}
       SFDC_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
       CSS_SHEET_ID: 1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - run: pip install google-api-python-client google-auth
+      - name: Verify sales Sheets credential is configured
+        shell: bash
+        run: |
+          if [ -z "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
+            echo 'Missing NBA_GOOGLE_SERVICE_ACCOUNT_JSON repository secret' >&2
+            exit 1
+          fi
       - name: Verify Python syntax
         run: python -m py_compile automation/css/sfdc_email_decision_sync.py automation/css/bi_mail_review_sync.py automation/css/sfdc_email_decision_ack.py
       - name: Validate decisions without writes
