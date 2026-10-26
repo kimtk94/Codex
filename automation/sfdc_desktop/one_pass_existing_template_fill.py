@@ -67,7 +67,7 @@ def historical_data(draft):
   "Stage":first(web.get("Stage"),catalog.get("historical_stage")),
   "Forecast Category":first(web.get("Forecast Category"),catalog.get("forecast_category")),
   "Progress Description":str(web.get("Progress Description") or catalog.get("progress_description") or "").strip(),
-  "Status":first(web.get("Status"),catalog.get("status"))
+  "Status":"Smoothly"
  }
 def fill_progress(page,value):
  if not value:return {"status":"NO_SOURCE_VALUE"}
@@ -146,12 +146,14 @@ def main():
  for k,v in overrides.items():
   if k in LABELS:values[k]=str(v).strip() if k=="Progress Description" else normalized(v)
  if values["Amount"]:values["Amount"]=amount_numeric(values["Amount"])
- if values["Progress Description"]:
+ if values["Progress Description"] and "Progress Description" not in overrides:
   values["Progress Description"]=progress_for_today(values["Progress Description"],values.get("Stage",""))
- elif draft.get("source_opportunity_id")=="Opp-2026-10-23-291068":
+ elif not values["Progress Description"] and draft.get("source_opportunity_id")=="Opp-2026-10-23-291068":
   # Explicitly supplied by user for this specific verified source record.
   values["Progress Description"]=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%m%d")+" Quote Issued\nmRNA-Seq 5 samples * 180,000KRW"
  missing=[x for x in LABELS if x!="Forecast Category" and not values.get(x)]
+ if not a.values:
+  print("NOTE: historical defaults are for reference only. Use --values for each new deal.")
  print("SOURCE:",draft["source_opportunity_id"],"MODE: historical template, NOT an approved new sale")
  print("VALUES:",json.dumps(values,ensure_ascii=False))
  print("MISSING:",", ".join(missing) or "(none)")
