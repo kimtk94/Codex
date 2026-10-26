@@ -15,6 +15,8 @@ on:
       - 'automation/sfdc/three_report_relationship_qc.py'
       - 'automation/sfdc/three_report_verified_views.py'
       - 'automation/sfdc/three_report_mail_evidence.py'
+      - 'automation/sfdc/three_report_thread_evidence.py'
+      - 'automation/sfdc/test_three_report_thread_evidence.py'
       - 'automation/sfdc/test_three_report_mail_evidence.py'
       - 'automation/sfdc/test_three_report_verified_views.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
@@ -57,6 +59,8 @@ jobs:
         run: python automation/sfdc/test_three_report_verified_views.py
       - name: Test directional QQ mail evidence offline
         run: python automation/sfdc/test_three_report_mail_evidence.py
+      - name: Test exact subject identifier audit offline
+        run: python automation/sfdc/test_three_report_thread_evidence.py
       - name: Read authorized subscription mail and conditionally stage
         if: ${{ github.event_name != 'pull_request' }}
         run: python automation/sfdc/three_report_email_ingest.py
@@ -73,3 +77,8 @@ jobs:
         env:
           SFDC_MAIL_EVIDENCE_APPLY: 'true'
         run: python automation/sfdc/three_report_mail_evidence.py
+      - name: Check QQ exact ID thread evidence (read only)
+        if: github.event_name != 'pull_request'
+        env:
+          SFDC_THREAD_EVIDENCE_APPLY: 'false'
+        run: python automation/sfdc/three_report_thread_evidence.py
