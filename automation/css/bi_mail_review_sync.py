@@ -53,6 +53,9 @@ def main():
         if not uid or action not in {"EXCLUDE_MAIL","EXCLUDE_SENDER","RESTORE_MAIL","RESTORE_SENDER"}:continue
         # Already synchronized decisions are not replayed.
         if state=="SYNCED:"+action:continue
+        if action.endswith("SENDER") and (not addr or "@" not in addr):
+            counts["invalid_sender_address"]+=1
+            continue
         if action.endswith("SENDER"):
             prior=sender_actions.get(addr)
             if prior and prior!=action:
@@ -97,7 +100,7 @@ def main():
         processed.append((i,action));counts[action]+=1
     print(json.dumps({"dry_run":read_only,"new_inbox":len(to_append_review),"mail_exclusions_new":len(to_append_mail),"sender_exclusions_new":len(to_append_sender),"requested":dict(counts)},ensure_ascii=False))
     if read_only:return
-    if counts["conflicting_sender_requests"] or counts["conflicting_uid_requests"]:
+    if counts["conflicting_sender_requests"] or counts["conflicting_uid_requests"] or counts["invalid_sender_address"]:
         raise RuntimeError("Conflicting review actions detected; resolve before live sync")
     # Apply all writes before recording success. Reruns are safe by UID/address.
     batch(s,updates)
