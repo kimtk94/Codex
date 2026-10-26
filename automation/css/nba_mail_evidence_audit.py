@@ -64,7 +64,7 @@ def exact_header_reply_links(rows):
             evidence = outgoing.get(ref)
             if evidence and sender in evidence[1] and evidence[0] in to:
                 links.add((ref, str(row.get("message_id") or "")))
-    return {"outgoing_ids": len(outgoing), "strict_reply_links": len(links), "linked_message_ids": sorted({reply for _, reply in links if reply})}
+    return {"outgoing_ids": len(outgoing), "strict_reply_links": len(links), "linked_message_ids": sorted({reply for _, reply in links if reply}), "linked_incoming_keys": sorted({str(r.get("ingest_key") or "") for r in rows if str(r.get("message_id") or "") in {mid for _, mid in links} and str(r.get("ingest_key") or "")})}
 
 def main():
     from nba_google_auth import auth
