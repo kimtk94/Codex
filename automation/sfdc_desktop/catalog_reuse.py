@@ -19,7 +19,7 @@ COLUMNS = ("Opportunity Owner", "Account Name", "Opportunity Name", "Stage",
            "Opportunity Created Date", "Opportunity ID", "Lead Converted ID", "Account ID")
 
 def clean(value):
-    return re.sub(r"\\s+", " ", str(value or "")).strip()
+    return re.sub(r"\s+", " ", str(value or "")).strip()
 
 def load_csv(path):
     with open(path, newline="", encoding="utf-8-sig") as f:
