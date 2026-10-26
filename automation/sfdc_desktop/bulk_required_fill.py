@@ -100,13 +100,24 @@ def main():
     a.add_argument("--values",default="",help="JSON file with actual business values; overrides draft")
     a.add_argument("--cdp-url",default="http://127.0.0.1:9222")
     a.add_argument("--output",default="")
+    a.add_argument("--test-text-values",action="store_true",help="Fake unsaved text values; never Save")
     args=a.parse_args();check_url(args.url)
     data=json.loads(Path(args.draft).read_text(encoding="utf-8-sig"))
     if args.values:data.update(json.loads(Path(args.values).read_text(encoding="utf-8-sig")))
+    if args.test_text_values:
+        if args.values:
+            a.error("--test-text-values cannot be combined with --values")
+        data.update({
+            "Opportunity Name":"TEST_DO_NOT_SAVE__SFDC_UI_VALIDATION",
+            "Amount":"1",
+            "Close Date":"2026-12-31",
+            "Progress Description":"TEST ONLY - DO NOT SAVE. Validate unsaved UI fields."
+        })
+        print("TEST MODE: artificial values; do not click Salesforce Save or Save & New.")
     # Produce a useful template before connecting to Chrome, never invent mandatory fields.
     missing=[k for k in REQUIRED if k!="Opportunity Currency" and not str(data.get(k,"")).strip()]
     template=Path(args.draft).with_name("required_values_template.json")
-    if not args.values:
+    if not args.values and not args.test_text_values:
         template.write_text(json.dumps({k:data.get(k,"") for k in REQUIRED},ensure_ascii=False,indent=2),encoding="utf-8")
         print("Required values template:",template)
     if missing:
@@ -149,7 +160,7 @@ def main():
                 result[label]={"status":"ERROR","type":type(exc).__name__}
             print(label,result[label]["status"])
         result["Service Line"]={"status":"NOT_IMPLEMENTED_DUAL_LISTBOX" if str(data.get("Service Line","")).strip() else "MISSING_VALUE"}
-        report={"version":"bulk-required-p1","window":focus,"missing_values":missing,"fields":result,
+        report={"version":"bulk-required-p2","test_text_values":args.test_text_values,"window":focus,"missing_values":missing,"fields":result,
                 "save_clicked":False,"all_required_verified":False}
         out=Path(args.output) if args.output else Path(args.draft).with_name("bulk_required_report.json")
         out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
