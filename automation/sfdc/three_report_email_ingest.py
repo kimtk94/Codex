@@ -153,9 +153,13 @@ def write_verified(session, selected, dry_run=False):
         tab = SCHEMAS[kind]["tab"]
         old_rows = existing.get(tab, {}).get("gridProperties", {}).get("rowCount", 0)
         old_cols = existing.get(tab, {}).get("gridProperties", {}).get("columnCount", 0)
-        if old_rows > 0 and old_cols > 0:
-            request(session, "POST", "/values:batchClear", json={"ranges": ["'" + tab + "'!A1:" + column_name(old_cols) + str(old_rows)]})
-        request(session, "PUT", "/values/" + a1(tab, "A1") + "?valueInputOption=RAW", json={"values": [item["headers"]] + item["rows"]})
+        # One atomic values write including a blank tail; no pre-clear window.
+        end_rows = max(old_rows, len(item["rows"]) + 1)
+        end_cols = max(old_cols, len(item["headers"]))
+        replacement = [item["headers"]] + item["rows"]
+        replacement = [row + [""] * (end_cols - len(row)) for row in replacement]
+        replacement.extend([[""] * end_cols for _ in range(end_rows - len(replacement))])
+        request(session, "POST", "/values:batchUpdate", json={"valueInputOption": "RAW", "data": [{"range": "'" + tab + "'!A1:" + column_name(end_cols) + str(end_rows), "values": replacement}]})
     checked = dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
     audit = [AUDIT_HEADER]
     for kind in SCHEMAS:
