@@ -16,7 +16,7 @@ import incremental_sync as src
 TAB = "CSS Mail Operations"
 HEAD = ["section","date_or_received_at","status","sender_or_direction",
         "subject_or_metric","value","reference","analysis_scope"]
-READ_COLS = 16
+READ_COLS = 18
 MAX_ROWS = 100000
 
 def clean_subject(s):
@@ -88,7 +88,7 @@ def q(range_name):
 def main():
     session=src.authorize()
     base=src.endpoint()
-    source=src.api(session,"GET",src.endpoint("/values/"+urllib.parse.quote("'"+src.TAB+"'!A1:P"+str(MAX_ROWS),safe="")))
+    source=src.api(session,"GET",src.endpoint("/values/"+urllib.parse.quote("'"+src.TAB+"'!A1:R"+str(MAX_ROWS),safe="")))
     output=compute(source.get("values",[]))
     meta=src.api(session,"GET",base+"?fields=sheets.properties.title")
     titles={s["properties"]["title"] for s in meta.get("sheets",[])}
