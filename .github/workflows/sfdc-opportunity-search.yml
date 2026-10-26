@@ -60,22 +60,27 @@ jobs:
               if not re.fullmatch(r'[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?',opportunity_id):
                   raise SystemExit('Invalid Salesforce Opportunity ID format.')
               found=[row for row in rows if str(row.get('Opportunity ID','')).strip()[:15]==opportunity_id[:15]]
-              unique={str(row.get('Opportunity ID','')).strip()[:15]:row for row in found}
-              if len(unique)!=1 or len(found)!=1:
-                  raise SystemExit('Exact ID lookup requires exactly one Catalog row; no artifact created.')
-              row=found[0]
-              matches=[{'score':1.0,'opportunity_id':row.get('Opportunity ID'),
-                        'account':row.get('Account Name'),'account_id':row.get('Account ID'),
-                        'contact':row.get('Main Contact'),'contact_cms_id':row.get('Main Contact CMS ID'),
-                        'opportunity_name':row.get('Opportunity Name'),
-                        'historical_stage':row.get('Stage'),'historical_currency':row.get('Amount Currency'),
-                        'historical_amount':row.get('Amount'),'historical_close_date':row.get('Close Date'),
-                        'match_type':'EXACT_OPPORTUNITY_ID'}]
+              distinct={str(row.get('Opportunity ID','')).strip()[:15] for row in found}
+              print('EXACT_ID_LOOKUP_COUNT:',len(found))
+              print('EXACT_ID_DISTINCT_COUNT:',len(distinct))
+              if len(distinct)!=1:
+                  matches=[]
+                  print('EXACT_ID_LOOKUP_STATUS: NOT_FOUND')
+              else:
+                  row=found[0]
+                  print('EXACT_ID_LOOKUP_STATUS:', 'FOUND_WITH_DUPLICATE_ROWS' if len(found)>1 else 'FOUND_UNIQUE')
+                  matches=[{'score':1.0,'opportunity_id':row.get('Opportunity ID'),
+                            'account':row.get('Account Name'),'account_id':row.get('Account ID'),
+                            'contact':row.get('Main Contact'),'contact_cms_id':row.get('Main Contact CMS ID'),
+                            'opportunity_name':row.get('Opportunity Name'),
+                            'historical_stage':row.get('Stage'),'historical_currency':row.get('Amount Currency'),
+                            'historical_amount':row.get('Amount'),'historical_close_date':row.get('Close Date'),
+                            'match_type':'EXACT_OPPORTUNITY_ID'}]
           else:
               matches = search(rows, account=account, contact=contact, service=service, top=10)
           report = {'source_rows':len(rows),'unique_opportunities':len(dedupe(rows)),
                     'matches':matches,'draft':make_draft(matches[0]) if matches else None,
-                    'salesforce_save_performed':False}
+                    'salesforce_save_performed':False,'lookup_status':('NOT_FOUND' if opportunity_id and not matches else 'MATCHED')}
           path=os.path.join(os.environ['RUNNER_TEMP'],'sfdc-search','matches.json')
           with open(path,'w',encoding='utf-8') as f:
               json.dump(report,f,ensure_ascii=False,indent=2)
