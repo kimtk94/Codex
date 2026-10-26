@@ -1,6 +1,11 @@
 name: Automation Progress Audit (read-only)
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/progress/**'
+      - 'docs/automation-architecture-20261026/AUTOMATION_MASTER_PLAN.md'
+      - '.github/workflows/automation-progress-audit.yml'
   schedule:
     - cron: '15 0 * * *'
 permissions:
@@ -23,7 +28,7 @@ jobs:
       - name: Generate read-only audit
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          CKD_DRIVE_SA_JSON: ${{ github.event_name == 'pull_request' && '' || secrets.CKD_DRIVE_SA_JSON }}
         run: python automation/progress/tracker.py --out-dir progress-audit
       - uses: actions/upload-artifact@v4
         if: always()
