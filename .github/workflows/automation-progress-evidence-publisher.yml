@@ -1,5 +1,9 @@
 name: Automation Progress Evidence Publisher
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/automation-progress-evidence-publisher.yml'
   pull_request:
     paths:
       - 'automation/progress/**'
