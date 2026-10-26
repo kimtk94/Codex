@@ -8,27 +8,27 @@ from runner import check_url
 JS=r"""() => {
  const terms=/^(Stage|Created Date|Last Modified Date|Forecast Category|Status)$/i;
  const found=[],seen=new Set();
- function tidy(s){return (s||'').replace(/\s+/g,' ').trim()}
+ const tidy=s=>(s||'').replace(/\s+/g,' ').trim();
  function visit(root){
   if(!root||seen.has(root))return;
   seen.add(root);
   for(const el of root.querySelectorAll('*')){
    if(el.shadowRoot)visit(el.shadowRoot);
-   if(el.children.length>5)continue;
-   const label=tidy(el.textContent);
+   if(!el.matches('.slds-form-element.test-id__output-root'))continue;
+   const label=tidy(el.querySelector('.test-id__field-label')?.textContent);
    if(!terms.test(label))continue;
-   const parent=el.parentElement;
-   const grand=parent?.parentElement;
-   found.push({label,tag:el.localName,parent_tag:parent?.localName||'',
-    parent_text:tidy(parent?.innerText).slice(0,220),
-    nearby_text:tidy(grand?.innerText).slice(0,350)});
+   const control=el.querySelector('.slds-form-element__control');
+   let val=tidy(control?.innerText);
+   const suffix='Edit '+label;
+   if(val.toLowerCase().endsWith(suffix.toLowerCase()))val=val.slice(0,-suffix.length).trim();
+   found.push({label,value:val||null,field_region:'record_detail_output',
+               status:val?'CANDIDATE_VALUE':'EMPTY_OR_NOT_RENDERED'});
   }
  }
  visit(document);
- const unique=new Map();
- for(const x of found)unique.set(x.label+'|'+x.nearby_text,x);
- return {shadow_roots:seen.size-1,candidates:[...unique.values()].slice(0,100)};
+ return {shadow_roots:seen.size-1,candidates:found.slice(0,100)};
 }"""
+
 def main():
  p=argparse.ArgumentParser()
  p.add_argument("--cdp-url",default="http://127.0.0.1:9222")
@@ -47,9 +47,10 @@ def main():
   if len(candidates)!=1:raise RuntimeError(f"Expected one existing Opportunity page, found {len(candidates)}")
   page=candidates[0]
   input("Open Details on the existing Opportunity (without editing), then press Enter: ")
-  info={"version":"stage-probe-v1","record_id":None,"frames":[],"read_only":True}
+  info={"version":"stage-probe-v2","record_id":None,"frames":[],"read_only":True}
   m=re.search(r"/lightning/r/Opportunity/([A-Za-z0-9]{15,18})(?:/|$)",page.url)
   if m:info["record_id"]=m.group(1)
+  if not info["record_id"]:raise RuntimeError("Not on a canonical Opportunity record route")
   for frame in page.frames:
    try:info["frames"].append(frame.evaluate(JS))
    except PWError:pass
