@@ -22,4 +22,4 @@ This app keeps the existing static navigation dashboard. The `/api/dashboard` en
 - Do not connect `index.html` to the API until Google Identity sign-in and correct owner access are tested.
 
 ### API response
-Returns four capped tables: `unanswered`, `priority`, `leads`, and `health`. No data is loaded if authentication is missing.
+Returns only aggregate row counts for `unanswered`, `priority`, `leads`, and `health` (no customer identifiers, subjects, or message bodies). No data is loaded if authentication is missing.
