@@ -51,7 +51,7 @@ def app(values_path):
    저장은 로컬 current_deal.json만 변경하며 Salesforce는 절대 저장하지 않습니다.</p>
    <div class="row"><label>샘플 수<input id="qty" type="number" min="1" step="1"></label>
    <label>샘플당 단가 (KRW)<input id="unit" type="number" min="0" step="1"></label></div>
-   <button type="button" onclick="calc()">수량 × 단가 → Amount</button>
+   <button type="button" onclick="calc()">샘플 수량을 이름 및 Amount에 반영</button>
    <form method="post" action="/apply"><div id="fields">"""+"".join(entries)+"""</div>
    <button type="submit">JSON에 변경사항 적용</button></form>
    <script>
@@ -59,34 +59,36 @@ def app(values_path):
    const unit=document.getElementById('unit');
    const nameInput=document.querySelector('[name="Opportunity Name"]');
    const amountInput=document.querySelector('[name="Amount"]');
-   const servicePattern=/(?:mRNA-Seq|ncRNA-Seq|RNA-Seq|WGS|WES|16S|metagenom(?:ics|e)|PacBio|Nanopore|LC-MS|Olink)/gi;
-   // Name may start empty; historical name is only a reference placeholder.
+   // Apply quantity/name synchronization only when exactly one known service is present.
+   const services=/(?:mRNA-Seq|ncRNA-Seq|RNA-Seq|WGS|WES|16S|metagenom(?:ics|e)|PacBio|Nanopore|LC-MS|Olink)/gi;
    let nameBase=nameInput.value||nameInput.placeholder||'';
+   function quantityIndex(name){
+     if((name.match(services)||[]).length!==1)return -1;
+     const tokens=name.split('-');
+     const candidates=[];
+     for(let i=1;i<tokens.length-1;i++)
+       if(/^\d+$/.test(tokens[i]))candidates.push(i);
+     // Avoid guessing when a name contains more than one numeric-only token.
+     return candidates.length===1?candidates[0]:-1;
+   }
    function calc(){
-    const q=Number(qty.value),p=Number(unit.value);
-    if(!Number.isSafeInteger(q)||q<=0)return;
-    const matches=nameBase.match(servicePattern)||[];
-    const countToken=/(^|[-_])([0-9]+)(?=-)/g;
-    const countMatches=[...nameBase.matchAll(countToken)];
-    // Only one recognizable service, and only the count immediately before it.
-    // Unsupported or mixed services must never have their name silently rewritten.
-    if(matches.length===1){
-     const idx=nameBase.indexOf(matches[0]);
-     const prefix=nameBase.slice(0,idx);
-     const m=prefix.match(/^(.*)-([0-9]+)-$/);
-     if(m && countMatches.length>=1){
-      nameInput.value=m[1]+'-'+q+'-'+nameBase.slice(idx-0);
-      nameBase=nameInput.value;
+     const q=Number(qty.value),p=Number(unit.value);
+     if(!Number.isSafeInteger(q)||q<=0)return;
+     const idx=quantityIndex(nameBase);
+     if(idx>=0){
+       const tokens=nameBase.split('-');
+       tokens[idx]=String(q);
+       nameInput.value=tokens.join('-');
+       nameBase=nameInput.value;
      }
-    }
-    if(unit.value!==''&&Number.isFinite(p)&&p>=0)amountInput.value=String(q*p);
+     if(unit.value!==''&&Number.isFinite(p)&&p>=0)
+       amountInput.value=String(q*p);
    }
    qty.addEventListener('input',calc);
    unit.addEventListener('input',calc);
    nameInput.addEventListener('input',()=>{nameBase=nameInput.value});
-   // Prefill quantity from a single-service name; no automatic form writes.
-   const countMatch=nameBase.match(/-(\d+)-(?=mRNA-Seq|ncRNA-Seq|RNA-Seq|WGS|WES|16S|metagenomics|PacBio|Nanopore|LC-MS|Olink)/i);
-   if((nameBase.match(servicePattern)||[]).length===1&&countMatch)qty.value=countMatch[1];
+   const originalIndex=quantityIndex(nameBase);
+   if(originalIndex>=0)qty.value=nameBase.split('-')[originalIndex];
    </script></html>"""
    self.respond(200,html)
   def do_POST(self):
