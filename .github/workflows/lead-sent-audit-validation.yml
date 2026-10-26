@@ -26,6 +26,8 @@ jobs:
       - run: pip install google-api-python-client google-auth
       - name: Check script syntax
         run: python -m py_compile automation/css/lead_sent_audit_refresh.py
+      - name: Test Lead audit safety guards
+        run: python -m unittest discover -s automation/css -p 'test_lead_sent_audit_safety.py' -v
       - name: Verify Google Sheets access
         run: python automation/css/sfdc_sheets_preflight.py
       - name: Audit outgoing Lead mail evidence without writes
