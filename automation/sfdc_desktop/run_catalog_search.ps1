@@ -51,6 +51,11 @@ if ($LASTEXITCODE -ne 0) { throw "Artifact download failed: $id" }
 $report = Join-Path $destination "matches.json"
 if (-not (Test-Path $report)) { throw "Artifact matches.json missing" }
 $data = Get-Content $report -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($null -ne $data.catalog_audit) {
+    $audit = $data.catalog_audit
+    Write-Host "CATALOG AUDIT: rows=$($audit.rows) valid_ids=$($audit.valid_id_rows) distinct=$($audit.distinct_valid_ids) duplicates=$($audit.duplicate_id_rows) missing_or_invalid=$($audit.missing_or_invalid_id_rows)"
+    Write-Host "CREATED DATE RANGE (raw text): $($audit.earliest_created_date_as_text) ... $($audit.latest_created_date_as_text)"
+}
 if ($data.salesforce_save_performed -ne $false) { throw "Unexpected report safety flag" }
 if ($OpportunityId) {
     if (@($data.matches).Count -eq 0) {
