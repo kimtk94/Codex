@@ -1,0 +1,24 @@
+name: Automation Progress Incident Watch
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '55 0 * * *'
+permissions:
+  contents: read
+  actions: read
+  issues: write
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check incident classifier tests
+        run: python -m unittest discover -s automation/progress -p 'test_*.py'
+      - name: Detect unresolved scheduled failures and open GitHub issues
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python automation/progress/incident_watch.py
