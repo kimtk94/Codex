@@ -45,6 +45,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
         run: python automation/progress/independent_receipt.py
+      - name: Consolidate verified receipt and OPS-01 evidence
+        if: github.event_name != 'pull_request'
+        run: python automation/progress/ops_evidence_bridge.py
       - name: Generate read-only audit
         env:
           GITHUB_TOKEN: ${{ github.token }}
