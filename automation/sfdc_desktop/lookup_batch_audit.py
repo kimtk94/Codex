@@ -7,6 +7,33 @@ from runner import check_url,PROFILE
 from lookup_preflight import prepare_lookup,find_input
 from lookup_exact_option_probe import select,selected_state
 
+def window_inventory(ctx):
+    rows=[]
+    for i,page in enumerate(ctx.pages):
+        if page.is_closed():continue
+        frames=0
+        labels=0
+        for frame in page.frames:
+            frames+=1
+            try:
+                labels+=frame.evaluate("""() => {
+                  const visited=new Set();
+                  let n=0;
+                  function scan(root) {
+                    if(!root||visited.has(root))return;
+                    visited.add(root);
+                    for(const el of root.querySelectorAll('*')){
+                      if(el.shadowRoot)scan(el.shadowRoot);
+                      if(el.matches('label') && /^(Account Name|Main Contact)\\s*\\*?$/.test((el.textContent||'').trim()))n++;
+                    }
+                  }
+                  scan(document);return n;
+                }""")
+            except PWError:pass
+        rows.append({"tab_index":i,"origin":page.url.split("/")[2] if "://" in page.url else "",
+                     "frame_count":frames,"lookup_label_count":labels})
+    return rows
+
 def audit(ctx,label,name):
     d={"input":"NOT_FOUND","search":"NOT_RUN","selection":"NOT_RUN"}
     loc,status=find_input(ctx,label)
@@ -39,10 +66,27 @@ def main():
                 page=ctx.pages[0] if ctx.pages else ctx.new_page()
                 page.goto(a.url,wait_until="domcontentloaded")
             input("Use authenticated Chrome; open New Opportunity, then Enter ONCE: ")
-            report={"version":"lookup-batch-audit-v1","fields":{},"save_clicked":False}
+            inventory=window_inventory(ctx)
+            print("Chrome tabs / New Opportunity label counts:",json.dumps(inventory,ensure_ascii=False))
+            matches=[x for x in inventory if x["lookup_label_count"]>=2 and
+                     (x["origin"].endswith("force.com") or x["origin"].endswith("salesforce.com"))]
+            if len(matches)!=1:
+                report={"version":"lookup-batch-audit-v2","failure":"NO_UNIQUE_NEW_OPPORTUNITY_WINDOW",
+                        "tabs":inventory,"fields":{},"save_clicked":False,"both_verified":False}
+                path=Path(a.output) if a.output else Path(a.draft).with_name("lookup_batch_audit.json")
+                path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+                print(json.dumps(report,ensure_ascii=False,indent=2))
+                raise SystemExit("Open exactly ONE New Opportunity form in the CDP Chrome; no input attempted.")
+            active=ctx.pages[matches[0]["tab_index"]]
+            active.bring_to_front()
+            print("Selected target tab:",matches[0]["tab_index"])
+            report={"version":"lookup-batch-audit-v2","target_tab":matches[0]["tab_index"],
+                    "tabs":inventory,"fields":{},"save_clicked":False}
             for label in ("Account Name","Main Contact"):
                 try:report["fields"][label]=audit(ctx,label,values[label])
-                except Exception as e:report["fields"][label]={"error_type":type(e).__name__}
+                except Exception as e:
+                    report["fields"][label]={"error_type":type(e).__name__,"message":str(e)[:200]}
+                print(label,":",json.dumps(report["fields"][label],ensure_ascii=False))
             report["both_verified"]=all(report["fields"].get(label,{}).get("post_selection",{}).get("verified") is True
                 for label in ("Account Name","Main Contact"))
             path=Path(a.output) if a.output else Path(a.draft).with_name("lookup_batch_audit.json")
