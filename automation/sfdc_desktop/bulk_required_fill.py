@@ -110,8 +110,9 @@ def main():
         template.write_text(json.dumps({k:data.get(k,"") for k in REQUIRED},ensure_ascii=False,indent=2),encoding="utf-8")
         print("Required values template:",template)
     if missing:
-        print("No Salesforce input attempted. Missing mandatory values:",", ".join(missing))
-        print("Fill template values (using actual project information), then rerun with --values.")
+        print("Missing values (will SKIP these fields, not Save):",", ".join(missing))
+    if not any(str(data.get(k,"")).strip() for k in REQUIRED):
+        print("No supplied data; no Salesforce changes attempted.")
         return
     with sync_playwright() as pw:
         browser=pw.chromium.connect_over_cdp(args.cdp_url)
@@ -142,8 +143,8 @@ def main():
         for label in PICK_FIELDS:
             result[label]=do_pick(ctx,label,data[label])
             print(label,result[label]["status"])
-        result["Service Line"]={"status":"NOT_IMPLEMENTED_DUAL_LISTBOX"}
-        report={"version":"bulk-required-p0","window":focus,"fields":result,
+        result["Service Line"]={"status":"NOT_IMPLEMENTED_DUAL_LISTBOX" if str(data.get("Service Line","")).strip() else "MISSING_VALUE"}
+        report={"version":"bulk-required-p1","window":focus,"missing_values":missing,"fields":result,
                 "save_clicked":False,"all_required_verified":False}
         out=Path(args.output) if args.output else Path(args.draft).with_name("bulk_required_report.json")
         out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
