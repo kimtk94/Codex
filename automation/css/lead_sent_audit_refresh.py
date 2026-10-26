@@ -67,6 +67,13 @@ def main():
         if not at:continue
         for addr in set(x.lower() for x in MAIL_RE.findall(val(recipients[idx],0) if idx<len(recipients) else "")):
             sent.setdefault(addr,[]).append(at)
+    # A successful dry-run with no updates is not proof of fresh mail coverage.
+    source_dates=[date(val(row,0)) for row in dates[1:] if row]
+    source_latest=max((x for x in source_dates if x),default=None)
+    source_age_days=(datetime.datetime.now(datetime.timezone.utc)-source_latest.astimezone(datetime.timezone.utc)).total_seconds()/86400 if source_latest else None
+    source_stale=source_age_days is None or source_age_days>2
+    if source_stale:
+        print("LEAD_SENT_AUDIT_SOURCE_STALE=true; historical sent matches only",flush=True)
     updates=[];sf_updates=[];changed=0
     for lead_row,r in enumerate(leads[1:],start=2):
         lead_id=val(r,0);email=val(r,3).lower()
@@ -94,7 +101,7 @@ def main():
             sf_updates.append({'range':"'Lead Email Followup'!X"+str(lead_row)+':Z'+str(lead_row),
                                'values':[[effective_latest,str(count),'SENT_CONFIRMED']]})
     dry=os.getenv("DRY_RUN","true").lower()!="false"
-    print(json.dumps({"dry_run":dry,"source_mails":max(map(len,(dates,senders,recipients,directions)))-1,"sent_addresses":len(sent),"audit_updates":changed,"sfdc_updates":len(sf_updates)}))
+    print(json.dumps({"dry_run":dry,"source_mails":max(map(len,(dates,senders,recipients,directions)))-1,"sent_addresses":len(sent),"audit_updates":changed,"sfdc_updates":len(sf_updates),"source_latest":source_latest.isoformat() if source_latest else None,"source_stale":source_stale}))
     if not dry:
         if updates:
             api.batchUpdate(spreadsheetId=QQ,body={"valueInputOption":"RAW","data":updates}).execute()
