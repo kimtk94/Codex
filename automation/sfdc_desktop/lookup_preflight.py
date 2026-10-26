@@ -70,6 +70,15 @@ def find_input(context, label):
                     handle.dispose()
             except PlaywrightError:
                 frame_errors += 1
+    # Detached cross-origin frames are common. Try stable accessible combobox as fallback.
+    for page in context.pages:
+        if page.is_closed(): continue
+        try:
+            fallback = page.get_by_role("combobox", name=label, exact=True)
+            if fallback.count() == 1 and fallback.is_visible() and fallback.is_enabled():
+                return fallback, "ACCESSIBLE_COMBOBOX_FALLBACK"
+        except PlaywrightError:
+            continue
     return None, "INPUT_NOT_UNIQUELY_RESOLVED" if not frame_errors else "INPUT_UNRESOLVED_FRAME_ERRORS"
 
 def run(context, draft):
@@ -77,6 +86,11 @@ def run(context, draft):
     result = {}
     for label, value in values.items():
         loc, status = find_input(context, label)
+        if loc is None:
+            # UI can re-render and detach frames after the previous field was filled.
+            import time
+            time.sleep(0.7)
+            loc, status = find_input(context, label)
         if loc is None:
             result[label] = status
             continue
