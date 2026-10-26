@@ -5,7 +5,7 @@ Never modifies Salesforce or copies historical money/date as approved current va
 import argparse,json,sys
 from pathlib import Path
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import timezone, timedelta
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 from one_pass_existing_template_fill import historical_data
@@ -22,7 +22,7 @@ def main():
   print("PRESERVED_EXISTING_EDITABLE_FILE:",output)
   return
  ref=historical_data(draft)
- today=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%m%d")
+ today=datetime.now(timezone(timedelta(hours=9))).strftime("%m%d")
  payload={
   "_instructions":"Edit only the current deal values. Historical values below are reference, not automatically approved. Never Save.",
   "_source_opportunity_id":draft.get("source_opportunity_id",""),
