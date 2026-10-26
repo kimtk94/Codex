@@ -26,7 +26,7 @@ LOOKUP_JS = r"""(label) => {
    for (const el of root.querySelectorAll('*')) {
      if (el.shadowRoot) traverse(el.shadowRoot);
      if (!el.matches('label')) continue;
-     if ((el.textContent||'').replace(/\\s+/g,' ').trim().replace(/^\\*\\s*/, '') !== label) continue;
+     if ((el.textContent||'').replace(/\s+/g,' ').trim().replace(/^\*\s*/, '') !== label) continue;
      let node = el, host = null;
      while (node) {
        if (node.tagName?.toLowerCase()==='lightning-grouped-combobox') { host=node; break; }
