@@ -50,5 +50,7 @@ jobs:
         if: always()
         with:
           name: automation-evidence-publisher-preview
-          path: progress-audit/publisher-preview.json
+          path: |
+            progress-audit/publisher-preview.json
+            progress-audit/publisher-write-receipt.json
           retention-days: 30
