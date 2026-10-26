@@ -11,7 +11,7 @@ class MailEvidenceTests(unittest.TestCase):
         out=summarize(rows)
         self.assertEqual(out["threads"],3)
         self.assertEqual(out["explicit_reply_evidence"],1)
-        self.assertEqual(out["ambiguous_reply_evidence"],2)
+        self.assertEqual(out["nonproof_status_text"],2)
         self.assertEqual(out["historical_over_30d"],1)
         self.assertEqual(out["nba_actionable"],1)
 
@@ -24,7 +24,7 @@ class MailEvidenceTests(unittest.TestCase):
         result=summarize(rows)
         self.assertEqual(result["explicit_reply_evidence"],1)
         self.assertEqual(result["reviewer_closed_not_reply_proof"],1)
-        self.assertEqual(result["ambiguous_reply_evidence"],1)
+        self.assertEqual(result["nonproof_status_text"],1)
 
 if __name__=="__main__":
     unittest.main()
