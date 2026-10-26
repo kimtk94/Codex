@@ -55,10 +55,38 @@ def app(values_path):
    <form method="post" action="/apply"><div id="fields">"""+"".join(entries)+"""</div>
    <button type="submit">JSON에 변경사항 적용</button></form>
    <script>
-   function calc(){let q=Number(document.querySelector('#qty').value),
-   p=Number(document.querySelector('#unit').value);
-   if(Number.isInteger(q)&&q>0&&Number.isFinite(p)&&p>=0)
-   document.querySelector('[name="Amount"]').value=String(q*p);}
+   const qty=document.getElementById('qty');
+   const unit=document.getElementById('unit');
+   const nameInput=document.querySelector('[name="Opportunity Name"]');
+   const amountInput=document.querySelector('[name="Amount"]');
+   const servicePattern=/(?:mRNA-Seq|ncRNA-Seq|RNA-Seq|WGS|WES|16S|metagenom(?:ics|e)|PacBio|Nanopore|LC-MS|Olink)/gi;
+   // Name may start empty; historical name is only a reference placeholder.
+   let nameBase=nameInput.value||nameInput.placeholder||'';
+   function calc(){
+    const q=Number(qty.value),p=Number(unit.value);
+    if(!Number.isSafeInteger(q)||q<=0)return;
+    const matches=nameBase.match(servicePattern)||[];
+    const countToken=/(^|[-_])([0-9]+)(?=-)/g;
+    const countMatches=[...nameBase.matchAll(countToken)];
+    // Only one recognizable service, and only the count immediately before it.
+    // Unsupported or mixed services must never have their name silently rewritten.
+    if(matches.length===1){
+     const idx=nameBase.indexOf(matches[0]);
+     const prefix=nameBase.slice(0,idx);
+     const m=prefix.match(/^(.*)-([0-9]+)-$/);
+     if(m && countMatches.length>=1){
+      nameInput.value=m[1]+'-'+q+'-'+nameBase.slice(idx-0);
+      nameBase=nameInput.value;
+     }
+    }
+    if(unit.value!==''&&Number.isFinite(p)&&p>=0)amountInput.value=String(q*p);
+   }
+   qty.addEventListener('input',calc);
+   unit.addEventListener('input',calc);
+   nameInput.addEventListener('input',()=>{nameBase=nameInput.value});
+   // Prefill quantity from a single-service name; no automatic form writes.
+   const countMatch=nameBase.match(/-(\d+)-(?=mRNA-Seq|ncRNA-Seq|RNA-Seq|WGS|WES|16S|metagenomics|PacBio|Nanopore|LC-MS|Olink)/i);
+   if((nameBase.match(servicePattern)||[]).length===1&&countMatch)qty.value=countMatch[1];
    </script></html>"""
    self.respond(200,html)
   def do_POST(self):
