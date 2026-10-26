@@ -43,7 +43,7 @@ def summarize(rows):
 def exact_header_reply_links(rows):
     """Count strict sender/recipient reversed links; never auto-close a thread."""
     import re
-    pattern = re.compile(r"<[^<>\\s]+>")
+    pattern = re.compile(r"<[^<>\s]+>")
     outgoing = {}
     for row in rows:
         folder = str(row.get("folder") or "").upper()
@@ -52,7 +52,7 @@ def exact_header_reply_links(rows):
         message_id = str(row.get("message_id") or "").strip()
         # Folder identity takes precedence over a derived direction label.
         if ("SENT" in folder or str(row.get("direction") or "").upper() == "OUTBOUND") and message_id and sender.endswith("@novogene.com"):
-            outgoing[message_id] = (sender, set(re.findall(r"[\\w.+-]+@[\\w.-]+", recipient)))
+            outgoing[message_id] = (sender, set(re.findall(r"[\w.+-]+@[\w.-]+", recipient)))
     links = set()
     for row in rows:
         sender = str(row.get("from_email") or "").strip().lower()
