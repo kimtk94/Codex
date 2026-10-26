@@ -181,7 +181,7 @@ def select(context,label,name):
             if page.is_closed():continue
             for frame in page.frames:
                 try:
-                    handles=frame.evaluate_handle("""expected => {
+                    handles=frame.evaluate_handle(r"""expected => {
                       const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
                       const seen=new Set(),out=[];
                       function walk(root){
