@@ -40,9 +40,17 @@ SNAPSHOT_JS=r"""() => {
           .map(text).filter(Boolean);
      const values=all(el,'.slds-form-element__static,[slot="outputField"],[slot="output"],dd,lightning-formatted-text,lightning-formatted-number,lightning-formatted-date-time')
           .map(text).filter(Boolean);
+     // Values may render in sibling slots, nested record-output elements or
+     // shadow text nodes not matched by standard static selectors.
      const fallback=text(el);
+     const markup=el.outerHTML.slice(0,900);
+     const children=[...el.children].slice(0,12).map(x=>({
+       tag:x.localName,slot:x.getAttribute('slot')||'',
+       text:tidy(x.textContent).slice(0,100),
+       shadow_text:tidy(x.shadowRoot?.textContent).slice(0,100)}));
+     const rendered=tidy(el.innerText).slice(0,300);
      structures.push({tag:el.localName,labels:labels.slice(0,3),values:values.slice(0,3),
-       sample:fallback.slice(0,120)});
+       sample:fallback.slice(0,120),rendered,children,markup});
      if(labels.length && values.length) pairs.push({label:labels[0],value:values[0],method:'deep_scoped'});
    }
  }
