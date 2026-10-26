@@ -86,33 +86,37 @@ PILL_JS=r"""(input,expected) => {
 
 SELECTED_JS = r"""({label, expected}) => {
  const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
- const seen=new Set(),labels=[];
- function walk(root){
+ const seen=new Set(), labels=[];
+ function walk(root) {
    if(!root||seen.has(root))return;
    seen.add(root);
-   for(const e of root.querySelectorAll('*')){
-     if(e.shadowRoot)walk(e.shadowRoot);
-     if(e.matches('label') && norm(e.textContent).replace(/^\*\s*/,'')===norm(label))labels.push(e);
+   for(const el of root.querySelectorAll('*')) {
+     if(el.shadowRoot)walk(el.shadowRoot);
+     if(el.matches('label') && norm(el.textContent).replace(/^\*\s*/,'')===norm(label))
+       labels.push(el);
    }
  }
  walk(document);
- for(const el of labels){
-   let n=el;
-   for(let depth=0;n&&depth<7;depth++){
-     const found=[];
-     function scan(root){
-       if(!root?.querySelectorAll)return;
-       for(const e of root.querySelectorAll('*')){
-         if(e.shadowRoot)scan(e.shadowRoot);
-         if(e.matches('lightning-pill,.slds-pill,[class*="pill"]'))found.push(e);
-       }
+ if(labels.length!==1)return false;
+ let n=labels[0];
+ for(let depth=0;n&&depth<6;depth++) {
+   const pills=new Set();
+   function scan(root) {
+     if(!root?.querySelectorAll)return;
+     for(const e of root.querySelectorAll('*')) {
+       if(e.shadowRoot)scan(e.shadowRoot);
+       if(e.matches('lightning-pill,.slds-pill,[class*="pill"]'))pills.add(e);
      }
-     scan(n.shadowRoot||n);
-     const matched=found.filter(x=>norm(x.innerText||x.textContent).includes(norm(expected)) &&
-       !!x.querySelector('button,[title*="Remove"],[aria-label*="Remove"],[class*="remove"]'));
-     if(matched.length===1)return true;
-     n=n.parentElement||n.getRootNode()?.host||null;
    }
+   scan(n.shadowRoot||n);
+   // Lightning pills may have a remove button in their own shadow root.
+   const selected=[...pills].filter(p=>{
+     const text=norm(p.getAttribute('label')||p.getAttribute('title')||
+                    p.querySelector('.slds-pill__label')?.textContent||p.textContent);
+     return text===norm(expected) || text.startsWith(norm(expected)+' ');
+   });
+   if(selected.length===1)return true;
+   n=n.parentElement||n.getRootNode()?.host||null;
  }
  return false;
 }"""
@@ -128,8 +132,11 @@ def verify_selected(context,label,name):
 
 def select(context,label,name):
     inp,status=find_input(context,label)
-    if inp is None:return {"status":status}
+    if inp is None:
+        if verify_selected(context,label,name):return {"status":"SELECTED_PILL_VERIFIED","source":"already_selected"}
+        return {"status":status}
     try:
+        if verify_selected(context,label,name):return {"status":"SELECTED_PILL_VERIFIED","source":"already_selected"}
         inp.click(timeout=2500)
         inp.fill(name,timeout=3500)
         # Salesforce lookup uses a search affordance; fill alone may NOT open the dropdown.
