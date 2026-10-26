@@ -1,5 +1,9 @@
 name: Automation Gate Gaps Sheet Sync
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/automation-gate-gaps-sheet.yml'
   pull_request:
     paths:
       - 'automation/progress/**'
