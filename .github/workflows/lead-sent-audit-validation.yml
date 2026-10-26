@@ -1,6 +1,11 @@
 name: Lead Sent Audit Validation
 on:
   workflow_dispatch:
+    inputs:
+      apply_audit:
+        description: 'Apply confirmed sent evidence only (never NBA decisions)'
+        type: boolean
+        default: false
   schedule:
     - cron: '17,47 * * * *'
 permissions:
@@ -17,7 +22,7 @@ jobs:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       SFDC_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
       CSS_SHEET_ID: 1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY
-      DRY_RUN: 'true'
+      DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || (github.event_name == 'workflow_dispatch' && inputs.apply_audit == true) && 'false' || 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,7 +35,7 @@ jobs:
         run: python -m unittest discover -s automation/css -p 'test_lead_sent_audit_safety.py' -v
       - name: Verify Google Sheets access
         run: python automation/css/sfdc_sheets_preflight.py
-      - name: Audit outgoing Lead mail evidence without writes
+      - name: Audit outgoing Lead mail evidence (scheduled apply, manual dry-run by default)
         run: python automation/css/lead_sent_audit_refresh.py
       - name: Publish result
         if: always()
@@ -39,8 +44,8 @@ jobs:
           JOB_RESULT: ${{ job.status }}
         run: |
           {
-            echo '## Lead Sent Audit Dry Run'
+            echo '## Lead Sent Audit Validation'
             echo "- Result: ${JOB_RESULT}"
             echo "- Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo '- This workflow is read-only: DRY_RUN=true; no Lead decisions changed.'
+            echo '- Only confirmed sent evidence may update Lead audit columns; NBA decisions and exclusions are never written.'
           } >> "$GITHUB_STEP_SUMMARY"
