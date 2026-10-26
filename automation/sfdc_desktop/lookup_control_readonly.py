@@ -28,7 +28,15 @@ JS=r"""() => {
     }
    }
    descend(e);
-   out.push({field_text:fieldText,controls:found.slice(0,70)});
+   const around=e.parentElement;
+   const nearby=[];
+   if(around)descend(around);
+   out.push({field_text:fieldText,controls:found.slice(0,70),
+      lookup_outer_html:e.outerHTML.slice(0,1000),
+      lookup_shadow_html:e.shadowRoot?.innerHTML.slice(0,1000)||null,
+      parent_tag:around?.localName||null,
+      parent_text:tidy(around?.innerText).slice(0,300)});
+
   }
  }
  deep(document);
@@ -53,6 +61,18 @@ def main():
   for frame in pages[0].frames:
    try:result["frames"].append(frame.evaluate(JS))
    except PWError:pass
+  for label in ("Account Name","Main Contact"):
+   probes=[]
+   for frame in pages[0].frames:
+    try:
+     loc=frame.get_by_role("combobox",name=label,exact=True)
+     for i in range(min(loc.count(),3)):
+      x=loc.nth(i)
+      probes.append({"value":x.input_value(timeout=800) if x.is_visible() else None,
+                     "visible":x.is_visible(),"enabled":x.is_enabled()})
+    except PWError:pass
+   result.setdefault("accessible_comboboxes",{})[label]=probes
+   print(label,"ACCESSIBLE_INPUTS",len(probes))
   dest=Path(a.output);dest.parent.mkdir(parents=True,exist_ok=True)
   dest.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
   print("LOOKUPS:",sum(x["lookup_count"] for x in result["frames"]))
