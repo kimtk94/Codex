@@ -10,45 +10,47 @@ from playwright.sync_api import sync_playwright,Error as PWError
 from runner import check_url
 
 SNAPSHOT_JS=r"""() => {
- const visited=new Set(), pairs=[], counts={};
+ const seen=new Set(),pairs=[],structures=[];
  const tidy=s=>(s||'').replace(/\s+/g,' ').trim();
- function inspect(root) {
-  if(!root||visited.has(root))return;
-  visited.add(root);
-  for(const el of root.querySelectorAll('*')){
-   if(el.shadowRoot)inspect(el.shadowRoot);
-   for(const selector of ['lightning-output-field','records-record-layout-item',
-       '.slds-form-element','dt','[data-field-name]']){
-     if(!el.matches(selector))continue;
-     counts[selector]=(counts[selector]||0)+1;
+ function all(root,sel) {
+   const results=[];
+   function walk(r) {
+     if(!r)return;
+     for(const e of r.querySelectorAll('*')) {
+       if(e.matches(sel))results.push(e);
+       if(e.shadowRoot)walk(e.shadowRoot);
+     }
    }
-   let label='',value='',method='';
-   if(el.matches('lightning-output-field')){
-     label=el.getAttribute('field-name')||'';
-     value=tidy(el.textContent);method='output_field';
-   }else if(el.matches('.slds-form-element')){
-     label=tidy(el.querySelector('.slds-form-element__label')?.textContent);
-     value=tidy(el.querySelector('.slds-form-element__static')?.textContent);
-     method='slds_form_element';
-   }else if(el.matches('dt')){
-     label=tidy(el.textContent);
-     value=tidy(el.nextElementSibling?.textContent);
-     method='definition_list';
-   }else if(el.matches('[data-field-name]')){
-     label=el.getAttribute('data-field-name')||'';
-     value=tidy(el.querySelector('lightning-formatted-text,lightning-formatted-number,.slds-form-element__static')?.textContent);
-     method='data_field_name';
-   }
-   if(label&&value&&label!==value&&label.length<120)
-     pairs.push({label:label.slice(0,120),value:value.slice(0,350),method});
-  }
+   walk(root);return results;
  }
- inspect(document);
+ function text(el) {
+   if(!el)return '';
+   // textContent of custom element misses text rendered in shadow root.
+   const parts=[tidy(el.textContent)];
+   if(el.shadowRoot)parts.push(...all(el.shadowRoot,'span,a,lightning-formatted-text,lightning-formatted-number,lightning-formatted-date-time').map(e=>tidy(e.textContent)));
+   return tidy(parts.filter(Boolean).join(' ')).slice(0,250);
+ }
+ function visit(root){
+   if(!root||seen.has(root))return;
+   seen.add(root);
+   for(const el of root.querySelectorAll('*')){
+     if(el.shadowRoot)visit(el.shadowRoot);
+     if(!el.matches('.slds-form-element,lightning-output-field,records-record-layout-item'))continue;
+     const labels=all(el,'.slds-form-element__label,label,dt,[slot="label"]')
+          .map(text).filter(Boolean);
+     const values=all(el,'.slds-form-element__static,[slot="outputField"],[slot="output"],dd,lightning-formatted-text,lightning-formatted-number,lightning-formatted-date-time')
+          .map(text).filter(Boolean);
+     const fallback=text(el);
+     structures.push({tag:el.localName,labels:labels.slice(0,3),values:values.slice(0,3),
+       sample:fallback.slice(0,120)});
+     if(labels.length && values.length) pairs.push({label:labels[0],value:values[0],method:'deep_scoped'});
+   }
+ }
+ visit(document);
  const unique=new Map();
  for(const x of pairs)unique.set(x.label+'|'+x.value,x);
- const visibleText=tidy(document.body?.innerText).slice(0,500);
- return {shadow_roots:visited.size-1,selector_counts:counts,
-   visible_text_sample:visibleText, fields:[...unique.values()].slice(0,250)};
+ return {shadow_roots:seen.size-1,inspected_count:structures.length,
+   structures:structures.slice(0,60),fields:[...unique.values()].slice(0,250)};
 }"""
 
 def main():
@@ -87,7 +89,7 @@ def main():
         path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
         print("LIVE FIELD PAIRS:",sum(len(f["fields"]) for f in result["frames"]))
-        print("FRAME INSPECTION:",json.dumps([{"shadow_roots":x["shadow_roots"],"selector_counts":x["selector_counts"],"field_count":len(x["fields"])} for x in result["frames"]],ensure_ascii=False))
+        print("FRAME INSPECTION:",json.dumps([{"shadow_roots":x["shadow_roots"],"selector_counts":{"inspected_count":x["inspected_count"]},"field_count":len(x["fields"])} for x in result["frames"]],ensure_ascii=False))
         print("REPORT:",path)
         print("READ ONLY; Salesforce data not modified.")
 if __name__=="__main__":main()
