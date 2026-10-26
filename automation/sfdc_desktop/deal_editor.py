@@ -3,7 +3,7 @@
 Usage: py -3.12 automation/sfdc_desktop/deal_editor.py --values PATH
 Open localhost URL printed by script; select Apply to write reviewed deal values.
 """
-import argparse,json,re
+import argparse,json,re,subprocess,sys
 from decimal import Decimal,InvalidOperation
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -62,7 +62,8 @@ def app(values_path):
    <label>샘플당 단가 (KRW)<input id="unit" type="number" min="0" step="1"></label></div>
    <button type="button" onclick="calc()">샘플 수량을 이름 및 Amount에 반영</button>
    <form method="post" action="/apply"><div id="fields">"""+"".join(entries)+"""</div>
-   <button type="submit">JSON에 변경사항 적용</button></form>
+   <button type="submit">JSON에 변경사항 적용</button>
+   <button type="submit" formaction="/apply-and-oppo">저장 후 열린 New Opportunity에 일괄 입력 (Save 금지)</button></form>
    <script>
    const qty=document.getElementById('qty');
    const unit=document.getElementById('unit');
@@ -112,7 +113,7 @@ def app(values_path):
    </script></html>"""
    self.respond(200,html)
   def do_POST(self):
-   if self.path!="/apply":return self.respond(404,"Not found")
+   if self.path not in ("/apply","/apply-and-oppo"):return self.respond(404,"Not found")
    from urllib.parse import parse_qs
    try:
     length=int(self.headers.get("Content-Length","0"))
@@ -128,7 +129,21 @@ def app(values_path):
      updated["Amount"]=format(n,"f")
     for key in FIELD_KEYS:d[key]=updated[key]
     values_path.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding="utf-8")
-    self.respond(200,"<meta charset='utf-8'><p>로컬 JSON 수정 완료. Salesforce 저장은 하지 않았습니다.</p><a href='/'>편집 화면으로</a>")
+    if self.path=="/apply-and-oppo":
+     draft=values_path.with_name("verified_existing_to_new_draft.json")
+     if not draft.is_file():
+      return self.respond(400,"<meta charset='utf-8'>초안 파일을 찾지 못했습니다. 편집값은 로컬에 저장됐습니다.")
+     script=Path(__file__).with_name("one_pass_existing_template_fill.py")
+     try:
+      result=subprocess.run([sys.executable,str(script),"--draft",str(draft),
+            "--values",str(values_path),"--no-prompt"],
+           capture_output=True,text=True,timeout=95,encoding="utf-8",errors="replace")
+      output=escape((result.stdout+"\n"+result.stderr)[-3500:])
+      self.respond(200,"<meta charset='utf-8'><h3>"+("Oppo 입력 실행 완료" if result.returncode==0 else "Oppo 입력 실패")+"</h3><p>현재 열린 New Opportunity 화면을 확인하세요. Salesforce Save는 누르지 않았습니다.</p><pre>"+output+"</pre><a href='/'>편집 화면으로</a>")
+     except subprocess.TimeoutExpired:
+      self.respond(504,"<meta charset='utf-8'>입력 작업 시간이 초과됐습니다. Salesforce 화면과 보고서를 확인하세요. 자동 저장하지 않았습니다.")
+    else:
+     self.respond(200,"<meta charset='utf-8'><p>로컬 JSON 수정 완료. Salesforce 저장은 하지 않았습니다.</p><a href='/'>편집 화면으로</a>")
    except (ValueError,UnicodeError,json.JSONDecodeError):self.respond(400,"Invalid data","text/plain")
  return Handler
 def main():
