@@ -15,6 +15,13 @@ from email.policy import default
 
 from incremental_sync import authorize, api, endpoint, TAB, COLS, folder_names
 
+# Current P0 shared-contact groups. These addresses guide retrieval only;
+# a match never proves an Opportunity-specific reply.
+PRIORITY_CONTACTS = frozenset({
+    "sysgenlab@gmail.com", "jsw0061@gmail.com", "tklee@yonsei.ac.kr",
+    "hongjae.park@inha.ac.kr", "ximons937@gmail.com",
+})
+
 def read_values(session, region):
     rng = urllib.parse.quote("'" + TAB + "'!" + region, safe="")
     return api(session, "GET", endpoint("/values/" + rng)).get("values", [])
@@ -38,7 +45,9 @@ def plan(rows, folder, uidvalidity, *, scan_days=60, now=None):
             continue
         if received < cutoff or cells[16] or cells[17]:
             continue
-        selected.append((row_num, uid, cells[1]))
+        recipients = " ".join(str(cells[k] or "") for k in (6, 7, 8)).lower()
+        priority = any(addr in recipients for addr in PRIORITY_CONTACTS)
+        selected.append((row_num, uid, cells[1], priority))
     return selected
 
 def main():
@@ -53,7 +62,7 @@ def main():
     writing = os.getenv("CSS_THREAD_BACKFILL_WRITE", "false").lower() == "true"
     if not dry and not writing:
         raise RuntimeError("Writing requires CSS_THREAD_BACKFILL_WRITE=true")
-    updates, scanned, mismatched = [], 0, 0
+    updates, scanned, mismatched, priority_scanned = [], 0, 0, 0
     # Rotate the dry-run sample across half-hour slots, including messages with no reply headers.
     # Without rotation, the same first rows are fetched forever when their Q:R stay blank.
     slot = int(dt.datetime.now(dt.timezone.utc).timestamp() // 1800)
@@ -74,9 +83,16 @@ def main():
             pending = plan(rows, folder, validity, scan_days=days)
             # Split the per-run IMAP fetch budget fairly across Inbox and Sent.
             budget = (limit + 1) // 2 if folder == "INBOX" else limit // 2
-            start = (slot * max(1, budget)) % len(pending) if pending else 0
-            selection = (pending[start:] + pending[:start])[:budget]
-            for row_num, uid, existing_msg_id in selection:
+            priority = [p for p in pending if p[3]]
+            ordinary = [p for p in pending if not p[3]]
+            # Rotate both pools to prevent starvation when headers are absent.
+            def rotate(pool, count):
+                if not pool or count <= 0:return []
+                start = (slot * max(1, count)) % len(pool)
+                return (pool[start:] + pool[:start])[:count]
+            selected_priority = rotate(priority, min(budget, max(1, budget * 3 // 4)))
+            selection = selected_priority + rotate(ordinary, budget-len(selected_priority))
+            for row_num, uid, existing_msg_id, is_priority in selection:
                 status, data = im.uid("FETCH", uid.encode("ascii"),
                     "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO REFERENCES)])")
                 if status != "OK":
@@ -92,12 +108,14 @@ def main():
                 irt = str(msg.get("In-Reply-To", ""))[:500]
                 refs = str(msg.get("References", ""))[:2000]
                 scanned += 1
+                if is_priority:priority_scanned += 1
                 if irt or refs:
                     updates.append({"range": "'" + TAB + "'!Q" + str(row_num) + ":R" + str(row_num),
                                     "values": [[irt, refs]]})
         im.logout()
     print(json.dumps({"dry_run":dry, "matched_messages":scanned,
-        "thread_header_updates":len(updates), "message_id_mismatches":mismatched}))
+        "thread_header_updates":len(updates), "message_id_mismatches":mismatched,
+        "priority_matched_messages": priority_scanned}))
     if not dry and updates:
         # Re-read target cells to avoid overwriting data filled by another sync.
         for item in updates:
