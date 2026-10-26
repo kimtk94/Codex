@@ -27,6 +27,8 @@ jobs:
         run: python automation/progress/gate_evaluator.py
       - name: Report missing acceptance evidence
         run: python automation/progress/gate_gap_report.py
+      - name: Validate explicit acceptance registry
+        run: python automation/progress/acceptance_registry.py
       - name: Optional read-only Sheets client
         run: python -m pip install google-auth requests
       - name: Generate read-only audit
