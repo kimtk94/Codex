@@ -242,9 +242,10 @@ def select(context,label,name):
         found[0].click(timeout=3500)
         time.sleep(0.4)
         verified=verify_selected(context,label,name) or verify_selected_field(context,label,name)
-        return {"status":"SELECTED_PILL_VERIFIED" if verified else "CLICKED_NOT_VERIFIED"}
-    except PWError:
-        return {"status":"LOOKUP_UI_CHANGED"}
+        return {"status":"SELECTED_PILL_VERIFIED" if verified else "CLICKED_NOT_VERIFIED",
+                "option_clicked":True, "verification_strategy":"pill_or_field"}
+    except PWError as exc:
+        return {"status":"LOOKUP_UI_CHANGED","error_class":type(exc).__name__}
 
 def main():
     p=argparse.ArgumentParser()
@@ -271,9 +272,11 @@ def main():
             result={}
             for label in ("Account Name","Main Contact"):
                 result[label]=select(ctx,label,values[label])
-                if result[label]["status"] not in ("SELECTED_PILL_VERIFIED","CLICKED_NOT_VERIFIED"):break
+                # Probe both lookups independently in one session. Do not let a false-negative
+                # Account verification suppress Contact testing. Never Save.
             report={"lookup":result,"lookup_verified":all(result.get(x,{}).get("status")=="SELECTED_PILL_VERIFIED" for x in ("Account Name","Main Contact")),
-                "save_clicked":False,"note":"No Salesforce Save. Inspect selected lookup pills and account/contact affiliation."}
+                "save_clicked":False,"next_step":"Check both fields in browser; selection verification remains conservative.",
+                "note":"No Salesforce Save. Both fields attempted even if Account selection unverified."}
             out=Path(a.output) if a.output else Path(a.draft).with_name("lookup_selection_report.json")
             out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
             print(json.dumps(report,ensure_ascii=False,indent=2));print("REPORT:",out)
