@@ -57,3 +57,14 @@ jobs:
         run: python automation/css/sfdc_email_snapshot_refresh.py
       - name: Verify outstanding SFDC decisions
         run: python automation/css/sfdc_email_decision_sync.py
+      - name: Record successful sync health
+        if: success()
+        env:
+          SYNC_JOB_STATUS: PASS
+        run: python automation/css/sfdc_email_sync_health.py
+      - name: Record failed sync health
+        if: failure()
+        continue-on-error: true
+        env:
+          SYNC_JOB_STATUS: FAILURE
+        run: python automation/css/sfdc_email_sync_health.py
