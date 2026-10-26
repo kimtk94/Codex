@@ -9,6 +9,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 QQ=os.getenv("CSS_SHEET_ID","1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 SFDC=os.getenv("SFDC_SHEET_ID","1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI")
+ALLOWED_SENDERS={"taehoon.kim@novogene.com","masiyuan8900@novogene.com","jiin.yoo@novogene.com"}
 MAIL_RE=re.compile(r"(?<![\w.+-])([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})(?![\w.-])")
 def val(row,i):return str(row[i]).strip() if i<len(row) and row[i] is not None else ""
 def date(text):
@@ -30,13 +31,14 @@ def main():
     if val(leads[0],0)!="Lead ID" or val(audits[0],0)!="Lead ID" or val(mails[0],20)!="direction":
         raise RuntimeError("Unexpected source header; no writes")
     if len(mails)>=30000:raise RuntimeError("Mail scan capacity reached; refuse partial audit")
+    if not leads or not audits or not mails:raise RuntimeError("Missing audit source")
     # Audit index by Lead ID and existing row number.
     existing={val(r,0):(i,r) for i,r in enumerate(audits[1:],start=2) if val(r,0)}
     sent={}
     for r in mails[1:]:
         if val(r,20).lower() not in ("sent","outbound"):continue
         sender=val(r,4).lower()
-        if not sender.endswith(("@novogene.com","@novogene-amea.com")):continue
+        if sender not in ALLOWED_SENDERS:continue
         at=date(val(r,2))
         if not at:continue
         for addr in set(x.lower() for x in MAIL_RE.findall(val(r,5))):
