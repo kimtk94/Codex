@@ -23,8 +23,8 @@ def amount_numeric(value):
  raw=str(value or "").strip()
  # Accept Salesforce-rendered KRW amounts, but never send currency text
  # into an HTML numeric input.
- raw=re.sub(r"^(?:KRW|₩)\\s*", "", raw, flags=re.I).replace(",", "").strip()
- if not re.fullmatch(r"[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)",raw):
+ raw=re.sub(r"^(?:KRW|₩)\s*", "", raw, flags=re.I).replace(",", "").strip()
+ if not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)",raw):
   raise ValueError("Invalid Amount; explicit numeric amount required")
  try: number=Decimal(raw)
  except InvalidOperation as exc:raise ValueError("Invalid Amount") from exc
@@ -34,15 +34,20 @@ def amount_numeric(value):
 def progress_for_today(value, stage):
  text=str(value or "").strip()
  today=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%m%d")
- # Existing convention: MMDD Stage, newline, service/sample calculation.
- # Preserve description body and update leading date only.
- match=re.match(r"^\\d{4}\\s+([^\\r\\n]+)(?:\\r?\\n|\\s+)(.*)$",text,re.S)
- if match:
-  original_stage=match.group(1).strip()
-  rest=match.group(2).strip()
-  if rest:
-   return today+" "+(stage or original_stage)+"\\n"+rest
- # Do not manufacture descriptions if template cannot be parsed safely.
+ # Accept either multiline or the existing single-line description convention.
+ m=re.match(r"^\d{4}\s+",text)
+ if not m:return text
+ body=text[m.end():].strip()
+ known_stage=(stage or "").strip()
+ if known_stage and body.casefold().startswith(known_stage.casefold()):
+  detail=body[len(known_stage):].strip()
+  return today+" "+known_stage+("\n"+detail if detail else "")
+ # Historical cases often say "Quote Issued" even when Stage was changed.
+ for original in ("Quote Issued","Quotation Issued","Closed Won"):
+  if body.casefold().startswith(original.casefold()):
+   detail=body[len(original):].strip()
+   return today+" "+(known_stage or original)+("\n"+detail if detail else "")
+ # Unknown text pattern must not be transformed or invented.
  return text
 
 def first(*values):
