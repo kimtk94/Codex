@@ -8,6 +8,7 @@ import datetime as dt
 import email.utils
 import json
 import os
+import tempfile
 import re
 import time
 import urllib.parse
@@ -63,7 +64,14 @@ def qq_get_with_backoff(session, url):
     raise RuntimeError("QQ_SHEETS_RETRY_UNREACHABLE")
 
 def qq_mail_rows(session, chunk=12000):
-    """Bounded source read; received_at/from/to/cc/subject; no body content."""
+    """Bounded source read; optional per-job completed snapshot, never partial."""
+    cache_path = os.getenv("SFDC_QQ_MAIL_CACHE_PATH", "").strip()
+    if cache_path and os.path.isfile(cache_path):
+        with open(cache_path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                yield json.loads(line)
+        print("QQ_MAIL_CACHE_HIT=true", flush=True)
+        return
     root = "https://sheets.googleapis.com/v4/spreadsheets/" + QQ_SHEET
     meta = qq_get_with_backoff(session, root + "?fields=sheets.properties(title,gridProperties.rowCount)")
     if not meta.ok:
@@ -73,15 +81,35 @@ def qq_mail_rows(session, chunk=12000):
     if not props:
         raise RuntimeError("QQ_MAIL_SOURCE_TAB_MISSING")
     bound = min(props["gridProperties"]["rowCount"], 100000)
-    for start in range(2, bound + 1, chunk):
-        stop = min(bound, start + chunk - 1)
-        a = urllib.parse.quote("'All Emails'!C" + str(start) + ":I" + str(stop), safe="")
-        result = qq_get_with_backoff(session, root + "/values/" + a)
-        if not result.ok:
-            raise RuntimeError("QQ_MAIL_READ_HTTP_" + str(result.status_code))
-        for row in result.json().get("values", []):
-            if row:
-                yield row
+    tmp_path = None
+    writer = None
+    finished = False
+    try:
+        if cache_path:
+            os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
+            fd, tmp_path = tempfile.mkstemp(prefix="qq-mail-", suffix=".jsonl", dir=os.path.dirname(os.path.abspath(cache_path)))
+            writer = os.fdopen(fd, "w", encoding="utf-8")
+        for start in range(2, bound + 1, chunk):
+            stop = min(bound, start + chunk - 1)
+            a = urllib.parse.quote("'All Emails'!C" + str(start) + ":I" + str(stop), safe="")
+            result = qq_get_with_backoff(session, root + "/values/" + a)
+            if not result.ok:
+                raise RuntimeError("QQ_MAIL_READ_HTTP_" + str(result.status_code))
+            for row in result.json().get("values", []):
+                if row:
+                    if writer:
+                        writer.write(json.dumps(row, ensure_ascii=False) + "\n")
+                    yield row
+        finished = True
+    finally:
+        if writer:
+            writer.close()
+        if tmp_path:
+            if finished:
+                os.replace(tmp_path, cache_path)
+                print("QQ_MAIL_CACHE_STORED=true", flush=True)
+            elif os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
 def latest_events(rows, candidate_emails):
     """Collect precise address evidence, without inferring thread resolution."""
