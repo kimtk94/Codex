@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from tracker import get, SHEET_ID
 from ops_evidence import assess
+from ops_failure_audit import make_report
 
 WORKFLOWS={
  "progress_audit":"automation-progress-audit.yml",
@@ -46,6 +47,10 @@ def main():
     records=github_records(get,os.getenv("GITHUB_TOKEN"))
     sheet=read_sheet_snapshot()
     verdict=assess(records,sheet)
+    failure_report=make_report(records)
+    folder=Path("progress-audit")
+    folder.mkdir(exist_ok=True)
+    (folder/"ops-failure-audit.json").write_text(json.dumps(failure_report,ensure_ascii=False,indent=2),encoding="utf-8")
     verdict["sheet_probe_state"]=sheet["state"]
     verdict["live_github_run_counts"]={k:len(v) for k,v in records.items()}
     folder=Path("progress-audit")
