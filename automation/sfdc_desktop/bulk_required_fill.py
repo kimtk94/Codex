@@ -10,7 +10,7 @@ from lookup_batch_audit import window_inventory,focus_and_maximize
 from lookup_exact_option_probe import select,selected_state
 
 TEXT_FIELDS=("Opportunity Name","Amount","Close Date","Progress Description")
-PICK_FIELDS=("Opportunity Currency","Stage","Forecast Category","Status")
+PICK_FIELDS=("Stage","Forecast Category","Status")
 REQUIRED=("Opportunity Name","Account Name","Main Contact","Amount","Opportunity Currency",
           "Close Date","Service Line","Stage","Forecast Category","Progress Description","Status")
 FIND_JS=r"""(label) => {
@@ -104,7 +104,7 @@ def main():
     data=json.loads(Path(args.draft).read_text(encoding="utf-8-sig"))
     if args.values:data.update(json.loads(Path(args.values).read_text(encoding="utf-8-sig")))
     # Produce a useful template before connecting to Chrome, never invent mandatory fields.
-    missing=[k for k in REQUIRED if not str(data.get(k,"")).strip()]
+    missing=[k for k in REQUIRED if k!="Opportunity Currency" and not str(data.get(k,"")).strip()]
     template=Path(args.draft).with_name("required_values_template.json")
     if not args.values:
         template.write_text(json.dumps({k:data.get(k,"") for k in REQUIRED},ensure_ascii=False,indent=2),encoding="utf-8")
@@ -138,10 +138,15 @@ def main():
             except Exception as exc:result[label]={"status":"ERROR","type":type(exc).__name__}
             print(label, result[label]["status"])
         for label in TEXT_FIELDS:
-            result[label]=do_fill(ctx,label,data[label])
+            result[label]=do_fill(ctx,label,data.get(label,""))
             print(label,result[label]["status"])
+        result["Opportunity Currency"]={"status":"KEEP_EXISTING_DEFAULT_NOT_TOUCHED"}
+        print("Opportunity Currency",result["Opportunity Currency"]["status"])
         for label in PICK_FIELDS:
-            result[label]=do_pick(ctx,label,data[label])
+            try:
+                result[label]=do_pick(ctx,label,data.get(label,""))
+            except Exception as exc:
+                result[label]={"status":"ERROR","type":type(exc).__name__}
             print(label,result[label]["status"])
         result["Service Line"]={"status":"NOT_IMPLEMENTED_DUAL_LISTBOX" if str(data.get("Service Line","")).strip() else "MISSING_VALUE"}
         report={"version":"bulk-required-p1","window":focus,"missing_values":missing,"fields":result,
