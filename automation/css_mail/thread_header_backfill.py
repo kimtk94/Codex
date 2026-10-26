@@ -54,6 +54,9 @@ def main():
     if not dry and not writing:
         raise RuntimeError("Writing requires CSS_THREAD_BACKFILL_WRITE=true")
     updates, scanned, mismatched = [], 0, 0
+    # Rotate the dry-run sample across half-hour slots, including messages with no reply headers.
+    # Without rotation, the same first rows are fetched forever when their Q:R stay blank.
+    slot = int(dt.datetime.now(dt.timezone.utc).timestamp() // 1800)
     with imaplib.IMAP4_SSL("imap.exmail.qq.com", 993, timeout=45) as im:
         im.login(os.environ["CSS_QQ_MAIL_ADDRESS"], os.environ["CSS_QQ_MAIL_AUTH_CODE"])
         folders = folder_names(im)
@@ -69,7 +72,11 @@ def main():
                 raise RuntimeError("Missing UIDVALIDITY")
             validity = result[0].decode("ascii")
             pending = plan(rows, folder, validity, scan_days=days)
-            for row_num, uid, existing_msg_id in pending[:max(0, limit-len(updates))]:
+            # Split the per-run IMAP fetch budget fairly across Inbox and Sent.
+            budget = (limit + 1) // 2 if folder == "INBOX" else limit // 2
+            start = (slot * max(1, budget)) % len(pending) if pending else 0
+            selection = (pending[start:] + pending[:start])[:budget]
+            for row_num, uid, existing_msg_id in selection:
                 status, data = im.uid("FETCH", uid.encode("ascii"),
                     "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO REFERENCES)])")
                 if status != "OK":
@@ -88,8 +95,6 @@ def main():
                 if irt or refs:
                     updates.append({"range": "'" + TAB + "'!Q" + str(row_num) + ":R" + str(row_num),
                                     "values": [[irt, refs]]})
-            if len(updates) >= limit:
-                break
         im.logout()
     print(json.dumps({"dry_run":dry, "matched_messages":scanned,
         "thread_header_updates":len(updates), "message_id_mismatches":mismatched}))
