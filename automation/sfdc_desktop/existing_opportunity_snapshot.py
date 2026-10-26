@@ -64,6 +64,9 @@ SNAPSHOT_JS=r"""() => {
        const editSuffix='Edit '+label;
        if(value.toLowerCase().endsWith(editSuffix.toLowerCase()))
          value=value.slice(0,-editSuffix.length).trim();
+       if(value && value!==label && value.toLowerCase()!==editSuffix.toLowerCase())
+         pairs.push({label,value:value.slice(0,350),method:'rendered_control_innerText'});
+     }
    }
  }
  visit(document);
