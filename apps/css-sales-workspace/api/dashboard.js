@@ -34,10 +34,7 @@ module.exports = async (req, res) => {
       const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID + '/values/' + encodeURIComponent(range);
       const response = await client.request({url});
       const rows = response.data.values || [];
-      output[name] = {
-        headers: rows[0] || [],
-        rows: rows.slice(1).filter(row => row.some(cell => String(cell).trim())).slice(0, 150)
-      };
+      output[name] = {count: Math.max(0, rows.slice(1).filter(row => row.some(cell => String(cell).trim())).length)};
     }
     return res.status(200).json({owner:'kim-taehoon',updatedAt:new Date().toISOString(),data:output});
   } catch(err) {
