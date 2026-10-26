@@ -29,6 +29,7 @@ def load_sheet(sheet_id=SHEET_ID, tab=TAB):
     try:
         from google.oauth2 import service_account
         from google.auth.transport.requests import AuthorizedSession
+        import google.auth
     except ImportError as exc:
         raise RuntimeError("Install google-auth: py -3.12 -m pip install google-auth") from exc
     key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -40,7 +41,10 @@ def load_sheet(sheet_id=SHEET_ID, tab=TAB):
         credentials = service_account.Credentials.from_service_account_info(
             json.loads(key_json), scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
     else:
-        raise RuntimeError("Set GOOGLE_APPLICATION_CREDENTIALS to an approved service-account JSON path, or GOOGLE_SERVICE_ACCOUNT_JSON. Share the Sheet with the account.")
+        try:
+            credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+        except google.auth.exceptions.DefaultCredentialsError as exc:
+            raise RuntimeError("Google credentials not found. Use existing GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_SERVICE_ACCOUNT_JSON, or configure Application Default Credentials (ADC). Never commit a key.") from exc
     from urllib.parse import quote
     url = ("https://sheets.googleapis.com/v4/spreadsheets/" + sheet_id +
            "/values/" + quote("'" + tab.replace("'", "''") + "'!A1:O", safe="!':") )
