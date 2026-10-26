@@ -128,10 +128,17 @@ def digest(columns, rows):
 
 def request(session, method, suffix, **kwargs):
     root = "https://sheets.googleapis.com/v4/spreadsheets/" + SHEET
-    for retry in range(4):
+    for retry in range(7):
         result = session.request(method, root + suffix, timeout=60, **kwargs)
-        if result.status_code in (429, 500, 502, 503, 504) and retry < 3:
-            time.sleep(2 ** retry)
+        if result.status_code in (429, 500, 502, 503, 504) and retry < 6:
+            # Respect a provider-supplied delay; avoid hammering the shared Sheets quota.
+            retry_after = result.headers.get("Retry-After", "")
+            try:
+                delay = min(120.0, max(0.0, float(retry_after)))
+            except ValueError:
+                delay = min(90.0, 2.0 ** (retry + 2))
+            print(f"SFDC_SHEETS_RETRY status={result.status_code} attempt={retry + 1} delay={delay:g}s", flush=True)
+            time.sleep(delay)
             continue
         if not result.ok:
             raise RuntimeError("SHEETS_HTTP_" + str(result.status_code))
