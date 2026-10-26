@@ -2,6 +2,10 @@ name: SFDC Opportunity Similarity Search
 on:
   workflow_dispatch:
     inputs:
+      opportunity_id:
+        description: "Exact Salesforce Opportunity record ID (15/18 characters, optional)"
+        required: false
+        type: string
       account:
         description: "Account keyword (optional)"
         required: false
@@ -33,24 +37,42 @@ jobs:
       - name: Search existing Opportunity catalog (no record data in logs)
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          OPPORTUNITY_ID_QUERY: ${{ inputs.opportunity_id }}
           ACCOUNT_QUERY: ${{ inputs.account }}
           SERVICE_QUERY: ${{ inputs.service }}
           CONTACT_QUERY: ${{ inputs.contact }}
         run: |
           mkdir -p "$RUNNER_TEMP/sfdc-search"
           python - <<'PY'
-          import json, os, sys
+          import json, os, sys, re
           sys.path.insert(0, 'automation/sfdc_desktop')
           from catalog_reuse import load_sheet, dedupe, search, make_draft
           account = os.getenv('ACCOUNT_QUERY','').strip()
           service = os.getenv('SERVICE_QUERY','').strip()
           contact = os.getenv('CONTACT_QUERY','').strip()
-          if not any((account,service,contact)):
+          opportunity_id=os.getenv('OPPORTUNITY_ID_QUERY','').strip()
+          if not any((account,service,contact,opportunity_id)):
               raise SystemExit('Enter at least one search keyword.')
           if not os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON'):
               raise SystemExit('TaehoonServer CKD_DRIVE_SA_JSON is not configured.')
           rows = load_sheet()
-          matches = search(rows, account=account, contact=contact, service=service, top=10)
+          if opportunity_id:
+              if not re.fullmatch(r'[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?',opportunity_id):
+                  raise SystemExit('Invalid Salesforce Opportunity ID format.')
+              found=[row for row in rows if str(row.get('Opportunity ID','')).strip()[:15]==opportunity_id[:15]]
+              unique={str(row.get('Opportunity ID','')).strip()[:15]:row for row in found}
+              if len(unique)!=1 or len(found)!=1:
+                  raise SystemExit('Exact ID lookup requires exactly one Catalog row; no artifact created.')
+              row=found[0]
+              matches=[{'score':1.0,'opportunity_id':row.get('Opportunity ID'),
+                        'account':row.get('Account Name'),'account_id':row.get('Account ID'),
+                        'contact':row.get('Main Contact'),'contact_cms_id':row.get('Main Contact CMS ID'),
+                        'opportunity_name':row.get('Opportunity Name'),
+                        'historical_stage':row.get('Stage'),'historical_currency':row.get('Amount Currency'),
+                        'historical_amount':row.get('Amount'),'historical_close_date':row.get('Close Date'),
+                        'match_type':'EXACT_OPPORTUNITY_ID'}]
+          else:
+              matches = search(rows, account=account, contact=contact, service=service, top=10)
           report = {'source_rows':len(rows),'unique_opportunities':len(dedupe(rows)),
                     'matches':matches,'draft':make_draft(matches[0]) if matches else None,
                     'salesforce_save_performed':False}
