@@ -16,7 +16,12 @@ ACTIONS={"EXCLUDE_MAIL","EXCLUDE_SENDER","RESTORE_MAIL","RESTORE_SENDER"}
 def cell(row, i):
     return str(row[i]).strip() if i<len(row) and row[i] is not None else ""
 def main():
-    credentials=json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
+    raw=os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON") or os.getenv("GCP_SA_KEY") or os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if not raw:raise RuntimeError("Missing Google service account credentials")
+    try:credentials=json.loads(raw)
+    except ValueError:
+        import base64
+        credentials=json.loads(base64.b64decode(raw))
     api=build("sheets","v4",credentials=service_account.Credentials.from_service_account_info(
         credentials,scopes=["https://www.googleapis.com/auth/spreadsheets"]),cache_discovery=False).spreadsheets().values()
     def read(book, tab):
