@@ -35,8 +35,11 @@ def read_sheet_snapshot():
     rows=response.json().get("values",[])
     if len(rows)!=2 or [r[0] for r in rows] != ["A47","A48"]:
         return {"state":"FAILED_ID_GUARD"}
+    # A populated PR link or last-checked timestamp is not proof that a scheduled publisher wrote it.
     return {"state":"READ_OK","last_checked_kst":next((r[7] for r in rows if len(r)>7 and r[7]),""),
        "evidence_url":next((r[5] for r in rows if len(r)>5 and r[5]),""),
+       "verified_publish_receipt":False,
+       "reason":"No verified scheduled publisher receipt matching run_id, timestamp, and changed cell values",
        "row_ids":["A47","A48"]}
 
 def main():

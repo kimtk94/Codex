@@ -12,7 +12,7 @@ def assess(records, sheet_snapshot):
         checks[key] = {"pr_ci_success": any(r.get("event") == "pull_request" and r.get("conclusion") == "success" for r in runs),
                        "scheduled_success_count": len(scheduled),
                        "three_scheduled_successes": len({r.get("id") for r in scheduled}) >= 3}
-    posted = bool(sheet_snapshot.get("last_checked_kst")) and bool(sheet_snapshot.get("evidence_url"))
+    posted = sheet_snapshot.get("state") == "READ_OK" and bool(sheet_snapshot.get("verified_publish_receipt"))
     return {"task_A47": "CANDIDATE_EVIDENCE" if checks["progress_audit"]["pr_ci_success"] else "NOT_VERIFIED",
             "task_A48": "NOT_VERIFIED",
             "gate_OPS_01": "NOT_VERIFIED",
