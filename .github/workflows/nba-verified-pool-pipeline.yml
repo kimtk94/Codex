@@ -61,7 +61,7 @@ jobs:
         run: |
           python automation/css/nba_mail_evidence_audit.py
       - name: Refresh verified reply followup dashboard
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply_pool) }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply_pool) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[reply-dashboard-write-once]')) }}
         env:
           NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           NBA_REPLY_DASHBOARD_WRITE: 'true'
