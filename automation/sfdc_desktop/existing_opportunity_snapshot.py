@@ -91,11 +91,23 @@ SNAPSHOT_JS=r"""() => {
    }
  }
  scanIds(document);
+ const renderedBusinessIds=[];
+ // Text from composed DOM may be present on custom elements but absent from
+ // shadow-root textContent. Collect diagnostic matches with their context,
+ // never automatically treat a match as this record's business ID.
+ for(const el of document.querySelectorAll('records-record-layout-item,lightning-formatted-text,[data-field-name],.slds-form-element')){
+   const s=tidy(el.innerText);
+   if(s.length>0 && s.length<1200){
+     for(const id of s.match(/Opp-\\d{4}-\\d{2}-\\d{2}-\\d+/g)||[])
+       renderedBusinessIds.push({id,tag:el.localName,context:s.slice(0,300)});
+   }
+ }
  const unique=new Map();
  for(const x of pairs)unique.set(x.label+'|'+x.value,x);
  return {shadow_roots:seen.size-1,inspected_count:structures.length,
    structures:structures.slice(0,60),fields:[...unique.values()].slice(0,250),
-   business_id_candidates:businessIdCandidates.slice(0,20)};
+   business_id_candidates:businessIdCandidates.slice(0,20),
+   rendered_business_ids:renderedBusinessIds.slice(0,30)};
 }"""
 
 def main():
@@ -140,6 +152,7 @@ def main():
         print("FRAME INSPECTION:",json.dumps([{"shadow_roots":x["shadow_roots"],"selector_counts":{"inspected_count":x["inspected_count"]},"field_count":len(x["fields"])} for x in result["frames"]],ensure_ascii=False))
         print("OPPORTUNITY RECORD ID FROM URL:",route_id or "NOT_FOUND")
         print("BUSINESS ID CANDIDATES:",sum(len(x.get("business_id_candidates",[])) for x in result["frames"]))
+        print("RENDERED ID DIAGNOSTICS:",sum(len(x.get("rendered_business_ids",[])) for x in result["frames"]))
         print("REPORT:",path)
         print("READ ONLY; Salesforce data not modified.")
 if __name__=="__main__":main()
