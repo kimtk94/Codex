@@ -99,9 +99,12 @@ def main():
         else:continue
         processed.append((i,action));counts[action]+=1
     print(json.dumps({"dry_run":read_only,"new_inbox":len(to_append_review),"mail_exclusions_new":len(to_append_mail),"sender_exclusions_new":len(to_append_sender),"requested":dict(counts)},ensure_ascii=False))
+    blockers=("conflicting_sender_requests","conflicting_uid_requests",
+              "invalid_sender_address","restore_mail_not_found","restore_sender_not_found")
+    problems={key:counts[key] for key in blockers if counts[key]}
+    if problems:
+        raise RuntimeError("Review actions blocked: "+json.dumps(problems,sort_keys=True))
     if read_only:return
-    if counts["conflicting_sender_requests"] or counts["conflicting_uid_requests"] or counts["invalid_sender_address"]:
-        raise RuntimeError("Conflicting review actions detected; resolve before live sync")
     # Apply all writes before recording success. Reruns are safe by UID/address.
     batch(s,updates)
     append(s,MAIL,to_append_mail)
