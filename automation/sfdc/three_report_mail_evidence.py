@@ -9,6 +9,7 @@ import email.utils
 import json
 import os
 import re
+import time
 import urllib.parse
 from collections import defaultdict
 
@@ -44,10 +45,27 @@ def timestamp(value):
     except ValueError:
         return None
 
+def qq_get_with_backoff(session, url):
+    """Retry transient Sheets quota errors; never treat partial mail as complete."""
+    for attempt in range(6):
+        result = session.get(url, timeout=60)
+        if result.ok or result.status_code not in (429, 500, 502, 503, 504):
+            return result
+        if attempt == 5:
+            return result
+        retry_after = result.headers.get("Retry-After", "")
+        try:
+            delay = min(60.0, max(0.0, float(retry_after)))
+        except ValueError:
+            delay = min(45.0, 2.0 ** (attempt + 1))
+        print(f"QQ_SHEETS_TRANSIENT_HTTP_{result.status_code}_RETRY_{attempt + 1}_WAIT_{delay:g}s", flush=True)
+        time.sleep(delay)
+    raise RuntimeError("QQ_SHEETS_RETRY_UNREACHABLE")
+
 def qq_mail_rows(session, chunk=3000):
     """Bounded source read; received_at/from/to/cc/subject; no body content."""
     root = "https://sheets.googleapis.com/v4/spreadsheets/" + QQ_SHEET
-    meta = session.get(root + "?fields=sheets.properties(title,gridProperties.rowCount)", timeout=60)
+    meta = qq_get_with_backoff(session, root + "?fields=sheets.properties(title,gridProperties.rowCount)")
     if not meta.ok:
         raise RuntimeError("QQ_SHEET_METADATA_HTTP_" + str(meta.status_code))
     props = next((s["properties"] for s in meta.json().get("sheets", [])
@@ -58,7 +76,7 @@ def qq_mail_rows(session, chunk=3000):
     for start in range(2, bound + 1, chunk):
         stop = min(bound, start + chunk - 1)
         a = urllib.parse.quote("'All Emails'!C" + str(start) + ":I" + str(stop), safe="")
-        result = session.get(root + "/values/" + a, timeout=60)
+        result = qq_get_with_backoff(session, root + "/values/" + a)
         if not result.ok:
             raise RuntimeError("QQ_MAIL_READ_HTTP_" + str(result.status_code))
         for row in result.json().get("values", []):
