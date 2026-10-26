@@ -99,6 +99,9 @@ def make_draft(match):
             "Service Line": "", "Opportunity Name": "", "Amount": "",
             "Close Date": "", "Stage": "", "Forecast Category": "", "Status": "",
             "Progress Description": "", "source_opportunity_id": match["opportunity_id"],
+            "Existing Opportunity Name (reference only)": match.get("opportunity_name",""),
+            "Existing Stage (reference only)": match.get("historical_stage",""),
+            "Existing Currency (reference only)": match.get("historical_currency",""),
             "review_required": True, "salesforce_save_performed": False}
 
 def main():
