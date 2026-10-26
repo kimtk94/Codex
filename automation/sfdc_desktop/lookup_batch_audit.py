@@ -94,8 +94,20 @@ def main():
             input("Use authenticated Chrome; open New Opportunity, then Enter ONCE: ")
             inventory=window_inventory(ctx)
             print("Chrome tabs / New Opportunity label counts:",json.dumps(inventory,ensure_ascii=False))
-            matches=[x for x in inventory if x["lookup_label_count"]>=2 and
-                     (x["origin"].endswith("force.com") or x["origin"].endswith("salesforce.com"))]
+            # Salesforce form title is already confirmed in CDP, while labels can be async.
+            matches=[]
+            for item in inventory:
+                p=ctx.pages[item["tab_index"]]
+                try:
+                    title=p.title().lower()
+                except PWError:
+                    title=""
+                if ("new opportunity" in title and
+                    (item["origin"].endswith("force.com") or item["origin"].endswith("salesforce.com"))):
+                    matches.append(item)
+            if len(matches)!=1:
+                matches=[x for x in inventory if x["lookup_label_count"]>=2 and
+                         (x["origin"].endswith("force.com") or x["origin"].endswith("salesforce.com"))]
             if len(matches)!=1:
                 report={"version":"lookup-batch-audit-v2","failure":"NO_UNIQUE_NEW_OPPORTUNITY_WINDOW",
                         "tabs":inventory,"fields":{},"save_clicked":False,"both_verified":False}
