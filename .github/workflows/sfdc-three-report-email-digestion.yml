@@ -88,6 +88,9 @@ jobs:
         env:
           SFDC_THREAD_EVIDENCE_APPLY: 'true'
         run: python automation/sfdc/three_report_thread_evidence.py
+      - name: Cool down Sheets read quota before final QQ audit
+        if: github.event_name != 'pull_request'
+        run: sleep 75
       - name: Refresh same-subject review snapshot
         if: github.event_name != 'pull_request'
         env:
