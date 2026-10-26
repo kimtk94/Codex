@@ -27,6 +27,10 @@ class LeadAuditSafetyTest(unittest.TestCase):
         for expected in ("Duplicate audit Lead ID", "Duplicate source Lead ID", "Unexpected email evidence columns"):
             self.assertIn(expected, source)
 
+    def test_formula_error_sent_count_is_safe(self):
+        source = SOURCE.read_text(encoding='utf-8')
+        self.assertIn("str(val(old,3) or '0').isdigit() else 0", source)
+
     def test_stale_source_blocks_scheduled_writes(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("if not dry and source_stale:", source)
