@@ -18,29 +18,73 @@ def prepare_lookup(draft):
         raise ValueError("Expected unsaved, unverified draft safety flags")
     return {k:draft[k].strip() for k in required}
 
-def find_input(page,label):
-    # Lightning open shadow roots are traversed automatically by Playwright CSS locators.
-    host_tags={"Account Name":"lightning-grouped-combobox","Main Contact":"lightning-grouped-combobox"}
-    host=host_tags[label]
-    candidates=page.locator(host).filter(has=page.locator("label").filter(has_text=label))
-    if candidates.count()!=1:
-        return None, "HOST_NONUNIQUE"
-    loc=candidates.locator("input")
-    if loc.count()!=1 or not loc.is_visible() or not loc.is_enabled():
-        return None,"INPUT_NONUNIQUE"
-    return loc,"READY"
+LOOKUP_JS = r"""(label) => {
+ const seen = new Set(), matches = [];
+ function traverse(root) {
+   if (!root || seen.has(root)) return;
+   seen.add(root);
+   for (const el of root.querySelectorAll('*')) {
+     if (el.shadowRoot) traverse(el.shadowRoot);
+     if (!el.matches('label')) continue;
+     if ((el.textContent||'').replace(/\\s+/g,' ').trim().replace(/^\\*\\s*/, '') !== label) continue;
+     let node = el, host = null;
+     while (node) {
+       if (node.tagName?.toLowerCase()==='lightning-grouped-combobox') { host=node; break; }
+       node = node.parentElement || node.getRootNode()?.host || null;
+     }
+     if (host) {
+       const inputs=[];
+       function deep(n) {
+         if (!n) return;
+         for (const e of n.querySelectorAll('*')) {
+           if (e.matches('input:not([type="hidden"])')) inputs.push(e);
+           if (e.shadowRoot) deep(e.shadowRoot);
+         }
+       }
+       deep(host.shadowRoot || host);
+       if (inputs.length===1 && !matches.includes(inputs[0])) matches.push(inputs[0]);
+     }
+   }
+ }
+ traverse(document);
+ return {count:matches.length, element:matches.length===1?matches[0]:null};
+}"""
 
-def run(page, draft):
-    values=prepare_lookup(draft)
-    result={}
-    for label,value in values.items():
-        loc,status=find_input(page,label)
-        if loc is None:
-            result[label]=status
+def find_input(context, label):
+    from playwright.sync_api import Error as PlaywrightError
+    frame_errors = 0
+    for page in context.pages:
+        if page.is_closed():
             continue
-        loc.fill(value)
-        # Typing is not selecting an SFDC relationship. Do not click an unverified option.
-        result[label]="TEXT_ENTERED_RELATION_UNVERIFIED"
+        for frame in page.frames:
+            try:
+                handle = frame.evaluate_handle(LOOKUP_JS, label)
+                try:
+                    count = handle.evaluate("(x) => x.count")
+                    if count != 1:
+                        continue
+                    element = handle.get_property("element").as_element()
+                    if element is not None and element.is_visible() and element.is_enabled():
+                        return element, "READY"
+                finally:
+                    handle.dispose()
+            except PlaywrightError:
+                frame_errors += 1
+    return None, "INPUT_NOT_UNIQUELY_RESOLVED" if not frame_errors else "INPUT_UNRESOLVED_FRAME_ERRORS"
+
+def run(context, draft):
+    values = prepare_lookup(draft)
+    result = {}
+    for label, value in values.items():
+        loc, status = find_input(context, label)
+        if loc is None:
+            result[label] = status
+            continue
+        try:
+            loc.fill(value)
+            result[label] = "TEXT_ENTERED_RELATION_UNVERIFIED"
+        except Exception:
+            result[label] = "FILL_FAILED"
     return {"lookup":result,"relationship_verified":False,"save_clicked":False}
 
 def main():
@@ -58,7 +102,7 @@ def main():
             page=ctx.pages[0] if ctx.pages else ctx.new_page()
             page.goto(a.url,wait_until="domcontentloaded")
             input("Complete MFA, open New Opportunity in this Chrome, press Enter: ")
-            report=run(page,draft)
+            report=run(ctx,draft)
             report["note"]="Text-only lookup probe. Salesforce relationship not established; no Save."
             out=Path(a.output) if a.output else Path(a.draft).with_name("lookup_preflight.json")
             out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
