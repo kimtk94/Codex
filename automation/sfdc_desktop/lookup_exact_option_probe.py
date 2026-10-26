@@ -130,10 +130,58 @@ def verify_selected(context,label,name):
             except PWError:continue
     return False
 
+SELECTED_FIELD_JS = r"""({label,expected}) => {
+ const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLowerCase();
+ const seen=new Set(),labels=[];
+ function walk(root) {
+  if(!root||seen.has(root))return;
+  seen.add(root);
+  for(const e of root.querySelectorAll('*')){
+   if(e.shadowRoot)walk(e.shadowRoot);
+   if(e.matches('label') && norm(e.textContent).replace(/^\*\s*/,'')===norm(label))labels.push(e);
+  }
+ }
+ walk(document);
+ if(labels.length!==1)return false;
+ let n=labels[0];
+ for(let i=0;n&&i<7;i++) {
+  const text=norm(n.innerText||n.textContent);
+  if(text.includes(norm(expected))) {
+   const pills=[];
+   function scan(root) {
+    if(!root?.querySelectorAll)return;
+    for(const el of root.querySelectorAll('*')){
+     if(el.shadowRoot)scan(el.shadowRoot);
+     if(el.matches('lightning-pill,.slds-pill'))pills.push(el);
+    }
+   }
+   scan(n.shadowRoot||n);
+   if(pills.some(p=>norm(p.getAttribute('label')||p.textContent).includes(norm(expected))))return true;
+   // Salesforce grouped combobox selected record contains a remove action.
+   if(n.localName==='lightning-grouped-combobox'){
+     const buttons=[...n.querySelectorAll('button,[role="button"]')];
+     if(buttons.some(b=>/remove|clear/i.test((b.getAttribute('title')||'')+' '+(b.getAttribute('aria-label')||''))))
+       return true;
+   }
+  }
+  n=n.parentElement||n.getRootNode()?.host||null;
+ }
+ return false;
+}"""
+
+def verify_selected_field(context,label,name):
+ for page in context.pages:
+  if page.is_closed():continue
+  for frame in page.frames:
+   try:
+    if frame.evaluate(SELECTED_FIELD_JS,{"label":label,"expected":name}):return True
+   except PWError:continue
+ return False
+
 def select(context,label,name):
     inp,status=find_input(context,label)
     if inp is None:
-        if verify_selected(context,label,name):return {"status":"SELECTED_PILL_VERIFIED","source":"already_selected"}
+        if verify_selected(context,label,name) or verify_selected_field(context,label,name):return {"status":"SELECTED_PILL_VERIFIED","source":"already_selected"}
         return {"status":status}
     try:
         if verify_selected(context,label,name):return {"status":"SELECTED_PILL_VERIFIED","source":"already_selected"}
@@ -193,7 +241,7 @@ def select(context,label,name):
                                   "note":"Lookup search icon triggered; inspect actual dropdown."}
         found[0].click(timeout=3500)
         time.sleep(0.4)
-        verified=verify_selected(context,label,name)
+        verified=verify_selected(context,label,name) or verify_selected_field(context,label,name)
         return {"status":"SELECTED_PILL_VERIFIED" if verified else "CLICKED_NOT_VERIFIED"}
     except PWError:
         return {"status":"LOOKUP_UI_CHANGED"}
