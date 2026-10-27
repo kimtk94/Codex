@@ -23,7 +23,11 @@ const VIEWS = {
   timeline: ['CSS Project Timeline',1466322538],
   revenue_fact: ['BI Revenue Fact',1436422169],
   monthly_revenue: ['BI Revenue Actual Forecast',561608758],
-  official_2025: ['BI 2025 Official Monthly',1173034481]
+  official_2025: ['BI 2025 Official Monthly',1173034481],
+  issued_tax: ['BI Revenue Fact',1436422169],
+  confirmation_pending: ['CSS Statement Backfill Review',467880897],
+  online_list: ['BI Project Month Control',1856711491],
+  confirmation_proof: ['Confirmation Evidence Ledger',1764102620]
 };
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control','private, no-store, max-age=0');
@@ -153,7 +157,13 @@ module.exports = async (req, res) => {
       });
       return res.status(200).json({view:key,title,kind:'table',headers:h,rows:enriched,shown:enriched.length,page,pageSize,hasMore:pageRaw.length>=pageSize,readOnly:true,note:'합계(Combined KRW)는 발행 인보이스 + 순예상액의 운영 전망이며 확정 매출이 아닙니다. Completed-status도 정산 증빙과 별도입니다. 중복 제거와 매칭 검토가 필요합니다.',updatedAt:new Date().toISOString()});
     }
-    const note=key==='monthly_revenue'?'Issued Tax Invoice는 발행 기준이며 수금액이 아닙니다. Net Project Forecast=0이면 추정매출 미반영 가능성을 확인하세요. 2025 Official USD 정산과 직접 YoY 비교 금지.':key==='official_2025'?'2025 공식 정산 매출: USD 세전, KRW는 1500 고정 보고용 환산액. 2026 TAX INVOICE와 서로 다른 기준입니다.':null;
+    const basisNotes={
+      issued_tax:'TAX INVOICE 발행 확인건만 표시합니다. 세금계산서 발행은 입금 확인과 다릅니다. Invoice Number 기준으로 중복을 검토하세요.',
+      confirmation_pending:'Statement 메일 및 Confirmation 증빙 검토 목록입니다. Statement 발행 자체는 Confirmation 완료 또는 TAX INVOICE 발행을 의미하지 않습니다. 금액 검증 전에는 Revenue에 합산하지 않습니다.',
+      confirmation_proof:'Confirmation 증빙 상태 원장입니다. AWAITING_CONFIRMATION_PROOF는 확인 완료가 아닌 미확인 상태입니다.',
+      online_list:'Online 프로젝트 진행/예상 목록입니다. FORECAST, EXCLUDED, NO_INVOICE_MATCH 등 원본 상태를 유지하며 TAX INVOICE 매출과 합산하지 않습니다.'
+    };
+    const note=basisNotes[key]|| (key==='monthly_revenue'?'Issued Tax Invoice는 발행 기준이며 수금액이 아닙니다. Net Project Forecast=0이면 추정매출 미반영 가능성을 확인하세요. 2025 Official USD 정산과 직접 YoY 비교 금지.':key==='official_2025'?'2025 공식 정산 매출: USD 세전, KRW는 1500 고정 보고용 환산액. 2026 TAX INVOICE와 서로 다른 기준입니다.':null);
     return res.status(200).json({view:key,title,kind:'table',headers,rows,shown:rows.length,page,pageSize,hasMore:pageRaw.length>=pageSize,readOnly:true,note,updatedAt:new Date().toISOString()});
   } catch(e) {
     console.error('CSS_WEB_DATA_FAILURE',e?.message);
