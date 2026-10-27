@@ -21,7 +21,9 @@ const VIEWS = {
   quote_records: ['SFDC Import Quotation',2036102427],
   sales_master: ['Sales Master',667234836],
   timeline: ['CSS Project Timeline',1466322538],
-  revenue_fact: ['BI Revenue Fact',1436422169]
+  revenue_fact: ['BI Revenue Fact',1436422169],
+  monthly_revenue: ['BI Revenue Actual Forecast',561608758],
+  official_2025: ['BI 2025 Official Monthly',1173034481]
 };
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control','private, no-store, max-age=0');
@@ -130,7 +132,8 @@ module.exports = async (req, res) => {
     const headers=((await headerResponse.json()).values?.[0]||[]).map((v,i)=>String(v||'Column '+(i+1)));
     const pageRaw=page===1?raw.slice(1):raw;
     const rows=pageRaw.filter(row=>row.some(x=>String(x).trim())).map(row=>headers.map((_,i)=>row[i]??''));
-    return res.status(200).json({view:key,title,kind:'table',headers,rows,shown:rows.length,page,pageSize,hasMore:pageRaw.length>=pageSize,readOnly:true,updatedAt:new Date().toISOString()});
+    const note=key==='monthly_revenue'?'Issued Tax Invoice는 발행 기준이며 수금액이 아닙니다. Net Project Forecast=0이면 추정매출 미반영 가능성을 확인하세요. 2025 Official USD 정산과 직접 YoY 비교 금지.':key==='official_2025'?'2025 공식 정산 매출: USD 세전, KRW는 1500 고정 보고용 환산액. 2026 TAX INVOICE와 서로 다른 기준입니다.':null;
+    return res.status(200).json({view:key,title,kind:'table',headers,rows,shown:rows.length,page,pageSize,hasMore:pageRaw.length>=pageSize,readOnly:true,note,updatedAt:new Date().toISOString()});
   } catch(e) {
     console.error('CSS_WEB_DATA_FAILURE',e?.message);
     return res.status(502).json({error:'DATA_SOURCE_UNAVAILABLE'});
