@@ -18,6 +18,7 @@ th{position:sticky;top:0;background:#f1f5fb;z-index:1;font-weight:800}tr:hover t
 .footer button{border:1px solid #d8e1ee;background:white;padding:8px 12px;border-radius:8px;cursor:pointer}
 .warn{color:#a34c1f!important}.hidden{display:none!important}
 @media(max-width:800px){main{grid-template-columns:1fr}aside{border-bottom:1px solid #dce3ef;border-right:0;max-height:225px;overflow:auto}nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.content{padding:13px}#summary{grid-template-columns:repeat(3,1fr)}}
+#mailModal{position:fixed;inset:0;background:#14243a99;display:none;align-items:center;justify-content:center;padding:18px;z-index:20}#mailModal.open{display:flex}.mailCard{background:white;border-radius:14px;width:min(850px,100%);max-height:90vh;display:flex;flex-direction:column;overflow:hidden}.mailHead{padding:16px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #ddd}.mailBody{padding:20px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.mailMeta{padding:14px;background:#f1f5fb;overflow-wrap:anywhere;font-size:12px}#mailClose{margin-left:auto}.mailOpen{border:0;background:#e7f1ff;color:#145ab4;padding:7px;cursor:pointer;border-radius:8px}
 </style></head><body>
 <header><div><small>NOVOGENE · CSS / SFDC</small><h1>📊 Sales Workspace</h1></div><div style="margin-left:auto"><small>Owner: kim-taehoon · Read-only data viewer</small></div></header>
 <main><aside><nav id="menu"></nav></aside><div class="content">
@@ -27,7 +28,7 @@ th{position:sticky;top:0;background:#f1f5fb;z-index:1;font-weight:800}tr:hover t
 <div class="panel"><div id="status">Vercel 로그인 확인 후 데이터를 자동 조회합니다.</div><div class="tablewrap"><table id="table"><thead></thead><tbody></tbody></table></div><div class="footer"><span class="sub" id="pagination">—</span><div><button id="prev">이전</button><button id="next">다음</button></div></div></div>
 <p class="sub">🔒 원본 Google Sheets는 유지합니다. 고객정보는 서버에서 접근 확인 후 조회하며, 데이터가 없는 경우 실제 값을 만들어 표시하지 않습니다. 편집·승인·SFDC 저장은 아직 지원하지 않습니다.</p>
 </div></main>
-<script>
+<div id="mailModal" role="dialog" aria-modal="true"><div class="mailCard"><div class="mailHead"><strong id="mailSubject">메일 상세</strong><button id="mailClose">닫기</button></div><div class="mailMeta" id="mailMeta"></div><div class="mailBody" id="mailBody"></div></div></div><script>
 const groups=[
 ['🎯 오늘 할 일',[['actions','Action Dashboard'],['email_priority','Email Action Priority'],['nba','NBA Today Top10']]],
 ['📬 메일 · 응대',[['unanswered','Unanswered Emails'],['email_decisions','Email Review Decisions'],['lead_email','Lead Email Followup']]],
@@ -41,13 +42,28 @@ function select(){for(const b of menus.querySelectorAll('button'))b.classList.to
 function status(s,warn=false){const n=document.getElementById('status');n.textContent=s;n.classList.toggle('warn',warn)}
 function render(){const headers=dataset?.headers||[];const rows=dataset?.rows||[];const filtered=rows.filter(r=>!q||r.some(v=>String(v).toLowerCase().includes(q)));const per=200,total=1;page=0;
 const head=document.querySelector('thead'),body=document.querySelector('tbody');head.replaceChildren();body.replaceChildren();
-if(headers.length){const tr=document.createElement('tr');headers.forEach(h=>{const th=document.createElement('th');th.textContent=h;tr.append(th)});head.append(tr)}
-for(const r of filtered.slice(page*per,(page+1)*per)){const tr=document.createElement('tr');r.forEach(v=>{const td=document.createElement('td');td.textContent=v;td.title=String(v);tr.append(td)});body.append(tr)}
+if(headers.length){const tr=document.createElement('tr');headers.forEach(h=>{const th=document.createElement('th');th.textContent=h;tr.append(th)});if(active==='unanswered'){const th=document.createElement('th');th.textContent='메일';tr.prepend(th)}head.append(tr)}
+for(const r of filtered.slice(page*per,(page+1)*per)){const tr=document.createElement('tr');r.forEach(v=>{const td=document.createElement('td');td.textContent=v;td.title=String(v);tr.append(td)});if(active==='unanswered'){const cell=document.createElement('td');const btn=document.createElement('button');btn.className='mailOpen';btn.textContent='✉ 메일 열기';const uid=r[headers.indexOf('Thread UID')];btn.disabled=!uid;btn.onclick=()=>openMail(uid);cell.append(btn);tr.prepend(cell)}body.append(tr)}
 document.getElementById('count').textContent=rows.length.toLocaleString();document.getElementById('filtered').textContent=filtered.length.toLocaleString();
 document.getElementById('quality').textContent=dataset?.kind==='metrics'?'KPI':'정상';
 document.getElementById('pagination').textContent='서버 페이지 '+serverPage+' · '+filtered.length+'행 표시';
 document.getElementById('prev').disabled=serverPage===1;document.getElementById('next').disabled=!dataset?.hasMore;status(filtered.length+'건 표시 중 (서버 페이지 '+serverPage+')');
 }
+async function openMail(uid){
+const modal=document.getElementById('mailModal');modal.classList.add('open');
+document.getElementById('mailSubject').textContent='메일 불러오는 중…';
+document.getElementById('mailMeta').textContent='UID: '+uid;
+document.getElementById('mailBody').textContent='';
+try{const response=await fetch('/api/data?view=mail_detail&uid='+encodeURIComponent(uid),{credentials:'same-origin',cache:'no-store'});
+const data=await response.json();if(!response.ok)throw Error(data.error||'HTTP '+response.status);
+document.getElementById('mailSubject').textContent=data.subject||'(제목 없음)';
+document.getElementById('mailMeta').textContent='보낸 사람: '+data.fromName+' ('+data.from+') | 받는 사람: '+data.to+' | 참조: '+data.cc+' | 날짜: '+data.receivedAt;
+document.getElementById('mailBody').textContent=data.bodyAvailable?data.body:'원본 메일 본문이 저장되지 않았습니다.';
+}catch(e){document.getElementById('mailSubject').textContent='메일 조회 실패';document.getElementById('mailBody').textContent=e.message}
+}
+document.getElementById('mailClose').onclick=()=>document.getElementById('mailModal').classList.remove('open');
+document.getElementById('mailModal').onclick=e=>{if(e.target.id==='mailModal')e.currentTarget.classList.remove('open')};
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('mailModal').classList.remove('open')});
 async function load(){if(controller)controller.abort();controller=new AbortController();const requested=active;dataset=null;document.querySelector('thead').replaceChildren();document.querySelector('tbody').replaceChildren();status('데이터를 불러오는 중…');
 
 try{const response=await fetch('/api/data?view='+encodeURIComponent(requested)+'&page='+serverPage+'&pageSize=200',{credentials:'same-origin',cache:'no-store',signal:controller.signal});
