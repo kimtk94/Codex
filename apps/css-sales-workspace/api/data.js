@@ -59,8 +59,8 @@ module.exports = async (req, res) => {
     const page = Math.max(1,Math.min(100000,Number.parseInt(String(req.query.page || '1'),10)||1));
     const pageSize = Math.max(10,Math.min(200,Number.parseInt(String(req.query.pageSize || '50'),10)||50));
     const report = key === 'revenue';
-    const firstRow = report ? 1 : 1 + (page - 1) * pageSize;
-    const lastRow = report ? 105 : firstRow + pageSize;
+    const firstRow = report ? 1 : (page === 1 ? 1 : 2 + (page - 1) * pageSize);
+    const lastRow = report ? 105 : (page === 1 ? firstRow + pageSize : firstRow + pageSize - 1);
     const range="'"+title.replace(/'/g,"''")+"'!A"+firstRow+":AZ"+lastRow;
     const url='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'/values/'+encodeURIComponent(range)+'?valueRenderOption=FORMATTED_VALUE';
     const response=await fetch(url,{headers:{Authorization:'Bearer '+accessToken}});
