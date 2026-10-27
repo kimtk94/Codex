@@ -39,7 +39,7 @@ module.exports = async (req, res) => {
     if (!supplied || a.length!==b.length || !crypto.timingSafeEqual(a,b)) return res.status(401).json({error:'UNAUTHORIZED'});
   }
   const key = String(req.query.view || 'actions');
-  if (!Object.prototype.hasOwnProperty.call(VIEWS,key)) return res.status(400).json({error:'UNKNOWN_VIEW'});
+  if (key !== 'mail_detail' && !Object.prototype.hasOwnProperty.call(VIEWS,key)) return res.status(400).json({error:'UNKNOWN_VIEW'});
   const config = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.NBA_GOOGLE_SERVICE_ACCOUNT_JSON || process.env.CKD_GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!config) return res.status(503).json({error:'GOOGLE_CREDENTIALS_NOT_CONFIGURED'});
   try {
@@ -50,6 +50,23 @@ module.exports = async (req, res) => {
     const client = await auth.getClient();
     const tokenResponse = await client.getAccessToken();
     const accessToken = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse.token;
+    if(key === 'mail_detail'){
+      const uid=String(req.query.uid||'').trim();
+      if(!/^inbox:[0-9]{1,12}$/.test(uid)) return res.status(400).json({error:'INVALID_MAIL_UID'});
+      const read=async range=>{
+        const endpoint='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'/values/'+encodeURIComponent(range)+'?valueRenderOption=FORMATTED_VALUE';
+        const result=await fetch(endpoint,{headers:{Authorization:'Bearer '+accessToken}});
+        if(!result.ok) throw Error('GOOGLE_READ_'+result.status);
+        return (await result.json()).values||[];
+      };
+      const queue=await read("'Unanswered Emails'!I2:I1300");
+      if(!queue.some(row=>String(row[0]||'').trim()===uid))return res.status(404).json({error:'NOT_IN_UNANSWERED_QUEUE'});
+      const ids=await read("'CSS Mail Inbox Raw'!A2:A10000");
+      const match=ids.findIndex(row=>String(row[0]||'').trim()===uid);
+      if(match<0)return res.status(404).json({error:'SOURCE_MAIL_NOT_FOUND'});
+      const row=(await read("'CSS Mail Inbox Raw'!A"+(match+2)+":J"+(match+2)))[0]||[];
+      return res.status(200).json({uid,receivedAt:row[3]||'',from:row[4]||'',fromName:row[5]||'',to:row[6]||'',cc:row[7]||'',subject:row[8]||'',body:row[9]||'',bodyAvailable:Boolean(row[9]),readOnly:true});
+    }
     const meta = await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'?fields=sheets(properties(sheetId,title))',{headers:{Authorization:'Bearer '+accessToken}});
     if (!meta.ok) return res.status(502).json({error:'SHEET_METADATA_FAILED',status:meta.status});
     const info=await meta.json();
