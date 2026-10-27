@@ -2,11 +2,13 @@ name: Feishu Project Status Sync
 on:
   workflow_dispatch:
   schedule:
-    - cron: '21 0 * * *'
+    - cron: '9,39 * * * *'
   push:
-    branches: [main]
+    branches: [main, fix/feishu-latest-auto-20261027]
     paths:
       - 'automation/feishu/project_status_sync.py'
+      - 'automation/feishu/latest_source_sync.py'
+      - 'automation/feishu/latest_four_formats.py'
       - '.github/workflows/feishu-project-sync.yml'
 permissions:
   contents: read
@@ -31,8 +33,14 @@ jobs:
           python-version: '3.11'
       - name: Install private Google Sheets client
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Test latest source selection and safe evidence semantics
+        run: python3 -m unittest discover -s automation/feishu -p 'test_latest_source_sync.py'
+      - name: Test latest dated source selection
+        run: python3 automation/feishu/test_latest_four_formats.py
       - name: Validate source integration
-        run: python3 -m py_compile automation/feishu/project_status_sync.py
-      - name: Sync project-level unissued and unpaid flags
+        run: python3 -m py_compile automation/feishu/project_status_sync.py automation/feishu/latest_source_sync.py
+      - name: Sync newest five private source snapshots and evidence flags
         run: python3 automation/feishu/project_status_sync.py
 # First-run verification requested 2026-10-23 KST.
+      - name: Refresh Online TAT and invoice-deduplicated forecast
+        run: python3 automation/feishu/online_project_tat_forecast.py
