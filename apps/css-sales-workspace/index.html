@@ -58,7 +58,7 @@ try{const response=await fetch('/api/data?view=mail_detail&uid='+encodeURICompon
 const data=await response.json();if(!response.ok)throw Error(data.error||'HTTP '+response.status);
 document.getElementById('mailSubject').textContent=data.subject||'(제목 없음)';
 document.getElementById('mailMeta').textContent='보낸 사람: '+data.fromName+' ('+data.from+') | 받는 사람: '+data.to+' | 참조: '+data.cc+' | 날짜: '+data.receivedAt;
-document.getElementById('mailBody').textContent=data.bodyAvailable?data.body:'원본 메일 본문이 저장되지 않았습니다.';
+document.getElementById('mailBody').textContent=data.bodyAvailable?data.body:(data.notice||'원본 메일 본문이 저장되지 않았습니다.');
 }catch(e){document.getElementById('mailSubject').textContent='메일 조회 실패';document.getElementById('mailBody').textContent=e.message}
 }
 document.getElementById('mailClose').onclick=()=>document.getElementById('mailModal').classList.remove('open');
