@@ -16,7 +16,12 @@ const VIEWS = {
   billing: ['Billing Control Dashboard',246817115],
   health: ['Automation Health',898581637],
   owners: ['Owner Sheet Registry',2036102692],
-  mail_source: ['CSS Mail Source Control',2036102691]
+  mail_source: ['CSS Mail Source Control',2036102691],
+  opportunities: ['SFDC Import Opportunities',2036102426],
+  quote_records: ['SFDC Import Quotation',2036102427],
+  sales_master: ['Sales Master',667234836],
+  timeline: ['CSS Project Timeline',1466322538],
+  revenue_fact: ['BI Revenue Fact',1436422169]
 };
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control','private, no-store, max-age=0');
@@ -51,14 +56,29 @@ module.exports = async (req, res) => {
     const tab=(info.sheets||[]).find(s=>s.properties.sheetId===VIEWS[key][1]);
     if(!tab) return res.status(404).json({error:'TAB_NOT_FOUND',view:key});
     const title=tab.properties.title;
-    const range="'"+title.replace(/'/g,"''")+"'!A1:AZ1001";
+    const page = Math.max(1,Math.min(100000,Number.parseInt(String(req.query.page || '1'),10)||1));
+    const pageSize = Math.max(10,Math.min(200,Number.parseInt(String(req.query.pageSize || '50'),10)||50));
+    const report = key === 'revenue';
+    const firstRow = report ? 1 : 1 + (page - 1) * pageSize;
+    const lastRow = report ? 105 : firstRow + pageSize;
+    const range="'"+title.replace(/'/g,"''")+"'!A"+firstRow+":AZ"+lastRow;
     const url='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'/values/'+encodeURIComponent(range)+'?valueRenderOption=FORMATTED_VALUE';
     const response=await fetch(url,{headers:{Authorization:'Bearer '+accessToken}});
     if(!response.ok) return res.status(502).json({error:'SHEET_READ_FAILED',status:response.status});
     const raw=(await response.json()).values||[];
-    const headers=(raw[0]||[]).map((v,i)=>String(v||'Column '+(i+1)));
-    const rows=raw.slice(1).filter(row=>row.some(x=>String(x).trim())).map(row=>headers.map((_,i)=>row[i]||''));
-    return res.status(200).json({view:key,title,headers,rows,shown:rows.length,truncated:rows.length>=1000,readOnly:true,updatedAt:new Date().toISOString()});
+    if(report){
+      const metricRows=[{label:'Total Invoice KRW',row:5,col:1},{label:'Total Revenue K USD',row:5,col:5},{label:'Invoice Count',row:5,col:9},{label:'Service Coverage',row:8,col:1},{label:'AMEA Quote Link %',row:8,col:5},{label:'Approved Active → Invoice',row:8,col:9}];
+      const metrics=metricRows.map(m=>({metric:m.label,value:raw[m.row-1]?.[m.col-1]??null}));
+      return res.status(200).json({view:key,title,kind:'metrics',metrics,headers:['Metric','Value'],rows:metrics.map(m=>[m.metric,m.value]),page:1,pageSize:metrics.length,hasMore:false,readOnly:true,updatedAt:new Date().toISOString()});
+    }
+    const headersRange="'"+title.replace(/'/g,"''")+"'!A1:AZ1";
+    const headerUrl='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'/values/'+encodeURIComponent(headersRange)+'?valueRenderOption=FORMATTED_VALUE';
+    const headerResponse=await fetch(headerUrl,{headers:{Authorization:'Bearer '+accessToken}});
+    if(!headerResponse.ok)return res.status(502).json({error:'SHEET_HEADER_FAILED',status:headerResponse.status});
+    const headers=((await headerResponse.json()).values?.[0]||[]).map((v,i)=>String(v||'Column '+(i+1)));
+    const pageRaw=page===1?raw.slice(1):raw;
+    const rows=pageRaw.filter(row=>row.some(x=>String(x).trim())).map(row=>headers.map((_,i)=>row[i]??''));
+    return res.status(200).json({view:key,title,kind:'table',headers,rows,shown:rows.length,page,pageSize,hasMore:pageRaw.length>=pageSize,readOnly:true,updatedAt:new Date().toISOString()});
   } catch(e) {
     console.error('CSS_WEB_DATA_FAILURE',e?.message);
     return res.status(502).json({error:'DATA_SOURCE_UNAVAILABLE'});
