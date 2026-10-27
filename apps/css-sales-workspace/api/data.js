@@ -61,11 +61,16 @@ module.exports = async (req, res) => {
       };
       const queue=await read("'Unanswered Emails'!I2:I1300");
       if(!queue.some(row=>String(row[0]||'').trim()===uid))return res.status(404).json({error:'NOT_IN_UNANSWERED_QUEUE'});
+      const rowIndex=queue.findIndex(row=>String(row[0]||'').trim()===uid);
+      const summary=(await read("'Unanswered Emails'!A"+(rowIndex+2)+":V"+(rowIndex+2)))[0]||[];
+      const fallback={uid,receivedAt:summary[4]||'',from:summary[2]||'',fromName:'',to:'',cc:'',subject:summary[3]||'',body:'',bodyAvailable:false,source:'unanswered_summary',notice:'원본 메일 본문이 아직 동기화되지 않았습니다. CSS Mail Inbox Raw가 비어 있습니다.',readOnly:true};
       const ids=await read("'CSS Mail Inbox Raw'!A2:A10000");
       const match=ids.findIndex(row=>String(row[0]||'').trim()===uid);
-      if(match<0)return res.status(404).json({error:'SOURCE_MAIL_NOT_FOUND'});
-      const row=(await read("'CSS Mail Inbox Raw'!A"+(match+2)+":J"+(match+2)))[0]||[];
-      return res.status(200).json({uid,receivedAt:row[3]||'',from:row[4]||'',fromName:row[5]||'',to:row[6]||'',cc:row[7]||'',subject:row[8]||'',body:row[9]||'',bodyAvailable:Boolean(row[9]),readOnly:true});
+      if(match>=0){
+        const row=(await read("'CSS Mail Inbox Raw'!A"+(match+2)+":J"+(match+2)))[0]||[];
+        return res.status(200).json({uid,receivedAt:row[3]||fallback.receivedAt,from:row[4]||fallback.from,fromName:row[5]||'',to:row[6]||'',cc:row[7]||'',subject:row[8]||fallback.subject,body:row[9]||'',bodyAvailable:Boolean(row[9]),source:'css_mail_raw',notice:row[9]?'':'원본 메일 본문이 저장되지 않았습니다.',readOnly:true});
+      }
+      return res.status(200).json(fallback);
     }
     const meta = await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'?fields=sheets(properties(sheetId,title))',{headers:{Authorization:'Bearer '+accessToken}});
     if (!meta.ok) return res.status(502).json({error:'SHEET_METADATA_FAILED',status:meta.status});
