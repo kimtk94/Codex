@@ -8,7 +8,7 @@ nav button{display:block;width:100%;text-align:left;border:0;border-radius:9px;b
 nav button:hover,nav button.active{background:#e8f1ff;color:#145ab4}
 .content{padding:25px;min-width:0}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 h2{margin:0;font-size:23px}.sub{color:#71829a;font-size:12px;margin-top:7px}input{padding:12px;border:1px solid #cfd9e6;border-radius:9px;min-width:0}
-#search{width:300px;max-width:100%}#token{width:210px}button.action{padding:11px 16px;background:#1765bf;color:white;border:0;border-radius:9px;cursor:pointer}
+#search{width:300px;max-width:100%}button.action{padding:11px 16px;background:#1765bf;color:white;border:0;border-radius:9px;cursor:pointer}
 .toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:20px 0}#summary{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:12px;margin:20px 0}
 .metric,.panel{background:white;border:1px solid #e1e7f0;border-radius:13px;padding:18px}.metric strong{display:block;font-size:24px;margin-top:8px}.metric span{color:#7789a0;font-size:12px}
 .panel{padding:0;overflow:hidden}.tablewrap{overflow:auto;max-height:68vh}table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}
@@ -22,9 +22,9 @@ th{position:sticky;top:0;background:#f1f5fb;z-index:1;font-weight:800}tr:hover t
 <header><div><small>NOVOGENE · CSS / SFDC</small><h1>📊 Sales Workspace</h1></div><div style="margin-left:auto"><small>Owner: kim-taehoon · Read-only data viewer</small></div></header>
 <main><aside><nav id="menu"></nav></aside><div class="content">
 <div class="top"><div><h2 id="title">오늘의 Action Dashboard</h2><div class="sub" id="updated">데이터 준비 중</div></div><div><button class="action" id="refresh">↻ 새로고침</button></div></div>
-<div class="toolbar"><input id="token" type="password" placeholder="웹 조회 접근 토큰" autocomplete="off"><input id="search" placeholder="🔎 현재 표 전체 검색"><span class="sub">조회 전용 · 접근 토큰은 저장되지 않습니다</span></div>
+<div class="toolbar"><input id="search" placeholder="🔎 현재 표 전체 검색"><span class="sub">조회 전용 · Vercel 로그인 보호</span></div>
 <div id="summary"><div class="metric"><span>조회한 행</span><strong id="count">—</strong></div><div class="metric"><span>검색 결과</span><strong id="filtered">—</strong></div><div class="metric"><span>데이터 상태</span><strong id="quality">대기</strong></div></div>
-<div class="panel"><div id="status">웹 조회 토큰을 입력하고 새로고침을 누르세요.</div><div class="tablewrap"><table id="table"><thead></thead><tbody></tbody></table></div><div class="footer"><span class="sub" id="pagination">—</span><div><button id="prev">이전</button><button id="next">다음</button></div></div></div>
+<div class="panel"><div id="status">Vercel 로그인 확인 후 데이터를 자동 조회합니다.</div><div class="tablewrap"><table id="table"><thead></thead><tbody></tbody></table></div><div class="footer"><span class="sub" id="pagination">—</span><div><button id="prev">이전</button><button id="next">다음</button></div></div></div>
 <p class="sub">🔒 원본 Google Sheets는 유지합니다. 고객정보는 서버에서 접근 확인 후 조회하며, 데이터가 없는 경우 실제 값을 만들어 표시하지 않습니다. 편집·승인·SFDC 저장은 아직 지원하지 않습니다.</p>
 </div></main>
 <script>
@@ -49,13 +49,13 @@ document.getElementById('pagination').textContent=filtered.length?((page*per+1)+
 document.getElementById('prev').disabled=page===0;document.getElementById('next').disabled=page>=total-1;status(dataset?.truncated?'첫 1,000개 데이터 행만 표시합니다. 전체 조회 API 추가 필요.':filtered.length+'건 표시 중');
 }
 async function load(){if(controller)controller.abort();controller=new AbortController();const requested=active;dataset=null;document.querySelector('thead').replaceChildren();document.querySelector('tbody').replaceChildren();status('데이터를 불러오는 중…');
-const token=document.getElementById('token').value.trim();if(!token){status('접근 토큰이 필요합니다. 환경변수 CSS_WEB_ACCESS_TOKEN 설정도 필요합니다.',true);return}
-try{const response=await fetch('/api/data?view='+encodeURIComponent(requested),{headers:{Authorization:'Bearer '+token},cache:'no-store',signal:controller.signal});
+
+try{const response=await fetch('/api/data?view='+encodeURIComponent(requested),{credentials:'same-origin',cache:'no-store',signal:controller.signal});
 const data=await response.json();if(!response.ok)throw Error(data.error||'HTTP '+response.status);if(active!==requested)return;dataset=data;page=0;document.getElementById('updated').textContent='원본 '+data.title+' · 조회 '+new Date(data.updatedAt).toLocaleString('ko-KR');render()}
 catch(e){if(e.name==='AbortError')return;status('연결 실패: '+e.message+' — Vercel 환경변수와 API 권한을 확인하세요.',true);document.getElementById('count').textContent='—';document.getElementById('filtered').textContent='—';document.getElementById('quality').textContent='오류'}}
 document.getElementById('search').oninput=e=>{q=e.target.value.trim().toLowerCase();page=0;if(dataset)render()};
-document.getElementById('refresh').onclick=load;document.getElementById('token').addEventListener('keydown',e=>{if(e.key==='Enter')load()});
+document.getElementById('refresh').onclick=load;
 document.getElementById('prev').onclick=()=>{if(page>0){page--;render()}};
 document.getElementById('next').onclick=()=>{page++;render()};
-select();
+select();load();
 </script></body></html>
