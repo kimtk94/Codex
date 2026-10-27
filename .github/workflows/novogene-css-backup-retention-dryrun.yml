@@ -1,0 +1,59 @@
+name: Novogene CSS Full Backup Retention Dry Run
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-backup-retention-dryrun.yml'
+      - 'css-upgrade/staging-20261014/offsite_retention_dryrun.py'
+
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify SSH configuration
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::Missing SSH config"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw = os.environ["SSH_KEY"].strip()
+          if "\\n" in raw and "\n" not in raw:
+              raw = raw.replace("\\n","\n")
+          raw=raw.replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          Path.home().joinpath(".ssh/server_key").write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
+      - name: Read-only Google Drive offsite restore drill
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          REMOTE_SCRIPT="/tmp/css-offsite-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.py"
+          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f $REMOTE_SCRIPT" >/dev/null 2>&1 || true' EXIT
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/offsite_retention_dryrun.py "$SSH_USER@$SSH_HOST:$REMOTE_SCRIPT"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" "/home/taehoon/services/novogene-css/.venv/bin/python '$REMOTE_SCRIPT'"

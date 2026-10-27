@@ -1,0 +1,28 @@
+--- a/Novogene_Mail_CSS_DashBoard.py
++++ b/Novogene_Mail_CSS_DashBoard.py
+@@ -21340,11 +21340,11 @@
+                 counts["overview_skip_count"] = int(
+                     df_overview_snoozes["mode"].eq("Skip").sum()
+                 ) if not df_overview_snoozes.empty else 0
+ 
+         df_action_center = build_action_center_output(
+-            df_dashboard,
++            df_dashboard_portfolio,
+             df_unanswered,
+             df_salesforce_leads,
+             df_salesforce_enquiries,
+             df_quotation_match,
+             df_ledger,
+@@ -21353,11 +21353,11 @@
+             previous_rows=previous_action_rows,
+             resolved_rows=previous_action_resolved_rows,
+             df_manual_issues=df_manual_issues,
+         )
+         df_review_queue = build_review_queue_output(
+-            df_dashboard,
++            df_dashboard_portfolio,
+             df_timeline,
+             df_ledger,
+             df_quotation_match,
+             source_ws.id,
+             previous_review_rows,

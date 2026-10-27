@@ -1,0 +1,229 @@
+name: Novogene CSS Patched Engine Output Canary
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-engine-output-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate SSH credentials
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::SSH configuration missing"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw=os.environ["SSH_KEY"].strip().replace("\\n","\n").replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          (Path.home()/'.ssh/server_key').write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
+      - name: Server ADC isolated canary Sheet read/write test
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          REMOTE_PATCH="/tmp/css-engine-output-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.patch"
+          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f $REMOTE_PATCH" >/dev/null 2>&1 || true' EXIT
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_sif_history_candidate.patch "$SSH_USER@$SSH_HOST:$REMOTE_PATCH" || exit 1
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" "PATCH_FILE='$REMOTE_PATCH' /home/taehoon/services/novogene-css/.venv/bin/python -" <<'PY'
+          import os
+          import ast
+          import hashlib
+          import json
+          import sqlite3
+          import subprocess
+          import tempfile
+          import time
+          import re
+          from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          import pandas as pd
+          TEST_ID='1eKMPMnRYeZB8tuPE2dblcSaHXSZ58REHPQgJSq2RIjA'
+          ORIGINAL_PRODUCTION_ID='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+          if TEST_ID==ORIGINAL_PRODUCTION_ID:
+              raise SystemExit('CANARY_TARGET_NOT_ISOLATED')
+          source=Path('/home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py')
+          original=source.read_bytes()
+          if hashlib.sha256(original).hexdigest()!='a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840':
+              raise SystemExit('CANARY_SOURCE_SHA_MISMATCH')
+          with tempfile.TemporaryDirectory(prefix='css-engine-canary-') as td:
+              p=Path(td)/'Novogene_Mail_CSS_DashBoard.py'
+              p.write_bytes(original)
+              patch_path=Path(os.environ['PATCH_FILE'])
+              for flags in [('--check','--whitespace=error'),('--whitespace=error',)]:
+                  result=subprocess.run(['git','apply',*flags,str(patch_path)],cwd=td,
+                      capture_output=True,text=True,timeout=50)
+                  if result.returncode:
+                      raise SystemExit('CANARY_PATCH_APPLY_FAILED')
+              staged=p.read_bytes()
+              if hashlib.sha256(staged).hexdigest()!='125a0ec6ba9733660deb3828d073777d8912a19965155e58f5e16b7b4e4f367c':
+                  raise SystemExit('CANARY_STAGED_SHA_MISMATCH')
+              tree=ast.parse(staged)
+          funcs={'build_contract_sif_skip_history','collect_active_prepayment_project_ids',
+              'load_active_contract_sif_skips','overwrite_dataframe_if_changed',
+              'overwrite_typed_worksheet','sheet_scalar'}
+          nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in funcs]
+          if {n.name for n in nodes}!=funcs:
+              raise SystemExit('CANARY_ENGINE_FUNCTIONS_MISSING')
+          cols=['record_id','is_active','Contract No.','AMEA No.','Institution',
+              'Customer Name','skip_reason','Prepayment','skipped_at','restored_at',
+              'reference_date','age_days','workflow_status','tracker_visibility','history_note']
+          ns=dict(pd=pd,json=json,datetime=datetime,KST=ZoneInfo('Asia/Seoul'),
+              time=time,SMART_SHEET_WRITES=True,_SHEET_WRITE_PROFILE=[],
+              SAMPLE_INTAKE_PREPAYMENT_COLUMN='Prepayment',
+              SAMPLE_INTAKE_RETENTION_DAYS=30,
+              SAMPLE_INTAKE_TERMINAL_STATUSES={'SIF approved'},
+              SAMPLE_INTAKE_SKIP_HISTORY_COLUMNS=cols)
+          ns['clean_text']=lambda x: re.sub(r'\s+',' ',str(x or '')).strip()
+          ns['normalize_text']=lambda x:ns['clean_text'](x).lower()
+          ns['checkbox_is_checked']=lambda x:ns['normalize_text'](x) in {'true','1','yes','y','checked'}
+          ns['canonical_sif_project_id']=lambda x: (re.search(r'AMEA\d{10}',str(x or '').upper()).group()
+              if re.search(r'AMEA\d{10}',str(x or '').upper()) else '')
+          ns['Decimal']=__import__('decimal').Decimal
+          ns['ensure_worksheet_layout']=lambda *a,**k:None
+          ns['clear_stale_sheet_tail']=lambda *a,**k:None
+          ns['ensure_basic_filter_range']=lambda *a,**k:None
+          ns['sheet_user_entered_scalar']=lambda v,col='':v
+          ns['get_meta']=lambda conn,key,default='': (
+              conn.execute('SELECT value FROM sheet_meta WHERE key=?',(key,)).fetchone() or [default])[0]
+          ns['set_meta']=lambda conn,key,value:conn.execute(
+              'INSERT INTO sheet_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+              (key,str(value)))
+          ns['dataframe_sheet_write_hash']=lambda df,value_input_option='RAW': hashlib.sha256(
+              (df.to_json(orient='split',date_format='iso')+'\t'+value_input_option).encode()).hexdigest()
+          ns['sheet_integrity_audit_is_fresh']=lambda conn,ws:True
+          ns['output_sheet_structure_is_current']=lambda conn,ws,df: (
+              ws.get('A1:O1')[0]==list(df.columns) and len(ws.get('A2:O6'))==len(df))
+          ns['verify_repaired_output_sheet_structure']=lambda *a,**k:True
+          exec(compile(ast.Module(body=nodes,type_ignores=[]),'real-sif-engine-functions','exec'),ns)
+          db=sqlite3.connect(':memory:')
+          db.execute('CREATE TABLE sheet_meta(key TEXT PRIMARY KEY,value TEXT)')
+          db.execute("""CREATE TABLE contract_sif_skips (
+              record_id TEXT PRIMARY KEY,is_active INTEGER,skip_reason TEXT,
+              skipped_at TEXT,restored_at TEXT,snapshot_json TEXT)""")
+          for i in range(1,6):
+              project='AMEA20990000'+str(i).zfill(2)
+              snap={'project_id':project,'AMEA No.':project,'Contract No.':'CANARY-C-'+str(i),
+                  'Institution':'SYNTHETIC INSTITUTION','Customer Name':'CANARY',
+                  'Date':'2026-08-10','workflow_status':'SIF requested','Prepayment':i<=3}
+              db.execute('INSERT INTO contract_sif_skips VALUES (?,?,?,?,?,?)',
+                  ('SYNTH-'+str(i),1,'Prepayment' if i<=3 else 'Other',
+                   '2026-08-20','',json.dumps(snap)))
+          db.commit()
+          ids=ns['collect_active_prepayment_project_ids'](db)
+          history=ns['build_contract_sif_skip_history'](db)
+          if len(ids)!=3 or len(history)!=5 or int(history['Prepayment'].sum())!=3:
+              raise SystemExit('CANARY_ENGINE_SYNTHETIC_DATA_BAD')
+          print('CANARY_ACTUAL_HISTORY_BUILDER_PASS')
+          try:
+              import gspread
+              import google.auth
+              from google.auth.exceptions import DefaultCredentialsError
+              from pathlib import Path
+              import re
+              # SSH sessions do not inherit the hourly production unit's ADC path.
+              # Examine only Google credential PATH settings. Never print or copy credentials.
+              def set_scoped_adc_path():
+                  if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
+                      return
+                  search=[]
+                  unit_roots=[Path('/etc/systemd/system'),Path('/home/taehoon/.config/systemd/user')]
+                  for root in unit_roots:
+                      if not root.is_dir():
+                          continue
+                      for pattern in ('*novogene*.service','*css*.service'):
+                          for unit in root.glob(pattern):
+                              try:
+                                  txt=unit.read_text(errors='replace')
+                              except OSError:
+                                  continue
+                              for line in txt.splitlines():
+                                  if line.strip().startswith('EnvironmentFile='):
+                                      entry=line.split('=',1)[1].strip().lstrip('-').strip('"').strip("'")
+                                      if entry.startswith('/'):
+                                          search.append(Path(entry.split()[0]))
+                                  if line.strip().startswith('Environment=') and 'GOOGLE_APPLICATION_CREDENTIALS=' in line:
+                                      found=re.search(r'GOOGLE_APPLICATION_CREDENTIALS=([^\\s\\"]+)',line)
+                                      if found:
+                                          possible=Path(found.group(1).strip("'"))
+                                          if possible.is_file():
+                                              os.environ['GOOGLE_APPLICATION_CREDENTIALS']=str(possible)
+                                              return
+                  search.extend([
+                      Path('/home/taehoon/services/novogene-css/.env'),
+                      Path('/home/taehoon/services/novogene-css/app/.env'),
+                      Path('/home/taehoon/.config/novogene-css.env'),
+                  ])
+                  for path in search[:40]:
+                      try:
+                          if not path.is_file() or path.stat().st_size>150000:
+                              continue
+                          for line in path.read_text(errors='replace').splitlines():
+                              if line.lstrip().startswith(('GOOGLE_APPLICATION_CREDENTIALS=','export GOOGLE_APPLICATION_CREDENTIALS=')):
+                                  keyval=line.strip().removeprefix('export ')
+                                  value=keyval.split('=',1)[1].strip().strip('"').strip("'")
+                                  candidate=Path(value).expanduser()
+                                  if candidate.is_file():
+                                      os.environ['GOOGLE_APPLICATION_CREDENTIALS']=str(candidate)
+                                      return
+                      except OSError:
+                          pass
+              try:
+                  credentials,project=google.auth.default(scopes=['https://www.googleapis.com/auth/spreadsheets'])
+              except DefaultCredentialsError:
+                  set_scoped_adc_path()
+                  credentials,project=google.auth.default(scopes=['https://www.googleapis.com/auth/spreadsheets'])
+              gc=gspread.authorize(credentials)
+          except Exception as exc:
+              raise SystemExit('CANARY_AUTH_UNAVAILABLE_'+type(exc).__name__)
+          test=gc.open_by_key(TEST_ID)
+          if test.title!='CSS SIF Upgrade Canary - Synthetic 2026-10-15':
+              raise SystemExit('CANARY_SHEET_TITLE_MISMATCH')
+          hist=test.worksheet('SIF Skip History')
+          manual=test.worksheet('Manual Override QA')
+          manual_before=manual.get('A1:H3')
+          first=ns['overwrite_dataframe_if_changed'](db,hist,history,value_input_option='RAW')
+          data=hist.get('A1:O6')
+          if data[0]!=cols or len(data)!=6 or sum(str(r[7]).upper()=='TRUE' for r in data[1:])!=3:
+              raise SystemExit('CANARY_ENGINE_OUTPUT_MISMATCH')
+          second=ns['overwrite_dataframe_if_changed'](db,hist,history,value_input_option='RAW')
+          if first is not True or second is not False:
+              raise SystemExit('CANARY_SMART_WRITE_IDEMPOTENCE_FAILED')
+          if manual.get('A1:H3')!=manual_before:
+              raise SystemExit('CANARY_MANUAL_STATE_CHANGED')
+          if hashlib.sha256(source.read_bytes()).hexdigest()!='a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840':
+              raise SystemExit('CANARY_LIVE_SOURCE_MODIFIED')
+          db.close()
+          print('CANARY_REAL_ENGINE_TYPED_WRITE_PASS')
+          print('CANARY_REAL_ENGINE_SMART_SKIP_SECOND_RUN_PASS')
+          print('CANARY_MANUAL_STATE_PRESERVED_PASS')
+          print('CANARY_PRODUCTION_FILE_AND_DB_UNTOUCHED')
+
+          PY

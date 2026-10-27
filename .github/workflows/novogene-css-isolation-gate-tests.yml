@@ -1,0 +1,32 @@
+name: Novogene CSS Synthetic Isolation Gate Tests
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-isolation-gate-tests.yml'
+      - 'css-upgrade/staging-20261014/canary_isolation_gate.py'
+      - 'css-upgrade/staging-20261014/test_canary_isolation_gate.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test fail-closed canary boundary without server access
+        run: |
+          python3 -m py_compile \
+            css-upgrade/staging-20261014/canary_isolation_gate.py \
+            css-upgrade/staging-20261014/test_canary_isolation_gate.py
+          python3 -m unittest discover \
+            -s css-upgrade/staging-20261014 \
+            -p test_canary_isolation_gate.py -v
+          echo "CANARY_ISOLATION_UNIT_GATE_PASS"
+          echo "SERVER_CONNECTIONS_NOT_USED"
+          echo "FULL_MAIN_NOT_EXECUTED"

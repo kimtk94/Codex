@@ -1,0 +1,26 @@
+--- a/Novogene_Mail_CSS_DashBoard.py
++++ b/Novogene_Mail_CSS_DashBoard.py
+@@ -10500,10 +10500,23 @@
+         if project_id in dashboard_rows
+         and dataframe_row_text(
+             dashboard_rows[project_id], "current_stage"
+         ) in sif_stages
+     }
++
++    # Explicit manual Hold / Skip must take priority over automatic Prepayment
++    # snoozes on the SAME project. Dashboard follow-up suppression happens
++    # separately and still applies to all active Prepayment projects.
++    manual_override_ids = {
++        clean_text(row[0]).upper()
++        for row in conn.execute(
++            "SELECT project_id FROM overview_project_snoozes "
++            "WHERE mode IN ('hold', 'skip_until_new_mail')"
++        ).fetchall()
++        if clean_text(row[0])
++    }
++    active_ids.difference_update(manual_override_ids)
+ 
+     existing_ids = {
+         clean_text(row[0]).upper()
+         for row in conn.execute(
+             "SELECT project_id FROM overview_project_snoozes "

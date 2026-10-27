@@ -1,0 +1,81 @@
+name: Novogene CSS Consolidated Release Preflight
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-consolidated-release-preflight.yml'
+      - 'css-upgrade/staging-20261014/sif_release_preflight.py'
+      - 'css-upgrade/staging-20261014/novogene_sif_portfolio_visibility.patch'
+      - 'css-upgrade/staging-20261014/novogene_sif_independent_actions.patch'
+      - 'css-upgrade/staging-20261014/novogene_sif_atomic_auto_skip.patch'
+      - 'css-upgrade/staging-20261014/novogene_css_hold_replay_guard.patch'
+      - 'css-upgrade/staging-20261014/novogene_css_one_shot_receipts.patch'
+      - 'css-upgrade/staging-20261014/novogene_css_snapshot_conflict_guard.patch'
+      - 'css-upgrade/staging-20261014/novogene_sif_manual_override_collision.patch'
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify SSH configuration
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::Missing SSH config"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw = os.environ["SSH_KEY"].strip()
+          if "\\n" in raw and "\n" not in raw:
+              raw = raw.replace("\\n","\n")
+          raw=raw.replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          Path.home().joinpath(".ssh/server_key").write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
+      - name: Execute read-only release preflight on server
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          PREFIX="/tmp/css-release-preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f ${PREFIX}.py ${PREFIX}.a.patch ${PREFIX}.b.patch ${PREFIX}.c.patch ${PREFIX}.d.patch ${PREFIX}.e.patch ${PREFIX}.f.patch ${PREFIX}.g.patch ${PREFIX}.h.patch" >/dev/null 2>&1 || true' EXIT
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/sif_release_preflight.py "$SSH_USER@$SSH_HOST:${PREFIX}.py"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_sif_history_candidate.patch "$SSH_USER@$SSH_HOST:${PREFIX}.a.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_sif_manual_override_collision.patch "$SSH_USER@$SSH_HOST:${PREFIX}.b.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_sif_portfolio_visibility.patch "$SSH_USER@$SSH_HOST:${PREFIX}.c.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_sif_independent_actions.patch "$SSH_USER@$SSH_HOST:${PREFIX}.d.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_sif_atomic_auto_skip.patch "$SSH_USER@$SSH_HOST:${PREFIX}.e.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_css_hold_replay_guard.patch "$SSH_USER@$SSH_HOST:${PREFIX}.f.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_css_one_shot_receipts.patch "$SSH_USER@$SSH_HOST:${PREFIX}.g.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/novogene_css_snapshot_conflict_guard.patch "$SSH_USER@$SSH_HOST:${PREFIX}.h.patch"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" \
+            "/home/taehoon/services/novogene-css/.venv/bin/python '${PREFIX}.py' --first '${PREFIX}.a.patch' --second '${PREFIX}.b.patch' --third '${PREFIX}.c.patch' --fourth '${PREFIX}.d.patch' --fifth '${PREFIX}.e.patch' --sixth '${PREFIX}.f.patch' --seventh '${PREFIX}.g.patch' --eighth '${PREFIX}.h.patch'"
