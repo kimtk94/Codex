@@ -33,7 +33,9 @@ module.exports = async (req, res) => {
   const config = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.NBA_GOOGLE_SERVICE_ACCOUNT_JSON || process.env.CKD_GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!config) return res.status(503).json({error:'GOOGLE_CREDENTIALS_NOT_CONFIGURED'});
   try {
-    const credentials = JSON.parse(config);
+    const credentials = (() => {
+      try { return JSON.parse(config); } catch (_) { return JSON.parse(Buffer.from(config,'base64').toString('utf8')); }
+    })();
     const auth = new GoogleAuth({credentials,scopes:['https://www.googleapis.com/auth/spreadsheets.readonly']});
     const client = await auth.getClient();
     const tokenResponse = await client.getAccessToken();
