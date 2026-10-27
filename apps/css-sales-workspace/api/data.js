@@ -22,12 +22,17 @@ module.exports = async (req, res) => {
   res.setHeader('Cache-Control','private, no-store, max-age=0');
   res.setHeader('X-Content-Type-Options','nosniff');
   if (req.method !== 'GET') return res.status(405).json({error:'METHOD_NOT_ALLOWED'});
-  const expected = process.env.CSS_WEB_ACCESS_TOKEN;
-  if (!expected) return res.status(503).json({error:'WEB_ACCESS_NOT_CONFIGURED'});
-  const supplied = String(req.headers.authorization || '').replace(/^Bearer\s+/i,'');
-  const crypto = require('crypto');
-  const a=Buffer.from(supplied), b=Buffer.from(expected);
-  if (!supplied || a.length!==b.length || !crypto.timingSafeEqual(a,b)) return res.status(401).json({error:'UNAUTHORIZED'});
+  // Preview is gated by Vercel Deployment Protection (SSO).
+  // Never permit anonymous requests on production, local development or unprotected deploys.
+  const protectedPreview = process.env.VERCEL === '1' && process.env.VERCEL_ENV === 'preview';
+  if (!protectedPreview) {
+    const expected = process.env.CSS_WEB_ACCESS_TOKEN;
+    if (!expected) return res.status(503).json({error:'WEB_ACCESS_NOT_CONFIGURED'});
+    const supplied = String(req.headers.authorization || '').replace(/^Bearer\s+/i,'');
+    const crypto = require('crypto');
+    const a=Buffer.from(supplied), b=Buffer.from(expected);
+    if (!supplied || a.length!==b.length || !crypto.timingSafeEqual(a,b)) return res.status(401).json({error:'UNAUTHORIZED'});
+  }
   const key = String(req.query.view || 'actions');
   if (!Object.prototype.hasOwnProperty.call(VIEWS,key)) return res.status(400).json({error:'UNKNOWN_VIEW'});
   const config = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.NBA_GOOGLE_SERVICE_ACCOUNT_JSON || process.env.CKD_GOOGLE_SERVICE_ACCOUNT_JSON;
