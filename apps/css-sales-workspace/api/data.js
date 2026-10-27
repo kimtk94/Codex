@@ -132,6 +132,27 @@ module.exports = async (req, res) => {
     const headers=((await headerResponse.json()).values?.[0]||[]).map((v,i)=>String(v||'Column '+(i+1)));
     const pageRaw=page===1?raw.slice(1):raw;
     const rows=pageRaw.filter(row=>row.some(x=>String(x).trim())).map(row=>headers.map((_,i)=>row[i]??''));
+    if(key==='monthly_revenue'){
+      // Keep issued invoice amounts separate from provisional completion estimates.
+      // This is descriptive metadata from Feishu TAT Monthly, never an extra revenue sum.
+      const extraRange="'Feishu TAT Monthly'!A1:M100";
+      const extraUrl='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'/values/'+encodeURIComponent(extraRange)+'?valueRenderOption=UNFORMATTED_VALUE';
+      const ext=await fetch(extraUrl,{headers:{Authorization:'Bearer '+accessToken}});
+      if(!ext.ok)return res.status(502).json({error:'MONTHLY_BREAKDOWN_UNAVAILABLE',status:ext.status});
+      const details=(await ext.json()).values||[];
+      const byMonth=new Map(details.slice(1).filter(x=>x[0]).map(x=>[String(x[0]),x]));
+      const h=[...headers,'Feishu Completed-status KRW (unreconciled)','Feishu Future Forecast KRW','Revenue Coverage / Reliability'];
+      const enriched=rows.map(r=>{
+        const m=String(r[0]||'');
+        const e=byMonth.get(m);
+        const completed=e?.[9]??'';
+        const future=e?.[10]??'';
+        const review=Number(r[10]||0);
+        const coverage=m.startsWith('2025')?'HISTORICAL_INVOICE_COVERAGE_PARTIAL':m==='2026-10'?'MONTH_TO_DATE; FORECAST_NOT_REVENUE':m>'2026-10'?'FUTURE_ESTIMATE_NOT_ISSUED':'ISSUED_INVOICE; FORECAST_SEPARATE';
+        return [...r,completed,future,coverage+(review?'; MAPPING_REVIEW='+review:'')];
+      });
+      return res.status(200).json({view:key,title,kind:'table',headers:h,rows:enriched,shown:enriched.length,page,pageSize,hasMore:pageRaw.length>=pageSize,readOnly:true,note:'합계(Combined KRW)는 발행 인보이스 + 순예상액의 운영 전망이며 확정 매출이 아닙니다. Completed-status도 정산 증빙과 별도입니다. 중복 제거와 매칭 검토가 필요합니다.',updatedAt:new Date().toISOString()});
+    }
     const note=key==='monthly_revenue'?'Issued Tax Invoice는 발행 기준이며 수금액이 아닙니다. Net Project Forecast=0이면 추정매출 미반영 가능성을 확인하세요. 2025 Official USD 정산과 직접 YoY 비교 금지.':key==='official_2025'?'2025 공식 정산 매출: USD 세전, KRW는 1500 고정 보고용 환산액. 2026 TAX INVOICE와 서로 다른 기준입니다.':null;
     return res.status(200).json({view:key,title,kind:'table',headers,rows,shown:rows.length,page,pageSize,hasMore:pageRaw.length>=pageSize,readOnly:true,note,updatedAt:new Date().toISOString()});
   } catch(e) {
