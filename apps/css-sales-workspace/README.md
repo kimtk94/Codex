@@ -19,3 +19,12 @@ Git-managed, owner-scoped navigation for the CSS sales dashboard.
 
 ## Verification
 Open the deployed preview, check each of five category groups, and confirm links open the intended tabs without bypassing Google account permissions. Existing CSS production deployment is not replaced by this PR.
+
+## Mail reader repair (2026-10-27)
+The active preview branch is `feat/css-web-native-data-20261027`; main still holds the earlier navigation hub. The mail list defaults to a compact sender/subject/age view with a keyboard-accessible reading drawer. Search and age filters apply to the loaded server page.
+
+`CSS Web Mail Body Sync` fetches only current Unanswered queue messages through read-only IMAP BODY.PEEK and writes their text to the private `CSS Mail Inbox Raw` cache. It validates UIDVALIDITY and Message-ID against CSS Git Ingest, preserves review decisions, and logs counts only. Runs on demand/on this repair branch push; the 30-minute schedule becomes active once merged to main.
+
+The historical fallback uses IMAP UID in column R plus inbox key in T; column A is a different local sequence. Only identifier columns are scanned, then one matching row including body_1 through body_13 is read. Pending source bodies are explicitly labeled.
+
+Validation: `node --test apps/css-sales-workspace/test-data.cjs` and `python automation/css_mail/test_web_body_sync.py`. Vercel Deployment Protection must remain enabled for the preview data endpoint.
