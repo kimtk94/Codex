@@ -1,6 +1,12 @@
 const { GoogleAuth } = require('google-auth-library');
 const SHEET_ID = '1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const VIEWS = {
+  feishu_online: ['Feishu Latest Online',null],
+  feishu_outstanding: ['Feishu Latest Outstanding',null],
+  feishu_receipts: ['Feishu Latest Receipts',null],
+  feishu_prepayments: ['Feishu Latest Prepayments',null],
+  feishu_etax: ['Feishu Latest eTax',null],
+  feishu_sources: ['Feishu Source Manifest',null],
   actions: ['Action Dashboard',1946039816],
   email_priority: ['Email Action Priority',2036102603],
   nba: ['NBA Today Top10',1948251025],
@@ -111,9 +117,18 @@ module.exports = async (req, res) => {
     const meta = await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'?fields=sheets(properties(sheetId,title))',{headers:{Authorization:'Bearer '+accessToken}});
     if (!meta.ok) return res.status(502).json({error:'SHEET_METADATA_FAILED',status:meta.status});
     const info=await meta.json();
-    const tab=(info.sheets||[]).find(s=>s.properties.sheetId===VIEWS[key][1]);
+    const tab=(info.sheets||[]).find(s=>VIEWS[key][1]===null?s.properties.title===VIEWS[key][0]:s.properties.sheetId===VIEWS[key][1]);
     if(!tab) return res.status(404).json({error:'TAB_NOT_FOUND',view:key});
     const title=tab.properties.title;
+    let sourceInfo={};
+    if(key.startsWith('feishu_')&&key!=='feishu_sources'){
+      const [manifest]=await batchRead(SHEET_ID,["'Feishu Source Manifest'!A1:G10"],accessToken);
+      const fmt={feishu_online:'Online-Project',feishu_outstanding:'Payment Outstanding',feishu_receipts:'Payment Receipt',feishu_prepayments:'Prepayments',feishu_etax:'eTax Invoice'}[key];
+      const r=manifest.slice(1).find(r=>r[0]===fmt);
+      if(r)sourceInfo={sourceDate:r[1],sourceSyncedAt:r[2],sourceRows:Number(r[4]),sourceSchema:r[5],sourceMeaning:r[6],sourceStale:!Number.isFinite(Date.parse(r[2]))||Date.now()-Date.parse(r[2])>90*60000};
+      else sourceInfo={sourceStale:true,sourceMeaning:'Source provenance unavailable'};
+    }
+
     const page = Math.max(1,Math.min(100000,Number.parseInt(String(req.query.page || '1'),10)||1));
     const pageSize = Math.max(10,Math.min(200,Number.parseInt(String(req.query.pageSize || '50'),10)||50));
     const term=String(req.query.q||'').trim().toLowerCase().slice(0,100);
@@ -161,8 +176,8 @@ module.exports = async (req, res) => {
       confirmation_proof:'Confirmation 증빙 상태 원장입니다. AWAITING_CONFIRMATION_PROOF는 확인 완료가 아닌 미확인 상태입니다.',
       online_list:'Online 프로젝트 진행/예상 목록입니다. FORECAST, EXCLUDED, NO_INVOICE_MATCH 등 원본 상태를 유지하며 TAX INVOICE 매출과 합산하지 않습니다.'
     };
-    const note=basisNotes[key]|| (key==='monthly_revenue'?'Issued Tax Invoice는 발행 기준이며 수금액이 아닙니다. Net Project Forecast=0이면 추정매출 미반영 가능성을 확인하세요. 2025 Official USD 정산과 직접 YoY 비교 금지.':key==='official_2025'?'2025 공식 정산 매출: USD 세전, KRW는 1500 고정 보고용 환산액. 2026 TAX INVOICE와 서로 다른 기준입니다.':null);
-    return res.status(200).json({view:key,title,kind:'table',headers,rows,shown:rows.length,page,pageSize,hasMore,...queryInfo,readOnly:true,note,quality:rows.length?'정상':'비어 있음',updatedAt:new Date().toISOString()});
+    const note=sourceInfo.sourceMeaning?('Feishu 원본 기준일 '+(sourceInfo.sourceDate||'미확인')+' · '+(sourceInfo.sourceStale?'동기화 지연 · ':'')+sourceInfo.sourceMeaning):basisNotes[key]|| (key==='monthly_revenue'?'Issued Tax Invoice는 발행 기준이며 수금액이 아닙니다. Net Project Forecast=0이면 추정매출 미반영 가능성을 확인하세요. 2025 Official USD 정산과 직접 YoY 비교 금지.':key==='official_2025'?'2025 공식 정산 매출: USD 세전, KRW는 1500 고정 보고용 환산액. 2026 TAX INVOICE와 서로 다른 기준입니다.':null);
+    return res.status(200).json({view:key,title,sheetId:tab.properties.sheetId,...sourceInfo,kind:'table',headers,rows,shown:rows.length,page,pageSize,hasMore,...queryInfo,readOnly:true,note,quality:sourceInfo.sourceStale?'갱신 지연':sourceInfo.sourceSchema==='RAW_GRID_REVIEW'?'구조 확인 필요':rows.length?'정상':'비어 있음',updatedAt:new Date().toISOString()});
   } catch(e) {
     console.error('CSS_WEB_DATA_FAILURE',e?.message);
     return res.status(502).json({error:'DATA_SOURCE_UNAVAILABLE'});
