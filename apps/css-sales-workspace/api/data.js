@@ -29,6 +29,15 @@ const VIEWS = {
   online_list: ['BI Project Month Control',1856711491],
   confirmation_proof: ['Confirmation Evidence Ledger',1764102620]
 };
+const SEARCH_LIMIT = 5000;
+const kstMonth = () => new Date(Date.now()+9*3600e3).toISOString().slice(0,7);
+const present = row => row.some(v => String(v ?? '').trim());
+async function batchRead(id, ranges, accessToken) {
+  const url='https://sheets.googleapis.com/v4/spreadsheets/'+id+'/values:batchGet?valueRenderOption=FORMATTED_VALUE&'+ranges.map(r=>'ranges='+encodeURIComponent(r)).join('&');
+  const response=await fetch(url,{headers:{Authorization:'Bearer '+accessToken}});
+  if(!response.ok)throw Error('SHEET_READ_FAILED');
+  return ((await response.json()).valueRanges||[]).map(v=>v.values||[]);
+}
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control','private, no-store, max-age=0');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -46,7 +55,7 @@ module.exports = async (req, res) => {
   }
   const key = String(req.query.view || 'actions');
   if (key !== 'mail_detail' && !Object.prototype.hasOwnProperty.call(VIEWS,key)) return res.status(400).json({error:'UNKNOWN_VIEW'});
-  const config = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.NBA_GOOGLE_SERVICE_ACCOUNT_JSON || process.env.CKD_GOOGLE_SERVICE_ACCOUNT_JSON;
+  const config = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!config) return res.status(503).json({error:'GOOGLE_CREDENTIALS_NOT_CONFIGURED'});
   try {
     const credentials = (() => {
@@ -107,34 +116,31 @@ module.exports = async (req, res) => {
     const title=tab.properties.title;
     const page = Math.max(1,Math.min(100000,Number.parseInt(String(req.query.page || '1'),10)||1));
     const pageSize = Math.max(10,Math.min(200,Number.parseInt(String(req.query.pageSize || '50'),10)||50));
-    const report = key === 'revenue';
-    const firstRow = report ? 1 : (page === 1 ? 1 : 2 + (page - 1) * pageSize);
-    const lastRow = report ? 105 : (page === 1 ? firstRow + pageSize : firstRow + pageSize - 1);
-    const range="'"+title.replace(/'/g,"''")+"'!A"+firstRow+":AZ"+lastRow;
-    const url='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'/values/'+encodeURIComponent(range)+'?valueRenderOption=FORMATTED_VALUE';
-    const response=await fetch(url,{headers:{Authorization:'Bearer '+accessToken}});
-    if(!response.ok) return res.status(502).json({error:'SHEET_READ_FAILED',status:response.status});
-    const raw=(await response.json()).values||[];
-    if(report){
-      const metricRows=[{label:'Total Invoice KRW',row:5,col:1},{label:'Total Revenue K USD',row:5,col:5},{label:'Invoice Count',row:5,col:9},{label:'Service Coverage',row:8,col:1},{label:'AMEA Quote Link %',row:8,col:5},{label:'Approved Active → Invoice',row:8,col:9}];
-      const metrics=metricRows.map(m=>({metric:m.label,value:raw[m.row-1]?.[m.col-1]??null}));
-      return res.status(200).json({view:key,title,kind:'metrics',metrics,headers:['Metric','Value'],rows:metrics.map(m=>[m.metric,m.value]),page:1,pageSize:metrics.length,hasMore:false,readOnly:true,updatedAt:new Date().toISOString()});
+    const term=String(req.query.q||'').trim().toLowerCase().slice(0,100);
+    const quoted="'"+title.replace(/'/g,"''")+"'";
+    if(key==='revenue'){
+      const [raw]=await batchRead(SHEET_ID,[quoted+'!A1:AZ105'],accessToken);
+      const defs=[['Total Invoice KRW',5,1],['Total Revenue K USD',5,5],['Invoice Count',5,9],['Service Coverage',8,1],['AMEA Quote Link %',8,5],['Approved Active → Invoice',8,9]];
+      const metrics=defs.map(([metric,r,c])=>({metric,value:raw[r-1]?.[c-1]??null}));
+      const missing=metrics.filter(m=>m.value===null||m.value==='').map(m=>m.metric);
+      return res.status(200).json({view:key,title,kind:'metrics',metrics,headers:['Metric','Value'],rows:metrics.map(m=>[m.metric,m.value]),page:1,pageSize:metrics.length,hasMore:false,readOnly:true,quality:missing.length?'확인 필요':'정상',note:missing.length?'값을 찾지 못한 KPI: '+missing.join(', '):null,updatedAt:new Date().toISOString()});
     }
-    const headersRange="'"+title.replace(/'/g,"''")+"'!A1:AZ1";
-    const headerUrl='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'/values/'+encodeURIComponent(headersRange)+'?valueRenderOption=FORMATTED_VALUE';
-    const headerResponse=await fetch(headerUrl,{headers:{Authorization:'Bearer '+accessToken}});
-    if(!headerResponse.ok)return res.status(502).json({error:'SHEET_HEADER_FAILED',status:headerResponse.status});
-    const headers=((await headerResponse.json()).values?.[0]||[]).map((v,i)=>String(v||'Column '+(i+1)));
-    const pageRaw=page===1?raw.slice(1):raw;
-    const rows=pageRaw.filter(row=>row.some(x=>String(x).trim())).map(row=>headers.map((_,i)=>row[i]??''));
+    const first=2+(page-1)*pageSize;
+    const [headerData,raw]=await batchRead(SHEET_ID,[quoted+'!A1:AZ1',term?quoted+'!A2:AZ'+(SEARCH_LIMIT+1):quoted+'!A'+first+':AZ'+(first+pageSize)],accessToken);
+    const headers=(headerData[0]||[]).map((v,i)=>String(v||'Column '+(i+1)));
+    const candidates=term?raw.filter(r=>present(r)&&r.some(v=>String(v).toLowerCase().includes(term))):raw;
+    const pageRaw=term?candidates.slice((page-1)*pageSize,page*pageSize):candidates.slice(0,pageSize);
+    const hasMore=term?page*pageSize<candidates.length:raw.length>pageSize;
+    const queryInfo=term?{total:candidates.length,searchLimit:SEARCH_LIMIT,searchScope:'최대 '+SEARCH_LIMIT+'행 서버 검색'}:{};
+    const rows=pageRaw.filter(present).map(r=>headers.map((_,i)=>r[i]??''));
     if(key==='monthly_revenue'){
       // Keep issued invoice amounts separate from provisional completion estimates.
       // This is descriptive metadata from Feishu TAT Monthly, never an extra revenue sum.
       const extraRange="'Feishu TAT Monthly'!A1:M100";
       const extraUrl='https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'/values/'+encodeURIComponent(extraRange)+'?valueRenderOption=UNFORMATTED_VALUE';
-      const ext=await fetch(extraUrl,{headers:{Authorization:'Bearer '+accessToken}});
-      if(!ext.ok)return res.status(502).json({error:'MONTHLY_BREAKDOWN_UNAVAILABLE',status:ext.status});
-      const details=(await ext.json()).values||[];
+      const ext=await fetch(extraUrl,{headers:{Authorization:'Bearer '+accessToken}}).catch(()=>({ok:false}));
+      const extraAvailable=ext.ok;
+      const details=extraAvailable?(await ext.json()).values||[]:[];
       const byMonth=new Map(details.slice(1).filter(x=>x[0]).map(x=>[String(x[0]),x]));
       const h=[...headers,'Feishu Completed-status KRW (unreconciled)','Feishu Future Forecast KRW','Revenue Coverage / Reliability'];
       const enriched=rows.map(r=>{
@@ -143,10 +149,11 @@ module.exports = async (req, res) => {
         const completed=e?.[9]??'';
         const future=e?.[10]??'';
         const review=Number(r[10]||0);
-        const coverage=m.startsWith('2025')?'HISTORICAL_INVOICE_COVERAGE_PARTIAL':m==='2026-10'?'MONTH_TO_DATE; FORECAST_NOT_REVENUE':m>'2026-10'?'FUTURE_ESTIMATE_NOT_ISSUED':'ISSUED_INVOICE; FORECAST_SEPARATE';
+        const currentMonth=kstMonth();
+        const coverage=m.startsWith('2025')?'HISTORICAL_INVOICE_COVERAGE_PARTIAL':m===currentMonth?'MONTH_TO_DATE; FORECAST_NOT_REVENUE':m>currentMonth?'FUTURE_ESTIMATE_NOT_ISSUED':'ISSUED_INVOICE; FORECAST_SEPARATE';
         return [...r,completed,future,coverage+(review?'; MAPPING_REVIEW='+review:'')];
       });
-      return res.status(200).json({view:key,title,kind:'table',headers:h,rows:enriched,shown:enriched.length,page,pageSize,hasMore:pageRaw.length>=pageSize,readOnly:true,note:'합계(Combined KRW)는 발행 인보이스 + 순예상액의 운영 전망이며 확정 매출이 아닙니다. Completed-status도 정산 증빙과 별도입니다. 중복 제거와 매칭 검토가 필요합니다.',updatedAt:new Date().toISOString()});
+      return res.status(200).json({view:key,title,kind:'table',headers:h,rows:enriched,shown:enriched.length,page,pageSize,hasMore,...queryInfo,readOnly:true,quality:extraAvailable?'정상':'확인 필요',note:(extraAvailable?'':'Feishu 보조 데이터 조회 실패 · 해당 값은 미확인입니다. ' )+'합계(Combined KRW)는 발행 인보이스 + 순예상액의 운영 전망이며 확정 매출이 아닙니다. Completed-status도 정산 증빙과 별도입니다. 중복 제거와 매칭 검토가 필요합니다.',updatedAt:new Date().toISOString()});
     }
     const basisNotes={
       issued_tax:'TAX INVOICE 발행 확인건만 표시합니다. 세금계산서 발행은 입금 확인과 다릅니다. Invoice Number 기준으로 중복을 검토하세요.',
@@ -155,7 +162,7 @@ module.exports = async (req, res) => {
       online_list:'Online 프로젝트 진행/예상 목록입니다. FORECAST, EXCLUDED, NO_INVOICE_MATCH 등 원본 상태를 유지하며 TAX INVOICE 매출과 합산하지 않습니다.'
     };
     const note=basisNotes[key]|| (key==='monthly_revenue'?'Issued Tax Invoice는 발행 기준이며 수금액이 아닙니다. Net Project Forecast=0이면 추정매출 미반영 가능성을 확인하세요. 2025 Official USD 정산과 직접 YoY 비교 금지.':key==='official_2025'?'2025 공식 정산 매출: USD 세전, KRW는 1500 고정 보고용 환산액. 2026 TAX INVOICE와 서로 다른 기준입니다.':null);
-    return res.status(200).json({view:key,title,kind:'table',headers,rows,shown:rows.length,page,pageSize,hasMore:pageRaw.length>=pageSize,readOnly:true,note,updatedAt:new Date().toISOString()});
+    return res.status(200).json({view:key,title,kind:'table',headers,rows,shown:rows.length,page,pageSize,hasMore,...queryInfo,readOnly:true,note,quality:rows.length?'정상':'비어 있음',updatedAt:new Date().toISOString()});
   } catch(e) {
     console.error('CSS_WEB_DATA_FAILURE',e?.message);
     return res.status(502).json({error:'DATA_SOURCE_UNAVAILABLE'});
