@@ -31,31 +31,31 @@ th{position:sticky;top:0;background:#f1f5fb;z-index:1;font-weight:800}tr:hover t
 const groups=[
 ['🎯 오늘 할 일',[['actions','Action Dashboard'],['email_priority','Email Action Priority'],['nba','NBA Today Top10']]],
 ['📬 메일 · 응대',[['unanswered','Unanswered Emails'],['email_decisions','Email Review Decisions'],['lead_email','Lead Email Followup']]],
-['🤝 영업 파이프라인',[['lead_priority','Lead Action Priority'],['followup','Follow-up Priority'],['quotes','Quote Portfolio Summary']]],
-['💰 매출 · 프로젝트',[['revenue','BI Revenue Executive 2026'],['yoy','BI 2025 vs 2026 Overlay'],['projects','BI Project Month Control'],['billing','Billing Control Dashboard']]],
+['🤝 영업 파이프라인',[['lead_priority','Lead Action Priority'],['followup','Follow-up Priority'],['quotes','Quote Portfolio Summary'],['opportunities','SFDC Opportunities'],['quote_records','SFDC Quote Records'],['sales_master','Sales Master']]],
+['💰 매출 · 프로젝트',[['revenue','BI Revenue Executive 2026'],['yoy','BI 2025 vs 2026 Overlay'],['projects','BI Project Month Control'],['billing','Billing Control Dashboard'],['timeline','CSS Project Timeline'],['revenue_fact','Revenue Fact']]],
 ['⚙️ 시스템',[['health','Automation Health'],['owners','Owner Sheet Registry'],['mail_source','CSS Mail Source Control']]]
 ];
-const menus=document.getElementById('menu');let active='actions', dataset=null, page=0, q='',controller=null;
-for(const [group,views] of groups){const label=document.createElement('p');label.textContent=group;menus.append(label);for(const [key,name] of views){const btn=document.createElement('button');btn.textContent=name;btn.dataset.view=key;btn.onclick=()=>{active=key;page=0;select();load()};menus.append(btn)}}
+const menus=document.getElementById('menu');let active='actions', dataset=null, page=0, serverPage=1, q='',controller=null;
+for(const [group,views] of groups){const label=document.createElement('p');label.textContent=group;menus.append(label);for(const [key,name] of views){const btn=document.createElement('button');btn.textContent=name;btn.dataset.view=key;btn.onclick=()=>{active=key;page=0;serverPage=1;select();load()};menus.append(btn)}}
 function select(){for(const b of menus.querySelectorAll('button'))b.classList.toggle('active',b.dataset.view===active);const item=groups.flatMap(x=>x[1]).find(x=>x[0]===active);document.getElementById('title').textContent=item[1];document.getElementById('updated').textContent='읽기 전용 · 원본 실시간 조회'}
 function status(s,warn=false){const n=document.getElementById('status');n.textContent=s;n.classList.toggle('warn',warn)}
-function render(){const headers=dataset?.headers||[];const rows=dataset?.rows||[];const filtered=rows.filter(r=>!q||r.some(v=>String(v).toLowerCase().includes(q)));const per=50,total=Math.max(1,Math.ceil(filtered.length/per));page=Math.min(page,total-1);
+function render(){const headers=dataset?.headers||[];const rows=dataset?.rows||[];const filtered=rows.filter(r=>!q||r.some(v=>String(v).toLowerCase().includes(q)));const per=200,total=1;page=0;
 const head=document.querySelector('thead'),body=document.querySelector('tbody');head.replaceChildren();body.replaceChildren();
 if(headers.length){const tr=document.createElement('tr');headers.forEach(h=>{const th=document.createElement('th');th.textContent=h;tr.append(th)});head.append(tr)}
 for(const r of filtered.slice(page*per,(page+1)*per)){const tr=document.createElement('tr');r.forEach(v=>{const td=document.createElement('td');td.textContent=v;td.title=String(v);tr.append(td)});body.append(tr)}
 document.getElementById('count').textContent=rows.length.toLocaleString();document.getElementById('filtered').textContent=filtered.length.toLocaleString();
-document.getElementById('quality').textContent=dataset?.truncated?'일부만':'정상';
-document.getElementById('pagination').textContent=filtered.length?((page*per+1)+'–'+Math.min((page+1)*per,filtered.length)+' / '+filtered.length):'0건';
-document.getElementById('prev').disabled=page===0;document.getElementById('next').disabled=page>=total-1;status(dataset?.truncated?'첫 1,000개 데이터 행만 표시합니다. 전체 조회 API 추가 필요.':filtered.length+'건 표시 중');
+document.getElementById('quality').textContent=dataset?.kind==='metrics'?'KPI':'정상';
+document.getElementById('pagination').textContent='서버 페이지 '+serverPage+' · '+filtered.length+'행 표시';
+document.getElementById('prev').disabled=serverPage===1;document.getElementById('next').disabled=!dataset?.hasMore;status(filtered.length+'건 표시 중 (서버 페이지 '+serverPage+')');
 }
 async function load(){if(controller)controller.abort();controller=new AbortController();const requested=active;dataset=null;document.querySelector('thead').replaceChildren();document.querySelector('tbody').replaceChildren();status('데이터를 불러오는 중…');
 
-try{const response=await fetch('/api/data?view='+encodeURIComponent(requested),{credentials:'same-origin',cache:'no-store',signal:controller.signal});
+try{const response=await fetch('/api/data?view='+encodeURIComponent(requested)+'&page='+serverPage+'&pageSize=200',{credentials:'same-origin',cache:'no-store',signal:controller.signal});
 const data=await response.json();if(!response.ok)throw Error(data.error||'HTTP '+response.status);if(active!==requested)return;dataset=data;page=0;document.getElementById('updated').textContent='원본 '+data.title+' · 조회 '+new Date(data.updatedAt).toLocaleString('ko-KR');render()}
 catch(e){if(e.name==='AbortError')return;status('연결 실패: '+e.message+' — Vercel 환경변수와 API 권한을 확인하세요.',true);document.getElementById('count').textContent='—';document.getElementById('filtered').textContent='—';document.getElementById('quality').textContent='오류'}}
 document.getElementById('search').oninput=e=>{q=e.target.value.trim().toLowerCase();page=0;if(dataset)render()};
 document.getElementById('refresh').onclick=load;
-document.getElementById('prev').onclick=()=>{if(page>0){page--;render()}};
-document.getElementById('next').onclick=()=>{page++;render()};
+document.getElementById('prev').onclick=()=>{if(serverPage>1){serverPage--;load()}};
+document.getElementById('next').onclick=()=>{if(dataset?.hasMore){serverPage++;load()}};
 select();load();
 </script></body></html>
