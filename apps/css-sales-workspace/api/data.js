@@ -70,43 +70,34 @@ module.exports = async (req, res) => {
       const rowIndex=queue.findIndex(row=>String(row[0]||'').trim()===uid);
       const summary=(await read("'Unanswered Emails'!A"+(rowIndex+2)+":V"+(rowIndex+2)))[0]||[];
       const fallback={uid,receivedAt:summary[4]||'',from:summary[2]||'',fromName:'',to:'',cc:'',subject:summary[3]||'',body:'',bodyAvailable:false,source:'unanswered_summary',notice:'원본 메일 본문이 아직 동기화되지 않았습니다. CSS Mail Inbox Raw가 비어 있습니다.',readOnly:true};
-      const ids=await read("'CSS Mail Inbox Raw'!A2:A10000");
-      const match=ids.findIndex(row=>String(row[0]||'').trim()===uid);
-      if(match>=0){
-        const row=(await read("'CSS Mail Inbox Raw'!A"+(match+2)+":J"+(match+2)))[0]||[];
-        return res.status(200).json({uid,receivedAt:row[3]||fallback.receivedAt,from:row[4]||fallback.from,fromName:row[5]||'',to:row[6]||'',cc:row[7]||'',subject:row[8]||fallback.subject,body:row[9]||'',bodyAvailable:Boolean(row[9]),source:'css_mail_raw',notice:row[9]?'':'원본 메일 본문이 저장되지 않았습니다.',readOnly:true});
-      }
-      // Try the QQ source sheet directly; CSS raw has not been populated yet.
-      // Only the UID already present in Unanswered Emails may be opened.
+      // The raw tab may not yet exist; still try the historical source.
+      try {
+        const ids=await read("'CSS Mail Inbox Raw'!A2:A10000");
+        const match=ids.findIndex(row=>String(row[0]||'').trim()===uid);
+        if(match>=0){
+          const row=(await read("'CSS Mail Inbox Raw'!A"+(match+2)+":X"+(match+2)))[0]||[];
+          if(row[9]) return res.status(200).json({uid,receivedAt:row[3]||fallback.receivedAt,from:row[4]||fallback.from,fromName:row[5]||'',to:row[6]||'',cc:row[7]||'',subject:row[8]||fallback.subject,body:row[9],bodyAvailable:true,source:'css_mail_raw',readOnly:true});
+        }
+      } catch (_) { /* Historical source remains available if raw is not ready. */ }
       try {
         const sourceId='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-        const metaUrl='https://sheets.googleapis.com/v4/spreadsheets/'+sourceId+'?fields=sheets(properties(title,gridProperties(rowCount)))';
-        const sm=await fetch(metaUrl,{headers:{Authorization:'Bearer '+accessToken}});
-        if(sm.ok){
-          const sheets=(await sm.json()).sheets||[];
-          const mail=sheets.find(x=>x.properties?.title==='All Emails');
-          if(mail){
-            const count=Number(mail.properties.gridProperties?.rowCount||0);
-            // The source uses numeric IMAP UIDs, with a mailbox key in column T.
-            // Scan recent entries in bounded 1000-row chunks, never a full private mailbox dump.
-            for(let end=count;end>1&&end>count-10000;end-=1000){
-              const begin=Math.max(2,end-999);
-              const range="'All Emails'!A"+begin+":U"+end;
-              const endpoint='https://sheets.googleapis.com/v4/spreadsheets/'+sourceId+'/values/'+encodeURIComponent(range)+'?valueRenderOption=FORMATTED_VALUE';
-              const rr=await fetch(endpoint,{headers:{Authorization:'Bearer '+accessToken}});
-              if(!rr.ok)break;
-              const data=(await rr.json()).values||[];
-              const needle=uid.slice(6);
-              const found=data.find(x=>String(x[0]||'').trim()===needle && String(x[19]||'').trim().toLowerCase()==='inbox');
-              if(found){
-                const body=String(found[16]||'');
-                return res.status(200).json({uid,receivedAt:found[2]||fallback.receivedAt,from:found[4]||fallback.from,fromName:found[3]||'',to:found[5]||'',cc:found[6]||'',subject:found[8]||fallback.subject,body,bodyAvailable:!!body,source:'qq_all_emails',notice:body?'':'QQ 원본에 본문이 없습니다.',readOnly:true});
-              }
-            }
-          }
+        const getSource=async range=>{
+          const endpoint='https://sheets.googleapis.com/v4/spreadsheets/'+sourceId+'/values/'+encodeURIComponent(range)+'?valueRenderOption=FORMATTED_VALUE';
+          const result=await fetch(endpoint,{headers:{Authorization:'Bearer '+accessToken}});
+          if(!result.ok)throw Error('SOURCE_UNAVAILABLE');
+          return (await result.json()).values||[];
+        };
+        // R is IMAP UID; A is an unrelated local sequence. Fetch identifiers only,
+        // then retrieve the one matching message, including all split body cells.
+        const index=await getSource("'All Emails'!R2:T100000");
+        const matches=index.flatMap((r,i)=>String(r[0]||'').trim()===uid.slice(6)&&String(r[2]||'').trim().toLowerCase()==='inbox'?[i+2]:[]);
+        if(matches.length===1){
+          const found=(await getSource("'All Emails'!A"+matches[0]+":AG"+matches[0]))[0]||[];
+          const body=[found[16]||'',...found.slice(21,33)].join('');
+          if(body)return res.status(200).json({uid,receivedAt:found[2]||fallback.receivedAt,from:found[4]||fallback.from,fromName:found[3]||'',to:found[5]||'',cc:found[6]||'',subject:found[8]||fallback.subject,body,bodyAvailable:true,source:'qq_all_emails',readOnly:true});
         }
-      }catch(_){ /* Keep a safe fallback without leaking provider internals. */ }
-      return res.status(200).json({...fallback,notice:'이 UID에 대한 본문을 CSS Raw 또는 QQ 원본에서 확인하지 못했습니다. QQ 메일 증분 수집 상태를 점검해야 합니다.'});
+      } catch (_) { /* Return an explicit pending state instead of an empty reader. */ }
+      return res.status(200).json({...fallback,notice:'본문 수집 대기 중입니다. QQ 본문 동기화 후 다시 시도해 주세요.'});
     }
     const meta = await fetch('https://sheets.googleapis.com/v4/spreadsheets/'+encodeURIComponent(SHEET_ID)+'?fields=sheets(properties(sheetId,title))',{headers:{Authorization:'Bearer '+accessToken}});
     if (!meta.ok) return res.status(502).json({error:'SHEET_METADATA_FAILED',status:meta.status});
