@@ -60,7 +60,7 @@ def main():
         if state!='OK': raise RuntimeError('Inbox unavailable')
         _,uv=im.response('UIDVALIDITY'); valid=uv[0].decode() if uv and uv[0] else ''
         if not valid: raise RuntimeError('UIDVALIDITY missing')
-        for uid,m in list(candidates.items())[:limit]:
+        for uid,m in sorted(candidates.items(),key=lambda item:item[1].get('received_at',''),reverse=True)[:limit]:
             if m.get('uidvalidity')!=valid: continue
             state,data=im.uid('FETCH',m['imap_uid'],'(BODY.PEEK[])')
             if state!='OK': continue
