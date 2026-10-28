@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Sanitized structural probe of IMAP BODYSTRUCTURE; prints no filenames or mail content."""
-import imaplib,json,os,re,urllib.parse
+import imaplib,json,os,re,urllib.parse,base64\nfrom email.header import decode_header,make_header
 import incremental_sync as src
 from tax_invoice_extract import bodystructure_filenames
 
@@ -27,7 +27,28 @@ def main():
      if isinstance(x[0],bytes):parts.append(x[0])
      if len(x)>1 and isinstance(x[1],bytes):parts.append(x[1])
    all_bytes=b" ".join(parts)
+   tokens=[v.decode("utf-8","replace") for v in re.findall(rb'"([^"]*)"',all_bytes)]
+   def indicators(value):
+    upper=str(value).upper()
+    return "TAX" in upper and "INVOICE" in upper and ".PDF" in upper
+   decoded=[]
+   for v in tokens:
+    try:decoded.append(str(make_header(decode_header(v))))
+    except Exception:pass
+    try:decoded.append(base64.b64decode(v,validate=True).decode("utf-8","replace"))
+    except Exception:pass
+   for i in range(len(tokens)):
+    for size in range(2,9):
+     if i+size>len(tokens):break
+     piece="".join(tokens[i:i+size])
+     try:decoded.append(str(make_header(decode_header(piece))))
+     except Exception:pass
+     try:decoded.append(base64.b64decode(piece,validate=True).decode("utf-8","replace"))
+     except Exception:pass
    print("IMAP_MIME_SHAPE "+json.dumps({
+    "decoded_original_filename_candidate":any(indicators(v) for v in decoded),
+    "encoded_word_tokens":sum(v.startswith("=?") for v in tokens),
+    "base64_shape_tokens":sum(bool(re.fullmatch(r"[A-Za-z0-9+/=]{20,}",v)) for v in tokens),
     "status":status,"response_types":[type(x).__name__ for x in items or []],
     "byte_lengths":[len(x) for x in parts],
     "contains_bodystructure":b"BODYSTRUCTURE" in all_bytes.upper(),
