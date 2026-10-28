@@ -7,7 +7,7 @@ from tax_invoice_extract import bodystructure_filenames
 
 def main():
  s=src.authorize()
- p=urllib.parse.quote("'CSS Tax Invoice List'!M1:M110",safe="")
+ p=urllib.parse.quote("'CSS Tax Invoice List'!A1:N7",safe="")
  rows=src.api(s,"GET",src.endpoint("/values/"+p)).get("values",[])
  uids=[]
  for row in rows[1:]:
@@ -28,6 +28,8 @@ def main():
      if isinstance(x[0],bytes):parts.append(x[0])
      if len(x)>1 and isinstance(x[1],bytes):parts.append(x[1])
    all_bytes=b" ".join(parts)
+   literal_bytes=b"".join(parts)
+   expected=next((str(row[10]).encode('utf-8') for row in rows[1:] if len(row)>12 and str(row[12]).lower().endswith(uid)),b'')
    tokens=[v.decode("utf-8","replace") for v in re.findall(rb'"([^"]*)"',all_bytes)]
    def indicators(value):
     upper=str(value).upper()
@@ -48,6 +50,10 @@ def main():
      except Exception:pass
    print("IMAP_MIME_SHAPE "+json.dumps({
     "decoded_original_filename_candidate":any(indicators(v) for v in decoded),
+    "raw_parts_contain_expected_filename":[bool(expected and expected in v) for v in parts],
+    "joined_contains_expected_filename":bool(expected and expected in literal_bytes),
+    "expected_filename_length":len(expected),
+    "part_tax_tokens":[b"TAX" in v.upper() for v in parts],
     "encoded_word_tokens":sum(v.startswith("=?") for v in tokens),
     "base64_shape_tokens":sum(bool(re.fullmatch(r"[A-Za-z0-9+/=]{20,}",v)) for v in tokens),
     "status":status,"response_types":[type(x).__name__ for x in items or []],
