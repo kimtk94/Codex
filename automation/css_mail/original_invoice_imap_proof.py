@@ -41,6 +41,8 @@ def main():
                 elif isinstance(v,bytes):raw.append(v)
             # QQ IMAP can split MIME parameters across multiple FETCH tuples.
             filenames=bodystructure_filenames(b' '.join(raw))
+            for fragment in raw:
+                filenames.extend(bodystructure_filenames(fragment))
             expected=str(r.get("invoice_number","")).strip()
             candidate=[]
             for name in set(filenames):
