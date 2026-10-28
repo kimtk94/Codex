@@ -62,19 +62,20 @@ def main():
         x["properties"]["title"] for x in src.api(session,"GET",src.endpoint()+"?fields=sheets.properties.title").get("sheets",[])
     } else []
     known={str(x.get("invoice_number","")).strip() for x in existing if x.get("invoice_number")}
-    output={str(x.get("ingest_key","")):x for x in previous if x.get("ingest_key")}
+    output={(str(x.get("ingest_key","")),str(x.get("invoice_number",""))):x for x in previous if x.get("ingest_key")}
+    processed_keys={key for key,_ in output}
     # Reconcile known historical invoice evidence before IMAP metadata calls.
     # These are verified earlier by the legacy filename extraction; label provenance.
     legacy_by_uid={str(r.get("uid","")).strip().lower():r for r in existing if r.get("invoice_number")}
     reconciled=0
     for row in source:
-        if row.get("direction")!="INBOUND" or row.get("ingest_key") in output:continue
+        if row.get("direction")!="INBOUND" or row.get("ingest_key") in processed_keys:continue
         legacy=legacy_by_uid.get(("inbox:"+str(row.get("imap_uid",""))).lower())
         if not legacy:continue
         amount_text=str(legacy.get("amount_krw","")).replace(",","").replace(" KRW","").strip()
         if not amount_text.isdigit():continue
         key=row["ingest_key"]
-        output[key]={"invoice_number":legacy.get("invoice_number",""),
+        output[(key,str(legacy.get("invoice_number","")))]= {"invoice_number":legacy.get("invoice_number",""),
             "amount_krw":int(amount_text),"project_id":legacy.get("project_id",""),
             "h_project_number":legacy.get("h_project_number",""),
             "po_reference":legacy.get("po_reference",""),
@@ -85,7 +86,7 @@ def main():
             "extracted_at_utc":dt.datetime.now(dt.timezone.utc).isoformat()}
         reconciled+=1
     candidates=[x for x in source if x.get("direction")=="INBOUND" and
-                ISSUED.search(str(x.get("subject",""))) and x.get("ingest_key") not in output]
+                ISSUED.search(str(x.get("subject",""))) and x.get("ingest_key") not in processed_keys]
     # Newest first; per-run bound avoids exceeding the 10-minute Actions job.
     candidates.sort(key=lambda x:x.get("received_at",""),reverse=True)
     batch=candidates[:int(os.environ.get("CSS_INVOICE_BATCH","120"))]
@@ -111,14 +112,14 @@ def main():
                 if not results:
                     # Keep retryable: filename metadata format may differ by server.
                     continue
-                name,parsed=results[0]
-                invoice,h_project,po,project,amount,status=parsed
-                if invoice in known:status="EXISTS_IN_LEGACY"
-                output[key]={"invoice_number":invoice,"amount_krw":amount if amount is not None else "",
-                             "project_id":project,"h_project_number":h_project,"po_reference":po,
-                             "attachment_filename":name,"subject":row["subject"],"received_at":row["received_at"],
-                             "imap_uid":row["imap_uid"],"ingest_key":key,"validation_status":status,
-                             "extracted_at_utc":dt.datetime.now(dt.timezone.utc).isoformat()}
+                for name,parsed in results:
+                    invoice,h_project,po,project,amount,status=parsed
+                    if invoice in known:status="EXISTS_IN_LEGACY"
+                    output[(key,invoice)]={"invoice_number":invoice,"amount_krw":amount if amount is not None else "",
+                                 "project_id":project,"h_project_number":h_project,"po_reference":po,
+                                 "attachment_filename":name,"subject":row["subject"],"received_at":row["received_at"],
+                                 "imap_uid":row["imap_uid"],"ingest_key":key,"validation_status":status,
+                                 "extracted_at_utc":dt.datetime.now(dt.timezone.utc).isoformat()}
             im.logout()
     metadata=src.api(session,"GET",src.endpoint()+"?fields=sheets.properties.title")
     if TAB not in {v["properties"]["title"] for v in metadata.get("sheets",[])}:
