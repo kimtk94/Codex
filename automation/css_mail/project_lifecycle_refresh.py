@@ -14,7 +14,8 @@ HEAD=["Project / Sub-project","AMEA","Institution","Customer","Service",
       "Manual Month Override (reference)","Invoice Count","Invoice Actual KRW",
       "Billing Classification","Estimated KRW (existing)",
       "Immediate Next Step","Data Timestamp / Source",
-      "Open Statement Numbers","Latest Statement Notice"]
+      "Open Statement Numbers","Latest Statement Notice",
+      "Pending KRW Verified","Pending Amount Evidence"]
 INV_STMT=re.compile(r"(J\d{3})-(X\d+SC\d+-Z\d+)",re.I)
 CSS_SENDER="css@novogene-amea.com"
 ACCEPTED_INVOICE={"FILENAME_PARSED","VERIFIED_LEGACY_FILENAME","EXISTS_IN_LEGACY"}
@@ -25,7 +26,7 @@ A=re.compile(r"AMEA\d{7,}(?:-\d{1,3})?",re.I)
 def present(r,i):
     return r[i] if i<len(r) else ""
 
-def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows):
+def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_rows):
     """Build a single project-stage and billing view from live validated inputs.
 
     Invoice keys are invoice numbers; Statement keys are J-number + exact X
@@ -120,6 +121,14 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows):
                         stage_evidence[x]=(order,date,label)
                 break
 
+    statement_amounts={}
+    for a in statement_amount_rows[1:]:
+        key=str(present(a,0)).upper()
+        if present(a,8)!="AMOUNT_VERIFIED" or present(a,4)!="KRW":continue
+        try:amount=int(present(a,3))
+        except (TypeError,ValueError):continue
+        if amount<=0 or not INV_STMT.fullmatch(key):continue
+        statement_amounts[key]=(amount,str(present(a,5)))
     manual={present(r,0):r for r in controls[1:] if present(r,0)}
     out=[HEAD]
     for r in feishu_rows[1:]:
@@ -171,13 +180,22 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows):
         last_css=present(c,27)
         if recent:
             last_css=max(str(last_css or ""),str(recent[1]))
+        known_pending=[]
+        for j in open_j:
+            record=statement_amounts.get(j+"-"+x)
+            if record and record[1]==notices[j]:
+                known_pending.append(record[0])
+        pending_verified=sum(known_pending) if known_pending else ""
+        evidence=("AMOUNT_VERIFIED "+str(len(known_pending))+"/"+str(len(open_j))
+                  if open_j else "NO_OPEN_STATEMENT")
         row=[x,amea,present(c,8),present(c,9),present(c,10),status,
              stage,percentage,last_css,present(c,16),present(r,7),
              present(r,10),expected,present(p,3),len(inv),sum(inv.values()),
              billing,estimate,next_step,
              "Feishu "+str(present(r,0))+"; CSS "+str(present(c,36) or "unmatched"),
              " | ".join(open_j),
-             max((notices[j] for j in open_j),default="")]
+             max((notices[j] for j in open_j),default=""),
+             pending_verified,evidence]
         out.append(row)
     if len(out)<2:raise RuntimeError("Empty lifecycle input; refusing update")
     return out
@@ -189,21 +207,22 @@ def main():
         get(s,DST,"Feishu Project TAT Forecast","A1:Q2000"),
         get(s,SRC,"CSS Tax Invoice Extract","A1:L10000"),
         get(s,DST,"BI Project Month Control","A1:K2000"),
-        get(s,SRC,"CSS Git Ingest","F1:Q10000")
+        get(s,SRC,"CSS Git Ingest","F1:Q10000"),
+        get(s,SRC,"CSS Statement Amount Extract","A1:K2000")
     ]
-    for data,expected in zip(sources,["exclude","Snapshot KST","invoice_number","Sub-Project Number","received_at"]):
+    for data,expected in zip(sources,["exclude","Snapshot KST","invoice_number","Sub-Project Number","received_at","statement_key"]):
         if not data or not data[0] or data[0][0]!=expected:
             raise RuntimeError("Unexpected lifecycle source header: "+expected)
     result=build(*sources)
-    previous=get(s,DST,TAB,"A1:V1000")
-    if not previous or previous[0] not in (HEAD,HEAD[:20]):
+    previous=get(s,DST,TAB,"A1:X1000")
+    if not previous or previous[0] not in (HEAD,HEAD[:22],HEAD[:20]):
         raise RuntimeError("Lifecycle output header changed; refusing update")
     if len(previous)>len(result):
         raise RuntimeError("Fewer projects than previous snapshot; refusing destructive shrink")
     put(s,DST,TAB,"A1",result,"RAW")
     # Verify the materialized result before reporting success. A stale sheet
     # must never be presented as a completed refresh.
-    observed=get(s,DST,TAB,"A1:V"+str(len(result)))
+    observed=get(s,DST,TAB,"A1:X"+str(len(result)))
     if len(observed)!=len(result) or observed[0]!=HEAD:
         raise RuntimeError("Lifecycle post-write row/header verification failed")
     if [str(x) for x in observed[-1][:2]]!=[str(x) for x in result[-1][:2]]:
@@ -214,6 +233,8 @@ def main():
         "projects="+str(len(result)-1)+
         " linked_invoices="+str(sum(r[14]>0 for r in result[1:]))+
         " open_statements="+str(sum(bool(r[20]) for r in result[1:]))+
+          " verified_pending_krw="+str(sum(r[22] for r in result[1:] if isinstance(r[22],int)))+
+        " verified_pending_krw="+str(sum(r[22] for r in result[1:] if isinstance(r[22],int)))+
         " CSS_snapshot=legacy Feishu_snapshot=external"
     ]],"RAW")
     print("PROJECT_LIFECYCLE_REFRESH_PASS projects="+str(len(result)-1)+
