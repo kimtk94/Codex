@@ -40,6 +40,16 @@ def read_rows(session,tab,columns,count):
     if not arr:return []
     return [dict(zip(arr[0],r+[""]*(len(arr[0])-len(r)))) for r in arr[1:] if any(r)]
 
+def imap_bodystructure_chunks(items):
+    """Include MIME literal payloads from imaplib FETCH tuples."""
+    chunks=[]
+    for part in items or []:
+        if isinstance(part,bytes):
+            chunks.append(part)
+        elif isinstance(part,tuple):
+            chunks.extend(v for v in part if isinstance(v,bytes))
+    return chunks
+
 def bodystructure_filenames(message):
     """Decode quoted and RFC2231 MIME filename tokens without downloading PDFs."""
     from email.header import decode_header, make_header
@@ -140,8 +150,7 @@ def main():
                     continue
                 status,items=im.uid("FETCH",row["imap_uid"],"(BODYSTRUCTURE)")
                 if status!="OK":raise RuntimeError("Invoice BODYSTRUCTURE fetch failed")
-                structures=[v for v in items or [] if isinstance(v,bytes)]
-                structures += [v[0] for v in items or [] if isinstance(v,tuple) and isinstance(v[0],bytes)]
+                structures=imap_bodystructure_chunks(items)
                 names=[]
                 for item in structures:names+=bodystructure_filenames(item)
                 results=[(name,extract(name)) for name in names]
