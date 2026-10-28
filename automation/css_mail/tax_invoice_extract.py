@@ -18,10 +18,21 @@ HEADER=["invoice_number","amount_krw","project_id","h_project_number","po_refere
         "attachment_filename","subject","received_at","imap_uid","ingest_key",
         "validation_status","extracted_at_utc"]
 PATTERN=re.compile(
-    r"TAX\s+INVOICE[-_ ]+(\d{8,15})[-_ ]+(H\d{5,})[-_ ]+([A-Za-z0-9]+)"
+    r"TAX\s+INVOICE[-_ ]+(\d{8,15})[-_ ]+(H\d{3}SC\d{5,}|H\d{5,})[-_ ]+([A-Za-z0-9]+)"
     r"[-_ ]+(AMEA\d{7,}(?:-\d{1,3})?)[-_ ]+KRW\s*([0-9]+(?:\.[0-9]{1,2})?)\.pdf",
     re.I)
-ISSUED=re.compile(r"Invoice Issued\s*&\s*Statement Confirmed",re.I)
+ISSUED=re.compile(r"^\s*(?:❗️\s*)?Notice:\s*Invoice Issued\s*&\s*Statement Confirmed\b",re.I)
+REPLY_PREFIX=re.compile(r"^\s*(?:re|fw|fwd|회신|답장|전달)\s*[:：]",re.I)
+CSS_SENDER="css@novogene-amea.com"
+
+def original_issued_mail(row):
+    """Only first official CSS notice can establish a new invoice."""
+    subject=str(row.get("subject","")).strip()
+    sender=str(row.get("from_email","")).strip().lower()
+    return (row.get("direction")=="INBOUND" and sender==CSS_SENDER
+            and not REPLY_PREFIX.match(subject) and bool(ISSUED.match(subject))
+            and not str(row.get("in_reply_to","")).strip())
+
 
 def read_rows(session,tab,columns,count):
     path=urllib.parse.quote("'"+tab+"'!A1:"+columns+str(count),safe="")
@@ -63,15 +74,18 @@ def main():
     } else []
     known={str(x.get("invoice_number","")).strip() for x in existing if x.get("invoice_number")}
     output={(str(x.get("ingest_key","")),str(x.get("invoice_number",""))):x for x in previous if x.get("ingest_key")}
+    # Re-evaluate old extracted results too; prior versions admitted reply evidence.
+    original_by_key={x.get("ingest_key"):x for x in source if original_issued_mail(x)}
+    output={k:v for k,v in output.items() if k[0] in original_by_key and v.get("attachment_filename") and extract(str(v["attachment_filename"]))}
     processed_keys={key for key,_ in output}
     # Reconcile known historical invoice evidence before IMAP metadata calls.
     # These are verified earlier by the legacy filename extraction; label provenance.
     legacy_by_uid={str(r.get("uid","")).strip().lower():r for r in existing if r.get("invoice_number")}
     reconciled=0
     for row in source:
-        if row.get("direction")!="INBOUND" or row.get("ingest_key") in processed_keys:continue
+        if not original_issued_mail(row) or row.get("ingest_key") in processed_keys:continue
         legacy=legacy_by_uid.get(("inbox:"+str(row.get("imap_uid",""))).lower())
-        if not legacy:continue
+        if not legacy or not extract(str(legacy.get("attachment_filename",""))):continue
         amount_text=str(legacy.get("amount_krw","")).replace(",","").replace(" KRW","").strip()
         if not amount_text.isdigit():continue
         key=row["ingest_key"]
@@ -85,8 +99,7 @@ def main():
             "validation_status":"VERIFIED_LEGACY_RECORD",
             "extracted_at_utc":dt.datetime.now(dt.timezone.utc).isoformat()}
         reconciled+=1
-    candidates=[x for x in source if x.get("direction")=="INBOUND" and
-                ISSUED.search(str(x.get("subject",""))) and x.get("ingest_key") not in processed_keys]
+    candidates=[x for x in source if original_issued_mail(x) and x.get("ingest_key") not in processed_keys]
     # Newest first; per-run bound avoids exceeding the 10-minute Actions job.
     candidates.sort(key=lambda x:x.get("received_at",""),reverse=True)
     batch=candidates[:int(os.environ.get("CSS_INVOICE_BATCH","120"))]
