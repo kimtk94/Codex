@@ -1,0 +1,34 @@
+name: QQ CSS Invoice Parity Audit
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 2 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/qq_invoice_parity_audit.py'
+      - '.github/workflows/qq-css-invoice-parity.yml'
+permissions:
+  contents: read
+concurrency:
+  group: qq-css-invoice-parity
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      BACKFILL_YEAR: '2026'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Check syntax
+        run: python3 -m py_compile automation/css_mail/qq_invoice_parity_audit.py
+      - name: Compare historical QQ invoice keys and CSS canonical invoice keys
+        run: python3 automation/css_mail/qq_invoice_parity_audit.py
