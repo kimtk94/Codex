@@ -44,7 +44,7 @@ def audit(session):
         for item in raw:
             address = item.get("range","")
             import re
-            m = re.search(r"![A-Z]+(\\d+):",address)
+            m = re.search(r"![A-Z]+(\d+):",address)
             if m:
                 evidence[int(m.group(1))] = (item.get("values") or [[]])[0]
     out = []
