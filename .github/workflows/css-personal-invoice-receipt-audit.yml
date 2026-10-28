@@ -1,0 +1,30 @@
+name: CSS Personal Invoice Receipt Audit
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '50 2 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/personal_invoice_receipt_audit.py'
+      - 'automation/css_mail/invoice_ownership.py'
+      - '.github/workflows/css-personal-invoice-receipt-audit.yml'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      INVOICE_AUDIT_MONTH: '2026-10'
+      INVOICE_AUDIT_USER_EMAIL: 'taehoon.kim@novogene.com'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - run: python3 -m py_compile automation/css_mail/personal_invoice_receipt_audit.py automation/css_mail/invoice_ownership.py
+      - run: python3 automation/css_mail/personal_invoice_receipt_audit.py
