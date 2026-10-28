@@ -7,7 +7,7 @@ from google.auth.transport.requests import AuthorizedSession
 from canonical_confirmation_audit import classify,BOOK
 
 AMEA=re.compile(r"AMEA[0-9]{7,}",re.I)
-CONTRACT=re.compile(r"H[0-9]{5,}",re.I)
+CONTRACT=re.compile(r"H[0-9]{3}SC[0-9]{5,}|H[0-9]{5,}",re.I)
 SAM=re.compile(r"SAM[0-9]{7,}",re.I)
 INVOICE=re.compile(r"209126[0-9]{6}")
 def scan(rows):
