@@ -104,7 +104,7 @@ def main():
     if [str(x) for x in observed[-1][:2]]!=[str(x) for x in result[-1][:2]]:
         raise RuntimeError("Lifecycle post-write last-project mismatch")
     now=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
-    put(s,DST,"Automation Health","A9",[[
+    put(s,DST,"Automation Health","A15",[[
         "Project Lifecycle",now,"PASS",
         "projects="+str(len(result)-1)+
         " linked_invoices="+str(sum(r[14]>0 for r in result[1:]))+
