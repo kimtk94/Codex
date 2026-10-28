@@ -21,9 +21,9 @@ def main():
         if ok!="OK":raise RuntimeError("INBOX_UNAVAILABLE")
         def check(r):
             uid_value=str(r.get("uid","")).strip()
-            if not re.fullmatch(r"(?i:inbox:)[0-9]+",uid_value):return "UID_UNUSABLE"
+            if not re.fullmatch(r"(?:(?i:inbox):)?[0-9]+",uid_value):return "UID_UNUSABLE"
             uid=uid_value.split(":")[-1]
-            ok,response=im.uid("FETCH",uid,"(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO DATE FROM SUBJECT)] BODYSTRUCTURE)")
+            ok,response=im.uid("FETCH",uid,"(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO DATE FROM SUBJECT)])")
             if ok!="OK":return "IMAP_FETCH_ERROR"
             payload=next((v[1] for v in response or [] if isinstance(v,tuple) and isinstance(v[1],bytes)),None)
             if not payload:return "IMAP_MESSAGE_NOT_FOUND"
@@ -33,8 +33,10 @@ def main():
             original={"direction":"INBOUND","from_email":"css@novogene-amea.com" if "css@novogene-amea.com" in from_email else "", "subject":subject,"in_reply_to":str(msg.get("In-Reply-To",""))}
             if not original_issued_mail(original):return "NOT_ORIGINAL_CSS_NOTICE"
             if subject!=str(r.get("subject","")).strip():return "SOURCE_SUBJECT_MISMATCH"
+            ok,body_items=im.uid("FETCH",uid,"(BODYSTRUCTURE)")
+            if ok!="OK":return "IMAP_BODYSTRUCTURE_FETCH_ERROR"
             raw=[]
-            for v in response or []:
+            for v in body_items or []:
                 if isinstance(v,tuple) and isinstance(v[0],bytes):raw.append(v[0])
                 elif isinstance(v,bytes):raw.append(v)
             filenames=[]
@@ -44,7 +46,7 @@ def main():
             for name in set(filenames):
                 parsed=extract(name)
                 if parsed and parsed[0]==expected:candidate.append((name,parsed))
-            if not candidate:return "ORIGINAL_PDF_NOT_FOUND"
+            if not candidate:return "ORIGINAL_PDF_FILENAME_UNREADABLE"
             expected_filename=str(r.get("attachment_filename","")).strip()
             for name,p in candidate:
                 invoice,h,po,project,amount,status=p
