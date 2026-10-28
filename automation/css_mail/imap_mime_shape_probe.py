@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Sanitized structural probe of IMAP BODYSTRUCTURE; prints no filenames or mail content."""
-import imaplib,json,os,re,urllib.parse,base64\nfrom email.header import decode_header,make_header
+import imaplib,json,os,re,urllib.parse,base64
+from email.header import decode_header,make_header
 import incremental_sync as src
 from tax_invoice_extract import bodystructure_filenames
 
