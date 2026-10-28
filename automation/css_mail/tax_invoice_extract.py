@@ -76,7 +76,18 @@ def main():
     output={(str(x.get("ingest_key","")),str(x.get("invoice_number",""))):x for x in previous if x.get("ingest_key")}
     # Re-evaluate old extracted results too; prior versions admitted reply evidence.
     original_by_key={x.get("ingest_key"):x for x in source if original_issued_mail(x)}
-    output={k:v for k,v in output.items() if k[0] in original_by_key and v.get("attachment_filename") and extract(str(v["attachment_filename"]))}
+    # Re-derive invoice identifiers and KRW strictly from each original PDF filename.
+    verified={}
+    for (key,_),record in output.items():
+        if key not in original_by_key:continue
+        parsed=extract(str(record.get("attachment_filename","")))
+        if not parsed or parsed[4] is None:continue
+        invoice,h_project,po,project,amount,_=parsed
+        if record.get("invoice_number") and str(record["invoice_number"])!=invoice:continue
+        fixed=dict(record,invoice_number=invoice,h_project_number=h_project,
+                   po_reference=po,project_id=project,amount_krw=amount)
+        verified[(key,invoice)]=fixed
+    output=verified
     processed_keys={key for key,_ in output}
     # Reconcile known historical invoice evidence before IMAP metadata calls.
     # These are verified earlier by the legacy filename extraction; label provenance.
@@ -86,17 +97,18 @@ def main():
         if not original_issued_mail(row) or row.get("ingest_key") in processed_keys:continue
         legacy=legacy_by_uid.get(("inbox:"+str(row.get("imap_uid",""))).lower())
         if not legacy or not extract(str(legacy.get("attachment_filename",""))):continue
-        amount_text=str(legacy.get("amount_krw","")).replace(",","").replace(" KRW","").strip()
-        if not amount_text.isdigit():continue
+        parsed=extract(str(legacy.get("attachment_filename","")))
+        if not parsed or parsed[4] is None:continue
+        invoice,h_project,po,project,amount,_=parsed
+        if str(legacy.get("invoice_number",""))!=invoice:continue
         key=row["ingest_key"]
-        output[(key,str(legacy.get("invoice_number","")))]= {"invoice_number":legacy.get("invoice_number",""),
-            "amount_krw":int(amount_text),"project_id":legacy.get("project_id",""),
-            "h_project_number":legacy.get("h_project_number",""),
-            "po_reference":legacy.get("po_reference",""),
+        output[(key,invoice)]={"invoice_number":invoice,
+            "amount_krw":amount,"project_id":project,
+            "h_project_number":h_project,"po_reference":po,
             "attachment_filename":legacy.get("attachment_filename",""),
             "subject":row.get("subject",""),"received_at":row.get("received_at",""),
             "imap_uid":row.get("imap_uid",""),"ingest_key":key,
-            "validation_status":"VERIFIED_LEGACY_RECORD",
+            "validation_status":"VERIFIED_LEGACY_FILENAME",
             "extracted_at_utc":dt.datetime.now(dt.timezone.utc).isoformat()}
         reconciled+=1
     candidates=[x for x in source if original_issued_mail(x) and x.get("ingest_key") not in processed_keys]
