@@ -74,6 +74,15 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
     # Search original official notices only, never RE/FW or in-reply-to.
     statement_notices={}
     stage_evidence={}
+    by_h,by_amea={},{}
+    for project in feishu_rows[1:]:
+        project_x=str(present(project,1)).strip().upper()
+        contract=str(present(project,2)).strip().upper()
+        label=str(present(project,3))
+        if not project_x:continue
+        if contract:by_h.setdefault(contract,set()).add(project_x)
+        hit=A.search(label)
+        if hit:by_amea.setdefault(hit.group(0).upper(),set()).add(project_x)
     stages=[
         ("invoice issued & statement confirmed",100,"Invoice issued"),
         ("final report & statement ready for confirmation",97,"Statement confirmation"),
@@ -110,15 +119,27 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
         # Build the most advanced confirmed CSS milestone per project;
         # a late reminder must not roll back a completed milestone.
         hits=[x.upper() for x in re.findall(r"X\d+SC\d+-Z\d+",subject,re.I)]
+        evidence_scope="direct"
         if not hits:
-            continue
+            evidence_scope="contract"
+            linked=set()
+            for h in H.findall(subject):
+                linked.update(by_h.get(h.upper(),set()))
+            if not linked:
+                evidence_scope="AMEA"
+                for a in A.findall(subject):
+                    linked.update(by_amea.get(a.upper(),set()))
+            hits=sorted(linked)
+        if not hits:continue
         low=subject.lower()
         for term,order,label in stages:
             if term in low:
+                actual_label=label if evidence_scope=="direct" else (
+                    label+" [QQ "+evidence_scope+"-level]")
                 for x in hits:
                     old=stage_evidence.get(x)
                     if old is None or (order,date)>(old[0],old[1]):
-                        stage_evidence[x]=(order,date,label)
+                        stage_evidence[x]=(order,date,actual_label)
                 break
 
     statement_amounts={}
