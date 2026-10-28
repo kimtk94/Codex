@@ -33,18 +33,21 @@ def main():
     existing=set(saved)
     candidates=(from_legacy(r,i) for i,r in enumerate(legacy[1:],2) if get(r,0))
     recent=(from_staging(r,i) for i,r in enumerate(stage[1:],2) if get(r,0))
-    maximum=min(1000,max(1,int(os.getenv("CANONICAL_BATCH_LIMIT","500"))))
+    # Process every unsaved source row in one invocation; each request stays bounded.
     pending=[]
     for row in list(candidates)+list(recent):
         if row[0] not in existing:pending.append(row)
-        if len(pending)>=maximum:break
+
     print("CANONICAL_SHADOW_PLAN "+json.dumps({"legacy":result["legacy_rows"],"staging":result["staging_rows"],"saved":len(saved),"to_append":len(pending),"cutover":False}))
     if pending:
         path="/values/"+urllib.parse.quote("'"+TAB+"'!A:AA",safe="")+":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS"
-        for i in range(0,len(pending),100):call(s,"POST",path,json={"values":pending[i:i+100]})
+        for i in range(0,len(pending),250):
+            call(s,"POST",path,json={"values":pending[i:i+250]})
+            if i%2500==0:print("CANONICAL_SHADOW_PROGRESS "+str(min(i+250,len(pending)))+"/"+str(len(pending)),flush=True)
     after=read(s,TAB,"A1:A60000")
     keys=[r[0] for r in after[1:] if r and r[0]]
-    if len(keys)!=len(set(keys)) or not set(saved).issubset(keys):raise RuntimeError("SHADOW_KEY_PARITY_FAILED")
+    expected=existing | {r[0] for r in pending}
+    if len(keys)!=len(expected) or set(keys)!=expected:raise RuntimeError("SHADOW_KEY_PARITY_FAILED")
     print("CANONICAL_SHADOW_CHECKPOINT "+json.dumps({"saved":len(keys),"new":len(keys)-len(saved),"total_source_rows":result["canonical_staging_rows_before_dedupe"],"cutover_allowed":False}))
 if __name__=="__main__":
     try:main()

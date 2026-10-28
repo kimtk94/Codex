@@ -10,11 +10,10 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 20
+    timeout-minutes: 60
     env:
       CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       CANONICAL_SHADOW_WRITE: 'true'
-      CANONICAL_BATCH_LIMIT: '500'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
