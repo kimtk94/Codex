@@ -11,6 +11,7 @@ import re
 import sys
 import urllib.parse
 import incremental_sync as src
+import canonical_mail_reader as canonical
 
 TAB="CSS Tax Invoice Extract"
 HEADER=["invoice_number","amount_krw","project_id","h_project_number","po_reference",
@@ -54,7 +55,8 @@ def extract(name):
 
 def main():
     session=src.authorize()
-    source=read_rows(session,"CSS Git Ingest","P",100000)
+    canonical_rows=canonical.read_staging_compatible(session)
+    source=[dict(zip(src.COLS,r+[""]*(len(src.COLS)-len(r)))) for r in canonical_rows[1:]]
     existing=read_rows(session,"CSS Tax Invoice List","N",10000)
     previous=read_rows(session,TAB,"L",10000) if TAB in {
         x["properties"]["title"] for x in src.api(session,"GET",src.endpoint()+"?fields=sheets.properties.title").get("sheets",[])
