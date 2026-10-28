@@ -54,7 +54,6 @@ def plan(legacy_rows,staging_rows):
             raise ValueError("INVALID_IMAP_KEY")
     staging_fp=Counter(message_fingerprint(r,False) for _,r in staging)
     overlap=0
-    collision=0
     legacy_with_attachment=0
     for i,r in legacy:
         if get(r,9):legacy_with_attachment+=1
@@ -62,8 +61,6 @@ def plan(legacy_rows,staging_rows):
         if all(fp) and staging_fp[fp]:
             overlap+=1
             staging_fp[fp]-=1
-        elif get(r,1) and any(normalize_id(get(r,1))==normalize_id(get(s,1)) for _,s in []):
-            collision+=1
     # Never drop existing rows automatically. Emit a merge *plan* for manual gate.
     return {
         "legacy_rows":len(legacy),"staging_rows":len(staging),
