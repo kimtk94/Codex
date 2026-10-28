@@ -1,4 +1,5 @@
 name: QQ One Original Invoice Proof
+# Single historical source-mail evidence gate after MIME tuple restore
 on:
   workflow_dispatch:
   push:
