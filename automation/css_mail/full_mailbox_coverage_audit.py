@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Read-only QQ mailbox UID coverage against CSS Git Ingest, no 60-day window."""
 import imaplib,json,os,urllib.parse
-from collections import Counter
 import incremental_sync as src
 
 def audit():
