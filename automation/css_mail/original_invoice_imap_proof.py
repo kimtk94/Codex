@@ -64,7 +64,8 @@ def main():
                 details.append({"invoice":r.get("invoice_number",""),"status":status})
         im.logout()
     print("QQ_ORIGINAL_INVOICE_PROOF "+json.dumps({"source_rows":len(records),"checked":checked,
-       "verified":proof,"failures":failures,"review":details,
+       "verified":proof,"failures":failures,"review":details[:10],
        "complete":checked==len(records) and proof==checked,
+       "review_count":len(details),
        "revenue_mutated":False},sort_keys=True))
 if __name__=="__main__":main()
