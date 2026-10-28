@@ -55,6 +55,12 @@ def bodystructure_filenames(message):
         for count in (2,3,4):
             if i+count<=len(tokens):
                 candidates.append(urllib.parse.unquote("".join(tokens[i:i+count])))
+    # QQ IMAP BODYSTRUCTURE uses literal byte strings ({N}) for long filenames.
+    # These arrive in imaplib as tuple[1], without surrounding quote characters.
+    for fragment in re.split(rb"[\\r\\n]+",message):
+        value=fragment.decode("utf-8","replace").strip().strip('"')
+        if "TAX" in value.upper() and "INVOICE" in value.upper() and ".PDF" in value.upper():
+            candidates.append(value)
     return list(dict.fromkeys(v for v in candidates
        if "TAX" in v.upper() and "INVOICE" in v.upper() and ".PDF" in v.upper()))
 
