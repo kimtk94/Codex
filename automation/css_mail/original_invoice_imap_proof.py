@@ -47,9 +47,10 @@ def main():
                 if parsed and parsed[0]==expected:candidate.append((name,parsed))
             if not candidate:return "ORIGINAL_PDF_FILENAME_UNREADABLE"
             expected_filename=str(r.get("attachment_filename","")).strip()
+            expected_proof=extract(expected_filename)
             for name,p in candidate:
                 invoice,h,po,project,amount,status=p
-                if (name==expected_filename and h==str(r.get("h_project_number","")).strip()
+                if (expected_proof is not None and p[:5]==expected_proof[:5] and h==str(r.get("h_project_number","")).strip()
                     and project==str(r.get("project_id","")).strip()
                     and amount is not None and amount==int(re.sub(r"[^0-9]","",str(r.get("amount_krw","")).split(".")[0]) or "0")):
                     return "ORIGINAL_PDF_AMOUNT_AND_ID_MATCH"
