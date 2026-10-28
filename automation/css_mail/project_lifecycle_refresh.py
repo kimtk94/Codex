@@ -233,13 +233,13 @@ def main():
         "projects="+str(len(result)-1)+
         " linked_invoices="+str(sum(r[14]>0 for r in result[1:]))+
         " open_statements="+str(sum(bool(r[20]) for r in result[1:]))+
-          " verified_pending_krw="+str(sum(r[22] for r in result[1:] if isinstance(r[22],int)))+
         " verified_pending_krw="+str(sum(r[22] for r in result[1:] if isinstance(r[22],int)))+
         " CSS_snapshot=legacy Feishu_snapshot=external"
     ]],"RAW")
     print("PROJECT_LIFECYCLE_REFRESH_PASS projects="+str(len(result)-1)+
           " issued_projects="+str(sum(r[14]>0 for r in result[1:]))+
           " open_statements="+str(sum(bool(r[20]) for r in result[1:]))+
+          " verified_pending_krw="+str(sum(r[22] for r in result[1:] if isinstance(r[22],int)))+
           " updated="+dt.datetime.now(KST).isoformat(),flush=True)
 
 if __name__=="__main__":
