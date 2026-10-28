@@ -95,7 +95,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertIn("contract-level",out[6])
 
     def test_original_notices_only_and_stale_invoice_filter(self):
-        mail=[["ingest_key"],source_mail(J2)]
+        mail=[["ingest_key"],source_mail(J2)[:16]]  # Sheets trims empty Q:R for originals
         replied=source_mail(J1)
         replied[0]="INBOX|1776302013|40006";replied[2]="40006";replied[9]="Re: "+replied[9]
         mail.append(replied)
