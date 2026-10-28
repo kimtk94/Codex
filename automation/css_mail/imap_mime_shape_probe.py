@@ -36,6 +36,12 @@ def main():
     "contains_tax_invoice_token":b"TAX" in all_bytes.upper(),
     "quoted_name_candidates":len(bodystructure_filenames(all_bytes)),
     "quote_count":all_bytes.count(b'"'),
+    "quoted_token_count":len(re.findall(rb'"([^"]*)"',all_bytes)),
+    "quoted_token_lengths":[len(t) for t in re.findall(rb'"([^"]*)"',all_bytes)][:30],
+    "percent_sequences":len(re.findall(rb"%[0-9A-Fa-f]{2}",all_bytes)),
+    "literal_tax_invoice_pattern":bool(re.search(rb"TAX[ _-]*INVOICE",all_bytes,re.I)),
+    "filename_token_position":all_bytes.upper().find(b"FILENAME"),
+    "pdf_token_position":all_bytes.upper().find(b"PDF"),
     "paren_count":all_bytes.count(b'(')
    },sort_keys=True))
   im.logout()
