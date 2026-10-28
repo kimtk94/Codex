@@ -41,28 +41,22 @@ def read_rows(session,tab,columns,count):
     return [dict(zip(arr[0],r+[""]*(len(arr[0])-len(r)))) for r in arr[1:] if any(r)]
 
 def bodystructure_filenames(message):
-    """Recover MIME filename tokens from QQ BODYSTRUCTURE metadata, no PDF payload."""
+    """Decode quoted and RFC2231 MIME filename tokens without downloading PDFs."""
     from email.header import decode_header, make_header
-    normalized=re.sub(r"\\s+"," ",message.decode("utf-8","replace"))
-    quoted=re.findall(r'"((?:[^"\\\\]|\\\\.)*)"',normalized)
+    normalized=re.sub(r"\s+"," ",message.decode("utf-8","replace"))
+    tokens=re.findall(r'"((?:[^"\\]|\\.)*)"',normalized)
     candidates=[]
-    for token in quoted:
-        token=token.replace(r'\\"','"')
-        candidates.append(token)
-        # QQ may encode spaces in RFC2231 filename and name parameters.
-        candidates.append(urllib.parse.unquote(token))
+    for token in tokens:
+        token=token.replace(r'\"','"')
+        candidates.extend((token,urllib.parse.unquote(token)))
         try:candidates.append(str(make_header(decode_header(token))))
         except (ValueError,LookupError):pass
-    # Some servers present filename*0*, filename*1* segments separately.
-    for i in range(len(quoted)):
+    for i in range(len(tokens)):
         for count in (2,3,4):
-            if i+count<=len(quoted):
-                candidates.append(urllib.parse.unquote("".join(quoted[i:i+count])))
-    names=[]
-    for value in candidates:
-        if "TAX" in value.upper() and "INVOICE" in value.upper() and ".PDF" in value.upper():
-            names.append(value)
-    return list(dict.fromkeys(names))
+            if i+count<=len(tokens):
+                candidates.append(urllib.parse.unquote("".join(tokens[i:i+count])))
+    return list(dict.fromkeys(v for v in candidates
+       if "TAX" in v.upper() and "INVOICE" in v.upper() and ".PDF" in v.upper()))
 
 def extract(name):
     cleaned=re.sub(r"\s+"," ",name).strip()
