@@ -96,6 +96,20 @@ def main():
     if len(previous)>len(result):
         raise RuntimeError("Fewer projects than previous snapshot; refusing destructive shrink")
     put(s,DST,TAB,"A1",result,"RAW")
+    # Verify the materialized result before reporting success. A stale sheet
+    # must never be presented as a completed refresh.
+    observed=get(s,DST,TAB,"A1:T"+str(len(result)))
+    if len(observed)!=len(result) or observed[0]!=HEAD:
+        raise RuntimeError("Lifecycle post-write row/header verification failed")
+    if [str(x) for x in observed[-1][:2]]!=[str(x) for x in result[-1][:2]]:
+        raise RuntimeError("Lifecycle post-write last-project mismatch")
+    now=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
+    put(s,DST,"Automation Health","A9",[[
+        "Project Lifecycle",now,"PASS",
+        "projects="+str(len(result)-1)+
+        " linked_invoices="+str(sum(r[14]>0 for r in result[1:]))+
+        " CSS_snapshot=legacy Feishu_snapshot=external"
+    ]],"RAW")
     print("PROJECT_LIFECYCLE_REFRESH_PASS projects="+str(len(result)-1)+
           " issued_projects="+str(sum(r[14]>0 for r in result[1:]))+
           " updated="+dt.datetime.now(KST).isoformat(),flush=True)
