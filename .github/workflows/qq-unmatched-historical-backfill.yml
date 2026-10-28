@@ -1,0 +1,27 @@
+name: QQ Historical Missing Header Backfill
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/unmatched_historical_backfill.py'
+permissions:
+  contents: read
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 15
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      CSS_UNMATCHED_BACKFILL_LIMIT: '120'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install google-auth requests
+      - run: python -m py_compile automation/css_mail/unmatched_historical_backfill.py automation/css_mail/legacy_uid_full_coverage.py
+      - run: python automation/css_mail/unmatched_historical_backfill.py
