@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only source IMAP proof for historical TAX INVOICE records. No Revenue writes."""
+"""Read-only original IMAP proof, including QQ literal MIME filenames. No Revenue writes."""
 import imaplib,json,os,re,urllib.parse
 from email.parser import BytesParser
 from email.policy import default
