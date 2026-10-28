@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only full QQ UID coverage across staging and legacy, including post-backfill parity."""
+"""Final read-only full QQ UID coverage after unmatched backfill."""
 import imaplib,json,os,urllib.parse
 from collections import defaultdict
 import incremental_sync as src
