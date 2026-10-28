@@ -82,6 +82,18 @@ class LifecycleTests(unittest.TestCase):
         out=build(*data)[1]
         self.assertEqual(out[16],"BLOCKED / EXCLUDED FROM FORECAST")
 
+    def test_contract_level_qc_updates_progress(self):
+        data=fixtures(status="In Progress")
+        data[4].append(["2026-10-29T08:00:00+09:00",
+                        "css@novogene-amea.com","client@example.org","taehoon.kim@novogene.com",
+                        "❗️Action Required: Review Sample QC Report – SAM20261008045 - "+H+
+                        " - Korea-Gachon Univ.-"+AMEA,
+                        AMEA,H,"","","2026-10-29T00:00:00+00:00","INBOUND",""])
+        out=build(*data)[1]
+        self.assertIn("QC",out[6])
+        self.assertGreaterEqual(out[7],55)
+        self.assertIn("contract-level",out[6])
+
     def test_original_notices_only_and_stale_invoice_filter(self):
         mail=[["ingest_key"],source_mail(J2)]
         replied=source_mail(J1)
