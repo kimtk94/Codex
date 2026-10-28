@@ -11,9 +11,10 @@ import sys
 import urllib.parse
 from email.utils import getaddresses
 import incremental_sync as src
+import canonical_mail_reader as canonical
 
 OUTPUT = "Unanswered Emails Auto"
-SOURCE = "CSS Git Ingest"
+SOURCE = "Canonical Mail Ledger"
 EXCLUDED = "Unanswered Email Exclusions"
 SENDER_EXCLUDED = "Unanswered Sender Exclusions"
 HEADER = ["waiting_days","received_at","from_name","subject","source_link","work_status","category","owner","from_email","exclude_reason","exclude","exclude_sender","to","cc","project_ids","reply_status","thread_subject","uid","source_row","last_checked_utc","review_status"]
@@ -179,13 +180,14 @@ def candidates(messages, exclusions, senders, rules=None, sender_rules=None):
 
 def main():
     s=src.authorize()
-    mail=table(s,SOURCE,"P",MAX_READ)
+    canonical_rows=canonical.read_staging_compatible(s)
+    mail=[dict(zip(src.COLS,r+[""]*(len(src.COLS)-len(r)))) for r in canonical_rows[1:]]
     excludes=table(s,EXCLUDED,"L",10000)
     senders=table(s,SENDER_EXCLUDED,"F",10000)
     rules=table(s,"CSS Rules & SLA","I",300)
     sender_rules=table(s,"CSS Sender Rules","G",200)
     if not mail:
-        raise RuntimeError("CSS Git Ingest empty; preserving previous review results")
+        raise RuntimeError("Canonical staging records empty; preserving previous review results")
     result=candidates(mail,excludes,senders,rules,sender_rules)
     props=src.api(s,"GET",src.endpoint()+"?fields=sheets.properties.title")
     titles={x["properties"]["title"] for x in props.get("sheets",[])}
