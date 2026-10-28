@@ -28,8 +28,8 @@ def audit():
     cred=service_account.Credentials.from_service_account_info(json.loads(os.environ["CKD_DRIVE_SA_JSON"]),
         scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
     s=AuthorizedSession(cred)
-    ingest=read(s,"CSS Git Ingest","A1:R100000")
-    legacy=read(s,"All Emails","A1:J50000")
+    ingest=read(s,"CSS Git Ingest","A1:R50000")
+    legacy=read(s,"All Emails","A1:J45000")
     if not ingest or ingest[0][:5]!=["ingest_key","message_id","imap_uid","folder","uidvalidity"]:
         raise RuntimeError("INGEST_SCHEMA_MISMATCH")
     if not legacy or str(legacy[0][0]).lower() not in ("uid","imap_uid"):
@@ -39,7 +39,7 @@ def audit():
     olds=[r for r in legacy[1:] if len(r)>2 and r[0]]
     keys=[r[0] for r in entries]
     duplicates=len(keys)-len(set(keys))
-    malformed=sum(not re.fullmatch(r"[^|]+\\|[0-9]+\\|[0-9]+",r[0]) for r in entries)
+    malformed=sum(not re.fullmatch(r"[^|]+\|[0-9]+\|[0-9]+",r[0]) for r in entries)
     newest_ingest=max((t for r in entries if (t:=parse_time(r[14] if len(r)>14 else ""))),default=None)
     newest_legacy=max((t for r in olds if (t:=parse_time(r[2]))),default=None)
     now=dt.datetime.now(dt.timezone.utc)
