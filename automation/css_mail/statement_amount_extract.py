@@ -43,7 +43,7 @@ def candidates(mail, invoice):
         if m: issued.add(m.group(1).upper()+"-"+m.group(2).upper())
     result = {}
     for r in mail[1:]:
-        if len(r)<17: continue
+        if len(r)<16: continue  # Q (In-Reply-To) is omitted for original messages
         if cell(r,3).upper() != "INBOX" or cell(r,6).lower() != CSS_FROM: continue
         if cell(r,15) != "INBOUND" or cell(r,16).strip(): continue
         subject = cell(r,9)
