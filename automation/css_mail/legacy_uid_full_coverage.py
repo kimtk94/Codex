@@ -4,6 +4,25 @@ import imaplib,json,os,urllib.parse
 from collections import defaultdict
 import incremental_sync as src
 
+def read_legacy_keys(session):
+    q=urllib.parse.quote("'All Emails'!A1:A100000",safe="")
+    old=src.api(session,"GET",src.endpoint("/values/"+q)).get("values",[])
+    if not old or old[0][0].lower()!="uid":
+        raise RuntimeError("LEGACY_UID_SCHEMA_MISMATCH")
+    result=defaultdict(set)
+    for row in old[1:]:
+        if not row or not row[0]:continue
+        value=str(row[0]).strip()
+        upper=value.upper()
+        if upper.startswith("SENT:"):
+            folder,number="SENT",value[5:]
+        elif upper.startswith("INBOX:"):
+            folder,number="INBOX",value[6:]
+        else:
+            folder,number="INBOX",value
+        if number.isdigit():result[folder].add(str(int(number)))
+    return result
+
 def main():
     session=src.authorize()
     def read(tab,range_):
