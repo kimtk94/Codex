@@ -5,7 +5,7 @@ from email.parser import BytesParser
 from email.policy import default
 from email.utils import getaddresses
 import incremental_sync as src
-from tax_invoice_extract import extract,bodystructure_filenames,original_issued_mail
+from tax_invoice_extract import extract,bodystructure_filenames,original_issued_mail,imap_bodystructure_chunks
 
 def main():
     s=src.authorize()
@@ -35,10 +35,7 @@ def main():
             if subject!=str(r.get("subject","")).strip():return "SOURCE_SUBJECT_MISMATCH"
             ok,body_items=im.uid("FETCH",uid,"(BODYSTRUCTURE)")
             if ok!="OK":return "IMAP_BODYSTRUCTURE_FETCH_ERROR"
-            raw=[]
-            for v in body_items or []:
-                if isinstance(v,tuple) and isinstance(v[0],bytes):raw.append(v[0])
-                elif isinstance(v,bytes):raw.append(v)
+            raw=imap_bodystructure_chunks(body_items)
             # QQ IMAP can split MIME parameters across multiple FETCH tuples.
             filenames=bodystructure_filenames(b' '.join(raw))
             for fragment in raw:
