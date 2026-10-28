@@ -39,8 +39,8 @@ def main():
             for v in body_items or []:
                 if isinstance(v,tuple) and isinstance(v[0],bytes):raw.append(v[0])
                 elif isinstance(v,bytes):raw.append(v)
-            filenames=[]
-            for value in raw:filenames.extend(bodystructure_filenames(value))
+            # QQ IMAP can split MIME parameters across multiple FETCH tuples.
+            filenames=bodystructure_filenames(b' '.join(raw))
             expected=str(r.get("invoice_number","")).strip()
             candidate=[]
             for name in set(filenames):
