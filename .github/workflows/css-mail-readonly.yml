@@ -47,7 +47,7 @@ jobs:
       - name: Install Google Sheets client
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Compile CSS mail Python scripts
-        run: python3 -m py_compile automation/css_mail/readonly_probe.py automation/css_mail/incremental_sync.py automation/css_mail/mail_operations.py automation/css_mail/unanswered_auto.py automation/css_mail/tax_invoice_extract.py automation/css_mail/quotation_approval_extract.py automation/css_mail/thread_header_backfill.py automation/css_mail/mail_shadow_load.py
+        run: python3 -m py_compile automation/css_mail/readonly_probe.py automation/css_mail/incremental_sync.py automation/css_mail/mail_operations.py automation/css_mail/unanswered_auto.py automation/css_mail/tax_invoice_extract.py automation/css_mail/quotation_approval_extract.py automation/css_mail/thread_header_backfill.py automation/css_mail/mail_shadow_load.py automation/css_mail/project_lifecycle_refresh.py
       - name: Sync inbound and sent mail metadata to CSS staging
         run: python3 automation/css_mail/incremental_sync.py
       - name: Backfill verified mail thread headers (Q:R only)
@@ -71,6 +71,8 @@ jobs:
         run: python3 automation/css_mail/quotation_approval_extract.py
       - name: Extract TAX INVOICE amounts from attachment filenames
         run: python3 automation/css_mail/tax_invoice_extract.py
+      - name: Refresh linked project progress and billing overview
+        run: python3 automation/css_mail/project_lifecycle_refresh.py
       - name: Upload sanitized counts
         if: success()
         uses: actions/upload-artifact@v4
