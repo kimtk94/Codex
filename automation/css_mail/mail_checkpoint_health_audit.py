@@ -28,23 +28,25 @@ def audit():
     cred=service_account.Credentials.from_service_account_info(json.loads(os.environ["CKD_DRIVE_SA_JSON"]),
         scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
     s=AuthorizedSession(cred)
-    ingest=read(s,"CSS Git Ingest","A1:R50000")
-    legacy=read(s,"All Emails","A1:J45000")
-    if not ingest or ingest[0][:5]!=["ingest_key","message_id","imap_uid","folder","uidvalidity"]:
+    # Narrow column reads avoid fetching customer subjects/recipients/attachments.
+    ingest_keys=read(s,"CSS Git Ingest","A1:A50000")
+    ingest_fetch=read(s,"CSS Git Ingest","O1:O50000")
+    legacy_uids=read(s,"All Emails","A1:A45000")
+    legacy_dates=read(s,"All Emails","C1:C45000")
+    if not ingest_keys or ingest_keys[0]!=["ingest_key"]:
         raise RuntimeError("INGEST_SCHEMA_MISMATCH")
-    if not legacy or str(legacy[0][0]).lower() not in ("uid","imap_uid"):
-        # A legacy header may differ; continue when timestamps are structurally valid.
-        if len(legacy[0])<10: raise RuntimeError("LEGACY_SCHEMA_MISMATCH")
-    entries=[r for r in ingest[1:] if len(r)>5 and r[0]]
-    olds=[r for r in legacy[1:] if len(r)>2 and r[0]]
-    keys=[r[0] for r in entries]
+    if not legacy_uids or legacy_uids[0][0].lower()!="uid":
+        raise RuntimeError("LEGACY_SCHEMA_MISMATCH")
+    keys=[r[0] for r in ingest_keys[1:] if r and r[0]]
     duplicates=len(keys)-len(set(keys))
-    malformed=sum(not re.fullmatch(r"[^|]+\|[0-9]+\|[0-9]+",r[0]) for r in entries)
-    newest_ingest=max((t for r in entries if (t:=parse_time(r[14] if len(r)>14 else ""))),default=None)
-    newest_legacy=max((t for r in olds if (t:=parse_time(r[2]))),default=None)
+    malformed=sum(not re.fullmatch(r"[^|]+\\|[0-9]+\\|[0-9]+",key) for key in keys)
+    newest_ingest=max((t for r in ingest_fetch[1:] if r and (t:=parse_time(r[0]))),default=None)
+    newest_legacy=max((t for r in legacy_dates[1:] if r and (t:=parse_time(r[0]))),default=None)
     now=dt.datetime.now(dt.timezone.utc)
     ingest_age=(now-newest_ingest).total_seconds()/3600 if newest_ingest else None
     legacy_age=(now-newest_legacy).total_seconds()/3600 if newest_legacy else None
+    entries=keys
+    olds=[r[0] for r in legacy_uids[1:] if r and r[0]]
     result={"ingest_rows":len(entries),"legacy_rows":len(olds),"ingest_last_fetch_utc":str(newest_ingest),
             "legacy_last_mail_utc":str(newest_legacy),"ingest_fetch_age_h":round(ingest_age,1) if ingest_age is not None else None,
             "legacy_mail_age_h":round(legacy_age,1) if legacy_age is not None else None,
