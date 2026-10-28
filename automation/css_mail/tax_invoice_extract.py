@@ -41,16 +41,28 @@ def read_rows(session,tab,columns,count):
     return [dict(zip(arr[0],r+[""]*(len(arr[0])-len(r)))) for r in arr[1:] if any(r)]
 
 def bodystructure_filenames(message):
-    # Parse filenames only from BODYSTRUCTURE metadata, not attachment payloads.
-    # Various IMAP servers expose NAME, FILENAME and RFC2231 parameters.
-    normalized=re.sub(r"\s+"," ",message.decode("utf-8","replace"))
-    strings=re.findall(r'"((?:[^"\\]|\\.)*)"',normalized)
+    """Recover MIME filename tokens from QQ BODYSTRUCTURE metadata, no PDF payload."""
+    from email.header import decode_header, make_header
+    normalized=re.sub(r"\\s+"," ",message.decode("utf-8","replace"))
+    quoted=re.findall(r'"((?:[^"\\\\]|\\\\.)*)"',normalized)
+    candidates=[]
+    for token in quoted:
+        token=token.replace(r'\\"','"')
+        candidates.append(token)
+        # QQ may encode spaces in RFC2231 filename and name parameters.
+        candidates.append(urllib.parse.unquote(token))
+        try:candidates.append(str(make_header(decode_header(token))))
+        except (ValueError,LookupError):pass
+    # Some servers present filename*0*, filename*1* segments separately.
+    for i in range(len(quoted)):
+        for count in (2,3,4):
+            if i+count<=len(quoted):
+                candidates.append(urllib.parse.unquote("".join(quoted[i:i+count])))
     names=[]
-    for raw in strings:
-        value=raw.replace(r'\"','"').replace(r'\\','\\')
+    for value in candidates:
         if "TAX" in value.upper() and "INVOICE" in value.upper() and ".PDF" in value.upper():
             names.append(value)
-    return names
+    return list(dict.fromkeys(names))
 
 def extract(name):
     cleaned=re.sub(r"\s+"," ",name).strip()
