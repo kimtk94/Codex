@@ -7,7 +7,7 @@ from email.policy import default
 from invoice_fallback import corroborated_filename
 from google.oauth2 import service_account
 from google.auth.transport.requests import AuthorizedSession
-from tax_invoice_extract import extract,bodystructure_filenames
+from tax_invoice_extract import extract,bodystructure_filenames,imap_bodystructure_chunks
 
 SHEET=os.getenv("CSS_SHEET_ID","1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 TAB=os.getenv("BACKFILL_TAB","QQ Historical Invoice Backfill")
@@ -165,8 +165,7 @@ def main():
                 scanned+=1
                 status,parts=im.uid("FETCH",uid,"(BODYSTRUCTURE)")
                 if status!="OK":continue
-                blocks=[p for p in parts if isinstance(p,bytes)]
-                blocks +=[p[0] for p in parts if isinstance(p,tuple) and isinstance(p[0],bytes)]
+                blocks=imap_bodystructure_chunks(parts)
                 for block in blocks:
                     for filename in bodystructure_filenames(block):
                         filename_candidates+=1
