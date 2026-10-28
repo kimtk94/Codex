@@ -228,4 +228,9 @@ def main():
     audit_values=[audit_header]+[audit_by_year[key] for key in sorted(audit_by_year)]
     call(s,"PUT","/values/"+sheet_a1(AUDIT_TAB)+"?valueInputOption=RAW",json={"values":audit_values})
     print("QQ_BACKFILL_"+status_label+" year="+str(year)+" folders="+str(folders)+" candidates="+str(matches)+" scanned="+str(scanned)+" new="+str(fetched)+" total="+str(len(by_invoice))+" checkpoint_folders="+str(len(last_by_folder))+" prior_skipped="+str(prior_skipped)+" missing_uidvalidity_folders="+str(no_uidvalidity_folders))
+    # A partial scan must never appear as a successful complete backfill in Actions.
+    # Keep persisted evidence/cursors for incremental continuation, but fail the run.
+    if unfinished:
+        print("QQ_BACKFILL_INCOMPLETE: audit and cursors preserved; rerun required",file=sys.stderr,flush=True)
+        sys.exit(2)
 if __name__=="__main__":main()
