@@ -7,8 +7,6 @@ Missing project IDs are excluded and counted; a failed audit cannot erase histor
 import datetime as dt
 import json, os, re, sys, urllib.parse, time, random
 from collections import defaultdict
-from google.oauth2 import service_account
-from google.auth.transport.requests import AuthorizedSession
 from base_readonly_probe import request,require
 from payment_table_audit import list_pages, TARGET as OUTSTANDING_TABLE
 from etax_monthly_audit import select_etax
@@ -40,6 +38,8 @@ def status(issued,outstanding):
     if outstanding:return "P1_PAYMENT","Follow up unpaid balance"
     return "REVIEW","Review unmatched record"
 def google():
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import AuthorizedSession
     raw=os.environ.get("GCP_SERVICE_ACCOUNT_JSON","")
     if not raw:raise RuntimeError("GCP_SERVICE_ACCOUNT_JSON_MISSING")
     creds=service_account.Credentials.from_service_account_info(json.loads(raw),scopes=["https://www.googleapis.com/auth/spreadsheets"])
@@ -60,52 +60,52 @@ def sheet(s,title):
 def values(s,title,range_,rows):
     address=urllib.parse.quote("'"+title+"'!"+range_,safe="")
     api(s,"PUT","/values/"+address+"?valueInputOption=RAW",json={"values":rows})
+def latest_flags(snapshots,prior,stamp):
+    """Disappearance never means paid/issued; eTax requires explicit status text."""
+    projects=defaultdict(lambda:{'tax':False,'pay':False,'etax':0,'out':0})
+    aliases={'projectnumber','projectid','ameaprojectid','ameaprojectnumber','projectno','subprojectnumber'}
+    for fmt in ('Payment Outstanding','eTax Invoice'):
+        item=snapshots[fmt]
+        normalized=[re.sub('[^a-z0-9]','',h.lower()) for h in item['headers']]
+        columns=[i for i,h in enumerate(normalized) if h in aliases]
+        if len(columns)!=1 or item['schema']!='HEADER_MATCHED':continue
+        statuses=[i for i,h in enumerate(normalized) if h in {'invoicestatus','taxinvoicestatus','etaxstatus'}]
+        for row in item['rows']:
+            value=str(row[columns[0]]).strip()
+            # Keep identifiers exact (including suffixes); no customer-name joins.
+            if not re.fullmatch(r'(?:AMEA|[XH])[-A-Za-z0-9]{5,119}',value,re.I):continue
+            key=normalize(value);entry=projects[key]
+            if fmt=='Payment Outstanding':entry['pay']=True;entry['out']+=1
+            else:
+                entry['etax']+=1
+                if len(statuses)==1 and str(row[statuses[0]]).strip().lower() in {'unissued','not issued','pending issuance','미발행'}:entry['tax']=True
+    for row in prior:
+        if row and row[0]:projects.setdefault(row[0],{'tax':False,'pay':False,'etax':0,'out':0})
+    result=[HEAD]
+    for key,v in sorted(projects.items()):
+        priority,action=status(v['tax'],v['pay'])
+        if not v['tax'] and not v['pay']:priority='REVIEW_CARRYOVER';action='No settlement/issuance inferred; verify explicit evidence'
+        result.append([key,'YES' if v['tax'] else 'UNKNOWN','YES' if v['pay'] else 'UNKNOWN',priority,stamp,v['etax'],v['out'],'Latest Feishu Sheets; see Feishu Source Manifest','UNVERIFIED',action])
+    return result
+
 def main():
-    now=dt.datetime.now(KST)
-    auth=request("POST","/open-apis/auth/v3/tenant_access_token/internal",body={"app_id":require("FEISHU_APP_ID"),"app_secret":require("FEISHU_APP_SECRET")})
-    if auth.get("code")!=0 or not auth.get("tenant_access_token"):raise RuntimeError("FEISHU_AUTH_FAILED")
-    token=auth["tenant_access_token"]
-    prefix="/open-apis/bitable/v1/apps/"+urllib.parse.quote(require("FEISHU_BASE_APP_TOKEN"),safe="")
-    tables=list(list_pages(prefix+"/tables",token))
-    etax,matches=select_etax(tables,now.year,now.month)
-    outstanding=[t for t in tables if t.get("name")==OUTSTANDING_TABLE]
-    if not etax or matches!=1 or len(outstanding)!=1:raise RuntimeError("FEISHU_SOURCE_AMBIGUOUS")
-    def read(table):
-        root=prefix+"/tables/"+urllib.parse.quote(table["table_id"],safe="")
-        fields=list(list_pages(root+"/fields",token))
-        project=pick(fields)
-        if not project:raise RuntimeError("PROJECT_COLUMN_NOT_FOUND")
-        records=list(list_pages(root+"/records",token))
-        return group(records,project),len(records)
-    (etax_rows,etax_missing),etax_raw=read(etax)
-    (pay_rows,pay_missing),pay_raw=read(outstanding[0])
-    if not etax_rows or not pay_rows:raise RuntimeError("EMPTY_FEISHU_SOURCE_REFUSE_OVERWRITE")
-    projects=sorted(set(etax_rows)|set(pay_rows))
-    time=now.strftime("%Y-%m-%d %H:%M:%S KST")
-    output=[HEAD]
-    for key in projects:
-        issue=key in etax_rows;unpaid=key in pay_rows
-        priority,action=status(issue,unpaid)
-        output.append([key,"YES" if issue else "NO","YES" if unpaid else "NO",priority,time,etax_rows.get(key,0),pay_rows.get(key,0),"eTAX "+now.strftime("%Y-%m")+" + "+OUTSTANDING_TABLE,"UNVERIFIED",action])
-    s=google();sheet(s,"Feishu Project Status");sheet(s,"Automation Health")
-    # Preserve projects seen in prior snapshots as REVIEW_CARRYOVER; disappearance
-    # from a rotating month table is never evidence of issuance or payment.
-    prior_addr=urllib.parse.quote("'Feishu Project Status'!A2:J2000",safe="")
-    prior=api(s,"GET","/values/"+prior_addr).get("values",[])
-    current=set(projects)
-    carryover=0
-    for previous in prior:
-        previous=previous+[""]*max(0,10-len(previous))
-        prior_id=previous[0]
-        if not prior_id or prior_id in current:continue
-        output.append([prior_id,"UNKNOWN","UNKNOWN","REVIEW_CARRYOVER",time,0,0,"Prior Feishu snapshot, absent from current-month source","UNVERIFIED","Confirm invoice issue and settlement before closing"])
-        current.add(prior_id);carryover+=1
-    # Snapshot is a generated table; do not clear or mutate historical invoice source tabs.
-    values(s,"Feishu Project Status","A1",output)
-    # A stable project count or month shift never implies paid or issued; changes require source evidence.
-    values(s,"Automation Health","A4",[["Feishu",time,"PASS","projects="+str(len(projects))+" eTAX_records="+str(etax_raw)+" outstanding_records="+str(pay_raw)+" unmatched="+str(etax_missing+pay_missing)+" carryover="+str(carryover)]])
-    print("FEISHU_PROJECT_SYNC_PASS projects="+str(len(projects))+" overlap="+str(len(set(etax_rows)&set(pay_rows)))+" etax_unmatched="+str(etax_missing)+" pay_unmatched="+str(pay_missing)+" carryover="+str(carryover))
+    from latest_source_sync import collect,publish
+    snapshots=collect()  # All five reads and source selection must finish before any writes.
+    session=google()
+    prior_addr=urllib.parse.quote("'Feishu Project Status'!A2:J10000",safe='')
+    meta=api(session,'GET','?fields=sheets.properties.title')
+    exists='Feishu Project Status' in {x['properties']['title'] for x in meta.get('sheets',[])}
+    prior=api(session,'GET','/values/'+prior_addr).get('values',[]) if exists else []
+    stamp=dt.datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S KST')
+    output=latest_flags(snapshots,prior,stamp)
+    if len(output)>2000:raise RuntimeError('PROJECT_STATUS_CAPACITY_EXCEEDED')
+    publish(session,snapshots)
+    sheet(session,'Feishu Project Status')
+    # Generated status only; existing review and exclusion ledgers are untouched.
+    padded=output+[['']*len(HEAD) for _ in range(max(0,len(prior)+1-len(output)))]
+    values(session,'Feishu Project Status','A1',padded)
+    print('FEISHU_PROJECT_SYNC_PASS projects='+str(len(output)-1)+' source_selection=LATEST_DATED_SHEETS')
 if __name__=="__main__":
     try:main()
     except Exception as e:
-        print("FEISHU_PROJECT_SYNC_FAILED "+type(e).__name__,file=sys.stderr);raise
+        print("FEISHU_PROJECT_SYNC_FAILED "+type(e).__name__,file=sys.stderr);sys.exit(1)
