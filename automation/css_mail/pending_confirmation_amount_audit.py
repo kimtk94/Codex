@@ -41,6 +41,7 @@ def main():
                 if not data:continue
                 msg=BytesParser(policy=default).parsebytes(data)
                 subj=str(msg.get("Subject",""))
+                if not re.search(r"(?<![A-Za-z0-9])"+re.escape(amea)+r"(?![0-9])",subj,re.I):continue
                 if "Statement Ready For Confirmation" not in subj and "Invoice Issued" not in subj:continue
                 tos={a.lower() for _,a in getaddresses([str(msg.get("To","")),str(msg.get("Cc",""))])}
                 original=(not re.match(r"^\s*(re|fw|fwd|회신|답장|전달)\s*[:：]",subj,re.I) and not msg.get("In-Reply-To"))
@@ -52,7 +53,7 @@ def main():
                     "uid":uid.decode(),"personal_direct_recipient":PERSON in tos,
                     "original":bool(original),"amount":money,"currency":currency,
                     "amount_extraction":"BODY_TOTAL_AMOUNT" if match else "NOT_EXTRACTED"})
-            out.append({"amea":amea,"events":events[:10]})
+            out.append({"amea":amea,"events":events[:10],"matched_events":len(events)})
         im.logout()
     print("QQ_PENDING_CONFIRMATION_AUDIT "+json.dumps({"results":out,"rule":"To/Cc personal direct + original CSS sender required; forecast not counted as statement"}))
 if __name__=="__main__":main()
