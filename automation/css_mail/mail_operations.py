@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mail-only operations derived from CSS Git Ingest; does not duplicate SFDC.
+"""Mail-only operations derived from canonical staging projection; does not duplicate SFDC.
 
 This table is advisory. Header evidence cannot establish actual unanswered state
 because threading headers and complete history are unavailable.
@@ -12,6 +12,7 @@ from collections import Counter
 from email.utils import getaddresses
 
 import incremental_sync as src
+import canonical_mail_reader as canonical
 
 TAB = "CSS Mail Operations"
 HEAD = ["section","date_or_received_at","status","sender_or_direction",
@@ -41,7 +42,7 @@ def parsedate(s):
 
 def compute(data):
     if not data or data[0][:len(src.COLS)] != src.COLS:
-        raise RuntimeError("CSS Git Ingest schema mismatch")
+        raise RuntimeError("Canonical staging projection schema mismatch")
     entries = []
     for cells in data[1:]:
         row = dict(zip(src.COLS, list(cells)+[""]*(len(src.COLS)-len(cells))))
@@ -88,7 +89,7 @@ def q(range_name):
 def main():
     session=src.authorize()
     base=src.endpoint()
-    source=src.api(session,"GET",src.endpoint("/values/"+urllib.parse.quote("'"+src.TAB+"'!A1:R"+str(MAX_ROWS),safe="")))
+    source={"values":canonical.read_staging_compatible(session)}
     output=compute(source.get("values",[]))
     meta=src.api(session,"GET",base+"?fields=sheets.properties.title")
     titles={s["properties"]["title"] for s in meta.get("sheets",[])}
