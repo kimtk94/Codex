@@ -29,7 +29,7 @@ def run():
     old_ids={value(r,1).strip().lower() for r in legacy if value(r,1)}
     new_ids={value(r,1).strip().lower() for r in staging if value(r,1)}
     old_attachments=sum(bool(value(r,9)) for r in legacy)
-    old_invoice_attachments=sum(bool(re.search(r"TAX\\s*INVOICE",value(r,9),re.I)) for r in legacy)
+    old_invoice_attachments=sum(bool(re.search(r"TAX\s*INVOICE",value(r,9),re.I)) for r in legacy)
     malformed=sum(not re.fullmatch(r"[^|]+\|[0-9]+\|[0-9]+",value(r,0)) for r in staging)
     keys=[value(r,0) for r in staging]
     report={
