@@ -12,7 +12,7 @@ def main():
  uids=[]
  for row in rows[1:]:
   if not row:continue
-  m=re.fullmatch(r"(?:(?i:inbox):)?([0-9]+)",str(row[0]).strip())
+  m=re.fullmatch(r"(?:(?i:inbox):)?([0-9]+)",str(row[12] if len(row)>12 else "").strip())
   if m:u=m.group(1);uids.append(u)
   if len(uids)==5:break
  if not uids:raise RuntimeError("NO_VALID_UIDS")
