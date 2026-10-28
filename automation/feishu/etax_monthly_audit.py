@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Read-only discovery of rotating eTAX invoice tables in Feishu Base."""
+import os
 import re
 import sys
 import urllib.parse
@@ -49,7 +50,19 @@ def main():
     tables=list(list_pages(prefix+"/tables",token))
     selected,count=select_etax(tables,today.year,today.month)
     print("ETAX_TARGET_MONTH:",today.strftime("%Y-%m"))
+    print("ETAX_AVAILABLE_TABLE_NAMES:",repr([t.get("name") for t in tables]))
     print("ETAX_MATCHING_TABLE_COUNT:",count)
+    # Optional explicit source must match an actually discovered table.
+    # Never silently fall back to an unrelated Payment/Outstanding table.
+    explicit_id=os.getenv("FEISHU_ETAX_TABLE_ID","").strip()
+    if explicit_id:
+        matches=[t for t in tables if t.get("table_id")==explicit_id]
+        if len(matches)!=1:
+            raise RuntimeError("ETAX_CONFIGURED_TABLE_ID_NOT_IN_BASE")
+        selected=matches[0]
+        print("ETAX_SOURCE_SELECTION: EXPLICIT_TABLE_ID")
+    elif selected:
+        print("ETAX_SOURCE_SELECTION: UNIQUE_MONTHLY_NAME")
     if not selected:
         print("ETAX_SOURCE_STATUS: BLOCKED_MISSING_OR_AMBIGUOUS")
         return 2
