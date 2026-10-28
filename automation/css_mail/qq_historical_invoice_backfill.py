@@ -138,7 +138,6 @@ def main():
                 if str(exc)!="UIDVALIDITY_UNAVAILABLE_AFTER_STATUS":raise
                 uidvalidity=""
                 no_uidvalidity_folders+=1
-                unfinished=True
                 print("QQ_BACKFILL_WARNING UIDVALIDITY unavailable; cursor disabled for folder="+str(folders),flush=True)
             old_cursor=cursors.get((year,folder))
             checkpoint=int(old_cursor[3]) if old_cursor and old_cursor[2]==uidvalidity else 0
@@ -151,6 +150,10 @@ def main():
             matches+=len(found)
             print("QQ_BACKFILL_FOLDER folder_count="+str(folders)+" candidates="+str(len(found)),flush=True)
             eligible=[u for u in sorted(found,key=lambda x:int(x)) if int(u)>checkpoint]
+            # Missing UIDVALIDITY is not an incomplete scan when this folder has no candidates.
+            # For folders with candidates, retain failure until identity/cursor safety is resolved.
+            if not uidvalidity and eligible:
+                unfinished=True
             prior_skipped+=len(found)-len(eligible)
             if scanned>=limit and eligible:unfinished=True
             for uid in eligible:
