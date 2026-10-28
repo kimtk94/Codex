@@ -39,7 +39,7 @@ def index(rows, number_field, amount_field, year_field):
         month = str(row.get(year_field, "")).strip()
         if not month.startswith(YEAR + "-"):
             continue
-        if not re.fullmatch(r"\\d{10,15}", inv):
+        if not re.fullmatch(r"\d{10,15}", inv):
             raise ValueError("INVALID_INVOICE_NUMBER: " + inv[-5:])
         amount = money(row.get(amount_field))
         if inv in data and data[inv] != amount:
