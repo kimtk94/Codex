@@ -134,6 +134,15 @@ def main():
         raise RuntimeError("Monthly revenue write verification failed")
     oct_row=next((r for r in rows[1:] if r[0]=="2026-10"),None)
     if not oct_row:raise RuntimeError("October 2026 monthly evidence missing")
+    stamp=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
+    put(s,DST,"Automation Health","A16",[[
+        "Revenue Lifecycle",stamp,"PASS",
+        "oct_invoice_count="+str(oct_row[5])+
+        " oct_actual_krw="+str(oct_row[1])+
+        " oct_pending_verified_krw="+str(oct_row[2])+
+        " oct_forecast_krw="+str(oct_row[3])+
+        " unresolved_pending_count="+str(sum(r[7] for r in rows[1:]))
+    ]],"RAW")
     print("REVENUE_LIFECYCLE_MONTHLY_PASS October_invoice_count="+str(oct_row[5])+
           " October_actual_krw="+str(oct_row[1])+
           " October_pending_verified_krw="+str(oct_row[2])+
