@@ -15,7 +15,10 @@ HEAD=["Project / Sub-project","AMEA","Institution","Customer","Service",
       "Billing Classification","Estimated KRW (existing)",
       "Immediate Next Step","Data Timestamp / Source",
       "Open Statement Numbers","Latest Statement Notice"]
-INV_STMT=re.compile(r"^J\d{3}-(X\d+SC\d+-Z\d+)$",re.I)
+INV_STMT=re.compile(r"(J\d{3})-(X\d+SC\d+-Z\d+)",re.I)
+CSS_SENDER="css@novogene-amea.com"
+ACCEPTED_INVOICE={"FILENAME_PARSED","VERIFIED_LEGACY_FILENAME","EXISTS_IN_LEGACY"}
+REPLY=re.compile(r"^\s*(?:re|fw|fwd|회신|답장|전달)\s*[:：]",re.I)
 H=re.compile(r"H\d+SC\d+",re.I)
 A=re.compile(r"AMEA\d{7,}(?:-\d{1,3})?",re.I)
 
@@ -44,9 +47,9 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows):
         subject=str(present(r,6))
         filename=str(present(r,5))
         if status not in ACCEPTED_INVOICE:continue
-        if not re.fullmatch(r"209126\\d{6}",number):continue
+        if not re.fullmatch(r"209126\d{6}",number):continue
         if REPLY.match(subject) or not re.match(
-            r"^\\s*❗?\\ufe0f?\\s*Notice:\\s*Invoice Issued\\s*&\\s*Statement Confirmed\\b",
+            r"^\s*❗?\ufe0f?\s*Notice:\s*Invoice Issued\s*&\s*Statement Confirmed\b",
             subject,re.I):continue
         m=INV_STMT.search(subject)
         if not m:continue
@@ -105,7 +108,7 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows):
                 prev[j]=date
         # Build the most advanced confirmed CSS milestone per project;
         # a late reminder must not roll back a completed milestone.
-        hits=[x.upper() for x in re.findall(r"X\\d+SC\\d+-Z\\d+",subject,re.I)]
+        hits=[x.upper() for x in re.findall(r"X\d+SC\d+-Z\d+",subject,re.I)]
         if not hits:
             continue
         low=subject.lower()
