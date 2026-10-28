@@ -28,10 +28,10 @@ th{position:sticky;top:0;background:#f1f5fb;z-index:1;font-weight:800}tr:hover t
 <div class="top"><div><h2 id="title">오늘의 Action Dashboard</h2><div class="sub" id="updated">데이터 준비 중</div></div><div><button class="action" id="refresh">↻ 새로고침</button></div></div>
 <div class="toolbar"><input id="search" type="search" aria-label="서버 검색 최대 5000행" placeholder="제목·고객·프로젝트 검색 (최대 5,000행)"><select id="mailFilter" aria-label="메일 경과일 필터" hidden><option value="all">모든 경과일</option><option value="overdue">3일 이상</option><option value="recent">최근 2일</option></select><a class="sheetLink" id="sheetLink" target="_blank" rel="noopener noreferrer">원본 시트 ↗</a></div>
 <div id="summary"><div class="metric"><span>현재 페이지</span><strong id="count">—</strong></div><div class="metric"><span>검색 일치 / 표시</span><strong id="filtered">—</strong></div><div class="metric"><span>데이터 상태</span><strong id="quality">대기</strong></div></div>
-<div class="panel"><div id="status" role="status" aria-live="polite">Vercel 로그인 확인 후 데이터를 자동 조회합니다.</div><div class="tablewrap"><table id="table"><thead></thead><tbody></tbody></table></div><div class="footer"><span class="sub" id="pagination">—</span><div><button id="prev">이전</button><button id="next">다음</button></div></div></div>
+<div class="panel"><div id="status" role="status" aria-live="polite">Vercel 로그인 확인 후 데이터를 자동 조회합니다.</div><div class="tablewrap"><table id="table"><thead></thead><tbody></tbody></table></div><div class="footer"><span class="sub" id="pagination">—</span><div><button id="prev">‹ 이전</button><span id="pageButtons"></span><button id="next">다음 ›</button></div></div></div>
 <p class="sub">🔒 원본 Google Sheets는 유지합니다. 고객정보는 서버에서 접근 확인 후 조회하며, 데이터가 없는 경우 실제 값을 만들어 표시하지 않습니다. 편집·승인·SFDC 저장은 아직 지원하지 않습니다.</p>
 </div></main>
-<div id="mailModal" role="dialog" aria-modal="true" aria-labelledby="mailSubject"><div class="mailCard"><div class="mailHead"><strong id="mailSubject">메일 상세</strong><button id="mailClose">닫기</button></div><div class="mailMeta" id="mailMeta"></div><div class="mailBody" id="mailBody" aria-live="polite"></div><div class="mailTools"><button id="mailRetry">↻ 다시 불러오기</button><button id="mailCopy" disabled>본문 복사</button><span id="mailSource"></span></div></div></div><script>
+<div id="mailModal" role="dialog" aria-modal="true" aria-labelledby="mailSubject"><div class="mailCard"><div class="mailHead"><strong id="mailSubject">메일 상세</strong><button id="mailClose">닫기</button></div><div class="mailMeta" id="mailMeta"></div><div class="mailBody" id="mailBody" aria-live="polite"></div><div class="mailTools"><button id="mailPrev">‹ 이전 메일</button><button id="mailNext">다음 메일 ›</button><button id="mailRetry">↻ 다시 불러오기</button><button id="mailCopy" disabled>본문 복사</button><span id="mailSource"></span></div></div></div><script>
 const groups=[
 ['🎯 오늘 할 일',[['actions','Action Dashboard'],['email_priority','Email Action Priority'],['nba','NBA Today Top10']]],
 ['📬 메일 · 응대',[['unanswered','미응답 메일'],['email_decisions','Email Review Decisions'],['lead_email','Lead Email Followup']]],
@@ -39,8 +39,8 @@ const groups=[
 ['💰 매출 · 프로젝트',[['issued_tax','① TAX INVOICE 발행 완료'],['confirmation_pending','② Statement · Confirmation 전'],['confirmation_proof','Confirmation 증빙 검토'],['online_list','③ Online List · 예상'],['monthly_revenue','Monthly Revenue · 분리 비교'],['official_2025','2025 Official Revenue'],['revenue','BI Revenue Executive 2026'],['yoy','BI 2025 vs 2026 Overlay'],['projects','BI Project Month Control'],['billing','Billing Control Dashboard'],['timeline','CSS Project Timeline'],['revenue_fact','Revenue Fact']]],
 ['⚙️ 시스템',[['health','Automation Health'],['owners','Owner Sheet Registry'],['mail_source','CSS Mail Source Control']]]
 ];
-const menus=document.getElementById('menu');let active='unanswered', dataset=null, page=0, serverPage=1, q='',controller=null,sortCol=-1,sortDir=1;
-for(const [group,views] of groups){const label=document.createElement('p');label.textContent=group;menus.append(label);for(const [key,name] of views){const btn=document.createElement('button');btn.textContent=name;btn.dataset.view=key;btn.onclick=()=>{active=key;page=0;serverPage=1;sortCol=-1;q='';document.getElementById('search').value='';document.getElementById('mailFilter').value='all';select();load()};menus.append(btn)}}
+const menus=document.getElementById('menu');let active='unanswered', dataset=null, page=0, serverPage=1, q='',controller=null,sortCol=0,sortDir=-1,mailList=[];
+for(const [group,views] of groups){const label=document.createElement('p');label.textContent=group;menus.append(label);for(const [key,name] of views){const btn=document.createElement('button');btn.textContent=name;btn.dataset.view=key;btn.onclick=()=>{active=key;page=0;serverPage=1;sortCol=key==='unanswered'?0:-1;sortDir=-1;q='';document.getElementById('search').value='';document.getElementById('mailFilter').value='all';select();load()};menus.append(btn)}}
 function select(){for(const b of menus.querySelectorAll('button')){b.classList.toggle('active',b.dataset.view===active);b.setAttribute('aria-current',b.dataset.view===active?'page':'false')};const item=groups.flatMap(x=>x[1]).find(x=>x[0]===active);document.getElementById('title').textContent=item[1];document.getElementById('updated').textContent='읽기 전용 · 원본 실시간 조회'}
 function status(s,warn=false){const n=document.getElementById('status');n.textContent=s;n.classList.toggle('warn',warn)}
 
@@ -51,6 +51,7 @@ function render(){
  document.getElementById('mailFilter').hidden=!isMail;
  const ageCol=headers.indexOf('Aging Days'), filter=document.getElementById('mailFilter').value;
  const filtered=sortRows(rows.filter(r=>!isMail||filter==='all'||(filter==='overdue'?Number(r[ageCol])>=3:Number(r[ageCol])<2)));
+ mailList=isMail?filtered.map(r=>String(r[headers.indexOf('Thread UID')]||'')).filter(Boolean):[];
  const head=document.querySelector('thead'),body=document.querySelector('tbody');head.replaceChildren();body.replaceChildren();
  const columns=isMail?['Subject / Thread','Sender Email','Received At','Aging Days','Triage Priority']:headers;
  const tr=document.createElement('tr');columns.forEach(h=>{const th=document.createElement('th');th.textContent=({'Subject / Thread':'제목 · 프로젝트','Sender Email':'보낸 사람','Received At':'수신일','Aging Days':'경과','Triage Priority':'확인 상태'})[h]||h;const col=headers.indexOf(h);th.setAttribute('aria-sort',sortCol===col?(sortDir>0?'ascending':'descending'):'none');const label=th.textContent;const b=document.createElement('button');b.className='sortButton';b.textContent=label+(sortCol===col?(sortDir>0?' ▲':' ▼'):' ↕');b.title='현재 페이지 정렬';b.onclick=()=>{sortDir=sortCol===col?-sortDir:1;sortCol=col;render()};th.replaceChildren(b);tr.append(th)});head.append(tr);
@@ -62,13 +63,14 @@ function render(){
  document.getElementById('count').textContent=rows.length.toLocaleString();document.getElementById('filtered').textContent=q?(dataset.total??0).toLocaleString()+' / '+filtered.length:filtered.length.toLocaleString();document.getElementById('quality').textContent=dataset?.quality||'연결됨';
  document.getElementById('pagination').textContent=serverPage+'페이지 · '+filtered.length+'건 표시 · '+(q?'검색 최대 5,000행':'경과일 필터·정렬은 현재 페이지 기준');
  document.getElementById('prev').disabled=serverPage===1;document.getElementById('next').disabled=!dataset?.hasMore;
+ const pages=document.getElementById('pageButtons');pages.replaceChildren();for(let n=Math.max(1,serverPage-2);n<=serverPage+(dataset?.hasMore?2:0);n++){if(n>serverPage+1)break;const button=document.createElement('button');button.textContent=String(n);button.disabled=n===serverPage;button.setAttribute('aria-current',n===serverPage?'page':'false');button.onclick=()=>{serverPage=n;load()};pages.append(button)}
  document.getElementById('sheetLink').href='https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit'+(sheetIds[active]?'#gid='+sheetIds[active]:'');
  status(dataset?.note|| (isMail?'제목을 누르면 메일 본문이 열립니다. 기존 검토·제외 결정은 원본 시트에서 유지됩니다.':filtered.length+'건 조회 완료'),Boolean(dataset?.note));
 }
 let mailController=null,mailUid='',mailBody='',returnFocus=null;
 async function openMail(uid,trigger){
  if(mailController)mailController.abort();mailController=new AbortController();const signal=mailController.signal;
- mailUid=uid;mailBody='';returnFocus=trigger||returnFocus;
+ mailUid=uid;mailBody='';returnFocus=trigger||returnFocus;const mi=mailList.indexOf(uid);document.getElementById('mailPrev').disabled=mi<=0;document.getElementById('mailNext').disabled=mi<0||mi===mailList.length-1;
  const modal=document.getElementById('mailModal');modal.classList.add('open');document.body.style.overflow='hidden';document.getElementById('mailClose').focus();
  document.getElementById('mailSubject').textContent='메일 불러오는 중…';document.getElementById('mailMeta').textContent='원본 메일을 확인하고 있습니다.';document.getElementById('mailBody').textContent='본문 조회 중…';document.getElementById('mailCopy').disabled=true;document.getElementById('mailSource').textContent='';
  try{
@@ -80,7 +82,7 @@ async function openMail(uid,trigger){
  }catch(e){if(e.name==='AbortError')return;document.getElementById('mailSubject').textContent='메일을 불러오지 못했습니다';document.getElementById('mailBody').textContent=e.message;}
 }
 function closeMail(){if(mailController)mailController.abort();document.getElementById('mailModal').classList.remove('open');document.body.style.overflow='';returnFocus?.focus()}
-document.getElementById('mailClose').onclick=closeMail;document.getElementById('mailRetry').onclick=()=>openMail(mailUid);document.getElementById('mailCopy').onclick=async()=>{try{await navigator.clipboard.writeText(mailBody);document.getElementById('mailSource').textContent='본문을 복사했습니다.'}catch(_){document.getElementById('mailSource').textContent='복사 권한을 확인해 주세요.'}};
+document.getElementById('mailClose').onclick=closeMail;document.getElementById('mailPrev').onclick=()=>{const i=mailList.indexOf(mailUid);if(i>0)openMail(mailList[i-1])};document.getElementById('mailNext').onclick=()=>{const i=mailList.indexOf(mailUid);if(i>=0&&i<mailList.length-1)openMail(mailList[i+1])};document.getElementById('mailRetry').onclick=()=>openMail(mailUid);document.getElementById('mailCopy').onclick=async()=>{try{await navigator.clipboard.writeText(mailBody);document.getElementById('mailSource').textContent='본문을 복사했습니다.'}catch(_){document.getElementById('mailSource').textContent='복사 권한을 확인해 주세요.'}};
 document.getElementById('mailModal').onclick=e=>{if(e.target.id==='mailModal')closeMail()};
 document.addEventListener('keydown',e=>{if(!document.getElementById('mailModal').classList.contains('open'))return;if(e.key==='Escape')closeMail();if(e.key==='Tab'){const buttons=[...document.querySelectorAll('#mailModal button:not(:disabled)')],first=buttons[0],last=buttons.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});
 document.getElementById('mailFilter').onchange=()=>{if(dataset)render()};
