@@ -134,6 +134,12 @@ class SnapshotConvergenceTests(unittest.TestCase):
         self.assertEqual(fake.append_count, 1)
         self.assertEqual(fake.ledger[-1][0], "NONE")
 
+    def test_source_subject_whitespace_is_preserved(self):
+        original = mail("inbox:2", "  Customer's exact subject  ")
+        fake = FakeSheets(qq_versions=[[original]],current=[mail("inbox:1")])
+        self.run_case(fake)
+        self.assertEqual(fake.target[1][3], "  Customer's exact subject  ")
+
     def test_source_changes_mid_copy_retries_until_exact(self):
         fake = FakeSheets(
             qq_versions=[
