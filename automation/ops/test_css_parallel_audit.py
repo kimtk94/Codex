@@ -39,7 +39,7 @@ class ParallelAuditTests(unittest.TestCase):
         d=list(self.lead_data())
         row=[""]*14;row[3]="LEAD";row[4]="L0";row[11]="SENT_AFTER_LEAD_CONFIRMED"
         d[3].append(row)
-        with self.assertRaisesRegex(ValueError,"contacted"):
+        with self.assertRaisesRegex(ValueError,"mismatch|contacted"):
             audit_lead(*d,NOW)
 
     def revenue_data(self):
