@@ -42,6 +42,21 @@ class RevenueLifecycleTests(unittest.TestCase):
         self.assertEqual(row[7],1)
         self.assertEqual(row[10],"PENDING_AMOUNTS_UNVERIFIED")
 
+    def test_october_statement_not_misclassified_as_december_pending(self):
+        life = [["Project / Sub-project"],
+                project("X209SC26065705-Z01",
+                        "ISSUED + STATEMENT PENDING",
+                        open_j="J002", pending="22704000",
+                        verified="AMOUNT_VERIFIED 1/1")]
+        life[1][12] = "2026-12"  # Feishu estimated completion month
+        life[1][21] = "2026-10-26T15:22:52+08:00"  # Original J002 notice
+        out = compute([["invoice_number"]], life,
+                      dt.datetime(2026, 10, 29, tzinfo=dt.timezone.utc))
+        oct_row = next(r for r in out[1:] if r[0] == "2026-10")
+        self.assertEqual(oct_row[2], 22704000)
+        self.assertEqual(oct_row[6], 1)
+        self.assertFalse(any(r[0] == "2026-12" and r[2] for r in out[1:]))
+
     def test_invoice_number_conflict_fails_closed(self):
         inv=[["invoice_number"],invoice("209126000989",1320000),invoice("209126000989",1320000)]
         inv[2][7]="2026-11-04T12:00:00+08:00"
