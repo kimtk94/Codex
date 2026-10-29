@@ -28,17 +28,18 @@ def header_fingerprint(header):
 
 
 def validate_header_scope(fmt, header, duplicates):
-    """Only Payment Outstanding's first 17 columns are canonical.
+    """Permit duplicate noncanonical formula tails only after verified core.
 
-    Formula-derived tail headers may be repeated, but never permit duplicate
-    business headers, missing canonical columns or duplicates in other formats.
+    Payment Outstanding core is columns 1-17, Prepayments 1-19. Receipt
+    multi-panel and eTax core conflicts must remain blocked for review.
     """
     if not duplicates:
         return "PASS"
-    if fmt == "Payment Outstanding":
-        canonical = [str(x).strip() for x in header[:17]]
-        if len(canonical) == 17 and all(canonical) and all(a > 17 and b > 17
-                                                         for a, b in duplicates):
+    core_width = {"Payment Outstanding": 17, "Prepayments": 19}.get(fmt)
+    if core_width:
+        canonical = [str(x).strip() for x in header[:core_width]]
+        if len(canonical) == core_width and all(canonical) and all(
+                a > core_width and b > core_width for a, b in duplicates):
             return "REVIEW_NONCANONICAL_TRAILING_DUPLICATES"
     positions = ",".join(str(a)+":"+str(b) for a,b in duplicates)
     raise RuntimeError("Duplicate nonempty header in "+fmt+
@@ -80,8 +81,9 @@ def main():
             continue
         if scope != "PASS":
             trailing_reviews += 1
+            core={"Payment Outstanding":17,"Prepayments":19}[fmt]
             print("SCHEMA_HEADER_REVIEW:",fmt,
-                  "CANONICAL_COLUMNS: 1-17 UNIQUE_NONEMPTY",
+                  "CANONICAL_COLUMNS: 1-"+str(core)+" UNIQUE_NONEMPTY",
                   "TRAILING_DUPLICATES:",len(duplicates),
                   "FIRST_LAST_DUPLICATE:",duplicates[0],duplicates[-1])
     if blocked_formats:
