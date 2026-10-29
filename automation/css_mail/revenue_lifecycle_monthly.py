@@ -78,7 +78,7 @@ def compute(invoice_rows,lifecycle_rows,now):
         open_j=[j.strip() for j in cell(row,20).split("|") if j.strip()]
         p=bucket(month)
         if open_j:
-            p["open"]+=len(open_j)
+            # Pending belongs to the original Statement notice month, not the\n            # Feishu estimated completion/forecast month. Keep forecast separate.\n            pending_month=month_of(cell(row,21)) or month\n            p=bucket(pending_month)\n            p["open"]+=len(open_j)
             label=cell(row,23)
             m=re.fullmatch(r"AMOUNT_VERIFIED (\d+)/(\d+)",label)
             verified_n=int(m.group(1)) if m else 0
