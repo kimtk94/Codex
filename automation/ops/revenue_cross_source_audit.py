@@ -149,7 +149,8 @@ def main():
     y = read_book(session, QQ, [
         "'QQ 2026 Invoice Backfill'!A1:K3000",
         "'CSS Tax Invoice List'!A1:N1000"])
-    report = verify(*x, *y, month=dt.datetime.now(KST).strftime("%Y-%m"))
+    # This legacy comparison is scoped to the 2026-10 source, even after month-end.
+    report = verify(*x, *y, month="2026-10")
     out = Path("audit-results")
     out.mkdir(exist_ok=True)
     (out/"revenue-cross-source.json").write_text(
