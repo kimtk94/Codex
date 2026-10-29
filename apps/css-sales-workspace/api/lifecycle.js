@@ -1,7 +1,8 @@
 const {GoogleAuth}=require('google-auth-library');
+const {projectPersonalLeads}=require('../lib/personal-leads');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D30","'Unanswered Emails'!A1:V700","'Lead Action Priority'!A1:O700","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700"];
+const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D30","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700"];
 module.exports=async function handler(req,res){
   res.setHeader('Cache-Control','private, no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -176,7 +177,7 @@ module.exports=async function handler(req,res){
       .map(x=>({name:x[0],updated:x[1]||'',state:x[2]||'',details:x[3]||''}));
     const replies=new Map(mail.slice(1).filter(r=>r[0]).map(r=>[r[0],{uid:r[0],sender:r[4]||'',subject:r[8]||'',body:r[9]||'',received:r[3]||''}]));
     const inbox=unanswered.slice(1).filter(r=>r[8]&&r[11]!=='TRUE').map(r=>({uid:r[8],days:money(r[0]),priority:r[1]||'',sender:r[2]||'',subject:r[3]||'',received:r[4]||'',owner:r[5]||'',project:r[6]||'',class:r[10]||'',review:r[19]||'',body:replies.get(r[8])?.body||''}));
-    const leads=lead.slice(1).filter(r=>r[0]).map(r=>({id:r[0],priority:r[1]||'',due:r[2]||'',institution:r[4]||'',customer:r[5]||'',email:r[6]||'',description:r[8]||'',status:r[9]||'',next:r[12]||''}));
+    const leads=projectPersonalLeads(lead);
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'',sync:r[7]||''}));
     return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,refreshed:months[0]?.refreshed||''});
   }catch(e){return res.status(503).json({error:'DATA_FETCH_FAILED'});}
