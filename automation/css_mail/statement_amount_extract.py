@@ -100,7 +100,7 @@ def sync_verified_pending(session, statement_rows, invoice_rows):
         if cell(r, 10) not in VALID_INVOICES: continue
         subject, filename = cell(r, 6), cell(r, 5)
         if REPLY.match(subject) or not re.match(
-                r"^\\s*❗?\\ufe0f?\\s*Notice:\\s*Invoice Issued\\s*&\\s*Statement Confirmed\\b",
+                r"^\s*❗?\ufe0f?\s*Notice:\s*Invoice Issued\s*&\s*Statement Confirmed\b",
                 subject, re.I):
             continue
         m = SJ.search(subject)
@@ -133,7 +133,21 @@ def sync_verified_pending(session, statement_rows, invoice_rows):
         # A split invoice may be partial. Keep it out of automatic full-match
         # reconciliation unless the verified J total equals the invoice sum.
         if old_amount is None or old_amount != amount_total:
+            numbers = " | ".join(sorted(n for n, _, _, _ in matches))
+            if cell(old, 7) and cell(old, 7) != numbers:
+                raise RuntimeError("Invoice number changed for " + key)
+            issued_at = max(date for _, _, date, _ in matches)
+            # Original issuance exists, but the balance cannot be inferred.
+            # Exclude the whole Statement from Pending and flag allocation.
+            put(session, DST, ledger_tab, "G" + str(row_number),
+                [["STATEMENT_INVOICE_ALLOCATION_REVIEW", numbers, amount_total, issued_at,
+                  "J_INSTALLMENT_PARTIAL_OR_CONFLICT_REVIEW",
+                  "INVOICE_ACTUAL_ONLY_REMAINING_BALANCE_UNVERIFIED",
+                  "Original invoice filenames verified; amount allocation differs for " + key,
+                  "Review Statement " + str(old_amount) + " vs Invoice " + str(amount_total)
+                  + "; exclude from Pending until balance evidenced"]], "RAW")
             print("STATEMENT_INVOICE_ALLOCATION_REVIEW " + key, flush=True)
+            transitioned += 1
             continue
         numbers = " | ".join(sorted(n for n, _, _, _ in matches))
         if cell(old, 7) and cell(old, 7) != numbers:
@@ -157,8 +171,8 @@ def sync_verified_pending(session, statement_rows, invoice_rows):
         except ValueError: continue
         if amount <= 0: continue
         subject = cell(r, 10)
-        amea = re.search(r"AMEA\\d{7,}", subject, re.I)
-        contract = re.search(r"H\\d+SC\\d+", subject, re.I)
+        amea = re.search(r"AMEA\d{7,}", subject, re.I)
+        contract = re.search(r"H\d+SC\d+", subject, re.I)
         x = cell(r, 1)
         if not amea or not contract or not x or key != cell(r, 2).upper() + "-" + x.upper():
             continue
