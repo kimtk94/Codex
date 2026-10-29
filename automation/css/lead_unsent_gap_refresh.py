@@ -224,7 +224,28 @@ def main():
     # Single atomic values.batchUpdate. Never delete existing decisions or Lead IDs.
     api.values().batchUpdate(spreadsheetId=DST,
         body={"valueInputOption":"RAW","data":updates}).execute()
-    print("LEAD_GAP_APPLIED=true",flush=True)
+    # Verify all three materialized tables before marking the watch healthy.
+    check_ranges=["'"+tab+"'!A1:"+("L" if len(head)==12 else "M")+str(len(rows)+1)
+                  for (tab,_,head),rows in zip(TARGETS,matrices)]
+    check=api.values().batchGet(spreadsheetId=DST,ranges=check_ranges).execute()["valueRanges"]
+    if len(check)!=3:
+        raise ValueError("Lead review verification incomplete")
+    for (tab,_,head),rows,block in zip(TARGETS,matrices,check):
+        actual=block.get("values",[])
+        if not actual or actual[0]!=head or len(actual)!=len(rows)+1:
+            raise ValueError("Lead review write verification mismatch: "+tab)
+    note=("report="+str(stats["reported"])+" legacy="+str(stats["legacy"])
+          +" new="+str(stats["new"])+" new_sent="+str(stats["new_sent"])
+          +" new_no_sent="+str(stats["new_no_sent"])
+          +" no_sent_total="+str(stats["total_no_sent"])
+          +" priority="+str(stats["priority"])
+          +" QQ_latest="+stats["qq_latest"]
+          +" (no email sent / no SFDC decision writes)")
+    api.values().update(spreadsheetId=DST,range="'Automation Health'!A20:D20",
+        valueInputOption="RAW",body={"values":[[
+          "Lead No-Sent Review Coverage",dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST"),
+          "PASS_VERIFIED",note]]}).execute()
+    print("LEAD_GAP_APPLIED_AND_VERIFIED=true",flush=True)
 
 
 if __name__=="__main__":
