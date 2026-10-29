@@ -1,4 +1,4 @@
-const {crypto,host,client,secret,cookie,sign}=require('./common');
+const {crypto,host,client,secret,cookie,sign}=require('../../lib/auth-common');
 module.exports=async(req,res)=>{
  if(req.method!=='GET')return res.status(405).end();
  if(!client()||!secret())return res.status(503).json({error:'OAUTH_UNCONFIGURED'});
