@@ -20,7 +20,7 @@ module.exports=async function handler(req,res){
     sessionValid=expiry>Math.floor(Date.now()/1000)&&expiry<=Math.floor(Date.now()/1000)+86400&&safeEq(parts[2],expected);
   }
   const bearerValid=Boolean(supplied&&safeEq(supplied,token));
-  const oauth=cookies.css_oauth_session||'';
+  const oauth=(req.headers.cookie||'').split(';').map(x=>x.trim()).filter(x=>x.startsWith('css_oauth_session=')).map(x=>x.slice('css_oauth_session='.length))[0]||'';
   const om=/^(xSqsomY4s3nWaElLeF9IE89Z)\\.(\\d{10})\\.([a-f0-9]{64})$/.exec(oauth);
   let oauthValid=false;
   if(om&&process.env.VERCEL_APP_CLIENT_SECRET){
