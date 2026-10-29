@@ -32,8 +32,10 @@ jobs:
           fi
       - name: Verify Python syntax
         run: python -m py_compile automation/css/sfdc_email_decision_sync.py automation/css/bi_mail_review_sync.py automation/css/sfdc_email_decision_ack.py automation/css/sfdc_email_snapshot_refresh.py automation/css/sfdc_email_consistency_check.py automation/css/lead_sent_audit_refresh.py
-      - name: Offline safety regression checks
-        run: python -m unittest discover -s automation/css -p 'test_sfdc_email_decision_safety.py' -v
+      - name: Offline safety and explicit-decision parity regression checks
+        run: |
+          python -m unittest discover -s automation/css -p 'test_sfdc_email_decision_safety.py' -v
+          python -m unittest discover -s automation/css -p 'test_sfdc_email_consistency.py' -v
       - name: Verify access to SFDC and QQ Sheets
         run: python automation/css/sfdc_sheets_preflight.py
       - name: Validate decisions without writes
