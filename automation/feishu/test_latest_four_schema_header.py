@@ -22,6 +22,21 @@ class HeaderDiagnosticTests(unittest.TestCase):
         self.assertEqual(len(pairs),34)
         self.assertEqual(validate_header_scope("Payment Outstanding",header,pairs),
                          "REVIEW_NONCANONICAL_TRAILING_DUPLICATES")
+    def test_prepayment_tail_safe_review(self):
+        from latest_four_schema_audit import validate_header_scope
+        header=["Prepay"+str(i) for i in range(1,20)]+["Formula"]*33
+        _,_,pairs=header_fingerprint(header)
+        self.assertEqual(pairs[0],(20,21))
+        self.assertEqual(validate_header_scope("Prepayments",header,pairs),
+                         "REVIEW_NONCANONICAL_TRAILING_DUPLICATES")
+    def test_prepayment_core_duplicate_still_blocked(self):
+        from latest_four_schema_audit import validate_header_scope
+        header=["Prepay"+str(i) for i in range(1,20)]+["Formula"]*33
+        header[10]=header[9]
+        _,_,pairs=header_fingerprint(header)
+        with self.assertRaisesRegex(RuntimeError,"Duplicate nonempty header"):
+            validate_header_scope("Prepayments",header,pairs)
+
     def test_payment_duplicate_in_core_still_fails(self):
         from latest_four_schema_audit import validate_header_scope
         header=["canonical_"+str(i) for i in range(1,18)]+["Formula"]*35
