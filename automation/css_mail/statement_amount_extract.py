@@ -113,30 +113,37 @@ def sync_verified_pending(session, statement_rows, invoice_rows):
             raise RuntimeError("Invoice filename mismatch: " + number)
         key = m.group(1).upper() + "-" + m.group(2).upper()
         new = (number, amt, cell(r, 7), cell(r, 2))
-        if key in invoices and invoices[key] != new:
-            raise RuntimeError("Conflicting invoices for Statement " + key)
-        invoices[key] = new
+        entries = invoices.setdefault(key, {})
+        if number in entries and entries[number] != new:
+            raise RuntimeError("Conflicting duplicate invoice number: " + number)
+        entries[number] = new
 
     # Transition existing pending entries when a matching Tax Invoice arrives.
     # Never create additional Actual revenue here; Revenue Lifecycle owns that.
     transitioned = 0
     for key, (row_number, old) in existing.items():
         if key not in invoices: continue
-        number, amt, issued_at, invoice_amea = invoices[key]
-        if invoice_amea and invoice_amea.upper() != cell(old, 0).upper():
+        matches = list(invoices[key].values())
+        if any(amea and amea.upper() != cell(old, 0).upper() for _, _, _, amea in matches):
             raise RuntimeError("Invoice AMEA mismatch: " + key)
+        amount_total = sum(amt for _, amt, _, _ in matches)
         old_amount = cell(old, 5)
         try: old_amount = int(old_amount) if old_amount else None
         except ValueError: raise RuntimeError("Invalid Statement amount: " + key)
-        if old_amount is not None and old_amount != amt:
-            raise RuntimeError("Statement/Invoice amount conflict; manual review: " + key)
-        if cell(old, 7) and cell(old, 7) != number:
+        # A split invoice may be partial. Keep it out of automatic full-match
+        # reconciliation unless the verified J total equals the invoice sum.
+        if old_amount is None or old_amount != amount_total:
+            print("STATEMENT_INVOICE_ALLOCATION_REVIEW " + key, flush=True)
+            continue
+        numbers = " | ".join(sorted(n for n, _, _, _ in matches))
+        if cell(old, 7) and cell(old, 7) != numbers:
             raise RuntimeError("Invoice number changed for " + key)
+        issued_at = max(date for _, _, date, _ in matches)
         put(session, DST, ledger_tab, "G" + str(row_number),
-            [["STATEMENT_INVOICED", number, amt, issued_at,
+            [["STATEMENT_INVOICED", numbers, amount_total, issued_at,
               "J_INSTALLMENT_INVOICE_MATCH", "INVOICE_ONLY_NO_ADDITIONAL_REVENUE",
-              "Original invoice subject+attachment verified; " + key,
-              "Posted to Actual by invoice number; exclude from Pending"]], "RAW")
+              "Original invoice subjects+filenames verified; " + key,
+              "Actual by distinct invoice number; remove Statement from Pending"]], "RAW")
         transitioned += 1
 
     # Only original-message verified, non-invoiced statements can be Pending.
