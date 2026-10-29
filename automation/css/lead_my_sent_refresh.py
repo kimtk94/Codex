@@ -177,6 +177,15 @@ def main():
                 for x in result["sheets"]}
     target_rows=grid(DEST)
     qq_rows=grid(QQ)
+    if "SFDC Email Ingest Audit" not in target_rows:
+        raise ValueError("SFDC report freshness audit tab missing")
+    report_audit=get(DEST,["'SFDC Email Ingest Audit'!A1:J20"])[0].get("values",[])
+    lead_audit=next((r for r in report_audit[1:] if cell(r,0)=="Leads"),None)
+    if not lead_audit or cell(lead_audit,8)!="STAGED_NOT_PROMOTED":
+        raise ValueError("Lead source staging audit missing or unexpected")
+    reported_at=date_of(cell(lead_audit,1).removesuffix(" KST"))
+    if not reported_at or dt.datetime.now(KST)-reported_at>dt.timedelta(hours=72):
+        raise ValueError("Lead source report is stale; refuse to certify no sent")
     for tab,book in (("SFDC Email Leads Raw",target_rows),
                      ("Lead My Sent Audit",target_rows),
                      ("All Emails",qq_rows),("CSS Git Ingest",qq_rows)):
@@ -194,6 +203,10 @@ def main():
         raise ValueError("Incomplete SFDC/QQ read")
     source=[x.get("values",[]) for x in raw+history]
     now=dt.datetime.now(KST)
+    reported_count=int(cell(lead_audit,3) or 0)
+    current_count=sum(bool(cell(r,22)) for r in source[0][1:])
+    if current_count!=reported_count:
+        raise ValueError("SFDC Leads count differs from source ingest audit")
     matrix,stats,latest=build(*source,now)
     print("PERSONAL_LEAD_AUDIT="+json.dumps({
         "leads":len(matrix)-1,"states":stats,"latest_qq":latest.isoformat()},sort_keys=True),flush=True)
