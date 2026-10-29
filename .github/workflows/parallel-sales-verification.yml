@@ -9,6 +9,8 @@ on:
     paths:
       - '.github/workflows/parallel-sales-verification.yml'
       - 'automation/ops/sales_parallel_readonly_audit.py'
+      - 'automation/ops/revenue_cross_source_audit.py'
+      - 'automation/ops/test_revenue_cross_source_audit.py'
       - 'automation/ops/publish_parallel_track_status.py'
       - 'automation/css/lead_my_sent_refresh.py'
       - 'automation/css/nba_refresh_pool.py'
@@ -60,8 +62,19 @@ jobs:
       - name: Run invoice ownership, lifecycle and duplicate tests
         working-directory: automation/css_mail
         run: python -m unittest -v test_revenue_lifecycle_monthly test_invoice_ownership test_original_invoice_mail
+      - name: Test cross-source invoice/Payment guards (offline)
+        run: python -m unittest discover -s automation/ops -p 'test_revenue_cross_source_audit.py' -v
       - name: Check current actual / pending / forecast numbers (read-only)
         run: python automation/ops/sales_parallel_readonly_audit.py revenue
+      - name: Reconcile QQ-only invoices, legacy 3-way and Payment evidence (read-only)
+        run: python automation/ops/revenue_cross_source_audit.py
+      - name: Upload flagged invoice/source discrepancies
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revenue-cross-source-audit
+          path: audit-results/revenue-cross-source.json
+          if-no-files-found: ignore
 
   sfdc-desktop:
     name: C - SFDC desktop Save-disabled regression
