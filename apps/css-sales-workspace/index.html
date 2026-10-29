@@ -15,7 +15,14 @@ main{margin-left:254px;padding:26px clamp(18px,3vw,46px);max-width:1700px}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin:18px 0 23px}.kpi,.panel{background:#fff;border:1px solid #e1e7f0;border-radius:15px;padding:20px}.kpi .label{font-size:12px;color:#72839a}.kpi strong{display:block;font-size:25px;margin-top:8px;letter-spacing:-.5px}.kpi small{color:#72839a}
 .panel{margin-top:17px}.panel h2{font-size:17px;margin:0 0 16px}.filter{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
 .tablewrap{overflow:auto;max-height:65vh}table{border-collapse:collapse;width:100%;min-width:750px;font-size:13px}th{position:sticky;top:0;background:#f3f6fa;text-align:left;font-size:12px;color:#536985}th,td{padding:12px;border-bottom:1px solid #e9edf3;vertical-align:top}tbody tr:hover{background:#f7faff}.rowbutton{border:0;color:#245b99;background:none;text-align:left;font-weight:700;padding:0}.tag{padding:5px 8px;background:#eef3f8;border-radius:7px;font-size:11px;display:inline-block;white-space:nowrap}
-.notice{border-left:3px solid #e3ac53;padding:13px 15px;background:#fffaf0;color:#745c35;margin:16px 0}.empty{padding:25px;color:#8191a5}.split{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+.notice{border-left:3px solid #e3ac53;padding:13px 15px;background:#fffaf0;color:#745c35;margin:16px 0}
+.operator-hint{color:#64758f;font-size:12px;line-height:1.65}
+.run-link{color:#245b99;font-weight:700;text-decoration:underline}
+.track-issue{margin:8px 0;padding:7px 10px;border-left:3px solid #e3ac53;background:#fffaf0;overflow-wrap:anywhere}
+.status-good{color:#18794e;font-weight:700}.status-review{color:#9a5a16;font-weight:700}.status-failed{color:#b83333;font-weight:700}
+.pipeline{display:flex;gap:8px;flex-wrap:wrap}
+.pipeline span{padding:10px 12px;background:#eef3f8;border-radius:9px;font-size:12px;font-weight:700}
+.pipeline .sep{background:transparent;color:#607895;padding:10px 1px}.empty{padding:25px;color:#8191a5}.split{display:grid;grid-template-columns:1fr 1fr;gap:15px}
 dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow:0 18px 70px #14213555}dialog::backdrop{background:#07142688}.dialogtop{display:flex;align-items:center;justify-content:space-between}.bodytext{white-space:pre-wrap;overflow:auto;max-height:60vh;background:#f6f8fc;border-radius:12px;padding:18px;line-height:1.65;overflow-wrap:anywhere}.close{border:0;background:#e8eff7;padding:9px 13px;border-radius:9px}
 @media(max-width:950px){aside{width:76px;padding:18px 8px}.brand{font-size:12px;padding:5px}.brand small,.sidefoot,nav .group{display:none}nav button{font-size:12px;padding:12px 5px;text-align:center}main{margin-left:76px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.split{grid-template-columns:1fr}}
 @media(max-width:580px){aside{position:sticky;top:0;width:100%;height:auto;display:block;padding:9px;overflow:auto}.brand{display:none}nav{display:flex;overflow:auto}nav button{flex:0 0 auto;width:auto;padding:9px 11px}main{margin:0;padding:15px}.kpis{gap:8px}.kpi,.panel{padding:13px}.kpi strong{font-size:20px}}
@@ -32,7 +39,7 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <button data-view="leads">♙ Lead 관리</button>
 <button data-view="sales">◇ Opportunity · Quote</button>
 <div class="group">SYSTEM</div>
-<button data-view="health">⚙ 자동화 상태</button>
+<button data-view="health">⚙ 자동화 컨트롤 타워</button>
 </nav><div class="sidefoot">Owner-scoped · Read-only<br>자동 갱신 데이터 / 권한 유지</div></aside>
 <main><div class="top"><div><h1 id="heading">전체 대시보드</h1><div class="subtitle" id="timestamp">원본 자동화 상태를 확인하세요.</div></div>
 <div class="controls"><button class="primary" id="login" type="button" hidden>Vercel 로그인</button><button class="primary" id="load">새로고침</button><input id="token" type="password" autocomplete="off" aria-label="기존 토큰" hidden><span class="status" id="state">미연결</span></div></div>
@@ -46,7 +53,17 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <section id="mail" class="view"><div class="panel"><h2>미응답 메일함</h2><div class="filter"><input id="mailQuery" placeholder="발신자 · 제목 · 프로젝트 검색"><select id="mailSort"><option value="days">경과일 높은 순</option><option value="recent">최근 메일 순</option></select></div><div class="tablewrap"><table><thead><tr><th>우선순위</th><th>경과</th><th>발신자 · 제목</th><th>수신</th><th>프로젝트</th><th>본문</th></tr></thead><tbody id="mailRows"></tbody></table></div></div></section>
 <section id="leads" class="view"><div class="panel"><h2>Lead 업무 대기열</h2><div class="filter"><input id="leadQuery" placeholder="기관 · 고객 · 담당 이메일"></div><div class="tablewrap"><table><thead><tr><th>우선순위</th><th>기관 · 고객</th><th>상태</th><th>예정일</th><th>설명</th></tr></thead><tbody id="leadRows"></tbody></table></div></div></section>
 <section id="sales" class="view"><div class="panel"><h2>Opportunity · Quote</h2><div class="notice">현재 승인된 SFDC 데이터 연동 범위를 벗어나는 레코드 생성·수정은 수행하지 않습니다. 통합 웹에서 기존 영업 데이터 조회 기능을 확대 중입니다.</div><div id="salesSummary"></div></div></section>
-<section id="health" class="view"><div class="panel"><h2>자동화 실행 현황</h2><div class="tablewrap"><table><thead><tr><th>자동화</th><th>상태</th><th>마지막 확인</th><th>상세</th></tr></thead><tbody id="healthRows"></tbody></table></div></div></section>
+<section id="health" class="view">
+<div class="notice">운영 중앙화 화면입니다. GitHub의 테스트 성공은 실제 입금·SFDC 저장·고객 메일 발송 또는 공식 검수 완료를 뜻하지 않습니다. 이 화면에서 고객 데이터 변경이나 자동 발송은 수행하지 않습니다.</div>
+<div class="kpis" id="automationKpi"></div>
+<div class="panel"><h2>자동화 작업 흐름</h2><div class="pipeline" aria-label="업무 데이터 처리 순서"><span>QQ 원본 수집</span><span class="sep">→</span><span>SFDC 3-Report</span><span class="sep">→</span><span>Lead 발송 감사</span><span class="sep">→</span><span>NBA</span><span class="sep">→</span><span>매출·Feishu 검증</span><span class="sep">→</span><span>웹 통합 조회</span></div><p class="operator-hint">동기화는 GitHub Actions에서 실행하고, Google Sheets의 마스터 진행표와 검증 결과를 웹에 읽기 전용으로 표시합니다. 실제 발송/저장 작업에는 별도 승인 절차가 필요합니다.</p></div>
+<div class="split">
+<div class="panel"><h2>병렬 검증 작업 · 최신 실행</h2><p class="operator-hint">성공은 해당 범위 테스트 통과이며 실제 CRM·웹 E2E 승인과 구분됩니다.</p><div class="tablewrap"><table><thead><tr><th>작업</th><th>결과</th><th>마지막 검증</th><th>실행</th></tr></thead><tbody id="trackRows"></tbody></table></div></div>
+<div class="panel"><h2>중앙화 점검 · 해결 필요</h2><div id="automationIssues" class="operator-hint">데이터를 확인하는 중입니다.</div></div>
+</div>
+<div class="panel"><h2>마스터 진행표 · 영역별</h2><div class="tablewrap"><table><thead><tr><th>분야</th><th>완료 표시</th><th>부분 구현</th><th>미완료</th></tr></thead><tbody id="areaRows"></tbody></table></div></div>
+<div class="panel"><h2>실제 원본의 Automation Health</h2><div class="tablewrap"><table><thead><tr><th>자동화</th><th>상태</th><th>마지막 확인</th><th>상세</th></tr></thead><tbody id="healthRows"></tbody></table></div></div>
+</section>
 </main>
 <dialog id="mailDialog"><div class="dialogtop"><h2 id="dialogSubject">메일 본문</h2><button class="close" id="closeDialog">닫기</button></div><p id="dialogMeta" class="subtitle"></p><div class="bodytext" id="dialogBody"></div></dialog>
 <script>
@@ -55,6 +72,33 @@ const money=n=>'₩'+Math.round(+n||0).toLocaleString('ko-KR');const fmt=n=>(+n|
 function elt(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=String(text);if(cls)e.className=cls;return e}
 function put(id,rows){const box=$(id);box.replaceChildren();if(!rows.length){box.appendChild(elt('tr',''));const td=elt('td','표시할 데이터가 없습니다.');td.colSpan=8;box.lastChild.appendChild(td);return}for(const row of rows){const tr=elt('tr');for(const value of row){let td=elt('td');if(value&&value.nodeType)td.appendChild(value);else td.textContent=String(value??'');tr.appendChild(td)}box.appendChild(tr)}}
 function kpis(id,items){const box=$(id);box.replaceChildren();for(const [label,value,sub] of items){let e=elt('div',undefined,'kpi');e.append(elt('div',label,'label'),elt('strong',value),elt('small',sub||''));box.appendChild(e)}}
+function drawAutomation(){
+ const a=data?.automation||{},p=a.progress||{},tracks=a.tracks||{};
+ const total=p.available?p.total:0,active=p.available?p.done+p.partial:0;
+ kpis('automationKpi',[
+   ['작업 등록',p.available?fmt(total):'미확인','마스터 진행표 · 총 50개 기준'],
+   ['완료 표시',p.available?fmt(p.done):'미확인','검수 완료와 다름'],
+   ['개발 착수',p.available?fmt(active):'미확인','완료 + 부분 구현'],
+   ['공식 검수',p.available?fmt(p.accepted):'미확인','증거 기반 별도 승인']
+ ]);
+ const statusClass=s=>s==='SUCCESS'?'status-good':s==='FAILURE'?'status-failed':'status-review';
+ const runLink=url=>{
+   if(!/^https:\/\/github\.com\/kimtk94\/Codex\/actions\/runs\/[0-9]+$/.test(String(url||'')))
+     return elt('span','링크 미확인');
+   const a=elt('a','GitHub 실행 ↗','run-link');a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;
+ };
+ put('trackRows',tracks.available?tracks.items.map(r=>{
+   const state=elt('span',r.result==='SUCCESS'?'테스트 성공':r.result,statusClass(r.result));
+   return [r.name,state,r.checked,runLink(r.runUrl)]
+ }):[]);
+ put('areaRows',p.available?(p.areas||[]).map(r=>[r.name,fmt(r.done),fmt(r.partial),fmt(r.todo)]):[]);
+ const issueBox=$('automationIssues');issueBox.replaceChildren();
+ const issues=[...new Set(a.issues||[])];
+ if(!p.available)issues.unshift('마스터 진행표 읽기 또는 검증 실패');
+ if(!tracks.available)issues.unshift('병렬 실행 결과 미확인');
+ if(!issues.length)issueBox.appendChild(elt('p','현재 연결된 상태 시트에서 별도 경고가 없습니다. 다른 워크플로의 미확인 상태까지 검증한 것은 아닙니다.'));
+ for(const item of issues)issueBox.appendChild(elt('div',item,'track-issue'));
+}
 function draw(){if(!data)return;const m=data.months.find(x=>x.month==='2026-10')||data.months[0]||{};const ps=data.projects||[],ml=data.inbox||[],ls=data.leads||[];
 $('timestamp').textContent='최근 집계 '+(data.refreshed||'알 수 없음')+' · 웹에서 직접 조회';
 kpis('overviewKpi',[['Invoice · 발행',money(m.actual),'Tax Invoice 발행'],['Pending · 검증',money(m.pending),'Statement 금액 확정, 발행 대기'],['검증 청구액',money(m.verifiedBilling),kusd(m.verifiedBillingKUSD)+' · Invoice + Pending'],['Forecast (미확정)',money(m.forecast),kusd(m.forecastKUSD)+' · 별도 추정치']]);
@@ -90,7 +134,12 @@ put('statementRows',rows.map(r=>[
 const q=$('mailQuery').value.toLowerCase(),sorted=ml.filter(r=>!q||[r.subject,r.sender,r.project].join(' ').toLowerCase().includes(q)).sort((a,b)=>$('mailSort').value==='days'?b.days-a.days:String(b.received).localeCompare(String(a.received)));
 put('mailRows',sorted.map(r=>{let btn=elt('button',r.body?'본문 열기':'본문 미수집','rowbutton');btn.disabled=!r.body;btn.addEventListener('click',()=>{$('dialogSubject').textContent=r.subject;$('dialogMeta').textContent=r.sender+' · '+r.received;$('dialogBody').textContent=r.body;$('mailDialog').showModal()});return[r.priority,r.days+'일',r.sender+' · '+r.subject,r.received,r.project,btn]}));
 const lq=$('leadQuery').value.toLowerCase();put('leadRows',ls.filter(r=>!lq||[r.institution,r.customer,r.email].join(' ').toLowerCase().includes(lq)).map(r=>[r.priority,r.institution+' · '+r.customer,r.status,r.due,r.description]));
-put('healthRows',(data.status||[]).map(r=>[r.name,r.state,r.updated,r.details]));
+drawAutomation();
+const healthMap=new Map((data.status||[]).map(r=>[r.name,r]));
+for(const r of data.automation?.health||[]){
+ if(!healthMap.has(r.name))healthMap.set(r.name,{name:r.name,state:r.status,updated:r.updated,details:'마스터 Health 원본'});
+}
+put('healthRows',[...healthMap.values()].map(r=>[r.name,r.state,r.updated,r.details]));
 $('salesSummary').textContent='현재 프로젝트 '+ps.length+'건, Lead '+ls.length+'건의 연계 조회가 가능합니다. Opportunity/Quote 직접 조회는 다음 데이터 계약을 통해 확장합니다.';
 }
 async function load(){

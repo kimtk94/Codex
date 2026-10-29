@@ -113,6 +113,7 @@ jobs:
           node --check api/dashboard.js
           node --check api/lifecycle.js
           node --check lib/personal-leads.js
+          node --check lib/automation-console.js
           node --check lib/auth-common.js
       - name: Test personal sent evidence web projection
         working-directory: apps/css-sales-workspace

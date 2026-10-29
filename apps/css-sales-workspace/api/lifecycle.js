@@ -1,8 +1,9 @@
 const {GoogleAuth}=require('google-auth-library');
 const {projectPersonalLeads}=require('../lib/personal-leads');
+const {projectAutomationConsole}=require('../lib/automation-console');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D30","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700"];
+const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5"];
 module.exports=async function handler(req,res){
   res.setHeader('Cache-Control','private, no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -47,7 +48,7 @@ module.exports=async function handler(req,res){
     const reply=await fetch(url,{headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(15000)});
     if(!reply.ok)throw new Error('SHEETS_HTTP_'+reply.status);
     const data=await reply.json();
-    const [monthly,projects,health,unanswered,lead,mail,decisions]=(data.valueRanges||[]).map(x=>x.values||[]);
+    const [monthly,projects,health,unanswered,lead,mail,decisions,masterProgress,parallelTracks]=(data.valueRanges||[]).map(x=>x.values||[]);
     const expected=['Month','Project / Sub-project','Component'];
     if(!monthly[0]||!projects[0]||!health[0]||[monthly[0][0],projects[0][0],health[0][0]].some((v,i)=>v!==expected[i]))
       return res.status(503).json({error:'SOURCE_SCHEMA_MISMATCH'});
@@ -178,7 +179,17 @@ module.exports=async function handler(req,res){
     const replies=new Map(mail.slice(1).filter(r=>r[0]).map(r=>[r[0],{uid:r[0],sender:r[4]||'',subject:r[8]||'',body:r[9]||'',received:r[3]||''}]));
     const inbox=unanswered.slice(1).filter(r=>r[8]&&r[11]!=='TRUE').map(r=>({uid:r[8],days:money(r[0]),priority:r[1]||'',sender:r[2]||'',subject:r[3]||'',received:r[4]||'',owner:r[5]||'',project:r[6]||'',class:r[10]||'',review:r[19]||'',body:replies.get(r[8])?.body||''}));
     const leads=projectPersonalLeads(lead);
+    // This central console is a best-effort read-only projection. Missing
+    // operational tabs must never leak data or disable the Sales workspace.
+    let automation;
+    try {
+      automation=projectAutomationConsole(masterProgress||[],parallelTracks||[],health);
+    } catch (_err) {
+      automation={source:'SFDC_Automation_Followup_2026',readOnly:true,
+        progress:{available:false},tracks:{available:false,items:[]},
+        health:[],issues:['AUTOMATION_CONSOLE_SCHEMA_REVIEW_REQUIRED']};
+    }
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'',sync:r[7]||''}));
-    return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,refreshed:months[0]?.refreshed||''});
+    return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,automation,refreshed:months[0]?.refreshed||''});
   }catch(e){return res.status(503).json({error:'DATA_FETCH_FAILED'});}
 };

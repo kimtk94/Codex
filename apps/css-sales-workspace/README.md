@@ -30,3 +30,36 @@ Open the deployed preview, check each of five category groups, and confirm links
 - `novogene-payment-draft` contains a QQ-IMAP/payment mail sending API. **Do not import or auto-send** from a dashboard without explicit recipient/attachment review and individual send approval.
 - Old Vercel projects and domains are not deleted, redirected, or reconfigured until read-only and writing workflow parity is verified.
 - Outstanding: verify Production API with a real authenticated user session and project SSO, move non-destructive operations UI into this workspace, implement approvals for any write/send action, and retire duplicate domains only after rollback tests.
+
+## Central automation control tower
+
+The existing owner-authenticated `/api/lifecycle` now projects two more
+read-only Google Sheets sources into `automation` in its JSON response:
+
+- `Automation Master Progress!A5:K55`: authoritative **baseline** task counts.
+  A `done` task is **not** formally accepted until separate evidence is
+  reviewed; the dashboard never upgrades it by inference.
+- `Parallel Track Status!A1:G5`: four **CI-test** tracks (A Report/Lead,
+  B Revenue, C SFDC desktop mocks, D web). `SUCCESS` means the listed test
+  scope passed, not production CRM Save, cash receipt, or browser E2E.
+- `Automation Health!A1:D60`: operational snapshots and unresolved review flags.
+
+The control tower lives under the existing sidebar's **자동화 컨트롤 타워** view
+and is only accessible through the same authorization checks as the rest of
+the sales workspace. GitHub run links are restricted to the
+`kimtk94/Codex/actions/runs/<numeric>` path; no arbitrary destinations.
+
+Failure behavior: missing/invalid master or track data becomes
+`available:false` with an explicit issue, without breaking the other
+authenticated Sales views. All source records, manual Decision exclusions,
+Invoice/Pending/Forecast classification, and source ownership are unchanged.
+
+GitHub Actions remains the execution plane. Google Sheets remains the
+operational data plane and audit ledger. Vercel is a protected presentation
+plane. **No execution button, sales email sending or Salesforce Save is
+enabled by this change.**
+
+Offline smoke tests: `node --test test/*.test.js` from
+`apps/css-sales-workspace`; CI automatically runs on changes to this app.
+An authenticated end-to-end production browser acceptance test is still
+required before treating web deployment as fully validated.
