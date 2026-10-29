@@ -14,6 +14,8 @@ on:
     paths:
       - 'automation/css/lead_unsent_gap_refresh.py'
       - 'automation/css/test_lead_unsent_gap_refresh.py'
+      - 'automation/css/lead_my_sent_refresh.py'
+      - 'automation/css/test_lead_my_sent_refresh.py'
       - '.github/workflows/lead-unsent-gap-refresh.yml'
 
 permissions:
@@ -40,6 +42,12 @@ jobs:
         run: python -m pip install 'google-api-python-client>=2.0,<3' 'google-auth>=2.20,<3'
       - name: Test exact recipient, stale-source and no-sent safeguards
         run: python -m unittest discover -s automation/css -p 'test_lead_unsent_gap_refresh.py' -v
+      - name: Verify personal-only Lead sent audit safety
+        run: |
+          python -m py_compile automation/css/lead_my_sent_refresh.py
+          python -m unittest discover -s automation/css -p 'test_lead_my_sent_refresh.py' -v
+      - name: Refresh personal-only sent evidence (no CRM or email writes)
+        run: LEAD_PERSONAL_APPLY="$LEAD_GAP_APPLY" python automation/css/lead_my_sent_refresh.py
       - name: Reconcile newest SFDC Leads with outgoing QQ evidence
         run: python automation/css/lead_unsent_gap_refresh.py
       - name: Publish review status
