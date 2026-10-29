@@ -59,6 +59,7 @@ def main():
     if selected is None: raise RuntimeError("Exactly four formats required")
     print("FORMAT_COUNT:",len(selected))
     trailing_reviews=0
+    blocked_formats=[]
     for fmt,entry in sorted(selected.items()):
         # A1:AZ1 is header-only; structural fingerprints do not disclose names.
         span=urllib.parse.quote(entry["sheet_id"]+"!A1:AZ1",safe="!:")
@@ -71,13 +72,22 @@ def main():
         header=values[0] if values else []
         fingerprint, width, duplicates=header_fingerprint(header)
         print("FORMAT:",fmt,"HEADER_COLUMNS:",width,"HEADER_FINGERPRINT:",fingerprint)
-        scope=validate_header_scope(fmt,header,duplicates)
+        try:
+            scope=validate_header_scope(fmt,header,duplicates)
+        except RuntimeError as exc:
+            blocked_formats.append(fmt)
+            print("SCHEMA_HEADER_BLOCKED:",fmt,str(exc),flush=True)
+            continue
         if scope != "PASS":
             trailing_reviews += 1
             print("SCHEMA_HEADER_REVIEW:",fmt,
                   "CANONICAL_COLUMNS: 1-17 UNIQUE_NONEMPTY",
                   "TRAILING_DUPLICATES:",len(duplicates),
                   "FIRST_LAST_DUPLICATE:",duplicates[0],duplicates[-1])
+    if blocked_formats:
+        print("SCHEMA_AUDIT: REVIEW_REQUIRED")
+        print("CELL_CONTENT_LOGGING: DISABLED")
+        raise RuntimeError("HEADER_VALIDATION_BLOCKED_FORMATS="+",".join(blocked_formats))
     print("SCHEMA_AUDIT:", "PASS_CANONICAL_REVIEW_TRAILING" if trailing_reviews else "PASS")
     print("CELL_CONTENT_LOGGING: DISABLED")
     print("BASE_WRITES: 0")
