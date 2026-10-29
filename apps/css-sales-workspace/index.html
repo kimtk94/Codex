@@ -35,7 +35,7 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <button data-view="health">⚙ 자동화 상태</button>
 </nav><div class="sidefoot">Owner-scoped · Read-only<br>자동 갱신 데이터 / 권한 유지</div></aside>
 <main><div class="top"><div><h1 id="heading">전체 대시보드</h1><div class="subtitle" id="timestamp">원본 자동화 상태를 확인하세요.</div></div>
-<div class="controls"><input id="token" type="password" placeholder="기존 웹 조회 토큰 (최초 1회)" autocomplete="off" aria-label="조회 토큰" hidden><button class="primary" id="load">새로고침</button><span class="status" id="state">미연결</span></div></div>
+<div class="controls"><button class="primary" id="login" type="button" hidden>Vercel 로그인</button><button class="primary" id="load">새로고침</button><input id="token" type="password" autocomplete="off" aria-label="기존 토큰" hidden><span class="status" id="state">미연결</span></div></div>
 <div class="notice" id="authNotice">인증 상태를 확인하는 중입니다. 인증에 실패한 경우에만 연결 안내가 표시됩니다.</div>
 <section id="overview" class="view active"><div class="kpis" id="overviewKpi"></div>
 <div class="split"><div class="panel"><h2>프로젝트 진행 현황</h2><div id="overviewStages" class="empty">연결 후 표시됩니다.</div></div><div class="panel"><h2>우선 처리할 업무</h2><div id="overviewActions" class="empty">연결 후 표시됩니다.</div></div></div>
@@ -81,19 +81,19 @@ async function load(){
   if(token)options.headers={Authorization:'Bearer '+token};
   const res=await fetch('/api/lifecycle',options);
   if(res.status===401){
-   auth=null;$('token').hidden=false;$('authNotice').hidden=false;
-   $('authNotice').textContent='최초 연결 시 기존 조회 토큰으로 인증하세요. 인증 후 서버에 보안 세션이 설정되며, 같은 브라우저에서는 세션이 유효한 동안 다시 입력할 필요가 없습니다.';
+   auth=null;$('login').hidden=false;$('authNotice').hidden=false;
+   $('authNotice').textContent='Vercel 계정으로 로그인하면 별도 조회 토큰 없이 연결됩니다. 계정 소유자만 접근할 수 있습니다.';
    $('state').textContent='인증 필요';return;
   }
   if(!res.ok)throw Error('데이터 조회 실패 '+res.status);
   data=await res.json();
   auth=token||null;
-  $('token').value='';$('token').hidden=true;
+  $('token').value='';$('token').hidden=true;$('login').hidden=true;
   $('state').textContent='연결됨';$('authNotice').hidden=true;draw();
  }catch(e){$('state').textContent=e.message;$('authNotice').hidden=false;$('authNotice').textContent='데이터가 준비되지 않았습니다. '+e.message}
  finally{$('load').disabled=false}
 }
-$('load').addEventListener('click',load);$('closeDialog').addEventListener('click',()=>$('mailDialog').close());
+$('load').addEventListener('click',load);$('login').addEventListener('click',()=>{location.assign('/api/auth/authorize')});$('closeDialog').addEventListener('click',()=>$('mailDialog').close());
 for(const id of ['projectQuery','projectStatus','mailQuery','mailSort','leadQuery'])$(id).addEventListener('input',draw);
 for(const btn of document.querySelectorAll('nav button[data-view]'))btn.addEventListener('click',()=>{for(const b of document.querySelectorAll('nav button'))b.classList.toggle('active',b===btn);for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===btn.dataset.view);$('heading').textContent=btn.textContent.trim()});
 load();setInterval(()=>{if(!document.hidden)load()},300000);
