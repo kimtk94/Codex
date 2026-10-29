@@ -23,8 +23,9 @@ def value(row, i):
 
 
 def project_rows(rows):
-    """Match Sheets RAW string projection (21 columns) and trim right padding."""
-    return [[value(row, i) for i in range(21)] for row in rows]
+    """Match Sheets RAW 21-column projection without stripping subject text."""
+    return [[str(row[i]) if i < len(row) and row[i] is not None else ""
+             for i in range(21)] for row in rows]
 
 
 def nonempty_uid_rows(matrix):
