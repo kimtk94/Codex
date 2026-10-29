@@ -9,6 +9,7 @@ on:
     paths:
       - '.github/workflows/parallel-sales-verification.yml'
       - 'automation/ops/sales_parallel_readonly_audit.py'
+      - 'automation/ops/publish_parallel_track_status.py'
       - 'automation/css/lead_my_sent_refresh.py'
       - 'automation/css/nba_refresh_pool.py'
       - 'apps/css-sales-workspace/**'
@@ -105,3 +106,31 @@ jobs:
         run: node --test test/*.test.js
       - name: Record auth safety boundary
         run: echo 'WEB_TESTS_STATIC_AND_MOCK_ONLY=true; authenticated E2E still separate.'
+
+  publish-summary:
+    name: Publish parallel results to Status Sheet
+    if: always()
+    needs: [report-and-lead, revenue, sfdc-desktop, web]
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      TRACK_A_RESULT: ${{ needs.report-and-lead.result }}
+      TRACK_B_RESULT: ${{ needs.revenue.result }}
+      TRACK_C_RESULT: ${{ needs.sfdc-desktop.result }}
+      TRACK_D_RESULT: ${{ needs.web.result }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install authenticated Sheets client
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Publish isolated 4-track status and verify readback
+        run: python automation/ops/publish_parallel_track_status.py
+      - name: Show run summary
+        if: always()
+        run: |
+          echo '## Four-track parallel verification' >> "$GITHUB_STEP_SUMMARY"
+          echo 'All source checks are read-only; no customer mail or SFDC Save.' >> "$GITHUB_STEP_SUMMARY"
