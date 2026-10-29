@@ -82,7 +82,7 @@ async function load(){
   const res=await fetch('/api/lifecycle',options);
   if(res.status===401){
    auth=null;$('token').hidden=false;$('authNotice').hidden=false;
-   $('authNotice').textContent='서버에 API 토큰이 등록되어 있지만 현재 브라우저의 인증은 확인되지 않았습니다. 기존 조회 토큰으로 한 번 연결하세요. 공개 로그인이나 인증 우회는 사용하지 않습니다.';
+   $('authNotice').textContent='최초 연결 시 기존 조회 토큰으로 인증하세요. 인증 후 서버에 보안 세션이 설정되며, 같은 브라우저에서는 세션이 유효한 동안 다시 입력할 필요가 없습니다.';
    $('state').textContent='인증 필요';return;
   }
   if(!res.ok)throw Error('데이터 조회 실패 '+res.status);
