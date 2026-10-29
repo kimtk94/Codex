@@ -26,5 +26,7 @@ jobs:
         run: python -m unittest discover -s automation/css -p 'test_sfdc_email_consistency.py' -v
       - name: Test Decision sync safety (mocked only)
         run: python -m unittest discover -s automation/css -p 'test_sfdc_email_decision_safety.py' -v
+      - name: Test mail snapshot convergence under source churn (mocked only)
+        run: python -m unittest discover -s automation/css -p 'test_sfdc_email_snapshot_refresh.py' -v
       - name: Record read-only test guarantee
         run: echo 'No Sheets credentials, customer emails, or Salesforce writes were used.'
