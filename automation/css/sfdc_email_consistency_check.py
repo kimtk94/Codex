@@ -36,17 +36,39 @@ def main():
         raise RuntimeError("Empty mail snapshot cannot be certified PASS")
     if indexed(qq_mails,8)!=indexed(sf_mails,8):
         raise RuntimeError("Email UIDs differ between QQ and SFDC")
+    # SFDC and QQ append independent NONE placeholders as new mail UIDs appear.
+    # A placeholder is not a reviewer decision and must not break parity.
+    # Explicit reviewer actions, however, must match strictly in both sources.
+    allowed={"EXCLUDE_MAIL","EXCLUDE_SENDER","RESTORE_MAIL","RESTORE_SENDER"}
     def decisions(rows):
-        result={}
+        selected={}
+        seen=set()
         for r in rows[1:]:
             uid=col(r,4)
-            if uid:
-                if uid in result:raise RuntimeError("Duplicate decision UID")
-                result[uid]=col(r,0).upper()
-        return result
-    q=decisions(qq_decisions);s=decisions(sf_decisions)
-    if q!=s:raise RuntimeError("Decision UIDs or choices differ between QQ and SFDC")
-    print(json.dumps({"consistency":"PASS","mail_uids":len(indexed(qq_mails,8)),"decisions":len(q)}))
+            if not uid:
+                continue
+            if uid in seen:
+                raise RuntimeError("Duplicate decision UID")
+            seen.add(uid)
+            action=col(r,0).upper()
+            if action in allowed:
+                selected[uid]=action
+            elif action not in ("","NONE"):
+                raise RuntimeError("Unexpected reviewer decision action: "+action)
+        return selected,seen
+    q,qq_uids=decisions(qq_decisions)
+    s,sf_uids=decisions(sf_decisions)
+    if q!=s:
+        raise RuntimeError("Explicit decision UIDs or choices differ between QQ and SFDC")
+    print(json.dumps({
+        "consistency":"PASS",
+        "mail_uids":len(indexed(qq_mails,8)),
+        "active_decisions":len(q),
+        "sf_decision_uids":len(sf_uids),
+        "qq_decision_uids":len(qq_uids),
+        "qq_placeholder_only":len(qq_uids-sf_uids),
+        "sfdc_placeholder_only":len(sf_uids-qq_uids)
+    }))
 if __name__=="__main__":
     try:main()
     except Exception as e:
