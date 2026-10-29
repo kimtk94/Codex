@@ -1,10 +1,10 @@
-name: Lead No-Sent Review (SFDC + QQ)
+name: Lead Personal Sent Audit (SFDC + QQ)
 
 on:
   workflow_dispatch:
     inputs:
       apply_snapshot:
-        description: 'Apply verified Lead no-sent review tables (never send email or write SFDC)'
+        description: 'Refresh exact personal sent-mail evidence (never send mail or write SFDC)'
         type: boolean
         default: false
   schedule:
@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: lead-unsent-qq-review
+  group: personal-lead-sent-qq-review
   cancel-in-progress: false
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 18
     env:
       NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
-      LEAD_GAP_APPLY: ${{ github.event_name == 'schedule' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.apply_snapshot == true) && 'true' || 'false' }}
+      LEAD_PERSONAL_APPLY: ${{ github.event_name == 'schedule' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.apply_snapshot == true) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,16 +40,12 @@ jobs:
           python-version: '3.12'
       - name: Install Google Sheets dependencies
         run: python -m pip install 'google-api-python-client>=2.0,<3' 'google-auth>=2.20,<3'
-      - name: Test exact recipient, stale-source and no-sent safeguards
-        run: python -m unittest discover -s automation/css -p 'test_lead_unsent_gap_refresh.py' -v
       - name: Verify personal-only Lead sent audit safety
         run: |
           python -m py_compile automation/css/lead_my_sent_refresh.py
           python -m unittest discover -s automation/css -p 'test_lead_my_sent_refresh.py' -v
       - name: Refresh personal-only sent evidence (no CRM or email writes)
-        run: LEAD_PERSONAL_APPLY="$LEAD_GAP_APPLY" python automation/css/lead_my_sent_refresh.py
-      - name: Reconcile newest SFDC Leads with outgoing QQ evidence
-        run: python automation/css/lead_unsent_gap_refresh.py
+        run: python automation/css/lead_my_sent_refresh.py
       - name: Publish review status
         if: always()
         shell: bash
@@ -57,10 +53,10 @@ jobs:
           JOB_RESULT: ${{ job.status }}
         run: |
           {
-            echo '## Lead No-Sent Review'
+            echo '## Lead Personal Sent Audit'
             echo "- Result: ${JOB_RESULT}"
             echo "- Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            echo '- Output tabs: SFDC New Lead Email Audit, Lead Unsent Review, Lead No-Sent All'
-            echo '- NO_SENT_EVIDENCE is not proof of no phone or in-person contact.'
+            echo '- Output tab: Lead My Sent Audit (personal sender only); First Contact/Prior Contact/Qualified views use formulas.'
+            echo '- NO_PERSONAL_OUTBOUND_EVIDENCE is not proof of no phone, BCC or in-person contact.'
             echo '- No outbound email, SFDC write, or Lead decision edits.'
           } >> "${GITHUB_STEP_SUMMARY}"
