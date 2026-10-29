@@ -33,7 +33,9 @@ jobs:
           from pathlib import Path
           for name in ('sfdc-quote-status-audit.yml', 'sfdc-quote-contact-candidate-audit.yml'):
               source = (Path('.github/workflows') / name).read_text()
-              assert "GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}" in source, name
-              assert "GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}" not in source, name
+              correct = "GCP_SERVICE_ACCOUNT_JSON: " + "$" + "{{ secrets.CKD_DRIVE_SA_JSON }}"
+              wrong = "GCP_SERVICE_ACCOUNT_JSON: " + "$" + "{{ secrets.GCP_SERVICE_ACCOUNT_JSON }}"
+              assert correct in source, name
+              assert wrong not in source, name
           print('QUOTE_CREDENTIAL_MAPPINGS=PASS')
           PY
