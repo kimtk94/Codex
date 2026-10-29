@@ -1,67 +1,82 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CSS Sales Workspace</title><style>*{box-sizing:border-box}body{margin:0;font:15px system-ui,'Noto Sans KR',sans-serif;background:#f5f7fb;color:#1c2940}header{background:#132941;color:#fff;padding:36px max(20px,calc((100vw - 1050px)/2))}h1{font-size:clamp(25px,4vw,36px);margin:9px 0}header p{color:#cee0ee}.pill{display:inline-block;background:#234964;color:#d6fbe8;border-radius:25px;padding:7px 12px;font-size:12px}main{max-width:1100px;margin:auto;padding:18px}section{background:#fff;border:1px solid #e1e8f2;border-radius:17px;margin:19px 0;padding:22px}h2{font-size:21px;margin:0 0 17px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:12px}a{display:flex;flex-direction:column;gap:19px;text-decoration:none;color:#243857;background:#f7faff;border:1px solid #e4ecf5;padding:18px;border-radius:13px}a:hover{border-color:#6d9fe0;background:#edf5ff}a span{color:#506f9e;font-size:12px}.info{color:#66788d;font-size:13px;line-height:1.7;padding:16px}@media(max-width:550px){section{padding:15px}.cards{grid-template-columns:1fr}}</style><style>
-.lifecycle-panel{background:#fff;border:1px solid #d8e3ef;border-radius:18px;padding:20px;margin:18px 0}
-.lifecycle-top{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap;align-items:center}
-.lifecycle-top h2{margin:0}.kpi{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:12px;margin:18px 0}
-.kpi>div{background:#eff5fb;border:1px solid #dbe7f2;border-radius:12px;padding:15px}
-.kpi small{color:#536985;display:block}.kpi strong{font-size:23px;display:block;margin-top:8px}
-.life-filters{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0}
-.life-filters input,.life-filters select{padding:10px;border:1px solid #cbd6e4;border-radius:9px;min-width:170px;font:inherit}
-.life-filters button,.life-connect button{background:#1c4776;color:white;border:0;border-radius:9px;padding:10px 16px;cursor:pointer;font:inherit}
-.life-connect{display:flex;flex-wrap:wrap;gap:8px;margin:15px 0;align-items:center}
-.life-connect input{font:inherit;border:1px solid #b7c9dc;border-radius:9px;padding:11px;min-width:260px}
-.lifecycle-scroll{max-height:530px;overflow:auto;border:1px solid #e1e8f2;border-radius:12px}
-.lifecycle-table{border-collapse:collapse;width:100%;font-size:13px;min-width:920px}
-.lifecycle-table th{position:sticky;top:0;background:#eaf1fa;z-index:1;text-align:left}
-.lifecycle-table td,.lifecycle-table th{padding:12px;border-bottom:1px solid #e5ecf5}
-.lifecycle-table td{vertical-align:top}.muted{color:#697d95}.state{font-size:12px;border-radius:7px;background:#edf2f8;padding:4px 7px;display:inline-block}
-.life-links{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}.life-links a{display:inline; padding:8px 11px;background:#f2f6ff; border-radius:9px}
-#life-error{color:#ad3328}.life-disclaimer{font-size:12px;color:#65788a;line-height:1.6}
-@media(max-width:650px){.kpi{grid-template-columns:repeat(2,minmax(0,1fr))}.life-connect input{min-width:0;width:100%}}
-</style></head><body><header><div style="font-size:12px;letter-spacing:1px">NOVOGENE CSS WORKSPACE</div><h1>👋 Kim Taehoon</h1><p>담당자별 시트 분리 · 메일 · 영업 · 매출 · 프로젝트</p><span class="pill">● Owner: kim-taehoon</span></header><main><section class="lifecycle-panel" id="lifecycle">
-<div class="lifecycle-top"><div><h2>🧬 프로젝트 → 청구 → 매출 통합 현황</h2><p class="muted">Feishu / QQ CSS / Statement / TAX INVOICE 연쇄 자동화 결과</p></div><span id="life-status" class="state">인증 후 실시간 데이터 조회</span></div>
-<div class="life-connect"><input type="password" id="life-token" placeholder="웹 조회 토큰 (저장하지 않음)" autocomplete="off" aria-label="조회 토큰"><button type="button" id="life-load">연결 및 새로고침</button><span id="life-error" role="status"></span></div>
-<div class="kpi"><div><small>Actual · 발행</small><strong id="life-actual">—</strong></div><div><small>Pending · 미발행</small><strong id="life-pending">—</strong></div><div><small>Forecast · 진행</small><strong id="life-forecast">—</strong></div><div><small>통합 예상</small><strong id="life-combined">—</strong></div></div>
-<div class="life-filters"><select id="life-month" aria-label="예상 매출 월"><option value="2026-10">2026-10</option></select><select id="life-stage" aria-label="청구 단계"><option value="">전체 단계</option><option value="PROJECT FORECAST">진행/Forecast</option><option value="STATEMENT">Statement/Pending</option><option value="ISSUED">발행/Actual</option><option value="BLOCKED">보류</option></select><input id="life-search" type="search" placeholder="기관 · 고객 · 서비스 · AMEA 검색" aria-label="프로젝트 검색"></div>
-<div class="lifecycle-scroll"><table class="lifecycle-table"><thead><tr><th>프로젝트 / 기관</th><th>Feishu·CSS 진행</th><th>예상 월</th><th>청구 단계</th><th>Actual</th><th>Pending</th><th>다음 조치</th></tr></thead><tbody id="life-rows"><tr><td colspan="7">조회 토큰으로 연결하면 프로젝트별 현황이 나타납니다.</td></tr></tbody></table></div>
-<div class="life-links"><a target="_blank" rel="noopener" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit?gid=531585116">프로젝트 원장</a><a target="_blank" rel="noopener" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit?gid=1458081754">Actual/Pending/Forecast</a><a target="_blank" rel="noopener" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit?gid=898581637">자동화 상태</a></div>
-<p id="life-source" class="life-disclaimer">접근 권한이 확인된 사용자에게만 서버가 Google Sheets 최신 값을 전달합니다. 발행 금액과 미발행 예상액은 구분하며, 결제 확인 전에는 수납 완료로 표시하지 않습니다.</p>
-</section><section><h2>🎯 오늘 할 일</h2><div class="cards"><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1946039816"><strong>Action Dashboard</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=2036102603"><strong>Email Action Priority</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1948251025"><strong>NBA Today Top10</strong><span>Google Sheets에서 열기 ↗</span></a></div></section><section><h2>📬 메일 · 고객 응대</h2><div class="cards"><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=2036102601"><strong>Unanswered Emails</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=2036102602"><strong>Email Review Decisions</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=2036102431"><strong>Lead Email Followup</strong><span>Google Sheets에서 열기 ↗</span></a></div></section><section><h2>🤝 영업 파이프라인</h2><div class="cards"><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=2036102502"><strong>Lead Action Priority</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=2136651387"><strong>Follow-up Priority</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=865561618"><strong>Quote Portfolio Summary</strong><span>Google Sheets에서 열기 ↗</span></a></div></section><section><h2>💰 매출 · 프로젝트</h2><div class="cards"><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=129540641"><strong>BI Revenue Executive 2026</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1936002610"><strong>BI 2025 vs 2026 Overlay</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1856711491"><strong>BI Project Month Control</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=246817115"><strong>Billing Control Dashboard</strong><span>Google Sheets에서 열기 ↗</span></a></div></section><section id="legacy-consolidation"><h2>🧭 기존 CSS 기능 통합 허브</h2><p class="muted">모든 업무는 이 웹에서 시작합니다. 기존 서비스는 기능 이전과 검증이 완료될 때까지 안전하게 보존합니다.</p><div class="cards">
-<a target="_blank" rel="noopener noreferrer" href="https://css-operations-mvp.vercel.app"><strong>📋 기존 운영 MVP</strong><span>이전 운영 화면 · 기능 비교 / 이전 진행 중</span></a>
-<a target="_blank" rel="noopener noreferrer" href="https://novogene-css-live-v4.vercel.app"><strong>🧬 기존 CSS Live V4</strong><span>프로젝트·메일 Proxy 기능 보존 · API 이전 검증 필요</span></a>
-<a target="_blank" rel="noopener noreferrer" href="https://novogene-payment-draft.vercel.app"><strong>💳 기존 Payment Draft</strong><span>결제 초안 및 API 보존 · 운영 결제 처리로 간주하지 않음</span></a>
-</div><p class="info">통합 기준 도메인: css-sales-workspace-git.vercel.app · 이전 서비스의 삭제, 도메인 이전, 보안 설정 변경은 수행하지 않았습니다.</p></section><section><h2>⚙️ 시스템</h2><div class="cards"><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=898581637"><strong>Automation Health</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=2036102692"><strong>Owner Sheet Registry</strong><span>Google Sheets에서 열기 ↗</span></a><a target="_blank" rel="noopener noreferrer" href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=2036102691"><strong>CSS Mail Source Control</strong><span>Google Sheets에서 열기 ↗</span></a></div></section><p class="info">🔒 모든 고객 데이터는 Google Sheets의 기존 인증과 공유 권한을 사용합니다. 이 웹은 개인용 메뉴 허브이며 데이터 복제, 공개 API, 메일 처리 변경 기능은 포함하지 않습니다. 다른 담당자는 별도 시트 및 인증 연동 후 등록합니다.</p></main><script>
-(()=>{'use strict';
-const el=id=>document.getElementById(id);
-let data=null, activeToken=null;
-const won=n=>'₩'+Math.round(Number(n)||0).toLocaleString('ko-KR');
-function td(tr,value){const x=document.createElement('td');x.textContent=String(value??'');tr.appendChild(x)}
-function render(){
- if(!data)return;
- const month=el('life-month').value, cat=el('life-stage').value, query=el('life-search').value.toLowerCase();
- const m=data.months.find(x=>x.month===month);
- for(const [id,key] of [['life-actual','actual'],['life-pending','pending'],['life-forecast','forecast'],['life-combined','combined']])el(id).textContent=m?won(m[key]):'—';
- const projects=data.projects.filter(p=>(!cat||p.billing.includes(cat))&&(!query||[p.project,p.amea,p.institution,p.customer,p.service].join(' ').toLowerCase().includes(query))).slice(0,400);
- const body=el('life-rows');body.replaceChildren();
- if(!projects.length){const row=document.createElement('tr');td(row,'조회 조건과 일치하는 프로젝트가 없습니다.');body.appendChild(row)}
- for(const p of projects){const tr=document.createElement('tr');td(tr,[p.institution,p.customer,p.service,p.amea].filter(Boolean).join(' · ')+'\n'+p.project);td(tr,p.status+' / '+p.stage+(p.progress?' ('+p.progress+'%)':''));td(tr,p.expectedMonth||'미정');td(tr,p.billing+(p.pendingStatement?' / '+p.pendingStatement:''));td(tr,won(p.actual));td(tr,p.pendingEvidence&&p.pendingEvidence.startsWith('AMOUNT_VERIFIED')?won(p.pendingVerified):'미확인');td(tr,p.next);body.appendChild(tr)}
- el('life-status').textContent='연결됨 · '+(data.refreshed||'기준 시각 미표시');
- el('life-source').textContent='원본: 연결된 Google Sheets · 월별 Actual/Pending/Forecast와 프로젝트 단계는 자동 갱신 결과입니다. 데이터 기준: '+(data.refreshed||'미확인')+' · Feishu 또는 메일이 지연될 경우 자동화 상태를 확인하세요.';
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Novogene · Sales Command Center</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;color:#263549;background:#f5f7fb;font-size:14px}*{box-sizing:border-box}
+body{margin:0}button,input,select{font:inherit}button{cursor:pointer}aside{width:254px;position:fixed;left:0;top:0;bottom:0;background:#111f35;color:#e8f0fa;padding:24px 15px;display:flex;flex-direction:column;z-index:2;overflow:auto}
+.brand{font-size:20px;font-weight:800;line-height:1.2;padding:5px 10px 24px}.brand small{display:block;font-size:10px;letter-spacing:2px;color:#8ba6c5;margin-top:7px}
+nav{display:grid;gap:5px}nav button{text-align:left;width:100%;background:transparent;color:#b9c9de;border:0;border-radius:10px;padding:12px 13px;font-weight:600}
+nav button:hover,nav button.active{background:#294765;color:#fff}nav .group{color:#7890ac;font-weight:700;font-size:11px;margin:20px 10px 5px;letter-spacing:1px}
+.sidefoot{margin-top:auto;border-top:1px solid #324359;padding:18px 9px;color:#9daec3;font-size:12px}
+main{margin-left:254px;padding:26px clamp(18px,3vw,46px);max-width:1700px}
+.top{display:flex;justify-content:space-between;gap:15px;align-items:center;flex-wrap:wrap;margin-bottom:23px}.top h1{margin:0;font-size:26px}.subtitle{color:#71819a;margin-top:7px}
+.controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.controls input,.filter input,.filter select{border:1px solid #d6e0ed;padding:10px 12px;border-radius:10px;background:#fff;min-width:150px}.controls input{width:190px}.primary{background:#225b93;color:white;border:0;padding:11px 15px;border-radius:10px;font-weight:700}.primary:disabled{opacity:.55}
+.status{font-size:12px;background:#eef3f8;padding:8px 11px;border-radius:9px;color:#58718c}.view{display:none}.view.active{display:block}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin:18px 0 23px}.kpi,.panel{background:#fff;border:1px solid #e1e7f0;border-radius:15px;padding:20px}.kpi .label{font-size:12px;color:#72839a}.kpi strong{display:block;font-size:25px;margin-top:8px;letter-spacing:-.5px}.kpi small{color:#72839a}
+.panel{margin-top:17px}.panel h2{font-size:17px;margin:0 0 16px}.filter{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.tablewrap{overflow:auto;max-height:65vh}table{border-collapse:collapse;width:100%;min-width:750px;font-size:13px}th{position:sticky;top:0;background:#f3f6fa;text-align:left;font-size:12px;color:#536985}th,td{padding:12px;border-bottom:1px solid #e9edf3;vertical-align:top}tbody tr:hover{background:#f7faff}.rowbutton{border:0;color:#245b99;background:none;text-align:left;font-weight:700;padding:0}.tag{padding:5px 8px;background:#eef3f8;border-radius:7px;font-size:11px;display:inline-block;white-space:nowrap}
+.notice{border-left:3px solid #e3ac53;padding:13px 15px;background:#fffaf0;color:#745c35;margin:16px 0}.empty{padding:25px;color:#8191a5}.split{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow:0 18px 70px #14213555}dialog::backdrop{background:#07142688}.dialogtop{display:flex;align-items:center;justify-content:space-between}.bodytext{white-space:pre-wrap;overflow:auto;max-height:60vh;background:#f6f8fc;border-radius:12px;padding:18px;line-height:1.65;overflow-wrap:anywhere}.close{border:0;background:#e8eff7;padding:9px 13px;border-radius:9px}
+@media(max-width:950px){aside{width:76px;padding:18px 8px}.brand{font-size:12px;padding:5px}.brand small,.sidefoot,nav .group{display:none}nav button{font-size:12px;padding:12px 5px;text-align:center}main{margin-left:76px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.split{grid-template-columns:1fr}}
+@media(max-width:580px){aside{position:sticky;top:0;width:100%;height:auto;display:block;padding:9px;overflow:auto}.brand{display:none}nav{display:flex;overflow:auto}nav button{flex:0 0 auto;width:auto;padding:9px 11px}main{margin:0;padding:15px}.kpis{gap:8px}.kpi,.panel{padding:13px}.kpi strong{font-size:20px}}
+</style></head><body>
+<aside><div class="brand">NOVOGENE<small>SALES COMMAND CENTER</small></div>
+<nav id="nav">
+<div class="group">WORKSPACE</div>
+<button class="active" data-view="overview">▦ 전체 대시보드</button>
+<button data-view="projects">◫ 프로젝트 진행</button>
+<button data-view="revenue">▥ 매출 · Invoice</button>
+<button data-view="statements">▤ Statement · 결제</button>
+<div class="group">SALES & SERVICE</div>
+<button data-view="mail">✉ 미응답 메일</button>
+<button data-view="leads">♙ Lead 관리</button>
+<button data-view="sales">◇ Opportunity · Quote</button>
+<div class="group">SYSTEM</div>
+<button data-view="health">⚙ 자동화 상태</button>
+</nav><div class="sidefoot">Owner-scoped · Read-only<br>자동 갱신 데이터 / 권한 유지</div></aside>
+<main><div class="top"><div><h1 id="heading">전체 대시보드</h1><div class="subtitle" id="timestamp">원본 자동화 상태를 확인하세요.</div></div>
+<div class="controls"><input id="token" type="password" placeholder="웹 조회 토큰" autocomplete="off" aria-label="조회 토큰"><button class="primary" id="load">데이터 연결</button><span class="status" id="state">미연결</span></div></div>
+<div class="notice" id="authNotice">데이터는 인증된 사용자에게만 표시됩니다. 최초 연결 시 조회 토큰을 입력하세요. 토큰은 브라우저 저장소에 보관하지 않습니다.</div>
+<section id="overview" class="view active"><div class="kpis" id="overviewKpi"></div>
+<div class="split"><div class="panel"><h2>프로젝트 진행 현황</h2><div id="overviewStages" class="empty">연결 후 표시됩니다.</div></div><div class="panel"><h2>우선 처리할 업무</h2><div id="overviewActions" class="empty">연결 후 표시됩니다.</div></div></div>
+<div class="panel"><h2>최근 월별 매출 흐름</h2><div class="tablewrap"><table><thead><tr><th>월</th><th>Actual</th><th>Pending</th><th>Forecast</th><th>통합 예상</th></tr></thead><tbody id="overviewRevenue"></tbody></table></div></div></section>
+<section id="projects" class="view"><div class="panel"><h2>프로젝트 진행 모니터링</h2><div class="filter"><input id="projectQuery" placeholder="기관 · 고객 · 서비스 · AMEA"><select id="projectStatus"><option value="">전체 단계</option><option value="PROJECT FORECAST">진행 / Forecast</option><option value="STATEMENT">Statement</option><option value="ISSUED">Invoice 발행</option><option value="BLOCKED">보류</option></select></div><div class="tablewrap"><table><thead><tr><th>기관 · 고객 · 서비스</th><th>프로젝트</th><th>진행 단계</th><th>예상 월</th><th>청구 상태</th><th>다음 조치</th></tr></thead><tbody id="projectRows"></tbody></table></div></div></section>
+<section id="revenue" class="view"><div class="kpis" id="revenueKpi"></div><div class="panel"><h2>Actual / Pending / Forecast — 월별 내역</h2><div class="tablewrap"><table><thead><tr><th>월</th><th>Actual</th><th>Pending</th><th>Forecast</th><th>통합 예상</th><th>발행</th><th>미발행 Statement</th></tr></thead><tbody id="revenueRows"></tbody></table></div></div></section>
+<section id="statements" class="view"><div class="panel"><h2>Statement · TAX INVOICE 추적</h2><div class="notice">Statement의 확정 금액과 세금계산서 발행액은 구분됩니다. Payment는 수납 증거가 검증되기 전까지 완료로 표시하지 않습니다.</div><div class="tablewrap"><table><thead><tr><th>프로젝트</th><th>Statement / 청구 단계</th><th>발행 Actual</th><th>미발행 Pending</th><th>후속 조치</th></tr></thead><tbody id="statementRows"></tbody></table></div></div></section>
+<section id="mail" class="view"><div class="panel"><h2>미응답 메일함</h2><div class="filter"><input id="mailQuery" placeholder="발신자 · 제목 · 프로젝트 검색"><select id="mailSort"><option value="days">경과일 높은 순</option><option value="recent">최근 메일 순</option></select></div><div class="tablewrap"><table><thead><tr><th>우선순위</th><th>경과</th><th>발신자 · 제목</th><th>수신</th><th>프로젝트</th><th>본문</th></tr></thead><tbody id="mailRows"></tbody></table></div></div></section>
+<section id="leads" class="view"><div class="panel"><h2>Lead 업무 대기열</h2><div class="filter"><input id="leadQuery" placeholder="기관 · 고객 · 담당 이메일"></div><div class="tablewrap"><table><thead><tr><th>우선순위</th><th>기관 · 고객</th><th>상태</th><th>예정일</th><th>설명</th></tr></thead><tbody id="leadRows"></tbody></table></div></div></section>
+<section id="sales" class="view"><div class="panel"><h2>Opportunity · Quote</h2><div class="notice">현재 승인된 SFDC 데이터 연동 범위를 벗어나는 레코드 생성·수정은 수행하지 않습니다. 통합 웹에서 기존 영업 데이터 조회 기능을 확대 중입니다.</div><div id="salesSummary"></div></div></section>
+<section id="health" class="view"><div class="panel"><h2>자동화 실행 현황</h2><div class="tablewrap"><table><thead><tr><th>자동화</th><th>상태</th><th>마지막 확인</th><th>상세</th></tr></thead><tbody id="healthRows"></tbody></table></div></div></section>
+</main>
+<dialog id="mailDialog"><div class="dialogtop"><h2 id="dialogSubject">메일 본문</h2><button class="close" id="closeDialog">닫기</button></div><p id="dialogMeta" class="subtitle"></p><div class="bodytext" id="dialogBody"></div></dialog>
+<script>
+(()=>{'use strict';const $=id=>document.getElementById(id);let data=null,auth=null;
+const money=n=>'₩'+Math.round(+n||0).toLocaleString('ko-KR');const fmt=n=>(+n||0).toLocaleString('ko-KR');
+function elt(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=String(text);if(cls)e.className=cls;return e}
+function put(id,rows){const box=$(id);box.replaceChildren();if(!rows.length){box.appendChild(elt('tr',''));const td=elt('td','표시할 데이터가 없습니다.');td.colSpan=8;box.lastChild.appendChild(td);return}for(const row of rows){const tr=elt('tr');for(const value of row){let td=elt('td');if(value&&value.nodeType)td.appendChild(value);else td.textContent=String(value??'');tr.appendChild(td)}box.appendChild(tr)}}
+function kpis(id,items){const box=$(id);box.replaceChildren();for(const [label,value,sub] of items){let e=elt('div',undefined,'kpi');e.append(elt('div',label,'label'),elt('strong',value),elt('small',sub||''));box.appendChild(e)}}
+function draw(){if(!data)return;const m=data.months.find(x=>x.month==='2026-10')||data.months[0]||{};const ps=data.projects||[],ml=data.inbox||[],ls=data.leads||[];
+$('timestamp').textContent='최근 집계 '+(data.refreshed||'알 수 없음')+' · 웹에서 직접 조회';
+kpis('overviewKpi',[['Actual · 발행',money(m.actual),'확인된 세금계산서'],['Pending · 미발행',money(m.pending),'Statement 금액 검증'],['Forecast · 진행',money(m.forecast),'프로젝트 예상액'],['미응답 메일',fmt(ml.length)+'건','업무 대기열']]);
+kpis('revenueKpi',[['Actual',money(m.actual),'발행 매출'],['Pending',money(m.pending),'발행 예정'],['Forecast',money(m.forecast),'진행 프로젝트'],['통합 예상',money(m.combined),'중복 제거 합계']]);
+put('overviewRevenue',data.months.map(r=>[r.month,money(r.actual),money(r.pending),money(r.forecast),money(r.combined)]));
+put('revenueRows',data.months.map(r=>[r.month,money(r.actual),money(r.pending),money(r.forecast),money(r.combined),r.invoices,r.openStatements]));
+const stats=new Map();for(const p of ps){const key=p.billing.startsWith('ISSUED')?'Invoice 발행':p.billing.includes('STATEMENT')?'Statement 대기':p.billing.includes('BLOCKED')?'보류':'진행 중';stats.set(key,(stats.get(key)||0)+1)}$('overviewStages').replaceChildren(...[...stats].map(([k,v])=>elt('p',k+'   '+v+'건')));
+$('overviewActions').replaceChildren(elt('p','미응답 메일 '+ml.length+'건'),elt('p','Lead '+ls.length+'건'),elt('p','미발행 Statement '+ps.filter(p=>p.pendingStatement).length+'개 프로젝트'));
+const pq=$('projectQuery').value.toLowerCase(),cat=$('projectStatus').value;
+const proj=ps.filter(p=>(!cat||p.billing.includes(cat))&&(!pq||[p.project,p.amea,p.institution,p.customer,p.service].join(' ').toLowerCase().includes(pq)));
+put('projectRows',proj.map(p=>[[p.institution,p.customer,p.service].filter(Boolean).join(' · '),p.amea||p.project,p.stage+' / '+p.status,p.expectedMonth||'미정',p.billing,p.next]));
+put('statementRows',ps.filter(p=>p.pendingStatement||p.actual).map(p=>[p.institution+' · '+p.amea,p.billing+(p.pendingStatement?' / '+p.pendingStatement:''),money(p.actual),p.pendingEvidence?.startsWith('AMOUNT_VERIFIED')?money(p.pendingVerified):'미검증',p.next]));
+const q=$('mailQuery').value.toLowerCase(),sorted=ml.filter(r=>!q||[r.subject,r.sender,r.project].join(' ').toLowerCase().includes(q)).sort((a,b)=>$('mailSort').value==='days'?b.days-a.days:String(b.received).localeCompare(String(a.received)));
+put('mailRows',sorted.map(r=>{let btn=elt('button',r.body?'본문 열기':'본문 미수집','rowbutton');btn.disabled=!r.body;btn.addEventListener('click',()=>{$('dialogSubject').textContent=r.subject;$('dialogMeta').textContent=r.sender+' · '+r.received;$('dialogBody').textContent=r.body;$('mailDialog').showModal()});return[r.priority,r.days+'일',r.sender+' · '+r.subject,r.received,r.project,btn]}));
+const lq=$('leadQuery').value.toLowerCase();put('leadRows',ls.filter(r=>!lq||[r.institution,r.customer,r.email].join(' ').toLowerCase().includes(lq)).map(r=>[r.priority,r.institution+' · '+r.customer,r.status,r.due,r.description]));
+put('healthRows',(data.status||[]).map(r=>[r.name,r.state,r.updated,r.details]));
+$('salesSummary').textContent='현재 프로젝트 '+ps.length+'건, Lead '+ls.length+'건의 연계 조회가 가능합니다. Opportunity/Quote 직접 조회는 다음 데이터 계약을 통해 확장합니다.';
 }
-el('life-load').addEventListener('click',async()=>{
- const token=el('life-token').value.trim()||activeToken;el('life-error').textContent='';if(!token){el('life-error').textContent='조회 토큰을 입력하세요.';return}
- el('life-load').disabled=true;el('life-status').textContent='확인 중';
- try{
-  const res=await fetch('/api/lifecycle',{headers:{Authorization:'Bearer '+token},cache:'no-store'});
-  if(!res.ok)throw new Error(res.status===401?'웹 접근 토큰 또는 서버 설정을 확인하세요.':'원장 조회 실패 ('+res.status+')');
-  data=await res.json();activeToken=token;el('life-token').value='';
-  const select=el('life-month'),current=select.value;select.replaceChildren();
-  for(const x of data.months){const o=document.createElement('option');o.value=x.month;o.textContent=x.month;select.appendChild(o)}
-  select.value=data.months.some(x=>x.month===current)?current:(data.months[0]?.month||'');
-  render();
- }catch(e){if(String(e.message).includes('토큰'))activeToken=null;el('life-status').textContent='연결 실패';el('life-error').textContent=e.message}
- finally{el('life-load').disabled=false}
-});
-window.setInterval(()=>{if(activeToken&&!document.hidden)el('life-load').click()},5*60*1000);
-for(const id of ['life-month','life-stage','life-search'])el(id).addEventListener(id==='life-search'?'input':'change',render);
+async function load(){const token=$('token').value.trim()||auth;if(!token){$('state').textContent='토큰 필요';return}$('load').disabled=true;$('state').textContent='갱신 중';try{const res=await fetch('/api/lifecycle',{headers:{Authorization:'Bearer '+token},cache:'no-store'});if(!res.ok)throw Error(res.status===401?'접근 인증 실패':'데이터 조회 실패 '+res.status);data=await res.json();auth=token;$('token').value='';$('state').textContent='연결됨';$('authNotice').hidden=true;draw()}catch(e){$('state').textContent=e.message;if(String(e.message).includes('인증'))auth=null}finally{$('load').disabled=false}}
+$('load').addEventListener('click',load);$('closeDialog').addEventListener('click',()=>$('mailDialog').close());
+for(const id of ['projectQuery','projectStatus','mailQuery','mailSort','leadQuery'])$(id).addEventListener('input',draw);
+for(const btn of document.querySelectorAll('nav button[data-view]'))btn.addEventListener('click',()=>{for(const b of document.querySelectorAll('nav button'))b.classList.toggle('active',b===btn);for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===btn.dataset.view);$('heading').textContent=btn.textContent.trim()});
+setInterval(()=>{if(auth&&!document.hidden)load()},300000);
 })();
 </script></body></html>
