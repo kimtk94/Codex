@@ -37,3 +37,11 @@ jobs:
         run: python3 -m unittest discover -s automation/feishu -p "test_tax_invoice_forecast_reconcile.py"
       - name: Read Feishu and refresh private monthly forecast
         run: python3 automation/feishu/online_project_tat_forecast.py
+      - name: Verify linked project and billing rules
+        run: python3 -m unittest discover -s automation/css_mail -p 'test_project_lifecycle_chain.py' -v
+      - name: Refresh linked project lifecycle after Feishu update
+        run: python3 automation/css_mail/project_lifecycle_refresh.py
+      - name: Verify Actual Pending Forecast rules
+        run: python3 -m unittest discover -s automation/css_mail -p 'test_revenue_lifecycle_monthly.py' -v
+      - name: Refresh monthly revenue after project update
+        run: python3 automation/css_mail/revenue_lifecycle_monthly.py
