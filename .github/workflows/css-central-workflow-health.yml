@@ -1,0 +1,68 @@
+name: CSS Central Workflow Health Publisher
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17,47 * * * *'
+  pull_request:
+    paths:
+      - 'automation/ops/publish_central_workflow_health.py'
+      - 'automation/ops/test_central_workflow_health.py'
+      - '.github/workflows/css-central-workflow-health.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/ops/publish_central_workflow_health.py'
+      - 'automation/ops/test_central_workflow_health.py'
+      - '.github/workflows/css-central-workflow-health.yml'
+  workflow_run:
+    workflows:
+      - 'SFDC Three Report Mail Digestion'
+      - 'Lead Personal Sent Audit (SFDC + QQ)'
+      - 'SFDC Email Decision Sync'
+      - 'Parallel Sales Automation Verification (4 tracks)'
+      - 'Feishu Latest Four Schema Audit'
+      - 'CSS Central Operations Console Tests'
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: css-central-workflow-health
+  cancel-in-progress: false
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install authenticated Sheets client for import, no credentials
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify central workflow status policy
+        run: python -m unittest discover -s automation/ops -p 'test_central_workflow_health.py' -v
+
+  publish:
+    needs: offline-tests
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install read-only GitHub and Sheets writer clients
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Publish only central job health to dedicated tab, verify readback
+        run: python automation/ops/publish_central_workflow_health.py
+      - name: Audit boundary
+        run: echo 'This workflow changes only Automation Workflow Runs. No customer emails, CRM saves or source Sheet edits.'
