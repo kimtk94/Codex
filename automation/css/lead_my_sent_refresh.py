@@ -170,9 +170,26 @@ def main():
     get=lambda book,ranges: api.values().batchGet(
         spreadsheetId=book,ranges=ranges,valueRenderOption="FORMATTED_VALUE"
     ).execute().get("valueRanges",[])
-    raw=get(DEST,["'SFDC Email Leads Raw'!A1:W700"])
-    history=get(QQ,["'All Emails'!B1:G50000","'All Emails'!U1:U50000",
-                    "'CSS Git Ingest'!B1:I15000","'CSS Git Ingest'!P1:P15000"])
+    def grid(book):
+        result=api.get(spreadsheetId=book,
+            fields="sheets.properties(title,gridProperties.rowCount)").execute()
+        return {x["properties"]["title"]:x["properties"]["gridProperties"]["rowCount"]
+                for x in result["sheets"]}
+    target_rows=grid(DEST)
+    qq_rows=grid(QQ)
+    for tab,book in (("SFDC Email Leads Raw",target_rows),
+                     ("Lead My Sent Audit",target_rows),
+                     ("All Emails",qq_rows),("CSS Git Ingest",qq_rows)):
+        if book.get(tab,0)<2:
+            raise ValueError("Required Google Sheet tab missing: "+tab)
+    lead_bound=target_rows["SFDC Email Leads Raw"]
+    all_bound=qq_rows["All Emails"]
+    stage_bound=qq_rows["CSS Git Ingest"]
+    raw=get(DEST,["'SFDC Email Leads Raw'!A1:W"+str(lead_bound)])
+    history=get(QQ,["'All Emails'!B1:G"+str(all_bound),
+                    "'All Emails'!U1:U"+str(all_bound),
+                    "'CSS Git Ingest'!B1:I"+str(stage_bound),
+                    "'CSS Git Ingest'!P1:P"+str(stage_bound)])
     if len(raw)!=1 or len(history)!=4:
         raise ValueError("Incomplete SFDC/QQ read")
     source=[x.get("values",[]) for x in raw+history]
@@ -184,9 +201,7 @@ def main():
         print("PERSONAL_LEAD_AUDIT_DRY_RUN=true")
         return
     sheet="Lead My Sent Audit"
-    meta=api.get(spreadsheetId=DEST,fields="sheets.properties(title,gridProperties(rowCount))").execute()
-    size=next((x["properties"]["gridProperties"]["rowCount"] for x in meta["sheets"]
-               if x["properties"]["title"]==sheet),0)
+    size=target_rows[sheet]
     if size<len(matrix) or size<650:
         raise ValueError("Personal Audit output grid too small")
     output=matrix+[[""]*len(HEADER) for _ in range(size-len(matrix))]
