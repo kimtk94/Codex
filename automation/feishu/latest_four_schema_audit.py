@@ -9,6 +9,24 @@ from zoneinfo import ZoneInfo
 from sheets_tab_discovery import api, TOKEN
 from latest_four_formats import select
 
+def header_fingerprint(header):
+    """Return only structural evidence; never disclose raw header labels."""
+    normalized = [str(x).strip().casefold() for x in header]
+    if not any(normalized):
+        raise RuntimeError("Empty header")
+    seen = {}
+    duplicates = []
+    for pos, val in enumerate(normalized, start=1):
+        if not val:
+            continue
+        if val in seen:
+            duplicates.append((seen[val], pos))
+        else:
+            seen[val] = pos
+    digest = hashlib.sha256(chr(31).join(normalized).encode()).hexdigest()[:16]
+    return digest, len(header), duplicates
+
+
 def main():
     print("STAGE: authenticate",flush=True)
     auth=api("/open-apis/auth/v3/tenant_access_token/internal",payload={
@@ -32,12 +50,13 @@ def main():
         if not isinstance(value_range,dict): raise RuntimeError("VALUE_RANGE_MISSING")
         values=value_range.get("values") or []
         header=values[0] if values else []
-        normalized=[str(x).strip().casefold() for x in header]
-        if not any(normalized): raise RuntimeError("Empty header for "+fmt)
-        if len(set(x for x in normalized if x))!=len([x for x in normalized if x]):
-            raise RuntimeError("Duplicate nonempty header in "+fmt)
-        fingerprint=hashlib.sha256("\x1f".join(normalized).encode()).hexdigest()[:16]
-        print("FORMAT:",fmt,"HEADER_COLUMNS:",len(header),"HEADER_FINGERPRINT:",fingerprint)
+        fingerprint, width, duplicates=header_fingerprint(header)
+        print("FORMAT:",fmt,"HEADER_COLUMNS:",width,"HEADER_FINGERPRINT:",fingerprint)
+        if duplicates:
+            positions=",".join(str(a)+":"+str(b) for a,b in duplicates)
+            raise RuntimeError("Duplicate nonempty header in "+fmt+
+                               " duplicate_column_pairs="+positions+
+                               " fingerprint="+fingerprint)
     print("SCHEMA_AUDIT: PASS")
     print("CELL_CONTENT_LOGGING: DISABLED")
     print("BASE_WRITES: 0")
