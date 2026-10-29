@@ -11,7 +11,7 @@ import os
 import re
 
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
+from googleapiclient.discovery import build as google_build
 
 DEST = os.getenv("SFDC_SHEET_ID","1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI")
 QQ = os.getenv("CSS_SHEET_ID","1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
@@ -218,7 +218,7 @@ def main():
 def build_service(data):
     creds=service_account.Credentials.from_service_account_info(
         data,scopes=["https://www.googleapis.com/auth/spreadsheets"])
-    return build("sheets","v4",credentials=creds,cache_discovery=False).spreadsheets()
+    return google_build("sheets","v4",credentials=creds,cache_discovery=False).spreadsheets()
 
 
 if __name__=="__main__":
