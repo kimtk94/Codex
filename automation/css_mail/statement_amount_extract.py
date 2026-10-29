@@ -78,6 +78,74 @@ def row_for(item, amount="", status="NOT_CHECKED"):
             item["date"],item["uid"],item["uidvalidity"],status,
             dt.datetime.now(dt.timezone.utc).isoformat(),item["subject"]]
 
+def sync_verified_pending(session, statement_rows, invoice_rows):
+    """Upsert original-mail-verified open statements into the BI ledger by J+X.
+
+    Keep historical J installments and invoice revenue intact. Missing or
+    ambiguous source evidence must never overwrite an existing amount.
+    """
+    from unified_followup_sync import DST
+    ledger_tab = "CSS Batch Statement Ledger"
+    ledger = get(session, DST, ledger_tab, "A1:O200")
+    if not ledger or cell(ledger[0], 0) != "AMEA" or cell(ledger[0], 14) != "Statement ID":
+        raise RuntimeError("Unexpected BI pending ledger schema")
+    existing = {}
+    for row_number, r in enumerate(ledger[1:], 2):
+        key = cell(r, 14).strip().upper()
+        if key:
+            if key in existing: raise RuntimeError("Duplicate Statement ID in ledger: " + key)
+            existing[key] = (row_number, r)
+
+    invoice_issued = set()
+    for r in invoice_rows[1:]:
+        if cell(r, 10) not in VALID_INVOICES: continue
+        subject = cell(r, 6)
+        m = SJ.search(subject)
+        if m and not REPLY.match(subject):
+            invoice_issued.add(m.group(1).upper() + "-" + m.group(2).upper())
+
+    count = 0
+    for r in statement_rows[1:]:
+        key = cell(r, 0).strip().upper()
+        if not SJ.fullmatch(key) or cell(r, 8) != "AMOUNT_VERIFIED" or cell(r, 4) != "KRW":
+            continue
+        if key in invoice_issued: continue
+        try: amount = int(cell(r, 3))
+        except ValueError: continue
+        if amount <= 0: continue
+        subject = cell(r, 10)
+        amea = re.search(r"AMEA\\d{7,}", subject, re.I)
+        contract = re.search(r"H\\d+SC\\d+", subject, re.I)
+        x = cell(r, 1)
+        if not amea or not contract or not x or key != cell(r, 2).upper() + "-" + x.upper():
+            continue
+        source = "QQ original IMAP UID " + cell(r, 6) + "; UIDVALIDITY " + cell(r, 7) + "; AMOUNT_VERIFIED " + cell(r, 9)
+        if key in existing:
+            row_num, old = existing[key]
+            if cell(old, 0) != amea.group(0).upper() or cell(old, 2).upper() != x.upper():
+                raise RuntimeError("Pending ledger identity conflict: " + key)
+            if cell(old, 7) or cell(old, 8):
+                continue  # Invoiced record: never modify a posted invoice.
+            put(session, DST, ledger_tab, "F" + str(row_num),
+                [[amount, "STATEMENT_ORIGINAL_VERIFIED_PENDING"]], "RAW")
+            put(session, DST, ledger_tab, "K" + str(row_num),
+                [["J_INSTALLMENT_VERIFIED_UNISSUED", "PENDING_VERIFIED_NOT_ACTUAL",
+                  source, "Await confirmation and original TAX INVOICE; deduplicate by Statement ID"]], "RAW")
+        else:
+            row_num = max(len(ledger) + 1, 2)
+            if row_num > 200: raise RuntimeError("Pending ledger is full")
+            item = [amea.group(0).upper(), contract.group(0).upper(), x, "",
+                    cell(r, 5), amount, "STATEMENT_ORIGINAL_VERIFIED_PENDING",
+                    "", "", "", "J_INSTALLMENT_VERIFIED_UNISSUED",
+                    "PENDING_VERIFIED_NOT_ACTUAL", source,
+                    "Await confirmation and original TAX INVOICE; deduplicate by Statement ID", key]
+            put(session, DST, ledger_tab, "A" + str(row_num), [item], "RAW")
+            ledger.append(item)
+            existing[key] = (row_num, item)
+        count += 1
+    print("STATEMENT_PENDING_LEDGER_SYNC verified_pending_updated=" + str(count), flush=True)
+
+
 def main():
     session=css.authorize()
     mail=get(session,SRC,"CSS Git Ingest","A1:R10000")
@@ -141,6 +209,7 @@ def main():
     check=get(session,SRC,TAB,"A1:K"+str(len(out)))
     if len(check)!=len(out) or check[0]!=HEAD:
         raise RuntimeError("Statement amount post-write verification failed")
+    sync_verified_pending(session, out, invoices)
     current=[known[k] for k in wanted if k in known and cell(known[k],6)==wanted[k]["uid"]]
     verified=[r for r in current if cell(r,8)=="AMOUNT_VERIFIED"]
     print("STATEMENT_AMOUNT_EXTRACT_PASS pending_statements="+str(len(wanted))+
