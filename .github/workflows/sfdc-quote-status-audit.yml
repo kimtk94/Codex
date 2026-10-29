@@ -25,5 +25,5 @@ jobs:
         run: python3 automation/feishu/test_sfdc_quote_status_audit.py
       - name: Audit private SFDC Quote data read-only
         env:
-          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.GCP_SERVICE_ACCOUNT_JSON }}
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
         run: python3 automation/feishu/sfdc_quote_status_audit.py
