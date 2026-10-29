@@ -17,7 +17,7 @@ on:
       - 'automation/css/test_nba_refresh_pool_safety.py'
       - '.github/workflows/nba-verified-pool-pipeline.yml'
   schedule:
-    - cron: '0 23,3,8 * * *' # 08:00, 12:00, 17:00 KST
+    - cron: '0 23,3,8 * * *' # 08:00, 12:00, 17:00 KST (read-only validation; writes follow Report)
   workflow_dispatch:
     inputs:
       apply_pool:
@@ -63,21 +63,21 @@ jobs:
         run: |
           python automation/css/nba_mail_evidence_audit.py
       - name: Refresh verified reply followup dashboard
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && contains(github.event.head_commit.message, 'deploy-nba-personal-audit-once')) || (github.event_name == 'workflow_dispatch' && inputs.apply_pool) }}
+        if: ${{ (github.event_name == 'push' && contains(github.event.head_commit.message, 'deploy-nba-personal-audit-once')) || (github.event_name == 'workflow_dispatch' && inputs.apply_pool) }}
         env:
           NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           NBA_REPLY_DASHBOARD_WRITE: 'true'
         run: |
           python automation/css/nba_mail_evidence_audit.py
       - name: Update Pool only after successful validation
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && contains(github.event.head_commit.message, 'deploy-nba-personal-audit-once')) || (github.event_name == 'workflow_dispatch' && inputs.apply_pool) }}
+        if: ${{ (github.event_name == 'push' && contains(github.event.head_commit.message, 'deploy-nba-personal-audit-once')) || (github.event_name == 'workflow_dispatch' && inputs.apply_pool) }}
         env:
           NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           NBA_DRY_RUN: 'false'
         run: |
           python automation/css/nba_refresh_pool.py
       - name: Append new checkbox IDs
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && contains(github.event.head_commit.message, 'deploy-nba-personal-audit-once')) || (github.event_name == 'workflow_dispatch' && inputs.apply_pool) }}
+        if: ${{ (github.event_name == 'push' && contains(github.event.head_commit.message, 'deploy-nba-personal-audit-once')) || (github.event_name == 'workflow_dispatch' && inputs.apply_pool) }}
         env:
           NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           NBA_DRY_RUN: 'false'
