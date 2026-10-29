@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - automation/feishu/.trigger-quote-audit
+      - '.github/workflows/sfdc-quote-status-audit.yml'
 permissions:
   contents: read
 jobs:
