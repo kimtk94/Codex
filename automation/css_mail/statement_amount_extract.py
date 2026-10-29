@@ -79,12 +79,9 @@ def row_for(item, amount="", status="NOT_CHECKED"):
             dt.datetime.now(dt.timezone.utc).isoformat(),item["subject"]]
 
 def sync_verified_pending(session, statement_rows, invoice_rows):
-    """Upsert original-mail-verified open statements into the BI ledger by J+X.
-
-    Keep historical J installments and invoice revenue intact. Missing or
-    ambiguous source evidence must never overwrite an existing amount.
-    """
+    """Reconcile verified QQ J+X installments: pending -> invoice, once only."""
     from unified_followup_sync import DST
+    from tax_invoice_extract import extract
     ledger_tab = "CSS Batch Statement Ledger"
     ledger = get(session, DST, ledger_tab, "A1:O200")
     if not ledger or cell(ledger[0], 0) != "AMEA" or cell(ledger[0], 14) != "Statement ID":
@@ -96,20 +93,59 @@ def sync_verified_pending(session, statement_rows, invoice_rows):
             if key in existing: raise RuntimeError("Duplicate Statement ID in ledger: " + key)
             existing[key] = (row_number, r)
 
-    invoice_issued = set()
+    # Invoice recognition requires an original, non-reply notice and a matching
+    # invoice number and KRW amount in the attachment filename.
+    invoices = {}
     for r in invoice_rows[1:]:
         if cell(r, 10) not in VALID_INVOICES: continue
-        subject = cell(r, 6)
+        subject, filename = cell(r, 6), cell(r, 5)
+        if REPLY.match(subject) or not re.match(
+                r"^\\s*❗?\\ufe0f?\\s*Notice:\\s*Invoice Issued\\s*&\\s*Statement Confirmed\\b",
+                subject, re.I):
+            continue
         m = SJ.search(subject)
-        if m and not REPLY.match(subject):
-            invoice_issued.add(m.group(1).upper() + "-" + m.group(2).upper())
+        if not m: continue
+        parsed = extract(filename)
+        number = cell(r, 0)
+        try: amt = int(cell(r, 1))
+        except ValueError: continue
+        if not parsed or parsed[0] != number or parsed[4] != amt or amt <= 0:
+            raise RuntimeError("Invoice filename mismatch: " + number)
+        key = m.group(1).upper() + "-" + m.group(2).upper()
+        new = (number, amt, cell(r, 7), cell(r, 2))
+        if key in invoices and invoices[key] != new:
+            raise RuntimeError("Conflicting invoices for Statement " + key)
+        invoices[key] = new
 
-    count = 0
+    # Transition existing pending entries when a matching Tax Invoice arrives.
+    # Never create additional Actual revenue here; Revenue Lifecycle owns that.
+    transitioned = 0
+    for key, (row_number, old) in existing.items():
+        if key not in invoices: continue
+        number, amt, issued_at, invoice_amea = invoices[key]
+        if invoice_amea and invoice_amea.upper() != cell(old, 0).upper():
+            raise RuntimeError("Invoice AMEA mismatch: " + key)
+        old_amount = cell(old, 5)
+        try: old_amount = int(old_amount) if old_amount else None
+        except ValueError: raise RuntimeError("Invalid Statement amount: " + key)
+        if old_amount is not None and old_amount != amt:
+            raise RuntimeError("Statement/Invoice amount conflict; manual review: " + key)
+        if cell(old, 7) and cell(old, 7) != number:
+            raise RuntimeError("Invoice number changed for " + key)
+        put(session, DST, ledger_tab, "G" + str(row_number),
+            [["STATEMENT_INVOICED", number, amt, issued_at,
+              "J_INSTALLMENT_INVOICE_MATCH", "INVOICE_ONLY_NO_ADDITIONAL_REVENUE",
+              "Original invoice subject+attachment verified; " + key,
+              "Posted to Actual by invoice number; exclude from Pending"]], "RAW")
+        transitioned += 1
+
+    # Only original-message verified, non-invoiced statements can be Pending.
+    updated = 0
     for r in statement_rows[1:]:
         key = cell(r, 0).strip().upper()
         if not SJ.fullmatch(key) or cell(r, 8) != "AMOUNT_VERIFIED" or cell(r, 4) != "KRW":
             continue
-        if key in invoice_issued: continue
+        if key in invoices: continue
         try: amount = int(cell(r, 3))
         except ValueError: continue
         if amount <= 0: continue
@@ -119,18 +155,20 @@ def sync_verified_pending(session, statement_rows, invoice_rows):
         x = cell(r, 1)
         if not amea or not contract or not x or key != cell(r, 2).upper() + "-" + x.upper():
             continue
-        source = "QQ original IMAP UID " + cell(r, 6) + "; UIDVALIDITY " + cell(r, 7) + "; AMOUNT_VERIFIED " + cell(r, 9)
+        source = ("QQ original IMAP UID " + cell(r, 6) + "; UIDVALIDITY "
+                  + cell(r, 7) + "; AMOUNT_VERIFIED " + cell(r, 9))
         if key in existing:
             row_num, old = existing[key]
-            if cell(old, 0) != amea.group(0).upper() or cell(old, 2).upper() != x.upper():
+            if cell(old, 0).upper() != amea.group(0).upper() or cell(old, 2).upper() != x.upper():
                 raise RuntimeError("Pending ledger identity conflict: " + key)
-            if cell(old, 7) or cell(old, 8):
-                continue  # Invoiced record: never modify a posted invoice.
+            if cell(old, 7) or cell(old, 8): continue
+            if cell(old, 5) and int(float(cell(old, 5))) != amount:
+                raise RuntimeError("Statement amount changed; manual review: " + key)
             put(session, DST, ledger_tab, "F" + str(row_num),
                 [[amount, "STATEMENT_ORIGINAL_VERIFIED_PENDING"]], "RAW")
             put(session, DST, ledger_tab, "K" + str(row_num),
                 [["J_INSTALLMENT_VERIFIED_UNISSUED", "PENDING_VERIFIED_NOT_ACTUAL",
-                  source, "Await confirmation and original TAX INVOICE; deduplicate by Statement ID"]], "RAW")
+                  source, "Await original Tax Invoice; deduplicate by Statement ID"]], "RAW")
         else:
             row_num = max(len(ledger) + 1, 2)
             if row_num > 200: raise RuntimeError("Pending ledger is full")
@@ -138,12 +176,13 @@ def sync_verified_pending(session, statement_rows, invoice_rows):
                     cell(r, 5), amount, "STATEMENT_ORIGINAL_VERIFIED_PENDING",
                     "", "", "", "J_INSTALLMENT_VERIFIED_UNISSUED",
                     "PENDING_VERIFIED_NOT_ACTUAL", source,
-                    "Await confirmation and original TAX INVOICE; deduplicate by Statement ID", key]
+                    "Await original Tax Invoice; deduplicate by Statement ID", key]
             put(session, DST, ledger_tab, "A" + str(row_num), [item], "RAW")
             ledger.append(item)
             existing[key] = (row_num, item)
-        count += 1
-    print("STATEMENT_PENDING_LEDGER_SYNC verified_pending_updated=" + str(count), flush=True)
+        updated += 1
+    print("STATEMENT_LEDGER_RECONCILE issued_transitioned=" + str(transitioned)
+          + " verified_pending_updated=" + str(updated), flush=True)
 
 
 def main():
