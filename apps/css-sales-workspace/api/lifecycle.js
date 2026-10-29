@@ -55,7 +55,7 @@ module.exports=async function handler(req,res){
       project:x[0],amea:x[1]||'',institution:x[2]||'',customer:x[3]||'',service:x[4]||'',
       stage:x[6]||'',progress:money(x[7]),status:x[5]||'',expectedMonth:x[12]||'',
       invoiceCount:money(x[14]),actual:money(x[15]),billing:x[16]||'',
-      forecast:money(x[17]),next:x[18]||'',pendingStatement:x[20]||'',
+      forecast:money(x[17]),next:x[18]||'',pendingStatement:x[20]||'',noticeAt:x[21]||'',
       pendingVerified:money(x[22]),pendingEvidence:x[23]||''}));
     const months=monthly.slice(1).filter(x=>/^20\d\d-\d\d$/.test(x[0]||'')).map(x=>({
       month:x[0],actual:money(x[1]),pending:money(x[2]),forecast:money(x[3]),
