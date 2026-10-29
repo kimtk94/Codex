@@ -1,0 +1,34 @@
+name: CSS Central Operations Console Tests
+on:
+  pull_request:
+    paths:
+      - 'apps/css-sales-workspace/**'
+      - '.github/workflows/css-central-operations-console-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/css-sales-workspace/**'
+      - '.github/workflows/css-central-operations-console-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  console-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Check authenticated read-only endpoint syntax
+        working-directory: apps/css-sales-workspace
+        run: |
+          node --check api/lifecycle.js
+          node --check lib/automation-console.js
+          node --check lib/personal-leads.js
+      - name: Test all workspace projections and inline UI syntax (no live credentials)
+        working-directory: apps/css-sales-workspace
+        run: node --test test/*.test.js
+      - name: Record scope
+        run: echo 'CSS_CONSOLE_TESTS=MOCK_ONLY; no customer emails, no SFDC Save, no Sheets writes.'
