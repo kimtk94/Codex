@@ -1,0 +1,30 @@
+name: SFDC Email Decision Parity Regression (offline)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/sfdc-email-parity-regression.yml'
+      - '.github/workflows/sfdc-email-decisions-sync.yml'
+      - 'automation/css/sfdc_email_consistency_check.py'
+      - 'automation/css/test_sfdc_email_consistency.py'
+      - 'automation/css/sfdc_email_decision_sync.py'
+      - 'automation/css/test_sfdc_email_decision_safety.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test explicit decisions vs unselected NONE placeholders (mocked only)
+        run: python -m unittest discover -s automation/css -p 'test_sfdc_email_consistency.py' -v
+      - name: Test Decision sync safety (mocked only)
+        run: python -m unittest discover -s automation/css -p 'test_sfdc_email_decision_safety.py' -v
+      - name: Record read-only test guarantee
+        run: echo 'No Sheets credentials, customer emails, or Salesforce writes were used.'
