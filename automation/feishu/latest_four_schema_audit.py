@@ -27,6 +27,24 @@ def header_fingerprint(header):
     return digest, len(header), duplicates
 
 
+def validate_header_scope(fmt, header, duplicates):
+    """Only Payment Outstanding's first 17 columns are canonical.
+
+    Formula-derived tail headers may be repeated, but never permit duplicate
+    business headers, missing canonical columns or duplicates in other formats.
+    """
+    if not duplicates:
+        return "PASS"
+    if fmt == "Payment Outstanding":
+        canonical = [str(x).strip() for x in header[:17]]
+        if len(canonical) == 17 and all(canonical) and all(a > 17 and b > 17
+                                                         for a, b in duplicates):
+            return "REVIEW_NONCANONICAL_TRAILING_DUPLICATES"
+    positions = ",".join(str(a)+":"+str(b) for a,b in duplicates)
+    raise RuntimeError("Duplicate nonempty header in "+fmt+
+                       " duplicate_column_pairs="+positions)
+
+
 def main():
     print("STAGE: authenticate",flush=True)
     auth=api("/open-apis/auth/v3/tenant_access_token/internal",payload={
@@ -40,6 +58,7 @@ def main():
     selected,unclassified=select(sheets,dt.datetime.now(ZoneInfo("Asia/Seoul")).date())
     if selected is None: raise RuntimeError("Exactly four formats required")
     print("FORMAT_COUNT:",len(selected))
+    trailing_reviews=0
     for fmt,entry in sorted(selected.items()):
         # A1:AZ1 is header-only; structural fingerprints do not disclose names.
         span=urllib.parse.quote(entry["sheet_id"]+"!A1:AZ1",safe="!:")
@@ -52,12 +71,14 @@ def main():
         header=values[0] if values else []
         fingerprint, width, duplicates=header_fingerprint(header)
         print("FORMAT:",fmt,"HEADER_COLUMNS:",width,"HEADER_FINGERPRINT:",fingerprint)
-        if duplicates:
-            positions=",".join(str(a)+":"+str(b) for a,b in duplicates)
-            raise RuntimeError("Duplicate nonempty header in "+fmt+
-                               " duplicate_column_pairs="+positions+
-                               " fingerprint="+fingerprint)
-    print("SCHEMA_AUDIT: PASS")
+        scope=validate_header_scope(fmt,header,duplicates)
+        if scope != "PASS":
+            trailing_reviews += 1
+            print("SCHEMA_HEADER_REVIEW:",fmt,
+                  "CANONICAL_COLUMNS: 1-17 UNIQUE_NONEMPTY",
+                  "TRAILING_DUPLICATES:",len(duplicates),
+                  "FIRST_LAST_DUPLICATE:",duplicates[0],duplicates[-1])
+    print("SCHEMA_AUDIT:", "PASS_CANONICAL_REVIEW_TRAILING" if trailing_reviews else "PASS")
     print("CELL_CONTENT_LOGGING: DISABLED")
     print("BASE_WRITES: 0")
 if __name__=="__main__":
