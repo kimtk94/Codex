@@ -46,6 +46,18 @@ jobs:
           python -m unittest discover -s automation/css -p 'test_lead_my_sent_refresh.py' -v
       - name: Refresh personal-only sent evidence (no CRM or email writes)
         run: python automation/css/lead_my_sent_refresh.py
+      - name: Refresh NBA Pool from just-verified personal sent evidence
+        if: github.event_name == 'schedule'
+        env:
+          NBA_DRY_RUN: 'false'
+        run: |
+          python automation/css/nba_refresh_pool.py
+      - name: Append stable checkbox identities after NBA readback
+        if: github.event_name == 'schedule'
+        env:
+          NBA_DRY_RUN: 'false'
+        run: |
+          python automation/css/nba_sync_checkbox_ids.py
       - name: Publish review status
         if: always()
         shell: bash
