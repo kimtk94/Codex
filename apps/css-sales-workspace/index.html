@@ -61,6 +61,7 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <div class="panel"><h2>병렬 검증 작업 · 최신 실행</h2><p class="operator-hint">성공은 해당 범위 테스트 통과이며 실제 CRM·웹 E2E 승인과 구분됩니다.</p><div class="tablewrap"><table><thead><tr><th>작업</th><th>결과</th><th>마지막 검증</th><th>실행</th></tr></thead><tbody id="trackRows"></tbody></table></div></div>
 <div class="panel"><h2>중앙화 점검 · 해결 필요</h2><div id="automationIssues" class="operator-hint">데이터를 확인하는 중입니다.</div></div>
 </div>
+<div class="panel"><h2>GitHub Actions · 자동 실행 상태 10종</h2><p class="operator-hint">수집한 모든 실행은 원본 GitHub의 main 브랜치 기준입니다. 실패 또는 지연은 검토 대상으로 표시하며, 정상 실행도 실제 결제·메일 발송·SFDC 저장을 의미하지 않습니다.</p><div class="tablewrap"><table><thead><tr><th>자동화</th><th>상태</th><th>마지막 실행 (UTC)</th><th>비고</th><th>원본</th></tr></thead><tbody id="workflowRows"></tbody></table></div></div>
 <div class="panel"><h2>마스터 진행표 · 영역별</h2><div class="tablewrap"><table><thead><tr><th>분야</th><th>완료 표시</th><th>부분 구현</th><th>미완료</th></tr></thead><tbody id="areaRows"></tbody></table></div></div>
 <div class="panel"><h2>실제 원본의 Automation Health</h2><div class="tablewrap"><table><thead><tr><th>자동화</th><th>상태</th><th>마지막 확인</th><th>상세</th></tr></thead><tbody id="healthRows"></tbody></table></div></div>
 </section>
@@ -91,6 +92,17 @@ function drawAutomation(){
    const state=elt('span',r.result==='SUCCESS'?'테스트 성공':r.result,statusClass(r.result));
    return [r.name,state,r.checked,runLink(r.runUrl)]
  }):[]);
+ const workflows=a.workflows||{},workflowLabel={
+   PASS_EXECUTION_ONLY:'실행 통과',FAILED:'실패',STALE:'갱신 지연',
+   IN_PROGRESS:'실행 중',NOT_RUN:'실행 기록 없음',
+   CANCELLED:'취소',SKIPPED:'건너뜀',UNVERIFIED:'미확인',BLOCKED:'차단'
+ };
+ put('workflowRows',workflows.available?workflows.items.map(r=>[
+   r.name+' · '+r.domain,
+   elt('span',workflowLabel[r.state]||r.state,
+     r.state==='PASS_EXECUTION_ONLY'?'status-good':r.state==='FAILED'?'status-failed':'status-review'),
+   r.updated||'미확인',r.scope,runLink(r.runUrl)
+ ]):[]);
  put('areaRows',p.available?(p.areas||[]).map(r=>[r.name,fmt(r.done),fmt(r.partial),fmt(r.todo)]):[]);
  const issueBox=$('automationIssues');issueBox.replaceChildren();
  const issues=[...new Set(a.issues||[])];

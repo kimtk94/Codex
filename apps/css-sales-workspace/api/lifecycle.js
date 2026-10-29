@@ -3,7 +3,7 @@ const {projectPersonalLeads}=require('../lib/personal-leads');
 const {projectAutomationConsole}=require('../lib/automation-console');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5"];
+const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J20"];
 module.exports=async function handler(req,res){
   res.setHeader('Cache-Control','private, no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -48,7 +48,7 @@ module.exports=async function handler(req,res){
     const reply=await fetch(url,{headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(15000)});
     if(!reply.ok)throw new Error('SHEETS_HTTP_'+reply.status);
     const data=await reply.json();
-    const [monthly,projects,health,unanswered,lead,mail,decisions,masterProgress,parallelTracks]=(data.valueRanges||[]).map(x=>x.values||[]);
+    const [monthly,projects,health,unanswered,lead,mail,decisions,masterProgress,parallelTracks,workflowRuns]=(data.valueRanges||[]).map(x=>x.values||[]);
     const expected=['Month','Project / Sub-project','Component'];
     if(!monthly[0]||!projects[0]||!health[0]||[monthly[0][0],projects[0][0],health[0][0]].some((v,i)=>v!==expected[i]))
       return res.status(503).json({error:'SOURCE_SCHEMA_MISMATCH'});
@@ -183,10 +183,10 @@ module.exports=async function handler(req,res){
     // operational tabs must never leak data or disable the Sales workspace.
     let automation;
     try {
-      automation=projectAutomationConsole(masterProgress||[],parallelTracks||[],health);
+      automation=projectAutomationConsole(masterProgress||[],parallelTracks||[],health,workflowRuns||[]);
     } catch (_err) {
       automation={source:'SFDC_Automation_Followup_2026',readOnly:true,
-        progress:{available:false},tracks:{available:false,items:[]},
+        progress:{available:false},tracks:{available:false,items:[]},workflows:{available:false,items:[]},
         health:[],issues:['AUTOMATION_CONSOLE_SCHEMA_REVIEW_REQUIRED']};
     }
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'',sync:r[7]||''}));

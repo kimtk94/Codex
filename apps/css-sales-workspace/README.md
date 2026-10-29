@@ -63,3 +63,17 @@ Offline smoke tests: `node --test test/*.test.js` from
 `apps/css-sales-workspace`; CI automatically runs on changes to this app.
 An authenticated end-to-end production browser acceptance test is still
 required before treating web deployment as fully validated.
+
+### Live GitHub Actions status source
+
+`Automation Workflow Runs!A1:J20` is automatically maintained by the
+`CSS Central Workflow Health Publisher` GitHub Action. It tracks ten
+allowlisted `main` workflow filenames, twice hourly and after key workflows
+complete. The protected CSS Web lifecycle API reads this tab alongside the
+existing master and QA sources.
+
+The UI distinguishes `PASS_EXECUTION_ONLY`, `FAILED`, `STALE`,
+`IN_PROGRESS`, `NOT_RUN` and other inconclusive outcomes, and shows
+actionable GitHub run links. Notably, a failed Feishu schema audit must NOT
+be obscured by an unrelated or stale Feishu Health PASS. No client data is
+contained in this status source.

@@ -5,13 +5,14 @@
 const RUN_URL=/^https:\/\/github\.com\/kimtk94\/Codex\/actions\/runs\/[0-9]+$/;
 
 function compact(row, i){return String(row?.[i]??'').trim();}
-function projectAutomationConsole(progressRows, trackRows, healthRows){
+function projectAutomationConsole(progressRows, trackRows, healthRows, workflowRows){
   const result={
     source:'SFDC_Automation_Followup_2026',
     readOnly:true,
     progress:{available:false,total:0,done:0,partial:0,todo:0,accepted:0,
       baselineOnly:true,sourceNote:'Automation Master Progress is a baseline; no formal acceptance assumed'},
     tracks:{available:false,items:[]},
+    workflows:{available:false,items:[]},
     issues:[]
   };
   if(progressRows?.[0]?.[0]==='Task ID'){
@@ -59,6 +60,28 @@ function projectAutomationConsole(progressRows, trackRows, healthRows){
     else result.issues.push('PARALLEL_TRACK_STATUS_INCOMPLETE');
   }else{
     result.issues.push('PARALLEL_TRACK_STATUS_UNAVAILABLE');
+  }
+  if(workflowRows?.[0]?.[0]==='Workflow' && compact(workflowRows[0],2)==='Run State'){
+    const states=new Set(['PASS_EXECUTION_ONLY','FAILED','STALE','IN_PROGRESS',
+                          'NOT_RUN','CANCELLED','SKIPPED','UNVERIFIED','BLOCKED']);
+    const seen=new Set(),items=[];
+    for(const row of workflowRows.slice(1)){
+      const name=compact(row,0),state=compact(row,2);
+      if(!name)continue;
+      if(seen.has(name)||!states.has(state))throw Error('WORKFLOW_RUN_SCHEMA_INVALID');
+      seen.add(name);
+      const raw=compact(row,5);
+      items.push({
+        name,domain:compact(row,1),state,updated:compact(row,3),
+        ageHours:compact(row,4),runUrl:RUN_URL.test(raw)?raw:null,
+        checked:compact(row,7),scope:compact(row,8)
+      });
+      if(state!=='PASS_EXECUTION_ONLY')result.issues.push('GITHUB_WORKFLOW: '+name+' — '+state);
+    }
+    if(items.length===10)result.workflows={available:true,items};
+    else result.issues.push('GITHUB_WORKFLOW_HEALTH_INCOMPLETE');
+  }else{
+    result.issues.push('GITHUB_WORKFLOW_HEALTH_UNAVAILABLE');
   }
   const selected=new Set(['Revenue Lifecycle','Feishu','SFDC Email Decision Sync',
     'SFDC 3-Report Email Ingest','Lead My Sent Audit','Tax Invoice Due Watch',

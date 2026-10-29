@@ -54,6 +54,39 @@ test('prevents run URL open redirect and flags a failed workflow',()=>{
  assert.equal(a.tracks.items[0].runUrl,null);
  assert.ok(a.issues.includes('PARALLEL_TRACKS_NOT_ALL_SUCCESSFUL'));
 });
+function runtime(){
+ const head=['Workflow','Domain','Run State','Last Run UTC','Age Hours',
+   'GitHub Run URL','Event','Checked KST','Verification Boundary','Workflow File'];
+ const items=Array.from({length:10},(_,i)=>[
+   i===6?'Feishu Schema Audit':'Workflow '+i,'System',
+   i===6?'FAILED':'PASS_EXECUTION_ONLY','2026-10-29T15:00:00Z','1.0',
+   'https://github.com/kimtk94/Codex/actions/runs/'+(40903357351+i),
+   'schedule','2026-10-30 00:50:00 KST','Read-only evidence','workflow'+i+'.yml'
+ ]);
+ return [head,...items];
+}
+test('10 active GitHub run states centralize the Feishu failure without fake success',()=>{
+ const o=projectAutomationConsole(master(),parallel(),[],runtime());
+ assert.equal(o.workflows.available,true);
+ assert.equal(o.workflows.items.length,10);
+ assert.equal(o.workflows.items[6].state,'FAILED');
+ assert.ok(o.issues.some(x=>x.includes('Feishu Schema Audit')&&x.includes('FAILED')));
+ assert.equal(o.progress.accepted,0);
+});
+test('unsafe URL never becomes an outbound link; missing statuses remain unverified',()=>{
+ const r=runtime();r[1][5]='https://example.com/phishing';
+ const s=projectAutomationConsole(master(),parallel(),[],r);
+ assert.equal(s.workflows.items[0].runUrl,null);
+ r.pop();const x=projectAutomationConsole(master(),parallel(),[],r);
+ assert.equal(x.workflows.available,false);
+ assert.ok(x.issues.includes('GITHUB_WORKFLOW_HEALTH_INCOMPLETE'));
+});
+test('duplicate workflow state and fabricated run result are rejected',()=>{
+ const r=runtime();r[2][0]=r[1][0];
+ assert.throws(()=>projectAutomationConsole(master(),parallel(),[],r),/WORKFLOW_RUN_SCHEMA_INVALID/);
+ const invalid=runtime();invalid[1][2]='GREEN';
+ assert.throws(()=>projectAutomationConsole(master(),parallel(),[],invalid),/WORKFLOW_RUN_SCHEMA_INVALID/);
+});
 test('missing / incomplete master and parallel source stays visible, not fabricated',()=>{
  const r=projectAutomationConsole([MASTER_HEAD,['A01','Area','task','done','VERIFIED_ACCEPTED']],
    [TRACK_HEAD],[]);
@@ -67,7 +100,7 @@ test('dashboard inline script parses; central UI IDs exist and no write calls in
  const code=page.match(/<script>([\s\S]*?)<\/script>/);
  assert.ok(code,'inline script required');
  assert.doesNotThrow(()=>new vm.Script(code[1]));
- for(const id of ['automationKpi','trackRows','areaRows','automationIssues','healthRows'])
+ for(const id of ['automationKpi','trackRows','workflowRows','areaRows','automationIssues','healthRows'])
    assert.ok(page.includes('id="'+id+'"'),id);
  assert.ok(page.includes('run-link'));
  assert.equal(page.includes("fetch('/api/save'"),false);
@@ -77,6 +110,7 @@ test('lifecycle remains owner-authenticated and uses only central read-only tabs
  assert.ok(api.includes('if(!sessionValid&&!bearerValid&&!oauthValid)'));
  assert.ok(api.includes("'Automation Master Progress'!A5:K55"));
  assert.ok(api.includes("'Parallel Track Status'!A1:G5"));
+ assert.ok(api.includes("'Automation Workflow Runs'!A1:J20"));
  assert.ok(api.includes('projectAutomationConsole('));
  assert.ok(!api.includes('spreadsheets.values.update('));
 });
