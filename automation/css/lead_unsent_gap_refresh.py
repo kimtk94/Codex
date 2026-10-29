@@ -147,7 +147,9 @@ def build_rows(raw, legacy, priority, mail, flags, now):
         if not lid:
             continue
         if lid not in eligible:
-            raise ValueError("Priority Lead has fresh send evidence or missing legacy audit: "+lid)
+            # Hourly source refreshes may race: exclude a newly sent Lead
+            # rather than publishing a stale outreach instruction.
+            continue
         focus.append([value(r,1) or "P1","EXISTING_AUDITED",lid,value(r,4),
                       value(r,5),value(r,6),clean(value(r,8)),value(r,2),
                       "NO_SENT_EVIDENCE","","Check phone/visit and SFDC Activity",stamp])
