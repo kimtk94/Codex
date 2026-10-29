@@ -19,3 +19,14 @@ Git-managed, owner-scoped navigation for the CSS sales dashboard.
 
 ## Verification
 Open the deployed preview, check each of five category groups, and confirm links open the intended tabs without bypassing Google account permissions. Existing CSS production deployment is not replaced by this PR.
+
+## Consolidation status (2026-10-29)
+**Canonical Vercel project:** `css-sales-workspace-git`; all other CSS Vercel projects remain rollback references, not production destinations.
+- Project lifecycle, 2026-10 invoice actuals, pending Statements and forecast are unified in the authenticated `/api/lifecycle` read-only endpoint.
+- Data sources are Google Sheets populated by the scheduled QQ IMAP + Feishu pipeline. The webpage refreshes its view every 5 minutes while open and authenticated.
+- Production and Preview share the existing sensitive `CSS_WEB_ACCESS_TOKEN` **target setting**, without making the value public. Google credentials stay server-side. A new production deployment may be needed to apply updated environment targets.
+- `css-operations-mvp` contains a standalone operations landing UI; its entrypoint remains linked from the canonical workspace while remaining capabilities are audited.
+- `novogene-css-live-v4` contains an arbitrary Google Apps Script URL proxy. **Do not import** this endpoint into the canonical API without exact URL allowlisting, user authorization, and network access guards.
+- `novogene-payment-draft` contains a QQ-IMAP/payment mail sending API. **Do not import or auto-send** from a dashboard without explicit recipient/attachment review and individual send approval.
+- Old Vercel projects and domains are not deleted, redirected, or reconfigured until read-only and writing workflow parity is verified.
+- Outstanding: verify Production API with a real authenticated user session and project SSO, move non-destructive operations UI into this workspace, implement approvals for any write/send action, and retire duplicate domains only after rollback tests.
