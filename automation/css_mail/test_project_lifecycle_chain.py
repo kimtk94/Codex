@@ -103,5 +103,88 @@ class LifecycleTests(unittest.TestCase):
         c=candidates(mail,invoice)
         self.assertEqual(list(c),[J2])
 
+
+class StatementLedgerTransitionTests(unittest.TestCase):
+    """Source-key matching, original invoice recognition, and safe partials."""
+    def setUp(self):
+        import statement_amount_extract as statement
+        self.module = statement
+        self.x = "X209SC26065705-Z01"
+        self.key = "J002-" + self.x
+        self.amea = "AMEA2026042239"
+        self.h = "H209SC26065705"
+        self.subject = ("❗️Action Required: Final Report & Statement Ready For Confirmation – "
+                        + self.key + " - " + self.h + " - Korea-Yonsei Univ.-"
+                        "200-lysate-Deep DIA-Prof.KimMinWoo-" + self.amea)
+        self.source = [[
+            "statement_key", "project_x", "statement_no", "amount_krw",
+            "currency", "notice_at", "imap_uid", "uidvalidity",
+            "validation_status", "verified_at_utc", "subject"],
+            [self.key, self.x, "J002", "22704000", "KRW",
+             "2026-10-26T15:22:52+08:00", "40256", "1776302013",
+             "AMOUNT_VERIFIED", "2026-10-28T16:22:31+00:00", self.subject]]
+        self.heading = ["AMEA","H Contract","X Sub-project","SAM Batch",
+                        "Statement Event KST","Statement Amount KRW",
+                        "Statement State","Invoice Number","Invoice Amount KRW",
+                        "Invoice Issued Date","Attribution State","Revenue Treatment",
+                        "Evidence Source","Next Check","Statement ID"]
+        self.current = [self.amea,self.h,self.x,"","2026-10-26", "22704000",
+                        "STATEMENT_ORIGINAL_VERIFIED_PENDING","","","","",
+                        "PENDING_VERIFIED_NOT_ACTUAL","","",self.key]
+
+    def invoice(self, number, amount, reply=False):
+        subject = ("❗️Notice: Invoice Issued & Statement Confirmed – " + self.key
+                   + " -" + number + " - " + self.h + " - " + self.amea)
+        if reply: subject = "Re: " + subject
+        return [number,str(amount),self.amea,self.h,"SQ",
+                "TAX INVOICE-" + number + "-" + self.h + "-SQ-"
+                + self.amea + "-KRW" + str(amount) + ".00.pdf",
+                subject,"2026-10-29T12:00:00+08:00","","","FILENAME_PARSED",""]
+
+    def calls(self, invoices, existing=True):
+        from unittest.mock import patch
+        rows = [self.heading] + ([self.current] if existing else [])
+        with patch.object(self.module, "get", return_value=rows), \
+             patch.object(self.module, "put") as write:
+            self.module.sync_verified_pending(None, self.source,
+                                              [["invoice_number"]] + invoices)
+        return [(a.args[3],a.args[4]) for a in write.call_args_list]
+
+    def test_original_verified_source_creates_missing_j_row(self):
+        updates = self.calls([], existing=False)
+        added = next(values[0] for coord,values in updates if coord=="A2")
+        self.assertEqual(added[0],self.amea)
+        self.assertEqual(added[5],22704000)
+        self.assertEqual(added[14],self.key)
+
+    def test_exact_tax_invoice_removes_pending_from_ledger(self):
+        updates = self.calls([self.invoice("209126001100",22704000)])
+        row = next(values[0] for coord,values in updates if coord=="G2")
+        self.assertEqual(row[0],"STATEMENT_INVOICED")
+        self.assertEqual(row[2],22704000)
+        self.assertEqual(row[5],"INVOICE_ONLY_NO_ADDITIONAL_REVENUE")
+        self.assertFalse(any(coord=="F2" for coord,_ in updates))
+
+    def test_two_tax_invoices_are_sum_matched_once(self):
+        updates = self.calls([self.invoice("209126001100",12000000),
+                              self.invoice("209126001101",10704000)])
+        row = next(values[0] for coord,values in updates if coord=="G2")
+        self.assertEqual(row[0],"STATEMENT_INVOICED")
+        self.assertEqual(row[2],22704000)
+        self.assertIn("209126001100",row[1])
+        self.assertIn("209126001101",row[1])
+
+    def test_partial_invoice_quarantines_unknown_balance(self):
+        updates = self.calls([self.invoice("209126001100",10000000)])
+        row = next(values[0] for coord,values in updates if coord=="G2")
+        self.assertEqual(row[0],"STATEMENT_INVOICE_ALLOCATION_REVIEW")
+        self.assertEqual(row[2],10000000)
+        self.assertEqual(row[5],"INVOICE_ACTUAL_ONLY_REMAINING_BALANCE_UNVERIFIED")
+
+    def test_replied_invoice_cannot_clear_pending(self):
+        updates = self.calls([self.invoice("209126001100",22704000,reply=True)])
+        self.assertFalse(any(coord=="G2" for coord,_ in updates))
+        self.assertTrue(any(coord=="F2" for coord,_ in updates))
+
 if __name__=="__main__":
     unittest.main()
