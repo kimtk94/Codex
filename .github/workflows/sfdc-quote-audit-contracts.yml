@@ -1,0 +1,41 @@
+name: SFDC Quote Audit Contracts (offline)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/sfdc-quote-status-audit.yml'
+      - '.github/workflows/sfdc-quote-contact-candidate-audit.yml'
+      - '.github/workflows/sfdc-quote-audit-contracts.yml'
+      - 'automation/feishu/sfdc_quote_status_audit.py'
+      - 'automation/feishu/sfdc_quote_contact_candidate_audit.py'
+      - 'automation/feishu/test_sfdc_quote_status_audit.py'
+      - 'automation/feishu/test_sfdc_quote_contact_candidate_audit.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install parser-only test dependencies
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Quote contract tests (no account access)
+        run: |
+          python automation/feishu/test_sfdc_quote_status_audit.py
+          python automation/feishu/test_sfdc_quote_contact_candidate_audit.py
+      - name: Verify both workflows use existing sales credentials
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for name in ('sfdc-quote-status-audit.yml', 'sfdc-quote-contact-candidate-audit.yml'):
+              source = (Path('.github/workflows') / name).read_text()
+              correct = "GCP_SERVICE_ACCOUNT_JSON: " + "$" + "{{ secrets.CKD_DRIVE_SA_JSON }}"
+              wrong = "GCP_SERVICE_ACCOUNT_JSON: " + "$" + "{{ secrets.GCP_SERVICE_ACCOUNT_JSON }}"
+              assert correct in source, name
+              assert wrong not in source, name
+          print('QUOTE_CREDENTIAL_MAPPINGS=PASS')
+          PY
