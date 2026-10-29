@@ -234,6 +234,19 @@ def main():
     for data,expected in zip(sources,["exclude","Snapshot KST","invoice_number","Sub-Project Number","received_at","statement_key"]):
         if not data or not data[0] or data[0][0]!=expected:
             raise RuntimeError("Unexpected lifecycle source header: "+expected)
+    # Gate the full chain on source freshness. Never regenerate revenue with
+    # a stale Feishu snapshot while recording a fresh PASS heartbeat.
+    now_utc=dt.datetime.now(dt.timezone.utc)
+    def source_age_hours(value):
+        d=dt.datetime.fromisoformat(str(value).replace("Z","+00:00"))
+        if d.tzinfo is None:d=d.replace(tzinfo=KST)
+        return (now_utc-d.astimezone(dt.timezone.utc)).total_seconds()/3600
+    latest_feishu=max((r[0] for r in sources[1][1:] if r and r[0]),default="")
+    if not latest_feishu or source_age_hours(latest_feishu)>float(__import__("os").getenv("FEISHU_SNAPSHOT_MAX_AGE_HOURS","48")):
+        raise RuntimeError("FEISHU_SOURCE_STALE: refresh Feishu before project/revenue sync")
+    latest_qq=max((r[0] for r in sources[4][1:] if r and r[0]),default="")
+    if not latest_qq or source_age_hours(latest_qq)>float(__import__("os").getenv("QQ_SOURCE_MAX_AGE_HOURS","6")):
+        raise RuntimeError("QQ_SOURCE_STALE: stop project/revenue refresh")
     result=build(*sources)
     previous=get(s,DST,TAB,"A1:X1000")
     if not previous or previous[0] not in (HEAD,HEAD[:22],HEAD[:20]):
