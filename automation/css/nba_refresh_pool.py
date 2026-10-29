@@ -124,7 +124,20 @@ def sync(api, dry_run=True):
             "values":replacement,
         }]},
     ).execute()
-    print(f"NBA_POOL_UPDATED={len(rows)} DECISIONS_UNCHANGED=true")
+    # Read back the actual stable Source/Record ID pairs before reporting PASS.
+    observed = api.values().get(spreadsheetId=BOOK,
+        range=f"'NBA Action Pool'!D2:E{len(rows)+1}",
+        valueRenderOption="FORMATTED_VALUE").execute().get("values", [])
+    expected_keys = [(str(r[3]).strip().upper(),str(r[4]).strip().upper()) for r in rows]
+    actual_keys = [(str(r[0]).strip().upper(),str(r[1]).strip().upper())
+                   for r in observed if len(r)>=2 and str(r[0]).strip()]
+    if actual_keys != expected_keys:
+        raise ValueError("NBA pool readback mismatched candidate stable IDs")
+    lead_first = sum(r[3]=="LEAD" and r[11]=="NO_PERSONAL_OUTBOUND_EVIDENCE" for r in rows)
+    lead_prior = sum(r[3]=="LEAD" and r[11]=="SENT_BEFORE_LEAD_ONLY" for r in rows)
+    print(f"NBA_POOL_UPDATED={len(rows)} DECISIONS_UNCHANGED=true "
+          f"PERSONAL_LEAD_FIRST={lead_first} PERSONAL_LEAD_PRIOR_ONLY={lead_prior} "
+          "READBACK_VERIFIED=true")
     return len(rows)
 
 
