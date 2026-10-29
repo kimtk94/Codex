@@ -1,4 +1,4 @@
-const {host,client,secret,cookies,cookie,sign,equal}=require('./common');
+const {host,client,secret,cookies,cookie,sign,equal}=require('../../lib/auth-common');
 const owner='xSqsomY4s3nWaElLeF9IE89Z';
 module.exports=async(req,res)=>{
  res.setHeader('Cache-Control','no-store');
