@@ -1,0 +1,170 @@
+name: CSS Parallel Four Track Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'automation/ops/css_parallel_audit.py'
+      - 'automation/ops/test_css_parallel_audit.py'
+      - 'apps/css-sales-workspace/lib/personal-leads.js'
+      - 'apps/css-sales-workspace/test/personal-leads.test.js'
+      - 'apps/css-sales-workspace/api/lifecycle.js'
+      - '.github/workflows/css-parallel-four-track-audit.yml'
+  schedule:
+    - cron: '35 15 * * *' # 00:35 KST daily (audit only, no mail or CRM writes)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: css-four-track-audit
+  cancel-in-progress: false
+
+jobs:
+  report-lead:
+    name: A - SFDC Report + personal Lead parity
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'google-auth>=2.30,<3' 'requests>=2.31,<3'
+      - name: Offline cross-source unit tests
+        run: python -m unittest discover -s automation/ops -p 'test_css_parallel_audit.py' -v
+      - name: Live read-only Report/Lead parity
+        run: python automation/ops/css_parallel_audit.py lead
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parallel-report-lead
+          path: audit-results/lead.json
+          if-no-files-found: ignore
+
+  revenue:
+    name: B - Tax Invoice + Statement Revenue parity
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'google-auth>=2.30,<3' 'requests>=2.31,<3'
+      - name: Offline Revenue parity tests
+        run: python -m unittest discover -s automation/ops -p 'test_css_parallel_audit.py' -v
+      - name: Live read-only financial controls
+        run: python automation/ops/css_parallel_audit.py revenue
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parallel-revenue
+          path: audit-results/revenue.json
+          if-no-files-found: ignore
+
+  sfdc-desktop:
+    name: C - Salesforce Desktop safety tests (NO SAVE)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/sfdc-playwright-desktop-p0
+          path: desktop
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install offline test dependencies
+        run: python -m pip install -r desktop/automation/sfdc_desktop/requirements.txt
+      - name: Validate queue, lookup and required field safety
+        shell: bash
+        run: |
+          cd desktop/automation/sfdc_desktop
+          python -m compileall -q .
+          python -m unittest discover -s . -p 'test_*.py' -v
+      - name: Record desktop limitation
+        if: success()
+        run: |
+          mkdir -p audit-results
+          python -c 'import json;open("audit-results/sfdc.json","w").write(json.dumps({"track":"sfdc-desktop","result":"PASS_OFFLINE_ONLY","save_allowed":False,"browser_live_verified":False,"details":"Desktop UI and Salesforce Save not executed"})+"\n")'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parallel-sfdc-safety
+          path: audit-results/sfdc.json
+          if-no-files-found: ignore
+
+  web:
+    name: D - CSS Web API + Lead UI safety tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: API syntax and strict personal Lead gate
+        run: |
+          node --check apps/css-sales-workspace/api/lifecycle.js
+          node --check apps/css-sales-workspace/lib/personal-leads.js
+          node --test apps/css-sales-workspace/test/personal-leads.test.js
+      - name: Verify API does not expose stale generic Lead queue
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('apps/css-sales-workspace/api/lifecycle.js').read_text()
+          assert "'Lead My Sent Audit'!A1:T650" in s
+          assert "'Lead Action Priority'!A1:O700" not in s
+          assert "AUTH_REQUIRED" in s and "SHEETS_CREDENTIALS_MISSING" in s
+          assert "projectPersonalLeads(lead)" in s
+          print('CSS_WEB_PERSONAL_LEAD_SOURCE_VERIFIED=true')
+          PY
+      - name: Record web limitation
+        run: |
+          mkdir -p audit-results
+          python -c 'import json;open("audit-results/web.json","w").write(json.dumps({"track":"web","result":"PASS_STATIC_ONLY","auth_guard_present":True,"personal_leads_api_source":True,"production_e2e_verified":False})+"\n")'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parallel-web
+          path: audit-results/web.json
+          if-no-files-found: ignore
+
+  summary:
+    name: All tracks - independent result summary
+    if: always()
+    needs: [report-lead, revenue, sfdc-desktop, web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize four independent gates
+        env:
+          STATUS_A: ${{ needs.report-lead.result }}
+          STATUS_B: ${{ needs.revenue.result }}
+          STATUS_C: ${{ needs.sfdc-desktop.result }}
+          STATUS_D: ${{ needs.web.result }}
+        run: |
+          {
+            echo '## CSS/SFDC Four Track Parallel Audit'
+            echo
+            echo '| Track | Workflow result | Scope |'
+            echo '|---|---|---|'
+            echo "| A: Report/Lead | ${STATUS_A} | strict personal To/CC and current staged report |"
+            echo "| B: Revenue | ${STATUS_B} | original pending, invoice, reporting FX (read-only) |"
+            echo "| C: SFDC | ${STATUS_C} | offline Playwright safety; no Save |"
+            echo "| D: Web | ${STATUS_D} | source gate and API syntax; not authenticated Production E2E |"
+            echo
+            echo 'No emails sent, no Salesforce Save, no Google Sheets write.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${STATUS_A}" != success ] || [ "${STATUS_B}" != success ] || [ "${STATUS_C}" != success ] || [ "${STATUS_D}" != success ]; then
+            echo 'PARALLEL_AUDIT_PARTIAL_FAILURE=true'
+            exit 1
+          fi
+          echo 'PARALLEL_AUDIT_ALL_TRACKS_PASSED=true'
