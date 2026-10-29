@@ -1,7 +1,7 @@
 const {GoogleAuth}=require('google-auth-library');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-const ranges=["'BI Revenue Lifecycle Monthly'!A1:L20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D30","'Unanswered Emails'!A1:V700","'Lead Action Priority'!A1:O700","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700"];
+const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D30","'Unanswered Emails'!A1:V700","'Lead Action Priority'!A1:O700","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700"];
 module.exports=async function handler(req,res){
   res.setHeader('Cache-Control','private, no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -61,6 +61,9 @@ module.exports=async function handler(req,res){
       month:x[0],actual:money(x[1]),pending:money(x[2]),forecast:money(x[3]),
       combined:money(x[4]),invoices:money(x[5]),openStatements:money(x[6]),
       unknownStatements:money(x[7]),forecastProjects:money(x[8]),quality:x[10]||'',
+      verifiedBilling:money(x[12])||money(x[1])+money(x[2]),
+      invoiceKUSD:money(x[13]),pendingKUSD:money(x[14]),
+      verifiedBillingKUSD:money(x[15]),forecastKUSD:money(x[16]),
       refreshed:x[11]||''}));
 
     // Owner-authenticated, read-only source details. QQ is optional: never
