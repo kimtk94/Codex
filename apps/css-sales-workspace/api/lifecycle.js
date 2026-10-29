@@ -20,7 +20,16 @@ module.exports=async function handler(req,res){
     sessionValid=expiry>Math.floor(Date.now()/1000)&&expiry<=Math.floor(Date.now()/1000)+86400&&safeEq(parts[2],expected);
   }
   const bearerValid=Boolean(supplied&&safeEq(supplied,token));
-  if(!sessionValid&&!bearerValid)return res.status(401).json({error:'AUTH_REQUIRED'});
+  const oauth=cookies.css_oauth_session||'';
+  const om=/^(xSqsomY4s3nWaElLeF9IE89Z)\\.(\\d{10})\\.([a-f0-9]{64})$/.exec(oauth);
+  let oauthValid=false;
+  if(om&&process.env.VERCEL_APP_CLIENT_SECRET){
+    const exp=Number(om[2]),ts=Math.floor(Date.now()/1000);
+    const mac=crypto.createHmac('sha256',process.env.VERCEL_APP_CLIENT_SECRET)
+      .update('oauth-session:'+om[1]+':'+om[2]).digest('hex');
+    oauthValid=exp>ts&&exp<=ts+86400&&safeEq(mac,om[3]);
+  }
+  if(!sessionValid&&!bearerValid&&!oauthValid)return res.status(401).json({error:'AUTH_REQUIRED'});
   if(bearerValid){
     const expiry=String(Math.floor(Date.now()/1000)+86400);
     const sig=crypto.createHmac('sha256',token).update('css-owner:'+expiry).digest('hex');
