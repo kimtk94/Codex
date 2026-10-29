@@ -7,12 +7,25 @@ module.exports=async function handler(req,res){
   if(req.method!=='GET')return res.status(405).json({error:'METHOD_NOT_ALLOWED'});
   const token=process.env.CSS_WEB_ACCESS_TOKEN;
   const supplied=(req.headers.authorization||'').replace(/^Bearer /i,'');
-  if(!token||!supplied||supplied.length!==token.length){
-    return res.status(401).json({error:'AUTH_REQUIRED'});
-  }
+  if(!token)return res.status(503).json({error:'AUTH_NOT_CONFIGURED'});
   const crypto=require('crypto');
-  if(!crypto.timingSafeEqual(Buffer.from(supplied),Buffer.from(token)))
-    return res.status(401).json({error:'AUTH_REQUIRED'});
+  function safeEq(a,b){return Buffer.byteLength(a)===Buffer.byteLength(b)&&crypto.timingSafeEqual(Buffer.from(a),Buffer.from(b));}
+  const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('css_owner_session='));
+  const value=cookie?cookie.slice('css_owner_session='.length):'';
+  const parts=/^(\\d{10})\\.([a-f0-9]{64})$/.exec(value);
+  let sessionValid=false;
+  if(parts){
+    const expiry=Number(parts[1]);
+    const expected=crypto.createHmac('sha256',token).update('css-owner:'+parts[1]).digest('hex');
+    sessionValid=expiry>Math.floor(Date.now()/1000)&&expiry<=Math.floor(Date.now()/1000)+86400&&safeEq(parts[2],expected);
+  }
+  const bearerValid=Boolean(supplied&&safeEq(supplied,token));
+  if(!sessionValid&&!bearerValid)return res.status(401).json({error:'AUTH_REQUIRED'});
+  if(bearerValid){
+    const expiry=String(Math.floor(Date.now()/1000)+86400);
+    const sig=crypto.createHmac('sha256',token).update('css-owner:'+expiry).digest('hex');
+    res.setHeader('Set-Cookie','css_owner_session='+expiry+'.'+sig+'; HttpOnly; Secure; SameSite=Strict; Path=/api/lifecycle; Max-Age=86400');
+  }
   try{
     const raw=process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
     if(!raw)return res.status(503).json({error:'SHEETS_CREDENTIALS_MISSING'});
