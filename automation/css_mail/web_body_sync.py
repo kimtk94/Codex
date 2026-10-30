@@ -201,7 +201,7 @@ def progress_record(ingest, uid_rows, body_rows, status_rows, remaining,
                 if (t:=parsed_at(value(record,5))) is not None),default=None)
     meaningful_errors=sum(v for k,v in errors.items() if k!='EMPTY_BODY')
     state=('PARTIAL_ERRORS' if meaningful_errors else
-           'BACKFILL_ACTIVE' if remaining>0 else 'READY')
+           'BACKFILL_ACTIVE' if remaining>0 else 'WINDOW_CAUGHT_UP')
     return [
         now.astimezone(src.KST).strftime('%Y-%m-%d %H:%M:%S KST'),
         state,len(ingest)-1,len(seen),ready,empty,
