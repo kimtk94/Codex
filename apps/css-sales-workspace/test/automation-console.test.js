@@ -77,9 +77,17 @@ test('unsafe URL never becomes an outbound link; missing statuses remain unverif
  const r=runtime();r[1][5]='https://example.com/phishing';
  const s=projectAutomationConsole(master(),parallel(),[],r);
  assert.equal(s.workflows.items[0].runUrl,null);
- r.pop();const x=projectAutomationConsole(master(),parallel(),[],r);
+ r.splice(-2);const x=projectAutomationConsole(master(),parallel(),[],r);
  assert.equal(x.workflows.available,false);
  assert.ok(x.issues.includes('GITHUB_WORKFLOW_HEALTH_INCOMPLETE'));
+});
+test('preview shows existing 11 live jobs until the twelfth publisher runs',()=>{
+ const r=runtime();r.pop();
+ const o=projectAutomationConsole(master(),parallel(),[],r);
+ assert.equal(o.workflows.available,true);
+ assert.equal(o.workflows.items.length,11);
+ assert.equal(o.workflows.coverage,'PREVIOUS_SOURCE_11_OF_12');
+ assert.ok(o.issues.includes('GITHUB_WORKFLOW_HEALTH_PARTIAL_WAITING_FOR_NEW_CHECKPOINT'));
 });
 test('duplicate workflow state and fabricated run result are rejected',()=>{
  const r=runtime();r[2][0]=r[1][0];
