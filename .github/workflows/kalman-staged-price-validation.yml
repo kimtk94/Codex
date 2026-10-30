@@ -83,6 +83,44 @@ jobs:
           mkdir -p outputs/kalman_research_pit_v1_meta
           cp "$RUNNER_TEMP/research_pit_v1/manifest.json" outputs/kalman_research_pit_v1_meta/
           cp "$RUNNER_TEMP/research_pit_v1/unresolved_gap_mask.csv" outputs/kalman_research_pit_v1_meta/
+      - name: Encrypt research-only dataset with recipient public key before artifact upload
+        run: |
+          python -m pip install cryptography
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_DEFLATED
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey,X25519PublicKey
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from cryptography.hazmat.primitives import hashes,serialization
+          import os
+          source=Path(os.environ['RUNNER_TEMP'])/'research_pit_v1'
+          names=['QQQ_15m_research_pit_v1.parquet','QQQ_1d_research_pit_v1.parquet',
+                 'QLD_15m_research_pit_v1.parquet','QLD_1d_research_pit_v1.parquet',
+                 'manifest.json','unresolved_gap_mask.csv']
+          assert all((source/name).is_file() for name in names)
+          zip_path=Path(os.environ['RUNNER_TEMP'])/'kalman_temp_private.zip'
+          with ZipFile(zip_path,'w',ZIP_DEFLATED,compresslevel=6) as z:
+              for name in names:z.write(source/name,arcname=name)
+          public=X25519PublicKey.from_public_bytes(bytes.fromhex('af4696737b008b702217467b7bfeca876d72152e69fddf4c8855460e5464cb0e'))
+          sender=X25519PrivateKey.generate()
+          salt=os.urandom(16); nonce=os.urandom(12)
+          aes_key=HKDF(algorithm=hashes.SHA256(),length=32,salt=salt,info=b'kalman-research-pit-v1').derive(sender.exchange(public))
+          ciphertext=AESGCM(aes_key).encrypt(nonce,zip_path.read_bytes(),b'KALMAN_QQQ_QLD_20261029')
+          target=Path('outputs/kalman_encrypted_pit_v1')
+          target.mkdir(parents=True,exist_ok=True)
+          # The payload contains ONLY sender public key, salt, nonce and AES-GCM ciphertext.
+          (target/'research_pit_v1.enc').write_bytes(b'KALMAN1'+sender.public_key().public_bytes(serialization.Encoding.Raw,serialization.PublicFormat.Raw)+salt+nonce+ciphertext)
+          zip_path.unlink()
+          print('ENCRYPTED_RESEARCH_ARCHIVE_BYTES=',(target/'research_pit_v1.enc').stat().st_size)
+          PY
+      - name: Publish ciphertext only for private Drive transfer
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-research-pit-v1-encrypted-only
+          path: outputs/kalman_encrypted_pit_v1/research_pit_v1.enc
+          retention-days: 1
+          if-no-files-found: error
       - name: Publish research-only integrity manifest and missing timestamps
         if: always()
         uses: actions/upload-artifact@v4
