@@ -176,8 +176,8 @@ module.exports=async function handler(req,res){
 
     const status=health.slice(1).filter(x=>['CSS Mail','Project Lifecycle','Revenue Lifecycle','Feishu'].includes(x[0]))
       .map(x=>({name:x[0],updated:x[1]||'',state:x[2]||'',details:x[3]||''}));
-    const replies=new Map(mail.slice(1).filter(r=>r[0]).map(r=>[r[0],{uid:r[0],sender:r[4]||'',subject:r[8]||'',body:r[9]||'',received:r[3]||''}]));
-    const inbox=unanswered.slice(1).filter(r=>r[8]&&r[11]!=='TRUE').map(r=>({uid:r[8],days:money(r[0]),priority:r[1]||'',sender:r[2]||'',subject:r[3]||'',received:r[4]||'',owner:r[5]||'',project:r[6]||'',class:r[10]||'',review:r[19]||'',body:replies.get(r[8])?.body||''}));
+    const replies=new Map(mail.slice(1).filter(r=>r[0]).map(r=>[r[0],{uid:r[0],sender:r[4]||'',subject:r[8]||'',body:r[9]||'',bodyStatus:r[21]||'',received:r[3]||''}]));
+    const inbox=unanswered.slice(1).filter(r=>r[8]&&r[11]!=='TRUE').map(r=>({uid:r[8],days:money(r[0]),priority:r[1]||'',sender:r[2]||'',subject:r[3]||'',received:r[4]||'',owner:r[5]||'',project:r[6]||'',class:r[10]||'',review:r[19]||'',body:replies.get(r[8])?.body||'',bodyStatus:replies.get(r[8])?.bodyStatus||'NOT_CACHED'}));
     const leads=projectPersonalLeads(lead);
     // This central console is a best-effort read-only projection. Missing
     // operational tabs must never leak data or disable the Sales workspace.
