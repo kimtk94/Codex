@@ -34,7 +34,7 @@ function checkOwner(req,token,oauthSecret,now=Math.floor(Date.now()/1000)){
       .update('oauth-session:'+OWNER+':'+om[2]).digest('hex');
     oauthValid=expiry>now&&expiry<=now+86400&&equal(om[3],signature);
   }
-  return {valid:bearerValid||sessionValid||oauthValid,bearerValid};
+  return {valid:bearerValid||sessionValid||oauthValid,bearerValid,oauthValid};
 }
 function ownerSessionCookie(token,now=Math.floor(Date.now()/1000)){
   const expiry=String(now+86400);
