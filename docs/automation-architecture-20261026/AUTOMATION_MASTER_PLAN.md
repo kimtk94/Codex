@@ -2,7 +2,7 @@
 Baseline: 2026-10-26; repository: kimtk94/Codex. Architecture ownership only; no production change implied.
 
 ## Scope and score
-QQ Mail, CSS, SFDC reports, SFDC Windows UI RPA, Feishu, unified Google Sheets, revenue, NBA and web dashboard. Exactly 50 tracked deliverables. Baseline: 11 done, 27 partial, 12 todo (49% with partial=0.5). This historical status is NOT proof of live acceptance. Status may change ONLY with evidence.
+QQ Mail, CSS, SFDC reports, SFDC Windows UI RPA, Feishu, unified Google Sheets, revenue, NBA and web dashboard. Exactly 50 tracked deliverables. Historical baseline: 11 done, 27 partial, 12 todo (49% with partial=0.5). Current evidence-reviewed implementation snapshot (2026-10-31): 11 done, 29 partial, 10 todo (51% with partial=0.5). No task was promoted to accepted. This historical status is NOT proof of live acceptance. Status may change ONLY with evidence.
 
 Source of truth: [SFDC_Automation_Followup_2026](https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit). Prior evidence: PR #263 UI RPA, #278-#296 SFDC mail audit/joins, #235 Feishu payment QC, #256 mail reviews, #289 web API. Verify PR merge and operational run separately.
 
@@ -36,7 +36,7 @@ Source of truth: [SFDC_Automation_Followup_2026](https://docs.google.com/spreads
 | A25 | NBA / follow-up | decision preservation | done | - | - | - |
 | A26 | NBA / follow-up | unified candidate pool | partial | - | - | - |
 | A27 | NBA / follow-up | Today Top 10 | partial | - | - | - |
-| A28 | NBA / follow-up | sent-mail reconciliation | todo | - | - | - |
+| A28 | NBA / follow-up | sent-mail reconciliation | partial | - | [Lead Personal Sent Audit](https://github.com/kimtk94/Codex/actions/runs/41087279826); 478/493 coverage, 15 gap | NOT_ACCEPTED |
 | A29 | NBA / follow-up | manual done/exclude propagation | partial | - | - | - |
 | A30 | NBA / follow-up | P0/P1 autonomous sequencing | todo | - | - | - |
 | A31 | Revenue / BI | 2025 official historical basis | done | - | - | - |
@@ -48,7 +48,7 @@ Source of truth: [SFDC_Automation_Followup_2026](https://docs.google.com/spreads
 | A37 | Feishu | read-only Base source | done | - | - | - |
 | A38 | Feishu | project TAT forecast | partial | - | - | - |
 | A39 | Feishu | user override of forecast month | todo | - | - | - |
-| A40 | Feishu | outstanding vs invoice issuance vs receipt | todo | - | - | - |
+| A40 | Feishu | outstanding vs invoice issuance vs receipt | partial | - | Feishu 2026-10-30 source snapshots; receipt verification BLOCK | NOT_ACCEPTED |
 | A41 | Feishu | bidirectional update contract | todo | - | - | - |
 | A42 | Sheets / Web | unified master spreadsheet | done | - | - | - |
 | A43 | Sheets / Web | institution/service normalization | partial | - | - | - |
@@ -69,3 +69,8 @@ Architecture owner (ChatGPT): data contracts, boundaries, dependencies, acceptan
 - Track status, owner, blocker, PR, SHA, workflow run, checked_at_KST, acceptance evidence and decision log; keep closed items visible.
 - Recompute overall score as (done + partial*0.5)/50, separately report strict acceptance percentage.
 - Prioritize revenue reconciliation, three-report join QC, NBA decision preservation, UI RPA gates, Feishu freshness, dashboard verification; do not treat issue count as business value.
+
+## Evidence-reviewed status changes — 2026-10-31 KST
+- **A28 todo → partial:** [Lead Personal Sent Audit run 41087279826](https://github.com/kimtk94/Codex/actions/runs/41087279826) succeeded; central Automation Health still identifies 478/493 historical Lead coverage and 15 missing. This proves a partial reconciliation implementation, not complete evidence coverage or automatic customer sends.
+- **A40 todo → partial:** Central `Feishu Source Manifest` has distinct outstanding/eTax/receipt/prepayment source snapshots. `CSS Operational Acceptance` marks paid invoice evidence as BLOCK (`verified_paid_count=UNKNOWN`). Source separation exists but payment certification and invoice-to-receipt matching remain incomplete.
+- All acceptance states remain **NOT_VERIFIED**, as owner-approved gate evidence is absent. No SFDC writes, customer emails or production promotion are authorized by these status adjustments.
