@@ -67,6 +67,18 @@ class BodyTests(unittest.TestCase):
     def test_sheet_cell_limit(self):
         msg=BytesParser(policy=policy.default).parsebytes(b'Content-Type: text/plain\n\n'+b'a'*60000)
         self.assertEqual(len(mod.body_text(msg)),45000)
+    def test_exact_readback_preserves_final_whitespace_on_45000_char_cells(self):
+        # Previously value(...).strip() erased the final whitespace byte.
+        source='x'*44999+' '
+        self.assertEqual(len(source),45000)
+        self.assertEqual(mod.exact_body_cell([source]),source)
+        self.assertNotEqual(mod.value([source],0),source)
+        self.assertTrue(mod.body_matches(source,mod.exact_body_cell([source])))
+        self.assertFalse(mod.body_matches(source,source[:-1]))
+        self.assertFalse(mod.body_matches(source,'x'*44999+chr(10)))
+        self.assertTrue(mod.body_matches('a'+chr(13)+chr(10)+'b',
+                                         'a'+chr(10)+'b'))
+        self.assertTrue(mod.body_matches('e'+chr(0x301),chr(0xe9)))
 
     def test_new_owner_mail_inbox_sent_and_queue_not_just_unanswered(self):
         ingest=[stub.COLS,

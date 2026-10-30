@@ -81,6 +81,23 @@ def url(book, span):
 def value(row, index):
     return str(row[index]).strip() if len(row)>index and row[index] is not None else ''
 
+def exact_body_cell(row, index=0):
+    """Preserve meaningful trailing whitespace during post-write body parity.
+
+    Header/categorical values still use value(...).strip(). MIME content is
+    never stripped when verifying what Google Sheets actually stored.
+    """
+    return str(row[index]) if len(row)>index and row[index] is not None else ''
+
+
+def body_matches(source, stored):
+    """Strict normalized MIME parity. A dropped whitespace character fails."""
+    expected=normalize_body(source)
+    observed=normalize_body(stored)
+    return hashlib.sha256(expected.encode('utf-8')).digest()==hashlib.sha256(
+        observed.encode('utf-8')).digest()
+
+
 
 def addresses(*parts):
     return {a.lower() for _,a in getaddresses([str(p or '') for p in parts]) if EMAIL_RE.fullmatch(a)}
@@ -370,17 +387,16 @@ def sync():
         mismatches=[]
         for row in results:
             ix=verified.get(row[0])
-            actual=(normalize_body(value(after_body[ix],0)) if ix is not None
+            actual=(exact_body_cell(after_body[ix]) if ix is not None
                     and ix<len(after_body) else '')
-            if hashlib.sha256(actual.encode()).digest()!=hashlib.sha256(
-                    normalize_body(row[9]).encode()).digest():
+            if not body_matches(row[9],actual):
                 mismatches.append((row[0],len(row[9]),len(actual)))
         for row in empty_results:
             ix=verified.get(row[0])
             if ix is None or ix>=len(after_status):
                 mismatches.append((row[0],0,-1))
                 continue
-            body_now=normalize_body(value(after_body[ix],0)) if ix<len(after_body) else ''
+            body_now=normalize_body(exact_body_cell(after_body[ix])) if ix<len(after_body) else ''
             if not body_now and value(after_status[ix],0)!='BODY_EMPTY_MIME':
                 mismatches.append((row[0],0,-2))
         if not mismatches:break
