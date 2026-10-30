@@ -184,7 +184,9 @@ put('mailRows',sorted.map(r=>{
        $('dialogBody').textContent=payload.body||'';
        r.bodyStatus=payload.classification||'BODY_VERIFIED';
      }else if(response.status===404){
-       $('dialogBody').textContent='본문이 아직 캐시되지 않았거나 원본 MIME에 텍스트가 없습니다. ('+(payload.error||'NOT_CACHED')+')';
+       $('dialogBody').textContent=payload.classification==='BODY_OVERSIZE_MIME'
+        ? '원본 MIME이 12MiB 안전 제한을 초과하여 본문을 저장하지 않았습니다. 원본 메일에서 확인하세요.'
+        : '본문이 아직 캐시되지 않았거나 원본 MIME에 텍스트가 없습니다. ('+(payload.error||'NOT_CACHED')+')';
      }else if(response.status===401){
        $('dialogBody').textContent='로그인 세션이 만료되었습니다. Vercel 계정으로 다시 로그인해 주세요.';
        $('login').hidden=false;
