@@ -5,6 +5,8 @@ on:
     paths:
       - 'automation/css_mail/web_body_sync.py'
       - 'automation/css_mail/test_web_body_sync.py'
+      - 'automation/css_mail/web_body_health.py'
+      - 'automation/css_mail/test_web_body_health.py'
       - '.github/workflows/css-web-body-sync.yml'
   push:
     branches: [main]
@@ -32,7 +34,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: python -m pip install 'requests>=2.31,<3'
       - run: python -m unittest discover -s automation/css_mail -p 'test_web_body_sync.py' -v
+      - run: python -m unittest discover -s automation/css_mail -p 'test_web_body_health.py' -v
   sync:
     if: github.event_name != 'pull_request'
     needs: offline-tests
@@ -57,4 +61,10 @@ jobs:
       - name: Sync latest QQ Inbox and Sent metadata first
         run: python automation/css_mail/incremental_sync.py
       - name: Fetch verified owner Inbox and Sent bodies into web cache
+        id: body
         run: python automation/css_mail/web_body_sync.py
+      - name: Publish distinct web body backfill health to central sheet
+        if: always()
+        env:
+          CSS_BODY_STEP_OUTCOME: ${{ steps.body.outcome }}
+        run: python automation/css_mail/web_body_health.py
