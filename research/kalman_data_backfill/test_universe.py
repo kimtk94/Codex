@@ -36,8 +36,7 @@ class UniverseContractTests(unittest.TestCase):
         self.assertEqual(assets['QLD']['priority'],'P0')
         self.assertIn('1m',assets['TSLA']['collect'])
         self.assertIn('1m',assets['KRW-ETH']['collect'])
-        self.assertIn('provenance',self.data['selection_policy']['intraday_provenance'].lower()+
-                      ' provenance')  # documented source contract
+        self.assertIn('SIP',self.data['selection_policy']['intraday_provenance'])
 
 
 if __name__=='__main__':
