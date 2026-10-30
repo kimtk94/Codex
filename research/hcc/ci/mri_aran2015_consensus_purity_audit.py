@@ -19,7 +19,7 @@ from collections import Counter
 from datetime import datetime,timezone
 from pathlib import Path
 
-SOURCE="https://images.nature.com/original/nature-assets/ncomms/2015/151204/ncomms9971/extref/ncomms9971-s2.xlsx"
+SOURCE="https://media.springernature.com/original/springer-static/esm/art%3A10.1038%2Fncomms9971/MediaObjects/41467_2015_BFncomms9971_MOESM1236_ESM.xlsx"
 ALTERNATE="https://pmc.ncbi.nlm.nih.gov/articles/instance/4671203/bin/ncomms9971-s2.xlsx"
 MANIFEST="research/hcc/HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv"
 NS="{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
