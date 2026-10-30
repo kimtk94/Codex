@@ -16,6 +16,7 @@ stub.COLS=["ingest_key","message_id","imap_uid","folder","uidvalidity",
            "amea_numbers","h_project_numbers","sam_numbers","batch_numbers",
            "fetched_at_utc","direction","in_reply_to","references"]
 stub.KST=dt.timezone(dt.timedelta(hours=9))
+stub.BOOK="1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
 sys.modules['incremental_sync']=stub
 spec=importlib.util.spec_from_file_location(
     'web_body_sync',Path(__file__).with_name('web_body_sync.py'))
