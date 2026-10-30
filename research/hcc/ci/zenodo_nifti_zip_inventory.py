@@ -92,6 +92,11 @@ def remote_names():
     return parse_cd(directory,entries),bytes_total,cd_size
 
 
+def is_apple_sidecar(name):
+    path = name.replace("\\", "/")
+    return "__MACOSX/" in path or path.split("/")[-1].startswith("._")
+
+
 def filename_patient(name):
     m=PATIENT.search(name)
     return m.group(0).upper().replace("_","-") if m else ""
@@ -100,6 +105,8 @@ def filename_patient(name):
 def summarize(names, mri_rows):
     by=defaultdict(list)
     for f in names:
+        if is_apple_sidecar(f):
+            continue
         pid=filename_patient(f)
         if pid:
             by[pid].append(f)
@@ -129,6 +136,7 @@ def summarize(names, mri_rows):
         "status":"PASS_ZIP_DIRECTORY_METADATA_ONLY",
         "generated_utc":datetime.now(timezone.utc).isoformat(),
         "total_archive_member_names":len(names),
+        "excluded_appledouble_sidecars":sum(is_apple_sidecar(n) for n in names),
         "archive_members_with_patient_barcodes":sum(bool(filename_patient(x)) for x in names),
         "mri_metadata_patients":len(mri_rows),
         "tumor_metric_patients":len(metrics),
@@ -151,6 +159,7 @@ def offline_test():
     with zipfile.ZipFile(data,"w",compression=zipfile.ZIP_STORED) as z:
         z.writestr("TCGA-AA-0001/rater1_tumor1.nii.gz",b"small dummy")
         z.writestr("TCGA-AA-0001/art.nii.gz",b"small dummy")
+        z.writestr("__MACOSX/TCGA-AA-0001/._rater3_tumor1.nii.gz",b"fake")
     raw=data.getvalue()
     n,l,offset=eocd(raw[-65557:])
     names=parse_cd(raw[offset:offset+l],n)
@@ -159,6 +168,8 @@ def offline_test():
         "hcc_tumor_annotation_metrics_present":"YES",
         "mri_rna_case_barcode_overlap":"YES"}])
     assert s["patients_with_tumor_mask_archive_member"]==1
+    assert s["excluded_appledouble_sidecars"]==1
+    assert r[0]["archive_tumor_mask_files"]==1
     assert s["rna_linked_tumor_mask_member_patients"]==1
     assert r[0]["radiogenomics_eligible"]=="NOT_ASSESSED"
     print("HCC_ZENODO_MRI_MASK_ZIP_DIRECTORY_OFFLINE_TEST_PASS")
