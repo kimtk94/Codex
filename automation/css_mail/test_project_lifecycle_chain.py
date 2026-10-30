@@ -43,6 +43,45 @@ def fixtures(status="Waiting for Settlement"):
     return [css,fe,invoice,ctrl,mail,amounts]
 
 class LifecycleTests(unittest.TestCase):
+    def test_verified_statement_missing_from_feishu_is_source_only(self):
+        data=fixtures()
+        data[1]=[data[1][0]]  # Feishu has not yet synced this X.
+        data[4]=[data[4][0]]  # The live mail header snapshot also lags.
+        data[5].append([J1,X,"J001",1320000,"KRW",
+                        "2026-10-28T10:00:00+08:00","40005","1776302013",
+                        "AMOUNT_VERIFIED","2026-10-28",
+                        notice(J1)[4]])
+        out=build(*data)
+        self.assertEqual(len(out),2)
+        row=out[1]
+        self.assertEqual(row[0],X)
+        self.assertEqual(row[1],AMEA)
+        self.assertEqual(row[5],"SOURCE_ONLY_FEISHU_UNMATCHED")
+        self.assertEqual(row[20],"J001")
+        self.assertEqual(row[22],1320000)
+        self.assertEqual(row[23],"AMOUNT_VERIFIED 1/1")
+        self.assertEqual(row[17],0)
+
+    def test_verified_statement_recovers_missing_mail_header_for_linked_x(self):
+        data=fixtures()
+        data[5].append([J1,X,"J001",1320000,"KRW",
+                        "2026-10-28T10:00:00+08:00","40005","1776302013",
+                        "AMOUNT_VERIFIED","2026-10-28",notice(J1)[4]])
+        out=build(*data)
+        self.assertEqual(out[1][20],"J001")
+        self.assertEqual(out[1][22],1320000)
+
+    def test_source_only_conflict_is_rejected(self):
+        data=fixtures()
+        data[1]=[data[1][0]]
+        record=[J1,X,"J001",1320000,"KRW",
+                "2026-10-28T10:00:00+08:00","40005","1776302013",
+                "AMOUNT_VERIFIED","2026-10-28",notice(J1)[4]]
+        data[5].append(record)
+        data[5].append([*record[:3],1400000,*record[4:]])
+        with self.assertRaisesRegex(RuntimeError,"CONFLICTING_VERIFIED_STATEMENT"):
+            build(*data)
+
     def test_partial_billing_j001_issued_j002_pending(self):
         data=fixtures()
         data[2].append(inv(J1,"209126000989",1320000))
