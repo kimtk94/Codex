@@ -23,10 +23,12 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from zipfile import ZipFile
+from io import BytesIO
 
 import numpy as np
 from mri_mask_voxel_audit import HTTPRangeFile
 from zenodo_nifti_zip_inventory import ARCHIVE, is_apple_sidecar
+from fast_zip_member_range import get_member_with_ranges
 
 FILE_LIMIT = 200 * 1024 * 1024  # uncompressed per source image or mask
 MAX_COMPRESSED = 96 * 1024 * 1024
@@ -140,18 +142,20 @@ def bounded_archive_member(archive, path, outdir):
         raise ValueError("ZIP_MEMBER_LIMIT_EXCEEDED")
     safe_name="source.nii" if Path(path).name.lower()=="pv.nii.gz" else "mask.nii"
     output=Path(outdir)/safe_name
+    # Single-range payload fetch rather than per-chunk HTTP requests prevents
+    # excessive Zenodo API rate consumption. ZIP size + CRC checked by helper.
+    member = get_member_with_ranges(ARCHIVE, info, archive.fp.total)
     total=0
-    with archive.open(info) as source:
-        with gzip.GzipFile(fileobj=source) as stream:
-            with output.open("wb") as sink:
-                while True:
-                    buf=stream.read(1024*1024)
-                    if not buf:
-                        break
-                    total+=len(buf)
-                    if total > FILE_LIMIT:
-                        raise ValueError("NIFTI_UNCOMPRESSED_LIMIT_EXCEEDED")
-                    sink.write(buf)
+    with gzip.GzipFile(fileobj=BytesIO(member)) as stream:
+        with output.open("wb") as sink:
+            while True:
+                buf=stream.read(1024*1024)
+                if not buf:
+                    break
+                total+=len(buf)
+                if total > FILE_LIMIT:
+                    raise ValueError("NIFTI_UNCOMPRESSED_LIMIT_EXCEEDED")
+                sink.write(buf)
     if total < 352:
         raise ValueError("NIFTI_TOO_SHORT")
     return output
@@ -193,6 +197,8 @@ def analyze_case(archive, patient, mask_path, output_dir):
 def offline_test():
     import nibabel as nib
     import numpy as np
+    from fast_zip_member_range import offline_test as fast_range_fixture
+    fast_range_fixture()
     with tempfile.TemporaryDirectory() as td:
         affine=np.diag([1.1,1.1,2.5,1.])
         data=np.indices((20,24,12))[0].astype(np.float32)+25.
