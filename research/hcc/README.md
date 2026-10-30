@@ -5,6 +5,7 @@
 - **Master verification standard and manuscript significance/claim rubric:** [HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md)
 - **27 live evidence checkpoints:** [HCC_VERIFICATION_LEDGER.csv](HCC_VERIFICATION_LEDGER.csv)
 - **Actual MRI PV 14-person imaging/reader QC:** [HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md](HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md)
+- **Actual 14-person two-reader PyRadiomics ICC, 95% CI and leave-one-out:** [HCC_MRI_PV_PYRADIOMICS_ICC_14_VALIDATION_20261030.md](HCC_MRI_PV_PYRADIOMICS_ICC_14_VALIDATION_20261030.md) · [machine-readable 10-feature ICC/CI/LOO](HCC_MRI_PV_RATER_ICC_14_FEATURE_STABILITY_20261030.csv)
 - **Actual MRI 14-person primary-tumor GDC RNA numeric QC:** [HCC_MRI_14_GDC_STAR_NUMERICAL_QC_RESULTS_20261030.md](HCC_MRI_14_GDC_STAR_NUMERICAL_QC_RESULTS_20261030.md)
 - **Immutable source GDC UUID/MD5 file list:** [HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv](HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv)
 - **Proposed pre-outcome patient index lesion IDs:** [HCC_MRI_14_PREOUTCOME_INDEX_LESION_SELECTION_20261030.csv](HCC_MRI_14_PREOUTCOME_INDEX_LESION_SELECTION_20261030.csv)
@@ -78,3 +79,11 @@ The `research/hcc/ci/mri_gdc_file_manifest.py` script prepares exact TCGA-linked
 - **Evidence gates:** HCC-12 = PARTIAL (reviewer/anatomic+timing pending), HCC-13 = PARTIAL (feature ICC pending), HCC-15 = PASS_TECHNICAL (GDC RNA file and gene count integrity), HCC-16 = PARTIAL (normalization/gene sets/batch/tumor purity pending), HCC-17/20 = PENDING.
 - **Manuscript claim ceiling remains S0**, not a qualified 14-person paired radiogenomics biological association cohort.
 - Heavy public remote access is deliberately kept off PR checks to avoid rate limits. The one-off PR live jobs that established the above evidence were removed after recording; repeat explicitly when a new dataset version or QC reason requires it.
+
+## Actual feature-level radiomics robustness — 2026-10-30
+
+- [Live GitHub run #87](https://github.com/kimtk94/Codex/actions/runs/41074562055): 14 PV MRI patients, 2 rater segmentations for each selected index tumor, PyRadiomics 3.1.0 Original-only, ten a priori image features; extraction 28/28 PASS; ICC(A,1) patient bootstrap 95% CIs.
+- [Leave-one-out GitHub run #90](https://github.com/kimtk94/Codex/actions/runs/41075577502): 8/10 features pass original ICC≥0.90, bootstrap CI lower≥0.75 and all 14 delete-one-patient ICC≥0.75. Sphericity 0.822 (bootstrap 0.350–0.952) and Elongation 0.727 (0.289–0.919) excluded from primary reader-reliability screen. This is *measurement reliability*, not a gene–image association.
+- Exact version/feature table + limitations archived [here](HCC_MRI_PV_PYRADIOMICS_ICC_14_VALIDATION_20261030.md). Critical: large volume heterogeneity can inflate ICC; 3D MRI slice anisotropy, IBSI benchmark, alternative resampling, tumor chronology, clinical expert review remain open.
+- HCC-13 and HCC-18 now have real supporting evidence but stay **PARTIAL**. HCC-17 qualified paired patients, HCC-19 frozen hypotheses and HCC-20 biological correlations remain **PENDING**. Maximum manuscript claim **S0**.
+- Heavy remote GitHub PR pilot jobs removed after successful audited run; PR CI retains deterministic offline tests only. Artifacts expire in ~30 days, permanent derived feature ICC values and source run evidence are in tracked Markdown/CSV.
