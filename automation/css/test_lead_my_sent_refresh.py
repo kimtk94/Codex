@@ -1,6 +1,7 @@
 """Offline strict sender and exact To/CC personal Lead evidence tests."""
 import datetime as dt
 import unittest
+from pathlib import Path
 from lead_my_sent_refresh import build, parse_messages, KST
 
 
@@ -66,6 +67,30 @@ class PersonalLeadTests(unittest.TestCase):
         self.raw[1][5]=""
         with self.assertRaisesRegex(ValueError,"Missing Lead"):
             self.evidence()
+
+    def test_weekday_fallback_applies_only_strict_personal_evidence(self):
+        # Code inspection: this backup cannot send email or update SFDC.
+        root=Path(__file__).resolve().parents[2]
+        workflow=(root/".github"/"workflows"/"lead-unsent-gap-refresh.yml").read_text()
+        source=(root/"automation"/"css"/"lead_my_sent_refresh.py").read_text()
+        self.assertIn("cron: '10 1 * * 1-5'",workflow)
+        self.assertIn("github.event_name == 'schedule'",workflow)
+        self.assertIn("Lead source report is stale; refuse to certify no sent",source)
+        self.assertIn("QQ staging coverage stale; refuse to certify no sent",source)
+        self.assertIn("SENDER = \"taehoon.kim@novogene.com\"",source)
+        self.assertIn("if os.getenv(\"LEAD_PERSONAL_APPLY\",\"false\").lower()!=\"true\"",source)
+        self.assertIn("range=\"'\"+sheet+\"'!A1:T\"",source)
+        self.assertNotIn("mail.send(",source)
+
+    def test_independent_backup_cannot_run_workflow_run_only_nba_steps(self):
+        root=Path(__file__).resolve().parents[2]
+        workflow=(root/".github"/"workflows"/"lead-unsent-gap-refresh.yml").read_text()
+        nba_steps=["Refresh verified QQ reply evidence after successful Report",
+                   "Refresh NBA Pool from just-verified personal sent evidence",
+                   "Append stable checkbox identities after NBA readback"]
+        for label in nba_steps:
+            body=workflow.split("      - name: "+label,1)[1].split("      - name:",1)[0]
+            self.assertIn("if: github.event_name == 'workflow_run'",body)
 
     def test_converted_not_queued_for_first_contact(self):
         self.raw[1][4]="Qualified"
