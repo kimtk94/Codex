@@ -63,6 +63,8 @@ jobs:
         run: python research/hcc/ci/mri_gdc_hallmark_rank_score_qc.py --offline-test
       - name: Offline RNA-only Hallmark collinearity and TSS QC tests
         run: python research/hcc/ci/mri_hallmark_rna_only_redundancy_qc.py --offline-test
+      - name: Offline GDC clinical treatment and sample temporal prescreen regression
+        run: python research/hcc/ci/mri_gdc_clinical_eligibility_prescreen.py --offline-test
       - name: Audit saved 14-patient Hallmark QC for pathway redundancy and center effects
         run: python research/hcc/ci/mri_hallmark_rna_only_redundancy_qc.py --output artifacts/hcc_rna_hallmark_descriptive
       - name: Offline multi-lesion and liver mask inter-rater Dice regression fixtures
@@ -164,3 +166,23 @@ jobs:
 
 
 
+
+  mri-gdc-clinical-gate-pilot:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Query GDC clinical treatment sample/slide for 14 frozen TCGA patient IDs
+        run: python research/hcc/ci/mri_gdc_clinical_eligibility_prescreen.py --output artifacts/hcc_gdc_clinical
+      - name: Archive public clinical facts and explicit temporal limitation
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-mri-gdc-14-clinical-prescreen
+          path: artifacts/hcc_gdc_clinical/
+          if-no-files-found: warn
+          retention-days: 30
