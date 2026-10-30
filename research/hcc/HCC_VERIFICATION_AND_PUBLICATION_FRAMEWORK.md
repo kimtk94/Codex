@@ -172,3 +172,10 @@ An exploratory p-value below 0.05 with no correction, failed ROI, post-hoc chose
 - Source scripts: research/hcc/ci/{tcia_cohort_audit,tcga_rna_overlap_audit,gdc_tumor_lineage_audit,idc_segmentation_prescreen,ct_phase_prescreen,build_same_series_review,liverhccseg_mri_rna_audit,zenodo_nifti_zip_inventory,mri_mask_voxel_audit,crossmodal_case_audit}.py
 - Saved artifact ZIPs are reproducible for a GitHub run but GitHub retention is 30 days; regenerate or archive summaries before expiry.
 - Research numbers/grades apply to this observed snapshot; future GitHub run updates may revise counts. No statistical hypotheses have been tested as of this baseline.
+
+## Verified MRI source phase / segmentation header update — 2026-10-30
+- Live source-mask geometry run: https://github.com/kimtk94/Codex/actions/runs/41061027979
+- 14 cases × five phase headers = 70 phase comparisons. PV 14/14 matching, ART 14/14, ART_PV 0/14 matching; PRE 13/14 and DEL 13/14. PRE/DEL exceptions both TCGA-BC-A10Y.
+- Coordinates/shape of the original NIfTI phase compared with rater1 tumor1 mask; this is not a visual overlay nor clinical eligibility. Original MRI pixel arrays were not read during header audit. The implementation was subsequently upgraded to check **maximum field-of-view corner displacement in millimetres** at a 0.5 mm threshold; verify the latest CI run separately.
+- Do not use art_pv.nii.gz with untransformed tumor masks in inference. Proposed PV primary and ART sensitivity analysis must be frozen before any RNA association; original MRI voxel and expert tumor overlay review remains pending.
+- HCC-12 ledger changed from PENDING to PARTIAL with S0 claim ceiling unchanged. See [G3 image reviewer checklist](HCC_G3_IMAGE_REVIEW_AND_PHASE_LOCK.md) and [14-patient review roster](HCC_G3_PATIENT_IMAGE_REVIEW_QUEUE.csv).
