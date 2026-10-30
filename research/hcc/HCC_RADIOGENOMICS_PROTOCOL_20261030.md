@@ -1,4 +1,6 @@
 # HCC Radiomics and RNA-seq: Research protocol / feasibility gates
+
+**Mandatory companion for future analyses:** [Verification, literature checkpoints and manuscript claim framework](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md) · [27-checkpoint evidence ledger](HCC_VERIFICATION_LEDGER.csv). Read both before interpreting downstream results.
 Updated: 2026-10-30. Public-data feasibility before modeling.
 
 ## Research question
