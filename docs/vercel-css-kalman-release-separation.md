@@ -31,3 +31,6 @@ both projects and burns the Hobby team's 100-deployment/24h quota.
 - Do not deploy just to probe quota, and do not disable authentication.
 
 Documentation: https://vercel.com/docs/monorepos#skipping-unaffected-projects
+
+## Scope-verification checkpoint
+A documentation-only edit in this source-only workspace must not trigger a CSS or Kalman deployment.
