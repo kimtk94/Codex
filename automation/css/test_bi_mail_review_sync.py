@@ -101,6 +101,15 @@ class ReviewSyncTests(unittest.TestCase):
                 app.main()
         self.assertEqual(fake.vals.writes,[])
 
+    def test_operational_sync_requires_a_passing_test_job(self):
+        # No live Google/QQ use: verify CI dependency gate text only.
+        workflow=(ROOT.parents[2]/".github"/"workflows"/"bi-mail-review-sync.yml").read_text()
+        self.assertIn("  sync:\n    needs: test\n    if: github.event_name != 'pull_request' && needs.test.result == 'success'",workflow)
+
+    def test_disposable_sheets_probe_requires_a_passing_test_job(self):
+        workflow=(ROOT.parents[2]/".github"/"workflows"/"bi-mail-review-sync.yml").read_text()
+        self.assertIn("  sheets_auth_probe:\n    needs: test\n    if: github.event_name == 'pull_request' && needs.test.result == 'success'",workflow)
+
     def test_synced_action_is_not_replayed(self):
         records={app.REVIEW:[review("EXCLUDE_MAIL","inbox:1","a@test.com","SYNCED:EXCLUDE_MAIL")],app.SOURCE:[source("inbox:1","a@test.com")],app.MAIL:[[False,"inbox:1"]],app.SENDERS:[]}
         writes,_=self.run_case(records,True)

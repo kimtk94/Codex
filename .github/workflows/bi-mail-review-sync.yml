@@ -32,7 +32,8 @@ jobs:
       - run: pip install google-api-python-client google-auth
       - run: python -m unittest discover -s automation/css -p 'test_bi_mail_review_sync.py' -v
   sheets_auth_probe:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: test
+    if: github.event_name == 'pull_request' && needs.test.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 12
@@ -60,7 +61,8 @@ jobs:
           CSS_SHEET_ID: '1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
         run: python automation/css/test_bi_mail_sync_google_integration.py
   sync:
-    if: github.event_name != 'pull_request'
+    needs: test
+    if: github.event_name != 'pull_request' && needs.test.result == 'success'
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 12
