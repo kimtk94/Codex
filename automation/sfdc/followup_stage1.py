@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import time
 from collections import defaultdict
 
 import google.auth
@@ -41,14 +42,28 @@ def auth():
 
 def call(session, method, url, **kwargs):
     stage = kwargs.pop("stage", "unknown")
-    r = session.request(method, url, timeout=90, **kwargs)
-    if not r.ok:
+    verb = method.upper()
+    # Only GET is safe for automatic retry. Never replay a Sheets clear/write.
+    attempts = 4 if verb == "GET" else 1
+    for attempt in range(attempts):
+        r = session.request(method, url, timeout=90, **kwargs)
+        if r.ok:
+            return r.json() if r.content else {}
         try:
             reason = r.json().get("error", {}).get("status", "UNKNOWN")
         except (ValueError, AttributeError):
             reason = "UNKNOWN"
-        raise RuntimeError("Google Sheets stage=%s HTTP=%s status=%s method=%s" % (stage, r.status_code, reason, method))
-    return r.json() if r.content else {}
+        if verb == "GET" and r.status_code == 429 and attempt + 1 < attempts:
+            # Keep backoff deterministic/bounded; respect Retry-After when supplied.
+            try:
+                suggested = max(0.0, min(60.0, float(r.headers.get("Retry-After", "0"))))
+            except (TypeError, ValueError):
+                suggested = 0.0
+            time.sleep(max(suggested, min(10 * (2 ** attempt), 40)))
+            continue
+        raise RuntimeError("Google Sheets stage=%s HTTP=%s status=%s method=%s" %
+                           (stage, r.status_code, reason, method))
+    raise RuntimeError("Google Sheets GET retry exhausted")
 
 
 def read_table(session, sheet):
