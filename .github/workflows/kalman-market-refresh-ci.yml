@@ -1,0 +1,103 @@
+name: Kalman Daily Market And Macro Refresh (Research Only)
+
+on:
+  schedule:
+    # Tue-Sat 02:15 UTC, after prior US session close (11:15 KST).
+    - cron: '15 2 * * 2-6'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'research/kalman_market_refresh/**'
+      - '.github/workflows/kalman-market-refresh-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'research/kalman_market_refresh/**'
+      - '.github/workflows/kalman-market-refresh-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-daily-market-refresh-ci
+  cancel-in-progress: false
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated validation dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<3' 'pyarrow>=17'
+      - name: Run offline contracts
+        run: python -m unittest discover -s research/kalman_market_refresh -p 'test_*.py' -v
+      - name: Validate Python syntax
+        run: python -m compileall -q research/kalman_market_refresh
+
+  refresh:
+    needs: offline-tests
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated market and Drive dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r kalman-toss-gateway/engine/market_data/requirements.txt
+          python -m pip install --disable-pip-version-check google-auth google-api-python-client requests
+      - name: Research-only universe
+        run: |
+          python research/kalman_market_refresh/refresh_ci.py universe \
+            --source kalman-toss-gateway/config/market-data-v2-universe.json \
+            --out "$RUNNER_TEMP/kalman_market_universe.json"
+      - name: Refresh market OHLCV snapshots (no LIVE writes)
+        working-directory: kalman-toss-gateway
+        run: |
+          python -m engine.market_data.cli \
+            --start-date 2024-01-01 \
+            --universe "$RUNNER_TEMP/kalman_market_universe.json" \
+            --output-dir "$RUNNER_TEMP/kalman_market"
+      - name: Refresh isolated technical features
+        working-directory: kalman-toss-gateway
+        run: |
+          python -m engine.features_v2_002.cli \
+            --input-dir "$RUNNER_TEMP/kalman_market/raw/yfinance" \
+            --output-dir "$RUNNER_TEMP/kalman_features"
+      - name: Refresh 12 official FRED current-revision series
+        run: |
+          python research/kalman_market_refresh/refresh_ci.py fred \
+            --out "$RUNNER_TEMP/kalman_fred" \
+            --start 2017-01-01
+      - name: Validate market freshness and build research-only bundle
+        run: |
+          python research/kalman_market_refresh/refresh_ci.py bundle \
+            --market "$RUNNER_TEMP/kalman_market" \
+            --features "$RUNNER_TEMP/kalman_features" \
+            --fred "$RUNNER_TEMP/kalman_fred" \
+            --out "$RUNNER_TEMP/kalman_market_research.zip" \
+            --status outputs/kalman_market_refresh/readiness.json
+      - name: Update only the pre-shared private research Drive ZIP
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+          KALMAN_MARKET_REFRESH_FILE_ID: '1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd'
+        run: |
+          python research/kalman_market_refresh/refresh_ci.py publish \
+            --file "$RUNNER_TEMP/kalman_market_research.zip" \
+            --file-id "$KALMAN_MARKET_REFRESH_FILE_ID"
+      - name: Upload metadata only, never publish price snapshots to Actions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-market-refresh-metadata
+          path: outputs/kalman_market_refresh/readiness.json
+          retention-days: 30
+          if-no-files-found: warn
