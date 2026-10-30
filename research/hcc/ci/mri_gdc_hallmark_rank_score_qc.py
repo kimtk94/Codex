@@ -31,7 +31,7 @@ FROZEN_MANIFEST="research/hcc/HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_202
 MIN_COVERAGE=0.70
 MIN_GENES=15
 SCHEMA={"gene_id","gene_name","gene_type","unstranded","tpm_unstranded"}
-SCORE_FIELDS=("patient_id","gene_set_version","rank_universe_symbols",
+SCORE_FIELDS=("patient_id","gene_set_version","rank_universe_symbols","all_gene_ids",
               "protein_coding_gene_id_rows","duplicate_symbol_conflicts",
               "total_unstranded_gene_counts","detected_genes_unstranded",
               "gdc_file_md5_check","clinical_eligibility",
@@ -269,7 +269,7 @@ def offline_test():
     content=("# gene-model: GENCODE v36\n"
              "gene_id\tgene_name\tgene_type\tunstranded\ttpm_unstranded\n")
     content+="".join(
-        f"ENSG{i:011d}.1\tGENE{i}\tprotein_coding\t10\t10.0\n"
+        f"ENSG{i:011d}.1\tGENE{i}\tprotein_coding\t10\t{1000000.0/60660:.10f}\n"
         for i in range(60660))
     genes,m=parse_gdc_expression(content.encode())
     assert m["all_gene_ids"]==60660 and m["rank_universe_symbols"]==60660
