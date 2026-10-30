@@ -44,6 +44,27 @@ def fresh(x,now,hours):
     return bool(z and 0<=(now-z).total_seconds()<=hours*3600)
 def require(rows,prefix):
     if not rows or rows[0][:len(prefix)]!=prefix:raise ValueError("BAD_SOURCE_HEADER_"+prefix[0])
+def report_due_slot(now,grace_minutes=40):
+    """Latest due 09/12/17 KST subscription; overnight uses yesterday 17."""
+    if now.tzinfo is None:raise ValueError("NAIVE_CURRENT_TIME")
+    local=now.astimezone(KST)
+    for offset in (0,-1):
+        day=local.date()+dt.timedelta(days=offset)
+        for hour in (17,12,9):
+            slot=dt.datetime.combine(day,dt.time(hour),tzinfo=KST)
+            if local>=slot+dt.timedelta(minutes=grace_minutes):return slot
+    raise RuntimeError("REPORT_SLOT_UNAVAILABLE")
+
+
+def report_slot_state(sources,now):
+    due=report_due_slot(now)
+    if any(t is None or t>now+dt.timedelta(minutes=10) for t in sources):
+        return "BLOCK",due
+    if all(t>=due for t in sources):return "PASS",due
+    late_hours=(now-due).total_seconds()/3600
+    return ("WARN" if 0<=late_hours<=6 else "BLOCK"),due
+
+
 def build(data,now):
     checked=now.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST")
     result=[HEAD]
@@ -56,19 +77,20 @@ def build(data,now):
     qqok=bool(qq and v(qq,2)=="PASS" and fresh(v(qq,1),now,3))
     add("QQ","Inbox/Sent source","PASS" if qqok else "BLOCK","DATA",v(qq,1),v(qq,2),
         "Fresh source verified" if qqok else "Source heartbeat not PASS within 3 hours")
+    month=now.astimezone(KST).strftime("%Y-%m")
     l,n=data["lifecycle"],data["net"]
     require(l,["Month","Actual Invoice KRW"])
     require(n,["Month","Issued Invoice Gross KRW (VAT incl)","Issued Net Revenue KRW (VAT excl)"])
-    lr=next((r for r in l[1:] if v(r,0)=="2026-10"),None)
-    nr=next((r for r in n[1:] if v(r,0)=="2026-10"),None)
+    lr=next((r for r in l[1:] if v(r,0)==month),None)
+    nr=next((r for r in n[1:] if v(r,0)==month),None)
     vatok=False
-    observed="MISSING_CURRENT_MONTH"
+    observed="MISSING_CURRENT_MONTH_"+month
     if lr and nr:
         try:
             gross,count=amount(v(lr,1)),amount(v(lr,5))
             ngross,nnet,ncount=amount(v(nr,1)),amount(v(nr,2)),amount(v(nr,4))
             observed=f"count={count};gross={gross};net={nnet}"
-            vatok=(gross==ngross and count==ncount and count>0 and nnet<=gross
+            vatok=(gross==ngross and count==ncount and count>=0 and nnet<=gross
                    and v(nr,8)=="INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED"
                    and fresh(v(lr,11),now,6) and fresh(v(nr,7),now,6))
         except ValueError:observed="UNVERIFIED_AMOUNT"
@@ -77,16 +99,30 @@ def build(data,now):
         "VAT basis verified" if vatok else "Source parity/freshness invalid; never use gross as net")
     a=data["authority"]
     require(a,["Month","Source Tab","Source Role"])
-    ar=next((r for r in a[1:] if v(r,2)=="CANONICAL_ACTUAL_GROSS"),None)
-    an=next((r for r in a[1:] if v(r,2)=="CANONICAL_ISSUED_NET"),None)
-    olds=[r for r in a[1:] if v(r,2).startswith("LEGACY")]
-    ok=bool(ar and an and len(olds)>=3
-       and all(v(r,7)=="YES" for r in (ar,an))
-       and all(v(r,7)=="NO" and v(r,6)=="STALE_SOURCE_DO_NOT_USE" for r in olds)
-       and fresh(v(ar,8),now,6) and fresh(v(an,8),now,6))
+    ar=next((r for r in a[1:] if v(r,0)==month and
+             v(r,2)=="CANONICAL_ACTUAL_GROSS"),None)
+    an=next((r for r in a[1:] if v(r,0)==month and
+             v(r,2)=="CANONICAL_ISSUED_NET"),None)
+    olds=[r for r in a[1:] if v(r,0)==month and v(r,2).startswith("LEGACY")]
+    legacy_ok=(len(olds)>=3 and
+               all(v(r,7)=="NO" and v(r,6)=="STALE_SOURCE_DO_NOT_USE" for r in olds)
+               if month=="2026-10" else all(v(r,7)=="NO" for r in olds))
+    try:
+        parity=bool(lr and nr and ar and an
+            and amount(v(ar,3))==amount(v(lr,5))
+            and amount(v(ar,4))==amount(v(lr,1))
+            and amount(v(an,3))==amount(v(nr,4))
+            and amount(v(an,4))==amount(v(nr,2)))
+    except ValueError:parity=False
+    ok=bool(ar and an and legacy_ok and parity
+        and v(ar,7)=="YES" and v(an,7)=="YES"
+        and v(ar,6)=="MATCHED_TO_NET_AUDIT"
+        and v(an,6)=="MATCHED_TO_INVOICE_SOURCE"
+        and fresh(v(ar,8),now,6) and fresh(v(an,8),now,6))
     add("Revenue","Canonical vs stale legacy","PASS" if ok else "BLOCK","DATA",v(ar,8),
-        f"canonical={int(bool(ar))+int(bool(an))};legacy_flagged={len(olds)}",
-        "Legacy snapshots excluded from KPI" if ok else "KPI authority missing or stale")
+        f"month={month};canonical={int(bool(ar))+int(bool(an))};legacy_flagged={len(olds)}",
+        "Current-month invoice authority verified" if ok
+        else "Current month missing/stale/mismatch; do not reuse previous month's PASS")
     r=data["reports"]
     require(r,["Entity","Source Received KST","Ingest Checked KST"])
     by={v(z,0):z for z in r[1:] if v(z,0) in ("Leads","Opportunities","Quotation")}
@@ -97,12 +133,16 @@ def build(data,now):
                   and v(row,6)=="0" and re.fullmatch(r"[a-f0-9]{64}",v(row,7)))
     t=[stamp(v(by.get(n),1)) for n in ("Leads","Opportunities","Quotation")] if good else []
     good=bool(good and all(t))
-    age=max((now-z).total_seconds()/3600 for z in t) if good else 9999
-    state="PASS" if good and 0<=age<=6 else "WARN" if good and 0<=age<=16 else "BLOCK"
+    if good:
+        state,due=report_slot_state(t,now)
+        age=max((now-z).total_seconds()/3600 for z in t)
+    else:
+        state,due,age="BLOCK",report_due_slot(now),9999
     add("SFDC","Three subscription Reports",state,"DATA",v(by.get("Leads"),1),
-        f"entities={len(by)};oldest_age_hours={round(age,1)}",
-        "Staged reports only, never CRM Save; confirm 17:00 delivery" if state!="PASS"
-        else "Hashed staged report evidence (not CRM direct write)")
+        f"entities={len(by)};due_KST={due.strftime('%Y-%m-%d %H:%M')};"
+        f"source_age_h={round(age,1)}",
+        "Expected report slot verified against original attachments" if state=="PASS"
+        else "One or more scheduled 09/12/17 QQ report attachments missing/invalid")
     m=data["mail"]
     require(m,["Updated At KST","State","QQ Staged Headers","Web Cached UID"])
     z=m[1] if len(m)>1 else None
