@@ -24,6 +24,7 @@ on:
       - 'CSS Verified Net Revenue VAT Audit'
       - 'Feishu Latest Four Schema Audit'
       - 'CSS Central Operations Console Tests'
+      - 'CSS Source-backed API Contract Smoke'
     types: [completed]
 
 permissions:
