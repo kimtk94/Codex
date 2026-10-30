@@ -99,6 +99,7 @@ def analyze_arrays(img, mask, image_affine, mask_affine, geometry_tol_mm=0.5):
         "image_signal_iqr": round(float(p75-p25), 6),
         "_tumor_array": tumor,
         "_centroid": centroid,
+        "_voxel_spacing": np.linalg.norm(np.asarray(image_affine)[:3, :3], axis=0),
     }
 
 
@@ -110,22 +111,24 @@ def create_overlay(img, qc, path, patient_id, phase):
     from matplotlib.colors import ListedColormap
     x, y, z = map(int, qc["_centroid"])
     tumor = qc["_tumor_array"]
+    sx, sy, sz = (float(v) for v in qc["_voxel_spacing"])
     slices = [
-        (np.asarray(img[:,:,z]).T, tumor[:,:,z].T, "Axial (voxel k)"),
-        (np.asarray(img[:,y,:]).T, tumor[:,y,:].T, "Coronal (voxel j)"),
-        (np.asarray(img[x,:,:]).T, tumor[x,:,:].T, "Sagittal (voxel i)"),
+        (np.asarray(img[:,:,z]).T, tumor[:,:,z].T, "Axial (voxel k)", sy / sx),
+        (np.asarray(img[:,y,:]).T, tumor[:,y,:].T, "Coronal (voxel j)", sz / sx),
+        (np.asarray(img[x,:,:]).T, tumor[x,:,:].T, "Sagittal (voxel i)", sz / sy),
     ]
     fig, axes = plt.subplots(1, 3, figsize=(12,4), constrained_layout=True)
     finite = np.asarray(img)[np.isfinite(img)]
     low, high = np.percentile(finite, [1, 99]) if len(finite) else (0.,1.)
     if not np.isfinite(low) or not np.isfinite(high) or low == high:
         low, high = 0.,1.
-    for ax,(pixels,mask,axis) in zip(axes,slices):
-        ax.imshow(pixels, cmap="gray", origin="lower", vmin=low, vmax=high)
+    for ax,(pixels,mask,axis,physical_aspect) in zip(axes,slices):
+        ax.imshow(pixels, cmap="gray", origin="lower", vmin=low, vmax=high,
+                  aspect=physical_aspect)
         ax.contour(mask.astype(float), levels=[0.5], colors=["#e93b3b"], linewidths=1.2)
         ax.set_title(axis, fontsize=9)
         ax.axis("off")
-    fig.suptitle(f"{patient_id} | {phase} | AUTOMATED QC: reviewer verification REQUIRED",
+    fig.suptitle(f"{patient_id} | {phase} | PHYSICAL SPACING PRESERVED | Expert review REQUIRED",
                  fontsize=10)
     fig.savefig(path, dpi=110, bbox_inches="tight")
     plt.close(fig)
@@ -213,6 +216,7 @@ def offline_test():
         q=analyze_arrays(i.get_fdata(dtype=np.float32),np.asanyarray(m.dataobj),i.affine,m.affine)
         assert q["tumor_voxels"]==6*6*4
         assert q["tumor_volume_ml"] > 0
+        assert abs(float(q["_voxel_spacing"][2]) - 2.5) < 1e-6
         assert q["qc_status"]=="PASS_IMAGE_PIXELS_WITH_MASK_HEADER_MATCH"
         output=Path(td)/"montage.png"
         create_overlay(np.asanyarray(i.dataobj),q,output,"TCGA-AA-0001","PV")
