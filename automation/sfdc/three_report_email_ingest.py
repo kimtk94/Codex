@@ -245,6 +245,44 @@ def trusted_report_message(sender, subject):
     vendor = bool(re.fullmatch(r"[^@]+@(?:[a-z0-9-]+\.)*salesforce\.com", address))
     return title.startswith("report results (") and (address == authorized or vendor)
 
+def trusted_uids_from_headers(im, uids, batch_size=75):
+    """Fetch only From/Subject in batches before downloading any full MIME body.
+
+    Every requested UID must appear exactly once; a partial/malformed server
+    response fails closed, preserving the previously staged SFDC reports.
+    No untrusted message bodies are loaded by this discovery function.
+    """
+    if not isinstance(batch_size,int) or not 1<=batch_size<=100:
+        raise ValueError("IMAP_HEADER_BATCH_SIZE_INVALID")
+    ordered=sorted(uids,key=lambda x:int(x))
+    allowed=set(ordered)
+    seen=set()
+    candidates=set()
+    for offset in range(0,len(ordered),batch_size):
+        batch=ordered[offset:offset+batch_size]
+        ok,records=im.uid("FETCH",b",".join(batch),
+                          "(UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT)])")
+        if ok!="OK" or not isinstance(records,list):
+            raise RuntimeError("IMAP_HEADER_BATCH_FAILED")
+        for item in records:
+            if not isinstance(item,tuple) or len(item)!=2:
+                continue
+            meta,raw=item
+            match=re.search(rb"\bUID\s+([0-9]+)\b",meta or b"")
+            if not match or not isinstance(raw,bytes):
+                raise RuntimeError("IMAP_HEADER_ENTRY_UNREADABLE")
+            uid=match.group(1)
+            if uid not in allowed or uid not in batch or uid in seen:
+                raise RuntimeError("IMAP_HEADER_UID_UNEXPECTED_OR_DUPLICATE")
+            seen.add(uid)
+            msg=email.message_from_bytes(raw,policy=policy.default)
+            if trusted_report_message(str(msg.get("from","")),str(msg.get("subject",""))):
+                candidates.add(uid)
+        if not set(batch).issubset(seen):
+            raise RuntimeError("IMAP_HEADER_BATCH_INCOMPLETE")
+    return candidates,len(seen)
+
+
 def collect(im, days=4, diagnostics_out=None):
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).strftime("%d-%b-%Y")
     ok, result = im.uid("SEARCH", None, "SINCE", since)
@@ -254,9 +292,15 @@ def collect(im, days=4, diagnostics_out=None):
     uids = set((result[0] or b"").split()[-750:])
     if ok2 == "OK":
         uids.update((targeted[0] or b"").split())
+    candidates,headers_scanned=trusted_uids_from_headers(im,uids)
     selected = {}
-    diagnostics = {"uids": len(uids), "fetched": 0, "salesforce_sender": 0, "trusted_report": 0, "report_no_attachments": 0, "attachment_candidates": 0, "recognized": 0, "rejected": {}, "selected": {}}
-    for uid in sorted(uids, key=lambda b: int(b)):
+    diagnostics = {"uids": len(uids), "fetched": headers_scanned,
+                   "headers_scanned": headers_scanned,
+                   "header_candidates": len(candidates), "full_body_fetched": 0,
+                   "salesforce_sender": 0, "trusted_report": 0,
+                   "report_no_attachments": 0, "attachment_candidates": 0,
+                   "recognized": 0, "rejected": {}, "selected": {}}
+    for uid in sorted(candidates, key=lambda b: int(b)):
         ok, records = im.uid("FETCH", uid, "(BODY.PEEK[])")
         if ok != "OK":
             continue
@@ -264,7 +308,7 @@ def collect(im, days=4, diagnostics_out=None):
         if not raw:
             continue
         msg = email.message_from_bytes(raw, policy=policy.default)
-        diagnostics["fetched"] += 1
+        diagnostics["full_body_fetched"] += 1
         sender = str(msg.get("from", ""))
         subject = str(msg.get("subject", ""))
         if not trusted_report_message(sender, subject):
