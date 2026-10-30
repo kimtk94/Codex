@@ -1,0 +1,73 @@
+name: CSS Release Evidence Gate (No Credentials)
+on:
+  pull_request:
+    paths:
+      - 'automation/ops/sales_parallel_readonly_audit.py'
+      - 'automation/ops/css_parallel_audit.py'
+      - 'automation/ops/test_sales_parallel_readonly_audit.py'
+      - 'automation/ops/test_css_parallel_audit.py'
+      - 'automation/css/lead_my_sent_refresh.py'
+      - 'automation/css/test_lead_my_sent_refresh.py'
+      - 'automation/css_mail/revenue_net_vat_publish.py'
+      - 'automation/css_mail/test_revenue_net_vat_publish.py'
+      - 'apps/css-sales-workspace/**'
+      - '.github/workflows/css-release-evidence-gate.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/ops/sales_parallel_readonly_audit.py'
+      - 'automation/ops/css_parallel_audit.py'
+      - 'automation/css/lead_my_sent_refresh.py'
+      - 'automation/css_mail/revenue_net_vat_publish.py'
+      - '.github/workflows/css-release-evidence-gate.yml'
+permissions:
+  contents: read
+jobs:
+  report-lead-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test imports only
+        run: python -m pip install 'google-auth>=2.20,<3' 'google-api-python-client>=2,<3' 'requests>=2.31,<3'
+      - name: Personal Lead source preservation tests
+        run: python -m unittest discover -s automation/css -p 'test_lead_my_sent_refresh.py' -v
+      - name: Cross-source parallel gate tests
+        run: python -m unittest discover -s automation/ops -p 'test_css_parallel_audit.py' -v
+      - name: Live-read gate logic tests (mock only)
+        run: python -m unittest discover -s automation/ops -p 'test_sales_parallel_readonly_audit.py' -v
+  vat-source-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test imports only
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Net VAT and invoice lifecycle tests
+        working-directory: automation/css_mail
+        run: python -m unittest -v test_revenue_net_vat_publish test_revenue_lifecycle_monthly
+  web-safety-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and read-only web contracts
+        working-directory: apps/css-sales-workspace
+        run: |
+          node --check api/lifecycle.js
+          node --test test/*.test.js
