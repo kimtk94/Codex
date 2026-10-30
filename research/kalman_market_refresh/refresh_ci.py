@@ -59,38 +59,46 @@ def clean_fred_csv(raw):
     return df
 
 
-def fred_refresh(dest, start='2017-01-01', retries=2):
+def fred_refresh(dest, start='2017-01-01', retries=1):
+    """Fetch series concurrently so an unavailable FRED endpoint cannot block market CI."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     import requests
     import pandas as pd
     out=Path(dest);out.mkdir(parents=True,exist_ok=True)
-    frames=[];statuses={}
-    session=requests.Session()
-    session.headers['User-Agent']='KalmanResearchDataRefresh/1.0'
-    for symbol in FRED_SERIES:
+
+    def fetch_one(symbol):
         last_error=''
         for trial in range(retries+1):
             try:
                 q=urlencode({'id':symbol,'cosd':start})
                 url='https://fred.stlouisfed.org/graph/fredgraph.csv?'+q
-                response=session.get(url,timeout=30)
+                with requests.Session() as session:
+                    session.headers['User-Agent']='KalmanResearchDataRefresh/1.0'
+                    response=session.get(url,timeout=12)
                 response.raise_for_status()
                 frame=clean_fred_csv(response.content)
                 frame=frame[frame.observation_date>=start].copy()
                 frame['series_id']=symbol
                 frame['retrieved_at_utc']=datetime.now(timezone.utc).isoformat()
                 frame['data_mode']='latest_revised_NOT_ALFRED_PIT'
-                frames.append(frame)
-                statuses[symbol]={'status':'READY','rows':int(frame.value.notna().sum()),
-                                  'last_observation':str(frame.loc[frame.value.notna(),'observation_date'].max())}
-                break
+                return symbol,frame,{'status':'READY','rows':int(frame.value.notna().sum()),
+                     'last_observation':str(frame.loc[frame.value.notna(),'observation_date'].max())}
             except Exception as exc:
                 last_error=type(exc).__name__
-                if trial<retries:time.sleep(1+trial)
-        else:statuses[symbol]={'status':'FAIL','error_type':last_error}
+                if trial<retries:time.sleep(0.5)
+        return symbol,None,{'status':'FAIL','error_type':last_error}
+
+    frames=[];statuses={}
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures=[executor.submit(fetch_one,s) for s in FRED_SERIES]
+        for future in as_completed(futures):
+            symbol,frame,stat=future.result()
+            statuses[symbol]=stat
+            if frame is not None:frames.append(frame)
     status={'provider':'FRED_PUBLIC_CSV','status':'READY' if len(frames)==len(FRED_SERIES) else 'DEGRADED',
             'point_in_time_vintage':False,'source_revision':'latest_revised',
             'research_only':True,'not_eligible_for_PIT_training':True,
-            'series':statuses,'series_ready':len(frames),
+            'series':{k:statuses[k] for k in FRED_SERIES},'series_ready':len(frames),
             'updated_at':datetime.now(timezone.utc).isoformat()}
     if frames:
         pd.concat(frames,ignore_index=True).sort_values(['series_id','observation_date']).to_csv(out/'fred_latest_revised_long.csv',index=False)
