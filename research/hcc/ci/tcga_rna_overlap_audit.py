@@ -12,7 +12,9 @@ from pathlib import Path
 
 GDC_URL = "https://api.gdc.cancer.gov/files"
 CT_COLUMNS = ("PatientID", "SeriesInstanceUID")
-GDC_FIELDS = "file_id,file_name,analysis.workflow_type,cases.submitter_id,cases.samples.sample_type"
+GDC_FIELDS = ("file_id,file_name,data_type,analysis.workflow_type,cases.submitter_id,"
+              "cases.samples.sample_type,cases.samples.submitter_id,"
+              "associated_entities.entity_submitter_id,associated_entities.entity_type")
 
 
 def normalize_id(value):
@@ -29,6 +31,8 @@ def load_ct(path):
         if not reader.fieldnames or not set(CT_COLUMNS).issubset(reader.fieldnames):
             raise ValueError(f"CT manifest must have columns {CT_COLUMNS}")
         rows = list(reader)
+    if not rows:
+        raise ValueError("CT series manifest is empty; cannot assert valid metadata overlap")
     return {normalize_id(r["PatientID"]) for r in rows if normalize_id(r["PatientID"])}, rows
 
 
@@ -85,7 +89,11 @@ def fetch_gdc_files(page_size=500):
 def rna_candidates(files):
     """Exclude normals and unrelated workflows; review aliquot linkage later."""
     candidates = defaultdict(set)
+    if not files:
+        raise ValueError("GDC returned zero matching RNA-seq files; cannot treat empty results as a negative cohort")
     for item in files:
+        if "data_type" not in item:
+            raise ValueError("GDC file record missing data_type; check requested GDC_FIELDS")
         if item.get("data_type") != "Gene Expression Quantification":
             continue
         if (item.get("analysis") or {}).get("workflow_type") != "STAR - Counts":
@@ -122,7 +130,8 @@ def summarize(ct_ids, ct_rows, files):
                 "Matching barcodes do not establish pretreatment CT phase or tumor ROI.",
                 "Image versus tissue collection date remains unverified.",
                 "Verify file-to-aliquot tumor linkage before expression analysis.",
-                "Metadata overlap is NOT the final radiogenomics sample size."
+                "Metadata overlap is NOT the final radiogenomics sample size.",
+                "Primary Tumor on cases.samples is a case-level condition: do not treat it as file-to-tumor-aliquot proof."
             ],
         },
         "matched": matched_rows,
@@ -155,6 +164,13 @@ def offline_test():
     assert normalize_id("TCGA-AA-0001-01A") == "TCGA-AA-0001"
     assert normalize_id("not-tcga") == ""
     assert gdc_filter()["op"] == "and"
+    assert "data_type" in GDC_FIELDS
+    try:
+        rna_candidates([{"file_id": "BROKEN", "cases": []}])
+    except ValueError as exc:
+        assert "data_type" in str(exc)
+    else:
+        raise AssertionError("Missing data_type did not fail closed")
     print("TCGA_RNA_OVERLAP_OFFLINE_TEST_PASS")
 
 
