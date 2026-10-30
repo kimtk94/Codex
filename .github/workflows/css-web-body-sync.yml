@@ -19,7 +19,7 @@ permissions:
 # Share the QQ ingest lock with CSS QQ Mail Read-only Probe.
 # This protects the same UID-based staging from competing append operations.
 concurrency:
-  group: css-qq-mail-readonly
+  group: ${{ github.event_name == 'pull_request' && format('css-qq-ci-{0}', github.head_ref) || 'css-qq-mail-readonly' }}
   cancel-in-progress: false
 jobs:
   offline-tests:
