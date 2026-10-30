@@ -1,0 +1,49 @@
+name: CSS Mail Queue Real Browser E2E (Mock Data)
+on:
+  pull_request:
+    paths:
+      - 'apps/css-sales-workspace/mail-queue.html'
+      - 'apps/css-sales-workspace/mail-queue.js'
+      - 'apps/css-sales-workspace/e2e/**'
+      - 'apps/css-sales-workspace/test/browser-fixture-server.js'
+      - 'apps/css-sales-workspace/playwright.config.cjs'
+      - '.github/workflows/css-mail-queue-browser-e2e.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/css-sales-workspace/mail-queue.html'
+      - 'apps/css-sales-workspace/mail-queue.js'
+      - 'apps/css-sales-workspace/e2e/**'
+      - 'apps/css-sales-workspace/test/browser-fixture-server.js'
+      - 'apps/css-sales-workspace/playwright.config.cjs'
+      - '.github/workflows/css-mail-queue-browser-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-fixture-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install isolated test runner
+        working-directory: apps/css-sales-workspace
+        run: npm install --no-save --no-audit --no-fund @playwright/test@1.56.1
+      - name: Install tested Chromium browser
+        working-directory: apps/css-sales-workspace
+        run: npx playwright install --with-deps chromium
+      - name: Exercise page/authorization/workflow with mocked data only
+        working-directory: apps/css-sales-workspace
+        run: npx playwright test --config=playwright.config.cjs
+      - name: Record verification boundary
+        if: always()
+        run: |
+          echo 'CSS_BROWSER_E2E=LOCAL_CHROMIUM_WITH_MOCKED_API' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Vercel SSO bypass; no production login or real customer data; no Google Sheets writes, no customer mail, no SFDC Save.' >> "$GITHUB_STEP_SUMMARY"
