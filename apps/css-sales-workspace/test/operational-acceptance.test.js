@@ -23,7 +23,7 @@ const CHECKS=[
  ['Decision','Production acceptance','BLOCK','RELEASE']
 ];
 function fixture(){
- return [HEAD,...CHECKS.map(([area,check,state,gate])=>
+ return [HEAD.slice(),...CHECKS.map(([area,check,state,gate])=>
    [area,check,state,gate,'2026-10-30 22:32:32 KST','no PII; test fixture','Manual review only',CHECKED])];
 }
 test('central real-like source renders PASS WARN BLOCK and never grants promotion',()=>{
