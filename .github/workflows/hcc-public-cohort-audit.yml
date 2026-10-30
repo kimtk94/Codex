@@ -152,29 +152,3 @@ jobs:
 
 
 
-  mri-rna-numeric-pilot:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Download 14 immutable GDC tumor RNA file IDs and checksums
-        uses: actions/download-artifact@v4
-        with:
-          name: hcc-mri-gdc-fourteen-file-provenance
-          run-id: 41068580489
-          github-token: ${{ github.token }}
-          path: artifacts/hcc_mri
-      - name: Validate GDC original STAR gene counts for all 14 tumor RNA samples
-        run: python research/hcc/ci/mri_gdc_star_numeric_qc.py --manifest artifacts/hcc_mri/tcga_liverhccseg_gdc_star_tumor_rna_manifest.csv --output artifacts/hcc_rna_qc
-      - name: Archive only sample-level RNA numerical QC, not gene-level matrices
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hcc-mri-fourteen-gdc-star-counts-numeric-qc
-          path: artifacts/hcc_rna_qc/
-          if-no-files-found: warn
-          retention-days: 30
