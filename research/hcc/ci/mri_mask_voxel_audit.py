@@ -13,7 +13,7 @@ import json
 import math
 import re
 import struct
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -121,7 +121,7 @@ def parse_nifti1_mask(blob):
         raise ValueError(f"Truncated NIfTI voxel payload; expected >= {end} bytes")
     if blob[344:348] != b"n+1\x00":
         raise ValueError("Not a NIfTI-1 single-file image")
-    values = np.frombuffer(blob, dtype=np.dtype("<"+fmt.lower() if False else "<"+{
+    values = np.frombuffer(blob, dtype=np.dtype("<"+{
         "B":"u1","h":"i2","i":"i4","f":"f4","d":"f8","b":"i1","H":"u2","I":"u4"
     }[fmt]), count=count, offset=start)
     if not np.isfinite(values).all():
