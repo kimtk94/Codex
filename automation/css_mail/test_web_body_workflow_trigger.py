@@ -22,6 +22,7 @@ class TriggerTests(unittest.TestCase):
     def test_batch_is_bounded_and_no_sends(self):
         body=WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("CSS_WEB_BODY_BATCH: '160'",body)
-        self.assertIn("web_body_sync.py",body)
+        self.assertIn("web_body_serial_runner.py",body)
+        self.assertIn("CSS_WEB_BODY_SERIAL_CYCLES: '3'",body)
         self.assertNotIn("send_customer_mail.py",body)
 if __name__=="__main__":unittest.main()
