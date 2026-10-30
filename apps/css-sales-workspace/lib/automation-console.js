@@ -78,7 +78,7 @@ function projectAutomationConsole(progressRows, trackRows, healthRows, workflowR
       });
       if(state!=='PASS_EXECUTION_ONLY')result.issues.push('GITHUB_WORKFLOW: '+name+' — '+state);
     }
-    if(items.length===11)result.workflows={available:true,items};
+    if(items.length===12)result.workflows={available:true,items};
     else result.issues.push('GITHUB_WORKFLOW_HEALTH_INCOMPLETE');
   }else{
     result.issues.push('GITHUB_WORKFLOW_HEALTH_UNAVAILABLE');
