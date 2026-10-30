@@ -70,6 +70,8 @@ def strings(obj):
 
 def label_class(value):
     text=" ".join(strings(value))
+    if "tumor infiltration by lymphocytes" in text.lower() or "tumor-infiltrating lymphocytes" in text.lower():
+        return "HISTOPATHOLOGY_TIL_ANNOTATION_NOT_TUMOR_MASK"
     if TUMOR.search(text):
         return "POSSIBLE_TUMOR_SEG_LABEL_REVIEW"
     if LIVER.search(text):
@@ -107,11 +109,15 @@ def audit(rows, ct_rows, matched_ids):
         c=Counter(x["segmentation_label_class"] for x in p)
         suspected=[x for x in p if x["segmentation_label_class"]=="POSSIBLE_TUMOR_SEG_LABEL_REVIEW"
                    and x["references_tcia_ct_series"]=="YES"]
+        referenced_liver=[x for x in p if x["segmentation_label_class"]=="LIVER_ORGAN_SEG_ONLY"
+                          and x["references_tcia_ct_series"]=="YES"]
         patient_rows.append({
             "patient_id":pid,
             "idc_seg_series":len(p),
             "possible_tumor_label_series":c["POSSIBLE_TUMOR_SEG_LABEL_REVIEW"],
             "liver_only_label_series":c["LIVER_ORGAN_SEG_ONLY"],
+            "liver_seg_references_tcia_ct":len(referenced_liver),
+            "histopathology_til_annotations":c["HISTOPATHOLOGY_TIL_ANNOTATION_NOT_TUMOR_MASK"],
             "other_label_series":c["UNSPECIFIED_SEG_LABEL_REVIEW"],
             "possible_tumor_seg_references_tcia_ct":"YES" if suspected else "NO",
             "actual_tumor_mask_verified":"NO",
@@ -123,6 +129,12 @@ def audit(rows, ct_rows, matched_ids):
         "matched_patient_seg_series":len(matching_rows),
         "patients_with_any_seg":sum(p["idc_seg_series"]>0 for p in patient_rows),
         "patients_with_possible_tumor_seg_labels":sum(p["possible_tumor_label_series"]>0 for p in patient_rows),
+        "patients_with_tcia_ct_referenced_liver_seg":sum(
+            p["liver_seg_references_tcia_ct"]>0 for p in patient_rows),
+        "tcia_ct_referenced_liver_seg_series":sum(
+            p["liver_seg_references_tcia_ct"] for p in patient_rows),
+        "histopathology_til_annotation_series":sum(
+            p["histopathology_til_annotations"] for p in patient_rows),
         "patients_with_possible_tumor_seg_referenced_to_tcia_ct":sum(
             p["possible_tumor_seg_references_tcia_ct"]=="YES" for p in patient_rows),
         "qualified_ct_roi_rna_pairs":"NOT_ASSESSED",
@@ -142,6 +154,7 @@ def input_rows(path, cols):
 def offline_test():
     assert label_class(["Liver"])=="LIVER_ORGAN_SEG_ONLY"
     assert label_class(["Hepatic Tumor"])=="POSSIBLE_TUMOR_SEG_LABEL_REVIEW"
+    assert label_class(["Tumor infiltration by lymphocytes present"])=="HISTOPATHOLOGY_TIL_ANNOTATION_NOT_TUMOR_MASK"
     assert label_class(None)=="UNSPECIFIED_SEG_LABEL_REVIEW"
     ct=[{"PatientID":"TCGA-AA-0001","SeriesInstanceUID":"CT-ONE"}]
     segments=[
