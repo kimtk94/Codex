@@ -4,7 +4,7 @@ from css_operational_acceptance import KST,build,fresh
 NOW=dt.datetime(2026,10,30,21,30,tzinfo=KST)
 def data():
     return {
-      "health":[["Component","Last success KST","State"],["CSS Mail","2026-10-30 21:12:45 KST","PASS"]],
+      "health":[["Component","Last success KST","State"],["CSS Mail","2026-10-30 21:12:45 KST","PASS"],["CSS Mail Body","2026-10-30 21:20:00 KST","BACKFILL_ACTIVE"]],
       "lifecycle":[["Month","Actual Invoice KRW"],["2026-10","₩158,541,900","","","","48","","","","","","2026-10-30 21:13:54 KST"]],
       "net":[["Month","Issued Invoice Gross KRW (VAT incl)","Issued Net Revenue KRW (VAT excl)"],
              ["2026-10","158541900","144129000","96.086","48","","","2026-10-30 21:14:37 KST","INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED"]],
@@ -31,6 +31,7 @@ class TestAcceptance(unittest.TestCase):
         self.assertEqual(s["Canonical vs stale legacy"],"PASS")
         self.assertEqual(s["Three subscription Reports"],"WARN")
         self.assertEqual(s["Body cache completeness"],"WARN")
+        self.assertEqual(s["Body workflow execution"],"PASS")
         self.assertEqual(s["Online projects"],"PASS")
         self.assertEqual(s["Paid invoice evidence"],"BLOCK")
         self.assertEqual(s["Production acceptance"],"BLOCK")
@@ -43,6 +44,18 @@ class TestAcceptance(unittest.TestCase):
     def test_mail_error_blocks(self):
         d=data();d["mail"][1][11]="1"
         self.assertEqual(states(d)["Body cache completeness"],"BLOCK")
+    def test_failed_body_workflow_blocks_despite_last_good_backfill_counts(self):
+        d=data()
+        d["health"][2][2]="FAIL_BODY_WORKFLOW"
+        self.assertEqual(states(d)["Body workflow execution"],"BLOCK")
+        self.assertEqual(states(d)["Body cache completeness"],"WARN")
+    def test_stale_body_workflow_blocks_without_invented_success(self):
+        d=data()
+        d["health"][2][1]="2026-10-29 11:00:00 KST"
+        self.assertEqual(states(d)["Body workflow execution"],"BLOCK")
+        d=data()
+        d["health"].pop()
+        self.assertEqual(states(d)["Body workflow execution"],"BLOCK")
     def test_invalid_or_future_clock(self):
         self.assertFalse(fresh("2026-10-31 23:00:00 KST",NOW,6))
         self.assertFalse(fresh("not a date",NOW,6))
@@ -53,7 +66,8 @@ class TestAcceptance(unittest.TestCase):
     def test_report_success_refreshes_ledger_not_failed_reruns(self):
         from pathlib import Path
         workflow=(Path(__file__).resolve().parents[2]/".github/workflows/css-operational-acceptance.yml").read_text()
-        self.assertIn('workflows: ["SFDC Three Report Mail Digestion"]',workflow)
+        self.assertIn('workflows: ["SFDC Three Report Mail Digestion", "CSS Web Mail Body Sync"]',workflow)
+        self.assertIn("github.event.workflow_run.name == 'CSS Web Mail Body Sync'",workflow)
         self.assertIn("github.event.workflow_run.conclusion == 'success'",workflow)
         self.assertIn("github.event.workflow_run.head_branch == 'main'",workflow)
         self.assertIn("run: python automation/ops/css_operational_acceptance.py",workflow)
