@@ -26,9 +26,7 @@ jobs:
       - name: Generate npm workspace lockfile for review
         run: |
           npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          echo 'LOCKFILE_JSON_BEGIN'
-          cat package-lock.json
-          echo 'LOCKFILE_JSON_END'
+          echo 'npm dependency graph regenerated for consistency check'
       - name: Refuse committed drift
         if: ${{ hashFiles('package-lock.json') != '' }}
         run: git diff --exit-code -- package-lock.json
