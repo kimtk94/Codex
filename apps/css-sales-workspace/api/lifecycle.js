@@ -3,7 +3,7 @@ const {projectPersonalLeads}=require('../lib/personal-leads');
 const {projectAutomationConsole}=require('../lib/automation-console');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J24"];
+const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J24","'BI Service 8 Fact'!A1:L600"];
 module.exports=async function handler(req,res){
   res.setHeader('Cache-Control','private, no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -48,7 +48,7 @@ module.exports=async function handler(req,res){
     const reply=await fetch(url,{headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(15000)});
     if(!reply.ok)throw new Error('SHEETS_HTTP_'+reply.status);
     const data=await reply.json();
-    const [monthly,projects,health,unanswered,lead,mail,decisions,masterProgress,parallelTracks,workflowRuns]=(data.valueRanges||[]).map(x=>x.values||[]);
+    const [monthly,projects,health,unanswered,lead,mail,decisions,masterProgress,parallelTracks,workflowRuns,serviceFact]=(data.valueRanges||[]).map(x=>x.values||[]);
     const expected=['Month','Project / Sub-project','Component'];
     if(!monthly[0]||!projects[0]||!health[0]||[monthly[0][0],projects[0][0],health[0][0]].some((v,i)=>v!==expected[i]))
       return res.status(503).json({error:'SOURCE_SCHEMA_MISMATCH'});
@@ -191,7 +191,19 @@ module.exports=async function handler(req,res){
         progress:{available:false},tracks:{available:false,items:[]},workflows:{available:false,items:[]},
         health:[],issues:['AUTOMATION_CONSOLE_SCHEMA_REVIEW_REQUIRED']};
     }
+    // New Invoice classifications are not approved just because the source
+    // invoice was verified. Expose a read-only, owner-scoped review queue.
+    const invoiceReviewSource=serviceFact?.[0]?.[0]==='Invoice Number'
+      && serviceFact?.[0]?.[7]==='Mapping Status'
+      && serviceFact?.[0]?.[10]==='Net Revenue KRW (VAT excl)'
+        ? 'SOURCE_VERIFIED' : 'SOURCE_SCHEMA_REVIEW';
+    const invoiceReviews=invoiceReviewSource==='SOURCE_VERIFIED'
+      ? serviceFact.slice(1).filter(r=>r[0]&&r[3]==='Review / Other'
+          && String(r[7]||'').startsWith('SOURCE_NEW_REVIEW_'))
+        .map(r=>({invoice:String(r[0]),month:r[1]||'',institution:r[2]||'',
+          l4:r[4]||'',gross:money(r[5]),net:money(r[10]),
+          status:r[7]||'',amea:r[8]||''})) : [];
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'NONE',sync:r[7]||'',sender:r[1]||'',subject:r[9]||''}));
-    return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,automation,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
+    return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,invoiceReviews,invoiceReviewSource,automation,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
   }catch(e){return res.status(503).json({error:'DATA_FETCH_FAILED'});}
 };
