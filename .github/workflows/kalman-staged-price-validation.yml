@@ -1,0 +1,70 @@
+name: Kalman Research Staged Price Validation & Historical 53 Gap Recovery
+
+on:
+  pull_request:
+    paths:
+      - 'research/kalman_data_backfill/validate_staged.py'
+      - '.github/workflows/kalman-staged-price-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-staged-vs-raw:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030')
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install audit and immutable-parquet dependencies
+        run: python -m pip install pandas pyarrow requests exchange-calendars google-api-python-client google-auth
+      - name: Fetch research snapshots read-only with existing Drive account
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kalman_sources" "$RUNNER_TEMP/kalman_stages"
+          python research/kalman_triple_barrier/drive_input.py --file-id 13biLe0-QIv3wYUbCJFeHZnW2EuHQhnil --output "$RUNNER_TEMP/kalman_sources/QQQ_15m.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 14tFlcG3-TmdtlzLyWOeHY5K-4EIHQCiE --output "$RUNNER_TEMP/kalman_sources/QLD_15m.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1BVYrKDsKl50Q9Aw1438w4T1W267-Zgn- --output "$RUNNER_TEMP/kalman_sources/QQQ_1d.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1HM6nbAmYI_DCLVJk8TQph21gsva2xjw4 --output "$RUNNER_TEMP/kalman_sources/QLD_1d.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1cZvbxcBjBv5WpUirq83PaBpyRumKFOa2 --output "$RUNNER_TEMP/kalman_stages/QQQ_15m_202609.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1ePizOJpc4xC-6x0XaOTvuiyEodlcEOlg --output "$RUNNER_TEMP/kalman_stages/QQQ_15m_202610.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1BE041jcv05RrwUfBu6qW2LokroYPh4zr --output "$RUNNER_TEMP/kalman_stages/QLD_15m_202609.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1taXn9co-8yDaQox3dfB1hdn4LdNOthvm --output "$RUNNER_TEMP/kalman_stages/QLD_15m_202610.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1Eq9ePgRMZ155uW1RwZM-oHTvyvXTZS5t --output "$RUNNER_TEMP/kalman_stages/QQQ_1d_202609.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1d7_2nh5DGGC-qcDQaXyj_ChEgRxj1ZDq --output "$RUNNER_TEMP/kalman_stages/QQQ_1d_202610.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1je0tLEGQ96FA9XEq8bpwkCT8H9NrEBza --output "$RUNNER_TEMP/kalman_stages/QLD_1d_202609.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1wdnlwEVQgNSsYVEQlfvTvB2YAYYapkjO --output "$RUNNER_TEMP/kalman_stages/QLD_1d_202610.parquet"
+      - name: Validate actual parquet keys, OHLC and price basis; fetch only 53 historic gaps
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_data_backfill/validate_staged.py \
+            --source-dir "$RUNNER_TEMP/kalman_sources" \
+            --stage-dir "$RUNNER_TEMP/kalman_stages" \
+            --out outputs/kalman_staged_validation \
+            --as-of 2026-10-29 \
+            --recover-old
+      - name: Publish audit-only status; no original raw files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-staged-2052-validation
+          path: outputs/kalman_staged_validation/validation.json
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Publish recovered historical gap records for research-only promotion
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-historical-53-recovered-staging
+          path: outputs/kalman_staged_validation/historical_*.parquet
+          retention-days: 3
+          if-no-files-found: ignore
