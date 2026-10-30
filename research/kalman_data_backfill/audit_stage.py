@@ -122,9 +122,17 @@ def _fetch_month(session:requests.Session,symbol:str,timeframe:str,
                  timeout:int=35, sleep:Callable[[float],None]=time.sleep) -> list[dict]:
     if not os.environ.get('ALPACA_API_KEY_ID') or not os.environ.get('ALPACA_API_SECRET_KEY'):
         raise RuntimeError('BLOCKED: ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY required')
+    # Alpaca Basic historical SIP requests must end at least 15 minutes ago.
+    # Calendar-month padding can otherwise query a future date and return 403.
+    first_utc = pd.Timestamp(first_utc).tz_convert('UTC')
+    last_utc = pd.Timestamp(last_utc).tz_convert('UTC')
+    sip_cutoff = pd.Timestamp.now(tz='UTC') - pd.Timedelta(minutes=20)
+    effective_end = min(last_utc, sip_cutoff)
+    if first_utc >= effective_end:
+        return []
     params={'timeframe':'15Min' if timeframe=='15m' else '1Day',
             'start':first_utc.isoformat().replace('+00:00','Z'),
-            'end':last_utc.isoformat().replace('+00:00','Z'),
+            'end':effective_end.isoformat().replace('+00:00','Z'),
             'limit':10000,'sort':'asc','feed':'sip','adjustment':'all'}
     headers={'APCA-API-KEY-ID':os.environ['ALPACA_API_KEY_ID'],
              'APCA-API-SECRET-KEY':os.environ['ALPACA_API_SECRET_KEY']}
