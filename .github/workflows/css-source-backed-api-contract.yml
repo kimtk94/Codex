@@ -1,0 +1,57 @@
+name: CSS Source-backed API Contract Smoke
+on:
+  workflow_dispatch:
+  schedule:
+    # 09:15 KST, daily; live source checks do not create Vercel deployments.
+    - cron: '15 0 * * *'
+  pull_request:
+    paths:
+      - 'automation/ops/css_web_source_live_smoke.cjs'
+      - '.github/workflows/css-source-backed-api-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/ops/css_web_source_live_smoke.cjs'
+      - '.github/workflows/css-source-backed-api-contract.yml'
+permissions:
+  contents: read
+concurrency:
+  group: css-source-backed-api-contract
+  cancel-in-progress: false
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check safe runner-only test harness
+        run: |
+          node --check automation/ops/css_web_source_live_smoke.cjs
+          node --check apps/css-sales-workspace/api/lifecycle.js
+          node --check apps/css-sales-workspace/api/lifecycle/mail-body.js
+  live-source:
+    needs: syntax
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 14
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned npm workspace dependency graph
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Exercise CSS owner security and source-backed read-only handlers
+        run: node automation/ops/css_web_source_live_smoke.cjs
+      - name: Explicit release boundary
+        run: echo 'SOURCE_CONTRACT_ONLY; NO_VERCEL_SSO_E2E; NO_PRODUCTION_PROMOTION; NO_CUSTOMER_MAIL; NO_SFDC_SAVE' >> "$GITHUB_STEP_SUMMARY"
