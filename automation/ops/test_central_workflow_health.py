@@ -83,6 +83,32 @@ class PublisherTests(unittest.TestCase):
                                         {"name":"sync","conclusion":"failure"}]),
                          "AMBIGUOUS_JOB_DETAILS_REVIEW")
 
+    def test_cancelled_newer_run_stays_cancelled_even_with_recent_success(self):
+        cancelled=run(901,conclusion="cancelled",updated="2026-10-29T23:30:00Z")
+        older_success=run(900,conclusion="success",updated="2026-10-29T23:15:00Z")
+        rows=make_rows(lambda filename:[cancelled,older_success],NOW)
+        report=next(row for row in rows[1:] if row[0]=="SFDC 3-Report Ingest")
+        self.assertEqual(report[2],"CANCELLED")
+        self.assertIn("RECENT_SUCCESS_RUN_ID=900",report[8])
+        self.assertIn("CANCELLED_OR_SKIPPED_NOT_CERTIFIED",report[8])
+        self.assertIn("/actions/runs/901",report[5])
+
+    def test_cancelled_without_recent_success_is_not_hid(self):
+        cancelled=run(901,conclusion="cancelled",updated="2026-10-29T23:30:00Z")
+        old_success=run(880,conclusion="success",updated="2026-10-20T10:00:00Z")
+        rows=make_rows(lambda filename:[cancelled,old_success],NOW)
+        report=next(row for row in rows[1:] if row[0]=="SFDC 3-Report Ingest")
+        self.assertEqual(report[2],"CANCELLED")
+        self.assertIn("NO_RECENT_SUCCESS_EVIDENCE",report[8])
+
+    def test_failure_never_gets_success_exception(self):
+        failed=run(902,conclusion="failure")
+        earlier=run(901,conclusion="success",updated="2026-10-29T22:30:00Z")
+        rows=make_rows(lambda filename:[failed,earlier],NOW)
+        report=next(row for row in rows[1:] if row[0]=="SFDC 3-Report Ingest")
+        self.assertEqual(report[2],"FAILED")
+        self.assertNotIn("RECENT_SUCCESS_RUN_ID",report[8])
+
     def test_no_runs_flags_missing_not_optimistic(self):
         rows=make_rows(lambda filename:[],NOW)
         self.assertEqual(len(rows),len(WORKFLOWS)+1)
