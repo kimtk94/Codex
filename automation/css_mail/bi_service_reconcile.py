@@ -111,7 +111,7 @@ def plan_new_review_rows(base,fact,fx,stamped):
         invoice=str(r[0])
         if len(r)<14 or not str(r[1]).strip() or not str(r[4]).strip() or not str(r[7]).strip():
             raise RuntimeError("SOURCE_INVOICE_METADATA_INCOMPLETE")
-        if not re.fullmatch(r"\\d{10,15}",invoice):
+        if not re.fullmatch(r"[0-9]{10,15}",invoice):
             raise RuntimeError("SOURCE_INVOICE_NUMBER_INVALID")
         gross,net,_,month=source[invoice]
         if month!=str(r[1]):
