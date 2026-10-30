@@ -34,6 +34,7 @@ WORKFLOWS=(
  ("Feishu Schema Audit","Payment","feishu-latest-four-schema.yml",4,"Raw table schema QA; failures block payment certification"),
  ("Feishu Project Sync","Projects","feishu-project-sync.yml",24,"Feishu source projection only"),
  ("Web Body Sync","Web","css-web-body-sync.yml",24,"Source-body caching/availability, not browser E2E"),
+ ("CSS API Source Contract","Web","css-source-backed-api-contract.yml",36,"Real Sheets + local handler contract; NOT Vercel OAuth/Preview E2E"),
  ("Web Console CI","Web","css-central-operations-console-tests.yml",72,"Mock/static tests only; authenticated E2E pending"),
 )
 
