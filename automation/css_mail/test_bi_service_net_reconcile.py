@@ -1,5 +1,6 @@
 """Offline source, VAT, and formula-summary integrity regression tests."""
 import unittest
+from pathlib import Path
 from bi_service_reconcile import invoice_net, source_parity, verify_summary, plan_new_review_rows
 
 BASE=["Invoice No"]+[""]*12+["Net Revenue KRW (VAT excl; per invoice)"]
@@ -70,6 +71,15 @@ class NetReconciliationTests(unittest.TestCase):
         fact[1][5]="190000"
         with self.assertRaisesRegex(RuntimeError,"FACT_INVOICE_NET_OR_GROSS_MISMATCH"):
             plan_new_review_rows(base,fact,1500,"2026-10-30")
+
+    def test_service_writer_requires_completed_main_source_sync(self):
+        root=Path(__file__).resolve().parents[2]
+        workflow=(root/".github/workflows/bi-service-reconcile.yml").read_text()
+        self.assertIn("workflows: ['QQ Original Invoice To Central BI']",workflow)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'",workflow)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'",workflow)
+        self.assertNotIn("schedule:",workflow)
+        self.assertIn("if: github.event_name != 'pull_request'",workflow)
 
     def test_summary_verification_preserves_formulas_and_fails_closed(self):
         summary=[["Service Group","Invoice Count","Net Revenue KRW (VAT excl)","Net Revenue K USD (VAT excl)"],
