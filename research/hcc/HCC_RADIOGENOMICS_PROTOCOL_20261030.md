@@ -5,7 +5,7 @@ Updated: 2026-10-30. Public-data feasibility before modeling.
 Are pretreatment CT tumor radiomics features associated with independently predefined HCC tumor RNA-seq pathways (hypoxia, angiogenesis, ECM/EMT and metabolic rewiring), controlling for acquisition differences, lesion size and available clinical covariates? Associations are not causal evidence.
 
 ## Novelty warning
-- A Journal of Translational Medicine 2025/26 paper used 41 eligible TCIA HCC CT+RNA-seq cases to build an immune-radiogenomics biomarker: https://doi.org/10.1186/s12967-025-07627-4 . Repeating a generic immune predictor does not establish novelty.
+- A Journal of Translational Medicine paper published on 19 January 2026 used 41 eligible TCIA HCC CT+RNA-seq cases to build an immune-radiogenomics biomarker: https://doi.org/10.1186/s12967-025-07627-4 . Repeating a generic immune predictor does not establish novelty.
 - An October 2026 Abdominal Radiology paper trained on WAW-TACE (n=221) and externally tested on HCC-TACE-SEG (n=98), documenting limited frozen radiomics survival-model transfer: https://pubmed.ncbi.nlm.nih.gov/42867540/ . Do not claim these cohorts prove generalizable survival models.
 
 ## Cohort separation
