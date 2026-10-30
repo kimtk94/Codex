@@ -158,6 +158,25 @@ def build(raw, historical, history_dir, staging, stage_dir, now):
     return [HEADER]+rows,by_status,latest
 
 
+def validate_source_audit(lead_audit,now):
+    """Accept either a fresh staged report or a fresh preserved identical report."""
+    if not lead_audit or cell(lead_audit,8) not in {
+            "STAGED_NOT_PROMOTED", "PRESERVED_NO_NEW_REPORT"}:
+        raise ValueError("Lead source staging audit missing or unexpected")
+    # No new subscription mail can legitimately preserve a validated prior report.
+    # Require a recent source timestamp, original digest and row integrity anyway.
+    if not re.fullmatch(r"[a-fA-F0-9]{64}",cell(lead_audit,7)):
+        raise ValueError("Lead source staging audit hash missing or unexpected")
+    reported_at=date_of(cell(lead_audit,1).removesuffix(" KST"))
+    if (not reported_at or now-reported_at>dt.timedelta(hours=72)
+            or reported_at>now+dt.timedelta(hours=12)):
+        raise ValueError("Lead source report is stale; refuse to certify no sent")
+    count=cell(lead_audit,3)
+    if not count.isdigit() or int(count)<450:
+        raise ValueError("Lead source staging audit row count invalid")
+    return reported_at
+
+
 def main():
     secret=os.getenv("NBA_GOOGLE_SERVICE_ACCOUNT_JSON")
     if not secret:
@@ -181,11 +200,7 @@ def main():
         raise ValueError("SFDC report freshness audit tab missing")
     report_audit=get(DEST,["'SFDC Email Ingest Audit'!A1:J20"])[0].get("values",[])
     lead_audit=next((r for r in report_audit[1:] if cell(r,0)=="Leads"),None)
-    if not lead_audit or cell(lead_audit,8)!="STAGED_NOT_PROMOTED":
-        raise ValueError("Lead source staging audit missing or unexpected")
-    reported_at=date_of(cell(lead_audit,1).removesuffix(" KST"))
-    if not reported_at or dt.datetime.now(KST)-reported_at>dt.timedelta(hours=72):
-        raise ValueError("Lead source report is stale; refuse to certify no sent")
+    validate_source_audit(lead_audit,dt.datetime.now(KST))
     for tab,book in (("SFDC Email Leads Raw",target_rows),
                      ("Lead My Sent Audit",target_rows),
                      ("All Emails",qq_rows),("CSS Git Ingest",qq_rows)):
