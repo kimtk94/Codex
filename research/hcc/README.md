@@ -33,7 +33,7 @@ https://github.com/kimtk94/Codex/actions/runs/41057407936
 
 ## CI and evidence
 
-Actions → HCC Public Cohort Audit. The PR currently runs offline fixtures, public TCIA/GDC/IDC CT audits, LiverHccSeg metadata/ZIP NIfTI spot-check, and an artifact-chained triple-overlap job. In addition, each pull request runs an evidence ledger schema-and-claim-guard check.
+Actions → HCC Public Cohort Audit. On pull requests, GitHub Actions runs offline fixtures plus evidence ledger schema/claim guards only. Live TCIA/GDC/IDC and LiverHccSeg NIfTI remote audits run via **workflow_dispatch** (select the feature branch) or on the weekly schedule after merging to main; crossmodal job runs only after both live audits succeed. This avoids public Zenodo HTTP 429 rate limits from repeated documentation commits.
 
 Metadata outputs include CT source-series, corrected CT series review queue, GDC primary tumor file lineage, MRI segmentation metrics × RNA barcodes, real NIfTI mask CRC/nonzero voxel QC, and triple patient overlap. This pipeline does **not** commit DICOM, RNA matrices, protected records, or raw image pixels. GitHub action artifacts expire after 30 days.
 
