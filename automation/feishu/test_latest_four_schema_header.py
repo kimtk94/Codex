@@ -49,7 +49,7 @@ class HeaderDiagnosticTests(unittest.TestCase):
         header=["canonical_"+str(i) for i in range(1,18)]+["Formula"]*35
         header[16]=""
         _,_,pairs=header_fingerprint(header)
-        with self.assertRaisesRegex(RuntimeError,"Duplicate nonempty header"):
+        with self.assertRaisesRegex(RuntimeError,"Missing canonical header"):
             validate_header_scope("Payment Outstanding",header,pairs)
     def test_all_four_formats_reported_even_if_receipt_blocked(self):
         import contextlib
@@ -91,7 +91,7 @@ class HeaderDiagnosticTests(unittest.TestCase):
 
     def test_other_formats_duplicate_always_fail(self):
         from latest_four_schema_audit import validate_header_scope
-        header=["X","Y","X"]
+        header=["Date","Customer Name","Amount","CMS No.","","Date","CMS","Amount","","Date","Customer","Amount","CMS"]
         _,_,pairs=header_fingerprint(header)
         with self.assertRaisesRegex(RuntimeError,"Duplicate nonempty header"):
             validate_header_scope("Payment Receipt",header,pairs)
@@ -103,6 +103,37 @@ class HeaderDiagnosticTests(unittest.TestCase):
         _,n,pairs=header_fingerprint(["A","","","B"])
         self.assertEqual(n,4)
         self.assertEqual(pairs,[])
+
+    def test_feishu_json_null_is_not_a_literal_duplicate_label(self):
+        from latest_four_schema_audit import validate_header_scope
+        _,width,pairs=header_fingerprint(["Deposit Date",None,None,None])
+        self.assertEqual(width,4)
+        self.assertEqual(pairs,[])
+        with self.assertRaisesRegex(RuntimeError,"Missing canonical header"):
+            validate_header_scope("Payment Receipt",["Deposit Date"]+[None]*51,pairs)
+
+    def test_no_duplicate_still_requires_canonical_core(self):
+        from latest_four_schema_audit import validate_header_scope
+        header=["Unique"+str(i) for i in range(1,17)]+[""]+["Tail"]*35
+        with self.assertRaisesRegex(RuntimeError,"Missing canonical header"):
+            validate_header_scope("Payment Outstanding",header,[])
+
+    def test_receipt_panels_need_all_three_identity_groups(self):
+        from latest_four_schema_audit import validate_header_scope
+        header=["A","B","C","D","","F","G","H","","J","","L","M"]
+        with self.assertRaisesRegex(RuntimeError,"column_positions=11"):
+            validate_header_scope("Payment Receipt",header,[])
+
+    def test_etax_paid_and_issued_columns_cannot_be_missing(self):
+        from latest_four_schema_audit import validate_header_scope
+        header=["Core"+str(i) for i in range(1,36)]
+        header[32]=None
+        with self.assertRaisesRegex(RuntimeError,"column_positions=33"):
+            validate_header_scope("eTax Invoice",header,[])
+
+    def test_object_cell_is_not_converted_to_duplicate_repr(self):
+        with self.assertRaisesRegex(RuntimeError,"HEADER_CELL_NON_TEXT_TYPE"):
+            header_fingerprint(["A",{"text":"B"}])
 
 if __name__=="__main__":
     unittest.main()
