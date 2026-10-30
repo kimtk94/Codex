@@ -211,7 +211,7 @@ def offline_test():
     assert geometry(create(),create())[0] == "PASS_HEADER_GEOMETRY_ONLY"
     assert geometry(create(),create(shape=(2,3,5)))[0] == "SHAPE_MISMATCH"
     assert geometry(create(),create(offset=2.))[0] == "AFFINE_MISMATCH"
-    assert geometry(create(),create(pix=(1.3,1.,2.)))[0] == "AFFINE_MISMATCH"
+    assert geometry(create(shape=(12,3,4)),create(shape=(12,3,4),pix=(1.3,1.,2.)))[0] == "AFFINE_MISMATCH"
     assert geometry(create(scode=0),create())[0] == "NO_RELIABLE_SPATIAL_TRANSFORM"
     print("HCC_MRI_IMAGE_MASK_HEADER_ALIGNMENT_OFFLINE_TEST_PASS")
 
