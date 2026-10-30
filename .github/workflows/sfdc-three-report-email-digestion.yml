@@ -8,10 +8,13 @@ on:
         default: false
   schedule:
     - cron: '40 0,3,8 * * *' # 09:40, 12:40, 17:40 KST; mail delivery may lag
+    - cron: '27 4 * * 1-5' # 13:27 KST weekday backup if last valid 3-report ingest is stale
   push:
     branches: [main]
     paths:
       - 'automation/sfdc/three_report_email_ingest.py'
+      - 'automation/sfdc/report_fallback_gate.py'
+      - 'automation/sfdc/test_report_fallback_gate.py'
       - 'automation/sfdc/three_report_relationship_qc.py'
       - 'automation/sfdc/three_report_verified_views.py'
       - 'automation/sfdc/three_report_mail_evidence.py'
@@ -31,6 +34,8 @@ on:
       - 'automation/sfdc/three_report_verified_views.py'
       - 'automation/sfdc/test_three_report_verified_views.py'
       - 'automation/sfdc/three_report_email_ingest.py'
+      - 'automation/sfdc/report_fallback_gate.py'
+      - 'automation/sfdc/test_report_fallback_gate.py'
       - 'automation/sfdc/test_three_report_email_ingest.py'
       - 'automation/sfdc/three_report_relationship_qc.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
@@ -68,32 +73,38 @@ jobs:
         run: python automation/sfdc/test_three_report_thread_evidence.py
       - name: Test same-subject QQ mail evidence offline
         run: python automation/sfdc/test_three_report_subject_pairs.py
+      - name: Test strict noon backup gate offline
+        run: python -m unittest discover -s automation/sfdc -p 'test_report_fallback_gate.py' -v
+      - name: Check noon backup freshness before source writes
+        id: backup
+        if: github.event_name == 'schedule' && github.event.schedule == '27 4 * * 1-5'
+        run: python automation/sfdc/report_fallback_gate.py
       - name: Read authorized subscription mail and conditionally stage
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.event.schedule != '27 4 * * 1-5' || steps.backup.outputs.refresh == 'true') }}
         run: python automation/sfdc/three_report_email_ingest.py
       - name: Audit staged Lead-Opportunity-Quote relationships (read only)
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.event.schedule != '27 4 * * 1-5' || steps.backup.outputs.refresh == 'true') }}
         run: python automation/sfdc/three_report_relationship_qc.py
       - name: Refresh generated SFDC relationship views
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.event.schedule != '27 4 * * 1-5' || steps.backup.outputs.refresh == 'true') }}
         env:
           SFDC_RELATIONS_APPLY: 'true'
         run: python automation/sfdc/three_report_verified_views.py
       - name: Assess QQ mail contact evidence (read only)
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.event.schedule != '27 4 * * 1-5' || steps.backup.outputs.refresh == 'true') }}
         env:
           SFDC_MAIL_EVIDENCE_APPLY: 'true'
         run: python automation/sfdc/three_report_mail_evidence.py
       - name: Check QQ exact ID thread evidence (read only)
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.event.schedule != '27 4 * * 1-5' || steps.backup.outputs.refresh == 'true') }}
         env:
           SFDC_THREAD_EVIDENCE_APPLY: 'true'
         run: python automation/sfdc/three_report_thread_evidence.py
       - name: Cool down Sheets read quota before final QQ audit
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.event.schedule != '27 4 * * 1-5' || steps.backup.outputs.refresh == 'true') }}
         run: sleep 75
       - name: Refresh same-subject review snapshot
-        if: github.event_name != 'pull_request'
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.event.schedule != '27 4 * * 1-5' || steps.backup.outputs.refresh == 'true') }}
         env:
           SFDC_SUBJECT_PAIR_APPLY: 'true'
         run: python automation/sfdc/three_report_subject_pairs.py
