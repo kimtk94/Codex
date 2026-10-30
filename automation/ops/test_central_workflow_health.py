@@ -5,7 +5,7 @@ import sys
 import unittest
 
 sys.path.insert(0,str(pathlib.Path(__file__).parent))
-from publish_central_workflow_health import evaluate_runs,make_rows,WORKFLOWS,UTC
+from publish_central_workflow_health import evaluate_runs,make_rows,bi_job_result,WORKFLOWS,UTC
 
 NOW=dt.datetime(2026,10,30,0,0,tzinfo=UTC)
 
@@ -51,6 +51,38 @@ class PublisherTests(unittest.TestCase):
                             for r in rows[1:]))
         self.assertIn("Feishu Schema Audit",[r[0] for r in rows])
         self.assertIn("Web Console CI",[r[0] for r in rows])
+    def test_bi_workflow_failure_is_not_mislabeled_as_sync_failure(self):
+        jobs=[{"name":"sync","status":"completed","conclusion":"success"},
+              {"name":"test","status":"completed","conclusion":"failure"}]
+        rows=make_rows(lambda filename:[run(id=123,conclusion="failure")],NOW,
+                       job_fetch=lambda run_id: jobs)
+        bi=next(row for row in rows[1:] if row[0]=="BI Mail Review Sync")
+        self.assertEqual(bi[2],"FAILED")
+        self.assertIn("BI_JOB_DETAILS_SYNC_SUCCESS_TEST_FAILURE",bi[8])
+        self.assertNotIn("mail sent",bi[8].lower())
+
+    def test_real_sync_failure_remains_explicit_and_fail_closed(self):
+        jobs=[{"name":"sync","status":"completed","conclusion":"failure"},
+              {"name":"test","status":"completed","conclusion":"success"}]
+        rows=make_rows(lambda filename:[run(id=123,conclusion="failure")],NOW,
+                       job_fetch=lambda run_id: jobs)
+        bi=next(row for row in rows[1:] if row[0]=="BI Mail Review Sync")
+        self.assertEqual(bi[2],"FAILED")
+        self.assertIn("BI_JOB_DETAILS_SYNC_FAILURE_TEST_SUCCESS",bi[8])
+
+    def test_bi_job_detail_unavailable_never_upgrades_failing_run(self):
+        def missing(run_id):raise RuntimeError("API_LIMIT")
+        rows=make_rows(lambda filename:[run(id=123,conclusion="failure")],NOW,
+                       job_fetch=missing)
+        bi=next(row for row in rows[1:] if row[0]=="BI Mail Review Sync")
+        self.assertEqual(bi[2],"FAILED")
+        self.assertIn("BI_JOB_DETAILS_UNAVAILABLE",bi[8])
+
+    def test_bi_job_duplicate_name_is_not_arbitrarily_resolved(self):
+        self.assertEqual(bi_job_result([{"name":"sync","conclusion":"success"},
+                                        {"name":"sync","conclusion":"failure"}]),
+                         "AMBIGUOUS_JOB_DETAILS_REVIEW")
+
     def test_no_runs_flags_missing_not_optimistic(self):
         rows=make_rows(lambda filename:[],NOW)
         self.assertEqual(len(rows),len(WORKFLOWS)+1)
