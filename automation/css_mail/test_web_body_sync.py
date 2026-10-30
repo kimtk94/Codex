@@ -106,6 +106,87 @@ class BodyTests(unittest.TestCase):
         self.assertEqual((len(selected),total),(0,0))
         self.assertIn("inbox:41012",positions)
 
+    def test_oversize_terminal_marker_requires_verified_bounded_header(self):
+        meta=mail("41012")
+        header=(b'Message-ID: <m41012@test.example>\n'
+                b'From: customer@yonsei.ac.kr\n'
+                b'Subject: Subject 41012\n\n')
+        msg=mod.verified_oversize_header(header+b'A'*200000,meta)
+        self.assertIsNotNone(msg)
+        self.assertEqual(msg['Message-ID'],"<m41012@test.example>")
+        self.assertFalse(msg.get_payload())
+        self.assertIsNone(mod.verified_oversize_header(
+            header.replace(b'm41012',b'm99999')+b'A'*200000,meta))
+        self.assertIsNone(mod.verified_oversize_header(b'X'*mod.MAX_HEADER_BYTES+b'\n\n',meta))
+        terminal=cache_row("41012")
+        terminal[21]='BODY_OVERSIZE_MIME'
+        selected,stored,total=mod.select_candidates(
+            [stub.COLS,meta],[CACHE_HEAD,terminal],
+            [[""]*8+["Thread UID"],[""]*8+["inbox:41012"]],
+            OWNER,NOW)
+        self.assertEqual((len(selected),total),(0,0))
+        self.assertIn("inbox:41012",stored)
+
+    def test_verified_oversize_mime_is_checkpointed_without_false_body(self):
+        ingest=[stub.COLS,mail("41012"),mail("41013")]
+        records=[CACHE_HEAD[:]]
+        audit=[mod.BACKFILL_HEADER[:]]
+        mailtext=(b'Message-ID: <m41012@test.example>\n'
+                  b'From: customer@yonsei.ac.kr\n\nhello')
+        large=(b'Message-ID: <m41013@test.example>\n'
+               b'From: customer@yonsei.ac.kr\n\n'+b'X'*200)
+        seen_fetch=[]
+        class FakeImap:
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def login(self,*args):return None
+            def select(self,folder,readonly=False):
+                self.readonly=readonly
+                return 'OK',[]
+            def response(self,name):return 'UIDVALIDITY',[b'123']
+            def uid(self,method,uid,query):
+                seen_fetch.append(str(uid))
+                return 'OK',[(b'BODY.PEEK[]',large if str(uid)=='41013' else mailtext)]
+        def api(_session,method,url,**kwargs):
+            u=unquote(url)
+            if method=='GET':
+                if "'Unanswered Emails'!A1:V1300" in u:return {'values':[[""]*8+["Thread UID"]]}
+                if "'CSS Git Ingest'!A1:R100000" in u:return {'values':ingest}
+                if "'CSS Mail Backfill Status'!A1:O1" in u:return {'values':[audit[0]]}
+                if "'CSS Mail Backfill Status'!A2:O2" in u:return {'values':audit[1:]}
+                if "'CSS Mail Inbox Raw'!A1:X10000" in u:return {'values':records}
+                if "'CSS Mail Inbox Raw'!A1:A" in u:return {'values':[[r[0]] for r in records]}
+                if "'CSS Mail Inbox Raw'!J1:J" in u:return {'values':[[r[9]] for r in records]}
+                if "'CSS Mail Inbox Raw'!V1:V" in u:return {'values':[[r[21]] for r in records]}
+                raise AssertionError('Unexpected read')
+            if method=='POST' and "'CSS Mail Inbox Raw'!A:X:append" in u:
+                records.extend(kwargs['json']['values'])
+                return {}
+            if method=='PUT' and "'CSS Mail Backfill Status'!A2:O2" in u:
+                audit[:]=[audit[0],kwargs['json']['values'][0]]
+                return {}
+            raise AssertionError('Unexpected write')
+        with patch.object(stub,'authorize',return_value=object(),create=True), \
+             patch.object(stub,'api',side_effect=api,create=True), \
+             patch.object(mod.imaplib,'IMAP4_SSL',return_value=FakeImap()), \
+             patch.object(mod,'MAX_FETCH_BYTES',110), \
+             patch.dict(mod.os.environ,{'CSS_QQ_MAIL_ADDRESS':OWNER,
+                                       'CSS_QQ_MAIL_AUTH_CODE':'TEST_DUMMY',
+                                       'CSS_WEB_BODY_BATCH':'80'}):
+            mod.sync()
+        self.assertEqual(len(records),3)
+        by_uid={r[0]:r for r in records[1:]}
+        self.assertEqual(by_uid['inbox:41012'][21],'WEB_REVIEW_CACHE')
+        self.assertEqual(by_uid['inbox:41013'][21],'BODY_OVERSIZE_MIME')
+        self.assertEqual(by_uid['inbox:41013'][9],'')
+        self.assertEqual(audit[1][1],'WINDOW_CAUGHT_UP')
+        self.assertEqual(audit[1][3:8],[2,1,0,0,0])
+        self.assertIn('oversize_MIME_body_unavailable=1',audit[1][14])
+        self.assertEqual(sorted(seen_fetch),['41012','41013'])
+        selected,_,total=mod.select_candidates(
+            ingest,records,[[""]*8+["Thread UID"]],OWNER,NOW)
+        self.assertEqual((len(selected),total),(0,0))
+
     def test_owner_matching_is_exact_not_substring(self):
         self.assertEqual(mod.addresses(OWNER.upper(),"Someone <"+OWNER+">"),{OWNER})
         self.assertNotIn(OWNER,mod.addresses("not-"+OWNER))
