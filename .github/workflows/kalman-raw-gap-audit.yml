@@ -40,6 +40,33 @@ jobs:
         working-directory: research/kalman_data_backfill
         run: python -m unittest discover -p 'test_*.py' -v
 
+  p0-provider-readiness:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030')
+    needs: offline-tests
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install provider probe dependencies
+        run: python -m pip install pandas exchange-calendars requests
+      - name: Check 7 US tickers and 2 Upbit pairs without saving prices
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        run: python research/kalman_data_backfill/probe_p0.py --out outputs/p0_readiness.json
+      - name: Upload safe metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-nine-symbol-readiness
+          path: outputs/p0_readiness.json
+          retention-days: 7
+          if-no-files-found: warn
+
   read-only-source-audit:
     # Read-only by default, and only executed manually. No new live-trading paths.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030')
