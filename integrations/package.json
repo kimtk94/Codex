@@ -1,0 +1,6 @@
+{
+  "name": "@codex-scope/integrations",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Source-only workspace for Vercel change attribution; not a deployable application."
+}

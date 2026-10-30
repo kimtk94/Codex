@@ -1,0 +1,32 @@
+name: Vercel Monorepo Workspace Scope CI
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - '**/package.json'
+      - 'scripts/test_vercel_workspace_scopes.py'
+      - '.github/workflows/vercel-workspace-scope-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify manifest scopes (no live deploy)
+        run: python -m unittest discover -s scripts -p 'test_vercel_workspace_scopes.py' -v
+      - name: Generate npm workspace lockfile for review
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          echo 'npm dependency graph regenerated for consistency check'
+      - name: Refuse committed drift
+        if: ${{ hashFiles('package-lock.json') != '' }}
+        run: git diff --exit-code -- package-lock.json

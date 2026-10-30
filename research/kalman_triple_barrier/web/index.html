@@ -14,3 +14,4 @@ async function refresh(){try{const r=await fetch('https://api.github.com/repos/k
 try{const r=await fetch(ROOT+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error('NOT_PUBLISHED');data=await r.json();if(data.status!=='COMPLETE')data=null;else{const signature=JSON.stringify(data.results);if(signature!==lastSignature){lastSignature=signature;reveal=0;}reveal+=1;}}catch(e){data=null;}render();id('updated').textContent='마지막 조회 '+new Date().toLocaleString('ko-KR');}
 loadHistorical();refresh();setInterval(()=>{if(foldReveal<historical.length){foldReveal++;renderHistorical();}refresh();},10000);
 </script></body></html>
+<!-- Vercel deployment scope: kalman-triple-barrier-web; CSS app remains independent. -->

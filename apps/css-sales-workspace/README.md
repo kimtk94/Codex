@@ -77,3 +77,6 @@ The UI distinguishes `PASS_EXECUTION_ONLY`, `FAILED`, `STALE`,
 actionable GitHub run links. Notably, a failed Feishu schema audit must NOT
 be obscured by an unrelated or stale Feishu Health PASS. No client data is
 contained in this status source.
+
+## Vercel deployment boundary
+This app is the `apps/css-sales-workspace` workspace. CSS app-only changes must not redeploy `kalman-triple-barrier-lab`. Unrelated automations remain tracked in separate workspaces. Production deployment and private browser verification require independent approval.
