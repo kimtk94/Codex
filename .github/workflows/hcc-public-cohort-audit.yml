@@ -50,6 +50,10 @@ jobs:
         run: python research/hcc/ci/mri_mask_voxel_audit.py --offline-test
       - name: Offline MRI source-mask NIfTI header alignment tests
         run: python research/hcc/ci/mri_image_mask_alignment_audit.py --offline-test
+      - name: Install NIfTI viewer dependencies for pixel overlay regression fixtures
+        run: python -m pip install "nibabel>=5.2,<6" "matplotlib>=3.8,<4"
+      - name: Offline PV MRI source-pixel and reviewer overlay regression tests
+        run: python research/hcc/ci/mri_pv_pixel_overlay_audit.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
