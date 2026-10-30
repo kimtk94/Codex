@@ -6,6 +6,7 @@ Unbilled projects without Statement: estimate only. No duplicate X forecasts.
 Only >=2026-10 is treated as covered by this validated new QQ source.
 """
 import datetime as dt
+from decimal import Decimal, ROUND_HALF_UP
 import re
 import sys
 
@@ -20,6 +21,14 @@ HEAD=["Month","Actual Invoice KRW","Pending Verified KRW","Forecast KRW",
       "Data Quality","Snapshot KST"]
 ALLOWED={"FILENAME_PARSED","VERIFIED_LEGACY_FILENAME","EXISTS_IN_LEGACY"}
 FIRST="2026-10"
+
+
+def invoice_net_krw(gross_krw):
+    """Original TAX INVOICE amounts include 10% VAT. Preserve source gross."""
+    gross=int(gross_krw)
+    if gross<=0:
+        raise ValueError("Nonpositive VAT-inclusive invoice")
+    return int((Decimal(gross)/Decimal("1.10")).quantize(Decimal("1"),rounding=ROUND_HALF_UP))
 
 def cell(r,n):
     return str(r[n]) if n<len(r) and r[n] is not None else ""
@@ -62,7 +71,7 @@ def compute(invoice_rows,lifecycle_rows,now):
                             "unknown":0,"forecast":0,"forecast_n":0,"partial":0}
         return buckets[month]
     for month,amount in invoices.values():
-        p=bucket(month);p["actual"]+=amount;p["invoice"]+=1
+        p=bucket(month);p["actual"]+=invoice_net_krw(amount);p["invoice"]+=1
 
     seen_projects=set()
     for row in lifecycle_rows[1:]:
@@ -109,8 +118,12 @@ def compute(invoice_rows,lifecycle_rows,now):
     for month in sorted(buckets,key=lambda k:(k=="UNSCHEDULED",k)):
         p=buckets[month]
         if not any(p.values()):continue
+        # Only original TAX INVOICE VAT inclusion has been verified.
+        # Do not silently apply the same conversion to Statement or estimates.
         quality=("PENDING_AMOUNTS_UNVERIFIED" if p["unknown"]
-                 else "INVOICES_VERIFIED_FORECAST_ESTIMATED")
+                 else "NET_INVOICE_PENDING_VAT_BASIS_REVIEW" if p["pending"]
+                 else "NET_INVOICE_FORECAST_VAT_BASIS_REVIEW" if p["forecast"]
+                 else "NET_INVOICE_VERIFIED")
         rows.append([month,p["actual"],p["pending"],p["forecast"],
                      p["actual"]+p["pending"]+p["forecast"],p["invoice"],
                      p["open"],p["unknown"],p["forecast_n"],p["partial"],
@@ -250,7 +263,7 @@ def main():
         put(s,DST,"Automation Health","A16",[[
             "Revenue Lifecycle",stamp,"PASS",
             "oct_invoice_count="+str(oct_row[5])+
-            " oct_actual_krw="+str(oct_row[1])+
+            " oct_actual_net_krw="+str(oct_row[1])+
             " oct_pending_verified_krw="+str(oct_row[2])+
             " oct_forecast_krw="+str(oct_row[3])+
             " source_pending_count="+str(count)+
@@ -264,7 +277,7 @@ def main():
         ]],"RAW")
         raise
     print("REVENUE_LIFECYCLE_MONTHLY_PASS October_invoice_count="+str(oct_row[5])+
-          " October_actual_krw="+str(oct_row[1])+
+          " October_actual_net_krw="+str(oct_row[1])+
           " October_pending_verified_krw="+str(oct_row[2])+
           " source_pending_count="+str(count)+
           " source_pending_krw="+str(total),flush=True)

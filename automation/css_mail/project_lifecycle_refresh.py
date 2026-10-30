@@ -143,18 +143,38 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
                 break
 
     statement_amounts={}
+    source_subjects={}
     for a in statement_amount_rows[1:]:
-        key=str(present(a,0)).upper()
+        key=str(present(a,0)).upper().strip()
         if present(a,8)!="AMOUNT_VERIFIED" or present(a,4)!="KRW":continue
         try:amount=int(present(a,3))
         except (TypeError,ValueError):continue
         if amount<=0 or not INV_STMT.fullmatch(key):continue
-        statement_amounts[key]=(amount,str(present(a,5)))
+        notice=str(present(a,5))
+        uid=str(present(a,6))
+        subject=str(present(a,10))
+        if not uid or not notice or key not in subject.upper():
+            raise RuntimeError("VERIFIED_STATEMENT_SOURCE_EVIDENCE_MISSING "+key)
+        prior=statement_amounts.get(key)
+        if prior and prior!=(amount,notice):
+            raise RuntimeError("CONFLICTING_VERIFIED_STATEMENT "+key)
+        statement_amounts[key]=(amount,notice)
+        source_subjects[key]=subject
+        match=INV_STMT.fullmatch(key)
+        j,x=match.group(1).upper(),match.group(2).upper()
+        if j not in issued_statements.get(x,set()):
+            # Original amount extract is independently UID-verified; an IMAP
+            # mail-header staging lag must not hide this verified J installment.
+            statement_notices.setdefault(x,{}).setdefault(j,notice)
     manual={present(r,0):r for r in controls[1:] if present(r,0)}
     out=[HEAD]
+    feishu_seen=set()
     for r in feishu_rows[1:]:
         x=str(present(r,1)).strip().upper()
         if not x:continue
+        if x in feishu_seen:
+            raise RuntimeError("DUPLICATE_FEISHU_PROJECT "+x)
+        feishu_seen.add(x)
         project_name=str(present(r,3))
         hit=A.search(project_name)
         amea=hit.group(0) if hit else ""
@@ -218,6 +238,34 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
              max((notices[j] for j in open_j),default=""),
              pending_verified,evidence]
         out.append(row)
+    # Verified source-only X projects must not disappear just because Feishu
+    # Online-Project has not supplied a corresponding X yet. Keep unmatched
+    # identity visible; never invent a Feishu project/forecast/payment status.
+    for x in sorted(set(statement_notices)-feishu_seen):
+        notices=statement_notices[x]
+        open_j=sorted(set(notices)-issued_statements.get(x,set()))
+        if not open_j:continue
+        missing=[j for j in open_j if j+"-"+x not in statement_amounts]
+        if missing:
+            raise RuntimeError("SOURCE_ONLY_STATEMENT_AMOUNT_UNVERIFIED "+x)
+        if any(statement_amounts[j+"-"+x][1]!=notices[j] for j in open_j):
+            raise RuntimeError("SOURCE_ONLY_STATEMENT_NOTICE_DATE_MISMATCH "+x)
+        pending=sum(statement_amounts[j+"-"+x][0] for j in open_j)
+        latest=max(notices.values())
+        subject=source_subjects[open_j[0]+"-"+x]
+        a=A.search(subject)
+        inv=invoices.get(x,{})
+        out.append([
+            x,a.group(0).upper() if a else "","","","",
+            "SOURCE_ONLY_FEISHU_UNMATCHED",
+            "Statement verified (QQ original; Feishu X missing)",97,latest,
+            "","","",latest[:7],"",len(inv),sum(inv.values()),
+            "ISSUED + STATEMENT PENDING" if inv else "STATEMENT READY - INVOICE PENDING",
+            0,"Link verified X to Feishu Online-Project before assigning owner/forecast",
+            "QQ original verified Statement; FEISHU_UNMAPPED",
+            " | ".join(open_j),latest,pending,
+            "AMOUNT_VERIFIED "+str(len(open_j))+"/"+str(len(open_j))
+        ])
     if len(out)<2:raise RuntimeError("Empty lifecycle input; refusing update")
     return out
 

@@ -1,6 +1,14 @@
 name: CSS QQ Mail Read-only Probe
 
 on:
+  pull_request:
+    paths:
+      - 'automation/css_mail/revenue_lifecycle_monthly.py'
+      - 'automation/css_mail/test_revenue_lifecycle_monthly.py'
+      - 'automation/css_mail/project_lifecycle_refresh.py'
+      - 'automation/css_mail/test_project_lifecycle_chain.py'
+      - 'automation/css_mail/SOURCE_SYNC_DEPENDENCY_CONTRACT.md'
+      - '.github/workflows/css-mail-readonly.yml'
   push:
     branches: [main]
     paths:
@@ -19,7 +27,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  invoice-net-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - run: python3 -m unittest discover -s automation/css_mail -p 'test_project_lifecycle_chain.py' -v
+      - run: python3 -m unittest discover -s automation/css_mail -p 'test_revenue_lifecycle_monthly.py' -v
   css-mail:
+    needs: invoice-net-offline
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 24
