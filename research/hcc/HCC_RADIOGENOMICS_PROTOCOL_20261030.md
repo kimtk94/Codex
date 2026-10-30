@@ -44,3 +44,13 @@ WAW-TACE: https://doi.org/10.1148/ryai.240296 ; https://zenodo.org/records/12741
 HCC-TACE-Seg: https://www.cancerimagingarchive.net/collection/hcc-tace-seg/
 TCGA-LIHC: https://www.cancerimagingarchive.net/collection/tcga-lihc/
 GDC fields: https://docs.gdc.cancer.gov/API/Users_Guide/Appendix_A_Available_Fields/
+
+## Actual TCIA-GDC CI audit results — 2026-10-30
+- GitHub Actions run: https://github.com/kimtk94/Codex/actions/runs/41053179022 ; both offline-tests and metadata-audit passed.
+- TCIA TCGA-LIHC: **75 distinct CT patients**, 777 CT series; source collection has mixed modalities, so published 97 is not CT case count.
+- GDC TCGA-LIHC: **371 candidate patients** with at least one Primary Tumor case-level association and STAR - Counts metadata.
+- CT × RNA case-barcode overlap: **73 patients** (758 CT series across these patients). This is **not a file-to-tumor-aliquot matched count**.
+- CT series text and ImageCount prescreen of the 73: **25** patients with explicit portal venous labels, **13** with generic venous-only labels, **35** without either label in eligible-length/axial-looking series; none is an imaging-verified cohort or final excluded patient.
+- **Final eligible CT/segmentation/RNA patients: not yet assessed**. The next mandatory gates are CT imaging review, same-patient tumor mask availability, pretreatment timing, GDC file-to-aliquot and sample-code verification, and scanner/phase stability.
+- Artifacts: tcga_rna_overlap_candidates.csv, tcga_ct_phase_patient_prescreen.csv, tcga_ct_phase_series_prescreen.csv and JSON summaries, available in the linked run (retention 30 days).
+- The portal venous filter is a conservative **triage heuristic**, not a deterministic clinical exclusion. Image count >=30 plus SeriesDescription is insufficient to establish diagnostic axial phase or tumor ROI.
