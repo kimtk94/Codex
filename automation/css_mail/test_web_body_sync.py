@@ -194,6 +194,28 @@ class BodyTests(unittest.TestCase):
         self.assertEqual(records[1][18],'QQ_CSS_GIT_INGEST_HEADER')
         self.assertEqual(len([op for op in operations if op[0]=='POST']),1)
 
+    def test_no_text_mime_records_verified_status_without_fake_body(self):
+        m=mail("41012")
+        raw=(b'Message-ID: <m41012@test.example>\n'
+             b'From: customer@yonsei.ac.kr\n'
+             b'Subject: Subject 41012\n'
+             b'MIME-Version: 1.0\n'
+             b'Content-Type: multipart/mixed; boundary="x"\n\n'
+             b'--x\nContent-Type: image/png\n'
+             b'Content-Disposition: attachment; filename="figure.png"\n\n'
+             b'AAAA\n--x--')
+        msg=BytesParser(policy=policy.default).parsebytes(raw)
+        self.assertEqual(mod.body_text(msg),'')
+        row=mod.make_row("inbox:41012",m,msg,"",NOW.isoformat())
+        self.assertEqual(row[9],"")
+        self.assertEqual(row[21],"MIME_NO_TEXT_BODY")
+        already=cache_row("41012")
+        already[21]="MIME_NO_TEXT_BODY"
+        selected,_,count=mod.select_candidates(
+            [stub.COLS,m],[CACHE_HEAD,already],
+            [[""]*8+["Thread UID"]],OWNER,NOW)
+        self.assertEqual((selected,count),([],0))
+
     def test_old_queue_and_owner_outside_lookback(self):
         old=(NOW-dt.timedelta(days=80)).isoformat()
         inbox=mail("38233",owner=False,when=old)
