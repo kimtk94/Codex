@@ -9,8 +9,8 @@ def data():
       "net":[["Month","Issued Invoice Gross KRW (VAT incl)","Issued Net Revenue KRW (VAT excl)"],
              ["2026-10","158541900","144129000","96.086","48","","","2026-10-30 21:14:37 KST","INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED"]],
       "authority":[["Month","Source Tab","Source Role"],
-                  ["2026-10","","CANONICAL_ACTUAL_GROSS","","","","","YES","2026-10-30 21:16:20 KST"],
-                  ["2026-10","","CANONICAL_ISSUED_NET","","","","","YES","2026-10-30 21:16:20 KST"],
+                  ["2026-10","","CANONICAL_ACTUAL_GROSS","48","158541900","VAT_INCLUDED","MATCHED_TO_NET_AUDIT","YES","2026-10-30 21:16:20 KST"],
+                  ["2026-10","","CANONICAL_ISSUED_NET","48","144129000","VAT_EXCLUDED","MATCHED_TO_INVOICE_SOURCE","YES","2026-10-30 21:16:20 KST"],
                   *[["2026-10","","LEGACY_SNAPSHOT","","","","STALE_SOURCE_DO_NOT_USE","NO"] for _ in range(3)]],
       "reports":[["Entity","Source Received KST","Ingest Checked KST"],
                 *[[n,"2026-10-30 12:00:05 KST","","493","493","0","0","a"*64,"PRESERVED_NO_NEW_REPORT"]
