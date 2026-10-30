@@ -1,0 +1,26 @@
+{
+  "name": "codex-deployment-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    ".github",
+    "analysis",
+    "automation",
+    "automation_policy",
+    "colab",
+    "docs",
+    "experiments",
+    "integrations",
+    "kalman-hub-recovery",
+    "kalman-toss-gateway",
+    "masteros",
+    "notebooks",
+    "research",
+    "research/kalman_triple_barrier",
+    "research/upbit_eth",
+    "scripts",
+    "service_basics",
+    "apps/css-sales-workspace",
+    "research/kalman_triple_barrier/web"
+  ]
+}
