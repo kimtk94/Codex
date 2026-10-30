@@ -29,7 +29,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue((ROOT/"research/kalman_triple_barrier/web/index.html").is_file())
 
     def test_automation_and_github_are_not_global_changes(self):
-        for path in [".github","automation","research/kalman_triple_barrier",
+        for path in [".github","automation","research/kalman_triple_barrier/web",
                      "research/upbit_eth","scripts","docs"]:
             self.assertIn(path,self.paths)
 

@@ -21,7 +21,7 @@ both projects and burns the Hobby team's 100-deployment/24h quota.
 ## Boundaries and verification
 - An update to the CSS app must affect only CSS, not Kalman.
 - An update to the Kalman static web app must affect only Kalman, not CSS.
-- A change in a private source-only workspace must not deploy either site.
+- A change in a private source-only workspace must not deploy either site.\n- The Kalman web workspace is not nested beneath another npm workspace; otherwise Vercel dependency attribution can be ambiguous. Core research files outside the declared web workspace are treated as global edits.
 - Root `package.json`, root lockfile and other intentionally-global root
   changes may still deploy multiple apps. Keep these rare.
 - Existing Production domains, secret variables, access protection and

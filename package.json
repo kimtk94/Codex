@@ -15,8 +15,6 @@
     "kalman-toss-gateway",
     "masteros",
     "notebooks",
-    "research",
-    "research/kalman_triple_barrier",
     "research/upbit_eth",
     "scripts",
     "service_basics",
