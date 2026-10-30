@@ -21,6 +21,7 @@ import numpy as np
 from mri_gdc_star_numeric_qc import fetch_counts
 
 GMT_URL="https://data.broadinstitute.org/gsea-msigdb/msigdb/release/2025.1.Hs/h.all.v2025.1.Hs.symbols.gmt"
+PINNED_GMT_SHA256="f22066af72e215ccb7b89d88e492c07e1eef17534c2ca7b0f9902cfecbbdd8e9"
 PATHWAYS=(
     "HALLMARK_HYPOXIA",
     "HALLMARK_ANGIOGENESIS",
@@ -60,7 +61,7 @@ def gmt_parse(raw):
     return {key:all_sets[key] for key in PATHWAYS},len(all_sets)
 
 
-def remote_gmt(expected_sha=None):
+def remote_gmt(expected_sha=PINNED_GMT_SHA256):
     request=urllib.request.Request(GMT_URL,headers={"User-Agent":"HCC-Hallmark-SingleSample-Rank-QC/1.0"})
     with urllib.request.urlopen(request,timeout=45) as r:
         raw=r.read(250000)
@@ -257,6 +258,7 @@ def offline_test():
     symbols={f"GENE{i}":float(i+1) for i in range(80)}
     scores,cov=score_sample(symbols,genesets)
     assert len(scores)==4 and all(v["coverage"]==1.0 for v in cov.values())
+    assert len(PINNED_GMT_SHA256)==64 and all(x in "0123456789abcdef" for x in PINNED_GMT_SHA256)
     assert scores[PATHWAYS[0]]<scores[PATHWAYS[3]]
     assert np.allclose(average_percentiles([0,0,1,2]),
                        [1/6,1/6,2/3,1])
@@ -281,7 +283,7 @@ def main():
     ap.add_argument("--offline-test",action="store_true")
     ap.add_argument("--manifest",default=FROZEN_MANIFEST)
     ap.add_argument("--out-dir",default="artifacts/hcc_rna_hallmark")
-    ap.add_argument("--expected-gmt-sha256",default="")
+    ap.add_argument("--expected-gmt-sha256",default=PINNED_GMT_SHA256)
     args=ap.parse_args()
     if args.offline_test:
         offline_test();return
