@@ -79,7 +79,8 @@ class NetReconciliationTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.conclusion == 'success'",workflow)
         self.assertIn("github.event.workflow_run.head_branch == 'main'",workflow)
         self.assertNotIn("schedule:",workflow)
-        self.assertIn("if: github.event_name != 'pull_request'",workflow)
+        self.assertIn("github.event_name == 'workflow_dispatch'",workflow)
+        self.assertIn("if: >-",workflow)
 
     def test_summary_verification_preserves_formulas_and_fails_closed(self):
         summary=[["Service Group","Invoice Count","Net Revenue KRW (VAT excl)","Net Revenue K USD (VAT excl)"],
