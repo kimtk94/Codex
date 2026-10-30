@@ -1,12 +1,31 @@
-# HCC Radiomics public-cohort CI
+# HCC Radiomics and public CT-RNA research
 
-**Scope:** CI metadata readiness audit for `HCC-TACE-Seg` (external public cohort) and `TCGA-LIHC` (radiogenomics matching candidate). WAW-TACE is the proposed training cohort, but downloading its images, deriving radiomics labels, training, and external testing are **not yet implemented**.
+**Protocol:** [HCC Radiogenomics research and feasibility gates](HCC_RADIOGENOMICS_PROTOCOL_20261030.md)
 
-- The scheduled/dispatch audit queries the [TCIA NBIA public API](https://wiki.cancerimagingarchive.net/display/Public/NBIA+Search+REST+API+Guide) and exports CT series metadata only.
-- Pull requests run an offline fixture test without network calls.
-- Workflow artifact contains cohort series CSV and summary JSON; no DICOM data.
-- Before training: confirm a single HCC histology, comparable pretreatment acquisition phases, distinct patients, compatible segmentation and feature definitions, and a patient-level split. Avoid leakage through repeated series or lesions.
-- Training: WAW-TACE; external public test: HCC-TACE-Seg; hospital external test: pending approved data. TCGA-LIHC: exploratory gene-expression associations, only for cases with verified matched IDs.
-- Never upload identifiable hospital DICOM, linkage tables or genomic data to public GitHub Actions. Use approved secure compute for controlled hospital data.
+Two related, but distinct analyses:
 
-Use Actions → **HCC Public Cohort Audit** → Run workflow. Inspect the downloadable `hcc-tcia-cohort-audit` artifact.
+1. **Primary: TCGA-LIHC CT x tumor RNA-seq radiogenomics.** TCIA CT series metadata matched to GDC TCGA-LIHC primary-tumor STAR-Counts *case IDs*. Only patients with verified CT phase, pretreatment timing, tumor segmentation and linked tumor aliquots proceed to RNA/radiomics association analyses.
+2. **Secondary: TACE prognosis radiomics benchmark.** Train on WAW-TACE (233 listed) and externally test a frozen model on HCC-TACE-Seg (105 listed) after eligibility/phase/endpoint harmonization. These two cohorts DO NOT contain matched RNA-seq cohorts. Existing studies already report weak model transfer; do not position this as new standalone molecular validation.
+
+## Automated public metadata CI
+
+Actions -> **HCC Public Cohort Audit** -> Run workflow (feature branch before merge, main after merge).
+
+- TCIA NBIA public API queries CT series for HCC-TACE-Seg and TCGA-LIHC; writes patient-series metadata (no images).
+- GDC public API queries TCGA-LIHC primary tumor STAR - Counts **metadata** and intersects against CT patients; writes candidate counts and public barcodes. This is *not* final CT/ROI/RNA matched eligibility.
+- Pull requests run offline fixture tests without network calls.
+- Workflow artifacts include TCIA CT series CSVs, JSON summary, TCGA RNA candidate CSV and metadata summary.
+- No DICOM, genomic expression values, patient hospital data, or protected linkage data are transferred into public CI.
+
+Local offline test:
+    python research/hcc/ci/tcia_cohort_audit.py --offline-test
+    python research/hcc/ci/tcga_rna_overlap_audit.py --offline-test
+
+Actual validation still pending: confirm GDC live response schema, exact patient intersection, scanner phase, segmentations, tissue sample/aliquot, imaging date and effective cohort size. Avoid leakage through repeated CT series, multiple lesions or multiple RNA files.
+
+## Existing exploratory Colab notebooks (Google Drive)
+- HCC_Public_Radiomics_Model_Starter.ipynb: preliminary ROI-to-feature CNN; **no trained or validated model**.
+- HCC_TCIA_External_Validation_Starter.ipynb: pre-treatment CT verification template; **no external testing results**.
+- Folder: https://drive.google.com/drive/folders/1YVSssXSTn8S2Bau3ji7vhs33y5jnKxnZ
+
+Sources: WAW-TACE https://zenodo.org/records/12741586 ; HCC-TACE-Seg https://www.cancerimagingarchive.net/collection/hcc-tace-seg/ ; TCGA-LIHC https://www.cancerimagingarchive.net/collection/tcga-lihc/ .
