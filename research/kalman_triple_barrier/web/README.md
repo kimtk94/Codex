@@ -7,3 +7,5 @@ This static web application is scoped to the npm workspace `kalman-triple-barrie
 - Changes to this Kalman web directory must not trigger a CSS Vercel deployment
 - GitHub Actions compute, experiments, and source-only directories must not cause both web apps to deploy
 - Keep Vercel authorization, domains, secrets, and published Production versions unchanged during scope tests
+
+The web directory is an independent npm workspace with no nested parent workspace.
