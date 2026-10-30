@@ -21,6 +21,7 @@ from pathlib import Path
 
 SOURCE="https://media.springernature.com/original/springer-static/esm/art%3A10.1038%2Fncomms9971/MediaObjects/41467_2015_BFncomms9971_MOESM1236_ESM.xlsx"
 ALTERNATE="https://pmc.ncbi.nlm.nih.gov/articles/instance/4671203/bin/ncomms9971-s2.xlsx"
+PINNED_SOURCE_SHA256="fce1ba13ff3a6432b7e4f260eb516e407c967d615ca87bc8dffa7765baf97529"
 MANIFEST="research/hcc/HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv"
 NS="{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 COLUMNS=("Sample.ID","Cancer.type","ESTIMATE","ABSOLUTE","LUMP","IHC","CPE")
@@ -41,6 +42,8 @@ def fetch():
                 data=response.read(2_000_001)
             if not 10000<len(data)<2_000_000 or not zipfile.is_zipfile(io.BytesIO(data)):
                 raise ValueError("Not a bounded XLSX ZIP source")
+            if hashlib.sha256(data).hexdigest()!=PINNED_SOURCE_SHA256:
+                raise ValueError("Aran 2015 CPE official supplementary content SHA256 drift")
             return data,url
         except Exception as exc:
             errs.append(type(exc).__name__+":"+str(exc)[:80])
