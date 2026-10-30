@@ -181,10 +181,16 @@ def main():
         raise ValueError("SFDC report freshness audit tab missing")
     report_audit=get(DEST,["'SFDC Email Ingest Audit'!A1:J20"])[0].get("values",[])
     lead_audit=next((r for r in report_audit[1:] if cell(r,0)=="Leads"),None)
-    if not lead_audit or cell(lead_audit,8)!="STAGED_NOT_PROMOTED":
+    if not lead_audit or cell(lead_audit,8) not in {
+            "STAGED_NOT_PROMOTED", "PRESERVED_NO_NEW_REPORT"}:
         raise ValueError("Lead source staging audit missing or unexpected")
+    # No new subscription mail can legitimately preserve a validated prior report.
+    # Require a recent source timestamp, original digest and row integrity anyway.
+    if not re.fullmatch(r"[a-fA-F0-9]{64}",cell(lead_audit,7)):
+        raise ValueError("Lead source staging audit hash missing or unexpected")
     reported_at=date_of(cell(lead_audit,1).removesuffix(" KST"))
-    if not reported_at or dt.datetime.now(KST)-reported_at>dt.timedelta(hours=72):
+    if (not reported_at or dt.datetime.now(KST)-reported_at>dt.timedelta(hours=72)
+            or reported_at>dt.datetime.now(KST)+dt.timedelta(hours=12)):
         raise ValueError("Lead source report is stale; refuse to certify no sent")
     for tab,book in (("SFDC Email Leads Raw",target_rows),
                      ("Lead My Sent Audit",target_rows),
