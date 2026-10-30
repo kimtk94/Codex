@@ -25,7 +25,7 @@ PHASES = ("pv.nii.gz", "art.nii.gz", "art_pv.nii.gz", "pre.nii.gz", "del.nii.gz"
 FIELDNAMES = (
     "patient_id", "mask_path", "source_phase", "source_path",
     "mask_shape", "source_shape", "mask_spacing", "source_spacing",
-    "mask_xform", "source_xform", "max_affine_difference_mm",
+    "mask_xform", "source_xform", "max_corner_displacement_mm",
     "geometry_status", "expert_overlay_status", "treatment_timing_status",
     "radiogenomics_eligibility"
 )
@@ -86,12 +86,18 @@ def geometry(mask, source):
         return "SHAPE_MISMATCH", None
     if mask["affine"] is None or source["affine"] is None:
         return "NO_RELIABLE_SPATIAL_TRANSFORM", None
-    # Voxel-to-world transforms must agree, including orientation/offset.
-    # A 0.1mm matrix-element threshold avoids small float formatting changes.
-    diff = float(np.max(np.abs(mask["affine"] - source["affine"])))
-    if diff > 0.1:
-        return "AFFINE_MISMATCH", diff
-    return "PASS_HEADER_GEOMETRY_ONLY", diff
+    # Voxel-to-world agreement must be checked in *millimetres at FOV corners*.
+    # Comparing affine coefficients mixes units and can miss errors over wide FOVs.
+    x, y, z = (n - 1 for n in mask["shape"])
+    corners = np.array([
+        [i, j, k, 1.] for i in (0, x)
+        for j in (0, y) for k in (0, z)
+    ], dtype=float).T
+    delta = (mask["affine"] - source["affine"]) @ corners
+    diff_mm = float(np.linalg.norm(delta[:3], axis=0).max())
+    if diff_mm > 0.5:
+        return "AFFINE_MISMATCH", diff_mm
+    return "PASS_HEADER_GEOMETRY_ONLY", diff_mm
 
 
 def header_only(archive, info):
@@ -152,7 +158,7 @@ def run(cases, archive):
                     "source_shape": "x".join(map(str, source["shape"])),
                     "source_spacing": "x".join(f"{n:.6g}" for n in source["spacing"]),
                     "source_xform": source["transform"],
-                    "max_affine_difference_mm": "" if maxdiff is None else f"{maxdiff:.5g}",
+                    "max_corner_displacement_mm": "" if maxdiff is None else f"{maxdiff:.5g}",
                     "geometry_status": outcome,
                 })
             except Exception as exc:
@@ -205,6 +211,7 @@ def offline_test():
     assert geometry(create(),create())[0] == "PASS_HEADER_GEOMETRY_ONLY"
     assert geometry(create(),create(shape=(2,3,5)))[0] == "SHAPE_MISMATCH"
     assert geometry(create(),create(offset=2.))[0] == "AFFINE_MISMATCH"
+    assert geometry(create(),create(pix=(1.3,1.,2.)))[0] == "AFFINE_MISMATCH"
     assert geometry(create(scode=0),create())[0] == "NO_RELIABLE_SPATIAL_TRANSFORM"
     print("HCC_MRI_IMAGE_MASK_HEADER_ALIGNMENT_OFFLINE_TEST_PASS")
 
