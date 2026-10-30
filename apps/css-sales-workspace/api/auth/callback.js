@@ -1,8 +1,12 @@
-const {host,client,secret,cookies,cookie,sign,equal}=require('../../lib/auth-common');
+const {oauthOrigin,matchesOriginHost,client,secret,cookies,cookie,sign,equal}=require('../../lib/auth-common');
 const owner='xSqsomY4s3nWaElLeF9IE89Z';
 module.exports=async(req,res)=>{
  res.setHeader('Cache-Control','no-store');
  if(req.method!=='GET')return res.status(405).end();
+ const host=oauthOrigin();
+ if(!host)return res.status(503).json({error:'PREVIEW_ORIGIN_UNAVAILABLE'});
+ if(!matchesOriginHost(req,host))
+   return res.status(409).json({error:'OAUTH_ORIGIN_MISMATCH'});
  const c=cookies(req),raw=c.css_oauth_pending||'',index=raw.lastIndexOf('.');
  res.setHeader('Set-Cookie',cookie('css_oauth_pending','',0,'/api/auth'));
  if(index<0||!req.query.code||!req.query.state)return res.redirect(302,host+'/?login=failed');

@@ -80,3 +80,13 @@ contained in this status source.
 
 ## Vercel deployment boundary
 This app is the `apps/css-sales-workspace` workspace. CSS app-only changes must not redeploy `kalman-triple-barrier-lab`. Unrelated automations remain tracked in separate workspaces. Production deployment and private browser verification require independent approval.
+
+
+## Preview OAuth callback acceptance (2026-10-30)
+
+- CSS API source-backed GitHub CI now passes with live Google Sheets; **this is not Vercel SSO or deployed-browser verification**.
+- The OAuth callback must match the deployment hostname at which the browser received `css_oauth_pending`. Previously, Preview sign-in redirected to `css-sales-workspace-git.vercel.app` and lost the Preview-scoped pending cookie.
+- On Vercel Preview, `lib/auth-common.js` now uses Vercel's server-controlled `VERCEL_URL`, with a strict `css-sales-workspace-*.vercel.app` allowlist and matching request Host. On Production it retains the fixed canonical host. Mismatches fail closed with `OAUTH_ORIGIN_MISMATCH` instead of silently sending Preview logins to Production. Use the exact Preview deployment URL for login tests; branch aliases with another Host will require adjustment to the same-origin allowlist.
+- The Sign in with Vercel **App** in Vercel **Manage → Authorization Callback URLs** must authorize `https://<exact-preview-host>/api/auth/callback` (prefer selecting the CSS Vercel project, which officially supports its deployment domains). This separate OAuth App configuration is **not verified or modified by CI**, and `redirect_uri_mismatch` means that registration remains incomplete. Documentation: https://vercel.com/docs/sign-in-with-vercel/manage-from-dashboard.
+- Do not turn off Vercel Deployment Protection to satisfy browser tests. A browser test must first authenticate to Vercel's deployment protection, then authenticate as the hard-coded app owner through Vercel OAuth. The app must return `/api/lifecycle=200`, single verified UID mail-body `200`, and a non-owner `401/403` before any Production promotion.
+- No customer emails, CRM writes, payment changes, or Production promotions are authorized by this change.

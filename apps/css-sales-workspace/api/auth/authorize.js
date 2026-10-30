@@ -1,6 +1,10 @@
-const {crypto,host,client,secret,cookie,sign}=require('../../lib/auth-common');
+const {crypto,oauthOrigin,matchesOriginHost,client,secret,cookie,sign}=require('../../lib/auth-common');
 module.exports=async(req,res)=>{
  if(req.method!=='GET')return res.status(405).end();
+ const host=oauthOrigin();
+ if(!host)return res.status(503).json({error:'PREVIEW_ORIGIN_UNAVAILABLE'});
+ if(!matchesOriginHost(req,host))
+   return res.status(409).json({error:'OAUTH_ORIGIN_MISMATCH',expectedOrigin:host});
  if(!client()||!secret())return res.status(503).json({error:'OAUTH_UNCONFIGURED'});
  const state=crypto.randomBytes(24).toString('hex'),verifier=crypto.randomBytes(32).toString('base64url');
  const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
