@@ -12,6 +12,7 @@ import imaplib
 import os
 import re
 import time
+import requests
 import unicodedata
 import urllib.parse
 from collections import Counter
@@ -175,7 +176,15 @@ def make_row(uid,meta,msg,body,now):
 def sync():
     session=src.authorize()
     def read(book,span):
-        return src.api(session,'GET',url(book,span)).get('values',[])
+        # Google Sheets occasionally times out under concurrent report
+        # writers; only replay idempotent GETs, never POST/append.
+        for attempt in range(3):
+            try:
+                return src.api(session,'GET',url(book,span)).get('values',[])
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+                if attempt==2:
+                    raise
+                time.sleep(1.0+2.0*attempt)
     queue=read(SFDC,"'Unanswered Emails'!A1:V1300")
     if not queue or value(queue[0],8)!='Thread UID':
         raise RuntimeError('WEB_REVIEW_QUEUE_SCHEMA_MISMATCH')
@@ -292,10 +301,14 @@ def sync():
     # Sheets-safe strings and retry briefly before reporting a data mismatch.
     # Never log customer bodies, addresses, or raw message content.
     mismatches=[]
+    # Read back only the occupied prefix plus a small margin, not 10,000
+    # heavy formula-backed cells on every retry. The initial cache read
+    # already established the occupied prefix; append runs under one lock.
+    readback_end=min(10000,max(1000,len(latest)+len(fresh)+100))
     for retry in range(3):
-        after_uid=read(SFDC,"'CSS Mail Inbox Raw'!A1:A10000")
-        after_body=read(SFDC,"'CSS Mail Inbox Raw'!J1:J10000")
-        after_status=read(SFDC,"'CSS Mail Inbox Raw'!V1:V10000")
+        after_uid=read(SFDC,"'CSS Mail Inbox Raw'!A1:A"+str(readback_end))
+        after_body=read(SFDC,"'CSS Mail Inbox Raw'!J1:J"+str(readback_end))
+        after_status=read(SFDC,"'CSS Mail Inbox Raw'!V1:V"+str(readback_end))
         verified={value(r,0).lower():i for i,r in enumerate(after_uid)
                   if i>0 and value(r,0)}
         mismatches=[]
