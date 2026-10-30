@@ -37,7 +37,7 @@ Added overlap audit: research/hcc/ci/tcga_rna_overlap_audit.py
 Offline test: python research/hcc/ci/tcga_rna_overlap_audit.py --offline-test
 Live CI: HCC Public Cohort Audit via workflow_dispatch on branch, or scheduled after merge to main.
 Outputs: TCGA-LIHC_ct_series.csv, tcga_rna_overlap_summary.json, tcga_rna_overlap_candidates.csv.
-Status: *Not yet verified on live TCIA-GDC*; no CT-image/ROI/RNA-expression data downloaded, no qualified sample size, no model training.
+Status: TCIA-GDC-IDC public metadata audits validated by GitHub Actions on 2026-10-30. No CT-image/ROI/RNA-expression matrices downloaded; no imaging-qualified paired sample size or model training yet.
 
 ## Data / literature
 WAW-TACE: https://doi.org/10.1148/ryai.240296 ; https://zenodo.org/records/12741586
@@ -54,3 +54,21 @@ GDC fields: https://docs.gdc.cancer.gov/API/Users_Guide/Appendix_A_Available_Fie
 - **Final eligible CT/segmentation/RNA patients: not yet assessed**. The next mandatory gates are CT imaging review, same-patient tumor mask availability, pretreatment timing, GDC file-to-aliquot and sample-code verification, and scanner/phase stability.
 - Artifacts: tcga_rna_overlap_candidates.csv, tcga_ct_phase_patient_prescreen.csv, tcga_ct_phase_series_prescreen.csv and JSON summaries, available in the linked run (retention 30 days).
 - The portal venous filter is a conservative **triage heuristic**, not a deterministic clinical exclusion. Image count >=30 plus SeriesDescription is insufficient to establish diagnostic axial phase or tumor ROI.
+
+## Follow-up: actual GDC file lineage and IDC anatomy audit (2026-10-30)
+- Validated live CI run: https://github.com/kimtk94/Codex/actions/runs/41054539216
+- All 73 TCGA-LIHC CT-RNA case-barcode matched candidates have one STAR-Counts RNA file whose GDC file-specific associated entity barcode includes TCGA code **01 (primary solid tumor)**. This establishes *public metadata file-to-tumor barcode evidence*, NOT RNA quality, tumor purity, tissue image registration, expression download or eligible CT.
+- IDC SEG audit: 254 SEG series on 71 of the 73 CT-RNA candidates. Their coded segment labels consist of **112 Liver segmentation series** and **142 Tumor infiltration by lymphocytes present annotations**. The TIL annotations refer to digital pathology and **must never be mistaken for CT tumor ROIs**.
+- Of 112 liver SEG series, **95** directly reference source TCIA CT SeriesInstanceUID, spanning **36 patients**.
+- **0 source-CT-linked tumor-lesion ROI candidates identified in current IDC SEG metadata**. Absence in this subset does not prove no alternative/public/paper-specific tumor annotations exist.
+- Image-only liver masks cannot substitute for tumor lesion segmentations; annotate tumor lesions by a documented image-review workflow if needed.
+- TCIA warns that DICOM study dates are de-identified with collection/site-dependent offsets. GDC times use relative clinical days; **do not join absolute imaging and tissue calendar dates** without an approved harmonized method. Source https://www.cancerimagingarchive.net/collection/tcga-lihc/
+- BAMF AIMI source liver organ mask repository (not tumor ROI): https://github.com/bamf-health/aimi-liver-ct
+- IDC segmentation anatomy index documentation: https://github.com/ImagingDataCommons/IDC-REST-MCP/blob/main/docs/user-guide.md
+
+### CT review prioritization
+- Automated sorted review queue of 73 candidates: P1=20, P2=5, P3=10, P4=3, P5=6, P6=29.
+- P1 is the 20 patients with explicit PV series-text evidence **and** a CT-matched liver-only mask; this is review priority, NOT diagnosis/eligibility.
+- Review queue artifact: tcga_hcc_radiogenomics_review_queue.csv
+- Next: select actual CT series per patient, visually confirm CT contrast phase and tumor presence, obtain lesion ROI with documented protocol/rater assessment, then freeze true paired eligible n. Clinical stage and covariate availability before feature modeling.
+- Preserve all 73 as metadata candidates; avoid excluding patients merely for uninformative SeriesDescription.
