@@ -38,6 +38,19 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(states["BODY_EMPTY_MIME"],1)
         self.assertEqual(states["HEADER_ONLY_BODY_PENDING"],1)
 
+    def test_verified_oversize_is_distinct_from_empty_body_and_pending(self):
+        ids=[["Mail UID"],["inbox:1"],["inbox:2"],["inbox:3"]]
+        states=[["Classification"],["WEB_REVIEW_CACHE"],
+                ["BODY_OVERSIZE_MIME"],["BODY_EMPTY_MIME"]]
+        n,by_class=self.sheet(ids=ids,statuses=states)
+        self.assertEqual(n,3)
+        self.assertEqual(by_class["BODY_OVERSIZE_MIME"],1)
+        row=m.health_record("success",n,by_class,
+                            "2026-10-30 23:55:00 KST")
+        self.assertIn("oversize_not_extracted=1",row[3])
+        self.assertIn("original_no_text=1",row[3])
+        self.assertIn("header_only=0",row[3])
+
     def test_unknown_status_cannot_be_published_as_pass(self):
         with self.assertRaisesRegex(RuntimeError,"UNKNOWN_STATUS"):
             self.sheet(statuses=[
