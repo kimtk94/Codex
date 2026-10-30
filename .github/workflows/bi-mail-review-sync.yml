@@ -15,6 +15,9 @@ on:
         default: true
   schedule:
     - cron: "17,47 * * * *" # away from top-of-hour Actions queue spikes
+  workflow_run:
+    workflows: ['CSS Web Mail Body Sync', 'SFDC Three Report Mail Digestion']
+    types: [completed]
 permissions:
   contents: read
 concurrency:
@@ -62,7 +65,7 @@ jobs:
         run: python automation/css/test_bi_mail_sync_google_integration.py
   sync:
     needs: test
-    if: github.event_name != 'pull_request' && needs.test.result == 'success'
+    if: ${{ github.event_name != 'pull_request' && needs.test.result == 'success' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.name == 'CSS Web Mail Body Sync' || github.event.workflow_run.name == 'SFDC Three Report Mail Digestion'))) }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 12
