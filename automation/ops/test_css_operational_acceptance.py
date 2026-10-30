@@ -63,6 +63,61 @@ class TestAcceptance(unittest.TestCase):
         s=states(data())
         self.assertEqual(s["Owner-authenticated Preview E2E"],"BLOCK")
         self.assertEqual(s["Production READY SHA parity"],"BLOCK")
+    def test_overnight_last_17_subscription_stays_pass(self):
+        from css_operational_acceptance import report_due_slot, report_slot_state
+        now=dt.datetime(2026,10,31,0,23,tzinfo=KST)
+        d=data()
+        for row in d["reports"][1:]:
+            row[1]="2026-10-30 17:00:05 KST"
+        self.assertEqual(report_due_slot(now).strftime("%Y-%m-%d %H:%M"),
+                         "2026-10-30 17:00")
+        self.assertEqual(
+            {r[1]:r[2] for r in build(d,now)[1:]}["Three subscription Reports"],
+            "PASS")
+        self.assertEqual(report_slot_state([
+            dt.datetime(2026,10,30,17,0,5,tzinfo=KST)],now)[0],"PASS")
+
+    def test_missing_evening_report_is_not_hidden_overnight(self):
+        from css_operational_acceptance import report_slot_state
+        for hour,minute,expected in [(17,39,"PASS"),(17,40,"WARN"),
+                                     (23,5,"BLOCK")]:
+            # Test newest source 12:00: before the 17:40 due, it is current,
+            # after the due it becomes missing, and then a hard data block.
+            now=dt.datetime(2026,10,30,hour,minute,tzinfo=KST)
+            x=dt.datetime(2026,10,30,12,0,5,tzinfo=KST)
+            self.assertEqual(report_slot_state([x],now)[0],expected)
+        now=dt.datetime(2026,10,31,0,23,tzinfo=KST)
+        old=dt.datetime(2026,10,30,12,0,5,tzinfo=KST)
+        self.assertEqual(report_slot_state([old],now)[0],"BLOCK")
+
+    def test_november_does_not_reuse_october_verified_revenue(self):
+        now=dt.datetime(2026,11,1,0,55,tzinfo=KST)
+        d=data()
+        states={r[1]:r[2] for r in build(d,now)[1:]}
+        self.assertEqual(states["Gross/net invoice parity"],"BLOCK")
+        self.assertEqual(states["Canonical vs stale legacy"],"BLOCK")
+
+    def test_verified_zero_invoice_month_can_be_zero_not_missing(self):
+        now=dt.datetime(2026,11,1,0,55,tzinfo=KST)
+        d=data()
+        d["lifecycle"].append(["2026-11","0","","","","0","","","","","",
+                               "2026-11-01 00:53:00 KST"])
+        d["net"].append(["2026-11","0","0","0.000","0","","",
+                         "2026-11-01 00:53:00 KST",
+                         "INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED"])
+        d["authority"].extend([
+            ["2026-11","","CANONICAL_ACTUAL_GROSS","0","0",
+             "VAT_INCLUDED","MATCHED_TO_NET_AUDIT","YES",
+             "2026-11-01 00:53:00 KST"],
+            ["2026-11","","CANONICAL_ISSUED_NET","0","0",
+             "VAT_EXCLUDED","MATCHED_TO_INVOICE_SOURCE","YES",
+             "2026-11-01 00:53:00 KST"]
+        ])
+        s={r[1]:r[2] for r in build(d,now)[1:]}
+        self.assertEqual(s["Gross/net invoice parity"],"PASS")
+        self.assertEqual(s["Canonical vs stale legacy"],"PASS")
+        self.assertEqual(s["Production acceptance"],"BLOCK")
+
     def test_report_success_refreshes_ledger_not_failed_reruns(self):
         from pathlib import Path
         workflow=(Path(__file__).resolve().parents[2]/".github/workflows/css-operational-acceptance.yml").read_text()
