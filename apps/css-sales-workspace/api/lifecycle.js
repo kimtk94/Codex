@@ -1,6 +1,7 @@
 const {GoogleAuth}=require('google-auth-library');
 const {projectPersonalLeads}=require('../lib/personal-leads');
 const {projectAutomationConsole}=require('../lib/automation-console');
+const {projectOperationalAcceptance}=require('../lib/operational-acceptance');
 const {checkOwner,ownerSessionCookie}=require('../lib/lifecycle-owner-auth');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
@@ -21,6 +22,15 @@ module.exports=async function handler(req,res){
     const auth=new GoogleAuth({credentials:JSON.parse(raw),scopes:['https://www.googleapis.com/auth/spreadsheets.readonly']});
     const client=await auth.getClient();
     const access=await client.getAccessToken();
+    // Start independently so an optional operations status fetch cannot stall
+    // or break business data. This source is exclusively read-only.
+    const acceptanceRange="'CSS Operational Acceptance'!A1:H20";
+    const acceptanceUrl='https://sheets.googleapis.com/v4/spreadsheets/'+SHEET+
+      '/values/'+encodeURIComponent(acceptanceRange);
+    const acceptancePromise=fetch(acceptanceUrl,{
+      headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(8000)
+    }).then(async response=>response.ok?(await response.json()).values||[]:[])
+      .catch(()=>[]);
     const url='https://sheets.googleapis.com/v4/spreadsheets/'+SHEET+'/values:batchGet?'+ranges.map(x=>'ranges='+encodeURIComponent(x)).join('&');
     const reply=await fetch(url,{headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(15000)});
     if(!reply.ok)throw new Error('SHEETS_HTTP_'+reply.status);
@@ -222,6 +232,9 @@ module.exports=async function handler(req,res){
         progress:{available:false},tracks:{available:false,items:[]},workflows:{available:false,items:[]},
         health:[],issues:['AUTOMATION_CONSOLE_SCHEMA_REVIEW_REQUIRED']};
     }
+    // The official report can say READY, but this UI never authorizes a
+    // Production promotion. Missing/stale/inconsistent evidence fails closed.
+    automation.acceptance=projectOperationalAcceptance(await acceptancePromise);
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'NONE',sync:r[7]||'',sender:r[1]||'',subject:r[9]||''}));
     return res.status(200).json({months,revenueNetStatus,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,mailBackfill,automation,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
   }catch(e){return res.status(503).json({error:'DATA_FETCH_FAILED'});}
