@@ -43,7 +43,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: sales-weekly-writer
+  group: ${{ github.event_name == 'pull_request' && format('sfdc-three-report-pr-{0}', github.event.pull_request.number) || 'sales-weekly-writer' }}
   cancel-in-progress: false
 jobs:
   validate-and-stage:
