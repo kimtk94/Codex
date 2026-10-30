@@ -65,6 +65,10 @@ jobs:
         run: python research/hcc/ci/mri_hallmark_rna_only_redundancy_qc.py --offline-test
       - name: Offline GDC clinical treatment and sample temporal prescreen regression
         run: python research/hcc/ci/mri_gdc_clinical_eligibility_prescreen.py --offline-test
+      - name: Offline clinical adjudication queue prevents unsupported eligibility upgrades
+        run: python research/hcc/ci/mri_clinical_gate_review_queue.py --offline-test
+      - name: Generate 14-case clinical reviewer queue (no remote GDC repeat)
+        run: python research/hcc/ci/mri_clinical_gate_review_queue.py --output artifacts/hcc_clinical_gate_queue
       - name: Audit saved 14-patient Hallmark QC for pathway redundancy and center effects
         run: python research/hcc/ci/mri_hallmark_rna_only_redundancy_qc.py --output artifacts/hcc_rna_hallmark_descriptive
       - name: Offline multi-lesion and liver mask inter-rater Dice regression fixtures
