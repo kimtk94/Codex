@@ -37,6 +37,10 @@ jobs:
         run: python research/hcc/ci/liverhccseg_mri_rna_audit.py --offline-test
       - name: Offline MRI NIfTI ZIP central directory parser fixture
         run: python research/hcc/ci/zenodo_nifti_zip_inventory.py --offline-test
+      - name: Install NumPy for NIfTI voxel smoke test
+        run: python -m pip install "numpy>=1.26,<3"
+      - name: Offline NIfTI nonempty-mask voxel fixture
+        run: python research/hcc/ci/mri_mask_voxel_audit.py --offline-test
   metadata-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -76,11 +80,13 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install XLSX reader for metadata only
-        run: python -m pip install "openpyxl>=3.1,<4"
+        run: python -m pip install "openpyxl>=3.1,<4" "numpy>=1.26,<3"
       - name: Match LiverHccSeg MRI metadata with GDC primary-tumor RNA
         run: python research/hcc/ci/liverhccseg_mri_rna_audit.py --output artifacts/hcc_mri
       - name: Verify published MRI tumor-mask archive member names (bounded HTTP ranges)
         run: python research/hcc/ci/zenodo_nifti_zip_inventory.py --output artifacts/hcc_mri
+      - name: Audit one nonempty tumor NIfTI mask per patient via bounded ZIP ranges
+        run: python research/hcc/ci/mri_mask_voxel_audit.py --output artifacts/hcc_mri
       - uses: actions/upload-artifact@v4
         if: always()
         with:
