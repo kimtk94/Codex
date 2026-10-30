@@ -22,9 +22,9 @@ HEAD = ["Month", "Issued Invoice Gross KRW (VAT incl)",
         "Forecast KRW (estimate, separate)",
         "Verified At KST", "Evidence State"]
 ALLOWED = {"FILENAME_PARSED", "VERIFIED_LEGACY_FILENAME", "EXISTS_IN_LEGACY"}
-REPLY = re.compile(r"^\\s*(?:re|fw|fwd|회신|답장|전달)\\s*[:：]", re.I)
+REPLY = re.compile(r"^\s*(?:re|fw|fwd|회신|답장|전달)\s*[:：]", re.I)
 NOTICE = re.compile(
-    r"^\\s*❗?\\ufe0f?\\s*Notice:\\s*Invoice Issued\\s*&\\s*Statement Confirmed\\b", re.I)
+    r"^\s*❗?\ufe0f?\s*Notice:\s*Invoice Issued\s*&\s*Statement Confirmed\b", re.I)
 
 
 def cell(row, idx):
@@ -59,7 +59,7 @@ def build(invoice_rows, monthly_rows, now):
     evidence = {}
     for row in invoice_rows[1:]:
         invoice = cell(row, 0)
-        if not re.fullmatch(r"209126\\d{6}", invoice) or cell(row, 10) not in ALLOWED:
+        if not re.fullmatch(r"209126\d{6}", invoice) or cell(row, 10) not in ALLOWED:
             continue
         subject = cell(row, 6)
         if REPLY.match(subject) or not NOTICE.match(subject):
@@ -82,7 +82,7 @@ def build(invoice_rows, monthly_rows, now):
         evidence[invoice] = value
 
     monthly = {cell(r,0): r for r in monthly_rows[1:]
-               if re.fullmatch(r"20\\d{2}-(?:0[1-9]|1[0-2])",cell(r,0))}
+               if re.fullmatch(r"20\d{2}-(?:0[1-9]|1[0-2])",cell(r,0))}
     if "2026-10" not in monthly:
         raise ValueError("OCTOBER_SOURCE_MISSING")
     verified = {}
@@ -130,8 +130,15 @@ def main():
         raise ValueError("REFUSE_TO_SHRINK_NET_REVENUE_AUDIT")
     put(api, DST, TAB, "A1", generated, "RAW")
     observed = get(api, DST, TAB, "A1:I" + str(len(generated)))
-    if observed != [[str(v) for v in row] for row in generated]:
-        raise ValueError("REVENUE_NET_VAT_READBACK_MISMATCH")
+    if len(observed) != len(generated) or observed[0] != HEAD:
+        raise ValueError("REVENUE_NET_VAT_READBACK_SCHEMA_MISMATCH")
+    for expected, actual in zip(generated[1:], observed[1:]):
+        if any(cell(actual,j) != str(expected[j]) for j in (0,7,8)):
+            raise ValueError("REVENUE_NET_VAT_READBACK_ID_MISMATCH")
+        for j in (1,2,3,4,5,6):
+            shown = re.sub(r"[₩,\s]", "", cell(actual,j))
+            if Decimal(shown) != Decimal(str(expected[j])):
+                raise ValueError("REVENUE_NET_VAT_READBACK_VALUE_MISMATCH")
     oct_row = next(r for r in generated if r[0] == "2026-10")
     print("NET_VAT_VERIFIED month=2026-10 invoices=" + str(oct_row[4])
           + " gross_krw=" + str(oct_row[1]) + " net_krw=" + str(oct_row[2]),
