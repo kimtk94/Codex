@@ -1,5 +1,10 @@
 name: Feishu Latest Four Schema Audit
 on:
+  pull_request:
+    paths:
+      - 'automation/feishu/latest_four_mirror_parity.py'
+      - 'automation/feishu/test_latest_four_mirror_parity.py'
+      - '.github/workflows/feishu-latest-four-schema.yml'
   workflow_dispatch:
   push:
     branches: [main]
@@ -7,6 +12,8 @@ on:
       - automation/feishu/.trigger-four-schema
       - 'automation/feishu/latest_four_schema_audit.py'
       - 'automation/feishu/test_latest_four_schema_header.py'
+      - 'automation/feishu/latest_four_mirror_parity.py'
+      - 'automation/feishu/test_latest_four_mirror_parity.py'
       - '.github/workflows/feishu-latest-four-schema.yml'
   schedule:
     - cron: "17,47 * * * *"
@@ -16,7 +23,7 @@ jobs:
   audit:
     environment: TaehoonServer
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,8 +31,21 @@ jobs:
           python-version: "3.11"
       - name: Validate redacted duplicate-header diagnostics offline
         run: python3 -m unittest discover -s automation/feishu -p 'test_latest_four_schema_header.py' -v
-      - name: Read latest sheet headers only
+      - name: Validate side-by-side receipt and eTax mirror headers offline
+        run: python3 -m unittest discover -s automation/feishu -p 'test_latest_four_mirror_parity.py' -v
+      - name: Read latest raw Feishu sheet headers only
+        if: ${{ github.event_name != 'pull_request' }}
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
         run: python3 automation/feishu/latest_four_schema_audit.py
+      - name: Install Google Sheets readonly client (mirror check)
+        if: ${{ always() && github.event_name != 'pull_request' }}
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Independently compare latest Feishu source IDs to sanitized mirror panels
+        if: ${{ always() && github.event_name != 'pull_request' }}
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: python3 automation/feishu/latest_four_mirror_parity.py
