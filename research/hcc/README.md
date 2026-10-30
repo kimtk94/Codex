@@ -4,6 +4,7 @@
 
 - **Master verification standard and manuscript significance/claim rubric:** [HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md)
 - **27 live evidence checkpoints:** [HCC_VERIFICATION_LEDGER.csv](HCC_VERIFICATION_LEDGER.csv)
+- **Two independent tissue-purity source checks (DNA ABSOLUTE vs CPE):** [HCC_MRI_14_CROSSMETHOD_PURITY_VALIDATION_20261031.md](HCC_MRI_14_CROSSMETHOD_PURITY_VALIDATION_20261031.md)
 - **Actual 14-person GDC treatment, specimen day and pathology slide prescreen:** [HCC_MRI_14_CLINICAL_TREATMENT_ELIGIBILITY_AUDIT_20261031.md](HCC_MRI_14_CLINICAL_TREATMENT_ELIGIBILITY_AUDIT_20261031.md) · [14-patient clinical evidence CSV](HCC_MRI_14_GDC_CLINICAL_TREATMENT_GATE_20261031.csv)
 - **Locked MRI–RNA Hallmark 12-test analysis plan (PRE-ASSOCIATION):** [HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md](HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md)
 - **Real RNA 14-sample Hallmark score QC, source hash and redundancy findings:** [HCC_MRI_14_HALLMARK_PATHWAY_QC_REPORT_20261031.md](HCC_MRI_14_HALLMARK_PATHWAY_QC_REPORT_20261031.md) · [14×4 scores CSV](HCC_MRI_14_MSIGDB_HALLMARK_RANK_SCORE_20261031.csv)
@@ -104,3 +105,12 @@ The `research/hcc/ci/mri_gdc_file_manifest.py` script prepares exact TCGA-linked
 - GDC slide tumor-cell and tumor-nuclei estimates were present for all 14 but **not confirmed to represent the exact sequenced aliquot** and are not genomic purity. Patient-level linked slide `percent_tumor_cells` varies 50–100%; use only as a QC review flag.
 - TCIA shifted image DICOM dates and GDC diagnosis-relative days cannot be directly aligned. The TCIA collection-level baseline-pre-surgical statement **does not establish untreated status for each MRI**. All 14 remain unqualified **candidate cases** pending authoritative pre-intervention MRI chronology and expert lesion-source review.
 - HCC-14 = **PARTIAL** (clinical metadata screened), HCC-17 = **PENDING** (final eligible n unassessed), HCC-20 = **PENDING** (no RNA-image tests), claim ceiling S0. One-time live GDC API PR job removed after passing; deterministic fail-closed tests retained in PR CI.
+
+
+## Independent 14-sample purity proxy cross-validation — 2026-10-31
+
+- Actual [GDC ABSOLUTE DNA purity crosswalk run #121](https://github.com/kimtk94/Codex/actions/runs/41090891246): 13/14 frozen tumor RNA cases matched the *same 16-character TCGA tumor specimen* in official PanCancer Atlas ABSOLUTE. Median copy-number purity estimate 0.74, range 0.20–1.00; one case (TCGA-DD-A4NJ) without ABSOLUTE match. **Never label same specimen as same DNA/RNA aliquot.**
+- Actual [Aran 2015 CPE supplement crosswalk run #128](https://github.com/kimtk94/Codex/actions/runs/41091879111): same tumor specimen matched **14/14**, historical CPE median 0.81565, range 0.4591–0.9763. No ABSOLUTE values were reported in this older supplement for these 14 cases, so do not conflate CPE with current GDC PanCanAtlas ABSOLUTE.
+- Major disagreement: TCGA-G3-A3CJ ABSOLUTE 0.20 vs CPE 0.8806; TCGA-G3-A7M7 ABSOLUTE 0.58 vs CPE 0.836. Low-purity review cases: G3-A3CJ, DD-A4NH, G3-AAV3 under ABSOLUTE 0.5; DD-A4NH, G3-AAV3 under CPE 0.5. None excluded solely on method-dependent proxies.
+- [Permanent 14-sample purity analysis and confounding interpretation](HCC_MRI_14_CROSSMETHOD_PURITY_VALIDATION_20261031.md) · [ABSOLUTE source CSV](HCC_MRI_14_PANCAN_ABSOLUTE_PURITY_PROXY_20261031.csv) · [CPE source CSV](HCC_MRI_14_ARAN2015_CPE_REFERENCE_PURITY_20261031.csv).
+- HCC-16 stays PARTIAL. HCC-14 treatment chronology remains PARTIAL; HCC-17 qualified paired n remains NOT ASSESSED; HCC-20 image–RNA association remains PENDING and maximum manuscript claim S0. Offline CI prohibits silent sample substitutions and arbitrary clinical eligibility flags.
