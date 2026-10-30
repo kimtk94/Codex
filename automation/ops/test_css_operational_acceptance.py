@@ -50,4 +50,12 @@ class TestAcceptance(unittest.TestCase):
         s=states(data())
         self.assertEqual(s["Owner-authenticated Preview E2E"],"BLOCK")
         self.assertEqual(s["Production READY SHA parity"],"BLOCK")
+    def test_report_success_refreshes_ledger_not_failed_reruns(self):
+        from pathlib import Path
+        workflow=(Path(__file__).resolve().parents[2]/".github/workflows/css-operational-acceptance.yml").read_text()
+        self.assertIn('workflows: ["SFDC Three Report Mail Digestion"]',workflow)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'",workflow)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'",workflow)
+        self.assertIn("run: python automation/ops/css_operational_acceptance.py",workflow)
+        self.assertNotIn("request_promote",workflow)
 if __name__=="__main__":unittest.main()
