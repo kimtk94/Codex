@@ -7,7 +7,7 @@ on:
       - '.github/workflows/css-operational-acceptance.yml'
   workflow_dispatch:
   workflow_run:
-    workflows: ["SFDC Three Report Mail Digestion"]
+    workflows: ["SFDC Three Report Mail Digestion", "CSS Web Mail Body Sync"]
     types: [completed]
     branches: [main]
   schedule:
@@ -40,7 +40,9 @@ jobs:
         run: python -m unittest discover -s automation/ops -p 'test_css_operational_acceptance.py' -v
   publish:
     needs: offline
-    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
+    # Successful SFDC report ingestion refreshes a PASS source, while a failed
+    # QQ body sync must also publish its BLOCK evidence. Never use a PR source.
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.head_branch == 'main' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.name == 'CSS Web Mail Body Sync'))) }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 12
