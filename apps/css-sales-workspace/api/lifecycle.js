@@ -63,6 +63,8 @@ module.exports=async function handler(req,res){
       month:x[0],actual:money(x[1]),pending:money(x[2]),forecast:money(x[3]),
       combined:money(x[4]),invoices:money(x[5]),openStatements:money(x[6]),
       unknownStatements:money(x[7]),forecastProjects:money(x[8]),quality:x[10]||'',
+      actualVatExcluded:/^NET_INVOICE_/.test(x[10]||''),
+      combinedTaxBasis:money(x[2]) ? 'MIXED_OR_UNVERIFIED_PENDING_VAT' : 'INVOICE_ONLY',
       verifiedBilling:money(x[12])||money(x[1])+money(x[2]),
       invoiceKUSD:money(x[13]),pendingKUSD:money(x[14]),
       verifiedBillingKUSD:money(x[15]),forecastKUSD:money(x[16]),
