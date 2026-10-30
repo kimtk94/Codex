@@ -39,15 +39,22 @@ def emit(rows, month, name, role, count, amount, tax, parity, allowed, now, acti
                  now, action])
 
 
-def build(monthly, net, historical, legacy, completeness, now, month="2026-10"):
+def build(monthly, net, historical, legacy, completeness, now, month=None):
     if monthly[0][:2] != ["Month", "Actual Invoice KRW"] or (
         net[0][:3] != ["Month", "Issued Invoice Gross KRW (VAT incl)",
                        "Issued Net Revenue KRW (VAT excl)"]):
         raise ValueError("CANONICAL_REVENUE_SCHEMA_MISSING")
+    month=month or now.astimezone(KST).strftime("%Y-%m")
     live = month_row(monthly, month)
     verified = month_row(net, month)
     if not live or not verified:
-        raise ValueError("CURRENT_MONTH_INVOICE_SOURCE_MISSING")
+        stamp=now.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST")
+        # A month with no published source is not verified zero revenue.
+        # Publish explicit PENDING for that month, never reuse October totals.
+        return [HEAD,[month,"Current Month Invoice Sources",
+            "CURRENT_MONTH_NOT_PUBLISHED","UNKNOWN","UNKNOWN","VAT_UNKNOWN",
+            "SOURCE_NOT_READY","NO",stamp,
+            "Wait for both canonical monthly invoice sources; no revenue assertion"]]
     gross, count = krw(cell(live, 1)), krw(cell(live, 5))
     net_gross, net_amount, net_count = (
         krw(cell(verified, 1)), krw(cell(verified, 2)), krw(cell(verified, 4)))
@@ -65,7 +72,7 @@ def build(monthly, net, historical, legacy, completeness, now, month="2026-10"):
          "Use for VAT-exclusive issued revenue; not cash collected")
 
     legacy_checks = []
-    if historical and cell(historical[0], 0).startswith("2026-10 ACTUAL"):
+    if month=="2026-10" and historical and cell(historical[0], 0).startswith("2026-10 ACTUAL"):
         row = next((r for r in historical[1:]
                     if cell(r, 0) == "Actual (issued invoice)"), None)
         if row:
@@ -83,7 +90,7 @@ def build(monthly, net, historical, legacy, completeness, now, month="2026-10"):
         emit(result, month, name, "LEGACY_SNAPSHOT", n, amount, "VAT_INCLUDED",
              "MATCHED_BUT_NOT_CANONICAL" if same else "STALE_SOURCE_DO_NOT_USE",
              "NO", when, "Keep historical source read-only; use canonical VAT-labeled KPI")
-    if completeness and cell(completeness[0], 0).startswith("TAX INVOICE COMPLETENESS"):
+    if month=="2026-10" and completeness and cell(completeness[0], 0).startswith("TAX INVOICE COMPLETENESS"):
         row = next((r for r in completeness[1:]
                     if cell(r, 0) == "October invoice count"), None)
         if row:
@@ -106,14 +113,23 @@ def main():
     legacy_three = get(api, DST, "Revenue 3-Way Audit 2026-10", "A1:C30")
     legacy_css = get(api, SRC, "CSS Invoice Monthly Summary", "A1:P30")
     legacy_count = get(api, DST, "Tax Invoice Completeness Audit", "A1:C20")
-    generated = build(monthly, net, legacy_three, legacy_css, legacy_count,
-                      dt.datetime.now(dt.timezone.utc))
-    ensure(api, DST, TAB)
-    current = get(api, DST, TAB, "A1:J30")
+    now=dt.datetime.now(dt.timezone.utc)
+    month=now.astimezone(KST).strftime("%Y-%m")
+    generated = build(monthly, net, legacy_three, legacy_css, legacy_count,now,month)
+    ensure(api,DST,TAB)
+    current = get(api,DST,TAB,"A1:J100")
     if current and current[0] != HEAD:
         raise ValueError("REFUSE_TO_OVERWRITE_FOREIGN_AUTHORITY_TAB")
-    put(api, DST, TAB, "A1", generated, "RAW")
-    actual = get(api, DST, TAB, "A1:J" + str(len(generated)))
+    # Preserve previously audited months (including 2026-10) across rollover.
+    # Their original verification time remains unchanged, never promoted to
+    # a fresh current-month source.
+    archived=[r for r in current[1:] if cell(r,0) and cell(r,0)!=month
+              and re.fullmatch(r"\d{4}-(?:0[1-9]|1[0-2])",cell(r,0))]
+    if len(archived)>150:
+        raise ValueError("REVENUE_AUTHORITY_ARCHIVE_UNBOUNDED")
+    generated.extend(archived)
+    put(api,DST,TAB,"A1",generated,"RAW")
+    actual = get(api,DST,TAB,"A1:J" + str(len(generated)))
     if len(actual) != len(generated) or actual[0] != HEAD:
         raise ValueError("AUTHORITY_READBACK_MISMATCH")
     for expected, observed in zip(generated[1:], actual[1:]):
@@ -121,7 +137,7 @@ def main():
             if cell(observed, idx) != str(expected[idx]):
                 raise ValueError("AUTHORITY_READBACK_ROW_MISMATCH")
     statuses = [r for r in generated[1:] if r[6] == "STALE_SOURCE_DO_NOT_USE"]
-    print(f"REVENUE_AUTHORITY_CHECK month=2026-10 canonical_count={generated[1][3]} "
+    print(f"REVENUE_AUTHORITY_CHECK month={month} canonical_count={generated[1][3]} "
           f"legacy_stale_source_count={len(statuses)} published=YES")
 
 
