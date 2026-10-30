@@ -85,12 +85,15 @@ jobs:
           if [ -n "$AS_OF" ]; then args+=(--as-of "$AS_OF"); fi
           if [ "$FETCH" = 'true' ]; then args+=(--fetch); fi
           python research/kalman_data_backfill/audit_stage.py "${args[@]}"
-      - name: Upload manifest and optional staging data (no original raw file)
+      - name: Upload metadata only (never publish SIP-priced bars)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: kalman-us-etf-gap-evidence
-          path: ${{ runner.temp }}/kalman_gap_results/
+          path: |
+            ${{ runner.temp }}/kalman_gap_results/summary.json
+            ${{ runner.temp }}/kalman_gap_results/missing_bars.csv
+            ${{ runner.temp }}/kalman_gap_results/unfilled_gaps.csv
           retention-days: 7
           if-no-files-found: warn
       - name: Remove downloaded source files from runner
