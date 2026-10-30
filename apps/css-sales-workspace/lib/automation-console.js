@@ -78,8 +78,11 @@ function projectAutomationConsole(progressRows, trackRows, healthRows, workflowR
       });
       if(state!=='PASS_EXECUTION_ONLY')result.issues.push('GITHUB_WORKFLOW: '+name+' — '+state);
     }
-    if(items.length===12)result.workflows={available:true,items};
-    else result.issues.push('GITHUB_WORKFLOW_HEALTH_INCOMPLETE');
+    if(items.length===12)result.workflows={available:true,items,coverage:'COMPLETE_12_OF_12'};
+    else if(items.length===11){
+      result.workflows={available:true,items,coverage:'PREVIOUS_SOURCE_11_OF_12'};
+      result.issues.push('GITHUB_WORKFLOW_HEALTH_PARTIAL_WAITING_FOR_NEW_CHECKPOINT');
+    }else result.issues.push('GITHUB_WORKFLOW_HEALTH_INCOMPLETE');
   }else{
     result.issues.push('GITHUB_WORKFLOW_HEALTH_UNAVAILABLE');
   }
