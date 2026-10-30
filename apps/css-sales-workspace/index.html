@@ -150,7 +150,39 @@ const bf=data.mailBackfill||{};
 $('mailBackfillStatus').textContent=bf.state==='NOT_VERIFIED'
   ? '본문 동기화 감사 정보가 아직 검증되지 않았습니다.'
   : 'QQ 메일 본문 백필 · '+(bf.state||'UNKNOWN')+' · 본문 '+(bf.bodyReady||0)+'건 / MIME 원문에 텍스트 없음 '+(bf.mimeEmpty||0)+'건 / 남은 대상 '+(bf.remaining||0)+'건 · '+(bf.updated||'');
-put('mailRows',sorted.map(r=>{let btn=elt('button',r.body?'본문 열기':'본문 미수집','rowbutton');btn.disabled=!r.body;btn.addEventListener('click',()=>{$('dialogSubject').textContent=r.subject;$('dialogMeta').textContent=r.sender+' · '+r.received;$('dialogBody').textContent=r.body;$('mailDialog').showModal()});return[r.priority,r.days+'일',r.sender+' · '+r.subject,r.received,r.project,btn]}));
+put('mailRows',sorted.map(r=>{
+ const btn=elt('button',r.uid?'본문 열기':'UID 없음','rowbutton');btn.disabled=!r.uid;
+ btn.addEventListener('click',async()=>{
+   btn.disabled=true;btn.textContent='확인 중';
+   try{
+     const opts={cache:'no-store',credentials:'same-origin'};
+     if(auth)opts.headers={Authorization:'Bearer '+auth};
+     const response=await fetch('/api/lifecycle/mail-body?uid='+encodeURIComponent(r.uid),opts);
+     let payload={};
+     try{payload=await response.json()}catch(_){}
+     $('dialogSubject').textContent=r.subject;
+     $('dialogMeta').textContent=r.sender+' · '+r.received;
+     if(response.ok){
+       $('dialogBody').textContent=payload.body||'';
+       r.bodyStatus=payload.classification||'BODY_VERIFIED';
+     }else if(response.status===404){
+       $('dialogBody').textContent='본문이 아직 캐시되지 않았거나 원본 MIME에 텍스트가 없습니다. ('+(payload.error||'NOT_CACHED')+')';
+     }else if(response.status===401){
+       $('dialogBody').textContent='로그인 세션이 만료되었습니다. Vercel 계정으로 다시 로그인해 주세요.';
+       $('login').hidden=false;
+     }else{
+       $('dialogBody').textContent='본문 조회 오류: '+(payload.error||response.status);
+     }
+     $('mailDialog').showModal();
+   }catch(error){
+     $('dialogSubject').textContent=r.subject;
+     $('dialogMeta').textContent=r.sender+' · '+r.received;
+     $('dialogBody').textContent='메일 본문 조회에 실패했습니다. '+error.message;
+     $('mailDialog').showModal();
+   }finally{btn.disabled=false;btn.textContent='본문 열기'}
+ });
+ return[r.priority,r.days+'일',r.sender+' · '+r.subject,r.received,r.project,btn];
+}));
 const lq=$('leadQuery').value.toLowerCase();put('leadRows',ls.filter(r=>!lq||[r.institution,r.customer,r.email].join(' ').toLowerCase().includes(lq)).map(r=>[r.priority,r.institution+' · '+r.customer,r.status,r.due,r.description]));
 drawAutomation();
 const healthMap=new Map((data.status||[]).map(r=>[r.name,r]));
