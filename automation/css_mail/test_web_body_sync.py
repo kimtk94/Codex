@@ -212,7 +212,7 @@ class BodyTests(unittest.TestCase):
                                        'CSS_WEB_BODY_BATCH':'80'}):
             mod.sync()
         self.assertEqual(timeouts,['transient_read_timeout'])
-        self.assertEqual(audit[1][1],'READY')
+        self.assertEqual(audit[1][1],'WINDOW_CAUGHT_UP')
         self.assertEqual(audit[1][3:8],[1,1,0,0,0])
         self.assertTrue(imap.readonly)
         self.assertEqual(imap.fetch,('FETCH','41012','(BODY.PEEK[])'))
@@ -237,7 +237,7 @@ class BodyTests(unittest.TestCase):
         self.assertEqual(row[13],"12345")
         row2=mod.progress_record([stub.COLS,mail("41012")],records,bodies,status,
                                  0,0,0,0,{},NOW,"")
-        self.assertEqual(row2[1],"READY")
+        self.assertEqual(row2[1],"WINDOW_CAUGHT_UP")
         with self.assertRaisesRegex(RuntimeError,"DUPLICATE_UID"):
             mod.progress_record([stub.COLS], [["uid"],["inbox:1"],["inbox:1"]],
                                 [["body"],[],[]],[["status"],[],[]],
