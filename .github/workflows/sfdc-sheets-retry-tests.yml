@@ -1,0 +1,32 @@
+name: SFDC Sheets Quota Retry Regression
+on:
+  pull_request:
+    paths:
+      - 'automation/sfdc/followup_stage1.py'
+      - 'automation/sfdc/test_sheets_get_retry.py'
+      - '.github/workflows/sfdc-sheets-retry-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/sfdc/followup_stage1.py'
+      - 'automation/sfdc/test_sheets_get_retry.py'
+      - '.github/workflows/sfdc-sheets-retry-tests.yml'
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install 'google-auth>=2.35,<3' 'requests>=2.31,<3'
+      - name: Test GET-only bounded quota retries
+        run: python automation/sfdc/test_sheets_get_retry.py
+      - name: Compile shared reader
+        run: python -m py_compile automation/sfdc/followup_stage1.py automation/sfdc/action_dashboard.py
+      - name: Safety boundary
+        run: echo 'OFFLINE_ONLY=true; NO_SFDC_SAVE=true; NO_SHEETS_WRITE=true'
