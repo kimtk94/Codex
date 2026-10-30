@@ -37,6 +37,7 @@ on:
       - 'automation/sfdc/report_fallback_gate.py'
       - 'automation/sfdc/test_report_fallback_gate.py'
       - 'automation/sfdc/test_three_report_email_ingest.py'
+      - 'automation/sfdc/test_three_report_header_prefilter.py'
       - 'automation/sfdc/three_report_relationship_qc.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
 permissions:
@@ -65,6 +66,8 @@ jobs:
         run: python -m pip install 'openpyxl>=3.1,<4' 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Run offline parser regression tests
         run: python automation/sfdc/test_three_report_email_ingest.py
+      - name: Verify headers-first IMAP report filtering offline
+        run: python -m unittest discover -s automation/sfdc -p 'test_three_report_header_prefilter.py' -v
       - name: Test verified relation views
         run: python automation/sfdc/test_three_report_verified_views.py
       - name: Test directional QQ mail evidence offline
