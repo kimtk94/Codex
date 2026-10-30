@@ -39,7 +39,7 @@ def audit():
         raise RuntimeError("LEGACY_SCHEMA_MISMATCH")
     keys=[r[0] for r in ingest_keys[1:] if r and r[0]]
     duplicates=len(keys)-len(set(keys))
-    malformed=sum(not re.fullmatch(r"[^|]+\\|[0-9]+\\|[0-9]+",key) for key in keys)
+    malformed=sum(not re.fullmatch(r"[^|]+\|[0-9]+\|[0-9]+",key) for key in keys)
     newest_ingest=max((t for r in ingest_fetch[1:] if r and (t:=parse_time(r[0]))),default=None)
     newest_legacy=max((t for r in legacy_dates[1:] if r and (t:=parse_time(r[0]))),default=None)
     now=dt.datetime.now(dt.timezone.utc)
