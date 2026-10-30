@@ -1,0 +1,30 @@
+name: Vercel CSS-Kalman Change Scope Audit
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline regression tests
+        run: python -m unittest discover -s scripts -p 'test_vercel_deploy_scope.py' -v
+      - name: Classify actual changed paths (no Vercel writes)
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          python scripts/vercel_deploy_scope.py --base "${PR_BASE:-${PUSH_BASE}}" --head "${HEAD}"
