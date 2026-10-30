@@ -7,13 +7,13 @@ Audits NYSE regular-hours QQQ/QLD SIP 15-minute and daily Parquet files already 
 - Existing source Parquets are read-only. No Drive writes, live-trading changes or model deployment.
 - --fetch uses Alpaca feed=sip, adjustment=all to fetch months containing missing timestamps. Stages only missing timestamps as proposed_additions.parquet; never merges or overwrites original data.
 - Requires a Drive Viewer service account for four existing sources. Optional fetch additionally requires ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY repository secrets with historical SIP entitlement.
-- Workflow output: summary.json, missing_bars.csv, optional unfilled_gaps.csv, proposed_additions.parquet. 24-month query cap prevents unconstrained API pulls.
+- Workflow artifact contains summary.json, missing_bars.csv, and optional unfilled_gaps.csv ONLY. Licensed SIP-priced proposed_additions.parquet is staged on the ephemeral runner and is NOT publicly uploaded. A separate approved private Drive persistence step is required before it can be used. 24-month query cap prevents unconstrained API pulls.
 - File modification time does not prove last OHLC candle timestamp; the audit reads source data.
 - Newly staged quote_volume is an estimate (Alpaca VWAP times volume), not directly measured trade notional.
 
 ## Run in GitHub
 
-Actions -> Kalman US ETF Raw Gap Audit & Staged Backfill -> Run workflow. First run fetch_missing=false for read-only audit and review the output artifact. Then rerun with fetch_missing=true to stage candidates privately, without changing source.
+Actions -> Kalman US ETF Raw Gap Audit & Staged Backfill -> Run workflow. First run fetch_missing=false for read-only audit and review the output artifact. Then rerun with fetch_missing=true to check whether SIP can supply gaps, without changing source. Price data is not uploaded to public Actions artifacts.
 
 ## Local use
 
