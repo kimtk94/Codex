@@ -1,31 +1,55 @@
-# HCC Radiomics and public CT-RNA research
+# HCC Radiomics × RNA-seq — Public cohort research
 
-**Protocol:** [HCC Radiogenomics research and feasibility gates](HCC_RADIOGENOMICS_PROTOCOL_20261030.md)
+## Start here (required for every continuation)
 
-Two related, but distinct analyses:
+- **Master verification standard and manuscript significance/claim rubric:** [HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md)
+- **27 live evidence checkpoints:** [HCC_VERIFICATION_LEDGER.csv](HCC_VERIFICATION_LEDGER.csv)
+- **Scientific hypotheses, cohort design, and methods:** [HCC_RADIOGENOMICS_PROTOCOL_20261030.md](HCC_RADIOGENOMICS_PROTOCOL_20261030.md)
+- **CI script enforcing evidence and claim ceilings:** [ci/validate_research_ledger.py](ci/validate_research_ledger.py)
 
-1. **Primary: TCGA-LIHC CT x tumor RNA-seq radiogenomics.** TCIA CT series metadata matched to GDC TCGA-LIHC primary-tumor STAR-Counts *case IDs*. Only patients with verified CT phase, pretreatment timing, tumor segmentation and linked tumor aliquots proceed to RNA/radiomics association analyses.
-2. **Secondary: TACE prognosis radiomics benchmark.** Train on WAW-TACE (233 listed) and externally test a frozen model on HCC-TACE-Seg (105 listed) after eligibility/phase/endpoint harmonization. These two cohorts DO NOT contain matched RNA-seq cohorts. Existing studies already report weak model transfer; do not position this as new standalone molecular validation.
+Important: Always read the framework **and** ledger first. PASS_METADATA/PASS_TECHNICAL applies only to what was tested. “Qualified paired cohort,” statistical significance, biomarker validity, independent replication, and clinical utility are distinct higher stages.
 
-## Automated public metadata CI
+## Baseline verified (2026-10-30)
 
-Actions -> **HCC Public Cohort Audit** -> Run workflow (feature branch before merge, main after merge).
+| Track | Verified to date | Still not established |
+|---|---|---|
+| TCGA-LIHC CT × tumor RNA | 75 CT patients, 73 case+RNA barcode-linked candidates | CT tumor lesion ROI; clinical eligibility; raw RNA expression QC |
+| TCGA-LIHC LiverHccSeg MRI × tumor RNA | 17 MRI metadata matches; **14 HCC tumor mask NIfTIs with nonzero voxels** and tumor RNA file links | Actual MRI image–tumor mask affine/overlay, pretreatment timing, full RNA expression QC |
+| CT × MRI × RNA | 2 same-patient barcodes | Same lesion and imaging timepoint; not an independent cohort |
+| TACE prognostic imaging | WAW-TACE / HCC-TACE-Seg are two separate clinical benchmark datasets | No paired tumor RNA; no clinically validated new prognostic model |
 
-- TCIA NBIA public API queries CT series for HCC-TACE-Seg and TCGA-LIHC; writes patient-series metadata (no images).
-- GDC public API queries TCGA-LIHC primary tumor STAR - Counts **metadata** and intersects against CT patients; writes candidate counts and public barcodes. This is *not* final CT/ROI/RNA matched eligibility.
-- Pull requests run offline fixture tests without network calls.
-- Workflow artifacts include TCIA CT series CSVs, JSON summary, TCGA RNA candidate CSV and metadata summary.
-- No DICOM, genomic expression values, patient hospital data, or protected linkage data are transferred into public CI.
+**CRITICAL series distinction:** The historic patient-level CT review P1=20 is superseded. **Zero** patients have an explicitly PV-labeled CT and liver-only mask referencing that *same CT series UID*. The 20 cases had those labels/organ masks on different CT series. Moreover, liver-only segmentation **never counts as HCC tumor ROI**. Use the same-series review queue.
 
-Local offline test:
-    python research/hcc/ci/tcia_cohort_audit.py --offline-test
-    python research/hcc/ci/tcga_rna_overlap_audit.py --offline-test
+Latest end-to-end public-data CI evidence (all four jobs PASS):
+https://github.com/kimtk94/Codex/actions/runs/41057407936
 
-Actual validation still pending: confirm GDC live response schema, exact patient intersection, scanner phase, segmentations, tissue sample/aliquot, imaging date and effective cohort size. Avoid leakage through repeated CT series, multiple lesions or multiple RNA files.
+## Study roles
 
-## Existing exploratory Colab notebooks (Google Drive)
-- HCC_Public_Radiomics_Model_Starter.ipynb: preliminary ROI-to-feature CNN; **no trained or validated model**.
-- HCC_TCIA_External_Validation_Starter.ipynb: pre-treatment CT verification template; **no external testing results**.
-- Folder: https://drive.google.com/drive/folders/1YVSssXSTn8S2Bau3ji7vhs33y5jnKxnZ
+1. **MRI molecular feasibility pilot**: 14 mask voxel-QC-passed candidates. Only progress to pathway association after actual image–mask registration, sample/timing QC, frozen expression pipeline. n=14 does not support a high-dimensional ML biomarker claim.
+2. **CT molecular expansion**: 73 metadata candidates. Require pretreatment contrast CT, lesion segmentation and tumor RNA to qualify effective n. CT tumor ROI presently unresolved.
+3. **TACE clinical benchmark**: only for separately predeclared overall survival/censoring comparison using WAW-TACE and HCC-TACE-Seg. Not molecular validation.
+4. **Cross-modality**: two case-ID overlaps are descriptive feasibility, not independent or same-lesion validation.
 
-Sources: WAW-TACE https://zenodo.org/records/12741586 ; HCC-TACE-Seg https://www.cancerimagingarchive.net/collection/hcc-tace-seg/ ; TCGA-LIHC https://www.cancerimagingarchive.net/collection/tcga-lihc/ .
+## CI and evidence
+
+Actions → HCC Public Cohort Audit. The PR currently runs offline fixtures, public TCIA/GDC/IDC CT audits, LiverHccSeg metadata/ZIP NIfTI spot-check, and an artifact-chained triple-overlap job. In addition, each pull request runs an evidence ledger schema-and-claim-guard check.
+
+Metadata outputs include CT source-series, corrected CT series review queue, GDC primary tumor file lineage, MRI segmentation metrics × RNA barcodes, real NIfTI mask CRC/nonzero voxel QC, and triple patient overlap. This pipeline does **not** commit DICOM, RNA matrices, protected records, or raw image pixels. GitHub action artifacts expire after 30 days.
+
+Run ledger CI manually in clone:
+    python research/hcc/ci/validate_research_ledger.py
+    python research/hcc/ci/validate_research_ledger.py --offline-test
+
+## Existing Google Drive exploratory notebooks
+
+- [Public HCC research Drive folder](https://drive.google.com/drive/folders/1YVSssXSTn8S2Bau3ji7vhs33y5jnKxnZ)
+- HCC_Public_Radiomics_Model_Starter.ipynb: CNN **starter only**, not a trained/validated model.
+- HCC_TCIA_External_Validation_Starter.ipynb: external validation **starter only**, no independent test result.
+
+## Primary public sources
+
+- [LiverHccSeg v1.1 MRI](https://doi.org/10.5281/zenodo.8179129)
+- [TCIA TCGA-LIHC](https://www.cancerimagingarchive.net/collection/tcga-lihc/)
+- [HCC-TACE-Seg](https://www.cancerimagingarchive.net/collection/hcc-tace-seg/)
+- [WAW-TACE](https://zenodo.org/records/12741586)
+- Study-quality sources and comparator DOI links are indexed in the master verification standard.
