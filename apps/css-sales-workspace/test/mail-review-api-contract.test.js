@@ -24,7 +24,7 @@ function loadHarness({flag='true',current='NONE',currentStatus='NOT_SUBMITTED',
   };
   class MockGoogleAuth {
     constructor(config){
-      assert.deepEqual(config.scopes,['https://www.googleapis.com/auth/spreadsheets']);
+      assert.equal(JSON.stringify(config.scopes),JSON.stringify(['https://www.googleapis.com/auth/spreadsheets']));
     }
     async getClient(){
       state.authUsed++;
@@ -37,7 +37,7 @@ function loadHarness({flag='true',current='NONE',currentStatus='NOT_SUBMITTED',
             const updates=options.data.data;
             assert.equal(updates.length,2);
             const allow=["'Email Review Decisions'!A2","'Email Review Decisions'!H2"];
-            assert.deepEqual(updates.map(u=>u.range),allow);
+            assert.equal(JSON.stringify(updates.map(u=>u.range)),JSON.stringify(allow));
             state.writes.push(updates);
             state.rows[1][0]=updates[0].values[0][0];
             state.rows[1][7]=updates[1].values[0][0];
