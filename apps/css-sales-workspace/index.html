@@ -62,6 +62,7 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <div class="panel"><h2>병렬 검증 작업 · 최신 실행</h2><p class="operator-hint">성공은 해당 범위 테스트 통과이며 실제 CRM·웹 E2E 승인과 구분됩니다.</p><div class="tablewrap"><table><thead><tr><th>작업</th><th>결과</th><th>마지막 검증</th><th>실행</th></tr></thead><tbody id="trackRows"></tbody></table></div></div>
 <div class="panel"><h2>중앙화 점검 · 해결 필요</h2><div id="automationIssues" class="operator-hint">데이터를 확인하는 중입니다.</div></div>
 </div>
+<div class="panel"><h2>인증된 웹 운영 점검</h2><p class="operator-hint">Vercel OAuth 로그인 후 실제 Revenue·메일 본문 접근을 읽기 전용으로 확인합니다. 고객 데이터는 결과에 표시하지 않습니다.</p><button class="primary" id="ownerSmoke" type="button" disabled>로그인 후 운영 점검</button><p class="operator-hint" id="ownerSmokeStatus" aria-live="polite">Vercel 로그인 후 점검할 수 있습니다.</p></div>
 <div class="panel"><h2>GitHub Actions · 자동 실행 상태 10종</h2><p class="operator-hint">수집한 모든 실행은 원본 GitHub의 main 브랜치 기준입니다. 실패 또는 지연은 검토 대상으로 표시하며, 정상 실행도 실제 결제·메일 발송·SFDC 저장을 의미하지 않습니다.</p><div class="tablewrap"><table><thead><tr><th>자동화</th><th>상태</th><th>마지막 실행 (UTC)</th><th>비고</th><th>원본</th></tr></thead><tbody id="workflowRows"></tbody></table></div></div>
 <div class="panel"><h2>마스터 진행표 · 영역별</h2><div class="tablewrap"><table><thead><tr><th>분야</th><th>완료 표시</th><th>부분 구현</th><th>미완료</th></tr></thead><tbody id="areaRows"></tbody></table></div></div>
 <div class="panel"><h2>실제 원본의 Automation Health</h2><div class="tablewrap"><table><thead><tr><th>자동화</th><th>상태</th><th>마지막 확인</th><th>상세</th></tr></thead><tbody id="healthRows"></tbody></table></div></div>
@@ -200,7 +201,7 @@ async function load(){
   if(token)options.headers={Authorization:'Bearer '+token};
   const res=await fetch('/api/lifecycle',options);
   if(res.status===401){
-   auth=null;$('login').hidden=false;$('authNotice').hidden=false;
+   auth=null;$('login').hidden=false;$('authNotice').hidden=false;$('ownerSmoke').disabled=true;
    $('authNotice').textContent='Vercel 계정으로 로그인하면 별도 조회 토큰 없이 연결됩니다. 계정 소유자만 접근할 수 있습니다.';
    $('state').textContent='인증 필요';return;
   }
@@ -208,10 +209,32 @@ async function load(){
   data=await res.json();
   auth=token||null;
   $('token').value='';$('token').hidden=true;$('login').hidden=true;
-  $('state').textContent='연결됨';$('authNotice').hidden=true;draw();
- }catch(e){$('state').textContent=e.message;$('authNotice').hidden=false;$('authNotice').textContent='데이터가 준비되지 않았습니다. '+e.message}
+  $('state').textContent='연결됨';$('authNotice').hidden=true;$('ownerSmoke').disabled=false;draw();
+ }catch(e){$('ownerSmoke').disabled=true;$('state').textContent=e.message;$('authNotice').hidden=false;$('authNotice').textContent='데이터가 준비되지 않았습니다. '+e.message}
  finally{$('load').disabled=false}
 }
+ async function runOwnerSmoke(){
+  const button=$('ownerSmoke'),status=$('ownerSmokeStatus');
+  button.disabled=true;status.textContent='실제 OAuth 세션과 Google Sheets 접근을 확인 중';
+  try{
+   // No bearer header: only a valid Vercel owner OAuth browser cookie is accepted.
+   const response=await fetch('/api/lifecycle/owner-smoke',{credentials:'same-origin',cache:'no-store'});
+   let result={};try{result=await response.json()}catch(_){}
+   if(response.ok&&result.state==='PASS'
+      &&result.auth==='VERCEL_OWNER_OAUTH'
+      &&result.lifecycle==='LIVE_SHEETS_VERIFIED'
+      &&result.mailBody==='EXACT_UID_BODY_VERIFIED'
+      &&result.revenue==='VAT_EXCLUDED_PARITY_VERIFIED'){
+     status.textContent='브라우저 운영 점검 PASS · OAuth, Revenue, 메일 본문 접근 확인. Production 승격은 별도 승인 필요.';
+   }else{
+     status.textContent=response.status===401
+      ? 'OAuth 세션이 없습니다. Vercel 로그인을 다시 진행하세요.'
+      : '운영 점검 BLOCK · 원본/API 접근 실패: '+(result.error||response.status);
+   }
+  }catch(_err){status.textContent='운영 점검 BLOCK · 보호된 배포 또는 원본 API 접근 실패'}
+  finally{button.disabled=false}
+ }
+$('ownerSmoke').addEventListener('click',runOwnerSmoke);
 $('load').addEventListener('click',load);$('login').addEventListener('click',()=>{location.assign('/api/auth/authorize')});$('closeDialog').addEventListener('click',()=>$('mailDialog').close());
 for(const id of ['statementQuery','statementState','projectQuery','projectStatus','mailQuery','mailSort','leadQuery'])$(id).addEventListener('input',draw);
 for(const btn of document.querySelectorAll('nav button[data-view]'))btn.addEventListener('click',()=>{for(const b of document.querySelectorAll('nav button'))b.classList.toggle('active',b===btn);for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===btn.dataset.view);$('heading').textContent=btn.textContent.trim()});
