@@ -114,3 +114,14 @@ test('lifecycle remains owner-authenticated and uses only central read-only tabs
  assert.ok(api.includes('projectAutomationConsole('));
  assert.ok(!api.includes('spreadsheets.values.update('));
 });
+
+test('web identifies VAT net Actual and never labels mixed-basis billing as verified net Revenue',()=>{
+ const page=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+ const api=fs.readFileSync(path.join(__dirname,'..','api','lifecycle.js'),'utf8');
+ assert.ok(api.includes('actualVatExcluded:/^NET_INVOICE_/'));
+ assert.ok(api.includes('MIXED_OR_UNVERIFIED_PENDING_VAT'));
+ assert.ok(page.includes('m.actualVatExcluded'));
+ assert.ok(page.includes('Actual + Pending 단순 합계'));
+ assert.ok(page.includes('세금 기준 미통일'));
+ assert.ok(!page.includes("['검증 청구액',money(m.verifiedBilling)"));
+});
