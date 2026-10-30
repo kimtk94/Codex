@@ -29,6 +29,8 @@ jobs:
         run: python research/hcc/ci/gdc_tumor_lineage_audit.py --offline-test
       - name: Offline IDC tumor-vs-organ SEG metadata fixture
         run: python research/hcc/ci/idc_segmentation_prescreen.py --offline-test
+      - name: Offline priority review queue fixture
+        run: python research/hcc/ci/build_review_queue.py --offline-test
   metadata-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -47,6 +49,8 @@ jobs:
         run: python research/hcc/ci/gdc_tumor_lineage_audit.py
       - name: Prescreen IDC segmentation code meanings and reference CT (metadata only)
         run: python research/hcc/ci/idc_segmentation_prescreen.py
+      - name: Build manual CT phase and tumor ROI review queue
+        run: python research/hcc/ci/build_review_queue.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
