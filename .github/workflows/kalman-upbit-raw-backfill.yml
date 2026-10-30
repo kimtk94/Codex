@@ -1,8 +1,8 @@
 name: Kalman Upbit BTC ETH Raw Backfill (Research)
 
 on:
-  push:
-    branches: [feat/kalman-raw-gap-audit-staging-20261030]
+  pull_request:
+    branches: [main]
     paths:
       - '.github/workflows/kalman-upbit-raw-backfill.yml'
   workflow_dispatch:
@@ -17,11 +17,11 @@ permissions:
 
 concurrency:
   group: kalman-upbit-btc-eth-backfill
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   upbit-raw:
-    if: github.ref == 'refs/heads/feat/kalman-raw-gap-audit-staging-20261030'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
