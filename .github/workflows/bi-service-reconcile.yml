@@ -5,6 +5,9 @@ on:
       - 'automation/css_mail/bi_service_reconcile.py'
       - 'automation/css_mail/test_bi_service_net_reconcile.py'
       - '.github/workflows/bi-service-reconcile.yml'
+  workflow_run:
+    workflows: ['QQ Original Invoice To Central BI']
+    types: [completed]
   workflow_dispatch:
   push:
     branches: [main]
@@ -12,8 +15,6 @@ on:
       - 'automation/css_mail/bi_service_reconcile.py'
       - 'automation/css_mail/test_bi_service_net_reconcile.py'
       - '.github/workflows/bi-service-reconcile.yml'
-  schedule:
-    - cron: '15,45 * * * *'
 permissions:
   contents: read
 concurrency:
@@ -34,7 +35,11 @@ jobs:
       - run: python -m unittest discover -s automation/css_mail -p 'test_bi_service_net_reconcile.py' -v
   reconcile:
     needs: offline-tests
-    if: github.event_name != 'pull_request'
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'workflow_run' &&
+           github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 10
