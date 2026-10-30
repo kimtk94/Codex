@@ -268,7 +268,7 @@ def trusted_uids_from_headers(im, uids, batch_size=75):
             if not isinstance(item,tuple) or len(item)!=2:
                 continue
             meta,raw=item
-            match=re.search(rb"\\bUID\\s+([0-9]+)\\b",meta or b"")
+            match=re.search(rb"\bUID\s+([0-9]+)\b",meta or b"")
             if not match or not isinstance(raw,bytes):
                 raise RuntimeError("IMAP_HEADER_ENTRY_UNREADABLE")
             uid=match.group(1)
