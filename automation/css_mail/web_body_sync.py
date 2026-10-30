@@ -135,7 +135,7 @@ def select_candidates(ingest, cache, queue, owner, now, lookback_days=60, batch=
                 raise RuntimeError('WEB_MAIL_MESSAGE_ID_CONFLICT')
             if value(old,2) and value(old,2)!=key:
                 raise RuntimeError('WEB_MAIL_INGEST_KEY_CONFLICT')
-            if value(old,9):continue
+            if value(old,9) or value(old,21)=='MIME_NO_TEXT_BODY':continue
         if uid in seen and seen[uid]!=row:
             raise RuntimeError('QQ_INGEST_DUPLICATE_UID_CONFLICT')
         seen[uid]=row
@@ -168,7 +168,7 @@ def make_row(uid,meta,msg,body,now):
         str(msg.get('From','')),value(meta,7),value(meta,8),value(meta,9),
         body,'OUTBOUND' if uid.startswith('sent:') else 'INBOUND',
         '','','','','','','','QQ_IMAP_UID_VERIFIED',
-        now,now,'WEB_REVIEW_CACHE','',''
+        now,now,'WEB_REVIEW_CACHE' if body else 'MIME_NO_TEXT_BODY','',''
     ]
 
 
@@ -194,6 +194,7 @@ def sync():
         groups.setdefault(folder,[]).append((uid,meta))
     results=[]
     errors=Counter()
+    no_text=0
     with imaplib.IMAP4_SSL('imap.exmail.qq.com',993,timeout=45) as im:
         im.login(os.environ['CSS_QQ_MAIL_ADDRESS'],os.environ['CSS_QQ_MAIL_AUTH_CODE'])
         for folder,items in groups.items():
@@ -220,7 +221,10 @@ def sync():
                     errors['HEADER_MISMATCH']+=1;continue
                 body=body_text(msg)
                 if not body:
-                    errors['EMPTY_BODY']+=1;continue
+                    # The IMAP original was verified but contains no text/plain
+                    # or text/html body (often reports or attachment-only mail).
+                    # Record a distinct status, not a fabricated empty reply.
+                    no_text+=1
                 results.append(make_row(uid,meta,msg,body,stamp))
     # Double-check current cache before writing. A manually edited row wins.
     latest=read(SFDC,"'CSS Mail Inbox Raw'!A1:X10000")
@@ -242,12 +246,24 @@ def sync():
             if value(old,2) and value(old,2)!=row[2]:
                 raise RuntimeError('WEB_MAIL_INGEST_KEY_CONFLICT')
             if value(old,9):continue
-            patches += [
-                {'range':"'CSS Mail Inbox Raw'!F"+str(number),'values':[[row[5]]]},
-                {'range':"'CSS Mail Inbox Raw'!J"+str(number),'values':[[row[9]]]},
-                {'range':"'CSS Mail Inbox Raw'!U"+str(number)+":V"+str(number),
-                 'values':[[stamp,'WEB_REVIEW_CACHE']]}
-            ]
+            # Only touch metadata/body/status fields for known cache entries.
+            # Preserve all manual review/exclusion fields, and preserve any
+            # nonstandard reviewer-set classification on an empty-body mail.
+            if not row[9] and value(old,21) not in (
+                    '', 'HEADER_ONLY_BODY_PENDING', 'MIME_NO_TEXT_BODY',
+                    'WEB_REVIEW_CACHE'):
+                continue
+            patches.append({
+                'range':"'CSS Mail Inbox Raw'!F"+str(number),
+                'values':[[row[5]]]})
+            if row[9]:
+                patches.append({
+                    'range':"'CSS Mail Inbox Raw'!J"+str(number),
+                    'values':[[row[9]]]})
+            patches.append({
+                'range':"'CSS Mail Inbox Raw'!U"+str(number)+":V"+str(number),
+                'values':[[stamp,row[21]]]
+            })
         else:
             fresh.append(row)
     if patches:
@@ -289,7 +305,9 @@ def sync():
     status='PASS' if not errors and total==len(candidates) else 'PARTIAL'
     print('CSS_WEB_BODY_SYNC_'+status+
           ' selected='+str(len(candidates))+' eligible='+str(total)+
-          ' fetched='+str(len(results))+' updated='+str(len(patches)//3)+
+          ' body_fetched='+str(sum(bool(r[9]) for r in results))+
+          ' no_text_mime='+str(no_text)+
+          ' patched_ranges='+str(len(patches))+
           ' inserted='+str(len(fresh))+' errors='+str(sum(errors.values()))+
           ' error_types='+','.join(sorted(errors)),flush=True)
     if errors and not results:
