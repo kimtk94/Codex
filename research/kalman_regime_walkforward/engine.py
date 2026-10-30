@@ -205,11 +205,12 @@ def run_walkforward(events,start_year=2022,cut_quantile=.70):
     for year in range(start_year,int(events.year.max())+1):
         test=events[events.year==year].copy()
         if test.empty:continue
-        first=int(test['date_index'].min())
-        train=events[(events['expiry_index']<first)&(events['date_index']<first)].copy()
+        # Strict year boundary: no train target can observe outcome inside test year.
+        boundary=f'{year}-01-01'
+        train=events[(events['expiry_date']<boundary)&(events['date']<boundary)].copy()
         if len(train)<252 or train.target.nunique()<2:
             folds.append({'year':year,'status':'INSUFFICIENT_MATURE_TRAIN','train_count':len(train),'test_count':len(test)});continue
-        assert int(train.expiry_index.max())<first
+        assert str(train.expiry_date.max())<boundary
         model=make_pipeline(SimpleImputer(strategy='median'),StandardScaler(),
                             LogisticRegression(C=.3,max_iter=2000,random_state=17))
         model.fit(train[FEATURES],train.target)
