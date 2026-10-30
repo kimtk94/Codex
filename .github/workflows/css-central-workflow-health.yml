@@ -21,6 +21,7 @@ on:
       - 'BI Mail Review Sync'
       - 'SFDC Email Decision Sync'
       - 'Parallel Sales Automation Verification (4 tracks)'
+      - 'CSS Verified Net Revenue VAT Audit'
       - 'Feishu Latest Four Schema Audit'
       - 'CSS Central Operations Console Tests'
     types: [completed]

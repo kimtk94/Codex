@@ -30,6 +30,7 @@ WORKFLOWS=(
  ("Email Decision Sync","Mail","sfdc-email-decisions-sync.yml",4,"QQ/SFDC review-ledger parity; no user sends"),
  ("BI Mail Review Sync","Mail","bi-mail-review-sync.yml",4,"QQ mail exclusion decision audit; test and apply tracked separately"),
  ("Revenue / Parallel QA","Revenue","parallel-sales-verification.yml",12,"Read-only 4-track verification; not bank receipt"),
+ ("Verified Net Revenue VAT","Revenue","css-revenue-net-vat.yml",12,"Source invoice filename + monthly gross parity; VAT-exclusive; not cash receipt"),
  ("Feishu Schema Audit","Payment","feishu-latest-four-schema.yml",4,"Raw table schema QA; failures block payment certification"),
  ("Feishu Project Sync","Projects","feishu-project-sync.yml",24,"Feishu source projection only"),
  ("Web Body Sync","Web","css-web-body-sync.yml",24,"Source-body caching/availability, not browser E2E"),

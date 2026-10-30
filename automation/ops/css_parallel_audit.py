@@ -67,9 +67,13 @@ def audit_lead(report, raw_leads, personal, pool, analytics, now):
         raise ValueError("Missing one of three SFDC subscription reports")
     for name in source:
         r=source[name]
-        if rowvalue(r,8)!="STAGED_NOT_PROMOTED" or currency(rowvalue(r,6))!=0:
+        if (rowvalue(r,8) not in {"STAGED_NOT_PROMOTED","PRESERVED_NO_NEW_REPORT"}
+            or currency(rowvalue(r,6))!=0
+            or not re.fullmatch(r"[0-9a-f]{64}",rowvalue(r,7))
+            or currency(rowvalue(r,3))<=0 or currency(rowvalue(r,4))<=0):
             raise ValueError("SFDC Report staging evidence invalid")
         assert_fresh(rowvalue(r,1),now)
+        assert_fresh(rowvalue(r,2),now)
     if currency(rowvalue(source["Leads"],3))!=len(ids):
         raise ValueError("Lead ingest record-count mismatch")
     qq_times={rowvalue(r,18) for r in audit}

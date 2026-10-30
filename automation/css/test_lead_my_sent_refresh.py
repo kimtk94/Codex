@@ -2,7 +2,7 @@
 import datetime as dt
 import unittest
 from pathlib import Path
-from lead_my_sent_refresh import build, parse_messages, KST
+from lead_my_sent_refresh import build, parse_messages, verified_lead_stage, KST
 
 
 class PersonalLeadTests(unittest.TestCase):
@@ -39,6 +39,17 @@ class PersonalLeadTests(unittest.TestCase):
 
     def evidence(self):
         return build(self.raw,self.history,self.hdir,self.stage,self.sdir,self.now)
+
+    def test_recent_preserved_report_is_valid_not_reprocessed(self):
+        row=["Leads","2026-10-29 12:00:05 KST",
+             "2026-10-29 15:25:40 KST","493","493","0","0",
+             "a"*64,"PRESERVED_NO_NEW_REPORT"]
+        self.assertTrue(verified_lead_stage(row,self.now))
+        row[7]=""
+        self.assertFalse(verified_lead_stage(row,self.now))
+        row[7]="a"*64
+        row[1]="2026-10-20 12:00:05 KST"
+        self.assertFalse(verified_lead_stage(row,self.now))
 
     def test_only_personal_sender_and_exact_recipient(self):
         rows,counts,latest=self.evidence()

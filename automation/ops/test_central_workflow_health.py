@@ -51,6 +51,7 @@ class PublisherTests(unittest.TestCase):
                             for r in rows[1:]))
         self.assertIn("Feishu Schema Audit",[r[0] for r in rows])
         self.assertIn("Web Console CI",[r[0] for r in rows])
+        self.assertIn("Verified Net Revenue VAT",[r[0] for r in rows])
     def test_bi_workflow_failure_is_not_mislabeled_as_sync_failure(self):
         jobs=[{"name":"sync","status":"completed","conclusion":"success"},
               {"name":"test","status":"completed","conclusion":"failure"}]

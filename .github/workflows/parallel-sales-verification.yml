@@ -13,8 +13,13 @@ on:
       - 'automation/ops/test_revenue_cross_source_audit.py'
       - 'automation/ops/publish_parallel_track_status.py'
       - 'automation/css/lead_my_sent_refresh.py'
+      - 'automation/ops/sales_parallel_readonly_audit.py'
+      - 'automation/ops/test_sales_parallel_readonly_audit.py'
+      - 'automation/ops/css_parallel_audit.py'
       - 'automation/css/nba_refresh_pool.py'
       - 'apps/css-sales-workspace/**'
+      - 'automation/css_mail/revenue_net_vat_publish.py'
+      - 'automation/css_mail/test_revenue_net_vat_publish.py'
 
 permissions:
   contents: read
@@ -42,6 +47,8 @@ jobs:
         run: |
           python automation/sfdc/test_three_report_email_ingest.py
           python -m unittest discover -s automation/css -p 'test_lead_my_sent_refresh.py' -v
+          python -m unittest discover -s automation/ops -p 'test_sales_parallel_readonly_audit.py' -v
+          python -m unittest discover -s automation/ops -p 'test_css_parallel_audit.py' -v
       - name: Check live Report / Lead / NBA parity (read-only)
         run: python automation/ops/sales_parallel_readonly_audit.py lead
 
