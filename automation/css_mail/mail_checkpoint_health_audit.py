@@ -16,7 +16,7 @@ from google.auth.transport.requests import AuthorizedSession
 BOOK=os.getenv("CSS_SHEET_ID","1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY")
 THRESHOLD_HOURS=int(os.getenv("MAIL_FRESHNESS_THRESHOLD_HOURS","24"))
 MESSAGE_THRESHOLD_HOURS=int(os.getenv("MAIL_MESSAGE_FRESHNESS_THRESHOLD_HOURS","48"))
-CHECKPOINT=re.compile(r"[^|\\s]+\\|[0-9]+\\|[0-9]+")
+CHECKPOINT=re.compile(r"[^|\s]+\|[0-9]+\|[0-9]+")
 
 
 def read(session,tab,area):
