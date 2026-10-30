@@ -48,7 +48,7 @@ async function showBody(mail){
  $('bodyMeta').textContent=[mail.sender,mail.received].filter(Boolean).join(' · ');
  $('bodyText').textContent='QQ 원본 본문 확인 중';
  $('bodyDialog').showModal();
- if(!mail.body&&mail.bodyStatus!=='BODY_EMPTY_MIME'){
+ if(!mail.body&&mail.bodyStatus!=='BODY_EMPTY_MIME'&&mail.bodyStatus!=='BODY_OVERSIZE_MIME'){
    try{
      const response=await fetch('/api/lifecycle/mail-body?uid='+encodeURIComponent(mail.uid),
        {credentials:'same-origin',cache:'no-store'});
@@ -67,6 +67,8 @@ async function showBody(mail){
  }
  $('bodyText').textContent=mail.body||(mail.bodyStatus==='BODY_EMPTY_MIME'
   ? 'QQ 원본은 확인했으나 텍스트 본문이 없는 첨부파일형/시스템 메일입니다. 원본 첨부파일은 별도로 확인해야 합니다.'
+  : mail.bodyStatus==='BODY_OVERSIZE_MIME'
+  ? '원본 MIME이 12MiB 안전 제한을 초과하여 본문을 저장하지 않았습니다. 원본 메일에서 확인하세요.'
   : '본문이 원본에서 아직 수집되지 않았습니다.');
 }
 function display(){
