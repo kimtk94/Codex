@@ -1,0 +1,55 @@
+name: Feishu Multirow Header Structure (Read Only)
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/latest_four_header_rows_probe.py'
+      - 'automation/feishu/test_latest_four_header_rows_probe.py'
+      - '.github/workflows/feishu-multirow-header-probe.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/latest_four_header_rows_probe.py'
+      - 'automation/feishu/test_latest_four_header_rows_probe.py'
+      - '.github/workflows/feishu-multirow-header-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Synthetic header-only tests (no client data or credentials)
+        run: python3 -m unittest discover -s automation/feishu -p 'test_latest_four_header_rows_probe.py' -v
+  live-structure:
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: offline-safety
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install authenticated read-only Google client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Compare latest Feishu source ID and mirror first, then inspect row shapes
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: python3 automation/feishu/latest_four_header_rows_probe.py
+      - name: Record non-certification boundary
+        if: always()
+        run: |
+          echo 'RAW_FEISHU_HEADER_NOT_CERTIFIED=true' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Read-only structural diagnosis, no payments or eTax issuance inferred.' >> "$GITHUB_STEP_SUMMARY"
