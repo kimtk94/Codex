@@ -90,3 +90,12 @@ The raw checkpoint GitHub job is included in the 12-workflow central console
 status list. This is a read-only audit, not an importer or backfill.
 Preview must pass unit tests and status-display regression before merging to
 main. Production authentication and cash/SFDC acceptance remain separate gates.
+
+### Build efficiency (proposed Preview setting)
+The CSS project's `vercel.json` uses the documented ignored-build-step command
+`git diff --quiet HEAD^ HEAD ./` at its configured `apps/css-sales-workspace` project root.
+Vercel should skip an unchanged CSS app and build if files within the app change;
+command failure builds rather than silently treating a changed app as safe.
+This is a Preview-first configuration change pending actual deployment and authenticated E2E.
+It does **not** alter or optimize the separately linked Kalman Vercel project,
+prove elimination of deployment quota counts, or disable deployment protection.

@@ -22,6 +22,12 @@ test('flags observed 2026-10 canonical-vs-legacy discrepancy without implying lo
  assert.equal(x.legacySourceLastDate,'2026-10-19');
  assert.equal(x.certified,false);
 });
+test('currency and spaces parse safely without transforming unknown settlement',()=>{
+ const {safeInt}=require('../lib/invoice-audit-parity');
+ assert.equal(safeInt('₩ 56,633,500'),56633500);
+ assert.equal(safeInt('56,633,500 KRW'),null);
+ assert.equal(safeInt('UNKNOWN'),null);
+});
 test('matching totals still cannot certify issued invoices or paid receipts',()=>{
  const l=legacy.map(r=>[...r]);
  l[2][1]='35';l[3][1]='35';l[4][1]='82137000';

@@ -4,7 +4,7 @@
 // complete ownership, or invoice issuance outside verified source rows.
 const targetMonth='2026-10';
 const safeInt=v=>{
- const text=String(v??'').replace(/[₩,\\s]/g,'');
+ const text=String(v??'').replace(/[₩,\s]/g,'');
  return /^(?:0|[1-9][0-9]*)$/.test(text)&&Number.isSafeInteger(Number(text))?Number(text):null;
 };
 function projectInvoiceAuditParity(months,legacyRows){
