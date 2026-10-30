@@ -54,3 +54,14 @@ Run ledger CI manually in clone:
 - [HCC-TACE-Seg](https://www.cancerimagingarchive.net/collection/hcc-tace-seg/)
 - [WAW-TACE](https://zenodo.org/records/12741586)
 - Study-quality sources and comparator DOI links are indexed in the master verification standard.
+
+
+## Next execution: source-pixel PV overlay pilot
+
+The new code `research/hcc/ci/mri_pv_pixel_overlay_audit.py` generates 3-plane PV MRI–tumor mask overlays and numerical image/ROI QC from *real* NIfTI files. It is **not** the same as header geometry and it is not expert approval.
+
+The optional workflow `.github/workflows/hcc-mri-pv-pixel-overlay-pilot.yml` supports `source_run_id` and `max_cases` (2-case safe pilot, then 14). It reuses the archived MRI tumor-mask QC CSV from a successful live audit, rather than querying GDC again. **New GitHub workflow_dispatch files usually need to exist on the default branch before manual UI execution becomes available.** PR #228 remains unmerged; until merged, use a local authorized runner or keep the pilot pending. The referenced CI artifact expires after 30 days, so update the source run ID as needed.
+
+Artifacts: `mri_pv_image_mask_pixel_qc.csv`, `mri_pv_image_mask_pixel_qc_summary.json` and patient-labeled three-plane PNG review images. These are **reviewer aids**, not image/ROI expert certification. Original NIfTI and RNA counts are not committed or uploaded as Actions artifacts.
+
+The `research/hcc/ci/mri_gdc_file_manifest.py` script prepares exact TCGA-linked GDC STAR-Counts tumor RNA `file_id`/associated aliquot barcodes and expected MD5/size; multiple tumor files per patient stay unresolved rather than arbitrarily choosing an aliquot. **No RNA counts have been downloaded.**
