@@ -114,3 +114,11 @@ test('lifecycle remains owner-authenticated and uses only central read-only tabs
  assert.ok(api.includes('projectAutomationConsole('));
  assert.ok(!api.includes('spreadsheets.values.update('));
 });
+
+test('mail body backfill state is shown separately from QQ source freshness',()=>{
+ const api=fs.readFileSync(path.join(__dirname,'..','api','lifecycle.js'),'utf8');
+ const ui=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+ assert.ok(api.includes("['CSS Mail','CSS Mail Body','Project Lifecycle'"));
+ assert.ok(ui.includes('id="healthRows"'));
+ assert.ok(ui.includes("data.status||[]"));
+});
