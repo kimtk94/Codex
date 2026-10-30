@@ -175,7 +175,17 @@ def make_row(uid,meta,msg,body,now):
 def sync():
     session=src.authorize()
     def read(book,span):
-        return src.api(session,'GET',url(book,span)).get('values',[])
+        # AuthorizedSession and Sheets may sporadically time out after a
+        # successful append. Retry *reads only*; all writes remain idempotent.
+        for attempt in range(3):
+            try:
+                return src.api(session,'GET',url(book,span)).get('values',[])
+            except Exception as exc:
+                transient=('Timeout' in type(exc).__name__
+                           or type(exc).__name__ in ('ConnectionError',))
+                if not transient or attempt==2:
+                    raise
+                time.sleep(1.5*(2**attempt))
     queue=read(SFDC,"'Unanswered Emails'!A1:V1300")
     if not queue or value(queue[0],8)!='Thread UID':
         raise RuntimeError('WEB_REVIEW_QUEUE_SCHEMA_MISMATCH')
@@ -288,14 +298,15 @@ def sync():
         src.api(session,'POST',url(SFDC,"'CSS Mail Inbox Raw'!A:X")
                 +':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
                 json={'values':fresh})
-    # Read-back may lag a recently appended range. Compare normalized,
-    # Sheets-safe strings and retry briefly before reporting a data mismatch.
-    # Never log customer bodies, addresses, or raw message content.
+    # Bound the verification to actual occupied rows. Avoid 10k-row
+    # scans after every append, which can exceed Sheets read timeouts.
+    # New evidence is verified after each idempotent read/write cycle.
+    max_row=len(latest)+len(fresh)+2
     mismatches=[]
     for retry in range(3):
-        after_uid=read(SFDC,"'CSS Mail Inbox Raw'!A1:A10000")
-        after_body=read(SFDC,"'CSS Mail Inbox Raw'!J1:J10000")
-        after_status=read(SFDC,"'CSS Mail Inbox Raw'!V1:V10000")
+        after_uid=read(SFDC,"'CSS Mail Inbox Raw'!A1:A"+str(max_row))
+        after_body=read(SFDC,"'CSS Mail Inbox Raw'!J1:J"+str(max_row))
+        after_status=read(SFDC,"'CSS Mail Inbox Raw'!V1:V"+str(max_row))
         verified={value(r,0).lower():i for i,r in enumerate(after_uid)
                   if i>0 and value(r,0)}
         mismatches=[]

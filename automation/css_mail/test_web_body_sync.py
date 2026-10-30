@@ -148,6 +148,7 @@ class BodyTests(unittest.TestCase):
               b'Content-Type: text/plain; charset=utf-8\n\n'
               b'Updated customer body.\r\nSecond line')
         operations=[]
+        timeouts=[]
 
         class FakeImap:
             def __enter__(self):return self
@@ -171,11 +172,14 @@ class BodyTests(unittest.TestCase):
                 if "'Unanswered Emails'!A1:V1300" in u:return {'values':inbox}
                 if "'CSS Git Ingest'!A1:R100000" in u:return {'values':ingest}
                 if "'CSS Mail Inbox Raw'!A1:X10000" in u:return {'values':records}
-                if "'CSS Mail Inbox Raw'!A1:A10000" in u:
+                if "'CSS Mail Inbox Raw'!A1:A" in u:
+                    if not timeouts:
+                        timeouts.append('transient_read_timeout')
+                        raise TimeoutError('test transient Sheets read timeout')
                     return {'values':[[r[0]] for r in records]}
-                if "'CSS Mail Inbox Raw'!J1:J10000" in u:
+                if "'CSS Mail Inbox Raw'!J1:J" in u:
                     return {'values':[[r[9].replace('\n','\r\n')] for r in records]}
-                if "'CSS Mail Inbox Raw'!V1:V10000" in u:
+                if "'CSS Mail Inbox Raw'!V1:V" in u:
                     return {'values':[[r[21]] for r in records]}
                 raise AssertionError("Unexpected read "+u)
             if u.endswith('/values:batchUpdate'):
@@ -193,10 +197,12 @@ class BodyTests(unittest.TestCase):
         with patch.object(stub,'authorize',return_value=object(),create=True), \
              patch.object(stub,'api',side_effect=api,create=True), \
              patch.object(mod.imaplib,'IMAP4_SSL',return_value=imap), \
+             patch.object(mod.time,'sleep',return_value=None), \
              patch.dict(mod.os.environ,{'CSS_QQ_MAIL_ADDRESS':OWNER,
                                        'CSS_QQ_MAIL_AUTH_CODE':'TEST_DUMMY',
                                        'CSS_WEB_BODY_BATCH':'80'}):
             mod.sync()
+        self.assertEqual(timeouts,['transient_read_timeout'])
         self.assertTrue(imap.readonly)
         self.assertEqual(imap.fetch,('FETCH','41012','(BODY.PEEK[])'))
         self.assertEqual(records[1][9],'Updated customer body.\nSecond line')
@@ -205,6 +211,8 @@ class BodyTests(unittest.TestCase):
         self.assertEqual(records[1][23],'HUMAN_REVIEW_UNCHANGED')
         self.assertEqual(records[1][18],'QQ_CSS_GIT_INGEST_HEADER')
         self.assertEqual(len([op for op in operations if op[0]=='POST']),1)
+        self.assertTrue(any("'CSS Mail Inbox Raw'!A1:A4" in url for _,url in operations))
+        self.assertFalse(any("'CSS Mail Inbox Raw'!J1:J10000" in url for _,url in operations))
 
     def test_old_queue_and_owner_outside_lookback(self):
         old=(NOW-dt.timedelta(days=80)).isoformat()
