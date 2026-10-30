@@ -37,6 +37,30 @@ class SourceAuthorityTests(unittest.TestCase):
         r=build(L,N,[],[],[],NOW)
         self.assertEqual(r[-1][6],"REVIEW_REQUIRED")
         self.assertEqual(r[-1][7],"NO")
+    def test_november_does_not_inherit_october_source(self):
+        next_month=dt.datetime(2026,11,1,0,30,tzinfo=dt.timezone(dt.timedelta(hours=9)))
+        rows=build(L,N,H,Q,C,next_month)
+        self.assertEqual(len(rows),2)
+        self.assertEqual(rows[1][0],"2026-11")
+        self.assertEqual(rows[1][2],"CURRENT_MONTH_NOT_PUBLISHED")
+        self.assertEqual(rows[1][7],"NO")
+        self.assertEqual(rows[1][6],"SOURCE_NOT_READY")
+        self.assertNotEqual(rows[1][4],158541900)
+
+    def test_verified_zero_november_is_not_invented_and_legacy_october_excluded(self):
+        next_month=dt.datetime(2026,11,1,0,30,tzinfo=dt.timezone(dt.timedelta(hours=9)))
+        l=[*L,["2026-11","0","","","","0"]]
+        n=[*N,["2026-11","0","0","0.000","0","","",
+                 "2026-11-01 00:29:00 KST",
+                 "INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED"]]
+        rows=build(l,n,H,Q,C,next_month)
+        self.assertEqual(rows[1][0],"2026-11")
+        self.assertEqual(rows[1][2],"CANONICAL_ACTUAL_GROSS")
+        self.assertEqual(rows[2][2],"CANONICAL_ISSUED_NET")
+        self.assertEqual(rows[2][4],0)
+        self.assertEqual(rows[2][7],"YES")
+        self.assertFalse(any(x[1]=="Revenue 3-Way Audit 2026-10" for x in rows[1:]))
+
     def test_gross_vat_excluded_separate_and_strict(self):
         self.assertEqual(krw("₩158,541,900"),158541900)
         self.assertEqual(krw("56,633,500 KRW"),56633500)
