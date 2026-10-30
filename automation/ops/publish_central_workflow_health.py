@@ -28,6 +28,7 @@ WORKFLOWS=(
  ("Lead Personal Audit","Lead","lead-unsent-gap-refresh.yml",8,"Exact personal sender evidence; no emails sent"),
  ("NBA Pipeline","Follow-up","nba-verified-pool-pipeline.yml",8,"Pool validation and approved scheduled staging"),
  ("Email Decision Sync","Mail","sfdc-email-decisions-sync.yml",4,"QQ/SFDC review-ledger parity; no user sends"),
+ ("BI Mail Review Sync","Mail","bi-mail-review-sync.yml",4,"QQ mail exclusion decision audit; test and apply tracked separately"),
  ("Revenue / Parallel QA","Revenue","parallel-sales-verification.yml",12,"Read-only 4-track verification; not bank receipt"),
  ("Feishu Schema Audit","Payment","feishu-latest-four-schema.yml",4,"Raw table schema QA; failures block payment certification"),
  ("Feishu Project Sync","Projects","feishu-project-sync.yml",24,"Feishu source projection only"),
