@@ -30,7 +30,7 @@ BARCODE = re.compile(r"TCGA[-_][A-Z0-9]{2}[-_][A-Z0-9]{4}", re.I)
 COLUMNS = [
     "patient_id", "mri_metadata_workbooks",
     "mri_metadata_cell_mentions",
-    "tumor_roi_nii_status", "mri_sequence_phase_status",
+    "tumor_roi_nii_status", "hcc_tumor_annotation_metrics_present", "mri_sequence_phase_status",
     "primary_tumor_star_counts_files", "gdc_biospecimen_status",
     "mri_rna_case_barcode_overlap", "verified_mri_tumor_roi_rna_pair",
 ]
@@ -63,11 +63,13 @@ def scan_book(book, filename):
     """Scan explicit TCGA barcodes; do not derive patient ID from row number."""
     patients = defaultdict(int)
     tabs = []
+    tumor_metric_ids = set()
     for ws in book.worksheets:
         rows = ws.iter_rows(values_only=True)
         first = next(rows, tuple())
         tabs.append({"sheet": ws.title, "rows": ws.max_row, "cols": ws.max_column,
                      "headers": [str(x)[:100] if x is not None else "" for x in first[:30]]})
+        dice_column = next((i for i, h in enumerate(first) if str(h).lower().strip() == "dice"), None)
         for row in rows:
             seen_on_row = set()
             for cell in row:
@@ -79,7 +81,11 @@ def scan_book(book, filename):
                         seen_on_row.add(patient)
             for patient in seen_on_row:
                 patients[patient] += 1
-    return patients, tabs
+            if filename == "segm_metrics.xlsx" and ws.title.strip().lower() == "hcc":
+                dice = row[dice_column] if dice_column is not None and dice_column < len(row) else None
+                if isinstance(dice, (int, float)) and 0 <= dice <= 1:
+                    tumor_metric_ids.update(seen_on_row)
+    return patients, tabs, tumor_metric_ids
 
 
 def RNA_index(files):
@@ -100,7 +106,8 @@ def RNA_index(files):
     return by_patient
 
 
-def combine(books, rna_index):
+def combine(books, rna_index, tumor_metric_ids=None):
+    tumor_metric_ids = set(tumor_metric_ids or [])
     mentions = defaultdict(dict)
     for filename, counts in books.items():
         for patient, n in counts.items():
@@ -113,6 +120,7 @@ def combine(books, rna_index):
             "mri_metadata_workbooks": "|".join(sorted(origins)),
             "mri_metadata_cell_mentions": sum(origins.values()),
             "tumor_roi_nii_status": "NOT_VERIFIED",
+            "hcc_tumor_annotation_metrics_present": "YES" if patient in tumor_metric_ids else "NO",
             "mri_sequence_phase_status": "NOT_VERIFIED",
             "primary_tumor_star_counts_files": tumor_files,
             "gdc_biospecimen_status": ("FILE_LINKED_PRIMARY_TUMOR" if tumor_files else
@@ -148,11 +156,13 @@ def main():
 
     out = Path(args.output)
     out.mkdir(exist_ok=True, parents=True)
-    inventory, books = {}, {}
+    inventory, books, hcc_metric_ids = {}, {}, set()
     try:
         for filename, checksum in FILES.items():
             wb, digest, nbytes = fetch_workbook(filename, checksum)
-            counts, sheets = scan_book(wb, filename)
+            counts, sheets, tumor_metric_ids = scan_book(wb, filename)
+            if filename == "segm_metrics.xlsx":
+                hcc_metric_ids = tumor_metric_ids
             wb.close()
             inventory[filename] = {
                 "md5_verified": digest, "bytes": nbytes,
@@ -163,7 +173,7 @@ def main():
         if not all_ids:
             raise ValueError("No TCGA barcodes found in either workbook; inspect workbook format")
         rna = RNA_index(fetch_gdc_files())
-        patients = combine(books, rna)
+        patients = combine(books, rna, hcc_metric_ids)
         overlap = sum(x["mri_rna_case_barcode_overlap"] == "YES" for x in patients)
         with (out / "tcga_liverhccseg_mri_rna_candidates.csv").open(
                 "w", encoding="utf-8", newline="") as handle:
@@ -176,6 +186,10 @@ def main():
             "zenodo_record": RECORD,
             "metadata_workbook_tcga_patients": len(all_ids),
             "mri_metadata_rna_primary_tumor_file_linked_patients": overlap,
+            "unique_patients_with_hcc_segmentation_metrics": len(hcc_metric_ids),
+            "hcc_segmentation_metrics_and_rna_linked_patients": sum(
+                p["hcc_tumor_annotation_metrics_present"] == "YES"
+                and p["mri_rna_case_barcode_overlap"] == "YES" for p in patients),
             "mri_tumor_mask_nii_verified_patients": "NOT_ASSESSED",
             "qualified_mri_tumor_rna_pairs": "NOT_ASSESSED",
             "workbooks": inventory,
