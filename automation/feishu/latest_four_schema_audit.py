@@ -32,6 +32,55 @@ def header_fingerprint(header):
     return digest, len(header), duplicates
 
 
+# The source's row 1 is a merged title/grouping row for these two tabs.
+# Read row 2, independently confirmed against the first six raw rows.
+PANEL_HEADER_ROW={"Payment Receipt":2,"eTax Invoice":2}
+RECEIPT_EXPECTED={
+ 1:"Deposit Date",2:"Customer Name",3:"Amount (KRW)",4:"CMS No.",
+ 6:"Date",7:"CMS No.",8:"Amount",
+ 10:"Date",11:"Customer Name",12:"Amount",13:"CMS No."
+}
+ETAX_EXPECTED={
+ 1:"Comments",5:"ERP Invoice Number",10:"Project Number",16:"Amount",
+ 25:"Comments",26:"Sales",29:"Remark",31:"Paid? Yes ?",
+ 32:"Status",33:"e-Tax issued?",34:"Remark"
+}
+def canonical_label(label):
+    return " ".join(str(label or "").casefold().split())
+
+def panel_for_position(pos):
+    if 1<=pos<=4:return 1
+    if 6<=pos<=8:return 2
+    if 10<=pos<=13:return 3
+    return 0
+
+def validate_panelled_header(fmt,header,duplicates):
+    if fmt=="Payment Receipt":
+        width,expected=13,RECEIPT_EXPECTED
+        # Other panels must never share an ambiguous column. A/B, F/H,
+        # J/M are independent amounts, dates and CMS identifiers.
+        for first,second in duplicates:
+            p1,p2=panel_for_position(first),panel_for_position(second)
+            if not p1 or not p2 or p1==p2:
+                raise RuntimeError("Duplicate within Receipt panel at "+str(second))
+        for gap in (5,9):
+            if gap<=len(header) and header[gap-1] is not None and str(header[gap-1]).strip():
+                raise RuntimeError("Receipt separator unexpectedly populated at "+str(gap))
+    elif fmt=="eTax Invoice":
+        width,expected=35,ETAX_EXPECTED
+        # The only expected repeated names are Comments and Remark.
+        # Any other pair remains blocked pending raw Feishu source review.
+        if not set(duplicates).issubset({(1,25),(29,34)}):
+            raise RuntimeError("Unapproved duplicate eTax label positions")
+    else:
+        raise RuntimeError("UNKNOWN_PANELLED_FORMAT")
+    if any(cell is not None and str(cell).strip() for cell in header[width:]):
+        raise RuntimeError("Additional unapproved panel/header columns")
+    for pos,label in expected.items():
+        if canonical_label(header[pos-1]) != canonical_label(label):
+            raise RuntimeError("Header label mismatch at canonical position "+str(pos))
+    return "PASS_PANELLED_RAW_SCHEMA_ONLY"
+
 def validate_header_scope(fmt, header, duplicates):
     """Permit duplicate noncanonical formula tails only after verified core.
 
@@ -52,6 +101,8 @@ def validate_header_scope(fmt, header, duplicates):
     if missing:
         raise RuntimeError("Missing canonical header in "+fmt+
                            " column_positions="+",".join(map(str,missing)))
+    if fmt in PANEL_HEADER_ROW:
+        return validate_panelled_header(fmt,header,duplicates)
     if not duplicates:
         return "PASS"
     core_width = {"Payment Outstanding": 17, "Prepayments": 19}.get(fmt)
@@ -79,10 +130,13 @@ def main():
     if selected is None: raise RuntimeError("Exactly four formats required")
     print("FORMAT_COUNT:",len(selected))
     trailing_reviews=0
+    panelled_confirmed=0
     blocked_formats=[]
     for fmt,entry in sorted(selected.items()):
-        # A1:AZ1 is header-only; structural fingerprints do not disclose names.
-        span=urllib.parse.quote(entry["sheet_id"]+"!A1:AZ1",safe="!:")
+        # A2 is the actual per-column header for Receipt/eTax; A1 contains
+        # merged titles and must not be interpreted as column definitions.
+        header_row=PANEL_HEADER_ROW.get(fmt,1)
+        span=urllib.parse.quote(entry["sheet_id"]+"!A"+str(header_row)+":AZ"+str(header_row),safe="!:")
         value_root="/open-apis/sheets/v2/spreadsheets/"+urllib.parse.quote(TOKEN,safe="")
         print("STAGE: header_read FORMAT:",fmt,flush=True)
         result=api(value_root+"/values/"+span,bearer)
@@ -105,7 +159,12 @@ def main():
             blocked_formats.append(fmt)
             print("SCHEMA_HEADER_BLOCKED:",fmt,str(exc),flush=True)
             continue
-        if scope != "PASS":
+        if scope=="PASS_PANELLED_RAW_SCHEMA_ONLY":
+            panelled_confirmed+=1
+            print("SCHEMA_HEADER_PANELLED:",fmt,"ROW:",header_row,
+                  "VALIDATED_PANELS:",3 if fmt=="Payment Receipt" else 1,
+                  "FINANCIAL_VERIFICATION: NOT_PERFORMED")
+        elif scope != "PASS":
             trailing_reviews += 1
             core={"Payment Outstanding":17,"Prepayments":19}[fmt]
             print("SCHEMA_HEADER_REVIEW:",fmt,
@@ -116,8 +175,10 @@ def main():
         print("SCHEMA_AUDIT: REVIEW_REQUIRED")
         print("CELL_CONTENT_LOGGING: DISABLED")
         raise RuntimeError("HEADER_VALIDATION_BLOCKED_FORMATS="+",".join(blocked_formats))
-    print("SCHEMA_AUDIT:", "PASS_CANONICAL_REVIEW_TRAILING" if trailing_reviews else "PASS")
+    print("SCHEMA_AUDIT:", "PASS_STRUCTURAL_PANELLED_RAW_HEADER_ONLY" if panelled_confirmed else
+           ("PASS_CANONICAL_REVIEW_TRAILING" if trailing_reviews else "PASS"))
     print("CELL_CONTENT_LOGGING: DISABLED")
+    print("PAYMENT_CERTIFIED: NO; ETAX_ISSUANCE_CERTIFIED: NO")
     print("BASE_WRITES: 0")
 if __name__=="__main__":
     try: main()

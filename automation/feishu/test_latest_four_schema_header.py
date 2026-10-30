@@ -72,7 +72,7 @@ class HeaderDiagnosticTests(unittest.TestCase):
             if "sheets/query" in path:
                 return {"sheets":[]}
             for slug,rows in headers.items():
-                if slug+"!A1:AZ1" in path:
+                if slug+"!A1:AZ1" in path or slug+"!A2:AZ2" in path:
                     return {"valueRange":{"values":[rows]}}
             raise AssertionError("Unexpected mocked Feishu route")
         stream=io.StringIO()
@@ -80,7 +80,7 @@ class HeaderDiagnosticTests(unittest.TestCase):
             mod,"select",return_value=(selections,0)), patch.dict(os.environ,{
             "FEISHU_APP_ID":"dummy","FEISHU_APP_SECRET":"dummy"}):
             with contextlib.redirect_stdout(stream):
-                with self.assertRaisesRegex(RuntimeError,"HEADER_VALIDATION_BLOCKED_FORMATS=Payment Receipt"):
+                with self.assertRaisesRegex(RuntimeError,"HEADER_VALIDATION_BLOCKED_FORMATS=Payment Receipt,eTax Invoice"):
                     mod.main()
         output=stream.getvalue()
         self.assertIn("SCHEMA_HEADER_BLOCKED: Payment Receipt",output)
@@ -91,9 +91,9 @@ class HeaderDiagnosticTests(unittest.TestCase):
 
     def test_other_formats_duplicate_always_fail(self):
         from latest_four_schema_audit import validate_header_scope
-        header=["Date","Customer Name","Amount","CMS No.","","Date","CMS","Amount","","Date","Customer","Amount","CMS"]
+        header=["Deposit Date","Deposit Date","Amount (KRW)","CMS No.","","Date","CMS No.","Amount","","Date","Customer Name","Amount","CMS No."]
         _,_,pairs=header_fingerprint(header)
-        with self.assertRaisesRegex(RuntimeError,"Duplicate nonempty header"):
+        with self.assertRaisesRegex(RuntimeError,"Duplicate within Receipt panel"):
             validate_header_scope("Payment Receipt",header,pairs)
 
     def test_empty_header_still_fails(self):
@@ -134,6 +134,52 @@ class HeaderDiagnosticTests(unittest.TestCase):
     def test_object_cell_is_not_converted_to_duplicate_repr(self):
         with self.assertRaisesRegex(RuntimeError,"HEADER_CELL_NON_TEXT_TYPE"):
             header_fingerprint(["A",{"text":"B"}])
+
+    def test_source_real_header_row_is_second_for_receipt_and_etax(self):
+        from latest_four_schema_audit import PANEL_HEADER_ROW
+        self.assertEqual(PANEL_HEADER_ROW,{"Payment Receipt":2,"eTax Invoice":2})
+    def test_receipt_known_three_panels_are_valid_but_not_payment_verified(self):
+        from latest_four_schema_audit import validate_header_scope
+        h=["Deposit Date","Customer Name","Amount (KRW)","CMS No.",None,
+           "Date","CMS No.","Amount",None,
+           "Date","Customer Name","Amount","CMS No."]+[None]*39
+        _,_,pairs=header_fingerprint(h)
+        self.assertEqual(validate_header_scope("Payment Receipt",h,pairs),
+                         "PASS_PANELLED_RAW_SCHEMA_ONLY")
+    def test_receipt_cross_panel_duplicate_extra_column_is_blocked(self):
+        from latest_four_schema_audit import validate_header_scope
+        h=["Deposit Date","Customer Name","Amount (KRW)","CMS No.",None,
+           "Date","CMS No.","Amount",None,
+           "Date","Customer Name","Amount","CMS No."]+["Unexpected"]+[None]*38
+        _,_,pairs=header_fingerprint(h)
+        with self.assertRaisesRegex(RuntimeError,"Additional unapproved"):
+            validate_header_scope("Payment Receipt",h,pairs)
+    def test_etax_duplicate_comments_remark_only_exact_positions(self):
+        from latest_four_schema_audit import validate_header_scope
+        h=["Field"+str(i) for i in range(1,36)]+[None]*17
+        for col,label in {1:"Comments",5:"ERP Invoice Number",10:"Project Number",
+          16:"Amount",25:"Comments",26:"Sales",29:"Remark",
+          31:"Paid? Yes ?",32:"Status",33:"e-Tax issued?",34:"Remark"}.items():
+            h[col-1]=label
+        _,_,pairs=header_fingerprint(h)
+        self.assertEqual(set(pairs),{(1,25),(29,34)})
+        self.assertEqual(validate_header_scope("eTax Invoice",h,pairs),
+                         "PASS_PANELLED_RAW_SCHEMA_ONLY")
+        h[20]=h[19]
+        _,_,bad=header_fingerprint(h)
+        with self.assertRaisesRegex(RuntimeError,"Unapproved duplicate"):
+            validate_header_scope("eTax Invoice",h,bad)
+    def test_raw_etax_paid_field_not_inferred_from_issue_status(self):
+        from latest_four_schema_audit import validate_header_scope
+        h=["Field"+str(i) for i in range(1,36)]
+        for pos,label in {1:"Comments",5:"ERP Invoice Number",10:"Project Number",
+          16:"Amount",25:"Comments",26:"Sales",29:"Remark",
+          31:"Paid? Yes ?",32:"Status",33:"e-Tax issued?",34:"Remark"}.items():
+            h[pos-1]=label
+        h[30]="Paid by bank"
+        _,_,pairs=header_fingerprint(h)
+        with self.assertRaisesRegex(RuntimeError,"Header label mismatch at canonical position 31"):
+            validate_header_scope("eTax Invoice",h,pairs)
 
 if __name__=="__main__":
     unittest.main()
