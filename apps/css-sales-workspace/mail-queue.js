@@ -46,7 +46,9 @@ function reviewFor(uid,action){
 function showBody(mail){
  $('bodySubject').textContent=mail.subject||'제목 미확인';
  $('bodyMeta').textContent=[mail.sender,mail.received].filter(Boolean).join(' · ');
- $('bodyText').textContent=mail.body||'본문이 원본에서 아직 수집되지 않았습니다.';
+ $('bodyText').textContent=mail.body||(mail.bodyStatus==='BODY_EMPTY_MIME'
+  ? 'QQ 원본은 확인했으나 텍스트 본문이 없는 첨부파일형/시스템 메일입니다. 원본 첨부파일은 별도로 확인해야 합니다.'
+  : '본문이 원본에서 아직 수집되지 않았습니다.');
  $('bodyDialog').showModal();
 }
 function display(){
@@ -72,7 +74,9 @@ function display(){
  $('mode').textContent=enabled?'수동 Decision 접수 가능 · 동기화 대기':'읽기 전용 · UID 복사 및 원본에서 처리';
  placeRows('rows',shown.map(m=>{
    const buttons=el('div');buttons.style.display='grid';buttons.style.gap='5px';
-   buttons.append(queueButton(m.body?'본문 보기':'원본 확인',()=>m.body?showBody(m):openLedger(m.uid)));
+   buttons.append(queueButton(
+    m.body?'본문 보기':m.bodyStatus==='BODY_EMPTY_MIME'?'원본 본문 없음':'원본 확인',
+    ()=>m.body||m.bodyStatus==='BODY_EMPTY_MIME'?showBody(m):openLedger(m.uid)));
    buttons.append(queueButton(enabled?'메일 검토':'UID 복사 · 결정 시트',()=>reviewFor(m.uid,'EXCLUDE_MAIL')));
    const r=reviews.get(m.uid);
    return [[m.priority,(m.days||0)+'일'].filter(Boolean).join(' · '),
