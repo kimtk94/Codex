@@ -3,7 +3,7 @@ const {projectPersonalLeads}=require('../lib/personal-leads');
 const {projectAutomationConsole}=require('../lib/automation-console');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J24"];
+const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J24","'CSS Mail Backfill Status'!A1:O2"];
 module.exports=async function handler(req,res){
   res.setHeader('Cache-Control','private, no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -48,7 +48,7 @@ module.exports=async function handler(req,res){
     const reply=await fetch(url,{headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(15000)});
     if(!reply.ok)throw new Error('SHEETS_HTTP_'+reply.status);
     const data=await reply.json();
-    const [monthly,projects,health,unanswered,lead,mail,decisions,masterProgress,parallelTracks,workflowRuns]=(data.valueRanges||[]).map(x=>x.values||[]);
+    const [monthly,projects,health,unanswered,lead,mail,decisions,masterProgress,parallelTracks,workflowRuns,mailBackfillSource]=(data.valueRanges||[]).map(x=>x.values||[]);
     const expected=['Month','Project / Sub-project','Component'];
     if(!monthly[0]||!projects[0]||!health[0]||[monthly[0][0],projects[0][0],health[0][0]].some((v,i)=>v!==expected[i]))
       return res.status(503).json({error:'SOURCE_SCHEMA_MISMATCH'});
@@ -174,6 +174,18 @@ module.exports=async function handler(req,res){
       (b.noticeAt||b.issuedAt).localeCompare(a.noticeAt||a.issuedAt)||
       a.statementId.localeCompare(b.statementId));
 
+    const backfillHeader=['Updated At KST','State','QQ Staged Headers','Web Cached UID','Body Ready','Body Empty MIME','Header Pending','Remaining Eligible','Batch Selected','Batch Body Fetched','Batch Empty MIME','Fetch Errors','Latest Source At','GitHub Run','Notes'];
+    const backfillData=Array.isArray(mailBackfillSource)&&mailBackfillSource[0]?.join('|')===backfillHeader.join('|')
+      ? mailBackfillSource[1]||[]:[];
+    const mailBackfill=backfillData.length===15 ? {
+      updated:backfillData[0],state:backfillData[1],
+      qqStaged:money(backfillData[2]),webCached:money(backfillData[3]),
+      bodyReady:money(backfillData[4]),mimeEmpty:money(backfillData[5]),
+      headerPending:money(backfillData[6]),remaining:money(backfillData[7]),
+      selected:money(backfillData[8]),batchFetched:money(backfillData[9]),
+      batchMimeEmpty:money(backfillData[10]),errors:money(backfillData[11]),
+      latestSourceAt:backfillData[12],runId:backfillData[13]
+    }:{state:'NOT_VERIFIED'};
     const status=health.slice(1).filter(x=>['CSS Mail','Project Lifecycle','Revenue Lifecycle','Feishu'].includes(x[0]))
       .map(x=>({name:x[0],updated:x[1]||'',state:x[2]||'',details:x[3]||''}));
     const replies=new Map(mail.slice(1).filter(r=>r[0]).map(r=>[r[0],{uid:r[0],sender:r[4]||'',subject:r[8]||'',body:r[9]||'',bodyStatus:r[21]||'',received:r[3]||''}]));
@@ -190,6 +202,6 @@ module.exports=async function handler(req,res){
         health:[],issues:['AUTOMATION_CONSOLE_SCHEMA_REVIEW_REQUIRED']};
     }
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'NONE',sync:r[7]||'',sender:r[1]||'',subject:r[9]||''}));
-    return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,automation,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
+    return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,mailBackfill,automation,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
   }catch(e){return res.status(503).json({error:'DATA_FETCH_FAILED'});}
 };
