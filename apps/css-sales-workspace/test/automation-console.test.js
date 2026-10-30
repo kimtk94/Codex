@@ -125,3 +125,17 @@ test('web identifies VAT net Actual and never labels mixed-basis billing as veri
  assert.ok(page.includes('세금 기준 미통일'));
  assert.ok(!page.includes("['검증 청구액',money(m.verifiedBilling)"));
 });
+
+test('new original Invoice review queue is owner-scoped and stays unapproved',()=>{
+ const api=fs.readFileSync(path.join(__dirname,'..','api','lifecycle.js'),'utf8');
+ const page=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+ assert.ok(api.includes("'BI Service 8 Fact'!A1:L600"));
+ assert.ok(api.includes("SOURCE_NEW_REVIEW_"));
+ assert.ok(api.includes("invoiceReviewSource"));
+ assert.ok(api.includes("invoiceReviews"));
+ assert.ok(api.includes("if(!sessionValid&&!bearerValid&&!oauthValid)"));
+ assert.ok(page.includes('id="invoiceReviewRows"'));
+ assert.ok(page.includes('id="invoiceReviewState"'));
+ assert.ok(page.includes('분류 미승인'));
+ assert.ok(!page.includes("fetch('/api/invoice-approve'"));
+});
