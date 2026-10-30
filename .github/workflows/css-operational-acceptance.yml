@@ -1,0 +1,56 @@
+name: CSS Operational Acceptance Evidence
+on:
+  pull_request:
+    paths:
+      - 'automation/ops/css_operational_acceptance.py'
+      - 'automation/ops/test_css_operational_acceptance.py'
+      - '.github/workflows/css-operational-acceptance.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '10 23,3,8 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/ops/css_operational_acceptance.py'
+      - 'automation/ops/test_css_operational_acceptance.py'
+      - '.github/workflows/css-operational-acceptance.yml'
+permissions:
+  contents: read
+concurrency:
+  group: css-operational-acceptance-ledger
+  cancel-in-progress: false
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install offline test imports
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify fail-closed acceptance rules
+        run: python -m unittest discover -s automation/ops -p 'test_css_operational_acceptance.py' -v
+  publish:
+    needs: offline
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install private Google Sheets client
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Publish read-only source evidence as separate status ledger
+        run: python automation/ops/css_operational_acceptance.py
+      - run: echo 'NO_PRODUCTION_PROMOTE;NO_QQ_SEND;NO_SFDC_SAVE' >> "$GITHUB_STEP_SUMMARY"
