@@ -60,6 +60,10 @@ class BodyTests(unittest.TestCase):
         raw=b'Content-Type: text/html\n\n<p>Hello<br>World</p><script>bad()</script><style>hidden</style>'
         self.assertEqual(mod.body_text(BytesParser(policy=policy.default).parsebytes(raw)),'Hello\nWorld')
 
+    def test_mime_crlf_unicode_and_google_sheets_line_ending_parity(self):
+        self.assertEqual(mod.normalize_body(" A\r\nB\rC\x00\u0007 "), " A\nB\nC ")
+        self.assertEqual(mod.normalize_body("e\u0301"), "\u00e9")
+
     def test_sheet_cell_limit(self):
         msg=BytesParser(policy=policy.default).parsebytes(b'Content-Type: text/plain\n\n'+b'a'*60000)
         self.assertEqual(len(mod.body_text(msg)),45000)
@@ -132,7 +136,7 @@ class BodyTests(unittest.TestCase):
               b'To: taehoon.kim@novogene.com\n'
               b'Subject: Subject 41012\n'
               b'Content-Type: text/plain; charset=utf-8\n\n'
-              b'Updated customer body.')
+              b'Updated customer body.\r\nSecond line')
         operations=[]
 
         class FakeImap:
@@ -160,7 +164,7 @@ class BodyTests(unittest.TestCase):
                 if "'CSS Mail Inbox Raw'!A1:A10000" in u:
                     return {'values':[[r[0]] for r in records]}
                 if "'CSS Mail Inbox Raw'!J1:J10000" in u:
-                    return {'values':[[r[9]] for r in records]}
+                    return {'values':[[r[9].replace('\n','\r\n')] for r in records]}
                 raise AssertionError("Unexpected read "+u)
             if u.endswith('/values:batchUpdate'):
                 for patch_row in kwargs['json']['data']:
@@ -183,7 +187,7 @@ class BodyTests(unittest.TestCase):
             mod.sync()
         self.assertTrue(imap.readonly)
         self.assertEqual(imap.fetch,('FETCH','41012','(BODY.PEEK[])'))
-        self.assertEqual(records[1][9],'Updated customer body.')
+        self.assertEqual(records[1][9],'Updated customer body.\nSecond line')
         self.assertEqual(records[1][21],'WEB_REVIEW_CACHE')
         self.assertEqual(records[1][22],'KEEP_EXCLUSION')
         self.assertEqual(records[1][23],'HUMAN_REVIEW_UNCHANGED')
