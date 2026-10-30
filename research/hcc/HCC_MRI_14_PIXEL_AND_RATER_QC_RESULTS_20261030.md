@@ -7,7 +7,7 @@
 
 1. **PV pixel QC:** Original publicly released PV NIfTI image was read and compared with a *single rater1_tumor1* NIfTI in **14/14 cases**. All have consistent 3D shape and source-to-tumor coordinate transform (max FOV corner offset 0mm), positive tumor voxels, finite tumor ROI MRI intensities, and a generated 3-plane reviewer PNG. **No imaging expert has certified the tumor contour.**
 2. **Independent segmentation audit:** Full rater1 tumor set, same-label rater2 tumor mask and rater1 liver mask were read on **14/14**. All comparable coordinates; all 14 largest lesions have a rater2 matching-number contour with Dice. The criterion "largest rater1 tumor volume" is **proposed now, before looking at RNA association estimates**, not a validated lesion-selection standard; confirm lesion identity and freeze clinical criteria with a reviewer.
-3. **Critical index lesion case:** TCGA-BC-A10Y has **three** rater1 tumors, and largest is tumor3 (740.18662 mL). The existing 14-case PV pixel/PNG audit used tumor1 (**6.9961 mL**) for this patient, so its PNG is **NOT the proposed index-lesion image**. Generate tumor3-specific source-PV pixel QC and visual overlay before any feature association using the proposed rule. All other 13 patients have tumor1 as the largest/published tumor mask.
+3. **Critical index lesion case:** TCGA-BC-A10Y has **three** rater1 tumors, and largest is tumor3 (740.18662 mL). The existing 14-case PV pixel/PNG audit used tumor1 (**6.9961 mL**) for this patient, so its PNG is **NOT the proposed index-lesion image**. **Tumor3-specific real PV pixel QC was successfully completed in run #70; reviewer acceptance is still pending.** All other 13 patients have tumor1 as the largest/published tumor mask.
 4. These masks are **NOT** yet eligible radiogenomics patient counts. The correct claim ceiling remains **S0** until reviewer anatomy/clinical chronology and numeric RNA QC, with patient-level exclusions, are recorded.
 
 ## Results
@@ -21,7 +21,7 @@
 
 | Patient | R1 tumors | Proposed largest R1 tumor | Original tumor1 volume (mL) | Proposed ROI volume (mL) | R1/R2 same-label Dice | R1 tumor inside liver | New PV QC needed? |
 |---|---:|---:|---:|---:|---:|---:|---|
-| TCGA-BC-A10Y | 3 | tumor3 | 7.00 | 740.19 | 0.930 | 100.000% | YES — tumor3 |
+| TCGA-BC-A10Y | 3 | tumor3 | 7.00 | 740.19 | 0.930 | 100.000% | No — tumor3 PV pixel QC passed (run #70) |
 | TCGA-BC-A3KG | 1 | tumor1 | 333.35 | 333.35 | 0.959 | 100.000% | No — tumor1 pixel QC done |
 | TCGA-BC-A5W4 | 1 | tumor1 | 254.15 | 254.15 | 0.896 | 100.000% | No — tumor1 pixel QC done |
 | TCGA-BC-A69I | 1 | tumor1 | 120.84 | 120.84 | 0.881 | 99.878% | No — tumor1 pixel QC done |
@@ -38,7 +38,7 @@
 
 ## Decision gates for next work
 
-- **G3 image technical (HCC-12): PARTIAL.** PV source pixel+tumor1 masks 14/14, published mask–liver geometry 14/14, reviewer/manual tumor accuracy and temporal eligibility still pending. Repeat PV pixel overlay for A10Y tumor3.
+- **G3 image technical (HCC-12): PARTIAL.** PV source pixel+tumor1 masks 14/14, published mask–liver geometry 14/14, reviewer/manual tumor accuracy and temporal eligibility still pending. A10Y tumor3 real PV pixel QC has passed; clinician imaging review still required.
 - **G7 annotation stability (HCC-13): PARTIAL.** Two-reader mask Dice 14/14 computed. **Radiomics feature ICC and feature perturbation stability not computed**, and clinical mapping of tumor IDs unverified. Avoid treating Dice as an ICC threshold.
 - **G4 chronology: PENDING.** TCIA dates are deidentified; avoid naive calendar joins.
 - **G5 tumor RNA numerical QC: PENDING.** GDC file-associated Primary Tumor barcodes exist but no real expression values have been checked.
@@ -52,3 +52,12 @@
 - Github Actions: run #62 14 PV PNGs, CSV & JSON; run #65 14 largest-lesion annotations, liver fraction, Dice & JSON. Retention 30 days; exact patient-level results archived in this Markdown.
 - No protected medical data, raw RNA expression, or full MRI NIfTI files committed.
 - Before publishing figures, note axes use NIfTI voxel orientation and physically scaled spacing; radiological left-right orientation should be validated by a qualified image reader.
+
+## Selected largest-lesion final technical pixel check
+
+- [Run #70 — single-case corrected A10Y tumor3 vs real PV MRI](https://github.com/kimtk94/Codex/actions/runs/41068072486): **PASS**, source volume 512×384×19, image/mask corner displacement **0.0 mm**, 124,420 tumor voxels, 740.1866 mL, finite intra-mask PV image voxels 100%.
+- The revised PV overlay uses **rater1_tumor3.nii.gz**, replacing the previous **rater1_tumor1.nii.gz** source for A10Y. This changes the within-patient imaging measurement substantially and is recorded as an a priori-before-RNA-outcomes selection-rule amendment, not retrospective model performance improvement.
+- 13 patients have tumor1 as their rater1 maximum-volume lesion and already passed source PV pixel QC in run #62; together with corrected A10Y tumor3, **14/14 proposed index-lesion MRI PV image/mask pairs passed technical source pixel QC**.
+- Reviewer-level lesion identity, liver location assessment, treatment timing and full expression matrix QC remain unverified. **Claim ceiling S0 unchanged**.
+- Final code supports independent selected-lesion input with `--rater-selection-csv`; it must re-read and re-test each selected mask rather than inheriting tumor1 PASS status.
+- Future external study: selection should be confirmed and frozen as largest anatomically valid HCC per patient; alternative analyses should compare predeclared index lesion vs all lesions with patient clustering, avoiding lesion-level pseudoreplication.
