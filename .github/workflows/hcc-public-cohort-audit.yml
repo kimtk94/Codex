@@ -41,6 +41,8 @@ jobs:
         run: python -m pip install "numpy>=1.26,<3"
       - name: Offline NIfTI nonempty-mask voxel fixture
         run: python research/hcc/ci/mri_mask_voxel_audit.py --offline-test
+      - name: Offline CT x MRI x RNA patient crosswalk fixture
+        run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -92,5 +94,31 @@ jobs:
         with:
           name: hcc-mri-rna-metadata-audit
           path: artifacts/hcc_mri/
+          if-no-files-found: warn
+          retention-days: 30
+
+  crossmodal-audit:
+    needs: [metadata-audit, mri-metadata-audit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-tcia-cohort-audit
+          path: artifacts/hcc_tcia
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-mri-rna-metadata-audit
+          path: artifacts/hcc_mri
+      - name: CT x MRI x tumor RNA patient overlap (metadata only)
+        run: python research/hcc/ci/crossmodal_case_audit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-ct-mri-rna-crossmodal-audit
+          path: artifacts/hcc_crossmodal/
           if-no-files-found: warn
           retention-days: 30
