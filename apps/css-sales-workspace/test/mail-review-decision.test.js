@@ -51,5 +51,5 @@ test('central run monitor now includes BI Mail Review Sync',()=>{
    'publish_central_workflow_health.py'),'utf8');
  assert.ok(ops.includes('bi-mail-review-sync.yml'));
  const web=fs.readFileSync(path.join(__dirname,'..','lib','automation-console.js'),'utf8');
- assert.ok(web.includes('items.length===11'));
+ assert.ok(web.includes('items.length===12'));
 });

@@ -77,3 +77,25 @@ The UI distinguishes `PASS_EXECUTION_ONLY`, `FAILED`, `STALE`,
 actionable GitHub run links. Notably, a failed Feishu schema audit must NOT
 be obscured by an unrelated or stale Feishu Health PASS. No client data is
 contained in this status source.
+
+## QQ checkpoint audit and Preview acceptance
+The authoritative live mail stream is `CSS Git Ingest` and its
+`folder|uidvalidity|imap_uid` checkpoint (e.g. INBOX|12345|678).
+The legacy `All Emails` collection is retained as an archive/backfill source;
+its old last received date must be separately reported as
+`LEGACY_ARCHIVE_STALE_REVIEW`, not presented as a failure of the live IMAP stream.
+A healthy live fetch timestamp alone is insufficient: the latest received mail
+must also be recent, and all ingest keys must be well formed and nonduplicated.
+The raw checkpoint GitHub job is included in the 12-workflow central console
+status list. This is a read-only audit, not an importer or backfill.
+Preview must pass unit tests and status-display regression before merging to
+main. Production authentication and cash/SFDC acceptance remain separate gates.
+
+### Build efficiency (proposed Preview setting)
+The CSS project's `vercel.json` uses the documented ignored-build-step command
+`git diff --quiet HEAD^ HEAD ./` at its configured `apps/css-sales-workspace` project root.
+Vercel should skip an unchanged CSS app and build if files within the app change;
+command failure builds rather than silently treating a changed app as safe.
+This is a Preview-first configuration change pending actual deployment and authenticated E2E.
+It does **not** alter or optimize the separately linked Kalman Vercel project,
+prove elimination of deployment quota counts, or disable deployment protection.
