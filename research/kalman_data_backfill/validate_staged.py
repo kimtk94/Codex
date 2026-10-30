@@ -131,6 +131,7 @@ def validate_one(srcpath:Path, stagedpaths:list[Path],symbol:str,frame:str,as_of
     old=pd.DataFrame(columns=staged.columns)
     old_missing_count=len(expected_old)
     old_error=None
+    old_error_detail=None
     resampled_1m=0
     fallback_minutes={}
     if recover_old and len(expected_old):
@@ -152,12 +153,14 @@ def validate_one(srcpath:Path, stagedpaths:list[Path],symbol:str,frame:str,as_of
         except Exception as e:
             # Do not print credentials or provider responses.
             old_error=type(e).__name__
+            if isinstance(e, ValueError):
+                old_error_detail=str(e)[:250]
     report.update({
         'stage_rows':len(staged),'stage_duplicates':duplicate,'stage_overlaps_source':overlap,
         'stage_not_expected':unexpected,'stage_bad_ohlc':staged_bad,
         'missing_recent_before':len(expected_recent),'missing_recent_after':len(not_collected),
         'old_missing_before':len(expected_old),'old_staged':len(old),
-        'old_missing_after':old_missing_count,'old_error_type':old_error,
+        'old_missing_after':old_missing_count,'old_error_type':old_error,'old_error_detail':old_error_detail,
         'old_derived_from_complete_sip_1min':resampled_1m,'old_1min_observed_per_15min_slot':fallback_minutes,
         'price_basis_overlap_points':len(matched),'price_basis_max_rel_ohlc_diff':round(max_diff,8) if max_diff is not None else None,
         'price_basis_pass':basis_ok,'recent_stage_pass':stages_valid,
