@@ -19,7 +19,7 @@ CACHE="CSS Mail Inbox Raw"
 HEALTH="Automation Health"
 HEADER=["Component","Last success KST","State","Detail"]
 COMPONENT="CSS Mail Body"
-KNOWN={"WEB_REVIEW_CACHE","BODY_EMPTY_MIME","HEADER_ONLY_BODY_PENDING"}
+KNOWN={"WEB_REVIEW_CACHE","BODY_EMPTY_MIME","BODY_OVERSIZE_MIME","HEADER_ONLY_BODY_PENDING"}
 
 
 def endpoint(sheet, area):
@@ -70,9 +70,10 @@ def health_record(outcome, rows, counts, timestamp):
     ready=counts["WEB_REVIEW_CACHE"]
     empty=counts["BODY_EMPTY_MIME"]
     pending=counts["HEADER_ONLY_BODY_PENDING"]
+    oversize=counts["BODY_OVERSIZE_MIME"]
     stage=("BACKFILL_ACTIVE" if outcome=="success" else "FAIL_BODY_WORKFLOW")
     detail=(f"cached={rows} body_ready={ready} original_no_text={empty} "
-            f"header_only={pending} backfill=INCOMPLETE "
+            f"header_only={pending} oversize_not_extracted={oversize} backfill=INCOMPLETE "
             f"previous_action={outcome} QQ_header_health=SEPARATE")
     return [COMPONENT,timestamp,stage,detail]
 
