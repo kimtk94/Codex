@@ -157,30 +157,3 @@ jobs:
 
 
 
-  mri-pv-icc-loo:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install numeric regression library
-        run: python -m pip install "numpy>=1.26,<3"
-      - name: Reuse immutable 14-person two-reader PyRadiomics feature output
-        uses: actions/download-artifact@v4
-        with:
-          name: hcc-mri-pv-feature-icc-fourteen-case-study
-          run-id: 41074562055
-          github-token: ${{ github.token }}
-          path: artifacts/hcc_feature_icc
-      - name: Compute all 14 leave-one-person-out ICC sensitivity results
-        run: python research/hcc/ci/mri_icc_patient_leave_one_out.py --features artifacts/hcc_feature_icc/mri_pv_two_reader_radiomics_features.csv --icc artifacts/hcc_feature_icc/mri_pv_feature_icc_a1.csv --out-dir artifacts/hcc_feature_robustness
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: hcc-mri-pv-feature-icc-fourteen-loo
-          path: artifacts/hcc_feature_robustness/
-          if-no-files-found: warn
-          retention-days: 30
