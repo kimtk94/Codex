@@ -114,6 +114,16 @@ def build(data,now):
     add("Mail","Body cache completeness",st,"DATA",v(z,0),observed,
         "Exact-UID on-demand lookup exists; backfill incomplete" if st=="WARN"
         else "Review cache heartbeat and source MIME, do not invent bodies")
+    # A failed body workflow can append verified MIME rows before the strict
+    # post-write readback aborts. A prior successful progress snapshot must
+    # never conceal that more recent failed execution.
+    body_health=next((r for r in reversed(rows[1:]) if v(r,0)=="CSS Mail Body"),None)
+    body_ok=bool(body_health and v(body_health,2)=="BACKFILL_ACTIVE"
+                 and fresh(v(body_health,1),now,8))
+    add("Mail","Body workflow execution","PASS" if body_ok else "BLOCK",
+        "DATA",v(body_health,1),v(body_health,2) or "NO_HEALTH_EVIDENCE",
+        "Body workflow heartbeat healthy (independent of cache completeness)" if body_ok
+        else "Latest body workflow failed/stale; backfill snapshot may precede failed writes")
     f=data["feishu"]
     require(f,["Source","Source Date","Synced At KST"])
     online=next((r for r in f[1:] if v(r,0)=="Online-Project"),None)
