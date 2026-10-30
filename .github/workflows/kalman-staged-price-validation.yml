@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'research/kalman_data_backfill/validate_staged.py'
+      - 'research/kalman_data_backfill/build_snapshot.py'
+      - 'research/kalman_data_backfill/test_build_snapshot.py'
       - '.github/workflows/kalman-staged-price-validation.yml'
   workflow_dispatch:
 
@@ -60,11 +62,32 @@ jobs:
           path: outputs/kalman_staged_validation/validation.json
           retention-days: 14
           if-no-files-found: warn
-      - name: Publish recovered historical gap records for research-only promotion
+      - name: Test four-session label embargo and non-imputation
+        run: python -m unittest discover -s research/kalman_data_backfill -p 'test_build_snapshot.py' -v
+      - name: Build ephemeral research PIT V1; NO licensed prices in CI artifacts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile,ZIP_DEFLATED
+          p=Path('outputs/kalman_staged_validation/historical_QQQ_15m.parquet')
+          if not p.is_file():raise SystemExit('BLOCKED: historical 50 bars missing')
+          with ZipFile('outputs/kalman_staged_validation/historical_50_input.zip','w',ZIP_DEFLATED) as z:
+              z.write(p,arcname='historical_QQQ_15m.parquet')
+          PY
+          python research/kalman_data_backfill/build_snapshot.py \
+            --source-dir "$RUNNER_TEMP/kalman_sources" \
+            --stage-dir "$RUNNER_TEMP/kalman_stages" \
+            --validation-json outputs/kalman_staged_validation/validation.json \
+            --historical-zip outputs/kalman_staged_validation/historical_50_input.zip \
+            --out-dir "$RUNNER_TEMP/research_pit_v1" --as-of 2026-10-29
+          mkdir -p outputs/kalman_research_pit_v1_meta
+          cp "$RUNNER_TEMP/research_pit_v1/manifest.json" outputs/kalman_research_pit_v1_meta/
+          cp "$RUNNER_TEMP/research_pit_v1/unresolved_gap_mask.csv" outputs/kalman_research_pit_v1_meta/
+      - name: Publish research-only integrity manifest and missing timestamps
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kalman-historical-53-recovered-staging
-          path: outputs/kalman_staged_validation/historical_*.parquet
-          retention-days: 3
-          if-no-files-found: ignore
+          name: kalman-research-pit-v1-metadata-only
+          path: outputs/kalman_research_pit_v1_meta/
+          retention-days: 14
+          if-no-files-found: warn
