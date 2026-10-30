@@ -14,7 +14,7 @@ on:
         type: boolean
         default: true
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "17,47 * * * *" # away from top-of-hour Actions queue spikes
 permissions:
   contents: read
 concurrency:

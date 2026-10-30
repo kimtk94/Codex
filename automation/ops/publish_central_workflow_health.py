@@ -61,7 +61,43 @@ def evaluate_runs(runs, now, threshold_hours):
     return status,t.strftime("%Y-%m-%dT%H:%M:%SZ"),age,top.get("event") or "",top
 
 
-def make_rows(fetch, now):
+def bi_job_result(jobs):
+    """Return only job conclusions; never infer user mail or CRM write success."""
+    if not isinstance(jobs,list):
+        return "JOB_DETAILS_UNAVAILABLE"
+    by_name={}
+    for job in jobs:
+        if not isinstance(job,dict):continue
+        name=job.get("name")
+        if name in ("test","sync"):
+            if name in by_name:
+                return "AMBIGUOUS_JOB_DETAILS_REVIEW"
+            by_name[name]=job.get("conclusion") if job.get("status")=="completed" else "in_progress"
+    sync=by_name.get("sync","not_seen")
+    checks=by_name.get("test","not_seen")
+    # A successful operational sync never overrides a failed test run; overall
+    # workflow state remains FAILED, with the factual job-level distinction.
+    return "BI_JOB_DETAILS_SYNC_"+str(sync).upper()+"_TEST_"+str(checks).upper()
+
+
+def github_job_fetch(run_id):
+    if not isinstance(run_id,int) or run_id<=0:
+        raise ValueError("INVALID_ACTIONS_RUN_ID")
+    gh=os.environ.get("GITHUB_TOKEN")
+    if not gh:raise RuntimeError("GITHUB_READ_TOKEN_MISSING")
+    url="https://api.github.com/repos/"+REPO+"/actions/runs/"+str(run_id)+"/jobs"
+    response=requests.get(url,headers={"Accept":"application/vnd.github+json",
+        "Authorization":"Bearer "+gh,"X-GitHub-Api-Version":"2022-11-28"},
+        params={"per_page":60},timeout=25)
+    response.raise_for_status()
+    result=response.json()
+    jobs=result.get("jobs")
+    if not isinstance(jobs,list) or result.get("total_count",0)>len(jobs):
+        raise RuntimeError("INCOMPLETE_ACTIONS_JOB_EVIDENCE")
+    return jobs
+
+
+def make_rows(fetch, now, job_fetch=None):
     rows=[]
     seen=set()
     for label,group,filename,threshold,boundary in WORKFLOWS:
@@ -74,9 +110,20 @@ def make_rows(fetch, now):
             rid=run.get("id")
             if not isinstance(rid,int) or rid<=0:raise ValueError("INVALID_ACTIONS_RUN_ID")
             url="https://github.com/"+REPO+"/actions/runs/"+str(rid)
+        detail=boundary
+        if filename=="bi-mail-review-sync.yml" and run is not None:
+            if job_fetch is None:
+                detail=boundary+"; BI_JOB_DETAILS_NOT_FETCHED"
+            else:
+                try:
+                    detail=boundary+"; "+bi_job_result(job_fetch(run["id"]))
+                except (requests.RequestException,RuntimeError,ValueError):
+                    # Keep run-level FAILED/STALE unchanged even if GitHub jobs
+                    # are temporarily unavailable. Missing detail is not success.
+                    detail=boundary+"; BI_JOB_DETAILS_UNAVAILABLE"
         rows.append([label,group,state,time,str(age) if age is not None else "",
                      url,event,now.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST"),
-                     boundary,filename])
+                     detail,filename])
     return [HEADERS]+rows
 
 
@@ -134,7 +181,7 @@ def publish(session, rows):
 
 def main():
     now=dt.datetime.now(UTC)
-    rows=make_rows(github_fetch,now)
+    rows=make_rows(github_fetch,now,job_fetch=github_job_fetch)
     if len(rows)!=len(WORKFLOWS)+1:
         raise RuntimeError("WORKFLOW_COVERAGE_INVALID")
     failures=publish(google_client(),rows)

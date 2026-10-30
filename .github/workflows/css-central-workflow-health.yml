@@ -18,6 +18,7 @@ on:
     workflows:
       - 'SFDC Three Report Mail Digestion'
       - 'Lead Personal Sent Audit (SFDC + QQ)'
+      - 'BI Mail Review Sync'
       - 'SFDC Email Decision Sync'
       - 'Parallel Sales Automation Verification (4 tracks)'
       - 'Feishu Latest Four Schema Audit'
