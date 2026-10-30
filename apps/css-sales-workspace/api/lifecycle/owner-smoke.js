@@ -18,7 +18,7 @@ function internalResponse(){
 }
 function findCachedUid(ids,classes){
  if(ids?.[0]?.[0]!=='Mail UID')throw Error('MAIL_UID_SCHEMA');
- if(classes?.[0]?.[0]!=='Body Status')throw Error('MAIL_STATUS_SCHEMA');
+ if(classes?.[0]?.[0]!=='Classification')throw Error('MAIL_STATUS_SCHEMA');
  for(let i=1;i<ids.length;i++){
    const uid=String(ids[i]?.[0]||'');
    if(UID.test(uid)&&String(classes[i]?.[0]||'')===CACHE_STATE)return uid;
