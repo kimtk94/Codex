@@ -27,6 +27,8 @@ jobs:
         run: python research/hcc/ci/ct_phase_prescreen.py --offline-test
       - name: Offline RNA file-to-tumor barcode lineage fixture
         run: python research/hcc/ci/gdc_tumor_lineage_audit.py --offline-test
+      - name: Offline IDC tumor-vs-organ SEG metadata fixture
+        run: python research/hcc/ci/idc_segmentation_prescreen.py --offline-test
   metadata-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -43,6 +45,8 @@ jobs:
         run: python research/hcc/ci/ct_phase_prescreen.py
       - name: Audit GDC RNA-file associated tumor barcode lineage
         run: python research/hcc/ci/gdc_tumor_lineage_audit.py
+      - name: Prescreen IDC segmentation code meanings and reference CT (metadata only)
+        run: python research/hcc/ci/idc_segmentation_prescreen.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
