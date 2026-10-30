@@ -9,6 +9,8 @@ on:
     paths:
       - 'automation/css_mail/web_body_sync.py'
       - 'automation/css_mail/test_web_body_sync.py'
+      - 'automation/css_mail/web_body_serial_runner.py'
+      - 'automation/css_mail/test_web_body_serial_runner.py'
       - 'automation/css_mail/web_body_health.py'
       - 'automation/css_mail/test_web_body_health.py'
       - '.github/workflows/css-web-body-sync.yml'
@@ -17,6 +19,8 @@ on:
     paths:
       - 'automation/css_mail/web_body_sync.py'
       - 'automation/css_mail/test_web_body_sync.py'
+      - 'automation/css_mail/web_body_serial_runner.py'
+      - 'automation/css_mail/test_web_body_serial_runner.py'
       - '.github/workflows/css-web-body-sync.yml'
   schedule:
     # Fallback in case the upstream QQ mail schedule is delayed or dropped.
@@ -43,6 +47,7 @@ jobs:
       - run: python -m pip install 'requests>=2.31,<3'
       - run: python -m unittest discover -s automation/css_mail -p 'test_web_body_sync.py' -v
       - run: python -m unittest discover -s automation/css_mail -p 'test_web_body_health.py' -v
+      - run: python -m unittest discover -s automation/css_mail -p 'test_web_body_serial_runner.py' -v
       - run: python -m unittest discover -s automation/css_mail -p 'test_web_body_workflow_trigger.py' -v
   sync:
     if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
@@ -55,6 +60,8 @@ jobs:
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       CSS_WEB_BODY_BATCH: '160'
+      # Up to three serial, verified 160-item batches under a 19-minute guard.
+      CSS_WEB_BODY_SERIAL_CYCLES: '3'
       CSS_WEB_BODY_LOOKBACK_DAYS: '60'
       CSS_IMAP_BATCH_PER_FOLDER: '120'
     steps:
@@ -69,7 +76,7 @@ jobs:
         run: python automation/css_mail/incremental_sync.py
       - name: Fetch verified owner Inbox and Sent bodies into web cache
         id: body
-        run: python automation/css_mail/web_body_sync.py
+        run: python automation/css_mail/web_body_serial_runner.py
       - name: Publish distinct web body backfill health to central sheet
         if: always()
         env:
