@@ -12,7 +12,7 @@ KST=ZoneInfo("Asia/Seoul")
 NOW=dt.datetime(2026,10,30,13,27,0,tzinfo=KST)
 
 def grid(stamp="2026-10-30 12:40:00 KST"):
-    return [SOURCE_HEADER]+[
+    return [SOURCE_HEADER.copy()]+[
         [v,"2026-10-30 12:00:00 KST",stamp,"500","500","0","0","abc",
          "STAGED_NOT_PROMOTED","QQ IMAP"]
         for v in ("Leads","Opportunities","Quotation")]
@@ -54,7 +54,7 @@ class BackupGateTests(unittest.TestCase):
                 "sfdc-three-report-email-digestion.yml").read_text()
         self.assertIn("27 4 * * 1-5",source)
         self.assertIn("if: github.event_name == 'schedule' && github.event.schedule == '27 4 * * 1-5'",source)
-        self.assertIn("steps.backup.outputs.refresh != 'false'",source)
+        self.assertIn("steps.backup.outputs.refresh == 'true'",source)
         self.assertIn("github.event_name != 'pull_request'",source)
         self.assertIn("SFDC_REPORT_DRY_RUN:",source)
 
