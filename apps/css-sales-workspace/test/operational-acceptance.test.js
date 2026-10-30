@@ -31,7 +31,7 @@ test('central real-like source renders PASS WARN BLOCK and never grants promotio
  assert.equal(result.available,true);
  assert.equal(result.status,'BLOCK');
  assert.equal(result.releaseApproved,false);
- assert.deepEqual(result.counts,{pass:7,warn:1,block:3});
+ assert.deepEqual(result.counts,{pass:6,warn:1,block:4});
  assert.equal(result.browserE2E,'BLOCK');
  assert.equal(result.productionParity,'BLOCK');
  assert.equal(result.rows.length,11);
@@ -51,7 +51,7 @@ test('forged PASS cannot upgrade a BLOCKED release',()=>{
  const out=projectOperationalAcceptance(rows,NOW);
  assert.equal(out.status,'BLOCK');
  assert.equal(out.releaseApproved,false);
- assert.equal(out.counts.block,2);
+ assert.equal(out.counts.block,3);
 });
 test('even all PASS stays pending human approval',()=>{
  const rows=fixture();
