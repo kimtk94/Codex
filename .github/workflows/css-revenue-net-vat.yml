@@ -1,0 +1,56 @@
+name: CSS Verified Net Revenue VAT Audit
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["CSS QQ Mail Read-only Probe"]
+    types: [completed]
+  schedule:
+    - cron: '29,59 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/revenue_net_vat_publish.py'
+      - 'automation/css_mail/test_revenue_net_vat_publish.py'
+      - '.github/workflows/css-revenue-net-vat.yml'
+permissions:
+  contents: read
+concurrency:
+  group: css-net-vat-publish
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit-test original invoice VAT math and guards
+        working-directory: automation/css_mail
+        run: |
+          python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+          python -m unittest -v test_revenue_net_vat_publish test_revenue_lifecycle_monthly
+  publish:
+    needs: verify
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install private Sheets client
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Publish only VAT-excluded derived Revenue tab after source parity
+        run: python automation/css_mail/revenue_net_vat_publish.py
+      - name: Safety boundary
+        run: echo 'Original invoice gross / Pending / Forecast / decisions / mail / SFDC remain unchanged.'
