@@ -49,7 +49,7 @@ class HeaderDiagnosticTests(unittest.TestCase):
         header=["canonical_"+str(i) for i in range(1,18)]+["Formula"]*35
         header[16]=""
         _,_,pairs=header_fingerprint(header)
-        with self.assertRaisesRegex(RuntimeError,"Duplicate nonempty header"):
+        with self.assertRaisesRegex(RuntimeError,"Missing canonical header"):
             validate_header_scope("Payment Outstanding",header,pairs)
     def test_all_four_formats_reported_even_if_receipt_blocked(self):
         import contextlib
@@ -91,7 +91,7 @@ class HeaderDiagnosticTests(unittest.TestCase):
 
     def test_other_formats_duplicate_always_fail(self):
         from latest_four_schema_audit import validate_header_scope
-        header=["X","Y","X"]
+        header=["Date","Customer Name","Amount","CMS No.","","Date","CMS","Amount","","Date","Customer","Amount","CMS"]
         _,_,pairs=header_fingerprint(header)
         with self.assertRaisesRegex(RuntimeError,"Duplicate nonempty header"):
             validate_header_scope("Payment Receipt",header,pairs)
