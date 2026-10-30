@@ -27,6 +27,7 @@ from pathlib import Path
 
 URL="https://api.gdc.cancer.gov/data/4f277128-f793-4354-a13d-30cc7fe9f6b5"
 FILENAME="TCGA_mastercalls.abs_tables_JSedit.fixed.txt"
+SOURCE_SHA256="f430a975433d82e0098d7405619d4f12a0c765fcd97e7d63cc9b1de7f2d763cd"
 INPUT="research/hcc/HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv"
 MAX_BYTES=8*1024*1024
 TCGA=re.compile(r"TCGA-[A-Z0-9]{2}-[A-Z0-9]{4}(?:-[A-Z0-9]{2}[A-Z0-9](?:-[A-Z0-9-]+)?)?",re.I)
@@ -44,6 +45,8 @@ def fetch_bytes():
         data=resp.read(MAX_BYTES+1)
     if not 1000<len(data)<MAX_BYTES:
         raise ValueError("Unexpected ABSOLUTE file size")
+    if hashlib.sha256(data).hexdigest()!=SOURCE_SHA256:
+        raise ValueError("PanCanAtlas ABSOLUTE official file checksum drift")
     return data
 
 
