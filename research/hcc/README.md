@@ -4,6 +4,8 @@
 
 - **Master verification standard and manuscript significance/claim rubric:** [HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md)
 - **27 live evidence checkpoints:** [HCC_VERIFICATION_LEDGER.csv](HCC_VERIFICATION_LEDGER.csv)
+- **Locked MRI–RNA Hallmark 12-test analysis plan (PRE-ASSOCIATION):** [HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md](HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md)
+- **Real RNA 14-sample Hallmark score QC, source hash and redundancy findings:** [HCC_MRI_14_HALLMARK_PATHWAY_QC_REPORT_20261031.md](HCC_MRI_14_HALLMARK_PATHWAY_QC_REPORT_20261031.md) · [14×4 scores CSV](HCC_MRI_14_MSIGDB_HALLMARK_RANK_SCORE_20261031.csv)
 - **Actual MRI PV 14-person imaging/reader QC:** [HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md](HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md)
 - **Actual 14-person two-reader PyRadiomics ICC, 95% CI and leave-one-out:** [HCC_MRI_PV_PYRADIOMICS_ICC_14_VALIDATION_20261030.md](HCC_MRI_PV_PYRADIOMICS_ICC_14_VALIDATION_20261030.md) · [machine-readable 10-feature ICC/CI/LOO](HCC_MRI_PV_RATER_ICC_14_FEATURE_STABILITY_20261030.csv)
 - **Actual MRI 14-person primary-tumor GDC RNA numeric QC:** [HCC_MRI_14_GDC_STAR_NUMERICAL_QC_RESULTS_20261030.md](HCC_MRI_14_GDC_STAR_NUMERICAL_QC_RESULTS_20261030.md)
@@ -85,5 +87,12 @@ The `research/hcc/ci/mri_gdc_file_manifest.py` script prepares exact TCGA-linked
 - [Live GitHub run #87](https://github.com/kimtk94/Codex/actions/runs/41074562055): 14 PV MRI patients, 2 rater segmentations for each selected index tumor, PyRadiomics 3.1.0 Original-only, ten a priori image features; extraction 28/28 PASS; ICC(A,1) patient bootstrap 95% CIs.
 - [Leave-one-out GitHub run #90](https://github.com/kimtk94/Codex/actions/runs/41075577502): 8/10 features pass original ICC≥0.90, bootstrap CI lower≥0.75 and all 14 delete-one-patient ICC≥0.75. Sphericity 0.822 (bootstrap 0.350–0.952) and Elongation 0.727 (0.289–0.919) excluded from primary reader-reliability screen. This is *measurement reliability*, not a gene–image association.
 - Exact version/feature table + limitations archived [here](HCC_MRI_PV_PYRADIOMICS_ICC_14_VALIDATION_20261030.md). Critical: large volume heterogeneity can inflate ICC; 3D MRI slice anisotropy, IBSI benchmark, alternative resampling, tumor chronology, clinical expert review remain open.
-- HCC-13 and HCC-18 now have real supporting evidence but stay **PARTIAL**. HCC-17 qualified paired patients, HCC-19 frozen hypotheses and HCC-20 biological correlations remain **PENDING**. Maximum manuscript claim **S0**.
+- HCC-13 and HCC-18 now have real supporting evidence but stay **PARTIAL**. HCC-17 qualified paired patients and HCC-20 biological correlations remain **PENDING**; HCC-19 internal test-family plan is now **PASS_TECHNICAL** (not external preregistration). Maximum manuscript claim **S0**.
 - Heavy remote GitHub PR pilot jobs removed after successful audited run; PR CI retains deterministic offline tests only. Artifacts expire in ~30 days, permanent derived feature ICC values and source run evidence are in tracked Markdown/CSV.
+
+## Most recent 14-person MSigDB source RNA score audit — 2026-10-31
+
+- [Live source-verified RNA run #100](https://github.com/kimtk94/Codex/actions/runs/41086269950) PASS: 14/14 GDC tumor STAR files MD5 checked; official Hallmark v2025.1.Hs GMT SHA `f22066af72e215ccb7b89d88e492c07e1eef17534c2ca7b0f9902cfecbbdd8e9` **pinned**; full membership of Hypoxia 200, Angiogenesis 36, EMT 200 and Glycolysis 200 genes mapped 100% per sample. Scores reproducible and nonzero-variance.
+- RNA-only QC flags very high pathway co-variation (Angiogenesis vs EMT Spearman rho 0.982; Hypoxia vs Angiogenesis 0.930), plus differences by TCGA tissue-source site code (BC/DD/G3). No independent pathway mechanism or clinical batch adjustment claim.
+- **Primary analysis family is frozen before looking at image–RNA associations:** 3 preselected reproducible PV features (Firstorder Entropy, Firstorder InterquartileRange, GLCM Contrast) × 4 Hallmarks = 12 two-sided tests with one BH-FDR family. Image–RNA association code remains gated and **has not run**.
+- Gate updates: HCC-16 = **PARTIAL** (numeric pathway scoring PASS; tumor purity/batch/clinical eligibility unresolved), HCC-19 = **PASS_TECHNICAL** for internal source-controlled plan, HCC-17/20 = **PENDING**, manuscript ceiling S0. See [research gate ledger](HCC_VERIFICATION_LEDGER.csv). Heavy remote pilot PR job removed after PASS; only offline/score-table QC remains in PR checks.
