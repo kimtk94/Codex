@@ -69,7 +69,9 @@ class HTTPRangeFile:
         if self.pos >= self.total:
             return b""
         if size is None or size < 0:
-            raise ValueError("Unbounded remote ZIP reads prohibited")
+            # ZipFile reads the remainder after seeking close to EOCD.
+            # This is safe only when the remaining suffix is within the cap.
+            size = self.total - self.pos
         size = min(size, self.total - self.pos)
         if size > MAX_MEMBER:
             raise ValueError("Remote read exceeds per-request safety cap")
