@@ -24,7 +24,6 @@ jobs:
       - name: Compile metadata auditors
         run: python -m compileall -q research/hcc/ci
   metadata-audit:
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
