@@ -114,3 +114,15 @@ test('lifecycle remains owner-authenticated and uses only central read-only tabs
  assert.ok(api.includes('projectAutomationConsole('));
  assert.ok(!api.includes('spreadsheets.values.update('));
 });
+
+test('mail backfill coverage is available only through authenticated read-only central API',()=>{
+ const api=fs.readFileSync(path.join(__dirname,'..','api','lifecycle.js'),'utf8');
+ const html=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+ assert.ok(api.includes("'CSS Mail Backfill Status'!A1:O2"));
+ assert.ok(api.includes("mailBackfill,automation"));
+ assert.ok(api.includes("state:'NOT_VERIFIED'"));
+ assert.ok(api.includes('if(!sessionValid&&!bearerValid&&!oauthValid)'));
+ assert.ok(html.includes('id="mailBackfillStatus"'));
+ assert.ok(html.includes('bf.remaining'));
+ assert.ok(!html.includes('mailBackfillApprove'));
+});

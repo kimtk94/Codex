@@ -149,6 +149,7 @@ class BodyTests(unittest.TestCase):
               b'Updated customer body.\r\nSecond line')
         operations=[]
         timeouts=[]
+        audit=[mod.BACKFILL_HEADER]
 
         class FakeImap:
             def __enter__(self):return self
@@ -171,6 +172,10 @@ class BodyTests(unittest.TestCase):
             if method=='GET':
                 if "'Unanswered Emails'!A1:V1300" in u:return {'values':inbox}
                 if "'CSS Git Ingest'!A1:R100000" in u:return {'values':ingest}
+                if "'CSS Mail Backfill Status'!A1:O1" in u:
+                    return {'values':[audit[0]]}
+                if "'CSS Mail Backfill Status'!A2:O2" in u:
+                    return {'values':[audit[1]] if len(audit)>1 else []}
                 if "'CSS Mail Inbox Raw'!A1:X10000" in u:return {'values':records}
                 if "'CSS Mail Inbox Raw'!A1:A" in u:
                     if not timeouts:
@@ -182,6 +187,10 @@ class BodyTests(unittest.TestCase):
                 if "'CSS Mail Inbox Raw'!V1:V" in u:
                     return {'values':[[r[21]] for r in records]}
                 raise AssertionError("Unexpected read "+u)
+            if method=='PUT' and "'CSS Mail Backfill Status'!A2:O2" in u:
+                if len(audit)==1:audit.append(kwargs['json']['values'][0])
+                else:audit[1]=kwargs['json']['values'][0]
+                return {}
             if u.endswith('/values:batchUpdate'):
                 for patch_row in kwargs['json']['data']:
                     rng=patch_row['range']
@@ -203,6 +212,8 @@ class BodyTests(unittest.TestCase):
                                        'CSS_WEB_BODY_BATCH':'80'}):
             mod.sync()
         self.assertEqual(timeouts,['transient_read_timeout'])
+        self.assertEqual(audit[1][1],'WINDOW_CAUGHT_UP')
+        self.assertEqual(audit[1][3:8],[1,1,0,0,0])
         self.assertTrue(imap.readonly)
         self.assertEqual(imap.fetch,('FETCH','41012','(BODY.PEEK[])'))
         self.assertEqual(records[1][9],'Updated customer body.\nSecond line')
@@ -213,6 +224,24 @@ class BodyTests(unittest.TestCase):
         self.assertEqual(len([op for op in operations if op[0]=='POST']),1)
         self.assertTrue(any("'CSS Mail Inbox Raw'!A1:A4" in url for _,url in operations))
         self.assertFalse(any("'CSS Mail Inbox Raw'!J1:J10000" in url for _,url in operations))
+
+    def test_progress_audit_distinguishes_mime_no_text_pending_and_source_backlog(self):
+        records=[["uid"],["inbox:41012"],["inbox:41013"],["inbox:41014"]]
+        bodies=[["body"],["hello"],[],[]]
+        status=[["status"],["WEB_REVIEW_CACHE"],["BODY_EMPTY_MIME"],
+                ["HEADER_ONLY_BODY_PENDING"]]
+        row=mod.progress_record([stub.COLS,mail("41012")],records,bodies,status,
+                                150,80,57,23,{},NOW,"12345")
+        self.assertEqual(row[1],"BACKFILL_ACTIVE")
+        self.assertEqual(row[3:12],[3,1,1,1,150,80,57,23,0])
+        self.assertEqual(row[13],"12345")
+        row2=mod.progress_record([stub.COLS,mail("41012")],records,bodies,status,
+                                 0,0,0,0,{},NOW,"")
+        self.assertEqual(row2[1],"WINDOW_CAUGHT_UP")
+        with self.assertRaisesRegex(RuntimeError,"DUPLICATE_UID"):
+            mod.progress_record([stub.COLS], [["uid"],["inbox:1"],["inbox:1"]],
+                                [["body"],[],[]],[["status"],[],[]],
+                                0,0,0,0,{},NOW,"")
 
     def test_old_queue_and_owner_outside_lookback(self):
         old=(NOW-dt.timedelta(days=80)).isoformat()

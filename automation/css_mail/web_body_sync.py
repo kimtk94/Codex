@@ -21,6 +21,13 @@ from html.parser import HTMLParser
 import incremental_sync as src
 
 SFDC = '1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI'
+BACKFILL_TAB = "CSS Mail Backfill Status"
+BACKFILL_HEADER = [
+    'Updated At KST','State','QQ Staged Headers','Web Cached UID',
+    'Body Ready','Body Empty MIME','Header Pending','Remaining Eligible',
+    'Batch Selected','Batch Body Fetched','Batch Empty MIME','Fetch Errors',
+    'Latest Source At','GitHub Run','Notes'
+]
 RAW = 'CSS Mail Inbox Raw'
 HEADERS = ['Mail UID','Message-ID','Thread Key','Received At KST','From Email',
            'From Name','To','Cc','Subject','Body Text']
@@ -170,6 +177,57 @@ def make_row(uid,meta,msg,body,now):
         '','','','','','','','QQ_IMAP_UID_VERIFIED',
         now,now,'WEB_REVIEW_CACHE','',''
     ]
+
+
+def progress_record(ingest, uid_rows, body_rows, status_rows, remaining,
+                    selected, text_fetched, empty_count, errors, now, run_id):
+    """Return non-PII, source-scoped backfill status for the central workspace."""
+    seen=set()
+    ready=empty=0
+    for i, record in enumerate(uid_rows[1:], start=1):
+        uid=value(record,0).lower()
+        if not uid:
+            continue
+        if uid in seen:
+            raise RuntimeError('WEB_MAIL_PROGRESS_DUPLICATE_UID')
+        seen.add(uid)
+        body=value(body_rows[i],0) if i<len(body_rows) else ''
+        state=value(status_rows[i],0) if i<len(status_rows) else ''
+        if body:
+            ready+=1
+        elif state=='BODY_EMPTY_MIME':
+            empty+=1
+    latest=max((t for record in ingest[1:]
+                if (t:=parsed_at(value(record,5))) is not None),default=None)
+    meaningful_errors=sum(v for k,v in errors.items() if k!='EMPTY_BODY')
+    state=('PARTIAL_ERRORS' if meaningful_errors else
+           'BACKFILL_ACTIVE' if remaining>0 else 'WINDOW_CAUGHT_UP')
+    return [
+        now.astimezone(src.KST).strftime('%Y-%m-%d %H:%M:%S KST'),
+        state,len(ingest)-1,len(seen),ready,empty,
+        len(seen)-ready-empty,max(0,remaining),selected,text_fetched,
+        empty_count,meaningful_errors,
+        latest.isoformat() if latest else '',str(run_id or ''),
+        'Source-snapshot scope: personal Inbox/Sent last 60 days plus unanswered queue'
+    ]
+
+
+def publish_progress(session, read, ingest, uid_rows, body_rows, status_rows,
+                     remaining, selected, text_fetched, empty_count, errors, now):
+    sheet_head=read(SFDC,"'CSS Mail Backfill Status'!A1:O1")
+    if sheet_head!=[BACKFILL_HEADER]:
+        raise RuntimeError('WEB_MAIL_BACKFILL_STATUS_SCHEMA_MISMATCH')
+    row=progress_record(ingest,uid_rows,body_rows,status_rows,remaining,
+                        selected,text_fetched,empty_count,errors,now,
+                        os.getenv('GITHUB_RUN_ID',''))
+    endpoint=url(SFDC,"'CSS Mail Backfill Status'!A2:O2")
+    src.api(session,'PUT',endpoint+'?valueInputOption=RAW',
+            json={'range':"'CSS Mail Backfill Status'!A2:O2",
+                  'majorDimension':'ROWS','values':[row]})
+    observed=read(SFDC,"'CSS Mail Backfill Status'!A2:O2")
+    if not observed or [str(v) for v in observed[0][:14]]!=[str(v) for v in row[:14]]:
+        raise RuntimeError('WEB_MAIL_BACKFILL_STATUS_READBACK_MISMATCH')
+    return row
 
 
 def sync():
@@ -334,6 +392,16 @@ def sync():
         print('WEB_BODY_READBACK_MISMATCH count='+str(len(mismatches))+
               ' hashed_uid_expected_actual_lengths='+repr(samples),flush=True)
         raise RuntimeError('WEB_BODY_POSTWRITE_CONTENT_MISMATCH')
+    progress=publish_progress(
+        session,read,ingest,after_uid,after_body,after_status,
+        max(0,total-len(results)-len(empty_results)),len(candidates),
+        len(results),len(empty_results),errors,now)
+    print('CSS_WEB_BACKFILL_STATUS state='+progress[1]+
+          ' cache_total='+str(progress[3])+
+          ' ready='+str(progress[4])+
+          ' no_text='+str(progress[5])+
+          ' header_only='+str(progress[6])+
+          ' remaining_eligible='+str(progress[7]),flush=True)
     status='PASS' if not errors and total==len(candidates) else 'PARTIAL'
     print('CSS_WEB_BODY_SYNC_'+status+
           ' selected='+str(len(candidates))+' eligible='+str(total)+
