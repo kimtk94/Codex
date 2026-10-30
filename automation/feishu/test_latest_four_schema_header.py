@@ -159,7 +159,7 @@ class HeaderDiagnosticTests(unittest.TestCase):
         h=["Field"+str(i) for i in range(1,36)]+[None]*17
         for col,label in {1:"Comments",5:"ERP Invoice Number",10:"Project Number",
           16:"Amount",25:"Comments",26:"Sales",29:"Remark",
-          31:"Paid?\\nYes ?",32:"Status",33:"e-Tax issued?",34:"Remark"}.items():
+          31:"Paid? Yes ?",32:"Status",33:"e-Tax issued?",34:"Remark"}.items():
             h[col-1]=label
         _,_,pairs=header_fingerprint(h)
         self.assertEqual(set(pairs),{(1,25),(29,34)})
