@@ -48,3 +48,15 @@ GitHub live audit: https://github.com/kimtk94/Codex/actions/runs/41061027979
 Artifacts: tcga_liverhccseg_mri_image_mask_header_qc.csv, tcga_liverhccseg_mri_image_mask_header_summary.json.
 Manual review roster: HCC_G3_PATIENT_IMAGE_REVIEW_QUEUE.csv.
 Canonical standard: HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md and HCC_VERIFICATION_LEDGER.csv.
+
+
+## Next gate: real MRI PV signal and clinical ROI overlay
+
+The initial 2026-10-30 source-mask check validated only NIfTI headers: PV/ART 14/14 with compatible affine. That is necessary but **not sufficient** to consider a tumor mask anatomically correct.
+
+1. Run `mri_pv_pixel_overlay_audit.py` with two pilot MRI patients first, using the exact publicly versioned LiverHccSeg ZIP and the previous tumor-mask QC manifest. Its strict pixel checks include 3D shape, full FOV physical corner offset ≤0.5 mm, nonempty mask, MRI signal finite inside tumor, tumor volume and 3-plane PNG overlay.
+2. Reviewers must inspect the actual axial/coronal/sagittal tumor overlays and document clinical/anatomical correctness and preprocessing suitability; automated PNG creation **does not mean pass**.
+3. A separate GDC RNA manifest records file IDs, MD5 and file-specific tumor sample barcodes. Same-patient multi-aliquot RNA files must be resolved before choosing expression inputs.
+4. Only after source pixel QC, qualified reviewer approval, clinical pretreatment status and counts-level RNA QC may `HCC-12` progress beyond PARTIAL and claims exceed S0 if all other gates pass.
+
+`HCC MRI PV Pixel Overlay Pilot` is an opt-in workflow with inputs `source_run_id` and `max_cases`, artifact outputs of patient PNGs and qc CSV/JSON. GitHub requires a workflow file on the **default branch** to enable its manual trigger in the Actions UI; the new file is currently on open PR #228, so do not claim a live pixel audit has already run or manual dispatch is available. Prior source workflow artifact retention is 30 days.
