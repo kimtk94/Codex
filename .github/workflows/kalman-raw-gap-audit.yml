@@ -108,10 +108,10 @@ jobs:
           GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
         run: |
           mkdir -p "$RUNNER_TEMP/kalman_raw"
-          python research/kalman_triple_barrier/drive_input.py --file-id 16OQTMtVmwnmeAJhv6D2E2OJAR5HjOugs --output "$RUNNER_TEMP/kalman_raw/QQQ_15m.parquet"
-          python research/kalman_triple_barrier/drive_input.py --file-id 1xylDMX_jQB0oNPI57X86NeRTMOuELUWi --output "$RUNNER_TEMP/kalman_raw/QLD_15m.parquet"
-          python research/kalman_triple_barrier/drive_input.py --file-id 1gHw3FfEWnreu3ur1zWlFTOKjkBwL7340 --output "$RUNNER_TEMP/kalman_raw/QQQ_1d.parquet"
-          python research/kalman_triple_barrier/drive_input.py --file-id 1GqU7lLz9yAxa-odd2K8kPauUwXlgxx0I --output "$RUNNER_TEMP/kalman_raw/QLD_1d.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 13biLe0-QIv3wYUbCJFeHZnW2EuHQhnil --output "$RUNNER_TEMP/kalman_raw/QQQ_15m.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 14tFlcG3-TmdtlzLyWOeHY5K-4EIHQCiE --output "$RUNNER_TEMP/kalman_raw/QLD_15m.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1BVYrKDsKl50Q9Aw1438w4T1W267-Zgn- --output "$RUNNER_TEMP/kalman_raw/QQQ_1d.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1HM6nbAmYI_DCLVJk8TQph21gsva2xjw4 --output "$RUNNER_TEMP/kalman_raw/QLD_1d.parquet"
       - name: Audit; optionally fetch missing bar candidates (NO Drive writes)
         env:
           ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
