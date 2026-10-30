@@ -97,6 +97,26 @@ def github_job_fetch(run_id):
     return jobs
 
 
+def latest_recent_success_evidence(runs, now, max_hours=12):
+    """Evidence for an overlapping succeeded run, not a status override."""
+    candidates=[]
+    for x in runs:
+        if x.get("head_branch")!="main" or x.get("status")!="completed" or x.get("conclusion")!="success":
+            continue
+        rid=x.get("id")
+        if not isinstance(rid,int) or rid<=0:continue
+        try:
+            stamp=parse_time(x.get("updated_at") or x.get("created_at"))
+            age=round((now-stamp).total_seconds()/3600,1)
+        except (ValueError,TypeError):
+            continue
+        if 0<=age<=max_hours:
+            candidates.append((stamp,rid,age))
+    if not candidates:return "NO_RECENT_SUCCESS_EVIDENCE"
+    stamp,rid,age=max(candidates)
+    return "RECENT_SUCCESS_RUN_ID="+str(rid)+"; AGE_H="+str(age)+"; CANCELLED_OR_SKIPPED_NOT_CERTIFIED"
+
+
 def make_rows(fetch, now, job_fetch=None):
     rows=[]
     seen=set()
@@ -111,6 +131,8 @@ def make_rows(fetch, now, job_fetch=None):
             if not isinstance(rid,int) or rid<=0:raise ValueError("INVALID_ACTIONS_RUN_ID")
             url="https://github.com/"+REPO+"/actions/runs/"+str(rid)
         detail=boundary
+        if state in ("CANCELLED","SKIPPED"):
+            detail=detail+"; "+latest_recent_success_evidence(runs,now)
         if filename=="bi-mail-review-sync.yml" and run is not None:
             if job_fetch is None:
                 detail=boundary+"; BI_JOB_DETAILS_NOT_FETCHED"
