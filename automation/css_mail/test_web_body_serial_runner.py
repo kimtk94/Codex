@@ -77,7 +77,7 @@ class SerialTests(unittest.TestCase):
 
     def test_deadline_leaves_budget_for_health_reporting(self):
         calls=[]
-        times=iter([0,1000])
+        times=iter([0,0,1000])
         self.assertEqual(m.execute(3,fake_runner([result()],calls),
                                    monotonic=lambda:next(times)),0)
         self.assertEqual(len(calls),1)
