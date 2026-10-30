@@ -84,3 +84,13 @@ test('pagination and sorting work offline in disabled review mode',async()=>{
   assert.equal(opens[0],'https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit');
   assert.ok(calls.every(([url,options])=>url==='/api/lifecycle'&&options.credentials==='same-origin'));
 });
+
+test('verified attachment-only MIME is distinguished from unsynchronized mail',()=>{
+  const api=fs.readFileSync(path.join(root,'api','lifecycle.js'),'utf8');
+  assert.match(api,/bodyStatus:r\[21\]/);
+  assert.match(api,/bodyStatus:replies\.get\(r\[8\]\)/);
+  assert.match(js,/BODY_EMPTY_MIME/);
+  assert.match(js,/텍스트 본문이 없는 첨부파일형/);
+  assert.match(js,/원본 본문 없음/);
+  assert.doesNotMatch(js,/innerHTML|outerHTML|insertAdjacentHTML/);
+});
