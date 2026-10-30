@@ -92,6 +92,7 @@ test('verified attachment-only MIME is distinguished from unsynchronized mail',(
   assert.match(js,/BODY_EMPTY_MIME/);
   assert.match(js,/fetch\('\/api\/lifecycle\/mail-body\?uid='/);
   assert.match(js,/텍스트 본문이 없는 첨부파일형/);
-  assert.match(js,/원본 본문 없음/);
+  assert.match(js,/본문 조회/);
+  assert.match(js,/본문이 원본에서 아직 수집되지 않았습니다/);
   assert.doesNotMatch(js,/innerHTML|outerHTML|insertAdjacentHTML/);
 });
