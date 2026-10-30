@@ -78,7 +78,7 @@ test('pagination and sorting work offline in disabled review mode',async()=>{
   nodes.get('search').trigger('input');
   assert.equal(nodes.get('rows').children.length,1);
   assert.match(nodes.get('range').textContent,/1–1 \/ 1/);
-  const action=nodes.get('rows').children[0].children.at(-1).children.at(-1);
+  const action=nodes.get('rows').children[0].children.at(-1).children.at(-1).children.at(-1);
   action.trigger('click');
   assert.equal(opens.length,1);
   assert.equal(opens[0],'https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit');
