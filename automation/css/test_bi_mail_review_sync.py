@@ -97,7 +97,7 @@ class ReviewSyncTests(unittest.TestCase):
         records={app.REVIEW:[review("EXCLUDE_SENDER","inbox:1","a@test.com"),review("RESTORE_SENDER","inbox:2","a@test.com")],app.SOURCE:[source("inbox:1","a@test.com"),source("inbox:2","a@test.com")],app.MAIL:[],app.SENDERS:[[False,"a@test.com","exact"]]}
         fake=FakeSheets(records)
         with patch.object(app,"auth",return_value=fake),patch.dict(os.environ,{"DRY_RUN":"false"}),contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaisesRegex(RuntimeError,"Conflicting review actions"):
+            with self.assertRaisesRegex(RuntimeError,"Review actions blocked.*conflicting_sender_requests"):
                 app.main()
         self.assertEqual(fake.vals.writes,[])
 
