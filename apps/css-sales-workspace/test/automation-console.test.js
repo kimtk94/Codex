@@ -57,7 +57,7 @@ test('prevents run URL open redirect and flags a failed workflow',()=>{
 function runtime(){
  const head=['Workflow','Domain','Run State','Last Run UTC','Age Hours',
    'GitHub Run URL','Event','Checked KST','Verification Boundary','Workflow File'];
- const items=Array.from({length:10},(_,i)=>[
+ const items=Array.from({length:11},(_,i)=>[
    i===6?'Feishu Schema Audit':'Workflow '+i,'System',
    i===6?'FAILED':'PASS_EXECUTION_ONLY','2026-10-29T15:00:00Z','1.0',
    'https://github.com/kimtk94/Codex/actions/runs/'+(40903357351+i),
@@ -68,7 +68,7 @@ function runtime(){
 test('10 active GitHub run states centralize the Feishu failure without fake success',()=>{
  const o=projectAutomationConsole(master(),parallel(),[],runtime());
  assert.equal(o.workflows.available,true);
- assert.equal(o.workflows.items.length,10);
+ assert.equal(o.workflows.items.length,11);
  assert.equal(o.workflows.items[6].state,'FAILED');
  assert.ok(o.issues.some(x=>x.includes('Feishu Schema Audit')&&x.includes('FAILED')));
  assert.equal(o.progress.accepted,0);
@@ -110,7 +110,7 @@ test('lifecycle remains owner-authenticated and uses only central read-only tabs
  assert.ok(api.includes('if(!sessionValid&&!bearerValid&&!oauthValid)'));
  assert.ok(api.includes("'Automation Master Progress'!A5:K55"));
  assert.ok(api.includes("'Parallel Track Status'!A1:G5"));
- assert.ok(api.includes("'Automation Workflow Runs'!A1:J20"));
+ assert.ok(api.includes("'Automation Workflow Runs'!A1:J24"));
  assert.ok(api.includes('projectAutomationConsole('));
  assert.ok(!api.includes('spreadsheets.values.update('));
 });
