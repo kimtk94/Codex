@@ -1,5 +1,7 @@
 # HCC Radiomics and RNA-seq: Research protocol / feasibility gates
 
+**2026-10-31 RNA pathway pre-outcome methods lock:** [HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md](HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md); [sample score QC](HCC_MRI_14_HALLMARK_PATHWAY_QC_REPORT_20261031.md). Analysis has NOT tested MRI–RNA correlations.
+
 **Mandatory companion for future analyses:** [Verification, literature checkpoints and manuscript claim framework](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md) · [27-checkpoint evidence ledger](HCC_VERIFICATION_LEDGER.csv). Read both before interpreting downstream results.
 Updated: 2026-10-30. Public-data feasibility before modeling.
 
