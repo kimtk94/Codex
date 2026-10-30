@@ -17,8 +17,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Offline fixture test
+      - name: Offline TCIA fixture test
         run: python research/hcc/ci/tcia_cohort_audit.py --offline-test
+      - name: Offline CT-RNA overlap tests (normal sample and workflow exclusions)
+        run: python research/hcc/ci/tcga_rna_overlap_audit.py --offline-test
+      - name: Compile metadata auditors
+        run: python -m compileall -q research/hcc/ci
   metadata-audit:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -30,6 +34,8 @@ jobs:
           python-version: "3.11"
       - name: Audit public CT series
         run: python research/hcc/ci/tcia_cohort_audit.py
+      - name: Audit matched TCGA-LIHC CT and primary tumor GDC STAR-counts metadata
+        run: python research/hcc/ci/tcga_rna_overlap_audit.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
