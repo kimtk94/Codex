@@ -11,6 +11,8 @@ import hashlib
 import imaplib
 import os
 import re
+import time
+import unicodedata
 import urllib.parse
 from collections import Counter
 from email import policy
@@ -40,6 +42,18 @@ class Text(HTMLParser):
         if not self.hidden: self.parts.append(data)
 
 
+def normalize_body(value):
+    """Canonicalize transport line endings and unsafe control characters.
+
+    IMAP MIME and Google Sheets may represent CRLF differently. Use the same
+    canonical form for both the written body and the post-write comparison.
+    """
+    value=unicodedata.normalize('NFC',str(value))
+    value=value.replace('\r\n','\n').replace('\r','\n')
+    return ''.join(ch for ch in value if ch in ('\n','\t')
+                   or unicodedata.category(ch)[0]!='C')
+
+
 def body_text(msg):
     plain=[]; html=[]
     for part in msg.walk():
@@ -50,7 +64,7 @@ def body_text(msg):
         if part.get_content_type()=='text/plain': plain.append(str(content))
         else:
             parser=Text(); parser.feed(str(content)); html.append(''.join(parser.parts))
-    return '\n'.join(plain or html).strip()[:MAX_BODY]
+    return normalize_body('\n'.join(plain or html)).strip()[:MAX_BODY]
 
 
 def url(book, span):
@@ -246,16 +260,32 @@ def sync():
         src.api(session,'POST',url(SFDC,"'CSS Mail Inbox Raw'!A:X")
                 +':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
                 json={'values':fresh})
-    # Read back just UID + body: no bodies or customer data in Actions logs.
-    after_uid=read(SFDC,"'CSS Mail Inbox Raw'!A1:A10000")
-    after_body=read(SFDC,"'CSS Mail Inbox Raw'!J1:J10000")
-    verified={value(r,0).lower():i for i,r in enumerate(after_uid) if i>0 and value(r,0)}
-    for row in results:
-        ix=verified.get(row[0])
-        if ix is None or ix>=len(after_body):
-            raise RuntimeError('WEB_BODY_POSTWRITE_UID_MISSING')
-        if hashlib.sha256(value(after_body[ix],0).encode()).digest()!=hashlib.sha256(row[9].encode()).digest():
-            raise RuntimeError('WEB_BODY_POSTWRITE_CONTENT_MISMATCH')
+    # Read-back may lag a recently appended range. Compare normalized,
+    # Sheets-safe strings and retry briefly before reporting a data mismatch.
+    # Never log customer bodies, addresses, or raw message content.
+    mismatches=[]
+    for retry in range(3):
+        after_uid=read(SFDC,"'CSS Mail Inbox Raw'!A1:A10000")
+        after_body=read(SFDC,"'CSS Mail Inbox Raw'!J1:J10000")
+        verified={value(r,0).lower():i for i,r in enumerate(after_uid)
+                  if i>0 and value(r,0)}
+        mismatches=[]
+        for row in results:
+            ix=verified.get(row[0])
+            actual=(normalize_body(value(after_body[ix],0)) if ix is not None
+                    and ix<len(after_body) else '')
+            if hashlib.sha256(actual.encode()).digest()!=hashlib.sha256(
+                    normalize_body(row[9]).encode()).digest():
+                mismatches.append((row[0],len(row[9]),len(actual)))
+        if not mismatches:break
+        if retry<2:time.sleep(1.5)
+    if mismatches:
+        # Hash only UID identifiers, not mail bodies.
+        samples=[(hashlib.sha256(uid.encode()).hexdigest()[:10],expected,observed)
+                 for uid,expected,observed in mismatches[:5]]
+        print('WEB_BODY_READBACK_MISMATCH count='+str(len(mismatches))+
+              ' hashed_uid_expected_actual_lengths='+repr(samples),flush=True)
+        raise RuntimeError('WEB_BODY_POSTWRITE_CONTENT_MISMATCH')
     status='PASS' if not errors and total==len(candidates) else 'PARTIAL'
     print('CSS_WEB_BODY_SYNC_'+status+
           ' selected='+str(len(candidates))+' eligible='+str(total)+
