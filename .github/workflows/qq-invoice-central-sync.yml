@@ -1,0 +1,50 @@
+name: QQ Original Invoice To Central BI
+on:
+  pull_request:
+    paths:
+      - 'automation/css_mail/qq_invoice_central_sync.py'
+      - 'automation/css_mail/test_qq_invoice_central_sync.py'
+      - '.github/workflows/qq-invoice-central-sync.yml'
+  workflow_run:
+    workflows: ['CSS QQ Mail Read-only Probe']
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: qq-original-invoice-central-sync
+  cancel-in-progress: false
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s automation/css_mail -p 'test_qq_invoice_central_sync.py' -v
+  sync-original-invoices:
+    needs: offline-tests
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+           (github.event_name == 'workflow_run' &&
+            github.event.workflow_run.conclusion == 'success' &&
+            github.event.workflow_run.head_branch == 'main') }}
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Sync original filename-verified QQ Invoice into central source
+        run: python automation/css_mail/qq_invoice_central_sync.py
