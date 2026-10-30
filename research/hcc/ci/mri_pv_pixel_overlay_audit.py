@@ -197,6 +197,33 @@ def analyze_case(archive, patient, mask_path, output_dir):
     return result
 
 
+def apply_rater_selection(candidates, rows):
+    selected = {}
+    for row in rows:
+        pid = row["patient_id"]
+        if pid in selected:
+            raise ValueError("DUPLICATE_RATER_SELECTION_PATIENT")
+        if row.get("segmentation_qc_status") != "PASS_GEOMETRY_WITH_REVIEW_FLAGS":
+            raise ValueError("UNQUALIFIED_RATER_SELECTION")
+        n = int(row["representative_tumor_number"])
+        if not 1 <= n <= 20:
+            raise ValueError("BAD_TUMOR_SELECTION_NUMBER")
+        selected[pid] = n
+    result = []
+    for original in candidates:
+        case = dict(original)
+        if case["patient_id"] not in selected:
+            raise ValueError("MISSING_RATER_SELECTION")
+        path = case["nifti_member_path"]
+        if not path.endswith("/rater1_tumor1.nii.gz"):
+            raise ValueError("UNEXPECTED_MASK_PATH")
+        case["nifti_member_path"] = path.replace(
+            "/rater1_tumor1.nii.gz",
+            f"/rater1_tumor{selected[case['patient_id']]}.nii.gz")
+        result.append(case)
+    return result
+
+
 def offline_test():
     import nibabel as nib
     import numpy as np
@@ -233,6 +260,13 @@ def offline_test():
         bad=data.copy()
         bad[9,10,5]=np.nan
         must_fail(bad,mask,affine,affine,"TUMOR_SOURCE_NONFINITE")
+    example = apply_rater_selection(
+        [{"patient_id": "TCGA-AA-0001", "nifti_member_path":
+          "archive/TCGA-AA-0001/p/rater1_tumor1.nii.gz"}],
+        [{"patient_id": "TCGA-AA-0001",
+          "segmentation_qc_status": "PASS_GEOMETRY_WITH_REVIEW_FLAGS",
+          "representative_tumor_number": "3"}])
+    assert example[0]["nifti_member_path"].endswith("rater1_tumor3.nii.gz")
     print("HCC_MRI_PV_PIXEL_OVERLAY_OFFLINE_TEST_PASS")
 
 
@@ -243,6 +277,7 @@ def main():
     ap.add_argument("--out-dir",default="artifacts/hcc_mri_pv_overlay")
     ap.add_argument("--max-cases",type=int,default=2)
     ap.add_argument("--patients",nargs="*",default=[])
+    ap.add_argument("--rater-selection-csv",default="",help="Validated independent selected-lesion QC manifest")
     args=ap.parse_args()
     if args.offline_test:
         offline_test()
@@ -256,6 +291,9 @@ def main():
               if r["nifti_mask_voxel_status"]=="PASS_NONEMPTY_NIFTI_MASK"
               and (not args.patients or r["patient_id"] in args.patients)]
     selected=sorted(selected,key=lambda r:r["patient_id"])
+    if args.rater_selection_csv:
+        with open(args.rater_selection_csv,encoding="utf-8",newline="") as f:
+            selected=apply_rater_selection(selected,list(csv.DictReader(f)))
     if not selected:
         raise ValueError("No previously verified MRI mask candidates")
     selected=selected[:args.max_cases]
