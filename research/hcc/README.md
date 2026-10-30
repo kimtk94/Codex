@@ -7,6 +7,7 @@
 - **Actual MRI PV 14-person imaging/reader QC:** [HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md](HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md)
 - **Actual MRI 14-person primary-tumor GDC RNA numeric QC:** [HCC_MRI_14_GDC_STAR_NUMERICAL_QC_RESULTS_20261030.md](HCC_MRI_14_GDC_STAR_NUMERICAL_QC_RESULTS_20261030.md)
 - **Immutable source GDC UUID/MD5 file list:** [HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv](HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv)
+- **Proposed pre-outcome patient index lesion IDs:** [HCC_MRI_14_PREOUTCOME_INDEX_LESION_SELECTION_20261030.csv](HCC_MRI_14_PREOUTCOME_INDEX_LESION_SELECTION_20261030.csv)
 - **G3 MRI source-mask phase verification and manual reviewer roster:** [HCC_G3_IMAGE_REVIEW_AND_PHASE_LOCK.md](HCC_G3_IMAGE_REVIEW_AND_PHASE_LOCK.md) · [HCC_G3_PATIENT_IMAGE_REVIEW_QUEUE.csv](HCC_G3_PATIENT_IMAGE_REVIEW_QUEUE.csv)
 - **Scientific hypotheses, cohort design, and methods:** [HCC_RADIOGENOMICS_PROTOCOL_20261030.md](HCC_RADIOGENOMICS_PROTOCOL_20261030.md)
 - **CI script enforcing evidence and claim ceilings:** [ci/validate_research_ledger.py](ci/validate_research_ledger.py)
