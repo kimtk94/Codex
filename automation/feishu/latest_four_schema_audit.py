@@ -11,7 +11,12 @@ from latest_four_formats import select
 
 def header_fingerprint(header):
     """Return only structural evidence; never disclose raw header labels."""
-    normalized = [str(x).strip().casefold() for x in header]
+    # Feishu API can return JSON null for merged / unfilled header cells.
+    # str(None) = "None" created false duplicate clusters across 52 columns.
+    # Accept only text/null; non-text header structures are not trustworthy.
+    if any(cell is not None and not isinstance(cell,str) for cell in header):
+        raise RuntimeError("HEADER_CELL_NON_TEXT_TYPE")
+    normalized = [str(x).strip().casefold() if x is not None else "" for x in header]
     if not any(normalized):
         raise RuntimeError("Empty header")
     seen = {}
@@ -33,6 +38,20 @@ def validate_header_scope(fmt, header, duplicates):
     Payment Outstanding core is columns 1-17, Prepayments 1-19. Receipt
     multi-panel and eTax core conflicts must remain blocked for review.
     """
+    # Never turn a mostly empty row into PASS after removing spurious null
+    # duplicates: all financial core fields must remain visibly populated.
+    required = {
+        "Payment Outstanding": tuple(range(1,18)),
+        "Prepayments": tuple(range(1,20)),
+        "Payment Receipt": (1,2,3,4,6,7,8,10,11,12,13),
+        "eTax Invoice": tuple(range(1,36))
+    }.get(fmt)
+    if required is None: raise RuntimeError("UNKNOWN_FEISHU_FORMAT")
+    missing = [p for p in required if p>len(header) or
+               header[p-1] is None or not str(header[p-1]).strip()]
+    if missing:
+        raise RuntimeError("Missing canonical header in "+fmt+
+                           " column_positions="+",".join(map(str,missing)))
     if not duplicates:
         return "PASS"
     core_width = {"Payment Outstanding": 17, "Prepayments": 19}.get(fmt)
@@ -71,9 +90,16 @@ def main():
         if not isinstance(value_range,dict): raise RuntimeError("VALUE_RANGE_MISSING")
         values=value_range.get("values") or []
         header=values[0] if values else []
-        fingerprint, width, duplicates=header_fingerprint(header)
-        print("FORMAT:",fmt,"HEADER_COLUMNS:",width,"HEADER_FINGERPRINT:",fingerprint)
+        # Header type counts help distinguish null merged cells from genuine
+        # duplicate labels. Only structural counts leave the runner.
+        type_counts = {}
+        for cell in header:
+            key = "NULL" if cell is None else ("TEXT" if isinstance(cell,str) else "OTHER")
+            type_counts[key] = type_counts.get(key,0)+1
+        print("FORMAT:",fmt,"HEADER_CELL_TYPES:",type_counts)
         try:
+            fingerprint,width,duplicates=header_fingerprint(header)
+            print("FORMAT:",fmt,"HEADER_COLUMNS:",width,"HEADER_FINGERPRINT:",fingerprint)
             scope=validate_header_scope(fmt,header,duplicates)
         except RuntimeError as exc:
             blocked_formats.append(fmt)
