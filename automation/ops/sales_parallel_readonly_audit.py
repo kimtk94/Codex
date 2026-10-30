@@ -72,18 +72,39 @@ def iso(s):
         raise ValueError("INVALID_SOURCE_TIMESTAMP") from e
 
 
+def verified_report_stage(record, now):
+    """Preserved subscription is valid only with recent source, SHA and counts.
+
+    The ingest job deliberately emits PRESERVED_NO_NEW_REPORT when no newer
+    attachment arrives; this is not an ingest failure or Salesforce promotion.
+    """
+    if record.get("State") not in {"STAGED_NOT_PROMOTED", "PRESERVED_NO_NEW_REPORT"}:
+        return False
+    if not re.fullmatch(r"[0-9a-f]{64}", record.get("Content SHA256", "")):
+        return False
+    try:
+        rows = num(record["Rows"])
+        unique = num(record["Unique IDs"])
+        missing = num(record["Missing IDs"])
+        received = dt.datetime.strptime(
+            record["Source Received KST"], "%Y-%m-%d %H:%M:%S KST").replace(tzinfo=KST)
+        checked = dt.datetime.strptime(
+            record["Ingest Checked KST"], "%Y-%m-%d %H:%M:%S KST").replace(tzinfo=KST)
+    except (KeyError, ValueError):
+        return False
+    if rows <= 0 or unique <= 0 or unique > rows or missing != 0:
+        return False
+    return all(dt.timedelta(0) <= now - stamp <= dt.timedelta(hours=72)
+               for stamp in (received, checked))
+
+
 def run_lead(r, now):
     ingest = tab(r.rows("SFDC Email Ingest Audit", "A1:J20"),
                  ["Entity", "Rows", "Unique IDs", "Missing IDs", "State"], "INGEST")
     by = {x["Entity"]: x for x in ingest}
     for label in ("Leads", "Opportunities", "Quotation"):
-        if label not in by or by[label]["State"] != "STAGED_NOT_PROMOTED":
+        if label not in by or not verified_report_stage(by[label], now):
             raise ValueError("UNVERIFIED_REPORT_" + label)
-        if num(by[label]["Missing IDs"]) != 0:
-            raise ValueError("REPORT_MISSING_IDS_" + label)
-        date = dt.datetime.strptime(by[label]["Ingest Checked KST"], "%Y-%m-%d %H:%M:%S KST").replace(tzinfo=KST)
-        if not dt.timedelta(0) <= now - date <= dt.timedelta(hours=72):
-            raise ValueError("STALE_REPORT_" + label)
     raw = tab(r.rows("SFDC Email Leads Raw", "A1:W700"), ["SFDC Lead ID"], "LEADS")
     actual = {x.get("SFDC Lead ID", "").strip() for x in raw if x.get("SFDC Lead ID")}
     if len(actual) != len(raw) or len(actual) != int(num(by["Leads"]["Unique IDs"])):

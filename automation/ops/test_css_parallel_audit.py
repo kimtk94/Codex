@@ -8,9 +8,9 @@ NOW=dt.datetime(2026,10,29,23,30,tzinfo=KST)
 class ParallelAuditTests(unittest.TestCase):
     def lead_data(self):
         report=[["Entity","","","","","","","",""],
-                ["Leads","2026-10-29 12:00:03 KST","","493","493","0","0","","STAGED_NOT_PROMOTED"],
-                ["Opportunities","2026-10-29 12:00:08 KST","","700","700","0","0","","STAGED_NOT_PROMOTED"],
-                ["Quotation","2026-10-29 12:00:14 KST","","3794","818","0","0","","STAGED_NOT_PROMOTED"]]
+                ["Leads","2026-10-29 12:00:03 KST","2026-10-29 12:05:00 KST","493","493","0","0","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","STAGED_NOT_PROMOTED"],
+                ["Opportunities","2026-10-29 12:00:08 KST","2026-10-29 12:05:00 KST","700","700","0","0","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","STAGED_NOT_PROMOTED"],
+                ["Quotation","2026-10-29 12:00:14 KST","2026-10-29 12:05:00 KST","3794","818","0","0","cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","STAGED_NOT_PROMOTED"]]
         head=[""]*23;head[22]="SFDC Lead ID"
         raw=[head]
         ph=[""]*20;ph[0]="Lead ID";ph[14]="My Mail Status"
@@ -34,6 +34,19 @@ class ParallelAuditTests(unittest.TestCase):
         self.assertEqual(r["no_personal_outbound"],249)
         self.assertEqual(r["nba_leads"],258)
         self.assertEqual(r["result"],"PASS_WITH_REVIEW")
+
+    def test_preserved_no_new_report_accepted_with_fresh_source(self):
+        d=list(self.lead_data())
+        for r in d[0][1:]:
+            r[8]="PRESERVED_NO_NEW_REPORT"
+        self.assertEqual(audit_lead(*d,NOW)["result"],"PASS_WITH_REVIEW")
+
+    def test_preserved_without_hash_is_not_verified(self):
+        d=list(self.lead_data())
+        d[0][1][8]="PRESERVED_NO_NEW_REPORT"
+        d[0][1][7]=""
+        with self.assertRaisesRegex(ValueError,"staging evidence invalid"):
+            audit_lead(*d,NOW)
 
     def test_lead_fails_if_sent_requeued(self):
         d=list(self.lead_data())

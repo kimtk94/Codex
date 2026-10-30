@@ -158,6 +158,24 @@ def build(raw, historical, history_dir, staging, stage_dir, now):
     return [HEADER]+rows,by_status,latest
 
 
+def verified_lead_stage(row, now):
+    """A preserved, unchanged Lead subscription remains usable while fresh."""
+    if cell(row,8) not in {"STAGED_NOT_PROMOTED","PRESERVED_NO_NEW_REPORT"}:
+        return False
+    if not re.fullmatch(r"[0-9a-f]{64}",cell(row,7)) or cell(row,6)!="0":
+        return False
+    try:
+        if int(cell(row,3))<450 or int(cell(row,4))<450:
+            return False
+    except ValueError:
+        return False
+    for col in (1,2):
+        stamp=date_of(cell(row,col).removesuffix(" KST"))
+        if not stamp or not dt.timedelta(0)<=now-stamp<=dt.timedelta(hours=72):
+            return False
+    return True
+
+
 def main():
     secret=os.getenv("NBA_GOOGLE_SERVICE_ACCOUNT_JSON")
     if not secret:
@@ -181,10 +199,7 @@ def main():
         raise ValueError("SFDC report freshness audit tab missing")
     report_audit=get(DEST,["'SFDC Email Ingest Audit'!A1:J20"])[0].get("values",[])
     lead_audit=next((r for r in report_audit[1:] if cell(r,0)=="Leads"),None)
-    if not lead_audit or cell(lead_audit,8)!="STAGED_NOT_PROMOTED":
-        raise ValueError("Lead source staging audit missing or unexpected")
-    reported_at=date_of(cell(lead_audit,1).removesuffix(" KST"))
-    if not reported_at or dt.datetime.now(KST)-reported_at>dt.timedelta(hours=72):
+    if not lead_audit or not verified_lead_stage(lead_audit,dt.datetime.now(KST)):
         raise ValueError("Lead source report is stale; refuse to certify no sent")
     for tab,book in (("SFDC Email Leads Raw",target_rows),
                      ("Lead My Sent Audit",target_rows),
