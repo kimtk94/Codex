@@ -147,3 +147,39 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+
+  mri-largest-lesion-recheck:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install MRI and reviewer overlay requirements
+        run: python -m pip install "numpy>=1.26,<3" "nibabel>=5.2,<6" "matplotlib>=3.8,<4"
+      - name: Reuse independently verified MRI mask inventory
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-mri-rna-metadata-audit
+          run-id: 41061027979
+          github-token: ${{ github.token }}
+          path: artifacts/hcc_mri
+      - name: Reuse independent all-14 lesion selection and reader Dice inventory
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-mri-segmentation-fourteen-case-rater-qc
+          run-id: 41067136933
+          github-token: ${{ github.token }}
+          path: artifacts/hcc_mri_rater_qc
+      - name: Validate selected largest tumor3 against actual PV image for TCGA-BC-A10Y
+        run: python research/hcc/ci/mri_pv_pixel_overlay_audit.py --max-cases 1 --patients TCGA-BC-A10Y --rater-selection-csv artifacts/hcc_mri_rater_qc/mri_liver_tumor_interrater_qc.csv --input-dir artifacts/hcc_mri --out-dir artifacts/hcc_mri_pv_largest
+      - name: Archive tumor3-PV image overlay and numerical QC
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-a10y-largest-tumor3-pv-image-qc
+          path: artifacts/hcc_mri_pv_largest/
+          if-no-files-found: warn
+          retention-days: 30
