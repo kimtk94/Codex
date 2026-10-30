@@ -36,7 +36,9 @@ OUTPUT=(
  "gdc_pathologic_stage","gdc_tumor_grade",
  "prior_treatment_values","prior_treatment_screen",
  "n_reported_treatment_records","reported_treatment_types",
- "earliest_recorded_treatment_day","treatment_timing_screen",
+ "earliest_recorded_treatment_day","reported_therapy_yes_count",
+ "earliest_reported_therapy_yes_day","therapy_yes_before_tissue_candidate",
+ "treatment_timing_screen",
  "linked_slide_purity_n","linked_slide_tumor_cells_min",
  "linked_slide_tumor_nuclei_min","rna_tumor_purity_screen",
  "mri_source_baseline_presurgical_policy",
@@ -137,6 +139,14 @@ def retrieve_case(row,hit):
     days=[maybe_float(t.get("days_to_treatment_start")) for t in treatments]
     dates=[d for d in days if d is not None]
     if dates:out["earliest_recorded_treatment_day"]=min(dates)
+    # Only an explicitly affirmative treatment_or_therapy is counted as
+    # administered. GDC often has placeholder treatment-type records saying No.
+    administered=[t for t in treatments
+                  if str(t.get("treatment_or_therapy") or "").strip().lower()=="yes"]
+    out["reported_therapy_yes_count"]=len(administered)
+    yes_days=[maybe_float(t.get("days_to_treatment_start")) for t in administered]
+    yes_days=[d for d in yes_days if d is not None]
+    if yes_days:out["earliest_reported_therapy_yes_day"]=min(yes_days)
     # No TCIA MRI day on GDC's pathological-diagnosis-relative scale,
     # so a treatment day cannot establish that the MRI preceded therapy.
     code=row["aliquot_barcode"][:16] # TCGA-XX-XXXX-01A prefix
@@ -153,6 +163,12 @@ def retrieve_case(row,hit):
         out["gdc_sample_tumor_descriptor"]=norm_value(s.get("tumor_descriptor"))
         day=maybe_float(s.get("days_to_collection"))
         if day is not None:out["sample_days_to_collection"]=day
+        if day is not None and yes_days:
+            out["therapy_yes_before_tissue_candidate"]="YES_REVIEW" if min(yes_days)<=day else "NO_REPORTED_EARLIER_YES"
+        else:
+            out["therapy_yes_before_tissue_candidate"]="UNKNOWN_TIMING_OR_NO_YES"
+        # This is only a GDC diagnosis-relative chronology screen; no TCIA
+        # MRI dates are on the same scale so never call this MRI pretreatment.
         relevant_slides=[slide for portion in (s.get("portions") or [])
             for slide in (portion.get("slides") or []) if isinstance(slide,dict)]
         cell=[maybe_float(slide.get("percent_tumor_cells")) for slide in relevant_slides]
@@ -168,6 +184,8 @@ def retrieve_case(row,hit):
             reasons.append("SAMPLE_TYPE_NOT_PRIMARY_TUMOR")
     if out["prior_treatment_screen"]!="REPORTED_NO_PRIOR_TREATMENT_AT_DIAGNOSIS":
         reasons.append("PRIOR_TREATMENT_NEEDS_REVIEW")
+    if out["therapy_yes_before_tissue_candidate"]=="YES_REVIEW":
+        reasons.append("REPORTED_TREATMENT_YES_ON_OR_BEFORE_TISSUE_DAY")
     reasons.extend(["MRI_TISSUE_CHRONOLOGY_UNVERIFIED",
                     "ROI_EXPERT_REVIEW_UNVERIFIED"])
     out["exclusion_or_review_reason"]="|".join(reasons)
@@ -188,6 +206,10 @@ def summarize(items,rows):
         "case_found":sum(x["case_found"]=="YES" for x in matched),
         "exact_primary_tumor_samples":sum(x["gdc_primary_tumor_sample_matched"]=="YES" for x in matched),
         "prior_treatment_disclosure_counts":dict(status),
+        "patients_with_explicit_yes_therapy":sum(
+            int(x["reported_therapy_yes_count"] or 0)>0 for x in matched),
+        "patients_with_reported_yes_therapy_on_or_before_tissue_day":sum(
+            x["therapy_yes_before_tissue_candidate"]=="YES_REVIEW" for x in matched),
         "patients_with_linked_slide_purity_percent":sum(
             bool(x["linked_slide_tumor_cells_min"]!="") or
             bool(x["linked_slide_tumor_nuclei_min"]!="") for x in matched),
@@ -217,6 +239,11 @@ def offline_test():
     a=retrieve_case(row,case)
     assert a["gdc_primary_tumor_sample_matched"]=="YES"
     assert a["prior_treatment_screen"]=="REPORTED_NO_PRIOR_TREATMENT_AT_DIAGNOSIS"
+    assert a["reported_therapy_yes_count"]==0
+    case["diagnoses"][0]["treatments"][0]["treatment_or_therapy"]="Yes"
+    c=retrieve_case(row,case)
+    assert c["reported_therapy_yes_count"]==1
+    assert c["therapy_yes_before_tissue_candidate"]=="UNKNOWN_TIMING_OR_NO_YES"
     assert a["rna_tumor_purity_screen"]=="LINKED_SLIDE_PERCENT_AVAILABLE_NOT_GENOMIC_PURITY"
     assert a["mri_to_tissue_pretherapy_temporal_confirmation"]=="NOT_VERIFIED"
     assert a["final_radiogenomics_eligibility"]=="NOT_ASSESSED"
