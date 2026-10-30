@@ -8,6 +8,7 @@ from email import policy
 from email.parser import BytesParser
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import unquote
 
 stub=types.ModuleType('incremental_sync')
 stub.COLS=["ingest_key","message_id","imap_uid","folder","uidvalidity",
@@ -114,6 +115,79 @@ class BodyTests(unittest.TestCase):
         self.assertEqual(row[18],"QQ_IMAP_UID_VERIFIED")
         self.assertEqual(row[21],"WEB_REVIEW_CACHE")
         self.assertEqual(len(row),24)
+
+    def test_live_style_sync_fills_header_only_row_without_changing_exclusions(self):
+        current=dt.datetime.now(dt.timezone.utc).isoformat()
+        meta=mail("41012",when=current)
+        raw_headers=cache_row("41012")
+        raw_headers[18]="QQ_CSS_GIT_INGEST_HEADER"
+        raw_headers[22]="KEEP_EXCLUSION"
+        raw_headers[23]="HUMAN_REVIEW_UNCHANGED"
+        records=[CACHE_HEAD,raw_headers]
+        inbox=[[""]*8+["Thread UID"]]
+        ingest=[stub.COLS,meta]
+        mime=(b'Message-ID: <m41012@test.example>\n'
+              b'From: customer@yonsei.ac.kr\n'
+              b'To: taehoon.kim@novogene.com\n'
+              b'Subject: Subject 41012\n'
+              b'Content-Type: text/plain; charset=utf-8\n\n'
+              b'Updated customer body.')
+        operations=[]
+
+        class FakeImap:
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def login(self,*args):return None
+            def select(self,folder,readonly=False):
+                self.selected=folder
+                self.readonly=readonly
+                return ('OK',[])
+            def response(self,kind):return ('UIDVALIDITY',[b'123'])
+            def uid(self,method,uid,query):
+                self.fetch=(method,uid,query)
+                return ('OK',[(b'RFC822',mime)])
+
+        imap=FakeImap()
+
+        def api(_sess,method,url,**kwargs):
+            operations.append((method,unquote(url)))
+            u=unquote(url)
+            if method=='GET':
+                if "'Unanswered Emails'!A1:V1300" in u:return {'values':inbox}
+                if "'CSS Git Ingest'!A1:R100000" in u:return {'values':ingest}
+                if "'CSS Mail Inbox Raw'!A1:X10000" in u:return {'values':records}
+                if "'CSS Mail Inbox Raw'!A1:A10000" in u:
+                    return {'values':[[r[0]] for r in records]}
+                if "'CSS Mail Inbox Raw'!J1:J10000" in u:
+                    return {'values':[[r[9]] for r in records]}
+                raise AssertionError("Unexpected read "+u)
+            if u.endswith('/values:batchUpdate'):
+                for patch_row in kwargs['json']['data']:
+                    rng=patch_row['range']
+                    values=patch_row['values'][0]
+                    if rng.endswith('!F2'):records[1][5]=values[0]
+                    elif rng.endswith('!J2'):records[1][9]=values[0]
+                    elif rng.endswith('!U2:V2'):
+                        records[1][20:22]=values
+                    else:raise AssertionError(rng)
+                return {}
+            raise AssertionError("No accidental append or unrelated mutation "+u)
+
+        with patch.object(stub,'authorize',return_value=object(),create=True), \
+             patch.object(stub,'api',side_effect=api,create=True), \
+             patch.object(mod.imaplib,'IMAP4_SSL',return_value=imap), \
+             patch.dict(mod.os.environ,{'CSS_QQ_MAIL_ADDRESS':OWNER,
+                                       'CSS_QQ_MAIL_AUTH_CODE':'TEST_DUMMY',
+                                       'CSS_WEB_BODY_BATCH':'80'}):
+            mod.sync()
+        self.assertTrue(imap.readonly)
+        self.assertEqual(imap.fetch,('FETCH','41012','(BODY.PEEK[])'))
+        self.assertEqual(records[1][9],'Updated customer body.')
+        self.assertEqual(records[1][21],'WEB_REVIEW_CACHE')
+        self.assertEqual(records[1][22],'KEEP_EXCLUSION')
+        self.assertEqual(records[1][23],'HUMAN_REVIEW_UNCHANGED')
+        self.assertEqual(records[1][18],'QQ_CSS_GIT_INGEST_HEADER')
+        self.assertEqual(len([op for op in operations if op[0]=='POST']),1)
 
     def test_old_queue_and_owner_outside_lookback(self):
         old=(NOW-dt.timedelta(days=80)).isoformat()
