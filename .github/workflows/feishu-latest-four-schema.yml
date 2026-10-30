@@ -2,6 +2,8 @@ name: Feishu Latest Four Schema Audit
 on:
   pull_request:
     paths:
+      - 'automation/feishu/latest_four_schema_audit.py'
+      - 'automation/feishu/test_latest_four_schema_header.py'
       - 'automation/feishu/latest_four_mirror_parity.py'
       - 'automation/feishu/test_latest_four_mirror_parity.py'
       - '.github/workflows/feishu-latest-four-schema.yml'
