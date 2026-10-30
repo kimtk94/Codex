@@ -1,4 +1,6 @@
 import datetime as dt
+import os
+from unittest.mock import patch
 import json
 import tempfile
 import unittest
@@ -8,7 +10,7 @@ import exchange_calendars as xcals
 import pandas as pd
 
 from audit_stage import (evaluate, expected_starts, last_completed_session,
-                         read_bars, staged_dataframe, main)
+                         read_bars, staged_dataframe, main, _fetch_month)
 
 
 class GapAuditTests(unittest.TestCase):
@@ -86,5 +88,52 @@ class GapAuditTests(unittest.TestCase):
             self.assertEqual(result['datasets'][0]['missing'],1)
             self.assertFalse(result['source_mutated'])
 
+
+
+    def test_sip_future_month_end_is_capped(self):
+        class StubResponse:
+            status_code = 200
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {'bars': []}
+        class StubSession:
+            def __init__(self):
+                self.params = []
+            def get(self, url, params, headers, timeout):
+                self.params.append(params)
+                return StubResponse()
+
+        stub = StubSession()
+        with patch.dict(os.environ, {'ALPACA_API_KEY_ID': 'dummy_id',
+                                     'ALPACA_API_SECRET_KEY': 'dummy_secret'}):
+            _fetch_month(stub, 'QQQ', '15m',
+                         pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=5),
+                         pd.Timestamp.now(tz='UTC') + pd.Timedelta(days=4),
+                         sleep=lambda _: None)
+        self.assertEqual(len(stub.params), 1)
+        self.assertEqual(stub.params[0]['feed'], 'sip')
+        effective_end = pd.Timestamp(stub.params[0]['end'])
+        self.assertLessEqual(effective_end, pd.Timestamp.now(tz='UTC') - pd.Timedelta(minutes=19))
+
+    def test_sip_historical_window_unchanged(self):
+        class StubResponse:
+            status_code = 200
+            def raise_for_status(self):
+                return None
+            def json(self):
+                return {'bars': []}
+        class StubSession:
+            def __init__(self):
+                self.params = []
+            def get(self, url, params, headers, timeout):
+                self.params.append(params)
+                return StubResponse()
+        stub = StubSession()
+        with patch.dict(os.environ, {'ALPACA_API_KEY_ID': 'dummy_id',
+                                     'ALPACA_API_SECRET_KEY': 'dummy_secret'}):
+            _fetch_month(stub, 'QQQ', '1d', pd.Timestamp('2026-09-01T00:00:00Z'),
+                         pd.Timestamp('2026-10-01T00:00:00Z'), sleep=lambda _:None)
+        self.assertEqual(stub.params[0]['end'], '2026-10-01T00:00:00Z')
 
 if __name__=='__main__':unittest.main()
