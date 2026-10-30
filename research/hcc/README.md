@@ -4,6 +4,9 @@
 
 - **Master verification standard and manuscript significance/claim rubric:** [HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md)
 - **27 live evidence checkpoints:** [HCC_VERIFICATION_LEDGER.csv](HCC_VERIFICATION_LEDGER.csv)
+- **Actual MRI PV 14-person imaging/reader QC:** [HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md](HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md)
+- **Actual MRI 14-person primary-tumor GDC RNA numeric QC:** [HCC_MRI_14_GDC_STAR_NUMERICAL_QC_RESULTS_20261030.md](HCC_MRI_14_GDC_STAR_NUMERICAL_QC_RESULTS_20261030.md)
+- **Immutable source GDC UUID/MD5 file list:** [HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv](HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv)
 - **G3 MRI source-mask phase verification and manual reviewer roster:** [HCC_G3_IMAGE_REVIEW_AND_PHASE_LOCK.md](HCC_G3_IMAGE_REVIEW_AND_PHASE_LOCK.md) · [HCC_G3_PATIENT_IMAGE_REVIEW_QUEUE.csv](HCC_G3_PATIENT_IMAGE_REVIEW_QUEUE.csv)
 - **Scientific hypotheses, cohort design, and methods:** [HCC_RADIOGENOMICS_PROTOCOL_20261030.md](HCC_RADIOGENOMICS_PROTOCOL_20261030.md)
 - **CI script enforcing evidence and claim ceilings:** [ci/validate_research_ledger.py](ci/validate_research_ledger.py)
@@ -65,3 +68,12 @@ The optional workflow `.github/workflows/hcc-mri-pv-pixel-overlay-pilot.yml` sup
 Artifacts: `mri_pv_image_mask_pixel_qc.csv`, `mri_pv_image_mask_pixel_qc_summary.json` and patient-labeled three-plane PNG review images. These are **reviewer aids**, not image/ROI expert certification. Original NIfTI and RNA counts are not committed or uploaded as Actions artifacts.
 
 The `research/hcc/ci/mri_gdc_file_manifest.py` script prepares exact TCGA-linked GDC STAR-Counts tumor RNA `file_id`/associated aliquot barcodes and expected MD5/size; multiple tumor files per patient stay unresolved rather than arbitrarily choosing an aliquot. **No RNA counts have been downloaded.**
+
+## Latest actual data QC: MRI tumor/reader and GDC unstranded STAR counts (2026-10-30)
+
+- Real PV MRI source pixels, mask geometry, 3-plane overlays: 14/14 technical candidate pairs pass, including the **largest tumor3 for TCGA-BC-A10Y** in [run #70](https://github.com/kimtk94/Codex/actions/runs/41068072486). Source tumor1 QC run [#62](https://github.com/kimtk94/Codex/actions/runs/41065766643) alone was not the final proposed index-lesion selection.
+- Liver containment and 2-reader tumor mask Dice for 14/14: Dice median 0.9016, range 0.8136–0.9606; minimum tumor-in-liver mask fraction 99.8778%; 1/14 with multiple tumor contours (A10Y), largest tumor3. [Run #65](https://github.com/kimtk94/Codex/actions/runs/41067136933). **Dice is not PyRadiomics feature ICC.**
+- Exact GDC STAR-Counts files identified for all 14 primary tumor samples; MD5 and size verified against **the actual 14 source files**; 60,660 GENCODE v36 gene IDs/sample with consistent unstranded counts and TPM. No numeric corruption or preliminary library-size outlier flags. [Run #76](https://github.com/kimtk94/Codex/actions/runs/41069103398). Only metadata and QC retained; raw expression vectors are not archived in GitHub.
+- **Evidence gates:** HCC-12 = PARTIAL (reviewer/anatomic+timing pending), HCC-13 = PARTIAL (feature ICC pending), HCC-15 = PASS_TECHNICAL (GDC RNA file and gene count integrity), HCC-16 = PARTIAL (normalization/gene sets/batch/tumor purity pending), HCC-17/20 = PENDING.
+- **Manuscript claim ceiling remains S0**, not a qualified 14-person paired radiogenomics biological association cohort.
+- Heavy public remote access is deliberately kept off PR checks to avoid rate limits. The one-off PR live jobs that established the above evidence were removed after recording; repeat explicitly when a new dataset version or QC reason requires it.
