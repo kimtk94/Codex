@@ -2,7 +2,7 @@
 import datetime as dt
 import unittest
 from pathlib import Path
-from lead_my_sent_refresh import build, parse_messages, KST
+from lead_my_sent_refresh import build, parse_messages, validate_source_audit, KST
 
 
 class PersonalLeadTests(unittest.TestCase):
@@ -98,6 +98,24 @@ class PersonalLeadTests(unittest.TestCase):
         lead=next(x for x in rows if x[0]=="Lead-0")
         self.assertEqual(lead[19],"MANAGE_OPPORTUNITY")
 
+
+    def test_preserved_report_is_accepted_only_when_audited_and_recent(self):
+        audit=["Leads","2026-10-29 14:00:05 KST","","493","493","0","0",
+               "a"*64,"PRESERVED_NO_NEW_REPORT","QQ IMAP"]
+        self.assertIsNotNone(validate_source_audit(audit,self.now))
+        audit[7]="not-a-digest"
+        with self.assertRaisesRegex(ValueError,"hash"):
+            validate_source_audit(audit,self.now)
+        audit[7]="a"*64
+        audit[8]="UNVERIFIED_REPORT"
+        with self.assertRaisesRegex(ValueError,"missing or unexpected"):
+            validate_source_audit(audit,self.now)
+
+    def test_preserved_report_does_not_bypass_source_freshness(self):
+        audit=["Leads","2026-10-20 14:00:05 KST","","493","493","0","0",
+               "a"*64,"PRESERVED_NO_NEW_REPORT","QQ IMAP"]
+        with self.assertRaisesRegex(ValueError,"stale"):
+            validate_source_audit(audit,self.now)
 
 if __name__=="__main__":
     unittest.main()
