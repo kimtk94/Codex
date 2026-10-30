@@ -27,6 +27,66 @@ def digest(path):
     return h.hexdigest()
 
 
+
+def recover_15min_from_complete_1min(session, symbol, missing_index, calendar):
+    """Recover a 15-minute bar only from all 15 observed SIP 1-minute candles.
+
+    Zero-filled minutes, interpolation, partial windows and non-SIP substitutes
+    are forbidden. Provenance is explicitly marked as 1Min resampling.
+    """
+    import os
+    wanted = pd.DatetimeIndex(missing_index).tz_convert('UTC')
+    if wanted.empty:
+        return staged_dataframe(symbol, '15m', [], set(), calendar), {}
+    h={'APCA-API-KEY-ID':os.environ['ALPACA_API_KEY_ID'],
+       'APCA-API-SECRET-KEY':os.environ['ALPACA_API_SECRET_KEY']}
+    by_minute={}
+    attempts={}
+    for date in sorted({t.tz_convert('America/New_York').date().isoformat() for t in wanted}):
+        slots=[t for t in wanted if t.tz_convert('America/New_York').date().isoformat()==date]
+        start=min(slots)
+        end=max(slots)+pd.Timedelta(minutes=15)
+        params={'timeframe':'1Min','start':start.isoformat().replace('+00:00','Z'),
+                'end':end.isoformat().replace('+00:00','Z'),
+                'feed':'sip','adjustment':'all','limit':10000,'sort':'asc'}
+        next_token=None
+        pages=0
+        while True:
+            req=dict(params)
+            if next_token: req['page_token']=next_token
+            resp=session.get(f'https://data.alpaca.markets/v2/stocks/{symbol}/bars',
+                             params=req,headers=h,timeout=45)
+            resp.raise_for_status()
+            payload=resp.json()
+            bars=payload.get('bars')
+            if not isinstance(bars,list):
+                raise ValueError('Malformed Alpaca 1Min response')
+            for b in bars:
+                by_minute[pd.Timestamp(b['t']).tz_convert('UTC')]=b
+            next_token=payload.get('next_page_token')
+            pages+=1
+            if not next_token: break
+            if pages>=10: raise RuntimeError('Unexpected 1Min pagination')
+    aggregates=[]
+    for start in wanted:
+        minutes=[start+pd.Timedelta(minutes=i) for i in range(15)]
+        found=[by_minute.get(t) for t in minutes]
+        attempts[start.isoformat()]=sum(x is not None for x in found)
+        if any(x is None for x in found):
+            continue
+        v=sum(float(x['v']) for x in found)
+        if v<=0: continue
+        agg={'t':start.isoformat(), 'o':found[0]['o'],
+             'h':max(float(x['h']) for x in found),
+             'l':min(float(x['l']) for x in found),
+             'c':found[-1]['c'], 'v':v,
+             'vw':sum(float(x['v'])*float(x.get('vw',x['c'])) for x in found)/v}
+        aggregates.append(agg)
+    recovered=staged_dataframe(symbol,'15m',aggregates,
+                               {t.isoformat() for t in wanted},calendar)
+    return recovered,attempts
+
+
 def validate_one(srcpath:Path, stagedpaths:list[Path],symbol:str,frame:str,as_of:str,
                  session:requests.Session, calendar, out:Path, recover_old:bool):
     hashes={str(p.name):digest(p) for p in [srcpath,*stagedpaths]}
@@ -71,10 +131,20 @@ def validate_one(srcpath:Path, stagedpaths:list[Path],symbol:str,frame:str,as_of
     old=pd.DataFrame(columns=staged.columns)
     old_missing_count=len(expected_old)
     old_error=None
+    resampled_1m=0
+    fallback_minutes={}
     if recover_old and len(expected_old):
         old_gaps=missing[pd.to_datetime(missing['start_utc'],utc=True)<CUT]
         try:
             old, _=stage_missing(symbol,frame,old_gaps,session,calendar,max_months=4)
+            still_missing=expected_old.difference(pd.DatetimeIndex(pd.to_datetime(old['candle_time_utc'],utc=True)))
+            if symbol=='QLD' and frame=='15m' and len(still_missing):
+                fallback, fallback_minutes=recover_15min_from_complete_1min(
+                    session,symbol,still_missing,calendar)
+                resampled_1m=len(fallback)
+                if resampled_1m:
+                    old=pd.concat([old,fallback],ignore_index=True)
+                    old=old.drop_duplicates(subset=['market','candle_time_utc','unit_min'])
             if not old.empty:
                 old_file=out/f'historical_{symbol}_{frame}.parquet'
                 old.to_parquet(old_file,index=False)
@@ -88,6 +158,7 @@ def validate_one(srcpath:Path, stagedpaths:list[Path],symbol:str,frame:str,as_of
         'missing_recent_before':len(expected_recent),'missing_recent_after':len(not_collected),
         'old_missing_before':len(expected_old),'old_staged':len(old),
         'old_missing_after':old_missing_count,'old_error_type':old_error,
+        'old_derived_from_complete_sip_1min':resampled_1m,'old_1min_observed_per_15min_slot':fallback_minutes,
         'price_basis_overlap_points':len(matched),'price_basis_max_rel_ohlc_diff':round(max_diff,8) if max_diff is not None else None,
         'price_basis_pass':basis_ok,'recent_stage_pass':stages_valid,
         'file_sha256':hashes,'source_hash_unchanged':digest(srcpath)==hashes[srcpath.name]
