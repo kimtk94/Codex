@@ -108,10 +108,10 @@ def main():
     legacy_count = get(api, DST, "Tax Invoice Completeness Audit", "A1:C20")
     generated = build(monthly, net, legacy_three, legacy_css, legacy_count,
                       dt.datetime.now(dt.timezone.utc))
-    current = get(api, DST, TAB, "A1:J30") if True else []
+    ensure(api, DST, TAB)
+    current = get(api, DST, TAB, "A1:J30")
     if current and current[0] != HEAD:
         raise ValueError("REFUSE_TO_OVERWRITE_FOREIGN_AUTHORITY_TAB")
-    ensure(api, DST, TAB)
     put(api, DST, TAB, "A1", generated, "RAW")
     actual = get(api, DST, TAB, "A1:J" + str(len(generated)))
     if len(actual) != len(generated) or actual[0] != HEAD:
