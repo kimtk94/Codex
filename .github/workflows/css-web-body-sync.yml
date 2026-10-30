@@ -1,27 +1,60 @@
 name: CSS Web Mail Body Sync
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/css_mail/web_body_sync.py'
+      - 'automation/css_mail/test_web_body_sync.py'
+      - '.github/workflows/css-web-body-sync.yml'
   push:
-    branches: [main, fix/css-mail-usability-20261027]
-    paths: ['automation/css_mail/web_body_sync.py', '.github/workflows/css-web-body-sync.yml']
+    branches: [main]
+    paths:
+      - 'automation/css_mail/web_body_sync.py'
+      - 'automation/css_mail/test_web_body_sync.py'
+      - '.github/workflows/css-web-body-sync.yml'
   schedule:
     - cron: '17,47 * * * *'
 permissions:
   contents: read
+# Share the QQ ingest lock with CSS QQ Mail Read-only Probe.
+# This protects the same UID-based staging from competing append operations.
 concurrency:
-  group: css-web-body-sync
+  group: css-qq-mail-readonly
   cancel-in-progress: false
 jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s automation/css_mail -p 'test_web_body_sync.py' -v
   sync:
+    if: github.event_name != 'pull_request'
+    needs: offline-tests
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 12
+    timeout-minutes: 25
     env:
       CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_WEB_BODY_BATCH: '80'
+      CSS_WEB_BODY_LOOKBACK_DAYS: '60'
+      CSS_IMAP_BATCH_PER_FOLDER: '120'
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      - run: python automation/css_mail/test_web_body_sync.py
-      - run: python automation/css_mail/web_body_sync.py
+      - name: Sync latest QQ Inbox and Sent metadata first
+        run: python automation/css_mail/incremental_sync.py
+      - name: Fetch verified owner Inbox and Sent bodies into web cache
+        run: python automation/css_mail/web_body_sync.py

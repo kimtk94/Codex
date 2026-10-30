@@ -1,20 +1,36 @@
 #!/usr/bin/env python3
-"""Cache bodies for the current web review queue only; IMAP is read-only."""
+"""Cache QQ Inbox and personal Sent bodies for the web from GitHub Actions.
+
+Source of truth: QQ IMAP UIDVALIDITY/UID and CSS Git Ingest.
+Destination: CSS Mail Inbox Raw derived body cache. Does not send mail,
+modify IMAP, overwrite review decisions, or pretend headers contain a body.
+"""
 import datetime as dt
 import email
+import hashlib
 import imaplib
 import os
 import re
 import urllib.parse
+from collections import Counter
 from email import policy
+from email.utils import getaddresses
 from html.parser import HTMLParser
 import incremental_sync as src
 
 SFDC = '1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI'
 RAW = 'CSS Mail Inbox Raw'
-HEADERS = ['Mail UID','Message-ID','Thread Key','Received At KST','From Email','From Name','To','Cc','Subject','Body Text']
+HEADERS = ['Mail UID','Message-ID','Thread Key','Received At KST','From Email',
+           'From Name','To','Cc','Subject','Body Text']
+EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+$')
+UID_RE = re.compile(r'^[0-9]{1,12}$')
+MAX_BODY = 45000
+MAX_FETCH_BYTES = 12 * 1024 * 1024
+
+
 class Text(HTMLParser):
-    def __init__(self): super().__init__(); self.parts=[]; self.hidden=0
+    def __init__(self):
+        super().__init__(); self.parts=[]; self.hidden=0
     def handle_starttag(self, tag, attrs):
         if tag in ('script','style'): self.hidden += 1
         if tag in ('br','p','div','tr','li'): self.parts.append('\n')
@@ -22,6 +38,8 @@ class Text(HTMLParser):
         if tag in ('script','style'): self.hidden=max(0,self.hidden-1)
     def handle_data(self, data):
         if not self.hidden: self.parts.append(data)
+
+
 def body_text(msg):
     plain=[]; html=[]
     for part in msg.walk():
@@ -32,57 +50,223 @@ def body_text(msg):
         if part.get_content_type()=='text/plain': plain.append(str(content))
         else:
             parser=Text(); parser.feed(str(content)); html.append(''.join(parser.parts))
-    return '\n'.join(plain or html).strip()[:45000]
-def url(book, range):
-    return 'https://sheets.googleapis.com/v4/spreadsheets/'+book+'/values/'+urllib.parse.quote(range,safe='')
-def main():
-    s=src.authorize()
-    def read(book, range): return src.api(s,'GET',url(book,range)).get('values',[])
+    return '\n'.join(plain or html).strip()[:MAX_BODY]
+
+
+def url(book, span):
+    return 'https://sheets.googleapis.com/v4/spreadsheets/'+book+'/values/'+urllib.parse.quote(span,safe='')
+
+
+def value(row, index):
+    return str(row[index]).strip() if len(row)>index and row[index] is not None else ''
+
+
+def addresses(*parts):
+    return {a.lower() for _,a in getaddresses([str(p or '') for p in parts]) if EMAIL_RE.fullmatch(a)}
+
+
+def parsed_at(value):
+    try:
+        d=dt.datetime.fromisoformat(str(value).replace('Z','+00:00'))
+        return d.astimezone(dt.timezone.utc) if d.tzinfo else None
+    except (ValueError,TypeError): return None
+
+
+def candidate_key(data):
+    folder=value(data,3)
+    direction=value(data,15).upper()
+    raw_uid=value(data,2)
+    if not UID_RE.fullmatch(raw_uid): return None
+    if folder.upper()=='INBOX': return 'inbox:'+raw_uid
+    if direction=='OUTBOUND': return 'sent:'+raw_uid
+    return None
+
+
+def select_candidates(ingest, cache, queue, owner, now, lookback_days=60, batch=80):
+    """Return prioritized metadata without disturbing cached messages/decisions."""
+    if not ingest or ingest[0]!=src.COLS:
+        raise RuntimeError('QQ_INGEST_SCHEMA_MISMATCH')
+    if not cache or cache[0][:10]!=HEADERS:
+        raise RuntimeError('WEB_MAIL_CACHE_SCHEMA_MISMATCH')
+    owner=owner.strip().lower()
+    if not EMAIL_RE.fullmatch(owner): raise RuntimeError('MAIL_OWNER_ADDRESS_INVALID')
+    if not 1<=lookback_days<=60 or not 1<=batch<=200:
+        raise RuntimeError('BODY_SYNC_LIMIT_OUT_OF_BOUNDS')
+    stored={}
+    for i,r in enumerate(cache[1:],start=2):
+        uid=value(r,0).lower()
+        if not uid:continue
+        if uid in stored: raise RuntimeError('WEB_MAIL_DUPLICATE_UID')
+        stored[uid]=(i,r)
+    wanted={value(r,8).lower() for r in queue[1:] if len(r)>8
+            and re.fullmatch(r'inbox:[0-9]{1,12}',value(r,8).lower())}
+    seen={}
+    cutoff=now-dt.timedelta(days=lookback_days)
+    for row in ingest[1:]:
+        uid=candidate_key(row)
+        if not uid: continue
+        folder=value(row,3)
+        key=value(row,0)
+        if key!=folder+'|'+value(row,4)+'|'+value(row,2):
+            raise RuntimeError('QQ_INGEST_SOURCE_KEY_MISMATCH')
+        when=parsed_at(value(row,5))
+        own=(owner in addresses(value(row,6),value(row,7),value(row,8)))
+        if not ((own and when and cutoff<=when<=now+dt.timedelta(hours=12))
+                or (uid in wanted and when)):
+            continue
+        # A mismatched existing UID is a safety stop, never overwrite it.
+        if uid in stored:
+            old=stored[uid][1]
+            if value(old,1) and value(row,1) and value(old,1)!=value(row,1):
+                raise RuntimeError('WEB_MAIL_MESSAGE_ID_CONFLICT')
+            if value(old,2) and value(old,2)!=key:
+                raise RuntimeError('WEB_MAIL_INGEST_KEY_CONFLICT')
+            if value(old,9):continue
+        if uid in seen and seen[uid]!=row:
+            raise RuntimeError('QQ_INGEST_DUPLICATE_UID_CONFLICT')
+        seen[uid]=row
+    prioritized=sorted(seen.items(),key=lambda it:(
+        it[0] in wanted,
+        parsed_at(value(it[1],5)) or dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    ),reverse=True)
+    return prioritized[:batch],stored,len(seen)
+
+
+def validate_message(msg, meta):
+    source_id=value(meta,1)
+    actual_id=str(msg.get('Message-ID','')).strip()
+    if source_id:
+        return actual_id==source_id
+    # Some mail system notices omit Message-ID; the UIDVALIDITY/UID key and
+    # exact source subject/from provide independent header cross-checks.
+    actual_subject=str(msg.get('Subject','')).strip()
+    actual_from=addresses(str(msg.get('From','')))
+    return bool(actual_subject and actual_subject==value(meta,9)
+                and value(meta,6).lower() in actual_from)
+
+
+def make_row(uid,meta,msg,body,now):
+    when=parsed_at(value(meta,5))
+    if not when:raise RuntimeError('QQ_MESSAGE_DATE_MISSING')
+    received=when.astimezone(src.KST).isoformat()
+    return [
+        uid,value(meta,1),value(meta,0),received,value(meta,6),
+        str(msg.get('From','')),value(meta,7),value(meta,8),value(meta,9),
+        body,'OUTBOUND' if uid.startswith('sent:') else 'INBOUND',
+        '','','','','','','','QQ_IMAP_UID_VERIFIED',
+        now,now,'WEB_REVIEW_CACHE','',''
+    ]
+
+
+def sync():
+    session=src.authorize()
+    def read(book,span):
+        return src.api(session,'GET',url(book,span)).get('values',[])
     queue=read(SFDC,"'Unanswered Emails'!A1:V1300")
-    existing=read(SFDC,"'CSS Mail Inbox Raw'!A1:X10000")
-    if not queue or queue[0][8]!='Thread UID': raise RuntimeError('Unexpected queue schema')
-    if not existing or existing[0][:10]!=HEADERS: raise RuntimeError('Unexpected body cache schema')
-    stored={r[0] for r in existing[1:] if len(r)>9 and r[9]}
-    wanted={r[8] for r in queue[1:] if len(r)>8 and re.fullmatch(r'inbox:\d{1,12}',r[8]) and r[8] not in stored}
+    if not queue or value(queue[0],8)!='Thread UID':
+        raise RuntimeError('WEB_REVIEW_QUEUE_SCHEMA_MISMATCH')
+    cache=read(SFDC,"'CSS Mail Inbox Raw'!A1:X10000")
     ingest=read(src.BOOK,"'CSS Git Ingest'!A1:R100000")
-    if not ingest or ingest[0]!=src.COLS: raise RuntimeError('Unexpected ingest schema')
-    candidates={}
-    for r in ingest[1:]:
-        m=dict(zip(src.COLS,r))
-        uid='inbox:'+m.get('imap_uid','')
-        if uid in wanted and m.get('folder','').upper()=='INBOX': candidates[uid]=m
-    limit=min(200,max(1,int(os.getenv('CSS_WEB_BODY_BATCH','100'))))
-    now=dt.datetime.now(src.KST).isoformat()
-    output=[]
+    now=dt.datetime.now(dt.timezone.utc)
+    owner=os.getenv('CSS_MAIL_OWNER_ADDRESS') or os.environ['CSS_QQ_MAIL_ADDRESS']
+    batch=int(os.getenv('CSS_WEB_BODY_BATCH','80'))
+    lookback=int(os.getenv('CSS_WEB_BODY_LOOKBACK_DAYS','60'))
+    candidates,stored,total=select_candidates(
+        ingest,cache,queue,owner,now,lookback,batch)
+    stamp=now.astimezone(src.KST).isoformat()
+    groups={}
+    for uid,meta in candidates:
+        folder=value(meta,3)
+        groups.setdefault(folder,[]).append((uid,meta))
+    results=[]
+    errors=Counter()
     with imaplib.IMAP4_SSL('imap.exmail.qq.com',993,timeout=45) as im:
         im.login(os.environ['CSS_QQ_MAIL_ADDRESS'],os.environ['CSS_QQ_MAIL_AUTH_CODE'])
-        state,_=im.select('INBOX',readonly=True)
-        if state!='OK': raise RuntimeError('Inbox unavailable')
-        _,uv=im.response('UIDVALIDITY'); valid=uv[0].decode() if uv and uv[0] else ''
-        if not valid: raise RuntimeError('UIDVALIDITY missing')
-        for uid,m in sorted(candidates.items(),key=lambda item:item[1].get('received_at',''),reverse=True)[:limit]:
-            if m.get('uidvalidity')!=valid: continue
-            state,data=im.uid('FETCH',m['imap_uid'],'(BODY.PEEK[])')
-            if state!='OK': continue
-            raw=b''.join(x[1] for x in data or [] if isinstance(x,tuple) and isinstance(x[1],bytes))
-            if not raw: continue
-            msg=email.message_from_bytes(raw,policy=policy.default)
-            if str(msg.get('Message-ID','')).strip()!=m.get('message_id','').strip(): continue
-            body=body_text(msg)
-            if not body: continue
-            output.append([uid,m.get('message_id',''),m.get('ingest_key',''),m.get('received_at',''),m.get('from_email',''),str(msg.get('From','')),m.get('recipient_to',''),m.get('cc',''),m.get('subject',''),body,'INBOUND','','','','','','','','',now,now,'WEB_REVIEW_CACHE','',''])
-    # Recheck the queue before caching; never change any review/exclusion decisions.
-    current={r[0] for r in read(SFDC,"'Unanswered Emails'!I2:I1300") if r}
-    cache=read(SFDC,"'CSS Mail Inbox Raw'!A2:J10000")
-    complete={r[0] for r in cache if len(r)>9 and r[9]}
-    rows=[r for r in output if r[0] in current and r[0] not in complete]
-    # Fill an existing empty-body row in place instead of creating duplicate UIDs.
-    positions={r[0]:i+2 for i,r in enumerate(cache) if r}
-    for row in rows:
-        if row[0] in positions:
-            src.api(s,'PUT',url(SFDC,"'CSS Mail Inbox Raw'!A"+str(positions[row[0]]))+ '?valueInputOption=RAW',json={'values':[row]})
-    new=[r for r in rows if r[0] not in positions]
-    if len(cache)+len(new)>9999: raise RuntimeError('Cache capacity exceeded')
-    if new: src.api(s,'POST',url(SFDC,"'CSS Mail Inbox Raw'!A:X")+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',json={'values':new})
-    print('CSS_WEB_BODY_SYNC fetched='+str(len(output))+' cached='+str(len(rows))+' pending='+str(len(wanted)-len(rows)))
-if __name__=='__main__': main()
+        for folder,items in groups.items():
+            state,_=im.select('"'+folder.replace('"','')+'"',readonly=True)
+            if state!='OK':raise RuntimeError('QQ_IMAP_FOLDER_UNAVAILABLE')
+            _,uv=im.response('UIDVALIDITY')
+            valid=uv[0].decode() if uv and uv[0] else ''
+            if not valid:raise RuntimeError('QQ_IMAP_UIDVALIDITY_MISSING')
+            if any(value(meta,4)!=valid for _,meta in items):
+                raise RuntimeError('QQ_IMAP_UIDVALIDITY_CHANGED')
+            for uid,meta in items:
+                status,data=im.uid('FETCH',value(meta,2),'(BODY.PEEK[])')
+                if status!='OK':
+                    errors['FETCH_FAILED']+=1;continue
+                chunks=[part[1] for part in data or []
+                        if isinstance(part,tuple) and isinstance(part[1],bytes)]
+                size=sum(len(c) for c in chunks)
+                if not size:
+                    errors['EMPTY_FETCH']+=1;continue
+                if size>MAX_FETCH_BYTES:
+                    errors['MIME_TOO_LARGE']+=1;continue
+                msg=email.message_from_bytes(b''.join(chunks),policy=policy.default)
+                if not validate_message(msg,meta):
+                    errors['HEADER_MISMATCH']+=1;continue
+                body=body_text(msg)
+                if not body:
+                    errors['EMPTY_BODY']+=1;continue
+                results.append(make_row(uid,meta,msg,body,stamp))
+    # Double-check current cache before writing. A manually edited row wins.
+    latest=read(SFDC,"'CSS Mail Inbox Raw'!A1:X10000")
+    if latest[0][:10]!=HEADERS:raise RuntimeError('WEB_MAIL_CACHE_CHANGED_SCHEMA')
+    positions={}
+    for n,r in enumerate(latest[1:],start=2):
+        key=value(r,0).lower()
+        if not key:continue
+        if key in positions:raise RuntimeError('WEB_MAIL_DUPLICATE_UID')
+        positions[key]=(n,r)
+    patches=[]
+    fresh=[]
+    for row in results:
+        uid=row[0]
+        if uid in positions:
+            number,old=positions[uid]
+            if value(old,1) and value(old,1)!=row[1]:
+                raise RuntimeError('WEB_MAIL_MESSAGE_ID_CONFLICT')
+            if value(old,2) and value(old,2)!=row[2]:
+                raise RuntimeError('WEB_MAIL_INGEST_KEY_CONFLICT')
+            if value(old,9):continue
+            patches += [
+                {'range':"'CSS Mail Inbox Raw'!F"+str(number),'values':[[row[5]]]},
+                {'range':"'CSS Mail Inbox Raw'!J"+str(number),'values':[[row[9]]]},
+                {'range':"'CSS Mail Inbox Raw'!U"+str(number)+":V"+str(number),
+                 'values':[[stamp,'WEB_REVIEW_CACHE']]}
+            ]
+        else:
+            fresh.append(row)
+    if patches:
+        src.api(session,'POST',
+            'https://sheets.googleapis.com/v4/spreadsheets/'+SFDC+'/values:batchUpdate',
+            json={'valueInputOption':'RAW','data':patches})
+    if fresh:
+        if len(positions)+len(fresh)>9999:
+            raise RuntimeError('WEB_MAIL_CACHE_CAPACITY_EXCEEDED')
+        src.api(session,'POST',url(SFDC,"'CSS Mail Inbox Raw'!A:X")
+                +':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
+                json={'values':fresh})
+    # Read back just UID + body: no bodies or customer data in Actions logs.
+    after_uid=read(SFDC,"'CSS Mail Inbox Raw'!A1:A10000")
+    after_body=read(SFDC,"'CSS Mail Inbox Raw'!J1:J10000")
+    verified={value(r,0).lower():i for i,r in enumerate(after_uid) if i>0 and value(r,0)}
+    for row in results:
+        ix=verified.get(row[0])
+        if ix is None or ix>=len(after_body):
+            raise RuntimeError('WEB_BODY_POSTWRITE_UID_MISSING')
+        if hashlib.sha256(value(after_body[ix],0).encode()).digest()!=hashlib.sha256(row[9].encode()).digest():
+            raise RuntimeError('WEB_BODY_POSTWRITE_CONTENT_MISMATCH')
+    status='PASS' if not errors and total==len(candidates) else 'PARTIAL'
+    print('CSS_WEB_BODY_SYNC_'+status+
+          ' selected='+str(len(candidates))+' eligible='+str(total)+
+          ' fetched='+str(len(results))+' updated='+str(len(patches)//3)+
+          ' inserted='+str(len(fresh))+' errors='+str(sum(errors.values()))+
+          ' error_types='+','.join(sorted(errors)),flush=True)
+    if errors and not results:
+        raise RuntimeError('WEB_BODY_ZERO_SUCCESS_WITH_FETCH_ERRORS')
+    # Partial is explicitly named in logs; remaining candidates continue
+    # next 30-minute run. No false "all mail synchronized" status.
+
+
+if __name__=='__main__':
+    sync()
