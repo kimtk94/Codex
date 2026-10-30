@@ -28,3 +28,7 @@ Install pandas requests exchange-calendars pyarrow.
 3. Preserve source file hashes and versions; stage candidates never replace original timestamps.
 4. Only in a separately approved process, merge and re-audit complete rows; explain market-halt/no-trade exceptions.
 5. Use purged walk-forward, fees, realistic stop/TP ordering and slippage for any model. This workflow does not touch LIVE.
+
+## Proposed model research universe (not live)
+
+See recommended_universe_v1.json for 24 candidates: 20 US ETFs/equities, 4 core Upbit KRW pairs, plus a dynamic historical new-listing event cohort. The list deliberately separates execution instruments from market-regime features. Selection is not a claim of profitability or a completed liquidity screen. Inputs with unverified coverage remain candidates; current-only S&P 100 snapshots must not be used as historical constituents. Universe model contracts are checked by test_universe.py.
