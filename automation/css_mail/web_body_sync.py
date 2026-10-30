@@ -16,6 +16,7 @@ import unicodedata
 import urllib.parse
 from collections import Counter
 from email import policy
+from email.parser import BytesHeaderParser
 from email.utils import getaddresses
 from html.parser import HTMLParser
 import incremental_sync as src
@@ -35,6 +36,7 @@ EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+$')
 UID_RE = re.compile(r'^[0-9]{1,12}$')
 MAX_BODY = 45000
 MAX_FETCH_BYTES = 12 * 1024 * 1024
+MAX_HEADER_BYTES = 128 * 1024
 
 
 class Text(HTMLParser):
@@ -98,6 +100,23 @@ def body_matches(source, stored):
         observed.encode('utf-8')).digest()
 
 
+def verified_oversize_header(raw, meta):
+    """Check a bounded original header without decoding huge attachment bytes.
+
+    No MIME body is parsed, shortened or stored for oversized source mails.
+    Missing or conflicting Message-ID/From/Subject refuses the terminal marker.
+    """
+    prefix=raw[:MAX_HEADER_BYTES]
+    separators=[(prefix.find(sep),len(sep)) for sep in (b'\r\n\r\n',b'\n\n')]
+    complete=[(at,width) for at,width in separators if at>=0]
+    if not complete:
+        return None
+    at,width=min(complete)
+    if at==0:
+        return None
+    msg=BytesHeaderParser(policy=policy.default).parsebytes(prefix[:at+width])
+    return msg if validate_message(msg,meta) else None
+
 
 def addresses(*parts):
     return {a.lower() for _,a in getaddresses([str(p or '') for p in parts]) if EMAIL_RE.fullmatch(a)}
@@ -159,7 +178,7 @@ def select_candidates(ingest, cache, queue, owner, now, lookback_days=60, batch=
                 raise RuntimeError('WEB_MAIL_MESSAGE_ID_CONFLICT')
             if value(old,2) and value(old,2)!=key:
                 raise RuntimeError('WEB_MAIL_INGEST_KEY_CONFLICT')
-            if value(old,9) or value(old,21)=='BODY_EMPTY_MIME':continue
+            if value(old,9) or value(old,21) in ('BODY_EMPTY_MIME','BODY_OVERSIZE_MIME'):continue
         if uid in seen and seen[uid]!=row:
             raise RuntimeError('QQ_INGEST_DUPLICATE_UID_CONFLICT')
         seen[uid]=row
@@ -200,7 +219,7 @@ def progress_record(ingest, uid_rows, body_rows, status_rows, remaining,
                     selected, text_fetched, empty_count, errors, now, run_id):
     """Return non-PII, source-scoped backfill status for the central workspace."""
     seen=set()
-    ready=empty=0
+    ready=empty=oversize=0
     for i, record in enumerate(uid_rows[1:], start=1):
         uid=value(record,0).lower()
         if not uid:
@@ -214,6 +233,8 @@ def progress_record(ingest, uid_rows, body_rows, status_rows, remaining,
             ready+=1
         elif state=='BODY_EMPTY_MIME':
             empty+=1
+        elif state=='BODY_OVERSIZE_MIME':
+            oversize+=1
     latest=max((t for record in ingest[1:]
                 if (t:=parsed_at(value(record,5))) is not None),default=None)
     meaningful_errors=sum(v for k,v in errors.items() if k!='EMPTY_BODY')
@@ -222,10 +243,11 @@ def progress_record(ingest, uid_rows, body_rows, status_rows, remaining,
     return [
         now.astimezone(src.KST).strftime('%Y-%m-%d %H:%M:%S KST'),
         state,len(ingest)-1,len(seen),ready,empty,
-        len(seen)-ready-empty,max(0,remaining),selected,text_fetched,
+        len(seen)-ready-empty-oversize,max(0,remaining),selected,text_fetched,
         empty_count,meaningful_errors,
         latest.isoformat() if latest else '',str(run_id or ''),
-        'Source-snapshot scope: personal Inbox/Sent last 60 days plus unanswered queue'
+        ('Source-snapshot scope: personal Inbox/Sent last 60 days plus unanswered queue; '
+         'oversize_MIME_body_unavailable='+str(oversize))
     ]
 
 
@@ -279,6 +301,7 @@ def sync():
         groups.setdefault(folder,[]).append((uid,meta))
     results=[]
     empty_results=[]
+    oversize_results=[]
     errors=Counter()
     with imaplib.IMAP4_SSL('imap.exmail.qq.com',993,timeout=45) as im:
         im.login(os.environ['CSS_QQ_MAIL_ADDRESS'],os.environ['CSS_QQ_MAIL_AUTH_CODE'])
@@ -299,9 +322,16 @@ def sync():
                 size=sum(len(c) for c in chunks)
                 if not size:
                     errors['EMPTY_FETCH']+=1;continue
+                raw=b''.join(chunks)
                 if size>MAX_FETCH_BYTES:
-                    errors['MIME_TOO_LARGE']+=1;continue
-                msg=email.message_from_bytes(b''.join(chunks),policy=policy.default)
+                    verified=verified_oversize_header(raw,meta)
+                    if not verified:
+                        errors['OVERSIZE_HEADER_UNVERIFIED']+=1;continue
+                    row=make_row(uid,meta,verified,'',stamp)
+                    row[21]='BODY_OVERSIZE_MIME'
+                    oversize_results.append(row)
+                    continue
+                msg=email.message_from_bytes(raw,policy=policy.default)
                 if not validate_message(msg,meta):
                     errors['HEADER_MISMATCH']+=1;continue
                 body=body_text(msg)
@@ -342,7 +372,8 @@ def sync():
             fresh.append(row)
     empty_patches=[]
     empty_existing=0
-    for row in empty_results:
+    oversize_existing=0
+    for row in empty_results+oversize_results:
         uid=row[0]
         if uid in positions:
             number,old=positions[uid]
@@ -352,12 +383,16 @@ def sync():
                 raise RuntimeError('WEB_MAIL_INGEST_KEY_CONFLICT')
             if value(old,9):continue
             if value(old,21) not in ('','HEADER_ONLY_BODY_PENDING',
-                                     'WEB_REVIEW_CACHE','BODY_EMPTY_MIME'):
+                                     'WEB_REVIEW_CACHE','BODY_EMPTY_MIME',
+                                     'BODY_OVERSIZE_MIME'):
                 continue
             empty_patches.append({
                 'range':"'CSS Mail Inbox Raw'!U"+str(number)+":V"+str(number),
-                'values':[[stamp,'BODY_EMPTY_MIME']]})
-            empty_existing+=1
+                'values':[[stamp,row[21]]]})
+            if row[21]=='BODY_EMPTY_MIME':
+                empty_existing+=1
+            else:
+                oversize_existing+=1
         else:
             # The mail is a verified original, but contains no plain/html
             # body. Preserve its header, never invent text or mark BODY_READY.
@@ -391,13 +426,13 @@ def sync():
                     and ix<len(after_body) else '')
             if not body_matches(row[9],actual):
                 mismatches.append((row[0],len(row[9]),len(actual)))
-        for row in empty_results:
+        for row in empty_results+oversize_results:
             ix=verified.get(row[0])
             if ix is None or ix>=len(after_status):
                 mismatches.append((row[0],0,-1))
                 continue
             body_now=normalize_body(exact_body_cell(after_body[ix])) if ix<len(after_body) else ''
-            if not body_now and value(after_status[ix],0)!='BODY_EMPTY_MIME':
+            if body_now or value(after_status[ix],0)!=row[21]:
                 mismatches.append((row[0],0,-2))
         if not mismatches:break
         if retry<2:time.sleep(1.5)
@@ -410,7 +445,7 @@ def sync():
         raise RuntimeError('WEB_BODY_POSTWRITE_CONTENT_MISMATCH')
     progress=publish_progress(
         session,read,ingest,after_uid,after_body,after_status,
-        max(0,total-len(results)-len(empty_results)),len(candidates),
+        max(0,total-len(results)-len(empty_results)-len(oversize_results)),len(candidates),
         len(results),len(empty_results),errors,now)
     print('CSS_WEB_BACKFILL_STATUS state='+progress[1]+
           ' cache_total='+str(progress[3])+
@@ -424,6 +459,8 @@ def sync():
           ' fetched='+str(len(results))+' updated='+str((len(patches)-len(empty_patches))//3)+
           ' inserted='+str(len(fresh))+' empty_mime='+str(len(empty_results))+
           ' empty_existing='+str(empty_existing)+
+          ' oversize_mime='+str(len(oversize_results))+
+          ' oversize_existing='+str(oversize_existing)+
           ' errors='+str(sum(errors.values()))+
           ' error_types='+','.join(sorted(errors)),flush=True)
     if errors and not results and any(k!='EMPTY_BODY' for k in errors):
