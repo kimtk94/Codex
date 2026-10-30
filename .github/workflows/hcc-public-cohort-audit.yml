@@ -158,7 +158,7 @@ jobs:
   mri-pv-feature-icc-pilot:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -175,12 +175,12 @@ jobs:
           run-id: 41061027979
           github-token: ${{ github.token }}
           path: artifacts/hcc_mri
-      - name: Extract original PV features for 3 selected cases and 2 raters
-        run: python research/hcc/ci/mri_pv_pyradiomics_rater_icc.py --max-cases 3 --bootstrap 300 --inventory artifacts/hcc_mri/tcga_liverhccseg_mri_mask_voxel_qc.csv --out-dir artifacts/hcc_feature_icc
+      - name: Extract original PV features for 14 selected cases and 2 raters
+        run: python research/hcc/ci/mri_pv_pyradiomics_rater_icc.py --max-cases 14 --bootstrap 500 --inventory artifacts/hcc_mri/tcga_liverhccseg_mri_mask_voxel_qc.csv --out-dir artifacts/hcc_feature_icc
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: hcc-mri-pv-feature-icc-three-case-pilot
+          name: hcc-mri-pv-feature-icc-fourteen-case-study
           path: artifacts/hcc_feature_icc/
           if-no-files-found: warn
           retention-days: 30
