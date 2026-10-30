@@ -1,9 +1,10 @@
 const {GoogleAuth}=require('google-auth-library');
 const {projectPersonalLeads}=require('../lib/personal-leads');
 const {projectAutomationConsole}=require('../lib/automation-console');
+const {projectInvoiceAuditParity}=require('../lib/invoice-audit-parity');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J24"];
+const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'CSS Mail Inbox Raw'!A1:V1000","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J24","'Tax Invoice Completeness Audit'!A1:B15"];
 module.exports=async function handler(req,res){
   res.setHeader('Cache-Control','private, no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -48,7 +49,7 @@ module.exports=async function handler(req,res){
     const reply=await fetch(url,{headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(15000)});
     if(!reply.ok)throw new Error('SHEETS_HTTP_'+reply.status);
     const data=await reply.json();
-    const [monthly,projects,health,unanswered,lead,mail,decisions,masterProgress,parallelTracks,workflowRuns]=(data.valueRanges||[]).map(x=>x.values||[]);
+    const [monthly,projects,health,unanswered,lead,mail,decisions,masterProgress,parallelTracks,workflowRuns,invoiceAuditRows]=(data.valueRanges||[]).map(x=>x.values||[]);
     const expected=['Month','Project / Sub-project','Component'];
     if(!monthly[0]||!projects[0]||!health[0]||[monthly[0][0],projects[0][0],health[0][0]].some((v,i)=>v!==expected[i]))
       return res.status(503).json({error:'SOURCE_SCHEMA_MISMATCH'});
@@ -68,6 +69,7 @@ module.exports=async function handler(req,res){
       verifiedBillingKUSD:money(x[15]),forecastKUSD:money(x[16]),
       refreshed:x[11]||''}));
 
+    const invoiceAudit=projectInvoiceAuditParity(months,invoiceAuditRows||[]);
     // Owner-authenticated, read-only source details. QQ is optional: never
     // pretend a project-level amount is an individual J amount if unavailable.
     let statementSource='QQ_VERIFIED', qqStatements=[], qqInvoices=[];
@@ -190,6 +192,6 @@ module.exports=async function handler(req,res){
         health:[],issues:['AUTOMATION_CONSOLE_SCHEMA_REVIEW_REQUIRED']};
     }
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'NONE',sync:r[7]||'',sender:r[1]||'',subject:r[9]||''}));
-    return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,automation,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
+    return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,automation,invoiceAudit,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
   }catch(e){return res.status(503).json({error:'DATA_FETCH_FAILED'});}
 };
