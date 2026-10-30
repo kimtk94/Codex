@@ -57,7 +57,7 @@ test('prevents run URL open redirect and flags a failed workflow',()=>{
 function runtime(){
  const head=['Workflow','Domain','Run State','Last Run UTC','Age Hours',
    'GitHub Run URL','Event','Checked KST','Verification Boundary','Workflow File'];
- const items=Array.from({length:11},(_,i)=>[
+ const items=Array.from({length:12},(_,i)=>[
    i===6?'Feishu Schema Audit':'Workflow '+i,'System',
    i===6?'FAILED':'PASS_EXECUTION_ONLY','2026-10-29T15:00:00Z','1.0',
    'https://github.com/kimtk94/Codex/actions/runs/'+(40903357351+i),
@@ -68,7 +68,7 @@ function runtime(){
 test('10 active GitHub run states centralize the Feishu failure without fake success',()=>{
  const o=projectAutomationConsole(master(),parallel(),[],runtime());
  assert.equal(o.workflows.available,true);
- assert.equal(o.workflows.items.length,11);
+ assert.equal(o.workflows.items.length,12);
  assert.equal(o.workflows.items[6].state,'FAILED');
  assert.ok(o.issues.some(x=>x.includes('Feishu Schema Audit')&&x.includes('FAILED')));
  assert.equal(o.progress.accepted,0);
@@ -77,9 +77,17 @@ test('unsafe URL never becomes an outbound link; missing statuses remain unverif
  const r=runtime();r[1][5]='https://example.com/phishing';
  const s=projectAutomationConsole(master(),parallel(),[],r);
  assert.equal(s.workflows.items[0].runUrl,null);
- r.pop();const x=projectAutomationConsole(master(),parallel(),[],r);
+ r.splice(-2);const x=projectAutomationConsole(master(),parallel(),[],r);
  assert.equal(x.workflows.available,false);
  assert.ok(x.issues.includes('GITHUB_WORKFLOW_HEALTH_INCOMPLETE'));
+});
+test('preview shows existing 11 live jobs until the twelfth publisher runs',()=>{
+ const r=runtime();r.pop();
+ const o=projectAutomationConsole(master(),parallel(),[],r);
+ assert.equal(o.workflows.available,true);
+ assert.equal(o.workflows.items.length,11);
+ assert.equal(o.workflows.coverage,'PREVIOUS_SOURCE_11_OF_12');
+ assert.ok(o.issues.includes('GITHUB_WORKFLOW_HEALTH_PARTIAL_WAITING_FOR_NEW_CHECKPOINT'));
 });
 test('duplicate workflow state and fabricated run result are rejected',()=>{
  const r=runtime();r[2][0]=r[1][0];

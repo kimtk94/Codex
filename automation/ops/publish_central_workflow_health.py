@@ -24,6 +24,7 @@ HEADERS=["Workflow","Domain","Run State","Last Run UTC","Age Hours",
 # A status row never claims user-facing email was sent or SFDC values saved.
 WORKFLOWS=(
  ("QQ Mail Source","Mail","css-mail-readonly.yml",6,"Read-only IMAP/source probe"),
+ ("QQ Checkpoint Integrity","Mail","css-raw-mail-checkpoint-health.yml",2,"Ingest UID key, mail freshness, legacy archive status; source audit"),
  ("SFDC 3-Report Ingest","Report","sfdc-three-report-email-digestion.yml",8,"3-report staging; not Salesforce writeback"),
  ("Lead Personal Audit","Lead","lead-unsent-gap-refresh.yml",8,"Exact personal sender evidence; no emails sent"),
  ("NBA Pipeline","Follow-up","nba-verified-pool-pipeline.yml",8,"Pool validation and approved scheduled staging"),
