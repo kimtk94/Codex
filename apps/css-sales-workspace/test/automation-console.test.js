@@ -57,7 +57,7 @@ test('prevents run URL open redirect and flags a failed workflow',()=>{
 function runtime(){
  const head=['Workflow','Domain','Run State','Last Run UTC','Age Hours',
    'GitHub Run URL','Event','Checked KST','Verification Boundary','Workflow File'];
- const items=Array.from({length:12},(_,i)=>[
+ const items=Array.from({length:13},(_,i)=>[
    i===6?'Feishu Schema Audit':'Workflow '+i,'System',
    i===6?'FAILED':'PASS_EXECUTION_ONLY','2026-10-29T15:00:00Z','1.0',
    'https://github.com/kimtk94/Codex/actions/runs/'+(40903357351+i),
@@ -65,10 +65,10 @@ function runtime(){
  ]);
  return [head,...items];
 }
-test('12 tracked GitHub run states centralize failures without fake success',()=>{
+test('13 tracked GitHub run states centralize failures without fake success',()=>{
  const o=projectAutomationConsole(master(),parallel(),[],runtime());
  assert.equal(o.workflows.available,true);
- assert.equal(o.workflows.items.length,12);
+ assert.equal(o.workflows.items.length,13);
  assert.equal(o.workflows.items[6].state,'FAILED');
  assert.ok(o.issues.some(x=>x.includes('Feishu Schema Audit')&&x.includes('FAILED')));
  assert.equal(o.progress.accepted,0);

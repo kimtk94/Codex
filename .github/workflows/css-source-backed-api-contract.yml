@@ -8,11 +8,13 @@ on:
     paths:
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - '.github/workflows/css-source-backed-api-contract.yml'
+      - 'apps/css-sales-workspace/**'
   push:
     branches: [main]
     paths:
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - '.github/workflows/css-source-backed-api-contract.yml'
+      - 'apps/css-sales-workspace/**'
 permissions:
   contents: read
 concurrency:
