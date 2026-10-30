@@ -4,6 +4,7 @@
 
 - **Master verification standard and manuscript significance/claim rubric:** [HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md)
 - **27 live evidence checkpoints:** [HCC_VERIFICATION_LEDGER.csv](HCC_VERIFICATION_LEDGER.csv)
+- **Actual 14-person GDC treatment, specimen day and pathology slide prescreen:** [HCC_MRI_14_CLINICAL_TREATMENT_ELIGIBILITY_AUDIT_20261031.md](HCC_MRI_14_CLINICAL_TREATMENT_ELIGIBILITY_AUDIT_20261031.md) · [14-patient clinical evidence CSV](HCC_MRI_14_GDC_CLINICAL_TREATMENT_GATE_20261031.csv)
 - **Locked MRI–RNA Hallmark 12-test analysis plan (PRE-ASSOCIATION):** [HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md](HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md)
 - **Real RNA 14-sample Hallmark score QC, source hash and redundancy findings:** [HCC_MRI_14_HALLMARK_PATHWAY_QC_REPORT_20261031.md](HCC_MRI_14_HALLMARK_PATHWAY_QC_REPORT_20261031.md) · [14×4 scores CSV](HCC_MRI_14_MSIGDB_HALLMARK_RANK_SCORE_20261031.csv)
 - **Actual MRI PV 14-person imaging/reader QC:** [HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md](HCC_MRI_14_PIXEL_AND_RATER_QC_RESULTS_20261030.md)
@@ -96,3 +97,10 @@ The `research/hcc/ci/mri_gdc_file_manifest.py` script prepares exact TCGA-linked
 - RNA-only QC flags very high pathway co-variation (Angiogenesis vs EMT Spearman rho 0.982; Hypoxia vs Angiogenesis 0.930), plus differences by TCGA tissue-source site code (BC/DD/G3). No independent pathway mechanism or clinical batch adjustment claim.
 - **Primary analysis family is frozen before looking at image–RNA associations:** 3 preselected reproducible PV features (Firstorder Entropy, Firstorder InterquartileRange, GLCM Contrast) × 4 Hallmarks = 12 two-sided tests with one BH-FDR family. Image–RNA association code remains gated and **has not run**.
 - Gate updates: HCC-16 = **PARTIAL** (numeric pathway scoring PASS; tumor purity/batch/clinical eligibility unresolved), HCC-19 = **PASS_TECHNICAL** for internal source-controlled plan, HCC-17/20 = **PENDING**, manuscript ceiling S0. See [research gate ledger](HCC_VERIFICATION_LEDGER.csv). Heavy remote pilot PR job removed after PASS; only offline/score-table QC remains in PR checks.
+
+## Live clinical eligibility prescreen — 2026-10-31
+
+- [GDC clinical/treatment/samples/slides run #111](https://github.com/kimtk94/Codex/actions/runs/41089216888): **14/14** exact TCGA-LIHC case and corresponding Primary Tumor sample found. 9/14 have multiple diagnosis records disagreeing on `prior_treatment=Yes/No`; 5/14 have only No reported. **Five** have explicitly Yes treatment start day at/before GDC relative RNA tissue collection day; requires source-based review, not automatic exclusion.
+- GDC slide tumor-cell and tumor-nuclei estimates were present for all 14 but **not confirmed to represent the exact sequenced aliquot** and are not genomic purity. Patient-level linked slide `percent_tumor_cells` varies 50–100%; use only as a QC review flag.
+- TCIA shifted image DICOM dates and GDC diagnosis-relative days cannot be directly aligned. The TCIA collection-level baseline-pre-surgical statement **does not establish untreated status for each MRI**. All 14 remain unqualified **candidate cases** pending authoritative pre-intervention MRI chronology and expert lesion-source review.
+- HCC-14 = **PARTIAL** (clinical metadata screened), HCC-17 = **PENDING** (final eligible n unassessed), HCC-20 = **PENDING** (no RNA-image tests), claim ceiling S0. One-time live GDC API PR job removed after passing; deterministic fail-closed tests retained in PR CI.
