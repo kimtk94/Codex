@@ -43,13 +43,31 @@ function reviewFor(uid,action){
  $('confirmReview').disabled=false;
  $('reviewDialog').showModal();
 }
-function showBody(mail){
+async function showBody(mail){
  $('bodySubject').textContent=mail.subject||'제목 미확인';
  $('bodyMeta').textContent=[mail.sender,mail.received].filter(Boolean).join(' · ');
+ $('bodyText').textContent='QQ 원본 본문 확인 중';
+ $('bodyDialog').showModal();
+ if(!mail.body&&mail.bodyStatus!=='BODY_EMPTY_MIME'){
+   try{
+     const response=await fetch('/api/lifecycle/mail-body?uid='+encodeURIComponent(mail.uid),
+       {credentials:'same-origin',cache:'no-store'});
+     let result={};try{result=await response.json()}catch(_){}
+     if(response.ok){mail.body=result.body||'';mail.bodyStatus=result.classification||'BODY_VERIFIED'}
+     else if(response.status===404){
+       mail.bodyStatus=result.classification||'NOT_CACHED';
+     }else if(response.status===401){
+       $('bodyText').textContent='로그인 만료 · 대시보드에서 다시 로그인하세요.';
+       return;
+     }else{
+       $('bodyText').textContent='본문 조회 실패: '+(result.error||response.status);
+       return;
+     }
+   }catch(e){$('bodyText').textContent='본문 조회 실패: '+e.message;return;}
+ }
  $('bodyText').textContent=mail.body||(mail.bodyStatus==='BODY_EMPTY_MIME'
   ? 'QQ 원본은 확인했으나 텍스트 본문이 없는 첨부파일형/시스템 메일입니다. 원본 첨부파일은 별도로 확인해야 합니다.'
   : '본문이 원본에서 아직 수집되지 않았습니다.');
- $('bodyDialog').showModal();
 }
 function display(){
  if(!snapshot)return;
@@ -74,9 +92,7 @@ function display(){
  $('mode').textContent=enabled?'수동 Decision 접수 가능 · 동기화 대기':'읽기 전용 · UID 복사 및 원본에서 처리';
  placeRows('rows',shown.map(m=>{
    const buttons=el('div');buttons.style.display='grid';buttons.style.gap='5px';
-   buttons.append(queueButton(
-    m.body?'본문 보기':m.bodyStatus==='BODY_EMPTY_MIME'?'원본 본문 없음':'원본 확인',
-    ()=>m.body||m.bodyStatus==='BODY_EMPTY_MIME'?showBody(m):openLedger(m.uid)));
+   buttons.append(queueButton(m.body?'본문 보기':'본문 조회',()=>showBody(m)));
    buttons.append(queueButton(enabled?'메일 검토':'UID 복사 · 결정 시트',()=>reviewFor(m.uid,'EXCLUDE_MAIL')));
    const r=reviews.get(m.uid);
    return [[m.priority,(m.days||0)+'일'].filter(Boolean).join(' · '),

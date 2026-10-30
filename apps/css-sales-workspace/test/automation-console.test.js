@@ -107,7 +107,10 @@ test('dashboard inline script parses; central UI IDs exist and no write calls in
 });
 test('lifecycle remains owner-authenticated and uses only central read-only tabs',()=>{
  const api=fs.readFileSync(path.join(__dirname,'..','api','lifecycle.js'),'utf8');
- assert.ok(api.includes('if(!sessionValid&&!bearerValid&&!oauthValid)'));
+ assert.ok(api.includes("if(!owner.valid)return res.status(401)"));
+ const check=fs.readFileSync(path.join(__dirname,'..','lib','lifecycle-owner-auth.js'),'utf8');
+ assert.ok(check.includes('bearerValid||sessionValid||oauthValid'));
+ assert.ok(check.includes('timingSafeEqual'));
  assert.ok(api.includes("'Automation Master Progress'!A5:K55"));
  assert.ok(api.includes("'Parallel Track Status'!A1:G5"));
  assert.ok(api.includes("'Automation Workflow Runs'!A1:J24"));
@@ -121,7 +124,10 @@ test('mail backfill coverage is available only through authenticated read-only c
  assert.ok(api.includes("'CSS Mail Backfill Status'!A1:O2"));
  assert.ok(api.includes("mailBackfill,automation"));
  assert.ok(api.includes("state:'NOT_VERIFIED'"));
- assert.ok(api.includes('if(!sessionValid&&!bearerValid&&!oauthValid)'));
+ assert.ok(api.includes("if(!owner.valid)return res.status(401)"));
+ const check=fs.readFileSync(path.join(__dirname,'..','lib','lifecycle-owner-auth.js'),'utf8');
+ assert.ok(check.includes('bearerValid||sessionValid||oauthValid'));
+ assert.ok(check.includes('timingSafeEqual'));
  assert.ok(html.includes('id="mailBackfillStatus"'));
  assert.ok(html.includes('bf.remaining'));
  assert.ok(!html.includes('mailBackfillApprove'));
