@@ -68,6 +68,46 @@ module.exports=async function handler(req,res){
       verifiedBillingKUSD:money(x[15]),forecastKUSD:money(x[16]),
       refreshed:x[11]||''}));
 
+    // VAT-excluded issued revenue is separately source-audited by GitHub
+    // Actions. Missing/stale output NEVER falls back to gross as net revenue.
+    let revenueNetStatus='NOT_VERIFIED';
+    try {
+      const netRange="'BI Revenue Net VAT Monthly'!A1:I24";
+      const netUrl='https://sheets.googleapis.com/v4/spreadsheets/'+SHEET+
+        '/values/'+encodeURIComponent(netRange);
+      const netReply=await fetch(netUrl,{headers:{Authorization:'Bearer '+access.token},
+        signal:AbortSignal.timeout(10000)});
+      if(netReply.ok){
+        const vat=(await netReply.json()).values||[];
+        const expectedVat=['Month','Issued Invoice Gross KRW (VAT incl)',
+          'Issued Net Revenue KRW (VAT excl)'];
+        const headerOK=vat[0]?.slice(0,3).every((v,i)=>v===expectedVat[i]);
+        if(headerOK){
+          let matched=0;
+          for(const row of vat.slice(1)){
+            const item=months.find(m=>m.month===row[0]);
+            if(!item)continue;
+            const gross=money(row[1]),net=money(row[2]),count=money(row[4]);
+            const updated=String(row[7]||'');
+            const iso=updated.replace(' ','T').replace(/ KST$/,'+09:00');
+            const age=Date.now()-Date.parse(iso);
+            const current=Number.isFinite(age)&&age>=0&&age<=72*3600*1000;
+            const valid=row[8]==='INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED' &&
+              current&&gross===item.actual&&count===item.invoices&&net>=0&&net<=gross &&
+              Math.abs(Number(row[3])-(net/1500000))<0.002;
+            if(valid){
+              item.netRevenue=net;item.netRevenueKUSD=Number(row[3]);
+              matched++;
+            }
+          }
+          if(matched===months.length)revenueNetStatus='VERIFIED';
+        }
+      }
+    } catch (_err) { revenueNetStatus='NOT_VERIFIED'; }
+    if(revenueNetStatus!=='VERIFIED'){
+      for(const month of months){month.netRevenue=null;month.netRevenueKUSD=null;}
+    }
+
     // Owner-authenticated, read-only source details. QQ is optional: never
     // pretend a project-level amount is an individual J amount if unavailable.
     let statementSource='QQ_VERIFIED', qqStatements=[], qqInvoices=[];
@@ -202,6 +242,6 @@ module.exports=async function handler(req,res){
         health:[],issues:['AUTOMATION_CONSOLE_SCHEMA_REVIEW_REQUIRED']};
     }
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'NONE',sync:r[7]||'',sender:r[1]||'',subject:r[9]||''}));
-    return res.status(200).json({months,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,mailBackfill,automation,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
+    return res.status(200).json({months,revenueNetStatus,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,mailBackfill,automation,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
   }catch(e){return res.status(503).json({error:'DATA_FETCH_FAILED'});}
 };

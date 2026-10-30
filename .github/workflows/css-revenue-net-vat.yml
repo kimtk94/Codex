@@ -1,5 +1,11 @@
 name: CSS Verified Net Revenue VAT Audit
 on:
+  pull_request:
+    paths:
+      - 'automation/css_mail/revenue_net_vat_publish.py'
+      - 'automation/css_mail/test_revenue_net_vat_publish.py'
+      - 'apps/css-sales-workspace/**'
+      - '.github/workflows/css-revenue-net-vat.yml'
   workflow_dispatch:
   workflow_run:
     workflows: ["CSS QQ Mail Read-only Probe"]
@@ -35,7 +41,7 @@ jobs:
           python -m unittest -v test_revenue_net_vat_publish test_revenue_lifecycle_monthly
   publish:
     needs: verify
-    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
     environment: TaehoonServer
     runs-on: ubuntu-latest
     timeout-minutes: 12
