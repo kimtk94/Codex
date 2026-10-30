@@ -63,6 +63,18 @@ jobs:
             echo 'BLOCKED: CI Drive service account credentials are not set'
             exit 2
           fi
+      - name: Verify expected Drive service account identity (no credential disclosure)
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: |
+          python - <<'PY'
+          import json,os
+          raw=os.environ.get('CKD_DRIVE_SA_JSON','')
+          info=json.loads(raw) if raw else {}
+          email=info.get('client_email','')
+          print('DRIVE_SA_MATCH_CKD_RESEARCH=' + str(email == 'ckd-research-automation@novogene-css-automation.iam.gserviceaccount.com'))
+          print('DRIVE_SA_MATCH_CSS_SERVER=' + str(email == 'novogene-css-server@novogene-css-automation.iam.gserviceaccount.com'))
+          PY
       - name: Read original QQQ/QLD 15m and daily Parquets from private Drive
         env:
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
