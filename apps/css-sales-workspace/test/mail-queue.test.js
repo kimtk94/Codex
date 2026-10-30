@@ -86,11 +86,13 @@ test('pagination and sorting work offline in disabled review mode',async()=>{
 });
 
 test('verified attachment-only MIME is distinguished from unsynchronized mail',()=>{
-  const api=fs.readFileSync(path.join(root,'api','lifecycle.js'),'utf8');
-  assert.match(api,/bodyStatus:r\[21\]/);
-  assert.match(api,/bodyStatus:replies\.get\(r\[8\]\)/);
+  const api=fs.readFileSync(path.join(root,'api','lifecycle','mail-body.js'),'utf8');
+  assert.match(api,/const classification=String\(value\[21\]/);
+  assert.match(api,/error:'BODY_NOT_AVAILABLE'/);
   assert.match(js,/BODY_EMPTY_MIME/);
+  assert.match(js,/fetch\('\/api\/lifecycle\/mail-body\?uid='/);
   assert.match(js,/텍스트 본문이 없는 첨부파일형/);
-  assert.match(js,/원본 본문 없음/);
+  assert.match(js,/본문 조회/);
+  assert.match(js,/본문이 원본에서 아직 수집되지 않았습니다/);
   assert.doesNotMatch(js,/innerHTML|outerHTML|insertAdjacentHTML/);
 });
