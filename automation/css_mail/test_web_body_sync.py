@@ -84,6 +84,16 @@ class BodyTests(unittest.TestCase):
         self.assertEqual(total,3)
         self.assertEqual(len(positions),1)
 
+    def test_verified_empty_mime_checkpoint_exits_retry_pool(self):
+        empty=cache_row("41012")
+        empty[21]="BODY_EMPTY_MIME"
+        selected,positions,total=mod.select_candidates(
+            [stub.COLS,mail("41012")],[CACHE_HEAD,empty],
+            [[""]*8+["Thread UID"],[""]*8+["inbox:41012"]],
+            OWNER,NOW)
+        self.assertEqual((len(selected),total),(0,0))
+        self.assertIn("inbox:41012",positions)
+
     def test_owner_matching_is_exact_not_substring(self):
         self.assertEqual(mod.addresses(OWNER.upper(),"Someone <"+OWNER+">"),{OWNER})
         self.assertNotIn(OWNER,mod.addresses("not-"+OWNER))
@@ -165,6 +175,8 @@ class BodyTests(unittest.TestCase):
                     return {'values':[[r[0]] for r in records]}
                 if "'CSS Mail Inbox Raw'!J1:J10000" in u:
                     return {'values':[[r[9].replace('\n','\r\n')] for r in records]}
+                if "'CSS Mail Inbox Raw'!V1:V10000" in u:
+                    return {'values':[[r[21]] for r in records]}
                 raise AssertionError("Unexpected read "+u)
             if u.endswith('/values:batchUpdate'):
                 for patch_row in kwargs['json']['data']:

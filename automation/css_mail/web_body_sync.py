@@ -135,7 +135,7 @@ def select_candidates(ingest, cache, queue, owner, now, lookback_days=60, batch=
                 raise RuntimeError('WEB_MAIL_MESSAGE_ID_CONFLICT')
             if value(old,2) and value(old,2)!=key:
                 raise RuntimeError('WEB_MAIL_INGEST_KEY_CONFLICT')
-            if value(old,9):continue
+            if value(old,9) or value(old,21)=='BODY_EMPTY_MIME':continue
         if uid in seen and seen[uid]!=row:
             raise RuntimeError('QQ_INGEST_DUPLICATE_UID_CONFLICT')
         seen[uid]=row
@@ -193,6 +193,7 @@ def sync():
         folder=value(meta,3)
         groups.setdefault(folder,[]).append((uid,meta))
     results=[]
+    empty_results=[]
     errors=Counter()
     with imaplib.IMAP4_SSL('imap.exmail.qq.com',993,timeout=45) as im:
         im.login(os.environ['CSS_QQ_MAIL_ADDRESS'],os.environ['CSS_QQ_MAIL_AUTH_CODE'])
@@ -220,7 +221,11 @@ def sync():
                     errors['HEADER_MISMATCH']+=1;continue
                 body=body_text(msg)
                 if not body:
-                    errors['EMPTY_BODY']+=1;continue
+                    errors['EMPTY_BODY']+=1
+                    row=make_row(uid,meta,msg,'',stamp)
+                    row[21]='BODY_EMPTY_MIME'
+                    empty_results.append(row)
+                    continue
                 results.append(make_row(uid,meta,msg,body,stamp))
     # Double-check current cache before writing. A manually edited row wins.
     latest=read(SFDC,"'CSS Mail Inbox Raw'!A1:X10000")
@@ -250,6 +255,29 @@ def sync():
             ]
         else:
             fresh.append(row)
+    empty_patches=[]
+    empty_existing=0
+    for row in empty_results:
+        uid=row[0]
+        if uid in positions:
+            number,old=positions[uid]
+            if value(old,1) and value(old,1)!=row[1]:
+                raise RuntimeError('WEB_MAIL_MESSAGE_ID_CONFLICT')
+            if value(old,2) and value(old,2)!=row[2]:
+                raise RuntimeError('WEB_MAIL_INGEST_KEY_CONFLICT')
+            if value(old,9):continue
+            if value(old,21) not in ('','HEADER_ONLY_BODY_PENDING',
+                                     'WEB_REVIEW_CACHE','BODY_EMPTY_MIME'):
+                continue
+            empty_patches.append({
+                'range':"'CSS Mail Inbox Raw'!U"+str(number)+":V"+str(number),
+                'values':[[stamp,'BODY_EMPTY_MIME']]})
+            empty_existing+=1
+        else:
+            # The mail is a verified original, but contains no plain/html
+            # body. Preserve its header, never invent text or mark BODY_READY.
+            fresh.append(row)
+    patches += empty_patches
     if patches:
         src.api(session,'POST',
             'https://sheets.googleapis.com/v4/spreadsheets/'+SFDC+'/values:batchUpdate',
@@ -267,6 +295,7 @@ def sync():
     for retry in range(3):
         after_uid=read(SFDC,"'CSS Mail Inbox Raw'!A1:A10000")
         after_body=read(SFDC,"'CSS Mail Inbox Raw'!J1:J10000")
+        after_status=read(SFDC,"'CSS Mail Inbox Raw'!V1:V10000")
         verified={value(r,0).lower():i for i,r in enumerate(after_uid)
                   if i>0 and value(r,0)}
         mismatches=[]
@@ -277,6 +306,14 @@ def sync():
             if hashlib.sha256(actual.encode()).digest()!=hashlib.sha256(
                     normalize_body(row[9]).encode()).digest():
                 mismatches.append((row[0],len(row[9]),len(actual)))
+        for row in empty_results:
+            ix=verified.get(row[0])
+            if ix is None or ix>=len(after_status):
+                mismatches.append((row[0],0,-1))
+                continue
+            body_now=normalize_body(value(after_body[ix],0)) if ix<len(after_body) else ''
+            if not body_now and value(after_status[ix],0)!='BODY_EMPTY_MIME':
+                mismatches.append((row[0],0,-2))
         if not mismatches:break
         if retry<2:time.sleep(1.5)
     if mismatches:
@@ -289,10 +326,12 @@ def sync():
     status='PASS' if not errors and total==len(candidates) else 'PARTIAL'
     print('CSS_WEB_BODY_SYNC_'+status+
           ' selected='+str(len(candidates))+' eligible='+str(total)+
-          ' fetched='+str(len(results))+' updated='+str(len(patches)//3)+
-          ' inserted='+str(len(fresh))+' errors='+str(sum(errors.values()))+
+          ' fetched='+str(len(results))+' updated='+str((len(patches)-len(empty_patches))//3)+
+          ' inserted='+str(len(fresh))+' empty_mime='+str(len(empty_results))+
+          ' empty_existing='+str(empty_existing)+
+          ' errors='+str(sum(errors.values()))+
           ' error_types='+','.join(sorted(errors)),flush=True)
-    if errors and not results:
+    if errors and not results and any(k!='EMPTY_BODY' for k in errors):
         raise RuntimeError('WEB_BODY_ZERO_SUCCESS_WITH_FETCH_ERRORS')
     # Partial is explicitly named in logs; remaining candidates continue
     # next 30-minute run. No false "all mail synchronized" status.
