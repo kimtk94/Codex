@@ -148,3 +148,32 @@ jobs:
           retention-days: 30
 
 
+
+  mri-rna-file-provenance-pilot:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Reuse immutable MRI tumor-mask QC patient inventory
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-mri-rna-metadata-audit
+          run-id: 41061027979
+          github-token: ${{ github.token }}
+          path: artifacts/hcc_mri
+      - name: Verify GDC exact STAR-Counts file IDs MD5 sizes and tumor aliquot barcodes for 14
+        run: python research/hcc/ci/mri_gdc_file_manifest.py --input-dir artifacts/hcc_mri
+      - name: Archive GDC RNA file provenance manifest
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-mri-gdc-fourteen-file-provenance
+          path: |
+            artifacts/hcc_mri/tcga_liverhccseg_gdc_star_tumor_rna_manifest.csv
+            artifacts/hcc_mri/tcga_liverhccseg_gdc_star_tumor_rna_summary.json
+          if-no-files-found: warn
+          retention-days: 30
