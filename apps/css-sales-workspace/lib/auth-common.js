@@ -4,7 +4,7 @@ function oauthOrigin(env=process.env){
  // Stable Vercel-provided deploy domain; never trust request Host / forwarded headers.
  if(env.VERCEL_ENV==='preview'){
    const deploy=String(env.VERCEL_URL||'').toLowerCase();
-   if(!/^css-sales-workspace-[a-z0-9-]+\\.vercel\\.app$/.test(deploy))return null;
+   if(!/^css-sales-workspace-[a-z0-9-]+\.vercel\.app$/.test(deploy))return null;
    return 'https://'+deploy;
  }
  return PROD_ORIGIN;
