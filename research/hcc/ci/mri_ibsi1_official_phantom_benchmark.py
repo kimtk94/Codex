@@ -48,9 +48,17 @@ def source_info(folder):
     image,mask=find_original_files(folder)
     sha_commit=subprocess.check_output(
          ["git","-C",str(folder),"rev-parse","HEAD"],text=True).strip()
+    original_image_sha=sha(image)
+    original_mask_sha=sha(mask)
+    if sha_commit!="6da96021bc91faf4c0cb7fd7fa56a4225d2064a8":
+        raise ValueError("Official IBSI source version changed; review before updating")
+    if original_image_sha!="83773ac2a288aa93cf819a98eaf301c18d35d5876182ec9c18733184e2b7a83a":
+        raise ValueError("IBSI-1 NIfTI image original SHA drift")
+    if original_mask_sha!="3032d340944b577b83bc559ea7ae9a6034b84633a840eff39570ec17aa1d6281":
+        raise ValueError("IBSI-1 NIfTI mask original SHA drift")
     return {"official_source_repo":OFFICIAL,"official_source_commit_sha":sha_commit,
             "official_source_image":str(image),"official_source_mask":str(mask),
-            "image_sha256":sha(image),"mask_sha256":sha(mask),
+            "image_sha256":original_image_sha,"mask_sha256":original_mask_sha,
             "image_bytes":image.stat().st_size,"mask_bytes":mask.stat().st_size,
             "source_reference_3d_avg":REFERENCE["3d_direction_average"],
             "distinct_3d_merged_reference":REFERENCE["3d_direction_merge"],
