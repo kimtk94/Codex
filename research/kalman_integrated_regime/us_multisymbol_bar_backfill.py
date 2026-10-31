@@ -186,13 +186,15 @@ def main():
     ap.add_argument("--start",default="2024-01-01")
     ap.add_argument("--end-exclusive",default="2026-10-31")
     ap.add_argument("--max-pages-per-month",type=int,default=10)
-    ap.add_argument("--out",required=True)
+    ap.add_argument("--out",help="Required except when --self-test is used")
     ap.add_argument("--self-test",action="store_true")
     a=ap.parse_args()
     if a.self_test:
         assert "SPY" in approved_us_symbols()
         print("US_MULTISYMBOL_BACKFILL_SELFTEST_OK")
         return
+    if not a.out:
+        raise SystemExit("OUTPUT_DIRECTORY_REQUIRED")
     start,end=pd.Timestamp(a.start),pd.Timestamp(a.end_exclusive)
     if start>=end or (end-start).days>1100 or a.max_pages_per_month>15 or a.max_pages_per_month<1:
         raise SystemExit("BACKFILL_RANGE_OR_PAGE_BUDGET_INVALID")
