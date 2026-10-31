@@ -7,6 +7,11 @@ on:
         type: boolean
         required: false
         default: false
+      run_glcm_factorial:
+        description: "Rerun frozen 14x2 MRI-only native/3mm × binWidth 12.5/25/50 (resource-heavy)"
+        type: boolean
+        required: false
+        default: false
   pull_request:
     paths:
       - "research/hcc/**"
@@ -115,6 +120,8 @@ jobs:
         run: python research/hcc/ci/mri_pv_glcm_binwidth_spacing_factorial.py --offline-test
       - name: Verify PV GLCM factorial result reducer negative-path mathematics
         run: python research/hcc/ci/mri_pv_glcm_binwidth_spacing_aggregate.py --offline-test
+      - name: Regression-check frozen 14-patient full factorial results without MRI download
+        run: python research/hcc/ci/mri_glcm_factorial_frozen_results_qc.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
@@ -388,7 +395,7 @@ jobs:
 
 
   hcc-glcm-factorial-pilot:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && inputs.run_glcm_factorial == true
     name: HCC MRI-only GLCM 2x3 factorial shard ${{ matrix.shard }}
     strategy:
       fail-fast: false
@@ -414,7 +421,7 @@ jobs:
           retention-days: 30
 
   hcc-glcm-factorial-summary:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && inputs.run_glcm_factorial == true
     name: HCC GLCM 14x2 factorial effect and baseline ICC reduction
     needs: [hcc-glcm-factorial-pilot]
     runs-on: ubuntu-latest
