@@ -27,7 +27,9 @@ def synthetic_data():
         exit_date=days[i+2]
         events.append({"date":day,"entry_date":next_date,"exit_date":exit_date,
                        "positive":int(i%3!=0),
-                       "net_return":.01 if i%3 else -.02})
+                       "net_return":.01 if i%3 else -.02,
+                       "entry":100.0,"exit":104.0 if i%3 else 98.0,
+                       "reason":"TP" if i%3 else "SL"})
     return f,pd.DataFrame(events),days
 
 
