@@ -87,6 +87,7 @@ class CrosswalkTests(unittest.TestCase):
     def test_multiple_online_contracts_quarantines(self):
         w,o,f,e,m=fixture()
         o.append(online(A,"H209SC26000000","X209SC26000000-Z01"))
+        o[-1][0]="rec-alt-"+A  # two distinct Feishu source rows
         m[1][4]="3"
         rows,_=assess(w,o,f,e,m,NOW)
         self.assertEqual(rows[0][8],"AMBIGUOUS_ONLINE_CONTRACT_REVIEW")
