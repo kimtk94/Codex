@@ -91,6 +91,8 @@ jobs:
         run: python research/hcc/ci/mri_pv_pyradiomics_rater_icc.py --offline-test
       - name: Offline patient leave-one-out ICC stability regression
         run: python research/hcc/ci/mri_icc_patient_leave_one_out.py --offline-test
+      - name: Offline independent parallel batch source and fail-closed reviewer gates
+        run: python research/hcc/ci/mri_parallel_batch_gate.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
@@ -178,12 +180,117 @@ jobs:
           path: artifacts/hcc_crossmodal/
           if-no-files-found: warn
           retention-days: 30
+  
+  hcc-batch-clinical:
+    name: HCC gate 1/4 – Clinical treatment anatomy
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Confirm four HCC-context therapies and non-HCC appendiceal record
+        run: python research/hcc/ci/mri_treatment_anatomic_context_review.py --output artifacts/hcc_batch_clinical
+      - name: Validate source-clinical patient chronology remains HOLD
+        run: python research/hcc/ci/mri_clinical_gate_review_queue.py --offline-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-batch-clinical
+          path: artifacts/hcc_batch_clinical/
+          if-no-files-found: error
+          retention-days: 30
 
+  hcc-batch-purity:
+    name: HCC gate 2/4 – ABSOLUTE and CPE specimen purity
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Audit independent DNA ABSOLUTE versus historic CPE and source barcode
+        run: python research/hcc/ci/mri_purity_crossmethod_discrepancy_qc.py --out-dir artifacts/hcc_batch_purity
+      - name: Reject specimen mismatch and proxy-based clinical inclusion
+        run: python research/hcc/ci/mri_purity_crossmethod_discrepancy_qc.py --offline-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-batch-purity
+          path: artifacts/hcc_batch_purity/
+          if-no-files-found: error
+          retention-days: 30
 
+  hcc-batch-source-identity:
+    name: HCC gate 3/4 – Frozen MRI/ROI/RNA pathway source identities
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify patient-level largest tumor, source RNA UUID and pinned 12 hypotheses
+        run: python research/hcc/ci/mri_parallel_batch_gate.py --mode source --out-dir artifacts/hcc_batch_source
+      - name: Run negative-path regression tests without imaging downloads
+        run: python research/hcc/ci/mri_parallel_batch_gate.py --offline-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-batch-source
+          path: artifacts/hcc_batch_source/
+          if-no-files-found: error
+          retention-days: 30
 
-
-
-
-
-
+  hcc-batch-readiness:
+    name: HCC gate 4/4 – Combine 3 independent sources and issue GO/HOLD/STOP
+    needs: [hcc-batch-clinical, hcc-batch-purity, hcc-batch-source-identity]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-batch-clinical
+          path: artifacts/hcc_batch_clinical
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-batch-purity
+          path: artifacts/hcc_batch_purity
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-batch-source
+          path: artifacts/hcc_batch_source
+      - name: Fail closed on missing patients, treatment misclassification, proxy purity or premature MRI-RNA inference
+        run: python research/hcc/ci/mri_parallel_batch_gate.py --mode assemble --out-dir artifacts/hcc_batch_final
+      - name: Write concise reviewable gate summary in GitHub Actions
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          v=json.loads(Path("artifacts/hcc_batch_final/hcc_batch_multi_job_readiness_summary.json").read_text())
+          text=[
+            "## HCC public study – parallel batch evidence gates",
+            "",
+            f"- Technical 14-person cross-source integrity: **{v['status']}**",
+            f"- Clinical review: **{v['clinical_review_priority_counts']}**",
+            f"- DNA ABSOLUTE available: **{v['n_absolute_dna_proxy_present']}/14**",
+            f"- Historical CPE available: **{v['n_historical_cpe_present']}/14**",
+            f"- Verified clinical paired sample count: **{v['final_eligible_n']}**",
+            f"- HCC-14/16/17/20: **{v['hcc14_temporal_gate']} / {v['hcc16_rna_purity_gate']} / {v['hcc17_final_paired_n_gate']} / {v['hcc20_mri_rna_association_gate']}**",
+            f"- Publication claim ceiling: **{v['maximum_claim']}**",
+            "",
+            "No image–RNA association tests were executed; the technical PASS does not establish clinical eligibility.",
+          ]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("\n".join(text)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-batch-joint-readiness
+          path: artifacts/hcc_batch_final/
+          if-no-files-found: error
+          retention-days: 30
 
