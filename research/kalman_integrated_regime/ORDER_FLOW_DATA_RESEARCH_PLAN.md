@@ -119,3 +119,34 @@ The existing joint-policy goal of >=500 policies with **>=15 completed trades in
 - Direct offline extraction from an existing private SIP data file (example, do not publish the private raw file):
   `python -m research.kalman_integrated_regime.volume_features --intraday /path/to/private/QLD_QQQ_sip_15m.parquet --out-dir /path/to/private/volume_research`
 - **P0 remains research implementation complete, not historical-source analysis complete:** on-real-data feature QA and unchanged-policy A-vs-B results remain to be executed and reviewed.
+
+
+## 8. Verified SIP quote-asof / directional-aggressor feasibility (2026-10-31)
+
+Source: `sip_quote_aggressor_probe.py`, `test_volume_drift_quote.py`, workflow `.github/workflows/kalman-qld-signed-volume-probe.yml`. CI [run #41190200946](https://github.com/kimtk94/Codex/actions/runs/41190200946) **PASS** tests and real, prior-date SIP quote and print fetch for *one 10-second interval* of 2026-10-29 15:00:00–15:00:10 UTC. Archive: https://drive.google.com/file/d/150SB2l1oKQn8eZkZWjp5oFfQAhBsyyQn/view?usp=drivesdk.
+
+**Terminology:** total executed shares count as matched buyer AND seller, thus they cannot be decomposed into actual buyer-owned vs seller-owned shares. We can only infer which side **initiated** some prints from pretrade top-of-book bid/ask:
+
+- Use quote timestamp **strictly earlier** than trade timestamp, not later, require <=1,000ms staleness, valid positive non-crossed bid/ask, and trade within displayed bid/ask.
+- `trade_price >= ask` => **buy-initiated estimate, high confidence**; `trade_price <= bid` => **sell-initiated estimate, high confidence**.
+- Inside spread and price > mid/< mid => **lower confidence** buy/sell aggressor estimate. At midpoint, stale/invalid quote, no prior quote, or outside spread => **UNKNOWN**, not forced into signed flow.
+- `signed_flow=(high_confidence_buy_shares-high_confidence_sell_shares)/(sum of high-confidence classified shares)` is descriptive only. Raw trade-condition filtering, cancel/correction chain and late/off-exchange prints **have not yet been verified**; this pilot is not canonical traded volume.
+- The classifier does NOT identify order owners, true submitted parent orders, long/short positioning, market-wide institutional money flow or full order book depth. Because the tape includes both buyers and sellers, `estimated sell pressure` does not mean more actual sellers than buyers.
+
+| One 10s historical interval | QQQ | QLD |
+| --- | ---: | ---: |
+| Printed trades fetched | 425 | 30 |
+| Quotes fetched | 6,811 | 2,797 |
+| Estimated **high-confidence buy-initiated shares** | 2,171 | 7 |
+| Estimated **high-confidence sell-initiated shares** | 1,978 | 178 |
+| **Lower-confidence** buy-initiated shares | 3,908 | 7 |
+| **Lower-confidence** sell-initiated shares | 3,297 | 3 |
+| **Unknown** shares | 2,639 | 141 |
+| High-confidence classified portion of all observed shares | 29.65% | 55.06% |
+| Net high-confidence aggressive-side share imbalance | +4.65% | -92.43% |
+
+**No directional conclusion may be drawn from this interval:** QLD has only 30 prints and its estimate is dominated by tiny samples; 50% of its prints were unknown. For QQQ 220/425 prints were unknown (166 outside quote, 52 at midpoint, 2 invalid spread). The low identifiable quote-side coverage and condition/venue errors mean **P3 QUOTE ACCESS GO, P3 REGIME FEATURE READY HOLD**.
+
+Next gates: de-duplicate correction chains, include trade condition+tape eligibility rules, determine whether an appropriate event ordering / quote-lag alignment reduces outside-spread rates without future lookahead, compare multiple randomly precommitted sample days and time-of-day slices (not one handpicked window), measure classification coverage and robustness before using signed flow as an ML feature. Assess SIP terms/licensing for longer quote/trade tapes. Any aggregate published must distinguish high/low-confidence classifications and unknown volume.
+
+**No LIVE trading system changed.**
