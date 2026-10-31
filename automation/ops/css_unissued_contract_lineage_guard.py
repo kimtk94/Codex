@@ -34,6 +34,23 @@ def normalized_x(value):
     if not X_VALID.fullmatch(key):return ""
     return key.split("-Z",1)[0]
 
+def classify_watch_formula_provenance(project_formula,contract_formula):
+    """Never treat independently FILTER-spilled forecast and contract rows as a join."""
+    project=str(project_formula or "").strip()
+    contract=str(contract_formula or "").strip()
+    if not (project.startswith("=") and contract.startswith("=")):
+        return "WATCH_FORMULA_PROVENANCE_UNKNOWN"
+    if (re.search(r"\\bFILTER\\s*\\(",project,re.I)
+        and re.search(r"\\bFILTER\\s*\\(",contract,re.I)
+        and "'BI 2026 Completion Forecast'" in project
+        and "'BI Revenue Duplicate Review'" in contract
+        and not re.search(r"\\b(?:XLOOKUP|VLOOKUP|MATCH|INDEX|QUERY)\\s*\\(",contract,re.I)
+        and not re.search(r"\\bAMEA\\b",contract,re.I)):
+        return "POSITIONAL_INDEPENDENT_FILTER_CONFIRMED"
+    # A rewritten formula is not approved until its actual AMEA-keyed mapping is audited.
+    return "WATCH_FORMULA_REQUIRES_KEYED_REVIEW"
+
+
 def verify(watch,outstanding,etax,manifest,now):
     if now.tzinfo is None:raise ValueError("NAIVE_CLOCK")
     if not watch or [cell(watch[0],i) for i in (0,4,6,10,12,13)] != [
@@ -152,6 +169,17 @@ def main():
         read("Feishu Latest eTax","A1:AI200"),
         read("Feishu Source Manifest","A1:G15"),
         dt.datetime.now(KST))
+    def formula_of(a1):
+        data=req("GET",root+"/values/"+quote("'Unissued Invoice Watch'!"+a1,safe=""),
+                 params={"valueRenderOption":"FORMULA"}).get("values",[])
+        return cell(data[0],0) if data else ""
+    formula_state=classify_watch_formula_provenance(formula_of("A2"),formula_of("M2"))
+    summary["watch_contract_formula_provenance"]=formula_state
+    summary["watch_contract_join_approved"]=False
+    for row in rows:
+        # Even accidental AMEA parity cannot validate a positional source formula.
+        row[11]="QUARANTINE_CONTRACT_ATTRIBUTION"
+        row[12]+=" Contract formula provenance: "+formula_state+"; never join independent row positions."
     metadata=req("GET",root,params={"fields":"sheets.properties(title,sheetId)"})
     if not any(item.get("properties",{}).get("title")==TAB for item in metadata.get("sheets",[])):
         req("POST",root+":batchUpdate",json={"requests":[{"addSheet":{
