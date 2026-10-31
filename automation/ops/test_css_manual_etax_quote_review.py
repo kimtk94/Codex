@@ -71,6 +71,7 @@ class ManualQuoteTests(unittest.TestCase):
             audit(d,p,w,m,NOW)
     def test_partial_group_does_not_match_quote(self):
         d,p,w,m=fixtures();p.pop(2)
+        w[1][13]="X209SC26107211-Z01"
         rows,stats=audit(d,p,w,m,NOW)
         self.assertEqual(len(rows),1)
         self.assertEqual(stats["quote_amount_candidate_projects"],0)
