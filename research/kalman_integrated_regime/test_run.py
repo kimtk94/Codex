@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from research.kalman_integrated_regime.run import (
-    FEE, build_features, label_events, select_nonoverlap, settle,
+    FEE, build_features, complete_sessions, label_events, select_nonoverlap, settle,
 )
 
 
@@ -47,6 +47,24 @@ class RegimeContractTests(unittest.TestCase):
                                modified.loc[dates[45], "tnx_lag1"])
         self.assertNotEqual(base.loc[dates[46], "vix_lag1"],
                             modified.loc[dates[46], "vix_lag1"])
+
+    def test_extended_hours_do_not_invalidate_complete_rth(self):
+        session = pd.Timestamp("2025-02-03")
+        rth = pd.date_range("2025-02-03 09:30", periods=26, freq="15min",
+                            tz="America/New_York")
+        extra = pd.DatetimeIndex([
+            pd.Timestamp("2025-02-03 08:00", tz="America/New_York"),
+            pd.Timestamp("2025-02-03 16:00", tz="America/New_York")
+        ])
+        candles = pd.DataFrame({"ts": rth.append(extra).sort_values()})
+        candles["open"] = 100.
+        candles["high"] = 101.
+        candles["low"] = 99.
+        candles["close"] = 100.
+        sessions, audit = complete_sessions(candles, [session])
+        self.assertEqual(audit["complete"], 1)
+        self.assertEqual(audit["extended_bars_ignored"], 2)
+        self.assertEqual(len(sessions[session]), 26)
 
     def test_exact_four_sessions_and_nonoverlap(self):
         dates = pd.bdate_range("2025-01-06", periods=7)
