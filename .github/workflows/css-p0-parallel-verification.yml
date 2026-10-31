@@ -18,6 +18,8 @@ on:
       - 'automation/ops/test_css_evidence_exception_review.py'
       - 'automation/ops/css_invoice_legacy_key_bridge.py'
       - 'automation/ops/test_css_invoice_legacy_key_bridge.py'
+      - 'automation/ops/css_unissued_contract_lineage_guard.py'
+      - 'automation/ops/test_css_unissued_contract_lineage_guard.py'
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/automation-console.js'
@@ -39,6 +41,8 @@ on:
       - 'automation/ops/test_css_evidence_exception_review.py'
       - 'automation/ops/css_invoice_legacy_key_bridge.py'
       - 'automation/ops/test_css_invoice_legacy_key_bridge.py'
+      - 'automation/ops/css_unissued_contract_lineage_guard.py'
+      - 'automation/ops/test_css_unissued_contract_lineage_guard.py'
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/automation-console.js'
@@ -74,6 +78,7 @@ jobs:
           python -m unittest discover -s automation/ops -p 'test_invoice_owner_payment_evidence.py' -v
           python -m unittest discover -s automation/ops -p 'test_css_evidence_exception_review.py' -v
           python -m unittest discover -s automation/ops -p 'test_css_invoice_legacy_key_bridge.py' -v
+          python -m unittest discover -s automation/ops -p 'test_css_unissued_contract_lineage_guard.py' -v
       - name: Compile isolated release and publisher code
         run: python -m py_compile automation/ops/css_release_readonly_audit.py automation/ops/publish_css_p0_parallel_status.py
 
@@ -194,6 +199,8 @@ jobs:
         run: python automation/ops/css_invoice_legacy_key_bridge.py
       - name: Reconcile legacy scope, source age and manual finance/release gates
         run: python automation/ops/css_evidence_exception_review.py
+      - name: Quarantine wrong-customer X links in unissued quote watch, generated tab only
+        run: python automation/ops/css_unissued_contract_lineage_guard.py
       - name: Preserve business approval boundary
         run: echo 'REVIEW_FLAGS_CAN_COEXIST_WITH_SUCCESSFUL_ACTION;NO_REVENUE_BOOKING;NO_PRODUCTION_APPROVAL' >> "$GITHUB_STEP_SUMMARY"
 
