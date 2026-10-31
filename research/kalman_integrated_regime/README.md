@@ -14,11 +14,11 @@
 
 ## Research data IDs
 
-- Private QLD 15m: 1YZbup32DEBGOCEAt0XU0S_oVjcVVoiEn (Drive)
-- Daily QLD/QQQ aligned CSV: 1v9mM0l0-jLpXu81v6wfwJXHK3kSREsL- (Drive)
+- Private QLD 15m: 1DyggclzDQ91Eew-QifEffSDGOVl7VOaq (read-shared private research copy; original remains private)
+- Daily QLD/QQQ aligned CSV: 1AHPws_x_q_TALFlZUoeSSTM3ChYaSa6R (read-shared private research copy; original remains private)
 - Research-only market bundle ZIP: 1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd (Drive)
 
-GitHub Actions offline tests run on PR; actual historical experiment runs on manual workflow_dispatch only, after repository review. Only summary.json is uploaded as a GitHub artifact; private trade-level events are retained only within the CI runner. Do not add Drive credentials or raw data to the repository.
+GitHub Actions offline tests run on PR; actual historical experiment runs on isolated research-branch push and manual workflow_dispatch. The isolated branch trigger can be removed after acceptance. Only summary.json is uploaded as a GitHub artifact; private trade-level events are retained only within the CI runner. Do not add Drive credentials or raw data to the repository.
 
 ## Limitations and acceptance checks
 
