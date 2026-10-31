@@ -76,7 +76,7 @@ def extract_case(archive,pid,tumor,member_paths,native,iso):
     import radiomics
     from radiomics import imageoperations
     import SimpleITK as sitk
-    if radiomics.__version__!="3.1.0":
+    if radiomics.__version__.lstrip("v")!="3.1.0":
         raise ValueError("Require frozen original PyRadiomics 3.1.0 not "+radiomics.__version__)
     pv,m1,m2=member_paths
     with tempfile.TemporaryDirectory(prefix="hcc_pv_iso_") as d:
