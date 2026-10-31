@@ -87,7 +87,7 @@ def case(archive,pid,tumor):
 
 def verify(rows,shard):
     ids=sorted(frozen())[shard*2:shard*2+2]
-    if len(ids)!=len(rows)!=2 or {r["patient_id"] for r in rows}!=set(ids):
+    if len(ids)!=2 or len(rows)!=2 or {r["patient_id"] for r in rows}!=set(ids):
         raise ValueError("EXACT_TWO_FROZEN_SOURCE_PATIENTS_REQUIRED")
     for r in rows:
         if (int(r["selected_tumor"])!=frozen()[r["patient_id"]] or
