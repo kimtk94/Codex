@@ -197,7 +197,7 @@ def audit(manifest,cases,abs_calls):
        "yes_on_or_before_tissue_flag_patients":sorted(flag),
        "yes_after_tissue_only_or_unknown_patient_count":14-len(flag),
        "absolute_call_status_counts":dict(Counter(
-           status for s in summaries for status in (s["absolute_call_status"] or "MISSING",).split("|"))),
+           status for s in summaries for status in (s["absolute_call_status"] or "MISSING").split("|"))),
        "absolute_missing_patients":[s["patient_id"] for s in summaries
                                     if not s["absolute_call_row_count"]],
        "clinical_pretreatment_mri_verified":0,
