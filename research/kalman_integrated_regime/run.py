@@ -33,8 +33,12 @@ def read_prices(path):
         raise ValueError("DAILY_MISSING_COLUMNS")
     if d.date_ny.isna().any() or d.date_ny.duplicated().any():
         raise ValueError("DAILY_DUPLICATE_OR_NULL_DATE")
-    if not (d[["close_qqq", "close_qld"]] > 0).all().all():
+    prices = d[["close_qqq", "close_qld"]].apply(pd.to_numeric, errors="raise")
+    if ((prices.notna()) & (prices <= 0)).any().any():
         raise ValueError("DAILY_NONPOSITIVE_CLOSE")
+    if not prices.notna().any().all():
+        raise ValueError("DAILY_NO_VALID_PRICE_SERIES")
+    d[["close_qqq", "close_qld"]] = prices
     d = d.set_index("date_ny")
     return d.loc["2024-01-01":"2026-12-31"].copy()
 
