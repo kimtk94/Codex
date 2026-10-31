@@ -1,0 +1,239 @@
+name: CSS P0 Parallel Verification & Status
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/css-p0-parallel-verification.yml'
+      - 'automation/ops/css_release_readonly_audit.py'
+      - 'automation/ops/publish_css_p0_parallel_status.py'
+      - 'automation/ops/test_css_p0_parallel.py'
+  pull_request:
+    paths:
+      - '.github/workflows/css-p0-parallel-verification.yml'
+      - 'automation/ops/css_release_readonly_audit.py'
+      - 'automation/ops/publish_css_p0_parallel_status.py'
+      - 'automation/ops/test_css_p0_parallel.py'
+  schedule:
+    - cron: '20 0,8 * * *' # 09:20, 17:20 KST; read-only cross-checks
+permissions:
+  contents: read
+concurrency:
+  group: css-p0-parallel-verification
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    name: 0 - Contract and boundary tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test six-lane, release and acceptance boundaries
+        run: python -m unittest discover -s automation/ops -p 'test_css_p0_parallel.py' -v
+      - name: Compile isolated release and publisher code
+        run: python -m py_compile automation/ops/css_release_readonly_audit.py automation/ops/publish_css_p0_parallel_status.py
+
+  mail:
+    name: 1 - QQ mail checkpoint and backfill source
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Check source-key/UTC/VAT policy before live source reads
+        run: python automation/css_mail/test_source_vat_integrity.py
+      - name: Check QQ staged keys and true source freshness (read only)
+        run: python automation/css_mail/mail_checkpoint_health_audit.py
+
+  revenue:
+    name: 2 - Revenue invoice, forecast and VAT integrity
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 13
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify cross-source revenue policy (offline)
+        run: python -m unittest discover -s automation/ops -p 'test_revenue_cross_source_audit.py' -v
+      - name: Review QQ invoice, legacy 3-way, pending and Feishu proof (read only)
+        run: python automation/ops/revenue_cross_source_audit.py
+      - name: Validate current monthly FX/Statement billing state (read only)
+        run: python automation/ops/css_parallel_audit.py revenue
+
+  lead:
+    name: 3 - Strict personal Lead/Report parity
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify sent/skip/NBA policy (offline)
+        run: python -m unittest discover -s automation/ops -p 'test_css_parallel_audit.py' -v
+      - name: Compare strict personal outbound and staged Leads (read only)
+        run: python automation/ops/css_parallel_audit.py lead
+
+  feishu:
+    name: 4 - Feishu payment source + mirror structural audit
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 14
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Validate Feishu four-sheet structural rules offline
+        run: |
+          python -m unittest discover -s automation/feishu -p 'test_latest_four_schema_header.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_latest_four_mirror_parity.py' -v
+      - name: Verify original four Feishu sheet headers (read only)
+        run: python automation/feishu/latest_four_schema_audit.py
+      - name: Verify Google mirror source IDs and columns (read only)
+        run: python automation/feishu/latest_four_mirror_parity.py
+
+  web:
+    name: 5 - Web real Sheets API contract (no SSO bypass)
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 15
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check API and owner UID handler syntax
+        run: |
+          node --check automation/ops/css_web_source_live_smoke.cjs
+          node --check apps/css-sales-workspace/api/lifecycle.js
+          node --check apps/css-sales-workspace/api/lifecycle/mail-body.js
+      - name: Verify live Sheets data through local serverless handlers
+        run: node automation/ops/css_web_source_live_smoke.cjs
+      - name: Record browser boundary
+        run: echo 'LIVE_SHEETS_LOCAL_HANDLER_ONLY; VERCEL_OWNER_AUTH_BROWSER_E2E_NOT_VERIFIED; NO_DEPLOY' >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: 6 - Vercel root and Production SHA (API read only)
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 8
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Query Vercel project and Production status without deploy
+        run: python automation/ops/css_release_readonly_audit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: css-release-readonly-evidence
+          path: audit-results/css-release-parity.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  status:
+    name: 7 - Publish independent outcomes, no acceptance promotion
+    if: ${{ always() && github.event_name != 'pull_request' }}
+    needs: [offline, mail, revenue, lead, feishu, web, release]
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 8
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      TRACK_MAIL: ${{ needs.mail.result }}
+      TRACK_REVENUE: ${{ needs.revenue.result }}
+      TRACK_LEAD: ${{ needs.lead.result }}
+      TRACK_FEISHU: ${{ needs.feishu.result }}
+      TRACK_WEB: ${{ needs.web.result }}
+      TRACK_RELEASE: ${{ needs.release.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Publish status to isolated CSS P0 Parallel Status tab with readback
+        run: python automation/ops/publish_css_p0_parallel_status.py
+      - name: Summarize all independent job outcomes
+        if: always()
+        run: |
+          {
+            echo '## CSS P0 - Six parallel GitHub Actions'
+            echo '| Lane | Execution state |'
+            echo '|---|---|'
+            echo "| QQ source | $TRACK_MAIL |"
+            echo "| Revenue VAT | $TRACK_REVENUE |"
+            echo "| Personal Lead | $TRACK_LEAD |"
+            echo "| Feishu payment structure | $TRACK_FEISHU |"
+            echo "| Web live-source API | $TRACK_WEB |"
+            echo "| Vercel read-only Production parity | $TRACK_RELEASE |"
+            echo
+            echo '**Acceptance is NOT VERIFIED.** Green jobs are not evidence of authenticated Preview E2E or paid invoices.'
+            echo 'No customer messages sent, no SFDC Save, no Vercel deploy and no original business records modified.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          for state in "$TRACK_MAIL" "$TRACK_REVENUE" "$TRACK_LEAD" "$TRACK_FEISHU" "$TRACK_WEB" "$TRACK_RELEASE"; do
+            if [ "$state" != success ]; then
+              echo 'CSS_PARALLEL_P0_PARTIAL_FAILURE=true'
+              exit 1
+            fi
+          done
+          echo 'CSS_PARALLEL_P0_ALL_EXECUTION_TRACKS_PASS=true'
