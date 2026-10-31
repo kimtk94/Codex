@@ -178,9 +178,9 @@ def offline():
     a=inspect_pair(img,mask,"art_pv")
     assert a["source_best_vs_mask_best_mm"]>200
     assert a["source_qform_vs_mask_best_mm"]<=0.5
-    assert a["header_diagnostic"]=="AFFINE_MATCH_AFTER_AXIS_REORIENTATION_ONLY"
-    assert a["affine_agrees_after_axis_reorientation_only"]
-    assert a["axis_flip_count"]==0  # qform already aligned; sform picked by nibabel
+    assert a["header_diagnostic"]=="REVIEW_CONFLICTING_QFORM_SFORM_POSSIBLE"
+    assert not a["affine_agrees_after_axis_reorientation_only"]
+    assert a["axis_flip_count"]==0  # sform/header selection issue, not voxel-axis flip
     flipped=np.eye(4)
     flipped[0,0]=-1
     flipped[0,3]=7
