@@ -93,6 +93,17 @@ class CrosswalkTests(unittest.TestCase):
         self.assertEqual(rows[0][4],"")
         self.assertEqual(rows[0][5],"")
 
+    def test_global_cross_customer_x_collision_is_quarantined(self):
+        w,o,f,e,m=fixture()
+        # Same base X appears in a different AMEA's finance record.
+        f.append(finance(D,"X209SC26107211",gross="1000"))
+        m[2][4]="3"
+        rows,_=assess(w,o,f,e,m,NOW)
+        by={r[0]:r for r in rows}
+        self.assertEqual(by[A][8],"X_REFERENCES_MULTIPLE_AMEAS")
+        self.assertEqual(by[D][8],"X_REFERENCES_MULTIPLE_AMEAS")
+        self.assertEqual(by[A][16],"QUARANTINE_NO_CONTRACT_ATTRIBUTION")
+
     def test_manifests_are_count_guarded(self):
         w,o,f,e,m=fixture()
         m[1][4]="5"
