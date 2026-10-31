@@ -60,8 +60,13 @@ jobs:
         run: |
           python research/kalman_market_missingness/audit_missingness.py \
             --zip "$RUNNER_TEMP/research_source.zip" \
-            --out outputs/kalman_market_missingness \
-            --asof 2026-10-30
+            --out outputs/kalman_market_missingness
+      - name: Diagnose USDKRW OHLC and FRED FX nulls (no raw prices exported)
+        run: |
+          python research/kalman_market_missingness/diagnose_source.py \
+            --zip "$RUNNER_TEMP/research_source.zip" \
+            --events outputs/kalman_market_missingness/missing_events.csv \
+            --out outputs/kalman_market_missingness
       - name: Publish non-price audit CSVs only
         uses: actions/upload-artifact@v4
         with:
