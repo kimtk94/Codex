@@ -11,7 +11,7 @@ def source():
     return result
 
 def manifest(snapshots):
-    return [FIELDS]+[
+    return [FIELDS.copy()]+[
         [name,obj["source_date"],"2026-10-31T22:39:24+09:00",
          obj["source_id"],str(len(obj["rows"])),obj["schema"],"raw unverified"]
         for name,obj in snapshots.items()]
