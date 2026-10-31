@@ -54,6 +54,14 @@ class ETaxPersonalQQTests(unittest.TestCase):
         rows,stats=audit(*d,NOW)
         self.assertEqual(stats["states"]["NOT_IN_PERSONAL_QQ_ORIGINALS"],1)
 
+    def test_manual_invoice_without_cms_is_not_a_personal_qq_gap(self):
+        d=list(fixtures())
+        d[1][3][2]="Manual Invoice"
+        rows,stats=audit(*d,NOW)
+        self.assertEqual(rows[1][5],"MANUAL_INVOICE_NO_CMS_QQ_UNPROVEN")
+        self.assertEqual(stats["states"]["MANUAL_INVOICE_NO_CMS_QQ_UNPROVEN"],1)
+        self.assertEqual(stats["payment_certifications"],0)
+
     def test_qq_original_amount_conflict_is_explicit(self):
         d=list(fixtures())
         d[2][1]=qq_row("209126001012",2300)
