@@ -17,6 +17,11 @@ on:
         type: boolean
         required: false
         default: false
+      run_ibsi_expanded:
+        description: "Rerun official IBSI1 all 10 PyRadiomics features and IBSI1/2 CT source with phase guards"
+        type: boolean
+        required: false
+        default: false
   pull_request:
     paths:
       - "research/hcc/**"
@@ -141,6 +146,8 @@ jobs:
         run: python research/hcc/ci/mri_ibsi_ct_dual_phase_source_preflight.py --offline-test
       - name: IBSI ten feature and official CT fail-closed clinical gate tests
         run: python research/hcc/ci/mri_ibsi10_ct_expanded_gate.py --offline-test
+      - name: Check permanent 10 feature values and CT source hashes with no remote download
+        run: python research/hcc/ci/mri_ibsi1_ten_feature_ct_frozen_result_qc.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
@@ -607,6 +614,7 @@ jobs:
 
   hcc-ibsi1-ten-feature:
     name: HCC IBSI Expanded 1/4 – Ten actual PyRadiomics feature reference comparisons
+    if: github.event_name == 'workflow_dispatch' && inputs.run_ibsi_expanded == true
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -629,6 +637,7 @@ jobs:
 
   hcc-ibsi-ct-source:
     name: HCC IBSI Expanded 2/4 – Independent IBSI1/IBSI2 CT NIfTI provenance
+    if: github.event_name == 'workflow_dispatch' && inputs.run_ibsi_expanded == true
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -670,6 +679,7 @@ jobs:
   hcc-ibsi-expanded-join:
     name: HCC IBSI Expanded 4/4 – Ten feature + CT provenance scientific GO/REVIEW/HOLD
     needs: [hcc-ibsi1-ten-feature, hcc-ibsi-ct-source, hcc-ibsi-reference-guards]
+    if: github.event_name == 'workflow_dispatch' && inputs.run_ibsi_expanded == true
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
