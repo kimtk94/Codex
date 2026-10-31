@@ -58,6 +58,12 @@ class WalkforwardTests(unittest.TestCase):
         for f in result['folds']:
             self.assertLess(f['train_label_last_date'],f['test_first_decision'])
         self.assertEqual(set(result['strategies']),{'logistic_p70','trend20','unconditional_QLD'})
+        # Global position selection must not be repeated independently within
+        # year/regime groups, otherwise summary trade counts are inflated.
+        for name,metric in result['strategies'].items():
+            self.assertEqual(metric['trades'],sum(x['trades'] for x in result['by_year'] if x['strategy']==name))
+        self.assertEqual(result['strategies']['logistic_p70']['trades'],
+                         sum(x['model_trade_count'] for x in result['by_regime']))
 
     def test_features_are_backward_looking(self):
         idx=pd.bdate_range('2025-01-01',periods=90).strftime('%Y-%m-%d')
