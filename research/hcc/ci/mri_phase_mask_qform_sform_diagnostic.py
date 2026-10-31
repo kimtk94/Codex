@@ -48,6 +48,36 @@ def transforms(img):
                 "basis_lengths_mm":[round(float(z),5) for z in np.linalg.norm(v[:3,:3],axis=0)]}
     return q,s,entry(q,qcode),entry(s,scode)
 
+def orientation_alignment(img, mask):
+    """Only test signed voxel-axis permutations; never interpolate/alter source files.
+
+    nibabel.orientation inv_ornt_aff maps output indices back into the exact
+    unchanged source array. Alignment of header geometry is NOT proof of
+    anatomical registration or correct biological tumor content.
+    """
+    import numpy as np
+    from nibabel.orientations import io_orientation, ornt_transform, inv_ornt_aff, aff2axcodes
+    source_axes=io_orientation(img.affine)
+    target_axes=io_orientation(mask.affine)
+    if np.any(np.isnan(source_axes)) or np.any(np.isnan(target_axes)):
+        raise ValueError("Unable to determine source orientation")
+    xform=ornt_transform(source_axes,target_axes)
+    after_affine=img.affine @ inv_ornt_aff(xform,img.shape)
+    out_shape=[int(img.shape[int(axis)]) for axis in xform[:,0]]
+    offset=max_displacement(after_affine,mask.affine,mask.shape) if out_shape==list(mask.shape) else None
+    correction=[{"target_axis":int(k),"source_axis":int(a),"sign":int(f)}
+                for k,(a,f) in enumerate(xform)]
+    return {"source_axis_codes":"".join(aff2axcodes(img.affine)),
+            "mask_axis_codes":"".join(aff2axcodes(mask.affine)),
+            "reoriented_shape_xyz":out_shape,
+            "axis_transform":correction,
+            "axis_flip_count":sum(a["sign"]<0 for a in correction),
+            "axis_permutation_only":sorted(a["source_axis"] for a in correction)==[0,1,2],
+            "max_corner_offset_after_axis_reorientation_mm":offset,
+            "affine_agrees_after_axis_reorientation_only":offset is not None and offset<=0.5,
+            "source_voxels_actually_reoriented":False,
+            "source_voxels_and_anatomy_expert_verified":False}
+
 def inspect_pair(img,mask,phase):
     import numpy as np
     if not shape3(img) or not shape3(mask):
@@ -70,7 +100,11 @@ def inspect_pair(img,mask,phase):
         "independent_qualified_anatomical_review":"NOT_ASSESSED",
         "clinical_eligibility":"NOT_ASSESSED",
     }
-    if offset is not None and offset<=0.5:
+    alignment=orientation_alignment(img,mask)
+    result.update(alignment)
+    if offset is not None and offset>0.5 and alignment["affine_agrees_after_axis_reorientation_only"]:
+        result["header_diagnostic"]="AFFINE_MATCH_AFTER_AXIS_REORIENTATION_ONLY"
+    elif offset is not None and offset<=0.5:
         result["header_diagnostic"]="BEST_AFFINE_MATCH_ONLY"
     elif any(v is not None and v<=0.5 for k,v in result.items()
              if k in ("source_qform_vs_mask_best_mm","source_sform_vs_mask_best_mm")):
@@ -144,7 +178,23 @@ def offline():
     a=inspect_pair(img,mask,"art_pv")
     assert a["source_best_vs_mask_best_mm"]>200
     assert a["source_qform_vs_mask_best_mm"]<=0.5
-    assert a["header_diagnostic"]=="REVIEW_CONFLICTING_QFORM_SFORM_POSSIBLE"
+    assert a["header_diagnostic"]=="AFFINE_MATCH_AFTER_AXIS_REORIENTATION_ONLY"
+    assert a["affine_agrees_after_axis_reorientation_only"]
+    assert a["axis_flip_count"]==0  # qform already aligned; sform picked by nibabel
+    flipped=np.eye(4)
+    flipped[0,0]=-1
+    flipped[0,3]=7
+    flipped_image=nib.Nifti1Image(np.ones((8,9,10),dtype=np.float32),flipped)
+    flipped_test=inspect_pair(flipped_image,mask,"art_pv")
+    assert flipped_test["source_best_vs_mask_best_mm"]>5
+    assert flipped_test["max_corner_offset_after_axis_reorientation_mm"]<=0.5
+    assert flipped_test["axis_flip_count"]==1
+    assert flipped_test["header_diagnostic"]=="AFFINE_MATCH_AFTER_AXIS_REORIENTATION_ONLY"
+    translated=np.eye(4);translated[0,3]=5
+    translated_img=nib.Nifti1Image(np.ones((8,9,10),dtype=np.float32),translated)
+    bad=inspect_pair(translated_img,mask,"art_pv")
+    assert bad["header_diagnostic"]=="REVIEW_SOURCE_SPATIAL_TRANSFORM"
+    assert not bad["affine_agrees_after_axis_reorientation_only"]
     assert a["clinical_eligibility"]=="NOT_ASSESSED"
     b=inspect_pair(mask,mask,"art")
     assert b["header_diagnostic"]=="BEST_AFFINE_MATCH_ONLY"
@@ -166,7 +216,11 @@ def main():
                      "best_vs_mask_mm":y["source_best_vs_mask_best_mm"],
                      "qform_vs_mask_mm":y["source_qform_vs_mask_best_mm"],
                      "sform_vs_mask_mm":y["source_sform_vs_mask_best_mm"],
-                     "classification":y["header_diagnostic"]} for y in x["results"]],
+                     "classification":y["header_diagnostic"],
+                     "axis_flip_count":y["axis_flip_count"],
+                     "axes":y["source_axis_codes"]+"->"+y["mask_axis_codes"],
+                     "offset_after_voxel_axis_reorientation_mm":y["max_corner_offset_after_axis_reorientation_mm"],
+                     "anatomical_registration_review":"NOT_ASSESSED"} for y in x["results"]],
                      "HCC12":"PARTIAL","HCC20":"PENDING","claim_ceiling":"S0"},ensure_ascii=False))
 
 if __name__=="__main__":
