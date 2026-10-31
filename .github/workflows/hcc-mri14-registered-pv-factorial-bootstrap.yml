@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: hcc-regpv-factorial-patient-bootstrap-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   fixture:
