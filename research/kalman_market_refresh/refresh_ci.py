@@ -106,14 +106,38 @@ def fred_refresh(dest, start='2017-01-01', retries=1):
     return status
 
 
-def verified_status(market_dir, features_dir, fred_dir, required_max_lag_days=7):
+
+def last_completed_nyse_session(now_utc=None, close_settlement_minutes=30):
+    """Most recent US exchange session whose official close (+ grace) has passed.
+    Historical early closes and NYSE holidays are handled by exchange_calendars.
+    """
+    import pandas as pd
+    import exchange_calendars as xcals
+    now = pd.Timestamp.now(tz='UTC') if now_utc is None else pd.Timestamp(now_utc)
+    now = now.tz_localize('UTC') if now.tzinfo is None else now.tz_convert('UTC')
+    calendar = xcals.get_calendar('XNYS')
+    sess = calendar.date_to_session(now.tz_localize(None).normalize(), direction='previous')
+    if calendar.session_close(sess) + pd.Timedelta(minutes=close_settlement_minutes) > now:
+        sess = calendar.previous_session(sess)
+    return str(sess.date())
+
+
+def fred_completeness_label(series_ready, total=len(FRED_SERIES)):
+    """Separate market-data validity from point-in-time macro-series quality."""
+    return 'FRED_READY_CURRENT_REVISED' if series_ready == total else (
+        'FRED_UNAVAILABLE' if series_ready == 0 else 'FRED_PARTIAL')
+
+def verified_status(market_dir, features_dir, fred_dir, required_max_lag_days=7, now_utc=None):
     import pandas as pd
     md=Path(market_dir); fd=Path(features_dir);frd=Path(fred_dir)
     run=json.loads((md/'market_data_v2_run_status.json').read_text())
     ft=json.loads((fd/'features_v2_002_run_status.json').read_text())
     fred=json.loads((frd/'fred_status.json').read_text())
     failures=[];checks={}
-    now=pd.Timestamp.now(tz='UTC').normalize()
+    now=pd.Timestamp.now(tz='UTC') if now_utc is None else pd.Timestamp(now_utc)
+    now=now.tz_localize('UTC') if now.tzinfo is None else now.tz_convert('UTC')
+    expected_close=last_completed_nyse_session(now)
+    now_midnight=now.normalize()
     for key in NEEDED:
         meta=run['sources'].get(key,{})
         path=md/'raw'/'yfinance'/f'{key}.parquet'
@@ -134,11 +158,18 @@ def verified_status(market_dir, features_dir, fred_dir, required_max_lag_days=7)
             checks[key]={'status':'FAIL','reason':'INVALID_BARS'}
             continue
         last=timestamps[valid].max()
-        age=int((now-last.normalize()).days)
+        age=int((now_midnight-last.normalize()).days)
+        # ETF, VIX and US10Y daily bars may not represent the full session until official close.
+        # FX / DXY can publish on non-US sessions, so only strict-check US exchange keys.
+        on_exchange=key not in ('yf_dxy','yf_usdkrw')
+        if on_exchange and str(last.date()) != expected_close:
+            failures.append(f'{key}:LAST_CLOSED_NYSE_{expected_close}_FOUND_{last.date()}')
         if age>required_max_lag_days or age<0:
             failures.append(f'{key}:STALE_{age}D')
-        checks[key]={'status':'READY' if 0<=age<=required_max_lag_days else 'STALE',
-                     'rows':len(df),'latest_observation_utc':last.isoformat(),'lag_calendar_days':age}
+        good=0<=age<=required_max_lag_days and (not on_exchange or str(last.date())==expected_close)
+        checks[key]={'status':'READY' if good else 'STALE_OR_INCOMPLETE',
+                     'rows':len(df),'latest_observation_utc':last.isoformat(),'lag_calendar_days':age,
+                     'expected_last_closed_nyse_session':expected_close if on_exchange else None}
     if ft.get('required_failures') or ft.get('status')!='READY':
         failures.append('V2_002_FEATURE_FAILURE')
     for key in NEEDED:
@@ -147,6 +178,8 @@ def verified_status(market_dir, features_dir, fred_dir, required_max_lag_days=7)
     return {'status':'READY' if not failures else 'BLOCKED',
             'research_only':True,'production_writes':False,
             'point_in_time_training_ready':False,
+            'expected_last_completed_nyse_session':expected_close,
+            'macro_completeness':fred_completeness_label(int(fred.get('series_ready',0))),
             'fred_revision_warning':fred.get('source_revision'),
             'created_at':datetime.now(timezone.utc).isoformat(),
             'market_status':run.get('status'),'features_status':ft.get('status'),
@@ -177,6 +210,7 @@ def make_bundle(market_dir, features_dir, fred_dir, out, status_path):
               'market_assets':len(sources),'feature_assets':len(feature_files),
               'fred_series_success':status['fred_ready_series'],
               'fred_latest_revised_not_vintage_safe':True,
+              'macro_completeness':status['macro_completeness'],
               'members':[]}
     for file,rel in members:
         manifest['members'].append({'path':rel,'sha256':hashlib.sha256(file.read_bytes()).hexdigest(),
