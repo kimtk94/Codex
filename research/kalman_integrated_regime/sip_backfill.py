@@ -83,12 +83,13 @@ def download(session, key, secret, start, end, max_pages_per_month=30):
     raw = []
     pages = 0
     for a, b in month_ranges(start, end):
+        # Alpaca end is inclusive: subtract one second to prevent month-boundary duplicates.
         token = None
         seen = set()
         for _ in range(max_pages_per_month):
             query = {"symbols": ",".join(SYMBOLS), "timeframe": "15Min",
                      "start": a.strftime("%Y-%m-%dT00:00:00Z"),
-                     "end": b.strftime("%Y-%m-%dT00:00:00Z"),
+                     "end": (b - pd.Timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                      "feed": "sip", "adjustment": ADJUSTMENT,
                      "limit": 10000, "sort": "asc"}
             if token:
