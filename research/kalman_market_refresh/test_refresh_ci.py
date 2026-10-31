@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 from refresh_ci import (NEEDED, clean_fred_csv, select_universe, verified_status,
-                        make_bundle, publish)
+                        make_bundle, publish, last_completed_nyse_session, fred_completeness_label)
 
 
 class RefreshContracts(unittest.TestCase):
@@ -34,7 +34,7 @@ class RefreshContracts(unittest.TestCase):
         (md/'raw'/'yfinance').mkdir(parents=True)
         (fd/'talib').mkdir(parents=True)
         frd.mkdir(parents=True)
-        now=pd.Timestamp.now(tz='UTC').normalize().tz_localize(None)
+        now=pd.Timestamp(last_completed_nyse_session())
         dates=pd.date_range(now-pd.Timedelta(days=120),now,freq='D')
         srcs={};assets={}
         for k in NEEDED:
@@ -67,6 +67,23 @@ class RefreshContracts(unittest.TestCase):
             d=pd.read_parquet(f);d['timestamp']=pd.to_datetime(d['timestamp'])-pd.Timedelta(days=20);d.to_parquet(f)
             self.assertEqual(verified_status(md,fd,frd)['status'],'BLOCKED')
             with self.assertRaises(RuntimeError):make_bundle(md,fd,frd,Path(root)/'bad.zip',Path(root)/'report.json')
+
+    def test_nyse_preclose_and_postclose_gate(self):
+        self.assertEqual(last_completed_nyse_session('2026-10-30T17:09:00Z'),'2026-10-29')
+        self.assertEqual(last_completed_nyse_session('2026-10-31T01:28:00Z'),'2026-10-30')
+        with tempfile.TemporaryDirectory() as root:
+            md,fd,frd=self.make_state(root)
+            # When that day's US market is not closed, a daily Yahoo candle is not final.
+            before=verified_status(md,fd,frd,now_utc='2026-10-30T17:09:00Z')
+            self.assertEqual(before['status'],'BLOCKED')
+            self.assertTrue(any('LAST_CLOSED_NYSE' in x for x in before['blocking_errors']))
+            after=verified_status(md,fd,frd,now_utc='2026-10-31T01:28:00Z')
+            self.assertEqual(after['status'],'READY')
+
+    def test_fred_missing_must_be_visible(self):
+        self.assertEqual(fred_completeness_label(0),'FRED_UNAVAILABLE')
+        self.assertEqual(fred_completeness_label(3),'FRED_PARTIAL')
+        self.assertEqual(fred_completeness_label(12),'FRED_READY_CURRENT_REVISED')
 
     def test_bad_target_id_never_updates(self):
         with self.assertRaises(ValueError):publish('/nonexistent','bad id')

@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install isolated validation dependencies
-        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<3' 'pyarrow>=17'
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<3' 'pyarrow>=17' 'exchange-calendars>=4.7'
       - name: Run offline contracts
         run: python -m unittest discover -s research/kalman_market_refresh -p 'test_*.py' -v
       - name: Validate Python syntax
@@ -52,7 +52,7 @@ jobs:
       - name: Install isolated market and Drive dependencies
         run: |
           python -m pip install --disable-pip-version-check -r kalman-toss-gateway/engine/market_data/requirements.txt
-          python -m pip install --disable-pip-version-check google-auth google-api-python-client requests
+          python -m pip install --disable-pip-version-check google-auth google-api-python-client requests 'exchange-calendars>=4.7'
       - name: Research-only universe
         run: |
           python research/kalman_market_refresh/refresh_ci.py universe \
@@ -84,6 +84,18 @@ jobs:
             --fred "$RUNNER_TEMP/kalman_fred" \
             --out "$RUNNER_TEMP/kalman_market_research.zip" \
             --status outputs/kalman_market_refresh/readiness.json
+      - name: Report macro update completeness (never claim FRED READY with zero series)
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path('outputs/kalman_market_refresh/readiness.json')
+          r=json.loads(p.read_text())
+          print('MARKET_STATUS',r['status'])
+          print('FRED_COMPLETENESS',r['macro_completeness'])
+          if r['macro_completeness']!='FRED_READY_CURRENT_REVISED':
+              print('::warning::FRED latest revisions not fully updated; market data still saved but macro not PIT-ready')
+          PY
       - name: Update only the pre-shared private research Drive ZIP
         env:
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
