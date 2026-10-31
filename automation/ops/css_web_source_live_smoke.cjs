@@ -76,7 +76,14 @@ async function main(){
   const unsafe=await call(bodyRoute,ephemeral,'../invalid',true);
   assert(unsafe.statusCode===400,'INVALID_UID_MUST_BE_400');
 
-  const dashboard=await call(lifecycle,ephemeral);
+  let dashboard;
+  // Parallel Sheets readers can briefly return missing optional acceptance
+  // data; retry the whole owner-authenticated local handler once, never
+  // substitute approval or fabricate a successful source response.
+  for(let attempt=0;attempt<2;attempt++){
+    dashboard=await call(lifecycle,ephemeral);
+    if(dashboard.statusCode===200 && dashboard.body?.automation?.acceptance?.available===true)break;
+  }
   assert(dashboard.statusCode===200,'LIFECYCLE_NOT_200_'+dashboard.statusCode);
   assert(dashboard.headers['cache-control']==='private, no-store','LIFECYCLE_CACHE_NOT_PRIVATE');
   const data=dashboard.body||{};
@@ -99,7 +106,7 @@ async function main(){
   assert(gate.rows?.some(x=>x.check==='Production acceptance'),
     'PRODUCTION_GATE_EVIDENCE_MISSING');
   assert(data.automation?.workflows?.available===true,'GITHUB_WORKFLOW_COUNT_SCHEMA_INVALID');
-  assert(data.automation?.workflows?.items?.length===13,'EXPECTED_13_GITHUB_WORKFLOWS');
+  assert(data.automation?.workflows?.items?.length===17,'EXPECTED_17_GITHUB_WORKFLOWS');
 
   // Minimal UID/status scans: NEVER read full body data for candidate search.
   const ids=await sheetsValues(client,"'CSS Mail Inbox Raw'!A1:A3000");
@@ -114,7 +121,7 @@ async function main(){
 
   console.log('CSS_SOURCE_CONTRACT=PASS');
   console.log('CSS_SOURCE_CONTRACT_CHECKS=lifecycle_owner_denial,body_owner_denial,invalid_uid,'+
-    'real_monthly_net_vat,central_release_gate,13_workflow_statuses,real_lead_inbox_schema,original_body_exact_uid');
+    'real_monthly_net_vat,central_release_gate,17_workflow_statuses,real_lead_inbox_schema,original_body_exact_uid');
   console.log('CSS_SOURCE_CONTRACT_SCOPE=GITHUB_RUNNER_LOCAL_SERVERLESS_HANDLERS_WITH_LIVE_SHEETS');
   console.log('CSS_VERCEL_OWNER_BROWSER_E2E=NOT_TESTED');
   console.log('CSS_PRODUCTION_DEPLOYMENT_APPROVAL=NOT_GRANTED');

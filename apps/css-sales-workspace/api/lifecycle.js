@@ -5,7 +5,7 @@ const {projectOperationalAcceptance}=require('../lib/operational-acceptance');
 const {checkOwner,ownerSessionCookie}=require('../lib/lifecycle-owner-auth');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J24","'CSS Mail Backfill Status'!A1:O2"];
+const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J35","'CSS Mail Backfill Status'!A1:O2"];
 module.exports=async function handler(req,res){
   res.setHeader('Cache-Control','private, no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -27,10 +27,21 @@ module.exports=async function handler(req,res){
     const acceptanceRange="'CSS Operational Acceptance'!A1:H20";
     const acceptanceUrl='https://sheets.googleapis.com/v4/spreadsheets/'+SHEET+
       '/values/'+encodeURIComponent(acceptanceRange);
-    const acceptancePromise=fetch(acceptanceUrl,{
-      headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(8000)
-    }).then(async response=>response.ok?(await response.json()).values||[]:[])
-      .catch(()=>[]);
+    // A temporary 429 or timeout must not become a permanent false source gap.
+    // Return [] after bounded retries; the acceptance projector still fails closed.
+    const acceptancePromise=(async()=>{
+      for(let attempt=0;attempt<2;attempt++){
+        try{
+          const response=await fetch(acceptanceUrl,{
+            headers:{Authorization:'Bearer '+access.token},
+            signal:AbortSignal.timeout(6500)
+          });
+          if(response.ok)return (await response.json()).values||[];
+          if(![429,500,502,503,504].includes(response.status))return [];
+        }catch(_err){/* retry bounded transient read; never assume approval */}
+      }
+      return [];
+    })();
     const url='https://sheets.googleapis.com/v4/spreadsheets/'+SHEET+'/values:batchGet?'+ranges.map(x=>'ranges='+encodeURIComponent(x)).join('&');
     const reply=await fetch(url,{headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(15000)});
     if(!reply.ok)throw new Error('SHEETS_HTTP_'+reply.status);

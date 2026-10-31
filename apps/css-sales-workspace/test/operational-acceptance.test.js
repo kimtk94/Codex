@@ -83,8 +83,8 @@ test('invalid enum and manipulated RELEASE gate never become accepted',()=>{
 test('lifecycle uses independent read-only status fetch with failure isolation',()=>{
  const api=fs.readFileSync(path.join(__dirname,'..','api','lifecycle.js'),'utf8');
  assert.ok(api.includes("'CSS Operational Acceptance'!A1:H20"));
- assert.ok(api.includes('const acceptancePromise=fetch('));
- assert.ok(api.includes('.catch(()=>[])'));
+ assert.ok(api.includes('const acceptancePromise=(async()=>'));
+ assert.ok(api.includes('for(let attempt=0;attempt<2;attempt++)'));
  assert.ok(api.includes('automation.acceptance=projectOperationalAcceptance(await acceptancePromise)'));
  assert.ok(api.includes('spreadsheets.readonly'));
  assert.ok(!api.includes('spreadsheets.values.update('));
