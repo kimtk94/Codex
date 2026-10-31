@@ -99,9 +99,35 @@ def audit_lead(report, raw_leads, personal, pool, analytics, now):
     if any(evidence.get(x)=="SENT_AFTER_LEAD_CONFIRMED" for x in key):
         raise ValueError("Already contacted Lead requeued")
     warnings=[]
-    if analytics and any(rowvalue(r,0)=="Lead records" and
-                         rowvalue(r,1)!=str(len(ids)) for r in analytics[1:]):
-        warnings.append("Legacy 3Report Analytics is not updated to latest Lead staging")
+    # Column B is deliberately a frozen historical pilot. On the live four-
+    # column dashboard C is "Latest QQ staged" and D is its delta from B.
+    # Never mistake a historical baseline for a stale current source.
+    if analytics and rowvalue(analytics[0],0)=="SFDC 3-REPORT ANALYTICS":
+        if len(analytics)<3 or analytics[1][:4]!=[
+                "Metric","Pilot (legacy)","Latest QQ staged",
+                "Difference (latest - pilot)"]:
+            raise ValueError("Current SFDC Analytics schema changed")
+        observed={rowvalue(r,0):r for r in analytics[2:] if rowvalue(r,0)}
+        expected={
+            "Lead records":len(ids),
+            "Opportunity records":currency(rowvalue(source["Opportunities"],3)),
+            "Unique quotation IDs":currency(rowvalue(source["Quotation"],4)),
+            "Quotation process rows":currency(rowvalue(source["Quotation"],3)),
+        }
+        for metric,value in expected.items():
+            record=observed.get(metric)
+            if not record or len(record)<4:
+                raise ValueError("Current SFDC Analytics metric missing: "+metric)
+            try:
+                pilot=currency(rowvalue(record,1))
+                latest=currency(rowvalue(record,2))
+                delta=int(rowvalue(record,3).replace(",",""))
+            except ValueError as exc:
+                raise ValueError("Current SFDC Analytics metric invalid: "+metric) from exc
+            if latest!=value or delta!=latest-pilot:
+                raise ValueError("Current SFDC Analytics latest differs from staged: "+metric)
+    elif analytics:
+        warnings.append("Historical two-column SFDC Analytics needs current staged comparison")
     return {
         "track":"report_lead","result":"PASS_WITH_REVIEW" if warnings else "PASS",
         "leads":len(ids),"opportunities":currency(rowvalue(source["Opportunities"],4)),
@@ -200,7 +226,7 @@ def main():
                        "'SFDC Email Leads Raw'!A1:W700",
                        "'Lead My Sent Audit'!A1:T650",
                        "'NBA Action Pool'!A1:N2000",
-                       "'SFDC 3Report Analytics'!A1:B15"])
+                       "'SFDC 3Report Analytics'!A1:D25"])
         result=audit_lead(*v,now)
     else:
         v=read_google(["'BI Revenue Lifecycle Monthly'!A1:Q24",
