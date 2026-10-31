@@ -18,14 +18,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install pinned Chromium browser test dependencies
-        working-directory: apps/css-sales-workspace
+      - name: Install pinned isolated Chromium test dependencies (avoid monorepo workspace resolution)
         run: |
-          npm install --no-save --package-lock=false --ignore-scripts '@playwright/test@1.64.1'
-          npx playwright install --with-deps chromium
+          npm install --prefix /tmp/css-contract-playwright --no-save --package-lock=false --ignore-scripts '@playwright/test@1.64.1'
+          echo "NODE_PATH=/tmp/css-contract-playwright/node_modules" >> "$GITHUB_ENV"
+          /tmp/css-contract-playwright/node_modules/.bin/playwright install --with-deps chromium
       - name: Browser E2E of read-only contract-review UI with synthetic owner API
         working-directory: apps/css-sales-workspace
-        run: npx playwright test test/contract-review.browser.spec.cjs --browser=chromium --workers=1 --reporter=line
+        run: /tmp/css-contract-playwright/node_modules/.bin/playwright test --config=test/playwright.contract.config.cjs --workers=1 --reporter=line
         env:
           CI: 'true'
       - name: Record security and acceptance boundary
