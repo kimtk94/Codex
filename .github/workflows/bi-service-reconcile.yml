@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/bi-service-reconcile.yml'
+      - 'automation/css_mail/bi_service_reconcile.py'
+      - 'automation/css_mail/test_source_vat_integrity.py'
   schedule:
     - cron: '15,45 * * * *'
 permissions:
@@ -28,5 +30,7 @@ jobs:
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Verify script
         run: python3 -m py_compile automation/css_mail/bi_service_reconcile.py
+      - name: Regression tests before live reconciliation
+        run: python3 automation/css_mail/test_source_vat_integrity.py
       - name: Restore canonical BI classifications
         run: python3 automation/css_mail/bi_service_reconcile.py
