@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import time
 from urllib.parse import quote
 
 BOOK="1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
@@ -183,6 +184,21 @@ def summary(rows):
     return {"checks":len(rows),"states":dict(collections.Counter(r[2] for r in rows)),
             "source_caveats_preserved":True,"revenue_or_customer_writes":0}
 
+def request_with_retry(session,method,url,**kwargs):
+    """Retry idempotent Sheets GET/PUT only; never retry an ambiguous POST write."""
+    action=method.upper()
+    if action not in ("GET","PUT","POST"):
+        raise ValueError("UNSUPPORTED_SHEETS_METHOD")
+    delays=(0,1,2,4)
+    for index,delay in enumerate(delays):
+        if delay:time.sleep(delay)
+        resp=session.request(action,url,timeout=55,**kwargs)
+        if resp.status_code in (429,500,502,503,504) and action in ("GET","PUT") and index<len(delays)-1:
+            continue
+        resp.raise_for_status()
+        return resp.json() if resp.content else {}
+    raise RuntimeError("SHEETS_HTTP_RETRIES_EXHAUSTED")
+
 def main():
     from google.oauth2 import service_account
     from google.auth.transport.requests import AuthorizedSession
@@ -195,9 +211,7 @@ def main():
         json.loads(raw),scopes=["https://www.googleapis.com/auth/spreadsheets"]))
     root="https://sheets.googleapis.com/v4/spreadsheets/"+BOOK
     def send(method,url,**kwargs):
-        r=session.request(method,url,timeout=55,**kwargs)
-        r.raise_for_status()
-        return r.json() if r.content else {}
+        return request_with_retry(session,method,url,**kwargs)
     batch=send("GET",root+"/values:batchGet",
         params=[("ranges",v[0]) for v in SOURCES.values()])
     got=batch.get("valueRanges",[])
@@ -227,5 +241,7 @@ def main():
 if __name__=="__main__":
     try:main()
     except Exception as exc:
-        print("CSS_EVIDENCE_EXCEPTION_FAILED="+type(exc).__name__,file=sys.stderr)
+        code=getattr(getattr(exc,"response",None),"status_code",None)
+        detail="_HTTP_"+str(code) if isinstance(code,int) else ""
+        print("CSS_EVIDENCE_EXCEPTION_FAILED="+type(exc).__name__+detail,file=sys.stderr)
         sys.exit(1)

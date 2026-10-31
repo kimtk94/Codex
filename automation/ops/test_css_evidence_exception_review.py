@@ -1,7 +1,8 @@
 """Fail-closed offline tests for generated source freshness exception review."""
 import datetime as dt
 import unittest
-from css_evidence_exception_review import analyze,summary,HEAD,KST
+from css_evidence_exception_review import analyze,summary,HEAD,KST,request_with_retry
+from unittest.mock import patch
 
 NOW=dt.datetime(2026,10,31,14,30,tzinfo=KST)
 
@@ -100,6 +101,56 @@ class SourceEvidenceTests(unittest.TestCase):
         d=data();d["accept"].pop()
         with self.assertRaisesRegex(ValueError,"RELEASE_GATE_MISSING"):
             analyze(d,NOW)
+
+
+class RetryBoundaryTests(unittest.TestCase):
+    class Response:
+        def __init__(self,code):
+            self.status_code=code
+            self.content=b"{}"
+        def raise_for_status(self):
+            if self.status_code>=400:
+                raise RuntimeError("HTTP_"+str(self.status_code))
+        def json(self):
+            return {"ok":True}
+
+    class Session:
+        def __init__(self,codes):
+            self.codes=list(codes)
+            self.calls=0
+        def request(self,method,url,**kwargs):
+            self.calls+=1
+            return RetryBoundaryTests.Response(self.codes.pop(0))
+
+    def test_get_retries_transient_429_and_503(self):
+        ss=self.Session([429,503,200])
+        with patch("css_evidence_exception_review.time.sleep") as sleep:
+            self.assertEqual(request_with_retry(ss,"GET","https://example.invalid"),{"ok":True})
+        self.assertEqual(ss.calls,3)
+        self.assertEqual(sleep.call_count,2)
+
+    def test_put_retries_server_error_but_not_auth_failure(self):
+        ss=self.Session([500,200])
+        with patch("css_evidence_exception_review.time.sleep"):
+            self.assertTrue(request_with_retry(ss,"PUT","https://example.invalid")["ok"])
+        self.assertEqual(ss.calls,2)
+        ss=self.Session([403,200])
+        with self.assertRaisesRegex(RuntimeError,"HTTP_403"):
+            request_with_retry(ss,"GET","https://example.invalid")
+        self.assertEqual(ss.calls,1)
+
+    def test_post_write_is_not_retried_after_ambiguous_server_error(self):
+        ss=self.Session([503,200])
+        with self.assertRaisesRegex(RuntimeError,"HTTP_503"):
+            request_with_retry(ss,"POST","https://example.invalid")
+        self.assertEqual(ss.calls,1)
+
+    def test_retry_budget_is_bounded(self):
+        ss=self.Session([429,429,429,429,200])
+        with patch("css_evidence_exception_review.time.sleep"):
+            with self.assertRaisesRegex(RuntimeError,"HTTP_429"):
+                request_with_retry(ss,"GET","https://example.invalid")
+        self.assertEqual(ss.calls,4)
 
 if __name__=="__main__":
     unittest.main()
