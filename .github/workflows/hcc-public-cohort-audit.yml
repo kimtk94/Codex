@@ -122,6 +122,10 @@ jobs:
         run: python research/hcc/ci/mri_pv_glcm_binwidth_spacing_aggregate.py --offline-test
       - name: Regression-check frozen 14-patient full factorial results without MRI download
         run: python research/hcc/ci/mri_glcm_factorial_frozen_results_qc.py --offline-test
+      - name: IBSI-1 original phantom and 3D averaged feature reference smoke test
+        run: python research/hcc/ci/mri_ibsi1_official_phantom_benchmark.py --offline-test
+      - name: Original IBSI benchmark and HCC-13/18/20 claim-level fail-closed regression
+        run: python research/hcc/ci/mri_ibsi1_hcc_gate_integrator.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
@@ -447,6 +451,113 @@ jobs:
         with:
           name: hcc-glcm-factorial-14x2-summary
           path: artifacts/hcc_glcm_factorial_summary/
+          if-no-files-found: error
+          retention-days: 30
+
+
+  hcc-ibsi1-source:
+    name: HCC IBSI 1/4 – Download official 3D phantom source and hash
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Clone unmodified official theibsi data_sets small digital phantom
+        run: git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+      - name: Preserve source git commit plus image and mask SHA256
+        run: python research/hcc/ci/mri_ibsi1_official_phantom_benchmark.py --mode source --out-dir artifacts/hcc_ibsi_source
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-ibsi1-official-source
+          path: artifacts/hcc_ibsi_source/
+          if-no-files-found: warn
+          retention-days: 30
+
+  hcc-ibsi1-contrast:
+    name: HCC IBSI 2/4 – Real PyRadiomics v3.1.0 3D averaged Contrast
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install pinned PyRadiomics and NIfTI medical imaging reader
+        run: python -m pip install "numpy==1.26.4" "pyradiomics==3.1.0" "nibabel>=5.2,<6"
+      - name: Clone official IBSI-1 unmodified NIfTI phantom
+        run: git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+      - name: Check phantom dimensions and 74-voxel ROI then calculate Contrast
+        run: python research/hcc/ci/mri_ibsi1_official_phantom_benchmark.py --mode measure --out-dir artifacts/hcc_ibsi_measure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-ibsi1-real-pyradiomics
+          path: artifacts/hcc_ibsi_measure/
+          if-no-files-found: warn
+          retention-days: 30
+
+  hcc-ibsi1-protocol:
+    name: HCC IBSI 3/4 – Frozen 14 MRI and 12-test clinical protocol guards
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Confirm frozen 168-cell GLCM and untouched patient eligibility
+        run: python research/hcc/ci/mri_glcm_factorial_frozen_results_qc.py --offline-test
+      - name: Refuse IBSI phantom result as HCC clinical approval
+        run: python research/hcc/ci/mri_ibsi1_hcc_gate_integrator.py --offline-test
+
+  hcc-ibsi1-integration:
+    name: HCC IBSI 4/4 – Join independent source and benchmark and issue scientific gate
+    if: github.event_name == 'pull_request'
+    needs: [hcc-ibsi1-source, hcc-ibsi1-contrast, hcc-ibsi1-protocol]
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-ibsi1-official-source
+          path: artifacts/hcc_ibsi_source
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-ibsi1-real-pyradiomics
+          path: artifacts/hcc_ibsi_measure
+      - name: Validate source hashes and reference 3D averaging without clinical promotion
+        run: python research/hcc/ci/mri_ibsi1_hcc_gate_integrator.py --out-dir artifacts/hcc_ibsi_final
+      - name: Show scientific method gate and phantom deviation in GitHub summary
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=json.loads(Path("artifacts/hcc_ibsi_final/hcc_ibsi1_clinical_guard_readiness.json").read_text())
+          lines=["## HCC: official IBSI-1 phantom GLCM quality gate",
+                 f"- Source/benchmark: **{d['status']}**",
+                 f"- Official IBSI 3D averaged Contrast: **{d['IBSI_3d_avg_expected']}**",
+                 f"- PyRadiomics Contrast: **{d['PyRadiomics_observed']:.6f}**",
+                 f"- Difference: **{d['ibsi_diagnostic_diff']:.6f}**",
+                 f"- Full IBSI conformance: **NOT CLAIMED**",
+                 "- HCC clinical 14-person paired eligibility: **NOT ASSESSED**",
+                 "- MRI-RNA tests: **NOT RUN** · Claim ceiling **S0**"]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("\n".join(lines)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-ibsi1-final-scientific-gate
+          path: artifacts/hcc_ibsi_final/
           if-no-files-found: error
           retention-days: 30
 
