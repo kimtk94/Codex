@@ -71,7 +71,10 @@ def paired_block_bootstrap(y, pred_price, pred_volume, *, repeats=400, block=5, 
 
 def matched_months(year, train, test, *, bootstrap_reps=400):
     """Only test Jan to October for both years; fit to same preyear history."""
-    test=test.loc[test.date_ny.dt.month.le(10)].copy()
+    # Avoid using a November outcome for an October signal: preserve the
+    # Jan-Oct target window and prohibit label bleeding across the boundary.
+    test=test.loc[test.date_ny.dt.month.le(10)
+                  & test.next_session_date.dt.month.le(10)].copy()
     if len(test)<120:
         raise ValueError(f"TOO_FEW_MATCHED_MONTHS_{year}:{len(test)}")
     if not test.next_session_date.dt.month.le(10).all():
