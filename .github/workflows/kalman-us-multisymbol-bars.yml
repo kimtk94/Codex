@@ -58,7 +58,7 @@ jobs:
         run: |
           python -m research.kalman_integrated_regime.us_multisymbol_bar_backfill \
             --symbols SPY,IWM,SMH,MU,COIN --start 2024-01-01 --end-exclusive 2026-10-31 \
-            --max-pages-per-month 10 --out "$RUNNER_TEMP/us_five_sip"
+            --max-pages-per-month 25 --out "$RUNNER_TEMP/us_five_sip"
       - name: Archive aggregated per-symbol coverage only, no raw licensed 15m bars
         if: always()
         uses: actions/upload-artifact@v4
