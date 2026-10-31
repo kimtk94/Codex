@@ -172,7 +172,7 @@ def main():
           "live":"HOLD",
         }
         a.stress_out.parent.mkdir(parents=True,exist_ok=True)
-        a.stress_out.write_text(json.dumps(robustness,indent=2,ensure_ascii=False)+"\\n")
+        a.stress_out.write_text(json.dumps(robustness,indent=2,ensure_ascii=False)+"\n")
         print(json.dumps({
             "stress_cells":len(robustness["results"]),
             "status":robustness["status"],
