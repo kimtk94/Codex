@@ -109,6 +109,8 @@ jobs:
         run: python research/hcc/ci/mri_pv_3mm_resampling_sensitivity.py --offline-test
       - name: Offline 3 mm resampling ICC and per-patient stability aggregator
         run: python research/hcc/ci/mri_pv_3mm_resampling_aggregate.py --offline-test
+      - name: Check frozen 14-patient 3mm result source values and high-GLCM-change warning
+        run: python research/hcc/ci/mri_pv_3mm_frozen_result_qc.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
