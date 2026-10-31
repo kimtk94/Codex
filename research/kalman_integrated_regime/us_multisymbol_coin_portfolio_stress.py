@@ -182,7 +182,7 @@ def concentration(panel,policy,arm,cost_bps=FIXED_COST_BPS):
     for region,mask in (("Jan-Jun",panel.trade_date.dt.month.le(6)),
                         ("Jul-Oct",panel.trade_date.dt.month.ge(7))):
         i=np.asarray(mask,dtype=bool)
-        out[region]=metrics(net[i],signal[i])
+        out[region]=metrics(net[i],signal[i]) if i.any() else {"days":0,"trades":0,"status":"NO_OBSERVATIONS"}
     for regime,flag in (
         ("signal_day_prior20_price_decline",panel.regime_prior20_negative),
         ("signal_day_prior20_price_nonnegative",~panel.regime_prior20_negative),
