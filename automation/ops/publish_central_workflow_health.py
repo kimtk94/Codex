@@ -32,6 +32,7 @@ WORKFLOWS=(
  ("Revenue / Parallel QA","Revenue","parallel-sales-verification.yml",12,"Read-only 4-track verification; not bank receipt"),
  ("Verified Net Revenue VAT","Revenue","css-revenue-net-vat.yml",12,"Source invoice filename + monthly gross parity; VAT-exclusive; not cash receipt"),
  ("Feishu Schema Audit","Payment","feishu-latest-four-schema.yml",4,"Raw table schema QA; failures block payment certification"),
+ ("Feishu Payment/eTax Base Proof","Payment","feishu-payment-audit.yml",24,"Payment schema separate from eTax monthly proof; failed eTax Base must remain visible"),
  ("Feishu Project Sync","Projects","feishu-project-sync.yml",24,"Feishu source projection only"),
  ("Web Body Sync","Web","css-web-body-sync.yml",24,"Source-body caching/availability, not browser E2E"),
  ("CSS API Source Contract","Web","css-source-backed-api-contract.yml",36,"Real Sheets + local handler contract; NOT Vercel OAuth/Preview E2E"),
