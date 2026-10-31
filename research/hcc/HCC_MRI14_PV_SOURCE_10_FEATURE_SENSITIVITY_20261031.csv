@@ -1,0 +1,11 @@
+feature,n_patients,patient_mean_rank_rho,median_abs_pct_change,max_abs_pct_change,cases_abs_pct_ge10,cases_abs_pct_ge20,median_signed_pct_change,locked_primary,source_run
+original_shape_VoxelVolume,14,1.000000,0.00000,0.00000,0,0,0.00000,NO,41191599451
+original_shape_SurfaceArea,14,1.000000,0.00000,0.00000,0,0,0.00000,NO,41191599451
+original_shape_Sphericity,14,1.000000,0.00000,0.00000,0,0,0.00000,NO,41191599451
+original_shape_Elongation,14,1.000000,0.00000,0.00000,0,0,0.00000,NO,41191599451
+original_firstorder_Mean,14,0.964835,1.77428,19.38387,3,0,0.70183,NO,41191599451
+original_firstorder_Median,14,0.964835,1.22352,21.73952,2,1,0.78221,NO,41191599451
+original_firstorder_Entropy,14,0.894505,3.30938,10.51192,1,0,-0.42379,YES,41191599451
+original_firstorder_InterquartileRange,14,0.942857,2.94410,19.33441,4,0,-0.72759,YES,41191599451
+original_glcm_Contrast,14,0.894505,22.07991,43.11116,11,9,-22.07146,YES,41191599451
+original_glcm_JointEntropy,14,0.894505,4.60821,11.57879,2,0,-3.41335,NO,41191599451
