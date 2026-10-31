@@ -52,7 +52,7 @@ class Study100Contracts(unittest.TestCase):
                             columns=base.PRICE + base.EXTRA, index=days)
         feat["vix_lag1"] = 20 + np.arange(len(days)) * 0.05
         events = pd.DataFrame({"date": days, "entry_date": days,
-                               "exit_date": days + pd.Timedelta(days=1),
+                               "exit_date": days, "entry": 100., "exit": 100.,
                                "positive": [int(i % 3 == 0) for i in range(len(days))],
                                "net_return": [0.04 if i % 3 == 0 else -0.03 for i in range(len(days))]})
         complete = {dt: pd.DataFrame({"close": [100.]}) for dt in test_days}
