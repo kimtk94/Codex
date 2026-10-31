@@ -1,0 +1,25 @@
+name: CSS Vercel Preview Branch Allowlist (Staged)
+on:
+  pull_request:
+    paths:
+      - 'apps/css-sales-workspace/vercel.json'
+      - 'automation/ops/test_css_vercel_git_allowlist.py'
+      - '.github/workflows/css-vercel-branch-allowlist.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Assert CSS, SFDC, sales branches allowed; research branches denied
+        run: python -m unittest discover -s automation/ops -p 'test_css_vercel_git_allowlist.py' -v
+      - name: No production release from this action
+        run: echo 'PREVIEW_POLICY_STAGED_IN_PR;NO_SSO_BYPASS;NO_PRODUCTION_PROMOTE' >> "$GITHUB_STEP_SUMMARY"
