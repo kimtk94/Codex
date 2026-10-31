@@ -34,7 +34,7 @@ def cell(row,index):
 def xbase(raw):
     val=str(raw or "").strip().upper()
     if not val:return ""
-    prefix=val.split("-Z",1)[0]
+    prefix=val.split("-",1)[0]
     if not X_BASE.fullmatch(prefix):raise ValueError("SOURCE_X_FORMAT")
     if val!=prefix and not re.fullmatch(r"^X[A-Z0-9]{10,30}-Z\d{2}(?:-F\d{3})?$",val):
         raise ValueError("SOURCE_X_SUFFIX_FORMAT")
