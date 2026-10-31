@@ -10,7 +10,7 @@ nav button:hover,nav button.active{background:#294765;color:#fff}nav .group{colo
 .sidefoot{margin-top:auto;border-top:1px solid #324359;padding:18px 9px;color:#9daec3;font-size:12px}
 main{margin-left:254px;padding:26px clamp(18px,3vw,46px);max-width:1700px}
 .top{display:flex;justify-content:space-between;gap:15px;align-items:center;flex-wrap:wrap;margin-bottom:23px}.top h1{margin:0;font-size:26px}.subtitle{color:#71819a;margin-top:7px}
-.controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.controls input,.filter input,.filter select{border:1px solid #d6e0ed;padding:10px 12px;border-radius:10px;background:#fff;min-width:150px}.controls input{width:190px}.primary{background:#225b93;color:white;border:0;padding:11px 15px;border-radius:10px;font-weight:700}.primary:disabled{opacity:.55}
+.controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.controls input,.controls select,.filter input,.filter select{border:1px solid #d6e0ed;padding:10px 12px;border-radius:10px;background:#fff;min-width:150px}.controls input{width:190px}.primary{background:#225b93;color:white;border:0;padding:11px 15px;border-radius:10px;font-weight:700}.primary:disabled{opacity:.55}
 .status{font-size:12px;background:#eef3f8;padding:8px 11px;border-radius:9px;color:#58718c}.view{display:none}.view.active{display:block}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin:18px 0 23px}.kpi,.panel{background:#fff;border:1px solid #e1e7f0;border-radius:15px;padding:20px}.kpi .label{font-size:12px;color:#72839a}.kpi strong{display:block;font-size:25px;margin-top:8px;letter-spacing:-.5px}.kpi small{color:#72839a}
 .panel{margin-top:17px}.panel h2{font-size:17px;margin:0 0 16px}.filter{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
@@ -44,7 +44,7 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <button data-view="health">⚙ 자동화 컨트롤 타워</button>
 </nav><div class="sidefoot">Owner-scoped · Read-only<br>자동 갱신 데이터 / 권한 유지</div></aside>
 <main><div class="top"><div><h1 id="heading">전체 대시보드</h1><div class="subtitle" id="timestamp">원본 자동화 상태를 확인하세요.</div></div>
-<div class="controls"><button class="primary" id="login" type="button" hidden>Vercel 로그인</button><button class="primary" id="load">새로고침</button><input id="token" type="password" autocomplete="off" aria-label="기존 토큰" hidden><span class="status" id="state">미연결</span></div></div>
+<div class="controls"><label class="operator-hint" for="dashboardMonth">매출 기준월 <select id="dashboardMonth" aria-label="매출 대표 기준월" title="매출과 Forecast 기준월" disabled></select></label><button class="primary" id="login" type="button" hidden>Vercel 로그인</button><button class="primary" id="load">새로고침</button><input id="token" type="password" autocomplete="off" aria-label="기존 토큰" hidden><span class="status" id="state">미연결</span></div></div>
 <div class="notice" id="authNotice">인증 상태를 확인하는 중입니다. 인증에 실패한 경우에만 연결 안내가 표시됩니다.</div>
 <section id="overview" class="view active"><div class="kpis" id="overviewKpi"></div>
 <div class="split"><div class="panel"><h2>프로젝트 진행 현황</h2><div id="overviewStages" class="empty">연결 후 표시됩니다.</div></div><div class="panel"><h2>우선 처리할 업무</h2><div id="overviewActions" class="empty">연결 후 표시됩니다.</div></div></div>
@@ -138,7 +138,19 @@ function drawAutomation(){
  if(!issues.length)issueBox.appendChild(elt('p','현재 연결된 상태 시트에서 별도 경고가 없습니다. 다른 워크플로의 미확인 상태까지 검증한 것은 아닙니다.'));
  for(const item of issues)issueBox.appendChild(elt('div',item,'track-issue'));
 }
-function draw(){if(!data)return;const m=data.months.find(x=>x.month==='2026-10')||data.months[0]||{};const ps=data.projects||[],ml=data.inbox||[],ls=data.leads||[];
+function selectKpiMonth(months,now=Date.now()){
+ const available=(Array.isArray(months)?months:[]).filter(x=>/^20\d{2}-(0[1-9]|1[0-2])$/.test(x.month||''));
+ const latest=[...new Set(available.map(x=>x.month))].sort().reverse();
+ const select=$('dashboardMonth'),prior=select.value;
+ const current=new Date(now+9*3600000).toISOString().slice(0,7);
+ const chosen=latest.includes(prior)?prior:latest.includes(current)?current:
+   latest.find(x=>x<=current)||latest[latest.length-1]||'';
+ select.replaceChildren(...latest.map(month=>{const opt=elt('option',month);opt.value=month;return opt}));
+ select.disabled=!latest.length;
+ if(chosen)select.value=chosen;
+ return available.find(x=>x.month===chosen)||{};
+}
+function draw(){if(!data)return;const m=selectKpiMonth(data.months);const ps=data.projects||[],ml=data.inbox||[],ls=data.leads||[];
 $('timestamp').textContent='최근 집계 '+(data.refreshed||'알 수 없음')+' · 웹에서 직접 조회';
 const netText=x=>x===null||x===undefined?'검증 대기':money(x);
 kpis('overviewKpi',[['Revenue (VAT 제외)',netText(m.netRevenue),'원본 Invoice 검증 후 공급가액'],['Invoice 발행 (VAT 포함)',money(m.actual),'세금계산서 원금액'],['검증 청구액 (VAT 포함)',money(m.verifiedBilling),'현금 수납 확인과 다름'],['Forecast (미확정)',money(m.forecast),kusd(m.forecastKUSD)+' · 별도 추정치']]);
@@ -279,6 +291,7 @@ async function load(){
  }
 $('ownerSmoke').addEventListener('click',runOwnerSmoke);
 $('load').addEventListener('click',load);$('login').addEventListener('click',()=>{location.assign('/api/auth/authorize')});$('closeDialog').addEventListener('click',()=>$('mailDialog').close());
+$('dashboardMonth').addEventListener('change',draw);
 for(const id of ['statementQuery','statementState','projectQuery','projectStatus','mailQuery','mailSort','leadQuery','contractQuery','contractState'])$(id).addEventListener('input',draw);
 for(const btn of document.querySelectorAll('nav button[data-view]'))btn.addEventListener('click',()=>{for(const b of document.querySelectorAll('nav button'))b.classList.toggle('active',b===btn);for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===btn.dataset.view);$('heading').textContent=btn.textContent.trim()});
 load();setInterval(()=>{if(!document.hidden)load()},300000);
