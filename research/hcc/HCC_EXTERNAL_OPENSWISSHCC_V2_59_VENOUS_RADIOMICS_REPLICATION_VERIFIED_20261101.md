@@ -23,7 +23,7 @@
 
 The primary engineering endpoint, in every subject, is **`abs((3mm/bw25 GLCM Contrast - native/bw25 GLCM Contrast) / abs(native/bw25 GLCM Contrast))×100`** computed on the same manually segmented tumor/venous image. **59 independent subjects**, not 354 independent feature records; 4,000 paired-patient-with-replacement bootstrap draws, seed 20261101, simple 2.5/97.5 percentile 95% confidence intervals. This bootstrap describes source study variability, *not* a general-population or prediction-performance guarantee.
 
-< table is descriptive only — no GLCM p-values, cutoff selection or biological inference >
+**The comparisons below are descriptive; no p-values, cutoff optimization or biological inference were performed.**
 
 | External original venous MRI setting | Patient median absolute GLCM Contrast change % [95% bootstrap CI] | Patient source-arm Spearman ρ [95% bootstrap CI] |
 |---|---:|---:|
