@@ -91,11 +91,11 @@ jobs:
             --intraday "$RUNNER_TEMP/qld_regime/qld_15m.parquet" \
             --market-zip "$RUNNER_TEMP/qld_regime/market.zip" \
             --out "$RUNNER_TEMP/qld_regime/outputs"
-      - name: Publish aggregate summary only
-        if: success()
+      - name: Publish aggregate summary including HOLD evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qld-integrated-regime-aggregate-only
           path: ${{ runner.temp }}/qld_regime/outputs/summary.json
           retention-days: 30
-          if-no-files-found: error
+          if-no-files-found: warn
