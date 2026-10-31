@@ -2,7 +2,7 @@ name: CSS Central Workflow Health Publisher
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17,47 * * * *'
+    - cron: '17 0,3,6,9,12,15,18,21 * * *' # eight daily fallback checks, events drive most updates
   pull_request:
     paths:
       - 'automation/ops/publish_central_workflow_health.py'
@@ -25,6 +25,10 @@ on:
       - 'Feishu Latest Four Schema Audit'
       - 'CSS Central Operations Console Tests'
       - 'CSS Source-backed API Contract Smoke'
+      - 'CSS P0 Parallel Verification & Status'
+      - 'CSS Vercel Build Scope Guard'
+      - 'CSS Operational Acceptance Evidence'
+      - 'Sales Payment Reconciliation QC'
     types: [completed]
 
 permissions:
