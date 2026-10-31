@@ -1,0 +1,6 @@
+*.csv
+*mapping*.json
+chrome_profile/
+*.log
+*.png
+playwright-report/
