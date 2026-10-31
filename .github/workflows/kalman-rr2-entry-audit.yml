@@ -1,6 +1,11 @@
 name: Kalman RR2 Entry Rejection Audit (Research Only)
 
 on:
+  push:
+    branches:
+      - research/rr2-entry-rejection-audit-20261101
+    paths:
+      - '.github/workflows/kalman-rr2-entry-audit.yml'
   pull_request:
     paths:
       - 'research/rr2_entry_gate/**'
@@ -92,7 +97,7 @@ jobs:
           if-no-files-found: warn
 
   private-archive-validation:
-    if: github.event_name == 'workflow_dispatch' && inputs.archive_file_id != ''
+    if: (github.event_name == 'workflow_dispatch' && inputs.archive_file_id != '') || (github.event_name == 'push' && github.ref == 'refs/heads/research/rr2-entry-rejection-audit-20261101')
     needs: offline-contracts
     runs-on: ubuntu-latest
     environment: TaehoonServer
@@ -108,14 +113,14 @@ jobs:
         env:
           CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
           GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
-          ARCHIVE_ID: ${{ inputs.archive_file_id }}
+          ARCHIVE_ID: ${{ inputs.archive_file_id || '1-uxzHk0xtiIX3G_SvJqKBFvp-LOf-fvF' }}
         run: |
           python research/kalman_triple_barrier/drive_input.py \
             --file-id "$ARCHIVE_ID" \
             --output "$RUNNER_TEMP/rr2_research_archive.zip"
       - name: Strict source identity and aggregate reconciliation (no licensed bars)
         env:
-          EXPECTED_ARCHIVE_SHA256: ${{ inputs.archive_sha256 }}
+          EXPECTED_ARCHIVE_SHA256: ${{ inputs.archive_sha256 || '0cfb612bc86805d96c01dc4f4bd23b737409bf948cb98875b0cc6037f7db9a93' }}
         run: |
           if [ -n "$EXPECTED_ARCHIVE_SHA256" ]; then
             printf '%s  %s\n' "$EXPECTED_ARCHIVE_SHA256" "$RUNNER_TEMP/rr2_research_archive.zip" | sha256sum --check
