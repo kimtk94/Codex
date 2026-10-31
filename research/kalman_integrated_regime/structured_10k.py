@@ -120,7 +120,8 @@ def generate_structured(n=10000, seed=20261102):
 
 def active_budget(policy):
     """Count filter-gates enabled, not unrelated money-management dimensions."""
-    return sum(policy[key] != joint.BASELINE[key] for key, _ in GATES.values())
+    return sum((policy[key] > .5 if key == "confidence" else
+                policy[key] != joint.BASELINE[key]) for key, _ in GATES.values())
 
 
 def run_shard(daily, intraday, market_zip, n, seed, shard, shards):
