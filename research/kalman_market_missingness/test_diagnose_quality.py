@@ -1,7 +1,13 @@
 import unittest
-from diagnose_quality import classify_bar
+from diagnose_quality import classify_bar, make_training_gate
 
 class QualityBarTests(unittest.TestCase):
+    def test_fx_derived_features_quarantined(self):
+        out=make_training_gate(['2025-06-27','2024-01-25'],16)
+        self.assertFalse(out['asset_guards']['yf_usdkrw']['ohlc_training_eligible'])
+        self.assertFalse(out['asset_guards']['usd_krw_talib']['derived_feature_training_eligible'])
+        self.assertFalse(out['asset_guards']['fred_fx_latest_revised']['historical_vintage_pit_training_eligible'])
+        self.assertEqual(len(out['asset_guards']['yf_usdkrw']['invalid_dates']),2)
     def test_valid(self):
         flags,bp=classify_bar(100,105,95,101)
         self.assertEqual(flags,[]);self.assertEqual(bp,0)
