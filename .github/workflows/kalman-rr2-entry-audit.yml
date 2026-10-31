@@ -1,0 +1,79 @@
+name: Kalman RR2 Entry Rejection Audit (Research Only)
+
+on:
+  pull_request:
+    paths:
+      - 'research/rr2_entry_gate/**'
+      - '.github/workflows/kalman-rr2-entry-audit.yml'
+  workflow_dispatch:
+    inputs:
+      drive_file_id:
+        description: 'Private read-only Drive CSV ID (signal_id,symbol,signal_date,entry_price,atr)'
+        type: string
+        required: true
+      expected_cohorts:
+        description: 'Space-separated count gates, e.g. COIN:2025:80 COIN:2026:46'
+        type: string
+        required: false
+        default: 'COIN:2025:80 COIN:2026:46'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate RR2 thresholds, fees, multiple reject causes and input contracts
+        run: python -m unittest discover -s research/rr2_entry_gate -p 'test_audit.py' -v
+
+  private-cohort-diagnostic:
+    if: github.event_name == 'workflow_dispatch'
+    needs: offline-contracts
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated read-only Drive dependency
+        run: python -m pip install --disable-pip-version-check google-auth google-api-python-client
+      - name: Read private PIT candidate CSV without publishing source prices
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+          DRIVE_FILE_ID: ${{ inputs.drive_file_id }}
+        run: |
+          python research/kalman_triple_barrier/drive_input.py \
+            --file-id "$DRIVE_FILE_ID" \
+            --output "$RUNNER_TEMP/rr2_private_candidates.csv"
+      - name: Audit identical signal cohort across three RR2 designs
+        env:
+          EXPECTED_COHORTS: ${{ inputs.expected_cohorts }}
+        run: |
+          ARGS=(
+            --candidates "$RUNNER_TEMP/rr2_private_candidates.csv"
+            --out outputs/rr2_entry_audit/summary.json
+          )
+          if [ -n "$EXPECTED_COHORTS" ]; then
+            read -r -a COHORTS <<< "$EXPECTED_COHORTS"
+            for item in "${COHORTS[@]}"; do
+              ARGS+=(--expect-cohort "$item")
+            done
+          fi
+          python research/rr2_entry_gate/audit.py "${ARGS[@]}"
+      - name: Upload summary-only gate attribution
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-rr2-gate-attribution
+          path: outputs/rr2_entry_audit/summary.json
+          retention-days: 14
+          if-no-files-found: warn
