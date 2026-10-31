@@ -12,6 +12,7 @@ from pathlib import Path
 
 SOURCE="artifacts/hcc_ibsi_source/hcc_ibsi1_official_source_manifest.json"
 MEASURE="artifacts/hcc_ibsi_measure/hcc_ibsi1_pyradiomics_benchmark.json"
+INDEPENDENT="artifacts/hcc_ibsi_independent/hcc_ibsi1_official_independent_reference.json"
 FACTORIAL="research/hcc/HCC_MRI_14_GLCM_BINWIDTH_VOXEL_FACTORIAL_20261031.csv"
 CASES="research/hcc/HCC_MRI_14_GLCM_CONTRAST_CASE_FACTORIAL_20261031.csv"
 GATES="research/hcc/HCC_VERIFICATION_LEDGER.csv"
@@ -19,10 +20,19 @@ GATES="research/hcc/HCC_VERIFICATION_LEDGER.csv"
 def read(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
-def combined(src,measured):
+def combined(src,measured,independent):
     for k in ("official_source_commit_sha","image_sha256","mask_sha256"):
         if not src.get(k) or src[k]!=measured.get(k):
             raise ValueError("Source phantom provenance drift "+k)
+    for k in ("official_source_commit_sha","image_sha256","mask_sha256"):
+        if not independent.get(k) or independent[k]!=src[k]:
+            raise ValueError("Independent GLCM source hash mismatch "+k)
+    if independent.get("status")!="PASS_OFFICIAL_IBSI_3D_AVG_AND_MERGED_MATH":
+        raise ValueError("Original independent IBSI phantom GLCM direct benchmark not PASS")
+    if (abs(float(independent["original_3d_avg_direct"])-5.32)>0.01 or
+        abs(float(independent["original_3d_merged_direct"])-5.12)>0.01 or
+        independent.get("direction_count")!=13 or independent.get("roi_voxels")!=74):
+        raise ValueError("Independent original phantom mathematics reference drift")
     if src.get("status")!="PASS_OFFICIAL_NIFTI_SOURCE_PROVENANCE":
         raise ValueError("Official original source manifest failed")
     if measured.get("original_image_roi",{}).get("original_roi_voxels")!=74:
@@ -57,6 +67,9 @@ def combined(src,measured):
       "original_image_sha256":src["image_sha256"],
       "original_mask_sha256":src["mask_sha256"],
       "IBSI_3d_avg_expected":5.32,
+      "independent_IBSI_3d_avg_direct":independent["original_3d_avg_direct"],
+      "independent_IBSI_3d_merge_direct":independent["original_3d_merged_direct"],
+      "independent_13_direction_original_phantom_math":"PASS",
       "PyRadiomics_observed":observed,
       "ibsi_diagnostic_diff":measured["signed_difference_from_5_32"],
       "clinical_source_patients":14,
@@ -81,13 +94,17 @@ def offline_test():
          "status":"PASS_MATCH_TO_IBSI_3D_AVG_REFERENCE",
          "hcc_14_patient_clinical_eligibility":"NOT_ASSESSED",
          "mri_rna_associations_run":False}
-    assert combined(src,mes)["status"]=="PASS_REFERENCE_MATH_AND_SOURCE_COHERENCE"
+    ind={**src,"status":"PASS_OFFICIAL_IBSI_3D_AVG_AND_MERGED_MATH",
+         "original_3d_avg_direct":5.32448,
+         "original_3d_merged_direct":5.117647,
+         "direction_count":13,"roi_voxels":74}
+    assert combined(src,mes,ind)["status"]=="PASS_REFERENCE_MATH_AND_SOURCE_COHERENCE"
     mes["observed_contrast"]=4.
     mes["signed_difference_from_5_32"]=-1.32
     mes["status"]="REVIEW_SOFTWARE_REFERENCE_DEVIATION"
-    assert combined(src,mes)["status"]=="HOLD_IBSI_IMPLEMENTATION_REFERENCE_DEVIATION_REVIEW"
+    assert combined(src,mes,ind)["status"]=="HOLD_IBSI_IMPLEMENTATION_REFERENCE_DEVIATION_REVIEW"
     mes["image_sha256"]="WRONG"
-    try:combined(src,mes)
+    try:combined(src,mes,ind)
     except ValueError:pass
     else:raise AssertionError("Tampered source must fail")
     print("HCC_IBSI1_14_PATIENT_MULTISOURCE_GATE_OFFLINE_PASS")
@@ -98,7 +115,7 @@ def main():
     p.add_argument("--out-dir",default="artifacts/hcc_ibsi_final")
     a=p.parse_args()
     if a.offline_test:return offline_test()
-    report=combined(read(SOURCE),read(MEASURE))
+    report=combined(read(SOURCE),read(MEASURE),read(INDEPENDENT))
     out=Path(a.out_dir);out.mkdir(parents=True,exist_ok=True)
     (out/"hcc_ibsi1_clinical_guard_readiness.json").write_text(
       json.dumps(report,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
