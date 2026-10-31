@@ -1,0 +1,110 @@
+name: HCC P0 MRI14 Paired-Patient Source CI and ICC Delta
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_source_paired_patient_bootstrap_ci.py"
+      - ".github/workflows/hcc-mri14-source-paired-bootstrap-ci.yml"
+      - "research/hcc/HCC_MRI14_PV_SOURCE_*.csv"
+      - "research/hcc/ci/mri_p0_frozen_source_results_qc.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-mri14-source-patient-bootstrap-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-patient-bootstrap:
+    name: Patient bootstrap, ICC(A,1), duplicates/NaN and no biological approval fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install frozen source-only numerical dependencies
+        run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - name: Run source-only negative fixtures without biological data or downloads
+        run: python research/hcc/ci/mri_p0_source_paired_patient_bootstrap_ci.py --offline-test
+
+  actual-source-statistics:
+    name: Run 4000 paired patient bootstraps on immutable 56-row source and draw methods figures
+    needs: synthetic-patient-bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install frozen numerical and plotting dependencies
+        run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests "matplotlib>=3.8,<4"
+      - name: Fetch SHA-pinned original source only (GitHub Action 41191599451)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/hcc_mri_source_bootstrap
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13039386584/zip" \
+            --output artifacts/hcc_mri_source_bootstrap/original_14_patient_56_row_features.zip
+      - name: Revalidate four SHA256 evidence members, then bootstrap independent paired patients
+        run: |
+          python research/hcc/ci/mri_p0_source_paired_patient_bootstrap_ci.py \
+            --evidence-zip artifacts/hcc_mri_source_bootstrap/original_14_patient_56_row_features.zip \
+            --out-dir artifacts/hcc_mri_source_bootstrap/reported
+      - name: Validate fixed source reference points, CI bounds and biology prohibition
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          out=Path("artifacts/hcc_mri_source_bootstrap/reported")
+          def read(file):
+              with (out/file).open(newline="") as f:return list(csv.DictReader(f))
+          vals=read("HCC_MRI14_SOURCE_PAIRED_10_FEATURE_BOOTSTRAP_CI.csv")
+          changes=read("HCC_MRI14_SOURCE_PATIENT_10_FEATURE_SIGNED_CHANGE.csv")
+          iccs=read("HCC_MRI14_SOURCE_PAIRED_10_ICC_DELTA_BOOTSTRAP_CI.csv")
+          meta=json.loads((out/"HCC_MRI14_SOURCE_BOOTSTRAP_UNCERTAINTY_METADATA.json").read_text())
+          assert len(vals)==10 and len(iccs)==10 and len(changes)==140
+          assert meta["n_independent_patients"]==14 and meta["n_feature_rows"]==56
+          assert meta["n_paired_patient_resamples"]==4000 and meta["bootstrap_seed"]==20261031
+          assert meta["claim_ceiling"]=="S0" and meta["MRI_RNA_12_tests"]=="NOT_EXECUTED"
+          assert meta["qualified_RNA_matched_n"]=="NOT_ASSESSED" and not meta["biological_p_value_computed"]
+          look={r["feature"]:r for r in vals}
+          assert abs(float(look["original_glcm_Contrast"]["median_abs_pct"])-22.07991)<0.0001
+          assert int(look["original_glcm_Contrast"]["n_cases_abs_pct_ge10"])==11
+          assert sum(r["locked_primary_MRI_feature"]=="True" for r in vals)==3
+          for r in vals:
+              assert float(r["median_abs_pct_ci95_low"])<=float(r["median_abs_pct"])<=float(r["median_abs_pct_ci95_high"])
+              assert float(r["spearman_ci95_low"])<=float(r["spearman_ci95_high"])
+              assert r["claim_ceiling"]=="S0" and r["RNA_association_executed"]=="False"
+          for r in iccs:
+              assert float(r["paired_boot_icc_difference_ci95_low"])<=float(r["paired_boot_icc_difference_ci95_high"])
+          assert len(list(out.glob("*.png")))==2
+          lines=["## HCC MRI14 source-phase measurement uncertainty (descriptive only)",
+              "", "- Frozen public MRI source: 14 **independent** patients; two radiologist masks repeated within person.",
+              "- 4,000 **paired-patient** resamples, seed 20261031; 10 source effect estimates + ICC(A,1) source difference.",
+              "- Original source: immutable 56-row/4-member SHA256 artifact. No RNA data accessed.",
+              "- 12 predeclared MRI-RNA associations: **NOT EXECUTED**. Clinical eligibility **NOT ASSESSED**, S0.",
+              "", "| Locked feature | Median absolute source change % (95% CI) | Spearman rho (95% CI) | Registered minus raw ICC(A,1) (95% CI) |",
+              "|---|---|---|---|"]
+          ii={r["feature"]:r for r in iccs}
+          for k in ("original_firstorder_Entropy","original_firstorder_InterquartileRange","original_glcm_Contrast"):
+              a=look[k];b=ii[k]
+              lines.append(f"| {k} | {a['median_abs_pct']} [{a['median_abs_pct_ci95_low']}, {a['median_abs_pct_ci95_high']}] | {a['spearman_patient_mean_raw_vs_registered']} [{a['spearman_ci95_low']}, {a['spearman_ci95_high']}] | {b['registered_minus_raw_icc_A1']} [{b['paired_boot_icc_difference_ci95_low']}, {b['paired_boot_icc_difference_ci95_high']}] |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          print("HCC_MRI14_PAIRED_PATIENT_SOURCE_BOOTSTRAP_10_FEATURE_10_ICC_DELTA_S0_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-mri14-source-14-patient-bootstrap-ci-and-icc-delta-figures
+          path: artifacts/hcc_mri_source_bootstrap/reported/
+          retention-days: 90
+          if-no-files-found: warn
