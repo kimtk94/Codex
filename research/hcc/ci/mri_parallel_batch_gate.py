@@ -30,6 +30,7 @@ SAP=ROOT/"HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md"
 REFINED="artifacts/hcc_batch_clinical/hcc_mri14_treatment_site_refined_review_queue.csv"
 PURITY="artifacts/hcc_batch_purity/hcc_mri_14_absolute_vs_cpe_purity_review.csv"
 SOURCE="artifacts/hcc_batch_source/hcc_mri14_frozen_source_identity.csv"
+PUBLICATION="artifacts/hcc_batch_publication/hcc_mri14_published_expert_reader_metadata_crosswalk.csv"
 
 HALLMARK=(
  "HALLMARK_HYPOXIA","HALLMARK_ANGIOGENESIS",
@@ -47,6 +48,7 @@ FIELDS=(
  "hcc_context_dated_treatment_records","other_anatomic_site_dated_records",
  "abs_dna_purity_proxy","historical_cpe","purity_review_priority",
  "purity_proxy_difference_over_0_20",
+ "published_expert_readers_source","published_hcc_dice_metric",
  "mri_pretherapy_adjudication","same_hcc_lesion_mri_tissue_adjudication",
  "qualified_roi_radiologist_review","exact_star_rna_aliquot_purity",
  "clinical_eligibility","mri_rna_association_performed",
@@ -130,12 +132,22 @@ def audit_identity():
         "claim_ceiling":"S0",
     }
 
-def join_evidence(clinical,purity,source):
-    if set(clinical)!=set(purity) or set(clinical)!=set(source):
+def join_evidence(clinical,purity,source,publication):
+    if (set(clinical)!=set(purity) or set(clinical)!=set(source)
+        or set(clinical)!=set(publication)):
         raise ValueError("Parallel jobs have different 14-patient denominators")
     rows=[]
     for pid in sorted(source):
-        c,p,s=clinical[pid],purity[pid],source[pid]
+        c,p,s,pub=clinical[pid],purity[pid],source[pid],publication[pid]
+        if (pub["clinical_eligibility"]!="HOLD_UNRESOLVED_NOT_EXCLUDED" or
+            pub["patient_specific_pretreatment_mri_verified"]!="NOT_VERIFIED" or
+            pub["selected_roi_expert_review_reconfirmed"]!="NOT_ASSESSED" or
+            pub["mri_to_exact_rna_lesion_match"]!="NOT_VERIFIED"):
+            raise ValueError("Published radiologist evidence was misread as clinical eligibility")
+        if (pub["official_published_hcc_dice_present"]!="YES" or
+            pub["selected_index_tumor_number"]!=s["representative_tumor_number"] or
+            pub["official_expert_readers_in_publication"]!="TWO_BOARD_CERTIFIED_ABDOMINAL_RADIOLOGISTS_SOURCE_DATASET"):
+            raise ValueError("Official published tumor reader/selected index lesion evidence is missing")
         if c["clinical_eligibility"]!="HOLD_UNRESOLVED_NOT_EXCLUDED":
             raise ValueError("Clinical job promoted or excluded patient without reviewer")
         if (p["eligible"]!="NOT_ASSESSED" or
@@ -155,6 +167,8 @@ def join_evidence(clinical,purity,source):
             "historical_cpe":p["historical_cpe"],
             "purity_review_priority":p["priority"],
             "purity_proxy_difference_over_0_20":p["difference_abs_gt_0_20"],
+            "published_expert_readers_source":pub["official_expert_readers_in_publication"],
+            "published_hcc_dice_metric":pub["official_published_hcc_dice_present"],
         })
         rows.append(result)
     level=Counter(r["clinical_review_priority"].split("_")[0] for r in rows)
@@ -173,6 +187,8 @@ def join_evidence(clinical,purity,source):
             sum(r["purity_proxy_difference_over_0_20"]=="YES" for r in rows),
         "n_absolute_dna_proxy_present":sum(bool(r["abs_dna_purity_proxy"]) for r in rows),
         "n_historical_cpe_present":sum(bool(r["historical_cpe"]) for r in rows),
+        "n_official_source_14_reader_metric_confirmed":sum(r["published_hcc_dice_metric"]=="YES" for r in rows),
+        "n_independently_reapproved_mri_to_rna_same_lesion":0,
         "patients_with_overlapping_treatment_p0_and_purity_p0":[
             r["patient_id"] for r in rows if r["clinical_review_priority"].startswith("P0")
             and r["purity_review_priority"].startswith("P0")],
@@ -208,7 +224,7 @@ def offline_test():
     assert len(r)==14 and s["primary_hypotheses"]==12
     assert next(x for x in r if x["patient_id"]=="TCGA-BC-A10Y")["representative_tumor_number"]=="3"
     # Negative test cannot use a shortened denominator.
-    try:join_evidence({"x":{}},{},{"y":{}})
+    try:join_evidence({"x":{}},{},{"y":{}},{})
     except ValueError:pass
     else:raise AssertionError("Cross-job source mismatch was not rejected")
     assert all(x["clinical_eligibility"]=="HOLD_UNRESOLVED_NOT_EXCLUDED" for x in r)
@@ -222,6 +238,7 @@ def main():
     p.add_argument("--clinical",default=REFINED)
     p.add_argument("--purity",default=PURITY)
     p.add_argument("--source",default=SOURCE)
+    p.add_argument("--publication",default=PUBLICATION)
     args=p.parse_args()
     if args.offline_test:return offline_test()
     out=Path(args.out_dir);out.mkdir(parents=True,exist_ok=True)
@@ -230,7 +247,7 @@ def main():
         save_csv(out/"hcc_mri14_frozen_source_identity.csv",rows,list(rows[0]))
         name="hcc_mri14_source_identity_summary.json"
     else:
-        rows,summary=join_evidence(load(args.clinical),load(args.purity),load(args.source))
+        rows,summary=join_evidence(load(args.clinical),load(args.purity),load(args.source),load(args.publication))
         save_csv(out/"hcc_mri14_joint_clinical_purity_image_rna_gate.csv",rows,FIELDS)
         name="hcc_batch_multi_job_readiness_summary.json"
     (out/name).write_text(json.dumps(summary,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
