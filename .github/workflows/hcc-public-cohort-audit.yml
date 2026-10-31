@@ -1,6 +1,12 @@
 name: HCC Public Cohort Audit
 on:
   workflow_dispatch:
+    inputs:
+      run_heavy_resampling:
+        description: "Run frozen 14x2 original vs 3mm PV radiomics validation (resource-heavy, no RNA associations)"
+        type: boolean
+        required: false
+        default: false
   pull_request:
     paths:
       - "research/hcc/**"
@@ -299,7 +305,7 @@ jobs:
 
 
   hcc-pv-3mm-resampling-pilot:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && inputs.run_heavy_resampling == true
     name: HCC PV 3mm sensitivity shard ${{ matrix.shard-index }}
     strategy:
       fail-fast: false
@@ -325,7 +331,7 @@ jobs:
           retention-days: 30
 
   hcc-pv-3mm-resampling-summary:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && inputs.run_heavy_resampling == true
     name: HCC PV 14x2 original vs isotropic 3mm full technical summary
     needs: [hcc-pv-3mm-resampling-pilot]
     runs-on: ubuntu-latest
