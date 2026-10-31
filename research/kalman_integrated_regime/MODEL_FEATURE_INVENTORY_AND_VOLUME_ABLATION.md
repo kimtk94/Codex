@@ -71,3 +71,30 @@ Source: `research/kalman_integrated_regime/volume_four_arm.py`. All arms are re-
 - Original volume synthetic contract run [#41188599884](https://github.com/kimtk94/Codex/actions/runs/41188599884) **PASS**.
 
 **NEXT:** validate actual four-arm historical results, check volume-adjustment/split effects, and investigate P1 (`n`/`vw`) or P2 (large-print distribution) only after incremental benefit can be measured under fixed execution. LIVE remains unchanged.
+
+
+## 5. Verified four-arm P0 result — HARD HOLD for indiscriminate volume addition
+
+**GitHub Actions:** https://github.com/kimtk94/Codex/actions/runs/41189564936 — contracts **PASS**, historical evaluation **PASS**. Derived artifact ID `13038281932`; private Drive archive https://drive.google.com/file/d/1pJX-5DzHDKoH38DX0OQAO-Nsj56nY2zG/view?usp=drivesdk.
+
+**Data gate:** 711/711 regular NYSE sessions for **both** QLD and QQQ, 1,422/1,422 complete instrument-session rows; 0 partial/missing for this fixed historical window; 691 daily rows per symbol have prior-20-session RVOL. Paired signal-label cohorts: train 228, test 246 in 2025; train 477, test 205 in 2026 YTD.
+
+| Same fixed 3% TP / 3% SL / 4-session policy | 2025 return | 2025 daily-MTM MDD | 2025 completed trades | 2026 YTD return | 2026 daily-MTM MDD | 2026 completed trades |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A price-5 | -8.0971% | -23.8276% | 63 | -19.9081% | -26.1292% | 47 |
+| B price+volume-9 | -1.9087% | -21.5945% | 59 | -32.3772% | -37.1380% | 56 |
+| C integrated-10 | +0.3170% | -21.9055% | 61 | -20.6414% | -24.8970% | 58 |
+| D integrated+volume-14 | +1.7673% | -16.6612% | 64 | -27.1281% | -33.5000% | 65 |
+
+**Volume-only incremental contrasts:** B−A: +6.1884 percentage points in 2025, **−12.4691 pp** in 2026. D−C: +1.4503 pp in 2025, **−6.4867 pp** in 2026. 2026 drawdown also worsens **11.0088 pp** (B−A) and **8.6030 pp** (D−C).
+
+**Classifier scoring deterioration:** 2025 AUC A→B `0.5249867→0.5115938`, C→D `0.5670975→0.5579691`; 2026 A→B `0.4533600→0.4525985`, C→D `0.4957167→0.4735389`. Brier and log loss also **worsen** in every matched comparison, despite higher 2025 trading return. P0 volume features are **not demonstrably additive predictive signal** under this frozen formula.
+
+**Decision split:**
+- P0 collection/data readiness **GO** for the tested history (complete regular sessions, verified reproducibility).
+- P0 model addition **HOLD**: do **not** simply add all four volume variables to the existing model, do not enable LIVE, do not claim feature significance.
+- Next analyses need exact 2025→2026 feature drift and regime interaction attribution; test alternate formulations and filtering **only under training-only feature selection / nested purged walk-forward** and validate on subsequent genuinely unseen periods. A trade-count/return improvement on one old year is insufficient.
+- P1 bar VWAP/count and P2 print sizes are **separate data families**, not proven predictive by this P0 test.
+- Historical 1-minute SIP print-access probe **PASS**, but full historical print reliability and condition-correction audit remain HOLD.
+
+**All prior 40-axis policy results remain frozen and LIVE execution untouched.**
