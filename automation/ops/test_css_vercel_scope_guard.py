@@ -67,5 +67,40 @@ class ScopeGuardTests(unittest.TestCase):
             edit("research/hcc/experiment.py","print(3)\n")
             self.assertEqual(result(),0)
 
+    def test_previous_successful_sha_catches_multi_commit_css_change(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            web=root/"apps"/"css-sales-workspace"
+            research=root/"research"/"hcc"
+            web.mkdir(parents=True)
+            research.mkdir(parents=True)
+            (web/"index.js").write_text("a\n")
+            (research/"data.py").write_text("a\n")
+            (root/"package.json").write_text("{}\n")
+            (root/"package-lock.json").write_text("{}\n")
+            self.git(root,"init","--quiet")
+            self.git(root,"config","user.name","CI Test")
+            self.git(root,"config","user.email","ci@example.invalid")
+            self.git(root,"add",".")
+            self.git(root,"commit","-qm","baseline")
+            previous=self.git(root,"rev-parse","HEAD").stdout.strip()
+            (web/"index.js").write_text("b\n")
+            self.git(root,"add",".")
+            self.git(root,"commit","-qm","css changed")
+            (research/"data.py").write_text("b\n")
+            self.git(root,"add",".")
+            self.git(root,"commit","-qm","research changed after css")
+            def check(env):
+                return subprocess.run(IGNORE,shell=True,cwd=web,env=env,
+                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode
+            plain=os.environ.copy()
+            plain.pop("VERCEL_GIT_PREVIOUS_SHA",None)
+            self.assertEqual(check(plain),0,"Single parent does not see older CSS change")
+            scoped=plain.copy()
+            scoped["VERCEL_GIT_PREVIOUS_SHA"]=previous
+            self.assertEqual(check(scoped),1,"Successful-deploy base sees earlier CSS change")
+            scoped["VERCEL_GIT_PREVIOUS_SHA"]="deadbeef"
+            self.assertNotEqual(check(scoped),0,"Unresolvable base fails open and builds")
+
 if __name__=="__main__":
     unittest.main()
