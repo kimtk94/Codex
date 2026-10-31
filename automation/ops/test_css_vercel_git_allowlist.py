@@ -37,12 +37,25 @@ class CssGitDeploymentTests(unittest.TestCase):
                        "feat/novogene-automation"):
             with self.subTest(branch=branch):
                 self.assertTrue(enabled(branch,rules))
-        self.assertTrue(enabled("main",rules))
+        self.assertFalse(enabled("main",rules),"GitHub main must never auto-deploy CSS Production")
+
+    def test_all_other_branches_deny_by_default_and_no_positive_overlap(self):
+        _,rules=self.config()
+        for branch in ("research-status","feat/hcc-public-ci-20261022",
+                       "feat/kalman-usdkrw-fred-qc-gate-20261031",
+                       "release/production","main","feat/arbitrary-ui",
+                       "feat/invoice-unreviewed","hotfix/unknown"):
+            with self.subTest(branch=branch):
+                self.assertFalse(enabled(branch,rules))
+        for branch in ("feat/css-policy-preview","fix/sales-frontend",
+                       "feat/sfdc-oppo-web","fix/novogene-portal"):
+            with self.subTest(branch=branch):
+                self.assertTrue(enabled(branch,rules))
 
     def test_no_deployment_bypass_or_sso_changes(self):
         doc,rules=self.config()
         self.assertIs(rules.get("**"),False)
-        self.assertIs(rules.get("main"),True)
+        self.assertIs(rules.get("main"),False)
         self.assertNotIn("ignoreCommand",doc)
         self.assertNotIn("passwordProtection",doc)
         self.assertNotIn("ssoProtection",doc)
