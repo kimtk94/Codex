@@ -159,6 +159,8 @@ def main():
         } for a in arr[:3]] for model,arr in result["matched50_rankings_qualified_only"].items()},
         "live_unchanged":True,
     },ensure_ascii=False),flush=True)
+    if result["qualification_gate"]["status"] != "PASS":
+        raise SystemExit("HOLD_MIN_500_NOT_MET: results retained for audit")
 
 
 if __name__ == "__main__":
