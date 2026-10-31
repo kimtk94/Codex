@@ -76,7 +76,6 @@ def entry_plan(entry,atr,*,side_cost=SIDE_COST,
     if (not np.isfinite(stop_atr_mult) or not np.isfinite(target_atr_mult)
             or stop_atr_mult<=0 or target_atr_mult<=0):
         raise ValueError("INVALID_ATR_MULTIPLIER")
-        raise ValueError("INVALID_PLAN_PRICE_OR_ATR")
     stop=entry-stop_atr_mult*atr
     target=entry+target_atr_mult*atr
     if stop<=0 or not np.isfinite(stop+target):
