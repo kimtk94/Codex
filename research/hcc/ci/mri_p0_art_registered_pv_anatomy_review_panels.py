@@ -158,7 +158,7 @@ def fetch_case(archive, pid, index, out_dir):
 
 def offline_test():
     a = np.zeros((8, 9, 10), dtype=np.uint8)
-    a[2:6, 3:7, 4:7] = 1
+    a[2:7, 3:7, 4:7] = 1
     assert center_and_slice(a) == (4, 4, 4)
     assert take_plane(a, "axial", (4, 4, 4)).shape == (9, 8)
     assert take_plane(a, "coronal", (4, 4, 4)).shape == (10, 8)
