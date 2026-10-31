@@ -76,7 +76,17 @@ def prior_holiday_like(d,mode):
     return d in federal or d not in nyse
 
 
-def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
+def effective_nyse_asof(now_utc=None):
+    now=pd.Timestamp.now(tz='UTC') if now_utc is None else pd.Timestamp(now_utc)
+    now=now.tz_localize('UTC') if now.tzinfo is None else now.tz_convert('UTC')
+    cal=xc.get_calendar('XNYS')
+    session=cal.date_to_session(now.tz_localize(None).normalize(),direction='previous')
+    if cal.session_close(session)+pd.Timedelta(minutes=30)>now:
+        session=cal.previous_session(session)
+    return str(session.date())
+
+
+def audit(input_zip:Path,output_dir:Path,limit_through=None,now_utc=None):
     output_dir.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(input_zip) as z:
         names=z.namelist()
@@ -86,7 +96,13 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
         if failed: raise ValueError('MANIFEST_SHA_MISMATCH:'+','.join(failed[:4]))
         readiness=json.loads(z.read('readiness.json'))
         fred_status=json.loads(z.read('fred/fred_status.json'))
-        asof=min(limit_through,readiness['expected_last_completed_nyse_session'])
+        calendar_asof=effective_nyse_asof(now_utc)
+        asof=min(limit_through,calendar_asof) if limit_through else calendar_asof
+        source_claimed_asof=readiness.get('expected_last_completed_nyse_session')
+        if not source_claimed_asof:
+            raise ValueError('MISSING_SOURCE_CLOSED_SESSION')
+        if source_claimed_asof>calendar_asof:
+            raise ValueError('SOURCE_CLAIMS_FUTURE_MARKET_SESSION')
         events=[];summary=[];date_market={};date_fred={};date_features={};month_rows=[]
         for path in sorted(x for x in names if x.startswith('market/raw/yfinance/') and x.endswith('.parquet')):
             key=Path(path).stem;mode=mode_market(key)
@@ -109,7 +125,7 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
             for ix in datecol[datecol.duplicated()].index:
                 events.append({'layer':'MARKET','indicator':key,'date':str(datecol.loc[ix]),'status':'DUPLICATE_RECORD','field':'timestamp','frequency':mode,'classification':'duplicate_timestamp'})
             if len(validity)==0: raise ValueError('EMPTY_MARKET:'+key)
-            start=min(validity);end=min(max(validity),asof)
+            start=min(validity);end=asof
             expected=date_keys(start,end,mode)
             # Yahoo may include placeholder nulls on non-trading days (VIX holidays, DXY Sundays).
             # They are not missing candles on a valid trading session.
@@ -207,7 +223,7 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
         frame_market.to_csv(output_dir/'market_date_matrix.csv')
         frame_fred.to_csv(output_dir/'fred_date_matrix.csv')
         pd.DataFrame(summary_month).to_csv(output_dir/'monthly_missingness.csv',index=False)
-        overview={'input_file':input_zip.name,'source_published_utc':mf['published_at_utc'],'asof_date':asof,
+        overview={'input_file':input_zip.name,'source_published_utc':mf['published_at_utc'],'asof_date':asof,'source_claimed_asof':source_claimed_asof,
           'integrity_files_checked':len(mf['members']),'integrity_failures':failed,
           'market_assets':len(fields_market),'fred_series':len(fields_fred),'feature_series':sum(x['layer']=='FEATURE' for x in summary),
           'raw_fred_null_values':int(fred.value.isna().sum()),
@@ -225,6 +241,6 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--zip',required=True);p.add_argument('--out',required=True);p.add_argument('--asof',default='2026-10-30')
+    p=argparse.ArgumentParser();p.add_argument('--zip',required=True);p.add_argument('--out',required=True);p.add_argument('--asof',default=None)
     a=p.parse_args();audit(Path(a.zip),Path(a.out),a.asof)
 if __name__=='__main__': main()
