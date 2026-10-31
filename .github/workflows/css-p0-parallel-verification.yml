@@ -20,6 +20,8 @@ on:
       - 'automation/ops/test_css_invoice_legacy_key_bridge.py'
       - 'automation/ops/css_unissued_contract_lineage_guard.py'
       - 'automation/ops/test_css_unissued_contract_lineage_guard.py'
+      - 'automation/ops/css_amea_contract_candidate_crosswalk.py'
+      - 'automation/ops/test_css_amea_contract_candidate_crosswalk.py'
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/automation-console.js'
@@ -43,6 +45,8 @@ on:
       - 'automation/ops/test_css_invoice_legacy_key_bridge.py'
       - 'automation/ops/css_unissued_contract_lineage_guard.py'
       - 'automation/ops/test_css_unissued_contract_lineage_guard.py'
+      - 'automation/ops/css_amea_contract_candidate_crosswalk.py'
+      - 'automation/ops/test_css_amea_contract_candidate_crosswalk.py'
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/automation-console.js'
@@ -79,6 +83,7 @@ jobs:
           python -m unittest discover -s automation/ops -p 'test_css_evidence_exception_review.py' -v
           python -m unittest discover -s automation/ops -p 'test_css_invoice_legacy_key_bridge.py' -v
           python -m unittest discover -s automation/ops -p 'test_css_unissued_contract_lineage_guard.py' -v
+          python -m unittest discover -s automation/ops -p 'test_css_amea_contract_candidate_crosswalk.py' -v
       - name: Compile isolated release and publisher code
         run: python -m py_compile automation/ops/css_release_readonly_audit.py automation/ops/publish_css_p0_parallel_status.py
 
@@ -221,6 +226,10 @@ jobs:
       - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Test X/AMEA collisions and positional formula provenance offline
         run: python -m unittest discover -s automation/ops -p 'test_css_unissued_contract_lineage_guard.py' -v
+      - name: Test AMEA Online and finance candidate crosswalk offline
+        run: python -m unittest discover -s automation/ops -p 'test_css_amea_contract_candidate_crosswalk.py' -v
+      - name: Publish source-backed AMEA contract candidates (generated-only)
+        run: python automation/ops/css_amea_contract_candidate_crosswalk.py
       - name: Quarantine misleading Watch H/X and verify source formulas
         run: python automation/ops/css_unissued_contract_lineage_guard.py
       - name: Keep original business and finance records read-only
