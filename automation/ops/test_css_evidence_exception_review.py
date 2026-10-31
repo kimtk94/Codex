@@ -152,5 +152,42 @@ class RetryBoundaryTests(unittest.TestCase):
                 request_with_retry(ss,"GET","https://example.invalid")
         self.assertEqual(ss.calls,4)
 
+
+class MonthRolloverTests(unittest.TestCase):
+    def november(self,gross="0",net="0",count="0"):
+        d=data()
+        d["net"].append([
+            "2026-11",gross,net,"0.000",count,"0","65344560",
+            "2026-11-01 00:16:54 KST",
+            "INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED"
+        ])
+        return d
+
+    def test_november_zero_invoices_is_review_not_missing_invoice(self):
+        now=dt.datetime(2026,11,1,0,30,tzinfo=KST)
+        reports=analyze(self.november(),now)
+        issued=next(r for r in reports if r[1]=="Canonical VAT-exclusive issued")
+        self.assertEqual(issued[2],"REVIEW")
+        self.assertIn("count=0;gross=0;net=0",issued[5])
+        self.assertNotEqual(issued[2],"PASS")
+
+    def test_october_legacy_parity_compares_october_even_after_rollover(self):
+        now=dt.datetime(2026,11,1,0,30,tzinfo=KST)
+        reports=analyze(self.november(),now)
+        old=next(r for r in reports if r[1]=="Legacy October coverage parity")
+        self.assertIn("canonical_count=48",old[5])
+        self.assertIn("canonical_gross=158541900",old[5])
+        self.assertNotIn("canonical_count=0",old[5])
+
+    def test_malformed_zero_month_or_missing_october_still_blocks(self):
+        now=dt.datetime(2026,11,1,0,30,tzinfo=KST)
+        reports=analyze(self.november(gross="10"),now)
+        issued=next(r for r in reports if r[1]=="Canonical VAT-exclusive issued")
+        self.assertEqual(issued[2],"BLOCK")
+        d=self.november()
+        d["net"]=[d["net"][0],d["net"][-1]]
+        with self.assertRaisesRegex(ValueError,"OCTOBER_CANONICAL_MONTH_MISSING"):
+            analyze(d,now)
+
 if __name__=="__main__":
     unittest.main()
