@@ -316,7 +316,9 @@ def main():
                           "both_barriers_same_bar": "SL_FIRST"},
               "price_only_and_integrated_same_dates": True,
               "market_lag_sessions": 1, "fred_excluded": True,
-              "usdkrw_excluded": True, "intraday_source": "Drive QLD_15m_raw.parquet",
+              "usdkrw_excluded": True,
+              "intraday_source": ("ALPACA_SIP_15MIN_ADJUSTMENT_ALL" if "sip_all" in Path(a.intraday).name.lower()
+                                  else "LEGACY_PRIVATE_DRIVE_15MIN"),
               "no_execution_authority": True,
               "data_coverage": {"diagnostics": diagnostics,
                                 "daily_first": str(daily.index.min().date()),
