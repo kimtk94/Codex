@@ -40,12 +40,12 @@ def classify_watch_formula_provenance(project_formula,contract_formula):
     contract=str(contract_formula or "").strip()
     if not (project.startswith("=") and contract.startswith("=")):
         return "WATCH_FORMULA_PROVENANCE_UNKNOWN"
-    if (re.search(r"\\bFILTER\\s*\\(",project,re.I)
-        and re.search(r"\\bFILTER\\s*\\(",contract,re.I)
+    if (re.search(r"\bFILTER\s*\(",project,re.I)
+        and re.search(r"\bFILTER\s*\(",contract,re.I)
         and "'BI 2026 Completion Forecast'" in project
         and "'BI Revenue Duplicate Review'" in contract
-        and not re.search(r"\\b(?:XLOOKUP|VLOOKUP|MATCH|INDEX|QUERY)\\s*\\(",contract,re.I)
-        and not re.search(r"\\bAMEA\\b",contract,re.I)):
+        and not re.search(r"\b(?:XLOOKUP|VLOOKUP|MATCH|INDEX|QUERY)\s*\(",contract,re.I)
+        and not re.search(r"\bAMEA\b",contract,re.I)):
         return "POSITIONAL_INDEPENDENT_FILTER_CONFIRMED"
     # A rewritten formula is not approved until its actual AMEA-keyed mapping is audited.
     return "WATCH_FORMULA_REQUIRES_KEYED_REVIEW"
