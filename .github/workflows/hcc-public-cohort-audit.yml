@@ -111,6 +111,10 @@ jobs:
         run: python research/hcc/ci/mri_pv_3mm_resampling_aggregate.py --offline-test
       - name: Check frozen 14-patient 3mm result source values and high-GLCM-change warning
         run: python research/hcc/ci/mri_pv_3mm_frozen_result_qc.py --offline-test
+      - name: Verify PV GLCM 2x3 binWidth and voxel-grid method and literature example
+        run: python research/hcc/ci/mri_pv_glcm_binwidth_spacing_factorial.py --offline-test
+      - name: Verify PV GLCM factorial result reducer negative-path mathematics
+        run: python research/hcc/ci/mri_pv_glcm_binwidth_spacing_aggregate.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
@@ -379,6 +383,63 @@ jobs:
         with:
           name: hcc-pv-3mm-native-vs-resampled-14x2
           path: artifacts/hcc_resample_final/
+          if-no-files-found: error
+          retention-days: 30
+
+
+  hcc-glcm-factorial-pilot:
+    if: github.event_name == 'pull_request'
+    name: HCC MRI-only GLCM 2x3 factorial shard ${{ matrix.shard }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install pinned MRI-only PyRadiomics for GLCM binWidth and spacing sensitivity
+        run: python -m pip install "numpy==1.26.4" "pyradiomics==3.1.0" "nibabel>=5.2,<6"
+      - name: Original PV and 3mm images two readers with binWidth 12.5 25 50
+        run: python research/hcc/ci/mri_pv_glcm_binwidth_spacing_factorial.py --shard ${{ matrix.shard }} --out-dir artifacts/hcc_glcm_shard
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-glcm-factorial-shard${{ matrix.shard }}
+          path: artifacts/hcc_glcm_shard/
+          if-no-files-found: warn
+          retention-days: 30
+
+  hcc-glcm-factorial-summary:
+    if: github.event_name == 'pull_request'
+    name: HCC GLCM 14x2 factorial effect and baseline ICC reduction
+    needs: [hcc-glcm-factorial-pilot]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install statistical-array dependency
+        run: python -m pip install "numpy==1.26.4"
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-glcm-factorial-shard0
+          path: artifacts/hcc_glcm_factorial/shard0
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-glcm-factorial-shard1
+          path: artifacts/hcc_glcm_factorial/shard1
+      - name: Enforce baseline 25-bin GLCM ICC and analyze 2x3 factorial
+        run: python research/hcc/ci/mri_pv_glcm_binwidth_spacing_aggregate.py --out-dir artifacts/hcc_glcm_factorial_summary
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-glcm-factorial-14x2-summary
+          path: artifacts/hcc_glcm_factorial_summary/
           if-no-files-found: error
           retention-days: 30
 
