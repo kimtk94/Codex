@@ -58,6 +58,9 @@ jobs:
           assert j["eligible_for_live"] is False
           assert j["both_positive_2025_2026"] == 0
           assert not j["selected_both_positive"]
+          assert j["cost_50bp_2R_breaches"]>0
+          assert j["cost_100bp_2R_breaches"]>0
+          assert j["cost_increase_requires_new_ex_ante_target"] is True
           print("REVIEW_COMPLETE_LIVE_HOLD")
           PY
       - name: Upload decision proof only
