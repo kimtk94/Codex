@@ -10,7 +10,7 @@ nav button:hover,nav button.active{background:#294765;color:#fff}nav .group{colo
 .sidefoot{margin-top:auto;border-top:1px solid #324359;padding:18px 9px;color:#9daec3;font-size:12px}
 main{margin-left:254px;padding:26px clamp(18px,3vw,46px);max-width:1700px}
 .top{display:flex;justify-content:space-between;gap:15px;align-items:center;flex-wrap:wrap;margin-bottom:23px}.top h1{margin:0;font-size:26px}.subtitle{color:#71819a;margin-top:7px}
-.controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.controls input,.filter input,.filter select{border:1px solid #d6e0ed;padding:10px 12px;border-radius:10px;background:#fff;min-width:150px}.controls input{width:190px}.primary{background:#225b93;color:white;border:0;padding:11px 15px;border-radius:10px;font-weight:700}.primary:disabled{opacity:.55}
+.controls{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.controls input,.controls select,.filter input,.filter select{border:1px solid #d6e0ed;padding:10px 12px;border-radius:10px;background:#fff;min-width:150px}.controls input{width:190px}.primary{background:#225b93;color:white;border:0;padding:11px 15px;border-radius:10px;font-weight:700}.primary:disabled{opacity:.55}
 .status{font-size:12px;background:#eef3f8;padding:8px 11px;border-radius:9px;color:#58718c}.view{display:none}.view.active{display:block}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin:18px 0 23px}.kpi,.panel{background:#fff;border:1px solid #e1e7f0;border-radius:15px;padding:20px}.kpi .label{font-size:12px;color:#72839a}.kpi strong{display:block;font-size:25px;margin-top:8px;letter-spacing:-.5px}.kpi small{color:#72839a}
 .panel{margin-top:17px}.panel h2{font-size:17px;margin:0 0 16px}.filter{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
@@ -32,6 +32,7 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <div class="group">WORKSPACE</div>
 <button class="active" data-view="overview">▦ 전체 대시보드</button>
 <button data-view="projects">◫ 프로젝트 진행</button>
+<button data-view="contractReview">⊞ 미발행 계약번호 검증</button>
 <button data-view="revenue">▥ 매출 · Invoice</button>
 <button data-view="statements">▤ Statement · 결제</button>
 <div class="group">SALES & SERVICE</div>
@@ -43,12 +44,19 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <button data-view="health">⚙ 자동화 컨트롤 타워</button>
 </nav><div class="sidefoot">Owner-scoped · Read-only<br>자동 갱신 데이터 / 권한 유지</div></aside>
 <main><div class="top"><div><h1 id="heading">전체 대시보드</h1><div class="subtitle" id="timestamp">원본 자동화 상태를 확인하세요.</div></div>
-<div class="controls"><button class="primary" id="login" type="button" hidden>Vercel 로그인</button><button class="primary" id="load">새로고침</button><input id="token" type="password" autocomplete="off" aria-label="기존 토큰" hidden><span class="status" id="state">미연결</span></div></div>
+<div class="controls"><label class="operator-hint" for="dashboardMonth">매출 기준월 <select id="dashboardMonth" aria-label="매출 대표 기준월" title="매출과 Forecast 기준월" disabled></select></label><button class="primary" id="login" type="button" hidden>Vercel 로그인</button><button class="primary" id="load">새로고침</button><input id="token" type="password" autocomplete="off" aria-label="기존 토큰" hidden><span class="status" id="state">미연결</span></div></div>
 <div class="notice" id="authNotice">인증 상태를 확인하는 중입니다. 인증에 실패한 경우에만 연결 안내가 표시됩니다.</div>
 <section id="overview" class="view active"><div class="kpis" id="overviewKpi"></div>
 <div class="split"><div class="panel"><h2>프로젝트 진행 현황</h2><div id="overviewStages" class="empty">연결 후 표시됩니다.</div></div><div class="panel"><h2>우선 처리할 업무</h2><div id="overviewActions" class="empty">연결 후 표시됩니다.</div></div></div>
 <div class="panel"><h2>최근 월별 매출 흐름</h2><div class="tablewrap"><table><thead><tr><th>월</th><th>매출 VAT 제외 KRW</th><th>발행 VAT 포함 KRW</th><th>Pending KRW</th><th>검증 청구액 KRW</th><th>Forecast (미확정)</th></tr></thead><tbody id="overviewRevenue"></tbody></table></div></div></section>
 <section id="projects" class="view"><div class="panel"><h2>프로젝트 진행 모니터링</h2><div class="filter"><input id="projectQuery" placeholder="기관 · 고객 · 서비스 · AMEA"><select id="projectStatus"><option value="">전체 단계</option><option value="PROJECT FORECAST">진행 / Forecast</option><option value="STATEMENT">Statement</option><option value="ISSUED">Invoice 발행</option><option value="BLOCKED">보류</option></select></div><div class="tablewrap"><table><thead><tr><th>기관 · 고객 · 서비스</th><th>프로젝트</th><th>진행 단계</th><th>예상 월</th><th>청구 상태</th><th>다음 조치</th></tr></thead><tbody id="projectRows"></tbody></table></div></div></section>
+<section id="contractReview" class="view"><div class="panel">
+<h2>미발행 프로젝트 AMEA / 계약번호 후보 검증</h2>
+<div class="notice">H·X·Stage는 AMEA 원본 연결 후보이며 계약 귀속 확정이 아닙니다. 기존 Watch X번호는 독립 행 FILTER 오연결로 확인되었으므로 거래번호나 Revenue 매칭에 사용하지 마세요. Tax Invoice 발행·수금 여부와도 무관합니다.</div>
+<p id="contractReviewSummary" class="operator-hint">계약번호 교차검증 원본 조회 중입니다.</p>
+<div class="filter"><input id="contractQuery" placeholder="AMEA · 기관 · X번호 검색"><select id="contractState"><option value="">전체 후보 상태</option><option value="candidate">원본 후보</option><option value="missing">미확인 · 격리</option><option value="stale">결제 원본 오래됨</option></select></div>
+<div class="tablewrap"><table><thead><tr><th>기관 · 프로젝트 / AMEA</th><th>기존 Watch X (사용 금지)</th><th>H 후보</th><th>X 후보 (확정 아님)</th><th>근거 · 판정</th><th>결제 원본일</th></tr></thead><tbody id="contractReviewRows"></tbody></table></div>
+</div></section>
 <section id="revenue" class="view"><div class="kpis" id="revenueKpi"></div><div class="panel"><h2>Actual / Pending / Forecast — 월별 내역</h2><div class="tablewrap"><table><thead><tr><th>월</th><th>Revenue VAT 제외 KRW</th><th>Invoice VAT 포함 KRW</th><th>Pending KRW</th><th>검증 청구액 KRW</th><th>검증 청구액 kUSD</th><th>Forecast KRW (미확정)</th><th>Forecast kUSD</th><th>Invoice 건수</th><th>Pending 건수</th></tr></thead><tbody id="revenueRows"></tbody></table></div></div></section>
 <section id="statements" class="view"><div class="panel"><h2>Statement · TAX INVOICE 추적</h2><div class="notice">J번호 + X 하위 프로젝트로 식별합니다. Statement 검증 금액과 실제 Tax Invoice 발행액은 별도 표시합니다. Payment는 입금 증거가 없으면 완료로 표시하지 않습니다.</div><div class="filter"><input id="statementQuery" placeholder="Statement ID · 기관 · 연구자 · AMEA 검색"><select id="statementState"><option value="">전체 상태</option><option value="PENDING">미발행 Pending</option><option value="INVOICED">Tax Invoice 발행</option><option value="REVIEW">검토 필요</option></select></div><p id="statementSummary" class="subtitle"></p><div class="tablewrap"><table><thead><tr><th>Statement ID · 날짜</th><th>기관 · 연구자 · 서비스</th><th>원본 Statement</th><th>Tax Invoice 발행액</th><th>상태 · 발행번호</th></tr></thead><tbody id="statementRows"></tbody></table></div></div></section>
 <section id="mail" class="view"><div class="panel"><h2>미응답 메일함</h2><p id="mailBackfillStatus" class="subtitle">메일 본문 백필 검증 정보 확인 중</p><div class="filter"><input id="mailQuery" placeholder="발신자 · 제목 · 프로젝트 검색"><select id="mailSort"><option value="days">경과일 높은 순</option><option value="recent">최근 메일 순</option></select></div><div class="tablewrap"><table><thead><tr><th>우선순위</th><th>경과</th><th>발신자 · 제목</th><th>수신</th><th>프로젝트</th><th>본문</th></tr></thead><tbody id="mailRows"></tbody></table></div></div></section>
@@ -130,7 +138,19 @@ function drawAutomation(){
  if(!issues.length)issueBox.appendChild(elt('p','현재 연결된 상태 시트에서 별도 경고가 없습니다. 다른 워크플로의 미확인 상태까지 검증한 것은 아닙니다.'));
  for(const item of issues)issueBox.appendChild(elt('div',item,'track-issue'));
 }
-function draw(){if(!data)return;const m=data.months.find(x=>x.month==='2026-10')||data.months[0]||{};const ps=data.projects||[],ml=data.inbox||[],ls=data.leads||[];
+function selectKpiMonth(months,now=Date.now()){
+ const available=(Array.isArray(months)?months:[]).filter(x=>/^20\d{2}-(0[1-9]|1[0-2])$/.test(x.month||''));
+ const latest=[...new Set(available.map(x=>x.month))].sort().reverse();
+ const select=$('dashboardMonth'),prior=select.value;
+ const current=new Date(now+9*3600000).toISOString().slice(0,7);
+ const chosen=latest.includes(prior)?prior:latest.includes(current)?current:
+   latest.find(x=>x<=current)||latest[latest.length-1]||'';
+ select.replaceChildren(...latest.map(month=>{const opt=elt('option',month);opt.value=month;return opt}));
+ select.disabled=!latest.length;
+ if(chosen)select.value=chosen;
+ return available.find(x=>x.month===chosen)||{};
+}
+function draw(){if(!data)return;const m=selectKpiMonth(data.months);const ps=data.projects||[],ml=data.inbox||[],ls=data.leads||[];
 $('timestamp').textContent='최근 집계 '+(data.refreshed||'알 수 없음')+' · 웹에서 직접 조회';
 const netText=x=>x===null||x===undefined?'검증 대기':money(x);
 kpis('overviewKpi',[['Revenue (VAT 제외)',netText(m.netRevenue),'원본 Invoice 검증 후 공급가액'],['Invoice 발행 (VAT 포함)',money(m.actual),'세금계산서 원금액'],['검증 청구액 (VAT 포함)',money(m.verifiedBilling),'현금 수납 확인과 다름'],['Forecast (미확정)',money(m.forecast),kusd(m.forecastKUSD)+' · 별도 추정치']]);
@@ -142,6 +162,22 @@ $('overviewActions').replaceChildren(elt('p','미응답 메일 '+ml.length+'건'
 const pq=$('projectQuery').value.toLowerCase(),cat=$('projectStatus').value;
 const proj=ps.filter(p=>(!cat||p.billing.includes(cat))&&(!pq||[p.project,p.amea,p.institution,p.customer,p.service].join(' ').toLowerCase().includes(pq)));
 put('projectRows',proj.map(p=>[[p.institution,p.customer,p.service].filter(Boolean).join(' · '),p.amea||p.project,p.stage+' / '+p.status,p.expectedMonth||'미정',p.billing,p.next]));
+const cr=data.contractReview||{available:false,items:[]},allContracts=cr.items||[];
+$('contractReviewSummary').textContent=!cr.available
+ ?'원본 검증 실패 또는 미동기화 · 계약번호 표시를 중단했습니다. 기존 Watch의 행번호 기반 X번호를 사용하지 않습니다.'
+ :'AMEA 원본 후보 '+cr.candidateCount+'건 / 미확인 '+cr.missingCount+'건 · 전체 '+allContracts.length+'건 · '+(cr.financeStale?'Feishu 결제 원본 오래됨 — 원본 재동기화 필요':'원본일 확인')+' · 계약 귀속·수금·발행 승인 0건';
+const cq=$('contractQuery').value.trim().toLowerCase(),cs=$('contractState').value;
+const crFiltered=allContracts.filter(r=>
+ (!cs||(cs==='candidate'?!!r.candidateX:cs==='missing'?!r.candidateX:!!r.financeStale))
+ &&(!cq||[r.amea,r.project,r.unsafeWatchX,r.candidateX,r.onlineH].join(' ').toLowerCase().includes(cq)));
+put('contractReviewRows',crFiltered.map(r=>[
+ r.project+' · '+r.amea,
+ r.unsafeWatchX?'⚠ '+r.unsafeWatchX+' (무효 연결)':'기존 값 없음',
+ r.onlineH||'근거 없음',
+ r.candidateX?r.candidateX+' · 검토 후보':'근거 없음 · 격리',
+ r.state+' · '+r.gate+' · '+(r.attributionVerified?'':'귀속 미승인'),
+ r.financeSourceDate+(r.financeStale?' · 최신 확인 필요':'')
+]));
 const ss=data.statements||[], sq=$('statementQuery').value.trim().toLowerCase(),stateFilter=$('statementState').value;
 const rows=ss.filter(r=>(!stateFilter||r.state.includes(stateFilter))
     &&(!sq||[r.statementId,r.institution,r.customer,r.service,r.amea,r.project].join(' ').toLowerCase().includes(sq)));
@@ -255,7 +291,8 @@ async function load(){
  }
 $('ownerSmoke').addEventListener('click',runOwnerSmoke);
 $('load').addEventListener('click',load);$('login').addEventListener('click',()=>{location.assign('/api/auth/authorize')});$('closeDialog').addEventListener('click',()=>$('mailDialog').close());
-for(const id of ['statementQuery','statementState','projectQuery','projectStatus','mailQuery','mailSort','leadQuery'])$(id).addEventListener('input',draw);
+$('dashboardMonth').addEventListener('change',draw);
+for(const id of ['statementQuery','statementState','projectQuery','projectStatus','mailQuery','mailSort','leadQuery','contractQuery','contractState'])$(id).addEventListener('input',draw);
 for(const btn of document.querySelectorAll('nav button[data-view]'))btn.addEventListener('click',()=>{for(const b of document.querySelectorAll('nav button'))b.classList.toggle('active',b===btn);for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===btn.dataset.view);$('heading').textContent=btn.textContent.trim()});
 load();setInterval(()=>{if(!document.hidden)load()},300000);
 })();

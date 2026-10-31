@@ -1,0 +1,35 @@
+name: CSS Contract Review Chromium UI E2E (Synthetic Only)
+on:
+  pull_request:
+    paths:
+      - 'apps/css-sales-workspace/**'
+      - '.github/workflows/css-contract-review-browser-e2e.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  chromium-ui-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned isolated Chromium test dependencies (avoid monorepo workspace resolution)
+        run: |
+          npm install --prefix /tmp/css-contract-playwright --no-save --package-lock=false --ignore-scripts '@playwright/test@1.64.1'
+          echo "NODE_PATH=/tmp/css-contract-playwright/node_modules" >> "$GITHUB_ENV"
+          /tmp/css-contract-playwright/node_modules/.bin/playwright install --with-deps chromium
+      - name: Browser E2E of read-only contract-review UI with synthetic owner API
+        working-directory: apps/css-sales-workspace
+        run: /tmp/css-contract-playwright/node_modules/.bin/playwright test --config=test/playwright.contract.config.cjs --workers=1 --reporter=line
+        env:
+          CI: 'true'
+      - name: Record security and acceptance boundary
+        run: |
+          echo 'CSS_BROWSER_TEST=SYNTHETIC_API_ONLY' >> "$GITHUB_STEP_SUMMARY"
+          echo 'VERCEL_SSO_AUTHENTICATED=NO; LIVE_SHEETS_OWNER_E2E=NO' >> "$GITHUB_STEP_SUMMARY"
+          echo 'PRODUCTION_APPROVAL=BLOCK; NO_WEB_DEPLOY_OR_SOURCE_WRITES' >> "$GITHUB_STEP_SUMMARY"
