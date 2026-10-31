@@ -314,7 +314,8 @@ def main():
               "market_lag_sessions": 1, "fred_excluded": True,
               "usdkrw_excluded": True, "intraday_source": "Drive QLD_15m_raw.parquet",
               "no_execution_authority": True,
-              "data_coverage": {"daily_first": str(daily.index.min().date()),
+              "data_coverage": {"diagnostics": diagnostics,
+                                "daily_first": str(daily.index.min().date()),
                                 "daily_last": str(daily.index.max().date()),
                                 "intraday_first": str(x.ts.min()),
                                 "intraday_last": str(x.ts.max()),
@@ -322,21 +323,36 @@ def main():
                                 "valid_signal_labels": int(len(events))},
               "yearly": {}}
     audit = []
+    blockers = []
     for year in (2025, 2026):
-        one, rows = annual_run(f, events, complete, year)
-        report["yearly"][str(year)] = one
-        for name, data in rows.items():
-            if len(data):
-                cp = data.copy()
-                cp["model"] = name
-                cp["year"] = year
-                audit.append(cp)
+        try:
+            one, rows = annual_run(f, events, complete, year)
+            one["status"] = "EVALUATED"
+            report["yearly"][str(year)] = one
+            for name, data in rows.items():
+                if len(data):
+                    cp = data.copy()
+                    cp["model"] = name
+                    cp["year"] = year
+                    audit.append(cp)
+        except ValueError as exc:
+            reason = str(exc)
+            if not reason.startswith(f"YEAR_{year}_"):
+                raise
+            report["yearly"][str(year)] = {"status": "HOLD", "reason": reason}
+            blockers.append(reason)
+    report["status"] = "HOLD_INSUFFICIENT_DATA" if blockers else "EVALUATED_RESEARCH_ONLY"
+    report["blockers"] = blockers
     output = Path(a.out)
     output.mkdir(parents=True, exist_ok=True)
     (output/"summary.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
     if audit:
         pd.concat(audit).to_csv(output/"trades_private.csv", index=False)
-    print(json.dumps(report, ensure_ascii=False))
+    print("RESEARCH_AGGREGATE " + json.dumps(report, ensure_ascii=False), flush=True)
+    # Fail the historical job when data gates are unmet, while preserving the
+    # machine-readable HOLD artifact for audit and follow-on data backfill.
+    if blockers:
+        raise SystemExit(2)
     
 
 if __name__ == "__main__":
