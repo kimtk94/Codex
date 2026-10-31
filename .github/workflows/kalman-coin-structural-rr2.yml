@@ -1,0 +1,86 @@
+name: Kalman COIN Structural RR2 SIP Pilot (Research Only)
+on:
+  pull_request:
+    paths:
+      - 'research/rr2_entry_gate/coin_structure.py'
+      - 'research/rr2_entry_gate/alpaca_sip_readonly.py'
+      - 'research/rr2_entry_gate/test_coin_structure.py'
+      - '.github/workflows/kalman-coin-structural-rr2.yml'
+  workflow_dispatch:
+    inputs:
+      start:
+        description: 'Exploratory historical SIP window start'
+        required: false
+        type: string
+        default: '2024-01-01'
+      end:
+        description: 'Last complete NYSE session, inclusive'
+        required: false
+        type: string
+        default: '2026-10-30'
+permissions:
+  contents: read
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install market calendar
+        run: python -m pip install --disable-pip-version-check 'exchange-calendars>=4.5,<5' 'pandas>=2.1,<3'
+      - name: Test RR2 structural stop, gaps, early close and safe source
+        run: |
+          python -m py_compile research/rr2_entry_gate/coin_structure.py research/rr2_entry_gate/alpaca_sip_readonly.py
+          python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_structure.py' -v
+  private-sip-structural-pilot:
+    if: github.event_name == 'workflow_dispatch'
+    needs: offline-contracts
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install market calendar
+        run: python -m pip install --disable-pip-version-check 'exchange-calendars>=4.5,<5' 'pandas>=2.1,<3'
+      - name: Historical COIN SIP GET only (no broker execution)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          STUDY_START: ${{ inputs.start }}
+          STUDY_END: ${{ inputs.end }}
+        run: |
+          python research/rr2_entry_gate/alpaca_sip_readonly.py \
+            --start "${STUDY_START}T00:00:00Z" \
+            --end "$(date -u -d "${STUDY_END} +1 day" +%Y-%m-%d)T00:00:00Z" \
+            --output "$RUNNER_TEMP/coin_sip_private_15m.json"
+          python research/rr2_entry_gate/coin_structure.py \
+            --bars "$RUNNER_TEMP/coin_sip_private_15m.json" \
+            --start "$STUDY_START" \
+            --end "$STUDY_END" \
+            --out outputs/coin_structural_rr2/summary.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('outputs/coin_structural_rr2/summary.json').read_text())
+          assert d['status']=='RESEARCH_ONLY_NOT_MODEL_SIGNAL_MATCHED'
+          assert d['live']=='HOLD' and d['min_net_rr']==2.0
+          assert d['quality']['incomplete_sessions']==0
+          assert d['signal_cohort'].startswith('ALL_COMPLETE_')
+          print('COIN_STRUCTURE_AUDIT_OK',len(d['results']),d['quality']['complete_sessions'])
+          PY
+      - name: Upload only aggregate outcomes, never raw SIP bars
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-coin-structural-rr2-aggregate
+          path: outputs/coin_structural_rr2/summary.json
+          if-no-files-found: warn
+          retention-days: 14
