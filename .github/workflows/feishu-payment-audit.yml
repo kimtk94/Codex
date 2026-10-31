@@ -12,6 +12,8 @@ on:
       - 'automation/feishu/test_etax_dated_sheet_audit.py'
       - 'automation/feishu/etax_base_sheet_crosswalk.py'
       - 'automation/feishu/test_etax_base_sheet_crosswalk.py'
+      - 'automation/ops/feishu_etax_personal_qq_coverage.py'
+      - 'automation/ops/test_feishu_etax_personal_qq_coverage.py'
       - 'automation/feishu/payment_table_audit.py'
       - '.github/workflows/feishu-payment-audit.yml'
   pull_request:
@@ -22,6 +24,8 @@ on:
       - 'automation/feishu/test_etax_dated_sheet_audit.py'
       - 'automation/feishu/etax_base_sheet_crosswalk.py'
       - 'automation/feishu/test_etax_base_sheet_crosswalk.py'
+      - 'automation/ops/feishu_etax_personal_qq_coverage.py'
+      - 'automation/ops/test_feishu_etax_personal_qq_coverage.py'
       - 'automation/feishu/payment_table_audit.py'
       - '.github/workflows/feishu-payment-audit.yml'
 permissions:
@@ -41,11 +45,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install Google client for offline invoice-parser imports
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Exact month vs undated candidate tests
         run: |
           python automation/feishu/test_etax_monthly_audit.py
           python automation/feishu/test_etax_dated_sheet_audit.py
           python -m unittest discover -s automation/feishu -p 'test_etax_base_sheet_crosswalk.py' -v
+          python -m unittest discover -s automation/ops -p 'test_feishu_etax_personal_qq_coverage.py' -v
   payment:
     name: Payment Outstanding source schema only (not paid)
     needs: offline
@@ -116,6 +123,8 @@ jobs:
         run: python -m unittest discover -s automation/feishu -p 'test_etax_base_sheet_crosswalk.py' -v
       - name: Compare two live Feishu originals and publish generated exception evidence only
         run: python automation/feishu/etax_base_sheet_crosswalk.py
+      - name: Compare dated-only eTax with verified personal QQ originals
+        run: python automation/ops/feishu_etax_personal_qq_coverage.py
       - name: No bank paid, monthly issuance or Revenue Actual implication
         if: always()
         run: echo 'MATCHED_SNAPSHOT_IS_NOT_CURRENT_MONTH_ISSUANCE;NOT_BANK_SETTLEMENT;NO_REVENUE_ACTUAL_CHANGE' >> "$GITHUB_STEP_SUMMARY"
