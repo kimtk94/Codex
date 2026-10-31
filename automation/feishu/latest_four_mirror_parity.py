@@ -7,6 +7,7 @@ import datetime as dt
 import json
 import os
 import sys
+import time
 import urllib.parse
 from zoneinfo import ZoneInfo
 
@@ -69,11 +70,29 @@ def evaluate(selected,manifest_rows,headers):
     "core_columns":width})
  return reports,blocked
 
-def sheet_read(client,tab,area):
- range_id=urllib.parse.quote("'"+tab+"'!"+area,safe="")
- resp=client.get("https://sheets.googleapis.com/v4/spreadsheets/"+BOOK+"/values/"+range_id,timeout=35)
- resp.raise_for_status()
- return resp.json().get("values",[])
+def fetch_mirror_snapshot(client):
+ """Read five evidence headers together, with bounded retries for GET only."""
+ ranges=["'Feishu Source Manifest'!A1:G10"]+[
+  "'"+tab+"'!A1:AZ1" for tab,_,__ in MIRRORS.values()]
+ url="https://sheets.googleapis.com/v4/spreadsheets/"+BOOK+"/values:batchGet"
+ for attempt in range(4):
+  try:
+   resp=client.get(url,params=[("ranges",r) for r in ranges],timeout=40)
+   if resp.status_code in (429,500,502,503,504) and attempt<3:
+    time.sleep(1+attempt*2)
+    continue
+   resp.raise_for_status()
+   got=resp.json().get("valueRanges",[])
+   if len(got)!=len(ranges):raise RuntimeError("MIRROR_BATCH_READ_INCOMPLETE")
+   return got[0].get("values",[]),{
+    name:records.get("values",[[]])[0]
+    for name,records in zip(MIRRORS,list(got[1:]))
+    if records.get("values")}
+  except Exception as error:
+   transient=type(error).__name__ in ("ReadTimeout","ConnectTimeout","ConnectionError","TimeoutError")
+   if not transient or attempt==3:raise
+   time.sleep(1+attempt*2)
+ raise RuntimeError("MIRROR_BATCH_READ_EXHAUSTED")
 
 def main():
  # Deferred import: synthetic unit tests require no live tokens or packages.
@@ -86,9 +105,7 @@ def main():
  auth=service_account.Credentials.from_service_account_info(json.loads(credentials),
   scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
  session=AuthorizedSession(auth)
- manifest=sheet_read(session,"Feishu Source Manifest","A1:G10")
- headers={fmt:sheet_read(session,tab,"A1:AZ1")[0]
-  for fmt,(tab,_,__) in MIRRORS.items()}
+ manifest,headers=fetch_mirror_snapshot(session)
  feishu_auth=api("/open-apis/auth/v3/tenant_access_token/internal",payload={
    "app_id":os.environ["FEISHU_APP_ID"],"app_secret":os.environ["FEISHU_APP_SECRET"]})
  endpoint="/open-apis/sheets/v3/spreadsheets/"+urllib.parse.quote(TOKEN,safe="")+"/sheets/query"
