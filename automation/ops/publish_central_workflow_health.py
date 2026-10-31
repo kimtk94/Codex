@@ -36,6 +36,11 @@ WORKFLOWS=(
  ("Web Body Sync","Web","css-web-body-sync.yml",24,"Source-body caching/availability, not browser E2E"),
  ("CSS API Source Contract","Web","css-source-backed-api-contract.yml",36,"Real Sheets + local handler contract; NOT Vercel OAuth/Preview E2E"),
  ("Web Console CI","Web","css-central-operations-console-tests.yml",72,"Mock/static tests only; authenticated E2E pending"),
+ ("CSS P0 Parallel","Automation","css-p0-parallel-verification.yml",18,"Eight independent execution results; none is formal acceptance"),
+ ("CSS Release Policy","Release","css-vercel-build-scope-guard.yml",30,"CSS Production auto-deploy denied; Vercel Preview E2E not certified"),
+ ("Operational Acceptance","Acceptance","css-operational-acceptance.yml",12,"Source readiness flags; payment and Preview RELEASE may remain BLOCK"),
+ ("Payment Reconciliation","Payment","sales-payment-reconciliation.yml",24,"Derived finance QC, receipt and ownership not certified"),
+
 )
 
 

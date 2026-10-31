@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish only six parallel CI outcome rows to an isolated generated status tab.
+"""Publish the eight independent parallel CI outcome rows to an isolated generated status tab.
 
 Never overwrite customer decisions, source invoices, mail content, or billing.
 Execution result is NOT equivalent to business acceptance.
@@ -16,6 +16,8 @@ HEADER = ["Track", "Execution", "Check Scope", "Acceptance", "GitHub Run", "Chec
 TRACKS = (
     ("QQ source checkpoint", "TRACK_MAIL", "Read-only key/fetch freshness", "No source or mail changes"),
     ("Revenue and VAT", "TRACK_REVENUE", "Invoice/Statement/forecast cross-source", "Payment and owner receipt not assumed"),
+    ("Invoice cross-source gaps", "TRACK_INVOICE_REVIEW", "QQ original vs canonical / extract; generated review only", "Owner not verified; no auto revenue booking"),
+    ("Invoice owner / receipt candidates", "TRACK_OWNER_PAYMENT", "Exact CMS, H/X project, gross and receipt candidates", "Sales tag is not ownership; receipt candidate is not paid"),
     ("Lead personal parity", "TRACK_LEAD", "Exact-personal sender and NBA exclusion", "No user email or SFDC Save"),
     ("Feishu payment schema", "TRACK_FEISHU", "Raw four-sheet headers + Google mirror parity", "Structure does not certify bank receipt"),
     ("Web API source contract", "TRACK_WEB", "Source-backed local API auth/UID and current net", "No owner-authenticated Vercel E2E"),
@@ -53,7 +55,7 @@ def main():
     if not matches:
         req("POST",":batchUpdate",{"requests":[{"addSheet":{"properties":{
             "title":TAB,"gridProperties":{"rowCount":200,"columnCount":7,"frozenRowCount":1}}}}]})
-    target="/values/"+urllib.parse.quote("'"+TAB+"'!A1:G7",safe="")
+    target="/values/"+urllib.parse.quote("'"+TAB+"'!A1:G"+str(len(out)+1),safe="")
     previous=req("GET",target).get("values",[])
     if previous and previous[0]!=HEADER:
         raise RuntimeError("P0_PARALLEL_FOREIGN_TAB_HEADER")
@@ -62,7 +64,7 @@ def main():
     observed=req("GET",target).get("values",[])
     if observed!=[HEADER]+out:
         raise RuntimeError("P0_PARALLEL_RESULT_READBACK_MISMATCH")
-    print("CSS_P0_PARALLEL_STATUS_WRITTEN tracks=6 readback_verified=true "
+    print("CSS_P0_PARALLEL_STATUS_WRITTEN tracks="+str(len(out))+" readback_verified=true "
           "success="+str(sum(r[1]=="SUCCESS_EXECUTION_ONLY" for r in out)))
     print("CSS_P0_ACCEPTANCE_NOT_PROMOTED")
 
