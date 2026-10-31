@@ -98,3 +98,35 @@ Source: `research/kalman_integrated_regime/volume_four_arm.py`. All arms are re-
 - Historical 1-minute SIP print-access probe **PASS**, but full historical print reliability and condition-correction audit remain HOLD.
 
 **All prior 40-axis policy results remain frozen and LIVE execution untouched.**
+
+## 6. P0 2025 vs 2026 volume-regime and signal-switch audit (verified 2026-10-31)
+
+**CI PASS:** https://github.com/kimtk94/Codex/actions/runs/41190183789; aggregate artifact ID `13038158735`. Private Drive: https://drive.google.com/file/d/1awfFRqb6v0CB4NhzhiHkkKIKFUVQHVf2/view?usp=drivesdk
+
+Code: `volume_regime_drift.py`. For each year re-fits the exact original A/B/C/D logistic regressions to the **same dates**, then partitions test signal days into: both arms enter, volume-only enters, original-only enters, neither. For each group record **fixed 3%/3%/4-session candidate-label** positive fraction and corresponding QLD/QQQ relative-volume quantiles. **Candidate labels are NOT independently executed non-overlapping position outcomes.**
+
+| Feature on complete paired signal-day cohorts | 2025 (246 dates) | 2026 through Oct (205 dates) |
+| --- | ---: | ---: |
+| QLD RVOL20 median | 1.0040 | 0.9875 |
+| QLD RVOL20 p99 | 4.6716 | 2.6265 |
+| QQQ RVOL20 median | 1.0100 | 0.9705 |
+| QQQ RVOL20 p99 | 2.6773 | 2.2320 |
+| fraction QQQ trailing 5-session return <0 | 38.21% | 49.27% |
+| positive fixed-barrier label fraction | 54.47% | 49.76% |
+| 20-session QQQ volatility median | 0.01154 | 0.01097 |
+| prior VIX median | 17.24 | 17.16 |
+
+**Integrated C vs D signal reclassification:**
+- 2025: C/D both signal **111** days / positive label **58.56%**; D-only added **21** / **47.62%**; C-only removed **31** / **51.61%**.
+- 2026: C/D both signal **103** / **47.57%**; D-only added **22** / **40.91%**; C-only removed **14** / **71.43%**.
+- Therefore an important mechanism **consistent with** inferior 2026 results is that volume inclusion pushed low-label-hit candidate dates above 0.5 and some high-label-hit days below it. **This is descriptive only**: adding a candidate may block later overlapping entries; it does not prove that all return differences come from these 36 dates.
+- 2025 P&L improved even though added-signal label fraction was weaker than removed-signal fraction. Selection overlap, trade sequencing, holding exposure, the sizes of gains/losses and differences in signal probability can alter portfolio P&L beyond binary candidate labels. Do NOT present volume as a positive label predictor in 2025.
+
+**Price A vs B signal reclassification:**
+- 2025: B-only added **33** / positive labels **42.42%**; A-only removed **41** / **53.66%**.
+- 2026: B-only added **21** / **52.38%**; A-only removed **19** / **57.89%**.
+- This demonstrates why *just counting model-selected trades or comparing annual totals does not identify feature usefulness*.
+
+**Important date-cohort caveat:** 2025 contains a full year, whereas 2026 is year-to-date through October. Different seasonal composition and unequal samples can contribute to these differences; a January–October matched-calendar check is needed before strong regime-shift claims.
+
+**Next scientific gates:** (i) matched-month sensitivity, (ii) sign/size and overlap of *actually executed* trades, (iii) training-only feature standardization and genuine post-selection OOS, and (iv) independent P2/P3 historical quote-matched aggressor estimates. Do not treat output as causal, and keep LIVE HOLD.
