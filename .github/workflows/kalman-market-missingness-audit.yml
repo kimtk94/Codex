@@ -2,11 +2,11 @@ name: Kalman Market Daily Time Indicator Missingness Audit
 
 on:
   schedule:
-    # Audit after the existing research refresh at 02:15 UTC; Tue-Sat 03:20 UTC.
+    # Following research market refresh; Tue-Sat 03:20 UTC (12:20 KST).
     - cron: '20 3 * * 2-6'
   workflow_dispatch:
   push:
-    branches: [main, feat/kalman-missingness-audit-20261031]
+    branches: [main]
     paths:
       - 'research/kalman_market_missingness/**'
       - '.github/workflows/kalman-market-missingness-audit.yml'
@@ -17,11 +17,9 @@ on:
 
 permissions:
   contents: read
-
 concurrency:
   group: kalman-market-missingness-audit
   cancel-in-progress: false
-
 jobs:
   tests:
     runs-on: ubuntu-latest
@@ -56,13 +54,18 @@ jobs:
           python research/kalman_market_missingness/fetch_private_zip.py \
             --file-id 1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd \
             --out "$RUNNER_TEMP/research_source.zip"
-      - name: Audit market and FRED time-series missingness
+      - name: Audit market and FRED time-series missingness (dynamic as-of)
         run: |
           python research/kalman_market_missingness/audit_missingness.py \
             --zip "$RUNNER_TEMP/research_source.zip" \
             --out outputs/kalman_market_missingness \
-            --asof 2026-10-30
-      - name: Publish non-price audit CSVs only
+            --asof auto
+      - name: Diagnose USDKRW OHLC and FRED FX gaps (research only)
+        run: |
+          python research/kalman_market_missingness/diagnose_quality.py \
+            --zip "$RUNNER_TEMP/research_source.zip" \
+            --out outputs/kalman_market_missingness
+      - name: Publish metadata only; never licensed price values
         uses: actions/upload-artifact@v4
         with:
           name: kalman-market-indicator-gap-audit
