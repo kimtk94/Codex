@@ -42,9 +42,13 @@ def record_map(rows, number, amount, month=None):
         gross=int(raw)
         if gross<=0: raise ValueError("NONPOSITIVE_INVOICE_AMOUNT")
         mm=str(r[idx[month]]).strip() if month and idx[month]<len(r) else ""
-        if month and mm and not mm.startswith("2026-"):
+        if month and not mm:
+            if not invoice.startswith("209126"):
+                continue
+            mm="UNKNOWN"
+        elif month and not mm.startswith("2026-"):
             continue
-        if month and not re.fullmatch(r"2026-(0[1-9]|1[0-2])",mm):
+        elif month and not re.fullmatch(r"2026-(0[1-9]|1[0-2])",mm):
             raise ValueError("INVALID_INVOICE_MONTH")
         if invoice in found and found[invoice]["gross"]!=gross:
             raise ValueError("CONFLICTING_INVOICE_AMOUNT")
@@ -72,7 +76,10 @@ def review(qq_rows,canonical_rows,extract_rows):
             raise ValueError("EXTRACT_AMOUNT_CONFLICT")
         if q and c:
             raise ValueError("UNREACHABLE_ALREADY_CANONICAL")
-        if q and e:
+        if q and q["month"]=="UNKNOWN":
+            state="QQ_ISSUE_MONTH_MISSING"
+            parity="MATCH_GROSS" if e else "NOT_CHECKED"
+        elif q and e:
             state="CSS_EXTRACT_PRESENT_CANONICAL_MISSING"
             parity="MATCH_GROSS"
         elif q:
