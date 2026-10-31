@@ -43,6 +43,32 @@ def check_sha(z, member):
         raise ValueError('MANIFEST_SHA_MISMATCH:'+member)
 
 
+def make_training_gate(invalid_dates, unresolved_fred_nulls):
+    """Explicit research-only exclusions; do not infer EMA recovery after bad OHLC."""
+    dates=sorted(set(str(x) for x in invalid_dates))
+    return {
+        'schema':'kalman-research-feature-eligibility-v1',
+        'live_policy_modified':False,
+        'source_ohlc_rewritten':False,
+        'asset_guards':{
+            'yf_usdkrw':{
+                'ohlc_training_eligible':not bool(dates),
+                'invalid_dates':dates,
+                'reason':'OHLC_INCONSISTENT_WITH_CANDLE_EXTREMA' if dates else 'NO_OHLC_ANOMALIES_DETECTED',
+            },
+            'usd_krw_talib':{
+                'derived_feature_training_eligible':not bool(dates),
+                'reason':'DERIVED_FEATURE_LOOKBACK_TAINTED_BY_INVALID_FX_INPUT' if dates else 'PENDING_PIT_CHECK',
+            },
+            'fred_fx_latest_revised':{
+                'historical_vintage_pit_training_eligible':False,
+                'unresolved_null_observations':int(unresolved_fred_nulls),
+                'reason':'RELEASE_AND_REVISION_PIT_NOT_VERIFIED',
+            }
+        }
+    }
+
+
 def analyze(src: Path, output: Path):
     output.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(src) as z:
@@ -106,6 +132,8 @@ def analyze(src: Path, output: Path):
             'source_prices_published':False,
             'recommendation':'Exclude the 22 flagged USD/KRW bars from OHLC-dependent research until an independently verified provider confirms corrections; do not silently impute FX or FRED.'}
         (output/'quality_diagnostic_summary.json').write_text(json.dumps(summary,indent=2,ensure_ascii=False)+'\n')
+        (output/'feature_eligibility.json').write_text(
+            json.dumps(make_training_gate(df.date, len(fg)),indent=2,ensure_ascii=False)+'\n')
         print(json.dumps(summary,ensure_ascii=False))
         return summary
 

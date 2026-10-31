@@ -76,7 +76,18 @@ def prior_holiday_like(d,mode):
     return d in federal or d not in nyse
 
 
-def audit(input_zip:Path,output_dir:Path,limit_through='auto'):
+def last_closed_nyse_session(now_utc=None):
+    """NYSE trading date whose close plus 30-minute publication buffer elapsed."""
+    now=pd.Timestamp.now(tz='UTC') if now_utc is None else pd.Timestamp(now_utc)
+    now=now.tz_localize('UTC') if now.tzinfo is None else now.tz_convert('UTC')
+    cal=xc.get_calendar('XNYS')
+    day=cal.date_to_session(now.tz_localize(None).normalize(),direction='previous')
+    if cal.session_close(day)+pd.Timedelta(minutes=30)>now:
+        day=cal.previous_session(day)
+    return str(day.date())
+
+
+def audit(input_zip:Path,output_dir:Path,limit_through='auto',now_utc=None):
     output_dir.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(input_zip) as z:
         names=z.namelist()
@@ -86,7 +97,11 @@ def audit(input_zip:Path,output_dir:Path,limit_through='auto'):
         if failed: raise ValueError('MANIFEST_SHA_MISMATCH:'+','.join(failed[:4]))
         readiness=json.loads(z.read('readiness.json'))
         fred_status=json.loads(z.read('fred/fred_status.json'))
-        asof=readiness['expected_last_completed_nyse_session'] if limit_through in (None,'auto') else min(limit_through,readiness['expected_last_completed_nyse_session'])
+        calendar_asof=last_closed_nyse_session(now_utc)
+        source_asof=readiness.get('expected_last_completed_nyse_session')
+        if not source_asof: raise ValueError('MISSING_SOURCE_SESSION_CONTRACT')
+        if source_asof>calendar_asof: raise ValueError('SOURCE_AHEAD_OF_EXCHANGE_CLOSE')
+        asof=calendar_asof if limit_through in (None,'auto') else min(limit_through,calendar_asof)
         events=[];summary=[];date_market={};date_fred={};date_features={};month_rows=[]
         for path in sorted(x for x in names if x.startswith('market/raw/yfinance/') and x.endswith('.parquet')):
             key=Path(path).stem;mode=mode_market(key)
@@ -109,7 +124,8 @@ def audit(input_zip:Path,output_dir:Path,limit_through='auto'):
             for ix in datecol[datecol.duplicated()].index:
                 events.append({'layer':'MARKET','indicator':key,'date':str(datecol.loc[ix]),'status':'DUPLICATE_RECORD','field':'timestamp','frequency':mode,'classification':'duplicate_timestamp'})
             if len(validity)==0: raise ValueError('EMPTY_MARKET:'+key)
-            start=min(validity);end=min(max(validity),asof)
+            # Audit through the latest completed exchange session even if provider stopped updating.
+            start=min(validity);end=asof
             expected=date_keys(start,end,mode)
             # Yahoo may include placeholder nulls on non-trading days (VIX holidays, DXY Sundays).
             # They are not missing candles on a valid trading session.
@@ -207,7 +223,7 @@ def audit(input_zip:Path,output_dir:Path,limit_through='auto'):
         frame_market.to_csv(output_dir/'market_date_matrix.csv')
         frame_fred.to_csv(output_dir/'fred_date_matrix.csv')
         pd.DataFrame(summary_month).to_csv(output_dir/'monthly_missingness.csv',index=False)
-        overview={'input_file':input_zip.name,'source_published_utc':mf['published_at_utc'],'asof_date':asof,
+        overview={'input_file':input_zip.name,'source_published_utc':mf['published_at_utc'],'asof_date':asof,'source_claimed_asof':source_asof,
           'integrity_files_checked':len(mf['members']),'integrity_failures':failed,
           'market_assets':len(fields_market),'fred_series':len(fields_fred),'feature_series':sum(x['layer']=='FEATURE' for x in summary),
           'raw_fred_null_values':int(fred.value.isna().sum()),
