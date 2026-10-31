@@ -1,0 +1,107 @@
+name: Kalman COIN Frozen-Source Signal Reconstruction (Research Only)
+on:
+  push:
+    branches:
+      - research/rr2-entry-rejection-audit-20261101
+    paths:
+      - '.github/workflows/kalman-coin-frozen-original-replay.yml'
+  pull_request:
+    paths:
+      - 'research/rr2_entry_gate/reconstruct_pinned_original.py'
+      - 'research/rr2_entry_gate/test_reconstruct_pinned_original.py'
+      - '.github/workflows/kalman-coin-frozen-original-replay.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify 20 cross-model historical counts and 10 return parity gate contracts
+        run: python -m unittest discover -s research/rr2_entry_gate -p 'test_reconstruct_pinned_original.py' -v
+
+  private-original-source-reconstruction:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/research/rr2-entry-rejection-audit-20261101') || github.event_name == 'workflow_dispatch'
+    needs: contracts
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 45
+    steps:
+      - name: Checkout current research-only reconstruction code
+        uses: actions/checkout@v4
+        with:
+          path: research_current
+          persist-credentials: false
+      - name: Checkout exact original research runner commit (never mutable branch tip)
+        uses: actions/checkout@v4
+        with:
+          ref: cccbb80059ab626da0cbd76cd825f879870f6727
+          path: original_snapshot
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install exact source-family scientific dependencies
+        run: |
+          python -m pip install --disable-pip-version-check \
+            'pandas>=2.2,<3' 'numpy>=1.26,<3' 'pyarrow>=17' \
+            'exchange-calendars>=4.7,<5' 'requests>=2.31,<3' 'scikit-learn>=1.4,<2'
+      - name: Fail closed if pinned original checkout differs
+        run: |
+          EXPECTED=cccbb80059ab626da0cbd76cd825f879870f6727
+          ACTUAL=$(git -C "$GITHUB_WORKSPACE/original_snapshot" rev-parse HEAD)
+          test "$EXPECTED" = "$ACTUAL"
+          echo 'PINNED_2026_US_FIVE_SOURCE_SHA_OK'
+      - name: Re-download original five-symbol 2024-Oct2026 licensed SIP tape (ephemeral only)
+        working-directory: original_snapshot
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_bar_backfill \
+            --symbols SPY,IWM,SMH,MU,COIN \
+            --start 2024-01-01 --end-exclusive 2026-10-31 \
+            --max-pages-per-month 25 --out "$RUNNER_TEMP/us_five_sip"
+      - name: Reproduce 126 COIN trade dates with original untouched model, then matched RR2 replay
+        working-directory: research_current
+        run: |
+          python research/rr2_entry_gate/reconstruct_pinned_original.py \
+            --original-snapshot "$GITHUB_WORKSPACE/original_snapshot" \
+            --bars-parquet "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --private-ledger-out "$RUNNER_TEMP/coin-original-reconstructed-signals.csv" \
+            --out outputs/coin_pit_rr2/reconstructed_summary.json
+      - name: Assert no promotion, no source-row export, model vintage provenance
+        working-directory: research_current
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('outputs/coin_pit_rr2/reconstructed_summary.json').read_text())
+          assert d['live']=='HOLD' and d['no_broker_or_live_change'] is True
+          assert d['signals_verified']=={'2025':80,'2026':46}
+          assert len(d['results'])==24
+          p=d['provenance']
+          assert p['type']=='RECONSTRUCTED_SOURCE_NOT_ORIGINAL_SAVED_SIGNAL_LEDGER'
+          assert p['original_commit']=='cccbb80059ab626da0cbd76cd825f879870f6727'
+          assert p['model_identities_verified_by_original_aggregate_metrics']
+          assert p['can_promote_live'] is False
+          print('ORIGINAL_SOURCE_20_COHORT_10_RETURN_PARITY_AND_COIN_126_MATCHED_RESEARCH_HOLD')
+          PY
+      - name: Upload aggregate-only reconstructed outcomes (no signals or SIP prices)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-coin-pinned-original-pit-reconstruction
+          path: research_current/outputs/coin_pit_rr2/reconstructed_summary.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Remove private raw SIP and 126-row signal ledger
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/coin-original-reconstructed-signals.csv"
+          rm -rf "$RUNNER_TEMP/us_five_sip"
