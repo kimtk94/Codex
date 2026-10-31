@@ -24,7 +24,7 @@ function dateAge(yyyymmdd,now){
   return Math.round((Date.parse(kstDay+'T00:00:00Z')-stamp)/86400000);
 }
 function checkedAgeHours(stamp,now){
-  const m=/^(20\\d{2})-(\\d{2})-(\\d{2}) (\\d{2}):(\\d{2}):(\\d{2}) KST$/.exec(stamp);
+  const m=/^(20\d{2})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) KST$/.exec(stamp);
   if(!m)return null;
   const time=Date.parse(m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':'+m[6]+'+09:00');
   if(!Number.isFinite(time))return null;
