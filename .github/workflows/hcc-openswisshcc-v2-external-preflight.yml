@@ -1,0 +1,110 @@
+name: HCC External OpenSwissHCC v2 Verified HCC Venous Mask Preflight
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_external_openswisshcc_v2_preflight.py"
+      - ".github/workflows/hcc-openswisshcc-v2-external-preflight.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-openswisshcc-v2-metadata-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  small-official-metadata:
+    name: Verify four source MD5s and count HCC-specific venous lesion candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Synthetic negative fixture for no fake 132-patient eligibility
+        run: python3 research/hcc/ci/mri_external_openswisshcc_v2_preflight.py --offline-test
+      - name: Download only four small official OpenSwissHCC v2 metadata files
+        run: |
+          mkdir -p artifacts/openswiss_v2_sources
+          for name in participants.tsv annotation_status.tsv data_description.txt README.md; do
+            curl --fail --location --silent --show-error --retry 4 --retry-all-errors \
+              --max-time 120 \
+              "https://zenodo.org/records/21992461/files/${name}?download=1" \
+              --output "artifacts/openswiss_v2_sources/${name}"
+          done
+      - name: Check 4 official Zenodo file MD5, 132 case rows and per-phase HCC lesion availability
+        run: |
+          python3 research/hcc/ci/mri_external_openswisshcc_v2_preflight.py \
+            --source-dir artifacts/openswiss_v2_sources \
+            --out-dir artifacts/openswiss_v2_metadata_preflight
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-openswiss-v2-official-metadata-only-hcc-venous-candidate-manifest
+          path: artifacts/openswiss_v2_metadata_preflight/*
+          retention-days: 90
+          if-no-files-found: warn
+
+  official-mask-archive-structure:
+    name: Verify complete 113MB derivative MD5 and HCC venous mask file identifiers
+    needs: small-official-metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Re-download four MD5-pinned tiny official metadata source files
+        run: |
+          mkdir -p artifacts/openswiss_v2_sources
+          for name in participants.tsv annotation_status.tsv data_description.txt README.md; do
+            curl --fail --location --silent --show-error --retry 4 --retry-all-errors \
+              --max-time 120 \
+              "https://zenodo.org/records/21992461/files/${name}?download=1" \
+              --output "artifacts/openswiss_v2_sources/${name}"
+          done
+      - name: Obtain real public mask archive with bounded transfer and archive-level checksum
+        run: |
+          curl --fail --location --silent --show-error --retry 3 --retry-all-errors \
+            --max-time 900 --max-filesize 150000000 \
+            "https://zenodo.org/records/21992461/files/derivatives.zip?download=1" \
+            --output artifacts/openswiss_v2_sources/derivatives.zip
+      - name: Match HCC venous mask annotation flags to real derivative ZIP member paths
+        run: |
+          python3 research/hcc/ci/mri_external_openswisshcc_v2_preflight.py \
+            --source-dir artifacts/openswiss_v2_sources \
+            --derivatives-zip artifacts/openswiss_v2_sources/derivatives.zip \
+            --out-dir artifacts/openswiss_v2_mask_preflight
+      - name: Fail closed on missing HCC data, no full images or biological tests
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          p=Path("artifacts/openswiss_v2_mask_preflight")
+          j=json.loads((p/"openswisshcc_v2_external_hcc_venous_access_preflight.json").read_text())
+          with (p/"openswisshcc_v2_venous_hcc_mask_candidate_manifest.csv").open() as f:
+              r=list(csv.DictReader(f))
+          assert j["patients_with_any_participant_row"]==132
+          assert len(r)==j["HCC_venous_mask_reported_lesions"]
+          assert j["derivative_zip_exact_md5_verified"]=="45975a7018834c4ab1b827efff0b41ac"
+          assert j["external_radiomics_extractions"]==0 and j["MRI_RNA_associations_executed"]==0
+          assert j["claim_ceiling"]=="S0" and j["clinical_eligible_n"]=="NOT_ASSESSED"
+          lines=["## OpenSwissHCC v2 external, source-verified HCC venous mask preflight","",
+                 "- Official Zenodo v2 record https://zenodo.org/records/21992461",
+                 "- Four source metadata files MD5 checked and real derivative archive MD5 verified.",
+                 f"- Metadata subjects: **{j['patients_with_any_participant_row']}**; HCC-labeled lesion records: **{j['HCC_labeled_lesion_metadata_rows']}**.",
+                 f"- HCC lesion/venous mask entries flagged as supplied: **{j['HCC_venous_mask_reported_lesions']}** across **{j['HCC_venous_mask_reported_subjects']}** distinct subjects.",
+                 f"- Exact first-reader venous mask files matched in source derivative archive: **{j['HCC_venous_first_reader_masks_found']}**.",
+                 f"- Exact second-reader venous mask files matched: **{j['HCC_venous_second_reader_masks_found']}**.",
+                 "- No 14GB source MRI images retrieved, no patient image/mask geometry verified.",
+                 "- Independent radiomics external replication **NOT YET EXECUTED**; MRI-RNA 0/12 and S0."]
+          if j["HCC_venous_first_reader_masks_found"] < j["HCC_venous_mask_reported_lesions"]:
+              lines.append("- Note: some annotation-status venous masks could not be mapped by strict filename rule, requiring expert/filename audit; do not silently treat as matched.")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          print("OPENSWISSHCC_V2_MD5_MASK_DIRECTORY_PREFLIGHT_PASS",j)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-openswiss-v2-real-derivative-hcc-venous-mask-source-manifest
+          path: artifacts/openswiss_v2_mask_preflight/*
+          retention-days: 90
+          if-no-files-found: warn
