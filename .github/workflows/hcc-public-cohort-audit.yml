@@ -468,7 +468,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Clone unmodified official theibsi data_sets small digital phantom
-        run: git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+        run: mkdir -p artifacts && git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
       - name: Preserve source git commit plus image and mask SHA256
         run: python research/hcc/ci/mri_ibsi1_official_phantom_benchmark.py --mode source --out-dir artifacts/hcc_ibsi_source
       - uses: actions/upload-artifact@v4
@@ -492,7 +492,7 @@ jobs:
       - name: Install pinned PyRadiomics and NIfTI medical imaging reader
         run: python -m pip install "numpy==1.26.4" "pyradiomics==3.1.0" "nibabel>=5.2,<6"
       - name: Clone official IBSI-1 unmodified NIfTI phantom
-        run: git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+        run: mkdir -p artifacts && git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
       - name: Check phantom dimensions and 74-voxel ROI then calculate Contrast
         run: python research/hcc/ci/mri_ibsi1_official_phantom_benchmark.py --mode measure --out-dir artifacts/hcc_ibsi_measure
       - uses: actions/upload-artifact@v4
@@ -515,7 +515,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Download authoritative IBSI1 phantom NIfTI not synthetic data
-        run: git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+        run: mkdir -p artifacts && git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
       - name: Compute 3D averaged and merged Contrast independent of PyRadiomics
         run: python research/hcc/ci/mri_ibsi1_independent_glcm_reference.py --out-dir artifacts/hcc_ibsi_independent
       - uses: actions/upload-artifact@v4
