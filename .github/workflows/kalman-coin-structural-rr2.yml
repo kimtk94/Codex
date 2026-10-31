@@ -1,5 +1,10 @@
 name: Kalman COIN Structural RR2 SIP Pilot (Research Only)
 on:
+  push:
+    branches:
+      - research/rr2-entry-rejection-audit-20261101
+    paths:
+      - '.github/workflows/kalman-coin-structural-rr2.yml'
   pull_request:
     paths:
       - 'research/rr2_entry_gate/coin_structure.py'
@@ -36,7 +41,7 @@ jobs:
           python -m py_compile research/rr2_entry_gate/coin_structure.py research/rr2_entry_gate/alpaca_sip_readonly.py
           python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_structure.py' -v
   private-sip-structural-pilot:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/research/rr2-entry-rejection-audit-20261101')
     needs: offline-contracts
     runs-on: ubuntu-latest
     environment: TaehoonServer
@@ -54,8 +59,8 @@ jobs:
           ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
           APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
-          STUDY_START: ${{ inputs.start }}
-          STUDY_END: ${{ inputs.end }}
+          STUDY_START: ${{ inputs.start || '2024-01-01' }}
+          STUDY_END: ${{ inputs.end || '2026-10-30' }}
         run: |
           python research/rr2_entry_gate/alpaca_sip_readonly.py \
             --start "${STUDY_START}T00:00:00Z" \
