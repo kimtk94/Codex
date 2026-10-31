@@ -65,3 +65,30 @@ Do **not** blindly copy QLD volume model into other symbols. QLD four-arm result
 - Test print-correction identifiers, late report conditions, event-time vs publish-time ingestion, quote timestamp skew and unknown fraction by liquidity decile.
 - Year- and regime-stratified volume model ablations; comparison within common months 2025 vs 2026; separate training-only feature selection and untouched future validation.
 - One report per symbol with data coverage, RVOL quantiles, classified buy/sell/UNKNOWN shares, high-value print ratios, cost/return/MDD/AUC, verdict.
+
+
+## First five-symbol full-history SIP dataset gate: PASS (2026-10-31)
+
+[GitHub Actions 41198243032](https://github.com/kimtk94/Codex/actions/runs/41198243032) succeeded after restoring a sufficiently large bounded per-month page allowance; [private aggregate report on Drive](https://drive.google.com/file/d/1y0Srq9mnVNabeFl59A9jnkNgSigotBO-/view?usp=drivesdk).
+
+- Source: Alpaca SIP `adjustment=all`, `15Min`, 2024-01-01 through 2026-10-30, 34 calendar months, **272 paginated requests**.
+- Rows returned: **221,014** historical 15-minute bars across **SPY, IWM, SMH, MU, COIN**.
+- Complete RTH sessions: **711 for each symbol; 3,555 / 3,555 symbol-sessions**. Missing/partial RTH: **zero**.
+- Bar trade count (`n`) and bar VWAP (`vw`) were populated in **all observed returned bar rows** for all 5 symbols. These fields support further study, but prints/signed flow still need condition/correction audits.
+- The raw licensed SIP bars were held on an ephemeral Actions runner and deleted; only derived QA figures entered the artifact.
+
+| US ticker | 2025 median daily shares | 2026 YTD median daily shares | 2025 RVOL20 >=2x day fraction | 2026 YTD RVOL20 >=2x day fraction |
+| --- | ---: | ---: | ---: | ---: |
+| SPY | 57,812,312 | 42,768,296 | 4.40% | 0.48% |
+| IWM | 28,994,488 | 23,954,425 | 4.80% | 0.00% |
+| SMH | 6,948,826 | 7,554,525 | 6.00% | 7.18% |
+| MU | 17,286,245 | 31,121,178 | 6.40% | 2.39% |
+| COIN | 7,713,512 | 7,394,361 | 9.20% | 5.74% |
+
+**Interpretation:** the distributions and scales differ materially by ticker. A common *algorithm* is feasible; a common raw-share threshold is not. 2026 is only through October, so direct full-year seasonality comparisons remain provisional; compare matched Jan–Oct for validation.
+
+**Model gate:** historical data access & completeness GO. Do not call model predictive or return improvement GO until paired same-date evaluation per ticker. Data-ready is not live-ready.
+
+### Next-stage cross-ticker prediction screen
+
+`us_multisymbol_volume_screen.py` defines paired price-only (3 features) vs price+volume (5 features), with identical lagged training / 2025 and 2026 test signal dates. Tests separate *next-session open-to-close direction* and *next-session large absolute move* (threshold learned on training labels only) using AUC/Brier/log loss. Both require a separate source-run result and cannot be presented as a trading backtest. Workflow `.github/workflows/kalman-us-multisymbol-bars.yml` runs the screen while private bars are present and publishes only a derived JSON.
