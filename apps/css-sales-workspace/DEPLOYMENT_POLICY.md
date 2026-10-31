@@ -1,11 +1,14 @@
-# CSS Vercel deployment scope
+# CSS Vercel deployment policy
 
-This file documents the staged Vercel Git branch policy in `vercel.json`.
+This policy is scoped to the Vercel project `css-sales-workspace-git`.
+The separately connected Kalman projects are not affected.
 
-- Automatic Production remains bound to `main` (existing Vercel Git integration). A successful GitHub Actions test is **not** approval to promote Production.
-- Preview is allowed only from CSS, SFDC, sales, Vercel maintenance, or Novogene-prefixed feature branches. Research, HCC, Kalman and other unrelated branches should not trigger CSS builds.
-- Vercel project-level settings additionally enable affected-project detection and skip builds when the CSS root and its root npm manifests are unchanged. An Ignored Build Step may still create a canceled Vercel deployment entry and consume quota.
-- Preview testing must confirm the intended Git SHA, READY state, owner-authenticated access, routes, inbox body UID matching, VAT-exclusive Revenue and manual decision preservation.
-- Never disable deployment protection, create a public share link, send customer emails, save SFDC records, or promote Production as part of a read-only scope check.
+- **Production auto-deployment disabled:** `main` is explicitly `false` in `git.deploymentEnabled`. Publishing to Production requires a separate, approved manual release with SHA and authenticated checks; no automatic promotion is created by this config.
+- **CSS-oriented Preview only:** only `feat/css-*`, `fix/css-*`, `chore/css-*`, `feat/sfdc-*`, `fix/sfdc-*`, `feat/sales-*`, `fix/sales-*`, `feat/vercel-*`, `fix/vercel-*`, `feat/novogene-*`, and `fix/novogene-*` can trigger Preview deploys. All other branches match the `**: false` rule.
+- **Affected build detection:** project-level Vercel settings already enable affected-project detection. An ignored-build step compares `VERCEL_GIT_PREVIOUS_SHA` against HEAD for CSS-root and shared root npm manifest edits. Its exit status causes irrelevant builds to be skipped; it is not guaranteed to prevent an initial Git event or consume zero quota.
+- **Source data unchanged:** QQ, Revenue, Feishu, Lead, scheduled Actions and Kalman deployments are outside this policy.
+- **Protection unchanged:** do not relax SSO or create bypass links to prove Preview access.
 
-**Staging boundary:** This branch is for Preview validation only; keep the pull request unmerged until the owner-authenticated Preview E2E and release approval evidence are recorded.
+## Release acceptance
+
+A passing CI/offline allowlist test is a policy test, **not** a deployed Preview receipt. A production release remains blocked until the Vercel quota allows a READY Preview for the exact SHA, authorized owner-authenticated browser E2E succeeds, and an explicit release approval is recorded. No publication is initiated by this document.
