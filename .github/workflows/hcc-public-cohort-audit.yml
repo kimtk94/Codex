@@ -99,6 +99,10 @@ jobs:
         run: python research/hcc/ci/mri_official_publication_source_evidence.py --offline-test
       - name: Offline native PV MRI voxel anisotropy and official scanner metadata scope guard
         run: python research/hcc/ci/mri_native_acquisition_heterogeneity_qc.py --offline-test
+      - name: Offline frozen native versus 3 mm PV original radiomics settings gate
+        run: python research/hcc/ci/mri_pv_3mm_resampling_sensitivity.py --offline-test
+      - name: Offline 3 mm resampling ICC and per-patient stability aggregator
+        run: python research/hcc/ci/mri_pv_3mm_resampling_aggregate.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
@@ -290,6 +294,83 @@ jobs:
         with:
           name: hcc-batch-acquisition
           path: artifacts/hcc_batch_acquisition/
+          if-no-files-found: error
+          retention-days: 30
+
+
+  hcc-pv-3mm-resampling-pilot:
+    if: github.event_name == 'pull_request'
+    name: HCC PV 3mm sensitivity shard ${{ matrix.shard-index }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard-index: [0, 1]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install frozen PyRadiomics 3.1.0 and native 3mm interpolation tools
+        run: python -m pip install "numpy==1.26.4" "pyradiomics==3.1.0" "nibabel>=5.2,<6"
+      - name: Re-extract seven original PV MRI with both raters and unchanged vs 3mm features
+        run: python research/hcc/ci/mri_pv_3mm_resampling_sensitivity.py --shard-index ${{ matrix.shard-index }} --num-shards 2 --out-dir artifacts/hcc_resample
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-pv-3mm-shard${{ matrix.shard-index }}
+          path: artifacts/hcc_resample/
+          if-no-files-found: warn
+          retention-days: 30
+
+  hcc-pv-3mm-resampling-summary:
+    if: github.event_name == 'pull_request'
+    name: HCC PV 14x2 original vs isotropic 3mm full technical summary
+    needs: [hcc-pv-3mm-resampling-pilot]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install analysis-only numpy
+        run: python -m pip install "numpy==1.26.4"
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-pv-3mm-shard0
+          path: artifacts/hcc_resample/shard0/
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-pv-3mm-shard1
+          path: artifacts/hcc_resample/shard1/
+      - name: Verify native original ICC reproducibility and summarize 3mm MRI-only feature stability
+        run: python research/hcc/ci/mri_pv_3mm_resampling_aggregate.py --out-dir artifacts/hcc_resample_final
+      - name: Present MRI-only technical sensitivity in GitHub job summary
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          x=json.loads(Path("artifacts/hcc_resample_final/hcc_pv_resampling_3mm_summary.json").read_text())
+          lines=[
+            "## PV MRI native vs 3mm sensitivity – 14 cases × two readers",
+            "",
+            f"- Status: **{x['status']}**",
+            f"- Original ICC exact source reproduced for {x['native_frozen_icc_reproduced']} features.",
+            f"- 3mm two-reader ICC >=0.90: {x['resampled_icc_ge_0_90']} / 10 features.",
+            f"- Feature ICC decreased versus native: {x['n_features_with_resampled_icc_below_native']} / 10.",
+            f"- Patient mean radiomics rank rho below 0.8: {x['n_features_with_patient_mean_rank_rho_below_0_8']} / 10.",
+            "- Patient-specific HCC pretreatment and same MRI/RNA lesion: NOT VERIFIED.",
+            "- MRI-RNA molecular association family: NO TESTS EXECUTED.",
+          ]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("\n".join(lines)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-pv-3mm-native-vs-resampled-14x2
+          path: artifacts/hcc_resample_final/
           if-no-files-found: error
           retention-days: 30
 
