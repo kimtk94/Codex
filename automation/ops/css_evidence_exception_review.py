@@ -202,7 +202,7 @@ def main():
         params=[("ranges",v[0]) for v in SOURCES.values()])
     got=batch.get("valueRanges",[])
     if len(got)!=len(SOURCES):raise RuntimeError("INCOMPLETE_SOURCE_SNAPSHOT")
-    data=dict(zip(SOURCES,{k:z.get("values",[]) for k,z in zip(SOURCES,got)}))
+    data={k:z.get("values",[]) for k,z in zip(SOURCES,got)}
     rows=analyze(data,dt.datetime.now(KST))
     if len(rows)!=10:raise RuntimeError("EVIDENCE_CHECK_COVERAGE_DRIFT")
     link="https://github.com/kimtk94/Codex/actions/runs/"+run
