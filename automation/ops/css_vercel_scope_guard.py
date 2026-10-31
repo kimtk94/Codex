@@ -11,7 +11,7 @@ import urllib.request
 PROJECT="prj_OmMNFDQA3dfpAAbCdKvfFtwD9IBO"
 TEAM="team_eklxTMfdySLBHexmheTiWGCE"
 ROOT="apps/css-sales-workspace"
-IGNORE="git diff --quiet HEAD^ HEAD -- . ../../package.json ../../package-lock.json"
+IGNORE='git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . ../../package.json ../../package-lock.json'
 
 def assess(project):
     if not isinstance(project,dict) or project.get("id")!=PROJECT:
