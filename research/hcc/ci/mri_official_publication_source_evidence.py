@@ -109,7 +109,7 @@ def main():
     summary={
        "status":"PASS_OFFICIAL_EXPERT_SEGMENTATION_PUBLICATION_METADATA",
        "checked_utc":datetime.now(timezone.utc).isoformat(),
-       "source_article_doi":"10.1016/j.dib.2023.109691",
+       "source_article_doi":"10.1016/j.dib.2023.109662",
        "source_version":"zenodo_8179129_v1.1",
        "official_workbook_hashes":verified,
        "n_frozen_cases":14,
