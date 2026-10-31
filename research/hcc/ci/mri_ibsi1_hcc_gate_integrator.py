@@ -43,7 +43,7 @@ def combined(src,measured):
     with open(GATES,encoding="utf-8",newline="") as f:gate_rows=list(csv.DictReader(f))
     if len(rows)!=24 or len(cases)!=14 or len({c["patient_id"] for c in cases})!=14:
         raise ValueError("Frozen 14-patient GLCM source denominator changed")
-    states={r["checkpoint_id"]:r["status"] for r in gate_rows}
+    states={r["id"]:r["status"] for r in gate_rows}
     for key in ("HCC-13","HCC-18"):
         if states.get(key)!="PARTIAL":raise ValueError("IBSI phantom is not full HCC method approval")
     if states.get("HCC-20")!="PENDING":
