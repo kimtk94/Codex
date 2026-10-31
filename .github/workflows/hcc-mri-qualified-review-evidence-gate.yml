@@ -1,0 +1,46 @@
+name: HCC MRI14 Qualified Reviewer Clinical Evidence Gate
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_qualified_review_matrix_guard.py"
+      - "research/hcc/HCC_MRI14_QUALIFIED_REVIEW_EVIDENCE_MATRIX_20261031.csv"
+      - "research/hcc/HCC_MRI_14_PREOUTCOME_INDEX_LESION_SELECTION_20261030.csv"
+      - "research/hcc/HCC_MRI14_PV_SOURCE_14_CASE_PRIMARY_FEATURE_CHANGE_20261031.csv"
+      - "research/hcc/HCC_VERIFICATION_LEDGER.csv"
+      - ".github/workflows/hcc-mri-qualified-review-evidence-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-mri14-qualified-expert-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reviewer-evidence-matrix:
+    name: Confirm 14 frozen cases and reject undocumented patient eligibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check case-level frozen source fields and mock invalid clinical approvals
+        run: python3 research/hcc/ci/mri_p0_qualified_review_matrix_guard.py --negative-tests
+      - name: Preserve clinical HOLD decision on pull request checks
+        run: |
+          python3 - <<'PY'
+          import csv,os
+          with open("research/hcc/HCC_MRI14_QUALIFIED_REVIEW_EVIDENCE_MATRIX_20261031.csv") as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)==14
+          lines=["## HCC MRI14 source-backed qualified reviewer handoff",
+                 "", "- 14 public MRI panels generated and independently traceable to immutable CI source artifact.",
+                 "- Clinical evidence review queue: **P0 4 / P1 5 / P2 5**.",
+                 "- 14/14 patient anatomy approval NOT_ASSESSED.",
+                 "- 14/14 pre-HCC therapy timing and matching tumor RNA specimen NOT_ASSESSED.",
+                 "- Radiogenomics eligibility NOT_ASSESSED; MRI-RNA 0/12; claim ceiling S0.",
+                 "- This QC verifies evidence formatting, not radiologist assessment or patient eligibility."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write("\n".join(lines)+"\n")
+          PY
