@@ -83,6 +83,27 @@ def analyze(path:Path, audit_events:Path, output:Path):
         'fred_crosscheck_warning':'FRED DEXKOUS fixing times may not match Yahoo daily close; DO NOT use to rewrite prices',
     }
     (output/'source_diagnostics_summary.json').write_text(json.dumps(diagnostics,ensure_ascii=False,indent=2)+'\n')
+    # Machine-readable guard for future Regime joins; no value imputation or mutation.
+    # Technical indicators depend on prior OHLC through rolling/EMA windows. Excluding
+    # only the 22 offending dates does not cleanse derived features.
+    gates={
+        'version':'kalman-research-quality-gates-v1',
+        'research_only':True,
+        'live_trading_policy_modified':False,
+        'asset_guards':{
+            'yf_usdkrw':{'ohlc_training_eligible':len(ohlc)==0,
+                         'ohlc_anomaly_count':len(ohlc),
+                         'invalid_dates':ohlc.date.astype(str).tolist(),
+                         'action':'QUARANTINE_UNTIL_INDEPENDENT_PROVIDER_VERIFICATION' if len(ohlc) else 'ALLOW_AFTER_PIT_CHECK'},
+            'usd_krw_talib':{'feature_training_eligible':len(ohlc)==0,
+                            'action':'QUARANTINE_ALL_DERIVED_FX_TECHNICAL_FEATURES' if len(ohlc) else 'ALLOW_AFTER_PIT_CHECK'},
+            'fred_fx_latest_revised':{'vintage_pit_training_eligible':False,
+                            'unclassified_null_count':len(f),
+                            'action':'REQUIRE_RELEASE_AND_REVISION_AWARE_FEATURES'}
+        }
+    }
+    (output/'feature_eligibility.json').write_text(json.dumps(gates,ensure_ascii=False,indent=2)+'\n')
+
     print(json.dumps(diagnostics,ensure_ascii=False))
     return diagnostics
 
