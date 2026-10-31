@@ -24,6 +24,8 @@ on:
       - 'automation/ops/test_css_amea_contract_candidate_crosswalk.py'
       - 'automation/ops/css_unissued_safe_watch.py'
       - 'automation/ops/test_css_unissued_safe_watch.py'
+      - 'automation/feishu/css_mirror_sync_preflight.py'
+      - 'automation/feishu/test_css_mirror_sync_preflight.py'
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/automation-console.js'
@@ -51,6 +53,8 @@ on:
       - 'automation/ops/test_css_amea_contract_candidate_crosswalk.py'
       - 'automation/ops/css_unissued_safe_watch.py'
       - 'automation/ops/test_css_unissued_safe_watch.py'
+      - 'automation/feishu/css_mirror_sync_preflight.py'
+      - 'automation/feishu/test_css_mirror_sync_preflight.py'
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/automation-console.js'
@@ -89,6 +93,7 @@ jobs:
           python -m unittest discover -s automation/ops -p 'test_css_unissued_contract_lineage_guard.py' -v
           python -m unittest discover -s automation/ops -p 'test_css_amea_contract_candidate_crosswalk.py' -v
           python -m unittest discover -s automation/ops -p 'test_css_unissued_safe_watch.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_css_mirror_sync_preflight.py' -v
       - name: Compile isolated release and publisher code
         run: python -m py_compile automation/ops/css_release_readonly_audit.py automation/ops/publish_css_p0_parallel_status.py
 
@@ -277,6 +282,8 @@ jobs:
       CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -291,6 +298,8 @@ jobs:
           python -m unittest discover -s automation/feishu -p 'test_latest_four_mirror_parity.py' -v
       - name: Verify original four Feishu sheet headers (read only)
         run: python automation/feishu/latest_four_schema_audit.py
+      - name: Refresh version-drifted generated Feishu mirrors before audit
+        run: python automation/feishu/css_mirror_sync_preflight.py
       - name: Verify Google mirror source IDs and columns (read only)
         run: python automation/feishu/latest_four_mirror_parity.py
 
