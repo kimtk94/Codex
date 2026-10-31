@@ -134,7 +134,9 @@ class JointPolicyTests(unittest.TestCase):
         p = dict(BASELINE)
         p.update({"vix_max": 20., "confidence": .6, "trend": "r20"})
         feature = pd.Series({"vix_lag1": 19., "qqq_r20": .02, "qqq_r5": .01,
-                             "qld_r5": -.01, "qqq_vol20": .01})
+                             "qld_r5": -.01, "qqq_vol20": .01, "hyg_lqd_r5_lag1": .0,
+                             "tnx_lag1": 4.2, "vix_r5_lag1": .01,
+                             "smh_spy_r20_lag1": .0})
         self.assertTrue(allow_signal(p, feature, .7))
         self.assertFalse(allow_signal(p, feature, .5))
         feature.loc["vix_lag1"] = 22.
@@ -148,7 +150,9 @@ class JointPolicyTests(unittest.TestCase):
         probs = pd.Series(0.9, index=days[:5])
         features = pd.DataFrame({"vix_lag1": 17., "qqq_r20": .03,
                                  "qqq_r5": .01, "qld_r5": .01,
-                                 "qqq_vol20": .01}, index=days)
+                                 "qqq_vol20": .01, "hyg_lqd_r5_lag1": 0.,
+                                 "tnx_lag1": 4.2, "vix_r5_lag1": .01,
+                                 "smh_spy_r20_lag1": .0}, index=days)
         p = dict(BASELINE)
         p["hold"] = 2
         p["cooldown"] = 2
