@@ -35,17 +35,14 @@ def sha(path):
 
 def find_original_files(folder):
     root=Path(folder)
-    path=root/PHANTOM_SUB
-    if not path.is_dir():raise ValueError("Official NIfTI path not found: "+str(path))
-    all_files=sorted(p for p in path.rglob("*") if p.is_file()
-                     and (p.name.endswith(".nii.gz") or p.name.endswith(".nii")))
-    def choose(kind):
-        candidates=[p for p in all_files if kind in p.name.lower()]
-        if len(candidates)!=1:
-            raise ValueError(f"Ambiguous official IBSI NIfTI {kind} files "+
-                             repr([str(p) for p in all_files]))
-        return candidates[0]
-    return choose("image"),choose("mask")
+    image=root/PHANTOM_SUB/"image"/"phantom.nii.gz"
+    mask=root/PHANTOM_SUB/"mask"/"mask.nii.gz"
+    # These paths are the official IBSI-1 NIfTI repository structure, not
+    # the deprecated original DICOM, IBSI-2 digital phantom or CT phantom.
+    for path in (image,mask):
+        if not path.is_file():
+            raise ValueError("Official IBSI1 NIfTI missing: "+str(path))
+    return image,mask
 
 def source_info(folder):
     image,mask=find_original_files(folder)
