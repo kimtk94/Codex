@@ -26,7 +26,7 @@ class JointPolicyTests(unittest.TestCase):
         coverage = pairwise_coverage(a)
         self.assertGreater(coverage["fraction"], 0.1)
         self.assertLess(coverage["fraction"], 1.0)
-        self.assertEqual(len(AXES), 25)
+        self.assertEqual(len(AXES), 40)
 
     def test_baseline_stop_precedence_same_bar(self):
         p = dict(BASELINE)
@@ -76,6 +76,48 @@ class JointPolicyTests(unittest.TestCase):
         self.assertEqual(item.exited_by, "SL_OR_TRAIL")
         self.assertTrue(np.isfinite(item.net_pnl))
 
+    def test_new_15_options_all_have_real_scenario_branches(self):
+        self.assertEqual(len(AXES), 40)
+        p = dict(BASELINE)
+        p["min_rr"] = 2.
+        from research.kalman_integrated_regime.joint_policy import policy_valid
+        self.assertFalse(policy_valid(p))
+        feature = pd.Series({"vix_lag1": 19., "vix_r5_lag1": .09,
+                             "qqq_r20": .04, "qqq_r5": .015, "qld_r5": .06,
+                             "qqq_vol20": .018, "hyg_lqd_r5_lag1": -.005,
+                             "tnx_lag1": 4.5, "smh_spy_r20_lag1": -.015})
+        filters = {
+            "vol_floor": .02, "qqq_r20_cap": .03, "qqq_r5_cap": .01,
+            "qld_r5_abs_cap": .03, "credit_floor": 0.,
+            "credit_cap": -.01, "tnx_cap": 4., "vix_change_cap": .05,
+            "smh_spy_floor": 0.,
+        }
+        for key, value in filters.items():
+            with self.subTest(key=key):
+                altered = dict(BASELINE, **{key: value})
+                self.assertFalse(allow_signal(altered, feature, .9))
+        baseline_day = candles("2025-02-03", [100., 100., 101.],
+                               [100.1, 100.2, 101.1], [99.9, 99.8, 100.9],
+                               [100., 100., 101.])
+        previous = baseline_day[1].iloc[0]
+        for key, value in {"gap_down_cap": .01, "gap_up_floor": .01}.items():
+            with self.subTest(key=key):
+                x = dict(BASELINE, **{key: value})
+                previous_close = 104. if key == "gap_down_cap" else 100.
+                self.assertIsNone(simulate_trade(x, [baseline_day], 0, pd.Timestamp("2025-01-31"), previous_close, previous))
+        range_cap = dict(BASELINE, **{"prior_bar_range_cap": .01})
+        wide_previous = pd.Series({"open": 100., "high": 103., "low": 97.})
+        self.assertIsNone(simulate_trade(range_cap, [baseline_day], 0, pd.Timestamp("2025-01-31"), 100., wide_previous))
+        holding = dict(BASELINE, **{"min_profit_holding_bars": 3, "tp": .01, "hold": 1})
+        # Immediate favorable excursion cannot be captured as early TP with min holding bars.
+        hi = candles("2025-02-03", [100., 100., 100., 100.],
+                     [102., 100.2, 100.2, 100.2], [99.8, 99.8, 99.8, 99.8],
+                     [100., 100., 100., 100.])
+        a = simulate_trade(dict(BASELINE, tp=.01, hold=1), [hi], 0, pd.Timestamp("2025-01-31"), 100.)
+        b = simulate_trade(holding, [hi], 0, pd.Timestamp("2025-01-31"), 100.)
+        self.assertEqual(a.exited_by, "TP")
+        self.assertEqual(b.exited_by, "TIME")
+    
     def test_entry_delay_and_gap_filter(self):
         d = candles("2025-02-03", [100., 103., 102.],
                     [100.5, 103.5, 102.2], [99.5, 102.5, 101.5],
