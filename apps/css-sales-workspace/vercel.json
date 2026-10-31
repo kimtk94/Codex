@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": false,
+      "feat/css-*": true,
+      "fix/css-*": true,
+      "chore/css-*": true,
+      "feat/sfdc-*": true,
+      "fix/sfdc-*": true,
+      "feat/sales-*": true,
+      "fix/sales-*": true,
+      "feat/vercel-*": true,
+      "fix/vercel-*": true,
+      "feat/novogene-*": true,
+      "fix/novogene-*": true
+    }
+  }
+}
