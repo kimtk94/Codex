@@ -2,37 +2,82 @@ name: Feishu Payment Table Audit
 on:
   workflow_dispatch:
   schedule:
-    - cron: '13 0 * * *' # approx 09:13 KST daily; GitHub scheduling may be delayed
+    - cron: '13 0 * * *' # 09:13 KST; source names can be undated
   push:
     branches: [main]
     paths:
-      - automation/feishu/.trigger-payment-audit
+      - 'automation/feishu/etax_monthly_audit.py'
+      - 'automation/feishu/test_etax_monthly_audit.py'
+      - 'automation/feishu/payment_table_audit.py'
+      - '.github/workflows/feishu-payment-audit.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/etax_monthly_audit.py'
+      - 'automation/feishu/test_etax_monthly_audit.py'
+      - 'automation/feishu/payment_table_audit.py'
+      - '.github/workflows/feishu-payment-audit.yml'
 permissions:
   contents: read
 concurrency:
   group: feishu-payment-audit
   cancel-in-progress: false
 jobs:
-  inspect:
-    # GitHub Environment stores Feishu credentials; no access to a physical server.
-    environment: TaehoonServer
+  offline:
+    name: Offline monthly-name and undated-source safeguards
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Inspect existing Payment Outstanding table
-        env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
-          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-          FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
-          FEISHU_AUDIT_FIELD_NAMES: '1'
-        run: python3 automation/feishu/payment_table_audit.py
-      - name: Discover current monthly eTAX unissued invoice table
-        env:
-          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
-          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
-          FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
-        run: python3 automation/feishu/etax_monthly_audit.py
+          python-version: '3.11'
+      - name: Exact month vs undated candidate tests
+        run: python automation/feishu/test_etax_monthly_audit.py
+  payment:
+    name: Payment Outstanding source schema only (not paid)
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 9
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read Payment Outstanding ID/amount/status field presence
+        run: python automation/feishu/payment_table_audit.py
+      - name: Never convert status into bank paid
+        if: always()
+        run: echo 'PAYMENT_SCHEMA_ONLY;BANK_RECEIPT_NOT_CERTIFIED;NO_SOURCE_WRITE' >> "$GITHUB_STEP_SUMMARY"
+  etax:
+    name: Current month eTax proof - fail closed if undated
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 9
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read exact current-month eTax source or reject undated generic
+        run: python automation/feishu/etax_monthly_audit.py
+      - name: Preserve clear source boundary even on blocked proof
+        if: always()
+        run: echo 'UNDATED_BASE_CANDIDATE_IS_NOT_ISSUANCE;NO_SILENT_FALLBACK;NO_PRODUCTION_OR_REVENUE_APPROVAL' >> "$GITHUB_STEP_SUMMARY"
