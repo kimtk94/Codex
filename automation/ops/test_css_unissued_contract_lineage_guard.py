@@ -2,7 +2,7 @@
 import datetime as dt
 import unittest
 from zoneinfo import ZoneInfo
-from css_unissued_contract_lineage_guard import verify,normalized_x
+from css_unissued_contract_lineage_guard import verify,normalized_x,classify_watch_formula_provenance
 
 NOW=dt.datetime(2026,10,31,17,35,tzinfo=ZoneInfo("Asia/Seoul"))
 WATCH_HEAD=["AMEA Project ID","Project / Institution / Service","Forecast Month",
@@ -43,6 +43,21 @@ def fixture():
     return watch,outstanding,etax,[x[:] for x in MANIFEST]
 
 class ContractLineageTests(unittest.TestCase):
+    def test_independent_filter_spills_are_not_contract_joins(self):
+        project="=IFERROR(FILTER({'BI 2026 Completion Forecast'!B2:B150},'BI 2026 Completion Forecast'!B2:B150<>\"\"),\"\")"
+        contract="=IFERROR(FILTER({'BI Revenue Duplicate Review'!A2:A2000,'BI Revenue Duplicate Review'!B2:B2000},'BI Revenue Duplicate Review'!A2:A2000<>\"\"),\"\")"
+        self.assertEqual(
+            classify_watch_formula_provenance(project,contract),
+            "POSITIONAL_INDEPENDENT_FILTER_CONFIRMED")
+
+    def test_formula_rewrite_cannot_self_certify_keyed_join(self):
+        project="=FILTER('BI 2026 Completion Forecast'!B2:B150,'BI 2026 Completion Forecast'!L2:L150=0)"
+        rewritten="=ARRAYFORMULA(XLOOKUP(A2:A50,'Feishu Latest eTax'!K2:K100,'Feishu Latest eTax'!J2:J100))"
+        self.assertEqual(classify_watch_formula_provenance(project,rewritten),
+                         "WATCH_FORMULA_REQUIRES_KEYED_REVIEW")
+        self.assertEqual(classify_watch_formula_provenance(project,""),
+                         "WATCH_FORMULA_PROVENANCE_UNKNOWN")
+
     def test_cross_project_refs_are_quarantined_not_paid(self):
         rows,summary=verify(*fixture(),NOW)
         by={row[0]:row for row in rows}
