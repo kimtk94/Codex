@@ -1,0 +1,54 @@
+name: HCC MRI14 Registered PV Acquisition Immutable Source Regressions
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_registered_pv_acquisition_immutable_guard.py"
+      - "research/hcc/HCC_MRI14_REGPV_EXACT_SPACING_GLCM_STUDY_CONTRAST_FROZEN_20261101.csv"
+      - ".github/workflows/hcc-mri14-registered-pv-acquisition-immutable.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-regpv-acquisition-reference-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  full-source-reference:
+    name: Check frozen 14 patient sources and four original SHA256 members
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate long-lived case-level table and explicit clinical hold without network
+        run: python3 research/hcc/ci/mri_p0_registered_pv_acquisition_immutable_guard.py
+      - name: Recover one-shot original 9-job source report from GitHub Actions artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/hcc_regpv_acquisition_immutable
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13047649835/zip" \
+            --output artifacts/hcc_regpv_acquisition_immutable/9job_original_source.zip
+      - name: Verify exact source SHA256 and all 14 case-level spacings, 20 LOO, 12 study agent strata
+        run: |
+          python3 research/hcc/ci/mri_p0_registered_pv_acquisition_immutable_guard.py \
+            --source-zip artifacts/hcc_regpv_acquisition_immutable/9job_original_source.zip
+      - name: Preserve source truth and nonbiological-claims check summary
+        run: |
+          python3 - <<'PY'
+          import os
+          lines=["## HCC registered PV acquisition original source immutable reference",
+            "", "- Original [9/9 Jobs PASS](https://github.com/kimtk94/Codex/actions/runs/41214675184).",
+            "- Source 14 actual official NIfTI header spacings verified against 14 exact original source-image SHA256 identities.",
+            "- All 14 numeric source spacings, tumor indexes, study-level contrast labels and GLCM shifts match repository compact frozen results.",
+            "- 20 published/descriptive rank-LOO source rows and 12 contrast-group summaries match original SHA256-pinned artifact.",
+            "- No clinical patient or exact PV-series contrast-agent approval; 0/12 MRI-RNA tests, claim ceiling S0.",
+            "- Original Actions artifact has time-limited retention; compact 14-case data and research report are maintained in Git."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          PY
