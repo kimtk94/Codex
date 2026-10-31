@@ -36,6 +36,15 @@ def inspect(base,rows,summary):
             if r.get(field)!=value:
                 errors.append({"patient_id":pid,"field":field,"expected":value,
                                "current":r.get(field),"type":"UNAUTHORIZED_PROMOTION_OR_MISSING"})
+    # The frozen A10Y 10.8 mm outlier must not silently disappear.
+    for r in rows:
+        if r.get("pv_native_anisotropy_flag"):
+            wanted=("HIGH_THROUGHPLANE_ANISOTROPY_REVIEW" if r.get("patient_id")=="TCGA-BC-A10Y"
+                    else "NONISOTROPIC_NATIVE_MRI_REVIEW")
+            if r["pv_native_anisotropy_flag"]!=wanted:
+                errors.append({"patient_id":r.get("patient_id"),"field":"pv_native_anisotropy_flag",
+                               "baseline":wanted,"observed":r["pv_native_anisotropy_flag"],
+                               "type":"ACQUISITION_SOURCE_DRIFT"})
     for pid in sorted(set(expected)|set(observed)):
         old=expected.get(pid);new=observed.get(pid)
         if old!=new:
@@ -49,6 +58,8 @@ def inspect(base,rows,summary):
         "technical_candidate_count":14,
         "unresolved_n":14,
         "n_official_source_14_reader_metric_confirmed":14,
+        "n_native_high_anisotropy_patients":1,
+        "source_verified_exact_PV_scanner_vendor_patients":0,
         "maximum_claim":"S0",
         "mri_rna_correlations_computed":False,
         "final_eligible_n":"NOT_ASSESSED",
@@ -92,6 +103,8 @@ def offline_test():
         **baseline["expected_gate_states"],
         "technical_candidate_count":14,"unresolved_n":14,
         "n_official_source_14_reader_metric_confirmed":14,
+        "n_native_high_anisotropy_patients":1,
+        "source_verified_exact_PV_scanner_vendor_patients":0,
         "maximum_claim":"S0","mri_rna_correlations_computed":False,
         "final_eligible_n":"NOT_ASSESSED","clinical_excluded_n":"NOT_ASSESSED",
         "status":"PASS_BATCH_TECHNICAL_EVIDENCE_CONSISTENCY"}
