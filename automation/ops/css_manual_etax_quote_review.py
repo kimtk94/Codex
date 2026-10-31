@@ -34,21 +34,25 @@ def money(raw):
     if not raw.isdigit():raise ValueError("NON_INTEGER_MONEY")
     return int(raw)
 
+def normalize_x(value):
+    return value.split('-Z',1)[0].strip().upper() if value else ''
+
 def net(gross):
     return int((Decimal(gross)*Decimal(10)/Decimal(11)).quantize(
         Decimal("1"),rounding=ROUND_HALF_UP))
 
 def audit(dated,personal,unissued,manifest,now):
     if now.tzinfo is None:raise ValueError("NAIVE_TIMESTAMP")
-    if not dated or [cell(dated[0],i) for i in (2,3,4,5,10,15,25)]!=[
-        "Source","Type","ERP Invoice Number","CMS Invoice Num","Quotation Number",
+    if not dated or [cell(dated[0],i) for i in (2,3,4,5,9,10,15,25)]!=[
+        "Source","Type","ERP Invoice Number","CMS Invoice Num","Project Number","Quotation Number",
         "Amount","Sales"]:
         raise ValueError("FEISHU_ETAX_SCHEMA_DRIFT")
     if not personal or [cell(personal[0],i) for i in (0,1,5,9)]!=[
         "Source Key Type","Feishu Invoice Key","Personal QQ Evidence","Finance Decision"]:
         raise ValueError("PERSONAL_QQ_COVERAGE_SCHEMA_DRIFT")
-    if not unissued or [cell(unissued[0],i) for i in (0,4,6,10)]!=[
-        "AMEA Project ID","Quote KRW","Matched Invoice Count","Review Status"]:
+    if not unissued or [cell(unissued[0],i) for i in (0,4,6,10,12,13)]!=[
+        "AMEA Project ID","Quote KRW","Matched Invoice Count","Review Status",
+        "H Contract","X Sub-project"]:
         raise ValueError("UNISSUED_WATCH_SCHEMA_DRIFT")
     if not manifest or [cell(manifest[0],i) for i in (0,1)]!=["Source","Source Date"]:
         raise ValueError("MANIFEST_SCHEMA_DRIFT")
@@ -90,9 +94,9 @@ def audit(dated,personal,unissued,manifest,now):
         if cell(row,7)!=stamp:raise ValueError("PERSONAL_MANUAL_SNAPSHOT_DRIFT")
         amea=cell(dated_row,10)
         if not amea.startswith("AMEA"):raise ValueError("MANUAL_PROJECT_AMEA_MISSING")
-        selected.append((amea,erp,money(cell(dated_row,15)),cell(dated_row,25)))
+        selected.append((amea,erp,money(cell(dated_row,15)),cell(dated_row,25),cell(dated_row,9)))
     if not selected:raise ValueError("NO_PERSONAL_MANUAL_CANDIDATES")
-    if len({erp for _,erp,_,_ in selected})!=len(selected):
+    if len({erp for _,erp,_,_,_ in selected})!=len(selected):
         raise ValueError("DUPLICATE_PERSONAL_MANUAL_ERP")
     groups=collections.defaultdict(list)
     for tup in selected:groups[tup[0]].append(tup)
@@ -100,6 +104,7 @@ def audit(dated,personal,unissued,manifest,now):
     at=now.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST")
     stats={"manual_candidates":len(selected),"projects":len(groups),
            "quote_amount_candidate_projects":0,"gross_sum":sum(x[2] for x in selected),
+           "contract_mismatch_projects":0,
            "source_date":stamp,"source_age_days":(now.astimezone(KST).date()-source_date).days,
            "revenue_changes":0,"payment_approvals":0,"issued_certifications":0}
     for amea,entries in sorted(groups.items()):
@@ -111,8 +116,17 @@ def audit(dated,personal,unissued,manifest,now):
         if watch_row and cell(watch_row,10)!="ISSUANCE_NOT_VERIFIED":
             raise ValueError("UNISSUED_WATCH_DECISION_CHANGED")
         delta=group_net-quote_amount if quote_amount is not None else None
-        if quote_amount is None:
+        feishu_contracts={normalize_x(x[4]) for x in entries if x[4]}
+        watch_x=normalize_x(cell(watch_row,13)) if watch_row else ""
+        watch_h=cell(watch_row,12) if watch_row else ""
+        exact_contract_match=(len(feishu_contracts)==1 and watch_x in feishu_contracts)
+        if len(feishu_contracts)>1:
+            status="MANUAL_MULTIPLE_CONTRACTS_REVIEW"
+        elif quote_amount is None:
             status="QUOTE_WATCH_NOT_FOUND_REVIEW"
+        elif not exact_contract_match:
+            status="PROJECT_CONTRACT_MISMATCH_REVIEW"
+            stats["contract_mismatch_projects"]+=1
         elif matched!="0":
             status="ALREADY_MATCHED_WATCH_MANUAL_EVIDENCE_REVIEW"
         elif abs(delta)<=10:
@@ -120,11 +134,12 @@ def audit(dated,personal,unissued,manifest,now):
             stats["quote_amount_candidate_projects"]+=1
         else:
             status="AMOUNT_OR_SPLIT_MISMATCH_REVIEW"
-        for _,erp,invoice_gross,sales in sorted(entries):
+        for _,erp,invoice_gross,sales,feishu_x in sorted(entries):
             generated.append([amea,erp,invoice_gross,gross,group_net,
                 quote_amount if quote_amount is not None else "",
                 delta if delta is not None else "",matched,status,sales,stamp,
-                "Manual ERP record and 5-day-old eTax snapshot; request invoice PDF + issuance confirmation",
+                "Feishu X="+feishu_x+"; watch H="+watch_h+"; watch X="+cell(watch_row,13)+
+                "; require contract lineage, invoice PDF and issuance confirmation",
                 "NOT_VERIFIED",at,""])
     return generated,stats
 
