@@ -2,6 +2,8 @@
 
 ## Start here (required for every continuation)
 
+- **CURRENT RESEARCH DECISION V2 (2026-10-31):** [HCC_RESEARCH_STRATEGY_V2_GATE_REDESIGN_20261031.md](HCC_RESEARCH_STRATEGY_V2_GATE_REDESIGN_20261031.md) — **P0 MRI mask/phase source-space dispute and MRI-before-treatment + same-lesion RNA** are the blocking gates; CT-A/B numerical source PASS is only nonblocking methods evidence. Clinical GO withheld, twelve MRI–RNA associations not run.
+
 - **2026-10-31 scientific direction reset and STOP/GO gates:** [HCC_RESEARCH_DIRECTION_RESET_20261031.md](HCC_RESEARCH_DIRECTION_RESET_20261031.md) — clinical MRI–tissue pairing first; CT mask rescue second; IBSI CT A nonblocking.
 - **Master verification standard and manuscript significance/claim rubric:** [HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md)
 - **27 live evidence checkpoints:** [HCC_VERIFICATION_LEDGER.csv](HCC_VERIFICATION_LEDGER.csv)
