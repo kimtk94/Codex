@@ -63,6 +63,12 @@ class P0ParallelTests(unittest.TestCase):
         self.assertEqual(entries["AMEA contract lineage quarantine"][1],
                          "FAILURE_EXECUTION_ONLY")
         self.assertEqual(entries["Revenue and VAT"][1],"SUCCESS_EXECUTION_ONLY")
+        env["TRACK_CONTRACT"]="skipped"
+        rows=publisher.rows_from_environment(env,"now")
+        entries={r[0]:r for r in rows}
+        self.assertEqual(entries["AMEA contract lineage quarantine"][1],
+                         "SKIPPED_EXECUTION_ONLY")
+        self.assertEqual(entries["AMEA contract lineage quarantine"][3],"NOT_VERIFIED")
 
     def test_invoice_reviewer_failure_does_not_erase_successful_revenue(self):
         env={"GITHUB_RUN_ID":"12345","GITHUB_REPOSITORY":"kimtk94/Codex"}
