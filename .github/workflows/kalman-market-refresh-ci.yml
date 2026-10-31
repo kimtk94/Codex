@@ -72,6 +72,8 @@ jobs:
             --input-dir "$RUNNER_TEMP/kalman_market/raw/yfinance" \
             --output-dir "$RUNNER_TEMP/kalman_features"
       - name: Refresh 12 official FRED current-revision series
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
           python research/kalman_market_refresh/refresh_ci.py fred \
             --out "$RUNNER_TEMP/kalman_fred" \
