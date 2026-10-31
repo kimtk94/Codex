@@ -27,7 +27,7 @@ jobs:
 
   out-of-sample:
     needs: unit-tests
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030' || github.head_ref == 'feat/kalman-regime-market-ablation-20261031'))
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 35
@@ -87,6 +87,32 @@ jobs:
           assert len([x for x in v['folds'] if x['status']=='OOS'])>=4
           print('OOS_VALIDATED metrics_only=True')
           PY
+      - name: Download isolated private market research ZIP for matched ablation
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_triple_barrier/drive_input.py \
+            --file-id 1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd \
+            --output "$RUNNER_TEMP/kalman_market_research_latest.zip"
+      - name: Run matched 2025-2026 price and market ablation (PIT-gated)
+        run: |
+          python research/kalman_regime_walkforward/market_ablation.py \
+            --price-zip "$RUNNER_TEMP/kalman_pit_v1.zip" \
+            --market-zip "$RUNNER_TEMP/kalman_market_research_latest.zip" \
+            --out outputs/kalman_regime_market_ablation
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('outputs/kalman_regime_market_ablation/market_ablation_metrics.json').read_text())
+          assert d['status']=='RESEARCH_MATCHED_OOS_ONLY'
+          assert d['usdkrw_and_derived_excluded'] and d['fred_not_pit_no_macro_training']
+          assert d['single_position_global_nonoverlap'] and not d['live_modified']
+          assert {x['year'] for x in d['folds'] if x['status']=='OOS'}=={2025,2026}
+          assert d['coverage']['matched_complete_days']>=400
+          assert d['coverage']['excluded_incomplete_market_days']>=0
+          print('MATCHED_OOS_VALIDATED',json.dumps({'coverage':d['coverage'],'trades':{k:v['trades'] for k,v in d['strategies'].items()}}))
+          PY
       - name: Upload aggregated outcomes only (no licensed price files)
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,5 +122,8 @@ jobs:
             outputs/kalman_regime_walkforward/walkforward_metrics.json
             outputs/kalman_regime_walkforward/walkforward_by_year.csv
             outputs/kalman_regime_walkforward/walkforward_by_regime.csv
+            outputs/kalman_regime_market_ablation/market_ablation_metrics.json
+            outputs/kalman_regime_market_ablation/market_ablation_by_year.csv
+            outputs/kalman_regime_market_ablation/market_ablation_by_regime.csv
           retention-days: 14
           if-no-files-found: warn
