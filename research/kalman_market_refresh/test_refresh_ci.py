@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 from refresh_ci import (NEEDED, clean_fred_csv, select_universe, verified_status,
-                        make_bundle, publish, last_completed_nyse_session, fred_completeness_label)
+                        make_bundle, publish, last_completed_nyse_session, fred_completeness_label,
+                        clean_fred_api_json)
 
 
 class RefreshContracts(unittest.TestCase):
@@ -67,6 +68,17 @@ class RefreshContracts(unittest.TestCase):
             d=pd.read_parquet(f);d['timestamp']=pd.to_datetime(d['timestamp'])-pd.Timedelta(days=20);d.to_parquet(f)
             self.assertEqual(verified_status(md,fd,frd)['status'],'BLOCKED')
             with self.assertRaises(RuntimeError):make_bundle(md,fd,frd,Path(root)/'bad.zip',Path(root)/'report.json')
+
+    def test_official_fred_api_observation_parser(self):
+        payload={'observations':[{'date':f'2026-10-{i:02d}','value':str(3.0+i/100)}
+                                 for i in range(1,27)]}
+        parsed=clean_fred_api_json(payload)
+        self.assertEqual(len(parsed),26)
+        self.assertEqual(parsed['observation_date'].iloc[-1],'2026-10-26')
+        with self.assertRaises(ValueError):
+            clean_fred_api_json({'error':'invalid API key'})
+        with self.assertRaises(ValueError):
+            clean_fred_api_json({'observations':[{'date':'bad','value':'4'}]*25})
 
     def test_nyse_preclose_and_postclose_gate(self):
         self.assertEqual(last_completed_nyse_session('2026-10-30T17:09:00Z'),'2026-10-29')
