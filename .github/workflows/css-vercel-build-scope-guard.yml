@@ -4,12 +4,16 @@ on:
     paths:
       - 'automation/ops/css_vercel_scope_guard.py'
       - 'automation/ops/test_css_vercel_scope_guard.py'
+      - 'apps/css-sales-workspace/vercel.json'
+      - 'automation/ops/test_css_vercel_git_allowlist.py'
       - '.github/workflows/css-vercel-build-scope-guard.yml'
   push:
     branches: [main]
     paths:
       - 'automation/ops/css_vercel_scope_guard.py'
       - 'automation/ops/test_css_vercel_scope_guard.py'
+      - 'apps/css-sales-workspace/vercel.json'
+      - 'automation/ops/test_css_vercel_git_allowlist.py'
       - '.github/workflows/css-vercel-build-scope-guard.yml'
   workflow_dispatch:
   schedule:
@@ -33,6 +37,8 @@ jobs:
           python-version: '3.12'
       - name: Verify real Git diff semantics for CSS / research / root lock
         run: python -m unittest discover -s automation/ops -p 'test_css_vercel_scope_guard.py' -v
+      - name: Assert Production auto-deploy remains disabled and research Preview denied
+        run: python -m unittest discover -s automation/ops -p 'test_css_vercel_git_allowlist.py' -v
   live:
     name: Confirm Vercel project guard, never deploy
     needs: offline
