@@ -1,0 +1,70 @@
+name: Kalman COIN RR2 Result Gate (Research Only)
+on:
+  push:
+    branches:
+      - research/rr2-entry-rejection-audit-20261101
+    paths:
+      - '.github/workflows/kalman-coin-rr2-result-gate.yml'
+  pull_request:
+    paths:
+      - 'research/rr2_entry_gate/coin_result_gate.py'
+      - 'research/rr2_entry_gate/test_coin_result_gate.py'
+      - '.github/workflows/kalman-coin-rr2-result-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check source-pinning, provenance and future-only hold gates
+        run: python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_result_gate.py' -v
+  archived-sip-review:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve exact prior aggregate artifact via GitHub Actions (no licensed bars)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/coin_rr2_source"
+          gh run download 41222244272 --repo kimtk94/Codex \
+            --name kalman-coin-structural-rr2-aggregate \
+            --dir "$RUNNER_TEMP/coin_rr2_source"
+          echo '838311a1ab3d70410e3b43ca7c428033be7dc74431a2ed8d027f43f1f14e9e40  '"$RUNNER_TEMP/coin_rr2_source/summary.json" | sha256sum --check
+      - name: Compare 2024-frozen choice against 2025-2026, hard HOLD
+        run: |
+          python research/rr2_entry_gate/coin_result_gate.py \
+            --summary "$RUNNER_TEMP/coin_rr2_source/summary.json" \
+            --expected-sha256 838311a1ab3d70410e3b43ca7c428033be7dc74431a2ed8d027f43f1f14e9e40 \
+            --out outputs/coin_rr2_review/review.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          j=json.loads(Path("outputs/coin_rr2_review/review.json").read_text())
+          assert j["status"]=="REVIEWED_LIVE_HOLD"
+          assert j["eligible_for_live"] is False
+          assert j["both_positive_2025_2026"] == 0
+          assert not j["selected_both_positive"]
+          print("REVIEW_COMPLETE_LIVE_HOLD")
+          PY
+      - name: Upload decision proof only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-coin-rr2-selection-hold-evidence
+          path: outputs/coin_rr2_review/review.json
+          if-no-files-found: warn
+          retention-days: 14
