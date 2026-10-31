@@ -25,7 +25,7 @@ The source selection statistic for the **14 independent patient units** is per-p
 | First-order Median | 1.224% | 0.9648 | 2/14 | Median shift small, individual outliers |
 | Shape VoxelVolume / SurfaceArea / Sphericity / Elongation | **0% each** | **1.000 each** | 0/14 each | Expected negative control: unchanged masks |
 
-GLCM Contrast median **signed** source change = **−22.071%**, maximum absolute change **43.111%**. Direction is not universal: TCGA-DD-A4NJ increases **+21.84%**. TCGA-G3-AAV7 has 0% changes in the locked three features, **not evidence of a duplicated source** without a pixel-level source check. The source images have distinct SHA-256, so voxel-level equality within an ROI remains a separate question.
+GLCM Contrast median **signed** source change = **−22.071%**, maximum absolute change **43.111%**. Direction is not universal: TCGA-DD-A4NJ increases **+21.84%**. TCGA-G3-AAV7 has 0% changes across all ten features. **Follow-up actual pixel verification PASS**: raw PV and exact-axis-corrected registered ART_PV match **all 8,064,000 voxels** (both tumor reader masks and full liver 100%), despite different compressed source SHA-256. This is an image-export/source invariance, not proof of why the source registration gave identical arrays. Compare [AAV7/A10Y exact voxel diagnostic](HCC_MRI_P0_AAV7_A10Y_EXACT_SOURCE_VOXEL_IDENTITY_20261031.md) (run [#41193062797](https://github.com/kimtk94/Codex/actions/runs/41193062797)).
 
 ## Two-reader reliability does not imply source invariance
 
@@ -65,6 +65,6 @@ Original and registered PV values are not exchangeable. Source differences may r
 
 ## Next non-outcome-biased tasks
 
-1. Screen **TCGA-G3-AAV7** for exact original-versus-registered PV voxel identity in the selected mask and liver reference (signed-axis corrected, no transcriptome data); file hash difference alone cannot establish true ROI changes.
+1. AAV7 voxel-level source identity **verified and documented**; request source-author rationale only if needed, do not misclassify this case as an unsuccessful registration based on identical pixels alone.
 2. Generate patient-wise source sensitivity and reader ICC panels, with **absolute** registered-vs-original change and rank rho, not a misleading significance claim.
 3. Validate mask-to-tumor anatomy on `art` and registered `art_pv` via qualified review; verify MRI pretreatment and matched index-lesion RNA before deciding eligible n. Do not launch the 12 tests before those gates pass.
