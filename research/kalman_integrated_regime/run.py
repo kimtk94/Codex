@@ -217,7 +217,7 @@ def annual_run(features, events, complete, test_year, min_train=80):
     test_end = pd.Timestamp(f"{test_year}-12-31")
     # Purge anything whose path-dependent label exits after train end.
     train = events.loc[events.exit_date < test_begin]
-    test = events.loc[(events.date >= test_begin) & (events.date <= test_end)].copy()
+    test = events.loc[(events.date >= test_begin) & (events.date <= test_end)\n                      & (events.exit_date <= test_end)].copy()
     if len(test) == 0:
         raise ValueError(f"YEAR_{test_year}_NO_USABLE_LABELS")
     # Identical samples for both arms: complete features, and valid 4-session label.
