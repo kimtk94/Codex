@@ -107,11 +107,10 @@ def complete_sessions(x, session_dates):
     import exchange_calendars as xc
     cal = xc.get_calendar("XNYS")
     x = x.copy()
-    x["session"] = x.ts.dt.tz_localize(None).dt.normalize()
     # Normalize NY-local time, not UTC.
     x["session"] = pd.to_datetime(x.ts.dt.strftime("%Y-%m-%d"))
     groups = {k: g.reset_index(drop=True) for k, g in x.groupby("session")}
-    complete, counts = {}, {"complete": 0, "missing": 0, "partial": 0}
+    complete, counts = {}, {"complete": 0, "missing": 0, "partial": 0, "extended_bars_ignored": 0, "missing_rth_slots_by_clock": {}, "partial_examples": []}
     for session in session_dates:
         date = pd.Timestamp(session)
         if not cal.is_session(date):
@@ -124,11 +123,22 @@ def complete_sessions(x, session_dates):
         op = cal.session_open(date).tz_convert(TZ)
         cl = cal.session_close(date).tz_convert(TZ)
         expect = pd.date_range(op, cl - pd.Timedelta(minutes=15), freq="15min")
-        # No synthetic fills for missing opening/intermediate/closing candles.
-        if len(g) != len(expect) or not pd.DatetimeIndex(g.ts).equals(expect):
+        # Exclude premarket/afterhours before checking complete 09:30-16:00 RTH.
+        rth = g.loc[g.ts.ge(op) & g.ts.lt(cl)].reset_index(drop=True)
+        counts["extended_bars_ignored"] += len(g) - len(rth)
+        # Never fill a missing RTH bar; its path-dependent barrier is unknown.
+        if len(rth) != len(expect) or not pd.DatetimeIndex(rth.ts).equals(expect):
             counts["partial"] += 1
+            absent = expect.difference(pd.DatetimeIndex(rth.ts))
+            for ts in absent:
+                slot = ts.strftime("%H:%M")
+                counts["missing_rth_slots_by_clock"][slot] = counts["missing_rth_slots_by_clock"].get(slot, 0) + 1
+            if len(counts["partial_examples"]) < 5:
+                counts["partial_examples"].append({
+                    "date": str(date.date()), "expected": len(expect),
+                    "observed_rth": len(rth), "missing_rth": len(absent)})
             continue
-        complete[date] = g
+        complete[date] = rth
         counts["complete"] += 1
     return complete, counts
 
