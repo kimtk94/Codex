@@ -1,6 +1,11 @@
 name: Kalman QLD Integrated Regime Research (Read Only)
 
 on:
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - 'research/kalman_integrated_regime/**'
+      - '.github/workflows/kalman-qld-integrated-regime.yml'
   pull_request:
     paths:
       - 'research/kalman_integrated_regime/**'
@@ -27,7 +32,7 @@ jobs:
         run: python -m compileall -q research/kalman_integrated_regime
 
   historical-research:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     needs: offline-contracts
     runs-on: ubuntu-latest
     environment: TaehoonServer
@@ -60,8 +65,8 @@ jobs:
               json.loads(raw), scopes=['https://www.googleapis.com/auth/drive.readonly'])
           api = build('drive', 'v3', credentials=creds, cache_discovery=False)
           outputs = {
-              '1v9mM0l0-jLpXu81v6wfwJXHK3kSREsL-': 'daily.csv',
-              '1YZbup32DEBGOCEAt0XU0S_oVjcVVoiEn': 'qld_15m.parquet',
+              '1AHPws_x_q_TALFlZUoeSSTM3ChYaSa6R': 'daily.csv',
+              '1DyggclzDQ91Eew-QifEffSDGOVl7VOaq': 'qld_15m.parquet',
               '1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd': 'market.zip',
           }
           dst = Path(os.environ['RUNNER_TEMP']) / 'qld_regime'
