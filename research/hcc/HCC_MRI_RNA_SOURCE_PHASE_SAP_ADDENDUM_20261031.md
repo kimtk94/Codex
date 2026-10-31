@@ -21,3 +21,9 @@
 **Clinical snapshot:** 14 MRI/RNA ID overlaps are only technical candidates, all per-patient eligibility unresolved. This amendment does not change original biological hypothesis family, gene universe, exposure outcome definition, multiple-testing plan or claim ceiling **S0**.
 
 **Source evidence:** [source-phase full results](HCC_MRI_P0_ALL14_REGISTERED_PV_SOURCE_SENSITIVITY_REPORT_20261031.md) and [frozen verification ledger](HCC_VERIFICATION_LEDGER.csv).
+
+## Machine-readable research hold gate
+
+- `MRI_RNA_PRIMARY_ASSOCIATIONS=NOT_EXECUTED` — 0/12 of the locked three-image-feature × four-Hallmark tests have been run.
+- `MRI_RNA_ELIGIBLE_PAIRED_N=NOT_ASSESSED` — source patient ID overlap is not clinical sample inclusion.
+- `MANUSCRIPT_CLAIM_CEILING=S0` — source-space sensitivity is a technical methods result only; do not infer disease-pathway effects.
