@@ -9,6 +9,8 @@ on:
     paths:
       - 'research/rr2_entry_gate/reconstruct_pinned_original.py'
       - 'research/rr2_entry_gate/test_reconstruct_pinned_original.py'
+      - 'research/rr2_entry_gate/coin_private_tail.py'
+      - 'research/rr2_entry_gate/test_coin_private_tail.py'
       - '.github/workflows/kalman-coin-frozen-original-replay.yml'
   workflow_dispatch:
 permissions:
@@ -24,6 +26,10 @@ jobs:
           python-version: '3.11'
       - name: Verify 20 cross-model historical counts and 10 return parity gate contracts
         run: python -m unittest discover -s research/rr2_entry_gate -p 'test_reconstruct_pinned_original.py' -v
+      - name: Install exchange calendars for cost and bootstrap synthetic tests
+        run: python -m pip install --disable-pip-version-check 'exchange-calendars>=4.7,<5' 'pandas>=2.2,<3'
+      - name: Verify true 2R dynamic targets, month-cluster uncertainty and baseline parity
+        run: python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_private_tail.py' -v
 
   private-original-source-reconstruction:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/research/rr2-entry-rejection-audit-20261101') || github.event_name == 'workflow_dispatch'
@@ -74,7 +80,8 @@ jobs:
             --original-snapshot "$GITHUB_WORKSPACE/original_snapshot" \
             --bars-parquet "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
             --private-ledger-out "$RUNNER_TEMP/coin-original-reconstructed-signals.csv" \
-            --out outputs/coin_pit_rr2/reconstructed_summary.json
+            --out outputs/coin_pit_rr2/reconstructed_summary.json \
+            --stress-out outputs/coin_pit_rr2/repriced_monthblock_stress.json
       - name: Assert no promotion, no source-row export, model vintage provenance
         working-directory: research_current
         run: |
@@ -90,6 +97,21 @@ jobs:
           assert p['original_commit']=='cccbb80059ab626da0cbd76cd825f879870f6727'
           assert p['model_identities_verified_by_original_aggregate_metrics']
           assert p['can_promote_live'] is False
+          s=json.loads(Path('outputs/coin_pit_rr2/repriced_monthblock_stress.json').read_text())
+          assert s['live']=='HOLD'
+          assert s['costs_reprice_target_before_trade'] is True
+          assert len(s['results'])==72
+          rows=s['results']
+          b2025=next(x for x in rows if
+              (x['year'],x['arm'],x['hold_sessions'],x['roundtrip_cost_bps'])==
+              (2025,'PRIOR_LOW_BUFFER_2R',4,30))
+          b2026=next(x for x in rows if
+              (x['year'],x['arm'],x['hold_sessions'],x['roundtrip_cost_bps'])==
+              (2026,'PRIOR_LOW_BUFFER_2R',4,30))
+          assert (b2025['trades'],b2026['trades'])==(17,7)
+          assert b2025['net_mean_R']<0 and b2026['net_mean_R']>0
+          assert s['source_lineage']['source_20_signal_counts_parity'] is True
+          print('REPRICED_COST_AND_MONTH_BOOTSTRAP_RESEARCH_ONLY_PASS')
           print('ORIGINAL_SOURCE_20_COHORT_10_RETURN_PARITY_AND_COIN_126_MATCHED_RESEARCH_HOLD')
           PY
       - name: Upload aggregate-only reconstructed outcomes (no signals or SIP prices)
@@ -97,7 +119,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kalman-coin-pinned-original-pit-reconstruction
-          path: research_current/outputs/coin_pit_rr2/reconstructed_summary.json
+          path: |
+            research_current/outputs/coin_pit_rr2/reconstructed_summary.json
+            research_current/outputs/coin_pit_rr2/repriced_monthblock_stress.json
           if-no-files-found: warn
           retention-days: 14
       - name: Remove private raw SIP and 126-row signal ledger
