@@ -49,7 +49,10 @@ class MultiSymbolBackfillContracts(unittest.TestCase):
         bars,days=synthetic_bars()
         bars["trade_count"]=1
         bars["vwap"]=100.
-        partial=bars.drop(bars.index[0])
+        # Select COIN explicitly; input rows begin with SPY and should not
+        # accidentally invalidate a different symbol.
+        coin_first=bars.index[bars.market.eq("COIN")][0]
+        partial=bars.drop(coin_first)
         report=summarize(partial,{"adjustment":"all"},"2026-08-03","2026-09-15")
         self.assertEqual(report["data_qa"]["partial_or_missing_symbol_sessions"],1)
         self.assertEqual(report["by_symbol"]["COIN"]["years"]["2026"]["missing_or_partial_rth_sessions"],1)
