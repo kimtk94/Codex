@@ -29,6 +29,7 @@ on:
       - 'CSS Vercel Build Scope Guard'
       - 'CSS Operational Acceptance Evidence'
       - 'Sales Payment Reconciliation QC'
+      - 'Feishu Payment Table Audit'
     types: [completed]
 
 permissions:
