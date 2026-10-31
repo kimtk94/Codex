@@ -275,6 +275,26 @@ def main():
     events = label_events(daily.index, complete)
     if events.empty:
         raise ValueError("NO_REAL_15M_4DAY_EVENTS")
+    eligible = f[PRICE + EXTRA].notna().all(axis=1)
+    diagnostics = {
+        "intraday_first": str(x.ts.min()),
+        "intraday_last": str(x.ts.max()),
+        "complete_sessions": integrity,
+        "complete_sessions_by_year": {str(y): sum(d.year == y for d in complete)
+                                      for y in (2024, 2025, 2026)},
+        "events_by_signal_year": {str(y): int((events.date.dt.year == y).sum())
+                                  for y in (2024, 2025, 2026)},
+        "market_price_complete_by_year": {
+            str(y): int(((eligible.index.year == y) & eligible).sum())
+            for y in (2024, 2025, 2026)
+        },
+        "eligible_labeled_by_year": {
+            str(y): int(events.loc[events.date.dt.year == y, "date"].map(eligible).fillna(False).sum())
+            for y in (2024, 2025, 2026)
+        },
+    }
+    print("INPUT_DIAGNOSTICS " + json.dumps(diagnostics), flush=True)
+
     report = {"status": "RESEARCH_ONLY", "strategy": "QLD",
               "execution": "next NYSE session 09:30 NY 15m open",
               "barrier": {"tp": TP, "sl": SL, "hold_sessions": HOLD,
