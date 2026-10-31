@@ -22,6 +22,8 @@ on:
       - 'automation/ops/test_css_unissued_contract_lineage_guard.py'
       - 'automation/ops/css_amea_contract_candidate_crosswalk.py'
       - 'automation/ops/test_css_amea_contract_candidate_crosswalk.py'
+      - 'automation/ops/css_unissued_safe_watch.py'
+      - 'automation/ops/test_css_unissued_safe_watch.py'
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/automation-console.js'
@@ -47,6 +49,8 @@ on:
       - 'automation/ops/test_css_unissued_contract_lineage_guard.py'
       - 'automation/ops/css_amea_contract_candidate_crosswalk.py'
       - 'automation/ops/test_css_amea_contract_candidate_crosswalk.py'
+      - 'automation/ops/css_unissued_safe_watch.py'
+      - 'automation/ops/test_css_unissued_safe_watch.py'
       - 'automation/ops/css_web_source_live_smoke.cjs'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/automation-console.js'
@@ -84,6 +88,7 @@ jobs:
           python -m unittest discover -s automation/ops -p 'test_css_invoice_legacy_key_bridge.py' -v
           python -m unittest discover -s automation/ops -p 'test_css_unissued_contract_lineage_guard.py' -v
           python -m unittest discover -s automation/ops -p 'test_css_amea_contract_candidate_crosswalk.py' -v
+          python -m unittest discover -s automation/ops -p 'test_css_unissued_safe_watch.py' -v
       - name: Compile isolated release and publisher code
         run: python -m py_compile automation/ops/css_release_readonly_audit.py automation/ops/publish_css_p0_parallel_status.py
 
@@ -228,10 +233,14 @@ jobs:
         run: python -m unittest discover -s automation/ops -p 'test_css_unissued_contract_lineage_guard.py' -v
       - name: Test AMEA Online and finance candidate crosswalk offline
         run: python -m unittest discover -s automation/ops -p 'test_css_amea_contract_candidate_crosswalk.py' -v
+      - name: Test generated AMEA-keyed Unissued Safe Watch offline
+        run: python -m unittest discover -s automation/ops -p 'test_css_unissued_safe_watch.py' -v
       - name: Publish source-backed AMEA contract candidates (generated-only)
         run: python automation/ops/css_amea_contract_candidate_crosswalk.py
       - name: Quarantine misleading Watch H/X and verify source formulas
         run: python automation/ops/css_unissued_contract_lineage_guard.py
+      - name: Publish safe unissued Watch, retaining zero approved H/X values
+        run: python automation/ops/css_unissued_safe_watch.py
       - name: Keep original business and finance records read-only
         run: echo 'FORMULA_POSITIONAL_JOIN_UNSAFE;GENERATED_REVIEW_ONLY;NO_REVENUE_OR_SOURCE_MUTATION' >> "$GITHUB_STEP_SUMMARY"
 
