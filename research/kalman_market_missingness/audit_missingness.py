@@ -24,7 +24,9 @@ EXCHANGE_FRED={'SP500','NASDAQCOM','VIXCLS'}
 GOV_BUSINESS={'DGS2','DFII10','DEXKOUS','DTWEXBGS'}
 MARKET_KR={'yf_kospi','yf_kosdaq'}
 MARKET_24_7={'yf_btc'}
-MARKET_WEEKDAY={'yf_dxy','yf_usdkrw'}
+MARKET_WEEKDAY={'yf_usdkrw'}
+MARKET_DXY_PROXY={'yf_dxy'}
+KRX_SPECIAL_2026={'2026-06-03','2026-07-17'}
 CODES={'valid':'V','null':'N','missing_record':'G','not_expected':'-','market_partial':'P','market_unexpected':'X','feature_warmup':'W','feature_internal':'I'}
 
 
@@ -41,13 +43,15 @@ def date_keys(first,last,mode):
     if mode=='business': return set(pd.bdate_range(left,right).strftime('%Y-%m-%d'))
     if mode=='monthly': return set(pd.date_range(left.to_period('M').to_timestamp(),right,freq='MS').strftime('%Y-%m-%d'))
     if mode=='weekly': return set(pd.date_range(left,right,freq='W-WED').strftime('%Y-%m-%d'))
-    if mode in ('XNYS','XKRX'): return sessions(mode,left,right)
+    if mode=='XKRX': return sessions('XKRX',left,right)-KRX_SPECIAL_2026
+    if mode in ('XNYS','US_DXY_XNYS_PROXY'): return sessions('XNYS',left,right)
     raise ValueError('unknown schedule '+str(mode))
 
 
 def mode_market(key):
     if key in MARKET_24_7 or key=='yf_btc_usd': return 'calendar'
     if key in MARKET_KR: return 'XKRX'
+    if key in MARKET_DXY_PROXY: return 'US_DXY_XNYS_PROXY'
     if key in MARKET_WEEKDAY: return 'business'
     return 'XNYS'
 
@@ -107,9 +111,17 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
             if len(validity)==0: raise ValueError('EMPTY_MARKET:'+key)
             start=min(validity);end=min(max(validity),asof)
             expected=date_keys(start,end,mode)
+            # Yahoo may include placeholder nulls on non-trading days (VIX holidays, DXY Sundays).
+            # They are not missing candles on a valid trading session.
+            off_session_null=0
+            for event in events:
+                if event['layer']=='MARKET' and event['indicator']==key and event['status']=='PRESENT_INVALID' and event['date'] not in expected:
+                    event['status']='NONSESSION_NULL'
+                    event['classification']='provider_placeholder_on_nontrading_day'
+                    off_session_null+=1
             candidates=[]
             for d in sorted(expected-set(validity)):
-                events.append({'layer':'MARKET','indicator':key,'date':d,'status':'GAP','field':'row','frequency':mode,'classification':'missing_expected_session' if mode in ('XNYS','XKRX','calendar') else 'missing_candidate_nonholiday_business_day'})
+                events.append({'layer':'MARKET','indicator':key,'date':d,'status':'GAP','field':'row','frequency':mode,'classification':'missing_expected_session' if mode in ('XNYS','XKRX','calendar','US_DXY_XNYS_PROXY') else 'missing_candidate_nonholiday_business_day'})
                 candidates.append(d)
             unexpected=[d for d in validity if d<=asof and d not in expected]
             # Weekend entries in FX and index data can be provider session-labeled, not necessarily an error.
@@ -118,8 +130,8 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
             all_dates=set(validity)|expected
             for d in all_dates:
                 if d>asof:continue
-                date_market.setdefault(d,{})[key]=validity.get(d,'G' if d in expected else '-')
-            summary.append({'layer':'MARKET','indicator':key,'schedule':mode,'first_date':start,'last_date':max(validity),'asof_date':asof,'records':len(raw),'duplicate_dates':dupe_count,'expected_session_count':len(expected),'missing_expected_records':len(candidates),'observed_missing_close':missing['close'],'observed_missing_volume':missing['volume'],'partial_dates':sum(x=='P' for x in validity.values()),'unexpected_dates':len(unexpected),'missing_rate_pct':round(100*len(candidates)/max(1,len(expected)),3),'note':'FX business-day gaps are candidates, not confirmed exchange-session holes' if mode=='business' else ''})
+                date_market.setdefault(d,{})[key]=validity.get(d,'G') if d in expected else '-'
+            summary.append({'layer':'MARKET','indicator':key,'schedule':mode,'first_date':start,'last_date':max(validity),'asof_date':asof,'records':len(raw),'duplicate_dates':dupe_count,'expected_session_count':len(expected),'missing_expected_records':len(candidates),'observed_missing_close':missing['close'],'observed_missing_volume':missing['volume'],'partial_dates':sum(x=='P' and d in expected for d,x in validity.items()),'off_session_null_rows':off_session_null,'unexpected_dates':len(unexpected),'missing_rate_pct':round(100*len(candidates)/max(1,len(expected)),3),'note':('DXY uses NYSE proxy calendar; source may label Sunday FX ticks' if mode=='US_DXY_XNYS_PROXY' else 'FX business-day gaps are only candidates' if mode=='business' else 'KRX exceptional 2026-06-03 and 2026-07-17 holidays excluded' if mode=='XKRX' else '')})
         fred=pd.read_csv(io.BytesIO(z.read('fred/fred_latest_revised_long.csv')))
         for key,raw in fred.groupby('series_id'):
             mode=mode_fred(key)
@@ -140,6 +152,8 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
                     classification='provider_holiday_or_nonpublication' if prior_holiday_like(dt,mode) else 'present_row_null_value'
                     holiday_null+=int(classification=='provider_holiday_or_nonpublication')
                     invalid.append(dt)
+                    if key in ('CPIAUCSL','UNRATE') and dt=='2025-10-01':
+                        classification='BLS_2025_SHUTDOWN_NOT_PUBLISHED'
                     events.append({'layer':'FRED','indicator':key,'date':dt,'status':'VALUE_NULL','field':'value','frequency':mode,'classification':classification})
             # A provider may include a null observation on a non-target session; preserve as null, not missing.
             for dt in d.keys()-expected:
@@ -154,18 +168,22 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
             if 'timestamp' not in f: raise ValueError('BAD_FEATURE_TIMESTAMP:'+key)
             d=pd.to_datetime(f.timestamp,errors='coerce',utc=True).dt.strftime('%Y-%m-%d')
             feature_cols=[c for c in f if str(c).startswith('talib_v2_')]
+            feature_mode=mode_market('yf_'+key)
+            valid_feature_sessions=date_keys(str(d.min()),min(str(d.max()),asof),feature_mode)
             for col in feature_cols:
                 present=f[col].notna().to_numpy()
                 first_valid=int(np.argmax(present)) if present.any() else len(present)
                 missing_count=int((~present).sum())
                 warmup_missing=int((~present[:first_valid]).sum())
                 internal_missing=int((~present[first_valid:]).sum())
-                summary.append({'layer':'FEATURE','indicator':f'{key}:{col}','schedule':mode_market('yf_'+key),'first_date':str(d.min()),'last_date':str(d.max()),'asof_date':asof,'records':len(f),'expected_session_count':len(f),'observed_missing_value':missing_count,'warmup_missing':warmup_missing,'post_warmup_missing':internal_missing,'missing_rate_pct':round(100*missing_count/max(1,len(f)),3),'note':'post-warmup null candidate; may be caused by raw OHLC missing'})
+                internal_in_session=int(sum(not present[ix] and d.iloc[ix] in valid_feature_sessions for ix in range(first_valid,len(f))))
+                off_session_missing=internal_missing-internal_in_session
+                summary.append({'layer':'FEATURE','indicator':f'{key}:{col}','schedule':mode_market('yf_'+key),'first_date':str(d.min()),'last_date':str(d.max()),'asof_date':asof,'records':len(f),'expected_session_count':len(f),'observed_missing_value':missing_count,'warmup_missing':warmup_missing,'post_warmup_missing':internal_missing,'post_warmup_on_session':internal_in_session,'off_session_missing':off_session_missing,'missing_rate_pct':round(100*missing_count/max(1,len(f)),3),'note':'post-warmup null candidate; may be caused by raw OHLC missing'})
                 for ix in np.flatnonzero(~present):
                     dt=d.iloc[ix]
                     if dt<=asof:
-                        typ='W' if ix<first_valid else 'I'
-                        events.append({'layer':'FEATURE','indicator':f'{key}:{col}','date':dt,'status':'WARMUP_NULL' if typ=='W' else 'POST_WARMUP_NULL','field':col,'frequency':'daily_derived','classification':'indicator_warmup' if typ=='W' else 'internal_feature_missing_requires_source_check'})
+                        typ='W' if ix<first_valid else ('I' if dt in valid_feature_sessions else 'O')
+                        events.append({'layer':'FEATURE','indicator':f'{key}:{col}','date':dt,'status':{'W':'WARMUP_NULL','I':'POST_WARMUP_NULL','O':'OFF_SESSION_NULL'}[typ],'field':col,'frequency':'daily_derived','classification':{'W':'indicator_warmup','I':'internal_feature_missing_requires_source_check','O':'derived_from_off_session_null_source'}[typ]})
                         date_features.setdefault(dt,{})[f'{key}:{col}']=typ
         all_dates=sorted(set(date_market)|set(date_fred)|set(date_features))
         fields_market=sorted(Path(p).stem for p in names if p.startswith('market/raw/yfinance/') and p.endswith('.parquet'))
@@ -196,8 +214,10 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
           'raw_fred_rows':len(fred),'market_expected_row_gaps':int(s.loc[s.layer=='MARKET','missing_expected_records'].sum()),
           'fred_missing_expected_records':int(s.loc[s.layer=='FRED','missing_expected_records'].sum()),
           'feature_post_warmup_missing':int(s.loc[s.layer=='FEATURE','post_warmup_missing'].sum()),
+          'feature_post_warmup_on_valid_sessions':int(s.loc[s.layer=='FEATURE','post_warmup_on_session'].sum()),
+          'market_off_session_null_rows':int(s.loc[s.layer=='MARKET','off_session_null_rows'].sum()),
           'fred_not_vintage_pit':True,'market_us_calendar':'XNYS','market_kr_calendar':'XKRX',
-          'fx_weekdays':'candidate schedule, not authoritative','fred_lag':'not imputed',
+          'fx_weekdays':'USD/KRW weekday candidate; DXY NYSE proxy, not ICE official schedule','fred_lag':'not imputed',
           'event_rows':len(e),'notes':['V=valid, N=FRED raw null, P=market partial, G=expected record absent, -=non-applicable','W=TA-Lib initial warmup; I=post-warmup gap','FRED raw null on US holidays is an observed null, not a missing record','No forward-filling or fabricated values']}
         (output_dir/'audit_overview.json').write_text(json.dumps(overview,indent=2,ensure_ascii=False)+'\n')
         print(json.dumps(overview,indent=2,ensure_ascii=False))
