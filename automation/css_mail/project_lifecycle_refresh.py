@@ -23,6 +23,18 @@ REPLY=re.compile(r"^\s*(?:re|fw|fwd|회신|답장|전달)\s*[:：]",re.I)
 H=re.compile(r"H\d+SC\d+",re.I)
 A=re.compile(r"AMEA\d{7,}(?:-\d{1,3})?",re.I)
 
+def latest_source_timestamp(rows):
+    """Choose the most recent instant, not lexicographic mixed-offset ISO text."""
+    values=[]
+    for r in rows:
+        if not r or not r[0]:
+            continue
+        value=dt.datetime.fromisoformat(str(r[0]).replace("Z","+00:00"))
+        if value.tzinfo is None:
+            value=value.replace(tzinfo=KST)
+        values.append(value.astimezone(dt.timezone.utc))
+    return max(values,default=None)
+
 def present(r,i):
     return r[i] if i<len(r) else ""
 
@@ -237,15 +249,11 @@ def main():
     # Gate the full chain on source freshness. Never regenerate revenue with
     # a stale Feishu snapshot while recording a fresh PASS heartbeat.
     now_utc=dt.datetime.now(dt.timezone.utc)
-    def source_age_hours(value):
-        d=dt.datetime.fromisoformat(str(value).replace("Z","+00:00"))
-        if d.tzinfo is None:d=d.replace(tzinfo=KST)
-        return (now_utc-d.astimezone(dt.timezone.utc)).total_seconds()/3600
-    latest_feishu=max((r[0] for r in sources[1][1:] if r and r[0]),default="")
-    if not latest_feishu or source_age_hours(latest_feishu)>float(__import__("os").getenv("FEISHU_SNAPSHOT_MAX_AGE_HOURS","48")):
+    latest_feishu=latest_source_timestamp(sources[1][1:])
+    if not latest_feishu or (now_utc-latest_feishu).total_seconds()/3600>float(__import__("os").getenv("FEISHU_SNAPSHOT_MAX_AGE_HOURS","48")):
         raise RuntimeError("FEISHU_SOURCE_STALE: refresh Feishu before project/revenue sync")
-    latest_qq=max((r[0] for r in sources[4][1:] if r and r[0]),default="")
-    if not latest_qq or source_age_hours(latest_qq)>float(__import__("os").getenv("QQ_SOURCE_MAX_AGE_HOURS","6")):
+    latest_qq=latest_source_timestamp(sources[4][1:])
+    if not latest_qq or (now_utc-latest_qq).total_seconds()/3600>float(__import__("os").getenv("QQ_SOURCE_MAX_AGE_HOURS","6")):
         raise RuntimeError("QQ_SOURCE_STALE: stop project/revenue refresh")
     result=build(*sources)
     previous=get(s,DST,TAB,"A1:X1000")
