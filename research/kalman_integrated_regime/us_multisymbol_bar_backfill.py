@@ -28,7 +28,7 @@ from research.kalman_integrated_regime.us_multisymbol_microstructure import (
 from research.kalman_integrated_regime.sip_backfill import month_ranges
 
 ENDPOINT="https://data.alpaca.markets/v2/stocks/bars"
-MAX_PAGE_BUDGET=160
+MAX_PAGE_BUDGET=850
 
 
 class DownloadError(RuntimeError):
@@ -36,7 +36,7 @@ class DownloadError(RuntimeError):
 
 
 def get_months(session, symbols, start, end, key, secret,
-               max_pages_per_month=10):
+               max_pages_per_month=25):
     rows=[]
     pages=0
     months=0
@@ -89,7 +89,7 @@ def get_months(session, symbols, start, end, key, secret,
                                  "trade_count":bar.get("n"),"vwap":bar.get("vw")})
             pages+=1
             if pages>MAX_PAGE_BUDGET:
-                raise DownloadError("PAGE_BUDGET_EXCEEDED")
+                raise DownloadError(f"PAGE_BUDGET_EXCEEDED:month={left.date()}:pages={pages}:cap={MAX_PAGE_BUDGET}")
             token=data.get("next_page_token")
             if token is None:
                 break
@@ -97,7 +97,8 @@ def get_months(session, symbols, start, end, key, secret,
                 raise DownloadError("SIP_REPEAT_PAGINATION_CURSOR")
             seen.add(token)
         else:
-            raise DownloadError("SIP_MONTH_TRUNCATED")
+            raise DownloadError(f"SIP_MONTH_TRUNCATED:month={left.date()}:per_month_cap={max_pages_per_month}:global_pages={pages}")
+        print("SIP_MONTH_PROGRESS "+json.dumps({"month":str(left.date()),"global_pages":pages,"total_rows":len(rows)}),flush=True)
     if not rows:
         raise DownloadError("SIP_NO_BARS")
     frame=pd.DataFrame(rows)
@@ -185,7 +186,7 @@ def main():
     ap.add_argument("--symbols",default="SPY,IWM,SMH,MU,COIN")
     ap.add_argument("--start",default="2024-01-01")
     ap.add_argument("--end-exclusive",default="2026-10-31")
-    ap.add_argument("--max-pages-per-month",type=int,default=10)
+    ap.add_argument("--max-pages-per-month",type=int,default=25)
     ap.add_argument("--out",help="Required except when --self-test is used")
     ap.add_argument("--self-test",action="store_true")
     a=ap.parse_args()
@@ -196,7 +197,7 @@ def main():
     if not a.out:
         raise SystemExit("OUTPUT_DIRECTORY_REQUIRED")
     start,end=pd.Timestamp(a.start),pd.Timestamp(a.end_exclusive)
-    if start>=end or (end-start).days>1100 or a.max_pages_per_month>15 or a.max_pages_per_month<1:
+    if start>=end or (end-start).days>1100 or a.max_pages_per_month>30 or a.max_pages_per_month<1:
         raise SystemExit("BACKFILL_RANGE_OR_PAGE_BUDGET_INVALID")
     syms=select_symbols(a.symbols,approved_us_symbols(),max_symbols=5)
     folder=Path(a.out)
