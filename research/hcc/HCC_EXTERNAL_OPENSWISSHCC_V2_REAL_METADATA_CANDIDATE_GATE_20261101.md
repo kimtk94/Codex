@@ -25,7 +25,7 @@ The official `participants.tsv` has **69 no-lesion HCC-negative control subjects
 
 Original metadata result: Actions artifact `hcc-openswiss-v2-official-metadata-only-hcc-venous-candidate-manifest`, ID **13049030017**, includes the 90-lesion candidate manifest and the exact provenance JSON.
 
-The versioned `derivatives.zip` is **113.8 MB** with official MD5 `45975a7018834c4ab1b827efff0b41ac` and holds manual masks and transform files; derivative file listing and MD5 is a separate CI job. Full MRI images are in three separate **~4–5 GB** patient ZIPs, combined ~14.5 GB. **Do not download all three** merely to read metadata.
+The versioned `derivatives.zip` is **113.8 MB** with official MD5 `45975a7018834c4ab1b827efff0b41ac`: the second GitHub Actions job **SUCCESS** checked this digest and enumerated **2,832 files**. All **90/90** HCC-labeled venous mask candidates from the annotation-status metadata mapped to **90 actual first-reader lesion mask files**, and **8** HCC venous lesions also have an actual independent second-reader mask. The full source-traceable [90-lesion matched manifest ZIP](https://github.com/kimtk94/Codex/actions/runs/41217646089) is held in artifact ID **13048738836**. These counts are from source archive filenames, not registered image/mask voxel geometry; no original 5GB MRI archive was downloaded. Full MRI images are in three separate **~4–5 GB** patient ZIPs, combined ~14.5 GB. **Do not download all three** merely to read metadata.
 
 ## External validation protocol — source-locked, outcome-blind
 
@@ -44,5 +44,6 @@ Reproduce **within the same venous image** `native spacing × binWidth25` (basel
 ## GO/HOLD/STOP
 
 - **GO:** OpenSwissHCC v2 four tiny original official metadata files, verified MD5 and actual **90 HCC venous lesion candidates in 59 people**.
-- **HOLD until inspected:** 113.8 MB derivative ZIP mask path/MD5, selected original venous images / NIfTI affine matching and independent patient/lesion MRI extraction. A dataset size alone is never validation.
+- **PASS:** 113.8 MB derivative ZIP original MD5, **2,832 file paths, 90/90 HCC venous manual mask files**, 8 HCC venous second-reader mask file entries. The strict metadata parser preserves HCC-negative subjects with blank lesion index instead of inventing lesions.
+- **HOLD until inspected:** selected original venous images / mask geometry / nonempty segmented ROI, actual PyRadiomics extraction and cohort-wide independent effect estimates. A dataset size, mask file path, or one patient cannot establish external replication.
 - **STOP:** HCC biological radiogenomics tests, pretending the 90 lesions are 90 independent patients, repeating the 14-case discovery analysis until a desired p-value, joining TCGA clinical events to Swiss cohort, and phase/registration equivalence claims unsupported by independent data.
