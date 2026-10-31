@@ -12,6 +12,11 @@ on:
         type: boolean
         required: false
         default: false
+      run_ibsi_live:
+        description: "Rerun verified official IBSI-1 phantom source, independent 13-direction GLCM and PyRadiomics 3Davg benchmark"
+        type: boolean
+        required: false
+        default: false
   pull_request:
     paths:
       - "research/hcc/**"
@@ -128,6 +133,8 @@ jobs:
         run: python research/hcc/ci/mri_ibsi1_hcc_gate_integrator.py --offline-test
       - name: Independent original IBSI-1 13-direction 3D Contrast math guard
         run: python research/hcc/ci/mri_ibsi1_independent_glcm_reference.py --offline-test
+      - name: Frozen official IBSI source/phantom/PyRadiomics result must not promote HCC inference
+        run: python research/hcc/ci/mri_ibsi1_frozen_source_result_qc.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
@@ -458,8 +465,8 @@ jobs:
 
 
   hcc-ibsi1-source:
-    name: HCC IBSI 1/4 – Download official 3D phantom source and hash
-    if: github.event_name == 'pull_request'
+    name: HCC IBSI 1/5 – Original 3D phantom provenance and SHA
+    if: github.event_name == 'workflow_dispatch' && inputs.run_ibsi_live == true
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -480,8 +487,8 @@ jobs:
           retention-days: 30
 
   hcc-ibsi1-contrast:
-    name: HCC IBSI 2/4 – Real PyRadiomics v3.1.0 3D averaged Contrast
-    if: github.event_name == 'pull_request'
+    name: HCC IBSI 3/5 – Pinned PyRadiomics 3Davg Contrast
+    if: github.event_name == 'workflow_dispatch' && inputs.run_ibsi_live == true
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -505,8 +512,8 @@ jobs:
 
 
   hcc-ibsi1-independent-math:
-    name: HCC IBSI independent original 13-direction GLCM source validation
-    if: github.event_name == 'pull_request'
+    name: HCC IBSI 2/5 – Independent original 13-direction GLCM math
+    if: github.event_name == 'workflow_dispatch' && inputs.run_ibsi_live == true
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -526,8 +533,8 @@ jobs:
           retention-days: 30
 
   hcc-ibsi1-protocol:
-    name: HCC IBSI 3/4 – Frozen 14 MRI and 12-test clinical protocol guards
-    if: github.event_name == 'pull_request'
+    name: HCC IBSI 4/5 – Frozen 14 MRI and clinical claim guards
+    if: github.event_name == 'workflow_dispatch' && inputs.run_ibsi_live == true
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -541,8 +548,8 @@ jobs:
         run: python research/hcc/ci/mri_ibsi1_hcc_gate_integrator.py --offline-test
 
   hcc-ibsi1-integration:
-    name: HCC IBSI 4/4 – Join independent source and benchmark and issue scientific gate
-    if: github.event_name == 'pull_request'
+    name: HCC IBSI 5/5 – Four-way IBSI phantom scientific evidence join
+    if: github.event_name == 'workflow_dispatch' && inputs.run_ibsi_live == true
     needs: [hcc-ibsi1-source, hcc-ibsi1-independent-math, hcc-ibsi1-contrast, hcc-ibsi1-protocol]
     runs-on: ubuntu-latest
     timeout-minutes: 6
