@@ -57,6 +57,20 @@ test('invalid dates or future source dates fail closed',()=>{
  const bad=base.slice();bad[14]='2026-02-31';
  assert.equal(projectUnissuedContracts([HEAD,bad],NOW).available,false);
 });
+test('stale or malformed crosswalk timestamp is not allowed to display contract candidates',()=>{
+ const base=row('AMEA2026090309','FINANCE_AMEA_CANDIDATE','','X209SC26107211');
+ const aged=base.slice();aged[18]='2026-10-29 21:47:32 KST';
+ assert.equal(projectUnissuedContracts([HEAD,aged],NOW).available,false);
+ const future=base.slice();future[18]='2026-11-01 01:47:32 KST';
+ assert.equal(projectUnissuedContracts([HEAD,future],NOW).available,false);
+ const broken=base.slice();broken[18]='2026-10-31 25:77:32 KST';
+ assert.equal(projectUnissuedContracts([HEAD,broken],NOW).available,false);
+});
+test('two different AMEA rows cannot present same X base as unique contract',()=>{
+ const a=row('AMEA2026090309','FINANCE_AMEA_CANDIDATE','','X209SC26107211');
+ const b=row('AMEA2026090335','ONLINE_AMEA_CANDIDATE','X209SC26107211-Z01','');
+ assert.equal(projectUnissuedContracts([HEAD,a,b],NOW).available,false);
+});
 test('lifecycle retains owner authentication and isolates optional crosswalk reads',()=>{
  const api=fs.readFileSync(path.join(__dirname,'..','api','lifecycle.js'),'utf8');
  assert.match(api,/checkOwner\(req,token/);
