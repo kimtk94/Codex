@@ -51,6 +51,21 @@ AXES = {
     "slippage_bps": [0, 5, 10, 20],
     "max_month": [0, 2, 4, 8],
     "gap_cap": [0.0, 0.01, 0.02, 0.04],
+    "entry_session_offset": [1, 2, 3],
+    "gap_down_cap": [0.0, 0.01, 0.02, 0.04],
+    "gap_up_floor": [0.0, 0.005, 0.01, 0.02],
+    "vol_floor": [0.0, 0.0075, 0.015, 0.0225],
+    "qqq_r20_cap": [0.0, 0.05, 0.10],
+    "qqq_r5_cap": [0.0, 0.025, 0.05],
+    "qld_r5_abs_cap": [0.0, 0.03, 0.06],
+    "credit_floor": [-99.0, -0.01, 0.0],
+    "credit_cap": [99.0, 0.0, 0.01],
+    "tnx_cap": [0.0, 4.0, 5.0, 6.0],
+    "vix_change_cap": [0.0, 0.10, 0.20],
+    "smh_spy_floor": [-99.0, -0.02, 0.0],
+    "min_rr": [0.0, 1.0, 1.5, 2.0],
+    "prior_bar_range_cap": [0.0, 0.01, 0.02, 0.04],
+    "min_profit_holding_bars": [0, 1, 4, 8],
 }
 # Default replicates original fixed-barrier strategy where compatible. Actual
 # historical baseline is independently computed in base.run.
@@ -65,8 +80,14 @@ BASELINE = {
     "qld_r5_gate": "none", "vol_cap": 0.,
     "confidence": .5, "slippage_bps": 0, "max_month": 0,
     "gap_cap": 0.,
+    "entry_session_offset": 1, "gap_down_cap": 0., "gap_up_floor": 0.,
+    "vol_floor": 0., "qqq_r20_cap": 0., "qqq_r5_cap": 0.,
+    "qld_r5_abs_cap": 0., "credit_floor": -99., "credit_cap": 99.,
+    "tnx_cap": 0., "vix_change_cap": 0., "smh_spy_floor": -99.,
+    "min_rr": 0., "prior_bar_range_cap": 0.,
+    "min_profit_holding_bars": 0,
 }
-assert set(BASELINE) == set(AXES)
+assert set(BASELINE) == set(AXES) and len(AXES) == 40
 FEE = base.FEE
 
 
@@ -95,7 +116,9 @@ def policy_valid(p):
     return bool(p["vix_min"] < p["vix_max"] and
                 p["sl"] > 0 and p["tp"] > 0 and
                 p["size"] > 0 and p["size"] <= 1 and
-                p["hold"] >= 1)
+                p["hold"] >= 1 and
+                p["credit_floor"] < p["credit_cap"] and
+                (p["min_rr"] == 0 or p["tp"] / p["sl"] >= p["min_rr"]))
 
 
 def generate_policies(n, seed=20261031):
@@ -159,6 +182,22 @@ def allow_signal(p, f, probability):
         return False
     if p["vol_cap"] > 0 and f["qqq_vol20"] > p["vol_cap"]:
         return False
+    if p["vol_floor"] > 0 and f["qqq_vol20"] < p["vol_floor"]:
+        return False
+    if p["qqq_r20_cap"] > 0 and f["qqq_r20"] > p["qqq_r20_cap"]:
+        return False
+    if p["qqq_r5_cap"] > 0 and f["qqq_r5"] > p["qqq_r5_cap"]:
+        return False
+    if p["qld_r5_abs_cap"] > 0 and abs(f["qld_r5"]) > p["qld_r5_abs_cap"]:
+        return False
+    if not (p["credit_floor"] <= f["hyg_lqd_r5_lag1"] <= p["credit_cap"]):
+        return False
+    if p["tnx_cap"] > 0 and f["tnx_lag1"] > p["tnx_cap"]:
+        return False
+    if p["vix_change_cap"] > 0 and f["vix_r5_lag1"] > p["vix_change_cap"]:
+        return False
+    if f["smh_spy_r20_lag1"] < p["smh_spy_floor"]:
+        return False
     return True
 
 
@@ -176,7 +215,7 @@ class Fill:
     equity_marks: dict
 
 
-def simulate_trade(p, future_sessions, start_slot, signal_day, previous_close):
+def simulate_trade(p, future_sessions, start_slot, signal_day, previous_close, prior_bar=None):
     """Single-position cash ledger with explicit split entry/exit & 15m precedence.
 
     Stop is anchored to initial entry, never loosened after averaging down.
@@ -191,6 +230,18 @@ def simulate_trade(p, future_sessions, start_slot, signal_day, previous_close):
     px0 = float(opening.iloc[start_slot].open)
     if p["gap_cap"] and px0 > previous_close * (1 + p["gap_cap"]):
         return None
+    if p["gap_down_cap"] and px0 < previous_close * (1 - p["gap_down_cap"]):
+        return None
+    if p["gap_up_floor"] and px0 < previous_close * (1 + p["gap_up_floor"]):
+        return None
+    if p["prior_bar_range_cap"] > 0:
+        # The candle immediately before entry must already be completed.
+        # For 09:30 NY entry, use prior regular session's final 15m bar.
+        if prior_bar is None:
+            return None
+        prev_range = (float(prior_bar.high) - float(prior_bar.low)) / float(prior_bar.open)
+        if prev_range > p["prior_bar_range_cap"]:
+            return None
     alloc = float(p["size"])
     if p["risk_budget"] > 0.:
         alloc = min(alloc, float(p["risk_budget"]) / float(p["sl"]))
@@ -244,7 +295,8 @@ def simulate_trade(p, future_sessions, start_slot, signal_day, previous_close):
                 partial_px = anchor_cost + p["partial_at_r"] * (px0 * p["sl"])
                 full_tp = anchor_cost * (1 + p["tp"])
                 partial_this_bar = False
-                if not partial_done and p["partial_tp"] > 0 and h >= partial_px:
+                if (elapsed >= p["min_profit_holding_bars"] and
+                    not partial_done and p["partial_tp"] > 0 and h >= partial_px):
                     fraction = float(p["partial_tp"])
                     sold = shares * fraction
                     # Opening gap past threshold executes at open.
@@ -253,7 +305,7 @@ def simulate_trade(p, future_sessions, start_slot, signal_day, previous_close):
                     sell_fills += 1
                     partial_done = True
                     partial_this_bar = True
-                if h >= full_tp and shares > 0:
+                if elapsed >= p["min_profit_holding_bars"] and h >= full_tp and shares > 0:
                     proceeds += shares * max(o, full_tp) * fee_sell
                     shares = 0.
                     sell_fills += 1
@@ -326,21 +378,29 @@ def simulate_portfolio(p, signal_prob, features, complete, dates, year):
         f = features.loc[signal_day]
         if not allow_signal(p, f, prob):
             continue
-        follow = date_list[ix+1:ix+1+p["hold"]]
+        first_idx = ix + p["entry_session_offset"]
+        follow = date_list[first_idx:first_idx+p["hold"]]
         if len(follow) < p["hold"] or any(d not in complete for d in follow):
             continue
         entry_day = follow[0]
         if not (start <= entry_day <= end) or follow[-1] > end:
             continue
-        entry_idx = ix + 1
+        entry_idx = first_idx
         if entry_idx <= last_exit_index + p["cooldown"]:
             continue
         month = entry_day.strftime("%Y-%m")
         if p["max_month"] > 0 and by_month[month] >= p["max_month"]:
             continue
         previous_close = float(complete[signal_day].iloc[-1].close)
+        if (p["prior_bar_range_cap"] > 0 and entry_idx - 1 >= 0 and
+            date_list[entry_idx - 1] not in complete):
+            continue
+        prev = complete[date_list[entry_idx-1]].iloc[-1] if entry_idx >= 1 and date_list[entry_idx-1] in complete else None
+        if p["entry_delay"] > 0:
+            # Last fully completed 15-minute RTH candle before delayed entry.
+            prev = complete[entry_day].iloc[p["entry_delay"] - 1]
         future = [(d, complete[d]) for d in follow]
-        trade = simulate_trade(p, future, p["entry_delay"], signal_day, previous_close)
+        trade = simulate_trade(p, future, p["entry_delay"], signal_day, previous_close, prior_bar=prev)
         if trade is None:
             continue
         if trade.entry_date != entry_day or trade.exit_date not in date_idx:
@@ -423,6 +483,13 @@ def interaction_screen(rows, year, model):
         "entry_delay": lambda p: p["entry_delay"] > 0,
         "cooldown": lambda p: p["cooldown"] > 0,
         "confidence_gate": lambda p: p["confidence"] >= .55,
+        "day_offset": lambda p: p["entry_session_offset"] > 1,
+        "gap_down_gate": lambda p: p["gap_down_cap"] > 0,
+        "vol_floor": lambda p: p["vol_floor"] > 0,
+        "credit_floor": lambda p: p["credit_floor"] > -99,
+        "rate_cap": lambda p: p["tnx_cap"] > 0,
+        "rr_gate": lambda p: p["min_rr"] > 0,
+        "min_hold": lambda p: p["min_profit_holding_bars"] > 0,
     }
     scored = []
     for a, b in combinations(flags, 2):
