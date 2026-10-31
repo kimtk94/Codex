@@ -1,0 +1,343 @@
+{
+  "schema_version": "kalman_research_universe_v1_20261030",
+  "status": "CANDIDATE_ONLY_NOT_LIVE",
+  "live_policy_modified": false,
+  "study_purpose": "Multi-timeframe 1m execution / 15m signals / 60m and daily market regimes",
+  "selection_policy": {
+    "criteria_weights_pct": {
+      "data_completeness": 30,
+      "regime_diversification": 25,
+      "liquidity_and_spread": 20,
+      "volatility_and_event_coverage": 15,
+      "signal_uniqueness": 10
+    },
+    "note": "Weights are proposed research criteria, not calibrated empirical scores. Liquidity and current completeness must be measured before promotion.",
+    "intraday_provenance": "SIP for US stocks; never silently mix with IEX",
+    "timeframes_policy": "1m native where available; 5m derived from 1m; 15m canonical SIP native; 60m/daily regimes with session alignment",
+    "training_gates": [
+      "As-of constituent membership, avoid survivorship bias",
+      "No data gaps mistaken for filled trades",
+      "Point-in-time corporate actions and delistings",
+      "Training/validation/test purged rolling walk-forward",
+      "After-fee and after-spread out-of-sample net performance",
+      "Research universe does not authorize live trading"
+    ]
+  },
+  "assets": [
+    {
+      "symbol": "QQQ",
+      "market": "US",
+      "class": "ETF",
+      "priority": "P0",
+      "role": "primary NASDAQ regime and signal anchor",
+      "collect": [
+        "1m",
+        "15m",
+        "1d"
+      ],
+      "evidence": "SIP 15m and 1d through 2026-09-04; 1m not verified as continuous"
+    },
+    {
+      "symbol": "QLD",
+      "market": "US",
+      "class": "LEVERAGED_ETF",
+      "priority": "P0",
+      "role": "current 2x daily leveraged execution validation",
+      "collect": [
+        "1m",
+        "15m",
+        "1d"
+      ],
+      "evidence": "SIP 15m and 1d through 2026-09-04; 1m not verified as continuous"
+    },
+    {
+      "symbol": "SPY",
+      "market": "US",
+      "class": "ETF",
+      "priority": "P0",
+      "role": "broad market benchmark",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "Listed in v2 universe; granular historical coverage unverified"
+    },
+    {
+      "symbol": "SMH",
+      "market": "US",
+      "class": "ETF",
+      "priority": "P0",
+      "role": "semiconductor sector regime",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "Listed in v2 universe; granular historical coverage unverified"
+    },
+    {
+      "symbol": "IWM",
+      "market": "US",
+      "class": "ETF",
+      "priority": "P1",
+      "role": "small-cap and risk appetite regime",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "Listed in v2 universe; granular historical coverage unverified"
+    },
+    {
+      "symbol": "TQQQ",
+      "market": "US",
+      "class": "LEVERAGED_ETF",
+      "priority": "P1",
+      "role": "3x leverage research comparator, not live-approved",
+      "collect": [
+        "1m",
+        "15m",
+        "1d"
+      ],
+      "evidence": "Not covered by verified US_ETF raw folder"
+    },
+    {
+      "symbol": "SQQQ",
+      "market": "US",
+      "class": "INVERSE_LEVERAGED_ETF",
+      "priority": "P1",
+      "role": "negative 3x downturn and hedging comparator, not live-approved",
+      "collect": [
+        "1m",
+        "15m",
+        "1d"
+      ],
+      "evidence": "Not covered by verified US_ETF raw folder"
+    },
+    {
+      "symbol": "TLT",
+      "market": "US",
+      "class": "BOND_ETF",
+      "priority": "P1",
+      "role": "duration and rate regime context",
+      "collect": [
+        "60m",
+        "1d"
+      ],
+      "evidence": "Listed in v2 universe; granular historical coverage unverified"
+    },
+    {
+      "symbol": "HYG",
+      "market": "US",
+      "class": "BOND_ETF",
+      "priority": "P1",
+      "role": "credit stress regime context",
+      "collect": [
+        "60m",
+        "1d"
+      ],
+      "evidence": "Listed in v2 universe; granular historical coverage unverified"
+    },
+    {
+      "symbol": "GLD",
+      "market": "US",
+      "class": "ETF",
+      "priority": "P1",
+      "role": "gold risk-off diversification context",
+      "collect": [
+        "60m",
+        "1d"
+      ],
+      "evidence": "Listed in v2 universe; granular historical coverage unverified"
+    },
+    {
+      "symbol": "NVDA",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P0",
+      "role": "semiconductor momentum and high-activity execution candidate",
+      "collect": [
+        "1m",
+        "15m",
+        "1d"
+      ],
+      "evidence": "Partial 2025 1m shards in Drive, no verified continuous history"
+    },
+    {
+      "symbol": "TSLA",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P0",
+      "role": "high volatility and downside reversal events",
+      "collect": [
+        "1m",
+        "15m",
+        "1d"
+      ],
+      "evidence": "Partial 2025 1m shards in Drive, no verified continuous history"
+    },
+    {
+      "symbol": "AMD",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P0",
+      "role": "semiconductor cross-sectional contrast",
+      "collect": [
+        "1m",
+        "15m",
+        "1d"
+      ],
+      "evidence": "Partial 2025 1m shards in Drive, no verified continuous history"
+    },
+    {
+      "symbol": "AAPL",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P1",
+      "role": "large-cap technology cross-sectional control",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "2017+ daily yfinance through 2026-08-28; partial 2025 1m shards"
+    },
+    {
+      "symbol": "MSFT",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P1",
+      "role": "large-cap technology cross-sectional control",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "One 2025 1m shard observed; historical coverage unverified"
+    },
+    {
+      "symbol": "AMZN",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P1",
+      "role": "consumer cloud growth contrast",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "2017+ daily yfinance through 2026-08-28; 1m shard folder exists"
+    },
+    {
+      "symbol": "META",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P1",
+      "role": "platform and AI news events",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "1m shard folder exists; continuous history unverified"
+    },
+    {
+      "symbol": "MU",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P1",
+      "role": "semiconductor cycle diversification",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "1m shard folder exists; continuous history unverified"
+    },
+    {
+      "symbol": "PLTR",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P2",
+      "role": "high beta research-only event comparator",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "1m shard folder exists; continuous history unverified"
+    },
+    {
+      "symbol": "IONQ",
+      "market": "US",
+      "class": "EQUITY",
+      "priority": "P2",
+      "role": "speculative theme event control; shorter listed history",
+      "collect": [
+        "15m",
+        "1d"
+      ],
+      "evidence": "2021-10 onward daily yfinance through 2026-08-28"
+    },
+    {
+      "symbol": "KRW-BTC",
+      "market": "UPBIT",
+      "class": "CRYPTO",
+      "priority": "P0",
+      "role": "crypto market anchor and broad regime",
+      "collect": [
+        "1m",
+        "15m",
+        "60m",
+        "1d"
+      ],
+      "evidence": "Drive 1m monthly 2025-08 to part of 2026-08; server state not verified"
+    },
+    {
+      "symbol": "KRW-ETH",
+      "market": "UPBIT",
+      "class": "CRYPTO",
+      "priority": "P0",
+      "role": "crypto beta and grid regime benchmark",
+      "collect": [
+        "1m",
+        "15m",
+        "60m",
+        "1d"
+      ],
+      "evidence": "Prior server research 2024-2026 1m; live server state not verified"
+    },
+    {
+      "symbol": "KRW-XRP",
+      "market": "UPBIT",
+      "class": "CRYPTO",
+      "priority": "P1",
+      "role": "high attention altcoin regime",
+      "collect": [
+        "1m",
+        "15m",
+        "60m"
+      ],
+      "evidence": "Current market shown by Upbit; historical completeness not verified"
+    },
+    {
+      "symbol": "KRW-SOL",
+      "market": "UPBIT",
+      "class": "CRYPTO",
+      "priority": "P1",
+      "role": "alternative smart contract ecosystem regime",
+      "collect": [
+        "1m",
+        "15m",
+        "60m"
+      ],
+      "evidence": "Current market shown by Upbit; historical completeness not verified"
+    }
+  ],
+  "contextual_index_features": [
+    "VIX",
+    "US10Y",
+    "DXY",
+    "USD/KRW"
+  ],
+  "dynamic_cohorts": {
+    "name": "upbit_new_krw_listings_past_3y",
+    "mode": "POINT_IN_TIME_EVENT_COHORT_NOT_STATIC_TICKERS",
+    "selection": "Include every KRW listing during study range, including delisted markets and failed launches; verified first trading timestamp; minimum historical eligible liquidity/turnover; account for no-trade minutes; avoid selecting only present survivors",
+    "event_window": "listing through +7d",
+    "base_timeframe": "1m where retrievable; 15m canonical cohort comparison",
+    "trade_policy": "Research only; first-drop-ended signal requires causally available bars"
+  }
+}

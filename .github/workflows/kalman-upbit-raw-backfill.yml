@@ -1,0 +1,48 @@
+name: Kalman Upbit BTC ETH Raw Backfill (Research)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/kalman-upbit-raw-backfill.yml'
+  workflow_dispatch:
+    inputs:
+      start_utc:
+        description: 'UTC backfill inclusive, default 2026-08-16T00:00:00Z'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-upbit-btc-eth-backfill
+  cancel-in-progress: true
+
+jobs:
+  upbit-raw:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify collector integrity offline
+        working-directory: research/kalman_data_backfill
+        run: python -m unittest -v test_backfill_upbit
+      - name: Collect complete Upbit public REST candles, stage separately
+        env:
+          BACKFILL_START: ${{ inputs.start_utc }}
+        run: |
+          START="${BACKFILL_START:-2026-08-16T00:00:00Z}"
+          python research/kalman_data_backfill/backfill_upbit.py --start "$START" --markets KRW-BTC,KRW-ETH --units 1,15 --out-dir outputs/upbit_raw_backfill
+      - name: Upload public OHLC raw history for private Drive import
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-upbit-2026-aug-oct-incremental-raw
+          path: outputs/upbit_raw_backfill/
+          retention-days: 7
+          if-no-files-found: warn

@@ -1,0 +1,146 @@
+name: Kalman US ETF Raw Gap Audit & Staged Backfill
+
+on:
+  push:
+    branches: [feat/kalman-raw-gap-audit-staging-20261030]
+    paths:
+      - 'research/kalman_data_backfill/**'
+      - '.github/workflows/kalman-raw-gap-audit.yml'
+  pull_request:
+    paths:
+      - 'research/kalman_data_backfill/**'
+      - '.github/workflows/kalman-raw-gap-audit.yml'
+  workflow_dispatch:
+    inputs:
+      as_of:
+        description: 'Last completed NYSE market day, YYYY-MM-DD (empty = auto)'
+        required: false
+        type: string
+      fetch_missing:
+        description: 'Fetch missing Alpaca SIP bars and stage them WITHOUT changing source'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated audit dependencies
+        run: python -m pip install pandas requests exchange-calendars pyarrow
+      - name: Validate calendaring, gap logic and no-source-write guarantee
+        working-directory: research/kalman_data_backfill
+        run: python -m unittest discover -p 'test_*.py' -v
+
+  p0-provider-readiness:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030')
+    needs: offline-tests
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install provider probe dependencies
+        run: python -m pip install pandas exchange-calendars requests
+      - name: Check 7 US tickers and 2 Upbit pairs without saving prices
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        run: python research/kalman_data_backfill/probe_p0.py --out outputs/p0_readiness.json
+      - name: Upload safe metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-nine-symbol-readiness
+          path: outputs/p0_readiness.json
+          retention-days: 7
+          if-no-files-found: warn
+
+  read-only-source-audit:
+    # Read-only by default, and only executed manually. No new live-trading paths.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/kalman-raw-gap-audit-staging-20261030')
+    needs: offline-tests
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install audit and Drive dependencies
+        run: python -m pip install pandas requests exchange-calendars pyarrow google-api-python-client google-auth
+      - name: Validate private Drive access
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          if [ -z "$CKD_DRIVE_SA_JSON" ] && [ -z "$GDRIVE_SA_JSON_B64" ]; then
+            echo 'BLOCKED: CI Drive service account credentials are not set'
+            exit 2
+          fi
+      - name: Verify expected Drive service account identity (no credential disclosure)
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: |
+          python - <<'PY'
+          import json,os
+          raw=os.environ.get('CKD_DRIVE_SA_JSON','')
+          info=json.loads(raw) if raw else {}
+          email=info.get('client_email','')
+          print('DRIVE_SA_MATCH_CKD_RESEARCH=' + str(email == 'ckd-research-automation@novogene-css-automation.iam.gserviceaccount.com'))
+          print('DRIVE_SA_MATCH_CSS_SERVER=' + str(email == 'novogene-css-server@novogene-css-automation.iam.gserviceaccount.com'))
+          PY
+      - name: Read original QQQ/QLD 15m and daily Parquets from private Drive
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kalman_raw"
+          python research/kalman_triple_barrier/drive_input.py --file-id 13biLe0-QIv3wYUbCJFeHZnW2EuHQhnil --output "$RUNNER_TEMP/kalman_raw/QQQ_15m.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 14tFlcG3-TmdtlzLyWOeHY5K-4EIHQCiE --output "$RUNNER_TEMP/kalman_raw/QLD_15m.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1BVYrKDsKl50Q9Aw1438w4T1W267-Zgn- --output "$RUNNER_TEMP/kalman_raw/QQQ_1d.parquet"
+          python research/kalman_triple_barrier/drive_input.py --file-id 1HM6nbAmYI_DCLVJk8TQph21gsva2xjw4 --output "$RUNNER_TEMP/kalman_raw/QLD_1d.parquet"
+      - name: Audit; optionally fetch missing bar candidates (NO Drive writes)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          AS_OF: ${{ inputs.as_of }}
+          FETCH: ${{ inputs.fetch_missing }}
+        run: |
+          args=(
+            --dataset "QQQ:15m:$RUNNER_TEMP/kalman_raw/QQQ_15m.parquet"
+            --dataset "QLD:15m:$RUNNER_TEMP/kalman_raw/QLD_15m.parquet"
+            --dataset "QQQ:1d:$RUNNER_TEMP/kalman_raw/QQQ_1d.parquet"
+            --dataset "QLD:1d:$RUNNER_TEMP/kalman_raw/QLD_1d.parquet"
+            --out-dir "$RUNNER_TEMP/kalman_gap_results"
+          )
+          if [ -n "$AS_OF" ]; then args+=(--as-of "$AS_OF"); fi
+          if [ "$FETCH" = 'true' ]; then args+=(--fetch); fi
+          python research/kalman_data_backfill/audit_stage.py "${args[@]}"
+      - name: Upload metadata only (never publish SIP-priced bars)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-us-etf-gap-evidence
+          path: |
+            ${{ runner.temp }}/kalman_gap_results/summary.json
+            ${{ runner.temp }}/kalman_gap_results/missing_bars.csv
+            ${{ runner.temp }}/kalman_gap_results/unfilled_gaps.csv
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Remove downloaded source files from runner
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/kalman_raw"
