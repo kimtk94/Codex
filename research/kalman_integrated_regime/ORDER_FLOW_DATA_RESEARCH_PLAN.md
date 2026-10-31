@@ -108,3 +108,14 @@ The existing joint-policy goal of >=500 policies with **>=15 completed trades in
 - FINRA transparency publication information: https://www.finra.org/finra-data/browse-catalog/otc-transparency
 
 **The plan distinguishes documentation-supported capability from *verified entitlement / actual collected observations*. No P2 experimental signal is production-ready.**
+
+
+## 7. P0 reference implementation completed (research-only)
+
+- `research/kalman_integrated_regime/volume_features.py`: accepts the existing private SIP 15m Parquet, validates the full NYSE regular session for both assets, emits completed-session daily volume, RVOL against previous 20 complete sessions, historical volume z-score, 2x-volume flag, and the QLD-minus-QQQ normalized RVOL differential. A missing 15m bar makes that day's volume missing, not zero; the next 20-session median is not silently forward-filled.
+- `research/kalman_integrated_regime/test_volume_features.py`: synthetic-data checks for history exclusion, future-data leakage, incomplete day and duplicate bars.
+- `.github/workflows/kalman-qld-volume-contracts.yml`: no-data, no-secrets CI contracts; does **not** backfill or alter LIVE models.
+- Local synthetic contract execution: four tests passed on 2026-10-31. GitHub Actions proof is separately tracked at https://github.com/kimtk94/Codex/actions/runs/41188599884 and must not be called PASS until actual job conclusion.
+- Direct offline extraction from an existing private SIP data file (example, do not publish the private raw file):
+  `python -m research.kalman_integrated_regime.volume_features --intraday /path/to/private/QLD_QQQ_sip_15m.parquet --out-dir /path/to/private/volume_research`
+- **P0 remains research implementation complete, not historical-source analysis complete:** on-real-data feature QA and unchanged-policy A-vs-B results remain to be executed and reviewed.
