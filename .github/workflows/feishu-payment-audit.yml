@@ -8,12 +8,16 @@ on:
     paths:
       - 'automation/feishu/etax_monthly_audit.py'
       - 'automation/feishu/test_etax_monthly_audit.py'
+      - 'automation/feishu/etax_dated_sheet_audit.py'
+      - 'automation/feishu/test_etax_dated_sheet_audit.py'
       - 'automation/feishu/payment_table_audit.py'
       - '.github/workflows/feishu-payment-audit.yml'
   pull_request:
     paths:
       - 'automation/feishu/etax_monthly_audit.py'
       - 'automation/feishu/test_etax_monthly_audit.py'
+      - 'automation/feishu/etax_dated_sheet_audit.py'
+      - 'automation/feishu/test_etax_dated_sheet_audit.py'
       - 'automation/feishu/payment_table_audit.py'
       - '.github/workflows/feishu-payment-audit.yml'
 permissions:
@@ -34,7 +38,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Exact month vs undated candidate tests
-        run: python automation/feishu/test_etax_monthly_audit.py
+        run: |
+          python automation/feishu/test_etax_monthly_audit.py
+          python automation/feishu/test_etax_dated_sheet_audit.py
   payment:
     name: Payment Outstanding source schema only (not paid)
     needs: offline
@@ -58,6 +64,28 @@ jobs:
       - name: Never convert status into bank paid
         if: always()
         run: echo 'PAYMENT_SCHEMA_ONLY;BANK_RECEIPT_NOT_CERTIFIED;NO_SOURCE_WRITE' >> "$GITHUB_STEP_SUMMARY"
+  dated_etax:
+    name: eTax dated monthly worksheet - schema and freshness evidence
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 9
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read original dated eTax worksheet structure and source age only
+        run: python automation/feishu/etax_dated_sheet_audit.py
+      - name: Do not certify issued month from a dated snapshot
+        if: always()
+        run: echo 'DATED_SHEET_IS_SNAPSHOT_ONLY;STALE_DATE_REVIEW;NO_PAYMENT_SETTLEMENT_CERTIFIED' >> "$GITHUB_STEP_SUMMARY"
   etax:
     name: Current month eTax proof - fail closed if undated
     needs: offline
