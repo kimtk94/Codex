@@ -47,17 +47,35 @@ def pinned_files(folder):
 def participant_key(row):
     pid=row.get("ID","").strip()
     lesion=row.get("Lesion index","").strip()
-    if not re.fullmatch(r"sub-\d{3}",pid) or not lesion.isdigit() or not 1<=int(lesion)<=5:
-        raise ValueError("INVALID_OFFICIAL_SUBJECT_OR_LESION_INDEX")
+    if not re.fullmatch(r"sub-\d{3}",pid):
+        raise ValueError("INVALID_OFFICIAL_SUBJECT_ID")
+    # The official participants.tsv includes 69 HCC-negative control subjects
+    # with NO lesions (blank lesion index, 0 lesion counts). Preserve these
+    # people in the 132-subject cohort, not as fake L0 lesion annotations.
+    if lesion=="":
+        if row.get("Number of lesions","").strip() not in ("","0") or (
+            row.get("Number of HCC lesions","").strip() not in ("","0")):
+            raise ValueError("NO_LESION_SUBJECT_WITH_POSITIVE_LESION_COUNT")
+        return None
+    if not lesion.isdigit() or not 1<=int(lesion)<=5:
+        raise ValueError("INVALID_OFFICIAL_LESION_INDEX")
     return (pid,"L"+str(int(lesion)))
 
 def preflight(participants,annots,deriv_names=None):
     part={}
+    no_lesion_subjects=set()
+    all_subjects=set()
     for row in participants:
         k=participant_key(row)
+        all_subjects.add(row["ID"].strip())
+        if k is None:
+            no_lesion_subjects.add(row["ID"].strip())
+            continue
         if k in part:raise ValueError("DUPLICATE_PARTICIPANT_LESION_PAIR")
         part[k]=row
     if not part:raise ValueError("NO_OFFICIAL_PARTICIPANT_LESION_METADATA")
+    if no_lesion_subjects & {pid for pid,_ in part}:
+        raise ValueError("CONTROL_SUBJECT_HAS_CONFLICTING_LESION_ROWS")
     recorded={}
     for row in annots:
         k=(row.get("subject","").strip(),row.get("lesion","").strip(),
@@ -72,7 +90,7 @@ def preflight(participants,annots,deriv_names=None):
     if any(r.get("HCC","").strip() not in ("0","1") for r in part.values()):
         raise ValueError("UNEXPECTED_HCC_CASE_LABEL")
     ven_status={(pid,lesion):st for (pid,lesion,seq),st in recorded.items() if seq=="Venous"}
-    subjects={p for p,_ in part}
+    subjects=all_subjects
     if len(subjects)!=132:
         raise ValueError("EXPECTED_132_PUBLISHED_SUBJECTS_IN_PARTICIPANTS:"+str(len(subjects)))
     if {p for p,_ in hcc} & {p for p,_ in part if p.startswith("TCGA-")}:
@@ -124,6 +142,7 @@ def preflight(participants,annots,deriv_names=None):
        "official_source_record":REC,"version":"v2",
        "patients_with_any_participant_row":len(subjects),
        "lesion_metadata_rows":len(part),
+       "control_subjects_with_no_lesion_rows":len(no_lesion_subjects),
        "HCC_labeled_lesion_metadata_rows":len(hcc),
        "HCC_labeled_subjects_with_lesion_rows":len({p for p,_ in hcc}),
        "total_annotation_status_rows":len(recorded),
