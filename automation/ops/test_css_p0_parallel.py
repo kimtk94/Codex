@@ -41,13 +41,34 @@ class P0ParallelTests(unittest.TestCase):
         self.assertEqual(obj["production_sha_parity"],"NOT_CHECKED")
         self.assertFalse(obj["production_release_approved"])
 
-    def test_nine_tracks_are_execution_only(self):
+    def test_ten_tracks_are_execution_only(self):
         env={"GITHUB_RUN_ID":"12345","GITHUB_REPOSITORY":"kimtk94/Codex"}
         for _, key, _, _ in publisher.TRACKS:env[key]="success"
         rows=publisher.rows_from_environment(env,"2026-10-31 10:30:00 KST")
-        self.assertEqual(9,len(rows))
+        self.assertEqual(10,len(rows))
         self.assertTrue(all(row[1]=="SUCCESS_EXECUTION_ONLY" and row[3]=="NOT_VERIFIED"
                             for row in rows))
+
+    def test_contract_track_success_stays_execution_only(self):
+        env={"GITHUB_RUN_ID":"12345","GITHUB_REPOSITORY":"kimtk94/Codex"}
+        for _,key,_,_ in publisher.TRACKS:env[key]="success"
+        rows=publisher.rows_from_environment(env,"2026-10-31 22:30:00 KST")
+        entries={r[0]:r for r in rows}
+        self.assertEqual(entries["AMEA contract lineage quarantine"][1],
+                         "SUCCESS_EXECUTION_ONLY")
+        self.assertEqual(entries["AMEA contract lineage quarantine"][3],"NOT_VERIFIED")
+        env["TRACK_CONTRACT"]="failure"
+        rows=publisher.rows_from_environment(env,"now")
+        entries={r[0]:r for r in rows}
+        self.assertEqual(entries["AMEA contract lineage quarantine"][1],
+                         "FAILURE_EXECUTION_ONLY")
+        self.assertEqual(entries["Revenue and VAT"][1],"SUCCESS_EXECUTION_ONLY")
+        env["TRACK_CONTRACT"]="skipped"
+        rows=publisher.rows_from_environment(env,"now")
+        entries={r[0]:r for r in rows}
+        self.assertEqual(entries["AMEA contract lineage quarantine"][1],
+                         "SKIPPED_EXECUTION_ONLY")
+        self.assertEqual(entries["AMEA contract lineage quarantine"][3],"NOT_VERIFIED")
 
     def test_invoice_reviewer_failure_does_not_erase_successful_revenue(self):
         env={"GITHUB_RUN_ID":"12345","GITHUB_REPOSITORY":"kimtk94/Codex"}
@@ -64,7 +85,7 @@ class P0ParallelTests(unittest.TestCase):
     def test_all_tracks_have_distinct_keys(self):
         keys=[row[1] for row in publisher.TRACKS]
         self.assertEqual(len(keys),len(set(keys)))
-        self.assertEqual(9,len(keys))
+        self.assertEqual(10,len(keys))
 
     def test_evidence_review_lane_has_independent_result(self):
         env={"GITHUB_RUN_ID":"12345","GITHUB_REPOSITORY":"kimtk94/Codex"}
