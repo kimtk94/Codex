@@ -10,6 +10,8 @@ on:
       - 'automation/feishu/test_etax_monthly_audit.py'
       - 'automation/feishu/etax_dated_sheet_audit.py'
       - 'automation/feishu/test_etax_dated_sheet_audit.py'
+      - 'automation/feishu/etax_base_sheet_crosswalk.py'
+      - 'automation/feishu/test_etax_base_sheet_crosswalk.py'
       - 'automation/feishu/payment_table_audit.py'
       - '.github/workflows/feishu-payment-audit.yml'
   pull_request:
@@ -18,6 +20,8 @@ on:
       - 'automation/feishu/test_etax_monthly_audit.py'
       - 'automation/feishu/etax_dated_sheet_audit.py'
       - 'automation/feishu/test_etax_dated_sheet_audit.py'
+      - 'automation/feishu/etax_base_sheet_crosswalk.py'
+      - 'automation/feishu/test_etax_base_sheet_crosswalk.py'
       - 'automation/feishu/payment_table_audit.py'
       - '.github/workflows/feishu-payment-audit.yml'
 permissions:
@@ -41,6 +45,7 @@ jobs:
         run: |
           python automation/feishu/test_etax_monthly_audit.py
           python automation/feishu/test_etax_dated_sheet_audit.py
+          python -m unittest discover -s automation/feishu -p 'test_etax_base_sheet_crosswalk.py' -v
   payment:
     name: Payment Outstanding source schema only (not paid)
     needs: offline
@@ -86,6 +91,34 @@ jobs:
       - name: Do not certify issued month from a dated snapshot
         if: always()
         run: echo 'DATED_SHEET_IS_SNAPSHOT_ONLY;STALE_DATE_REVIEW;NO_PAYMENT_SETTLEMENT_CERTIFIED' >> "$GITHUB_STEP_SUMMARY"
+  crosswalk:
+    name: Original Feishu Base vs dated eTax ID and amount crosswalk
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google read-only-source and dedicated generated-audit writer
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Assert safe exact-key and stale-snapshot join regression tests
+        run: python -m unittest discover -s automation/feishu -p 'test_etax_base_sheet_crosswalk.py' -v
+      - name: Compare two live Feishu originals and publish generated exception evidence only
+        run: python automation/feishu/etax_base_sheet_crosswalk.py
+      - name: No bank paid, monthly issuance or Revenue Actual implication
+        if: always()
+        run: echo 'MATCHED_SNAPSHOT_IS_NOT_CURRENT_MONTH_ISSUANCE;NOT_BANK_SETTLEMENT;NO_REVENUE_ACTUAL_CHANGE' >> "$GITHUB_STEP_SUMMARY"
   etax:
     name: Current month eTax proof - fail closed if undated
     needs: offline
