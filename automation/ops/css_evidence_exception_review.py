@@ -68,10 +68,15 @@ def analyze(data,now):
     if row is None:raise ValueError("CURRENT_NET_MONTH_MISSING")
     gross,net_krw,count=n(cell(row,1)),n(cell(row,2)),n(cell(row,4))
     last=timestamp(cell(row,7))
-    valid=(gross*10==net_krw*11 and count>0 and
-           cell(row,8)=="INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED")
+    rule_ok=(gross*10==net_krw*11 and
+             cell(row,8)=="INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED")
     recent=bool(last and 0<=(now-last).total_seconds()<=8*3600)
-    add("Revenue","Canonical VAT-exclusive issued", "PASS" if valid and recent else "BLOCK",
+    # A newly opened month with zero issued invoices is not a missing or
+    # malformed issued invoice. Keep it unapproved and visible as REVIEW.
+    zero_month=rule_ok and recent and count==0 and gross==0 and net_krw==0
+    state=("REVIEW" if zero_month else "PASS" if rule_ok and recent and count>0
+           else "BLOCK")
+    add("Revenue","Canonical VAT-exclusive issued",state,
         "BI Revenue Net VAT Monthly", "VAT incl = issued net x 1.1; updated <=8h",
         "count="+str(count)+";gross="+str(gross)+";net="+str(net_krw),
         cell(row,7),"Forecast excluded; payment and ownership not certified")
@@ -82,11 +87,17 @@ def analyze(data,now):
         if k not in values:raise ValueError("LEGACY_AUDIT_FIELD_MISSING")
     old_count=n(values["October invoice count"])
     old_gross=n(values["October invoice amount KRW"])
-    equal=old_count==count and old_gross==gross
+    # The legacy comparator has a fixed October scope: never compare it with
+    # the current (November, December...) month after a calendar rollover.
+    october=next((r for r in net[1:] if cell(r,0)=="2026-10"),None)
+    if october is None:raise ValueError("OCTOBER_CANONICAL_MONTH_MISSING")
+    october_gross=n(cell(october,1))
+    october_count=n(cell(october,4))
+    equal=old_count==october_count and old_gross==october_gross
     add("Revenue","Legacy October coverage parity","PASS" if equal else "REVIEW",
         "Tax Invoice Completeness Audit","Match canonical scope or mark legacy non-authoritative",
-        "legacy_count="+str(old_count)+";canonical_count="+str(count)+
-          ";legacy_gross="+str(old_gross)+";canonical_gross="+str(gross),
+        "legacy_count="+str(old_count)+";canonical_count="+str(october_count)+
+          ";legacy_gross="+str(old_gross)+";canonical_gross="+str(october_gross),
         values["Invoice source last date"],
         "Different source scopes possible; never add legacy amount to Actual")
     old_date=date(values["Invoice source last date"])
