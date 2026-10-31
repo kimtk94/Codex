@@ -106,7 +106,7 @@ def main():
     p.add_argument("--original-snapshot",required=True,type=Path)
     p.add_argument("--bars-parquet",required=True,type=Path)
     p.add_argument("--private-ledger-out",required=True,type=Path)
-    p.add_argument("--out",required=True,type=Path)
+    p.add_argument("--out",required=True,type=Path)\n    p.add_argument("--stress-out",type=Path,help="Aggregate-only 30/50/100bp repriced monthly-block uncertainty")
     a=p.parse_args()
     source_sha256=ensure_snapshot(a.original_snapshot)
     sys.path.insert(0,str(a.original_snapshot.resolve()))
@@ -159,6 +159,26 @@ def main():
     }
     a.out.parent.mkdir(parents=True,exist_ok=True)
     a.out.write_text(json.dumps(result,indent=2,ensure_ascii=False)+"\n")
+    if a.stress_out is not None:
+        from coin_private_tail import stress
+        robustness=stress(sessions,records,result["results"])
+        robustness["source_lineage"]={
+          "original_commit":PINNED_ORIGIN_SHA,
+          "original_run_id":ORIGINAL_RUN_ID,
+          "signal_reconstruction_sha256":ledger_sha,
+          "source_20_signal_counts_parity":True,
+          "source_10_EOD_returns_parity":True,
+          "no_new_unseen_oos":True,
+          "live":"HOLD",
+        }
+        a.stress_out.parent.mkdir(parents=True,exist_ok=True)
+        a.stress_out.write_text(json.dumps(robustness,indent=2,ensure_ascii=False)+"\\n")
+        print(json.dumps({
+            "stress_cells":len(robustness["results"]),
+            "status":robustness["status"],
+            "no_live":True,
+        }))
+
     print(json.dumps({
       "status":result["status"],"cohorts":result["signals_verified"],
       "verified_five_symbol_models":20,"result_rows":len(result["results"]),
