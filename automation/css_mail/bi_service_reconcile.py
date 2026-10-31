@@ -5,6 +5,7 @@ Only classification (D), basis/status (H), and 8 Summary numbers are updated.
 Never changes invoice source fields, email, revenue amounts, or canonical map.
 """
 import collections
+from decimal import Decimal
 import datetime as dt
 import json
 import os
@@ -45,6 +46,24 @@ def read(session, name, coordinates):
 def user_value(value):
     return {"userEnteredValue": {"numberValue":value} if isinstance(value,(int,float))
             else {"stringValue":str(value)}}
+
+def net_summary_from_gross_fact(rows):
+    """Preserve VAT-exclusive Summary from VAT-inclusive Fact, never write gross as net."""
+    totals=collections.defaultdict(lambda:[0,0,Decimal("0")])
+    for category,amount,kusd in rows:
+        if category not in CATEGORIES or amount<0:
+            raise RuntimeError("INVALID_GROSS_FACT_RECORD")
+        totals[category][0]+=1
+        totals[category][1]+=amount
+        totals[category][2]+=Decimal(str(kusd))
+    result=[]
+    for category in CATEGORIES:
+        n,gross,usd_gross=totals[category]
+        net_numerator=gross*10
+        if net_numerator%11:
+            raise RuntimeError("VAT_NET_NOT_EXACT_INTEGER_FOR_"+category)
+        result.append([category,n,net_numerator//11,float(usd_gross*Decimal(10)/Decimal(11))])
+    return result
 
 def main():
     info=json.loads(os.environ["CKD_DRIVE_SA_JSON"])
@@ -99,20 +118,19 @@ def main():
             "rows":[{"values":[user_value(category)]}],"fields":"userEnteredValue"}})
         requests.append({"updateCells":{"start":{"sheetId":sheets[FACT],"rowIndex":i,"columnIndex":7},
             "rows":[{"values":[user_value("CANONICAL_RESTORED:"+basis[:100])]}],"fields":"userEnteredValue"}})
-    totals=collections.defaultdict(lambda:[0,0,0.0])
-    for category,amount,kusd in rows:
-        totals[category][0]+=1
-        totals[category][1]+=amount
-        totals[category][2]+=kusd
-    new_summary=[[k,*totals[k]] for k in CATEGORIES]
+    new_summary=net_summary_from_gross_fact(rows)
     old_summary=read(session,SUMMARY,"A1:D20")
-    if old_summary[0]!=["Service Group","Invoice Count","Revenue KRW","Revenue K USD"]:
-        raise RuntimeError("SUMMARY_SCHEMA_MISMATCH")
+    if old_summary[0]!=[
+        "Service Group","Invoice Count","Net Revenue KRW (VAT excl)",
+        "Net Revenue K USD (VAT excl)"
+    ]:
+        raise RuntimeError("SUMMARY_SCHEMA_MISMATCH_OR_UNKNOWN_TAX_BASIS")
     if sum(x[1] for x in new_summary)!=len(rows):
         raise RuntimeError("TOTAL_COUNT_MISMATCH")
     if changes or len(old_summary)-1!=len(new_summary) or any(
         i>=len(old_summary)-1 or old_summary[i+1][0]!=r[0] or
-        number(old_summary[i+1][1])!=r[1] or number(old_summary[i+1][2])!=r[2]
+        number(old_summary[i+1][1])!=r[1] or number(old_summary[i+1][2])!=r[2] or
+        len(old_summary[i+1])<4 or abs(float(old_summary[i+1][3])-r[3])>1e-6
         for i,r in enumerate(new_summary)
     ):
         requests.append({"updateCells":{"start":{"sheetId":sheets[SUMMARY],"rowIndex":1,"columnIndex":0},
