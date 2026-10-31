@@ -209,9 +209,9 @@ def simulate_trade(p, future_sessions, start_slot, signal_day, previous_close):
     fee_sell = 1 - FEE - slip
     if fee_sell <= 0:
         raise ValueError("INVALID_FEE")
-    first_shares = alloc * first / px0
+    first_shares = alloc * first / (px0 * fee_buy)
     shares = first_shares
-    spent = alloc * first * fee_buy
+    spent = alloc * first
     proceeds = 0.
     buy_fills = 1
     sell_fills = 0
@@ -243,6 +243,7 @@ def simulate_trade(p, future_sessions, start_slot, signal_day, previous_close):
                 # Optional take-profit scale-out at R multiple of initial risk.
                 partial_px = anchor_cost + p["partial_at_r"] * (px0 * p["sl"])
                 full_tp = anchor_cost * (1 + p["tp"])
+                partial_this_bar = False
                 if not partial_done and p["partial_tp"] > 0 and h >= partial_px:
                     fraction = float(p["partial_tp"])
                     sold = shares * fraction
@@ -251,6 +252,7 @@ def simulate_trade(p, future_sessions, start_slot, signal_day, previous_close):
                     shares -= sold
                     sell_fills += 1
                     partial_done = True
+                    partial_this_bar = True
                 if h >= full_tp and shares > 0:
                     proceeds += shares * max(o, full_tp) * fee_sell
                     shares = 0.
@@ -260,19 +262,21 @@ def simulate_trade(p, future_sessions, start_slot, signal_day, previous_close):
                     # Add is processed only when neither stop nor final TP fired.
                     # Same-bar add then new stop/TP path cannot be recovered from
                     # OHLC. A new stop becomes effective NEXT BAR only.
-                    if (not add_done and elapsed <= p["add_deadline"] and
+                    just_added = False
+                    if (not add_done and not partial_this_bar and elapsed <= p["add_deadline"] and
                         lo <= px0 * (1 - p["add_dip"])):
                         fill_px = min(o, px0 * (1 - p["add_dip"]))
-                        extra = alloc * second / fill_px
-                        spent += alloc * second * fee_buy
+                        extra = alloc * second / (fill_px * fee_buy)
+                        spent += alloc * second
                         shares += extra
                         buy_fills += 1
                         add_done = True
+                        just_added = True
                         # Cost basis for TP changes but hard stop stays anchored.
-                        anchor_cost = (alloc * first + alloc * second) / (first_shares + extra)
+                        anchor_cost = (alloc * first + alloc * second) / (first_shares + extra) / fee_buy
                     # High watermark and BE only update after current bar check,
                     # preventing within-bar knowledge of high->low order.
-                    high_water = max(high_water, h)
+                    high_water = max(high_water, cl if just_added else h)
                     next_stop = static_stop
                     if p["trail"] > 0 and high_water >= px0 * (1 + p["trail_start_r"] * p["sl"]):
                         next_stop = max(next_stop, high_water * (1 - p["trail"]))
