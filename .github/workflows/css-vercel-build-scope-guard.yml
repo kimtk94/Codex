@@ -1,0 +1,55 @@
+name: CSS Vercel Build Scope Guard
+on:
+  pull_request:
+    paths:
+      - 'automation/ops/css_vercel_scope_guard.py'
+      - 'automation/ops/test_css_vercel_scope_guard.py'
+      - '.github/workflows/css-vercel-build-scope-guard.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/ops/css_vercel_scope_guard.py'
+      - 'automation/ops/test_css_vercel_scope_guard.py'
+      - '.github/workflows/css-vercel-build-scope-guard.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '40 1 * * *' # 10:40 KST
+permissions:
+  contents: read
+concurrency:
+  group: css-vercel-build-scope-guard
+  cancel-in-progress: false
+jobs:
+  offline:
+    name: Validate research-only changes are skipped
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify real Git diff semantics for CSS / research / root lock
+        run: python -m unittest discover -s automation/ops -p 'test_css_vercel_scope_guard.py' -v
+  live:
+    name: Confirm Vercel project guard, never deploy
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 8
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read exact Vercel project settings and assert skip policy
+        run: python automation/ops/css_vercel_scope_guard.py
+      - name: Explicit deployment and SSO boundary
+        run: echo 'READ_ONLY_PROJECT_SETTINGS;NO_PREVIEW_SHARE_LINK;NO_SSO_BYPASS;NO_DEPLOY_OR_PROMOTION' >> "$GITHUB_STEP_SUMMARY"
