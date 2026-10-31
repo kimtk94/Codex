@@ -230,18 +230,28 @@ def run_walkforward(events,start_year=2022,cut_quantile=.70):
     if not predictions:raise RuntimeError('NO_OOS_FOLDS')
     oos=pd.concat(predictions,ignore_index=True)
     min_date=str(oos.date.min());max_date=str(oos.expiry_date.max())
-    metrics={name:summarize(nonoverlap_select(oos, oos[col]),min_date,max_date)
-             for name,col in [('logistic_p70','trade_model'),('trend20','trade_regime'),('unconditional_QLD','trade_unconditional')]}
+    # Select a globally nonoverlapping set ONCE, then partition those exact trades
+    # into year/regime. Re-selecting inside groups can invent overlapping trades.
+    strategy_columns=[('logistic_p70','trade_model'),('trend20','trade_regime'),
+                      ('unconditional_QLD','trade_unconditional')]
+    selected={name:nonoverlap_select(oos,oos[col]) for name,col in strategy_columns}
+    metrics={name:summarize(t,min_date,max_date) for name,t in selected.items()}
     yearly=[];regimes=[]
     for year,g in oos.groupby('year'):
-        for name,col in [('logistic_p70','trade_model'),('trend20','trade_regime'),('unconditional_QLD','trade_unconditional')]:
-            x=nonoverlap_select(g,g[col]);yearly.append({'year':int(year),'strategy':name,
+        for name,_ in strategy_columns:
+            x=selected[name][selected[name].year==year]
+            yearly.append({'year':int(year),'strategy':name,
                 **summarize(x,str(g.date.min()),str(g.expiry_date.max()))})
-    for r,g in oos.groupby('regime'):
-        t=nonoverlap_select(g,g['trade_model'])
-        regimes.append({'regime':r,'candidate_days':len(g),'model_trade_count':len(t),
+    for regime,g in oos.groupby('regime'):
+        t=selected['logistic_p70'][selected['logistic_p70'].regime==regime]
+        regimes.append({'regime':regime,'candidate_days':len(g),'model_trade_count':len(t),
                         'mean_net_trade_pct':round(float(t.net_return.mean()*100),3) if len(t) else None,
                         'model_tp_hit_pct':round(float(t.target.mean()*100),2) if len(t) else None})
+    for name in selected:
+        if sum(x['trades'] for x in yearly if x['strategy']==name)!=metrics[name]['trades']:
+            raise AssertionError('YEAR_SUM_DOES_NOT_MATCH_GLOBAL:'+name)
+    if sum(x['model_trade_count'] for x in regimes)!=metrics['logistic_p70']['trades']:
+        raise AssertionError('REGIME_SUM_DOES_NOT_MATCH_GLOBAL')
     result={'status':'RESEARCH_OOS_ONLY','execution_proxy':'next NYSE session first QLD 15m OPEN',
             'barrier_policy':'4 sessions, TP +3%, SL -3%, same-candle STOP-first',
             'cost_per_leg_bps':10,'fixed_no_reentry_sessions':4,
