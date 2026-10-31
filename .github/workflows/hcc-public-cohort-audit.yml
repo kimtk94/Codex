@@ -93,6 +93,8 @@ jobs:
         run: python research/hcc/ci/mri_icc_patient_leave_one_out.py --offline-test
       - name: Offline independent parallel batch source and fail-closed reviewer gates
         run: python research/hcc/ci/mri_parallel_batch_gate.py --offline-test
+      - name: Offline five-job patient source baseline drift and forbidden clinical promotion guards
+        run: python research/hcc/ci/mri_parallel_snapshot_diff.py --offline-test
       - name: Offline published MRI expert-reader and pretreatment interpretation guards
         run: python research/hcc/ci/mri_official_publication_source_evidence.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
@@ -294,6 +296,8 @@ jobs:
           path: artifacts/hcc_batch_publication
       - name: Fail closed on missing patients, treatment misclassification, missing expert-source metadata, proxy purity or premature MRI-RNA inference
         run: python research/hcc/ci/mri_parallel_batch_gate.py --mode assemble --out-dir artifacts/hcc_batch_final
+      - name: Compare all 14 patient decisions against verified technical baseline; fail on silent drift
+        run: python research/hcc/ci/mri_parallel_snapshot_diff.py --out-dir artifacts/hcc_batch_final
       - name: Write concise reviewable gate summary in GitHub Actions
         run: |
           python - <<'PY'
