@@ -20,7 +20,11 @@ def fixture():
                 x["results"].append({"year":year,"arm":arm,"hold_sessions":hold,
                     "trades":25,"geometry_pass":30,"all_sessions_after_warmup":220,
                     "mean_R":r,"mean_net_pct":r,
-                    "total_return_pct":r*5,"eod_mdd_pct":-15})
+                    "total_return_pct":r*5,"eod_mdd_pct":-15,
+                    "cost_stress_50bp_planned_rr2_count":0,
+                    "cost_stress_100bp_planned_rr2_count":0,
+                    "cost_stress_50bp_mean_R":r-.1,
+                    "cost_stress_100bp_mean_R":r-.2})
     return x
 
 class ReviewGateTests(unittest.TestCase):
@@ -36,6 +40,9 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(r["both_positive_2025_2026"],0)
         self.assertFalse(r["eligible_for_live"])
         self.assertEqual([v["year"] for v in r["validation"]],[2025,2026])
+        self.assertEqual(r["cost_50bp_2R_breaches"],24*25)
+        self.assertEqual(r["cost_100bp_2R_breaches"],24*25)
+        self.assertTrue(r["cost_increase_requires_new_ex_ante_target"])
     def test_fail_closed_on_nonmatched_relabel(self):
         x=fixture();x["status"]="PRODUCTION_GO"
         with self.assertRaisesRegex(ValueError,"UNSAFE_LIVE_STATE"): self._run(x)
@@ -43,6 +50,12 @@ class ReviewGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"MATCHED_SIGNAL_FALSE_CLAIM"): self._run(x)
         x=fixture();x["quality"]["incomplete_sessions"]=1
         with self.assertRaisesRegex(ValueError,"SIP_COVERAGE_DRIFT"): self._run(x)
+    def test_fail_closed_on_missing_cost_stress_evidence(self):
+        x=fixture()
+        x["results"][0].pop("cost_stress_50bp_planned_rr2_count")
+        with self.assertRaisesRegex(ValueError,"INVALID_COST_REPRICED_RR2_COUNT"):
+            self._run(x)
+
     def test_require_full_complete_grid_and_hash(self):
         x=fixture();x["results"].pop()
         with self.assertRaisesRegex(ValueError,"MISSING_CELLS"): self._run(x)
