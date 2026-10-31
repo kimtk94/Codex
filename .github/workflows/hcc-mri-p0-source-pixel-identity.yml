@@ -1,0 +1,80 @@
+name: HCC P0 MRI Source Voxel Identity AAV7 Versus A10Y
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_registered_pv_source_pixel_identity.py"
+      - ".github/workflows/hcc-mri-p0-source-pixel-identity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-mri-p0-source-pixel-identity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: Pure pixel identity negative fixtures and fixed tumor selection
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - run: python research/hcc/ci/mri_p0_registered_pv_source_pixel_identity.py --offline-test
+
+  live:
+    name: Official original versus registered PV actual tumor/liver voxel identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - name: Verify AAV7 and A10Y actual registered PV patient and tumor pixels
+        run: python research/hcc/ci/mri_p0_registered_pv_source_pixel_identity.py --out-dir artifacts/hcc_p0_source_identity
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-mri-p0-aav7-a10y-official-pixel-identity
+          path: artifacts/hcc_p0_source_identity/*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  fail-closed:
+    name: Require source provenance and disallow auto-eligibility
+    needs: [offline, live]
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-mri-p0-aav7-a10y-official-pixel-identity
+          path: artifacts
+      - run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          x=json.loads(Path("artifacts/hcc_aav7_vs_a10y_source_pixel_identity.json").read_text())
+          assert x["n_cases"]==2 and x["claim_ceiling"]=="S0"
+          assert x["eligible_n"]=="NOT_ASSESSED" and x["association_results"]==0
+          assert {r["patient_id"] for r in x["cases"]}=={"TCGA-G3-AAV7","TCGA-BC-A10Y"}
+          assert all(r["clinical_eligible"]=="NOT_ASSESSED" for r in x["cases"])
+          lines=["## HCC P0 native-vs-registered source exact voxel identity",
+                 "", "- AAV7 (all locked radiomics effects 0%) versus A10Y (GLCM contrast shift ~28%)",
+                 "- ROI signal identity is descriptive; expert anatomy and same tissue still unverified",
+                 "", "| Case | R1 tumor exact fraction | R2 tumor exact fraction | Liver exact fraction |",
+                 "|---|---:|---:|---:|"]
+          for r in x["cases"]:
+              regions=r["regions"]
+              lines.append(f"| {r['patient_id']} | {regions['index_tumor_rater1']['exact_equal_fraction']} | {regions['index_tumor_rater2']['exact_equal_fraction']} | {regions['liver_rater1']['exact_equal_fraction']} |")
+          lines+=["", "- Scientific claim ceiling S0, MRI-RNA 0 association tests."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as out:out.write("\n".join(lines)+"\n")
+          print("HCC_AAV7_A10Y_SOURCE_PIXEL_DIAGNOSTIC_S0_PASS")
+          PY
