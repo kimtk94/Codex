@@ -9,7 +9,7 @@ All parameters are hypotheses fixed before looking at this experiment:
 - stop = entry - 1.25 * trailing ATR14 (completed at T close);
 - take = entry + 3.00 * ATR14;
 - pass only if net (take/entry - 1 - .003) /
-  (1 - stop/entry + .003) >= 1.5;
+  (1 - stop/entry + .003) >= 2.0;
 - stop width between 0.5% and 3%; target width <=8%;
 - optional Bull-only filter, no averaging down / pyramiding / overlap;
 - +3/-3 fixed R:R=0.82 under 30bps is deliberately NOT approved.
@@ -38,7 +38,7 @@ from research.kalman_integrated_regime.us_regime_rr_audit import spy_market_stat
 
 STOP_ATR_MULT = 1.25
 TARGET_ATR_MULT = 3.0
-MIN_NET_RR = 1.5
+MIN_NET_RR = 2.0
 MIN_STOP_FRAC = .005
 MAX_STOP_FRAC = .03
 MAX_TARGET_FRAC = .08
@@ -150,6 +150,13 @@ def simulate(dates,signals,meta,paths,ticker,horizon,variant):
                 elif variant=="BULL_PLUS_NET_RR_GATE" and meta[i]["regime"]!="BULL":
                     counters["blocked_regime"]+=1
                 else:
+                    # Ungated historical baseline is comparison ONLY, not an
+                    # approved strategy. Every gated simulated entry must
+                    # satisfy the user-required >=2.0 NET R:R hard limit.
+                    if variant!="ORIGINAL_SIGNAL_DYNAMIC_EXITS" and (
+                        not plan["allowed"] or plan["planned_net_rr"] < MIN_NET_RR
+                    ):
+                        raise AssertionError("GATED_TRADE_FAILED_MIN_NET_RR")
                     current={"index":i,"entry_day":str(day.date()),
                              "entry_regime":meta[i]["regime"],
                              "plan":plan,"mark":1.}
@@ -261,17 +268,20 @@ def run(bars):
     return {
         "schema":"kalman-regime-conditioned-exante-entry-rr-gate-v1",
         "status":"RESEARCH_ONLY_NO_LIVE_CHANGES",
-        "rule":"09:45 fill, trailing prior-session ATR14; stop1.25xATR, target3xATR; netRR >=1.5; optional SPY BULL gate",
+        "rule":"09:45 fill, trailing prior-session ATR14; stop1.25xATR, target3xATR; NET_RR >=2.0 mandatory for gated trade variants; optional SPY BULL gate",
         "min_net_reward_risk":MIN_NET_RR,
         "tp_sl_from":"completed prior session ATR, conditional fill at next 09:45",
         "roundtrip_cost_fraction":ROUNDTIP_COST,
         "trading_horizons_sessions":list(HORIZONS),
         "variants":list(VARIANTS),
+        "ungated_original_is_comparison_only_not_admissible":True,
+        "min_net_rr_applies_to":["MIN_NET_RR_GATE","BULL_PLUS_NET_RR_GATE"],
+        "entry_policy_hard_veto":True,
         "by_ticker":report,
         "initial_equalweight_five_sleeve_portfolio":portfolios,
         "source_qa":qa,
         "risk_warnings":[
-            "1.5 planned R:R is necessary for the test but alone is NOT positive expectancy or validated win probability.",
+            "2.0 planned NET reward:risk is required before every entry in gated variants, but does NOT imply positive expectancy or a validated TP-before-SL probability.",
             "No attempt to force unrealistic profit targets; invalid stop distances and >8% projected target cause trade rejection.",
             "The first 15-minute regular-session bar is deliberately skipped; entry assumed at 09:45 second bar open.",
             "SPY trend regime uses only prior day's complete close, independent of future trade returns.",
