@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Compile pinned model replay and private stress scripts before any private data calls
+        run: python -m py_compile research/rr2_entry_gate/reconstruct_pinned_original.py research/rr2_entry_gate/coin_private_tail.py
       - name: Verify 20 cross-model historical counts and 10 return parity gate contracts
         run: python -m unittest discover -s research/rr2_entry_gate -p 'test_reconstruct_pinned_original.py' -v
       - name: Install exchange calendars for cost and bootstrap synthetic tests
