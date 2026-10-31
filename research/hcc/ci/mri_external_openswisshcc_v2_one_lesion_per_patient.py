@@ -125,8 +125,8 @@ def select(rows,participants):
         "claim_ceiling":"S0"}
     return selected,allrows,summary
 def fixture():
-    rows=[{"subject":"sub-001","lesion":"L1","venous_lesion_first_mask_path":"a"},
-          {"subject":"sub-001","lesion":"L2","venous_lesion_first_mask_path":"b"}]
+    rows=[{"subject":"sub-001","lesion":"L1","venous_lesion_first_mask_path":"a","venous_lesion_second_mask_path":""},
+          {"subject":"sub-001","lesion":"L2","venous_lesion_first_mask_path":"b","venous_lesion_second_mask_path":""}]
     p=[{"ID":"sub-001","Lesion index":"1","HCC":"1","Lesion size":"15"},
        {"ID":"sub-001","Lesion index":"2","HCC":"1","Lesion size":"33"}]
     # Synthetic function expects the frozen 59-person universe; this may
