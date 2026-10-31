@@ -73,6 +73,8 @@ jobs:
         run: python research/hcc/ci/mri_aran2015_consensus_purity_audit.py --offline-test
       - name: Offline ABSOLUTE vs CPE specimen and discordance review guards
         run: python research/hcc/ci/mri_purity_crossmethod_discrepancy_qc.py --offline-test
+      - name: Offline original treatment record and ABSOLUTE call-status provenance guards
+        run: python research/hcc/ci/mri_treatment_and_absolute_source_detail_audit.py --offline-test
       - name: Recheck saved 14-case ABSOLUTE vs CPE derived-source discrepancies without downloads
         run: python research/hcc/ci/mri_purity_crossmethod_discrepancy_qc.py --out-dir artifacts/hcc_purity_comparison
       - name: Generate 14-case clinical reviewer queue (no remote GDC repeat)
@@ -180,3 +182,23 @@ jobs:
 
 
 
+
+  mri-treatment-absolute-source-detail:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Fetch original GDC diagnosis-by-treatment records and verify ABSOLUTE call status
+        run: python research/hcc/ci/mri_treatment_and_absolute_source_detail_audit.py --out-dir artifacts/hcc_treatment_detail
+      - name: Archive only 14-case public clinical detail and purity-call quality
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-14-original-treatment-and-absolute-quality
+          path: artifacts/hcc_treatment_detail/
+          if-no-files-found: warn
+          retention-days: 30
