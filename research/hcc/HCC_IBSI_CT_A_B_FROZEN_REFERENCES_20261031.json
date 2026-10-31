@@ -1,0 +1,131 @@
+{
+  "snapshot_version": "HCC_IBSI1_CT_A_B_FROZEN_v1",
+  "source_commit": "6da96021bc91faf4c0cb7fd7fa56a4225d2064a8",
+  "image_sha256": "909129fdf99d5f5fd17bc568b1834d31edce8663ea6746c6020720bfc1d7bbcb",
+  "mask_sha256": "0e9243e473b1255c60e6460df465d0b07b65436d6e0c691fe3d17bca0594ae78",
+  "reference_url": "https://ibsi.readthedocs.io/en/master/03_Image_features.html",
+  "dataset": "IBSI1 CT patient PAT1 NSCLC test phantom; not HCC patient",
+  "configs": {
+    "A": {
+      "run_id": 41186059566,
+      "status": "PASS_CT_A_FIVE_INDEPENDENT_FOUR_PYRADIOMICS",
+      "voxel_spacing_mm": [
+        0.9769999980926514,
+        0.9769999980926514,
+        3
+      ],
+      "size_xyz": [
+        204,
+        201,
+        60
+      ],
+      "morphological_roi_voxels": 125256,
+      "intensity_roi_voxels": 114596,
+      "discretization": "FBS25HU",
+      "references": [
+        {
+          "feature": "Mean",
+          "expected": 13.4,
+          "ibsi_tolerance": 1.1,
+          "independent": 13.408426123075849,
+          "pyradiomics": 13.408426123075849
+        },
+        {
+          "feature": "Median",
+          "expected": 46,
+          "ibsi_tolerance": 0.3,
+          "independent": 46,
+          "pyradiomics": 46
+        },
+        {
+          "feature": "InterquartileRange",
+          "expected": 56,
+          "ibsi_tolerance": 0.5,
+          "independent": 56,
+          "pyradiomics": 56
+        },
+        {
+          "feature": "GLCM_2D_averaged_Contrast",
+          "expected": 7.85,
+          "ibsi_tolerance": 0.26,
+          "independent": 7.851406512761039,
+          "pyradiomics": null
+        },
+        {
+          "feature": "GLCM_2_5D_direction_merged_Contrast",
+          "expected": 5.96,
+          "ibsi_tolerance": 0.27,
+          "independent": 5.960989939109945,
+          "pyradiomics": 5.96098993910995
+        }
+      ],
+      "cross_implementation_2_5D_abs_difference": 5.329070518200751e-15
+    },
+    "B": {
+      "run_id": 41186558822,
+      "status": "PASS_CT_B_INTERPOLATION_FBN32_FEATURE_REFERENCES",
+      "size_xyz": [
+        100,
+        99,
+        60
+      ],
+      "voxel_spacing_mm": [
+        2,
+        2,
+        3
+      ],
+      "morphological_roi_voxels": 29842,
+      "intensity_roi_voxels": 27359,
+      "discretization": "FBN32_over_resegmented_intensity_ROI",
+      "interpolation": "SimpleITK centered bilinear; both implementations share resampled images; no independent resampler",
+      "references": [
+        {
+          "feature": "Mean",
+          "expected": 11.5,
+          "ibsi_tolerance": 1.1,
+          "independent": 11.530099784348844,
+          "pyradiomics": 11.530099784348844
+        },
+        {
+          "feature": "Median",
+          "expected": 45,
+          "ibsi_tolerance": 0.3,
+          "independent": 45,
+          "pyradiomics": 45
+        },
+        {
+          "feature": "InterquartileRange",
+          "expected": 52,
+          "ibsi_tolerance": 0.5,
+          "independent": 52,
+          "pyradiomics": 52
+        },
+        {
+          "feature": "GLCM_2D_averaged_Contrast",
+          "expected": 11.9,
+          "ibsi_tolerance": 0.1,
+          "independent": 11.884355956323969,
+          "pyradiomics": null
+        },
+        {
+          "feature": "GLCM_2_5D_direction_merged_Contrast",
+          "expected": 8.66,
+          "ibsi_tolerance": 0.09,
+          "independent": 8.659118505446799,
+          "pyradiomics": 8.659118505446793
+        }
+      ],
+      "cross_implementation_2_5D_abs_difference": 5.329070518200751e-15
+    }
+  },
+  "remaining": {
+    "IBSI1_CT_C_D_E": "NOT_EXECUTED",
+    "IBSI2_FILTERED": "NOT_EXECUTED",
+    "HCC18": "PARTIAL",
+    "HCC20": "PENDING",
+    "clinical_pretreatment_same_lesion": "NOT_VERIFIED",
+    "claim_ceiling": "S0"
+  },
+  "source_license": "CC BY-NC 3.0",
+  "original_or_resampled_image_redistributed": false
+}
