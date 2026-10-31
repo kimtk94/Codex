@@ -168,8 +168,9 @@ def simulate(dates,signals,meta,paths,ticker,horizon,variant):
                 if factor<=0: raise ValueError("NONPOSITIVE_EXIT_WEALTH")
                 equity*=factor/current["mark"]
                 trades.append({"net":factor-1,"regime":current["entry_regime"],
-                               "rr":plan["planned_net_rr"],"reason":reason,
-                               "sessions_held":elapsed})
+                               "rr":plan["planned_net_rr"],
+                               "realized_R":(factor-1)/plan["net_planned_stop_fraction"],
+                               "reason":reason,"sessions_held":elapsed})
                 current=None
             else:
                 factor=float(path.iloc[-1].close)/plan["entry"]-SIDE_COST
@@ -181,13 +182,6 @@ def simulate(dates,signals,meta,paths,ticker,horizon,variant):
     mark=np.asarray(mark_trace)
     peak=np.maximum.accumulate(np.r_[1.,mark])[1:]
     nums=np.asarray([t["net"] for t in trades],dtype=float)
-    plan_risk=np.asarray([t["net"]/((entry_plan(1.,1./100.)["net_planned_stop_fraction"])
-                         ) for t in []]) # maintained empty; per-trade R below
-    del plan_risk
-    returns_R=[]
-    for t in trades:
-        # Derive realized R from each trade's recorded pre-entry planned loss.
-        if not np.isfinite(t["rr"]): raise ValueError("INVALID_PLANNED_RR")
     group={}
     for state in ("BULL","BEAR","TRANSITION"):
         sub=[t for t in trades if t["regime"]==state]
@@ -197,6 +191,9 @@ def simulate(dates,signals,meta,paths,ticker,horizon,variant):
                       "mean_net_trade_pct":round(float(r.mean()*100),6) if len(r) else None,
                       "compounded_trade_chain_pct":round(float((np.prod(1+r)-1)*100),6) if len(r) else None,
                       "mean_planned_rr":round(float(np.mean([x["rr"] for x in sub])),6) if sub else None,
+                      "realized_expectancy_R":round(float(np.mean([x["realized_R"] for x in sub])),6) if sub else None,
+                      "mean_winner_net_pct":round(float(100*np.mean([x["net"] for x in sub if x["net"]>0])),6) if any(x["net"]>0 for x in sub) else None,
+                      "mean_loser_net_pct":round(float(100*np.mean([x["net"] for x in sub if x["net"]<0])),6) if any(x["net"]<0 for x in sub) else None,
                       "not_a_calendar_portfolio_return":True}
     return {
         "trades":len(trades),"signal_count":int(signal.sum()),
@@ -205,6 +202,7 @@ def simulate(dates,signals,meta,paths,ticker,horizon,variant):
         "win_rate":round(float((nums>0).mean()),6) if len(nums) else None,
         "average_net_trade_pct":round(float(nums.mean()*100),6) if len(nums) else None,
         "mean_planned_net_rr":round(float(np.mean([t["rr"] for t in trades])),6) if trades else None,
+        "realized_expectancy_R":round(float(np.mean([t["realized_R"] for t in trades])),6) if trades else None,
         "gate_counts":counters,
         "by_market_regime":group,
         "_marks":mark,
