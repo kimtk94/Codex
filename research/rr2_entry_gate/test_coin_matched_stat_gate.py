@@ -62,7 +62,7 @@ def validate(d,sha=None):
 class StatisticalGateContracts(unittest.TestCase):
     def test_wilson_small_sample(self):
         self.assertAlmostEqual(m.wilson_lower(4,7),.25046,places=3)
-        self.assertEqual(m.wilson_lower(0,7),0)
+        self.assertAlmostEqual(m.wilson_lower(0,7),0,places=12)
         self.assertIsNone(m.wilson_lower(0,0))
         with self.assertRaisesRegex(ValueError,"INVALID_BINOMIAL_COUNTS"):
             m.wilson_lower(8,7)
