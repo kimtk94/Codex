@@ -76,8 +76,11 @@ def validate_entries(rows, sessions, *, expected=EXPECTED):
         candidates.append((entry_idx, r))
     if dict(counts) != dict(expected):
         raise ValueError("COHORT_CARDINALITY_MISMATCH: " + str(dict(counts)))
-    if len({r["source_run_id"] for _, r in candidates}) > 1:
-        raise ValueError("MULTIPLE_UNVERIFIED_SOURCE_RUNS")
+    for year in expected:
+        year_runs = {r["source_run_id"] for _, r in candidates
+                     if int(r["entry_date"][:4]) == year}
+        if len(year_runs) != 1:
+            raise ValueError("MULTIPLE_UNVERIFIED_SOURCE_RUNS_IN_YEAR")
     return sorted(candidates)
 
 
@@ -166,8 +169,12 @@ def replay(sessions, source_quality, ledger, ledger_sha, *, expected=EXPECTED, s
         "signals_verified": dict(Counter(int(r["entry_date"][:4]) for _, r in entries)),
         "ledger_sha256": ledger_sha,
         "sip_source_sha256": source_sha,
-        "unique_source_run_id_sha256": hashlib.sha256(
-            entries[0][1]["source_run_id"].encode()).hexdigest(),
+        "year_source_run_id_sha256": {
+            str(year): hashlib.sha256(next(
+                r["source_run_id"] for _, r in entries
+                if int(r["entry_date"][:4]) == year).encode()).hexdigest()
+            for year in sorted(expected)
+        },
         "market_source": FEED,
         "signal_rule": "RTH_CLOSE_TO_NEXT_NYSE_SESSION_0945",
         "baseline_parity": baselines,
