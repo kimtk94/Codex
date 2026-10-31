@@ -114,7 +114,9 @@ def audit(crosswalk,dated,qq,manifest,now):
         if cell(r,5)!=effective.isoformat():raise ValueError("CROSSWALK_MANIFEST_DATE_CONFLICT")
         qq_value=originals.get(cms) if cms else None
         if not cms:
-            status="NO_CMS_IDENTIFIER_FOR_PERSONAL_QQ"
+            status=("MANUAL_INVOICE_NO_CMS_QQ_UNPROVEN"
+                    if cell(row,2)=="Manual Invoice"
+                    else "NO_CMS_IDENTIFIER_FOR_PERSONAL_QQ")
         elif qq_value is None:
             status="NOT_IN_PERSONAL_QQ_ORIGINALS"
         elif gross!=qq_value:
