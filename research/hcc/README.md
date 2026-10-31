@@ -2,6 +2,7 @@
 
 ## Start here (required for every continuation)
 
+- **2026-10-31 scientific direction reset and STOP/GO gates:** [HCC_RESEARCH_DIRECTION_RESET_20261031.md](HCC_RESEARCH_DIRECTION_RESET_20261031.md) — clinical MRI–tissue pairing first; CT mask rescue second; IBSI CT A nonblocking.
 - **Master verification standard and manuscript significance/claim rubric:** [HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md)
 - **27 live evidence checkpoints:** [HCC_VERIFICATION_LEDGER.csv](HCC_VERIFICATION_LEDGER.csv)
 - **Parallel GitHub Actions batch: clinical / purity / MRI-RNA identity / readiness:** [HCC_PARALLEL_ACTION_EVIDENCE_BATCH_20261031.md](HCC_PARALLEL_ACTION_EVIDENCE_BATCH_20261031.md)
