@@ -1,7 +1,8 @@
 """Synthetic, credential-free tests of Feishu mirror and latest source identity."""
 import pathlib,sys,unittest
+from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).parent))
-from latest_four_mirror_parity import MIRRORS,validate_structure,evaluate
+from latest_four_mirror_parity import MIRRORS,validate_structure,evaluate,fetch_mirror_snapshot
 
 def headers():
  return {
@@ -56,5 +57,53 @@ class MirrorParityTest(unittest.TestCase):
   m=manifest();m.append(m[2])
   with self.assertRaisesRegex(RuntimeError,"SOURCE_MANIFEST_DUPLICATE_FORMAT"):
    evaluate(selected(),m,headers())
+
+
+class MirrorBatchReadTests(unittest.TestCase):
+ class FakeResponse:
+  def __init__(self,code=200,group=None):
+   self.status_code=code
+   self.group=group or []
+  def raise_for_status(self):
+   if self.status_code>=400:raise RuntimeError("HTTP_"+str(self.status_code))
+  def json(self):
+   return {"valueRanges":self.group}
+ class FakeClient:
+  def __init__(self,replies):
+   self.replies=list(replies)
+   self.calls=[]
+  def get(self,url,**kwargs):
+   self.calls.append({"url":url,**kwargs})
+   response=self.replies.pop(0)
+   if isinstance(response,Exception):raise response
+   return response
+ def success(self):
+  values=[{"values":manifest()}]
+  values.extend({"values":[value]} for value in headers().values())
+  return self.FakeResponse(200,values)
+ def test_one_batch_replaces_five_individual_header_fetches(self):
+  client=self.FakeClient([self.success()])
+  m,h=fetch_mirror_snapshot(client)
+  self.assertEqual(len(client.calls),1)
+  self.assertEqual(len(client.calls[0]["params"]),5)
+  self.assertEqual(m,manifest())
+  self.assertEqual(h,headers())
+ def test_transient_timeout_and_http_503_are_retried(self):
+  class ReadTimeout(Exception):pass
+  client=self.FakeClient([ReadTimeout(),self.FakeResponse(503),self.success()])
+  with patch("latest_four_mirror_parity.time.sleep") as sleep:
+   m,h=fetch_mirror_snapshot(client)
+  self.assertEqual(len(client.calls),3)
+  self.assertEqual(sleep.call_count,2)
+  self.assertEqual(h,headers())
+ def test_no_retry_for_403(self):
+  client=self.FakeClient([self.FakeResponse(403),self.success()])
+  with self.assertRaisesRegex(RuntimeError,"HTTP_403"):
+   fetch_mirror_snapshot(client)
+  self.assertEqual(len(client.calls),1)
+ def test_short_batch_is_not_approved(self):
+  client=self.FakeClient([self.FakeResponse(200,[{"values":manifest()}])])
+  with self.assertRaisesRegex(RuntimeError,"MIRROR_BATCH_READ_INCOMPLETE"):
+   fetch_mirror_snapshot(client)
 
 if __name__=="__main__":unittest.main()
