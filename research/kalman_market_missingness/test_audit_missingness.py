@@ -13,6 +13,14 @@ class ScheduleValidationTests(unittest.TestCase):
  def test_korean_calendar(self):
   self.assertEqual(mode_market('yf_kospi'),'XKRX')
   self.assertEqual(mode_market('yf_btc'),'calendar')
+ def test_special_krx_2026_holidays(self):
+  # Documented exchange closures not yet included in all calendar packages.
+  dates=date_keys('2026-06-01','2026-07-20','XKRX')
+  self.assertNotIn('2026-06-03',dates)
+  self.assertNotIn('2026-07-17',dates)
+ def test_dxy_sunday_placeholder_is_not_session_gap(self):
+  self.assertEqual(mode_market('yf_dxy'),'US_DXY_XNYS_PROXY')
+  self.assertNotIn('2026-07-12',date_keys('2026-07-10','2026-07-13','US_DXY_XNYS_PROXY'))
  def test_frequency(self):
   self.assertEqual(mode_fred('CPIAUCSL'),'monthly')
   self.assertEqual(mode_fred('DFF'),'calendar')
