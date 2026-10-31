@@ -39,6 +39,45 @@ def select_etax(tables, year, month):
         return None,len(matches)
     return matches[0],1
 
+def generic_etax_candidates(tables):
+    """An undated Base eTax-Invoice is NOT monthly proof."""
+    return [t for t in tables if re.fullmatch(
+        r"e[\\s_-]*tax[\\s_-]*invoices?",
+        str(t.get("name") or "").strip(), re.I)]
+
+def undated_candidate_schema(fields):
+    """Metadata-only field readiness; never inspect customer values as payment."""
+    labels={" ".join(re.sub(r"[_-]"," ",str(f.get("field_name") or "")).lower().split())
+            for f in fields}
+    invoice=bool(labels&{"invoice number","invoice no","erp invoice number",
+                         "cms invoice number","e tax number","etax number"})
+    date=bool(labels&{"invoice date","issued date","issue date","e tax date",
+                      "etax date","date of invoice"})
+    return {"invoice_id_schema":invoice,"issue_date_schema":date}
+
+def inspect_undated_candidate(tables,prefix,token):
+    matches=generic_etax_candidates(tables)
+    print("ETAX_UNDATED_GENERIC_CANDIDATES:",len(matches))
+    if len(matches)!=1:
+        print("ETAX_UNDATED_CANDIDATE_STATUS: MISSING_OR_AMBIGUOUS")
+        return
+    table_id=matches[0].get("table_id")
+    if not table_id:raise RuntimeError("ETAX_GENERIC_TABLE_ID_MISSING")
+    root=prefix+"/tables/"+urllib.parse.quote(table_id,safe="")
+    fields=list(list_pages(root+"/fields",token))
+    records=list(list_pages(root+"/records",token))
+    ids=[r.get("record_id") for r in records]
+    if not all(ids) or len(set(ids))!=len(ids):
+        raise RuntimeError("ETAX_GENERIC_RECORD_IDS_INVALID")
+    ready=undated_candidate_schema(fields)
+    print("ETAX_UNDATED_CANDIDATE_STATUS: READABLE_NOT_MONTH_CERTIFIED")
+    print("ETAX_UNDATED_SOURCE_RECORD_COUNT:",len(records))
+    print("ETAX_UNDATED_INVOICE_ID_SCHEMA_PRESENT:",ready["invoice_id_schema"])
+    print("ETAX_UNDATED_ISSUE_DATE_SCHEMA_PRESENT:",ready["issue_date_schema"])
+    print("ETAX_UNDATED_CURRENT_MONTH_PROVEN: False")
+    print("ETAX_PAYMENT_SETTLEMENT_PROOF: UNVERIFIED")
+    print("ETAX_WRITE_OPERATIONS: 0")
+
 def main():
     from datetime import datetime, timezone, timedelta
     today=datetime.now(timezone(timedelta(hours=9)))
@@ -64,7 +103,8 @@ def main():
     elif selected:
         print("ETAX_SOURCE_SELECTION: UNIQUE_MONTHLY_NAME")
     if not selected:
-        print("ETAX_SOURCE_STATUS: BLOCKED_MISSING_OR_AMBIGUOUS")
+        inspect_undated_candidate(tables,prefix,token)
+        print("ETAX_SOURCE_STATUS: BLOCKED_MONTHLY_SOURCE_UNVERIFIED")
         return 2
     root=prefix+"/tables/"+urllib.parse.quote(selected["table_id"],safe="")
     fields=list(list_pages(root+"/fields",token))
