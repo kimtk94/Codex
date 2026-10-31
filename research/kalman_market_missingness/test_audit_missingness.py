@@ -1,5 +1,5 @@
 import unittest
-from audit_missingness import date_keys,mode_market,mode_fred,prior_holiday_like,CODES
+from audit_missingness import date_keys,mode_market,mode_fred,prior_holiday_like,CODES,last_closed_nyse_session
 
 class ScheduleValidationTests(unittest.TestCase):
  def test_market_weekend_not_mislabeled(self):
@@ -27,6 +27,12 @@ class ScheduleValidationTests(unittest.TestCase):
   self.assertEqual(mode_fred('WALCL'),'weekly')
   self.assertEqual(date_keys('2026-10-01','2026-10-31','monthly'),{'2026-10-01'})
   self.assertEqual(date_keys('2026-10-01','2026-10-31','weekly'),{'2026-10-07','2026-10-14','2026-10-21','2026-10-28'})
+ def test_dynamic_asof_including_early_close(self):
+  self.assertEqual(last_closed_nyse_session('2026-10-31T02:20:00Z'),'2026-10-30')
+  self.assertEqual(last_closed_nyse_session('2026-11-02T18:00:00Z'),'2026-10-30')
+  self.assertEqual(last_closed_nyse_session('2026-11-03T01:00:00Z'),'2026-11-02')
+  self.assertEqual(last_closed_nyse_session('2026-11-27T18:10:00Z'),'2026-11-25')
+  self.assertEqual(last_closed_nyse_session('2026-11-27T18:50:00Z'),'2026-11-27')
  def test_status_contract(self):
   self.assertEqual(CODES['valid'],'V');self.assertEqual(CODES['missing_record'],'G')
 
