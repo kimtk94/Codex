@@ -60,12 +60,13 @@ class PublisherTests(unittest.TestCase):
         expected={"css-p0-parallel-verification.yml",
                   "css-vercel-build-scope-guard.yml",
                   "css-operational-acceptance.yml",
-                  "sales-payment-reconciliation.yml"}
+                  "sales-payment-reconciliation.yml",
+                  "feishu-payment-audit.yml"}
         refs=[entry[2] for entry in WORKFLOWS]
         self.assertEqual(len(refs),len(set(refs)))
         self.assertTrue(expected.issubset(set(refs)))
         rows=make_rows(lambda filename:[run(id=98765)],NOW)
-        self.assertEqual(len(rows),18)
+        self.assertEqual(len(rows),19)
         self.assertTrue(all(row[2]=="PASS_EXECUTION_ONLY" for row in rows[1:]))
         policy=next(row for row in rows if row[0]=="CSS Release Policy")
         self.assertIn("not certified",policy[8].lower())
