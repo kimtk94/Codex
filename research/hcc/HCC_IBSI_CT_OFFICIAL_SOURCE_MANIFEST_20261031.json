@@ -1,0 +1,29 @@
+{
+  "source_repo": "theibsi/data_sets",
+  "source_commit": "6da96021bc91faf4c0cb7fd7fa56a4225d2064a8",
+  "source_run": "https://github.com/kimtk94/Codex/actions/runs/41179519399",
+  "source_ibsi1": "ibsi_1_ct_radiomics_phantom/nifti",
+  "source_ibsi2": "ibsi_2_ct_radiomics_phantom/nifti",
+  "image_sha256": "909129fdf99d5f5fd17bc568b1834d31edce8663ea6746c6020720bfc1d7bbcb",
+  "mask_sha256": "0e9243e473b1255c60e6460df465d0b07b65436d6e0c691fe3d17bca0594ae78",
+  "image_shape": [
+    204,
+    201,
+    60
+  ],
+  "spacing_mm": [
+    0.9769999980926514,
+    0.9769999980926514,
+    3
+  ],
+  "roi_voxels": 125256,
+  "ibsi1_ibsi2_images_identical": true,
+  "ibsi1_ibsi2_masks_identical": true,
+  "license": "CC BY-NC 3.0",
+  "original_image_redistributed": false,
+  "ibsi1_CT_A_E_preprocessing": "NOT_EXECUTED",
+  "ibsi2_CT_filtered_feature_validation": "NOT_EXECUTED",
+  "clinical_HCC_eligibility": "NOT_ASSESSED",
+  "mri_rna_tests": "NOT_EXECUTED",
+  "claim_level": "S0"
+}

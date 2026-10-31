@@ -1,0 +1,68 @@
+name: HCC P0 MRI Source Snapshot Integrity and Reproducibility
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_frozen_source_results_qc.py"
+      - "research/hcc/HCC_MRI14_PV_SOURCE_*.csv"
+      - "research/hcc/HCC_MRI_RNA_SOURCE_PHASE_SAP_ADDENDUM_20261031.md"
+      - "research/hcc/HCC_VERIFICATION_LEDGER.csv"
+      - ".github/workflows/hcc-mri-p0-source-snapshot-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-p0-source-frozen-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  versioned-snapshot:
+    name: Check frozen 14 cases, source sensitivity, 20 ICC and S0 claim ceiling
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify checked-in reference values, frozen cohort and clinical HOLD
+        run: python3 research/hcc/ci/mri_p0_frozen_source_results_qc.py
+
+  evidence-snapshot:
+    name: Validate immutable GitHub Actions 56-row source artifact SHA and reproduce patient deltas
+    needs: versioned-snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download previous verified original 14-person source output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/hcc_14_source
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2             -H "Accept: application/vnd.github+json"             -H "Authorization: Bearer ${GH_TOKEN}"             "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13039386584/zip"             --output artifacts/hcc_14_source/source_run_41191599451.zip
+      - name: Verify original four member SHA256 and all exact 56 row patient source deltas
+        run: |
+          python3 research/hcc/ci/mri_p0_frozen_source_results_qc.py             --evidence-zip artifacts/hcc_14_source/source_run_41191599451.zip
+      - name: Retain source snapshot in CI for easy retrieval
+        uses: actions/upload-artifact@v4
+        with:
+          name: hcc-mri14-frozen-56-row-archival-copy-verified
+          path: artifacts/hcc_14_source/source_run_41191599451.zip
+          if-no-files-found: error
+          retention-days: 90
+      - name: Explain result and limitations
+        run: |
+          python3 - <<'PY'
+          import os
+          message = """## HCC P0 image-source integrity PASS
+
+          - Original immutable 14-person / 56 source-row, ten-feature PyRadiomics artifact verified against all four pinned member SHA256 checksums.
+          - All 14-case patient mean signed changes cross-reproduced from original per-reader feature measurements.
+          - Canonical imaging arm: official LiverHccSeg art_pv oriented to original fixed tumor mask; prior raw PV retained as source-sensitivity reference.
+          - Claimed patient eligibility: NOT ASSESSED. MRI-RNA associations: 0/12 executed. Publication ceiling S0.
+          - Archived source artifact is not proof of tumor-to-RNA or treatment chronology.
+          """
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(message)
+          PY

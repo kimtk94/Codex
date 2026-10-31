@@ -1,0 +1,83 @@
+name: HCC OpenSwissHCC v2 Freeze One MRI Venous Tumor per Independent Subject
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_external_openswisshcc_v2_one_lesion_per_patient.py"
+      - ".github/workflows/hcc-openswisshcc-v2-primary-index.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-openswisshcc-primary-index-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-only-preselection:
+    name: Freeze one source-labeled venous HCC lesion per subject, without MRI feature selection
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail-closed tests of fabricated source count and missing lesion size
+        run: python3 research/hcc/ci/mri_external_openswisshcc_v2_one_lesion_per_patient.py --offline-test
+      - name: Download original Zenodo MD5-pinned participant-level lesion sizes
+        run: |
+          mkdir -p artifacts/openswisshcc_v2_primary_source
+          curl --fail --location --silent --show-error --retry 4 --retry-all-errors \
+            --max-time 120 \
+            "https://zenodo.org/records/21992461/files/participants.tsv?download=1" \
+            --output artifacts/openswisshcc_v2_primary_source/participants.tsv
+      - name: Download exact prior 90-venous-HCC-mask original GitHub Actions artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13048738836/zip" \
+            --output artifacts/openswisshcc_v2_primary_source/90_source_hcc_venous_mask_manifest.zip
+      - name: Validate four source SHA/MD5 and freeze one image-blind lesion for each possible patient
+        run: |
+          python3 research/hcc/ci/mri_external_openswisshcc_v2_one_lesion_per_patient.py \
+            --verified-manifest-zip artifacts/openswisshcc_v2_primary_source/90_source_hcc_venous_mask_manifest.zip \
+            --participants artifacts/openswisshcc_v2_primary_source/participants.tsv \
+            --out-dir artifacts/openswisshcc_v2_primary_selection
+      - name: Verify 59 independent patients, at most one ROI each, no clinical claim
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          p=Path("artifacts/openswisshcc_v2_primary_selection")
+          with (p/"openswisshcc_v2_primary_1_HCC_venous_lesion_per_subject.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          with (p/"openswisshcc_v2_all_90_venous_HCC_lesion_size_and_primary_flags.csv").open() as f:
+              allrows=list(csv.DictReader(f))
+          j=json.loads((p/"openswisshcc_v2_primary_selection_summary.json").read_text())
+          assert len(allrows)==90
+          assert len(rows)==len({r["subject"] for r in rows})
+          assert len(rows)+j["subjects_HOLD_missing_any_candidate_lesion_size"]==59
+          assert all(r["radiomics_tests_executed"]=="NO" and r["claim_ceiling"]=="S0" for r in rows)
+          assert all(r["selection_status"]=="METADATA_PRESELECTED_ONLY_PENDING_IMAGE_MASK_ALIGNMENT" for r in rows)
+          assert j["MRI_RNA_12_tests"]=="NOT_EXECUTED" and not j["actual_original_venous_image_downloaded"]
+          lines=["## External OpenSwissHCC v2 primary index-tumor preselection",
+              "", "- 90 source-verified manual venous HCC masks in 59 independent subjects.",
+              f"- Deterministic one-per-person largest original published lesion (ties smallest L): **{len(rows)}** selected.",
+              f"- No fully documented lesion-size ranking and HOLD: **{j['subjects_HOLD_missing_any_candidate_lesion_size']}**.",
+              f"- Selected subjects whose ROI has an independent second reader: **{j['second_reader_primary_subset']}**.",
+              "- No original venous image/ROI geometry qualification, no radiomics tests, no MRI-RNA tests.",
+              "- This is pre-selection of **technical external MRI candidates**, not clinical eligibility or external replication.",
+              "- Publication claim ceiling S0."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          print("OPENSWISSHCC_V2_59_INDEPENDENT_PRIMARY_LESION_SOURCE_SELECTION_S0_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-openswiss-v2-source-verified-largest-venous-lesion-one-per-patient
+          path: artifacts/openswisshcc_v2_primary_selection/*
+          retention-days: 90
+          if-no-files-found: warn

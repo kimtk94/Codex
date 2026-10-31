@@ -1,0 +1,96 @@
+name: HCC Stage34 TCGA-LIHC MRI14 Clinical Pretreatment and RNA Source Chain Gate
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage34_clinical_source_gate.py"
+      - "research/hcc/ci/mri_p0_clinical_gdc_relative_timeline_crosswalk.py"
+      - "research/hcc/HCC_MRI_14_GDC_CLINICAL_TREATMENT_GATE_20261031.csv"
+      - "research/hcc/HCC_MRI_10_DATED_YES_TREATMENTS_SOURCE_20261031.csv"
+      - "research/hcc/HCC_MRI_14_GDC_PRIMARY_TUMOR_RNA_FILE_MANIFEST_20261030.csv"
+      - "research/hcc/HCC_MRI14_QUALIFIED_REVIEW_EVIDENCE_MATRIX_20261031.csv"
+      - ".github/workflows/hcc-mri14-stage34-clinical-source-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-stage34-mri14-clinical-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  independent-five-negative-source-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Original GDC relative timeline 5 strict negative clinical source controls
+        run: python3 research/hcc/ci/mri_p0_clinical_gdc_relative_timeline_crosswalk.py --offline-test
+      - name: Stage34 invariant - no false same-lesion/treatment/eligibility from case ID
+        run: python3 research/hcc/ci/mri14_stage34_clinical_source_gate.py --offline-test
+
+  frozen-14-case-evidence-review-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Recalculate independent original 14-patient GDC treatment tissue relative chronology
+        run: |
+          python3 research/hcc/ci/mri_p0_clinical_gdc_relative_timeline_crosswalk.py \
+            --out-dir artifacts/hcc_stage34_crosswalk
+      - name: Audit MRI clinical eligibility and exact RNA tumor lesion gate from immutable source records
+        run: |
+          python3 research/hcc/ci/mri14_stage34_clinical_source_gate.py \
+            --out-dir artifacts/hcc_stage34_clinical_source
+      - name: Retain source-locked case requests and original GDC relative-day proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage34-frozen14-MRI-treatment-RNA-source-lineage-HOLD
+          path: |
+            artifacts/hcc_stage34_clinical_source/*
+            artifacts/hcc_stage34_crosswalk/*
+          retention-days: 90
+          if-no-files-found: error
+
+  fail-closed-clinical-claim-ceiling:
+    needs: [independent-five-negative-source-fixtures, frozen-14-case-evidence-review-queue]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage34-frozen14-MRI-treatment-RNA-source-lineage-HOLD
+          path: artifacts/locked_source
+      - name: Require 14/14 unresolved clinical source patient decisions and no biological tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import csv,json
+          p=Path('artifacts/locked_source')
+          j=json.loads((p/'stage34_clinical_source_gate_summary.json').read_text())
+          with (p/'stage34_mri14_source_chain_gate_matrix.csv').open() as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)==14 and len({r['patient_id'] for r in rows})==14
+          assert j['source_GDC_primary_tumor_barcode_linked']==14
+          assert j['source_HCC_context_yes_events_before_RNA_sample']==9
+          assert j['source_HCC_context_yes_event_unique_patients']==4
+          assert j['other_organ_yes_event_before_RNA_sample']==1
+          assert j['source_priority_groups']=={'P0':4,'P1':5,'P2':5}
+          assert j['MRI_source_scan_UID_to_GDC_episode_proven_n']==0
+          assert j['MRI_before_all_HCC_therapy_confirmed_n']==0
+          assert j['MRI_index_lesion_to_RNA_sample_portion_confirmed_n']==0
+          assert j['clinically_eligible_n']=='NOT_ASSESSED'
+          assert j['clinically_excluded_n']=='NOT_ASSESSED'
+          assert j['MRI_RNA_biological_tests']==0 and j['claim_ceiling']=='S0'
+          assert not j['DICOM_vs_GDC_relative_calendar_subtraction_permitted']
+          assert all(r['fully_eligible_patient']=='NOT_ASSESSED' for r in rows)
+          assert all(r['clinical_patient_status'].startswith('UNRESOLVED_HOLD') for r in rows)
+          print('HCC_STAGE34_14_OF_14_PUBLIC_GDC_SOURCE_CROSSWALK_PASS_0_CLINICAL_PAIRS_S0')
+          PY

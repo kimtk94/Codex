@@ -1,0 +1,105 @@
+# HCC Radiomics and RNA-seq: Research protocol / feasibility gates
+
+**2026-10-31 RNA pathway pre-outcome methods lock:** [HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md](HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md); [sample score QC](HCC_MRI_14_HALLMARK_PATHWAY_QC_REPORT_20261031.md). Analysis has NOT tested MRI–RNA correlations.
+
+**Mandatory companion for future analyses:** [Verification, literature checkpoints and manuscript claim framework](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md) · [27-checkpoint evidence ledger](HCC_VERIFICATION_LEDGER.csv). Read both before interpreting downstream results.
+Updated: 2026-10-30. Public-data feasibility before modeling.
+
+## Research question
+Are pretreatment CT tumor radiomics features associated with independently predefined HCC tumor RNA-seq pathways (hypoxia, angiogenesis, ECM/EMT and metabolic rewiring), controlling for acquisition differences, lesion size and available clinical covariates? Associations are not causal evidence.
+
+## Novelty warning
+- A Journal of Translational Medicine paper published on 19 January 2026 used 41 eligible TCIA HCC CT+RNA-seq cases to build an immune-radiogenomics biomarker: https://doi.org/10.1186/s12967-025-07627-4 . Repeating a generic immune predictor does not establish novelty.
+- An October 2026 Abdominal Radiology paper trained on WAW-TACE (n=221) and externally tested on HCC-TACE-SEG (n=98), documenting limited frozen radiomics survival-model transfer: https://pubmed.ncbi.nlm.nih.gov/42867540/ . Do not claim these cohorts prove generalizable survival models.
+
+## Cohort separation
+| Cohort | Published total | Proper role | Must not assume |
+|---|---:|---|---|
+| TCIA TCGA-LIHC | 97 mixed-modality imaging subjects | CT ID-GDC tumor RNA metadata match and subsequent CT+ROI/phase qualification | 97 paired CT+RNA cases |
+| WAW-TACE | 233 HCC subjects | CT/ROI/clinical extraction benchmark, optionally separate TACE prognosis study | RNA-seq paired subjects |
+| HCC-TACE-Seg | 105 HCC subjects | Pre-TACE CT/ROI and **frozen TACE prognosis external test only** | RNA-seq test cohort |
+| Hospital | Approval pending | Molecular external validation only if same cases have usable pretreatment CT+tumor RNA | Unconditional transcriptomic validation |
+
+## Go/No-Go gates
+- G0: Download *metadata only*. Intersect TCIA TCGA-LIHC CT patients with GDC TCGA-LIHC primary tumor STAR-Counts file-associated case barcodes. This produces **candidate upper bounds only**.
+- G1: Qualify each CT as pretreatment, correct anatomy, matching phase (prefer portal venous), consistent slice/voxel spacing, and verified tumor segmentation aligned to image.
+- G2: Confirm tissue type, tumor sample (TCGA sample code 01), file-to-aliquot link, batch and collection dates; flag temporal discordance; distinguish tumor from adjacent normal.
+- G3: Report counts of distinct *eligible* patients, lesion counts, missingness, expression QC, phase/scanner heterogeneity and exclusion reasons. With small n, use exploratory hypothesis tests rather than uncalibrated AI prediction.
+- G4: Predefine PyRadiomics configuration, segmentation, pathways, clinical covariates, outcomes, CV groups and evaluation plan **before** looking at association results.
+
+## Molecular association analysis
+- Fixed radiomics with versioned feature extraction, feature stability/QC and tumour volume adjustment. No 2D CNN as default when deterministic PyRadiomics extraction is enough.
+- Prespecified hallmark pathways: HYPOXIA, ANGIOGENESIS, EPITHELIAL_MESENCHYMAL_TRANSITION and metabolic pathways. Immune phenotypes secondary because already studied. Record exact MSigDB geneset release.
+- Correlate CT features with expression-derived *pathway scores*, not all gene-by-feature pairs. Use Spearman and covariate-adjusted regression with BH-FDR; bootstrap intervals, permutation negative controls, no external outcome-driven feature tuning.
+- For ML, feature selection and scaling only within train folds; split all phases/lesions by patient. Frozen hospital validation requires paired CT+RNA data; TACE-only cohorts validate a different clinical outcome.
+- OS/TTP analyses must handle censoring (C-index/calibration). Do NOT evaluate survival times as ordinary regression using MAE or R2.
+
+## Code / outputs
+Existing PR: https://github.com/kimtk94/Codex/pull/228
+Original TCIA metadata: research/hcc/ci/tcia_cohort_audit.py
+Added overlap audit: research/hcc/ci/tcga_rna_overlap_audit.py
+Offline test: python research/hcc/ci/tcga_rna_overlap_audit.py --offline-test
+Live CI: HCC Public Cohort Audit via workflow_dispatch on branch, or scheduled after merge to main.
+Outputs: TCGA-LIHC_ct_series.csv, tcga_rna_overlap_summary.json, tcga_rna_overlap_candidates.csv.
+Status: TCIA-GDC-IDC public metadata audits validated by GitHub Actions on 2026-10-30. No CT-image/ROI/RNA-expression matrices downloaded; no imaging-qualified paired sample size or model training yet.
+
+## Data / literature
+WAW-TACE: https://doi.org/10.1148/ryai.240296 ; https://zenodo.org/records/12741586
+HCC-TACE-Seg: https://www.cancerimagingarchive.net/collection/hcc-tace-seg/
+TCGA-LIHC: https://www.cancerimagingarchive.net/collection/tcga-lihc/
+GDC fields: https://docs.gdc.cancer.gov/API/Users_Guide/Appendix_A_Available_Fields/
+
+## Actual TCIA-GDC CI audit results — 2026-10-30
+- GitHub Actions run: https://github.com/kimtk94/Codex/actions/runs/41053179022 ; both offline-tests and metadata-audit passed.
+- TCIA TCGA-LIHC: **75 distinct CT patients**, 777 CT series; source collection has mixed modalities, so published 97 is not CT case count.
+- GDC TCGA-LIHC: **371 candidate patients** with at least one Primary Tumor case-level association and STAR - Counts metadata.
+- CT × RNA case-barcode overlap: **73 patients** (758 CT series across these patients). This is **not a file-to-tumor-aliquot matched count**.
+- CT series text and ImageCount prescreen of the 73: **25** patients with explicit portal venous labels, **13** with generic venous-only labels, **35** without either label in eligible-length/axial-looking series; none is an imaging-verified cohort or final excluded patient.
+- **Final eligible CT/segmentation/RNA patients: not yet assessed**. The next mandatory gates are CT imaging review, same-patient tumor mask availability, pretreatment timing, GDC file-to-aliquot and sample-code verification, and scanner/phase stability.
+- Artifacts: tcga_rna_overlap_candidates.csv, tcga_ct_phase_patient_prescreen.csv, tcga_ct_phase_series_prescreen.csv and JSON summaries, available in the linked run (retention 30 days).
+- The portal venous filter is a conservative **triage heuristic**, not a deterministic clinical exclusion. Image count >=30 plus SeriesDescription is insufficient to establish diagnostic axial phase or tumor ROI.
+
+## Follow-up: actual GDC file lineage and IDC anatomy audit (2026-10-30)
+- Validated live CI run: https://github.com/kimtk94/Codex/actions/runs/41054539216
+- All 73 TCGA-LIHC CT-RNA case-barcode matched candidates have one STAR-Counts RNA file whose GDC file-specific associated entity barcode includes TCGA code **01 (primary solid tumor)**. This establishes *public metadata file-to-tumor barcode evidence*, NOT RNA quality, tumor purity, tissue image registration, expression download or eligible CT.
+- IDC SEG audit: 254 SEG series on 71 of the 73 CT-RNA candidates. Their coded segment labels consist of **112 Liver segmentation series** and **142 Tumor infiltration by lymphocytes present annotations**. The TIL annotations refer to digital pathology and **must never be mistaken for CT tumor ROIs**.
+- Of 112 liver SEG series, **95** directly reference source TCIA CT SeriesInstanceUID, spanning **36 patients**.
+- **0 source-CT-linked tumor-lesion ROI candidates identified in current IDC SEG metadata**. Absence in this subset does not prove no alternative/public/paper-specific tumor annotations exist.
+- Image-only liver masks cannot substitute for tumor lesion segmentations; annotate tumor lesions by a documented image-review workflow if needed.
+- TCIA warns that DICOM study dates are de-identified with collection/site-dependent offsets. GDC times use relative clinical days; **do not join absolute imaging and tissue calendar dates** without an approved harmonized method. Source https://www.cancerimagingarchive.net/collection/tcga-lihc/
+- BAMF AIMI source liver organ mask repository (not tumor ROI): https://github.com/bamf-health/aimi-liver-ct
+- IDC segmentation anatomy index documentation: https://github.com/ImagingDataCommons/IDC-REST-MCP/blob/main/docs/user-guide.md
+
+### CT review prioritization
+- LEGACY patient-level review queue (superseded, NOT series matching): P1=20, P2=5, P3=10, P4=3, P5=6, P6=29.
+- LEGACY P1=20 only established that PV CT and some liver SEG coexist **within a patient**. It did NOT prove the SEG refers to the PV CT series. Use the corrected same-series queue below.
+- Review queue artifact: tcga_hcc_radiogenomics_review_queue.csv
+- Next: select actual CT series per patient, visually confirm CT contrast phase and tumor presence, obtain lesion ROI with documented protocol/rater assessment, then freeze true paired eligible n. Clinical stage and covariate availability before feature modeling.
+- Preserve all 73 as metadata candidates; avoid excluding patients merely for uninformative SeriesDescription.
+
+
+## Corrected series-level CT QC and independent MRI pilot (2026-10-30)
+Reproducible GitHub Actions validation:
+https://github.com/kimtk94/Codex/actions/runs/41056977638
+
+### CT: never conflate patient-level with series-level
+- 73 TCIA CT patients are matched by TCGA case barcode to primary-tumor STAR-Counts RNA files.
+- 20 patients have an explicitly PV-labelled CT series and at least one *other* CT series referenced by liver-organ SEG, but **none** has explicit PV label and liver SEG reference on exactly the same CT series UID.
+- **Corrected** joint review tier counts for the 73: P1=0 (same-series PV+liver SEG), P2=20 (PV and liver SEG elsewhere in patient), P3=5 (PV only), P4=0 (same-series generic venous+liver SEG), P5=10, P6=3, P7=6, P8=29.
+- IMPORTANT: even a same-series liver SEG would be an **organ** segmentation, not a lesion contour. No public CT tumor ROI was verified in our source-linked IDC audit. Manual HCC lesion ROI review or other verified contour source is required.
+- The corrected patient/selected series file is tcga_hcc_same_series_review_queue.csv, emitted by research/hcc/ci/build_same_series_review.py. Historical tcga_hcc_radiogenomics_review_queue.csv is superseded and not recommended for image selection.
+
+### MRI: deliberately a separate modality-specific proof of feasibility
+- Public dataset: LiverHccSeg v1.1, DOI https://doi.org/10.5281/zenodo.8179129
+- Its two public small XLSX files were MD5-verified against Zenodo. There are **17 TCGA MRI patients** in metadata; all 17 have GDC file-specific primary solid tumor STAR-Counts barcode links.
+- The HCC tumor inter-rater Dice/segmentation metrics table identifies **14 distinct tumor-annotated cases**; all 14 also have linked primary-tumor RNA metadata.
+- ZIP central directory audit inspected only ~60 KB from the ~978 MB NIfTI archive via HTTP Range requests. AppleDouble __MACOSX/._ sidecars (205 entries) were excluded. **14 of 14** tumor-metric cases have real tumor NIfTI member paths.
+- A subsequent bounded HTTP-range read of **one** tumor NIfTI per case passed ZIP CRC, gzip/NIfTI-1 header consistency, voxel geometry metadata and **nonzero tumor-mask voxel** verification in all **14/14** cases. Raw mask pixels were NOT posted to Actions artifact.
+- This is **not** proof of full image-mask registration, pathology validation, pretreatment acquisition or inter-rater reproducibility; true final eligible MRI-RNA patients still "NOT_ASSESSED". No gene-expression matrices were downloaded.
+- Data archive outcomes: tcga_liverhccseg_mri_rna_candidates.csv, tcga_liverhccseg_mri_mask_members.csv, tcga_liverhccseg_mri_mask_voxel_qc.csv + JSON summaries.
+
+### Research decision
+- **Primary pilot**: 14 published tumor-segmented MRI patients with RNA availability (start after checking art/pv MRI geometry+mask registration, expression QC and temporal eligibility). At n=14, do descriptive/replication and narrowly pre-specified pathway association analyses, not high-dimensional ML or new gene discovery claims.
+- **Expansion**: 73 CT-RNA case-barcode candidate pool is viable for imaging review and manual lesion ROI creation, but is NOT a 73-person paired radiomics cohort until CT phase, lesion ROI and treatment timing are resolved.
+- Lock modality-specific feature definitions, 3D PyRadiomics bins/resampling, RNA pathway gene sets and patient-level analysis protocols. Avoid cross-modal CT/MR feature equivalence claims.
+- Existing high-impact comparator includes a January 2026 Journal of Translational Medicine CT radiogenomics immune biomarker analysis with 41 public TCIA CT+RNA HCC subjects, whose CT tumors were manually segmented by trained clinicians (DOI 10.1186/s12967-025-07627-4). Distinguish own pre-specified pathways and evaluation.

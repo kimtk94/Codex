@@ -1,0 +1,138 @@
+name: HCC P0 Registered PV Exact Header Spacing and Radiomics Acquisition QC
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_registered_pv_exact_header_audit.py"
+      - "research/hcc/ci/mri_p0_regpv_acquisition_descriptive_qc.py"
+      - ".github/workflows/hcc-mri14-registered-pv-acquisition-qc.yml"
+      - "research/hcc/HCC_MRI_14_PUBLISHED_FIELDSTRENGTH_CONTRAST_20261031.csv"
+      - "research/hcc/HCC_MRI_14_PV_NATIVE_SPACING_QC_20261031.csv"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-regpv-acquisition-descriptive-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic-contract:
+    name: Verify signed image axes, exact voxel geometry and no p-values fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install source-only reader and rank dependencies
+        run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests "scipy==1.13.1"
+      - run: python research/hcc/ci/mri_p0_registered_pv_exact_header_audit.py --offline-test
+      - run: python research/hcc/ci/mri_p0_regpv_acquisition_descriptive_qc.py --offline-test
+
+  actual-official-image-headers:
+    name: "Official registered PV NIfTI actual header pair ${{ matrix.shard }}/7"
+    needs: synthetic-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install NIfTI metadata inspection modules
+        run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - name: Read 2 official portal-venous registered source NIfTI headers and exact mask hash
+        run: |
+          python research/hcc/ci/mri_p0_registered_pv_exact_header_audit.py \
+            --shard ${{ matrix.shard }} --out-dir artifacts/hcc_registered_exact_source_header
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-regpv-exact-header-pair-${{ matrix.shard }}
+          path: artifacts/hcc_registered_exact_source_header/*
+          retention-days: 60
+          if-no-files-found: warn
+
+  descriptive:
+    name: Combine actual 14-case registered spacing with pinned 168 image features, agent strata and LOO
+    needs: actual-official-image-headers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests "scipy==1.13.1"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-regpv-exact-header-pair-*
+          path: artifacts/hcc_registered_source_header_audit
+          merge-multiple: true
+      - name: Fetch SHA256-pinned 168 original registered-PV radiomics rows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/hcc_regpv_exploratory
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13046135524/zip" \
+            --output artifacts/hcc_regpv_exploratory/original_168_rows_4member_sha.zip
+      - name: Fail closed on source SHA drift, then compute descriptive case-level ranks and LOO
+        run: |
+          python research/hcc/ci/mri_p0_regpv_acquisition_descriptive_qc.py \
+            --header-shard-dir artifacts/hcc_registered_source_header_audit \
+            --source-168-zip artifacts/hcc_regpv_exploratory/original_168_rows_4member_sha.zip \
+            --out-dir artifacts/hcc_regpv_exploratory/results
+      - name: Validate 14 case / 20 descriptive ranks / 12 agent summaries and clinical hold
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from collections import Counter
+          from pathlib import Path
+          root=Path("artifacts/hcc_regpv_exploratory/results")
+          def rd(name):
+              with (root/name).open(newline="",encoding="utf8") as f:return list(csv.DictReader(f))
+          r=rd("hcc_regpv_14_patient_exact_spacing_glcm_and_agent.csv")
+          c=rd("hcc_regpv_20_spacing_glcm_spearman_descriptive_loo.csv")
+          a=rd("hcc_regpv_12_published_study_contrast_group_descriptives.csv")
+          m=json.loads((root/"hcc_regpv_acquisition_descriptive_summary.json").read_text())
+          assert len(r)==14 and len({v["patient_id"] for v in r})==14
+          assert len(c)==20 and len(a)==12
+          assert Counter(x["published_study_contrast_category"] for x in r)=={"Extracellular":7,"Hepatobiliary-specific":4,"not avaliable":3}
+          assert all(x["qualified_image_review"]=="NOT_ASSESSED" and x["MRI_RNA_association_tests"]=="NOT_EXECUTED" and x["claim_ceiling"]=="S0" for x in r)
+          assert all(x["no_p_value_or_significance_claim"]=="YES" and x["claim_ceiling"]=="S0" for x in c)
+          assert m["MRI_RNA_12_tests"]=="NOT_EXECUTED" and m["clinical_eligibility"]=="NOT_ASSESSED"
+          assert m["n_exact_official_art_pv_source_headers"]==14 and m["original_factorial_reference_values_reproduced"]==112
+          lines=["## HCC official registered PV NIfTI source acquisition audit",
+            "", "- 14 independently verified source image headers, original 168-row radiomics output and masks crossmatched by SHA256.",
+            "- 20 exploratory Spearman/LOO descriptive combinations; **no p-values or hypothesis tests**.",
+            "- Published study-level contrast labels: 7 extracellular / 4 hepatobiliary-specific / 3 unknown; **exact selected registered PV series agent/scanner not verified**.",
+            f"- Registered PV actual through-plane z mm: **{m['reg_z_min_mm']:.3f} to {m['reg_z_max_mm']:.3f}**.",
+            f"- GLCM Contrast 3mm native bw25 median absolute shift: **{m['glcm_3mm_abs_change_median_pct']:.3f}%**.",
+            "- MRI-RNA 0/12, eligible n NOT_ASSESSED, S0.",
+            "", "| Exact registered voxel covariate | GLCM 3mm25 absolute change rho | LOO rho range |",
+            "|---|---:|---:|"]
+          for v in c:
+              if v["descriptive_feature_change"]=="glcm_3mm25_abs_change_pct":
+                  lines.append(f"| {v['covariate']} | {v['spearman_rho']} | {v['leave_one_patient_out_min_rho']} to {v['leave_one_patient_out_max_rho']} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          print("HCC_OFFICIAL_REGPV_14_SOURCE_SPACING_20_LOO_RANK_12_AGENT_GROUP_CLINICAL_HOLD_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-mri14-official-regpv-exact-spacing-agent-glcm-descriptive-20-loo
+          path: artifacts/hcc_regpv_exploratory/results/*
+          retention-days: 90
+          if-no-files-found: warn
