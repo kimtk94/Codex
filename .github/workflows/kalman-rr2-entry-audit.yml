@@ -41,7 +41,8 @@ jobs:
         with:
           python-version: '3.11'
       - name: Validate RR2 thresholds, fees, multiple reject causes and input contracts
-        run: python -m unittest discover -s research/rr2_entry_gate -p 'test_*.py' -v
+        run: python -m unittest discover -s research/rr2_entry_gate -p 'test_audit.py' -v
+          python -m unittest discover -s research/rr2_entry_gate -p 'test_archive_audit.py' -v
 
   private-cohort-diagnostic:
     if: github.event_name == 'workflow_dispatch' && inputs.drive_file_id != ''
