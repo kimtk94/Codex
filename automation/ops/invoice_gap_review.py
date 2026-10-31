@@ -34,7 +34,9 @@ def record_map(rows, number, amount, month=None):
         if not invoice: continue
         if not INVOICE.fullmatch(invoice):
             raise ValueError("INVALID_INVOICE_NUMBER")
-        raw=str(r[idx[amount]]).replace(",","").strip() if idx[amount]<len(r) else ""
+        raw=str(r[idx[amount]]).replace(",","").replace("₩","").strip() if idx[amount]<len(r) else ""
+        if raw.upper().endswith(" KRW"):
+            raw=raw[:-4].strip()
         if not raw.isdigit():
             raise ValueError("INVALID_INVOICE_AMOUNT")
         gross=int(raw)
