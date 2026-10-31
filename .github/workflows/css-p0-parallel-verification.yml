@@ -199,10 +199,32 @@ jobs:
         run: python automation/ops/css_invoice_legacy_key_bridge.py
       - name: Reconcile legacy scope, source age and manual finance/release gates
         run: python automation/ops/css_evidence_exception_review.py
-      - name: Quarantine wrong-customer X links in unissued quote watch, generated tab only
-        run: python automation/ops/css_unissued_contract_lineage_guard.py
       - name: Preserve business approval boundary
         run: echo 'REVIEW_FLAGS_CAN_COEXIST_WITH_SUCCESSFUL_ACTION;NO_REVENUE_BOOKING;NO_PRODUCTION_APPROVAL' >> "$GITHUB_STEP_SUMMARY"
+
+  contract_lineage:
+    name: 2e - Independent AMEA/X contract lineage audit
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Test X/AMEA collisions and positional formula provenance offline
+        run: python -m unittest discover -s automation/ops -p 'test_css_unissued_contract_lineage_guard.py' -v
+      - name: Quarantine misleading Watch H/X and verify source formulas
+        run: python automation/ops/css_unissued_contract_lineage_guard.py
+      - name: Keep original business and finance records read-only
+        run: echo 'FORMULA_POSITIONAL_JOIN_UNSAFE;GENERATED_REVIEW_ONLY;NO_REVENUE_OR_SOURCE_MUTATION' >> "$GITHUB_STEP_SUMMARY"
 
   lead:
     name: 3 - Strict personal Lead/Report parity
@@ -310,7 +332,7 @@ jobs:
   status:
     name: 7 - Publish independent outcomes, no acceptance promotion
     if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [offline, mail, revenue, invoice_review, owner_payment, evidence, lead, feishu, web, release]
+    needs: [offline, mail, revenue, invoice_review, owner_payment, evidence, contract_lineage, lead, feishu, web, release]
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 8
@@ -321,6 +343,7 @@ jobs:
       TRACK_INVOICE_REVIEW: ${{ needs.invoice_review.result }}
       TRACK_OWNER_PAYMENT: ${{ needs.owner_payment.result }}
       TRACK_EVIDENCE: ${{ needs.evidence.result }}
+      TRACK_CONTRACT: ${{ needs.contract_lineage.result }}
       TRACK_LEAD: ${{ needs.lead.result }}
       TRACK_FEISHU: ${{ needs.feishu.result }}
       TRACK_WEB: ${{ needs.web.result }}
@@ -347,6 +370,7 @@ jobs:
             echo "| Invoice-only generated review sheet | $TRACK_INVOICE_REVIEW |"
             echo "| Exact owner / payment evidence (not certified) | $TRACK_OWNER_PAYMENT |"
             echo "| Source evidence gaps / aging / release blockers | $TRACK_EVIDENCE |"
+            echo "| AMEA/X positional source quarantine (not correction) | $TRACK_CONTRACT |"
             echo "| Personal Lead | $TRACK_LEAD |"
             echo "| Feishu payment structure | $TRACK_FEISHU |"
             echo "| Web live-source API | $TRACK_WEB |"
@@ -355,7 +379,7 @@ jobs:
             echo '**Acceptance is NOT VERIFIED.** Green jobs are not evidence of authenticated Preview E2E or paid invoices.'
             echo 'No customer messages sent, no SFDC Save, no Vercel deploy and no original business records modified.'
           } >> "$GITHUB_STEP_SUMMARY"
-          for state in "$TRACK_MAIL" "$TRACK_REVENUE" "$TRACK_LEAD" "$TRACK_FEISHU" "$TRACK_WEB" "$TRACK_RELEASE"; do
+          for state in "$TRACK_MAIL" "$TRACK_REVENUE" "$TRACK_CONTRACT" "$TRACK_LEAD" "$TRACK_FEISHU" "$TRACK_WEB" "$TRACK_RELEASE"; do
             if [ "$state" != success ]; then
               echo 'CSS_PARALLEL_P0_PARTIAL_FAILURE=true'
               exit 1
