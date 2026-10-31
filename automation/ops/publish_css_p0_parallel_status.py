@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish the eight independent parallel CI outcome rows to an isolated generated status tab.
+"""Publish the nine independent parallel CI outcome rows to an isolated generated status tab.
 
 Never overwrite customer decisions, source invoices, mail content, or billing.
 Execution result is NOT equivalent to business acceptance.
@@ -21,6 +21,7 @@ TRACKS = (
     ("Lead personal parity", "TRACK_LEAD", "Exact-personal sender and NBA exclusion", "No user email or SFDC Save"),
     ("Feishu payment schema", "TRACK_FEISHU", "Raw four-sheet headers + Google mirror parity", "Structure does not certify bank receipt"),
     ("Web API source contract", "TRACK_WEB", "Source-backed local API auth/UID and current net", "No owner-authenticated Vercel E2E"),
+    ("Source evidence exceptions", "TRACK_EVIDENCE", "Invoice coverage, payment source age, release gates", "Successful audit can still contain REVIEW/BLOCK business evidence"),
     ("Vercel release evidence", "TRACK_RELEASE", "Read-only production SHA/project root when token exists", "No deploy, production acceptance or rollback"),
 )
 ALLOWED = {"success", "failure", "cancelled", "skipped"}
