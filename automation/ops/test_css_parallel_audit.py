@@ -35,6 +35,32 @@ class ParallelAuditTests(unittest.TestCase):
         self.assertEqual(r["nba_leads"],258)
         self.assertEqual(r["result"],"PASS_WITH_REVIEW")
 
+    def test_live_four_column_analytics_uses_latest_not_legacy_pilot(self):
+        d=list(self.lead_data())
+        d[4]=[
+            ["SFDC 3-REPORT ANALYTICS","Live formulas from imported pilot"],
+            ["Metric","Pilot (legacy)","Latest QQ staged","Difference (latest - pilot)"],
+            ["Lead records","478","493","15"],
+            ["Opportunity records","693","700","7"],
+            ["Unique quotation IDs","805","818","13"],
+            ["Quotation process rows","3741","3794","53"],
+        ]
+        self.assertEqual(audit_lead(*d,NOW)["result"],"PASS")
+        # A frozen historical 478 is not a reason to label latest as stale.
+
+    def test_live_analytics_mismatch_blocks_instead_of_falsely_passing(self):
+        d=list(self.lead_data())
+        d[4]=[
+            ["SFDC 3-REPORT ANALYTICS","Live formulas from imported pilot"],
+            ["Metric","Pilot (legacy)","Latest QQ staged","Difference (latest - pilot)"],
+            ["Lead records","478","478","0"],
+            ["Opportunity records","693","700","7"],
+            ["Unique quotation IDs","805","818","13"],
+            ["Quotation process rows","3741","3794","53"],
+        ]
+        with self.assertRaisesRegex(ValueError,"latest differs"):
+            audit_lead(*d,NOW)
+
     def test_preserved_no_new_report_accepted_with_fresh_source(self):
         d=list(self.lead_data())
         for r in d[0][1:]:

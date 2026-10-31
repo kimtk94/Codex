@@ -8,12 +8,20 @@ on:
       - 'automation/ops/css_release_readonly_audit.py'
       - 'automation/ops/publish_css_p0_parallel_status.py'
       - 'automation/ops/test_css_p0_parallel.py'
+      - 'automation/ops/css_parallel_audit.py'
+      - 'automation/ops/test_css_parallel_audit.py'
+      - 'automation/ops/invoice_gap_review.py'
+      - 'automation/ops/test_invoice_gap_review.py'
   pull_request:
     paths:
       - '.github/workflows/css-p0-parallel-verification.yml'
       - 'automation/ops/css_release_readonly_audit.py'
       - 'automation/ops/publish_css_p0_parallel_status.py'
       - 'automation/ops/test_css_p0_parallel.py'
+      - 'automation/ops/css_parallel_audit.py'
+      - 'automation/ops/test_css_parallel_audit.py'
+      - 'automation/ops/invoice_gap_review.py'
+      - 'automation/ops/test_invoice_gap_review.py'
   schedule:
     - cron: '20 0,8 * * *' # 09:20, 17:20 KST; read-only cross-checks
 permissions:
@@ -34,8 +42,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install offline audit imports
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Test six-lane, release and acceptance boundaries
-        run: python -m unittest discover -s automation/ops -p 'test_css_p0_parallel.py' -v
+        run: |
+          python -m unittest discover -s automation/ops -p 'test_css_p0_parallel.py' -v
+          python -m unittest discover -s automation/ops -p 'test_css_parallel_audit.py' -v
+          python -m unittest discover -s automation/ops -p 'test_invoice_gap_review.py' -v
       - name: Compile isolated release and publisher code
         run: python -m py_compile automation/ops/css_release_readonly_audit.py automation/ops/publish_css_p0_parallel_status.py
 
@@ -84,6 +97,30 @@ jobs:
         run: python automation/ops/revenue_cross_source_audit.py
       - name: Validate current monthly FX/Statement billing state (read only)
         run: python automation/ops/css_parallel_audit.py revenue
+
+  invoice_review:
+    name: 2b - Publish invoice gaps for manual owner review
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify invoice evidence and no-auto-booking protections
+        run: python -m unittest discover -s automation/ops -p 'test_invoice_gap_review.py' -v
+      - name: Publish only generated CSS Invoice Gap Review with readback
+        run: python automation/ops/invoice_gap_review.py
+      - name: Preserve source and finance boundaries
+        run: echo 'GENERATED_REVIEW_ONLY; NO_REVENUE_ADDITION; NO_INVOICE_MUTATION; OWNER_NOT_VERIFIED' >> "$GITHUB_STEP_SUMMARY"
 
   lead:
     name: 3 - Strict personal Lead/Report parity
@@ -191,14 +228,15 @@ jobs:
   status:
     name: 7 - Publish independent outcomes, no acceptance promotion
     if: ${{ always() && github.event_name != 'pull_request' }}
-    needs: [offline, mail, revenue, lead, feishu, web, release]
+    needs: [offline, mail, revenue, invoice_review, lead, feishu, web, release]
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 8
     env:
       CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       TRACK_MAIL: ${{ needs.mail.result }}
-      TRACK_REVENUE: ${{ needs.revenue.result }}
+      TRACK_REVENUE: ${{ needs.revenue.result == 'success' && needs.invoice_review.result == 'success' && 'success' || 'failure' }}
+      TRACK_INVOICE_REVIEW: ${{ needs.invoice_review.result }}
       TRACK_LEAD: ${{ needs.lead.result }}
       TRACK_FEISHU: ${{ needs.feishu.result }}
       TRACK_WEB: ${{ needs.web.result }}
@@ -221,7 +259,8 @@ jobs:
             echo '| Lane | Execution state |'
             echo '|---|---|'
             echo "| QQ source | $TRACK_MAIL |"
-            echo "| Revenue VAT | $TRACK_REVENUE |"
+            echo "| Revenue VAT + invoice gap review | $TRACK_REVENUE |"
+            echo "| Invoice-only generated review sheet | $TRACK_INVOICE_REVIEW |"
             echo "| Personal Lead | $TRACK_LEAD |"
             echo "| Feishu payment structure | $TRACK_FEISHU |"
             echo "| Web live-source API | $TRACK_WEB |"
