@@ -40,6 +40,8 @@ def record_map(rows, number, amount, month=None):
         gross=int(raw)
         if gross<=0: raise ValueError("NONPOSITIVE_INVOICE_AMOUNT")
         mm=str(r[idx[month]]).strip() if month and idx[month]<len(r) else ""
+        if month and mm and not mm.startswith("2026-"):
+            continue
         if month and not re.fullmatch(r"2026-(0[1-9]|1[0-2])",mm):
             raise ValueError("INVALID_INVOICE_MONTH")
         if invoice in found and found[invoice]["gross"]!=gross:
