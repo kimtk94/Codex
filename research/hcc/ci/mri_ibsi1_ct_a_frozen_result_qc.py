@@ -80,7 +80,13 @@ def check(snapshot, ledger, patients):
     if len(patients) != 14 or len({r["patient_id"] for r in patients}) != 14:
         raise ValueError("Frozen MRI technical candidate count drift")
     h18 = next(r for r in ledger if r["id"] == "HCC-18")
-    if RUN not in h18["evidence_url"] and RUN not in h18["observed"]:
+    # The HCC-18 evidence_url points to the most recent CT-A/B audit, while
+    # observed retains the original CT-A run ID. Preserve BOTH the explicit
+    # CT-A measurement attribution and the 14-case clinical freeze.
+    original_ct_a_run_id = RUN.rsplit("/", 1)[-1]
+    if (RUN not in h18["evidence_url"] and RUN not in h18["observed"]
+        and not (original_ct_a_run_id in h18["observed"]
+                 and "CT Configuration A" in h18["observed"])):
         raise ValueError("HCC-18 ledger does not record actual CT-A evidence")
     return True
 
