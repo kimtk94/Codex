@@ -96,6 +96,14 @@ def assess(watch,online,outstanding,etax,manifest,now):
                 by_finance[amea].append((source,"",cell(r,gcol)))
                 continue
             by_finance[amea].append((source,xbase(raw),cell(r,gcol)))
+    # Reject X identifiers that map to different AMEAs anywhere in the snapshots.
+    source_x_owners=collections.defaultdict(set)
+    for source_amea,records in by_online.items():
+        for _,_,_,_,xb in records:
+            source_x_owners[xb].add(source_amea)
+    for source_amea,records in by_finance.items():
+        for _,xb,_ in records:
+            if xb:source_x_owners[xb].add(source_amea)
     out=[]
     counts=collections.Counter()
     for row in watch[1:]:
@@ -110,7 +118,9 @@ def assess(watch,online,outstanding,etax,manifest,now):
         finance_x={x for _,x,_ in finance_rows if x}
         online_x={xb for _,_,_,_,xb in online_rows}
         finance_missing=bool(finance_rows and any(not x for _,x,_ in finance_rows))
-        if amea in ambiguous_online or len(online_keys)>1:
+        if any(len(source_x_owners[x])>1 for x in (online_x|finance_x)):
+            state="X_REFERENCES_MULTIPLE_AMEAS"
+        elif amea in ambiguous_online or len(online_keys)>1:
             state="AMBIGUOUS_ONLINE_CONTRACT_REVIEW"
         elif len(finance_x)>1:
             state="MULTIPLE_FINANCE_X_REVIEW"
