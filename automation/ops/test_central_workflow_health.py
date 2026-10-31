@@ -56,6 +56,20 @@ class PublisherTests(unittest.TestCase):
         api=next(r for r in rows if r[0]=="CSS API Source Contract")
         self.assertIn("NOT Vercel OAuth/Preview E2E",api[8])
         self.assertEqual(api[9],"css-source-backed-api-contract.yml")
+    def test_all_critical_workflows_have_independent_recent_status(self):
+        expected={"css-p0-parallel-verification.yml",
+                  "css-vercel-build-scope-guard.yml",
+                  "css-operational-acceptance.yml",
+                  "sales-payment-reconciliation.yml"}
+        refs=[entry[2] for entry in WORKFLOWS]
+        self.assertEqual(len(refs),len(set(refs)))
+        self.assertTrue(expected.issubset(set(refs)))
+        rows=make_rows(lambda filename:[run(id=98765)],NOW)
+        self.assertEqual(len(rows),18)
+        self.assertTrue(all(row[2]=="PASS_EXECUTION_ONLY" for row in rows[1:]))
+        policy=next(row for row in rows if row[0]=="CSS Release Policy")
+        self.assertIn("not certified",policy[8].lower())
+
     def test_bi_workflow_failure_is_not_mislabeled_as_sync_failure(self):
         jobs=[{"name":"sync","status":"completed","conclusion":"success"},
               {"name":"test","status":"completed","conclusion":"failure"}]
