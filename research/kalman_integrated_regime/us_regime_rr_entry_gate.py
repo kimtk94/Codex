@@ -68,12 +68,17 @@ def trailing_atr_by_signal_close(paths):
     return out
 
 
-def entry_plan(entry,atr,*,side_cost=SIDE_COST):
+def entry_plan(entry,atr,*,side_cost=SIDE_COST,
+               stop_atr_mult=STOP_ATR_MULT,target_atr_mult=TARGET_ATR_MULT):
     """Prior-session ATR + *observed at 09:45* opening price; never future path."""
     if not (np.isfinite(entry) and np.isfinite(atr)) or entry<=0 or atr<=0:
         raise ValueError("INVALID_PLAN_PRICE_OR_ATR")
-    stop=entry-STOP_ATR_MULT*atr
-    target=entry+TARGET_ATR_MULT*atr
+    if (not np.isfinite(stop_atr_mult) or not np.isfinite(target_atr_mult)
+            or stop_atr_mult<=0 or target_atr_mult<=0):
+        raise ValueError("INVALID_ATR_MULTIPLIER")
+        raise ValueError("INVALID_PLAN_PRICE_OR_ATR")
+    stop=entry-stop_atr_mult*atr
+    target=entry+target_atr_mult*atr
     if stop<=0 or not np.isfinite(stop+target):
         raise ValueError("NONPOSITIVE_STOP")
     raw_reward=(target-entry)/entry
@@ -97,6 +102,8 @@ def entry_plan(entry,atr,*,side_cost=SIDE_COST):
     else:
         reason="PASS"
     return {"entry":float(entry),"stop":float(stop),"target":float(target),
+            "stop_atr_mult":float(stop_atr_mult),
+            "target_atr_mult":float(target_atr_mult),
             "gross_stop_fraction":float(raw_risk),
             "gross_target_fraction":float(raw_reward),
             "planned_net_rr":float(ratio),
@@ -118,9 +125,12 @@ def exit_for_session(bars,start,stop,target):
     return None,None
 
 
-def simulate(dates,signals,meta,paths,ticker,horizon,variant):
+def simulate(dates,signals,meta,paths,ticker,horizon,variant,*,plan_multipliers=None):
     if variant not in VARIANTS or horizon not in HORIZONS:
         raise ValueError("UNKNOWN_VARIANT_OR_HORIZON")
+    plan_multipliers={} if plan_multipliers is None else dict(plan_multipliers)
+    if set(plan_multipliers)-{"stop_atr_mult","target_atr_mult"}:
+        raise ValueError("UNAPPROVED_PLAN_OVERRIDE")
     if not (len(dates)==len(signals)==len(meta)):
         raise ValueError("UNPAIRED_SIGNALS_OR_REGIME")
     dates=[pd.Timestamp(d) for d in dates]
@@ -132,7 +142,8 @@ def simulate(dates,signals,meta,paths,ticker,horizon,variant):
     current=None
     trades=[]
     counters={"signal":int(signal.sum()),"failed_rr":0,"blocked_regime":0,
-              "blocked_overlap":0,"invalid_source":0,"tail_rejected":0}
+              "blocked_overlap":0,"invalid_source":0,"tail_rejected":0,
+              "rejected_by_reason":{}}
     last_entry=len(dates)-max(HORIZONS)
     for i,day in enumerate(dates):
         key=(ticker,day)
@@ -144,9 +155,12 @@ def simulate(dates,signals,meta,paths,ticker,horizon,variant):
             elif len(path)<2 or meta[i]["atr"] is None:
                 counters["invalid_source"]+=1
             else:
-                plan=entry_plan(float(path.iloc[1].open),float(meta[i]["atr"]))
+                plan=entry_plan(float(path.iloc[1].open),float(meta[i]["atr"]),
+                                **plan_multipliers)
                 if variant!="ORIGINAL_SIGNAL_DYNAMIC_EXITS" and not plan["allowed"]:
                     counters["failed_rr"]+=1
+                    rejected=counters["rejected_by_reason"]
+                    rejected[plan["reason"]]=rejected.get(plan["reason"],0)+1
                 elif variant=="BULL_PLUS_NET_RR_GATE" and meta[i]["regime"]!="BULL":
                     counters["blocked_regime"]+=1
                 else:
