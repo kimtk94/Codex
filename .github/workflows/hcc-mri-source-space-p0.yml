@@ -1,0 +1,127 @@
+name: HCC P0 MRI Official Source-Space and Clinical HOLD Gate
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_phase_mask_source_gate.py"
+      - ".github/workflows/hcc-mri-source-space-p0.yml"
+      - "research/hcc/HCC_MRI_14_PREOUTCOME_INDEX_LESION_SELECTION_20261030.csv"
+  workflow_dispatch:
+    inputs:
+      max_cases:
+        type: choice
+        description: "Read-only source-phase/ROI pilot, max 2; never clinical auto-approval"
+        required: true
+        default: "2"
+        options: ["1","2"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-mri-source-space-p0-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  p0-offline-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    name: Original source-contract regression and fail-closed clinical logic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6"
+      - name: Assert arterial + registered portal phase are documented; raw PV never auto-approved
+        run: python research/hcc/ci/mri_phase_mask_source_gate.py --mode offline
+      - name: Materialize 14-case source/clinical HOLD review queue without claiming eligibility
+        run: python research/hcc/ci/mri_phase_mask_source_gate.py --mode queue --out-dir artifacts/hcc_p0_queue
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-mri-p0-14case-clinical-hold-review-queue
+          path: artifacts/hcc_p0_queue/*.csv
+          if-no-files-found: error
+          retention-days: 30
+
+  p0-two-case-source-pixel-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    name: Official ART vs raw PV vs registered ART_PV actual pixels and mask
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install restricted read-only NIfTI readers
+        run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6"
+      - name: Inspect source images plus selected lesion for A10Y and A4NH
+        env:
+          PILOT_CASE_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.max_cases || '2' }}
+        run: python research/hcc/ci/mri_phase_mask_source_gate.py --mode live --max-cases "$PILOT_CASE_COUNT" --out-dir artifacts/hcc_p0_source_space
+      - name: Scientific HOLD summary, not imaging certification
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=json.loads(Path("artifacts/hcc_p0_source_space/hcc_mri_source_space_pilot_summary.json").read_text())
+          rows=["## HCC P0: official arterial-space mask versus original raw PV",
+             f"- Verdict: **{d['status']}**",
+             f"- Pilot selected cases: {', '.join(d['pilot_case_ids'])}",
+             f"- Per-phase physical geometry outcomes: `{d['phase_geometry_counts']}`",
+             "- Official mask target: ART or registered ART_PV (not raw PV)",
+             "- Raw PV historical ICC/GLCM accepted as biology: **NO**",
+             "- Expert ROI verified: 0; treatment: 0; matched tumor RNA: 0",
+             "- HCC-12/14 PARTIAL; HCC-17/20 PENDING; claim ceiling S0",
+             "- Source/reference-space and expert review remain HOLD"]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("\n".join(rows)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-mri-p0-arterial-rawpv-registeredpv-source-evidence
+          path: artifacts/hcc_p0_source_space/*.csv
+            artifacts/hcc_p0_source_space/*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  p0-scientific-guard:
+    needs: [p0-offline-contract, p0-two-case-source-pixel-audit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    name: Preserve raw-PV descriptive findings and prohibit MRI-RNA inference
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-mri-p0-arterial-rawpv-registeredpv-source-evidence
+          path: artifacts/source
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-mri-p0-14case-clinical-hold-review-queue
+          path: artifacts/review
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate 14 source HOLD cases and 3x phase rows per pilot
+        run: |
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          with Path("artifacts/review/hcc_mri14_source_and_clinical_review_queue.csv").open() as f:
+              q=list(csv.DictReader(f))
+          with Path("artifacts/source/hcc_mri_source_space_pilot.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          summary=json.loads(Path("artifacts/source/hcc_mri_source_space_pilot_summary.json").read_text())
+          assert len(q)==14 and len({x["patient_id"] for x in q})==14
+          assert all(x["decision"]=="HOLD_UNRESOLVED_NOT_EXCLUDED" for x in q)
+          assert len(rows)==3*summary["pilot_subjects"]
+          assert all(x["candidate_final_status"]=="HOLD_SOURCE_SPACE_AND_CLINICAL" for x in rows)
+          assert {x["image_phase"] for x in rows}=={"art","pv","art_pv"}
+          assert summary["eligible_mri_rna_n"]=="NOT_ASSESSED"
+          assert summary["previous_raw_PV_ICC_approved_for_biology"] is False
+          assert summary["primary_twelve_mri_rna_tests"]=="NOT_EXECUTED"
+          assert summary["manuscript_claim_ceiling"]=="S0"
+          print("HCC_MRI_P0_ACTUAL_SOURCE_PHASES_REVIEW_WITHOUT_PATIENT_PROMOTION_PASS")
+          PY
