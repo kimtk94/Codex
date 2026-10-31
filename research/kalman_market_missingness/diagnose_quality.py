@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import zipfile
 import pandas as pd
+from fred_h10_evidence import reconcile_fred_fx_nulls
 
 SOURCE = 'market/raw/yfinance/yf_usdkrw.parquet'
 FRED = 'fred/fred_latest_revised_long.csv'
@@ -115,6 +116,12 @@ def analyze(src: Path, output: Path):
         df.to_csv(output/'usdk_rw_ohlc_diagnostics.csv',index=False)
         pd.DataFrame([{'date':x,'asset':'yf_usdkrw','eligible_for_ohlc_training':False,'reason':'SOURCE_OHLC_NOT_VALIDATED'} for x in df.date],columns=['date','asset','eligible_for_ohlc_training','reason']).to_csv(output/'research_ohlc_exclusion_mask.csv',index=False)
         fg.to_csv(output/'fred_fx_null_diagnostics.csv',index=False)
+        # Additional evidence audit: preserve FRED raw NaN and original diagnostics.
+        # Official H.10 archive records are provenance, not replacement observations.
+        evidence_rows,evidence_summary=reconcile_fred_fx_nulls(fg.to_dict(orient='records'))
+        pd.DataFrame(evidence_rows).to_csv(output/'fred_fx_h10_evidence.csv',index=False)
+        (output/'fred_fx_h10_evidence_summary.json').write_text(
+            json.dumps(evidence_summary,indent=2,ensure_ascii=False)+'\n')
         flag_count=df['flags'].str.split('|').explode().value_counts().to_dict() if len(df) else {}
         summary={'schema':'kalman-quality-diagnostic-v1','asof':asof,
             'source_revision':readiness.get('created_at'),
@@ -126,6 +133,9 @@ def analyze(src: Path, output: Path):
             'usdkrw_below_1bp_dates':int((df.ohlc_excess_bp<=1).sum()) if len(df) else 0,
             'fred_fx_null_rows_total':len(fg),
             'fred_fx_nonfederal_candidates':int((fg.classification=='NON_HOLIDAY_PROXY_REQUIRES_PROVIDER_CHECK').sum()),
+            'fred_fx_h10_official_nd_or_closure_rows':evidence_summary['official_nd_or_board_closure_rows'],
+            'fred_fx_h10_archived_series_conflict_rows':evidence_summary['official_archive_conflict_rows'],
+            'fred_fx_h10_unclassified_rows':evidence_summary['unclassified_rows'],
             'invalid_fred_fx_rows_must_remain_null':True,
             'point_in_time_training_ready':False,
             'production_writes':False,
