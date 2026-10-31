@@ -1,0 +1,166 @@
+name: Kalman US Five-Ticker 2024-2026 SIP Volume Coverage (Research Only)
+
+on:
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - '.github/workflows/kalman-us-multisymbol-bars.yml'
+      - 'research/kalman_integrated_regime/us_multisymbol_bar_backfill.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_bar_backfill.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_volume_screen.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_volume_screen.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_volume_robustness.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_volume_robustness.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_volume_calibration.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_volume_calibration.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_volume_trade_backtest.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_volume_trade_backtest.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_coin_portfolio_stress.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_coin_portfolio_stress.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_hold124.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_hold124.py'
+      - 'research/kalman_integrated_regime/us_regime_rr_audit.py'
+      - 'research/kalman_integrated_regime/test_us_regime_rr_audit.py'
+      - 'research/kalman_integrated_regime/us_regime_rr_entry_gate.py'
+      - 'research/kalman_integrated_regime/test_us_regime_rr_entry_gate.py'
+      - 'research/kalman_integrated_regime/us_regime_rr2_feasibility.py'
+      - 'research/kalman_integrated_regime/test_us_regime_rr2_feasibility.py'
+  pull_request:
+    paths:
+      - '.github/workflows/kalman-us-multisymbol-bars.yml'
+      - 'research/kalman_integrated_regime/us_multisymbol_bar_backfill.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_bar_backfill.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_volume_screen.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_volume_screen.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_volume_robustness.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_volume_robustness.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_volume_calibration.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_volume_calibration.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_volume_trade_backtest.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_volume_trade_backtest.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_coin_portfolio_stress.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_coin_portfolio_stress.py'
+      - 'research/kalman_integrated_regime/us_multisymbol_hold124.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_hold124.py'
+      - 'research/kalman_integrated_regime/us_regime_rr_audit.py'
+      - 'research/kalman_integrated_regime/test_us_regime_rr_audit.py'
+      - 'research/kalman_integrated_regime/us_regime_rr_entry_gate.py'
+      - 'research/kalman_integrated_regime/test_us_regime_rr_entry_gate.py'
+      - 'research/kalman_integrated_regime/us_regime_rr2_feasibility.py'
+      - 'research/kalman_integrated_regime/test_us_regime_rr2_feasibility.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-five-ticker-bars-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated validation environment
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'exchange-calendars>=4.7' 'requests>=2.31,<3' 'scikit-learn>=1.4,<2'
+      - name: Source and missing-data, pagination tests
+        run: |
+          python -m unittest research.kalman_integrated_regime.test_us_multisymbol_bar_backfill research.kalman_integrated_regime.test_us_multisymbol_microstructure research.kalman_integrated_regime.test_us_multisymbol_volume_screen research.kalman_integrated_regime.test_us_multisymbol_volume_robustness research.kalman_integrated_regime.test_us_multisymbol_volume_calibration research.kalman_integrated_regime.test_us_multisymbol_volume_trade_backtest research.kalman_integrated_regime.test_us_multisymbol_coin_portfolio_stress research.kalman_integrated_regime.test_us_multisymbol_hold124 research.kalman_integrated_regime.test_us_regime_rr_audit research.kalman_integrated_regime.test_us_regime_rr_entry_gate research.kalman_integrated_regime.test_us_regime_rr2_feasibility -v
+          python -m research.kalman_integrated_regime.us_multisymbol_bar_backfill --self-test
+          python -m py_compile research/kalman_integrated_regime/us_multisymbol_bar_backfill.py research/kalman_integrated_regime/us_multisymbol_volume_screen.py research/kalman_integrated_regime/us_multisymbol_volume_robustness.py research/kalman_integrated_regime/us_multisymbol_volume_calibration.py research/kalman_integrated_regime/us_multisymbol_volume_trade_backtest.py research/kalman_integrated_regime/us_multisymbol_coin_portfolio_stress.py research/kalman_integrated_regime/us_multisymbol_hold124.py research/kalman_integrated_regime/us_regime_rr_audit.py research/kalman_integrated_regime/us_regime_rr_entry_gate.py research/kalman_integrated_regime/us_regime_rr2_feasibility.py
+
+  full-history-five-symbols:
+    needs: contracts
+    if: github.event_name != 'pull_request'
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install private SIP coverage-only dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'pyarrow>=17' 'exchange-calendars>=4.7' 'requests>=2.31,<3' 'scikit-learn>=1.4,<2'
+      - name: Download private 2024-2026 SPY IWM SMH MU COIN SIP 15m with bounded pagination
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID || secrets.APCA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY || secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_bar_backfill \
+            --symbols SPY,IWM,SMH,MU,COIN --start 2024-01-01 --end-exclusive 2026-10-31 \
+            --max-pages-per-month 25 --out "$RUNNER_TEMP/us_five_sip"
+      - name: Evaluate cross-ticker price-only versus price plus volume (next-session predictive screen)
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_volume_screen \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/predictive_screen.json"
+      - name: Match Jan-Oct evaluation windows and paired block bootstrap against no-skill
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_volume_robustness \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/matched_months_robustness.json" \
+            --bootstrap-reps 400
+      - name: Evaluate constant-prevalence vs unweighted vs class-balanced price/volume predictions
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_volume_calibration \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/calibration_baseline.json" \
+            --bootstrap-reps 400
+      - name: Backtest identical next-open trades with explicit costs and fixed intraday exit policies (research only)
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_volume_trade_backtest \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/trade_backtest.json" \
+            --capital-fraction 1.0
+      - name: Measure COIN regime concentration, 0-100bp cost stress and equalweight 5 ticker portfolio
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_coin_portfolio_stress \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/coin_portfolio_cost_stress.json"
+      - name: Compare one two four session nonoverlapping overnight holds and mark-to-market portfolio (research only)
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_hold124 \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/hold124_nonoverlap.json"
+      - name: Evaluate causal SPY bull bear transition regime trade reward risk and conditional net returns (research only)
+        run: |
+          python -m research.kalman_integrated_regime.us_regime_rr_audit \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/regime_reward_risk_audit.json"
+      - name: Backtest actual pre-entry net reward-risk veto and SPY Bull-only regime gate (research only)
+        run: |
+          python -m research.kalman_integrated_regime.us_regime_rr_entry_gate \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/regime_rr_entry_gate.json"
+      - name: Diagnose strict netRR 2 gate failures and evaluate 3 predeclared ATR geometries with market-state audit (research only)
+        run: |
+          python -m research.kalman_integrated_regime.us_regime_rr2_feasibility \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/regime_rr2_feasibility.json"
+      - name: Archive aggregated per-symbol coverage only, no raw licensed 15m bars
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-us-five-2024-2026-volume-coverage
+          path: |
+            ${{ runner.temp }}/us_five_sip/source_qa.json
+            ${{ runner.temp }}/us_five_sip/predictive_screen.json
+            ${{ runner.temp }}/us_five_sip/matched_months_robustness.json
+            ${{ runner.temp }}/us_five_sip/calibration_baseline.json
+            ${{ runner.temp }}/us_five_sip/trade_backtest.json
+            ${{ runner.temp }}/us_five_sip/coin_portfolio_cost_stress.json
+            ${{ runner.temp }}/us_five_sip/hold124_nonoverlap.json
+            ${{ runner.temp }}/us_five_sip/regime_reward_risk_audit.json
+            ${{ runner.temp }}/us_five_sip/regime_rr_entry_gate.json
+            ${{ runner.temp }}/us_five_sip/regime_rr2_feasibility.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Erase private raw bar data
+        if: always()
+        run: rm -f "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet"

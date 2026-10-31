@@ -1,0 +1,91 @@
+name: Kalman QLD 2025-2026 Volume Regime Drift (Research Only)
+
+on:
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - '.github/workflows/kalman-qld-volume-drift.yml'
+      - 'research/kalman_integrated_regime/volume_regime_drift.py'
+      - 'research/kalman_integrated_regime/test_volume_drift_quote.py'
+  pull_request:
+    paths:
+      - '.github/workflows/kalman-qld-volume-drift.yml'
+      - 'research/kalman_integrated_regime/volume_regime_drift.py'
+      - 'research/kalman_integrated_regime/test_volume_drift_quote.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qld-volume-drift-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install analysis dependencies
+        run: python -m pip install --disable-pip-version-check 'numpy>=1.26,<3' 'pandas>=2.2,<3' 'scikit-learn>=1.4,<2' 'exchange-calendars>=4.7' 'requests>=2.31,<3'
+      - name: Test quote timing, volume drift, and label cohort reconciliation
+        run: |
+          python -m unittest \
+            research.kalman_integrated_regime.test_volume_drift_quote \
+            research.kalman_integrated_regime.test_volume_four_arm -v
+          python -m py_compile research/kalman_integrated_regime/volume_regime_drift.py
+
+  historical-drift:
+    needs: contracts
+    if: github.event_name != 'pull_request'
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install historical dependencies
+        run: python -m pip install --disable-pip-version-check 'numpy>=1.26,<3' 'pandas>=2.2,<3' 'scikit-learn>=1.4,<2' 'pyarrow>=17' 'exchange-calendars>=4.7' 'requests>=2.31,<3' google-auth google-api-python-client
+      - name: Fetch private completed Alpaca SIP bars once
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID || secrets.APCA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY || secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_integrated_regime/sip_backfill.py \
+            --start 2024-01-01 --end-exclusive 2026-10-31 \
+            --out "$RUNNER_TEMP/qld_volume_drift"
+      - name: Load private macro history once
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_triple_barrier/drive_input.py \
+            --file-id 1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd \
+            --output "$RUNNER_TEMP/qld_volume_drift/market.zip"
+      - name: Compare 2025 vs 2026 volume levels and added versus removed signals
+        run: |
+          python -m research.kalman_integrated_regime.volume_regime_drift \
+            --daily "$RUNNER_TEMP/qld_volume_drift/qld_qqq_daily_sip_all_private.csv" \
+            --intraday "$RUNNER_TEMP/qld_volume_drift/qld_qqq_15m_sip_all_private.parquet" \
+            --market-zip "$RUNNER_TEMP/qld_volume_drift/market.zip" \
+            --out "$RUNNER_TEMP/qld_volume_drift/results"
+      - name: Publish aggregates only and delete licensed historical inputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qld-volume-2025-2026-drift-and-signal-partition
+          path: ${{ runner.temp }}/qld_volume_drift/results/volume_regime_drift.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Erase private SIP and market files
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/qld_volume_drift/qld_qqq_daily_sip_all_private.csv"
+          rm -f "$RUNNER_TEMP/qld_volume_drift/qld_qqq_15m_sip_all_private.parquet"
+          rm -f "$RUNNER_TEMP/qld_volume_drift/market.zip"

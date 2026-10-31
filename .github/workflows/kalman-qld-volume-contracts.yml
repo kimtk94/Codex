@@ -1,0 +1,35 @@
+name: Kalman QLD QQQ Volume Feature Contracts (Research Only)
+
+on:
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - '.github/workflows/kalman-qld-volume-contracts.yml'
+      - 'research/kalman_integrated_regime/volume_features.py'
+      - 'research/kalman_integrated_regime/test_volume_features.py'
+  pull_request:
+    paths:
+      - '.github/workflows/kalman-qld-volume-contracts.yml'
+      - 'research/kalman_integrated_regime/volume_features.py'
+      - 'research/kalman_integrated_regime/test_volume_features.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: strict-RTH-and-no-lookahead
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test-only dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'exchange-calendars>=4.7'
+      - name: Verify 20 completed-session baselines, missing bars and future-data isolation
+        run: |
+          python -m unittest research.kalman_integrated_regime.test_volume_features -v
+          python -m py_compile research/kalman_integrated_regime/volume_features.py
