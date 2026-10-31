@@ -135,6 +135,12 @@ jobs:
         run: python research/hcc/ci/mri_ibsi1_independent_glcm_reference.py --offline-test
       - name: Frozen official IBSI source/phantom/PyRadiomics result must not promote HCC inference
         run: python research/hcc/ci/mri_ibsi1_frozen_source_result_qc.py --offline-test
+      - name: IBSI ten source-derived reference feature values and code mapping
+        run: python research/hcc/ci/mri_ibsi1_all10_feature_reference_audit.py --offline-test
+      - name: IBSI CT phase 1 versus phase 2 source and configuration distinction
+        run: python research/hcc/ci/mri_ibsi_ct_dual_phase_source_preflight.py --offline-test
+      - name: IBSI ten feature and official CT fail-closed clinical gate tests
+        run: python research/hcc/ci/mri_ibsi10_ct_expanded_gate.py --offline-test
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
@@ -595,6 +601,114 @@ jobs:
         with:
           name: hcc-ibsi1-final-scientific-gate
           path: artifacts/hcc_ibsi_final/
+          if-no-files-found: error
+          retention-days: 30
+
+
+  hcc-ibsi1-ten-feature:
+    name: HCC IBSI Expanded 1/4 – Ten actual PyRadiomics feature reference comparisons
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install strictly pinned original phantom PyRadiomics reader
+        run: python -m pip install "numpy==1.26.4" "pyradiomics==3.1.0" "nibabel>=5.2,<6"
+      - name: Clone pinned official IBSI1 source repository
+        run: mkdir -p artifacts && git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+      - name: Extract all ten frozen HCC source features on official IBSI1 digital phantom
+        run: python research/hcc/ci/mri_ibsi1_all10_feature_reference_audit.py --out-dir artifacts/hcc_ibsi10
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-ibsi-expanded-ten-feature
+          path: artifacts/hcc_ibsi10/
+          if-no-files-found: error
+          retention-days: 30
+
+  hcc-ibsi-ct-source:
+    name: HCC IBSI Expanded 2/4 – Independent IBSI1/IBSI2 CT NIfTI provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install NIfTI reader only
+        run: python -m pip install "numpy>=1.26,<3" "nibabel>=5.2,<6"
+      - name: Clone original official IBSI CT source without redistributing images
+        run: mkdir -p artifacts && git clone --depth 1 https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+      - name: Compare image/ROI geometry and SHA and report actual CT phase readiness
+        run: python research/hcc/ci/mri_ibsi_ct_dual_phase_source_preflight.py --out-dir artifacts/hcc_ibsi_ct
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-ibsi-expanded-ct-source
+          path: artifacts/hcc_ibsi_ct/
+          if-no-files-found: error
+          retention-days: 30
+
+  hcc-ibsi-reference-guards:
+    name: HCC IBSI Expanded 3/4 – Original clinical/method protocol guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify published IBSI-1 reference registry and CT configuration semantics
+        run: |
+          python research/hcc/ci/mri_ibsi1_all10_feature_reference_audit.py --offline-test
+          python research/hcc/ci/mri_ibsi_ct_dual_phase_source_preflight.py --offline-test
+      - name: Guard previously verified official IBSI Contrast and 14-person eligibility
+        run: |
+          python research/hcc/ci/mri_ibsi1_frozen_source_result_qc.py --offline-test
+          python research/hcc/ci/mri_ibsi10_ct_expanded_gate.py --offline-test
+
+  hcc-ibsi-expanded-join:
+    name: HCC IBSI Expanded 4/4 – Ten feature + CT provenance scientific GO/REVIEW/HOLD
+    needs: [hcc-ibsi1-ten-feature, hcc-ibsi-ct-source, hcc-ibsi-reference-guards]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-ibsi-expanded-ten-feature
+          path: artifacts/hcc_ibsi10
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-ibsi-expanded-ct-source
+          path: artifacts/hcc_ibsi_ct
+      - name: Preserve feature-specific disagreements and no unverified clinical eligibility
+        run: python research/hcc/ci/mri_ibsi10_ct_expanded_gate.py --out-dir artifacts/hcc_ibsi_expanded
+      - name: Publish source-driven feature QA summary
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          report=json.loads(Path("artifacts/hcc_ibsi_expanded/hcc_ibsi10_ct_source_joint_review.json").read_text())
+          lines=["## HCC official IBSI expanded evidence validation",
+                 f"- Summary: **{report['status']}**",
+                 f"- Ten original-feature matched: **{report['ibsi1_reference_match_count']}/10**",
+                 f"- Feature differences requiring review: **{report['ibsi1_reference_review_count']}/10**",
+                 f"- Original IBSI1/IBSI2 CT SHA consistency: **{report['ibsi2_ct_original_same_as_ibsi1_ct']}**",
+                 "- IBSI1 CT configs A–E: **NOT EXECUTED**",
+                 "- IBSI2 CT filtered feature comparison: **NOT EXECUTED**",
+                 "- Clinical eligibility: **NOT ASSESSED** · MRI–RNA hypotheses: **NOT RUN**",
+                 "- Full IBSI standardization certification: **NOT CLAIMED**"]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("\n".join(lines)+"\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-ibsi-expanded-final-review
+          path: artifacts/hcc_ibsi_expanded/
           if-no-files-found: error
           retention-days: 30
 
