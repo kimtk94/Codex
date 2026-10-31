@@ -6,7 +6,7 @@ on:
     - cron: '20 3 * * 2-6'
   workflow_dispatch:
   push:
-    branches: [main, feat/kalman-missingness-audit-20261031]
+    branches: [main, 'feat/*', 'fix/*']
     paths:
       - 'research/kalman_market_missingness/**'
       - '.github/workflows/kalman-market-missingness-audit.yml'
