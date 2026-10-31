@@ -94,7 +94,28 @@ def summarize_structured(paths, expected_configs):
                            -min(r["matched_50pct_mdd_2025_pct"],
                                 r["matched_50pct_mdd_2026_ytd_pct"])),
             reverse=True)[:20]
+    min_qualified_target = 500
+    qualified_counts = {
+        model: sum(r["qualified_min_15_trades_each_year"] for r in main["rows"]
+                   if r["model"] == model and r["config_index"] > 0)
+        for model in ("price_only", "integrated_regime")
+    }
+    model_ids = {
+        model: {r["policy_id"] for r in main["rows"]
+                if r["model"] == model and r["config_index"] > 0
+                and r["qualified_min_15_trades_each_year"]}
+        for model in qualified_counts
+    }
+    qualified_both_models = len(model_ids["price_only"] & model_ids["integrated_regime"])
+    gate_pass = all(n >= min_qualified_target for n in qualified_counts.values())
     main.update({
+        "qualification_gate": {
+            "threshold": "AT_LEAST_15_COMPLETED_TRADES_IN_2025_AND_2026",
+            "min_unique_random_policies_per_model": min_qualified_target,
+            "passed_per_model": qualified_counts,
+            "qualified_in_both_models": qualified_both_models,
+            "status": "PASS" if gate_pass else "FAIL_MIN_500",
+        },
         "schema": "qld-40axis-10000-structured-and-size-matched-v1",
         "status": "EXPLORATORY_NOT_INDEPENDENT_POLICY_OOS",
         "sampling": items[0]["generator"],
@@ -124,6 +145,7 @@ def main():
         "status":result["status"],
         "total_configs":result["configs_evaluated"],
         "total_portfolios":result["full_trade_models_by_year"],
+        "qualification_gate":result["qualification_gate"],
         "budget_stats":result["filter_budget_stats_excluding_baseline"],
         "top3_common_cash":{model:[{
             "policy_id":a["policy_id"],
