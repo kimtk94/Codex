@@ -24,6 +24,16 @@ class InvoiceGapTests(unittest.TestCase):
         self.assertEqual(stats["by_class"]["QQ_ONLY_CSS_EXTRACT_MISSING"],2)
         self.assertTrue(all(r[8]=="NOT_VERIFIED" and r[9]=="DO_NOT_AUTO_ADD" for r in rows))
 
+    def test_qq_month_missing_is_reviewed_not_misbooked(self):
+        qq,css,extract=self.fixture()
+        qq.append(["209126000006","","660","FILENAME_PARSED"])
+        rows=review(qq,css,extract)
+        missing=next(r for r in rows if r[0]=="209126000006")
+        self.assertEqual(missing[1],"UNKNOWN")
+        self.assertEqual(missing[7],"QQ_ISSUE_MONTH_MISSING")
+        self.assertEqual(missing[8],"NOT_VERIFIED")
+        self.assertEqual(missing[9],"DO_NOT_AUTO_ADD")
+
     def test_original_amount_conflict_blocks(self):
         qq,css,extract=self.fixture()
         extract[1][1]="999"
