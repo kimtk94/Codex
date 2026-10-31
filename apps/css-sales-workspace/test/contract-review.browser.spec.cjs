@@ -113,3 +113,46 @@ test('untrusted project and X text are never interpreted as HTML',async({page})=
   expect(await page.evaluate(()=>window.__contractInjection)).toBeUndefined();
   expect(errors).toEqual([]);
 });
+
+test('current KST month drives KPI; explicit historical month survives refresh',async({page})=>{
+  // Fix test clock independently of runner timezone or future months.
+  await page.addInitScript(()=>{
+    Date.now=()=>Date.parse('2026-11-01T00:30:00+09:00');
+  });
+  const months=[
+    {month:'2026-10',actual:158541900,netRevenue:144129000,
+      pending:0,forecast:21152370,forecastKUSD:14.102,
+      verifiedBilling:0,verifiedBillingKUSD:0,netRevenueKUSD:96.086,
+      invoices:48,openStatements:0},
+    {month:'2026-11',actual:0,netRevenue:0,pending:0,
+      forecast:65344560,forecastKUSD:43.563,
+      verifiedBilling:0,verifiedBillingKUSD:0,netRevenueKUSD:0,
+      invoices:0,openStatements:0},
+    {month:'2026-12',actual:0,netRevenue:null,pending:0,
+      forecast:25000000,forecastKUSD:16.667,
+      verifiedBilling:0,verifiedBillingKUSD:0,netRevenueKUSD:null,
+      invoices:0,openStatements:0}
+  ];
+  const payload=response({available:false,items:[]});
+  payload.months=months;
+  const errors=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.route('**/api/lifecycle',route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify(payload)
+  }));
+  await page.goto(base);
+  await expect(page.locator('#state')).toHaveText('연결됨');
+  const select=page.locator('#dashboardMonth');
+  await expect(select).toHaveValue('2026-11');
+  await expect(page.locator('#overviewKpi')).toContainText('₩65,344,560');
+  await expect(page.locator('#overviewKpi')).not.toContainText('₩144,129,000');
+  await page.locator('nav button[data-view="revenue"]').click();
+  await expect(page.locator('#revenueKpi')).toContainText('₩65,344,560');
+  await select.selectOption('2026-10');
+  await expect(page.locator('#overviewKpi')).toContainText('₩144,129,000');
+  await expect(page.locator('#revenueKpi')).toContainText('₩158,541,900');
+  await page.locator('#load').click();
+  await expect(select).toHaveValue('2026-10');
+  await expect(page.locator('#revenueKpi')).toContainText('₩144,129,000');
+  expect(errors).toEqual([]);
+});
