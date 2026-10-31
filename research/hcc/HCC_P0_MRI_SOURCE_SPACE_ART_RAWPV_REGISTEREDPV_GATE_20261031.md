@@ -31,3 +31,27 @@
 | HCC-20 MRI–RNA | Full G3-G6 and frozen n≥10 minimum + predeclared 12-test SAP | **STOP/NOT EXECUTED** |
 
 **Publication ceiling remains S0.** Source QCs are real but are not MRI-RNA biological effect, patient pretreatment verification, scanner harmonization, or standard-certified radiomics.
+
+## Real source NIfTI pilot result: GitHub Actions #41187537805
+
+All **three** source-space workflow jobs passed. This means source integrity and fail-closed review guard ran; the *scientific* state remains `REVIEW_SOURCE_REGISTRATION_AND_EXPERT_ADJUDICATION_REQUIRED`.
+
+| Frozen case | ART↔ROI corner offset | Raw PV↔ROI corner offset | ART_PV↔ROI corner offset | Result |
+|---|---:|---:|---:|---|
+| A10Y, tumor3 | 0 mm | 0 mm | **284.257812 mm** | HOLD |
+| DD-A4NH, tumor1 | 0 mm | 0 mm | **498.906274 mm** | HOLD |
+
+All three NIfTI files in each case have the same 3D *array shape* as the selected mask. The large affine discrepancy for `art_pv` is real **header geometry mismatch**, not evidence that the actual B-spline image registration failed; e.g. a coordinate-header issue could coexist with aligned pixel arrays. The unregistered `pv` affine equality similarly does not prove pixel-level anatomical registration.
+
+MRI signal median inside the **geometry-matched** ROI:
+- A10Y: ART **152**, PV **251**; ROI **124,420** voxels.
+- A4NH: ART **146**, PV **193**; ROI **234,873** voxels.
+
+These are source signal diagnostics only, **not** a comparison of biologically qualified MRI phases or enhancement.
+
+Evidence:
+- [Actual 3-job source-space GitHub Action](https://github.com/kimtk94/Codex/actions/runs/41187537805)
+- [Permanent 6-per-phase measurements + NIfTI member SHA256](HCC_MRI_P0_2CASE_ACTUAL_SOURCE_SPACE_20261031.json)
+- Action artifact `hcc-mri-p0-arterial-rawpv-registeredpv-source-evidence` (download retention 30 days).
+
+**Next:** compare image voxel indexing and NIfTI qform/sform/affine provenance, with actual ART↔registered ART_PV tissue landmarks in overlays. Avoid rewriting affine headers without documented original transform. Seek the dataset authors' validation of registered NIfTI headers, then a qualified radiologist's source-phase/ROI anatomical review. Do not automatically promote all 14 after a two-patient pilot; all remain unresolved.
