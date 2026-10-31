@@ -148,6 +148,8 @@ jobs:
         run: python research/hcc/ci/mri_ibsi10_ct_expanded_gate.py --offline-test
       - name: Check permanent 10 feature values and CT source hashes with no remote download
         run: python research/hcc/ci/mri_ibsi1_ten_feature_ct_frozen_result_qc.py --offline-test
+      - name: Frozen actual IBSI CT A and B 5+5 official numeric results with claim safeguards
+        run: python research/hcc/ci/mri_ibsi_ct_a_b_frozen_result_qc.py
       - name: Offline CT x MRI x RNA patient crosswalk fixture
         run: python research/hcc/ci/crossmodal_case_audit.py --offline-test
   metadata-audit:
