@@ -1,0 +1,72 @@
+name: Kalman US Five-Ticker 2024-2026 SIP Volume Coverage (Research Only)
+
+on:
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - '.github/workflows/kalman-us-multisymbol-bars.yml'
+      - 'research/kalman_integrated_regime/us_multisymbol_bar_backfill.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_bar_backfill.py'
+  pull_request:
+    paths:
+      - '.github/workflows/kalman-us-multisymbol-bars.yml'
+      - 'research/kalman_integrated_regime/us_multisymbol_bar_backfill.py'
+      - 'research/kalman_integrated_regime/test_us_multisymbol_bar_backfill.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-five-ticker-bars-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated validation environment
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'exchange-calendars>=4.7' 'requests>=2.31,<3'
+      - name: Source and missing-data, pagination tests
+        run: |
+          python -m unittest research.kalman_integrated_regime.test_us_multisymbol_bar_backfill research.kalman_integrated_regime.test_us_multisymbol_microstructure -v
+          python -m research.kalman_integrated_regime.us_multisymbol_bar_backfill --self-test
+          python -m py_compile research/kalman_integrated_regime/us_multisymbol_bar_backfill.py
+
+  full-history-five-symbols:
+    needs: contracts
+    if: github.event_name != 'pull_request'
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install private SIP coverage-only dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'pyarrow>=17' 'exchange-calendars>=4.7' 'requests>=2.31,<3'
+      - name: Download private 2024-2026 SPY IWM SMH MU COIN SIP 15m with bounded pagination
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID || secrets.APCA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY || secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_bar_backfill \
+            --symbols SPY,IWM,SMH,MU,COIN --start 2024-01-01 --end-exclusive 2026-10-31 \
+            --max-pages-per-month 10 --out "$RUNNER_TEMP/us_five_sip"
+      - name: Archive aggregated per-symbol coverage only, no raw licensed 15m bars
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-us-five-2024-2026-volume-coverage
+          path: ${{ runner.temp }}/us_five_sip/source_qa.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Erase private raw bar data
+        if: always()
+        run: rm -f "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet"
