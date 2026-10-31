@@ -9,7 +9,7 @@ from urllib.error import HTTPError,URLError
 
 ENDPOINT="https://data.alpaca.markets/v2/stocks/COIN/bars"
 
-def fetch(*,key,secret,start,end,max_pages=20):
+def fetch(*,key,secret,start,end,max_pages=160):
     if not key or not secret:
         raise RuntimeError("SIP_READ_BLOCKED_MISSING_CREDENTIALS")
     seen=set();token=None;bars=[]
@@ -34,12 +34,15 @@ def fetch(*,key,secret,start,end,max_pages=20):
             time.sleep(min(2**attempt,6))
         if not isinstance(payload,dict) or not isinstance(payload.get("bars"),list):
             raise RuntimeError("HISTORICAL_SIP_SCHEMA_INVALID")
-        bars.extend(payload["bars"])
+        new_rows=payload["bars"]
+        if not new_rows and payload.get("next_page_token"):
+            raise RuntimeError("SIP_EMPTY_PAGE_WITH_CONTINUATION")
+        bars.extend(new_rows)
         new_token=payload.get("next_page_token")
         if not new_token: return bars
         if new_token in seen: raise RuntimeError("SIP_PAGINATION_LOOP")
         seen.add(new_token);token=new_token
-    raise RuntimeError("SIP_PAGE_LIMIT_EXCEEDED")
+    raise RuntimeError("SIP_PAGE_LIMIT_EXCEEDED_160_CHECK_FETCH_ENTITLEMENT_AND_LIMIT")
 
 def main():
     p=argparse.ArgumentParser()
