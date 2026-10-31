@@ -168,6 +168,10 @@ def main():
     loc=url+"/values/"+quote("'"+TAB+"'!A1:M"+str(len(output)),safe="")
     old=req("GET",loc).get("values",[])
     if old and old[0]!=HEAD:raise RuntimeError("FOREIGN_REVIEW_TAB_HEADER")
+    # Prevent yesterday's unmatched invoices lingering if today's review shrinks.
+    # The cleared range is the dedicated generated review tab only.
+    clear=url+"/values/"+quote("'"+TAB+"'!A1:M1200",safe="")+":clear"
+    req("POST",clear,json={})
     req("PUT",loc,params={"valueInputOption":"RAW"},json={"values":output})
     readback=req("GET",loc).get("values",[])
     if readback!=[[str(v) for v in r] for r in output]:
