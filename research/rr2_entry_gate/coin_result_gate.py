@@ -44,6 +44,16 @@ def review(path,expected_sha=None):
                 if not isinstance(row.get(k),(int,float)) or not math.isfinite(row[k]):
                     raise ValueError("NONFINITE_RESULT")
             if row["eod_mdd_pct"]>0: raise ValueError("BAD_DRAWDOWN")
+        for stressed in ("50bp", "100bp"):
+            count_key="cost_stress_"+stressed+"_planned_rr2_count"
+            return_key="cost_stress_"+stressed+"_mean_R"
+            count=row.get(count_key)
+            value=row.get(return_key)
+            if not isinstance(count,int) or not 0<=count<=row["trades"]:
+                raise ValueError("INVALID_COST_REPRICED_RR2_COUNT")
+            if row["trades"] and (not isinstance(value,(int,float))
+                                  or not math.isfinite(value)):
+                raise ValueError("INVALID_COST_STRESS_RETURN")
         indexed[key]=row
     if set(indexed)!=EXPECTED_CELLS: raise ValueError("MISSING_CELLS")
     # Ex-ante: pick 2024 only, then report 2025 and 2026 without tuning.
@@ -60,6 +70,20 @@ def review(path,expected_sha=None):
         "both_positive":all(indexed[(y,arm,h)]["mean_R"]>0 for y in (2025,2026)),
         "min_year_trades":min(indexed[(y,arm,h)]["trades"] for y in (2025,2026))
     } for arm in ARMS for h in HOLDS]
+    stress_2025_2026=[
+        {
+            "year":year,
+            "arm":arm,
+            "hold_sessions":hold,
+            "trades":indexed[(year,arm,hold)]["trades"],
+            "rr2_still_valid_at_50bp":indexed[(year,arm,hold)]["cost_stress_50bp_planned_rr2_count"],
+            "rr2_still_valid_at_100bp":indexed[(year,arm,hold)]["cost_stress_100bp_planned_rr2_count"],
+            "mean_R_at_50bp":indexed[(year,arm,hold)]["cost_stress_50bp_mean_R"],
+            "mean_R_at_100bp":indexed[(year,arm,hold)]["cost_stress_100bp_mean_R"],
+            "hold_rule":"TARGET_NOT_REPRICED_FOR_STRESS_COSTS"
+        }
+        for year in (2025,2026) for arm in ARMS for hold in HOLDS
+    ]
     cross_year_positive=sum(x["both_positive"] for x in stability)
     selected_both_positive=all(x["mean_R"]>0 for x in validation)
     # Explicitly require future genuine OOS and model signal matched replay, absent here.
@@ -81,7 +105,13 @@ def review(path,expected_sha=None):
         "validation":[{"year":r["year"],"mean_R":r["mean_R"],"trades":r["trades"],
                        "eod_mdd_pct":r["eod_mdd_pct"]} for r in validation],
         "selected_both_positive":selected_both_positive,
-        "stability":stability
+        "stability":stability,
+        "cost_stress_2025_2026":stress_2025_2026,
+        "cost_50bp_2R_breaches":sum(
+            x["trades"]-x["rr2_still_valid_at_50bp"] for x in stress_2025_2026),
+        "cost_100bp_2R_breaches":sum(
+            x["trades"]-x["rr2_still_valid_at_100bp"] for x in stress_2025_2026),
+        "cost_increase_requires_new_ex_ante_target":True
     }
 
 def main():
