@@ -184,7 +184,7 @@ jobs:
           retention-days: 30
   
   hcc-batch-clinical:
-    name: HCC gate 1/4 – Clinical treatment anatomy
+    name: HCC gate 1/5 – Clinical treatment anatomy
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -204,7 +204,7 @@ jobs:
           retention-days: 30
 
   hcc-batch-purity:
-    name: HCC gate 2/4 – ABSOLUTE and CPE specimen purity
+    name: HCC gate 2/5 – ABSOLUTE and CPE specimen purity
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -224,7 +224,7 @@ jobs:
           retention-days: 30
 
   hcc-batch-source-identity:
-    name: HCC gate 3/4 – Frozen MRI/ROI/RNA pathway source identities
+    name: HCC gate 3/5 – Frozen MRI/ROI/RNA pathway source identities
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -245,7 +245,7 @@ jobs:
 
 
   hcc-batch-publication:
-    name: HCC published imaging source expert-read provenance
+    name: HCC gate 4/5 – Official radiologist MRI metadata
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -267,8 +267,8 @@ jobs:
           retention-days: 30
 
   hcc-batch-readiness:
-    name: HCC gate 4/4 – Combine 3 independent sources and issue GO/HOLD/STOP
-    needs: [hcc-batch-clinical, hcc-batch-purity, hcc-batch-source-identity]
+    name: HCC gate 5/5 – Combine 4 evidence sources and issue GO/HOLD/STOP
+    needs: [hcc-batch-clinical, hcc-batch-purity, hcc-batch-source-identity, hcc-batch-publication]
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -288,7 +288,11 @@ jobs:
         with:
           name: hcc-batch-source
           path: artifacts/hcc_batch_source
-      - name: Fail closed on missing patients, treatment misclassification, proxy purity or premature MRI-RNA inference
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-batch-publication
+          path: artifacts/hcc_batch_publication
+      - name: Fail closed on missing patients, treatment misclassification, missing expert-source metadata, proxy purity or premature MRI-RNA inference
         run: python research/hcc/ci/mri_parallel_batch_gate.py --mode assemble --out-dir artifacts/hcc_batch_final
       - name: Write concise reviewable gate summary in GitHub Actions
         run: |
@@ -303,6 +307,7 @@ jobs:
             f"- Clinical review: **{v['clinical_review_priority_counts']}**",
             f"- DNA ABSOLUTE available: **{v['n_absolute_dna_proxy_present']}/14**",
             f"- Historical CPE available: **{v['n_historical_cpe_present']}/14**",
+            f"- Published original expert segmentation metrics: **{v['n_official_source_14_reader_metric_confirmed']}/14**",
             f"- Verified clinical paired sample count: **{v['final_eligible_n']}**",
             f"- HCC-14/16/17/20: **{v['hcc14_temporal_gate']} / {v['hcc16_rna_purity_gate']} / {v['hcc17_final_paired_n_gate']} / {v['hcc20_mri_rna_association_gate']}**",
             f"- Publication claim ceiling: **{v['maximum_claim']}**",
