@@ -59,24 +59,55 @@ def clean_fred_csv(raw):
     return df
 
 
+def clean_fred_api_json(payload):
+    """Official St Louis Fed JSON observations -> the same validated two-column frame."""
+    if not isinstance(payload,dict) or not isinstance(payload.get('observations'),list):
+        raise ValueError('FRED_API_INVALID_RESPONSE')
+    import pandas as pd
+    records=payload['observations']
+    frame=pd.DataFrame([{'observation_date':x.get('date'), 'value':x.get('value')}
+                        for x in records if isinstance(x,dict)])
+    if frame.empty or list(frame.columns)!=['observation_date','value']:
+        raise ValueError('FRED_API_NO_OBSERVATIONS')
+    frame['observation_date']=pd.to_datetime(frame['observation_date'],errors='coerce')
+    if frame.observation_date.isna().any() or frame.observation_date.duplicated().any():
+        raise ValueError('FRED_API_INVALID_DATES')
+    frame['observation_date']=frame.observation_date.dt.strftime('%Y-%m-%d')
+    frame['value']=pd.to_numeric(frame['value'].replace('.',float('nan')),errors='coerce')
+    if frame.value.notna().sum()<20:
+        raise ValueError('FRED_API_NO_USABLE_VALUES')
+    return frame
+
+
 def fred_refresh(dest, start='2017-01-01', retries=1):
     """Fetch series concurrently so an unavailable FRED endpoint cannot block market CI."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import requests
     import pandas as pd
     out=Path(dest);out.mkdir(parents=True,exist_ok=True)
+    api_key=(os.environ.get('FRED_API_KEY') or '').strip()
+    provider='FRED_OFFICIAL_API' if api_key else 'FRED_PUBLIC_CSV'
 
     def fetch_one(symbol):
         last_error=''
         for trial in range(retries+1):
             try:
-                q=urlencode({'id':symbol,'cosd':start})
-                url='https://fred.stlouisfed.org/graph/fredgraph.csv?'+q
                 with requests.Session() as session:
                     session.headers['User-Agent']='KalmanResearchDataRefresh/1.0'
-                    response=session.get(url,timeout=12)
-                response.raise_for_status()
-                frame=clean_fred_csv(response.content)
+                    if api_key:
+                        response=session.get(
+                            'https://api.stlouisfed.org/fred/series/observations',
+                            params={'series_id':symbol,'api_key':api_key,'file_type':'json',
+                                    'observation_start':start,'limit':100000},
+                            timeout=15)
+                        response.raise_for_status()
+                        frame=clean_fred_api_json(response.json())
+                    else:
+                        q=urlencode({'id':symbol,'cosd':start})
+                        url='https://fred.stlouisfed.org/graph/fredgraph.csv?'+q
+                        response=session.get(url,timeout=12)
+                        response.raise_for_status()
+                        frame=clean_fred_csv(response.content)
                 frame=frame[frame.observation_date>=start].copy()
                 frame['series_id']=symbol
                 frame['retrieved_at_utc']=datetime.now(timezone.utc).isoformat()
@@ -95,8 +126,9 @@ def fred_refresh(dest, start='2017-01-01', retries=1):
             symbol,frame,stat=future.result()
             statuses[symbol]=stat
             if frame is not None:frames.append(frame)
-    status={'provider':'FRED_PUBLIC_CSV','status':'READY' if len(frames)==len(FRED_SERIES) else 'DEGRADED',
+    status={'provider':provider,'status':'READY' if len(frames)==len(FRED_SERIES) else 'DEGRADED',
             'point_in_time_vintage':False,'source_revision':'latest_revised',
+            'official_api_key_configured':bool(api_key),
             'research_only':True,'not_eligible_for_PIT_training':True,
             'series':{k:statuses[k] for k in FRED_SERIES},'series_ready':len(frames),
             'updated_at':datetime.now(timezone.utc).isoformat()}
