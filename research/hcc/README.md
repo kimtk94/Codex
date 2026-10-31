@@ -4,6 +4,7 @@
 
 - **Master verification standard and manuscript significance/claim rubric:** [HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md](HCC_VERIFICATION_AND_PUBLICATION_FRAMEWORK.md)
 - **27 live evidence checkpoints:** [HCC_VERIFICATION_LEDGER.csv](HCC_VERIFICATION_LEDGER.csv)
+- **Parallel GitHub Actions batch: clinical / purity / MRI-RNA identity / readiness:** [HCC_PARALLEL_ACTION_EVIDENCE_BATCH_20261031.md](HCC_PARALLEL_ACTION_EVIDENCE_BATCH_20261031.md) · [verified run #147](https://github.com/kimtk94/Codex/actions/runs/41156497628)
 - **Two independent tissue-purity source checks (DNA ABSOLUTE vs CPE):** [HCC_MRI_14_CROSSMETHOD_PURITY_VALIDATION_20261031.md](HCC_MRI_14_CROSSMETHOD_PURITY_VALIDATION_20261031.md)
 - **Actual 14-person GDC treatment, specimen day and pathology slide prescreen:** [HCC_MRI_14_CLINICAL_TREATMENT_ELIGIBILITY_AUDIT_20261031.md](HCC_MRI_14_CLINICAL_TREATMENT_ELIGIBILITY_AUDIT_20261031.md) · [14-patient clinical evidence CSV](HCC_MRI_14_GDC_CLINICAL_TREATMENT_GATE_20261031.csv)
 - **Locked MRI–RNA Hallmark 12-test analysis plan (PRE-ASSOCIATION):** [HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md](HCC_MRI_RNA_PREOUTCOME_HALLMARK_SAP_V1.md)
