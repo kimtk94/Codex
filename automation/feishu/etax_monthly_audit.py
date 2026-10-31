@@ -42,7 +42,7 @@ def select_etax(tables, year, month):
 def generic_etax_candidates(tables):
     """An undated Base eTax-Invoice is NOT monthly proof."""
     return [t for t in tables if re.fullmatch(
-        r"e[\\s_-]*tax[\\s_-]*invoices?",
+        r"e[\s_-]*tax[\s_-]*invoices?",
         str(t.get("name") or "").strip(), re.I)]
 
 def undated_candidate_schema(fields):
