@@ -139,9 +139,16 @@ def main():
         dt.datetime.now(KST))
     if len(rows)>300:raise RuntimeError("SAFE_WATCH_CAPACITY")
     rows=[r[:-1]+["https://github.com/kimtk94/Codex/actions/runs/"+run] for r in rows]
-    meta=req("GET",root,params={"fields":"sheets.properties(title,sheetId)"})
-    titles={x["properties"]["title"] for x in meta.get("sheets",[])}
-    if TAB not in titles:
+    meta=req("GET",root,params={"fields":"sheets.properties(title,sheetId,gridProperties(rowCount,columnCount))"})
+    props={x["properties"]["title"]:x["properties"] for x in meta.get("sheets",[])}
+    if TAB in props and props[TAB].get("gridProperties",{}).get("columnCount",0)<len(HEAD):
+        raise RuntimeError("SAFE_WATCH_COLUMN_CAPACITY")
+    if TAB in props and props[TAB].get("gridProperties",{}).get("rowCount",0)<400:
+        req("POST",root+":batchUpdate",json={"requests":[{"updateSheetProperties":{
+            "properties":{"sheetId":props[TAB]["sheetId"],
+                          "gridProperties":{"rowCount":400}},
+            "fields":"gridProperties.rowCount"}}]})
+    if TAB not in props:
         req("POST",root+":batchUpdate",json={"requests":[{"addSheet":{"properties":{
           "title":TAB,"gridProperties":{"rowCount":400,"columnCount":len(HEAD),
           "frozenRowCount":1}}}}]})
