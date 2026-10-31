@@ -76,7 +76,7 @@ def prior_holiday_like(d,mode):
     return d in federal or d not in nyse
 
 
-def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
+def audit(input_zip:Path,output_dir:Path,limit_through='auto'):
     output_dir.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(input_zip) as z:
         names=z.namelist()
@@ -86,7 +86,7 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
         if failed: raise ValueError('MANIFEST_SHA_MISMATCH:'+','.join(failed[:4]))
         readiness=json.loads(z.read('readiness.json'))
         fred_status=json.loads(z.read('fred/fred_status.json'))
-        asof=min(limit_through,readiness['expected_last_completed_nyse_session'])
+        asof=readiness['expected_last_completed_nyse_session'] if limit_through in (None,'auto') else min(limit_through,readiness['expected_last_completed_nyse_session'])
         events=[];summary=[];date_market={};date_fred={};date_features={};month_rows=[]
         for path in sorted(x for x in names if x.startswith('market/raw/yfinance/') and x.endswith('.parquet')):
             key=Path(path).stem;mode=mode_market(key)
@@ -225,6 +225,6 @@ def audit(input_zip:Path,output_dir:Path,limit_through='2026-10-30'):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--zip',required=True);p.add_argument('--out',required=True);p.add_argument('--asof',default='2026-10-30')
+    p=argparse.ArgumentParser();p.add_argument('--zip',required=True);p.add_argument('--out',required=True);p.add_argument('--asof',default='auto')
     a=p.parse_args();audit(Path(a.zip),Path(a.out),a.asof)
 if __name__=='__main__': main()
