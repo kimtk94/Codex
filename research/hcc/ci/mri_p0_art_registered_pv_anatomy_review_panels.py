@@ -89,7 +89,15 @@ def render(out_path, pid, tumor_index, images, masks, liver):
             ax.set_xlabel("Voxel grid only; not a diagnostic orientation")
             ax.set_xticks([])
             ax.set_yticks([])
-            ax.set_aspect("equal")
+            # Preserve physical millimetre dimensions: thick native MRI z
+            # slices must not make coronal/sagittal tumor shape appear flat.
+            spacing = np.linalg.norm(image.affine[:3, :3], axis=0)
+            aspect = {"axial": spacing[1] / spacing[0],
+                      "coronal": spacing[2] / spacing[0],
+                      "sagittal": spacing[2] / spacing[1]}[plane]
+            if not np.isfinite(aspect) or aspect <= 0:
+                raise ValueError("Invalid non-isotropic NIfTI voxel spacing")
+            ax.set_aspect(float(aspect))
     fig.suptitle(f"Public LiverHccSeg v1.1 | {pid} | locked tumor {tumor_index}\n"
                  "R1 (magenta) / R2 (cyan) index tumor outlines | HUMAN ANATOMY REVIEW NOT DONE",
                  fontsize=13)
