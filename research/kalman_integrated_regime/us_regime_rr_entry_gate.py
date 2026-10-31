@@ -224,6 +224,8 @@ def simulate(dates,signals,meta,paths,ticker,horizon,variant,*,plan_multipliers=
         "mean_planned_net_rr":round(float(np.mean([t["rr"] for t in trades])),6) if trades else None,
         "realized_expectancy_R":round(float(np.mean([t["realized_R"] for t in trades])),6) if trades else None,
         "gate_counts":counters,
+        "exit_reason_counts":{reason:sum(t["reason"]==reason for t in trades)
+                              for reason in sorted(set(t["reason"] for t in trades))},
         "by_market_regime":group,
         "_marks":mark,
     }
