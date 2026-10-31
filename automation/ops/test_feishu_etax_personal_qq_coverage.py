@@ -50,7 +50,7 @@ class ETaxPersonalQQTests(unittest.TestCase):
 
     def test_no_personal_qq_is_not_automatically_missing_organization_invoice(self):
         d=list(fixtures())
-        d[1][2][5]="209126001016"
+        d[2][1]=qq_row("209126001016",2200)
         rows,stats=audit(*d,NOW)
         self.assertEqual(stats["states"]["NOT_IN_PERSONAL_QQ_ORIGINALS"],1)
 
@@ -86,7 +86,7 @@ class ETaxPersonalQQTests(unittest.TestCase):
         d=list(fixtures());d[3][1][4]="2"
         with self.assertRaisesRegex(ValueError,"ETAX_MIRROR_ROW_COUNT_MISMATCH"):
             audit(*d,NOW)
-        d=list(fixtures());d[0][1][5]="2026-10-25"
+        d=list(fixtures());d[0][2][5]="2026-10-25"
         with self.assertRaisesRegex(ValueError,"CROSSWALK_MANIFEST_DATE_CONFLICT"):
             audit(*d,NOW)
 
