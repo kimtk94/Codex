@@ -1,0 +1,54 @@
+{
+  "source": "official IBSI-1 digital phantom NIfTI, theibsi/data_sets master",
+  "verified_action_run_url": "https://github.com/kimtk94/Codex/actions/runs/41173010049",
+  "official_repository_commit": "6da96021bc91faf4c0cb7fd7fa56a4225d2064a8",
+  "official_image": "ibsi_1_digital_phantom/nifti/image/phantom.nii.gz",
+  "official_mask": "ibsi_1_digital_phantom/nifti/mask/mask.nii.gz",
+  "image_sha256": "83773ac2a288aa93cf819a98eaf301c18d35d5876182ec9c18733184e2b7a83a",
+  "mask_sha256": "3032d340944b577b83bc559ea7ae9a6034b84633a840eff39570ec17aa1d6281",
+  "image_size_bytes": 126,
+  "mask_size_bytes": 99,
+  "volume_shape_xyz": [
+    5,
+    4,
+    4
+  ],
+  "original_spacing_mm": [
+    2,
+    2,
+    2
+  ],
+  "roi_voxels": 74,
+  "directions_3d": 13,
+  "ibsi_reference": {
+    "contrast_acui_3d_direction_average": 5.32,
+    "contrast_acui_3d_direction_merged": 5.12
+  },
+  "independent_pure_stdlib": {
+    "contrast_3d_direction_average": 5.324479993784631,
+    "contrast_3d_direction_merged": 5.117647058823529,
+    "status": "PASS_OFFICIAL_IBSI_3D_AVG_AND_MERGED_MATH"
+  },
+  "pyradiomics": {
+    "version": "v3.1.0",
+    "contrast": 5.32447999378463,
+    "signed_difference_vs_ibsi_rounded_5_32": 0.004479993784629599,
+    "glcm_joint_entropy": 2.399711278373436,
+    "normalize": false,
+    "binWidth": 1,
+    "resampledPixelSpacing": null,
+    "symmetricalGLCM": true,
+    "distances": [
+      1
+    ],
+    "weightingNorm": null,
+    "aggregator": "3D directional averaged",
+    "status": "PASS_MATCH_TO_IBSI_3D_AVG_REFERENCE"
+  },
+  "scientific_gate": "PASS_REFERENCE_MATH_AND_SOURCE_COHERENCE",
+  "full_IBSI_standardization_certification": "NOT_CLAIMED",
+  "clinical_HCC_14_eligibility": "NOT_ASSESSED",
+  "mri_rna_biological_associations": "NOT_EXECUTED",
+  "claim_ceiling": "S0",
+  "source_note": "IBSI study phase 1 digital phantom does not verify MRI clinical eligibility or all IBSI features/processing"
+}
