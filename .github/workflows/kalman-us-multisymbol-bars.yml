@@ -19,6 +19,8 @@ on:
       - 'research/kalman_integrated_regime/test_us_multisymbol_coin_portfolio_stress.py'
       - 'research/kalman_integrated_regime/us_multisymbol_hold124.py'
       - 'research/kalman_integrated_regime/test_us_multisymbol_hold124.py'
+      - 'research/kalman_integrated_regime/us_regime_rr_audit.py'
+      - 'research/kalman_integrated_regime/test_us_regime_rr_audit.py'
   pull_request:
     paths:
       - '.github/workflows/kalman-us-multisymbol-bars.yml'
@@ -36,6 +38,8 @@ on:
       - 'research/kalman_integrated_regime/test_us_multisymbol_coin_portfolio_stress.py'
       - 'research/kalman_integrated_regime/us_multisymbol_hold124.py'
       - 'research/kalman_integrated_regime/test_us_multisymbol_hold124.py'
+      - 'research/kalman_integrated_regime/us_regime_rr_audit.py'
+      - 'research/kalman_integrated_regime/test_us_regime_rr_audit.py'
   workflow_dispatch:
 
 permissions:
@@ -58,9 +62,9 @@ jobs:
         run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'exchange-calendars>=4.7' 'requests>=2.31,<3' 'scikit-learn>=1.4,<2'
       - name: Source and missing-data, pagination tests
         run: |
-          python -m unittest research.kalman_integrated_regime.test_us_multisymbol_bar_backfill research.kalman_integrated_regime.test_us_multisymbol_microstructure research.kalman_integrated_regime.test_us_multisymbol_volume_screen research.kalman_integrated_regime.test_us_multisymbol_volume_robustness research.kalman_integrated_regime.test_us_multisymbol_volume_calibration research.kalman_integrated_regime.test_us_multisymbol_volume_trade_backtest research.kalman_integrated_regime.test_us_multisymbol_coin_portfolio_stress research.kalman_integrated_regime.test_us_multisymbol_hold124 -v
+          python -m unittest research.kalman_integrated_regime.test_us_multisymbol_bar_backfill research.kalman_integrated_regime.test_us_multisymbol_microstructure research.kalman_integrated_regime.test_us_multisymbol_volume_screen research.kalman_integrated_regime.test_us_multisymbol_volume_robustness research.kalman_integrated_regime.test_us_multisymbol_volume_calibration research.kalman_integrated_regime.test_us_multisymbol_volume_trade_backtest research.kalman_integrated_regime.test_us_multisymbol_coin_portfolio_stress research.kalman_integrated_regime.test_us_multisymbol_hold124 research.kalman_integrated_regime.test_us_regime_rr_audit -v
           python -m research.kalman_integrated_regime.us_multisymbol_bar_backfill --self-test
-          python -m py_compile research/kalman_integrated_regime/us_multisymbol_bar_backfill.py research/kalman_integrated_regime/us_multisymbol_volume_screen.py research/kalman_integrated_regime/us_multisymbol_volume_robustness.py research/kalman_integrated_regime/us_multisymbol_volume_calibration.py research/kalman_integrated_regime/us_multisymbol_volume_trade_backtest.py research/kalman_integrated_regime/us_multisymbol_coin_portfolio_stress.py research/kalman_integrated_regime/us_multisymbol_hold124.py
+          python -m py_compile research/kalman_integrated_regime/us_multisymbol_bar_backfill.py research/kalman_integrated_regime/us_multisymbol_volume_screen.py research/kalman_integrated_regime/us_multisymbol_volume_robustness.py research/kalman_integrated_regime/us_multisymbol_volume_calibration.py research/kalman_integrated_regime/us_multisymbol_volume_trade_backtest.py research/kalman_integrated_regime/us_multisymbol_coin_portfolio_stress.py research/kalman_integrated_regime/us_multisymbol_hold124.py research/kalman_integrated_regime/us_regime_rr_audit.py
 
   full-history-five-symbols:
     needs: contracts
@@ -116,6 +120,11 @@ jobs:
           python -m research.kalman_integrated_regime.us_multisymbol_hold124 \
             --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
             --out "$RUNNER_TEMP/us_five_sip/hold124_nonoverlap.json"
+      - name: Evaluate causal SPY bull bear transition regime trade reward risk and conditional net returns (research only)
+        run: |
+          python -m research.kalman_integrated_regime.us_regime_rr_audit \
+            --input-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out "$RUNNER_TEMP/us_five_sip/regime_reward_risk_audit.json"
       - name: Archive aggregated per-symbol coverage only, no raw licensed 15m bars
         if: always()
         uses: actions/upload-artifact@v4
@@ -129,6 +138,7 @@ jobs:
             ${{ runner.temp }}/us_five_sip/trade_backtest.json
             ${{ runner.temp }}/us_five_sip/coin_portfolio_cost_stress.json
             ${{ runner.temp }}/us_five_sip/hold124_nonoverlap.json
+            ${{ runner.temp }}/us_five_sip/regime_reward_risk_audit.json
           retention-days: 30
           if-no-files-found: warn
       - name: Erase private raw bar data
