@@ -1,0 +1,77 @@
+name: Kalman COIN Matched Signal Statistical Hold Gate (Research Only)
+on:
+  pull_request:
+    paths:
+      - 'research/rr2_entry_gate/coin_matched_stat_gate.py'
+      - 'research/rr2_entry_gate/test_coin_matched_stat_gate.py'
+      - '.github/workflows/kalman-coin-matched-stat-gate.yml'
+  push:
+    branches:
+      - research/rr2-entry-rejection-audit-20261101
+    paths:
+      - '.github/workflows/kalman-coin-matched-stat-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Statistical gate synthetic contracts (source, costs, n, leakage, HOLD)
+        run: python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_matched_stat_gate.py' -v
+
+  pinned-matched-aggregate:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: offline-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve pinned source artifact with GITHUB_TOKEN read-only (no SIP bars)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pinned-original-signal"
+          gh run download 41224457018 --repo kimtk94/Codex \
+            --name kalman-coin-pinned-original-pit-reconstruction \
+            --dir "$RUNNER_TEMP/pinned-original-signal"
+          echo 'ccd0e347b75a42408695e7d84359e971e74fad7ae24e006fca6655fa5d833ec2  '"$RUNNER_TEMP/pinned-original-signal/reconstructed_summary.json" | sha256sum --check
+      - name: Audited 12 fixed strategies and conservative 95pct Wilson target-hit intervals
+        run: |
+          python research/rr2_entry_gate/coin_matched_stat_gate.py \
+            --matched-aggregate "$RUNNER_TEMP/pinned-original-signal/reconstructed_summary.json" \
+            --expected-sha256 ccd0e347b75a42408695e7d84359e971e74fad7ae24e006fca6655fa5d833ec2 \
+            --out outputs/coin_pit_rr2/matched_stat_hold.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("outputs/coin_pit_rr2/matched_stat_hold.json").read_text())
+          assert d["live"]=="HOLD" and d["eligible_for_live"] is False
+          assert d["tested_configurations"]==12
+          assert d["configurations_positive_in_both_years"]==0
+          b=d["B_prior_low_4sessions"]["years"]
+          assert [x["trades"] for x in b]==[17,7]
+          assert [x["targets"] for x in b]==[4,4]
+          assert b[1]["wilson95_lower_target_hit"] < 1/3
+          assert b[1]["roundtrip_50bp_RR2_eligible"]==0
+          assert d["independent_historical_saved_ledger_verified"] is False
+          print("MATCHED_126_SOURCE_PARITY_PASS_STATISTICAL_HOLD_NO_LIVE")
+          PY
+      - name: Upload only aggregation and statistical gate audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-coin-matched-statistical-hold
+          path: outputs/coin_pit_rr2/matched_stat_hold.json
+          if-no-files-found: warn
+          retention-days: 14
