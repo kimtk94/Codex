@@ -219,8 +219,8 @@ jobs:
 
   contract_lineage:
     name: 2e - Independent AMEA/X contract lineage audit
-    needs: offline
-    if: github.event_name != 'pull_request'
+    needs: [offline, feishu]
+    if: ${{ always() && github.event_name != 'pull_request' && needs.offline.result == 'success' }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 12
