@@ -61,7 +61,10 @@ class SignalReplayContracts(unittest.TestCase):
                     r["first_rejection_counts"].values()),2)
             self.assertLessEqual(r["trades"],r["structural_pass"])
         self.assertNotIn("signal_id", str(d))
-        self.assertNotIn("signal_date", str(d))
+        # The metadata key "do_not_publish_signal_dates_or_bars" is allowed;
+        # actual source dates and signal IDs must never appear in the output.
+        self.assertNotIn(rows[0]["signal_date"], str(d))
+        self.assertNotIn(rows[1]["entry_date"], str(d))
 
     def test_temporal_leak_and_origin_rejected(self):
         sessions, _ = synthetic_sessions()
