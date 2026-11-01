@@ -90,7 +90,7 @@ def simulate(sessions,index,horizon,stop_pct,target_pct,*,fee=FEE):
         bars=sessions[j]["bars"][1:] if j==index else sessions[j]["bars"]
         for bar in bars:
             if bar["o"]<=stop: exit_price,reason,end_index=bar["o"],"STOP_GAP",j
-            elif bar["o"]>=target: exit_price,reason,end_index=bar["o"],"TARGET_GAP",j
+            elif bar["o"]>=target: exit_price,reason,end_index=target,"TARGET_GAP_CAPPED_AT_LIMIT",j
             elif bar["l"]<=stop: exit_price,reason,end_index=stop,"STOP",j
             elif bar["h"]>=target: exit_price,reason,end_index=target,"TARGET",j
             else: continue
@@ -141,7 +141,7 @@ def metrics(trades,sessions):
             "eod_mdd_pct":round(100*worst,6),
             "stop_gap_count":reasons.count("STOP_GAP"),
             "stop_count":reasons.count("STOP")+reasons.count("STOP_GAP"),
-            "target_count":reasons.count("TARGET")+reasons.count("TARGET_GAP"),
+            "target_count":reasons.count("TARGET")+reasons.count("TARGET_GAP")+reasons.count("TARGET_GAP_CAPPED_AT_LIMIT"),
             "time_count":reasons.count("TIME_CLOSE"),
             "cost_stress_50bp_mean_R":s50,"cost_stress_100bp_mean_R":s100,
             "cost_stress_50bp_planned_rr2_count":v50,
