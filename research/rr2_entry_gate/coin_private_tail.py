@@ -135,7 +135,7 @@ def stress(sessions, ledger, baseline_rows, *, expected=EXPECTED):
                         "net_mean_R":mean,
                         "net_mean_pct":round(100*sum(t["net_fraction"] for t in used)/n,6) if n else None,
                         "gap_through_stop":gap,
-                        "target_exits":sum(t["reason"] in ("TARGET","TARGET_GAP") for t in used),
+                        "target_exits":sum(t["reason"] in ("TARGET","TARGET_GAP","TARGET_GAP_CAPPED_AT_LIMIT") for t in used),
                         "stop_exits":sum(t["reason"] in ("STOP","STOP_GAP") for t in used),
                         "time_exits":sum(t["reason"]=="TIME_CLOSE" for t in used),
                         "uncertainty":uncertainty,
