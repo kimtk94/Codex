@@ -133,6 +133,7 @@ jobs:
           q=json.loads(Path('outputs/coin_pit_rr2/0945_pre_entry_quote_audit.json').read_text())
           assert q['live']=='HOLD'
           assert q['exit_intrabar_quote_or_order_fill_verified'] is False
+          assert q['quote_based_pretrade_plan_is_hypothetical_not_actual_entry'] is True
           assert q['entry_snapshot'].startswith('STRICTLY_PRE_0945')
           assert [q['years'][str(y)]['original_B_4session_executed'] for y in (2025,2026)]==[17,7]
           assert q['quotes_are_not_executable_orders'] is True
@@ -146,6 +147,10 @@ jobs:
                          for k in (500,1000,2000,5000))
               assert [age[str(k)]['eligible_quote_count'] for k in (500,1000,2000,5000)] == sorted(
                   age[str(k)]['eligible_quote_count'] for k in (500,1000,2000,5000))
+              for k in (500,1000,2000,5000):
+                  tier=age[str(k)]
+                  for bp in ('30','50','100'):
+                      assert sum(tier['quote_ask_repriced_30_50_100bp_status'][bp].values())==tier['eligible_quote_count']
           assert q['exit_intrabar_quote_or_order_fill_verified'] is False
           print('QUOTE_0945_PREENTRY_NONEXECUTABLE_DIAGNOSTIC_ONLY')
           print('REPRICED_COST_AND_MONTH_BOOTSTRAP_RESEARCH_ONLY_PASS')
