@@ -2,7 +2,7 @@
 import unittest
 from datetime import datetime, timezone, timedelta
 
-from coin_0945_quote_probe import select_pre_quote, percentile, selected_B, audit
+from coin_0945_quote_probe import select_pre_quote, percentile, selected_B, audit, quote_repriced_plan
 from test_coin_signal_replay import synthetic_sessions, row
 
 
@@ -39,6 +39,19 @@ class QuotePilotContracts(unittest.TestCase):
         self.assertEqual(select_pre_quote([quote(t-timedelta(milliseconds=10),90,101)],t)["status"],"EXTREME_SPREAD_QUOTE")
         with self.assertRaisesRegex(ValueError,"NAIVE_ENTRY_TIMESTAMP"):
             select_pre_quote([quote(t)],t.replace(tzinfo=None))
+
+    def test_quote_ask_reprice_must_respect_risk_and_cost(self):
+        ok=quote_repriced_plan(100.,98.,cost=.003)
+        self.assertEqual(ok["status"],"EX_ANTE_GEOMETRY_PASSES_NOT_A_FILL")
+        self.assertAlmostEqual(ok["target_fraction"],.049,places=7)
+        self.assertGreaterEqual(ok["planned_net_rr"],2.)
+        self.assertEqual(quote_repriced_plan(100.,99.9)["status"],"STOP_TOO_TIGHT_AT_ASK")
+        self.assertEqual(quote_repriced_plan(100.,96.5)["status"],"STOP_TOO_WIDE_AT_ASK")
+        # At 100bp, stop 2.8% requires 8.6% target: fail 8% hard cap.
+        self.assertEqual(quote_repriced_plan(100.,97.2,cost=.01)["status"],
+                         "REPRICED_TARGET_EXCEEDS_8PCT")
+        self.assertEqual(quote_repriced_plan(float("nan"),98.)["status"],
+                         "INVALID_QUOTE_ENTRY_GEOMETRY")
 
     def test_zero_sample_not_interpreted_as_fill(self):
         self.assertIsNone(percentile([],.5))
