@@ -11,6 +11,9 @@ on:
       - 'research/rr2_entry_gate/test_reconstruct_pinned_original.py'
       - 'research/rr2_entry_gate/coin_private_tail.py'
       - 'research/rr2_entry_gate/test_coin_private_tail.py'
+      - 'research/rr2_entry_gate/coin_structure.py'
+      - 'research/rr2_entry_gate/coin_0945_quote_probe.py'
+      - 'research/rr2_entry_gate/test_coin_0945_quote_probe.py'
       - '.github/workflows/kalman-coin-frozen-original-replay.yml'
   workflow_dispatch:
 permissions:
@@ -32,6 +35,10 @@ jobs:
         run: python -m pip install --disable-pip-version-check 'exchange-calendars>=4.7,<5' 'pandas>=2.2,<3'
       - name: Verify true 2R dynamic targets, month-cluster uncertainty and baseline parity
         run: python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_private_tail.py' -v
+      - name: Protect against optimistic upside gap fills and quote lookahead
+        run: |
+          python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_structure.py' -v
+          python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_0945_quote_probe.py' -v
 
   private-original-source-reconstruction:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/research/rr2-entry-rejection-audit-20261101') || github.event_name == 'workflow_dispatch'
@@ -84,6 +91,16 @@ jobs:
             --private-ledger-out "$RUNNER_TEMP/coin-original-reconstructed-signals.csv" \
             --out outputs/coin_pit_rr2/reconstructed_summary.json \
             --stress-out outputs/coin_pit_rr2/repriced_monthblock_stress.json
+      - name: Historical COIN B 24 executed 09:45 pre-entry SIP bid/ask quote audit (GET-only)
+        working-directory: research_current
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        run: |
+          python research/rr2_entry_gate/coin_0945_quote_probe.py \
+            --private-ledger "$RUNNER_TEMP/coin-original-reconstructed-signals.csv" \
+            --private-bars "$RUNNER_TEMP/us_five_sip/private_15m_bars.parquet" \
+            --out outputs/coin_pit_rr2/0945_pre_entry_quote_audit.json
       - name: Assert no promotion, no source-row export, model vintage provenance
         working-directory: research_current
         run: |
@@ -113,6 +130,13 @@ jobs:
           assert (b2025['trades'],b2026['trades'])==(17,7)
           assert b2025['net_mean_R']<0 and b2026['net_mean_R']>0
           assert s['source_lineage']['source_20_signal_counts_parity'] is True
+          q=json.loads(Path('outputs/coin_pit_rr2/0945_pre_entry_quote_audit.json').read_text())
+          assert q['live']=='HOLD'
+          assert q['exit_intrabar_quote_or_order_fill_verified'] is False
+          assert q['entry_snapshot'].startswith('LATEST_PRE_0945')
+          assert [q['years'][str(y)]['original_B_4session_executed'] for y in (2025,2026)]==[17,7]
+          assert q['quotes_are_not_executable_orders'] is True
+          print('QUOTE_0945_PREENTRY_NONEXECUTABLE_DIAGNOSTIC_ONLY')
           print('REPRICED_COST_AND_MONTH_BOOTSTRAP_RESEARCH_ONLY_PASS')
           print('ORIGINAL_SOURCE_20_COHORT_10_RETURN_PARITY_AND_COIN_126_MATCHED_RESEARCH_HOLD')
           PY
@@ -124,6 +148,7 @@ jobs:
           path: |
             research_current/outputs/coin_pit_rr2/reconstructed_summary.json
             research_current/outputs/coin_pit_rr2/repriced_monthblock_stress.json
+            research_current/outputs/coin_pit_rr2/0945_pre_entry_quote_audit.json
           if-no-files-found: warn
           retention-days: 14
       - name: Remove private raw SIP and 126-row signal ledger
