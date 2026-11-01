@@ -21,13 +21,22 @@ class QuotePilotContracts(unittest.TestCase):
         self.assertAlmostEqual(out["ap"],100.05)
         self.assertAlmostEqual(out["quote_age_ms"],200)
         self.assertEqual(select_pre_quote(q[:1],t)["status"],"NO_PRE_ENTRY_QUOTE")
+        # Even an equal-timestamp exchange quote is not proven available at
+        # the instant the 09:45 marketable order would be sent.
+        self.assertEqual(select_pre_quote([quote(t)],t)["status"],"NO_PRE_ENTRY_QUOTE")
+        self.assertEqual(select_pre_quote(
+            [quote(t-timedelta(milliseconds=1400))],t,max_age_ms=1000)["status"],
+            "STALE_PRE_ENTRY_QUOTE")
+        self.assertEqual(select_pre_quote(
+            [quote(t-timedelta(milliseconds=1400))],t,max_age_ms=2000)["status"],
+            "QUOTE_PROXY_ELIGIBLE")
 
     def test_missing_stale_crossed_bad_quote_rejected(self):
         t=datetime(2026,5,1,13,45,tzinfo=timezone.utc)
         self.assertEqual(select_pre_quote([],t)["status"],"NO_PRE_ENTRY_QUOTE")
         self.assertEqual(select_pre_quote([quote(t-timedelta(seconds=4))],t)["status"],"STALE_PRE_ENTRY_QUOTE")
-        self.assertEqual(select_pre_quote([quote(t,100.1,100.0)],t)["status"],"CROSSED_ZERO_OR_INVALID_QUOTE")
-        self.assertEqual(select_pre_quote([quote(t,90,101)],t)["status"],"EXTREME_SPREAD_QUOTE")
+        self.assertEqual(select_pre_quote([quote(t-timedelta(milliseconds=10),100.1,100.0)],t)["status"],"CROSSED_ZERO_OR_INVALID_QUOTE")
+        self.assertEqual(select_pre_quote([quote(t-timedelta(milliseconds=10),90,101)],t)["status"],"EXTREME_SPREAD_QUOTE")
         with self.assertRaisesRegex(ValueError,"NAIVE_ENTRY_TIMESTAMP"):
             select_pre_quote([quote(t)],t.replace(tzinfo=None))
 
