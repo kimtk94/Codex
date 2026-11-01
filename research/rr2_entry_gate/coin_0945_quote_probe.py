@@ -149,6 +149,27 @@ def percentile(vals,q):
     return round(vals[i]*(1-(k-i))+vals[min(i+1,len(vals)-1)]*(k-i),4)
 
 
+def quote_repriced_plan(ask, original_stop_level, *, cost=COST):
+    """Hypothetical pre-trade plan at earlier quoted ask; NEVER a fill claim."""
+    if not (math.isfinite(ask) and math.isfinite(original_stop_level)
+            and math.isfinite(cost) and ask>0 and original_stop_level>0
+            and 0<cost<.1):
+        return {"status":"INVALID_QUOTE_ENTRY_GEOMETRY"}
+    risk=(ask-original_stop_level)/ask
+    if risk<.005:
+        return {"status":"STOP_TOO_TIGHT_AT_ASK"}
+    if risk>.03:
+        return {"status":"STOP_TOO_WIDE_AT_ASK"}
+    required_target=2*risk+3*cost+1e-10
+    if required_target>.08:
+        return {"status":"REPRICED_TARGET_EXCEEDS_8PCT"}
+    rr=(required_target-cost)/(risk+cost)
+    if rr<2-1e-9:
+        raise AssertionError("QUOTE_TARGET_REPRICE_RR_VIOLATION")
+    return {"status":"EX_ANTE_GEOMETRY_PASSES_NOT_A_FILL",
+            "target_fraction":required_target,"planned_net_rr":rr}
+
+
 def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
     pairs=selected_B(sessions,ledger)
     years={}
@@ -158,7 +179,8 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
         cost_rr_breached=0
         quote_basis_outliers=0
         by_age={ms:{"statuses":Counter(),"premiums":[],"spreads":[],
-                    "basis_outliers":0,"rr2_breaches":0} for ms in DIAGNOSTIC_STALENESS_MS}
+                    "basis_outliers":0,"rr2_breaches":0,
+                    "repriced_plan_status":Counter()} for ms in DIAGNOSTIC_STALENESS_MS}
         for i,g,tr in group:
             decision=datetime.combine(datetime.fromisoformat(
                 sessions[i]["date"]).date(),
@@ -188,6 +210,9 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
                 bucket["spreads"].append(snapshot["spread_bps"])
                 net_rr=(target_level/ask-1-COST)/(1-stop_level/ask+COST)
                 bucket["rr2_breaches"]+=int(net_rr<2-1e-9)
+                for fee in (.003,.005,.010):
+                    outcome=quote_repriced_plan(ask,stop_level,cost=fee)
+                    bucket["repriced_plan_status"][(int(fee*10000),outcome["status"])]+=1
             q=select_pre_quote(quotes,decision)
             counts[q["status"]]+=1
             if q["status"]!="QUOTE_PROXY_ELIGIBLE":continue
@@ -222,6 +247,17 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
                 "spread_median_bps":percentile(bucket["spreads"],.5),
                 "ask_premium_median_bps":percentile(bucket["premiums"],.5),
                 "same_absolute_risk_plan_RR2_breaches":bucket["rr2_breaches"],
+                "quote_ask_repriced_30_50_100bp_status":{
+                    str(bp):{status:bucket["repriced_plan_status"].get((bp,status),0)
+                             for status in (
+                                "EX_ANTE_GEOMETRY_PASSES_NOT_A_FILL",
+                                "STOP_TOO_TIGHT_AT_ASK",
+                                "STOP_TOO_WIDE_AT_ASK",
+                                "REPRICED_TARGET_EXCEEDS_8PCT",
+                                "INVALID_QUOTE_ENTRY_GEOMETRY",
+                             )}
+                    for bp in (30,50,100)
+                },
                 "not_a_tradeability_or_fill_approval":True,
             }
         years[str(year)]={
@@ -257,6 +293,8 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
         "entry_snapshot":"STRICTLY_PRE_0945_QUOTE_WITHIN_1000MS_NOT_FUTURE",
         "source":"ALPACA_SIP_RAW_QUOTES_VS_ADJUSTMENT_ALL_BARS",
         "quotes_are_not_executable_orders":True,
+        "quote_based_pretrade_plan_is_hypothetical_not_actual_entry":True,
+        "quote_reprice_gates_stop_0p5_to_3pct_target_max8pct_netRR2":True,
         "quote_size_unit_changes_across_history_not_used":True,
         "cost_double_counting_risk":"30bp baseline ALREADY includes assumed 5bp-per-side slippage; ask premium is NOT safely additive to 30bp",
         "quote_basis_sensitivity":"2percent midpoint/open threshold; flagged observations not treated as identical basis",
