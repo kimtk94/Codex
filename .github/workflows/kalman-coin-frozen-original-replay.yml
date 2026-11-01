@@ -91,7 +91,7 @@ jobs:
             --private-ledger-out "$RUNNER_TEMP/coin-original-reconstructed-signals.csv" \
             --out outputs/coin_pit_rr2/reconstructed_summary.json \
             --stress-out outputs/coin_pit_rr2/repriced_monthblock_stress.json
-      - name: Historical COIN B 24 executed 09:45 pre-entry SIP bid/ask quote audit (GET-only)
+      - name: Historical COIN B 24 executed 09:45 strictly pre-entry quotes and staleness stress (GET-only)
         working-directory: research_current
         env:
           ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
@@ -133,9 +133,20 @@ jobs:
           q=json.loads(Path('outputs/coin_pit_rr2/0945_pre_entry_quote_audit.json').read_text())
           assert q['live']=='HOLD'
           assert q['exit_intrabar_quote_or_order_fill_verified'] is False
-          assert q['entry_snapshot'].startswith('LATEST_PRE_0945')
+          assert q['entry_snapshot'].startswith('STRICTLY_PRE_0945')
           assert [q['years'][str(y)]['original_B_4session_executed'] for y in (2025,2026)]==[17,7]
           assert q['quotes_are_not_executable_orders'] is True
+          assert q['primary_freshness_gate_ms']==1000
+          assert q['sensitivity_staleness_ms']==[500,1000,2000,5000]
+          for year in ('2025','2026'):
+              a=q['years'][year]
+              age=a['quote_age_sensitivity_diagnostics']
+              assert a['quotes_usable_for_bar_alignment']==age['1000']['eligible_quote_count']
+              assert all(age[str(k)]['not_a_tradeability_or_fill_approval']
+                         for k in (500,1000,2000,5000))
+              assert [age[str(k)]['eligible_quote_count'] for k in (500,1000,2000,5000)] == sorted(
+                  age[str(k)]['eligible_quote_count'] for k in (500,1000,2000,5000))
+          assert q['exit_intrabar_quote_or_order_fill_verified'] is False
           print('QUOTE_0945_PREENTRY_NONEXECUTABLE_DIAGNOSTIC_ONLY')
           print('REPRICED_COST_AND_MONTH_BOOTSTRAP_RESEARCH_ONLY_PASS')
           print('ORIGINAL_SOURCE_20_COHORT_10_RETURN_PARITY_AND_COIN_126_MATCHED_RESEARCH_HOLD')
