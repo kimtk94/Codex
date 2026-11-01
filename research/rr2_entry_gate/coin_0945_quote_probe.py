@@ -31,8 +31,9 @@ URL = "https://data.alpaca.markets/v2/stocks/COIN/quotes"
 COST = .003
 # B pilot references original model-matched frozen 30bp 4-day path.
 EXPECTED = {2025: 17, 2026: 7}
-LOOKBACK_SECONDS = 5
+LOOKBACK_SECONDS = 10
 MAX_STALENESS_MS = 1000
+DIAGNOSTIC_STALENESS_MS = (500, 1000, 2000, 5000)
 MAX_REQUEST_PAGES = 8
 
 
@@ -46,14 +47,14 @@ def timestamp(value):
 
 
 def select_pre_quote(quotes, decision_at, *, max_age_ms=MAX_STALENESS_MS):
-    """Choose last quote no later than the decision; no future leakage."""
+    """Choose strictly preceding quote; same-timestamp quote is not proven available."""
     if decision_at.tzinfo is None:
         raise ValueError("NAIVE_ENTRY_TIMESTAMP")
     cutoff = decision_at.astimezone(UTC)
     pre = []
     for q in quotes:
         t=timestamp(q["t"])
-        if t<=cutoff:
+        if t<cutoff:
             pre.append((t,q))
     if not pre:
         return {"status":"NO_PRE_ENTRY_QUOTE"}
@@ -156,6 +157,8 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
         entry_premiums_gt_zero=0
         cost_rr_breached=0
         quote_basis_outliers=0
+        by_age={ms:{"statuses":Counter(),"premiums":[],"spreads":[],
+                    "basis_outliers":0,"rr2_breaches":0} for ms in DIAGNOSTIC_STALENESS_MS}
         for i,g,tr in group:
             decision=datetime.combine(datetime.fromisoformat(
                 sessions[i]["date"]).date(),
@@ -167,6 +170,24 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
             except RuntimeError as e:
                 counts[str(e)]+=1
                 continue
+            entry=tr["entry_price"]
+            stop_level=entry*(1-g["stop_pct"])
+            target_level=entry*(1+g["target_pct"])
+            for ms,bucket in by_age.items():
+                snapshot=select_pre_quote(quotes,decision,max_age_ms=ms)
+                status=snapshot["status"]
+                bucket["statuses"][status]+=1
+                if status!="QUOTE_PROXY_ELIGIBLE":
+                    continue
+                mid=(snapshot["bp"]+snapshot["ap"])/2
+                if abs(mid/entry-1)>.02:
+                    bucket["basis_outliers"]+=1
+                    continue
+                ask=snapshot["ap"]
+                bucket["premiums"].append(1e4*(ask/entry-1))
+                bucket["spreads"].append(snapshot["spread_bps"])
+                net_rr=(target_level/ask-1-COST)/(1-stop_level/ask+COST)
+                bucket["rr2_breaches"]+=int(net_rr<2-1e-9)
             q=select_pre_quote(quotes,decision)
             counts[q["status"]]+=1
             if q["status"]!="QUOTE_PROXY_ELIGIBLE":continue
@@ -182,8 +203,6 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
             premiums.append(premium_bps)
             spreads.append(q["spread_bps"])
             ages.append(q["quote_age_ms"])
-            stop_level=entry*(1-g["stop_pct"])
-            target_level=entry*(1+g["target_pct"])
             old=(g["target_pct"]-COST)/(g["stop_pct"]+COST)
             # Keep original absolute stop/target and substitute the historical
             # PRE-entry ask as a *hypothetical* marketable-buy price proxy.
@@ -192,6 +211,19 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
             old_rr.append(old);new_rr.append(new)
             cost_rr_breached+=int(new<2-1e-9)
         usable=len(premiums)
+        age_sensitivity={}
+        for ms,bucket in by_age.items():
+            n=len(bucket["premiums"])
+            age_sensitivity[str(ms)]={
+                "eligible_quote_count":n,
+                "coverage":round(n/len(group),6),
+                "statuses":dict(bucket["statuses"]),
+                "basis_outlier_count":bucket["basis_outliers"],
+                "spread_median_bps":percentile(bucket["spreads"],.5),
+                "ask_premium_median_bps":percentile(bucket["premiums"],.5),
+                "same_absolute_risk_plan_RR2_breaches":bucket["rr2_breaches"],
+                "not_a_tradeability_or_fill_approval":True,
+            }
         years[str(year)]={
             "original_B_4session_executed":len(group),
             "quotes_usable_for_bar_alignment":usable,
@@ -213,6 +245,8 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
             "quote_proxy_rr_original_median":percentile(old_rr,.5),
             "quote_proxy_rr_substituted_median":percentile(new_rr,.5),
             "no_full_trade_replay_from_entry_snapshot":True,
+            "quote_age_sensitivity_diagnostics":age_sensitivity,
+            "sensitivity_is_not_an_authorized_live_freshness_relaxation":True,
         }
     return {
         "schema":"coin-pit-original-model-0945-sip-quote-entry-proxy-v1",
@@ -220,7 +254,7 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
         "live":"HOLD","source_ledger_sha256":original_sha,
         "original_signal_year_counts":{"2025":80,"2026":46},
         "sample":"PRIOR_LOW_BUFFER_2R_NONOVERLAP_4SESSIONS_2025_17_2026_7",
-        "entry_snapshot":"LATEST_PRE_0945_QUOTE_WITHIN_1000MS_NOT_FUTURE",
+        "entry_snapshot":"STRICTLY_PRE_0945_QUOTE_WITHIN_1000MS_NOT_FUTURE",
         "source":"ALPACA_SIP_RAW_QUOTES_VS_ADJUSTMENT_ALL_BARS",
         "quotes_are_not_executable_orders":True,
         "quote_size_unit_changes_across_history_not_used":True,
@@ -228,6 +262,9 @@ def audit(sessions,ledger,key,secret,*,fetcher=fetch_quotes,original_sha=None):
         "quote_basis_sensitivity":"2percent midpoint/open threshold; flagged observations not treated as identical basis",
         "exit_intrabar_quote_or_order_fill_verified":False,
         "historical_research_not_unseen_oos":True,
+        "sensitivity_staleness_ms":list(DIAGNOSTIC_STALENESS_MS),
+        "primary_freshness_gate_ms":MAX_STALENESS_MS,
+        "max_quote_fetch_lookback_seconds":LOOKBACK_SECONDS,
         "years":years,
     }
 
