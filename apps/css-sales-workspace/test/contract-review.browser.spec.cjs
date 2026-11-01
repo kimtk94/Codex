@@ -156,3 +156,38 @@ test('current KST month drives KPI; explicit historical month survives refresh',
   await expect(page.locator('#revenueKpi')).toContainText('₩144,129,000');
   expect(errors).toEqual([]);
 });
+
+test('owner browser smoke must explicitly include contract review PASS evidence',async({page})=>{
+  await launch(page,{available:false,items:[]});
+  await page.route('**/api/lifecycle/owner-smoke',route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify({
+      state:'PASS',auth:'VERCEL_OWNER_OAUTH',
+      lifecycle:'LIVE_SHEETS_VERIFIED',
+      revenue:'VAT_EXCLUDED_PARITY_VERIFIED',
+      mailBody:'EXACT_UID_BODY_VERIFIED',
+      contractReview:'AMEA_CANDIDATES_UNAPPROVED_CHECKED',
+      productionPromotion:false
+    })
+  }));
+  await page.locator('nav button[data-view="health"]').click();
+  await page.locator('#ownerSmoke').click();
+  await expect(page.locator('#ownerSmokeStatus')).toContainText('브라우저 운영 점검 PASS');
+  await expect(page.locator('#ownerSmokeStatus')).toContainText('AMEA 계약번호 후보 검증');
+  await expect(page.locator('#ownerSmokeStatus')).toContainText('Production 승격은 별도 승인 필요');
+});
+test('owner smoke rejects stale/partial contract diagnosis even when OAuth and other checks PASS',async({page})=>{
+  await launch(page,{available:false,items:[]});
+  await page.route('**/api/lifecycle/owner-smoke',route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify({
+      state:'PASS',auth:'VERCEL_OWNER_OAUTH',
+      lifecycle:'LIVE_SHEETS_VERIFIED',
+      revenue:'VAT_EXCLUDED_PARITY_VERIFIED',
+      mailBody:'EXACT_UID_BODY_VERIFIED',
+      productionPromotion:false
+    })
+  }));
+  await page.locator('nav button[data-view="health"]').click();
+  await page.locator('#ownerSmoke').click();
+  await expect(page.locator('#ownerSmokeStatus')).toContainText('운영 점검 BLOCK');
+  await expect(page.locator('#ownerSmokeStatus')).not.toContainText('브라우저 운영 점검 PASS');
+});
