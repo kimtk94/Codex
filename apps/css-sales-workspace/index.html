@@ -279,8 +279,9 @@ async function load(){
       &&result.auth==='VERCEL_OWNER_OAUTH'
       &&result.lifecycle==='LIVE_SHEETS_VERIFIED'
       &&result.mailBody==='EXACT_UID_BODY_VERIFIED'
-      &&result.revenue==='VAT_EXCLUDED_PARITY_VERIFIED'){
-     status.textContent='브라우저 운영 점검 PASS · OAuth, Revenue, 메일 본문 접근 확인. Production 승격은 별도 승인 필요.';
+      &&result.revenue==='VAT_EXCLUDED_PARITY_VERIFIED'
+      &&result.contractReview==='AMEA_CANDIDATES_UNAPPROVED_CHECKED'){
+     status.textContent='브라우저 운영 점검 PASS · OAuth, Revenue, 메일 본문, AMEA 계약번호 후보 검증 확인. 계약 귀속·발행·수금은 미승인. Production 승격은 별도 승인 필요.';
    }else{
      status.textContent=response.status===401
       ? 'OAuth 세션이 없습니다. Vercel 로그인을 다시 진행하세요.'
