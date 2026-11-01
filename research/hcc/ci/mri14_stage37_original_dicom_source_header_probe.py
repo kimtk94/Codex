@@ -23,7 +23,7 @@ UID=re.compile(r"(?:[0-9]+[.])+[0-9]+")
 COLUMNS=("patient_id","source_DICOM_member_path","source_ZIP_member_bytes",
   "source_ZIP_member_crc32_verified","source_DICOM_sha256",
   "source_DICOM_patient_id","source_DICOM_patient_id_matches_frozen_TCGA_case",
-  "source_DICOM_modality","source_DICOM_StudyInstanceUID","source_DICOM_SeriesInstanceUID",
+  "source_DICOM_Modality","source_DICOM_StudyInstanceUID","source_DICOM_SeriesInstanceUID",
   "source_DICOM_SOPInstanceUID","source_DICOM_SeriesDescription",
   "source_DICOM_ProtocolName","source_DICOM_SeriesNumber","source_DICOM_ImageType",
   "source_DICOM_Rows","source_DICOM_Columns",
