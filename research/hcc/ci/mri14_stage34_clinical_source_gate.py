@@ -131,7 +131,7 @@ def build():
             require(hcc==0 and non==0 and pid in P2,"P2_HAS_EARLY_EVENT")
             scope=P2_GATE
         if pid=="TCGA-BC-A5W4":
-            require(non==1 and "DIFFERENT_ANATOMIC_SITE" in row["source_treatment_context"],
+            require(non==1 and row["source_treatment_context"]=="DATED_OTHER_ANATOMIC_SITE_NOT_PROVEN_HCC_TREATMENT",
                     "A5W4_OTHER_ORGAN_EVENT_MISCLASSIFIED")
         else:
             require(non==0,"UNEXPECTED_OTHER_SITE_DATED_EVENT")
