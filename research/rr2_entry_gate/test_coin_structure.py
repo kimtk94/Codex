@@ -55,6 +55,17 @@ class StructureContracts(unittest.TestCase):
         self.assertEqual(r["reason"],"STOP")
         self.assertAlmostEqual(r["realized_R"],-1)
 
+    def test_target_gap_capped_at_planned_limit_no_windfall(self):
+        raw=make_day("2026-01-05")+make_day(
+            "2026-01-06",opening=115,low_first=114,
+            second_open=115,rest_close=115)
+        sessions,_=m.build_sessions(raw,start="2026-01-05",end="2026-01-06")
+        r=m.simulate(sessions,0,2,.02,.049)
+        self.assertEqual(r["reason"],"TARGET_GAP_CAPPED_AT_LIMIT")
+        self.assertAlmostEqual(r["exit_price"],104.9,places=6)
+        self.assertAlmostEqual(r["net_fraction"],.046,places=6)
+        self.assertLess(r["exit_price"],sessions[1]["bars"][0]["o"])
+
     def test_gap_stop_worse_than_planned_loss(self):
         raw=make_day("2026-01-05")+make_day(
             "2026-01-06",opening=90,low_first=89,second_open=90,rest_close=90)
