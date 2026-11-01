@@ -10,6 +10,21 @@ const OWNER='xSqsomY4s3nWaElLeF9IE89Z';
 const SECRET='unit-only-vercel-app-secret';
 const TOKEN='unit-only-web-owner-token';
 const UID='inbox:12345';
+function contractReview(){
+  return {available:true,verified:false,status:'REVIEW_SOURCE_STALE',
+    candidateCount:1,missingCount:1,items:[
+      {amea:'AMEA2026090309',project:'unit-only example',
+        unsafeWatchX:'X209SC26065705-Z01',candidateX:'X209SC26107211',
+        onlineH:'',onlineStage:'',state:'FINANCE_AMEA_CANDIDATE',
+        gate:'CANDIDATE_ONLY_REQUIRES_ORIGINAL_CONTRACT_REVIEW',
+        attributionVerified:false,issuanceVerified:false,
+        paymentVerified:false,revenueActualApproved:false},
+      {amea:'AMEA2026090335',candidateX:'',
+        gate:'QUARANTINE_NO_CONTRACT_ATTRIBUTION',
+        attributionVerified:false,issuanceVerified:false,
+        paymentVerified:false,revenueActualApproved:false}
+    ]};
+}
 function oauthCookie(){
  const expires=String(Math.floor(Date.now()/1000)+3600);
  const hmac=crypto.createHmac('sha256',SECRET)
@@ -24,7 +39,7 @@ function response(){
   end(){return this}
  };
 }
-function harness({verified=true,brokenBody=false,deniedSource=false}={}){
+function harness({verified=true,brokenBody=false,deniedSource=false,missingContracts=false}={}){
  let lifecycleCalls=0,bodyCalls=0,googleCalls=0;
  const state={};
  class GoogleAuth{async getClient(){googleCalls++;return{getAccessToken:async()=>({token:'mock-google-access'})}}}
@@ -32,7 +47,8 @@ function harness({verified=true,brokenBody=false,deniedSource=false}={}){
    lifecycleCalls++;
    if(req.headers.authorization)throw Error('Bearer header must not be present');
    return res.status(200).json({revenueNetStatus:verified?'VERIFIED':'NOT_VERIFIED',
-     months:[{month:'2026-10',netRevenue:144129000}]});
+     months:[{month:'2026-10',netRevenue:144129000}],
+     contractReview:missingContracts?null:contractReview()});
  };
  const bodyHandler=async(req,res)=>{
    bodyCalls++;
@@ -58,6 +74,7 @@ function harness({verified=true,brokenBody=false,deniedSource=false}={}){
    require(x){
      if(x==='google-auth-library')return {GoogleAuth};
      if(x==='../../lib/lifecycle-owner-auth')return require('../lib/lifecycle-owner-auth');
+     if(x==='../../lib/contract-owner-audit')return require('../lib/contract-owner-audit');
      if(x==='../lifecycle.js')return lifecycle;
      if(x==='./mail-body.js')return bodyHandler;
      throw Error('Forbidden import '+x);
@@ -82,6 +99,7 @@ test('browser smoke accepts signed Vercel owner OAuth and returns no customer me
  assert.equal(r.data.lifecycle,'LIVE_SHEETS_VERIFIED');
  assert.equal(r.data.revenue,'VAT_EXCLUDED_PARITY_VERIFIED');
  assert.equal(r.data.mailBody,'EXACT_UID_BODY_VERIFIED');
+ assert.equal(r.data.contractReview,'AMEA_CANDIDATES_UNAPPROVED_CHECKED');
  assert.equal(r.data.productionPromotion,false);
  assert.equal(r.headers['cache-control'],'private, no-store');
  assert.equal(r.headers['x-content-type-options'],'nosniff');
@@ -114,6 +132,9 @@ test('stale net revenue or missing MIME fails closed',async()=>{
  assert.equal(missingRevenue.statusCode,503);
  const missingBody=await invoke(harness({brokenBody:true}),oauthCookie());
  assert.equal(missingBody.statusCode,503);
+ const missingContracts=await invoke(harness({missingContracts:true}),oauthCookie());
+ assert.equal(missingContracts.statusCode,503);
+ assert.equal(missingContracts.data.productionPromotion,false);
 });
 test('UID selection relies on exact source classification and verified schema',()=>{
  const x=harness();
