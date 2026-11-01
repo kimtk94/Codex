@@ -106,6 +106,20 @@ def frozen_signal(bars, asof, *, snapshot=None):
     model=make_pipeline(StandardScaler(),
         LogisticRegression(class_weight=None,C=1.,random_state=42,max_iter=1000))
     model.fit(train[list(FEATURES)],y)
+    # Replay original frozen 2026 Jan-Oct signal panel using the SAME model
+    # and the SAME 208 already-viewed dates. This is a lineage gate, not OOS.
+    original_test=frame.loc[
+        valid & frame.date_ny.ge(pd.Timestamp("2026-01-01"))
+        & frame.date_ny.le(pd.Timestamp("2026-10-30"))
+        & frame.next_session_date.le(pd.Timestamp("2026-10-30"))
+    ].copy()
+    if asof >= date(2026,10,30):
+        if len(original_test)!=208:
+            raise ResearchHold("ORIGINAL_V_2026_208_PANEL_COUNT_DRIFT")
+        positive=int((model.predict_proba(original_test[list(FEATURES)])[:,1]
+                     >=THRESHOLD).sum())
+        if positive!=46:
+            raise ResearchHold("ORIGINAL_V_2026_46_SIGNAL_COUNT_DRIFT")
     score=float(model.predict_proba(pd.DataFrame(
         [dict(zip(FEATURES,values))]))[0,1])
     if not 0<=score<=1:
@@ -121,6 +135,7 @@ def frozen_signal(bars, asof, *, snapshot=None):
         "train_last_label_date":str(train.next_session_date.max().date()),
         "features":list(FEATURES),
         "fixed_training_boundary":"2026-01-01",
+        "original_2026_208_panel_46_signal_parity":asof>=date(2026,10,30),
         "original_sha":ORIGINAL_SHA,
     }
     return {"score":score,"candidate":score>=THRESHOLD,
@@ -166,6 +181,7 @@ def produce(bars,asof,now,*,prospective,calendar,original_snapshot_sha):
             "signal_and_price_not_public":True,
             "not_an_order_not_a_fill":True,
             "no_unseen_oos_claim_for_smoke":not is_oos,
+            "original_2026_208_panel_46_signal_parity":asof>=date(2026,10,30),
             "live":"HOLD"}
     secret={"schema":"coin-private-prospective-signal-v1",
             "asof_nyse_session":asof.isoformat(),
