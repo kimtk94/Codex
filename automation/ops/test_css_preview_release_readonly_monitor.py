@@ -13,8 +13,7 @@ HEADER = ["Area", "Check", "Result", "Gate", "Evidence KST", "Observed",
 
 def fixtures():
     pr = {"number": 487, "state": "open", "head": {"sha": SHA}}
-    project = {"ssoProtection": {"enabled": True,
-                                 "deploymentType": "all_except_custom_domains"}}
+    project = {"ssoProtection": {"deploymentType": "all_except_custom_domains"}}
     deployments = {"deployments": [
         {"target": None, "state": "READY", "url": "css-preview-test.vercel.app",
          "created": 10, "meta": {"githubCommitSha": SHA}},
@@ -55,8 +54,23 @@ class TestPreviewReleaseMonitor(unittest.TestCase):
 
     def test_unprotected_deployment_blocks(self):
         args = fixtures()
+        args[1]["ssoProtection"] = None
+        self.assertEqual(mod.evaluate(*args)["state"], "BLOCK_READINESS")
+        args = fixtures()
         args[1]["ssoProtection"]["enabled"] = False
         self.assertEqual(mod.evaluate(*args)["state"], "BLOCK_READINESS")
+        args = fixtures()
+        args[1]["ssoProtection"]["deploymentType"] = "none"
+        self.assertEqual(mod.evaluate(*args)["state"], "BLOCK_READINESS")
+
+    def test_native_vercel_api_mode_without_normalized_enabled_is_protected(self):
+        args = fixtures()
+        # Exact raw GET format has deploymentType, but no enabled property.
+        self.assertNotIn("enabled", args[1]["ssoProtection"])
+        self.assertEqual(mod.evaluate(*args)["state"], "READY_FOR_OWNER_OAUTH_E2E")
+        for mode in ("preview", "all", "prod_deployment_urls_and_all_previews"):
+            args[1]["ssoProtection"]["deploymentType"] = mode
+            self.assertTrue(mod.evaluate(*args)["vercel_sso_enabled"])
 
     def test_missing_or_duplicate_ledger_release_rows_block(self):
         args = fixtures()
