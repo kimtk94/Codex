@@ -73,7 +73,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import csv,json
-          p=Path('artifacts/locked_source')
+          p=Path('artifacts/locked_source/hcc_stage34_clinical_source')
           j=json.loads((p/'stage34_clinical_source_gate_summary.json').read_text())
           with (p/'stage34_mri14_source_chain_gate_matrix.csv').open() as f:
               rows=list(csv.DictReader(f))
