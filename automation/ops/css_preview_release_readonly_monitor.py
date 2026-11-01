@@ -25,7 +25,14 @@ def evaluate(pr, project, deployments, ledger):
     sha = str((pr.get("head") or {}).get("sha") or "")
     open_pr = pr.get("state") == "open" and pr.get("number") == PR
     protection = project.get("ssoProtection") or {}
-    sso_enabled = protection.get("enabled") is True
+    # Vercel's native GET schema reports ssoProtection.deploymentType.
+    # Some clients normalize this further to an `enabled` boolean, but
+    # the raw API is allowed to omit that boolean entirely.
+    protected_modes = {"preview", "all", "all_except_custom_domains",
+                       "prod_deployment_urls_and_all_previews"}
+    sso_enabled = (isinstance(protection, dict)
+                   and protection.get("deploymentType") in protected_modes
+                   and protection.get("enabled") is not False)
     entries = deployments.get("deployments") or []
     matching = sorted((x for x in entries
                        if x.get("target") != "production"
