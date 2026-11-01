@@ -76,9 +76,18 @@ def frozen_signal(bars, asof, *, snapshot=None):
     assert tuple(PRICE+VOLUME) == FEATURES, "ORIGINAL_FEATURE_DRIFT"
     if set(bars.market.astype(str)) != {"COIN"}:
         raise ResearchHold("WRONG_SINGLE_SYMBOL")
+    import exchange_calendars as xcals
     stamps = pd.to_datetime(bars.candle_time_utc, utc=True)
     if stamps.isna().any() or (stamps.dt.tz_convert(NY).dt.date > asof).any():
         raise ResearchHold("FUTURE_BARS_IN_DECISION_SOURCE")
+    # The 23:15 UTC scheduled run may contain partial after-hours bars for
+    # the decision day, but a future reconstruction would contain all of them.
+    # Cut the input and commitment at the last RTH close to make the original
+    # as-of commitment verifiable WITHOUT including later aftermarket data.
+    close=xcals.get_calendar("XNYS").session_close(pd.Timestamp(asof))
+    bars=bars.loc[stamps.lt(close)].copy()
+    if bars.empty:
+        raise ResearchHold("NO_ASOF_BARS_BEFORE_RTH_CLOSE")
     if bars.duplicated(["market","candle_time_utc"]).any():
         raise ResearchHold("DUPLICATE_SOURCE_BARS")
     frame, quality = build_daily_rows(bars)
@@ -178,6 +187,7 @@ def produce(bars,asof,now,*,prospective,calendar,original_snapshot_sha):
             "signal_commitment_sha256":digest,
             "model_commitment_sha256":prediction["model_digest"],
             "decision_signaled_after_rth_close":True,
+            "commitment_input_cut_at_asof_RTH_close":True,
             "signal_and_price_not_public":True,
             "not_an_order_not_a_fill":True,
             "no_unseen_oos_claim_for_smoke":not is_oos,
