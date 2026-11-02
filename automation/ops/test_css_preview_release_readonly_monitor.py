@@ -100,5 +100,104 @@ class TestPreviewReleaseMonitor(unittest.TestCase):
                          "NOT_VERIFIED_BY_THIS_AUDIT")
 
 
+    def source_batch(self):
+        date = "2026-11-02"
+        stamp = date + " 12:10:00 KST"
+        header = ["AMEA", "Project / Institution", "Watch Quote KRW", "Watch X (unsafe)",
+                  "Online H Candidate", "Online X Candidate", "Online Stage Candidate",
+                  "Finance Base X Candidate", "Evidence State"]
+        cross_row = ["AMEA2026090309", "Synthetic Project", "", "", "", "",
+                     "", "X209SC26107211", "FINANCE_AMEA_CANDIDATE"]
+        cross_row += [""] * 9 + [stamp, "test-run"]
+        net_head = ["Month", "Issued Invoice Gross KRW (VAT incl)",
+                    "Issued Net Revenue KRW (VAT excl)"]
+        net_row = ["2026-11", "0", "0", "0", "0", "0", "75282495",
+                   stamp, "INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED"]
+        mail_head = ["Updated At KST", "State", "QQ Staged Headers",
+                     "Web Cached UID", "Body Ready"]
+        mail_row = [stamp, "WINDOW_CAUGHT_UP", "7965", "3945", "3676"]
+        return {"valueRanges": [
+            {"values": [header, cross_row]},
+            {"values": [net_head, net_row]},
+            {"values": [mail_head, mail_row]},
+            {"values": [["Source", "Source Date"],
+                        ["Payment Outstanding", "2026-10-26"]]}
+        ]}
+
+    def test_source_prerequisites_fresh_with_old_payment_kept_review_only(self):
+        from datetime import datetime, timezone
+        when = datetime(2026, 11, 2, 3, 30, tzinfo=timezone.utc)
+        result = mod.inspect_sources(self.source_batch(), when)
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["crosswalk_rows"], 1)
+        self.assertEqual(result["mail_body_ready"], 3676)
+        self.assertTrue(result["finance_source_stale_review"])
+        self.assertEqual(result["finance_source_age_days"], 7)
+        self.assertFalse(result["contract_approved"])
+        self.assertFalse(result["payment_approved"])
+        pre = mod.evaluate(*fixtures(), result)
+        self.assertEqual(pre["state"], "READY_FOR_OWNER_OAUTH_E2E")
+        self.assertFalse(pre["production_approval"])
+
+    def test_expired_contract_snapshot_fails_closed(self):
+        from datetime import datetime, timezone
+        batch = self.source_batch()
+        batch["valueRanges"][0]["values"][1][18] = "2026-10-29 12:10:00 KST"
+        result = mod.inspect_sources(batch, datetime(2026, 11, 2, 3, 30,
+                                                      tzinfo=timezone.utc))
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["reason"], "CONTRACT_GENERATED_SNAPSHOT_STALE")
+        self.assertEqual(mod.evaluate(*fixtures(), result)["state"], "BLOCK_READINESS")
+
+    def test_future_contract_snapshot_fails_closed(self):
+        from datetime import datetime, timezone
+        batch = self.source_batch()
+        batch["valueRanges"][0]["values"][1][18] = "2026-11-03 12:10:00 KST"
+        result = mod.inspect_sources(batch, datetime(2026, 11, 2, 3, 30,
+                                                      tzinfo=timezone.utc))
+        self.assertEqual(result["reason"], "CONTRACT_GENERATED_SNAPSHOT_STALE")
+
+    def test_duplicate_amea_fails_closed(self):
+        from datetime import datetime, timezone
+        batch = self.source_batch()
+        batch["valueRanges"][0]["values"].append(
+            batch["valueRanges"][0]["values"][1].copy())
+        result = mod.inspect_sources(batch, datetime(2026, 11, 2, 3, 30,
+                                                      tzinfo=timezone.utc))
+        self.assertEqual(result["reason"], "CONTRACT_CROSSWALK_INVALID")
+
+    def test_stale_net_and_absent_november_fail_closed(self):
+        from datetime import datetime, timezone
+        when = datetime(2026, 11, 2, 3, 30, tzinfo=timezone.utc)
+        batch = self.source_batch()
+        batch["valueRanges"][1]["values"][1][7] = "2026-10-20 12:10:00 KST"
+        self.assertEqual(mod.inspect_sources(batch, when)["reason"],
+                         "NET_REVENUE_SNAPSHOT_STALE")
+        batch = self.source_batch()
+        batch["valueRanges"][1]["values"][1][0] = "2026-10"
+        self.assertEqual(mod.inspect_sources(batch, when)["reason"],
+                         "NET_REVENUE_CURRENT_MONTH_MISSING")
+
+    def test_missing_mail_body_fails_closed(self):
+        from datetime import datetime, timezone
+        batch = self.source_batch()
+        batch["valueRanges"][2]["values"][1][4] = "0"
+        result = mod.inspect_sources(batch, datetime(2026, 11, 2, 3, 30,
+                                                      tzinfo=timezone.utc))
+        self.assertEqual(result["reason"], "MAIL_BODY_NOT_AVAILABLE")
+
+    def test_payment_manifest_does_not_infer_receipts(self):
+        from datetime import datetime, timezone
+        when = datetime(2026, 11, 2, 3, 30, tzinfo=timezone.utc)
+        batch = self.source_batch()
+        batch["valueRanges"][3]["values"][1][1] = "2026-11-03"
+        self.assertEqual(mod.inspect_sources(batch, when)["reason"],
+                         "PAYMENT_OUTSTANDING_DATE_FUTURE")
+        batch = self.source_batch()
+        batch["valueRanges"][3]["values"].pop()
+        self.assertEqual(mod.inspect_sources(batch, when)["reason"],
+                         "PAYMENT_OUTSTANDING_UNKNOWN")
+
+
 if __name__ == "__main__":
     unittest.main()
