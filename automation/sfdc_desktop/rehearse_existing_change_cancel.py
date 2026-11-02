@@ -18,7 +18,7 @@ from playwright.sync_api import sync_playwright
 from audit_existing_opportunity_no_save import SFDC_ROUTE, validate_preflight, editor_close
 from audit_existing_numeric_date_nochange import locate_field, check_lookup_ids
 from capture_existing_lookup_links import DOM_SCRIPT
-from make_existing_change_template import FIELDS
+from make_existing_change_template import FIELDS, current_value
 from prepare_existing_change_review import prepare
 from save_readback_contract import validate_ledger
 from verify_existing_live_before import inspect_request, enforce_clean_ledger
@@ -126,6 +126,15 @@ def replay(browser, request, bridge, lookup, ledger):
         if (item.get("status") != "CANCEL_ONLY_REHEARSAL_FIELD_MATCH"
                 or not item["cancel_clicked"]):
             break
+        # Reopen through a separate clean editor and Cancel again: this ensures
+        # the prior cancelled proposal is not lingering as the visible current value.
+        # Never log the old value.
+        restored = current_value(page, field)
+        item["before_value_restored_after_cancel"] = (
+            restored == request["expected_before_values"][field])
+        if not item["before_value_restored_after_cancel"]:
+            item["status"] = "HOLD_CANCEL_DID_NOT_RESTORE_BEFORE_VALUE"
+            break
         # Never reuse stale lookups or leave an editor open between fields.
         check_lookup_ids(lookup, page.evaluate(DOM_SCRIPT), target)
         if (page.get_by_role("button", name="Save", exact=True).count()
@@ -133,7 +142,8 @@ def replay(browser, request, bridge, lookup, ledger):
             raise RuntimeError("Editor still open after Cancel")
     success = (len(per_field) == len(request["changes"])
                and all(x["status"] == "CANCEL_ONLY_REHEARSAL_FIELD_MATCH"
-                       and x["cancel_clicked"] for x in per_field))
+                       and x["cancel_clicked"] and x.get("before_value_restored_after_cancel") is True
+                       for x in per_field))
     return {
         "version": "sfdc-cancel-only-change-rehearsal-v1",
         "status": "REHEARSAL_CANCELLED_ALL_FIELDS" if success else "HOLD_FIELD_REHEARSAL",
@@ -171,10 +181,13 @@ def main():
         bridge = load(args.bridge)
         lookups = load(args.lookups)
         ledger = load(args.ledger)  # Missing ledger = fail closed, never assume empty.
-        gate(request, bridge, lookups, ledger)  # Offline evidence validation before CDP.
-        with sync_playwright() as pw:
-            browser = pw.chromium.connect_over_cdp(args.cdp_url, timeout=12000)
-            result = replay(browser, request, bridge, lookups, ledger)
+        decision, _ = gate(request, bridge, lookups, ledger)
+        if decision != "READY_FOR_CANCEL_ONLY_REHEARSAL":
+            result = replay(None, request, bridge, lookups, ledger)
+        else:
+            with sync_playwright() as pw:
+                browser = pw.chromium.connect_over_cdp(args.cdp_url, timeout=12000)
+                result = replay(browser, request, bridge, lookups, ledger)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
