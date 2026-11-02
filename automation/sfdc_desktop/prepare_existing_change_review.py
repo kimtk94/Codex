@@ -101,6 +101,11 @@ def prepare(request, bridge, lookups, prior_operations=()):
         "changes": changes, "account_record_id": lookups["account_record_id"],
         "contact_record_id": lookups["contact_record_id"],
     }, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    intent_canonical = json.dumps({
+        "record_id": target, "expected_before": originals,
+        "changes": changes, "account_record_id": lookups["account_record_id"],
+        "contact_record_id": lookups["contact_record_id"],
+    }, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return {
         "version": "existing-fill-only-review-preflight-v1",
         "status": "PREPARED_FOR_LIVE_BEFORE_VALUE_CHECK",
@@ -108,6 +113,7 @@ def prepare(request, bridge, lookups, prior_operations=()):
         "target_record_id": target,  # Private local JSON only, not CI artifact.
         "changed_fields": sorted(changes),
         "operation_fingerprint": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "change_intent_fingerprint": hashlib.sha256(intent_canonical.encode("utf-8")).hexdigest(),
         "approval_for_salesforce_save": False,
         "live_before_values_verified": False,
         "lookup_selection_performed": False,
