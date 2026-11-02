@@ -1,7 +1,7 @@
 """Synthetic regressions for fail-closed Salesforce compare-and-swap before-value gate."""
 import unittest
 
-from verify_existing_live_before import inspect_request, evaluate_before, run
+from verify_existing_live_before import inspect_request, evaluate_before, run, enforce_clean_ledger
 
 SF = "006000000000000AAA"
 ACCOUNT = "001000000000000AAA"
@@ -86,6 +86,32 @@ class UnreviewedDoesNotTouchSalesforce(unittest.TestCase):
         r["expected_contact_record_id"] = "003000000000001AAA"
         with self.assertRaises(ValueError):
             run(r, bridge(), lookups(), ())
+
+
+class VersionedLedgerFailClosed(unittest.TestCase):
+    def test_missing_ledger_fails(self):
+        with self.assertRaises(ValueError):
+            enforce_clean_ledger(req(), bridge(), lookups(), None)
+
+    def test_empty_ledger_allows_offline_preflight_only(self):
+        result, prior = enforce_clean_ledger(
+            req(), bridge(), lookups(),
+            {"version": "sfdc-local-operation-ledger-v1", "entries": []})
+        self.assertEqual(prior, [])
+        self.assertFalse(result["save_allowed"])
+
+    def test_same_intent_under_another_uid_fails(self):
+        empty = {"version": "sfdc-local-operation-ledger-v1", "entries": []}
+        preflight, _ = enforce_clean_ledger(req(), bridge(), lookups(), empty)
+        changed = req()
+        changed["request_uid"] = "REQ-beforetest-002"
+        ledger = {"version": "sfdc-local-operation-ledger-v1", "entries": [{
+            "request_uid": "REQ-beforetest-001",
+            "operation_fingerprint": preflight["operation_fingerprint"],
+            "change_intent_fingerprint": preflight["change_intent_fingerprint"],
+            "state": "VERIFIED"}]}
+        with self.assertRaisesRegex(ValueError, "identical change intent"):
+            enforce_clean_ledger(changed, bridge(), lookups(), ledger)
 
 
 class ExpectedBeforeValueContracts(unittest.TestCase):
