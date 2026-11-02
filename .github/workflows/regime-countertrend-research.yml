@@ -5,6 +5,11 @@ on:
     paths:
       - 'research/regime_countertrend/**'
       - '.github/workflows/regime-countertrend-research.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/regime_countertrend/**'
+      - '.github/workflows/regime-countertrend-research.yml'
   workflow_dispatch:
 permissions:
   contents: read
