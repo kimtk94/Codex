@@ -114,8 +114,9 @@ def archive_folder_counts():
     by=Counter()
     with ZipFile(HTTPRangeFile(ARCHIVE)) as z:
         for info in z.infolist():
-            if info.is_dir() or info.file_size<132 or
-               not is_dicom_candidate(info.filename):continue
+            if (info.is_dir() or info.file_size<132 or
+                not is_dicom_candidate(info.filename)):
+                continue
             pid=patient(info.filename)
             if pid:by[(pid,str(Path(info.filename).parent))]+=1
     return by
