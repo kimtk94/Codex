@@ -268,7 +268,7 @@ def save(out,patients,correlations,summary):
           f'{summary["original_14_full_cohort_median_abs_pct"]:.3f}%**.',
       "- External OpenSwissHCC original venous primary: n=59, source Spearman rho **"+
           f'{summary["original_external59_primary_mask_full_rho"]:.6f}'+"**, magnitude change median **"+
-          f'{summary["original_external59_full_cohort_median_abs_pct"]:.3f}%**.",
+          f'{summary["original_external59_full_cohort_median_abs_pct"]:.3f}%**.',
       "- Original TCGA-G3? NO: highest source through-plane thickness is TCGA-BC-A10Y 10.8mm, original index tumor 3;",
       "  other 13 patients have z ≤ "+f'{summary["original_14_other13_z_mm_max"]:.2f}'+"mm.",
       "- A10Y native ROI volume "+f'{summary["source_A10Y_native_rater1_roi_volume_ml"]:.2f}'+"mL;",
@@ -277,7 +277,7 @@ def save(out,patients,correlations,summary):
       "  Spearman rho **"+f'{summary["internal_13_no_A10Y_original_native_rater1_Spearman_rho"]:.6f}'+"**",
       "  compared with full n14 "+f'{summary["original_14_rater1_full_rho"]:.6f}'+";",
       "  n13 magnitude-change median **"+
-        f'{summary["internal_13_no_A10Y_median_abs_change_pct"]:.3f}%**.",
+        f'{summary["internal_13_no_A10Y_median_abs_change_pct"]:.3f}%**.',
       "- Recalculated source cohorts' Spearman geometry/ROI associations below are descriptive",
       "  and **not** preplanned tests, do not assign p-values or causal interpretations.",
       "","| Cohort | Geometry parameter | Outcome | Spearman rho |",
