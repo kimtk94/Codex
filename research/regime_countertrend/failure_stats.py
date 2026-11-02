@@ -8,7 +8,7 @@ def evaluate(df,bootstrap=3000,seed=42):
     required={"date","year","event","net_return","failed","ma20dist"}
     missing=required-set(df)
     if missing:raise ValueError("missing columns: "+str(sorted(missing)))
-    d=df.copy();d["failed"]=d.failed.astype(bool);d["below"]=d.qqq_dist20<0
+    d=df.copy();d["failed"]=d.failed.astype(bool);d["below"]=d.ma20dist<0
     rng=np.random.default_rng(seed);rows=[]
     for label,g in [("ALL",d)]+list(d.groupby("event")):
         a,b=g[g.below],g[~g.below]
