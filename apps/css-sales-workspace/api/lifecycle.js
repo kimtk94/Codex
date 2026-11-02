@@ -2,6 +2,7 @@ const {GoogleAuth}=require('google-auth-library');
 const {projectPersonalLeads}=require('../lib/personal-leads');
 const {projectAutomationConsole}=require('../lib/automation-console');
 const {projectOperationalAcceptance}=require('../lib/operational-acceptance');
+const {projectUnissuedContracts}=require('../lib/unissued-contract-candidates');
 const {checkOwner,ownerSessionCookie}=require('../lib/lifecycle-owner-auth');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
@@ -29,6 +30,21 @@ module.exports=async function handler(req,res){
       '/values/'+encodeURIComponent(acceptanceRange);
     // A temporary 429 or timeout must not become a permanent false source gap.
     // Return [] after bounded retries; the acceptance projector still fails closed.
+    // Optional read-only AMEA candidate review. Failed source reads remain
+    // NOT_VERIFIED; never fall back to positional H/X from Unissued Watch.
+    const contractsPromise=(async()=>{
+      try{
+        const range="'CSS AMEA Contract Candidate Crosswalk'!A1:T100";
+        const contractUrl='https://sheets.googleapis.com/v4/spreadsheets/'+SHEET+
+          '/values/'+encodeURIComponent(range);
+        const reply=await fetch(contractUrl,{
+          headers:{Authorization:'Bearer '+access.token},
+          signal:AbortSignal.timeout(6500)
+        });
+        if(!reply.ok)return [];
+        return (await reply.json()).values||[];
+      }catch(_err){return [];}
+    })();
     const acceptancePromise=(async()=>{
       for(let attempt=0;attempt<2;attempt++){
         try{
@@ -247,6 +263,7 @@ module.exports=async function handler(req,res){
     // Production promotion. Missing/stale/inconsistent evidence fails closed.
     automation.acceptance=projectOperationalAcceptance(await acceptancePromise);
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'NONE',sync:r[7]||'',sender:r[1]||'',subject:r[9]||''}));
-    return res.status(200).json({months,revenueNetStatus,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,mailBackfill,automation,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
+    const contractReview=projectUnissuedContracts(await contractsPromise);
+    return res.status(200).json({months,revenueNetStatus,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,mailBackfill,automation,contractReview,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
   }catch(e){return res.status(503).json({error:'DATA_FETCH_FAILED'});}
 };

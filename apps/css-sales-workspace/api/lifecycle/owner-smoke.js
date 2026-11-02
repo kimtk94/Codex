@@ -4,6 +4,7 @@
 // No source mutation, email sending, SFDC Save or deployment promotion.
 const {GoogleAuth}=require('google-auth-library');
 const {checkOwner}=require('../../lib/lifecycle-owner-auth');
+const {inspectOwnerContractReview}=require('../../lib/contract-owner-audit');
 const lifecycle=require('../lifecycle.js');
 const bodyHandler=require('./mail-body.js');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
@@ -43,6 +44,8 @@ module.exports=async function handler(req,res){
       ||!Array.isArray(dashboard.data?.months)
       ||!dashboard.data.months.some(x=>Number.isFinite(x.netRevenue)&&x.month))
      throw Error('LIFECYCLE_PARITY_NOT_VERIFIED');
+   if(!inspectOwnerContractReview(dashboard.data?.contractReview))
+     throw Error('CONTRACT_CANDIDATE_PARITY_NOT_VERIFIED');
    const raw=process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
    if(!raw)throw Error('SOURCE_CREDENTIAL_MISSING');
    const auth=new GoogleAuth({credentials:JSON.parse(raw),
@@ -71,6 +74,7 @@ module.exports=async function handler(req,res){
      lifecycle:'LIVE_SHEETS_VERIFIED',
      revenue:'VAT_EXCLUDED_PARITY_VERIFIED',
      mailBody:'EXACT_UID_BODY_VERIFIED',
+     contractReview:'AMEA_CANDIDATES_UNAPPROVED_CHECKED',
      dataDisclosure:'NO_CUSTOMER_DATA_IN_DIAGNOSTIC',
      productionPromotion:false
    });
