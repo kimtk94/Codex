@@ -23,7 +23,7 @@ This checkpoint verifies **fill-only readiness**, not an actual business-value c
 - `test_make_existing_change_template.py`: guards that templates cannot silently inherit historical values as new changes.
 
 ## Verified results
-- Windows full Desktop RPA suite: **149/149 PASS**.
+- Windows full Desktop RPA suite: **151/151 PASS**.
 - Direct Account/Contact plus Amount/Close Date no-change audit: exit code 0, both forms Cancelled.
 - Private change-review template created: `%USERPROFILE%\.sfdc_desktop\existing_change_review_TEMPLATE_PRIVATE.json`.
 - Code synced to Windows Git checkout HEAD `6f915ad`.
