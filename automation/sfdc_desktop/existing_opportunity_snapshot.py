@@ -81,7 +81,7 @@ SNAPSHOT_JS=r"""() => {
      if(el.children.length>5)continue;
      const visible=tidy(el.innerText);
      if(!visible || visible.length>300)continue;
-     const ids=visible.match(/Opp-\d{4}-\\d{2}-\\d{2}-\\d+/g)||[];
+     const ids=visible.match(/Opp-\d{4}-\d{2}-\d{2}-\d+/g)||[];
      for(const id of ids){
        const parent=tidy(el.parentElement?.innerText).slice(0,280);
        const grand=tidy(el.parentElement?.parentElement?.innerText).slice(0,400);
@@ -98,7 +98,7 @@ SNAPSHOT_JS=r"""() => {
  for(const el of document.querySelectorAll('records-record-layout-item,lightning-formatted-text,[data-field-name],.slds-form-element')){
    const s=tidy(el.innerText);
    if(s.length>0 && s.length<1200){
-     for(const id of s.match(/Opp-\d{4}-\\d{2}-\\d{2}-\\d+/g)||[])
+     for(const id of s.match(/Opp-\d{4}-\d{2}-\d{2}-\d+/g)||[])
        renderedBusinessIds.push({id,tag:el.localName,context:s.slice(0,300)});
    }
  }
