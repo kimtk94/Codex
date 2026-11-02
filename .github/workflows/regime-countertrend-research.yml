@@ -48,6 +48,7 @@ jobs:
         run: |
           if [ -f "research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv" ]; then
             python -m research.regime_countertrend.analyze --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend
+            python -m research.regime_countertrend.failure_diagnostics --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend/failures
           else
             echo 'HOLD: source inaccessible'
           fi
