@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from audit_existing_opportunity_no_save import validate_preflight
-from related_quotation_bridge import same_record
+from related_quotation_bridge import same_record, BUSINESS
 from capture_existing_lookup_links import ACCOUNT, CONTACT
 
 ALLOWED_FIELDS = frozenset({
@@ -77,7 +77,10 @@ def prepare(request, bridge, lookups, prior_operations=()):
     if (request.get("expected_account_record_id") != lookups["account_record_id"]
             or request.get("expected_contact_record_id") != lookups["contact_record_id"]):
         raise ValueError("Reviewed Account/Contact IDs disagree with verified existing fields")
-    if request.get("business_opportunity_id") != bridge.get("business_opportunity_id"):
+    verified_business = str(bridge.get("business_opportunity_id") or "")
+    if (bridge.get("version") != "live-related-quote-report-bridge-v1"
+            or not BUSINESS.fullmatch(verified_business)
+            or request.get("business_opportunity_id") != verified_business):
         raise ValueError("Business Opportunity ID does not match verified report")
     changes = request.get("changes")
     originals = request.get("expected_before_values")
