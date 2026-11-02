@@ -8,7 +8,7 @@ REQUIRED={"origin","execution_mode","independently_reconciled","broker_observed_
 def classify_evidence(trades_path,bars_path,attestation_path):
     trade,bars,att=(Path(trades_path),Path(bars_path),Path(attestation_path))
     if not trade.is_file() or not bars.is_file():
-        return {"status":"HOLD_MISSING_ACTUAL_FIL​​LS_OR_BARS".replace("\u200b",""),"real_fill_validated":False}
+        return {"status":"HOLD_MISSING_ACTUAL_FILLS_OR_BARS","real_fill_validated":False}
     if not att.is_file():
         return {"status":"HOLD_MISSING_BROKER_ATTESTATION","real_fill_validated":False}
     try:
