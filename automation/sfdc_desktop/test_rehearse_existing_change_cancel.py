@@ -112,7 +112,14 @@ class FakePage:
         self.cancel_clicks = 0
         self.field = FakeInput(self, old, **kwargs)
 
+    url = "https://novogene.lightning.force.com/lightning/r/Opportunity/" + SF + "/view"
+
+    def evaluate(self, js):
+        return []
+
     def get_by_role(self, role, name=None, exact=False):
+        if role == "tab" and name == "Details":
+            return FakeDetailsTab()
         if role == "button":
             return FakeButton(self, name)
         if role == "textbox" and name == "Opportunity Name":
@@ -121,6 +128,21 @@ class FakePage:
 
     def wait_for_timeout(self, delay):
         pass
+
+
+class FakeDetailsTab:
+    def count(self):
+        return 1
+
+    def get_attribute(self, key):
+        if key == "aria-selected":
+            return "true"
+        return None
+
+
+class FakeBrowser:
+    def __init__(self, page):
+        self.contexts = [type("Context", (), {"pages": [page]})()]
 
 
 class ReviewSafety(unittest.TestCase):
@@ -220,6 +242,31 @@ class CancelOnlyFieldTests(unittest.TestCase):
             r = rehearsal_field(page, "Close Date", "11/02/2099", "2099-11-03")
         self.assertTrue(r["cancel_clicked"])
         self.assertEqual(page.save_clicks, 0)
+
+
+class RestorationGateTests(unittest.TestCase):
+    def test_after_cancel_original_restored_allows_rehearsal_result(self):
+        page = FakePage()
+        with patch("rehearse_existing_change_cancel.validate_preflight", return_value=True), \\
+             patch("rehearse_existing_change_cancel.check_lookup_ids", return_value=True), \\
+             patch("rehearse_existing_change_cancel.current_value", return_value="Old Deal") as reread:
+            result = replay(FakeBrowser(page), request(), bridge(), lookups(), ledger())
+        self.assertEqual(result["status"], "REHEARSAL_CANCELLED_ALL_FIELDS")
+        self.assertFalse(result["save_allowed"])
+        self.assertEqual(page.save_clicks, 0)
+        self.assertTrue(result["per_field_result"][0]["before_value_restored_after_cancel"])
+        reread.assert_called_once_with(page, "Opportunity Name")
+
+    def test_after_cancel_not_restored_forces_hold(self):
+        page = FakePage()
+        with patch("rehearse_existing_change_cancel.validate_preflight", return_value=True), \\
+             patch("rehearse_existing_change_cancel.check_lookup_ids", return_value=True), \\
+             patch("rehearse_existing_change_cancel.current_value", return_value="New Deal"):
+            result = replay(FakeBrowser(page), request(), bridge(), lookups(), ledger())
+        self.assertEqual(result["status"], "HOLD_FIELD_REHEARSAL")
+        self.assertEqual(result["per_field_result"][0]["status"], "HOLD_CANCEL_DID_NOT_RESTORE_BEFORE_VALUE")
+        self.assertEqual(page.save_clicks, 0)
+        self.assertFalse(result["actual_salesforce_changes_committed"])
 
 
 if __name__ == "__main__":
