@@ -109,6 +109,15 @@ def main():
     out=Path(args.out);out.mkdir(parents=True,exist_ok=True)
     events.to_csv(out/"events.csv",index=False)
     summary.to_csv(out/"symbol_summary.csv",index=False)
+    events["era"]=np.where(events.year<=2024,"DEVELOPMENT_PRE2025","HOLDOUT_2025_2026")
+    by_era=events.groupby(["era","symbol","event"],as_index=False).agg(
+        n=("date","size"),
+        avg_5day_beta_excess=("fwd_beta_excess","mean"),
+        median_5day_beta_excess=("fwd_beta_excess","median"),
+        beat_beta_benchmark=("fwd_beta_excess",lambda x:float((x>0).mean())))
+    by_era["reliable_for_promotion"]=False
+    by_era.to_csv(out/"symbol_era_comparison.csv",index=False)
+    print("BY_ERA:\\n"+by_era.to_string(index=False))
     (out/"provenance.json").write_text(json.dumps({
       "sources":details,
       "status":"EXPLORATORY_NO_LIVE_PROMOTION",
