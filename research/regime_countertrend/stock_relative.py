@@ -20,7 +20,7 @@ HASHES = {
  "IONQ":"3c20fce5eea14b67e1b724b18afd7e16a94ef2e250c8de6e954fff8a5e639ec9",
 }
 DATE_FIELDS = ("date_ny","date","datetime","timestamp","ts_utc","date_utc","time","ts","bar_time")
-PRICE_FIELDS = ("close","adj_close","adjusted_close","close_price","closing_price")
+PRICE_FIELDS = ("adj close","adj_close","adjusted_close","adjusted close")
 
 def load_history(folder):
     rows=[]
@@ -43,14 +43,14 @@ def load_history(folder):
         if date_col is None and "index" in df.columns:date_col="index"
         price_col=next((x for x in PRICE_FIELDS if x in df.columns),None)
         if date_col is None or price_col is None:
-            raise ValueError(f"{symbol} cannot infer date/price from {list(df.columns)}")
+            raise ValueError(f"{symbol} cannot infer date/adjusted price from {list(df.columns)}")
         x=pd.DataFrame({"date":pd.to_datetime(df[date_col],utc=True,errors="raise").dt.tz_convert(None).dt.normalize(),
                         "symbol":symbol,"close":pd.to_numeric(df[price_col],errors="raise")})
         if x.date.duplicated().any() or x.close.isna().any() or (x.close<=0).any():
             raise ValueError(f"{symbol} duplicate dates, nulls or nonpositive close")
         x=x.sort_values("date")
         if len(x)<200:raise ValueError(f"{symbol} insufficient history")
-        details.append({"symbol":symbol,"rows":len(x),"first":str(x.date.iloc[0].date()),"last":str(x.date.iloc[-1].date()),"columns":list(df.columns),"sha256":sha})
+        details.append({"symbol":symbol,"rows":len(x),"first":str(x.date.iloc[0].date()),"last":str(x.date.iloc[-1].date()),"columns":list(df.columns),"sha256":sha,"price_basis":price_col})
         rows.append(x)
     return pd.concat(rows,ignore_index=True),details
 
@@ -112,7 +112,7 @@ def main():
     (out/"provenance.json").write_text(json.dumps({
       "sources":details,
       "status":"EXPLORATORY_NO_LIVE_PROMOTION",
-      "warning":"Static symbol set and differing volatility; neither sector-relative nor executable strategy evaluation. Check adjusted price basis and membership before inference.",
+      "warning":"Adjusted close used for all names. Static universe, different volatility, and retrospective constituents; neither sector-relative nor executable strategy evaluation.",
     },indent=2))
     print("SOURCE:",json.dumps(details,ensure_ascii=False))
     print("SUMMARY:\n"+summary.to_string(index=False))
