@@ -230,7 +230,7 @@ def main():
             if finance.get("finance_source_stale_review"):
                 days = int(finance.get("finance_source_age_days", 0))
                 stream.write("**FINANCE REVIEW REQUIRED:** Payment Outstanding original source is "
-                             + str(days) + " days old. Not evidence of payment or contract approval.\\n\\n".replace("\\\\n", "\\n"))
+                             + str(days) + " days old. Not evidence of payment or contract approval.\n\n")
                 print("::warning title=CSS Finance Source Stale::Payment Outstanding original source "
                       + str(days) + " days old; keep payment and contract approval BLOCK")
             stream.write("Owner OAuth browser E2E: **NOT_VERIFIED_BY_THIS_AUDIT**. "
