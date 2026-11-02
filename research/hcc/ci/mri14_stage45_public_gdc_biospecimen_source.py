@@ -284,7 +284,7 @@ def offline():
     assert "samples.portions.analytes.aliquots.submitter_id" in CASE_FIELDS
     assert "associated_entities.entity_submitter_id" in FILE_FIELDS
     assert "actual_MRI_index_lesion_to_GDC_RNA_tissue_proven" in OUT_FIELDS
-    check(not bool([x for x in OUT_FIELDS if "days_shift_subtraction" in x]),
+    guard(not bool([x for x in OUT_FIELDS if "days_shift_subtraction" in x]),
           "UNAUTHORIZED_SOURCE_DATE_SUBTRACTION")
     print("HCC_STAGE45_CASE_ALIQUOT_SOURCE_CHAIN_NEGATIVE_CLINICAL_GO_TEST_PASS")
 
@@ -296,7 +296,7 @@ def main():
     args=ap.parse_args()
     offline()
     if args.offline_test:return
-    check(args.stage44_csv and args.stage44_csv.is_file(),
+    guard(args.stage44_csv and args.stage44_csv.is_file(),
           "STAGE44_FROZEN_UID_RNA_EVIDENCE_CSV_REQUIRED")
     original=readcsv(args.stage44_csv)
     guard(len(original)==14 and len({x["patient_id"] for x in original})==14,
