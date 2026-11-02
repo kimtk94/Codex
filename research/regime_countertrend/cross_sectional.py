@@ -29,17 +29,20 @@ def screen(panel, market="QQQ", lookback=60, shock_days=5, fwd=5):
     p["market_regime"]=np.select([p.market60>=.08,p.market60<=-.08],["UP","DOWN"],default="SIDE")
     p.loc[p.market60.isna(),"market_regime"]="UNKNOWN"
     p["relative_ret5"]=p.ret5-p.market5
-    sector=p[p.symbol!=market].groupby(["date","sector"],as_index=False).ret5.median().rename(columns={"ret5":"sector_median5"})
-    p=p.merge(sector,on=["date","sector"],how="left",validate="many_to_one")
-    p["sector_residual5"]=p.ret5-p.sector_median5
+    # Leave-one-out peer benchmark excludes the target itself.
+    peers=p[p.symbol!=market].groupby(["date","sector"],as_index=False).agg(peer_sum=("ret5","sum"),peer_count=("ret5","count"))
+    p=p.merge(peers,on=["date","sector"],how="left",validate="many_to_one")
+    n=p.peer_count-1
+    p["sector_peer_mean5"]=(p.peer_sum-p.ret5)/n.where(n>0)
+    p["sector_residual5"]=p.ret5-p.sector_peer_mean5
     p["type"]=np.select([
         (p.market_regime=="UP")&(p.relative_ret5<=-.03)&(p.sector_residual5<=-.02),
         (p.market_regime=="DOWN")&(p.relative_ret5>=.03)&(p.sector_residual5>=.02)
     ],["UP_IDIOSYNCRATIC_WEAK","DOWN_IDIOSYNCRATIC_STRONG"],default="NONE")
-    p.loc[p.symbol==market,"type"]="NONE"
+    p.loc[(p.symbol==market)|(p.peer_count<3),"type"]="NONE"
     events=p[(p.type!="NONE")&p.fwd5.notna()].copy()
     events["excess_fwd5"]=events.fwd5-events.market_fwd5
-    return events,{"symbols":int(p.symbol.nunique()),"observations":len(p),"events":len(events),"type_counts":events.type.value_counts().to_dict(),"limitations":"Exploratory only. Sector median uses same-day peers and is not a tradable sector benchmark. Forward excess is unadjusted for beta, execution costs, overlapping events, and survivorship."}
+    return events,{"symbols":int(p.symbol.nunique()),"observations":len(p),"events":len(events),"type_counts":events.type.value_counts().to_dict(),"limitations":"Exploratory only. Leave-one-out mean requires >=2 sector peers and is not a tradable benchmark. Forward excess is unadjusted for beta, execution costs, overlapping events, and survivorship."}
 
 def main():
     a=argparse.ArgumentParser()
