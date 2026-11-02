@@ -1,0 +1,110 @@
+name: HCC Stage44 Original MRI Study Series UID to GDC RNA and Treatment Clinical Source Gate
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage44_uid_gdc_clinical_evidence.py"
+      - ".github/workflows/hcc-stage44-original-mri-uid-gdc-clinical-evidence.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hcc-stage44-clinical-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-14-study-series-uid-GDC-RNA-treatment-crosswalk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Freeze exact 14 GDC and treatment source cases with negative control fixtures
+        run: python3 research/hcc/ci/mri14_stage44_uid_gdc_clinical_evidence.py --offline-test
+      - name: Restore independently verified 14 original MRI full3D source series identities
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage43-all14-pv-DICOM-3d-original-source-verified-audit
+          run-id: 41438155270
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/stage43_original14_frozen
+      - name: Restore 247 original DICOM header source directories and StudyInstanceUID metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage38-14-cases-original-DICOM-series-header-aggregate
+          run-id: 41383511403
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/stage38_original_headers_frozen
+      - name: Check frozen original 14 source series and original 247 header rows before crosswalk
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import csv,json
+          p=Path("artifacts/stage43_original14_frozen")
+          q=Path("artifacts/stage38_original_headers_frozen")
+          with (p/"stage43_full14_PV_DICOM_3d_source_patient_evidence.csv").open() as f:
+              cases=list(csv.DictReader(f))
+          with (q/"stage38_original14_source_DICOM_series_header_inventory.csv").open() as f:
+              headers=list(csv.DictReader(f))
+          j=json.loads((p/"stage43_full14_PV_DICOM_3d_source_evidence_summary.json").read_text())
+          assert len(cases)==14 and len({r["patient_id"] for r in cases})==14
+          assert len(headers)==247 and len({r["patient_id"] for r in headers})==14
+          assert j["original_pv_nifti_dicom_3d_technical_source_verified_n"]==14
+          assert j["source_DICOM_CRC_verified_fullresolution_slices"]==1095
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biological_tests"]==0 and j["claim_ceiling"]=="S0"
+          print("HCC_STAGE44_IMMUTABLE_14_SOURCE_1095_FULL3D_AND_247_STUDY_UID_HEADERS_PASS")
+          PY
+      - name: Produce patient-by-patient source image UID to original GDC treatment RNA clinical evidence matrix and reviewer template
+        run: |
+          python3 research/hcc/ci/mri14_stage44_uid_gdc_clinical_evidence.py \
+            --source-stage43-csv artifacts/stage43_original14_frozen/stage43_full14_PV_DICOM_3d_source_patient_evidence.csv \
+            --source-stage38-csv artifacts/stage38_original_headers_frozen/stage38_original14_source_DICOM_series_header_inventory.csv \
+            --out-dir artifacts/hcc_stage44_clinical_source
+      - name: Independently validate all 14 UID joins treatment context sample source and fail-closed clinical ceiling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,csv,re
+          p=Path("artifacts/hcc_stage44_clinical_source")
+          j=json.loads((p/"stage44_original_MRI_GDC_clinical_source_summary.json").read_text())
+          with (p/"stage44_original_MRI_UID_GDC_RNA_treatment_14patient_evidence.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          with (p/"stage44_14patient_clinical_source_gaps_priority.csv").open() as f:
+              gaps=list(csv.DictReader(f))
+          with (p/"stage44_independent_radiology_source_review_template.csv").open() as f:
+              review=list(csv.DictReader(f))
+          assert len(rows)==len(gaps)==len(review)==14
+          assert len({r["patient_id"] for r in rows})==14
+          assert len({r["source_DICOM_SeriesInstanceUID"] for r in rows})==14
+          assert j["original_native_PV_to_source_DICOM_full3d_technical_verified"]==14
+          assert j["original_StudyUID_matched_to_verified_SeriesUID"]==14
+          assert j["GDC_primary_tumor_case_barcode_sample_linked"]==14
+          assert j["source_image_slices_fullres_verified"]==1095
+          assert j["clinical_evidence_priority"]=={"P0":4,"P1":5,"P2":5}
+          assert j["GDC_HCC_diagnosis_context_dated_Yes_event_rows"]==9
+          assert j["GDC_dated_other_organ_surgical_event_rows"]==1
+          assert not j["TCIA_DICOM_shifted_vs_GDC_relative_calendar_subtraction_allowed"]
+          assert all(r["GDC_primary_tumor_RNA_aliquot_barcode"].startswith(r["patient_id"]+"-01") for r in rows)
+          assert all(r["verified_original_MRI_before_ALL_relevant_HCC_treatments"]=="NOT_ASSESSED" for r in rows)
+          assert all(r["verified_same_index_MRI_tumor_as_GDC_RNA_aliquot"]=="NOT_ASSESSED" for r in rows)
+          assert all(r["MRI_index_anatomy_expert_review"]=="NOT_ASSESSED" for r in rows)
+          assert all(r["research_patient_status"].startswith("HOLD_") for r in rows)
+          assert all(r["clinical_eligible_n_status"]=="NOT_ASSESSED" for r in rows)
+          assert all(int(r["MRI_RNA_biological_tests"])==0 and r["claim_ceiling"]=="S0" for r in rows)
+          assert sum(int(r["HCC_context_Yes_treatment_before_RNA_tissue_rows"]) for r in rows)==9
+          assert sum(int(r["non_HCC_context_Yes_treatment_before_RNA_tissue_rows"]) for r in rows)==1
+          x=next(r for r in rows if r["patient_id"]=="TCGA-BC-A5W4")
+          assert x["non_HCC_context_Yes_treatment_before_RNA_tissue_rows"]=="1"
+          assert x["HCC_context_Yes_treatment_before_RNA_tissue_rows"]=="0"
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED" and j["clinical_excluded_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biology_tests"]==0 and j["claim_ceiling"]=="S0"
+          print("HCC_STAGE44_ALL14_MRI_UID_STUDY_SERIES_GDC_RNA_TREATMENT_SOURCE_MATRIX_CLINICAL_HOLD_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage44-14-original-MRI-study-series-UID-GDC-RNA-treatment-clinical-source-HOLD
+          path: artifacts/hcc_stage44_clinical_source/*
+          retention-days: 90
+          if-no-files-found: error
