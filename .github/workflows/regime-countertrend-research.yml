@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install numpy pandas scipy
+      - run: python -m pip install numpy pandas scipy pyarrow
       - name: Unit and leakage tests
         run: python -m unittest discover -s research/regime_countertrend -p 'test_*.py' -v
       - name: Validate pinned historical source
@@ -53,6 +53,7 @@ jobs:
           python -m research.regime_countertrend.multifactor_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/multifactor
           python -m research.regime_countertrend.advanced_failure_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/advanced
           python -m research.regime_countertrend.bb_regime_stability --trades results/regime_countertrend/advanced/trade_features.csv --out results/regime_countertrend/stability
+          python -m research.regime_countertrend.stock_relative --data-dir research/regime_countertrend/data/stock_history --out results/regime_countertrend/cross_symbol
       - uses: actions/upload-artifact@v4
         if: always()
         with:
