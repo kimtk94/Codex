@@ -1,0 +1,72 @@
+name: HCC Stage46 Independent MRI Methods Thesis Evidence and Statistical Gate
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage46_mri_methods_thesis_evidence.py"
+      - ".github/workflows/hcc-stage46-mri-methods-thesis-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-stage46-methods-thesis-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-evidence-14-reader-and-59-patient-preprocessing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify frozen source patient denominator and independent rank negative fixture
+        run: python3 research/hcc/ci/mri14_stage46_mri_methods_thesis_evidence.py --offline-test
+      - name: Independently recalculate original external 59 patient shifts and 14 ICC and 3 paired masks
+        run: |
+          python3 research/hcc/ci/mri14_stage46_mri_methods_thesis_evidence.py \
+            --out-dir artifacts/hcc_stage46_methods_thesis
+      - name: Fail closed clinical pairing and no false outcome prediction or 59 second-reader masks
+        run: |
+          python3 - <<'PY'
+          import json,csv
+          from pathlib import Path
+          p=Path("artifacts/hcc_stage46_methods_thesis")
+          j=json.loads((p/"stage46_mri_methods_thesis_evidence_audit.json").read_text())
+          with (p/"stage46_four_features_14ICC_59processing_crosscheck.csv").open() as f:
+              features=list(csv.DictReader(f))
+          assert j["internal_original_TCGA_LIHC_MRI_n"]==14
+          assert j["external_independent_Openswiss_HCC_venous_n"]==59
+          assert j["source_patients_analyzed_total_distinct"]==73
+          assert j["original_internal_two_reader_ICC_features"]==10
+          assert j["original_internal_two_reader_ICC_screen_pass"]==8
+          assert j["original_external_two_reader_frozen_index_subjects"]==3
+          assert j["original_external_total_source_feature_condition_rows"]==354
+          assert j["original_external_24_feature_condition_summary_rows"]==24
+          assert j["external_native25_to_3mm25_GLCM_Contrast_positive_direction_n"]==59
+          assert j["external_native25_to_3mm25_GLCM_Contrast_gt20pct_abs_n"]==55
+          assert abs(j["external_native25_to_3mm25_GLCM_Contrast_median_abs_change_pct"]-64.635863)<.002
+          assert abs(j["external_native25_to_3mm25_GLCM_Contrast_rank_Spearman"]-.940795)<.0002
+          assert len(features)==4
+          assert not j["source_protocol_equivalence_between14_and59"]
+          assert j["independent_test_retest_scan_pairs_verified_n"]==0
+          assert not j["source_dataset_level_all_HCC_lesions_independently_reviewed"]
+          assert j["MRI_selected_index_tumor_to_GDC_aliquot_proven_n"]==0
+          assert j["MRI_before_all_relevant_HCC_treatments_verified_n"]==0
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_hallmark_biology_tests"]==0
+          assert j["clinical_biological_claim_ceiling"]=="S0"
+          assert j["MRI_methods_source_reproduction"]=="TECHNICAL_GO"
+          assert j["methods_master_thesis_status"].startswith("CONDITIONAL_GO")
+          assert j["multiomics_clinical_pairing_status"]=="HOLD"
+          print("HCC_STAGE46_EVIDENCE_14ICC_59_EXTERNAL_METHODS_CONDITIONAL_GO_CLINICAL_S0_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage46-methods-thesis-14ICC-59preprocessing-conditional-GO
+          path: artifacts/hcc_stage46_methods_thesis/*
+          retention-days: 90
+          if-no-files-found: error
