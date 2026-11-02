@@ -1,0 +1,35 @@
+name: Kalman Regime Countertrend Research
+on:
+  push:
+    branches: [main, research/regime-countertrend-ci-20261102]
+    paths:
+      - 'research/regime_countertrend/**'
+      - '.github/workflows/regime-countertrend-research.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy pandas
+      - name: Unit and leakage tests
+        run: python -m unittest discover -s research/regime_countertrend -p 'test_*.py' -v
+      - name: Run on repository data if available
+        shell: bash
+        run: |
+          if [ -f "research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv" ]; then
+            python -m research.regime_countertrend.analyze --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend
+          else
+            echo 'HOLD: real dataset not present in repository; fixture tests only'
+            mkdir -p results/regime_countertrend
+            printf '{"status":"HOLD","reason":"actual price CSV absent; tests only"}\n' > results/regime_countertrend/summary.json
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: regime-countertrend-results
+          path: results/regime_countertrend/
