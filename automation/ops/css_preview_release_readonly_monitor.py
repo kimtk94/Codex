@@ -103,11 +103,18 @@ def inspect_sources(batch, now=None):
     age = (now.astimezone(timezone(timedelta(hours=9))).date() - date).days
     if age < 0:
         return {"ready": False, "reason": "PAYMENT_OUTSTANDING_DATE_FUTURE"}
-    return {"ready": True, "reason": "SOURCE_PREREQUISITES_FRESH",
+    # A current crosswalk does not mean its underlying finance snapshot is current.
+    # The read-only browser may be inspected, but source-backed payment
+    # classification stays blocked until the original finance evidence is refreshed.
+    stale_finance = age > 2
+    return {"ready": True,
+            "reason": ("SOURCE_PREREQUISITES_READY_FINANCE_REVIEW_REQUIRED"
+                       if stale_finance else "SOURCE_PREREQUISITES_FRESH"),
             "crosswalk_rows": len(seen),
             "mail_body_ready": int(cached[4]),
-            "finance_source_stale_review": age > 2,
+            "finance_source_stale_review": stale_finance,
             "finance_source_age_days": age,
+            "finance_decision_gate": "STALE_REVIEW_ONLY" if stale_finance else "SOURCE_DATE_CURRENT_NOT_PAYMENT_APPROVAL",
             "contract_approved": False, "payment_approved": False}
 
 
@@ -153,7 +160,9 @@ def evaluate(pr, project, deployments, ledger, source_evidence=None):
     source_ready = bool(open_pr and len(sha) == 40 and sso_enabled
                         and preview and host and gate_complete and prerequisite_ok)
     return {
-        "state": "READY_FOR_OWNER_OAUTH_E2E" if source_ready else "BLOCK_READINESS",
+        "state": ("READY_FOR_OWNER_OAUTH_E2E_WITH_FINANCE_REVIEW"
+                  if source_ready and source_evidence and source_evidence.get("finance_source_stale_review")
+                  else "READY_FOR_OWNER_OAUTH_E2E" if source_ready else "BLOCK_READINESS"),
         "pr_open": open_pr,
         "pr_sha_prefix": sha[:12],
         "exact_sha_preview_ready": bool(preview and host),
@@ -217,6 +226,13 @@ def main():
             stream.write("Readiness: **" + result["state"] + "**; SHA parity: **"
                          + str(result["exact_sha_preview_ready"]) + "**; SSO: **"
                          + str(result["vercel_sso_enabled"]) + "**.\n\n")
+            finance = result.get("source_prerequisites") or {}
+            if finance.get("finance_source_stale_review"):
+                days = int(finance.get("finance_source_age_days", 0))
+                stream.write("**FINANCE REVIEW REQUIRED:** Payment Outstanding original source is "
+                             + str(days) + " days old. Not evidence of payment or contract approval.\n\n")
+                print("::warning title=CSS Finance Source Stale::Payment Outstanding original source "
+                      + str(days) + " days old; keep payment and contract approval BLOCK")
             stream.write("Owner OAuth browser E2E: **NOT_VERIFIED_BY_THIS_AUDIT**. "
                          "Production approval: **BLOCK**. No deployment or Sheets write.\n")
     return result

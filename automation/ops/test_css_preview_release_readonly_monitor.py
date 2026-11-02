@@ -136,8 +136,41 @@ class TestPreviewReleaseMonitor(unittest.TestCase):
         self.assertFalse(result["contract_approved"])
         self.assertFalse(result["payment_approved"])
         pre = mod.evaluate(*fixtures(), result)
-        self.assertEqual(pre["state"], "READY_FOR_OWNER_OAUTH_E2E")
+        self.assertEqual(pre["state"], "READY_FOR_OWNER_OAUTH_E2E_WITH_FINANCE_REVIEW")
+        self.assertEqual(result["reason"],
+                         "SOURCE_PREREQUISITES_READY_FINANCE_REVIEW_REQUIRED")
+        self.assertEqual(result["finance_decision_gate"], "STALE_REVIEW_ONLY")
         self.assertFalse(pre["production_approval"])
+
+    def test_fresh_payment_source_means_current_date_not_payment_proof(self):
+        from datetime import datetime, timezone
+        batch = self.source_batch()
+        batch["valueRanges"][3]["values"][1][1] = "2026-11-02"
+        now = datetime(2026, 11, 2, 3, 30, tzinfo=timezone.utc)
+        current = mod.inspect_sources(batch, now)
+        self.assertTrue(current["ready"])
+        self.assertFalse(current["finance_source_stale_review"])
+        self.assertEqual(current["finance_source_age_days"], 0)
+        self.assertEqual(current["finance_decision_gate"],
+                         "SOURCE_DATE_CURRENT_NOT_PAYMENT_APPROVAL")
+        self.assertEqual(current["reason"], "SOURCE_PREREQUISITES_FRESH")
+        evaluated = mod.evaluate(*fixtures(), current)
+        self.assertEqual(evaluated["state"], "READY_FOR_OWNER_OAUTH_E2E")
+        self.assertFalse(evaluated["production_approval"])
+        self.assertFalse(current["payment_approved"])
+
+    def test_five_day_old_finance_source_warns_without_promoting(self):
+        from datetime import datetime, timezone
+        batch = self.source_batch()
+        batch["valueRanges"][3]["values"][1][1] = "2026-10-28"
+        now = datetime(2026, 11, 2, 3, 30, tzinfo=timezone.utc)
+        current = mod.inspect_sources(batch, now)
+        self.assertTrue(current["ready"])
+        self.assertTrue(current["finance_source_stale_review"])
+        self.assertEqual(current["finance_source_age_days"], 5)
+        self.assertEqual(mod.evaluate(*fixtures(), current)["state"],
+                         "READY_FOR_OWNER_OAUTH_E2E_WITH_FINANCE_REVIEW")
+        self.assertFalse(current["contract_approved"])
 
     def test_expired_contract_snapshot_fails_closed(self):
         from datetime import datetime, timezone
