@@ -42,5 +42,11 @@
     "Independently reconstruct all multi-entry/add-on broker fills with correct fee currency and verified timestamps",
     "After source fix, validate private historical rows and UI null rendering without deleting old evidence",
     "Connect actual fills to 15-minute price paths for MFE/MAE and exit timing"
-  ]
+  ],
+  "incomplete_leg_breakdown_by_exit_reason": {
+    "PROFIT_TO_LOSS_FLIP": 4,
+    "FRIDAY_FLAT": 1,
+    "MAX_HOLD_4_BUCKETS": 1
+  },
+  "interpretation": "Six current abnormal stored net return values are exactly the six incomplete telemetry-leg records; fee correctness of remaining 41 not established."
 }
