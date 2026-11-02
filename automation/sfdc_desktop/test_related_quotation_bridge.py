@@ -103,7 +103,7 @@ class BridgeTests(unittest.TestCase):
 
     def test_first15_case_sensitive(self):
         self.assertTrue(same_record(SF, SF[:15]))
-        self.assertFalse(same_record(SF, SF[:15].lower()))
+        self.assertFalse(same_record("006AbC000000000AAA", "006abc000000000"))
         self.assertFalse(same_record(SF, ""))
 
 
