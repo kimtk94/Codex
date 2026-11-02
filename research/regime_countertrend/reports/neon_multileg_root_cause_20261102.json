@@ -48,5 +48,14 @@
     "FRIDAY_FLAT": 1,
     "MAX_HOLD_4_BUCKETS": 1
   },
-  "interpretation": "Six current abnormal stored net return values are exactly the six incomplete telemetry-leg records; fee correctness of remaining 41 not established."
+  "interpretation": "Six current abnormal stored net return values are exactly the six incomplete telemetry-leg records; fee correctness of remaining 41 not established.",
+  "return_recalculation_read_only": {
+    "original_metadata_net_mean_47_pct": 14.524,
+    "quantity_covered_record_count": 41,
+    "quantity_covered_metadata_net_mean_pct": -0.58,
+    "same_41_gross_price_mean_pct": -0.375,
+    "quantity_covered_net_above_gross_count": 0,
+    "quantity_covered_metadata_negative_count": 26,
+    "interpretation": "Different samples (47 vs 41); 41 records are quantity-covered, not broker-certified. No estimate of 51-position net portfolio return."
+  }
 }
