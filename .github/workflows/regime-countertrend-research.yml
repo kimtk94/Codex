@@ -16,18 +16,39 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install numpy pandas
+      - run: python -m pip install numpy pandas gdown
       - name: Unit and leakage tests
         run: python -m unittest discover -s research/regime_countertrend -p 'test_*.py' -v
-      - name: Run on repository data if available
+      - name: Retrieve Google Drive research CSV (read-only)
+        env:
+          DRIVE_FILE_ID: 1v9mM0l0-jLpXu81v6wfwJXHK3kSREsL-
+        shell: bash
+        run: |
+          mkdir -p research/regime_countertrend/data results/regime_countertrend
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          try:
+              import gdown
+              import pandas as pd
+              path=Path("research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv")
+              gdown.download(id=os.environ["DRIVE_FILE_ID"],output=str(path),quiet=True)
+              if not path.exists(): raise ValueError("CSV absent")
+              df=pd.read_csv(path)
+              if not {"date_ny","close_qld","close_qqq"}.issubset(df.columns) or len(df)<200:
+                  raise ValueError("invalid CSV schema/row count")
+              print("DATA_OK",len(df),str(path))
+          except Exception as exc:
+              print("DATA_HOLD",type(exc).__name__,str(exc)[:250])
+              Path("results/regime_countertrend/summary.json").write_text('{"status":"HOLD","reason":"Google Drive research CSV unavailable or invalid"}')
+          PY
+      - name: Compute research output only if data validated
         shell: bash
         run: |
           if [ -f "research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv" ]; then
             python -m research.regime_countertrend.analyze --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend
           else
-            echo 'HOLD: real dataset not present in repository; fixture tests only'
-            mkdir -p results/regime_countertrend
-            printf '{"status":"HOLD","reason":"actual price CSV absent; tests only"}\n' > results/regime_countertrend/summary.json
+            echo 'HOLD: source inaccessible'
           fi
       - uses: actions/upload-artifact@v4
         with:
