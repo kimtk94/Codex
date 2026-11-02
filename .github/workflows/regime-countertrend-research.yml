@@ -21,45 +21,36 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install numpy pandas scipy gdown
+      - run: python -m pip install numpy pandas scipy
       - name: Unit and leakage tests
         run: python -m unittest discover -s research/regime_countertrend -p 'test_*.py' -v
-      - name: Retrieve Google Drive research CSV (read-only)
-        env:
-          DRIVE_FILE_ID: 1v9mM0l0-jLpXu81v6wfwJXHK3kSREsL-
+      - name: Validate pinned historical source
         shell: bash
         run: |
-          mkdir -p research/regime_countertrend/data results/regime_countertrend
           python - <<'PY'
-          import os
           from pathlib import Path
-          try:
-              import gdown
-              import pandas as pd
-              path=Path("research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv")
-              gdown.download(id=os.environ["DRIVE_FILE_ID"],output=str(path),quiet=True)
-              if not path.exists(): raise ValueError("CSV absent")
-              df=pd.read_csv(path)
-              if not {"date_ny","close_qld","close_qqq"}.issubset(df.columns) or len(df)<200:
-                  raise ValueError("invalid CSV schema/row count")
-              print("DATA_OK",len(df),str(path))
-          except Exception as exc:
-              print("DATA_HOLD",type(exc).__name__,str(exc)[:250])
-              Path("research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv").unlink(missing_ok=True)
-              Path("results/regime_countertrend/summary.json").write_text('{"status":"HOLD","reason":"Google Drive research CSV unavailable or invalid"}')
+          import pandas as pd
+          path=Path("research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv")
+          if not path.is_file():
+              raise SystemExit("DATA_MISSING: cannot claim CI success without verified snapshot")
+          df=pd.read_csv(path)
+          required={"date_ny","open_qld","high_qld","low_qld","close_qld","close_qqq","volume_qld"}
+          if not required.issubset(df.columns) or len(df)!=2432:
+              raise SystemExit("DATA_INVALID: schema or row count differs from frozen baseline")
+          if df.date_ny.iloc[0]!="2017-01-03" or df.date_ny.iloc[-1]!="2026-09-04":
+              raise SystemExit("DATA_INVALID: unexpected historical coverage")
+          if df.date_ny.duplicated().any():
+              raise SystemExit("DATA_INVALID: duplicate dates")
+          print("DATA_OK 2432 rows, historical cutoff 2026-09-04 (NOT LIVE)")
           PY
-      - name: Compute research output only if data validated
+      - name: Compute full research artifact
         shell: bash
         run: |
-          if [ -f "research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv" ]; then
-            python -m research.regime_countertrend.analyze --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend
-            python -m research.regime_countertrend.failure_diagnostics --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend/failures
-            python -m research.regime_countertrend.failure_stats --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/stats
-            python -m research.regime_countertrend.gate_audit --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/gate
-            python -m research.regime_countertrend.multifactor_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/multifactor
-          else
-            echo 'HOLD: source inaccessible'
-          fi
+          python -m research.regime_countertrend.analyze --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend
+          python -m research.regime_countertrend.failure_diagnostics --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend/failures
+          python -m research.regime_countertrend.failure_stats --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/stats
+          python -m research.regime_countertrend.gate_audit --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/gate
+          python -m research.regime_countertrend.multifactor_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/multifactor
       - uses: actions/upload-artifact@v4
         with:
           name: regime-countertrend-results
