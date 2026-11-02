@@ -247,9 +247,9 @@ class CancelOnlyFieldTests(unittest.TestCase):
 class RestorationGateTests(unittest.TestCase):
     def test_after_cancel_original_restored_allows_rehearsal_result(self):
         page = FakePage()
-        with patch("rehearse_existing_change_cancel.validate_preflight", return_value=True), \\
-             patch("rehearse_existing_change_cancel.check_lookup_ids", return_value=True), \\
-             patch("rehearse_existing_change_cancel.current_value", return_value="Old Deal") as reread:
+        with (patch("rehearse_existing_change_cancel.validate_preflight", return_value=True),
+              patch("rehearse_existing_change_cancel.check_lookup_ids", return_value=True),
+              patch("rehearse_existing_change_cancel.current_value", return_value="Old Deal") as reread):
             result = replay(FakeBrowser(page), request(), bridge(), lookups(), ledger())
         self.assertEqual(result["status"], "REHEARSAL_CANCELLED_ALL_FIELDS")
         self.assertFalse(result["save_allowed"])
@@ -259,9 +259,9 @@ class RestorationGateTests(unittest.TestCase):
 
     def test_after_cancel_not_restored_forces_hold(self):
         page = FakePage()
-        with patch("rehearse_existing_change_cancel.validate_preflight", return_value=True), \\
-             patch("rehearse_existing_change_cancel.check_lookup_ids", return_value=True), \\
-             patch("rehearse_existing_change_cancel.current_value", return_value="New Deal"):
+        with (patch("rehearse_existing_change_cancel.validate_preflight", return_value=True),
+              patch("rehearse_existing_change_cancel.check_lookup_ids", return_value=True),
+              patch("rehearse_existing_change_cancel.current_value", return_value="New Deal")):
             result = replay(FakeBrowser(page), request(), bridge(), lookups(), ledger())
         self.assertEqual(result["status"], "HOLD_FIELD_REHEARSAL")
         self.assertEqual(result["per_field_result"][0]["status"], "HOLD_CANCEL_DID_NOT_RESTORE_BEFORE_VALUE")
