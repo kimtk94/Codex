@@ -56,6 +56,7 @@ jobs:
             python -m research.regime_countertrend.failure_diagnostics --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend/failures
             python -m research.regime_countertrend.failure_stats --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/stats
             python -m research.regime_countertrend.gate_audit --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/gate
+            python -m research.regime_countertrend.multifactor_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/multifactor
           else
             echo 'HOLD: source inaccessible'
           fi
