@@ -180,15 +180,16 @@ class LocalFileSafetyTests(unittest.TestCase):
 
     def test_second_attempt_same_uid_rejected(self):
         reserve_manual_review(self.path, preflight(), live(), approval())
-        with self.assertRaises(ValueError):
-            reserve_manual_review(self.path, preflight(), live(), approval())
+        r = reserve_manual_review(self.path, preflight(), live(), approval())
+        self.assertEqual(r["status"], "HOLD_DUPLICATE_OR_IN_FLIGHT_OPERATION")
         self.assertEqual(len(_read(self.path)["entries"]), 1)
 
     def test_fresh_uid_same_change_intent_rejected(self):
         reserve_manual_review(self.path, preflight(), live(), approval())
-        with self.assertRaises(ValueError):
-            reserve_manual_review(self.path, preflight("REQ-test-0002", "c"*64),
+        r = reserve_manual_review(self.path, preflight("REQ-test-0002", "c"*64),
                                   live("c"*64), approval("REQ-test-0002", "c"*64))
+        self.assertEqual(r["status"], "HOLD_DUPLICATE_OR_IN_FLIGHT_OPERATION")
+        self.assertEqual(len(_read(self.path)["entries"]), 1)
 
     def test_stale_directory_lock_fails_closed(self):
         lock = self.private / "operation_ledger_private.json.lock"
