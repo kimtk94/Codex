@@ -168,7 +168,9 @@ def plan_outcome(ledger, uid, event, evidence=None):
         if status != "READBACK_FIELDS_AND_LINKS_MATCH_REVIEW_REQUIRED":
             # Preserve unknown as unknown until genuine readback succeeds.
             raise ValueError("Post-Save readback mismatch or missing reload: " + status)
-        next_state = "VERIFIED"
+        # A caller-supplied readback JSON is not independently authenticated.
+        # Preserve manual review requirement; NEVER infer final CRM Save success.
+        next_state = "READBACK_MATCH_REVIEW_REQUIRED"
     else:
         raise ValueError("Unsupported event")
     result = {"version": VERSION, "entries": [dict(row) for row in entries]}
