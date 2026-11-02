@@ -10,6 +10,7 @@ ACCT = "001000000000000AAA"
 CONTACT = "003000000000000AAA"
 BIZ = "Opp-2099-01-01-222222"
 HASH = "a" * 64
+INTENT = "b" * 64
 
 
 def ledger(entries=None):
@@ -20,13 +21,13 @@ def ledger(entries=None):
 def preflight():
     return {"status": "PREPARED_FOR_LIVE_BEFORE_VALUE_CHECK",
             "request_uid": "REQ-synthetic-001",
-            "target_record_id": SF, "operation_fingerprint": HASH,
+            "target_record_id": SF, "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT,
             "save_allowed": False}
 
 
 def live():
     return {"status": "VERIFIED_LIVE_BEFORE_VALUES",
-            "operation_fingerprint": HASH,
+            "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT,
             "live_before_values_verified": True,
             "fill_allowed": False, "values_filled": False,
             "salesforce_save_allowed": False, "salesforce_save_performed": False}
@@ -35,7 +36,7 @@ def live():
 def approval():
     return {"approved_action": "SAVE_EXISTING_OPPORTUNITY",
             "request_uid": "REQ-synthetic-001",
-            "operation_fingerprint": HASH,
+            "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT,
             "approved_for_record": SF,
             "explicit_current_deal_approval": True}
 
@@ -69,21 +70,31 @@ class LedgerSafetyTests(unittest.TestCase):
 
     def test_duplicate_same_uid_rejected(self):
         e = {"request_uid": "REQ-synthetic-001",
-             "operation_fingerprint": HASH, "state": "PENDING_WRITE"}
+             "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT, "state": "PENDING_WRITE"}
         with self.assertRaises(ValueError):
             validate_ledger(ledger([e, dict(e)]))
 
     def test_duplicate_same_fingerprint_rejected(self):
         a = {"request_uid": "REQ-synthetic-001",
-             "operation_fingerprint": HASH, "state": "VERIFIED"}
+             "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT, "state": "VERIFIED"}
         b = {"request_uid": "REQ-synthetic-002",
-             "operation_fingerprint": HASH, "state": "HOLD"}
+             "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT, "state": "HOLD"}
+        with self.assertRaises(ValueError):
+            validate_ledger(ledger([a, b]))
+
+    def test_identical_intent_different_uid_rejected(self):
+        a = {"request_uid": "REQ-synthetic-001",
+             "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT,
+             "state": "VERIFIED"}
+        b = {"request_uid": "REQ-synthetic-002",
+             "operation_fingerprint": "c" * 64, "change_intent_fingerprint": INTENT,
+             "state": "PREPARED"}
         with self.assertRaises(ValueError):
             validate_ledger(ledger([a, b]))
 
     def test_unknown_state_rejected(self):
         e = {"request_uid": "REQ-synthetic-001",
-             "operation_fingerprint": HASH, "state": "CAN_SAVE"}
+             "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT, "state": "CAN_SAVE"}
         with self.assertRaises(ValueError):
             validate_ledger(ledger([e]))
 
@@ -100,15 +111,22 @@ class SaveReviewTests(unittest.TestCase):
         self.assertFalse(r["save_allowed"])
         self.assertFalse(r["salesforce_save_performed"])
 
+    def test_same_intent_under_fresh_uid_blocks(self):
+        prior = {"request_uid": "REQ-synthetic-prior",
+                 "operation_fingerprint": "c" * 64,
+                 "change_intent_fingerprint": INTENT, "state": "VERIFIED"}
+        result = review_save_contract(preflight(), live(), approval(), ledger([prior]))
+        self.assertEqual(result["status"], "HOLD_DUPLICATE_OR_IN_FLIGHT_OPERATION")
+
     def test_existing_inflight_uid_blocks_retry(self):
         e = {"request_uid": "REQ-synthetic-001",
-             "operation_fingerprint": HASH, "state": "WRITE_OUTCOME_UNKNOWN"}
+             "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT, "state": "WRITE_OUTCOME_UNKNOWN"}
         r = review_save_contract(preflight(), live(), approval(), ledger([e]))
         self.assertEqual(r["status"], "HOLD_DUPLICATE_OR_IN_FLIGHT_OPERATION")
 
     def test_previous_complete_record_blocks_retry(self):
         e = {"request_uid": "REQ-synthetic-001",
-             "operation_fingerprint": HASH, "state": "VERIFIED"}
+             "operation_fingerprint": HASH, "change_intent_fingerprint": INTENT, "state": "VERIFIED"}
         r = review_save_contract(preflight(), live(), approval(), ledger([e]))
         self.assertEqual(r["status"], "HOLD_DUPLICATE_OR_IN_FLIGHT_OPERATION")
 
