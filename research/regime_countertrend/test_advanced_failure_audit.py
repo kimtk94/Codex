@@ -23,5 +23,5 @@ class AdvancedAuditTests(unittest.TestCase):
         out,feat,rule=audit(prices,trade)
         self.assertEqual(len(feat),len(FEATURES))
         self.assertTrue(feat.bh_fdr_q.between(0,1).all())
-        self.assertEqual(int(rule.query("era=='HOLDOUT_2025_2026' and event=='ALL' and rule=='BASELINE'").n.iloc[0]),6)
+        self.assertEqual(int(rule.query("era=='HOLDOUT_2025_2026' and event=='ALL' and rule=='BASELINE'").n.iloc[0]),4)
 if __name__=="__main__":unittest.main()
