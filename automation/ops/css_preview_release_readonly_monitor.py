@@ -8,7 +8,7 @@ import json
 import os
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = "kimtk94/Codex"
@@ -20,7 +20,98 @@ RELEASE = ("Owner-authenticated Preview E2E", "Production READY SHA parity",
            "Production acceptance")
 
 
-def evaluate(pr, project, deployments, ledger):
+def parse_kst(value):
+    """Strict source timestamp parsing. Invalid/future values cannot pass freshness."""
+    try:
+        d = datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S KST")
+        return d.replace(tzinfo=timezone(timedelta(hours=9)))
+    except (TypeError, ValueError):
+        return None
+
+
+def inspect_sources(batch, now=None):
+    """Inspect only structural counts/timestamps; keep all AMEA, UID and customer data private."""
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        raise ValueError("UTC_AWARE_NOW_REQUIRED")
+    ranges = (batch or {}).get("valueRanges") or []
+    if len(ranges) != 4:
+        return {"ready": False, "reason": "SOURCES_UNAVAILABLE"}
+    cross, revenue, mail, manifest = [r.get("values") or [] for r in ranges]
+    header = ["AMEA", "Project / Institution", "Watch Quote KRW", "Watch X (unsafe)",
+              "Online H Candidate", "Online X Candidate", "Online Stage Candidate",
+              "Finance Base X Candidate", "Evidence State"]
+    if not cross or cross[0][:9] != header or not cross[1:]:
+        return {"ready": False, "reason": "CONTRACT_SCHEMA_INVALID"}
+    dates, seen = [], set()
+    for row in cross[1:]:
+        if not row or not row[0]:
+            continue
+        if len(row) < 19 or row[0] in seen:
+            return {"ready": False, "reason": "CONTRACT_CROSSWALK_INVALID"}
+        seen.add(row[0])
+        stamp = parse_kst(row[18])
+        if stamp is None or not timedelta() <= now - stamp <= timedelta(hours=36):
+            return {"ready": False, "reason": "CONTRACT_GENERATED_SNAPSHOT_STALE"}
+        dates.append(stamp)
+    if not seen:
+        return {"ready": False, "reason": "CONTRACT_EMPTY"}
+    if (not revenue or revenue[0][:3] !=
+        ["Month", "Issued Invoice Gross KRW (VAT incl)",
+         "Issued Net Revenue KRW (VAT excl)"]):
+        return {"ready": False, "reason": "NET_REVENUE_SCHEMA_INVALID"}
+    kst_month = now.astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m")
+    months = [row for row in revenue[1:] if row and row[0] == kst_month]
+    if len(months) != 1 or len(months[0]) < 9:
+        return {"ready": False, "reason": "NET_REVENUE_CURRENT_MONTH_MISSING"}
+    net_row = months[0]
+    checked = parse_kst(net_row[7])
+    if checked is None or not timedelta() <= now - checked <= timedelta(hours=72):
+        return {"ready": False, "reason": "NET_REVENUE_SNAPSHOT_STALE"}
+    try:
+        gross = int(net_row[1])
+        net = int(net_row[2])
+        count = int(net_row[4])
+    except (TypeError, ValueError):
+        return {"ready": False, "reason": "NET_REVENUE_VALUES_INVALID"}
+    if (min(gross, net, count) < 0 or net > gross
+        or net_row[8] != "INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED"):
+        return {"ready": False, "reason": "NET_REVENUE_EVIDENCE_INVALID"}
+    if not mail or mail[0][:5] != ["Updated At KST", "State", "QQ Staged Headers",
+                                    "Web Cached UID", "Body Ready"] or len(mail) != 2:
+        return {"ready": False, "reason": "MAIL_CACHE_SCHEMA_INVALID"}
+    cached = mail[1]
+    cache_time = parse_kst(cached[0])
+    if (cache_time is None or not timedelta() <= now - cache_time <= timedelta(hours=72)
+        or cached[1] != "WINDOW_CAUGHT_UP"):
+        return {"ready": False, "reason": "MAIL_CACHE_NOT_READY"}
+    try:
+        if int(cached[4]) <= 0:
+            return {"ready": False, "reason": "MAIL_BODY_NOT_AVAILABLE"}
+    except (TypeError, ValueError):
+        return {"ready": False, "reason": "MAIL_CACHE_VALUES_INVALID"}
+    if not manifest or manifest[0][0] != "Source" or not manifest[1:]:
+        return {"ready": False, "reason": "PAYMENT_MANIFEST_MISSING"}
+    outstanding = next((row for row in manifest[1:]
+                        if row and row[0] == "Payment Outstanding"), None)
+    if not outstanding or len(outstanding) < 2:
+        return {"ready": False, "reason": "PAYMENT_OUTSTANDING_UNKNOWN"}
+    try:
+        date = datetime.strptime(outstanding[1], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return {"ready": False, "reason": "PAYMENT_OUTSTANDING_DATE_INVALID"}
+    age = (now.astimezone(timezone(timedelta(hours=9))).date() - date).days
+    if age < 0:
+        return {"ready": False, "reason": "PAYMENT_OUTSTANDING_DATE_FUTURE"}
+    return {"ready": True, "reason": "SOURCE_PREREQUISITES_FRESH",
+            "crosswalk_rows": len(seen),
+            "mail_body_ready": int(cached[4]),
+            "finance_source_stale_review": age > 2,
+            "finance_source_age_days": age,
+            "contract_approved": False, "payment_approved": False}
+
+
+def evaluate(pr, project, deployments, ledger, source_evidence=None):
     """Classify evidence, not the right to merge or release."""
     sha = str((pr.get("head") or {}).get("sha") or "")
     open_pr = pr.get("state") == "open" and pr.get("number") == PR
@@ -58,8 +149,9 @@ def evaluate(pr, project, deployments, ledger):
     gate_complete = valid_header and len(states) == len(RELEASE)
     # A green job says only that evidence was read; the owner E2E still needs
     # a live OAuth browser test with independent manual acceptance.
+    prerequisite_ok = source_evidence is None or source_evidence.get("ready") is True
     source_ready = bool(open_pr and len(sha) == 40 and sso_enabled
-                        and preview and host and gate_complete)
+                        and preview and host and gate_complete and prerequisite_ok)
     return {
         "state": "READY_FOR_OWNER_OAUTH_E2E" if source_ready else "BLOCK_READINESS",
         "pr_open": open_pr,
@@ -70,6 +162,7 @@ def evaluate(pr, project, deployments, ledger):
         "vercel_sso_enabled": sso_enabled,
         "acceptance_ledger_schema_valid": gate_complete,
         "acceptance_release_states": states if gate_complete else {},
+        "source_prerequisites": source_evidence or {"ready": False, "reason": "NOT_CHECKED"},
         "owner_authenticated_browser_e2e": "NOT_VERIFIED_BY_THIS_AUDIT",
         "production_approval": False,
         "production_deploy": False,
@@ -104,7 +197,15 @@ def main():
     tab = urllib.parse.quote("'CSS Operational Acceptance'!A1:H20", safe="")
     ledger = get_json("https://sheets.googleapis.com/v4/spreadsheets/" + SHEET
                       + "/values/" + tab, creds.token)
-    result = evaluate(pr, project, deployments, ledger)
+    source_tabs = ["'CSS AMEA Contract Candidate Crosswalk'!A1:T100",
+                   "'BI Revenue Net VAT Monthly'!A1:I24",
+                   "'CSS Mail Backfill Status'!A1:O2",
+                   "'Feishu Source Manifest'!A1:G8"]
+    query = urllib.parse.urlencode([("ranges", rng) for rng in source_tabs])
+    sources = get_json("https://sheets.googleapis.com/v4/spreadsheets/" + SHEET
+                       + "/values:batchGet?" + query, creds.token)
+    source_evidence = inspect_sources(sources)
+    result = evaluate(pr, project, deployments, ledger, source_evidence)
     result["checked_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     dest = Path("audit-results/css-preview-release-evidence.json")
     dest.parent.mkdir(exist_ok=True, parents=True)
