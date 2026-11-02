@@ -26,7 +26,7 @@ def run(data):
    if low<=sl:outcome="SL";exitprice=sl;break
    if high>=tp:outcome="TP";exitprice=tp;break
   net=exitprice/entry-1-.002
-  rows.append(dict(date=d.at[i,"date_ny"],event=kind,outcome=outcome,net_return=net,failed=net<0,qqq20=d.at[i,"qqq20"],rv20=d.at[i,"rv20"],ma20dist=d.at[i,"ma20dist"],volratio=d.at[i,"volratio"]))
+  rows.append(dict(date=d.at[i,"date_ny"],year=int(str(d.at[i,"date_ny"])[:4]),event=kind,outcome=outcome,net_return=net,failed=net<0,qqq20=d.at[i,"qqq20"],rv20=d.at[i,"rv20"],ma20dist=d.at[i,"ma20dist"],volratio=d.at[i,"volratio"]))
  out=pd.DataFrame(rows)
  return out,{"n":len(out),"failures":int(out.failed.sum()),"note":"Daily OHLC same-day dual barrier conservatively recorded as SL; no 15m fills, gaps, or execution slippage; 20bp flat round trip."}
 if __name__=="__main__":
