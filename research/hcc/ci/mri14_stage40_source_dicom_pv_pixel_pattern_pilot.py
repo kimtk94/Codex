@@ -136,7 +136,7 @@ def match_pixel_sample(pv,orig):
         corrs=volume@small
         corrs[norm<=1e-10]=0
         ixbest=int(np.argmax(np.abs(corrs)))
-        corr=float(corrs[ixbest])
+        corr=float(np.clip(corrs[ixbest],-1.0,1.0))
         if max_result is None or abs(corr)>abs(max_result[0]):
             max_result=(corr,ixbest,mode)
     if max_result is None:return None
@@ -257,7 +257,7 @@ def report(rows,out):
            "median_abs_Pearson":f"{statistics.median(vals):.7f}" if vals else "",
            "min_abs_Pearson":f"{min(vals):.7f}" if vals else "",
            "max_abs_Pearson":f"{max(vals):.7f}" if vals else "",
-           "matched_PV_z_indices":"|".join(sorted(zs)),
+           "matched_PV_z_indices":"|".join(sorted(str(z) for z in zs)),
            "matched_PV_slice_unique_count":len(zs),
            "best_inplane_transform_consensus":modes.most_common(1)[0][0]
               if modes and modes.most_common(1)[0][1]==3 else "NOT_UNIQUE",
