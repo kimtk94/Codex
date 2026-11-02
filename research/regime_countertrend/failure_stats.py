@@ -5,7 +5,7 @@ import numpy as np,pandas as pd
 from scipy.stats import fisher_exact
 
 def evaluate(df,bootstrap=3000,seed=42):
-    required={"date","year","event","net_return","failed","qqq_dist20"}
+    required={"date","year","event","net_return","failed","ma20dist"}
     missing=required-set(df)
     if missing:raise ValueError("missing columns: "+str(sorted(missing)))
     d=df.copy();d["failed"]=d.failed.astype(bool);d["below"]=d.qqq_dist20<0
