@@ -2,7 +2,7 @@
 """Original HCC MRI PV NIfTI vs complete DICOM source stack audit, 2 fixed cases.
 Technical image evidence only; no MRI treatment-episode or RNA tissue proof.
 """
-import argparse,csv,hashlib,io,json,tempfile
+import argparse,csv,hashlib,io,json,tempfile,os
 from pathlib import Path
 from zipfile import ZipFile
 import numpy as np
