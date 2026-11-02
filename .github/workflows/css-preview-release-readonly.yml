@@ -4,12 +4,16 @@ on:
     paths:
       - 'automation/ops/css_preview_release_readonly_monitor.py'
       - 'automation/ops/test_css_preview_release_readonly_monitor.py'
+      - 'automation/ops/css_vercel_preview_quota_audit.py'
+      - 'automation/ops/test_css_vercel_preview_quota_audit.py'
       - '.github/workflows/css-preview-release-readonly.yml'
   push:
     branches: [main]
     paths:
       - 'automation/ops/css_preview_release_readonly_monitor.py'
       - 'automation/ops/test_css_preview_release_readonly_monitor.py'
+      - 'automation/ops/css_vercel_preview_quota_audit.py'
+      - 'automation/ops/test_css_vercel_preview_quota_audit.py'
       - '.github/workflows/css-preview-release-readonly.yml'
   schedule:
     - cron: '30 0 * * *' # 09:30 KST, Preview/head drift and SSO status
@@ -30,6 +34,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s automation/ops -p 'test_css_preview_release_readonly_monitor.py' -v
+      - run: python -m unittest discover -s automation/ops -p 'test_css_vercel_preview_quota_audit.py' -v
   live-preview-evidence:
     name: Vercel Preview SHA + SSO + Sheet release gate (no approval)
     needs: offline-contract
@@ -57,5 +62,30 @@ jobs:
         with:
           name: css-protected-preview-release-evidence
           path: audit-results/css-preview-release-evidence.json
+          if-no-files-found: ignore
+          retention-days: 14
+  vercel-preview-quota:
+    name: Verify team Preview auto-disable + rolling 24h deployment records
+    needs: offline-contract
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 7
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read Vercel project raw flags and rolling deployment evidence
+        run: python automation/ops/css_vercel_preview_quota_audit.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: css-team-preview-quota-evidence
+          path: audit-results/css-vercel-preview-quota.json
           if-no-files-found: ignore
           retention-days: 14
