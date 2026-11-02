@@ -54,6 +54,27 @@ jobs:
           python -m research.regime_countertrend.advanced_failure_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/advanced
           python -m research.regime_countertrend.bb_regime_stability --trades results/regime_countertrend/advanced/trade_features.csv --out results/regime_countertrend/stability
           python -m research.regime_countertrend.stock_relative --data-dir research/regime_countertrend/data/stock_history --out results/regime_countertrend/cross_symbol
+      - name: Real-fill and 15m evidence gate (read-only)
+        shell: bash
+        run: |
+          mkdir -p results/regime_countertrend/execution
+          if [ -f "research/regime_countertrend/data/execution/real_trades.csv" ] && [ -f "research/regime_countertrend/data/execution/real_15m_bars.csv" ]; then
+            python -m research.regime_countertrend.execution_validation --trades research/regime_countertrend/data/execution/real_trades.csv --bars research/regime_countertrend/data/execution/real_15m_bars.csv --out results/regime_countertrend/execution
+          else
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          out=Path("results/regime_countertrend/execution/coverage.json")
+          out.write_text(json.dumps({
+            "status":"HOLD_NO_VERIFIED_EXECUTION_DATA",
+            "actual_fill_analysis_completed":False,
+            "verified_trades":0,
+            "reason":"No authorized actual fill file and matching 15-minute bars in CI",
+            "note":"The other stages can PASS with frozen research prices. This is NOT a LIVE-trade validation."
+          },indent=2))
+          print(out.read_text())
+          PY
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
