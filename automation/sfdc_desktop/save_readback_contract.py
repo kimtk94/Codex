@@ -22,18 +22,21 @@ def validate_ledger(ledger):
     entries = ledger.get("entries")
     if not isinstance(entries, list):
         raise ValueError("Operation ledger must have an entries list")
-    seen_uid, seen_hash = set(), set()
+    seen_uid, seen_hash, seen_intent = set(), set(), set()
     for record in entries:
         if not isinstance(record, dict):
             raise ValueError("Malformed ledger entry")
         uid = str(record.get("request_uid") or "")
         finger = str(record.get("operation_fingerprint") or "")
+        intent = str(record.get("change_intent_fingerprint") or "")
         if (not uid.startswith("REQ-") or not re.fullmatch(r"[a-f0-9]{64}", finger)
+                or not re.fullmatch(r"[a-f0-9]{64}", intent)
                 or record.get("state") not in VALID_STATES
-                or uid in seen_uid or finger in seen_hash):
+                or uid in seen_uid or finger in seen_hash or intent in seen_intent):
             raise ValueError("Corrupt, duplicated or unknown-state operation ledger")
         seen_uid.add(uid)
         seen_hash.add(finger)
+        seen_intent.add(intent)
     return entries
 
 
@@ -59,11 +62,14 @@ def review_save_contract(preflight, live, approval, ledger):
         return hold("HOLD_PREFLIGHT_OR_LIVE_EVIDENCE")
     uid = str(preflight.get("request_uid") or "")
     finger = str(preflight.get("operation_fingerprint") or "")
+    intent = str(preflight.get("change_intent_fingerprint") or "")
     record = str(preflight.get("target_record_id") or "")
     if (not uid.startswith("REQ-") or not re.fullmatch(r"[a-f0-9]{64}", finger)
+            or not re.fullmatch(r"[a-f0-9]{64}", intent)
             or not SF_RECORD.fullmatch(record)):
         return hold("HOLD_INVALID_OPERATION_IDENTITY")
-    if any(e["request_uid"] == uid or e["operation_fingerprint"] == finger for e in entries):
+    if any(e["request_uid"] == uid or e["operation_fingerprint"] == finger
+           or e["change_intent_fingerprint"] == intent for e in entries):
         return hold("HOLD_DUPLICATE_OR_IN_FLIGHT_OPERATION")
     if (not isinstance(approval, dict)
             or approval.get("approved_action") != "SAVE_EXISTING_OPPORTUNITY"
