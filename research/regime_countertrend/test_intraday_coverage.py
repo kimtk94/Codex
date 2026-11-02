@@ -1,6 +1,6 @@
 import unittest
 import pandas as pd
-from research.regime_countertrend.intraday_coverage import analyze_frame
+from research.regime_countertrend.intraday_coverage import analyze_frame, audit_folder
 
 class PriceCoverageTests(unittest.TestCase):
     def sample(self):
@@ -16,6 +16,18 @@ class PriceCoverageTests(unittest.TestCase):
         s=self.sample()
         s.loc[1,"date"]=s.loc[0,"date"]
         self.assertEqual(analyze_frame(s,"INTC")["status"],"HOLD_INVALID_OR_DUPLICATE_TIMESTAMPS")
+    def test_frozen_market_data_coverage(self):
+        import json
+        from pathlib import Path
+        rows=audit_folder("research/regime_countertrend/data/price_15m")
+        self.assertEqual(len(rows),5)
+        output=Path("results/regime_countertrend/price_15m")
+        output.mkdir(parents=True,exist_ok=True)
+        (output/"coverage.json").write_text(json.dumps({"source":"FROZEN_DRIVE_15M_PRICE_ONLY","results":rows},indent=2))
+        for row in rows:
+            print("INTRADAY_PRICE_AUDIT",json.dumps(row,ensure_ascii=False))
+            self.assertEqual(row["status"],"PRICE_COVERAGE_ONLY_NOT_FILLS")
+            self.assertGreater(row["adjacent_15m_pairs"],10)
     def test_prices_invalid_rejected(self):
         s=self.sample();s.loc[2,"high"]=98.
         self.assertEqual(analyze_frame(s,"INTC")["status"],"HOLD_INCONSISTENT_OHLC_RANGE")
