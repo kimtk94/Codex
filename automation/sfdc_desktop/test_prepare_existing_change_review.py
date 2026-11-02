@@ -95,6 +95,22 @@ class OfflineRequestPreflightTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             prepare(x, bridge(), lookups())
 
+    def test_bridge_without_business_id_refused(self):
+        x = bridge()
+        x["business_opportunity_id"] = None
+        y = request()
+        y["business_opportunity_id"] = None
+        with self.assertRaises(ValueError):
+            prepare(y, x, lookups())
+
+    def test_unverified_business_id_format_refused(self):
+        x = bridge()
+        x["business_opportunity_id"] = "006000000000000AAA"
+        y = request()
+        y["business_opportunity_id"] = x["business_opportunity_id"]
+        with self.assertRaises(ValueError):
+            prepare(y, x, lookups())
+
     def test_editing_lookup_by_name_forbidden(self):
         x = request()
         x["changes"] = {"Account Name": "similar name"}
