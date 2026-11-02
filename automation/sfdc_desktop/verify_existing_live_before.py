@@ -98,8 +98,10 @@ def enforce_clean_ledger(request, bridge, lookup, ledger_data):
     """Fail closed for missing/versionless ledger AND same operation under a new UID."""
     rows = validate_ledger(ledger_data)
     preflight = prepare(request, bridge, lookup, [r["request_uid"] for r in rows])
-    if any(row["operation_fingerprint"] == preflight["operation_fingerprint"] for row in rows):
-        raise ValueError("Already recorded matching operation fingerprint")
+    if any(row["operation_fingerprint"] == preflight["operation_fingerprint"]
+           or row["change_intent_fingerprint"] == preflight["change_intent_fingerprint"]
+           for row in rows):
+        raise ValueError("Already recorded identical change intent")
     return preflight, [r["request_uid"] for r in rows]
 
 
