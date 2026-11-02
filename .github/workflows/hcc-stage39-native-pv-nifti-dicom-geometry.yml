@@ -73,7 +73,7 @@ jobs:
           assert j["exact_RNA_sample_same_MRI_index_tumor_n"]==0
           assert j["clinical_eligible_n"]=="NOT_ASSESSED"
           assert j["MRI_RNA_biological_tests"]==0 and j["claim_ceiling"]=="S0"
-          assert all(r["clinical_eligible"]=="NOT_ASSESSED" for r in cases)
+          assert all(r["clinical_eligibility"]=="NOT_ASSESSED" for r in cases)
           print("HCC_STAGE39_14_SOURCE_PV_NIFTIS_247_DICOM_GEOMETRIES_SOURCE_QC_PASS")
           PY
       - uses: actions/upload-artifact@v4
