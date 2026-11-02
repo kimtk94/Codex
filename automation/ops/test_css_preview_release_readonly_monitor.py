@@ -196,6 +196,10 @@ class TestPreviewReleaseMonitor(unittest.TestCase):
         batch = self.source_batch()
         batch["valueRanges"][3]["values"].pop()
         self.assertEqual(mod.inspect_sources(batch, when)["reason"],
+                         "PAYMENT_MANIFEST_MISSING")
+        batch = self.source_batch()
+        batch["valueRanges"][3]["values"][1][0] = "eTax Invoice"
+        self.assertEqual(mod.inspect_sources(batch, when)["reason"],
                          "PAYMENT_OUTSTANDING_UNKNOWN")
 
 
