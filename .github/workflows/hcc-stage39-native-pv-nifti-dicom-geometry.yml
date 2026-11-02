@@ -1,0 +1,85 @@
+name: HCC Stage39 Original 14 PV NIfTI vs 247 DICOM Series Source Geometry Gate
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage39_original_pv_nifti_dicom_geometry.py"
+      - ".github/workflows/hcc-stage39-native-pv-nifti-dicom-geometry.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-stage39-native-PV-DICOM-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  original-source-pv-NIfTI-to-DICOM-geometry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Offline geometry negative controls independent of source images
+        run: python3 research/hcc/ci/mri14_stage39_original_pv_nifti_dicom_geometry.py --offline-test
+      - name: Retrieve verified Stage38 frozen 247 source DICOM headers from actual successful CI
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage38-14-cases-original-DICOM-series-header-aggregate
+          run-id: 41383511403
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/hcc_stage38_pinned
+      - name: Verify exact Stage38 source manifest, 14 cases and no false clinical promotion
+        run: |
+          python3 - <<'PY'
+          import csv,json
+          from pathlib import Path
+          root=Path("artifacts/hcc_stage38_pinned")
+          with (root/"stage38_original14_source_DICOM_series_header_inventory.csv").open() as f:
+              series=list(csv.DictReader(f))
+          s=json.loads((root/"stage38_original14_DICOM_series_header_source_summary.json").read_text())
+          assert len(series)==247 and s["source_header_valid_samples"]==247
+          assert len({r["patient_id"] for r in series})==14
+          assert s["source_selected_PV_series_confirmed"]==0
+          assert s["MRI_RNA_biological_tests"]==0
+          print("HCC_STAGE39_SOURCE_STAGE38_247_METADATA_FROZEN_REFERENCE_PASS")
+          PY
+      - name: Read official source PV NIfTI header for all 14 and compare source DICOM 247 spatial geometries
+        run: |
+          python3 research/hcc/ci/mri14_stage39_original_pv_nifti_dicom_geometry.py \
+            --stage38-csv artifacts/hcc_stage38_pinned/stage38_original14_source_DICOM_series_header_inventory.csv \
+            --out-dir artifacts/hcc_stage39_native_pv_dicom_geometry
+      - name: Reject source NIfTI patient losses and unsupported selected PV or MRI-RNA clinical claim
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,csv
+          p=Path("artifacts/hcc_stage39_native_pv_dicom_geometry")
+          j=json.loads((p/"stage39_original_source_NIfTI_DICOM_geometry_summary.json").read_text())
+          with (p/"stage39_source_14patient_PV_geometry_priority.csv").open() as f:
+              cases=list(csv.DictReader(f))
+          with (p/"stage39_source_247_DICOM_series_to_PV_NIfTI_geometry.csv").open() as f:
+              series=list(csv.DictReader(f))
+          assert len(cases)==14 and len({r["patient_id"] for r in cases})==14
+          assert len(series)==247
+          assert j["original_PV_NIfTI_source_headers_verified"]==14
+          assert j["stage38_original_source_DICOM_headers_compared"]==247
+          assert j["original_selected_PV_DICOM_series_pixel_identity_verified_n"]==0
+          assert j["authoritative_MRI_before_HCC_therapy_n"]==0
+          assert j["exact_RNA_sample_same_MRI_index_tumor_n"]==0
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biological_tests"]==0 and j["claim_ceiling"]=="S0"
+          assert all(r["clinical_eligible"]=="NOT_ASSESSED" for r in cases)
+          print("HCC_STAGE39_14_SOURCE_PV_NIFTIS_247_DICOM_GEOMETRIES_SOURCE_QC_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage39-14-original-PV-NIfTI-vs-247-DICOM-geometry-source
+          path: artifacts/hcc_stage39_native_pv_dicom_geometry/*
+          retention-days: 90
+          if-no-files-found: warn
