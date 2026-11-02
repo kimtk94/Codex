@@ -21,6 +21,7 @@ from audit_existing_numeric_date_nochange import check_lookup_ids
 from capture_existing_lookup_links import DOM_SCRIPT
 from make_existing_change_template import current_value, FIELDS
 from prepare_existing_change_review import prepare
+from save_readback_contract import validate_ledger
 
 # Progress Description intentionally held until a unique editor control is audited.
 LIVE_CHECK_FIELDS = frozenset(FIELDS)
@@ -93,6 +94,15 @@ def capture_live_fields(browser, preflight, bridge, lookup):
     return observed
 
 
+def enforce_clean_ledger(request, bridge, lookup, ledger_data):
+    """Fail closed for missing/versionless ledger AND same operation under a new UID."""
+    rows = validate_ledger(ledger_data)
+    preflight = prepare(request, bridge, lookup, [r["request_uid"] for r in rows])
+    if any(row["operation_fingerprint"] == preflight["operation_fingerprint"] for row in rows):
+        raise ValueError("Already recorded matching operation fingerprint")
+    return preflight, [r["request_uid"] for r in rows]
+
+
 def run(request, bridge, lookup, ledger, browser=None):
     """No Salesforce touches unless a user-reviewed request passes offline gate."""
     decision = inspect_request(request)
@@ -131,7 +141,9 @@ def main():
                                                "verified_live_quotation_report_bridge.json"))
     parser.add_argument("--lookups", default=str(Path.home() / ".sfdc_desktop" /
                                                 "existing_lookup_record_ids_private.json"))
-    parser.add_argument("--ledger", default="", help="Private JSON list of processed UIDs; no writes")
+    parser.add_argument("--ledger", default=str(Path.home() / ".sfdc_desktop" /
+                                               "operation_ledger_private.json"),
+                        help="Required versioned private operation ledger; no writes")
     parser.add_argument("--output", default=str(Path.home() / ".sfdc_desktop" /
                                                "live_before_verification_private.json"))
     parser.add_argument("--cdp-url", default="http://127.0.0.1:9222")
@@ -146,12 +158,12 @@ def main():
         result = run(req, {}, {}, ())
     else:
         bridge, lookup = read(args.bridge), read(args.lookups)
-        ledger = read(args.ledger) if args.ledger else []
-        # Offline preflight before connecting to authenticated browser.
-        prepare(req, bridge, lookup, ledger)
+        # Do not treat missing ledger as an empty history. Require it on disk.
+        preflight, previous_uids = enforce_clean_ledger(
+            req, bridge, lookup, read(args.ledger))
         with sync_playwright() as pw:
             browser = pw.chromium.connect_over_cdp(args.cdp_url, timeout=12000)
-            result = run(req, bridge, lookup, ledger, browser)
+            result = run(req, bridge, lookup, previous_uids, browser)
     path = Path(args.output)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
