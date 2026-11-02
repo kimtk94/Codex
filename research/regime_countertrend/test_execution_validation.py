@@ -24,7 +24,7 @@ class ActualFillContractTests(unittest.TestCase):
         out,meta=attribute(t,b)
         self.assertTrue(out.first_hour_complete.iloc[0])
         self.assertEqual(out.full_bars.iloc[0],5)
-        self.assertEqual(out.mae_first_hour.iloc[0],-.01)
+        self.assertAlmostEqual(out.mae_first_hour.iloc[0],-.01,places=8)
         self.assertEqual(meta["status"],"COMPLETE")
         self.assertEqual(out.interpretation.iloc[0],"OBSERVATIONAL_NOT_CAUSAL")
     def test_partial_coverage_is_not_complete(self):
