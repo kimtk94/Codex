@@ -1,0 +1,64 @@
+{
+  "audit_date": "2026-11-02",
+  "status": "PRICE_COVERAGE_VALIDATED_BROKER_FILL_MATCH_HOLD",
+  "analysis_scope": "five top closed-position symbols, price-only 15m coverage",
+  "source": {
+    "price": "Drive raw_15m_overlay frozen snapshot",
+    "positions": "Neon managed_position_mirror read-only aggregate",
+    "broker_direct": false
+  },
+  "period_15m": {
+    "first_utc": "2026-08-21T18:30:00+00:00",
+    "last_utc": "2026-10-16T19:15:00+00:00"
+  },
+  "price_rows": {
+    "INTC": 1189,
+    "AMAT": 1050,
+    "AMD": 1053,
+    "ORCL": 1063,
+    "MU": 1191
+  },
+  "complete_rth_days_per_symbol": 38,
+  "rth_days_per_symbol": 40,
+  "covered_position_symbols": {
+    "INTC": {
+      "closed": 8,
+      "entry_exit_price_negative": 5
+    },
+    "AMAT": {
+      "closed": 6,
+      "entry_exit_price_negative": 5
+    },
+    "AMD": {
+      "closed": 6,
+      "entry_exit_price_negative": 4
+    },
+    "ORCL": {
+      "closed": 4,
+      "entry_exit_price_negative": 3
+    },
+    "MU": {
+      "closed": 3,
+      "entry_exit_price_negative": 1
+    }
+  },
+  "closed_positions_with_5_symbol_bars": 27,
+  "closed_positions_total": 51,
+  "price_negative_positions_with_5_symbol_bars": 18,
+  "price_negative_positions_total": 33,
+  "pnl_gate": {
+    "metadata_net_return_invalid_or_missing": true,
+    "gross_price_return_fallback": true,
+    "gross_return_not_broker_verified": true,
+    "source_discrepancy_count": 6,
+    "non_null_metadata_net": 47,
+    "all_closed_positions": 51
+  },
+  "blocking_evidence": [
+    "True broker filledAt, side, fill-level fees, and partial-fill matching not independently attested",
+    "15m bars cannot determine same-bar stop/target ordering",
+    "Unadjusted/unspecified 15m price basis, price history alone cannot establish executed orders",
+    "Non-matched symbols and price gaps leave missing coverage"
+  ],
+  "automatic_promotion_allowed": false
+}
