@@ -6,10 +6,10 @@ from datetime import datetime, timezone, timedelta
 from related_quotation_bridge import bridge, same_record
 
 NOW = datetime(2026, 11, 2, 10, 0, tzinfo=timezone.utc)
-QID = "QID-2026-11-02-410997"
-SF = "006TK00000u7ljVYAQ"
-QUOTE = "a0PTK000010t6fO2AQ"
-OPP = "Opp-2026-11-02-440997"
+QID = "QID-2099-01-01-111111"
+SF = "006000000000000AAA"
+QUOTE = "a0P000000000000AAA"
+OPP = "Opp-2099-01-01-222222"
 
 
 def evidence():
@@ -48,11 +48,11 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(r["status"], "QUOTE_NOT_IN_SOURCE")
 
     def test_qid_matching_wrong_quote_record_is_conflict(self):
-        r = self.check([row(**{"Salesforce Record ID": "a0PTK000010t6fP2AQ"})])
+        r = self.check([row(**{"Salesforce Record ID": "a0P000000000001AAA"})])
         self.assertEqual(r["status"], "QUOTE_RECORD_QID_CONFLICT")
 
     def test_quote_record_matching_wrong_qid_is_conflict(self):
-        r = self.check([row(**{"AMEA Quotation ID": "QID-2026-11-02-410998"})])
+        r = self.check([row(**{"AMEA Quotation ID": "QID-2099-01-01-111112"})])
         self.assertEqual(r["status"], "QUOTE_RECORD_QID_CONFLICT")
 
     def test_duplicate_rows_fail_closed(self):
@@ -60,11 +60,11 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(r["status"], "AMBIGUOUS_SOURCE_RECORD")
 
     def test_conflicting_rows_fail_closed(self):
-        r = self.check([row(), row(**{"AMEA Quotation ID": "QID-2026-11-02-410998"})])
+        r = self.check([row(), row(**{"AMEA Quotation ID": "QID-2099-01-01-111112"})])
         self.assertEqual(r["status"], "AMBIGUOUS_SOURCE_RECORD")
 
     def test_source_must_contain_valid_business_id(self):
-        r = self.check([row(**{"Opportunity ID": "006TK00000u7ljVYAQ"})])
+        r = self.check([row(**{"Opportunity ID": "006000000000000AAA"})])
         self.assertEqual(r["status"], "BUSINESS_ID_MISSING_OR_INVALID")
 
     def test_stale_source_does_not_certify(self):
@@ -79,7 +79,7 @@ class BridgeTests(unittest.TestCase):
 
     def test_quote_route_mismatch_rejected(self):
         ev = evidence()
-        ev["quotation_record_id"] = "a0PTK000010t6fP2AQ"
+        ev["quotation_record_id"] = "a0P000000000001AAA"
         with self.assertRaises(ValueError):
             self.check([row()], ev)
 
