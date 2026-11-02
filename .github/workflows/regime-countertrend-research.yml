@@ -40,6 +40,7 @@ jobs:
               print("DATA_OK",len(df),str(path))
           except Exception as exc:
               print("DATA_HOLD",type(exc).__name__,str(exc)[:250])
+              Path("research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv").unlink(missing_ok=True)
               Path("results/regime_countertrend/summary.json").write_text('{"status":"HOLD","reason":"Google Drive research CSV unavailable or invalid"}')
           PY
       - name: Compute research output only if data validated
