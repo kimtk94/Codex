@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import styles from "./page.module.css";
-import { DEFAULT_REQUEST, MODES, unitForMode, validateDraft, formatDraft } from "../../../lib/sfdc-oppo-quote.mjs";
+import { DEFAULT_REQUEST, MODES, unitForMode, validateDraft } from "../../../lib/sfdc-oppo-quote.mjs";
+import { validateKoreanNameQuery, auditContactCandidates, selectExistingContact, createContactLinkedNoSaveCommand } from "../../../lib/sfdc-contact-first-command.mjs";
 
 const pipeline = [
   { label: "Contact / Account", detail: "이메일 정확 일치 · Account 연결 · 중복 확인", state: "검증 필요" },
@@ -13,10 +14,35 @@ const pipeline = [
 
 export default function OppoQuoteCommandPage() {
   const [form, setForm] = useState({ ...DEFAULT_REQUEST });
+  const [koreanName, setKoreanName] = useState("");
+  const [searchNotice, setSearchNotice] = useState("");
+  const [contactCandidates, setContactCandidates] = useState(null);
+  const [selectedContact, setSelectedContact] = useState(null);
   const [notice, setNotice] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const result = useMemo(() => validateDraft(form), [form]);
-  const preview = result.ok ? formatDraft(form) : "";
+  const candidateReview = useMemo(() => auditContactCandidates(koreanName, contactCandidates), [koreanName, contactCandidates]);
+  const linkedDraft = selectedContact?.ok
+    ? createContactLinkedNoSaveCommand(form, selectedContact)
+    : { ok: false };
+  const preview = linkedDraft.ok ? JSON.stringify(linkedDraft.command, null, 2) : "";
+  const checkKoreanName = () => {
+    const check = validateKoreanNameQuery(koreanName);
+    setSearchNotice(check.ok
+      ? "검색어 형식이 확인됐습니다. Salesforce 인증 검색 연결 전이므로 실제 고객 조회는 아직 실행되지 않습니다."
+      : check.error);
+  };
+  const chooseContact = (candidate) => {
+    const picked = selectExistingContact(koreanName, contactCandidates, candidate.contact_id, candidate.account_id);
+    if (!picked.ok) {
+      setSearchNotice("Contact 선택 보류: " + picked.status + ". 기관 내 동명이인은 별도 확인이 필요합니다.");
+      return;
+    }
+    setSelectedContact(picked);
+    setForm(prev => ({ ...prev, contact_email: picked.email }));
+    setSearchNotice("기존 Contact와 기관 선택 완료. 실행 전 Salesforce에서 ID와 소속 기관을 다시 확인해야 합니다.");
+    setShowPreview(false);
+  };
   const set = (key, value) => {
     setNotice("");
     setShowPreview(false);
@@ -29,11 +55,15 @@ export default function OppoQuoteCommandPage() {
   };
   const reset = () => {
     setForm({ ...DEFAULT_REQUEST });
+    setKoreanName("");
+    setSearchNotice("");
+    setSelectedContact(null);
+    setContactCandidates(null);
     setShowPreview(false);
     setNotice("");
   };
   const copy = async () => {
-    if (!result.ok) return setNotice(result.errors[0]);
+    if (!linkedDraft.ok) return setNotice("한글 이름으로 검색한 기존 Contact와 기관 선택이 필요합니다.");
     try {
       await navigator.clipboard.writeText(preview);
       setNotice("검토용 명령서를 복사했습니다. Salesforce에는 전송하지 않았습니다.");
@@ -45,7 +75,11 @@ export default function OppoQuoteCommandPage() {
   const prepare = event => {
     event.preventDefault();
     setShowPreview(true);
-    setNotice(result.ok ? "입력 검증 완료. Contact·Account와 견적 조건이 확인되기 전까지 저장 요청은 차단됩니다." : result.errors[0]);
+    setNotice(!selectedContact?.ok
+      ? "한글 이름 검색 후 기존 Contact와 소속 기관을 먼저 선택하세요. Salesforce 검색은 아직 미연결입니다."
+      : linkedDraft.ok
+        ? "검토용 명령서입니다. Contact 재검증 전에는 Salesforce 생성·저장이 금지됩니다."
+        : result.errors[0]);
   };
 
   return (
@@ -60,7 +94,7 @@ export default function OppoQuoteCommandPage() {
             <div>
               <p className={styles.eyebrow}>SFDC · COMMAND WORKSPACE</p>
               <h1>Opportunity + Quotation</h1>
-              <p className={styles.subhead}>서비스 조건을 입력하고 검증 가능한 생성 명령서를 준비합니다. 실제 CRM 저장은 아직 활성화되지 않았습니다.</p>
+              <p className={styles.subhead}>서비스 조건을 입력하고 검증 가능한 생성 명령서를 준비합니다. 실제 CRM 검색·저장은 아직 활성화되지 않았습니다.</p>
             </div>
             <div className={styles.statusPill}>검토용 초안 · No Save</div>
           </div>
@@ -68,19 +102,48 @@ export default function OppoQuoteCommandPage() {
 
         <div className={styles.banner} role="status">
           <span className={styles.bannerIcon}>!</span>
-          <span>현재는 로컬 브라우저에서만 명령서를 구성합니다. 고객 이메일을 서버, GitHub Actions 또는 Salesforce로 전송하지 않습니다.</span>
+          <span>현재는 한글 이름 검색 UI만 준비됐고 실제 Salesforce Contact 검색은 미연결입니다. 고객 정보는 서버나 GitHub Actions에 전송하지 않습니다.</span>
         </div>
 
         <div className={styles.grid}>
           <section className={styles.panel}>
-            <div className={styles.panelHeader}><span className={styles.stepNo}>01</span><div><h2>요청 조건</h2><p>단일 PMP 서비스 · 샘플별 데이터량</p></div></div>
+            <div className={styles.panelHeader}><span className={styles.stepNo}>01</span><div><h2>요청 조건</h2><p>기존 Contact 이름 검색 · 단일 PMP 서비스 · 샘플별 데이터량</p></div></div>
             <form onSubmit={prepare}>
               <div className={styles.field}>
-                <label htmlFor="sfdc-contact-email">고객 이메일</label>
-                <input id="sfdc-contact-email" type="email" autoComplete="off" required maxLength={255}
-                  placeholder="researcher@university.ac.kr" value={form.contact_email}
-                  onChange={e=>set("contact_email",e.target.value)} />
-                <small>이메일 주소는 Account/Contact를 자동 추정하는 근거가 아닙니다.</small>
+                <label htmlFor="sfdc-contact-name">고객 한글 이름</label>
+                <div className={styles.contactSearchRow}>
+                  <input id="sfdc-contact-name" type="text" autoComplete="off" maxLength={40}
+                    placeholder="예: 김민수" value={koreanName}
+                    onChange={e => {
+                      setKoreanName(e.target.value);
+                      setSearchNotice("");
+                      setContactCandidates(null);
+                      setSelectedContact(null);
+                      setForm(prev => ({ ...prev, contact_email: "" }));
+                      setShowPreview(false);
+                    }} />
+                  <button type="button" className={styles.secondary} onClick={checkKoreanName}>검색어 확인</button>
+                </div>
+                <small>실제 검색은 기존 Salesforce Contact의 한글 이름 기준으로 진행하며, 동명이인은 기관까지 직접 선택합니다. 현재 검색 연결 전입니다.</small>
+                {searchNotice && <div className={styles.notice} role="status">{searchNotice}</div>}
+              </div>
+              {Array.isArray(contactCandidates) && candidateReview.ok &&
+                <div className={styles.contactCandidates} aria-label="고객 검색 결과">
+                  <strong>기존 Contact 후보 {candidateReview.exact_match_count}건</strong>
+                  {candidateReview.requires_institution_choice &&
+                    <small>동명이인입니다. 소속 기관을 확인한 후 해당 Contact를 선택하세요.</small>}
+                  {candidateReview.candidates.map(candidate =>
+                    <button key={candidate.contact_id} type="button" className={styles.contactCandidate}
+                      onClick={() => chooseContact(candidate)}>
+                      <span>{candidate.korean_name}</span>
+                      <small>{candidate.institution_name}</small>
+                    </button>)}
+                </div>}
+              <div className={styles.field}>
+                <label htmlFor="sfdc-contact-email">선택된 Contact 이메일</label>
+                <input id="sfdc-contact-email" type="email" autoComplete="off" readOnly
+                  placeholder="Contact 검색 및 기관 선택 후 자동 입력" value={form.contact_email} />
+                <small>이메일은 선택한 기존 Contact에서만 가져옵니다. 직접 입력하거나 이메일로 고객을 추정하지 않습니다.</small>
               </div>
               <div className={styles.two}>
                 <div className={styles.field}>
@@ -129,7 +192,7 @@ export default function OppoQuoteCommandPage() {
                 <div><span>총 명목 데이터량</span><strong>{result.ok ? result.draft.summary.nominal_total_depth.toLocaleString() : "—"}</strong><small>{form.depth_unit}</small></div>
               </div>
               <div className={styles.footnote}>M reads가 reads인지 read pairs인지 아직 미확정입니다. 자동 Gb 변환, 견적 금액 계산 또는 과거 Quote 가격 상속을 하지 않습니다.</div>
-              <div className={styles.reviewState}><span className={styles.dot} />Contact 미확인 · 가격 미확인 · Save 차단</div>
+              <div className={styles.reviewState}><span className={styles.dot} />{selectedContact?.ok ? "Contact 선택됨 · 서버 재검증 필요" : "Contact 미확인"} · 가격 미확인 · Save 차단</div>
             </section>
 
             <section className={styles.panel}>
@@ -146,7 +209,7 @@ export default function OppoQuoteCommandPage() {
           </aside>
         </div>
 
-        {showPreview && result.ok && <section className={styles.output} aria-label="검토용 명령서">
+        {showPreview && linkedDraft.ok && <section className={styles.output} aria-label="검토용 명령서">
           <div className={styles.outputTop}><div><h2>검토용 JSON 명령서</h2><p>이메일이 포함된 개인정보입니다. 공유 저장소에 업로드하지 마세요.</p></div>
             <button type="button" className={styles.secondary} onClick={copy}>명령서 복사</button></div>
           <pre>{preview}</pre>
