@@ -73,7 +73,7 @@ def compare(request, bridge, links, ledger, approval, snapshot):
             or approval.get("approved_for_record") != preflight["target_record_id"]
             or approval.get("explicit_current_deal_approval") is not True):
         return _hold("HOLD_EXPLICIT_SAVE_APPROVAL_MISSING")
-    if not isinstance(snapshot, dict):
+    if not isinstance(snapshot, dict) or not snapshot:
         return _hold("HOLD_FRESH_UI_SNAPSHOT_MISSING")
     validate_snapshot(snapshot)
     # Snapshot has no Save attestation by construction; it is only a content check.
