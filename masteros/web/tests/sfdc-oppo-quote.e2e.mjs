@@ -52,20 +52,18 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await page.locator("#sfdc-mode").selectOption("PE250");
     assert.equal((await page.locator("#sfdc-depth + span").textContent()).trim(), "M reads");
 
-    await page.locator("#sfdc-contact-email").fill("researcher@example.org");
+    assert.equal(await page.locator("#sfdc-contact-name").inputValue(), "");
+    assert.equal(await page.locator("#sfdc-contact-email").getAttribute("readonly"), "");
+    await page.locator("#sfdc-contact-name").fill("김민수");
+    await page.getByRole("button",{name:"검색어 확인"}).click();
+    assert.match(await page.getByRole("status").allTextContents().then(x=>x.join(" ")), /검색어 형식이 확인/);
+    assert.equal(await page.getByLabel("고객 검색 결과").count(), 0, "No fabricated Salesforce contacts");
     await page.locator("#sfdc-samples").fill("5");
     await page.locator("#sfdc-depth").fill("1");
     await page.getByRole("button",{name:"검토용 명령서 생성"}).click();
-    const preview = JSON.parse(await page.locator("pre").textContent());
-    assert.equal(preview.request.contact_email, "researcher@example.org");
-    assert.equal(preview.request.sample_count, 5);
-    assert.equal(preview.request.depth_per_sample, 1);
-    assert.equal(preview.request.depth_unit, "M reads");
-    assert.equal(preview.summary.nominal_total_depth, 5);
-    assert.equal(preview.salesforce_save_allowed, false);
-    assert.equal(preview.opportunity_created, false);
-    assert.equal(preview.quotation_created, false);
-    assert.equal(nonReadRequests.length, 0, "Browser draft should not send any POST/PUT/PATCH/DELETE requests");
+    assert.equal(await page.locator("pre").count(), 0, "No command without verified Contact and Account");
+    assert.equal(await page.locator("#sfdc-contact-email").inputValue(), "");
+    assert.equal(nonReadRequests.length, 0, "Name search preview must not send any POST/PUT/PATCH/DELETE requests");
   } finally {
     if (page) await page.close();
     if (browser) await browser.close();
