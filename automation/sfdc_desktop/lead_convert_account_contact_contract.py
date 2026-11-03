@@ -82,23 +82,54 @@ def plan_account_contact_only(
 def recommend_existing_account(
     candidates: list[AccountCandidate], company: str
 ) -> str:
-    """Resolve a unique existing Account from Salesforce suggestions.
+    """Choose a verified existing Account with a Kyungpook-specific default.
 
-    Never take the first search result merely because it contains the name.
-    Multiple organization variants (e.g. university, affiliated core,
-    hospital) require explicit manual identity review.
+    For an ordinary Kyungpook National University Lead, prefer its existing
+    R&DB Foundation (경북대학교 산학협력단) record. A lead explicitly mentioning
+    the Next-Generation Sequencing Core or the University Hospital must only
+    match the corresponding unit. In all cases the option must exist uniquely
+    among actual Salesforce recommendations; never create a new Account.
     """
     if not isinstance(company, str) or len(company.strip()) < 3:
         raise ConversionHold("Lead company is missing or too broad for matching")
     needle = company.strip().casefold()
-    matches = [
+    existing = [
         c for c in candidates
         if c.is_existing
         and isinstance(c.institution_name, str)
-        and needle in c.institution_name.casefold()
         and isinstance(c.record_id, str)
         and SFID.fullmatch(c.record_id)
     ]
-    if len(matches) != 1:
+
+    is_kyungpook = (
+        "경북대" in needle
+        or "kyungpook national univ" in needle
+        or needle == "kyungpook"
+    )
+    if is_kyungpook:
+        # Treat a stated sub-organization as an identity constraint, not a
+        # soft preference. Otherwise use the Foundation as the default.
+        if any(marker in needle for marker in (
+            "핵심연구지원센터", "차세대시퀀싱", "core", "next-generation sequencing"
+        )):
+            markers = ("핵심연구지원센터", "core research support center")
+        elif any(marker in needle for marker in ("병원", "hospital", "medical center")):
+            markers = ("경북대학교병원", "kyungpook national university hospital")
+        else:
+            markers = ("경북대학교 산학협력단", "r&db foundation")
+        matching = [
+            c for c in existing
+            if "경북대" in c.institution_name.casefold()
+            or "kyungpook" in c.institution_name.casefold()
+        ]
+        matching = [
+            c for c in matching
+            if any(marker in c.institution_name.casefold() for marker in markers)
+        ]
+    else:
+        matching = [
+            c for c in existing if needle in c.institution_name.casefold()
+        ]
+    if len(matching) != 1:
         raise ConversionHold("Missing or ambiguous existing Account recommendation")
-    return matches[0].record_id
+    return matching[0].record_id
