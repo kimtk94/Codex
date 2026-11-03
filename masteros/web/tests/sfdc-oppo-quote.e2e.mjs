@@ -39,7 +39,9 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
         nonReadRequests.push({ method: request.method(), url: new URL(request.url()).pathname });
       }
     });
-    const response = await page.goto(base + "/sales/oppo-quote", { waitUntil:"domcontentloaded" });
+    const response = await page.goto(base + "/sales/oppo-quote", { waitUntil:"networkidle" });
+    // Next.js may paint the form before event handlers are hydrated.
+    await page.waitForFunction(() => Object.keys(document.querySelector("#sfdc-mode") || {}).some(k => k.startsWith("__reactProps$")), null, {timeout:10000});
     assert.equal(response.status(), 200);
     assert.equal(await page.getByRole("heading", {name:"Opportunity + Quotation"}).count(), 1);
     assert.equal(await page.locator("#sfdc-contact-email").inputValue(), "");
