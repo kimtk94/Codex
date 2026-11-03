@@ -12,6 +12,14 @@ const CONTACT_ID = /^003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
 const ACCOUNT_ID = /^001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
 
+export function excludedInstitutionReason(institutionName) {
+  if (typeof institutionName !== "string") return null;
+  const name = institutionName.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+  if (/kaist|한국과학기술원|korea advanced institute of science/.test(name)) return "SKIP_ACCOUNT_KAIST";
+  if (/hannam university|hannam univ|한남대학교|한남대/.test(name)) return "SKIP_ACCOUNT_HANNAM";
+  return null;
+}
+
 export function normalizeKoreanName(value) {
   if (typeof value !== "string") return "";
   return value.normalize("NFKC").trim().replace(/\s+/g, " ");
@@ -72,6 +80,8 @@ export function selectExistingContact(searchName, candidates, chosenContactId, c
   );
   if (matches.length !== 1) return { ok: false, status: "CONTACT_ACCOUNT_PAIR_MISMATCH" };
   const chosen = matches[0];
+  const excluded = excludedInstitutionReason(chosen.institution_name);
+  if (excluded) return { ok: false, status: excluded };
   if (result.candidates.filter(x => x.account_id === chosenAccountId).length !== 1) {
     return { ok: false, status: "SAME_NAME_SAME_INSTITUTION_AMBIGUOUS" };
   }
@@ -97,6 +107,8 @@ export function createContactLinkedNoSaveCommand(baseRequest, contactSelection) 
       contactSelection.institution_name.trim().length < 2) {
     return { ok: false, error: "실제 기존 Contact와 소속 기관을 선택해야 합니다." };
   }
+  const excluded = excludedInstitutionReason(contactSelection.institution_name);
+  if (excluded) return { ok:false, error:excluded };
   const request = { ...baseRequest, contact_email: contactSelection.email };
   const checked = validateDraft(request);
   if (!checked.ok) return { ok: false, error: checked.errors.join(" / ") };
