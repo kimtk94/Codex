@@ -8,15 +8,15 @@ production rollout. The "Save" and "Send" operations remain disabled.
 
 ## User workflow
 
-1. Search existing Salesforce **Contact by Korean First Name** (exact match,
+1. Search **only Contacts already linked to an existing Opportunity**, by Korean name (exact match,
    normalized for whitespace; no email- or English-name search in the UI).
-2. Display candidate name and associated **Account institution name**.
+2. A trusted CRM backend first filters Contacts by actual Opportunity.Main_Contact__c relationship (Salesforce 006 Opportunity ID). The browser's claimed Opportunity IDs are never proof. Display eligible candidate name and associated **Account institution name**.
    If names collide across institutions, require explicit institution choice.
    If two candidates still share the same institution, HOLD and require
    additional verification. Never assume the first search result is correct.
-3. Store the selected **003 Contact ID + 001 Account ID** pair in a local
+3. Store the selected **003 Contact ID + 001 Account ID + existing 006 Opportunity ID(s)** tuple in a local
    preview only. Server re-reads Contact and Account from Salesforce, verifies
-   their relationship and identity, checks any duplicates and access rights.
+   both Contact-Account and Opportunity-Contact relationships, checks duplicates and access rights.
    Browser IDs are not trustworthy, even if they look valid.
 4. Select service and input sample count and per-sample sequencing depth.
    PE250 PMP depth unit = **M reads**; other sequencing modes = **Gb**.
@@ -60,7 +60,7 @@ GitHub Actions workflow inputs, logs, build artifacts or public repository files
 
 ## Unimplemented prerequisites for live use
 
-- Authenticated and authorized Salesforce Contact read-only search backend.
+- Authenticated Salesforce read-only search **restricted to Contacts referenced by actual Opportunity records**, with server-side Contact-Account join and role-based authorization.
 - Authenticated private command queue with replay protection and approvals.
 - Full field/catalog rules across service types and definitive quote pricing.
 - Headless or authorized desktop executor with independently verified IDs and
@@ -69,3 +69,7 @@ GitHub Actions workflow inputs, logs, build artifacts or public repository files
 
 **Safety invariant:** no Save, Convert, Save & New, Submit, Send, or new-record
 creation in the present prototype. Default to HOLD rather than guess.
+
+## Learning data minimization
+
+Historical Salesforce lists include Contacts without relevant Oppo records. They are **not** training examples or selectable Contacts in this workflow. The private desktop creates a reduced index by reading existing Oppo Main Contact (003) and Account (001) links, then enriching only those linked IDs with Korean name and email. Entries missing a verifiable Oppo association, institution, or valid email go to HOLD. KAIST and Hannam Account cases are SKIP. Do not upload this index to GitHub, Vercel build artifacts, static web assets, or a public spreadsheet. The 412 name-matched single-product Quote-Oppo source examples remain the narrower **template-learning** set; the broader Oppo-linked Contact index is for **customer lookup eligibility** only.
