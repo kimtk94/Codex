@@ -71,6 +71,12 @@ def rehearsal_field(page, field, old, new):
     try:
         button.click(timeout=6500)
         result["opened"] = True
+        # Lightning can show the input before its Cancel footer is ready.
+        # Refuse any fill until Cancel is uniquely visible and actionable.
+        cancel = page.get_by_role("button", name="Cancel", exact=True)
+        cancel.wait_for(state="visible", timeout=12000)
+        if cancel.count() != 1:
+            raise RuntimeError("Cancel action not unique; refusing fill")
         input_field = locate_exact_editor_field(page, field)
         before = input_field.input_value()
         result["before_equal"] = before == old
