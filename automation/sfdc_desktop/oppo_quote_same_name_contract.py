@@ -28,7 +28,7 @@ def excluded_account_reason(opportunity_name: str) -> str | None:
     """Return an explicit institution skip code for disallowed examples."""
     if not isinstance(opportunity_name, str):
         return None
-    name = re.sub(r"\\s+", " ", opportunity_name).strip().casefold()
+    name = re.sub(r"\s+", " ", opportunity_name).strip().casefold()
     # For standard Korea-Institution-service Opportunity names, only the
     # institution segment may determine account identity.
     institutional = name.split("-", 2)[1].strip() if name.startswith("korea-") and "-" in name else name.split("-", 1)[0].strip()
