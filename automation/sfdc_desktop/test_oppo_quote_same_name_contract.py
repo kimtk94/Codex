@@ -5,6 +5,7 @@ from oppo_quote_same_name_contract import (
     OpportunitySnapshot, QuoteSnapshot, ManualReview,
     match_single_product_quote, match_identical_name_quote,
     dryrun_after_read_only_identity_check,
+    validate_opportunity_clone_preflight,
 )
 
 OPPO = OpportunitySnapshot(
@@ -31,6 +32,37 @@ def replace(**overrides):
 
 
 class OppoQuoteIdenticalOnlyContractTests(unittest.TestCase):
+    def test_clone_with_verified_contact_and_name_field_passes(self):
+        self.assertTrue(validate_opportunity_clone_preflight(
+            "Opportunity Clone - New Opportunity",
+            name_input_visible=True,
+            main_contact_link_verified=True,
+        ))
+
+    def test_clone_main_contact_reference_error_blocks(self):
+        page = ("Looks like there's a problem. "
+                "Unable to find the record referenced by "
+                "Opportunity.Main_Contact__c in null: TEST_ID")
+        with self.assertRaises(ManualReview):
+            validate_opportunity_clone_preflight(
+                page, name_input_visible=False,
+                main_contact_link_verified=False,
+            )
+
+    def test_clone_missing_name_field_blocks_without_guessing(self):
+        with self.assertRaises(ManualReview):
+            validate_opportunity_clone_preflight(
+                "Opportunity Clone",
+                name_input_visible=False, main_contact_link_verified=True,
+            )
+
+    def test_clone_unverified_main_contact_blocks_even_when_name_visible(self):
+        with self.assertRaises(ManualReview):
+            validate_opportunity_clone_preflight(
+                "Opportunity Clone",
+                name_input_visible=True, main_contact_link_verified=False,
+            )
+
     def test_multiple_products_still_train_name_only(self):
         q = replace(product_record_count=2)
         candidate = match_identical_name_quote(q, [OPPO])
