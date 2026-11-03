@@ -77,3 +77,28 @@ def plan_account_contact_only(
         contact_last_name_english=english_name.strip(),
     )
     return asdict(plan)
+
+
+def recommend_existing_account(
+    candidates: list[AccountCandidate], company: str
+) -> str:
+    """Resolve a unique existing Account from Salesforce suggestions.
+
+    Never take the first search result merely because it contains the name.
+    Multiple organization variants (e.g. university, affiliated core,
+    hospital) require explicit manual identity review.
+    """
+    if not isinstance(company, str) or len(company.strip()) < 3:
+        raise ConversionHold("Lead company is missing or too broad for matching")
+    needle = company.strip().casefold()
+    matches = [
+        c for c in candidates
+        if c.is_existing
+        and isinstance(c.institution_name, str)
+        and needle in c.institution_name.casefold()
+        and isinstance(c.record_id, str)
+        and SFID.fullmatch(c.record_id)
+    ]
+    if len(matches) != 1:
+        raise ConversionHold("Missing or ambiguous existing Account recommendation")
+    return matches[0].record_id
