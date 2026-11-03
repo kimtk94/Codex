@@ -59,6 +59,10 @@ def plan_account_contact_only(
         raise ConversionHold("Select exactly one existing Account suggestion")
     if existing_contact_match_count:
         raise ConversionHold("Contact duplicate review required before creation")
+    if not isinstance(korean_name, str) or not isinstance(english_name, str):
+        raise ConversionHold("Contact names must be strings")
+    korean_name = korean_name.strip()
+    english_name = english_name.strip()
     if not korean_name or not any("\uac00" <= c <= "\ud7a3" for c in korean_name):
         raise ConversionHold("Contact First Name must contain Korean characters")
     if not english_name or not ENGLISH_NAME.fullmatch(english_name):
