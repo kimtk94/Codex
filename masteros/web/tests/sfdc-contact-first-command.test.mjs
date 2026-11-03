@@ -122,6 +122,10 @@ test("Unselected, forged or unverified customer cannot create command", () => {
   assert.equal(createContactLinkedNoSaveCommand(baseRequest,null).ok,false);
   assert.equal(createContactLinkedNoSaveCommand(baseRequest,{ok:true}).ok,false);
 });
+test("A forged browser selection is not accepted for command construction", () => {
+  const forged = { ok:true, requires_server_identity_recheck:true, contact_id:"FAKE", account_id:"FAKE", email:"a@example.org", institution_name:"Fake", korean_name:"김민수" };
+  assert.equal(createContactLinkedNoSaveCommand(baseRequest,forged).ok,false);
+});
 test("Quantity and mode validation remain mandatory after contact selection", () => {
   const selected=selectExistingContact("김민수",[KNU],KNU.contact_id,KNU.account_id);
   assert.equal(createContactLinkedNoSaveCommand({...baseRequest,sample_count:0},selected).ok,false);
