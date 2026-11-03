@@ -5,6 +5,8 @@ are descriptive conditional diagnostics, NOT independent significance tests.
 No equity curve, CAGR, MDD, brokerage fills, or live strategy promotion.
 """
 import argparse
+import itertools
+import math
 import json
 from pathlib import Path
 import numpy as np
@@ -57,34 +59,57 @@ def group_summary(events):
     return pd.DataFrame(rows)
 
 def matched_placebo(events,n_draws=10000,seed=RNG_SEED):
+    """Exact conditional enumeration if feasible; otherwise seeded Monte Carlo.
+
+    Only answers whether the given selected positions outperform random
+    rejection at fixed (year, regime) selection counts, not whether a
+    pre-registered out-of-sample strategy has alpha.
+    """
     if n_draws<100:raise ValueError("n_draws too low")
-    rng=np.random.default_rng(seed)
     groups=[]
     for _,g in events.groupby(["year","event"],sort=True):
-        values=g.net_20bp.to_numpy(dtype=float)
-        n=int(g.selected.sum())
-        groups.append((values,n))
+        groups.append((g.net_20bp.to_numpy(dtype=float),int(g.selected.sum())))
+    possible=math.prod(math.comb(len(x),n) for x,n in groups)
+    exact=(possible<=500000)
+    if exact:
+        simulations=np.array([0.],dtype=float)
+        for vals,n in groups:
+            if n==0:
+                choices=np.array([0.],dtype=float)
+            elif n==len(vals):
+                choices=np.array([vals.sum()],dtype=float)
+            else:
+                choices=np.array([vals[list(ix)].sum()
+                                  for ix in itertools.combinations(range(len(vals)),n)])
+            simulations=(simulations[:,None]+choices[None,:]).reshape(-1)
+        method="EXACT_ENUMERATION"
+    else:
+        rng=np.random.default_rng(seed)
+        simulations=np.zeros(n_draws,dtype=float)
+        for vals,n in groups:
+            if n==0:continue
+            if n==len(vals):
+                simulations+=vals.sum()
+                continue
+            for k in range(n_draws):
+                simulations[k]+=rng.choice(vals,n,replace=False).sum()
+        method="MONTE_CARLO"
     baseline=float(events.net_20bp.sum())
     observed=float(events.loc[events.selected,"net_20bp"].sum())
-    simulations=np.zeros(n_draws,dtype=float)
-    for vals,n in groups:
-        if n==0:continue
-        if n==len(vals):
-            simulations+=vals.sum()
-            continue
-        # Restrict random baseline to the SAME year x signal regime and take count.
-        for k in range(n_draws):
-            simulations[k]+=rng.choice(vals,n,replace=False).sum()
     diff=(observed-baseline)/len(events)
     diff_null=(simulations-baseline)/len(events)
+    ge=int((diff_null>=diff-1e-12).sum())
+    p=(ge/len(diff_null) if exact else (1+ge)/(len(diff_null)+1))
     return {
-        "draws":int(n_draws),"seed":int(seed),
+        "method":method,"draws":int(len(simulations)),"seed":int(seed) if not exact else None,
+        "possible_selection_patterns":int(possible),
         "matched_within":"year_and_regime; fixed number of selected signals",
         "observed_improvement_per_opportunity":float(diff),
         "random_expected_improvement_per_opportunity":float(diff_null.mean()),
         "random_null_5pct":float(np.quantile(diff_null,.05)),
         "random_null_95pct":float(np.quantile(diff_null,.95)),
-        "descriptive_one_sided_placebo_probability":float((1+(diff_null>=diff-1e-12).sum())/(n_draws+1)),
+        "random_equally_or_better_patterns":ge if exact else None,
+        "descriptive_one_sided_placebo_probability":float(p),
         "valid_independent_significance_test":False
     }
 
