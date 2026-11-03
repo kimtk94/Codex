@@ -10,6 +10,7 @@ import { validateDraft } from "./sfdc-oppo-quote.mjs";
 
 const CONTACT_ID = /^003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
 const ACCOUNT_ID = /^001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
+const OPPORTUNITY_ID = /^006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
 
 export function excludedInstitutionReason(institutionName) {
@@ -44,13 +45,22 @@ export function auditContactCandidates(searchName, candidates) {
     x && typeof x === "object" && !Array.isArray(x) &&
     normalizeKoreanName(x.korean_name) === q.query
   );
-  const items = exactMatches.filter(x =>
+  // Only Contacts that are already referenced by at least one existing
+  // Opportunity can be used to learn or prepare new Oppo/Quote instructions.
+  // In the future this evidence must be produced by an authenticated backend,
+  // not accepted from the browser as proof of Salesforce membership.
+  const oppLinked = exactMatches.filter(x =>
+    Array.isArray(x.linked_opportunity_ids) &&
+    x.linked_opportunity_ids.length > 0
+  );
+  const items = oppLinked.filter(x =>
     CONTACT_ID.test(x.contact_id || "") && ACCOUNT_ID.test(x.account_id || "") &&
+    x.linked_opportunity_ids.every(id => OPPORTUNITY_ID.test(id)) &&
     typeof x.institution_name === "string" && x.institution_name.trim().length >= 2 &&
     typeof x.email === "string" && EMAIL.test(x.email)
   );
-  if (items.length !== exactMatches.length) {
-    return { ok:false, status:"INCOMPLETE_CONTACT_DATA" };
+  if (items.length !== oppLinked.length) {
+    return { ok:false, status:"INCOMPLETE_OPPO_LINKED_CONTACT_DATA" };
   }
   const ids = items.map(x => x.contact_id);
   if (new Set(ids).size !== ids.length) {
@@ -93,6 +103,7 @@ export function selectExistingContact(searchName, candidates, chosenContactId, c
     korean_name: normalizeKoreanName(chosen.korean_name),
     institution_name: chosen.institution_name.trim(),
     email: chosen.email,
+    linked_opportunity_ids: [...chosen.linked_opportunity_ids],
     requires_server_identity_recheck: true,
   };
 }
@@ -104,7 +115,10 @@ export function createContactLinkedNoSaveCommand(baseRequest, contactSelection) 
       !validateKoreanNameQuery(contactSelection.korean_name).ok ||
       !EMAIL.test(contactSelection.email || "") ||
       typeof contactSelection.institution_name !== "string" ||
-      contactSelection.institution_name.trim().length < 2) {
+      contactSelection.institution_name.trim().length < 2 ||
+      !Array.isArray(contactSelection.linked_opportunity_ids) ||
+      contactSelection.linked_opportunity_ids.length === 0 ||
+      !contactSelection.linked_opportunity_ids.every(id => OPPORTUNITY_ID.test(id))) {
     return { ok: false, error: "실제 기존 Contact와 소속 기관을 선택해야 합니다." };
   }
   const excluded = excludedInstitutionReason(contactSelection.institution_name);
@@ -122,11 +136,13 @@ export function createContactLinkedNoSaveCommand(baseRequest, contactSelection) 
         account_id: contactSelection.account_id,
         korean_name: contactSelection.korean_name,
         institution_name: contactSelection.institution_name,
+        reference_opportunity_ids: [...contactSelection.linked_opportunity_ids],
       },
       request: checked.draft.request,
       summary: checked.draft.summary,
       next_actions: [
         "independently_verify_contact_and_account_id",
+        "independently_verify_opportunity_contact_relationship",
         "check_existing_opportunity_and_quote_duplicate",
         "review_single_product_price_and_process",
         "prepare_opportunity_and_quote_forms_without_save",
