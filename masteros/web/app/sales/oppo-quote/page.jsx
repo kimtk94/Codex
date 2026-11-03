@@ -7,7 +7,7 @@ import { DEFAULT_REQUEST, MODES, unitForMode, validateDraft } from "../../../lib
 import { validateKoreanNameQuery, auditContactCandidates, selectExistingContact, createContactLinkedNoSaveCommand } from "../../../lib/sfdc-contact-first-command.mjs";
 
 const pipeline = [
-  { label: "Contact / Account", detail: "이메일 정확 일치 · Account 연결 · 중복 확인", state: "검증 필요" },
+  { label: "Contact / Account", detail: "한글 이름 검색 · 동명이인 기관 선택 · Contact/Account ID 확인", state: "검증 필요" },
   { label: "Opportunity", detail: "현재 거래 기준으로 작성 · 생성된 006 ID 확인", state: "미생성" },
   { label: "Research-AMEA Quote", detail: "Quote 필수값 · 가격 · a0P–006 연결 검증", state: "미생성" },
 ];
@@ -17,11 +17,21 @@ export default function OppoQuoteCommandPage() {
   const [koreanName, setKoreanName] = useState("");
   const [searchNotice, setSearchNotice] = useState("");
   const [contactCandidates, setContactCandidates] = useState(null);
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState("");
   const [selectedContact, setSelectedContact] = useState(null);
   const [notice, setNotice] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const result = useMemo(() => validateDraft(form), [form]);
   const candidateReview = useMemo(() => auditContactCandidates(koreanName, contactCandidates), [koreanName, contactCandidates]);
+  const institutionChoices = candidateReview.ok
+    ? [...new Map(candidateReview.candidates.map(c => [c.account_id, { id: c.account_id, name: c.institution_name }])).values()]
+    : [];
+  const visibleCandidates = candidateReview.ok
+    ? candidateReview.candidates.filter(c =>
+        candidateReview.requires_institution_choice
+          ? selectedInstitutionId !== "" && c.account_id === selectedInstitutionId
+          : true)
+    : [];
   const linkedDraft = selectedContact?.ok
     ? createContactLinkedNoSaveCommand(form, selectedContact)
     : { ok: false };
@@ -33,6 +43,10 @@ export default function OppoQuoteCommandPage() {
       : check.error);
   };
   const chooseContact = (candidate) => {
+    if (candidateReview.requires_institution_choice && (!selectedInstitutionId || candidate.account_id !== selectedInstitutionId)) {
+      setSearchNotice("동명이인이므로 소속 기관을 먼저 선택해야 합니다.");
+      return;
+    }
     const picked = selectExistingContact(koreanName, contactCandidates, candidate.contact_id, candidate.account_id);
     if (!picked.ok) {
       setSearchNotice("Contact 선택 보류: " + picked.status + ". 기관 내 동명이인은 별도 확인이 필요합니다.");
@@ -59,6 +73,7 @@ export default function OppoQuoteCommandPage() {
     setSearchNotice("");
     setSelectedContact(null);
     setContactCandidates(null);
+    setSelectedInstitutionId("");
     setShowPreview(false);
     setNotice("");
   };
@@ -118,6 +133,7 @@ export default function OppoQuoteCommandPage() {
                       setKoreanName(e.target.value);
                       setSearchNotice("");
                       setContactCandidates(null);
+                      setSelectedInstitutionId("");
                       setSelectedContact(null);
                       setForm(prev => ({ ...prev, contact_email: "" }));
                       setShowPreview(false);
@@ -130,10 +146,24 @@ export default function OppoQuoteCommandPage() {
               {Array.isArray(contactCandidates) && candidateReview.ok &&
                 <div className={styles.contactCandidates} aria-label="고객 검색 결과">
                   <strong>기존 Contact 후보 {candidateReview.exact_match_count}건</strong>
-                  {candidateReview.requires_institution_choice &&
-                    <small>동명이인입니다. 소속 기관을 확인한 후 해당 Contact를 선택하세요.</small>}
-                  {candidateReview.candidates.map(candidate =>
+                  {candidateReview.requires_institution_choice && <>
+                    <label htmlFor="sfdc-institution-select">동명이인 소속 기관 선택 (필수)</label>
+                    <select id="sfdc-institution-select" value={selectedInstitutionId}
+                      onChange={e => {
+                        setSelectedInstitutionId(e.target.value);
+                        setSelectedContact(null);
+                        setShowPreview(false);
+                        setSearchNotice("");
+                      }}>
+                      <option value="">기관을 선택하세요</option>
+                      {institutionChoices.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </>}
+                  {visibleCandidates.length > 1 &&
+                    <small>같은 기관에 같은 이름의 Contact가 여러 명 있습니다. 고객을 확정하지 않고 수동 확인으로 보류합니다.</small>}
+                  {visibleCandidates.map(candidate =>
                     <button key={candidate.contact_id} type="button" className={styles.contactCandidate}
+                      disabled={visibleCandidates.length > 1}
                       onClick={() => chooseContact(candidate)}>
                       <span>{candidate.korean_name}</span>
                       <small>{candidate.institution_name}</small>
