@@ -1,7 +1,8 @@
 """Additional edge cases for Lead Convert. Synthetic records only."""
 import unittest
 from lead_convert_account_contact_contract import (
-    AccountCandidate, ConversionHold, plan_account_contact_only
+    AccountCandidate, ConversionHold, plan_account_contact_only,
+    recommend_existing_account
 )
 
 A = AccountCandidate("001000000000AAA", "Synthetic Institute")
@@ -79,6 +80,54 @@ class LeadConvertEdgeTests(unittest.TestCase):
         self.assertFalse(p["submit_convert"])
         self.assertFalse(p["create_opportunity"])
         self.assertFalse(p["create_account"])
+
+
+
+class ExistingAccountRecommendationTests(unittest.TestCase):
+    def test_single_recommendation_by_alias(self):
+        candidate = AccountCandidate("001000000000AAA", "Synthetic Research Institute SGI")
+        self.assertEqual(
+            recommend_existing_account([candidate], "SGI"),
+            candidate.record_id,
+        )
+
+    def test_matching_is_case_insensitive(self):
+        candidate = AccountCandidate("001000000000AAA", "Synthetic Institute")
+        self.assertEqual(
+            recommend_existing_account([candidate], "synthetic institute"),
+            candidate.record_id,
+        )
+
+    def test_multiple_affiliated_recommendations_are_held(self):
+        candidates = [
+            AccountCandidate("001000000000AAA", "Synthetic Univ. Foundation"),
+            AccountCandidate("001000000000AAB", "Synthetic Univ. Core"),
+            AccountCandidate("001000000000AAC", "Synthetic Univ. Hospital"),
+        ]
+        with self.assertRaises(ConversionHold):
+            recommend_existing_account(candidates, "Synthetic Univ.")
+
+    def test_unknown_institution_is_held(self):
+        with self.assertRaises(ConversionHold):
+            recommend_existing_account([A], "Other University")
+
+    def test_missing_suggestions_are_held(self):
+        with self.assertRaises(ConversionHold):
+            recommend_existing_account([], "Synthetic")
+
+    def test_broad_short_query_is_held(self):
+        with self.assertRaises(ConversionHold):
+            recommend_existing_account([A], "S")
+
+    def test_create_new_option_is_never_a_valid_recommendation(self):
+        not_existing = AccountCandidate(A.record_id, "Synthetic Institute", False)
+        with self.assertRaises(ConversionHold):
+            recommend_existing_account([not_existing], "Synthetic")
+
+    def test_invalid_account_id_is_held(self):
+        candidate = AccountCandidate("003000000000AAA", "Synthetic Institute")
+        with self.assertRaises(ConversionHold):
+            recommend_existing_account([candidate], "Synthetic")
 
 
 if __name__ == "__main__":
