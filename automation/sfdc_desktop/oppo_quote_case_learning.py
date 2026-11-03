@@ -123,6 +123,30 @@ def summarize_case_pairs(rows):
     return dict(sorted(tally.items()))
 
 
+
+def suggest_pmp_sample_count_from_name(value):
+    """Untrusted sample-count hint from a single-service Opportunity/Quote name.
+
+    Observed historical pattern often has '-<count>-PMP-'. If the name has
+    multiple PMP services or no literal count immediately before PMP, do not
+    guess. This hint is never the authoritative new Opportunity sample count.
+    """
+    tokens = [part.strip() for part in str(value or "").split("-")]
+    locations = [i for i, token in enumerate(tokens) if token.upper() == "PMP"]
+    if len(locations) != 1:
+        return {"status": "HOLD_AMBIGUOUS_PMP_SERVICES", "candidate": None}
+    index = locations[0]
+    if index == 0 or not re.fullmatch(r"[1-9]\d{0,2}", tokens[index - 1]):
+        return {"status": "HOLD_SAMPLE_COUNT_NOT_EXPLICIT", "candidate": None}
+    count = int(tokens[index - 1])
+    if count > 500:
+        return {"status": "HOLD_SAMPLE_COUNT_OUT_OF_SCOPE", "candidate": None}
+    return {
+        "status": "HINT_ONLY_CONFIRM_AGAINST_CONTACT_AND_NEW_REQUEST",
+        "candidate": count,
+    }
+
+
 def validate_request_draft(draft):
     """Require explicit depth quantity and prohibit accidental M-reads/Gb mixing."""
     expected = {
