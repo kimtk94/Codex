@@ -36,3 +36,11 @@ jobs:
       - name: Check production output route exists
         run: |
           node -e "const fs=require('fs'); if (!fs.existsSync('.next/server/app/sales/oppo-quote')) { throw new Error('Oppo-Quote compiled route missing') }"
+      - name: Install isolated synthetic-browser test tooling
+        run: npm install --no-save --no-audit --no-fund playwright@1.56.1
+      - name: Install Chromium for synthetic-browser smoke test
+        run: npx playwright install --with-deps chromium
+      - name: Verify real browser inputs, PE250 units and zero CRM writes
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: node --test tests/sfdc-oppo-quote.e2e.mjs
