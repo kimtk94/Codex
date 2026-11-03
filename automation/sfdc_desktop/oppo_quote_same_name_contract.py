@@ -15,6 +15,34 @@ SFID_OPPO = re.compile(r"^006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
 SFID_QUOTE = re.compile(r"^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
 
 
+# Explicitly excluded accounts. Match only the institution segment of an
+# Opportunity name, not unrelated free-text service or investigator fields.
+# Future authenticated execution must also inspect the actual Account ID/name.
+EXCLUDED_ACCOUNT_ALIASES = {
+    "KAIST": ("kaist", "한국과학기술원", "korea advanced institute of science"),
+    "HANNAM": ("hannam univ", "hannam university", "한남대학교", "한남대"),
+}
+
+
+def excluded_account_reason(opportunity_name: str) -> str | None:
+    """Return an explicit institution skip code for disallowed examples."""
+    if not isinstance(opportunity_name, str):
+        return None
+    name = re.sub(r"\\s+", " ", opportunity_name).strip().casefold()
+    # For standard Korea-Institution-service Opportunity names, only the
+    # institution segment may determine account identity.
+    institutional = name.split("-", 2)[1].strip() if name.startswith("korea-") and "-" in name else name.split("-", 1)[0].strip()
+    for key, aliases in EXCLUDED_ACCOUNT_ALIASES.items():
+        if any(
+            institutional == alias
+            or institutional.startswith(alias + " ")
+            or institutional.startswith(alias + ".")
+            for alias in aliases
+        ):
+            return "EXCLUDED_ACCOUNT_" + key
+    return None
+
+
 class ManualReview(ValueError):
     """Insufficient evidence for unattended Quote replication."""
 
@@ -38,6 +66,9 @@ def match_identical_name_quote(
     quote: QuoteSnapshot, opportunity_rows: list[OpportunitySnapshot]
 ) -> dict:
     """Validate naming/link identity, even when the quote has multiple products."""
+    skip_reason = excluded_account_reason(quote.opportunity_name)
+    if skip_reason:
+        raise ManualReview(skip_reason)
     if not SFID_QUOTE.fullmatch(quote.record_id):
         raise ManualReview("Invalid Quote ID")
     match = AMEA_SUFFIX.fullmatch(quote.name)
