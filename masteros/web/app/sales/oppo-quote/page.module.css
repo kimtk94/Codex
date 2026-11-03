@@ -13,3 +13,8 @@
 .contactCandidate span{font-size:13px;font-weight:800}
 .contactCandidate small{color:#accce0;font-size:12px;text-align:right}
 @media(max-width:540px){.contactSearchRow{flex-direction:column;align-items:stretch}.contactCandidate{flex-direction:column;gap:4px}.contactCandidate small{text-align:left}}
+
+.contactCandidates label{font-size:12px;font-weight:700;color:#dceffa}
+.contactCandidates select{width:100%;min-height:42px;border:1px solid #52809f;border-radius:8px;background:#10263b;color:#edf6fd;padding:9px 11px;font-family:inherit;font-size:13px}
+.contactCandidates select:focus-visible{outline:2px solid #8ddbf9;outline-offset:2px}
+.contactCandidate:disabled{opacity:.52;cursor:not-allowed}
