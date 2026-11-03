@@ -3,7 +3,7 @@ import unittest
 
 from oppo_quote_case_learning import (
     classify_case, normalize_mode, operational_depth_unit, summarize_case_pairs,
-    validate_request_draft, modes_in_case
+    validate_request_draft, modes_in_case, suggest_pmp_sample_count_from_name
 )
 
 
@@ -93,6 +93,32 @@ class HistoricalQuoteTrainingTests(unittest.TestCase):
 
     def test_empty_rows_do_not_produce_names(self):
         self.assertEqual(summarize_case_pairs([{}, {}, {"Quotation Name": ""}]), {})
+
+
+class HistoricalSampleCountHintTests(unittest.TestCase):
+    def test_single_pmp_numeric_count_hint(self):
+        x = suggest_pmp_sample_count_from_name(
+            "Korea-SyntheticInstitute-5-PMP-250PE-1M reads")
+        self.assertEqual(x["candidate"], 5)
+        self.assertEqual(x["status"], "HINT_ONLY_CONFIRM_AGAINST_CONTACT_AND_NEW_REQUEST")
+
+    def test_two_pmp_services_must_not_choose_count(self):
+        x = suggest_pmp_sample_count_from_name(
+            "Korea-Synthetic-5-PMP-250PE-1M reads-3-PMP-PE150-6Gb")
+        self.assertIsNone(x["candidate"])
+        self.assertEqual(x["status"], "HOLD_AMBIGUOUS_PMP_SERVICES")
+
+    def test_no_explicit_count_before_pmp_is_hold(self):
+        x = suggest_pmp_sample_count_from_name("Korea-Synthetic-PMP-250PE-1Mreads")
+        self.assertIsNone(x["candidate"])
+
+    def test_read_length_not_sample_quantity(self):
+        x = suggest_pmp_sample_count_from_name("Korea-Synthetic-PMP-250PE-1Mreads")
+        self.assertNotEqual(x["candidate"], 250)
+
+    def test_count_out_of_scope_fails(self):
+        x = suggest_pmp_sample_count_from_name("Korea-Synthetic-999-PMP-PE150-6Gb")
+        self.assertEqual(x["status"], "HOLD_SAMPLE_COUNT_OUT_OF_SCOPE")
 
 
 class WebDraftPolicyTests(unittest.TestCase):
