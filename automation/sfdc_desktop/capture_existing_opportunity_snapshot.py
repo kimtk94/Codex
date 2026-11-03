@@ -93,6 +93,8 @@ def snapshot_browser(browser, bridge, links, reload_page=True):
     never silently discard another person's unsaved work.
     """
     preflight(bridge, links)
+    if reload_page is not True:
+        raise ValueError("Fresh page reload required")
     target = bridge["opportunity_record_id"]
     pages = []
     for context in browser.contexts:
@@ -109,8 +111,6 @@ def snapshot_browser(browser, bridge, links, reload_page=True):
         bridge, urlsplit(page.url).path,
         save_count=page.get_by_role("button", name="Save", exact=True).count(),
         cancel_count=page.get_by_role("button", name="Cancel", exact=True).count())
-    if reload_page is not True:
-        raise ValueError("Fresh page reload required")
     page.reload(wait_until="domcontentloaded", timeout=30000)
     details = page.get_by_role("tab", name="Details", exact=True)
     details.wait_for(timeout=25000)
