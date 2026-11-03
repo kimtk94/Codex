@@ -45,11 +45,10 @@ def operational_depth_unit(mode):
 
 
 def modes_in_case(value):
-    return set(
-        normalize_mode("".join(x for x in parts if x))
+    return {
+        normalize_mode(match.group(0))
         for match in MODE_TOKEN.finditer(str(value or ""))
-        for parts in ([match.groups()],)
-    )
+    }
 
 
 def observed_units(value):
