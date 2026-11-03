@@ -176,3 +176,28 @@ def recommend_existing_account(
     if len(matching) != 1:
         raise ConversionHold("Missing or ambiguous existing Account recommendation")
     return matching[0].record_id
+
+
+
+def plan_lead_convert_with_routing(
+    candidates: list[AccountCandidate],
+    *,
+    company: str,
+    email: str,
+    korean_name: str,
+    english_name: str,
+    existing_contact_match_count: int = 0,
+    no_opportunity_checkbox_checked: bool = True,
+    contact_create_new_checked: bool = True,
+) -> dict:
+    """Resolve institution and validate the dry-run conversion as one operation."""
+    account_id = recommend_existing_account(candidates, company, email=email)
+    return plan_account_contact_only(
+        candidates,
+        account_id,
+        korean_name,
+        english_name,
+        existing_contact_match_count=existing_contact_match_count,
+        no_opportunity_checkbox_checked=no_opportunity_checkbox_checked,
+        contact_create_new_checked=contact_create_new_checked,
+    )
