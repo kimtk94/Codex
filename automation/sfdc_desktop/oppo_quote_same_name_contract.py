@@ -1,13 +1,14 @@
 """Oppo/Quote exact-name learning filter, without any Salesforce writes.
 
-Only identical Opportunity/Quotation names (ignoring one final -AMEA number)
-with a unique existing Opportunity and exactly one Quote Product are eligible
-for a simple-product dry-run template. All ambiguous and multi-product cases
-go to manual review. List snapshots must remain PRIVATE on the user's PC.
+All identical Opportunity/Quotation name pairs with unique Opportunity IDs
+can supply naming and linking examples, regardless of Quote Product count.
+Only exactly ONE Quote Product permits the basic form dry-run template.
+Multi-product or productless quotes never enter the basic product builder.
+Ambiguous name links are excluded altogether. Private snapshots stay on PC.
 """
 
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 AMEA_SUFFIX = re.compile(r"^(?P<oppo_name>.+)-(?P<quote_no>AMEA\d{8,}(?:-\d+)?)$")
 SFID_OPPO = re.compile(r"^006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
@@ -33,10 +34,10 @@ class QuoteSnapshot:
     product_record_count: int
 
 
-def match_single_product_quote(
+def match_identical_name_quote(
     quote: QuoteSnapshot, opportunity_rows: list[OpportunitySnapshot]
 ) -> dict:
-    """Validate the candidate based on existing, read-only list snapshots."""
+    """Validate naming/link identity, even when the quote has multiple products."""
     if not SFID_QUOTE.fullmatch(quote.record_id):
         raise ManualReview("Invalid Quote ID")
     match = AMEA_SUFFIX.fullmatch(quote.name)
@@ -53,21 +54,32 @@ def match_single_product_quote(
     ]
     if len(matches) != 1:
         raise ManualReview("Missing or ambiguous Opportunity")
-    if quote.product_record_count != 1:
-        raise ManualReview("Expected exactly one Quote Product")
     return {
         "source_quote_id": quote.record_id,
         "source_opportunity_id": matches[0].record_id,
         "opportunity_name": base_name,
         "quotation_name": quote.name,
         "quote_number": quote.quote_number,
-        "product_record_count": 1,
+        "product_record_count": quote.product_record_count,
+        "learning_scope": "NAME_AND_PARENT_ONLY",
         "requires_live_parent_identity_check": True,
         "save_clicked": False,
         "create_opportunity": False,
         "create_quote": False,
         "send_quote": False,
     }
+
+
+
+def match_single_product_quote(
+    quote: QuoteSnapshot, opportunity_rows: list[OpportunitySnapshot]
+) -> dict:
+    """Permit basic form rehearsal only for unambiguous one-product pairs."""
+    candidate = match_identical_name_quote(quote, opportunity_rows)
+    if candidate["product_record_count"] != 1:
+        raise ManualReview("Expected exactly one Quote Product for basic dry-run")
+    candidate["learning_scope"] = "SINGLE_PRODUCT_DRY_RUN"
+    return candidate
 
 
 def dryrun_after_read_only_identity_check(
@@ -78,6 +90,8 @@ def dryrun_after_read_only_identity_check(
         raise ManualReview("Missing live identity-check requirement")
     if actual_parent_opportunity_id != candidate.get("source_opportunity_id"):
         raise ManualReview("Actual parent Opportunity differs from list inference")
+    if candidate.get("product_record_count") != 1:
+        raise ManualReview("Complex-product Quote cannot use basic form rehearsal")
     if candidate.get("save_clicked") or candidate.get("create_quote"):
         raise ManualReview("This workflow must remain NO-SAVE")
     return {
