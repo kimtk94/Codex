@@ -21,6 +21,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Dry-run Lead Convert rule tests
-        run: python -m unittest discover -s automation/sfdc_desktop -p test_lead_convert_account_contact_contract.py -v
+        run: python -m unittest discover -s automation/sfdc_desktop -p "test_lead_convert_*.py" -v
       - name: Compile conversion preview contract
         run: python -m py_compile automation/sfdc_desktop/lead_convert_account_contact_contract.py
