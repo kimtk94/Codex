@@ -166,15 +166,15 @@ def main():
         p.error("Only the authorized local Chrome CDP port is supported")
     def read(path):
         return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    target = Path(args.output)
+    if target.exists():
+        p.error("Refusing overwrite; specify a fresh snapshot filename")
     bridge, links = read(args.bridge), read(args.links)
     preflight(bridge, links)
     with sync_playwright() as pw:
         browser = pw.chromium.connect_over_cdp(args.cdp_url, timeout=12000)
         result = snapshot_browser(browser, bridge, links)
-    target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        p.error("Refuse to overwrite prior private snapshot; specify a new --output")
     with target.open("x", encoding="utf-8") as out:
         json.dump(result, out, ensure_ascii=False, indent=2)
     print("FRESH OPPORTUNITY SNAPSHOT: VALID")
