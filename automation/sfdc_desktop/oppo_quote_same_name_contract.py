@@ -103,3 +103,32 @@ def dryrun_after_read_only_identity_check(
         "create_opportunity": False,
         "send_quote": False,
     }
+
+
+
+def validate_opportunity_clone_preflight(
+    visible_page_text: str,
+    *,
+    name_input_visible: bool,
+    main_contact_link_verified: bool,
+) -> bool:
+    """Block UI rehearsal if Salesforce cannot resolve the original Contact.
+
+    A source Opportunity might remain readable even when its Clone form
+    fails on an invalid or inaccessible Main Contact lookup. A missing field
+    must not be treated as a transient timeout or bypassed by a guessed
+    replacement Contact. Caller verifies Contact access independently.
+    """
+    if not isinstance(visible_page_text, str):
+        raise ManualReview("Opportunity Clone page is not readable")
+    error_tokens = (
+        "Unable to find the record referenced by Opportunity.Main_Contact__c",
+        "Looks like there's a problem.",
+    )
+    if any(token in visible_page_text for token in error_tokens):
+        raise ManualReview("Salesforce Clone error: unresolved Contact or form")
+    if not name_input_visible:
+        raise ManualReview("Opportunity Clone Name field unavailable")
+    if not main_contact_link_verified:
+        raise ManualReview("Opportunity Main Contact not independently verified")
+    return True
