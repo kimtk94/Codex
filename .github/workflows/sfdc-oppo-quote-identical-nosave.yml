@@ -1,0 +1,26 @@
+name: SFDC Oppo Quote identical-only no-save contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/sfdc_desktop/oppo_quote_same_name_contract.py'
+      - 'automation/sfdc_desktop/test_oppo_quote_same_name_contract.py'
+      - '.github/workflows/sfdc-oppo-quote-identical-nosave.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  strict-clone-no-save-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate strict name match and zero-write contract
+        run: python -m unittest discover -s automation/sfdc_desktop -p test_oppo_quote_same_name_contract.py -v
+      - name: Compile strict matching logic
+        run: python -m py_compile automation/sfdc_desktop/oppo_quote_same_name_contract.py
