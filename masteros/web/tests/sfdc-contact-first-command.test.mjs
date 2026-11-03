@@ -172,7 +172,7 @@ test("KAIST and Hannam Account contacts are excluded from web automation", () =>
     const selected=selectExistingContact("김민수",[contact],id,contact.account_id);
     assert.equal(selected.ok,false);
     assert.equal(selected.status,status);
-    const forged={ok:true,requires_server_identity_recheck:true,contact_id:id,account_id:contact.account_id,korean_name:"김민수",institution_name,email:contact.email};
+    const forged={ok:true,requires_server_identity_recheck:true,contact_id:id,account_id:contact.account_id,korean_name:"김민수",institution_name,email:contact.email,linked_opportunity_ids:contact.linked_opportunity_ids};
     const preview=createContactLinkedNoSaveCommand(baseRequest,forged);
     assert.equal(preview.ok,false);
     assert.equal(preview.error,status);
