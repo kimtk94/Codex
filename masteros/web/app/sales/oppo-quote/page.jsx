@@ -54,7 +54,7 @@ export default function OppoQuoteCommandPage() {
     }
     setSelectedContact(picked);
     setForm(prev => ({ ...prev, contact_email: picked.email }));
-    setSearchNotice("기존 Contact와 기관 선택 완료. 실행 전 Salesforce에서 ID와 소속 기관을 다시 확인해야 합니다.");
+    setSearchNotice("기존 Oppo 연결 Contact와 기관 선택 완료. 실행 전 Salesforce에서 Contact·Account·Oppo ID를 다시 확인해야 합니다.");
     setShowPreview(false);
   };
   const set = (key, value) => {
@@ -91,7 +91,7 @@ export default function OppoQuoteCommandPage() {
     event.preventDefault();
     setShowPreview(true);
     setNotice(!selectedContact?.ok
-      ? "한글 이름 검색 후 기존 Contact와 소속 기관을 먼저 선택하세요. Salesforce 검색은 아직 미연결입니다."
+      ? "한글 이름으로 기존 Oppo 연결 Contact를 검색하고 기관을 선택하세요. Salesforce 검색은 아직 미연결입니다."
       : linkedDraft.ok
         ? "검토용 명령서입니다. Contact 재검증 전에는 Salesforce 생성·저장이 금지됩니다."
         : result.errors[0]);
@@ -117,7 +117,7 @@ export default function OppoQuoteCommandPage() {
 
         <div className={styles.banner} role="status">
           <span className={styles.bannerIcon}>!</span>
-          <span>현재는 한글 이름 검색 UI만 준비됐고 실제 Salesforce Contact 검색은 미연결입니다. 고객 정보는 서버나 GitHub Actions에 전송하지 않습니다.</span>
+          <span>현재는 한글 이름 검색 UI만 준비됐고 실제 Salesforce Contact 검색은 미연결입니다. 실제 Oppo 연결 고객의 정보는 서버나 GitHub Actions에 전송하지 않습니다.</span>
         </div>
 
         <div className={styles.grid}>
@@ -140,7 +140,7 @@ export default function OppoQuoteCommandPage() {
                     }} />
                   <button type="button" className={styles.secondary} onClick={checkKoreanName}>검색어 확인</button>
                 </div>
-                <small>실제 검색은 기존 Salesforce Contact의 한글 이름 기준으로 진행하며, 동명이인은 기관까지 직접 선택합니다. 현재 검색 연결 전입니다.</small>
+                <small>실제 검색은 기존 Opportunity에 연결된 Contact의 한글 이름만 대상으로 하며, 동명이인은 기관을 직접 선택합니다. 현재 검색 연결 전입니다.</small>
                 {searchNotice && <div className={styles.notice} role="status">{searchNotice}</div>}
               </div>
               {Array.isArray(contactCandidates) && candidateReview.ok &&
