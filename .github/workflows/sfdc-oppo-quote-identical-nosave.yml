@@ -6,6 +6,8 @@ on:
     paths:
       - 'automation/sfdc_desktop/oppo_quote_same_name_contract.py'
       - 'automation/sfdc_desktop/test_oppo_quote_same_name_contract.py'
+      - 'automation/sfdc_desktop/oppo_linked_contact_contract.py'
+      - 'automation/sfdc_desktop/test_oppo_linked_contact_contract.py'
       - '.github/workflows/sfdc-oppo-quote-identical-nosave.yml'
 
 permissions:
@@ -21,6 +23,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Validate strict name match and zero-write contract
-        run: python -m unittest discover -s automation/sfdc_desktop -p test_oppo_quote_same_name_contract.py -v
+        run: python -m unittest discover -s automation/sfdc_desktop -p 'test_oppo*contract.py' -v
       - name: Compile strict matching logic
-        run: python -m py_compile automation/sfdc_desktop/oppo_quote_same_name_contract.py
+        run: python -m py_compile automation/sfdc_desktop/oppo_quote_same_name_contract.py automation/sfdc_desktop/oppo_linked_contact_contract.py
