@@ -153,6 +153,25 @@ def snapshot_browser(browser, bridge, links, reload_page=True):
     return result
 
 
+def require_private_output(filename):
+    """Refuse customer snapshots outside the dedicated private workstation folder.
+
+    Existing files, symlink parents, links at the output name, and GitHub
+    worktree paths fail closed. The caller opens the returned path with mode x.
+    """
+    target = Path(filename).expanduser()
+    private = Path.home() / ".sfdc_desktop"
+    if not private.is_dir() or private.is_symlink():
+        raise ValueError("Private local directory must already exist and not be linked")
+    if (not target.is_absolute()
+            or target.parent.resolve() != private.resolve()
+            or not target.name.endswith("_PRIVATE.json")
+            or target.name.startswith(".")
+            or target.exists() or target.is_symlink()):
+        raise ValueError("Refusing unsafe, existing or non-private snapshot output")
+    return target
+
+
 def main():
     p = argparse.ArgumentParser()
     root = Path.home() / ".sfdc_desktop"
@@ -166,15 +185,12 @@ def main():
         p.error("Only the authorized local Chrome CDP port is supported")
     def read(path):
         return json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    target = Path(args.output)
-    if target.exists():
-        p.error("Refusing overwrite; specify a fresh snapshot filename")
+    target = require_private_output(args.output)
     bridge, links = read(args.bridge), read(args.links)
     preflight(bridge, links)
     with sync_playwright() as pw:
         browser = pw.chromium.connect_over_cdp(args.cdp_url, timeout=12000)
         result = snapshot_browser(browser, bridge, links)
-    target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("x", encoding="utf-8") as out:
         json.dump(result, out, ensure_ascii=False, indent=2)
     print("FRESH OPPORTUNITY SNAPSHOT: VALID")
