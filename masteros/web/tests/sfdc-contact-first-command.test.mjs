@@ -84,11 +84,17 @@ test("Even a unique name requires explicit Contact and Account choice", () => {
 });
 test("Malformed or duplicated Contact IDs are rejected", () => {
   assert.equal(auditContactCandidates("김민수",[KNU,KNU]).status,"DUPLICATE_CONTACT_ID");
-  assert.equal(auditContactCandidates("김민수",[{...KNU,contact_id:"abc"}]).exact_match_count,0);
+  assert.equal(auditContactCandidates("김민수",[{...KNU,contact_id:"abc"}]).status,"INCOMPLETE_CONTACT_DATA");
 });
 test("Missing Account record or email does not qualify for selection", () => {
-  assert.equal(auditContactCandidates("김민수",[{...KNU,account_id:""}]).exact_match_count,0);
-  assert.equal(auditContactCandidates("김민수",[{...KNU,email:""}]).exact_match_count,0);
+  assert.equal(auditContactCandidates("김민수",[{...KNU,account_id:""}]).status,"INCOMPLETE_CONTACT_DATA");
+  assert.equal(auditContactCandidates("김민수",[{...KNU,email:""}]).status,"INCOMPLETE_CONTACT_DATA");
+});
+test("Incomplete same-name row must not make another contact look unique", () => {
+  const invalid = {...YONSEI,account_id:""};
+  const result=auditContactCandidates("김민수",[KNU,invalid]);
+  assert.equal(result.status,"INCOMPLETE_CONTACT_DATA");
+  assert.equal(selectExistingContact("김민수",[KNU,invalid],KNU.contact_id,KNU.account_id).ok,false);
 });
 test("Invalid name is never treated as a Contact match", () => {
   assert.equal(auditContactCandidates("John", [KNU]).status,"INVALID_KOREAN_NAME");
