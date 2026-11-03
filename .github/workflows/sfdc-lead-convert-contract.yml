@@ -6,6 +6,7 @@ on:
     paths:
       - 'automation/sfdc_desktop/lead_convert_account_contact_contract.py'
       - 'automation/sfdc_desktop/test_lead_convert_account_contact_contract.py'
+      - 'automation/sfdc_desktop/test_lead_convert_extended_cases.py'
       - '.github/workflows/sfdc-lead-convert-contract.yml'
 
 permissions:
