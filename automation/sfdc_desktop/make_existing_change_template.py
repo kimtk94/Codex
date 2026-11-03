@@ -60,6 +60,10 @@ def current_value(page, field):
             raise ValueError("Edit control missing for field")
         button.click(timeout=6500)
         result["opened"] = True
+        # Lightning may render the value input before the Cancel action. Wait
+        # for a fully opened editor so the finally block can always dismiss it.
+        page.get_by_role("button", name="Cancel", exact=True).wait_for(
+            state="visible", timeout=7000)
         if field == "Opportunity Name":
             loc = page.get_by_role("textbox", name="Opportunity Name", exact=True)
             if loc.count() != 1 or not loc.is_visible() or not loc.is_enabled():
