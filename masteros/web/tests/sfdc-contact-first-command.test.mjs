@@ -19,6 +19,7 @@ const KNU = {
   korean_name: "김민수",
   institution_name: "경북대학교 산학협력단",
   email: "a@example.org",
+  linked_opportunity_ids: ["006000000000AAA"],
 };
 const YONSEI = {
   contact_id: "003000000000AAB",
@@ -26,6 +27,7 @@ const YONSEI = {
   korean_name: "김민수",
   institution_name: "연세대학교 산학협력단",
   email: "b@example.org",
+  linked_opportunity_ids: ["006000000000AAB"],
 };
 
 test("Korean full name searches are valid", () => {
@@ -84,18 +86,53 @@ test("Even a unique name requires explicit Contact and Account choice", () => {
 });
 test("Malformed or duplicated Contact IDs are rejected", () => {
   assert.equal(auditContactCandidates("김민수",[KNU,KNU]).status,"DUPLICATE_CONTACT_ID");
-  assert.equal(auditContactCandidates("김민수",[{...KNU,contact_id:"abc"}]).status,"INCOMPLETE_CONTACT_DATA");
+  assert.equal(auditContactCandidates("김민수",[{...KNU,contact_id:"abc"}]).status,"INCOMPLETE_OPPO_LINKED_CONTACT_DATA");
 });
 test("Missing Account record or email does not qualify for selection", () => {
-  assert.equal(auditContactCandidates("김민수",[{...KNU,account_id:""}]).status,"INCOMPLETE_CONTACT_DATA");
-  assert.equal(auditContactCandidates("김민수",[{...KNU,email:""}]).status,"INCOMPLETE_CONTACT_DATA");
+  assert.equal(auditContactCandidates("김민수",[{...KNU,account_id:""}]).status,"INCOMPLETE_OPPO_LINKED_CONTACT_DATA");
+  assert.equal(auditContactCandidates("김민수",[{...KNU,email:""}]).status,"INCOMPLETE_OPPO_LINKED_CONTACT_DATA");
 });
 test("Incomplete same-name row must not make another contact look unique", () => {
   const invalid = {...YONSEI,account_id:""};
   const result=auditContactCandidates("김민수",[KNU,invalid]);
-  assert.equal(result.status,"INCOMPLETE_CONTACT_DATA");
+  assert.equal(result.status,"INCOMPLETE_OPPO_LINKED_CONTACT_DATA");
   assert.equal(selectExistingContact("김민수",[KNU,invalid],KNU.contact_id,KNU.account_id).ok,false);
 });
+test("Only existing Opportunity-associated Contacts appear in search", () => {
+  const noOppo = {...YONSEI,linked_opportunity_ids:[]};
+  const r=auditContactCandidates("김민수",[KNU,noOppo]);
+  assert.equal(r.exact_match_count,1);
+  assert.equal(r.requires_institution_choice,false);
+  assert.equal(r.candidates[0].contact_id,KNU.contact_id);
+});
+
+test("Contact with zero Opportunities cannot be selected or used to draft", () => {
+  const onlyNoOppo={...KNU,linked_opportunity_ids:[]};
+  const r=auditContactCandidates("김민수",[onlyNoOppo]);
+  assert.equal(r.status,"NO_EXACT_MATCH");
+  const chosen=selectExistingContact("김민수",[onlyNoOppo],onlyNoOppo.contact_id,onlyNoOppo.account_id);
+  assert.equal(chosen.ok,false);
+  const forged={ok:true,requires_server_identity_recheck:true,
+    ...onlyNoOppo};
+  assert.equal(createContactLinkedNoSaveCommand(baseRequest,forged).ok,false);
+});
+
+test("Malformed claimed Oppo link blocks the whole candidate result", () => {
+  const fake={...YONSEI,linked_opportunity_ids:["006INVALID"]};
+  const r=auditContactCandidates("김민수",[KNU,fake]);
+  assert.equal(r.ok,false);
+  assert.equal(r.status,"INCOMPLETE_OPPO_LINKED_CONTACT_DATA");
+});
+
+test("Contact command carries source Oppo ID and still requires server recheck", () => {
+  const chosen=selectExistingContact("김민수",[KNU],KNU.contact_id,KNU.account_id);
+  const result=createContactLinkedNoSaveCommand(baseRequest,chosen);
+  assert.equal(result.ok,true);
+  assert.deepEqual(result.command.contact.reference_opportunity_ids,KNU.linked_opportunity_ids);
+  assert.equal(result.command.next_actions.includes("independently_verify_opportunity_contact_relationship"),true);
+  assert.equal(result.command.salesforce_save_allowed,false);
+});
+
 test("Invalid name is never treated as a Contact match", () => {
   assert.equal(auditContactCandidates("John", [KNU]).status,"INVALID_KOREAN_NAME");
 });
