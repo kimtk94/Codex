@@ -3,7 +3,8 @@ import unittest
 
 from oppo_quote_same_name_contract import (
     OpportunitySnapshot, QuoteSnapshot, ManualReview,
-    match_single_product_quote, dryrun_after_read_only_identity_check,
+    match_single_product_quote, match_identical_name_quote,
+    dryrun_after_read_only_identity_check,
 )
 
 OPPO = OpportunitySnapshot(
@@ -30,6 +31,29 @@ def replace(**overrides):
 
 
 class OppoQuoteIdenticalOnlyContractTests(unittest.TestCase):
+    def test_multiple_products_still_train_name_only(self):
+        q = replace(product_record_count=2)
+        candidate = match_identical_name_quote(q, [OPPO])
+        self.assertEqual(candidate["learning_scope"], "NAME_AND_PARENT_ONLY")
+        self.assertEqual(candidate["product_record_count"], 2)
+
+    def test_zero_product_still_train_name_only(self):
+        q = replace(product_record_count=0)
+        candidate = match_identical_name_quote(q, [OPPO])
+        self.assertEqual(candidate["learning_scope"], "NAME_AND_PARENT_ONLY")
+        self.assertEqual(candidate["product_record_count"], 0)
+
+    def test_multi_product_name_only_cannot_enter_basic_dryrun(self):
+        candidate = match_identical_name_quote(
+            replace(product_record_count=2), [OPPO]
+        )
+        with self.assertRaises(ManualReview):
+            dryrun_after_read_only_identity_check(candidate, OPPO.record_id)
+
+    def test_one_product_still_basic_dryrun(self):
+        candidate = run()
+        self.assertEqual(candidate["learning_scope"], "SINGLE_PRODUCT_DRY_RUN")
+
     def test_valid_strict_match(self):
         r = run()
         self.assertEqual(r["source_opportunity_id"], OPPO.record_id)
