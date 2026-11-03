@@ -13,6 +13,7 @@ from pathlib import Path
 from capture_existing_opportunity_snapshot import compare_snapshots, validate_snapshot
 
 MAX_GAP_SECONDS = 7200
+MAX_AGE_SECONDS = 14400
 MAX_FUTURE_SKEW_SECONDS = 120
 
 
@@ -54,7 +55,9 @@ def verify_pair(first, second, now=None):
     if dt <= 0:
         result["status"] = "HOLD_NOT_TWO_SEQUENTIAL_RELOADS"
         return result
-    if dt > MAX_GAP_SECONDS or (b - now).total_seconds() > MAX_FUTURE_SKEW_SECONDS:
+    age = (now - b).total_seconds()
+    if (dt > MAX_GAP_SECONDS or age > MAX_AGE_SECONDS
+            or age < -MAX_FUTURE_SKEW_SECONDS):
         result["status"] = "HOLD_STALE_OR_FUTURE_CAPTURE"
         return result
     status = compare_snapshots(first, second)
