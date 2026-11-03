@@ -126,6 +126,21 @@ test("A forged browser selection is not accepted for command construction", () =
   const forged = { ok:true, requires_server_identity_recheck:true, contact_id:"FAKE", account_id:"FAKE", email:"a@example.org", institution_name:"Fake", korean_name:"김민수" };
   assert.equal(createContactLinkedNoSaveCommand(baseRequest,forged).ok,false);
 });
+test("KAIST and Hannam Account contacts are excluded from web automation", () => {
+  for (const [id, institution_name, status] of [
+    ["003000000000AAD", "KAIST Korea Advanced Institute of Science", "SKIP_ACCOUNT_KAIST"],
+    ["003000000000AAE", "한남대학교 산학협력단 Hannam University", "SKIP_ACCOUNT_HANNAM"],
+  ]) {
+    const contact={...KNU,contact_id:id,institution_name};
+    const selected=selectExistingContact("김민수",[contact],id,contact.account_id);
+    assert.equal(selected.ok,false);
+    assert.equal(selected.status,status);
+    const forged={ok:true,requires_server_identity_recheck:true,contact_id:id,account_id:contact.account_id,korean_name:"김민수",institution_name,email:contact.email};
+    const preview=createContactLinkedNoSaveCommand(baseRequest,forged);
+    assert.equal(preview.ok,false);
+    assert.equal(preview.error,status);
+  }
+});
 test("Quantity and mode validation remain mandatory after contact selection", () => {
   const selected=selectExistingContact("김민수",[KNU],KNU.contact_id,KNU.account_id);
   assert.equal(createContactLinkedNoSaveCommand({...baseRequest,sample_count:0},selected).ok,false);
