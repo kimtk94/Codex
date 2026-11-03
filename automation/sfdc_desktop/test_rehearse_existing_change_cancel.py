@@ -94,6 +94,10 @@ class FakeButton:
             return int(self.page.editor_open)
         return 1
 
+    def wait_for(self, state=None, timeout=None):
+        if self.label == "Cancel" and not self.page.editor_open:
+            raise RuntimeError("Cancel not visible in synthetic editor")
+
     def click(self, timeout=None):
         if self.label == "Save":
             self.page.save_clicks += 1
