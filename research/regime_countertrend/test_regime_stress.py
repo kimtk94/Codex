@@ -29,6 +29,10 @@ class RegimeStressTests(unittest.TestCase):
         y=matched_placebo(e,200,seed=20261103)
         self.assertEqual(x,y)
         self.assertFalse(x["valid_independent_significance_test"])
+        self.assertEqual(x["method"],"EXACT_ENUMERATION")
+        self.assertEqual(x["possible_selection_patterns"],168)
+        self.assertEqual(x["random_equally_or_better_patterns"],76)
+        self.assertAlmostEqual(x["descriptive_one_sided_placebo_probability"],76/168,places=12)
     def test_year_regime_rows_reconcile(self):
         e=annotated(self.events,self.walkforward)
         g=group_summary(e)
