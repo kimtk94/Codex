@@ -80,15 +80,17 @@ def plan_account_contact_only(
 
 
 def recommend_existing_account(
-    candidates: list[AccountCandidate], company: str
+    candidates: list[AccountCandidate], company: str, *, email: str | None = None
 ) -> str:
-    """Choose a verified existing Account with a Kyungpook-specific default.
+    """Choose a verified existing Account with Kyungpook and Yonsei rules.
 
     For an ordinary Kyungpook National University Lead, prefer its existing
     R&DB Foundation (경북대학교 산학협력단) record. A lead explicitly mentioning
     the Next-Generation Sequencing Core or the University Hospital must only
     match the corresponding unit. In all cases the option must exist uniquely
     among actual Salesforce recommendations; never create a new Account.
+    Yonsei Leads are routed by the institutional email DOMAIN to the
+    corresponding already-existing foundation Account.
     """
     if not isinstance(company, str) or len(company.strip()) < 3:
         raise ConversionHold("Lead company is missing or too broad for matching")
@@ -106,7 +108,48 @@ def recommend_existing_account(
         or "kyungpook national univ" in needle
         or needle == "kyungpook"
     )
-    if is_kyungpook:
+    is_yonsei = any(token in needle for token in (
+        "연세대", "yonsei", "세브란스", "yuhs"
+    ))
+    if is_yonsei:
+        # Do not use the local part (username) to infer the institution.
+        if not isinstance(email, str) or email.count("@") != 1:
+            raise ConversionHold("Yonsei Lead needs a valid institutional email")
+        local, domain = (part.strip().casefold() for part in email.split("@"))
+        if not local or not domain or any(ch.isspace() for ch in domain):
+            raise ConversionHold("Invalid Yonsei Lead email domain")
+        trusted_medical = (
+            "yuhs.ac", "yuhs.ac.kr", "yuhs.yonsei.ac.kr"
+        )
+        trusted_university = (
+            "yonsei.ac.kr", "yonsei.edu"
+        )
+        def is_subdomain(host: str, roots: tuple[str, ...]) -> bool:
+            return any(host == root or host.endswith("." + root) for root in roots)
+
+        if is_subdomain(domain, trusted_medical):
+            markers = ("yonsei university health system industry-university cooperation foundation",)
+            # The medical foundation is a separate Account from YUHS itself.
+            matching = [
+                c for c in existing if (
+                    ("연세" in c.institution_name and "의료원" in c.institution_name
+                     and "산학협력단" in c.institution_name)
+                    or any(marker in c.institution_name.casefold() for marker in markers)
+                )
+            ]
+        elif is_subdomain(domain, trusted_university):
+            markers = ("yonsei university industry-academic cooperation foundation",)
+            matching = [
+                c for c in existing if (
+                    ("연세대학교 산학협력단" in c.institution_name
+                     and "의료원" not in c.institution_name
+                     and "미래" not in c.institution_name)
+                    or any(marker in c.institution_name.casefold() for marker in markers)
+                )
+            ]
+        else:
+            raise ConversionHold("Unrecognized Yonsei email domain: manual Account review")
+    elif is_kyungpook:
         # Treat a stated sub-organization as an identity constraint, not a
         # soft preference. Otherwise use the Foundation as the default.
         if any(marker in needle for marker in (
