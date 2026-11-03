@@ -32,13 +32,18 @@ export function auditContactCandidates(searchName, candidates) {
   if (!Array.isArray(candidates)) {
     return { ok: false, status: "LOOKUP_NOT_CONNECTED", error: "인증된 Salesforce Contact 검색이 연결되지 않았습니다." };
   }
-  const items = candidates.filter(x =>
+  const exactMatches = candidates.filter(x =>
     x && typeof x === "object" && !Array.isArray(x) &&
-    normalizeKoreanName(x.korean_name) === q.query &&
+    normalizeKoreanName(x.korean_name) === q.query
+  );
+  const items = exactMatches.filter(x =>
     CONTACT_ID.test(x.contact_id || "") && ACCOUNT_ID.test(x.account_id || "") &&
     typeof x.institution_name === "string" && x.institution_name.trim().length >= 2 &&
     typeof x.email === "string" && EMAIL.test(x.email)
   );
+  if (items.length !== exactMatches.length) {
+    return { ok:false, status:"INCOMPLETE_CONTACT_DATA" };
+  }
   const ids = items.map(x => x.contact_id);
   if (new Set(ids).size !== ids.length) {
     return { ok: false, status: "DUPLICATE_CONTACT_ID", error: "중복 Contact ID가 검색 결과에 존재합니다." };
