@@ -88,7 +88,13 @@ export function selectExistingContact(searchName, candidates, chosenContactId, c
 }
 
 export function createContactLinkedNoSaveCommand(baseRequest, contactSelection) {
-  if (!contactSelection?.ok || !contactSelection.requires_server_identity_recheck) {
+  if (!contactSelection?.ok || !contactSelection.requires_server_identity_recheck ||
+      !CONTACT_ID.test(contactSelection.contact_id || "") ||
+      !ACCOUNT_ID.test(contactSelection.account_id || "") ||
+      !validateKoreanNameQuery(contactSelection.korean_name).ok ||
+      !EMAIL.test(contactSelection.email || "") ||
+      typeof contactSelection.institution_name !== "string" ||
+      contactSelection.institution_name.trim().length < 2) {
     return { ok: false, error: "실제 기존 Contact와 소속 기관을 선택해야 합니다." };
   }
   const request = { ...baseRequest, contact_email: contactSelection.email };
