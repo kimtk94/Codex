@@ -21,6 +21,20 @@ CONTACT_ROUTE=re.compile(r"^/lightning/r/Contact/(003[A-Za-z0-9]{12}(?:[A-Za-z0-
 ACCOUNT_ROUTE=re.compile(r"^/lightning/r/Account/(001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)/view$")
 
 
+def account_link_status(info, linked_path, expected_account_id):
+    """Separate missing/ambiguous UI navigation from real Account ID mismatch."""
+    if not isinstance(info, dict) or info.get("status") != "NAVIGATED":
+        return "HOLD_CONTACT_ACCOUNT_NAVIGATION"
+    match=ACCOUNT_ROUTE.fullmatch(str(linked_path))
+    if not match:
+        return "HOLD_CONTACT_ACCOUNT_ROUTE_INVALID"
+    if not isinstance(expected_account_id,str) or not ID_ACCOUNT.fullmatch(expected_account_id):
+        return "HOLD_EXPECTED_ACCOUNT_ID_INVALID"
+    if match.group(1) != expected_account_id:
+        return "HOLD_ACCOUNT_ID_DIFFERENT"
+    return "PASS_ACCOUNT_ID"
+
+
 def candidates():
     manifest={x["opportunity_id"]:x for x in json.loads(
         (ROOT/"oppo_linked_contact_candidate_manifest_PRIVATE.json").read_text(encoding="utf-8-sig"))}
@@ -100,10 +114,9 @@ def inspect(page,row):
     details["contact_email_verified"]=True
 
     info,contact_account_path=follow(page,"Contact",cid,"Account Name","Account Name")
-    if (info["status"]!="NAVIGATED" or
-        not ACCOUNT_ROUTE.fullmatch(str(contact_account_path)) or
-        ACCOUNT_ROUTE.fullmatch(contact_account_path).group(1)!=account_id):
-        return None,"HOLD_ACCOUNT_RELATION_MISMATCH"
+    account_result=account_link_status(info,contact_account_path,account_id)
+    if account_result!="PASS_ACCOUNT_ID":
+        return None,account_result
     details["contact_account_link_verified"]=True
     return {**row,"opportunity_ids":[opp],"account_id":account_id,"institution":institution,
             **details,"save_clicked":False},"PASS_ALL_IDENTITY_CHECKS"
