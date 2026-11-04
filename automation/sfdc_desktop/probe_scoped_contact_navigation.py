@@ -69,10 +69,23 @@ def main():
             contact,route1=follow(page,"Opportunity",opportunity,"Main Contact","Main Contact",display)
             account_from_opp,route2=follow(page,"Opportunity",opportunity,"Account Name","Account Name")
             account_from_contact,route3=follow(page,"Contact",contact_id,"Account Name","Account Name")
+            inventory=json.loads((Path.home()/".sfdc_desktop"/"full_contact_with_names_PRIVATE.json").read_text(encoding="utf-8-sig"))["rows"]
+            listed=[x for x in inventory if x.get("id")==contact_id]
+            list_names={x.get("name") for x in listed if x.get("name")}
+            list_emails={v.strip() for x in listed for v in x.get("cells",[]) if "@" in v and len(v)<255}
+            details_url="https://"+HOST+"/lightning/r/Contact/"+contact_id+"/view"
+            page.goto(details_url,wait_until="domcontentloaded",timeout=34000)
+            detail_tab(page)
+            detail_name_exact_count=page.get_by_text(display,exact=True).count()
+            check_email=sorted(list_emails)[0] if len(list_emails)==1 else None
+            email_info,_=field_value(page,"Email",check_email) if check_email else ({"status":"HOLD_LIST_EMAIL_AMBIGUOUS"},None)
             report={"contact":contact,"contact_id_matches_expected":bool(route1 and contact_id in route1),
                     "opportunity_account":account_from_opp,
                     "contact_account":account_from_contact,
                     "account_route_same":bool(route2 and route3 and route2==route3),
+                    "contact_list_name_same":list_names=={display},
+                    "contact_details_name_visible":detail_name_exact_count>0,
+                    "email_field":email_info,
                     "save_clicked":False}
             print(json.dumps(report,ensure_ascii=True))
         finally:
