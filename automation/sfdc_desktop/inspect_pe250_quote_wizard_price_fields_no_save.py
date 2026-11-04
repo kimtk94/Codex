@@ -28,17 +28,24 @@ def run():
         result={"status":"HOLD","crm_writes":0,"save_clicked":False,
                 "current_price_verified":False,"pricebook_entry_verified":False}
         try:
+            result["last_completed_stage"]="PRE_NAVIGATION"
             url="https://"+HOST+"/lightning/r/Quotation__c/"+quote_id+"/view"
             page.goto(url,wait_until="domcontentloaded",timeout=30000)
             if quote_id not in page.url:raise ValueError("QUOTE_ROUTE_MISMATCH")
+            result["last_completed_stage"]="QUOTE_ROUTE"
             page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=8500)
+            result["last_completed_stage"]="QUOTATION_DETAIL_TAB"
             page.get_by_text("Add/Edit",exact=True).click(timeout=8500)
+            result["last_completed_stage"]="ADD_EDIT_MODAL"
             page.get_by_text("AMEA Pre-made libraries sequencing",exact=True).first.click(timeout=8500)
+            result["last_completed_stage"]="SERVICE_CATEGORY"
             item=page.get_by_text("Pre-made libraries partial lane sequencing (PE250)",exact=True)
             if item.count()!=1:raise ValueError("EXISTING_PRODUCT_NOT_UNIQUE")
+            result["last_completed_stage"]="UNIQUE_PE250_EXISTING_PRODUCT"
             plus=item.locator("xpath=..").locator("button")
             if plus.count()!=1:raise ValueError("PRODUCT_ADD_CONTROL_NOT_UNIQUE")
             plus.click(timeout=6500)
+            result["last_completed_stage"]="EXISTING_PRODUCT_DRAFT_MODAL"
             modal=page.get_by_role("dialog").last
             sample=modal.get_by_label("Sample Number",exact=True)
             size=modal.get_by_label("Data Size",exact=True)
@@ -48,7 +55,9 @@ def run():
             size.fill("1")
             if sample.input_value()!="5" or size.input_value()!="1":
                 raise ValueError("DRAFT_FIELDS_MISMATCH")
+            result["last_completed_stage"]="QUANTITY_DEPTH_SET_UNSAVED"
             modal.get_by_role("button",name="Next",exact=True).click(timeout=6500)
+            result["last_completed_stage"]="NEXT_PROCESS_WIZARD"
             page.wait_for_timeout(1000)
             dialog=page.get_by_role("dialog").last
             text=dialog.inner_text(timeout=5500)
