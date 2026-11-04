@@ -94,6 +94,30 @@ def summary(full,one,opps):
             unit["explicit_pe250"]+=1
             unit["explicit_pe250_"+classification["status"]]+=1
     repeated=sum(n for n in by_opp.values() if n>1)
+    # The fixed 16-column Quotation list layout is cross-checked against
+    # every known single-Product row before using it for the other 450.
+    row_by_id={r["id"]:r["cells"] for r in entries}
+    if any(not isinstance(cells,list) or len(cells)!=16 for cells in row_by_id.values()):
+        raise ValueError("QUOTE_LIST_COLUMN_LAYOUT_CHANGED")
+    for r in one:
+        cells=row_by_id[r["quote_id"]]
+        if (r.get("quote_name")!=cells[2] or
+            r.get("oppo_name")!=cells[4] or
+            r.get("quote_status")!=cells[5]):
+            raise ValueError("QUOTE_LIST_COLUMNS_NOT_VERIFIED")
+    names=Counter(r.get("opportunity_name") for r in opp_index.values()
+                  if isinstance(r.get("opportunity_name"),str) and r["opportunity_name"])
+    other_rows=[row_by_id[qid] for qid in all_set-set(one_ids)]
+    other_status=Counter(str(c[5] or "UNKNOWN") for c in other_rows)
+    other_name_matches=Counter()
+    for cells in other_rows:
+        n=names.get(cells[4],0)
+        if n==0:
+            other_name_matches["none"]+=1
+        elif n==1:
+            other_name_matches["unique_name_only_not_native_id"]+=1
+        else:
+            other_name_matches["multiple_in_scope_opportunity_names"]+=1
     return {
         "scope":"PRIVATE_PREVIOUSLY_ENUMERATED_SNAPSHOT_NOT_LIVE_FULL_RECORD_RECHECK",
         "full_quotation_snapshot_enumerated":True,
@@ -101,6 +125,9 @@ def summary(full,one,opps):
         "one_product_manifest_count":len(one_ids),
         "non_one_product_or_unclassified_quote_count":len(all_ids)-len(one_ids),
         "in_scope_opportunity_snapshot_count":len(opp_index),
+        "other_quote_status_counts":dict(sorted(other_status.items())),
+        "other_quote_opportunity_name_lookup":dict(sorted(other_name_matches.items())),
+        "other_quote_native_parent_ids_verified":False,
         "quote_status_counts":dict(sorted(statuses.items())),
         "opportunity_relation_counts":dict(sorted(relation.items())),
         "name_comparison_counts":dict(sorted(name_check.items())),
