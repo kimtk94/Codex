@@ -48,7 +48,8 @@ def summarize_opportunities(opportunities,evidence):
         statuses[row.get("status") or "UNKNOWN"]+=1
         match_lengths[len(candidates)]+=1
     verified_contacts=verified_private_aliases(evidence)
-    approved_unique={r["contact_id"] for r in verified_contacts["records"]}
+    approved_aliases={r["contact_id"]:r for r in verified_contacts["records"]}
+    approved_unique=set(approved_aliases)
     seen_opps=set()
     verified_in_inventory=0
     approved_opp_mismatch=0
@@ -62,7 +63,8 @@ def summarize_opportunities(opportunities,evidence):
             continue
         cid=record.get("contact_id")
         oid=record.get("opportunity_id")
-        if cid not in approved_unique or not isinstance(oid,str) or not ID_OPPORTUNITY.fullmatch(oid):
+        if (cid not in approved_unique or not isinstance(oid,str) or not ID_OPPORTUNITY.fullmatch(oid)
+                or oid not in approved_aliases[cid]["opportunity_ids"]):
             continue
         if oid in seen_opps:
             continue
