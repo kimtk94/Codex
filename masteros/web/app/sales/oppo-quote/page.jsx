@@ -21,6 +21,9 @@ export default function OppoQuoteCommandPage() {
   const [isPcLocal, setIsPcLocal] = useState(false);
   const [pcSearchBusy, setPcSearchBusy] = useState(false);
   const [pcReviewBusy, setPcReviewBusy] = useState(false);
+  const [fullAudit, setFullAudit] = useState(null);
+  const [fullAuditStatus, setFullAuditStatus] = useState("");
+  const [fullAuditBusy, setFullAuditBusy] = useState(false);
   const [liveReview, setLiveReview] = useState("NOT_CHECKED");
   useEffect(() => {
     setIsPcLocal(window.location.hostname === "127.0.0.1");
@@ -58,6 +61,31 @@ export default function OppoQuoteCommandPage() {
       setLocalStatus("JSON 형식/필드 검증 실패 · 후보를 불러오지 않았습니다.");
     }
     event.target.value = "";
+  };
+  const loadFullAudit = async () => {
+    if (!isPcLocal || fullAuditBusy) return;
+    setFullAuditBusy(true);
+    setFullAudit(null);
+    setFullAuditStatus("PC의 비공개 전체 현황을 확인하는 중입니다.");
+    try {
+      const response=await fetch("/api/sfdc/full-audit-local",{
+        method:"GET",credentials:"omit",cache:"no-store",
+        headers:{"X-SFDC-Local-Preview":"1"},
+      });
+      if (!response.ok) throw new Error("LOCAL_AUDIT_NOT_READY");
+      const data=await response.json();
+      if (data.status!=="LOCAL_AGGREGATE_ONLY_NO_SAVE" ||
+          data.metrics?.save_allowed!==false ||
+          data.metrics?.full_snapshot_refreshed_live!==false) {
+        throw new Error("LOCAL_AUDIT_RESPONSE_INVALID");
+      }
+      setFullAudit(data.metrics);
+      setFullAuditStatus("개인정보 없이 집계만 표시합니다. 기존 목록 + 일부 실시간 Salesforce 신원 검증 결과입니다.");
+    } catch {
+      setFullAuditStatus("전체 현황이 아직 준비되지 않았습니다. PC의 비공개 검증 스크립트 실행 결과를 확인하세요.");
+    } finally {
+      setFullAuditBusy(false);
+    }
   };
   const searchPcContacts = async () => {
     if (!isPcLocal || pcSearchBusy) return;
@@ -228,6 +256,28 @@ export default function OppoQuoteCommandPage() {
           <span className={styles.bannerIcon}>!</span>
           <span>클라우드에는 고객 정보를 전송하지 않습니다. PC에서 ‘실시간 신원 재확인’을 누르는 경우에만 이 PC의 로컬 검증 서버로 고객 정보가 전달되며, Salesforce 조회만 수행합니다. CRM Save는 차단됩니다.</span>
         </div>
+
+        {isPcLocal && <section className={styles.auditBar} aria-label="전체 Salesforce 학습 현황">
+          <div className={styles.auditBarTitle}>
+            <div>
+              <strong>전체 Oppo–Quote 학습 현황</strong>
+              <span>업무용 PC 비공개 데이터 기반 · 개인 식별정보 미표시 · CRM No Save</span>
+            </div>
+            <button type="button" className={styles.auditRefresh}
+              disabled={fullAuditBusy} onClick={loadFullAudit}>
+              {fullAuditBusy ? "현황 확인 중…" : "전체 검증 현황 불러오기"}
+            </button>
+          </div>
+          {fullAudit && <div className={styles.auditStats}>
+            <div><span>대상 Opportunity</span><strong>{fullAudit.snapshot_opportunities.toLocaleString()}</strong></div>
+            <div><span>전체 Quote</span><strong>{fullAudit.snapshot_quotations.toLocaleString()}</strong></div>
+            <div><span>단일 Product 후보</span><strong>{fullAudit.single_product_quotes.toLocaleString()}</strong></div>
+            <div><span>1:1 구조 후보</span><strong>{fullAudit.one_to_one_name_candidates.toLocaleString()}</strong></div>
+            <div><span>실검증 Contact</span><strong>{fullAudit.approved_contact_aliases.toLocaleString()}</strong></div>
+            <div><span>Quote 부모 ID 검증</span><strong>{fullAudit.verified_quote_native_parents.toLocaleString()}</strong></div>
+          </div>}
+          <small role="status">{fullAuditStatus || "전체 현황은 현재 PC에서만 확인할 수 있습니다. 클라우드에는 고객 데이터나 로컬 파일을 제공하지 않습니다."}</small>
+        </section>}
 
         <div className={styles.grid}>
           <section className={styles.panel}>
