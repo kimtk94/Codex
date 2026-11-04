@@ -28,7 +28,11 @@ jobs:
       - name: Install isolated web dependencies
         run: npm install --no-audit --no-fund
       - name: Run unit, privacy and no-Save checks
-        run: npm run test:sfdc
+        run: |
+          for pass in 1 2 3; do
+            echo "SFDC web synthetic regression pass ${pass}/3"
+            npm run test:sfdc || exit 1
+          done
       - name: Compile Next.js draft workspace
         env:
           NEXT_TELEMETRY_DISABLED: '1'
