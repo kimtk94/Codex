@@ -27,16 +27,16 @@ class QuoteParentNativeTests(unittest.TestCase):
 
     def test_global_console_links_never_count(self):
         rows=[
-            {"kind":"Quotation__c","href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":False},
-            {"kind":"Opportunity","href":"/lightning/r/Opportunity/"+O+"/view","scoped":False},
+            {"kind":"Quotation__c","record_id":Q,"scoped":False},
+            {"kind":"Opportunity","record_id":O,"scoped":False},
         ]
         self.assertEqual(scoped_link_ids(rows),{"Quotation__c":set(),"Opportunity":set()})
 
     def test_only_scoped_quote_and_parent_links_count(self):
         rows=[
-            {"kind":"Quotation__c","href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":True},
-            {"kind":"Opportunity","href":"/lightning/r/Opportunity/"+O+"/view","scoped":True},
-            {"kind":"Quotation__c","href":"/lightning/r/Quotation__c/a0P000000000003AAA/view","scoped":False},
+            {"kind":"Quotation__c","record_id":Q,"scoped":True},
+            {"kind":"Opportunity","record_id":O,"scoped":True},
+            {"kind":"Quotation__c","record_id":"a0P000000000003AAA","scoped":False},
         ]
         result=scoped_link_ids(rows)
         self.assertEqual(result["Quotation__c"],{Q})
@@ -44,14 +44,14 @@ class QuoteParentNativeTests(unittest.TestCase):
         self.assertTrue(identity_result(O,result["Quotation__c"],result["Opportunity"])["parent_verified"])
 
     def test_untrusted_metadata_fails_closed(self):
-        cases=[{},None,{"href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":True},
-               {"kind":"Quotation__c","href":"/lightning/r/Opportunity/"+O+"/view","scoped":True},
-               {"kind":"Opportunity","href":"https://example.org/foo","scoped":True},
-               {"kind":"Quotation__c","href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":1}]
+        cases=[{},None,{"record_id":Q,"scoped":True},
+               {"kind":"Quotation__c","record_id":O,"scoped":True},
+               {"kind":"Opportunity","record_id":"bad-id","scoped":True},
+               {"kind":"Quotation__c","record_id":Q,"scoped":1}]
         self.assertEqual(scoped_link_ids(cases)["Quotation__c"],set())
 
     def test_deduped_quote_link_repeated_three_times(self):
-        row={"kind":"Quotation__c","href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":True}
+        row={"kind":"Quotation__c","record_id":Q,"scoped":True}
         for _ in range(3):
             self.assertEqual(scoped_link_ids([row,row])["Quotation__c"],{Q})
 
