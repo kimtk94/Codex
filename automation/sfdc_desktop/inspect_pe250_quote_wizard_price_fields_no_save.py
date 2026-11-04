@@ -41,6 +41,9 @@ def run():
             add_edit=page.get_by_role("button",name="Add/Edit",exact=True)
             add_edit.wait_for(state="visible",timeout=18000)
             if add_edit.count()!=1:raise ValueError("ADD_EDIT_AMBIGUOUS")
+            if not add_edit.is_enabled():
+                result["hold_reason"]="QUOTE_ADD_EDIT_DISABLED"
+                raise ValueError("QUOTE_ADD_EDIT_DISABLED")
             add_edit.click(timeout=8500)
             result["last_completed_stage"]="ADD_EDIT_MODAL"
             page.get_by_text("AMEA Pre-made libraries sequencing",exact=True).first.click(timeout=8500)
