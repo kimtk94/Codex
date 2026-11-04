@@ -16,3 +16,20 @@
 .pcSearchButton{border:1px solid #60afbc;background:#153d50;color:#d4f5fc;border-radius:10px;cursor:pointer;padding:12px 16px;font-family:inherit;font-weight:700;font-size:12px}
 .pcSearchButton:hover:not(:disabled){background:#21556a}
 .pcSearchButton:disabled{cursor:progress;color:#9bb4c1;background:#203446}
+
+/* Read-only local aggregate status. No user names or Salesforce native IDs. */
+.auditBar{display:grid;gap:14px;margin:0 0 18px;border:1px solid #325267;
+  border-radius:14px;background:#102739;padding:18px 20px}
+.auditBarTitle{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.auditBarTitle>div{display:grid;gap:5px}
+.auditBarTitle strong{color:#e8f4fb;font-size:15px;font-weight:800}
+.auditBarTitle span,.auditBar>small{color:#a5b8c8;font-size:11px;line-height:1.6}
+.auditRefresh{border:1px solid #578dad;background:#21465c;color:#e2f4fc;
+  border-radius:9px;padding:11px 14px;cursor:pointer;font:inherit;font-size:12px;font-weight:700}
+.auditRefresh:disabled{cursor:wait;opacity:.6}
+.auditStats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:9px}
+.auditStats>div{display:grid;gap:5px;padding:10px 8px;border:1px solid #2b4960;border-radius:9px;background:#152f43}
+.auditStats span{font-size:11px;color:#a9bfcd;line-height:1.5}
+.auditStats strong{font-size:21px;color:#edf7fb;font-weight:800;font-variant-numeric:tabular-nums}
+@media(max-width:850px){.auditStats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:460px){.auditStats{grid-template-columns:repeat(2,minmax(0,1fr))}}
