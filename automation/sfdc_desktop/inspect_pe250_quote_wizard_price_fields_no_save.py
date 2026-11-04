@@ -33,9 +33,15 @@ def run():
             page.goto(url,wait_until="domcontentloaded",timeout=30000)
             if quote_id not in page.url:raise ValueError("QUOTE_ROUTE_MISMATCH")
             result["last_completed_stage"]="QUOTE_ROUTE"
-            page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=8500)
+            detail_tab=page.get_by_role("tab",name="Quotation Detail",exact=True)
+            detail_tab.wait_for(state="visible",timeout=18000)
+            if detail_tab.count()!=1:raise ValueError("QUOTE_DETAIL_TAB_AMBIGUOUS")
+            detail_tab.click(timeout=8500)
             result["last_completed_stage"]="QUOTATION_DETAIL_TAB"
-            page.get_by_text("Add/Edit",exact=True).click(timeout=8500)
+            add_edit=page.get_by_text("Add/Edit",exact=True)
+            add_edit.wait_for(state="visible",timeout=18000)
+            if add_edit.count()!=1:raise ValueError("ADD_EDIT_AMBIGUOUS")
+            add_edit.click(timeout=8500)
             result["last_completed_stage"]="ADD_EDIT_MODAL"
             page.get_by_text("AMEA Pre-made libraries sequencing",exact=True).first.click(timeout=8500)
             result["last_completed_stage"]="SERVICE_CATEGORY"
