@@ -105,7 +105,7 @@ def inspect(page,row):
         ACCOUNT_ROUTE.fullmatch(contact_account_path).group(1)!=account_id):
         return None,"HOLD_ACCOUNT_RELATION_MISMATCH"
     details["contact_account_link_verified"]=True
-    return {**row,"account_id":account_id,"institution":institution,
+    return {**row,"opportunity_ids":[opp],"account_id":account_id,"institution":institution,
             **details,"save_clicked":False},"PASS_ALL_IDENTITY_CHECKS"
 
 
