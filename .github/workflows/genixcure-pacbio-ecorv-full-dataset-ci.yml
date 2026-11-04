@@ -1,0 +1,29 @@
+name: Genixcure PacBio EcoRV Full Dataset Pipeline CI
+on:
+  push:
+    paths:
+      - 'analysis/genixcure/Genixcure_PacBio_EcoRV_Full_Analysis.py'
+      - 'analysis/genixcure/test_genixcure_pacbio_full_synthetic.py'
+      - '.github/workflows/genixcure-pacbio-ecorv-full-dataset-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-exhaustive-pipeline-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile pipeline
+        run: python -m py_compile analysis/genixcure/Genixcure_PacBio_EcoRV_Full_Analysis.py analysis/genixcure/test_genixcure_pacbio_full_synthetic.py
+      - name: Run CIGAR and EcoRV self-test
+        run: python analysis/genixcure/Genixcure_PacBio_EcoRV_Full_Analysis.py --self-test
+      - name: Run end-to-end full-input replay and checkpoint test
+        run: python analysis/genixcure/test_genixcure_pacbio_full_synthetic.py
