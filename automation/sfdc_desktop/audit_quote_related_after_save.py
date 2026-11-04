@@ -53,10 +53,31 @@ def inspect_live_related(oppo_id):
             route=urlsplit(page.url)
             if (route.hostname!=HOST or "/lightning/r/Opportunity/"+oppo_id+"/view" not in route.path):
                 return {"status":"HOLD_OPPORTUNITY_ROUTE_CHANGED","related_quote_count":None,"create_allowed":False}
-            tab=page.get_by_role("tab",name="Related",exact=True)
-            if tab.count()!=1:
-                return {"status":"HOLD_RELATED_TAB_NOT_UNIQUE","related_quote_count":None,"create_allowed":False}
-            tab.click(timeout=10000)  # read-only navigation, never Save
+            # Lightning can finish initial DOM loading before its console tabs
+            # mount. Count across frames, but never click an ambiguous match.
+            tabs=[]
+            tab_inventory=0
+            for _ in range(30):
+                tabs=[]
+                tab_inventory=0
+                for frame in page.frames:
+                    try:
+                        tab_inventory+=frame.get_by_role("tab").count()
+                        loc=frame.get_by_role("tab",name="Related",exact=True)
+                        if loc.count()==1 and loc.is_visible():
+                            tabs.append(loc)
+                    except Exception:
+                        continue
+                if len(tabs)==1:
+                    break
+                page.wait_for_timeout(500)
+            if len(tabs)!=1:
+                return {"status":"HOLD_RELATED_TAB_NOT_UNIQUE",
+                        "related_quote_count":None,"create_allowed":False,
+                        "visible_exact_related_tabs":len(tabs),
+                        "tab_inventory":tab_inventory,
+                        "frame_count":len(page.frames)}
+            tabs[0].click(timeout=10000)  # read-only navigation, never Save
             result={"status":"HOLD_QUOTATION_SECTION_MISSING_OR_AMBIGUOUS",
                     "related_quote_count":None,"create_allowed":False}
             for _ in range(24):
