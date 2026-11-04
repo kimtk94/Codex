@@ -30,3 +30,17 @@ The desktop safety workflow was explicitly dispatched against feature branch `fe
 https://github.com/kimtk94/Codex/actions/runs/41820846582
 
 This CI validates synthetic regression and schema contracts; it cannot independently prove live Salesforce records.
+
+## Follow-up execution: 10 more live Contacts
+- Remote desktop reconnected, the redundant local Email-exact-match commit reconciled with the upstream branch (no force push), and the clean branch was synchronized.
+- New resumable read-only batch tool: `resume_contact_alias_verification_private.py`, with atomic, local-only `contact_alias_attempts_PRIVATE.json` to prevent redoing completed checks on a retry.
+- Next ten previously untested Contacts: **8 PASS_ALL_IDENTITY_CHECKS, 1 HOLD_ACCOUNT_RELATION_MISMATCH, 1 HOLD_CONTACT_DETAIL_DISPLAY**; Salesforce Save/Update/Create **0**.
+- Total 48 Korean-name candidate Contact IDs from historical 180-Opportunity cohort: **15 independently verified, 5 HOLD, 28 not checked**. Success rate among reviewed Contacts 15/20 (75%), coverage 15/48 (31.25%). Never use 15/48 as a rate for all SFDC Contacts.
+- The workstation private JSON now contains **15 verified aliases**, and the actual web module's strict local parsing and lookup recognized **15/15**. There are **12 distinct Korean name strings and 3 homonym groups**. Some same-name Contacts share an institution; native Contact ID remains mandatory to distinguish them.
+- Explicit GitHub Actions Desktop three-pass regression: https://github.com/kimtk94/Codex/actions/runs/41824361609 (**SUCCESS**).
+- Explicit web browser E2E workflow: https://github.com/kimtk94/Codex/actions/runs/41824684066 (**SUCCESS**).
+- No personal data is copied into this document or GitHub.
+
+### Next gates
+- Continue the remaining 28 untested IDs using the resumable batch runner. Revisit the five HOLD IDs separately; never silently lower identity thresholds.
+- The latest in-browser import is local JSON only. Authenticated real-time Salesforce search and web production rollout are separate unfinished steps.
