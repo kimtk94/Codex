@@ -63,7 +63,8 @@ def main():
               if isinstance(r,dict) and r.get("native_relation_status")=="PASS_NATIVE_QUOTE_AND_PARENT_IDS"}
     cases=([r for r in candidates if r.get("known_contact_opportunity_live_evidence") is True
             and (r.get("opportunity_id"),r.get("quote_id")) not in approved]
-           if args.all_contact_verified else choose_verified_contact_cases(candidates,args.per_status))
+           if args.all_contact_verified else [r for r in choose_verified_contact_cases(candidates,args.per_status)
+                   if (r.get("opportunity_id"),r.get("quote_id")) not in approved])
     rows=list(previous)
     newly_checked=0
     for index,item in enumerate(cases,1):
