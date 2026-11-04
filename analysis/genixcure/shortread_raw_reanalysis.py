@@ -89,7 +89,7 @@ def main():
         nonlocal merged_reads
         merged=a.output/"merged.fastq.gz"
         run(["fastp","-i",str(a.r1),"-I",str(a.r2),"-m",
-             "--merged_out",str(merged),"-o",os.devnull,"-O",os.devnull,
+             "--merged_out",str(merged),"-o",str(a.output/"unmerged_R1.fastq.gz"),"-O",str(a.output/"unmerged_R2.fastq.gz"),
              "-w",str(a.threads),"-j",str(a.output/"fastp.json"),
              "-h",str(a.output/"fastp.html")],log)
         merged_reads=fastq_count(merged)[0]
