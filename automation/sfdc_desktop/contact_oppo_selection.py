@@ -8,9 +8,9 @@ import re
 import unicodedata
 
 EXCLUDED_ACCOUNTS = frozenset({"KAIST", "한국과학기술원", "한남대학교", "HANNAM UNIVERSITY", "한남대"})
-ID_CONTACT = re.compile(r"003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\\Z")
-ID_ACCOUNT = re.compile(r"001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\\Z")
-ID_OPPORTUNITY = re.compile(r"006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\\Z")
+ID_CONTACT = re.compile(r"003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\Z")
+ID_ACCOUNT = re.compile(r"001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\Z")
+ID_OPPORTUNITY = re.compile(r"006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\Z")
 
 
 def normalize(value):
