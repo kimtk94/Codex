@@ -210,6 +210,19 @@ def self_test():
         pass
     else:
         raise AssertionError("CIGAR parser accepted malformed input")
+    # Synthetic reference and CIGAR with all three structurally distinct event classes.
+    synthetic_ref = "A" * 6848
+    synthetic_q = ("A" * 2144 + "A" * 198 + "T" * 12 + "A" * 8 +
+                   "G" * 12 + "A" * 3633 + "C" * 21 + "A" * 769)
+    assert len(synthetic_q) == 6797
+    synthetic_paf = ["test", "6797", "0", "6797", "+", "ref", "6848", "0", "6848",
+                     "6752", "6893", "60", "cg:Z:2144=96D198=12I8=12I3633=21I769="]
+    observed = inspect_one(synthetic_paf, synthetic_q, synthetic_ref)
+    assert all(observed[k] for k in ("itr96", "variableA12", "variableB12", "extra21", "full_span"))
+    assert observed["eq"] == 6752 and observed["x"] == 0
+    synthetic_paf[4] = "-"
+    observed_reverse = inspect_one(synthetic_paf, rc(synthetic_q), synthetic_ref)
+    assert all(observed_reverse[k] for k in ("itr96", "variableA12", "variableB12", "extra21", "full_span"))
     print("SELF TEST PASS")
 
 if __name__=="__main__":
