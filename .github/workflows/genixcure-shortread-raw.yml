@@ -1,0 +1,104 @@
+name: Genixcure ShortRead RAW reanalysis
+on:
+  workflow_dispatch:
+    inputs:
+      sample:
+        description: "One sample, or all"
+        required: true
+        type: choice
+        options: [all, Brain_1, Brain_2, Brain_3, Motor_1, Motor_2, Motor_3, SH_SY5Y_1, SH_SY5Y_2, SH_SY5Y_3, Input, PCR_6_13]
+        default: all
+permissions:
+  contents: read
+jobs:
+  process:
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {sample: Brain_1, folder: 1DlWiq9dpcvZZ6Xpw8uovd8EhTxTIKRaZ}
+          - {sample: Brain_2, folder: 1uDkNHE_t8Fs6lXtd-Ftbi1SxaOhvK4mf}
+          - {sample: Brain_3, folder: 1woHxLMEJYnw_nF_sE0lVHqhqvTN-fAVq}
+          - {sample: Motor_1, folder: 1yPdiJB5jnAN_lqdrPGUpALbsXm7Q2Jv9}
+          - {sample: Motor_2, folder: 1brTJvspA9Q-RSjPkuEkfoPqu685_9hmL}
+          - {sample: Motor_3, folder: 1tEJLs5pyPrV8nvwH86XGDSWRcUb6YWdJ}
+          - {sample: SH_SY5Y_1, folder: 1mc0tlqGQaiveM3OBpPof__5MoK0EAZfv}
+          - {sample: SH_SY5Y_2, folder: 1sMzD62LwPBFFuHvFvC2cpihhXpf1QyBt}
+          - {sample: SH_SY5Y_3, folder: 12_6fz_2g0OBROfBxi3IsvBkg9Q8AuKmO}
+          - {sample: Input, folder: 1F58gLBc_48r_R2dkRVc8ILvnNJW8Lt1n}
+          - {sample: PCR_6_13, folder: 12YerJ_CIPzXwpjOf6krNy8QKwH_zg1nt}
+    if: ${{ inputs.sample == 'all' || inputs.sample == matrix.sample }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      RCLONE_CONFIG_B64: ${{ secrets.RCLONE_CONFIG_B64 }}
+      SAMPLE: ${{ matrix.sample }}
+      FOLDER: ${{ matrix.folder }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install processing dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fastp rclone
+      - name: Configure Google Drive authentication
+        run: |
+          if [ -z "$RCLONE_CONFIG_B64" ]; then
+            echo "::error::Set GitHub Actions secret RCLONE_CONFIG_B64 (base64 rclone.conf)." 
+            exit 1
+          fi
+          mkdir -p ~/.config/rclone
+          printf '%s' "$RCLONE_CONFIG_B64" | base64 -d > ~/.config/rclone/rclone.conf
+          chmod 600 ~/.config/rclone/rclone.conf
+          if ! rclone listremotes | grep -qx 'gdrive:'; then
+            echo "::error::rclone remote gdrive: not present"
+            exit 1
+          fi
+      - name: Download original FASTQ pair and MD5
+        run: |
+          mkdir -p "raw/$SAMPLE" "results/$SAMPLE"
+          rclone copy "gdrive:" "raw/$SAMPLE" --drive-root-folder-id "$FOLDER" --include '*.fq.gz' --include '*.fastq.gz' --include 'MD5.txt' --transfers 2 --checkers 4 --retries 5 --low-level-retries 10
+          find "raw/$SAMPLE" -maxdepth 1 -type f -printf '%f (%s bytes)\n'
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p=Path("raw")/os.environ["SAMPLE"]
+          r1=[x for x in p.iterdir() if x.name.endswith((".fq.gz",".fastq.gz")) and x.name.rsplit(".",2)[0].endswith(("_1","_R1"))]
+          r2=[x for x in p.iterdir() if x.name.endswith((".fq.gz",".fastq.gz")) and x.name.rsplit(".",2)[0].endswith(("_2","_R2"))]
+          if len(r1)!=1 or len(r2)!=1:
+              raise SystemExit(f"Expected exactly one R1/R2 FASTQ pair; R1={r1}, R2={r2}")
+          (p/"pair.env").write_text("R1="+str(r1[0])+"\nR2="+str(r2[0])+"\n")
+          PY
+      - name: Recount, merge, unique, validate with per-step summaries
+        run: |
+          source "raw/$SAMPLE/pair.env"
+          python analysis/genixcure/shortread_raw_reanalysis.py --sample "$SAMPLE" --r1 "$R1" --r2 "$R2" --output "results/$SAMPLE" --threads 4
+      - name: Add summary to GitHub job summary
+        if: always()
+        run: |
+          if [ -f "results/$SAMPLE/summary.md" ]; then
+            cat "results/$SAMPLE/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No stage summary generated for $SAMPLE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload summaries and QC (even on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shortread-${{ matrix.sample }}-summary
+          path: |
+            results/${{ matrix.sample }}/summary.tsv
+            results/${{ matrix.sample }}/summary.md
+            results/${{ matrix.sample }}/stage_status.json
+            results/${{ matrix.sample }}/fastp.json
+            results/${{ matrix.sample }}/fastp.html
+            results/${{ matrix.sample }}/pipeline.log
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Upload sequence counts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shortread-${{ matrix.sample }}-unique
+          path: results/${{ matrix.sample }}/unique_sequences.csv.gz
+          retention-days: 30
