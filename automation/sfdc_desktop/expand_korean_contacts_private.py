@@ -51,6 +51,22 @@ def expand_candidates(manifest, historical, registry):
     for r in registry:
         if isinstance(r, dict) and isinstance(r.get("id"), str):
             roster[r["id"]].append(r)
+    # Reject a Contact ID if the same authoritative inventory attributes
+    # different Korean display labels to it. Even if only one label happens to
+    # match the Contact roster, that ambiguity cannot be silently discarded.
+    source_labels = defaultdict(set)
+    for entry in manifest:
+        if not isinstance(entry, dict):
+            continue
+        opp = entry.get("opportunity_id")
+        ids = entry.get("candidate_contact_ids")
+        label = entry.get("contact_display")
+        if (isinstance(opp, str) and opp not in historical_opps
+                and isinstance(ids, list) and len(ids) == 1
+                and isinstance(ids[0], str) and ID_CONTACT.fullmatch(ids[0])
+                and isinstance(label, str) and korean_name_from_contact_label(label)):
+            source_labels[ids[0]].add(label)
+    ambiguous_contact_ids = {cid for cid, labels in source_labels.items() if len(labels) != 1}
     proposed = defaultdict(list)
     for entry in manifest:
         if not isinstance(entry, dict):
@@ -67,7 +83,8 @@ def expand_candidates(manifest, historical, registry):
         if not isinstance(match_ids, list) or len(match_ids) != 1:
             continue
         cid = match_ids[0]
-        if not isinstance(cid, str) or not ID_CONTACT.fullmatch(cid):
+        if (not isinstance(cid, str) or not ID_CONTACT.fullmatch(cid)
+                or cid in ambiguous_contact_ids):
             continue
         source_rows = roster.get(cid, [])
         names = {x.get("name") for x in source_rows if isinstance(x.get("name"), str)}
