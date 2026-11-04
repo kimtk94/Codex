@@ -76,6 +76,22 @@ export default function OppoQuoteCommandPage() {
       setNotice("자동 복사를 사용할 수 없습니다. 아래 명령서를 직접 복사하세요.");
     }
   };
+  const downloadDraft = () => {
+    if (!result.ok) return setNotice(result.errors[0]);
+    const blob = new Blob([preview], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "sfdc-oppo-quote-private-draft.json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setNotice("검토용 JSON을 이 PC에 저장했습니다. 서버나 Salesforce에는 전송하지 않았습니다.");
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
   const prepare = event => {
     event.preventDefault();
     setShowPreview(true);
@@ -213,7 +229,7 @@ export default function OppoQuoteCommandPage() {
 
         {showPreview && result.ok && <section className={styles.output} aria-label="검토용 명령서">
           <div className={styles.outputTop}><div><h2>검토용 JSON 명령서</h2><p>이메일이 포함된 개인정보입니다. 공유 저장소에 업로드하지 마세요.</p></div>
-            <button type="button" className={styles.secondary} onClick={copy}>명령서 복사</button></div>
+            <div className={styles.buttons}><button type="button" className={styles.secondary} onClick={downloadDraft}>비공개 JSON 저장</button><button type="button" className={styles.secondary} onClick={copy}>명령서 복사</button></div></div>
           <pre>{preview}</pre>
         </section>}
         <footer className={styles.footer}>Oppo–Quote · Research-AMEA 시범 워크플로우 · 실제 Salesforce 생성 0건</footer>
