@@ -13,7 +13,7 @@ permissions:
 jobs:
   synthetic-exhaustive-pipeline-check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,9 +21,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install BAM parser
+        run: python -m pip install 'pysam>=0.22,<0.24'
       - name: Compile pipeline
         run: python -m py_compile analysis/genixcure/Genixcure_PacBio_EcoRV_Full_Analysis.py analysis/genixcure/test_genixcure_pacbio_full_synthetic.py
-      - name: Run CIGAR and EcoRV self-test
+      - name: Validate CIGAR and coordinate handling
         run: python analysis/genixcure/Genixcure_PacBio_EcoRV_Full_Analysis.py --self-test
-      - name: Run end-to-end full-input replay and checkpoint test
+      - name: Run exhaustive-CSV and full-BAM resume regression
         run: python analysis/genixcure/test_genixcure_pacbio_full_synthetic.py
