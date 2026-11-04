@@ -26,7 +26,7 @@ JS=r"""() => {
      if(child.shadowRoot)walk(child.shadowRoot);
     }
    }
-   walk(el);
+   walk(el.shadowRoot||el);
    const anchors=all.filter(x=>x.localName==='a');
    const links=anchors.map(x=>{
     const href=x.getAttribute('href')||'';
