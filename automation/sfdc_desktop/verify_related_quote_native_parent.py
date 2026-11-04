@@ -17,16 +17,39 @@ QUOTE = re.compile(r"a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\Z")
 HREF_RE = re.compile(r"/lightning/r/(?:Opportunity|Quotation__c)/([^/?#]+)/view")
 LINK_JS = r"""() => {
  const links=[], seen=new Set();
+ function nearbyScope(el, kind) {
+  let cursor=el;
+  for(let n=0;cursor && n<12;n++) {
+   const tag=(cursor.localName||'').toLowerCase();
+   if(kind==='Opportunity') {
+    if(tag==='record_flexipage-record-field') {
+     // Reject unrelated console navigation: the parent must be in a
+     // labelled field of the currently open Quotation Details.
+     const label=(cursor.innerText||'').slice(0,250);
+     return /(?:^|\s)Opportunity(?:\s+Name)?(?:\s|$)/i.test(label);
+    }
+   } else if(kind==='Quotation__c') {
+    if(tag==='article' || tag==='lst-related-list-single-container' ||
+       tag==='records-related-list') {
+     const heading=cursor.querySelector('h2,h3,.slds-card__header-title');
+     const title=(heading?.innerText||heading?.textContent||'').trim();
+     return /^Quotations?(?:\s*\(\d+\))?$/i.test(title);
+    }
+   }
+   cursor=cursor.parentElement || cursor.getRootNode()?.host || null;
+  }
+  return false;
+ }
  function visit(root) {
   if(!root||seen.has(root))return;
   seen.add(root);
   for(const el of root.querySelectorAll('*')) {
     if(el.shadowRoot)visit(el.shadowRoot);
-    if(el.tagName==='A') {
-      const href=el.getAttribute('href')||'';
-      if(/\/lightning\/r\/(Opportunity|Quotation__c)\/[A-Za-z0-9]{15,18}\/view/.test(href))
-        links.push(href);
-    }
+    if(el.tagName!=='A')continue;
+    const href=el.getAttribute('href')||'';
+    const match=href.match(/\/lightning\/r\/(Opportunity|Quotation__c)\/[A-Za-z0-9]{15,18}\/view(?:[/?#]|$)/);
+    if(!match)continue;
+    links.push({href, kind:match[1], scoped:nearbyScope(el, match[1])});
   }
  }
  visit(document);
@@ -58,23 +81,39 @@ def identity_result(expected_opportunity, quote_ids, parents):
     return {"status":"QUOTE_NATIVE_PARENT_MATCH_REVIEW_COMPLETE","quote_id_verified":True,"parent_verified":True}
 
 
-def get_links(page):
-    urls=set()
-    for frame in page.frames:
-        try:
-            urls.update(frame.evaluate(LINK_JS))
-        except Exception:
-            continue
+def scoped_link_ids(items):
+    """Only trust links in a labelled field or the Quotation Related section.
+
+    An unrelated Salesforce console tab, global search result, or another
+    record's link cannot supply proof of the current Quote's native parent.
+    """
     out={"Opportunity":set(),"Quotation__c":set()}
-    for href in urls:
+    if not isinstance(items,list):
+        return out
+    for row in items:
+        if not isinstance(row,dict) or row.get("scoped") is not True:
+            continue
+        kind=row.get("kind")
+        href=row.get("href")
+        if kind not in out or not isinstance(href,str):
+            continue
         match=HREF_RE.search(href)
         if not match:continue
-        kind="Opportunity" if "/Opportunity/" in href else "Quotation__c"
         record=match.group(1)
-        if (kind=="Opportunity" and OPPO.fullmatch(record)) or (
-                kind=="Quotation__c" and QUOTE.fullmatch(record)):
+        if (kind=="Opportunity" and "/Opportunity/" in href and OPPO.fullmatch(record)) or (
+                kind=="Quotation__c" and "/Quotation__c/" in href and QUOTE.fullmatch(record)):
             out[kind].add(record)
     return out
+
+
+def get_links(page):
+    candidates=[]
+    for frame in page.frames:
+        try:
+            candidates.extend(frame.evaluate(LINK_JS))
+        except Exception:
+            continue
+    return scoped_link_ids(candidates)
 
 
 def run_live(expected):
@@ -89,7 +128,7 @@ def run_live(expected):
         try:
             page.goto("https://"+HOST+"/lightning/r/Opportunity/"+expected+"/view",
                       wait_until="domcontentloaded",timeout=35000)
-            if urlsplit(page.url).hostname != HOST:
+            if (urlsplit(page.url).hostname != HOST or\n                    urlsplit(page.url).path != "/lightning/r/Opportunity/"+expected+"/view"):
                 return {"status":"HOLD_OPPORTUNITY_NAVIGATION","quote_id_verified":False,"parent_verified":False}
             tabs=[]
             for _ in range(30):
@@ -122,7 +161,7 @@ def run_live(expected):
             try:
                 q.goto("https://"+HOST+"/lightning/r/Quotation__c/"+quote_id+"/view",
                       wait_until="domcontentloaded",timeout=35000)
-                if urlsplit(q.url).hostname!=HOST:
+                if (urlsplit(q.url).hostname!=HOST or\n                        urlsplit(q.url).path != "/lightning/r/Quotation__c/"+quote_id+"/view"):
                     return {"status":"HOLD_QUOTE_NAVIGATION","quote_id_verified":False,"parent_verified":False}
                 tab=q.get_by_role("tab",name="Details",exact=True)
                 if tab.count()==1:tab.click(timeout=7000)
