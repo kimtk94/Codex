@@ -52,6 +52,29 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await page.locator("#sfdc-mode").selectOption("PE250");
     assert.equal((await page.locator("#sfdc-depth + span").textContent()).trim(), "M reads");
 
+    const localRows = [
+      {name:"김민수", institution:"서울대학교", contact_id:"003000000000001AAA",
+       account_id:"001000000000001AAA",contact_email:"first@example.org",
+       opportunity_ids:["006000000000001AAA"]},
+      {name:"김민수", institution:"연세대학교", contact_id:"003000000000002AAA",
+       account_id:"001000000000002AAA",contact_email:"second@example.org",
+       opportunity_ids:["006000000000002AAA"]},
+      {name:"김민수", institution:"한남대학교", contact_id:"003000000000003AAA",
+       account_id:"001000000000003AAA",contact_email:"excluded@example.org",
+       opportunity_ids:["006000000000003AAA"]},
+    ];
+    await page.locator("#sfdc-local-contact-file").setInputFiles({
+      name:"authorized-private-synthetic.json",mimeType:"application/json",
+      buffer:Buffer.from(JSON.stringify(localRows)),
+    });
+    await page.locator("#sfdc-contact-name").fill("김민수");
+    const contactSelect=page.locator("#sfdc-contact-candidate");
+    assert.equal(await contactSelect.locator("option").count(),3);
+    await contactSelect.selectOption("003000000000002AAA|001000000000002AAA");
+    assert.equal(await page.locator("#sfdc-contact-email").inputValue(),"second@example.org");
+    assert.equal(nonReadRequests.length,0,"Contact import must remain browser-local");
+    // Use the existing synthetic email for the remaining command assertion.
+
     await page.locator("#sfdc-contact-email").fill("researcher@example.org");
     await page.locator("#sfdc-samples").fill("5");
     await page.locator("#sfdc-depth").fill("1");
