@@ -30,10 +30,12 @@ ANCESTORS=r"""(el)=>{
   scan(cur.shadowRoot||cur);
   const links=nodes.filter(x=>x.tagName==='A').map(x=>x.getAttribute('href')||'');
   res.push({tag:cur.localName,depth,
-    contact:links.filter(x=>/\/Contact\/003[A-Za-z0-9]{12}/.test(x)).length,
-    account:links.filter(x=>/\/Account\/001[A-Za-z0-9]{12}/.test(x)).length,
-    opportunity:links.filter(x=>/\/Opportunity\/006[A-Za-z0-9]{12}/.test(x)).length,
+    contact:links.filter(x=>/\/(?:Contact\/)?003[A-Za-z0-9]{12}/.test(x)).length,
+    account:links.filter(x=>/\/(?:Account\/)?001[A-Za-z0-9]{12}/.test(x)).length,
+    opportunity:links.filter(x=>/\/(?:Opportunity\/)?006[A-Za-z0-9]{12}/.test(x)).length,
     mailto:links.filter(x=>x.startsWith('mailto:')).length,
+    link_total:links.length,
+    lightning_links:links.filter(x=>x.includes("/lightning/r/")).length,
     text_length:(cur.innerText||'').length,
     field_host:/record_flexipage-record-field|lightning-output-field/.test(cur.localName||'')
   });
@@ -66,8 +68,13 @@ def choose():
 def collect(page,label):
     locator=page.get_by_text(label,exact=True)
     count=locator.count()
-    return {"label_occurrences":count,
-            "ancestors":locator.first.evaluate(ANCESTORS) if count==1 else []}
+    profiles=[]
+    for i in range(min(count,4)):
+        try:
+            profiles.append(locator.nth(i).evaluate(ANCESTORS))
+        except Exception:
+            continue
+    return {"label_occurrences":count,"profiles":profiles}
 
 
 def detail_tab(page):
