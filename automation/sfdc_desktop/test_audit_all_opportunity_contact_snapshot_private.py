@@ -19,6 +19,7 @@ def approved():
     return {"name":"김민수","institution":"Synthetic University",
             "contact_id":CID,"account_id":"001000000000001AAA",
             "opportunity_id":"006000000000001AAA",
+            "opportunity_ids":["006000000000001AAA"],
             "display_name":"김민수 KimMinSu",
             "contact_email":"synthetic@example.org",
             "contact_detail_id_verified":True,
