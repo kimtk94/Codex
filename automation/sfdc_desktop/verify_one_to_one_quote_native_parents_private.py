@@ -49,11 +49,51 @@ def classify_native_parent(candidate,actual):
     return "PASS_NATIVE_QUOTE_AND_PARENT_IDS"
 
 
+def select_remaining_native_cases(candidates,prior,*,all_structural=False,limit=25):
+    """Select existing one-to-one pairs never attempted, with no CRM write gate.
+
+    An identity-verified native parent is independent from Contact proof. A
+    structural-only case must continue to require Contact verification for use
+    in any subsequent preparation workflow.
+    """
+    if not isinstance(candidates,list) or not isinstance(prior,list):
+        raise ValueError("INVALID_CANDIDATE_OR_HISTORY")
+    if type(limit) is not int or not 1<=limit<=50:
+        raise ValueError("INVALID_READBACK_BATCH_LIMIT")
+    attempted=set()
+    for row in prior:
+        if isinstance(row,dict):
+            key=(row.get("opportunity_id"),row.get("quote_id"))
+            attempted.add(key)
+    selected=[]
+    seen=set()
+    for row in candidates:
+        if not isinstance(row,dict):
+            continue
+        key=(row.get("opportunity_id"),row.get("quote_id"))
+        if key in attempted or key in seen or row.get("salesforce_save_allowed") is not False:
+            continue
+        if row.get("native_quote_parent_independently_live_verified") is not False:
+            continue
+        if not all_structural and row.get("known_contact_opportunity_live_evidence") is not True:
+            continue
+        selected.append(row)
+        seen.add(key)
+        if len(selected)>=limit:
+            break
+    return selected
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--per-status",type=int,default=2)
     p.add_argument("--all-contact-verified",action="store_true")
+    p.add_argument("--all-structural",action="store_true",
+                   help="Read-only native parent check even if Contact still unverified")
+    p.add_argument("--max-cases",type=int,default=25)
     args=p.parse_args()
+    if args.all_structural and args.all_contact_verified:
+        raise SystemExit("HOLD_MUTUALLY_EXCLUSIVE_SELECTION")
     candidates=json.loads((ROOT/SOURCE).read_text(encoding="utf-8-sig"))["candidates"]
     existing_path=ROOT/OUTPUT
     previous=json.loads(existing_path.read_text(encoding="utf-8-sig")) if existing_path.exists() else []
@@ -61,10 +101,12 @@ def main():
         raise SystemExit("HOLD_PREVIOUS_NATIVE_PARENT_REPORT_INVALID")
     approved={(r.get("opportunity_id"),r.get("quote_id")) for r in previous
               if isinstance(r,dict) and r.get("native_relation_status")=="PASS_NATIVE_QUOTE_AND_PARENT_IDS"}
-    cases=([r for r in candidates if r.get("known_contact_opportunity_live_evidence") is True
-            and (r.get("opportunity_id"),r.get("quote_id")) not in approved]
-           if args.all_contact_verified else [r for r in choose_verified_contact_cases(candidates,args.per_status)
-                   if (r.get("opportunity_id"),r.get("quote_id")) not in approved])
+    if args.all_contact_verified or args.all_structural:
+        cases=select_remaining_native_cases(
+            candidates,previous,all_structural=args.all_structural,limit=args.max_cases)
+    else:
+        cases=[r for r in choose_verified_contact_cases(candidates,args.per_status)
+               if (r.get("opportunity_id"),r.get("quote_id")) not in approved]
     rows=list(previous)
     newly_checked=0
     for index,item in enumerate(cases,1):
@@ -78,6 +120,7 @@ def main():
             "opportunity_id":item["opportunity_id"],
             "quote_id":item["quote_id"],
             "quote_status":item["quote_status"],
+            "contact_opportunity_verified_in_source":item.get("known_contact_opportunity_live_evidence") is True,
             "native_relation_status":status,
             "save_clicked":False
         })
