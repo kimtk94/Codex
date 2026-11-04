@@ -20,6 +20,11 @@ def field_value(page,label,expected=None):
         h=labels.nth(i).locator("xpath=ancestor::record_flexipage-record-field")
         if h.count()==1:
             hosts.append(h)
+    if expected is not None:
+        hosts=[h for h in hosts if h.is_visible() and expected in
+               [line.strip() for line in h.inner_text(timeout=4000).splitlines() if line.strip()]]
+    else:
+        hosts=[h for h in hosts if h.is_visible()]
     if len(hosts)!=1:
         return {"status":"HOLD_FIELD_HOST_AMBIGUOUS","host_count":len(hosts)},None
     host=hosts[0]
