@@ -50,6 +50,18 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
       return response.status;
     });
     assert.equal(localApiResponse, 404, "Hosted/default web must disable private workstation source");
+    const disabledPcReview = await fetch(base + "/api/sfdc/review-local", {
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "Origin":base,
+        "Sec-Fetch-Site":"same-origin",
+        "X-SFDC-Local-Preview":"1",
+      },
+      body:JSON.stringify({version:"synthetic-test",salesforce_save_allowed:false}),
+    });
+    assert.equal(disabledPcReview.status,404,
+      "Hosted/default server must not expose authenticated workstation review");
     assert.equal(await page.locator("#sfdc-contact-email").inputValue(), "");
     assert.equal(await page.locator("#sfdc-mode").inputValue(), "PE250");
     assert.equal((await page.locator("#sfdc-depth + span").textContent()).trim(), "M reads");
