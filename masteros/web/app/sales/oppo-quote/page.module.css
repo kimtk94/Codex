@@ -13,6 +13,6 @@
 /* Explicit local-only PC search action; hidden on hosted Vercel previews. */
 .pcLookupActions{display:grid;gap:7px;margin:0 0 17px}
 .pcLookupActions small{font-size:11px;color:#8caebe;line-height:1.55}
-.pcSearchButton{border:1px solid #60afbc;background:#153d50;color:#d4f5fc;border-radius:10px;cursor:pointer;padding:12px 16px;font:700 12px inherit}
+.pcSearchButton{border:1px solid #60afbc;background:#153d50;color:#d4f5fc;border-radius:10px;cursor:pointer;padding:12px 16px;font-family:inherit;font-weight:700;font-size:12px}
 .pcSearchButton:hover:not(:disabled){background:#21556a}
 .pcSearchButton:disabled{cursor:progress;color:#9bb4c1;background:#203446}
