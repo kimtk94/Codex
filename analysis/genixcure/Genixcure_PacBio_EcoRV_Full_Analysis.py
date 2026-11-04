@@ -36,7 +36,7 @@ WINDOWS = {
     'additional_21_candidate': (6060, 6091),
 }
 QC_FIELDS = [
-    'ordinal','bam_qname','read_count','length_bp','bam_flag','bam_rq','missing_sequence',
+    'ordinal','bam_qname','read_count','length_bp','bam_flag','bam_rq','bam_mean_base_q','missing_sequence',
     'mapped','alignment_segments','strand','qcov','rcov','alignment_identity',
     'full_span','high_identity','itr_del_90_102',
     'umi_A_ins_10_14','barcode_B_ins_10_14','additional_ins_19_23',
@@ -242,6 +242,7 @@ def process_chunk(entries, chunk_id, ref_path, ref, out_dir, work, params_hash, 
             a=align.get(e['id'])
             row={'ordinal':e['ordinal'],'bam_qname':e['qname'], 'read_count':e['weight'],
                  'length_bp':len(e['sequence']),'bam_flag':e['flag'],'bam_rq':e['rq'],
+                 'bam_mean_base_q':e.get('mean_base_q',''),
                  'missing_sequence':int(e.get('missing_sequence',False)),
                  'mapped':int(a is not None),'alignment_segments':segments[e['id']]}
             if a:row.update(a)
@@ -325,8 +326,8 @@ def bam_runner(args, ref, params_hash):
     except ImportError as exc:
         raise RuntimeError('pysam required for BAM mode. Install with pip install pysam') from exc
     bam=Path(args.bam)
-    if not bam.is_file() or bam.stat().st_size<1_000_000_000:
-        raise RuntimeError('BAM path not present/readable or appears truncated: '+str(bam))
+    if not bam.is_file() or bam.stat().st_size<128:
+        raise RuntimeError('BAM path not present/readable or empty: '+str(bam))
     checkpoints=read_checkpoints(args.out,'bam',params_hash)
     prev=checkpoints[-1] if checkpoints else None
     if prev and prev['exhausted']:
@@ -352,9 +353,11 @@ def bam_runner(args, ref, params_hash):
                 qname=record.query_name or ''
                 try:rq=record.get_tag('rq')
                 except KeyError:rq=''
+                qv=record.query_qualities
+                mean_base_q=round(sum(qv)/len(qv),3) if qv is not None and len(qv) else ''
                 batch.append({'id':f'read_{ordinal:012d}','ordinal':ordinal,'qname':qname,
                               'sequence':seq.upper(),'weight':1,'flag':record.flag,'rq':rq,
-                              'missing_sequence':missing_sequence})
+                              'missing_sequence':missing_sequence,'mean_base_q':mean_base_q})
             end=int(stream.tell())
             if not batch:
                 return aggregate(checkpoints,args.out,'bam',params_hash,True)
