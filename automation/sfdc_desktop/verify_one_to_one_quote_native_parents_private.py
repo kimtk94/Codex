@@ -52,16 +52,27 @@ def classify_native_parent(candidate,actual):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--per-status",type=int,default=2)
+    p.add_argument("--all-contact-verified",action="store_true")
     args=p.parse_args()
     candidates=json.loads((ROOT/SOURCE).read_text(encoding="utf-8-sig"))["candidates"]
-    cases=choose_verified_contact_cases(candidates,args.per_status)
-    rows=[]
+    existing_path=ROOT/OUTPUT
+    previous=json.loads(existing_path.read_text(encoding="utf-8-sig")) if existing_path.exists() else []
+    if not isinstance(previous,list):
+        raise SystemExit("HOLD_PREVIOUS_NATIVE_PARENT_REPORT_INVALID")
+    approved={(r.get("opportunity_id"),r.get("quote_id")) for r in previous
+              if isinstance(r,dict) and r.get("native_relation_status")=="PASS_NATIVE_QUOTE_AND_PARENT_IDS"}
+    cases=([r for r in candidates if r.get("known_contact_opportunity_live_evidence") is True
+            and (r.get("opportunity_id"),r.get("quote_id")) not in approved]
+           if args.all_contact_verified else choose_verified_contact_cases(candidates,args.per_status))
+    rows=list(previous)
+    newly_checked=0
     for index,item in enumerate(cases,1):
         try:
             live=run_live(item["opportunity_id"])
             status=classify_native_parent(item,live)
         except Exception as exc:
             status="HOLD_"+type(exc).__name__
+        newly_checked+=1
         rows.append({
             "opportunity_id":item["opportunity_id"],
             "quote_id":item["quote_id"],
@@ -73,7 +84,8 @@ def main():
         print("ONE_TO_ONE_NATIVE_ID_CHECK",index,"/",len(cases),status,flush=True)
     counts=Counter(x["native_relation_status"] for x in rows)
     print("ONE_TO_ONE_NATIVE_SUMMARY",json.dumps({
-        "checked":len(rows),"native_verified":counts["PASS_NATIVE_QUOTE_AND_PARENT_IDS"],
+        "checked":len(rows),"newly_checked":newly_checked,
+        "native_verified":counts["PASS_NATIVE_QUOTE_AND_PARENT_IDS"],
         "hold":len(rows)-counts["PASS_NATIVE_QUOTE_AND_PARENT_IDS"],
         "new_quote_save_allowed":False,"salesforce_writes":0,
     },sort_keys=True))
