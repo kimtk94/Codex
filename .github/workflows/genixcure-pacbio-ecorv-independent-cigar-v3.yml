@@ -1,0 +1,24 @@
+name: Genixcure PacBio EcoRV Independent CIGAR v3
+on:
+  push:
+    paths:
+      - 'analysis/genixcure/Genixcure_PacBio_EcoRV_Independent_CIGAR_Audit_v3.py'
+      - '.github/workflows/genixcure-pacbio-ecorv-independent-cigar-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  structural-cigar-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile
+        run: python -m py_compile analysis/genixcure/Genixcure_PacBio_EcoRV_Independent_CIGAR_Audit_v3.py
+      - name: Validate EcoRV site mapping, plus/minus CIGAR, all three structural hotspots
+        run: python analysis/genixcure/Genixcure_PacBio_EcoRV_Independent_CIGAR_Audit_v3.py --self-test
