@@ -1,5 +1,5 @@
 import unittest
-from verify_related_quote_native_parent import same_native,identity_result
+from verify_related_quote_native_parent import same_native, identity_result, scoped_link_ids
 
 O="006000000000001AAA"
 Q="a0P000000000001AAA"
@@ -24,6 +24,37 @@ class QuoteParentNativeTests(unittest.TestCase):
         self.assertFalse(same_native(Q,O))
     def test_three_repeat(self):
         self.assertEqual(len({identity_result(O,{Q},{O})["status"] for _ in range(3)}),1)
+
+    def test_global_console_links_never_count(self):
+        rows=[
+            {"kind":"Quotation__c","href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":False},
+            {"kind":"Opportunity","href":"/lightning/r/Opportunity/"+O+"/view","scoped":False},
+        ]
+        self.assertEqual(scoped_link_ids(rows),{"Quotation__c":set(),"Opportunity":set()})
+
+    def test_only_scoped_quote_and_parent_links_count(self):
+        rows=[
+            {"kind":"Quotation__c","href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":True},
+            {"kind":"Opportunity","href":"/lightning/r/Opportunity/"+O+"/view","scoped":True},
+            {"kind":"Quotation__c","href":"/lightning/r/Quotation__c/a0P000000000003AAA/view","scoped":False},
+        ]
+        result=scoped_link_ids(rows)
+        self.assertEqual(result["Quotation__c"],{Q})
+        self.assertEqual(result["Opportunity"],{O})
+        self.assertTrue(identity_result(O,result["Quotation__c"],result["Opportunity"])["parent_verified"])
+
+    def test_untrusted_metadata_fails_closed(self):
+        cases=[{},None,{"href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":True},
+               {"kind":"Quotation__c","href":"/lightning/r/Opportunity/"+O+"/view","scoped":True},
+               {"kind":"Opportunity","href":"https://example.org/foo","scoped":True},
+               {"kind":"Quotation__c","href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":1}]
+        self.assertEqual(scoped_link_ids(cases)["Quotation__c"],set())
+
+    def test_deduped_quote_link_repeated_three_times(self):
+        row={"kind":"Quotation__c","href":"/lightning/r/Quotation__c/"+Q+"/view","scoped":True}
+        for _ in range(3):
+            self.assertEqual(scoped_link_ids([row,row])["Quotation__c"],{Q})
+
 
 if __name__=="__main__":
     unittest.main()
