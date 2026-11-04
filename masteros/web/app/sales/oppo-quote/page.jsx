@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import styles from "./page.module.css";
 import { DEFAULT_REQUEST, MODES, unitForMode, validateDraft, formatDraft } from "../../../lib/sfdc-oppo-quote.mjs";
+import { parseLocalContacts, lookupLocalContacts } from "../../../lib/sfdc-contact-local.mjs";
 
 const pipeline = [
   { label: "Contact / Account", detail: "이메일 정확 일치 · Account 연결 · 중복 확인", state: "검증 필요" },
@@ -15,12 +16,41 @@ export default function OppoQuoteCommandPage() {
   const [form, setForm] = useState({ ...DEFAULT_REQUEST });
   const [notice, setNotice] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+  const [privateContacts, setPrivateContacts] = useState([]);
+  const [contactSearchName, setContactSearchName] = useState("");
+  const [selectedContactKey, setSelectedContactKey] = useState("");
+  const [localStatus, setLocalStatus] = useState("고객 데이터 미연결 · 검색은 로컬 JSON에서만 수행");
+  const matchingContacts = useMemo(() => lookupLocalContacts(contactSearchName, privateContacts), [contactSearchName, privateContacts]);
   const result = useMemo(() => validateDraft(form), [form]);
   const preview = result.ok ? formatDraft(form) : "";
   const set = (key, value) => {
     setNotice("");
     setShowPreview(false);
     setForm(prev => ({ ...prev, [key]: value }));
+  };
+  const loadContacts = async event => {
+    const file = event.target.files?.[0];
+    setSelectedContactKey("");
+    setForm(prev => ({ ...prev, contact_email: "" }));
+    setShowPreview(false);
+    setPrivateContacts([]);
+    if (!file) return;
+    try {
+      if (file.size > 2_000_000) throw Error("2MB 이하 JSON 파일만 허용됩니다.");
+      const rows = parseLocalContacts(await file.text());
+      setPrivateContacts(rows);
+      setLocalStatus(`로컬 후보 ${rows.length}건 읽음 · 실제 Salesforce 검증 전`);
+    } catch {
+      setLocalStatus("JSON 형식/필드 검증 실패 · 후보를 불러오지 않았습니다.");
+    }
+    event.target.value = "";
+  };
+  const chooseContact = key => {
+    const matches = matchingContacts.filter(row => row.contact_id + "|" + row.account_id === key);
+    if (matches.length !== 1) return;
+    setSelectedContactKey(key);
+    set("contact_email", matches[0].contact_email);
+    setLocalStatus("연락처 후보 선택 완료 · Salesforce 실시간 신원 확인은 아직 필요");
   };
   const changeMode = mode => {
     setNotice("");
@@ -29,6 +59,10 @@ export default function OppoQuoteCommandPage() {
   };
   const reset = () => {
     setForm({ ...DEFAULT_REQUEST });
+    setPrivateContacts([]);
+    setContactSearchName("");
+    setSelectedContactKey("");
+    setLocalStatus("고객 데이터 미연결 · 검색은 로컬 JSON에서만 수행");
     setShowPreview(false);
     setNotice("");
   };
@@ -75,6 +109,37 @@ export default function OppoQuoteCommandPage() {
           <section className={styles.panel}>
             <div className={styles.panelHeader}><span className={styles.stepNo}>01</span><div><h2>요청 조건</h2><p>단일 PMP 서비스 · 샘플별 데이터량</p></div></div>
             <form onSubmit={prepare}>
+              <div className={styles.localLookup}>
+                <strong>고객 이름으로 검색 · 로컬 전용</strong>
+                <p>승인된 비공개 Contact JSON 파일을 이 브라우저에서만 읽습니다. 업로드 API가 없으며 파일 내용은 저장되지 않습니다.</p>
+                <div className={styles.field}>
+                  <label htmlFor="sfdc-local-contact-file">Contact 목록 JSON 선택</label>
+                  <input id="sfdc-local-contact-file" type="file" accept=".json,application/json" onChange={loadContacts} />
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="sfdc-contact-name">한글 고객 이름 (정확 일치)</label>
+                  <input id="sfdc-contact-name" value={contactSearchName} autoComplete="off"
+                    placeholder="예: 김민수" onChange={e => {
+                      setContactSearchName(e.target.value);
+                      setSelectedContactKey("");
+                      set("contact_email", "");
+                    }} />
+                </div>
+                {matchingContacts.length > 0 && <div className={styles.field}>
+                  <label htmlFor="sfdc-contact-candidate">고객 선택 · 동명이인은 기관과 Contact ID 구분</label>
+                  <select id="sfdc-contact-candidate" value={selectedContactKey}
+                    onChange={e => chooseContact(e.target.value)}>
+                    <option value="">기관·Contact 확인 후 선택</option>
+                    {matchingContacts.map(row => <option key={row.contact_id + "|" + row.account_id}
+                      value={row.contact_id + "|" + row.account_id}>
+                      {row.institution} · {row.name} · Contact …{row.contact_id.slice(-4)}
+                    </option>)}
+                  </select>
+                </div>}
+                <small role="status">{localStatus}</small>
+                {privateContacts.length > 0 && contactSearchName && matchingContacts.length === 0 &&
+                  <p role="status">기존 Opportunity가 있는 일치 고객이 없습니다. 다른 이름 또는 실제 Salesforce 목록을 확인하세요.</p>}
+              </div>
               <div className={styles.field}>
                 <label htmlFor="sfdc-contact-email">고객 이메일</label>
                 <input id="sfdc-contact-email" type="email" autoComplete="off" required maxLength={255}
