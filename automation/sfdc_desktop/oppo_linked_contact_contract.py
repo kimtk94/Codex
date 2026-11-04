@@ -38,11 +38,31 @@ def make_oppo_linked_contact_index(edges: list[dict], contact_details: dict[str,
     by_contact = defaultdict(list)
     holds = []
     skips = []
+    # A given Opportunity must not point to different Main Contacts in the
+    # supplied evidence. Reject contradictions instead of indexing both.
+    by_opportunity = defaultdict(set)
+    for edge in edges:
+        oppo_id = str(edge.get("oppo_id", ""))
+        if SF_OPPO.fullmatch(oppo_id):
+            by_opportunity[oppo_id].add((
+                str(edge.get("main_contact_id", "")),
+                str(edge.get("account_id", "")),
+            ))
+    contradictory_oppos = {
+        oppo_id for oppo_id, pairs in by_opportunity.items()
+        if len(pairs) > 1
+    }
     for edge in edges:
         oppo = str(edge.get("oppo_id", ""))
         contact = str(edge.get("main_contact_id", ""))
         account = str(edge.get("account_id", ""))
         institution = str(edge.get("institution_name", ""))
+        if oppo in contradictory_oppos:
+            holds.append({"oppo_id": oppo, "status": "HOLD_CONFLICTING_MAIN_CONTACT_EVIDENCE"})
+            continue
+        if not institution.strip():
+            holds.append({"oppo_id": oppo, "status": "HOLD_MISSING_INSTITUTION"})
+            continue
         if not SF_OPPO.fullmatch(oppo) or not SF_CONTACT.fullmatch(contact) or not SF_ACCOUNT.fullmatch(account):
             holds.append({"oppo_id": oppo, "status": "HOLD_INVALID_REFERENCE"})
             continue
