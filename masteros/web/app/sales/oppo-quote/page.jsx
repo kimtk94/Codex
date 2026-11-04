@@ -20,6 +20,8 @@ export default function OppoQuoteCommandPage() {
   const [privateContacts, setPrivateContacts] = useState([]);
   const [isPcLocal, setIsPcLocal] = useState(false);
   const [pcSearchBusy, setPcSearchBusy] = useState(false);
+  const [pcReviewBusy, setPcReviewBusy] = useState(false);
+  const [liveReview, setLiveReview] = useState("NOT_CHECKED");
   useEffect(() => {
     setIsPcLocal(window.location.hostname === "127.0.0.1");
   }, []);
@@ -34,6 +36,7 @@ export default function OppoQuoteCommandPage() {
   const identityBound = Boolean(result.ok && selectedContact && selectedContact.contact_email === form.contact_email);
   const preview = result.ok ? formatDraft(form) : "";
   const set = (key, value) => {
+    setLiveReview("NOT_CHECKED");
     setNotice("");
     setShowPreview(false);
     setForm(prev => ({ ...prev, [key]: value }));
@@ -41,6 +44,7 @@ export default function OppoQuoteCommandPage() {
   const loadContacts = async event => {
     const file = event.target.files?.[0];
     setSelectedContactKey("");
+    setLiveReview("NOT_CHECKED");
     setForm(prev => ({ ...prev, contact_email: "" }));
     setShowPreview(false);
     setPrivateContacts([]);
@@ -63,6 +67,7 @@ export default function OppoQuoteCommandPage() {
       return;
     }
     setPcSearchBusy(true);
+    setLiveReview("NOT_CHECKED");
     setSelectedContactKey("");
     setForm(prev => ({...prev, contact_email:""}));
     setShowPreview(false);
@@ -88,11 +93,13 @@ export default function OppoQuoteCommandPage() {
   const chooseContact = key => {
     const matches = matchingContacts.filter(row => row.contact_id + "|" + row.account_id === key);
     if (matches.length !== 1) return;
+    setLiveReview("NOT_CHECKED");
     setSelectedContactKey(key);
     set("contact_email", matches[0].contact_email);
     setLocalStatus("연락처 후보 선택 완료 · Salesforce 실시간 신원 확인은 아직 필요");
   };
   const changeMode = mode => {
+    setLiveReview("NOT_CHECKED");
     setNotice("");
     setShowPreview(false);
     setForm(prev => ({ ...prev, sequencing_mode: mode, depth_unit: unitForMode(mode) }));
@@ -102,6 +109,7 @@ export default function OppoQuoteCommandPage() {
     setPrivateContacts([]);
     setContactSearchName("");
     setSelectedContactKey("");
+    setLiveReview("NOT_CHECKED");
     setLocalStatus("고객 데이터 미연결 · 검색은 로컬 JSON에서만 수행");
     setShowPreview(false);
     setNotice("");
@@ -156,6 +164,37 @@ export default function OppoQuoteCommandPage() {
       setNotice(error instanceof Error ? error.message : "PC 검토 패킷 생성 실패");
     }
   };
+  const reviewCurrentContactLive = async () => {
+    if (!isPcLocal || !identityBound || pcReviewBusy) {
+      setNotice("이 PC의 검증된 Contact를 먼저 선택해야 합니다.");
+      return;
+    }
+    setPcReviewBusy(true);
+    setLiveReview("VERIFYING");
+    setNotice("현재 Salesforce의 Contact·Account·Opportunity 관계를 읽기 전용으로 확인 중입니다.");
+    try {
+      const packet=buildContactReviewPacket(form,selectedContact);
+      const response=await fetch("/api/sfdc/review-local",{
+        method:"POST",cache:"no-store",credentials:"omit",
+        headers:{"Content-Type":"application/json","X-SFDC-Local-Preview":"1"},
+        body:JSON.stringify(packet),
+      });
+      const result=await response.json();
+      if (!response.ok || result.status!=="LIVE_CONTACT_IDENTITY_CONFIRMED_NO_SAVE" ||
+          result.live_identity_verified!==true || result.save_allowed!==false) {
+        setLiveReview("HOLD");
+        setNotice("실시간 신원 검증 HOLD · CRM 저장 없음. 비공개 목록과 Salesforce Contact 상세를 다시 확인하세요.");
+      } else {
+        setLiveReview("VERIFIED");
+        setNotice("현재 Salesforce Contact·Account·Opportunity 관계 PASS. Product·금액·중복 Quote 검증 및 Save는 계속 차단됩니다.");
+      }
+    } catch {
+      setLiveReview("HOLD");
+      setNotice("업무용 PC 읽기 전용 조회 실패 · Salesforce 저장 작업은 수행하지 않았습니다.");
+    } finally {
+      setPcReviewBusy(false);
+    }
+  };
   const changeEmail = value => {
     setSelectedContactKey("");
     set("contact_email", value);
@@ -187,7 +226,7 @@ export default function OppoQuoteCommandPage() {
 
         <div className={styles.banner} role="status">
           <span className={styles.bannerIcon}>!</span>
-          <span>현재는 로컬 브라우저에서만 명령서를 구성합니다. 고객 이메일을 서버, GitHub Actions 또는 Salesforce로 전송하지 않습니다.</span>
+          <span>클라우드에는 고객 정보를 전송하지 않습니다. PC에서 ‘실시간 신원 재확인’을 누르는 경우에만 이 PC의 로컬 검증 서버로 고객 정보가 전달되며, Salesforce 조회만 수행합니다. CRM Save는 차단됩니다.</span>
         </div>
 
         <div className={styles.grid}>
@@ -206,6 +245,7 @@ export default function OppoQuoteCommandPage() {
                   <input id="sfdc-contact-name" value={contactSearchName} autoComplete="off"
                     placeholder="예: 김민수" onChange={e => {
                       setContactSearchName(e.target.value);
+                      setLiveReview("NOT_CHECKED");
                       setSelectedContactKey("");
                       set("contact_email", "");
                     }} />
@@ -230,6 +270,12 @@ export default function OppoQuoteCommandPage() {
                   <strong>{selectedContact.name} · {selectedContact.institution}</strong>
                   <span>Contact …{selectedContact.contact_id.slice(-4)} · Account …{selectedContact.account_id.slice(-4)}</span>
                   <span>기존 Opportunity {selectedContact.opportunity_ids.length}건 · 로컬 후보 (실시간 Salesforce 재검증 필요)</span>
+                  {isPcLocal && <button type="button" className={styles.pcSearchButton}
+                    disabled={!identityBound || pcReviewBusy} onClick={reviewCurrentContactLive}>
+                    {pcReviewBusy ? "Salesforce 읽기 전용 확인 중…" : "이 PC에서 Salesforce 신원 재확인"}
+                  </button>}
+                  {liveReview === "VERIFIED" && <span role="status">현재 Contact·Account·Opportunity 관계 PASS · 가격 및 Save 미승인</span>}
+                  {liveReview === "HOLD" && <span role="status">실시간 신원 확인 HOLD · 고객 검토 필요</span>}
                 </div>}
                 <small role="status">{localStatus}</small>
                 {privateContacts.length > 0 && contactSearchName && matchingContacts.length === 0 &&
