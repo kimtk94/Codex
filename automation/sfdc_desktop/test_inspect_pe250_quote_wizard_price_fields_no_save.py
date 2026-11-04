@@ -31,6 +31,12 @@ class Pe250UnsavedPriceFieldsTests(unittest.TestCase):
         self.assertNotIn('name="Pack"',source)
         self.assertIn('"save_clicked":False',source)
 
+    def test_disabled_edit_button_blocks_click_and_never_saves(self):
+        source=(Path(__file__).parent/"inspect_pe250_quote_wizard_price_fields_no_save.py").read_text(encoding="utf-8")
+        self.assertIn('if not add_edit.is_enabled():',source)
+        self.assertIn('result["hold_reason"]="QUOTE_ADD_EDIT_DISABLED"',source)
+        self.assertNotIn('force=True',source)
+
     def test_three_round_stable_detection(self):
         checks=[pricing_field_presence("Unit Price",["Data Size"]) for _ in range(3)]
         self.assertEqual(checks[0],checks[1])
