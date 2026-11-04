@@ -5,6 +5,7 @@ import Link from "next/link";
 import styles from "./page.module.css";
 import { DEFAULT_REQUEST, MODES, unitForMode, validateDraft, formatDraft } from "../../../lib/sfdc-oppo-quote.mjs";
 import { parseLocalContacts, lookupLocalContacts } from "../../../lib/sfdc-contact-local.mjs";
+import { buildContactReviewPacket } from "../../../lib/sfdc-contact-review.mjs";
 
 const pipeline = [
   { label: "Contact / Account", detail: "이메일 정확 일치 · Account 연결 · 중복 확인", state: "검증 필요" },
@@ -21,7 +22,11 @@ export default function OppoQuoteCommandPage() {
   const [selectedContactKey, setSelectedContactKey] = useState("");
   const [localStatus, setLocalStatus] = useState("고객 데이터 미연결 · 검색은 로컬 JSON에서만 수행");
   const matchingContacts = useMemo(() => lookupLocalContacts(contactSearchName, privateContacts), [contactSearchName, privateContacts]);
+  const selectedContact = useMemo(() =>
+    matchingContacts.find(row => row.contact_id + "|" + row.account_id === selectedContactKey) ?? null,
+    [matchingContacts, selectedContactKey]);
   const result = useMemo(() => validateDraft(form), [form]);
+  const identityBound = Boolean(result.ok && selectedContact && selectedContact.contact_email === form.contact_email);
   const preview = result.ok ? formatDraft(form) : "";
   const set = (key, value) => {
     setNotice("");
@@ -92,6 +97,35 @@ export default function OppoQuoteCommandPage() {
       URL.revokeObjectURL(url);
     }
   };
+  const downloadReviewPacket = () => {
+    if (!identityBound) {
+      setNotice("검증된 목록에서 고객을 선택하고, 선택한 이메일을 유지해야 PC 검토 패킷을 만들 수 있습니다.");
+      return;
+    }
+    try {
+      const packet = buildContactReviewPacket(form, selectedContact);
+      const blob = new Blob([JSON.stringify(packet, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      try {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "sfdc-oppo-quote-contact-review-private.json";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setNotice("Contact ID가 포함된 PC 검토 패킷을 이 브라우저에서 저장했습니다. Salesforce 전송이나 저장은 수행하지 않았습니다.");
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "PC 검토 패킷 생성 실패");
+    }
+  };
+  const changeEmail = value => {
+    setSelectedContactKey("");
+    set("contact_email", value);
+    if (privateContacts.length) setLocalStatus("이메일을 직접 변경했습니다. ID 기반 검토는 고객을 다시 선택해야 합니다.");
+  };
   const prepare = event => {
     event.preventDefault();
     setShowPreview(true);
@@ -152,6 +186,11 @@ export default function OppoQuoteCommandPage() {
                     </option>)}
                   </select>
                 </div>}
+                {selectedContact && <div className={styles.identityCard} aria-label="선택한 Contact">
+                  <strong>{selectedContact.name} · {selectedContact.institution}</strong>
+                  <span>Contact …{selectedContact.contact_id.slice(-4)} · Account …{selectedContact.account_id.slice(-4)}</span>
+                  <span>기존 Opportunity {selectedContact.opportunity_ids.length}건 · 로컬 후보 (실시간 Salesforce 재검증 필요)</span>
+                </div>}
                 <small role="status">{localStatus}</small>
                 {privateContacts.length > 0 && contactSearchName && matchingContacts.length === 0 &&
                   <p role="status">기존 Opportunity가 있는 일치 고객이 없습니다. 다른 이름 또는 실제 Salesforce 목록을 확인하세요.</p>}
@@ -160,7 +199,7 @@ export default function OppoQuoteCommandPage() {
                 <label htmlFor="sfdc-contact-email">고객 이메일</label>
                 <input id="sfdc-contact-email" type="email" autoComplete="off" required maxLength={255}
                   placeholder="researcher@university.ac.kr" value={form.contact_email}
-                  onChange={e=>set("contact_email",e.target.value)} />
+                  onChange={e=>changeEmail(e.target.value)} />
                 <small>이메일 주소는 Account/Contact를 자동 추정하는 근거가 아닙니다.</small>
               </div>
               <div className={styles.two}>
@@ -210,7 +249,7 @@ export default function OppoQuoteCommandPage() {
                 <div><span>총 명목 데이터량</span><strong>{result.ok ? result.draft.summary.nominal_total_depth.toLocaleString() : "—"}</strong><small>{form.depth_unit}</small></div>
               </div>
               <div className={styles.footnote}>M reads가 reads인지 read pairs인지 아직 미확정입니다. 자동 Gb 변환, 견적 금액 계산 또는 과거 Quote 가격 상속을 하지 않습니다.</div>
-              <div className={styles.reviewState}><span className={styles.dot} />Contact 미확인 · 가격 미확인 · Save 차단</div>
+              <div className={styles.reviewState}><span className={styles.dot} />{identityBound ? "Contact 후보 선택됨 · 실시간 확인 및 가격 검증 대기" : "Contact 미확인 · 가격 미확인"} · Save 차단</div>
             </section>
 
             <section className={styles.panel}>
@@ -219,7 +258,7 @@ export default function OppoQuoteCommandPage() {
                 {pipeline.map((step,i)=><li key={step.label}>
                   <span className={styles.pipelineNumber}>{i+1}</span>
                   <div><strong>{step.label}</strong><p>{step.detail}</p></div>
-                  <small>{step.state}</small>
+                  <small>{i === 0 && selectedContact ? "로컬 후보 선택" : step.state}</small>
                 </li>)}
               </ol>
               <button className={styles.disabled} disabled title="인증된 작업 큐와 Salesforce 생성 권한 연결 전에는 실행할 수 없습니다.">Salesforce 일괄 생성 · 연결 전</button>
@@ -229,7 +268,12 @@ export default function OppoQuoteCommandPage() {
 
         {showPreview && result.ok && <section className={styles.output} aria-label="검토용 명령서">
           <div className={styles.outputTop}><div><h2>검토용 JSON 명령서</h2><p>이메일이 포함된 개인정보입니다. 공유 저장소에 업로드하지 마세요.</p></div>
-            <div className={styles.buttons}><button type="button" className={styles.secondary} onClick={downloadDraft}>비공개 JSON 저장</button><button type="button" className={styles.secondary} onClick={copy}>명령서 복사</button></div></div>
+            <div className={styles.buttons}>
+              <button type="button" className={styles.reviewButton} onClick={downloadReviewPacket} disabled={!identityBound}
+                title={identityBound ? "현재 Contact·Account ID를 PC 검토용으로만 전달합니다." : "로컬 Contact 선택 및 이메일 일치가 필요합니다."}>Contact ID 포함 · PC 검토 패킷 저장</button>
+              <button type="button" className={styles.secondary} onClick={downloadDraft}>일반 JSON</button>
+              <button type="button" className={styles.secondary} onClick={copy}>복사</button>
+            </div></div>
           <pre>{preview}</pre>
         </section>}
         <footer className={styles.footer}>Oppo–Quote · Research-AMEA 시범 워크플로우 · 실제 Salesforce 생성 0건</footer>
