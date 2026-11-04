@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import styles from "./page.module.css";
 import { DEFAULT_REQUEST, MODES, unitForMode, validateDraft, formatDraft } from "../../../lib/sfdc-oppo-quote.mjs";
@@ -18,6 +18,11 @@ export default function OppoQuoteCommandPage() {
   const [notice, setNotice] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [privateContacts, setPrivateContacts] = useState([]);
+  const [isPcLocal, setIsPcLocal] = useState(false);
+  const [pcSearchBusy, setPcSearchBusy] = useState(false);
+  useEffect(() => {
+    setIsPcLocal(window.location.hostname === "127.0.0.1");
+  }, []);
   const [contactSearchName, setContactSearchName] = useState("");
   const [selectedContactKey, setSelectedContactKey] = useState("");
   const [localStatus, setLocalStatus] = useState("고객 데이터 미연결 · 검색은 로컬 JSON에서만 수행");
@@ -49,6 +54,36 @@ export default function OppoQuoteCommandPage() {
       setLocalStatus("JSON 형식/필드 검증 실패 · 후보를 불러오지 않았습니다.");
     }
     event.target.value = "";
+  };
+  const searchPcContacts = async () => {
+    if (!isPcLocal || pcSearchBusy) return;
+    const name = contactSearchName.normalize("NFKC").trim();
+    if (!/^[\uac00-\ud7a3]{2,6}$/.test(name)) {
+      setLocalStatus("정확한 한글 고객 이름(2~6자)을 입력하세요.");
+      return;
+    }
+    setPcSearchBusy(true);
+    setSelectedContactKey("");
+    setForm(prev => ({...prev, contact_email:""}));
+    setShowPreview(false);
+    setPrivateContacts([]);
+    try {
+      const response = await fetch("/api/sfdc/contact-candidates-local?name=" + encodeURIComponent(name), {
+        method:"GET",cache:"no-store",credentials:"omit",
+        headers:{"X-SFDC-Local-Preview":"1"},
+      });
+      if (!response.ok) throw new Error("local API not enabled");
+      const data=await response.json();
+      if (data.status !== "LOCAL_VERIFIED_SNAPSHOT_NOT_LIVE_SALESFORCE" || data.name !== name ||
+          !Array.isArray(data.candidates)) throw new Error("unexpected local response");
+      const rows=parseLocalContacts(JSON.stringify(data.candidates));
+      setPrivateContacts(rows);
+      setLocalStatus(`업무용 PC의 비공개 목록에서 ${rows.length}건 조회 · Salesforce 실시간 재검증은 별도 필요`);
+    } catch {
+      setLocalStatus("PC 로컬 고객 조회가 비활성화되어 있습니다. 비공개 JSON을 직접 선택하세요.");
+    } finally {
+      setPcSearchBusy(false);
+    }
   };
   const chooseContact = key => {
     const matches = matchingContacts.filter(row => row.contact_id + "|" + row.account_id === key);
@@ -160,8 +195,8 @@ export default function OppoQuoteCommandPage() {
             <div className={styles.panelHeader}><span className={styles.stepNo}>01</span><div><h2>요청 조건</h2><p>단일 PMP 서비스 · 샘플별 데이터량</p></div></div>
             <form onSubmit={prepare}>
               <div className={styles.localLookup}>
-                <strong>고객 이름으로 검색 · 로컬 전용</strong>
-                <p>승인된 비공개 Contact JSON 파일을 이 브라우저에서만 읽습니다. 업로드 API가 없으며 파일 내용은 저장되지 않습니다.</p>
+                <strong>고객 이름으로 검색 · PC 로컬 / 비공개 JSON</strong>
+                <p>업무용 PC 로컬 미리보기에서는 검증된 목록을 바로 검색할 수 있습니다. 외부 Preview는 비공개 JSON 파일을 브라우저에서만 읽으며, 어느 쪽도 Salesforce를 직접 수정하지 않습니다.</p>
                 <div className={styles.field}>
                   <label htmlFor="sfdc-local-contact-file">Contact 목록 JSON 선택</label>
                   <input id="sfdc-local-contact-file" type="file" accept=".json,application/json" onChange={loadContacts} />
@@ -175,6 +210,11 @@ export default function OppoQuoteCommandPage() {
                       set("contact_email", "");
                     }} />
                 </div>
+                {isPcLocal && <div className={styles.pcLookupActions}>
+                  <button type="button" className={styles.pcSearchButton} onClick={searchPcContacts}
+                    disabled={pcSearchBusy}>{pcSearchBusy ? "PC 고객 검색 중…" : "이 PC에서 한글 고객 검색"}</button>
+                  <small>127.0.0.1 전용 · 검증된 로컬 기록만 조회 · No Save</small>
+                </div>}
                 {matchingContacts.length > 0 && <div className={styles.field}>
                   <label htmlFor="sfdc-contact-candidate">고객 선택 · 동명이인은 기관과 Contact ID 구분</label>
                   <select id="sfdc-contact-candidate" value={selectedContactKey}
