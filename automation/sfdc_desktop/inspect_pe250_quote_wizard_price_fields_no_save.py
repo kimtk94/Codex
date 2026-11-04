@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Identify pricing field presence in an existing PE250 Quote wizard; no Save."""
 import json
+import os
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 from audit_existing_quote_product2_link_readonly import ROOT, HOST, unique_record_links
@@ -20,12 +21,23 @@ def run():
     if not ids or ref.get("save_clicked") is not False:
         raise SystemExit("HOLD_QUOTE_SOURCE_INVALID")
     quote_id=ids["Quotation__c"]
+    source_index=os.environ.get("SFDC_EXISTING_PE250_QUOTE_SAMPLE")
+    if source_index is not None:
+        manifest=json.loads((ROOT/"oppo_quote_single_product_learning_manifest_PRIVATE.json").read_text(encoding="utf-8-sig"))
+        eligible=[r for r in manifest if r.get("quote_status")=="Ready to send"
+                  and "PE250" in ((r.get("quote_name") or "")+" "+(r.get("oppo_name") or "")).upper()
+                  and r.get("save_clicked") is False]
+        index=int(source_index)
+        if not 0<=index<len(eligible):
+            raise SystemExit("HOLD_NO_MATCHING_HISTORICAL_PE250_QUOTE")
+        quote_id=eligible[index]["quote_id"]
     with sync_playwright() as pw:
         browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=15000)
         if len(browser.contexts)!=1:
             raise SystemExit("HOLD_CHROME_CONTEXT_AMBIGUOUS")
         page=browser.contexts[0].new_page()
-        result={"status":"HOLD","crm_writes":0,"save_clicked":False,
+        result={"source_mode":"HISTORICAL_PE250_QUOTE" if source_index is not None else "REFERENCE_QUOTE",
+                "status":"HOLD","crm_writes":0,"save_clicked":False,
                 "current_price_verified":False,"pricebook_entry_verified":False}
         try:
             result["last_completed_stage"]="PRE_NAVIGATION"
