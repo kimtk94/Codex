@@ -50,6 +50,14 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
       return response.status;
     });
     assert.equal(localApiResponse, 404, "Hosted/default web must disable private workstation source");
+    const auditApiResponse = await page.evaluate(async () => {
+      const response=await fetch("/api/sfdc/full-audit-local",{
+        headers:{"X-SFDC-Local-Preview":"1"},cache:"no-store"
+      });
+      return response.status;
+    });
+    assert.equal(auditApiResponse,404,
+      "Hosted/default browser must not expose workstation aggregate audit source");
     const disabledPcReview = await fetch(base + "/api/sfdc/review-local", {
       method:"POST",
       headers:{
