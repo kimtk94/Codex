@@ -128,7 +128,8 @@ def run_live(expected):
         try:
             page.goto("https://"+HOST+"/lightning/r/Opportunity/"+expected+"/view",
                       wait_until="domcontentloaded",timeout=35000)
-            if (urlsplit(page.url).hostname != HOST or\n                    urlsplit(page.url).path != "/lightning/r/Opportunity/"+expected+"/view"):
+            if (urlsplit(page.url).hostname != HOST or
+                    urlsplit(page.url).path != "/lightning/r/Opportunity/"+expected+"/view"):
                 return {"status":"HOLD_OPPORTUNITY_NAVIGATION","quote_id_verified":False,"parent_verified":False}
             tabs=[]
             for _ in range(30):
@@ -161,7 +162,8 @@ def run_live(expected):
             try:
                 q.goto("https://"+HOST+"/lightning/r/Quotation__c/"+quote_id+"/view",
                       wait_until="domcontentloaded",timeout=35000)
-                if (urlsplit(q.url).hostname!=HOST or\n                        urlsplit(q.url).path != "/lightning/r/Quotation__c/"+quote_id+"/view"):
+                if (urlsplit(q.url).hostname!=HOST or
+                        urlsplit(q.url).path != "/lightning/r/Quotation__c/"+quote_id+"/view"):
                     return {"status":"HOLD_QUOTE_NAVIGATION","quote_id_verified":False,"parent_verified":False}
                 tab=q.get_by_role("tab",name="Details",exact=True)
                 if tab.count()==1:tab.click(timeout=7000)
