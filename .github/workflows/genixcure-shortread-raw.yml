@@ -28,7 +28,6 @@ jobs:
           - {sample: SH_SY5Y_3, folder: 12_6fz_2g0OBROfBxi3IsvBkg9Q8AuKmO}
           - {sample: Input, folder: 1F58gLBc_48r_R2dkRVc8ILvnNJW8Lt1n}
           - {sample: PCR_6_13, folder: 12YerJ_CIPzXwpjOf6krNy8QKwH_zg1nt}
-    if: ${{ inputs.sample == 'all' || inputs.sample == matrix.sample }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
@@ -37,11 +36,14 @@ jobs:
       FOLDER: ${{ matrix.folder }}
     steps:
       - uses: actions/checkout@v4
+        if: ${{ inputs.sample == 'all' || inputs.sample == matrix.sample }}
       - name: Install processing dependencies
+        if: ${{ inputs.sample == 'all' || inputs.sample == matrix.sample }}
         run: |
           sudo apt-get update
           sudo apt-get install -y fastp rclone
       - name: Configure Google Drive authentication
+        if: ${{ inputs.sample == 'all' || inputs.sample == matrix.sample }}
         run: |
           if [ -z "$RCLONE_CONFIG_B64" ]; then
             echo "::error::Set GitHub Actions secret RCLONE_CONFIG_B64 (base64 rclone.conf)." 
@@ -55,6 +57,7 @@ jobs:
             exit 1
           fi
       - name: Download original FASTQ pair and MD5
+        if: ${{ inputs.sample == 'all' || inputs.sample == matrix.sample }}
         run: |
           mkdir -p "raw/$SAMPLE" "results/$SAMPLE"
           rclone copy "gdrive:" "raw/$SAMPLE" --drive-root-folder-id "$FOLDER" --include '*.fq.gz' --include '*.fastq.gz' --include 'MD5.txt' --transfers 2 --checkers 4 --retries 5 --low-level-retries 10
@@ -70,11 +73,12 @@ jobs:
           (p/"pair.env").write_text("R1="+str(r1[0])+"\nR2="+str(r2[0])+"\n")
           PY
       - name: Recount, merge, unique, validate with per-step summaries
+        if: ${{ inputs.sample == 'all' || inputs.sample == matrix.sample }}
         run: |
           source "raw/$SAMPLE/pair.env"
           python analysis/genixcure/shortread_raw_reanalysis.py --sample "$SAMPLE" --r1 "$R1" --r2 "$R2" --output "results/$SAMPLE" --threads 4
       - name: Add summary to GitHub job summary
-        if: always()
+        if: ${{ always() && (inputs.sample == 'all' || inputs.sample == matrix.sample) }}
         run: |
           if [ -f "results/$SAMPLE/summary.md" ]; then
             cat "results/$SAMPLE/summary.md" >> "$GITHUB_STEP_SUMMARY"
@@ -96,7 +100,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Upload sequence counts
-        if: success()
+        if: ${{ success() && (inputs.sample == 'all' || inputs.sample == matrix.sample) }}
         uses: actions/upload-artifact@v4
         with:
           name: shortread-${{ matrix.sample }}-unique
