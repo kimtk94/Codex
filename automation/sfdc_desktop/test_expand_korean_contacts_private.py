@@ -52,10 +52,14 @@ class ExpandedCandidateTests(unittest.TestCase):
     def test_same_contact_conflicting_labels_held(self):
         self.assertEqual(expand_candidates([entry(O1,C1,"김민수 KimMinSu"),
                                             entry(O2,C1,"김영희 KimYoungHee")],
-                                           [],[person()]),[{"contact_id":C1,"opportunity_id":O1,
-                                           "display_name":"김민수 KimMinSu",
-                                           "contact_email":"synthetic@example.org"}])
-        # Invalid second Opportunity name cannot assert a second relationship.
+                                           [],[person()]),[])
+        # A conflicting Opportunity label is a HOLD, not evidence of one safe link.
+
+    def test_conflicting_source_name_never_silently_picks_roster_match(self):
+        first=entry(O1,C1,"김민수 KimMinSu")
+        second=entry(O2,C1,"김영희 KimYoungHee")
+        self.assertEqual(expand_candidates([first,second],[],[person()]),[])
+        self.assertEqual(expand_candidates([second,first],[],[person()]),[])
 
     def test_existing_verified_contacts_skipped(self):
         rows=[{"contact_id":C1},{"contact_id":C2}]
