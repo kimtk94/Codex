@@ -16,46 +16,64 @@ OPPO = re.compile(r"006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\Z")
 QUOTE = re.compile(r"a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\Z")
 HREF_RE = re.compile(r"/lightning/r/(?:Opportunity|Quotation__c)/([^/?#]+)/view")
 LINK_JS = r"""() => {
- const links=[], seen=new Set();
- function nearbyScope(el, kind) {
-  let cursor=el;
-  for(let n=0;cursor && n<12;n++) {
-   const tag=(cursor.localName||'').toLowerCase();
-   if(kind==='Opportunity') {
-    if(tag==='record_flexipage-record-field') {
-     // Reject unrelated console navigation: the parent must be in a
-     // labelled field of the currently open Quotation Details.
-     const label=(cursor.innerText||'').slice(0,250);
-     return /(?:^|\s)Opportunity(?:\s+Name)?(?:\s|$)/i.test(label);
-    }
-   } else if(kind==='Quotation__c') {
-    if(tag==='article' || tag==='lst-related-list-single-container' ||
-       tag==='records-related-list') {
-     const heading=cursor.querySelector('h2,h3,.slds-card__header-title');
-     const title=(heading?.innerText||heading?.textContent||'').trim();
-     return /^Quotations?(?:\s*\(\d+\))?$/i.test(title);
-    }
+ const seen=new Set(), elements=[];
+ function scan(root){
+   if(!root||seen.has(root))return;
+   seen.add(root);
+   for(const el of root.querySelectorAll('*')){
+     elements.push(el);
+     if(el.shadowRoot)scan(el.shadowRoot);
    }
-   cursor=cursor.parentElement || cursor.getRootNode()?.host || null;
-  }
-  return false;
  }
- function visit(root) {
-  if(!root||seen.has(root))return;
-  seen.add(root);
-  for(const el of root.querySelectorAll('*')) {
-    if(el.shadowRoot)visit(el.shadowRoot);
-    if(el.tagName!=='A')continue;
-    const href=el.getAttribute('href')||'';
-    const match=href.match(/\/lightning\/r\/(Opportunity|Quotation__c)\/[A-Za-z0-9]{15,18}\/view(?:[/?#]|$)/);
-    if(!match)continue;
-    links.push({href, kind:match[1], scoped:nearbyScope(el, match[1])});
-  }
+ scan(document);
+ function nested(host) {
+   const visited=new Set(), out=[];
+   function walk(root){
+     if(!root||visited.has(root))return;
+     visited.add(root);
+     for(const el of root.querySelectorAll('*')){
+       out.push(el);
+       if(el.shadowRoot)walk(el.shadowRoot);
+     }
+   }
+   walk(host.shadowRoot||host);
+   return out;
  }
- visit(document);
- return links;
+ const found=[];
+ const normalized=t=>(t||'').replace(/\s+/g,' ').trim();
+ const quotePattern=/^\/lightning\/r\/(?:Quotation__c\/)?(a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)\/view(?:[/?#]|$)/;
+ const oppPattern=/^\/lightning\/r\/(?:Opportunity\/)?(006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)\/view(?:[/?#]|$)/;
+ for(const card of elements.filter(e=>e.localName==='lst-related-list-single-container')){
+   const all=nested(card);
+   const headers=all.filter(el=>el.localName==='a' &&
+      /^Quotation\s*\(\s*1\s*\)$/i.test(normalized(el.textContent)) &&
+      /\/related\//.test(el.getAttribute('href')||''));
+   if(headers.length!==1)continue;
+   const tables=all.filter(e=>e.localName==='lightning-datatable');
+   for(const table of tables)for(const node of nested(table)){
+     if(node.localName!=='a')continue;
+     const match=(node.getAttribute('href')||'').match(quotePattern);
+     if(match)found.push({kind:'Quotation__c',record_id:match[1],scoped:true});
+   }
+ }
+ for(const el of elements){
+   if(el.localName!=='a')continue;
+   const match=(el.getAttribute('href')||'').match(oppPattern);
+   if(!match)continue;
+   let cursor=el, scoped=false;
+   for(let depth=0;cursor&&depth<15;depth++){
+     if(cursor.localName==='record_flexipage-record-field' ||
+        cursor.localName==='lightning-output-field'){
+       const label=normalized(cursor.innerText||cursor.textContent).slice(0,250);
+       if(/\bOpportunity(?:\s+Name)?\b/i.test(label))scoped=true;
+       break;
+     }
+     cursor=cursor.parentElement||cursor.getRootNode()?.host||null;
+   }
+   if(scoped)found.push({kind:'Opportunity',record_id:match[1],scoped:true});
+ }
+ return found;
 }"""
-
 
 def same_native(a,b):
     if not isinstance(a,str) or not isinstance(b,str):
@@ -82,10 +100,9 @@ def identity_result(expected_opportunity, quote_ids, parents):
 
 
 def scoped_link_ids(items):
-    """Only trust links in a labelled field or the Quotation Related section.
+    """Only native IDs from the exact Quotation Related table or labelled parent field.
 
-    An unrelated Salesforce console tab, global search result, or another
-    record's link cannot supply proof of the current Quote's native parent.
+    Never treat global console tabs or other records as parent evidence.
     """
     out={"Opportunity":set(),"Quotation__c":set()}
     if not isinstance(items,list):
@@ -94,15 +111,11 @@ def scoped_link_ids(items):
         if not isinstance(row,dict) or row.get("scoped") is not True:
             continue
         kind=row.get("kind")
-        href=row.get("href")
-        if kind not in out or not isinstance(href,str):
-            continue
-        match=HREF_RE.search(href)
-        if not match:continue
-        record=match.group(1)
-        if (kind=="Opportunity" and "/Opportunity/" in href and OPPO.fullmatch(record)) or (
-                kind=="Quotation__c" and "/Quotation__c/" in href and QUOTE.fullmatch(record)):
-            out[kind].add(record)
+        record=row.get("record_id")
+        if (kind=="Opportunity" and isinstance(record,str) and OPPO.fullmatch(record)):
+            out["Opportunity"].add(record)
+        elif (kind=="Quotation__c" and isinstance(record,str) and QUOTE.fullmatch(record)):
+            out["Quotation__c"].add(record)
     return out
 
 
@@ -114,7 +127,6 @@ def get_links(page):
         except Exception:
             continue
     return scoped_link_ids(candidates)
-
 
 def run_live(expected):
     from playwright.sync_api import sync_playwright
