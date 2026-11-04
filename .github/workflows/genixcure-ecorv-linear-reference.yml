@@ -1,0 +1,26 @@
+name: Genixcure EcoRV Linear Reference Self Test
+on:
+  push:
+    paths:
+      - 'analysis/genixcure/Genixcure_EcoRV_Linear_Reference.py'
+      - '.github/workflows/genixcure-ecorv-linear-reference.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-ecorv-linear-reference-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependency
+        run: python -m pip install biopython==1.85
+      - name: Validate one-cut EcoRV rotation using synthetic DNA
+        run: python analysis/genixcure/Genixcure_EcoRV_Linear_Reference.py --self-test
