@@ -62,6 +62,8 @@ jobs:
           mkdir -p "raw/$SAMPLE" "results/$SAMPLE"
           rclone copy "gdrive:" "raw/$SAMPLE" --drive-root-folder-id "$FOLDER" --include '*.fq.gz' --include '*.fastq.gz' --include 'MD5.txt' --transfers 2 --checkers 4 --retries 5 --low-level-retries 10
           find "raw/$SAMPLE" -maxdepth 1 -type f -printf '%f (%s bytes)\n'
+          if [ ! -s "raw/$SAMPLE/MD5.txt" ]; then echo "::error::Missing MD5.txt"; exit 1; fi
+          (cd "raw/$SAMPLE" && md5sum --check MD5.txt)
           python - <<'PY'
           import os
           from pathlib import Path
