@@ -1,6 +1,7 @@
 /** Synthetic-only browser smoke test. Never logs in to Salesforce or uses client data. */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { chromium } from "playwright";
@@ -73,12 +74,31 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await contactSelect.selectOption("003000000000002AAA|001000000000002AAA");
     assert.equal(await page.locator("#sfdc-contact-email").inputValue(),"second@example.org");
     assert.equal(nonReadRequests.length,0,"Contact import must remain browser-local");
-    // Use the existing synthetic email for the remaining command assertion.
+    assert.equal(await page.getByLabel("선택한 Contact").count(),1);
+    assert.match(await page.getByLabel("선택한 Contact").textContent(),/연세대학교/);
+    await page.getByRole("button",{name:"검토용 명령서 생성"}).click();
+    const reviewButton=page.getByRole("button",{name:"Contact ID 포함 · PC 검토 패킷 저장"});
+    assert.equal(await reviewButton.isEnabled(),true);
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      reviewButton.click(),
+    ]);
+    assert.equal(download.suggestedFilename(),"sfdc-oppo-quote-contact-review-private.json");
+    const packet=JSON.parse(await readFile(await download.path(),"utf8"));
+    assert.equal(packet.selected_contact.contact_id,"003000000000002AAA");
+    assert.equal(packet.selected_contact.account_id,"001000000000002AAA");
+    assert.deepEqual(packet.selected_contact.opportunity_ids,["006000000000002AAA"]);
+    assert.equal(packet.draft.request.contact_email,"second@example.org");
+    assert.equal(packet.gate.salesforce_save_allowed,false);
+    assert.equal(nonReadRequests.length,0,"Private packet must not make any CRM write requests");
+    // A manually edited email invalidates the selected native Contact identity.
+
 
     await page.locator("#sfdc-contact-email").fill("researcher@example.org");
     await page.locator("#sfdc-samples").fill("5");
     await page.locator("#sfdc-depth").fill("1");
     await page.getByRole("button",{name:"검토용 명령서 생성"}).click();
+    assert.equal(await page.getByRole("button",{name:"Contact ID 포함 · PC 검토 패킷 저장"}).isDisabled(),true);
     const preview = JSON.parse(await page.locator("pre").textContent());
     assert.equal(preview.request.contact_email, "researcher@example.org");
     assert.equal(preview.request.sample_count, 5);
