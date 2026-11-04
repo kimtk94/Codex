@@ -55,6 +55,42 @@ emit()
         assert res2.returncode==0,(res2.stdout,res2.stderr)
         assert len(list((out/'chunks').glob('*.done.json')))==2
         assert json.loads((out/'full_run_final_summary.json').read_text())['observed_total_reads']==6
-        print('FULL PIPELINE SYNTHETIC END-TO-END PASS: two chunks, six weighted reads, no duplicate replay, mismatch HOLD')
+        print('FULL CSV SYNTHETIC END-TO-END PASS: two chunks, six weighted reads, no duplicate replay, mismatch HOLD')
+        N_REF_FOR_TEST = 6848
+        try:
+            import pysam
+        except ImportError:
+            print('BAM MODE TEST SKIPPED: pysam unavailable (GitHub Actions installs pysam)')
+        else:
+            bam=w/'synthetic.bam'
+            header={'HD':{'VN':'1.6'},'SQ':[{'SN':'synthetic','LN':N_REF_FOR_TEST}]}
+            with pysam.AlignmentFile(str(bam),'wb',header=header) as handle:
+                for i,n in enumerate((50,60,70),1):
+                    r=pysam.AlignedSegment()
+                    r.query_name=f'SYNTHETIC_PACBIO_{i}'
+                    r.query_sequence='A'*n
+                    r.flag=4
+                    r.reference_id=-1
+                    r.reference_start=-1
+                    r.mapping_quality=0
+                    r.query_qualities=pysam.qualitystring_to_array('I'*n)
+                    r.set_tag('rq',0.999)
+                    handle.write(r)
+            out_bam=w/'bam_out'
+            bamcmd=[sys.executable,str(SCRIPT),'--bam',str(bam),
+                    '--reference',str(reference),'--out',str(out_bam),'--chunk-reads','2','--threads','1']
+            x=subprocess.run(bamcmd,env=env,capture_output=True,text=True)
+            assert x.returncode==0,(x.stdout,x.stderr)
+            run_result=json.loads((out_bam/'full_run_final_summary.json').read_text())
+            assert run_result['status']=='HOLD_READ_COUNT_MISMATCH'
+            assert run_result['observed_total_reads']==3,run_result
+            assert run_result['metrics']['mapped_weighted_reads']==3
+            assert run_result['chunks_committed']==2
+            assert run_result['metrics']['bam_originally_unmapped_records']==3
+            # A second execution must be idempotent.
+            x=subprocess.run(bamcmd,env=env,capture_output=True,text=True)
+            assert x.returncode==0,(x.stdout,x.stderr)
+            assert len(list((out_bam/'chunks').glob('*.done.json')))==2
+            print('FULL BAM SYNTHETIC END-TO-END PASS: seekable BGZF checkpoints, all three reads, replay idempotency')
 
 if __name__=='__main__':run()
