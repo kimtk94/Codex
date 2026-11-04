@@ -60,16 +60,53 @@ def private_json(path,max_size):
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def select_live_source_record(packet, evidence):
+    """Recheck the *approved* local evidence, not the obsolete 180-Opportunity cohort.
+
+    Each source is independently verified in Salesforce before it is added to
+    the private approved evidence file. Reconstructing its alias must exactly
+    match the browser's bound identity; no unverifiable contact can pass.
+    """
+    from build_private_contact_aliases import verified_private_aliases
+
+    if not isinstance(evidence,list) or not isinstance(packet,dict):
+        return None
+    identity=packet.get("selected_contact")
+    if not isinstance(identity,dict):
+        return None
+    rows=[]
+    for row in evidence:
+        if not isinstance(row,dict) or row.get("contact_id")!=identity.get("contact_id"):
+            continue
+        try:
+            verified=verified_private_aliases([row])["records"]
+        except (TypeError,ValueError,KeyError):
+            continue
+        if verified==[identity] and row.get("opportunity_id") in identity.get("opportunity_ids",[]):
+            rows.append(row)
+    if len(rows)!=1:
+        return None
+    row=rows[0]
+    return {
+        "contact_id":row["contact_id"],
+        "opportunity_id":row["opportunity_id"],
+        "display_name":row["display_name"],
+        "contact_email":row["contact_email"],
+    }
+
+
 def verify_live_readonly(packet):
     from playwright.sync_api import sync_playwright
     import live_contact_alias_batch_private as study
+
     identity=packet["selected_contact"]
-    records=[row for row in study.candidates()
-             if row["contact_id"]==identity["contact_id"]
-             and row["opportunity_id"] in identity["opportunity_ids"]
-             and row["contact_email"]==identity["contact_email"]]
-    if len(records)!=1:
-        return {"status":"HOLD_PRIVATE_LIVE_SOURCE_NOT_UNIQUE",
+    try:
+        approved_source=private_json(ROOT/"private_verified_contact_details_evidence.json",5_000_000)
+        record=select_live_source_record(packet,approved_source)
+    except (OSError,ValueError,KeyError,TypeError):
+        record=None
+    if record is None:
+        return {"status":"HOLD_PRIVATE_APPROVED_EVIDENCE_NOT_UNIQUE",
                 "live_identity_verified":False,"save_allowed":False}
     with sync_playwright() as pw:
         browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=17000)
@@ -78,7 +115,7 @@ def verify_live_readonly(packet):
                     "live_identity_verified":False,"save_allowed":False}
         page=browser.contexts[0].new_page()
         try:
-            row,status=study.inspect(page,records[0])
+            row,status=study.inspect(page,record)
         except Exception as exc:
             row,status=None,"HOLD_"+type(exc).__name__
         finally:
@@ -94,7 +131,6 @@ def verify_live_readonly(packet):
             "live_identity_verified":True,"save_allowed":False,
             "price_and_product_verified":False,
             "duplicate_quote_check_complete":False}
-
 
 def main():
     p=argparse.ArgumentParser()
