@@ -83,6 +83,21 @@ class PrivateContactBatchTests(unittest.TestCase):
             "contact_display_name_verified":True}
         self.assertEqual(verified_private_aliases([row])["records"],[])
 
+    def test_account_link_status_classifies_actual_id_difference(self):
+        same=adapter.account_link_status({"status":"NAVIGATED"},
+            "/lightning/r/Account/"+A+"/view",A)
+        self.assertEqual(same,"PASS_ACCOUNT_ID")
+        different=adapter.account_link_status({"status":"NAVIGATED"},
+            "/lightning/r/Account/001000000000002AAA/view",A)
+        self.assertEqual(different,"HOLD_ACCOUNT_ID_DIFFERENT")
+
+    def test_account_link_status_distinguishes_missing_route(self):
+        self.assertEqual(adapter.account_link_status({"status":"HOLD_NO_ROUTE_CHANGE"},None,A),
+                         "HOLD_CONTACT_ACCOUNT_NAVIGATION")
+        self.assertEqual(adapter.account_link_status({"status":"NAVIGATED"},
+                           "/lightning/r/Contact/"+C+"/view",A),
+                         "HOLD_CONTACT_ACCOUNT_ROUTE_INVALID")
+
 
 if __name__=="__main__":
     unittest.main()
