@@ -10,6 +10,76 @@ const draft = () => ({
   depth_per_sample: 1,
   depth_unit: "M reads",
 });
+
+test("single-service only: multiple products or unsupported services fail closed", () => {
+  for (const service of ["PMP+PML", "PML", "mRNA", "", null]) {
+    const r = draft(); r.service = service;
+    assert.equal(validateDraft(r).ok, false);
+  }
+});
+test("mode and unit cross-product never silently converts historical values", () => {
+  for (const mode of MODES) for (const unit of ["M reads", "Gb"]) {
+    const r = draft(); r.sequencing_mode = mode; r.depth_unit = unit;
+    assert.equal(validateDraft(r).ok, unit === unitForMode(mode));
+  }
+});
+test("all supported modes preserve per-sample quantity and explicit total", () => {
+  for (const mode of MODES) for (const count of [1, 5, 500]) {
+    const r = draft(); r.sequencing_mode = mode; r.depth_unit = unitForMode(mode);
+    r.sample_count = count; r.depth_per_sample = 1.25;
+    const result = validateDraft(r);
+    assert.equal(result.ok, true);
+    assert.equal(result.draft.summary.nominal_total_depth, count * 1.25);
+    assert.equal(result.draft.summary.depth_unit, r.depth_unit);
+    assert.equal(result.draft.salesforce_save_allowed, false);
+  }
+});
+test("unverified customer identity, institution, and Salesforce IDs cannot be injected", () => {
+  for (const extra of [
+    { contact_name: "김동명이" }, { institution: "Synthetic University" },
+    { account_id: "001000000000000AAA" }, { opportunity_id: "006000000000000AAA" },
+    { quotation_id: "a0P000000000000AAA" }, { save_allowed: true },
+    { price: 100000 }, { business_entity: "Korea" },
+  ]) {
+    const r = { ...draft(), ...extra };
+    assert.equal(validateDraft(r).ok, false);
+  }
+});
+test("invalid draft has no printable approved command and never returns inferred IDs", () => {
+  for (const changes of [
+    { contact_email: "" }, { sample_count: 0 },
+    { sequencing_mode: "250PE" }, { depth_unit: "Gb" },
+  ]) {
+    const r = {...draft(), ...changes};
+    assert.equal(validateDraft(r).ok, false);
+    assert.throws(() => formatDraft(r));
+  }
+  const valid = JSON.parse(formatDraft(draft()));
+  assert.deepEqual(valid.required_checks, [
+    "exact_contact_email_identity",
+    "account_record_id_and_contact_lookup",
+    "existing_opportunity_and_quotation_duplicates",
+    "approved_opportunity_name_amount_stage_close_date",
+    "current_business_entity_promotion_type_valid_thru",
+    "verified_price_and_quote_lines",
+    "post_creation_native_006_parent_and_a0P_quote_links",
+  ]);
+  for (const field of ["account_id","contact_id","opportunity_id","quotation_id","price","save_approved"]) {
+    assert.equal(Object.hasOwn(valid,field),false);
+  }
+});
+test("repeated draft generation is deterministic and remains strictly no-save", () => {
+  const r = draft();
+  const outputs = Array.from({length:3},()=>formatDraft(r));
+  assert.equal(new Set(outputs).size,1);
+  for(const value of outputs) {
+    const command = JSON.parse(value);
+    assert.equal(command.salesforce_save_allowed,false);
+    assert.equal(command.opportunity_created,false);
+    assert.equal(command.quotation_created,false);
+  }
+});
+
 test("PE250 and other modes switch units", () => {
   assert.equal(unitForMode("PE250"), "M reads");
   for (const m of MODES.filter(x => x !== "PE250")) assert.equal(unitForMode(m), "Gb");
