@@ -58,7 +58,12 @@ def run():
                 raise ValueError("QUOTE_ADD_EDIT_DISABLED")
             add_edit.click(timeout=8500)
             result["last_completed_stage"]="ADD_EDIT_MODAL"
-            page.get_by_text("AMEA Pre-made libraries sequencing",exact=True).first.click(timeout=8500)
+            category=page.get_by_text("AMEA Pre-made libraries sequencing",exact=True)
+            result["category_match_count"]=category.count()
+            if category.count()==0:
+                raise ValueError("PE250_CATEGORY_MISSING_IN_QUOTE_PANEL")
+            category.first.wait_for(state="visible",timeout=15000)
+            category.first.click(timeout=8500)
             result["last_completed_stage"]="SERVICE_CATEGORY"
             item=page.get_by_text("Pre-made libraries partial lane sequencing (PE250)",exact=True)
             if item.count()!=1:raise ValueError("EXISTING_PRODUCT_NOT_UNIQUE")
