@@ -2,7 +2,7 @@
 import copy
 import unittest
 
-from validate_web_contact_review_packet import validate_review_packet
+from validate_web_contact_review_packet import validate_review_packet,select_live_source_record
 
 CONTACT={"name":"김민수","institution":"연세대학교",
          "contact_id":"003000000000001AAA","account_id":"001000000000001AAA",
@@ -95,6 +95,57 @@ class BoundPacketTests(unittest.TestCase):
         x["draft"]["request"]["amount"]=900000
         with self.assertRaises(ValueError):
             validate_review_packet(x,[CONTACT])
+
+
+    def test_expanded_cohort_live_evidence_not_bound_to_old_180_snapshot(self):
+        # Only a private previously-verified source can supply full bilingual
+        # Contact label and the exact native Opportunity for new candidates.
+        valid={**copy.deepcopy(CONTACT),
+               "display_name":"김민수 KimMinSu",
+               "opportunity_id":CONTACT["opportunity_ids"][0],
+               "contact_detail_id_verified":True,
+               "contact_account_link_verified":True,
+               "opportunity_contact_link_verified":True,
+               "contact_email_verified":True,
+               "contact_display_name_verified":True}
+        selected=select_live_source_record(packet(),[valid])
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected["display_name"],"김민수 KimMinSu")
+        self.assertEqual(selected["opportunity_id"],CONTACT["opportunity_ids"][0])
+
+    def test_unapproved_source_evidence_never_becomes_live_record(self):
+        valid={**copy.deepcopy(CONTACT),
+               "display_name":"김민수 KimMinSu",
+               "opportunity_id":CONTACT["opportunity_ids"][0],
+               "contact_detail_id_verified":False,
+               "contact_account_link_verified":True,
+               "opportunity_contact_link_verified":True,
+               "contact_email_verified":True,
+               "contact_display_name_verified":True}
+        self.assertIsNone(select_live_source_record(packet(),[valid]))
+
+    def test_conflicting_private_evidence_never_silently_chooses_one(self):
+        valid={**copy.deepcopy(CONTACT),
+               "display_name":"김민수 KimMinSu",
+               "opportunity_id":CONTACT["opportunity_ids"][0],
+               "contact_detail_id_verified":True,
+               "contact_account_link_verified":True,
+               "opportunity_contact_link_verified":True,
+               "contact_email_verified":True,
+               "contact_display_name_verified":True}
+        self.assertIsNone(select_live_source_record(packet(),[valid,valid]))
+
+    def test_mismatched_account_in_historical_evidence_blocks_reuse(self):
+        invalid={**copy.deepcopy(CONTACT),
+                 "account_id":"001000000000002AAA",
+                 "display_name":"김민수 KimMinSu",
+                 "opportunity_id":CONTACT["opportunity_ids"][0],
+                 "contact_detail_id_verified":True,
+                 "contact_account_link_verified":True,
+                 "opportunity_contact_link_verified":True,
+                 "contact_email_verified":True,
+                 "contact_display_name_verified":True}
+        self.assertIsNone(select_live_source_record(packet(),[invalid]))
 
 
 if __name__=="__main__":
