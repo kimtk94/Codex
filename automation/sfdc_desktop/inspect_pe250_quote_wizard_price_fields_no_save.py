@@ -38,7 +38,7 @@ def run():
             if detail_tab.count()!=1:raise ValueError("QUOTE_DETAIL_TAB_AMBIGUOUS")
             detail_tab.click(timeout=8500)
             result["last_completed_stage"]="QUOTATION_DETAIL_TAB"
-            add_edit=page.get_by_text("Add/Edit",exact=True)
+            add_edit=page.get_by_role("button",name="Add/Edit",exact=True)
             add_edit.wait_for(state="visible",timeout=18000)
             if add_edit.count()!=1:raise ValueError("ADD_EDIT_AMBIGUOUS")
             add_edit.click(timeout=8500)
