@@ -20,14 +20,23 @@ def quote(i,parent=1,state="Ready to send"):
             "contact_display":"김민수 KimMinSu"}
 
 
-def inventory(ids,complete=True):
-    return {"fully_enumerated":complete,"limit_reached":False,
-            "rows":[{"id":f"a0P{i:012d}AAA","cells":[]} for i in ids]}
+def inventory(ids,complete=True,quotes=None):
+    known={q["quote_id"]:q for q in (quotes or [])}
+    rows=[]
+    for i in ids:
+        ident=f"a0P{i:012d}AAA"
+        q=known.get(ident,quote(i))
+        cells=[""]*16
+        cells[2]=q["quote_name"]
+        cells[4]=q["oppo_name"]
+        cells[5]=q["quote_status"]
+        rows.append({"id":ident,"cells":cells})
+    return {"fully_enumerated":complete,"limit_reached":False,"rows":rows}
 
 
 class CompleteSnapshotTests(unittest.TestCase):
     def test_quote_subset_classified_without_approving_save(self):
-        x=summary(inventory([1,2,3]),[quote(1),quote(2)],[opp(1)])
+        x=summary(inventory([1,2,3],quotes=[quote(1),quote(2)]),[quote(1),quote(2)],[opp(1)])
         self.assertEqual(x["full_quotation_count"],3)
         self.assertEqual(x["one_product_manifest_count"],2)
         self.assertEqual(x["non_one_product_or_unclassified_quote_count"],1)
@@ -37,8 +46,20 @@ class CompleteSnapshotTests(unittest.TestCase):
         self.assertFalse(x["native_parent_link_independently_verified_for_all"])
 
     def test_external_opportunity_is_not_verified(self):
-        x=summary(inventory([1]),[quote(1,99)],[opp(1)])
+        x=summary(inventory([1],quotes=[quote(1,99)]),[quote(1,99)],[opp(1)])
         self.assertEqual(x["opportunity_relation_counts"]["parent_not_in_in_scope_opportunity_snapshot"],1)
+
+    def test_other_quote_status_and_name_candidate_not_native_link(self):
+        x=summary(inventory([1,2]),[quote(1)],[opp(1),opp(2)])
+        self.assertEqual(x["non_one_product_or_unclassified_quote_count"],1)
+        self.assertEqual(x["other_quote_opportunity_name_lookup"]["unique_name_only_not_native_id"],1)
+        self.assertFalse(x["other_quote_native_parent_ids_verified"])
+
+    def test_layout_drift_blocks_other_quote_classification(self):
+        a=inventory([1])
+        a["rows"][0]["cells"][5]="Changed status"
+        with self.assertRaises(ValueError):
+            summary(a,[quote(1)],[opp(1)])
 
     def test_duplicate_full_quote_fails(self):
         with self.assertRaises(ValueError):
