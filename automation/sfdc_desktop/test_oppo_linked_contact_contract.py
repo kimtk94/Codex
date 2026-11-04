@@ -94,6 +94,24 @@ class OppoContactIndexTests(unittest.TestCase):
         result = make_oppo_linked_contact_index([edge(c="FAKE")],{})
         self.assertEqual(result["hold"][0]["status"],"HOLD_INVALID_REFERENCE")
 
+    def test_conflicting_main_contact_for_same_opportunity_blocks_both(self):
+        result = make_oppo_linked_contact_index(
+            [edge(), edge(c=CON2)],
+            {CON1:detail(), CON2:detail(email="person2@example.edu")}
+        )
+        self.assertEqual(result["index"], [])
+        self.assertEqual(
+            {r["status"] for r in result["hold"]},
+            {"HOLD_CONFLICTING_MAIN_CONTACT_EVIDENCE"},
+        )
+
+    def test_missing_institution_is_held(self):
+        result = make_oppo_linked_contact_index(
+            [edge(institution="")], {CON1:detail()}
+        )
+        self.assertEqual(result["index"], [])
+        self.assertEqual(result["hold"][0]["status"], "HOLD_MISSING_INSTITUTION")
+
     def test_duplicate_opp_link_never_duplicates_contact(self):
         result = make_oppo_linked_contact_index([edge(),edge()],{CON1:detail()})
         self.assertEqual(len(result["index"]),1)
