@@ -43,6 +43,13 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     const response = await page.goto(base + "/sales/oppo-quote", { waitUntil:"domcontentloaded" });
     assert.equal(response.status(), 200);
     assert.equal(await page.getByRole("heading", {name:"Opportunity + Quotation"}).count(), 1);
+    const localApiResponse = await page.evaluate(async () => {
+      const response = await fetch("/api/sfdc/contact-candidates-local?name=" + encodeURIComponent("김민수"), {
+        headers: {"X-SFDC-Local-Preview":"1"},cache:"no-store"
+      });
+      return response.status;
+    });
+    assert.equal(localApiResponse, 404, "Hosted/default web must disable private workstation source");
     assert.equal(await page.locator("#sfdc-contact-email").inputValue(), "");
     assert.equal(await page.locator("#sfdc-mode").inputValue(), "PE250");
     assert.equal((await page.locator("#sfdc-depth + span").textContent()).trim(), "M reads");
