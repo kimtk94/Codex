@@ -41,7 +41,7 @@ def preflight_lead_text(body: str, *, expected_email: str, korean_name: str, con
     if not re.search(re.escape(expected_email), body, re.I):
         raise ConversionStopped('Lead email does not match')
     # Use the exact Salesforce Lead HEADER. Details sections load asynchronously.
-    header = re.search(r'(?m)^Lead[\\t ]*\\n([^\\n]+)', body)
+    header = re.search(r'(?m)^Lead[\t ]*\n([^\n]+)', body)
     if not header:
         raise ConversionStopped('Lead heading not loaded or missing')
     displayed = header.group(1).strip()
