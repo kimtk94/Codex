@@ -102,6 +102,8 @@ def read_account_address(page: Any, account_id: str, account_name: str) -> dict[
     section = page.get_by_role('button', name='Address Information')
     if section.count() == 1 and section.get_attribute('aria-expanded') == 'false':
         section.click()
+    # Lightning renders address fields asynchronously after the page header.
+    page.get_by_role('button', name='Edit Billing Address').wait_for(timeout=20000)
     body = page.locator('body').inner_text()
     if account_name not in body:
         raise ConversionStopped('Account name does not match Account ID')
@@ -147,7 +149,6 @@ def run(args: argparse.Namespace) -> dict[str, str]:
         if not tabs:
             raise ConversionStopped('No authorized Salesforce session')
         page = tabs[0]
-        address = read_account_address(page, args.account_id, args.account_name)
         page.goto(f'{HOST}/lightning/r/Lead/{args.lead_id}/view', wait_until='domcontentloaded')
         page.get_by_text(args.email, exact=False).first.wait_for(timeout=20000)
         status = preflight_lead_text(
@@ -177,6 +178,18 @@ def run(args: argparse.Namespace) -> dict[str, str]:
             return {'status': 'ALREADY_CONVERTED', 'lead_id': args.lead_id,
                     'contact_id': known, 'cms_contact_id': cms,
                     'cdms_status': 'SYNCED' if cms else 'UNVERIFIED'}
+
+        # Only leads proven unconverted need an Account address lookup.
+        # Recheck lead identity after navigating back from Account details.
+        address = read_account_address(page, args.account_id, args.account_name)
+        page.goto(f'{HOST}/lightning/r/Lead/{args.lead_id}/view', wait_until='domcontentloaded')
+        page.get_by_text(args.email, exact=False).first.wait_for(timeout=20000)
+        if preflight_lead_text(
+            page.locator('body').inner_text(), expected_email=args.email,
+            korean_name=args.korean_name,
+            convert_visible=page.get_by_role('button', name='Convert', exact=True).count() == 1,
+        ) != 'ready':
+            raise ConversionStopped('Lead state changed after Account lookup; refusing conversion')
 
         # Non-academic Job Function menus require independent live mapping.
         if args.org_type != 'Academic':
