@@ -166,7 +166,8 @@ def run_live(expected):
                     link_ids=get_links(page)["Quotation__c"]
                     if link_ids:break
             if not related or related["related_quote_count"]!=1:
-                return {"status":"HOLD_RELATED_COUNT_NOT_EXACTLY_ONE","quote_id_verified":False,"parent_verified":False}
+                return {"status":"HOLD_RELATED_COUNT_NOT_EXACTLY_ONE","quote_id_verified":False,"parent_verified":False,
+                        "observed_related_quote_count":related.get("related_quote_count") if related else None}
             if len(link_ids)!=1:
                 return {"status":"HOLD_QUOTE_ANCHOR_NOT_UNIQUE","quote_id_verified":False,"parent_verified":False}
             quote_id=next(iter(link_ids))
