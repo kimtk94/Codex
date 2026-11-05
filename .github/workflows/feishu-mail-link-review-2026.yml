@@ -1,0 +1,64 @@
+name: Feishu QQ Mail Link Review 2026
+on:
+  push:
+    branches: [main, feat/feishu-identity-gap-audit-20261105]
+    paths:
+      - 'automation/feishu/mail_link_review_2026.py'
+      - 'automation/feishu/test_mail_link_review_2026.py'
+      - '.github/workflows/feishu-mail-link-review-2026.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/mail_link_review_2026.py'
+      - 'automation/feishu/test_mail_link_review_2026.py'
+      - '.github/workflows/feishu-mail-link-review-2026.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'plan read-only or apply new review queue'
+        required: true
+        type: choice
+        options: [plan, apply]
+        default: plan
+  schedule:
+    - cron: '31 1,13 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: qq-feishu-mail-link-review
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install reference dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify candidates are not auto-linked
+        run: python3 -m unittest discover -s automation/feishu -p 'test_mail_link_review_2026.py' -v
+      - name: Compile scripts
+        run: python3 -m py_compile automation/feishu/mail_link_review_2026.py
+  review:
+    needs: tests
+    if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 18
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_REVIEW_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only reference client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Create review candidates without auto assigning identities
+        run: python3 automation/feishu/mail_link_review_2026.py
