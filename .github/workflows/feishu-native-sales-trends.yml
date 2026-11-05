@@ -1,0 +1,60 @@
+name: Feishu Native Sales Trends
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/native_trend_rows.py'
+      - 'automation/feishu/sales_native_trends.py'
+      - 'automation/feishu/test_sales_native_trends.py'
+      - '.github/workflows/feishu-native-sales-trends.yml'
+  push:
+    branches: [main, feat/feishu-sales-kpi-trends-20261106]
+    paths:
+      - 'automation/feishu/native_trend_rows.py'
+      - 'automation/feishu/sales_native_trends.py'
+      - 'automation/feishu/test_sales_native_trends.py'
+      - '.github/workflows/feishu-native-sales-trends.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        required: true
+        options: [plan, apply]
+        default: plan
+  schedule:
+    - cron: '47 0,6,12,18 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: feishu-native-sales-trends
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate source-backed Revenue/Quote trend rows
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_native_trends.py' -v
+          python3 -m py_compile automation/feishu/sales_native_trends.py automation/feishu/native_trend_rows.py
+  trend:
+    needs: test
+    if: ${{ github.event_name != 'pull_request' && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 25
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_TREND_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare Revenue and Quote time-series for native dashboard charts
+        run: python3 automation/feishu/sales_native_trends.py
