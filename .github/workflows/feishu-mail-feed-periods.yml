@@ -1,0 +1,59 @@
+name: Feishu QQ Mail Current Historical Feed
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/qq_mail_feed_periods.py'
+      - 'automation/feishu/test_qq_mail_feed_periods.py'
+      - '.github/workflows/feishu-mail-feed-periods.yml'
+  push:
+    branches: [main, feat/feishu-mail-current-history-feed-20261105]
+    paths:
+      - 'automation/feishu/qq_mail_feed_periods.py'
+      - 'automation/feishu/test_qq_mail_feed_periods.py'
+      - '.github/workflows/feishu-mail-feed-periods.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'plan read-only or apply chronological feed columns/views'
+        required: true
+        type: choice
+        options: [plan, apply]
+        default: plan
+  schedule:
+    - cron: '17 */2 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: qq-feishu-mail-ingest
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Date-time separation and dedup tests
+        run: python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_feed_periods.py' -v
+  update_feed:
+    needs: test
+    if: ${{ needs.test.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 25
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_FEED_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_CURRENT_MAIL_DAYS: '30'
+      FEISHU_FEED_MAX_UPDATES: '1500'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Refresh 2026 current and historical mail feeds
+        run: python3 automation/feishu/qq_mail_feed_periods.py
