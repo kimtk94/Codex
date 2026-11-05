@@ -519,6 +519,10 @@ def run(mode):
             raise
         print("QQ_IMAP_LOGOUT_ABORT_AFTER_VERIFIED_INGEST=1")
 
+    if mode == "backfill2026":
+        # The bounded catch-up runner needs only aggregate progress counts.
+        return {"added": added, "scanned": len(new_rows)}
+
 
 if __name__ == "__main__":
     try:
