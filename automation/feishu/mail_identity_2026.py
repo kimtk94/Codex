@@ -54,11 +54,38 @@ def official_contact_name(row):
     return " ".join(t for t in (first, last) if t)
 
 
+def read_legacy_leads(session):
+    """SFDC Import Leads has a duplicated Opportunity ID header in the source.
+    Only allow that known duplicate; use its first occurrence. No Sheet writes.
+    """
+    location = urllib.parse.quote("'SFDC Import Leads'!A1:W700", safe="")
+    url = ("https://sheets.googleapis.com/v4/spreadsheets/" + UNIFIED_SHEET +
+           "/values/" + location)
+    response = session.get(url, timeout=45)
+    if not response.ok:
+        raise SafeError("LEAD_REFERENCE_READ_HTTP_" + str(response.status_code))
+    values = response.json().get("values") or []
+    if not values:
+        raise SafeError("LEAD_REFERENCE_EMPTY")
+    headers = [str(v).strip() for v in values[0]]
+    required = {"Email", "Contact Name", "Contact ID", "Account ID",
+                "Company / Account", "Opportunity: Account"}
+    if not required.issubset(set(headers)):
+        raise SafeError("LEAD_REFERENCE_SCHEMA_MISMATCH")
+    duplicates = {h for h in headers if headers.count(h) > 1}
+    if duplicates - {"Opportunity ID"}:
+        raise SafeError("LEAD_REFERENCE_UNEXPECTED_DUPLICATE_HEADERS")
+    lookup = {name: headers.index(name) for name in required}
+    return [{name: str(row[idx]).strip() if idx < len(row) else ""
+             for name, idx in lookup.items()}
+            for row in values[1:] if any(str(cell).strip() for cell in row)]
+
+
 def load_references():
     session = sheets_session()
     source = {
         "contacts": req_sheet(session, UNIFIED_SHEET, "SFDC Contacts", 400),
-        "leads": req_sheet(session, UNIFIED_SHEET, "SFDC Import Leads", 700),
+        "leads": read_legacy_leads(session),
         "quotes": req_sheet(session, UNIFIED_SHEET, "SFDC Quote Export", 1200),
         "projects": req_sheet(session, CSS_SHEET, "CSS Project Dashboard", 700),
     }
