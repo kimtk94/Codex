@@ -38,6 +38,10 @@ VIEW_SPEC = (
     ("연결 검토 필요", "Review State", "REVIEW"),
     ("현재 메일 연결", "Feed Lane", "CURRENT_30D"),
     ("과거 메일 연결", "Feed Lane", "HISTORY_2026"),
+    ("CSS 진행 안내", "Mail Role", "CSS_AUTOMATED_NOTICE"),
+    ("고객 메일 검토", "Followup Pool", "THREAD_REVIEW_REQUIRED"),
+    ("내부 메일 제외", "Mail Role", "INTERNAL_MAIL"),
+    ("연결 근거 미확인", "Evidence Tier", "NO_IDENTITY_PROOF"),
 )
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 H_RE = re.compile(r"\bH\d{2,}SC\d+\b", re.I)
