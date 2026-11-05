@@ -5,6 +5,7 @@ from oppo_quote_same_name_contract import (
     OpportunitySnapshot, QuoteSnapshot, ManualReview,
     match_single_product_quote, match_identical_name_quote,
     dryrun_after_read_only_identity_check,
+    verify_live_quotation_relationship,
     validate_opportunity_clone_preflight,
 )
 
@@ -19,6 +20,23 @@ QUOTE = QuoteSnapshot(
     OPPO.name,
     1,
 )
+
+
+EVIDENCE = {
+    "source": "SFDC_LIGHTNING_DETAIL",
+    "quote_object": "Quotation__c",
+    "quotation_record_id": QUOTE.record_id,
+    "parent_opportunity_id": OPPO.record_id,
+    "quotation_account_id": "001000000000AAA",
+    "opportunity_account_id": "001000000000AAA",
+    "contact_account_id": "001000000000AAA",
+    "quotation_contact_id": "003000000000AAA",
+    "opportunity_main_contact_id": "003000000000AAA",
+}
+
+
+def evidence(**changes):
+    return {**EVIDENCE, **changes}
 
 
 def run(q=QUOTE, o=None):
@@ -95,10 +113,62 @@ class OppoQuoteIdenticalOnlyContractTests(unittest.TestCase):
         self.assertFalse(r["send_quote"])
 
     def test_live_parent_link_verification_pass(self):
-        r = dryrun_after_read_only_identity_check(run(), OPPO.record_id)
+        r = dryrun_after_read_only_identity_check(run(), OPPO.record_id, relationship_evidence=evidence())
         self.assertTrue(r["actual_parent_verified"])
+        self.assertTrue(r["actual_quotation_account_contact_verified"])
         self.assertEqual(r["mode"], "FORM_DRY_RUN_NO_SAVE")
         self.assertFalse(r["save_clicked"])
+
+
+    def test_missing_direct_lightning_relationship_readback_blocks(self):
+        with self.assertRaises(ManualReview):
+            dryrun_after_read_only_identity_check(run(), OPPO.record_id)
+
+    def test_actual_custom_quotation_account_contact_passes(self):
+        self.assertTrue(verify_live_quotation_relationship(run(), evidence()))
+
+    def test_standard_salesforce_quote_object_blocks(self):
+        with self.assertRaises(ManualReview):
+            verify_live_quotation_relationship(run(), evidence(quote_object="Quote"))
+
+    def test_stale_sheet_source_cannot_substitute_for_lightning(self):
+        with self.assertRaises(ManualReview):
+            verify_live_quotation_relationship(run(), evidence(source="GOOGLE_SHEETS"))
+
+    def test_missing_quote_parent_link_blocks(self):
+        with self.assertRaises(ManualReview):
+            verify_live_quotation_relationship(run(), evidence(parent_opportunity_id=""))
+
+    def test_quotation_account_and_parent_account_must_match(self):
+        with self.assertRaises(ManualReview):
+            verify_live_quotation_relationship(
+                run(), evidence(quotation_account_id="001000000000AAB")
+            )
+
+    def test_opportunity_account_and_contact_account_must_match(self):
+        with self.assertRaises(ManualReview):
+            verify_live_quotation_relationship(
+                run(), evidence(contact_account_id="001000000000AAB")
+            )
+
+    def test_quotation_contact_and_opportunity_contact_must_match(self):
+        with self.assertRaises(ManualReview):
+            verify_live_quotation_relationship(
+                run(), evidence(quotation_contact_id="003000000000AAB")
+            )
+
+    def test_quotation_record_id_must_match_selected_example(self):
+        with self.assertRaises(ManualReview):
+            verify_live_quotation_relationship(
+                run(), evidence(quotation_record_id="a0P000000000AAB")
+            )
+
+    def test_fake_short_account_id_blocks(self):
+        with self.assertRaises(ManualReview):
+            verify_live_quotation_relationship(
+                run(), evidence(opportunity_account_id="001fake")
+            )
+
 
     def test_live_parent_link_mismatch_blocks(self):
         with self.assertRaises(ManualReview):
