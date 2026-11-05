@@ -351,8 +351,10 @@ def run(mode):
             return
         table_path = ensure_table(token, base)
         indexed = existing(token, table_path)
-        smoke(token, table_path, indexed)
+        # Smoke writes are deliberately reserved for explicit smoke mode.
+        # Scheduled ingestion must not mutate the synthetic test row each run.
         if mode == "smoke":
+            smoke(token, table_path, indexed)
             print("SMOKE_ONLY_CUSTOMER_RECORD_WRITES_0")
             return
         cap = min(max(1, int(os.environ.get("FEISHU_MAIL_BATCH_PER_FOLDER", "45"))), 100)
