@@ -10,7 +10,7 @@ import argparse
 import re
 from typing import Any
 
-from lead_convert_policy import ACADEMIC_PI, build_contact_plan, cdms_sync_verified, english_full_name
+from lead_convert_policy import ACADEMIC_PI, build_contact_plan, build_form_name_plan, cdms_sync_verified, english_full_name
 
 HOST = 'https://novogene.lightning.force.com'
 LEAD_ID_RE = re.compile(r'^00Q[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$')
@@ -305,6 +305,42 @@ def run(args: argparse.Namespace) -> dict[str, str]:
                     'contact_id': known, 'cms_contact_id': cms,
                     'cdms_status': 'SYNCED' if cms else 'UNVERIFIED'}
 
+        # Form-only audit: no Contact, Account, Opportunity, or CDMS writes.
+        # A missing Billing Address blocks --execute but must not block Cancel-only UI checks.
+        if getattr(args, 'audit_convert_form', False):
+            if args.org_type != 'Academic':
+                raise ConversionStopped('Non-Academic form audit not validated')
+            names = build_form_name_plan(
+                korean_full_name=args.korean_name,
+                romanized_surname=args.surname,
+                romanized_given_syllables=args.given,
+            )
+            page.goto(f'{HOST}/lightning/r/Account/{args.account_id}/view',
+                      wait_until='domcontentloaded')
+            page.get_by_text(args.account_name, exact=True).first.wait_for(timeout=20000)
+            page.goto(f'{HOST}/lightning/r/Lead/{args.lead_id}/view',
+                      wait_until='domcontentloaded')
+            page.get_by_text(args.email, exact=False).first.wait_for(timeout=20000)
+            if preflight_lead_text(
+                page.locator('body').inner_text(),
+                expected_email=args.email,
+                korean_name=args.korean_name,
+                convert_visible=page.get_by_role('button', name='Convert', exact=True).count() == 1,
+            ) != 'ready':
+                raise ConversionStopped('Lead changed during Cancel-only form audit')
+            modal = prepare_conversion_modal(page, names, args.account_name)
+            try:
+                result = {'status': 'FORM_AUDIT_PASS_CANCELLED',
+                          'lead_id': args.lead_id,
+                          'account_id': args.account_id,
+                          'address_verified': 'NOT_CHECKED',
+                          'write_performed': 'NO'}
+            finally:
+                modal.get_by_role('button', name='Cancel', exact=True).last.click()
+            if modal.count():
+                raise ConversionStopped('Convert form did not close after Cancel')
+            return result
+
         # Only leads proven unconverted need an Account address lookup.
         # Recheck lead identity after navigating back from Account details.
         address = read_account_address(page, args.account_id, args.account_name)
@@ -326,14 +362,8 @@ def run(args: argparse.Namespace) -> dict[str, str]:
             account_address=address, org_type=args.org_type, job_options=[ACADEMIC_PI],
         )
         if not args.execute:
-            if getattr(args, 'audit_convert_form', False):
-                modal = prepare_conversion_modal(page, plan, args.account_name)
-                try:
-                    return {'status': 'FORM_AUDIT_PASS_CANCELLED',
-                            'lead_id': args.lead_id, 'account_id': args.account_id}
-                finally:
-                    modal.get_by_role('button', name='Cancel', exact=True).last.click()
-            return {'status': 'DRY_RUN_PASS', 'lead_id': args.lead_id, 'account_id': args.account_id}
+            return {'status': 'DRY_RUN_PASS', 'lead_id': args.lead_id,
+                    'account_id': args.account_id, 'write_performed': 'NO'}
 
         # Side effect #1: Convert. Never repeat automatically after timeout.
         modal = prepare_conversion_modal(page, plan, args.account_name)
