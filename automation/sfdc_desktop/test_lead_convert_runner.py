@@ -33,6 +33,21 @@ class RunnerSafetyTests(unittest.TestCase):
             expected_email='a@example.org', korean_name='김철수',
             convert_visible=False), 'needs_contact_verification')
 
+    def test_salesforce_reversed_korean_name_is_accepted(self):
+        lead = ('Lead\n재욱 심\nEmail\ns@example.org\n'
+                'Contact Information\nName\n재욱 심\nEdit Name\n')
+        self.assertEqual(preflight_lead_text(
+            lead, expected_email='s@example.org', korean_name='심재욱',
+            convert_visible=True), 'ready')
+
+    def test_reversed_name_must_match_full_given_name(self):
+        lead = ('Lead\n재욱 박\nEmail\ns@example.org\n'
+                'Contact Information\nName\n재욱 박\nEdit Name\n')
+        with self.assertRaisesRegex(ConversionStopped, 'Korean Lead name'):
+            preflight_lead_text(
+                lead, expected_email='s@example.org',
+                korean_name='심재욱', convert_visible=True)
+
     def test_missing_convert_requires_independent_proof(self):
         self.assertEqual(preflight_lead_text('김철수\na@example.org\nNew',
             expected_email='a@example.org', korean_name='김철수',
