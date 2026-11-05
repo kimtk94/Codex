@@ -1,0 +1,32 @@
+name: SFDC Lead Convert offline safety regression
+
+on:
+  pull_request:
+    paths:
+      - 'automation/sfdc_desktop/lead_convert_policy.py'
+      - 'automation/sfdc_desktop/lead_convert_runner.py'
+      - 'automation/sfdc_desktop/test_lead_convert_policy.py'
+      - 'automation/sfdc_desktop/test_lead_convert_runner.py'
+      - '.github/workflows/sfdc-lead-convert-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-policy-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax validation
+        run: python -m compileall -q automation/sfdc_desktop
+      - name: Three independent safety regression passes
+        run: |
+          for pass in 1 2 3; do
+            echo "Lead Convert safety test pass ${pass}/3"
+            python -m unittest discover -s automation/sfdc_desktop -p 'test_lead_convert_*.py' -q || exit 1
+          done
