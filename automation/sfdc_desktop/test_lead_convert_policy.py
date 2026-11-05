@@ -7,6 +7,7 @@ import unittest
 from lead_convert_policy import (
     ACADEMIC_PI,
     build_contact_plan,
+    build_form_name_plan,
     cdms_sync_verified,
     english_full_name,
 )
@@ -32,6 +33,22 @@ class LeadConvertPolicyTests(unittest.TestCase):
 
     def test_name_format(self):
         self.assertEqual(english_full_name("oh", ["jun", "hyeok"]), "OhJunHyeok")
+
+    def test_form_name_plan_needs_no_account_address(self):
+        names = build_form_name_plan(
+            korean_full_name="심재욱",
+            romanized_surname="Sim",
+            romanized_given_syllables=["Jae", "Uk"],
+        )
+        self.assertEqual(names.first_name, "심재욱")
+        self.assertEqual(names.last_name, "SimJaeUk")
+
+    def test_form_name_plan_blocks_partial_romanization(self):
+        with self.assertRaises(ValueError):
+            build_form_name_plan(
+                korean_full_name="심재욱", romanized_surname="Sim",
+                romanized_given_syllables=["Jae"],
+            )
 
     def test_valid_conversion_uses_existing_account_and_no_opportunity(self):
         p = build_contact_plan(**self.data)
