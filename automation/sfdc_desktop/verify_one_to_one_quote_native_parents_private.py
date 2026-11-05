@@ -41,7 +41,8 @@ def classify_native_parent(candidate,actual):
         return "HOLD_INVALID_NATIVE_EVIDENCE"
     if (actual.get("parent_verified") is not True or
             actual.get("quote_id_verified") is not True):
-        return "HOLD_"+str(actual.get("status") or "UNVERIFIED")
+        reason=str(actual.get("status") or "UNVERIFIED")
+        return reason if reason.startswith("HOLD_") else "HOLD_"+reason
     if not same_native(candidate.get("opportunity_id"),actual.get("opportunity_id_private")):
         return "HOLD_OPPO_ID_CONFLICT"
     if not same_native(candidate.get("quote_id"),actual.get("quotation_id_private")):
@@ -118,6 +119,7 @@ def main():
     rows=list(previous)
     newly_checked=0
     for index,item in enumerate(cases,1):
+        live={}
         try:
             live=run_live(item["opportunity_id"])
             status=classify_native_parent(item,live)
@@ -130,6 +132,7 @@ def main():
             "quote_status":item["quote_status"],
             "contact_opportunity_verified_in_source":item.get("known_contact_opportunity_live_evidence") is True,
             "native_relation_status":status,
+            "observed_related_quote_count":live.get("observed_related_quote_count"),
             "save_clicked":False
         })
         (ROOT/OUTPUT).write_text(json.dumps(rows,ensure_ascii=False,indent=2),encoding="utf-8")
