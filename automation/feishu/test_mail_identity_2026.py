@@ -140,6 +140,51 @@ class MailIdentityTests(unittest.TestCase):
         result = m.decorate(rich, self.index, NOW)
         self.assertEqual(result["Project ID"], "AMEA2026042239")
 
+    def test_inbound_css_excluded_from_customer_unanswered_pool(self):
+        row = m.decorate(mail("Contract Ready AMEA2026042239",
+                              sender="css@novogene-amea.com"), self.index, NOW)
+        self.assertEqual(row["Mail Role"], "CSS_AUTOMATED_NOTICE")
+        self.assertEqual(row["Followup Pool"], "EXCLUDE_CSS")
+        self.assertEqual(row["Primary Category"], "PROJECT")
+        self.assertEqual(row["Milestone"], "CONTRACT_READY")
+        self.assertEqual(row["Rule Version"], "2026-v2")
+        self.assertEqual(row["Evidence Tier"], "EXACT_PROJECT_ONLY")
+
+    def test_internal_mail_not_customer_pending(self):
+        row = m.decorate(mail("Internal discussion", sender="staff@novogene.com"),
+                         self.index, NOW)
+        self.assertEqual(row["Mail Role"], "INTERNAL_MAIL")
+        self.assertEqual(row["Followup Pool"], "EXCLUDE_INTERNAL")
+        self.assertEqual(row["Primary Category"], "GENERAL")
+
+    def test_external_inbound_unanswered_not_assumed(self):
+        row = m.decorate(mail("Question about experiment",
+                              sender="unknown@university.edu"), self.index, NOW)
+        self.assertEqual(row["Mail Role"], "EXTERNAL_INBOUND_CANDIDATE")
+        self.assertEqual(row["Followup Pool"], "THREAD_REVIEW_REQUIRED")
+        self.assertEqual(row["Evidence Tier"], "NO_IDENTITY_PROOF")
+        self.assertEqual(row["Contact ID"], "")
+
+    def test_outbound_mail_not_unanswered(self):
+        row = m.decorate(mail("Re: project update",
+                              sender="staff@novogene.com",direction="OUTBOUND",
+                              **{"To": "person@example.edu"}), self.index, NOW)
+        self.assertEqual(row["Mail Role"], "OUTBOUND")
+        self.assertEqual(row["Followup Pool"], "NOT_APPLICABLE")
+
+    def test_system_report_excluded(self):
+        row = m.decorate(mail("Report results (Leads)",
+                              sender="report@example.org"), self.index, NOW)
+        self.assertEqual(row["Mail Role"], "SYSTEM_REPORT")
+        self.assertEqual(row["Followup Pool"], "EXCLUDE_SYSTEM")
+
+    def test_exact_contact_project_evidence_tier(self):
+        row = m.decorate(mail("AMEA2026042239",
+                              sender="person@example.edu"), self.index, NOW)
+        self.assertEqual(row["Evidence Tier"], "EXACT_CONTACT_AND_PROJECT")
+        self.assertIn("Classification Tags", row)
+        self.assertEqual(row["Contact Link"], "EMAIL_EXACT_CONTACT")
+
     def test_field_changes_only_when_needed(self):
         entry = {"Mail Key": "a"*64, "Project ID": "AMEA2026042239",
                  "Last Sync KST": "older"}

@@ -3,12 +3,14 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/mail_identity_2026.py'
+      - 'automation/feishu/mail_classification_2026.py'
       - 'automation/feishu/test_mail_identity_2026.py'
       - '.github/workflows/feishu-mail-identity-2026.yml'
   push:
-    branches: [main, feat/feishu-mail-account-contact-project-20261105]
+    branches: [main, feat/qq-2026-mail-learn-all-20261106]
     paths:
       - 'automation/feishu/mail_identity_2026.py'
+      - 'automation/feishu/mail_classification_2026.py'
       - 'automation/feishu/test_mail_identity_2026.py'
       - '.github/workflows/feishu-mail-identity-2026.yml'
   workflow_dispatch:
@@ -37,7 +39,9 @@ jobs:
       - name: Install read-only Sheets reference client
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Test relationship safety
-        run: python3 -m unittest discover -s automation/feishu -p 'test_mail_identity_2026.py' -v
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_mail_identity_2026.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_mail_classification_2026.py' -v
       - name: Check Python syntax
         run: python3 -m py_compile automation/feishu/mail_identity_2026.py
   identity:
@@ -45,14 +49,14 @@ jobs:
     if: ${{ needs.test.result == 'success' && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 25
+    timeout-minutes: 75
     env:
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       FEISHU_IDENTITY_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
-      FEISHU_IDENTITY_BATCH_LIMIT: '600'
+      FEISHU_IDENTITY_BATCH_LIMIT: '12000'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

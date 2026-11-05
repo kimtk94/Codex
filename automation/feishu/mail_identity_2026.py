@@ -28,6 +28,8 @@ SCHEMA = (
     "Contact", "Contact ID", "Project ID", "H Project", "Opportunity ID",
     "Contact Link", "Project Link", "Relationship Status", "Review State",
     "Evidence", "Owner Evidence", "Reference Basis", "Last Sync KST",
+    "Classification Tags", "Rule Version", "Classification Evidence",
+    "Mail Role", "Followup Pool", "Evidence Tier",
 )
 VIEW_SPEC = (
     ("전체 메일 연결", None, None),
@@ -36,6 +38,10 @@ VIEW_SPEC = (
     ("연결 검토 필요", "Review State", "REVIEW"),
     ("현재 메일 연결", "Feed Lane", "CURRENT_30D"),
     ("과거 메일 연결", "Feed Lane", "HISTORY_2026"),
+    ("CSS 진행 안내", "Mail Role", "CSS_AUTOMATED_NOTICE"),
+    ("고객 메일 검토", "Followup Pool", "THREAD_REVIEW_REQUIRED"),
+    ("내부 메일 제외", "Mail Role", "INTERNAL_MAIL"),
+    ("연결 근거 미확인", "Evidence Tier", "NO_IDENTITY_PROOF"),
 )
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 H_RE = re.compile(r"\bH\d{2,}SC\d+\b", re.I)
@@ -197,6 +203,48 @@ def mail_project(mail, index):
     return None, "NO_PROJECT_ID", "UNMATCHED"
 
 
+def company_address(address):
+    return any(addr.rsplit("@", 1)[-1] in
+               {"novogene.com", "novogene-amea.com", "novogene.cn"}
+               for addr in email_set(address))
+
+
+def mail_learning_route(mail, classification):
+    """Routing for the *candidate pool*, not an unanswered-mail conclusion."""
+    sender = email_set(plain_field(mail.get("From")))
+    recipients = email_set(plain_field(mail.get("To"))) | email_set(plain_field(mail.get("CC")))
+    direction = plain_field(mail.get("Direction")).strip()
+    category = classification["Primary Category"]
+    if direction == "OUTBOUND":
+        return "OUTBOUND", "NOT_APPLICABLE"
+    if direction != "INBOUND":
+        return "DATE_OR_DIRECTION_REVIEW", "EXCLUDE_UNVERIFIED"
+    if CSS in sender:
+        return "CSS_AUTOMATED_NOTICE", "EXCLUDE_CSS"
+    if category == "SYSTEM_REPORT":
+        return "SYSTEM_REPORT", "EXCLUDE_SYSTEM"
+    if sender and all(a.rsplit("@", 1)[-1] in
+                      {"novogene.com", "novogene-amea.com", "novogene.cn"}
+                      for a in sender):
+        return "INTERNAL_MAIL", "EXCLUDE_INTERNAL"
+    if sender:
+        # Sent mail coverage and exact reply-chain correlation are not complete.
+        return "EXTERNAL_INBOUND_CANDIDATE", "THREAD_REVIEW_REQUIRED"
+    return "SENDER_MISSING", "EXCLUDE_UNVERIFIED"
+
+
+def evidence_tier(category, contact_link, project_link, state):
+    if state == "REVIEW":
+        return "CONFLICT_REVIEW"
+    if contact_link == "EMAIL_EXACT_CONTACT" and project_link == "PROJECT_ID_EXACT":
+        return "EXACT_CONTACT_AND_PROJECT"
+    if project_link == "PROJECT_ID_EXACT":
+        return "EXACT_PROJECT_ONLY"
+    if contact_link == "EMAIL_EXACT_CONTACT":
+        return "EXACT_CONTACT_ONLY"
+    return "NO_IDENTITY_PROOF"
+
+
 def decorate(mail, index, now):
     # Feishu Bitable text fields may arrive as strings OR rich-text chunks.
     mail = {key: plain_field(value) for key, value in mail.items()}
@@ -209,6 +257,7 @@ def decorate(mail, index, now):
     project, project_link, project_review = mail_project(mail, index)
     subject = plain_field(mail.get("Subject"))
     classification = classify(mail)
+    mail_role, followup_pool = mail_learning_route(mail, classification)
     account = contact["account"] if contact else ""
     account_id = contact["account_id"] if contact else ""
     contact_name = contact["name"] if contact else ""
@@ -277,6 +326,13 @@ def decorate(mail, index, now):
         "Evidence": ", ".join(evidence) if evidence else "NO_IDENTITY_REFERENCE",
         "Owner Evidence": "NOT_VERIFIED",
         "Reference Basis": "Legacy SFDC/CSS lists read-only; original mail Feishu direct",
+        "Classification Tags": classification["Tags"],
+        "Rule Version": classification["Rule Version"],
+        "Classification Evidence": classification["Evidence"],
+        "Mail Role": mail_role,
+        "Followup Pool": followup_pool,
+        "Evidence Tier": evidence_tier(classification["Primary Category"],
+                                      contact_link, project_link, state),
     }
 
 
@@ -306,6 +362,15 @@ def get_or_create_table(token, root):
     tid = matches[0].get("table_id")
     path = root + "/tables/" + urllib.parse.quote(tid, safe="")
     fields = {r.get("field_name"): r.get("type") for r in list_all(path + "/fields", token, "identity_schema")}
+    if any(k in fields and fields[k] != 1 for k in SCHEMA):
+        raise SafeError("IDENTITY_SCHEMA_CONFLICT")
+    for name in SCHEMA:
+        if name not in fields:
+            api("POST", path + "/fields", token,
+                data={"field_name": name, "type": 1},
+                action="identity_add_derived_field")
+            print("IDENTITY_DERIVED_FIELD_CREATED=" + name)
+    fields = {r.get("field_name"): r.get("type") for r in list_all(path + "/fields", token, "identity_schema_recheck")}
     if any(fields.get(k) != 1 for k in SCHEMA):
         raise SafeError("IDENTITY_SCHEMA_MISMATCH")
     return tid, path
@@ -374,6 +439,10 @@ def batch_apply(token, path, creates, updates):
             returned = data.get("records") or []
             if len(returned) != len(batch) or any(not r.get("record_id") for r in returned):
                 raise SafeError(action + "_UNCONFIRMED")
+            # Do not amplify Feishu rate limits on larger 2026 archives.
+            if len(rows) > 500:
+                import time
+                time.sleep(0.20)
     # Independently verify by stable Mail Key, not by record-order response.
     if creates or updates:
         checked = list_all(path + "/records", token, "identity_readback")
@@ -397,7 +466,7 @@ def main():
     mode = os.environ.get("FEISHU_IDENTITY_MODE", "plan")
     if mode not in ("plan", "apply"):
         raise SafeError("IDENTITY_UNKNOWN_MODE")
-    limit = min(2000, max(1, int(os.environ.get("FEISHU_IDENTITY_BATCH_LIMIT", "600"))))
+    limit = min(15000, max(1, int(os.environ.get("FEISHU_IDENTITY_BATCH_LIMIT", "7500"))))
     token, root = auth()
     table_id = find_table(token, root)
     if not table_id:
@@ -422,6 +491,15 @@ def main():
     contacts = sum(r["Contact Link"] == "EMAIL_EXACT_CONTACT" for r in desired)
     projects = sum(r["Project Link"] == "PROJECT_ID_EXACT" for r in desired)
     histories = sum(r["Feed Lane"] == "HISTORY_2026" for r in desired)
+    category_counts = collections.Counter(r["Primary Category"] for r in desired)
+    role_counts = collections.Counter(r["Mail Role"] for r in desired)
+    followup_counts = collections.Counter(r["Followup Pool"] for r in desired)
+    for category, count in sorted(category_counts.items()):
+        print("MAIL_LEARNING_CATEGORY_" + category + "=" + str(count))
+    for role, count in sorted(role_counts.items()):
+        print("MAIL_LEARNING_ROLE_" + role + "=" + str(count))
+    for role, count in sorted(followup_counts.items()):
+        print("MAIL_LEARNING_FOLLOWUP_" + role + "=" + str(count))
     print("IDENTITY_SOURCE_2026=" + str(len(desired)) +
           " project_exact=" + str(projects) + " contact_email_exact=" + str(contacts) +
           " history=" + str(histories) +
