@@ -171,6 +171,8 @@ def mail_project(mail, index):
 
 
 def decorate(mail, index, now):
+    # Feishu Bitable text fields may arrive as strings OR rich-text chunks.
+    mail = {key: plain_field(value) for key, value in mail.items()}
     key = plain_field(mail.get("Mail Key")).strip()
     if not re.fullmatch(r"[0-9a-f]{64}", key):
         raise SafeError("MAIL_IDENTITY_KEY_INVALID")
