@@ -90,3 +90,16 @@ This app is the `apps/css-sales-workspace` workspace. CSS app-only changes must 
 - The Sign in with Vercel **App** in Vercel **Manage → Authorization Callback URLs** must authorize `https://<exact-preview-host>/api/auth/callback` (prefer selecting the CSS Vercel project, which officially supports its deployment domains). This separate OAuth App configuration is **not verified or modified by CI**, and `redirect_uri_mismatch` means that registration remains incomplete. Documentation: https://vercel.com/docs/sign-in-with-vercel/manage-from-dashboard.
 - Do not turn off Vercel Deployment Protection to satisfy browser tests. A browser test must first authenticate to Vercel's deployment protection, then authenticate as the hard-coded app owner through Vercel OAuth. The app must return `/api/lifecycle=200`, single verified UID mail-body `200`, and a non-owner `401/403` before any Production promotion.
 - No customer emails, CRM writes, payment changes, or Production promotions are authorized by this change.
+
+## Monthly Revenue restoration (2026-11-05)
+
+- The owner-authenticated CSS Command Center includes a dedicated **Monthly Revenue** view without removing the existing Revenue, Invoice, Statement, Mail, Lead, Project and Automation sections.
+- `BI 2025 Official Monthly` supplies 2025 official owner-level **USD excluding tax**, converted for display with the reporting FX of KRW 1,500/USD. It is a different accounting basis from a 2026 issued Tax Invoice.
+- `BI 2026 Forecast Overview` supplies historical 2026 source rows. Overlapping 2026 months in `BI Revenue Lifecycle Monthly` have precedence; never add both versions together.
+- `BI Revenue Net VAT Monthly` controls whether 2026 issued net Revenue may be displayed. Unknown net revenue stays **unverified** instead of dividing gross amounts without approved evidence.
+- Pending, Invoice and Forecast remain separate. The 2025/2026 chart is only a **source-labeled reference comparison**, not a like-for-like YoY growth rate.
+- Original Google Sheets report tabs remain available through verified owner-protected links. No data source, source workbook, credentials, or production aliases are modified by this change.
+- CI: `CSS Monthly Revenue source and UI contract` runs read-only source and UI regression checks three times. Preview must be independently READY and owner-authenticated E2E must pass before any Production promotion.
+
+### Vercel Preview build scope
+The existing Vercel project Ignored Build Step checks `git diff` from `VERCEL_GIT_PREVIOUS_SHA` (or `HEAD^`). For manual Git-source deployments, a workflow-only final commit can appear unaffected and be marked `CANCELED`. This is a skip, not a build failure. A source-affecting CSS commit and the existing project configuration should be used instead of changing Production scope or weakening deployment protection.

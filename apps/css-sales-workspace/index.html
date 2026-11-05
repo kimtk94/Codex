@@ -26,6 +26,21 @@ main{margin-left:254px;padding:26px clamp(18px,3vw,46px);max-width:1700px}
 dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow:0 18px 70px #14213555}dialog::backdrop{background:#07142688}.dialogtop{display:flex;align-items:center;justify-content:space-between}.bodytext{white-space:pre-wrap;overflow:auto;max-height:60vh;background:#f6f8fc;border-radius:12px;padding:18px;line-height:1.65;overflow-wrap:anywhere}.close{border:0;background:#e8eff7;padding:9px 13px;border-radius:9px}
 @media(max-width:950px){aside{width:76px;padding:18px 8px}.brand{font-size:12px;padding:5px}.brand small,.sidefoot,nav .group{display:none}nav button{font-size:12px;padding:12px 5px;text-align:center}main{margin-left:76px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.split{grid-template-columns:1fr}}
 @media(max-width:580px){aside{position:sticky;top:0;width:100%;height:auto;display:block;padding:9px;overflow:auto}.brand{display:none}nav{display:flex;overflow:auto}nav button{flex:0 0 auto;width:auto;padding:9px 11px}main{margin:0;padding:15px}.kpis{gap:8px}.kpi,.panel{padding:13px}.kpi strong{font-size:20px}}
+
+/* Dedicated, source-labeled Monthly Revenue view; legacy views remain intact. */
+.monthly-bar-chart{display:grid;grid-template-columns:repeat(12,minmax(50px,1fr));gap:7px;overflow-x:auto;min-height:175px;align-items:end;padding:15px 3px 6px}
+.monthly-bar-group{min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.monthly-bar-pair{width:100%;height:140px;display:flex;gap:4px;justify-content:center;align-items:flex-end;border-bottom:1px solid #d5dfeb}
+.monthly-bar{min-width:10px;max-width:22px;flex:1;border-radius:5px 5px 0 0;min-height:0}
+.monthly-bar.official{background:#6b84a7}.monthly-bar.issued{background:#2276cf}
+.monthly-legend{display:flex;flex-wrap:wrap;gap:15px;color:#566980;font-size:12px}
+.monthly-legend span:before{content:'';display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-2px;background:#6b84a7}
+.monthly-legend span:last-child:before{background:#2276cf}
+.monthly-source{font-size:12px;color:#66758b;line-height:1.8;margin-top:14px}
+.legacy-links{display:flex;flex-wrap:wrap;gap:8px}
+.legacy-links a{border:1px solid #d6e2ee;border-radius:9px;padding:8px 11px;color:#245b99;text-decoration:none;font-size:12px}
+.legacy-links a:hover{background:#eef4fb}
+@media(max-width:760px){.monthly-bar-chart{grid-template-columns:repeat(12,minmax(48px,1fr))}}
 </style></head><body>
 <aside><div class="brand">NOVOGENE<small>SALES COMMAND CENTER</small></div>
 <nav id="nav">
@@ -34,6 +49,7 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <button data-view="projects">◫ 프로젝트 진행</button>
 <button data-view="contractReview">⊞ 미발행 계약번호 검증</button>
 <button data-view="revenue">▥ 매출 · Invoice</button>
+<button data-view="monthlyRevenue">▤ Monthly Revenue · 연도 비교</button>
 <button data-view="statements">▤ Statement · 결제</button>
 <div class="group">SALES & SERVICE</div>
 <button data-view="mail">✉ 미응답 메일</button>
@@ -58,6 +74,35 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <div class="tablewrap"><table><thead><tr><th>기관 · 프로젝트 / AMEA</th><th>기존 Watch X (사용 금지)</th><th>H 후보</th><th>X 후보 (확정 아님)</th><th>근거 · 판정</th><th>결제 원본일</th></tr></thead><tbody id="contractReviewRows"></tbody></table></div>
 </div></section>
 <section id="revenue" class="view"><div class="kpis" id="revenueKpi"></div><div class="panel"><h2>Actual / Pending / Forecast — 월별 내역</h2><div class="tablewrap"><table><thead><tr><th>월</th><th>Revenue VAT 제외 KRW</th><th>Invoice VAT 포함 KRW</th><th>Pending KRW</th><th>검증 청구액 KRW</th><th>검증 청구액 kUSD</th><th>Forecast KRW (미확정)</th><th>Forecast kUSD</th><th>Invoice 건수</th><th>Pending 건수</th></tr></thead><tbody id="revenueRows"></tbody></table></div></div></section>
+<section id="monthlyRevenue" class="view">
+<div class="panel">
+<h2>Monthly Revenue · Actual / Pending / Forecast</h2>
+<p class="operator-hint">2025 공식 Revenue는 USD 기반·세금 제외 실적의 KRW@1,500 환산값입니다. 2026 원본 Invoice 발행액은 다른 집계 기준이며, 두 금액을 단순 YoY 성장률로 비교하지 않습니다. Pending은 미발행 청구 후보이고 Forecast는 확정 매출이 아닙니다.</p>
+<div class="filter">
+<label>표시 <select id="monthlyMode" aria-label="Monthly Revenue 표시 방식"><option value="operations">2026 월별 운영</option><option value="compare">2025 공식 vs 2026 발행 참고 비교</option></select></label>
+<label>월 <select id="monthlyFilter" aria-label="Monthly Revenue 월 선택"><option value="all">전체 12개월</option></select></label>
+</div>
+<p class="operator-hint" id="monthlySourceStatus" role="status" aria-live="polite">공식 매출 데이터 연결을 확인하는 중입니다.</p>
+<div class="kpis" id="monthlyKpi"></div>
+<div class="monthly-legend"><span>2025 공식 Revenue · VAT 제외</span><span>2026 Invoice 발행액 · 원본 기준</span></div>
+<div class="monthly-bar-chart" id="monthlyChart" role="img" aria-label="2025 공식 Revenue 및 2026 Invoice 발행액 월별 참고 그래프"></div>
+<div class="tablewrap"><table><thead id="monthlyHeaders"></thead><tbody id="monthlyRows"></tbody></table></div>
+<div class="monthly-source" id="monthlyFootnote">원본 기반 검증 상태 확인 중</div>
+</div>
+<div class="panel"><h2>기존 매출·프로젝트 원본 리포트</h2>
+<p class="operator-hint">기존 Google Sheets 기능은 보존합니다. 아래 링크는 각 원본 탭을 열며, 접근 권한은 Google 계정으로 확인합니다.</p>
+<div class="legacy-links" role="navigation" aria-label="기존 매출 원본 Google Sheets 바로가기">
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=129540641" target="_blank" rel="noopener noreferrer">BI Revenue Executive 2026</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1936002610" target="_blank" rel="noopener noreferrer">2025 vs 2026 Overlay</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1173034481" target="_blank" rel="noopener noreferrer">2025 Official Monthly</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=922488543" target="_blank" rel="noopener noreferrer">Revenue L4 Monthly Mix</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1163754742" target="_blank" rel="noopener noreferrer">Revenue Monthly Institution</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1856711491" target="_blank" rel="noopener noreferrer">BI Project Month Control</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=246817115" target="_blank" rel="noopener noreferrer">Billing Control Dashboard</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1740242851" target="_blank" rel="noopener noreferrer">Revenue Net VAT Monthly</a>
+</div>
+</div>
+</section>
 <section id="statements" class="view"><div class="panel"><h2>Statement · TAX INVOICE 추적</h2><div class="notice">J번호 + X 하위 프로젝트로 식별합니다. Statement 검증 금액과 실제 Tax Invoice 발행액은 별도 표시합니다. Payment는 입금 증거가 없으면 완료로 표시하지 않습니다.</div><div class="filter"><input id="statementQuery" placeholder="Statement ID · 기관 · 연구자 · AMEA 검색"><select id="statementState"><option value="">전체 상태</option><option value="PENDING">미발행 Pending</option><option value="INVOICED">Tax Invoice 발행</option><option value="REVIEW">검토 필요</option></select></div><p id="statementSummary" class="subtitle"></p><div class="tablewrap"><table><thead><tr><th>Statement ID · 날짜</th><th>기관 · 연구자 · 서비스</th><th>원본 Statement</th><th>Tax Invoice 발행액</th><th>상태 · 발행번호</th></tr></thead><tbody id="statementRows"></tbody></table></div></div></section>
 <section id="mail" class="view"><div class="panel"><h2>미응답 메일함</h2><p id="mailBackfillStatus" class="subtitle">메일 본문 백필 검증 정보 확인 중</p><div class="filter"><input id="mailQuery" placeholder="발신자 · 제목 · 프로젝트 검색"><select id="mailSort"><option value="days">경과일 높은 순</option><option value="recent">최근 메일 순</option></select></div><div class="tablewrap"><table><thead><tr><th>우선순위</th><th>경과</th><th>발신자 · 제목</th><th>수신</th><th>프로젝트</th><th>본문</th></tr></thead><tbody id="mailRows"></tbody></table></div></div></section>
 <section id="leads" class="view"><div class="panel"><h2>Lead 업무 대기열</h2><div class="filter"><input id="leadQuery" placeholder="기관 · 고객 · 담당 이메일"></div><div class="tablewrap"><table><thead><tr><th>우선순위</th><th>기관 · 고객</th><th>상태</th><th>예정일</th><th>설명</th></tr></thead><tbody id="leadRows"></tbody></table></div></div></section>
@@ -150,6 +195,92 @@ function selectKpiMonth(months,now=Date.now()){
  if(chosen)select.value=chosen;
  return available.find(x=>x.month===chosen)||{};
 }
+function drawMonthlyRevenue(){
+ const source=data?.monthlyComparison||{available:false,rows:[],issues:['SOURCE_NOT_CONNECTED']};
+ const rows=Array.isArray(source.rows)?source.rows:[];
+ const mode=$('monthlyMode').value;
+ const monthSelect=$('monthlyFilter');
+ if(monthSelect.options.length===1){
+   for(let n=1;n<=12;n++){
+     const opt=elt('option',n+'월');opt.value=String(n).padStart(2,'0');monthSelect.appendChild(opt);
+   }
+ }
+ const selected=monthSelect.value,monthOK=n=>selected==='all'||String(n).padStart(2,'0')===selected;
+ const annual2025=new Map(rows.filter(r=>r.year===2025).map(r=>[r.monthNumber,r]));
+ const annual2026=new Map(rows.filter(r=>r.year===2026).map(r=>[r.monthNumber,r]));
+ const noValue='미검증';
+ const moneyOr=v=>v===null||v===undefined?noValue:money(v);
+ const kusdOr=v=>v===null||v===undefined?noValue:kusd(v);
+ const monthText=n=>String(n).padStart(2,'0')+'월';
+ const status=source.available?'연결됨 · 2025 공식 / 2026 Invoice / Pending / Forecast 분리':'연결되지 않음 · 원본 미검증';
+ $('monthlySourceStatus').textContent=status+
+   (source.issues?.length?' · 검토: '+source.issues.join(', '):'');
+ $('monthlyFootnote').textContent=
+  '2025는 공식 확정 Revenue (USD 세금 제외, KRW@1,500)이며 2026은 Invoice 원본 및 미확정 Forecast입니다. '+
+  '2026 Net Revenue는 원본 Invoice 검증이 완료된 월에만 표시합니다. '+ 
+  '두 연도는 집계·VAT 기준이 달라 동등한 YoY 성장률을 산출하지 않습니다. '+
+  '현재 월은 진행 중으로 간주하며 Forecast를 매출로 합산하지 않습니다.';
+ const current=[...annual2026.values()].find(r=>r.currentMonth)||
+   [...annual2026.values()].filter(r=>r.issuedGrossKRW!==null&&r.issuedGrossKRW!==undefined).slice(-1)[0]||{};
+ const chosen=selected==='all'?current:annual2026.get(Number(selected))||{};
+ const headline=chosen.month||'2026 · 월 미선택';
+ kpis('monthlyKpi',[
+   [headline+' Revenue VAT 제외',moneyOr(chosen.verifiedNetKRW),kusdOr(chosen.verifiedNetKUSD)+' · 검증된 월만'],
+   ['Invoice 발행 원본',moneyOr(chosen.issuedGrossKRW),kusdOr(chosen.issuedGrossKUSD)+' · 공급가액과 구분'],
+   ['Pending',moneyOr(chosen.pendingKRW),kusdOr(chosen.pendingKUSD)+' · 원본 VAT 기준 별도 확인'],
+   ['Forecast 미확정',moneyOr(chosen.forecastKRW),kusdOr(chosen.forecastKUSD)+' · Actual에 미합산']
+ ]);
+ const header=mode==='compare'
+  ?['월','2025 공식 Revenue VAT 제외 KRW','2025 공식 kUSD','2026 Invoice 원본 KRW','2026 Invoice kUSD','2026 Revenue VAT 제외(검증 월)','2026 출처·상태']
+  :['월','Revenue VAT 제외 KRW','Revenue kUSD','Invoice 원본 KRW','Invoice kUSD','Pending KRW / kUSD','Forecast KRW / kUSD','출처·검증'];
+ const tr=elt('tr');for(const h of header)tr.appendChild(elt('th',h));
+ $('monthlyHeaders').replaceChildren(tr);
+ const numbers=[1,2,3,4,5,6,7,8,9,10,11,12].filter(monthOK);
+ if(mode==='compare'){
+   put('monthlyRows',numbers.map(n=>{
+     const a=annual2025.get(n)||{},b=annual2026.get(n)||{};
+     return[monthText(n),moneyOr(a.officialNetKRW),kusdOr(a.officialNetKUSD),
+       moneyOr(b.issuedGrossKRW),kusdOr(b.issuedGrossKUSD),
+       moneyOr(b.verifiedNetKRW),b.currentMonth?'진행 중 · '+(b.coverage||''):b.coverage||'미검증'];
+   }));
+ }else{
+   put('monthlyRows',numbers.map(n=>{
+     const b=annual2026.get(n)||{};
+     const pending=moneyOr(b.pendingKRW)+' / '+kusdOr(b.pendingKUSD);
+     const forecast=moneyOr(b.forecastKRW)+' / '+kusdOr(b.forecastKUSD);
+     return[monthText(n)+(b.currentMonth?' · 진행 중':''),
+       moneyOr(b.verifiedNetKRW),kusdOr(b.verifiedNetKUSD),
+       moneyOr(b.issuedGrossKRW),kusdOr(b.issuedGrossKUSD),
+       pending,forecast,(b.source||'MISSING')+' · '+(b.coverage||'NOT_VERIFIED')];
+   }));
+ }
+ const chart=$('monthlyChart');chart.replaceChildren();
+ const values=[];
+ for(const n of numbers){
+   const a=annual2025.get(n),b=annual2026.get(n);
+   if(a&&Number.isFinite(a.officialNetKRW))values.push(a.officialNetKRW);
+   if(b&&Number.isFinite(b.issuedGrossKRW))values.push(b.issuedGrossKRW);
+ }
+ const max=Math.max(1,...values);
+ if(!source.available){chart.appendChild(elt('p','Monthly Revenue 원본 확인이 필요합니다.','empty'));return}
+ for(const n of numbers){
+   const a=annual2025.get(n)||{},b=annual2026.get(n)||{};
+   const group=elt('div',undefined,'monthly-bar-group');
+   const pair=elt('div',undefined,'monthly-bar-pair');
+   for(const [value,label,cls] of [
+     [a.officialNetKRW,'2025 공식 Revenue','official'],
+     [b.issuedGrossKRW,'2026 Invoice 원본','issued']
+   ]){
+     const bar=elt('div',undefined,'monthly-bar '+cls);
+     const valid=value!==null&&value!==undefined&&Number.isFinite(value);
+     bar.style.height=valid?Math.max(1,Math.round(value/max*138))+'px':'0px';
+     bar.title=monthText(n)+' · '+label+' · '+(valid?money(value):noValue);
+     bar.setAttribute('aria-label',bar.title);
+     pair.appendChild(bar);
+   }
+   group.append(pair,elt('small',monthText(n)));chart.appendChild(group);
+ }
+}
 function draw(){if(!data)return;const m=selectKpiMonth(data.months);const ps=data.projects||[],ml=data.inbox||[],ls=data.leads||[];
 $('timestamp').textContent='최근 집계 '+(data.refreshed||'알 수 없음')+' · 웹에서 직접 조회';
 const netText=x=>x===null||x===undefined?'검증 대기':money(x);
@@ -157,6 +288,7 @@ kpis('overviewKpi',[['Revenue (VAT 제외)',netText(m.netRevenue),'원본 Invoic
 kpis('revenueKpi',[['Revenue (VAT 제외)',netText(m.netRevenue),m.netRevenueKUSD===null?'검증 대기':kusd(m.netRevenueKUSD)+' · 원본 Invoice 검증'],['Invoice 발행 (VAT 포함)',money(m.actual),'수납 확인과 다름'],['Pending (세금 기준 미확인)',money(m.pending),'Statement 확인 단계'],['Forecast (미확정)',money(m.forecast),'Revenue와 별도 추정치']]);
 put('overviewRevenue',data.months.map(r=>[r.month,netText(r.netRevenue),money(r.actual),money(r.pending),money(r.verifiedBilling),money(r.forecast)]));
 put('revenueRows',data.months.map(r=>[r.month,netText(r.netRevenue),money(r.actual),money(r.pending),money(r.verifiedBilling),kusd(r.verifiedBillingKUSD),money(r.forecast),kusd(r.forecastKUSD),r.invoices,r.openStatements]));
+drawMonthlyRevenue();
 const stats=new Map();for(const p of ps){const key=p.billing.startsWith('ISSUED')?'Invoice 발행':p.billing.includes('STATEMENT')?'Statement 대기':p.billing.includes('BLOCKED')?'보류':'진행 중';stats.set(key,(stats.get(key)||0)+1)}$('overviewStages').replaceChildren(...[...stats].map(([k,v])=>elt('p',k+'   '+v+'건')));
 $('overviewActions').replaceChildren(elt('p','미응답 메일 '+ml.length+'건'),elt('p','Lead '+ls.length+'건'),elt('p','미발행 Statement '+ps.filter(p=>p.pendingStatement).length+'개 프로젝트'));
 const pq=$('projectQuery').value.toLowerCase(),cat=$('projectStatus').value;
@@ -294,6 +426,7 @@ $('ownerSmoke').addEventListener('click',runOwnerSmoke);
 $('load').addEventListener('click',load);$('login').addEventListener('click',()=>{location.assign('/api/auth/authorize')});$('closeDialog').addEventListener('click',()=>$('mailDialog').close());
 $('dashboardMonth').addEventListener('change',draw);
 for(const id of ['statementQuery','statementState','projectQuery','projectStatus','mailQuery','mailSort','leadQuery','contractQuery','contractState'])$(id).addEventListener('input',draw);
+for(const id of ['monthlyMode','monthlyFilter'])$(id).addEventListener('change',drawMonthlyRevenue);
 for(const btn of document.querySelectorAll('nav button[data-view]'))btn.addEventListener('click',()=>{for(const b of document.querySelectorAll('nav button'))b.classList.toggle('active',b===btn);for(const v of document.querySelectorAll('.view'))v.classList.toggle('active',v.id===btn.dataset.view);$('heading').textContent=btn.textContent.trim()});
 load();setInterval(()=>{if(!document.hidden)load()},300000);
 })();

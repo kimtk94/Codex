@@ -28,8 +28,13 @@ jobs:
         run: /tmp/css-contract-playwright/node_modules/.bin/playwright test --config=test/playwright.contract.config.cjs --workers=1 --reporter=line
         env:
           CI: 'true'
+      - name: Browser E2E Monthly Revenue with synthetic owner API
+        working-directory: apps/css-sales-workspace
+        run: /tmp/css-contract-playwright/node_modules/.bin/playwright test --config=test/playwright.monthly.config.cjs --workers=1 --reporter=line
+        env:
+          CI: 'true'
       - name: Record security and acceptance boundary
         run: |
-          echo 'CSS_BROWSER_TEST=SYNTHETIC_API_ONLY' >> "$GITHUB_STEP_SUMMARY"
+          echo 'CSS_BROWSER_TEST=CONTRACT_AND_MONTHLY_REVENUE_SYNTHETIC_ONLY' >> "$GITHUB_STEP_SUMMARY"
           echo 'VERCEL_SSO_AUTHENTICATED=NO; LIVE_SHEETS_OWNER_E2E=NO' >> "$GITHUB_STEP_SUMMARY"
           echo 'PRODUCTION_APPROVAL=BLOCK; NO_WEB_DEPLOY_OR_SOURCE_WRITES' >> "$GITHUB_STEP_SUMMARY"
