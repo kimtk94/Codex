@@ -13,6 +13,8 @@ from dataclasses import dataclass
 AMEA_SUFFIX = re.compile(r"^(?P<oppo_name>.+)-(?P<quote_no>AMEA\d{8,}(?:-\d+)?)$")
 SFID_OPPO = re.compile(r"^006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
 SFID_QUOTE = re.compile(r"^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
+SFID_ACCOUNT = re.compile(r"^001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
+SFID_CONTACT = re.compile(r"^003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
 
 
 # Explicitly excluded accounts. Match only the institution segment of an
@@ -113,8 +115,55 @@ def match_single_product_quote(
     return candidate
 
 
+def verify_live_quotation_relationship(candidate: dict, evidence: dict | None) -> bool:
+    """Fail closed before using a real SFDC Quotation as an automation example.
+
+    The caller must independently read the source Quotation__c Details,
+    its linked Opportunity Details, and the Contact's current Account from
+    authenticated Salesforce Lightning. Names and stale Sheets cannot replace
+    these IDs. This function never talks to Salesforce or writes records.
+
+    Salesforce Quote is a custom `Quotation__c` object, not standard Quote.
+    """
+    if not isinstance(candidate, dict) or not isinstance(evidence, dict):
+        raise ManualReview("Missing direct Lightning relationship evidence")
+    if evidence.get("source") != "SFDC_LIGHTNING_DETAIL":
+        raise ManualReview("Unverified Salesforce relationship source")
+    if evidence.get("quote_object") != "Quotation__c":
+        raise ManualReview("Expected custom Quotation__c, not standard Quote")
+
+    validations = {
+        "quotation_record_id": SFID_QUOTE,
+        "parent_opportunity_id": SFID_OPPO,
+        "quotation_account_id": SFID_ACCOUNT,
+        "opportunity_account_id": SFID_ACCOUNT,
+        "quotation_contact_id": SFID_CONTACT,
+        "opportunity_main_contact_id": SFID_CONTACT,
+        "contact_account_id": SFID_ACCOUNT,
+    }
+    for key, pattern in validations.items():
+        if not pattern.fullmatch(str(evidence.get(key) or "")):
+            raise ManualReview("Missing or invalid Salesforce relationship: " + key)
+
+    if evidence["quotation_record_id"] != candidate.get("source_quote_id"):
+        raise ManualReview("Quotation record ID differs from selected example")
+    if evidence["parent_opportunity_id"] != candidate.get("source_opportunity_id"):
+        raise ManualReview("Quotation actual parent differs from selected Opportunity")
+    accounts = (
+        evidence["quotation_account_id"],
+        evidence["opportunity_account_id"],
+        evidence["contact_account_id"],
+    )
+    if len(set(accounts)) != 1:
+        raise ManualReview("Quotation/Opportunity/Contact Account IDs differ")
+    if evidence["quotation_contact_id"] != evidence["opportunity_main_contact_id"]:
+        raise ManualReview("Quotation Contact differs from Opportunity Main Contact")
+    return True
+
+
 def dryrun_after_read_only_identity_check(
-    candidate: dict, actual_parent_opportunity_id: str
+    candidate: dict, actual_parent_opportunity_id: str,
+    *, relationship_evidence: dict | None = None,
 ) -> dict:
     """Allow form rehearsal ONLY after Salesforce's actual parent link matches."""
     if not candidate.get("requires_live_parent_identity_check"):
@@ -125,9 +174,11 @@ def dryrun_after_read_only_identity_check(
         raise ManualReview("Complex-product Quote cannot use basic form rehearsal")
     if candidate.get("save_clicked") or candidate.get("create_quote"):
         raise ManualReview("This workflow must remain NO-SAVE")
+    verify_live_quotation_relationship(candidate, relationship_evidence)
     return {
         **candidate,
         "actual_parent_verified": True,
+        "actual_quotation_account_contact_verified": True,
         "mode": "FORM_DRY_RUN_NO_SAVE",
         "save_clicked": False,
         "create_quote": False,
