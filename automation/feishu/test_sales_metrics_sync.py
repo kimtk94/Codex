@@ -9,6 +9,8 @@ from qq_mail_ingest import SafeError
 class MetricsTests(unittest.TestCase):
     def test_sif_number_alone_is_not_submission(self):
         source={
+            "CSS Project Dashboard":[{"project_id":"AMEA2026012345","institution":"U",
+                "customer_name":"Customer","current_stage":"Sample QC","progress_percent":"20"}],
             "CSS Contract-SIF Tracker":[{
                 "record_id":"123","Institution":"U","AMEA No.":"AMEA2026012345",
                 "SIF No.":"SIF123","Status":"Contract Ready",
@@ -25,6 +27,8 @@ class MetricsTests(unittest.TestCase):
 
     def test_sif_approved_is_separate_evidence(self):
         source={
+            "CSS Project Dashboard":[{"project_id":"AMEA2026012345","institution":"U",
+                "customer_name":"Customer","current_stage":"Sample QC","progress_percent":"20"}],
             "CSS Contract-SIF Tracker":[{
                 "record_id":"124","AMEA No.":"AMEA2026012345","SIF No.":"SIF123",
                 "Status":"SIF Approved","sif_first_seen_at":"2026-11-01"
@@ -34,7 +38,7 @@ class MetricsTests(unittest.TestCase):
         }
         row=m.project_rows(source)[0]
         self.assertEqual(row["SIF State"],"APPROVED")
-        self.assertEqual(row["Progress %"],30.0)
+        self.assertEqual(row["Progress %"],20.0)
 
     def test_monthly_dedup_and_vat_separated(self):
         source={
