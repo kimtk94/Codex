@@ -26,6 +26,28 @@ class LeadContactPlan:
     create_opportunity: bool = False
 
 
+@dataclass(frozen=True)
+class LeadFormNamePlan:
+    first_name: str
+    last_name: str
+
+
+def build_form_name_plan(
+    *, korean_full_name: str, romanized_surname: str,
+    romanized_given_syllables: list[str],
+) -> LeadFormNamePlan:
+    """Validate names without fabricating an Account address (audit mode only)."""
+    name = korean_full_name.strip()
+    if not re.fullmatch(r"[가-힣]{2,6}", name):
+        raise ValueError("Full Korean name is required")
+    if len(romanized_given_syllables) != len(name) - 1:
+        raise ValueError("Romanized syllable count does not match Korean given name")
+    return LeadFormNamePlan(
+        first_name=names.first_name,
+        last_name=names.last_name,
+    )
+
+
 def english_full_name(surname: str, given_name_syllables: list[str]) -> str:
     """Build surname-first English name with no whitespace, e.g. OhJunHyeok.
 
@@ -55,11 +77,11 @@ def build_contact_plan(
     The first Job Function *in the live option list* is selected, skipping
     blank/None placeholders. Academic must resolve to the PI option.
     """
-    name = korean_full_name.strip()
-    if not re.fullmatch(r"[가-힣]{2,6}", name):
-        raise ValueError("Full Korean name is required")
-    if len(romanized_given_syllables) != len(name) - 1:
-        raise ValueError("Romanized given-name syllable count must match the Korean name")
+    names = build_form_name_plan(
+        korean_full_name=korean_full_name,
+        romanized_surname=romanized_surname,
+        romanized_given_syllables=romanized_given_syllables,
+    )
     if not re.fullmatch(r"001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?", verified_account_id):
         raise ValueError("A verified Salesforce Account ID is required")
     if not job_options:
