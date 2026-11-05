@@ -1,0 +1,64 @@
+name: Feishu QQ Mail Identity 2026
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/mail_identity_2026.py'
+      - 'automation/feishu/test_mail_identity_2026.py'
+      - '.github/workflows/feishu-mail-identity-2026.yml'
+  push:
+    branches: [main, feat/feishu-mail-account-contact-project-20261105]
+    paths:
+      - 'automation/feishu/mail_identity_2026.py'
+      - 'automation/feishu/test_mail_identity_2026.py'
+      - '.github/workflows/feishu-mail-identity-2026.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'plan read only, apply create/update relationship index'
+        type: choice
+        options: [plan, apply]
+        default: plan
+  schedule:
+    - cron: '43 0,3,6,9,12,15,18,21 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: qq-feishu-identity
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Sheets reference client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Test relationship safety
+        run: python3 -m unittest discover -s automation/feishu -p 'test_mail_identity_2026.py' -v
+      - name: Check Python syntax
+        run: python3 -m py_compile automation/feishu/mail_identity_2026.py
+  identity:
+    needs: test
+    if: ${{ needs.test.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 25
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_IDENTITY_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_IDENTITY_BATCH_LIMIT: '600'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only reference client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Link 2026 Feishu QQ mail to Account Contact Project
+        run: python3 automation/feishu/mail_identity_2026.py
