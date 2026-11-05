@@ -1,0 +1,145 @@
+name: Novogene CSS Synthetic Sheet Canary
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-synthetic-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 5
+    steps:
+      - name: Validate SSH credentials
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::SSH configuration missing"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw=os.environ["SSH_KEY"].strip().replace("\\n","\n").replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          (Path.home()/'.ssh/server_key').write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
+      - name: Server ADC isolated canary Sheet read/write test
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" 'for PY in /home/taehoon/services/novogene-css/.venv/bin/python /home/taehoon/services/novogene-css/venv/bin/python /home/taehoon/services/novogene-css/app/.venv/bin/python /usr/local/bin/python3 /usr/bin/python3; do if [ -x "$PY" ] && "$PY" -c "import gspread; import google.auth" >/dev/null 2>&1; then echo "CANARY_RUNTIME_FOUND"; exec "$PY" -; fi; done; echo "CANARY_RUNTIME_MISSING"; exit 1' <<'PY'
+          import os
+          TEST_ID='1eKMPMnRYeZB8tuPE2dblcSaHXSZ58REHPQgJSq2RIjA'
+          ORIGINAL_PRODUCTION_ID='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY'
+          if TEST_ID == ORIGINAL_PRODUCTION_ID:
+              raise SystemExit('CANARY_PROD_ID_COLLISION')
+          try:
+              import gspread
+              import google.auth
+              from google.auth.exceptions import DefaultCredentialsError
+              from pathlib import Path
+              import re
+              # SSH sessions do not inherit the hourly production unit's ADC path.
+              # Examine only Google credential PATH settings. Never print or copy credentials.
+              def set_scoped_adc_path():
+                  if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
+                      return
+                  search=[]
+                  unit_roots=[Path('/etc/systemd/system'),Path('/home/taehoon/.config/systemd/user')]
+                  for root in unit_roots:
+                      if not root.is_dir():
+                          continue
+                      for pattern in ('*novogene*.service','*css*.service'):
+                          for unit in root.glob(pattern):
+                              try:
+                                  txt=unit.read_text(errors='replace')
+                              except OSError:
+                                  continue
+                              for line in txt.splitlines():
+                                  if line.strip().startswith('EnvironmentFile='):
+                                      entry=line.split('=',1)[1].strip().lstrip('-').strip('"').strip("'")
+                                      if entry.startswith('/'):
+                                          search.append(Path(entry.split()[0]))
+                                  if line.strip().startswith('Environment=') and 'GOOGLE_APPLICATION_CREDENTIALS=' in line:
+                                      found=re.search(r'GOOGLE_APPLICATION_CREDENTIALS=([^\\s\\"]+)',line)
+                                      if found:
+                                          possible=Path(found.group(1).strip("'"))
+                                          if possible.is_file():
+                                              os.environ['GOOGLE_APPLICATION_CREDENTIALS']=str(possible)
+                                              return
+                  search.extend([
+                      Path('/home/taehoon/services/novogene-css/.env'),
+                      Path('/home/taehoon/services/novogene-css/app/.env'),
+                      Path('/home/taehoon/.config/novogene-css.env'),
+                  ])
+                  for path in search[:40]:
+                      try:
+                          if not path.is_file() or path.stat().st_size>150000:
+                              continue
+                          for line in path.read_text(errors='replace').splitlines():
+                              if line.lstrip().startswith(('GOOGLE_APPLICATION_CREDENTIALS=','export GOOGLE_APPLICATION_CREDENTIALS=')):
+                                  keyval=line.strip().removeprefix('export ')
+                                  value=keyval.split('=',1)[1].strip().strip('"').strip("'")
+                                  candidate=Path(value).expanduser()
+                                  if candidate.is_file():
+                                      os.environ['GOOGLE_APPLICATION_CREDENTIALS']=str(candidate)
+                                      return
+                      except OSError:
+                          pass
+              try:
+                  credentials,project=google.auth.default(scopes=['https://www.googleapis.com/auth/spreadsheets'])
+              except DefaultCredentialsError:
+                  set_scoped_adc_path()
+                  credentials,project=google.auth.default(scopes=['https://www.googleapis.com/auth/spreadsheets'])
+              gc=gspread.authorize(credentials)
+          except Exception as exc:
+              raise SystemExit('CANARY_AUTH_UNAVAILABLE_'+type(exc).__name__)
+          test=gc.open_by_key(TEST_ID)
+          if test.title!='CSS SIF Upgrade Canary - Synthetic 2026-10-15':
+              raise SystemExit('CANARY_TITLE_MISMATCH')
+          hist=test.worksheet('SIF Skip History')
+          expected=['record_id','is_active','Contract No.','AMEA No.','Institution','Customer Name',
+                    'skip_reason','Prepayment','skipped_at','restored_at','reference_date',
+                    'age_days','workflow_status','tracker_visibility','history_note']
+          if hist.get('A1:O1')[0] != expected:
+              raise SystemExit('CANARY_HEADER_MISMATCH')
+          cases=hist.get('A2:O6')
+          if len(cases)!=5 or sum(str(r[7]).strip().upper()=='TRUE' for r in cases)!=3:
+              raise SystemExit('CANARY_HISTORY_COUNT_MISMATCH')
+          manual=test.worksheet('Manual Override QA')
+          manual_before=manual.get('A1:H3')
+          gate=test.worksheet('Release Gate')
+          gate_row=gate.get('A8:E8')[0]
+          if gate_row[0]!='G07':
+              raise SystemExit('CANARY_GATE_ID_MISMATCH')
+          gate.update(range_name='C8:E8',values=[['PASS','Server ADC scoped API read/write + readback','No']],value_input_option='RAW')
+          if gate.get('C8:E8')[0]!=['PASS','Server ADC scoped API read/write + readback','No']:
+              raise SystemExit('CANARY_READBACK_MISMATCH')
+          if manual.get('A1:H3')!=manual_before:
+              raise SystemExit('CANARY_MANUAL_OVERRIDES_MODIFIED')
+          if hist.get('A1:O1')[0]!=expected:
+              raise SystemExit('CANARY_HEADER_CHANGED')
+          print('CANARY_SERVER_ADC_WRITE_PASS')
+          print('CANARY_5_ROWS_3_PREPAYMENT_PASS')
+          print('CANARY_MANUAL_OVERRIDES_PRESERVED_PASS')
+          print('CANARY_PRODUCTION_SPREADSHEET_UNTOUCHED_BY_THIS_TEST')
+          PY

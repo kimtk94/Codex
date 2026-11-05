@@ -1,0 +1,1 @@
+P0 read-only recheck trigger 2026-10-16. Use existing staged preflight to inspect current live SQLite skip counts without production deployment.

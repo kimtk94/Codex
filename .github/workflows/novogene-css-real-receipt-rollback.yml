@@ -1,0 +1,76 @@
+name: Novogene CSS Real Receipt Rollback Integration
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-real-receipt-rollback.yml'
+      - 'css-upgrade/staging-20261014/real_receipt_rollback_drill.py'
+      - 'css-upgrade/staging-20261014/manual_mail_overlap_regression.py'
+      - 'css-upgrade/staging-20261014/manual_mail_overlap_regression.py'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate SSH credentials
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::SSH configuration missing"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw=os.environ["SSH_KEY"].strip().replace("\\n","\n").replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          (Path.home()/'.ssh/server_key').write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
+      - name: Run real CSS sync on temporary production DB clone and reverse eight source patches
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          PREFIX="/tmp/css-rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -rf ${PREFIX}" >/dev/null 2>&1 || true' EXIT
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "mkdir -m 700 -p ${PREFIX}"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "css-upgrade/staging-20261014/novogene_sif_history_candidate.patch" "$SSH_USER@$SSH_HOST:${PREFIX}/novogene_sif_history_candidate.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "css-upgrade/staging-20261014/novogene_sif_manual_override_collision.patch" "$SSH_USER@$SSH_HOST:${PREFIX}/novogene_sif_manual_override_collision.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "css-upgrade/staging-20261014/novogene_sif_portfolio_visibility.patch" "$SSH_USER@$SSH_HOST:${PREFIX}/novogene_sif_portfolio_visibility.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "css-upgrade/staging-20261014/novogene_sif_independent_actions.patch" "$SSH_USER@$SSH_HOST:${PREFIX}/novogene_sif_independent_actions.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "css-upgrade/staging-20261014/novogene_sif_atomic_auto_skip.patch" "$SSH_USER@$SSH_HOST:${PREFIX}/novogene_sif_atomic_auto_skip.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "css-upgrade/staging-20261014/novogene_css_hold_replay_guard.patch" "$SSH_USER@$SSH_HOST:${PREFIX}/novogene_css_hold_replay_guard.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "css-upgrade/staging-20261014/novogene_css_one_shot_receipts.patch" "$SSH_USER@$SSH_HOST:${PREFIX}/novogene_css_one_shot_receipts.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "css-upgrade/staging-20261014/novogene_css_snapshot_conflict_guard.patch" "$SSH_USER@$SSH_HOST:${PREFIX}/novogene_css_snapshot_conflict_guard.patch"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/real_receipt_rollback_drill.py "$SSH_USER@$SSH_HOST:${PREFIX}/drill.py"
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/manual_mail_overlap_regression.py "$SSH_USER@$SSH_HOST:${PREFIX}/fixture.py"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" \
+            "/home/taehoon/services/novogene-css/.venv/bin/python ${PREFIX}/drill.py --source /home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py --db /home/taehoon/services/novogene-css/state/css_project_manager.sqlite3 --patch-dir ${PREFIX} --helper ${PREFIX}/fixture.py"

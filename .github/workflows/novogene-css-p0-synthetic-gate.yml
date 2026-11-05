@@ -1,0 +1,93 @@
+name: Novogene CSS P0 Synthetic Isolation Gate
+on:
+  push:
+    branches:
+      - audit/novogene-css-sif-staging-20261014
+    paths:
+      - .github/workflows/novogene-css-p0-synthetic-gate.yml
+      - css-upgrade/staging-20261014/css_source_admission.py
+      - css-upgrade/staging-20261014/synthetic_adapter_contract.py
+      - css-upgrade/staging-20261014/os_sandbox_negative_controls.py
+      - css-upgrade/staging-20261014/run_p0_synthetic_gate.py
+      - css-upgrade/staging-20261014/test_canary_isolation_gate.py
+      - css-upgrade/staging-20261014/canary_isolation_gate.py
+      - css-upgrade/staging-20261014/selected_function_ast_admission.py
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/novogene-css-p0-synthetic-gate.yml
+      - css-upgrade/staging-20261014/**
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integration-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare test evidence directory
+        run: mkdir -p "$RUNNER_TEMP/css-evidence"
+      - name: Synthetic contracts in OS-denied container
+        shell: bash
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 64 \
+            --tmpfs /tmp:rw,nosuid,noexec,size=32m \
+            --mount type=bind,src="$PWD/css-upgrade/staging-20261014",dst=/app,readonly \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            python:3.12-slim python /app/run_p0_synthetic_gate.py
+      - name: Run existing isolation policy regression inside Docker
+        shell: bash
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 64 \
+            --tmpfs /tmp:rw,nosuid,noexec,size=32m \
+            --mount type=bind,src="$PWD/css-upgrade/staging-20261014",dst=/app,readonly \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            python:3.12-slim python /app/test_canary_isolation_gate.py
+      - name: Static AST selected-function admission selftest
+        shell: bash
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 64 \
+            --tmpfs /tmp:rw,nosuid,noexec,size=32m \
+            --mount type=bind,src="$PWD/css-upgrade/staging-20261014/selected_function_ast_admission.py",dst=/app/admission.py,readonly \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            python:3.12-slim python /app/admission.py --selftest
+      - name: Record execution result
+        if: always()
+        shell: bash
+        env:
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = {
+              "suite": "CSS_P0_SYNTHETIC_ISOLATION_GATE",
+              "job_status": os.environ["JOB_RESULT"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "commit": os.environ["GITHUB_SHA"],
+              "production_source_mounted": False,
+              "production_db_mounted": False,
+              "credentials_provided_to_container": False,
+              "css_main_executed": False,
+              "is_full_css_e2e": False,
+          }
+          p = Path(os.environ["RUNNER_TEMP"])/"css-evidence"/"result.json"
+          p.parent.mkdir(parents=True, exist_ok=True)
+          p.write_text(json.dumps(data, indent=2)+"\n")
+          print("CSS_P0_EVIDENCE_JSON", str(p))
+          PY
+      - name: Upload synthetic-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: css-p0-synthetic-evidence
+          path: ${{ runner.temp }}/css-evidence/result.json
+          retention-days: 14
+# P0 synthetic CI revalidation trigger; no production access or credentials.
