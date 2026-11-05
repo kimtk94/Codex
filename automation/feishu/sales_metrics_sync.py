@@ -393,6 +393,58 @@ def sync_table(token,path,desired,limit):
     return created,updated,unchanged
 
 
+
+VIEW_SPECS = {
+    "Project SIF Monitor": (
+        ("프로젝트 진행 · SIF", None, None),
+        ("SIF 제출 미확인", "SIF State", "NOT_VERIFIED"),
+        ("SIF 번호만 확인", "SIF State", "NUMBER_ONLY_REVIEW"),
+        ("SIF 제출 증빙 있음", "SIF State", "SUBMITTED_EVIDENCE"),
+        ("SIF 승인 완료", "SIF State", "APPROVED"),
+    ),
+    "Monthly Tax Invoice": (
+        ("월별 Tax Invoice", None, None),
+        ("Tax Invoice 원본 차이 검토", "Coverage Status", "SOURCE_SCOPE_REVIEW"),
+    ),
+    "Weekly Quote KPI": (
+        ("매주 Quote 건수 · 금액", None, None),
+        ("견적 금액 미확인", "Amount Status", "NO_QUOTE_VALUE"),
+        ("견적 금액 부분확인", "Amount Status", "VERIFIED_PARTIAL"),
+    ),
+}
+
+
+def setup_views(token, paths):
+    # All URLs are base-local and require Feishu sign-in.
+    from setup_sales_web import resolve_view, get_view, filter_matches, field_map
+    for table, specs in VIEW_SPECS.items():
+        path = paths[table]
+        fields = field_map(token, path)
+        for name, filterfield, value in specs:
+            view_id, _ = resolve_view(token, path, name, filterfield is not None)
+            view = get_view(token, path, view_id)
+            if filterfield is not None:
+                field_id = fields.get(filterfield)
+                if not field_id:raise SafeError("VIEW_FILTER_FIELD_MISSING")
+                if not (view.get("view_name") == name and filter_matches(view,field_id,value)):
+                    api("PATCH",path+"/views/"+urllib.parse.quote(view_id,safe=""),token,
+                        data={"view_name":name,"property":{"filter_info":{
+                            "conjunction":"and","conditions":[{
+                                "field_id":field_id,"operator":"is",
+                                "value":json.dumps([value],ensure_ascii=False),
+                            }],
+                        }}},action="metric_view_filter_patch")
+                    view=get_view(token,path,view_id)
+                    if not (view.get("view_name")==name and filter_matches(view,field_id,value)):
+                        raise SafeError("METRIC_FILTER_READBACK_FAILED")
+            elif view.get("view_name")!=name:
+                raise SafeError("METRIC_VIEW_READBACK_FAILED")
+            table_id=path.rsplit("/",1)[-1]
+            url="https://ocnz4cb25scn.feishu.cn/base/"+EXPECTED_BASE
+            url+="?table="+urllib.parse.quote(table_id,safe="")
+            url+="&view="+urllib.parse.quote(view_id,safe="")
+            print("METRIC_WEB_VIEW="+name+" URL="+url)
+
 def main():
     if os.environ.get("FEISHU_BASE_APP_TOKEN")!=EXPECTED_BASE:
         raise SafeError("REFUSE_UNKNOWN_FEISHU_BASE")
@@ -407,6 +459,7 @@ def main():
         return
     token,root=auth()
     paths=ensure_tables(token,root)
+    setup_views(token,paths)
     # Prioritize numeric KPI summaries; SIF backfill progresses across scheduled runs.
     bounds={"Monthly Tax Invoice":50,"Weekly Quote KPI":75,"Project SIF Monitor":70}
     total=0
