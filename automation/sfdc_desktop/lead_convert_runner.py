@@ -10,7 +10,7 @@ import argparse
 import re
 from typing import Any
 
-from lead_convert_policy import ACADEMIC_PI, build_contact_plan, cdms_sync_verified
+from lead_convert_policy import ACADEMIC_PI, build_contact_plan, cdms_sync_verified, english_full_name
 
 HOST = 'https://novogene.lightning.force.com'
 LEAD_ID_RE = re.compile(r'^00Q[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$')
@@ -76,6 +76,31 @@ def verify_prior_conversion(*, lead_body: str, contact_body: str,
     return cms_id_from_view(contact_body)
 
 
+def contact_id_from_url(url: str) -> str:
+    """Return only a real Salesforce Contact record ID from a Contact URL."""
+    match = re.search(
+        r'/lightning/r/Contact/(003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)/(?:view|edit)(?:[?]|$)',
+        url,
+    )
+    return match.group(1) if match else ''
+
+
+def require_redirected_contact_identity(
+    *, contact_id: str, expected_contact_id: str, email: str,
+    expected_email: str, korean_name: str, expected_korean_name: str,
+    english_name: str, expected_english_name: str,
+) -> None:
+    """Fail closed when the Lead redirected to any unexpected Contact."""
+    if not contact_id or contact_id != expected_contact_id:
+        raise ConversionStopped('Lead redirected to an unexpected Contact ID')
+    if email.strip().casefold() != expected_email.strip().casefold():
+        raise ConversionStopped('Redirected Contact email mismatch')
+    if korean_name.strip() != expected_korean_name.strip():
+        raise ConversionStopped('Redirected Contact Korean name mismatch')
+    if english_name.strip() != expected_english_name.strip():
+        raise ConversionStopped('Redirected Contact English name mismatch')
+
+
 def contact_id_from_success_links(links: list[tuple[str, str]]) -> str:
     for _label, href in links:
         match = re.fullmatch(
@@ -134,7 +159,7 @@ def verify_contact_readback(page: Any, contact_id: str, plan: Any) -> None:
 
 
 def run(args: argparse.Namespace) -> dict[str, str]:
-    from playwright.sync_api import sync_playwright  # deferred: never required in CI
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError  # deferred: no dependency in CI
     for pattern, value, label in (
         (LEAD_ID_RE, args.lead_id, 'Lead'),
         (ACCOUNT_ID_RE, args.account_id, 'Account'),
@@ -150,6 +175,49 @@ def run(args: argparse.Namespace) -> dict[str, str]:
             raise ConversionStopped('No authorized Salesforce session')
         page = tabs[0]
         page.goto(f'{HOST}/lightning/r/Lead/{args.lead_id}/view', wait_until='domcontentloaded')
+        # Salesforce automatically redirects previously converted Leads to Contacts.
+        try:
+            page.wait_for_url(re.compile(
+                r'/lightning/r/Contact/003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?/view'),
+                timeout=10000,
+            )
+        except PlaywrightTimeoutError:
+            pass  # Normal unconverted Lead: continue with Lead preflight.
+
+        redirected_id = contact_id_from_url(page.url)
+        if redirected_id:
+            known = getattr(args, 'known_contact_id', None)
+            if not known:
+                raise ConversionStopped('Converted Lead redirect requires verified Contact ID')
+            account_href = f'/lightning/r/Account/{args.account_id}/view'
+            page.locator(f'a[href="{account_href}"]').first.wait_for(timeout=15000)
+            page.get_by_text(args.account_name, exact=True).first.wait_for(timeout=15000)
+            cms = cms_id_from_view(page.locator('body').inner_text())
+            edit = page.get_by_role('button', name='Edit', exact=True).first
+            edit.wait_for(timeout=20000)
+            edit.click()
+            page.locator('input[name=firstName]').wait_for(timeout=20000)
+            try:
+                require_redirected_contact_identity(
+                    contact_id=redirected_id, expected_contact_id=known,
+                    email=page.locator('input[name=Email]').input_value(),
+                    expected_email=args.email,
+                    korean_name=page.locator('input[name=firstName]').input_value(),
+                    expected_korean_name=args.korean_name,
+                    english_name=page.locator('input[name=lastName]').input_value(),
+                    expected_english_name=english_full_name(args.surname, args.given),
+                )
+                expected_business_id = getattr(args, 'lead_business_id', None)
+                if expected_business_id and _following_field_value(
+                    page.locator('body').inner_text(), 'Lead Converted ID',
+                ) != expected_business_id:
+                    raise ConversionStopped('Redirected Contact Lead business ID mismatch')
+            finally:
+                page.get_by_role('button', name='Cancel', exact=True).last.click()
+            return {'status': 'ALREADY_CONVERTED', 'lead_id': args.lead_id,
+                    'contact_id': redirected_id, 'cms_contact_id': cms,
+                    'cdms_status': 'SYNCED' if cms else 'UNVERIFIED'}
+
         page.get_by_text(args.email, exact=False).first.wait_for(timeout=20000)
         status = preflight_lead_text(
             page.locator('body').inner_text(),
@@ -276,6 +344,8 @@ def main() -> int:
     ap.add_argument('--org-type', default='Academic')
     ap.add_argument('--known-contact-id', default=None,
                     help='Existing Contact ID used only to verify a Lead already converted')
+    ap.add_argument('--lead-business-id', default=None,
+                    help='Optional human-readable converted Lead ID for read-only cross-check')
     ap.add_argument('--cdp', default='http://127.0.0.1:9222')
     ap.add_argument('--execute', action='store_true',
                     help='Explicitly authorize live Salesforce conversion, editing, and CDMS sync')
