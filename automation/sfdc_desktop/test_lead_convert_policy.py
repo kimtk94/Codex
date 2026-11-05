@@ -48,6 +48,12 @@ class LeadConvertPolicyTests(unittest.TestCase):
         self.assertRaises(ValueError, build_contact_plan, **dict(data, romanized_surname=""))
         self.assertRaises(ValueError, english_full_name, "Oh", ["준혁"])
 
+    def test_missing_or_mismatched_given_syllables_are_blocked(self):
+        self.assertRaises(ValueError, english_full_name, "Oh", [])
+        self.assertRaises(ValueError, build_contact_plan, **dict(
+            self.data, romanized_given_syllables=["Jun"]
+        ))
+
     def test_missing_account_is_blocked(self):
         self.assertRaises(ValueError, build_contact_plan, **dict(self.data, verified_account_id=""))
 
