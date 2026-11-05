@@ -32,8 +32,10 @@ def english_full_name(surname: str, given_name_syllables: list[str]) -> str:
     Inputs must be independently verified romanizations; do not infer spelling
     from a Korean name or from an email address.
     """
+    if not surname or not given_name_syllables:
+        raise ValueError("A surname and one or more given-name syllables are required")
     parts = [surname, *given_name_syllables]
-    if not parts or any(not re.fullmatch(r"[A-Za-z]+", p or "") for p in parts):
+    if any(not re.fullmatch(r"[A-Za-z]+", p or "") for p in parts):
         raise ValueError("Romanized surname and given-name syllables are required")
     return "".join(part[:1].upper() + part[1:].lower() for part in parts)
 
@@ -56,6 +58,8 @@ def build_contact_plan(
     name = korean_full_name.strip()
     if not re.fullmatch(r"[가-힣]{2,6}", name):
         raise ValueError("Full Korean name is required")
+    if len(romanized_given_syllables) != len(name) - 1:
+        raise ValueError("Romanized given-name syllable count must match the Korean name")
     if not re.fullmatch(r"001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?", verified_account_id):
         raise ValueError("A verified Salesforce Account ID is required")
     if not job_options:
