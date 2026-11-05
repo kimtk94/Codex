@@ -1,0 +1,25 @@
+name: Genixcure PacBio Circular Start Count CI
+on:
+  push:
+    paths:
+      - 'analysis/genixcure/Genixcure_PacBio_Circular_Start_Count.py'
+      - 'analysis/genixcure/test_genixcure_circular_count.py'
+      - '.github/workflows/genixcure-pacbio-circular-start-count-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  circular-normalization-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile normalization code
+        run: python -m py_compile analysis/genixcure/Genixcure_PacBio_Circular_Start_Count.py analysis/genixcure/test_genixcure_circular_count.py
+      - name: Test exact circular rotation, RC, BAM offsets, checkpoints and count conservation
+        run: python analysis/genixcure/test_genixcure_circular_count.py
