@@ -277,6 +277,8 @@ export default function OppoQuoteCommandPage() {
             <div><span>Quote 부모 ID 검증</span><strong>{fullAudit.verified_quote_native_parents.toLocaleString()}</strong></div>
             <div><span>Contact까지 검증된 쌍</span><strong>{fullAudit.parent_verified_with_contact.toLocaleString()}</strong></div>
             <div><span>Contact 미검증인 부모 쌍</span><strong>{fullAudit.parent_verified_contact_pending.toLocaleString()}</strong></div>
+            <div><span>Quote 부모 관계 검사</span><strong>{fullAudit.quote_parent_native_attempts.toLocaleString()}</strong></div>
+            <div><span>Quote 관계 HOLD</span><strong>{fullAudit.quote_parent_native_holds.toLocaleString()}</strong></div>
           </div>}
           <small role="status">{fullAuditStatus || "전체 현황은 현재 PC에서만 확인할 수 있습니다. 클라우드에는 고객 데이터나 로컬 파일을 제공하지 않습니다."}</small>
         </section>}
