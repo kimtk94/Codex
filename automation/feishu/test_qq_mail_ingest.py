@@ -77,6 +77,23 @@ class MailFeishuTests(unittest.TestCase):
             ensure.assert_not_called()
             smoke.assert_not_called()
 
+    def test_sync_does_not_write_synthetic_smoke_row(self):
+        with mock.patch.object(q, "required", side_effect=["mail", "pass"]), \
+             mock.patch.object(q, "auth", return_value=("token", "/base")), \
+             mock.patch.object(q, "find_table", return_value="tbl123"), \
+             mock.patch.object(q, "ensure_table", return_value="/table"), \
+             mock.patch.object(q, "existing", return_value={}), \
+             mock.patch.object(q, "collect_from_imap", return_value=[]), \
+             mock.patch.object(q, "smoke") as smoke, \
+             mock.patch.object(q, "write_record") as write, \
+             mock.patch.object(q.imaplib, "IMAP4_SSL") as server:
+            server.return_value.__enter__.return_value.login.return_value = ("OK", [])
+            server.return_value.__enter__.return_value.list.return_value = (
+                "OK", [b'() "/" "Sent Messages"'])
+            q.run("sync")
+            smoke.assert_not_called()
+            write.assert_not_called()
+
     def test_html_sanitizes_script(self):
         m = email.message.EmailMessage()
         m.set_content('<p>Hello</p><script>secret</script>', subtype="html")
