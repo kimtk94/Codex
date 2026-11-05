@@ -14,7 +14,7 @@ export function authorizeAuditRead({enabled,platform,method,host,origin,fetchSit
   return {ok:true};
 }
 
-export function projectPrivateAudit(full,opportunities,shortlist,nativeRows,aliases) {
+export function projectPrivateAudit(full,opportunities,shortlist,nativeRows,aliases,progress=null) {
   const numeric=x=>Number.isSafeInteger(x)&&x>=0?x:null;
   const records=shortlist?.summary;
   if (!Array.isArray(nativeRows)||!Array.isArray(aliases) ||
@@ -77,5 +77,26 @@ export function projectPrivateAudit(full,opportunities,shortlist,nativeRows,alia
     throw new Error("QUOTE_COHORT_PARTITION_MISMATCH");
   if (result.verified_quote_native_parents>result.one_to_one_name_candidates)
     throw new Error("QUOTE_PARENT_PASS_COUNT_TOO_LARGE");
+  if (progress!==null) {
+    const total=numeric(progress.new_cohort_total);
+    const reviewed=numeric(progress.new_cohort_reviewed);
+    const passed=numeric(progress.new_cohort_pass);
+    const holds=numeric(progress.new_cohort_hold);
+    const unreviewed=numeric(progress.new_cohort_unreviewed);
+    if ([total,reviewed,passed,holds,unreviewed].some(v=>v===null)
+        || reviewed+unreviewed!==total || passed+holds!==reviewed
+        || progress.total_approved_contacts!==aliases.length
+        || progress.salesforce_save_allowed!==false
+        || progress.salesforce_writes!==0) {
+      throw new Error("CONTACT_EXPANSION_PROGRESS_INCONSISTENT");
+    }
+    Object.assign(result,{
+      expanded_contact_cohort_total:total,
+      expanded_contact_reviewed:reviewed,
+      expanded_contact_pass:passed,
+      expanded_contact_hold:holds,
+      expanded_contact_unreviewed:unreviewed,
+    });
+  }
   return result;
 }
