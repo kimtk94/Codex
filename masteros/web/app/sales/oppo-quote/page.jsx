@@ -5,6 +5,7 @@ import Link from "next/link";
 import styles from "./page.module.css";
 import { DEFAULT_REQUEST, MODES, unitForMode, validateDraft } from "../../../lib/sfdc-oppo-quote.mjs";
 import { validateKoreanNameQuery, auditContactCandidates, selectExistingContact, createContactLinkedNoSaveCommand } from "../../../lib/sfdc-contact-first-command.mjs";
+import { inspectLocalContactEvidence } from "../../../lib/sfdc-local-contact-evidence.mjs";
 
 const pipeline = [
   { label: "Contact / Account", detail: "한글 이름 검색 · 동명이인 기관 선택 · Contact/Account ID 확인", state: "검증 필요" },
@@ -41,6 +42,34 @@ export default function OppoQuoteCommandPage() {
     setSearchNotice(check.ok
       ? "검색어 형식이 확인됐습니다. Salesforce 인증 검색 연결 전이므로 실제 고객 조회는 아직 실행되지 않습니다."
       : check.error);
+  };
+  const importLocalEvidence = async event => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    setContactCandidates(null);
+    setSelectedContact(null);
+    setSelectedInstitutionId("");
+    setForm(prev => ({ ...prev, contact_email: "" }));
+    setShowPreview(false);
+    if (!file) return;
+    if (file.size > 256 * 1024 || !file.name.toLowerCase().endsWith(".json")) {
+      setSearchNotice("로컬 JSON 파일(256KB 이하)만 지원합니다.");
+      return;
+    }
+    try {
+      const reviewed = inspectLocalContactEvidence(await file.text(), koreanName);
+      if (!reviewed.ok) {
+        setSearchNotice("로컬 SFDC 후보 검증 보류: " + reviewed.status);
+        return;
+      }
+      setContactCandidates(reviewed.candidates);
+      setSearchNotice(
+        "로컬 Salesforce 읽기 전용 후보 " + reviewed.exact_match_count +
+        "건을 브라우저 메모리에서 확인했습니다. 실제 Salesforce 인증 재검증 전에는 저장할 수 없습니다."
+      );
+    } catch {
+      setSearchNotice("로컬 파일을 읽을 수 없습니다. 원본 Salesforce 확인이 필요합니다.");
+    }
   };
   const chooseContact = (candidate) => {
     if (candidateReview.requires_institution_choice && (!selectedInstitutionId || candidate.account_id !== selectedInstitutionId)) {
@@ -91,7 +120,7 @@ export default function OppoQuoteCommandPage() {
     event.preventDefault();
     setShowPreview(true);
     setNotice(!selectedContact?.ok
-      ? "한글 이름으로 기존 Oppo 연결 Contact를 검색하고 기관을 선택하세요. Salesforce 검색은 아직 미연결입니다."
+      ? "한글 이름을 입력하고 승인된 PC의 로컬 SFDC 후보 파일을 확인한 뒤 기관을 선택하세요. 실제 Salesforce 웹 검색은 아직 미연결입니다."
       : linkedDraft.ok
         ? "검토용 명령서입니다. Contact 재검증 전에는 Salesforce 생성·저장이 금지됩니다."
         : result.errors[0]);
@@ -117,7 +146,7 @@ export default function OppoQuoteCommandPage() {
 
         <div className={styles.banner} role="status">
           <span className={styles.bannerIcon}>!</span>
-          <span>현재는 한글 이름 검색 UI만 준비됐고 실제 Salesforce Contact 검색은 미연결입니다. 실제 Oppo 연결 고객의 정보는 서버나 GitHub Actions에 전송하지 않습니다.</span>
+          <span>Salesforce 직접 검색 API는 아직 미연결입니다. 승인된 PC의 읽기 전용 검증 파일을 브라우저 내에서만 불러와 이름·기관별 후보를 확인할 수 있으며, 파일은 서버·GitHub Actions로 전송하지 않습니다.</span>
         </div>
 
         <div className={styles.grid}>
@@ -140,7 +169,10 @@ export default function OppoQuoteCommandPage() {
                     }} />
                   <button type="button" className={styles.secondary} onClick={checkKoreanName}>검색어 확인</button>
                 </div>
-                <small>실제 검색은 기존 Opportunity에 연결된 Contact의 한글 이름만 대상으로 하며, 동명이인은 기관을 직접 선택합니다. 현재 검색 연결 전입니다.</small>
+                <label htmlFor="sfdc-local-evidence">로컬 Salesforce 검증 후보(JSON · 브라우저 전용)</label>
+                <input id="sfdc-local-evidence" type="file" accept=".json,application/json"
+                  onChange={importLocalEvidence} />
+                <small>현재 웹 서버의 Salesforce 직접 조회는 미연결입니다. 승인된 PC에서 생성한 최근 2시간 이내 읽기 전용 후보 파일만 브라우저 메모리로 불러옵니다. 파일은 서버에 업로드되지 않으며, 실제 CRM 작성에는 별도의 인증 재검증이 필요합니다.</small>
                 {searchNotice && <div className={styles.notice} role="status">{searchNotice}</div>}
               </div>
               {Array.isArray(contactCandidates) && candidateReview.ok &&
