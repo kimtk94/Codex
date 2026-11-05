@@ -4,7 +4,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test:sfdc": "node --test tests/sfdc-oppo-quote.test.mjs tests/sfdc-contact-local.test.mjs tests/sfdc-contact-review.test.mjs tests/sfdc-local-pc-gate.test.mjs tests/sfdc-local-review-gate.test.mjs tests/sfdc-local-audit.test.mjs"
   },
   "dependencies": {
     "next": "^16.0.0",

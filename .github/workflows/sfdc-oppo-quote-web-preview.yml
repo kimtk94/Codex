@@ -1,0 +1,50 @@
+name: SFDC Oppo-Quote web preview (no CRM writes)
+on:
+  push:
+    branches:
+      - feat/sfdc-playwright-desktop-p0
+    paths:
+      - 'masteros/web/**'
+      - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
+  pull_request:
+    paths:
+      - 'masteros/web/**'
+      - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate-web-draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: masteros/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated web dependencies
+        run: npm install --no-audit --no-fund
+      - name: Run unit, privacy and no-Save checks
+        run: |
+          for pass in 1 2 3; do
+            echo "SFDC web synthetic regression pass ${pass}/3"
+            npm run test:sfdc || exit 1
+          done
+      - name: Compile Next.js draft workspace
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+      - name: Check production output route exists
+        run: |
+          node -e "const fs=require('fs'); if (!fs.existsSync('.next/server/app/sales/oppo-quote')) { throw new Error('Oppo-Quote compiled route missing') }"
+      - name: Install isolated synthetic-browser test tooling
+        run: npm install --no-save --no-audit --no-fund playwright@1.56.1
+      - name: Install Chromium for synthetic-browser smoke test
+        run: npx playwright install --with-deps chromium
+      - name: Verify real browser inputs, PE250 units and zero CRM writes
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: node --test tests/sfdc-oppo-quote.e2e.mjs
