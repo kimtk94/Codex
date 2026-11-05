@@ -1,0 +1,94 @@
+{
+  "version": "1.0",
+  "status": "verified_headers_only",
+  "source": "Google Sheets",
+  "asOf": "2026-10-24",
+  "currency": {
+    "reportingFxKrwPerUsd": 1500,
+    "revenueBasis": "TAX_INVOICE"
+  },
+  "workbook": {
+    "name": "SFDC_Automation_Followup_2026",
+    "spreadsheetId": "1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
+  },
+  "tabs": {
+    "monthlyKpi": {
+      "name": "BI Monthly KPI",
+      "columns": [
+        "Metric",
+        "Value",
+        "Unit"
+      ]
+    },
+    "serviceMonthly": {
+      "name": "BI Service Monthly 10",
+      "columns": [
+        "Invoice Month",
+        "Service Group",
+        "Invoice Count",
+        "Revenue KRW",
+        "Revenue K USD",
+        "Coverage",
+        "Invoice Source",
+        "Reporting FX",
+        "Validation"
+      ]
+    },
+    "revenueFact": {
+      "name": "BI Revenue Fact",
+      "columns": [
+        "Invoice Number",
+        "Invoice Month",
+        "Invoice Date KST",
+        "Institution",
+        "Service L4",
+        "Service Group",
+        "Revenue KRW",
+        "Revenue K USD",
+        "AMEA Project ID",
+        "H Project ID",
+        "Classification",
+        "FX KRW/USD",
+        "Source"
+      ]
+    },
+    "followups": {
+      "name": "BI Followup Unified",
+      "columns": [
+        "Priority",
+        "Source",
+        "Record ID",
+        "Institution",
+        "Customer",
+        "Project ID",
+        "Service",
+        "Issue / Type",
+        "Recommended Action",
+        "Original Status",
+        "Due / Event Date",
+        "Age Days (Source)",
+        "Source Updated At",
+        "Freshness",
+        "Responsible Owner",
+        "Source Tab",
+        "Evidence ID",
+        "Dedup Key",
+        "Latest CSS Stage",
+        "Latest CSS Event",
+        "Resolution Evidence Audit"
+      ]
+    }
+  },
+  "mail": {
+    "workbook": "Novogene_All_Emails",
+    "spreadsheetId": "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY",
+    "tab": "Unanswered Emails Auto"
+  },
+  "cautions": [
+    "2025 rows include PARTIAL_2025_BACKFILL; do not imply full coverage",
+    "CRM link states require audited relation IDs",
+    "Do not expose raw spreadsheet API keys, customer email or row-level records to anonymous browser requests",
+    "Do not interpret a lack of rows as zero revenue",
+    "Use data readback and freshness timestamps; surface stale and provisional classifications"
+  ]
+}
