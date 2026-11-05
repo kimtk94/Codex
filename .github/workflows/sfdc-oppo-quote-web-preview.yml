@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feat/sfdc-playwright-desktop-p0
+      - feat/sfdc-web-contact-search-command-intake-dryrun
     paths:
       - 'masteros/web/**'
       - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
@@ -27,7 +28,7 @@ jobs:
           node-version: '22'
       - name: Install isolated web dependencies
         run: npm install --no-audit --no-fund
-      - name: Run unit, privacy and no-Save checks
+      - name: Run unit, local readback privacy and no-Save checks
         run: npm run test:sfdc
       - name: Compile Next.js draft workspace
         env:
@@ -40,7 +41,7 @@ jobs:
         run: npm install --no-save --no-audit --no-fund playwright@1.56.1
       - name: Install Chromium for synthetic-browser smoke test
         run: npx playwright install --with-deps chromium
-      - name: Verify real browser inputs, PE250 units and zero CRM writes
+      - name: Verify local Contact evidence browser flow, PE250 units and zero CRM writes
         env:
           NEXT_TELEMETRY_DISABLED: '1'
         run: node --test tests/sfdc-oppo-quote.e2e.mjs
