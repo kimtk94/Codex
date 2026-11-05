@@ -4,12 +4,16 @@ on:
     paths:
       - 'automation/feishu/qq_mail_ingest.py'
       - 'automation/feishu/test_qq_mail_ingest.py'
+      - 'automation/feishu/qq_mail_audit.py'
+      - 'automation/feishu/test_qq_mail_audit.py'
       - '.github/workflows/qq-mail-feishu-sync.yml'
   push:
     branches: [main, feat/qq-mail-feishu-write-safe-20261105]
     paths:
       - 'automation/feishu/qq_mail_ingest.py'
       - 'automation/feishu/test_qq_mail_ingest.py'
+      - 'automation/feishu/qq_mail_audit.py'
+      - 'automation/feishu/test_qq_mail_audit.py'
       - '.github/workflows/qq-mail-feishu-sync.yml'
   schedule:
     - cron: '13,43 * * * *'
@@ -36,9 +40,11 @@ jobs:
         with:
           python-version: '3.11'
       - name: Offline connector safety tests
-        run: python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_ingest.py' -v
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_ingest.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_audit.py' -v
       - name: Validate syntax
-        run: python3 -m py_compile automation/feishu/qq_mail_ingest.py
+        run: python3 -m py_compile automation/feishu/qq_mail_ingest.py automation/feishu/qq_mail_audit.py
   feishu:
     needs: test
     if: ${{ needs.test.result == 'success' && github.event_name != 'pull_request' }}
@@ -63,3 +69,5 @@ jobs:
         run: test -n "$FEISHU_BASE_APP_TOKEN"
       - name: Import QQ mail to isolated sales Base
         run: python3 automation/feishu/qq_mail_ingest.py
+      - name: Independently audit stored mail counts and integrity (read only)
+        run: python3 automation/feishu/qq_mail_audit.py
