@@ -60,6 +60,10 @@ def api(method, path, token=None, data=None, action="feishu_api"):
         raise SafeError(action + "_NETWORK_ERROR") from None
     if obj.get("code") != 0:
         raise SafeError(action + "_CODE_" + str(obj.get("code", "UNKNOWN"))) from None
+    # The auth endpoint returns tenant_access_token at the response root.
+    # Other Bitable endpoints return their payload under "data".
+    if path == "/open-apis/auth/v3/tenant_access_token/internal":
+        return obj
     return obj.get("data") or {}
 
 
