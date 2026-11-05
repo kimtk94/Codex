@@ -12,7 +12,7 @@ class MetricsTests(unittest.TestCase):
             "CSS Project Dashboard":[{"project_id":"AMEA2026012345","institution":"U",
                 "customer_name":"Customer","current_stage":"Sample QC","progress_percent":"20"}],
             "CSS Contract-SIF Tracker":[{
-                "record_id":"123","Institution":"U","AMEA No.":"AMEA2026012345",
+                "record_id":"123","project_id":"AMEA2026012345","Institution":"U","AMEA No.":"AMEA2026012345",
                 "SIF No.":"SIF123","Status":"Contract Ready",
                 "sif_first_seen_at":"", "Contract No.":"CX",
             }],
@@ -30,7 +30,7 @@ class MetricsTests(unittest.TestCase):
             "CSS Project Dashboard":[{"project_id":"AMEA2026012345","institution":"U",
                 "customer_name":"Customer","current_stage":"Sample QC","progress_percent":"20"}],
             "CSS Contract-SIF Tracker":[{
-                "record_id":"124","AMEA No.":"AMEA2026012345","SIF No.":"SIF123",
+                "record_id":"124","project_id":"AMEA2026012345","AMEA No.":"AMEA2026012345","SIF No.":"SIF123",
                 "Status":"SIF Approved","sif_first_seen_at":"2026-11-01"
             }],
             "BI Project Lifecycle Overview":[{"AMEA":"AMEA2026012345",
