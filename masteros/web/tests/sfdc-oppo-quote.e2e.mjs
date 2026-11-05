@@ -65,7 +65,38 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await page.getByRole("button",{name:"검토용 명령서 생성"}).click();
     assert.equal(await page.locator("pre").count(), 0, "No command without verified Contact and Account");
     assert.equal(await page.locator("#sfdc-contact-email").inputValue(), "");
-    assert.equal(nonReadRequests.length, 0, "Name search preview must not send any POST/PUT/PATCH/DELETE requests");
+    // Browser-only import of sanitized synthetic desktop evidence:
+    // no outbound upload, no CRM mutation, no server-side credential transfer.
+    const evidence = {
+      version:"sfdc-oppo-contact-readback-v1",
+      source:"SFDC_LIGHTNING_READ_ONLY",
+      scope:"OPPORTUNITY_LINKED_CONTACTS",
+      salesforce_write_performed:false,
+      query:"김민수",
+      generated_at:new Date().toISOString(),
+      unresolved_matches:0,
+      candidates:[
+        {contact_id:"003000000000AAA",account_id:"001000000000AAA",
+         korean_name:"김민수",institution_name:"합성대학교",
+         email:"synthetic-a@example.org",linked_opportunity_ids:["006000000000AAA"]},
+        {contact_id:"003000000000AAB",account_id:"001000000000AAB",
+         korean_name:"김민수",institution_name:"가상대학교",
+         email:"synthetic-b@example.org",linked_opportunity_ids:["006000000000AAB"]},
+      ],
+    };
+    await page.locator("#sfdc-local-evidence").setInputFiles({
+      name:"sfdc-readonly.json",mimeType:"application/json",
+      buffer:Buffer.from(JSON.stringify(evidence),"utf8"),
+    });
+    await page.getByLabel("고객 검색 결과").waitFor();
+    assert.equal(await page.locator("#sfdc-institution-select option").count(), 3);
+    await page.locator("#sfdc-institution-select").selectOption("001000000000AAB");
+    await page.getByRole("button",{name:/가상대학교/}).click();
+    assert.equal(await page.locator("#sfdc-contact-email").inputValue(),"synthetic-b@example.org");
+    await page.getByRole("button",{name:"검토용 명령서 생성"}).click();
+    assert.match(await page.locator("pre").innerText(), /PENDING_AUTHENTICATED_CONTACT_RECHECK/);
+    assert.equal(await page.getByRole("button",{name:"Salesforce 일괄 생성 · 연결 전"}).isDisabled(),true);
+    assert.equal(nonReadRequests.length, 0, "Local Contact import and preview must not send POST/PUT/PATCH/DELETE requests");
   } finally {
     if (page) await page.close();
     if (browser) await browser.close();
