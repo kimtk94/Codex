@@ -39,7 +39,7 @@ class ParentProofTests(unittest.TestCase):
         x=candidate(1)
         actual={"status":"HOLD_RELATED_COUNT_NOT_EXACTLY_ONE",
                 "parent_verified":False,"quote_id_verified":False}
-        self.assertTrue(classify_native_parent(x,actual).startswith("HOLD_"))
+        self.assertEqual(classify_native_parent(x,actual),"HOLD_RELATED_COUNT_NOT_EXACTLY_ONE")
 
     def test_untrusted_saved_flag_excluded(self):
         x=candidate(1)
