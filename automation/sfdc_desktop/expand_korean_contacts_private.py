@@ -25,6 +25,7 @@ CONTACTS = "full_contact_with_names_PRIVATE.json"
 EVIDENCE = "private_verified_contact_details_evidence.json"
 ATTEMPTS = "expanded_contact_alias_attempts_PRIVATE.json"
 WEB_ALIASES = "web_contact_aliases_PRIVATE.json"
+PROGRESS = "expanded_contact_cohort_progress_PRIVATE.json"
 
 
 def load_private(filename):
@@ -118,6 +119,51 @@ def select_unverified(candidates, evidence, attempts, offset=0, limit=8, retry_h
             and (retry_holds or row["contact_id"] not in reviewed)][:limit]
 
 
+
+def calculate_expansion_progress(candidates, approved, attempts):
+    """Count unique new Contact candidates, including retry outcomes.
+
+    IDs are used only for in-memory deduplication. Returned output has counts
+    and reason labels only; no names, emails, CRM IDs, or raw evidence.
+    """
+    if not all(isinstance(x,list) for x in (candidates,approved,attempts)):
+        raise ValueError("INVALID_PRIVATE_PROGRESS_INPUT")
+    candidate_ids={x["contact_id"] for x in candidates}
+    if len(candidate_ids)!=len(candidates):
+        raise ValueError("DUPLICATE_EXPANSION_CANDIDATE")
+    valid_aliases=verified_private_aliases(approved)
+    approved_ids={x["contact_id"] for x in valid_aliases["records"]}
+    latest_attempt={}
+    for row in attempts:
+        if not isinstance(row,dict):
+            raise ValueError("INVALID_ATTEMPT_ROW")
+        cid=row.get("contact_id")
+        if cid in candidate_ids:
+            latest_attempt[cid]=row.get("status")
+    original_approved=approved_ids-set(latest_attempt)
+    new_ids=candidate_ids-original_approved
+    reviewed=new_ids & set(latest_attempt)
+    passed=new_ids & approved_ids
+    if not passed.issubset(reviewed):
+        raise ValueError("EXPANSION_APPROVAL_WITHOUT_INDEPENDENT_ATTEMPT")
+    holds=reviewed-passed
+    never_attempted=new_ids-reviewed
+    reasons=Counter(str(latest_attempt[cid]) for cid in holds)
+    return {
+        "source_candidate_contacts":len(candidate_ids),
+        "previously_approved_candidate_overlaps":len(candidate_ids & original_approved),
+        "new_cohort_total":len(new_ids),
+        "new_cohort_reviewed":len(reviewed),
+        "new_cohort_pass":len(passed),
+        "new_cohort_hold":len(holds),
+        "new_cohort_unreviewed":len(never_attempted),
+        "new_cohort_hold_reasons":dict(sorted(reasons.items())),
+        "total_approved_contacts":len(approved_ids),
+        "salesforce_save_allowed":False,
+        "salesforce_writes":0,
+    }
+
+
 def run(limit=8, offset=0, retry_holds=False, dry_run=False):
     manifest=load_private(MANIFEST)
     history=load_private(HISTORICAL)
@@ -156,6 +202,7 @@ def run(limit=8, offset=0, retry_holds=False, dry_run=False):
     aliases=verified_private_aliases(approved)
     if not dry_run:
         atomic_private_write(WEB_ALIASES,aliases["records"])
+        atomic_private_write(PROGRESS,calculate_expansion_progress(candidates,approved,attempts))
     report={
         "candidate_contacts":len(candidates),
         "reviewed_in_batch":0 if dry_run else len(todo),
@@ -178,8 +225,20 @@ def main():
     p.add_argument("--offset",type=int,default=0)
     p.add_argument("--retry-holds",action="store_true")
     p.add_argument("--dry-run",action="store_true")
+    p.add_argument("--summary-only",action="store_true")
     args=p.parse_args()
-    run(args.limit,args.offset,args.retry_holds,args.dry_run)
+    if args.summary_only:
+        manifest=load_private(MANIFEST)
+        historical=load_private(HISTORICAL)
+        registry=load_private(CONTACTS)["rows"]
+        approved=load_private(EVIDENCE)
+        attempts=load_private(ATTEMPTS) if (ROOT/ATTEMPTS).exists() else []
+        cases=expand_candidates(manifest,historical,registry)
+        progress=calculate_expansion_progress(cases,approved,attempts)
+        atomic_private_write(PROGRESS,progress)
+        print("EXPANDED_CONTACT_PROGRESS",json.dumps(progress,sort_keys=True),flush=True)
+    else:
+        run(args.limit,args.offset,args.retry_holds,args.dry_run)
 
 
 if __name__=="__main__":
