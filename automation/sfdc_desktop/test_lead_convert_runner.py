@@ -7,6 +7,8 @@ from lead_convert_runner import (
     contact_id_from_success_links,
     cms_id_from_view,
     verify_prior_conversion,
+    contact_id_from_url,
+    require_redirected_contact_identity,
 )
 
 
@@ -85,6 +87,32 @@ class RunnerSafetyTests(unittest.TestCase):
         with self.assertRaises(ConversionStopped):
             contact_id_from_success_links(
                 [('Account', '/lightning/r/001000000000001AAA/view')])
+
+    def test_converted_lead_redirect_url_parsing(self):
+        self.assertEqual(contact_id_from_url(
+            'https://novogene.lightning.force.com/lightning/r/Contact/003000000000001AAA/view'
+        ), '003000000000001AAA')
+        self.assertEqual(contact_id_from_url(
+            'https://novogene.lightning.force.com/lightning/r/Lead/00Q000000000001AAA/view'
+        ), '')
+
+    def test_redirected_contact_id_email_and_names(self):
+        details = dict(
+            contact_id='003000000000001AAA',
+            expected_contact_id='003000000000001AAA',
+            email='a@example.org', expected_email='a@example.org',
+            korean_name='김철수', expected_korean_name='김철수',
+            english_name='KimCheolSu', expected_english_name='KimCheolSu',
+        )
+        require_redirected_contact_identity(**details)
+        for override in (
+            {'expected_contact_id': '003000000000002AAA'},
+            {'expected_email': 'b@example.org'},
+            {'expected_korean_name': '김영희'},
+            {'expected_english_name': 'KimYoungHee'},
+        ):
+            with self.assertRaises(ConversionStopped):
+                require_redirected_contact_identity(**dict(details, **override))
 
     def test_cdms_id_persisted(self):
         self.assertEqual(cms_id_from_view(
