@@ -1,0 +1,30 @@
+name: CSS Monthly Revenue source and UI contract
+on:
+  pull_request:
+    paths:
+      - 'apps/css-sales-workspace/**'
+      - '.github/workflows/css-monthly-revenue-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  monthly-revenue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile backend modules
+        run: |
+          node --check apps/css-sales-workspace/api/lifecycle.js
+          node --check apps/css-sales-workspace/lib/monthly-revenue.js
+      - name: Three independent Revenue contract test passes
+        run: |
+          for pass in 1 2 3; do
+            echo "Monthly Revenue safety regression ${pass}/3"
+            node --test apps/css-sales-workspace/test/monthly-revenue.test.js apps/css-sales-workspace/test/monthly-revenue-ui.test.js || exit 1
+          done
