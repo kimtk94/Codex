@@ -1,0 +1,135 @@
+name: Feishu Post-Backfill Refresh Pipeline
+on:
+  workflow_run:
+    workflows: ['QQ Mail 2026 Historical Backfill']
+    types: [completed]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/feishu-post-backfill-refresh.yml'
+permissions:
+  contents: read
+concurrency:
+  group: feishu-qq-post-backfill-refresh
+  cancel-in-progress: false
+jobs:
+  tests:
+    if: ${{ github.event_name == 'pull_request' || (github.repository == 'kimtk94/Codex' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install source-reading dependencies for tests
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify mail feed, identity, dashboard and review guardrails
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_feed_periods.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_mail_identity_2026.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_mail_link_review_2026.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_kpi_dashboard.py' -v
+  feed:
+    needs: tests
+    if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    concurrency:
+      group: qq-feishu-mail-ingest
+      cancel-in-progress: false
+    timeout-minutes: 50
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_FEED_MODE: apply
+      FEISHU_FEED_MAX_UPDATES: '3000'
+      FEISHU_CURRENT_MAIL_DAYS: '30'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reconcile current vs historical QQ mail after ingestion
+        run: python3 automation/feishu/qq_mail_feed_periods.py
+  identity:
+    needs: tests
+    if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    concurrency:
+      group: qq-feishu-identity
+      cancel-in-progress: false
+    timeout-minutes: 80
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_IDENTITY_MODE: apply
+      FEISHU_IDENTITY_BATCH_LIMIT: '12000'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install reference-reading dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Reconcile Account Contact Project evidence across all collected mail
+        run: python3 automation/feishu/mail_identity_2026.py
+  review:
+    needs: identity
+    if: ${{ github.event_name != 'pull_request' && needs.identity.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    concurrency:
+      group: qq-feishu-mail-link-review
+      cancel-in-progress: false
+    timeout-minutes: 50
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_REVIEW_MODE: apply
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only reference dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Refresh ambiguous customer and project mail review queue
+        run: python3 automation/feishu/mail_link_review_2026.py
+  dashboard:
+    needs: [feed, identity]
+    if: ${{ github.event_name != 'pull_request' && needs.feed.result == 'success' && needs.identity.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    concurrency:
+      group: feishu-native-kpi-dashboard
+      cancel-in-progress: false
+    timeout-minutes: 50
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_DASHBOARD_MODE: apply
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Rebuild KPI cards using reconciled mail identities
+        run: python3 automation/feishu/sales_kpi_dashboard.py
