@@ -59,7 +59,7 @@ jobs:
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       FEISHU_MAIL_SCAN_DAYS: '30'
       FEISHU_MAIL_BATCH_PER_FOLDER: '45'
-      FEISHU_MAIL_MODE: ${{ github.event_name == 'schedule' && 'sync' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'smoke') }}
+      FEISHU_MAIL_MODE: ${{ github.event_name == 'schedule' && 'sync' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'probe') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -70,4 +70,5 @@ jobs:
       - name: Import QQ mail to isolated sales Base
         run: python3 automation/feishu/qq_mail_ingest.py
       - name: Independently audit stored mail counts and integrity (read only)
+        if: ${{ !cancelled() }}
         run: python3 automation/feishu/qq_mail_audit.py
