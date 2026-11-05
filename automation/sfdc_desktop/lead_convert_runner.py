@@ -40,8 +40,12 @@ def preflight_lead_text(body: str, *, expected_email: str, korean_name: str, con
     """Missing Convert is NOT evidence of conversion. Require linked Contact proof."""
     if not re.search(re.escape(expected_email), body, re.I):
         raise ConversionStopped('Lead email does not match')
-    if korean_name not in body:
-        raise ConversionStopped('Exact Korean name not found in Lead')
+    # Salesforce commonly renders the Lead name as "given-name surname".
+    displayed = _following_field_value(body, 'Name')
+    canonical = korean_name[0] + korean_name[1:]
+    reversed_display = korean_name[1:] + ' ' + korean_name[0]
+    if canonical not in body and displayed != reversed_display:
+        raise ConversionStopped('Korean Lead name does not match')
     if not convert_visible or 'Your lead has been converted' in body:
         return 'needs_contact_verification'
     return 'ready'
