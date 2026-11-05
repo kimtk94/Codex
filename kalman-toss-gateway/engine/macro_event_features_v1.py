@@ -1250,14 +1250,15 @@ def fetch_inputs(
     since = as_of - timedelta(hours=lookback_hours)
     macro_rows = conn.execute(
         """
-        SELECT a.article_id,a.source,a.title,a.available_at,
+        SELECT a.article_id,a.source,a.title,
+               GREATEST(a.available_at,a.first_seen_at) AS available_at,
                e.importance,e.confidence
         FROM public.news_article a
         JOIN public.news_event e ON e.article_id=a.article_id
         WHERE e.event_type='MACRO'
-          AND a.available_at >= %s
-          AND a.available_at <= %s
-        ORDER BY a.available_at
+          AND GREATEST(a.available_at,a.first_seen_at) >= %s
+          AND GREATEST(a.available_at,a.first_seen_at) <= %s
+        ORDER BY GREATEST(a.available_at,a.first_seen_at)
         """,
         (since, as_of),
     ).fetchall()
