@@ -89,6 +89,29 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(row["Verified Quote Value KRW FX"],1500000)
         self.assertEqual(row["Verified Quote Value K USD"],1.0)
 
+    def test_sf_15_18_id_join_with_case_sensitivity(self):
+        sf15="a0PAbCdEfGhIjKl"
+        sf18=sf15+"XYZ"
+        source={
+            "SFDC Weekly Overview":[{"week_start":"2026-10-30",
+                "week_end":"2026-11-05","quotation_approvals":"1",
+                "approvals_created_in_week":"1","weekly_basis":"FRI_THU",
+                "krw_per_usd":"1500"}],
+            "Quotation Approval List":[{"week_start":"2026-10-30",
+                "salesforce_record_id":sf15,"quotation_id":"AMEA2026012345"}],
+            "Quote Portfolio":[{"Salesforce Quote ID (18)":sf18,
+                "Quote QID":"QID-OTHER","Active":"YES","Quote USD":"2000"}],
+        }
+        self.assertEqual(m.salesforce_id15(sf18),sf15)
+        row=m.weekly_rows(source)[0]
+        self.assertEqual(row["Amount Status"],"VERIFIED_ALL")
+        self.assertEqual(row["Verified Amount Quote Count"],1)
+        self.assertEqual(row["Verified Quote Value KRW FX"],3000000)
+        source["Quotation Approval List"][0]["salesforce_record_id"]=sf15.swapcase()
+        row=m.weekly_rows(source)[0]
+        self.assertEqual(row["Amount Status"],"NO_QUOTE_VALUE")
+        self.assertNotIn("Verified Quote Value KRW FX",row)
+
     def test_no_quote_price_cannot_be_zero(self):
         source={
             "SFDC Weekly Overview":[{"week_start":"2026-10-30","week_end":"2026-11-05",
