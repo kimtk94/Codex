@@ -43,8 +43,8 @@ def build_form_name_plan(
     if len(romanized_given_syllables) != len(name) - 1:
         raise ValueError("Romanized syllable count does not match Korean given name")
     return LeadFormNamePlan(
-        first_name=names.first_name,
-        last_name=names.last_name,
+        first_name=name,
+        last_name=english_full_name(romanized_surname, romanized_given_syllables),
     )
 
 
