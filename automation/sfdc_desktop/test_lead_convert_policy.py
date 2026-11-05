@@ -15,14 +15,14 @@ from lead_convert_policy import (
 class LeadConvertPolicyTests(unittest.TestCase):
     def setUp(self):
         self.data = dict(
-            korean_full_name="오준혁",
+            korean_full_name="김철수",
             romanized_surname="Oh",
             romanized_given_syllables=["Jun", "Hyeok"],
-            verified_account_id="001TK0000129PdUYAU",
+            verified_account_id="001000000000001AAA",
             org_type="Academic",
             job_options=["--None--", ACADEMIC_PI, "ACADEMIC:Lab Managers"],
             account_address=dict(
-                street="100, Inha-ro, Michuhol-gu",
+                street="100, Example-ro, Sample-gu",
                 city="Incheon",
                 state="",
                 postal_code="22212",
@@ -35,7 +35,7 @@ class LeadConvertPolicyTests(unittest.TestCase):
 
     def test_valid_conversion_uses_existing_account_and_no_opportunity(self):
         p = build_contact_plan(**self.data)
-        self.assertEqual((p.first_name, p.last_name), ("오준혁", "OhJunHyeok"))
+        self.assertEqual((p.first_name, p.last_name), ("김철수", "OhJunHyeok"))
         self.assertEqual(p.job_function, ACADEMIC_PI)
         self.assertEqual(p.account_id, self.data["verified_account_id"])
         self.assertFalse(p.create_opportunity)
@@ -61,9 +61,9 @@ class LeadConvertPolicyTests(unittest.TestCase):
         ))
 
     def test_cdms_requires_actual_id_after_success(self):
-        self.assertTrue(cdms_sync_verified(sync_message="Sync completed", cms_contact_id="CP2026110500064"))
+        self.assertTrue(cdms_sync_verified(sync_message="Sync completed", cms_contact_id="CP123456789"))
         self.assertFalse(cdms_sync_verified(sync_message="Sync completed", cms_contact_id=""))
-        self.assertFalse(cdms_sync_verified(sync_message="Error", cms_contact_id="CP2026110500064"))
+        self.assertFalse(cdms_sync_verified(sync_message="Error", cms_contact_id="CP123456789"))
 
 
 if __name__ == "__main__":
