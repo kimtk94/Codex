@@ -14,6 +14,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -70,7 +71,7 @@ def api(method, path, token=None, data=None, action="feishu_api"):
 def list_all(path, token, action):
     rows = []
     cursor = ""
-    for _ in range(200):
+    for _ in range(1000):
         qs = urllib.parse.urlencode({"page_size": 100, **({"page_token": cursor} if cursor else {})})
         data = api("GET", path + "?" + qs, token, action=action)
         rows.extend(data.get("items") or [])
@@ -294,8 +295,14 @@ def decode_mail(payload, folder, direction, uidvalidity, uid):
 
 def select_uids(unseen, cap):
     # Prioritize the freshest half while gradually backfilling older unmatched records.
+    # Python's [-0:] would otherwise select the entire mailbox.
+    if cap <= 0 or not unseen:
+        return []
+    if cap == 1:
+        return unseen[-1:]
     recent = unseen[-(cap // 2):]
-    older = [u for u in unseen if u not in set(recent)]
+    recent_set = set(recent)
+    older = [u for u in unseen if u not in recent_set]
     return older[:cap - len(recent)] + recent
 
 
@@ -340,6 +347,100 @@ def collect_from_imap(im, indexed, max_per_folder, scan_days, since_date=None, m
     return incoming
 
 
+def allocate_2026_quotas(pending_by_folder, limit):
+    """Proportionally allocate one TOTAL per-run budget across Inbox and Sent.
+
+    A sent folder with fewer messages cannot strand unused budget in a
+    per-folder 1,500-message cap; remaining budget goes to the busy Inbox.
+    Deterministic largest-remainder allocation, bounded by available mail.
+    """
+    counts = [max(0, int(n)) for n in pending_by_folder]
+    budget = min(limit, sum(counts))
+    if budget < 1:
+        return [0 for _ in counts]
+    total = sum(counts)
+    raw = [budget * n / total for n in counts]
+    quotas = [min(n, int(part)) for n,part in zip(counts,raw)]
+    remaining = budget - sum(quotas)
+    for i in sorted(range(len(counts)), key=lambda i:(-(raw[i]-int(raw[i])), -counts[i], i)):
+        if not remaining:
+            break
+        if quotas[i] < counts[i]:
+            quotas[i] += 1
+            remaining -= 1
+    if remaining:
+        # Defensive fallback for future deployments with more folders.
+        for i in range(len(counts)):
+            extra = min(remaining, counts[i]-quotas[i])
+            quotas[i] += extra
+            remaining -= extra
+            if not remaining:
+                break
+    if sum(quotas) != budget:
+        raise SafeError("QQ_2026_ALLOCATION_MISMATCH")
+    return quotas
+
+
+def collect_2026_total(im, indexed, max_total):
+    """Scan each folder once for UID allocation, then fetch selected messages.
+
+    IMAP SINCE uses the preceding UTC calendar day because final 2026 cutoff
+    must use each parsed message's timezone-aware Date header in Asia/Seoul.
+    """
+    folder_scans = []
+    for folder, direction in folders(im):
+        status, _ = im.select('"' + folder.replace('"', "") + '"', readonly=True)
+        if status != "OK":
+            raise SafeError("QQ_2026_SELECT_FAILED")
+        status, validity = im.response("UIDVALIDITY")
+        if not validity or not validity[0]:
+            raise SafeError("QQ_2026_UIDVALIDITY_MISSING")
+        uv = validity[0].decode("ascii", "replace")
+        status, data = im.uid("SEARCH", None, "SINCE", "31-Dec-2025")
+        if status != "OK":
+            raise SafeError("QQ_2026_SEARCH_FAILED")
+        raw_uids = (data[0] or b"").split()
+        missed = [uid for uid in raw_uids
+                  if key(folder, uv, uid.decode("ascii")) not in indexed]
+        folder_scans.append((folder, direction, uv, missed))
+    quotas = allocate_2026_quotas([len(pending) for _,_,_,pending in folder_scans], max_total)
+    print("QQ_2026_BATCH_BUDGET="+str(max_total)+" allocated="+str(sum(quotas)))
+    incoming = []
+    skipped = 0
+    from mail_classification_2026 import since_2026
+    for (folder, direction, uv, missed), quota in zip(folder_scans, quotas):
+        selected = select_uids(missed, quota)
+        print("QQ_FOLDER_SCAN direction="+direction+" pending="+str(len(missed))+
+              " selected="+str(len(selected)))
+        if not selected:
+            continue
+        status, _ = im.select('"' + folder.replace('"', "") + '"', readonly=True)
+        if status != "OK":
+            raise SafeError("QQ_2026_FETCH_SELECT_FAILED")
+        # Refuse if folder identity changed between SEARCH and FETCH.
+        _, validity = im.response("UIDVALIDITY")
+        if not validity or validity[0].decode("ascii", "replace") != uv:
+            raise SafeError("QQ_2026_FOLDER_UIDVALIDITY_CHANGED")
+        for uid in selected:
+            status, parts = im.uid("FETCH", uid, "(BODY.PEEK[]<0." + str(MAX_MESSAGE_BYTES) + ">)")
+            if status != "OK":
+                raise SafeError("QQ_2026_FETCH_FAILED")
+            payload = next((part[1] for part in (parts or [])
+                            if isinstance(part,tuple) and isinstance(part[1],bytes)), None)
+            if payload is None:
+                raise SafeError("QQ_2026_FETCH_EMPTY")
+            row = decode_mail(payload, folder, direction, uv, uid.decode("ascii"))
+            if not since_2026(row.get("Received At")):
+                skipped += 1
+                continue
+            incoming.append(row)
+    if len(incoming) > max_total:
+        raise SafeError("QQ_2026_BATCH_OVER_BUDGET")
+    print("QQ_2026_CUTOFF_SKIPPED="+str(skipped))
+    print("QQ_2026_SELECTED_VALID="+str(len(incoming)))
+    return incoming
+
+
 def run(mode):
     if mode not in ("probe", "smoke", "sync", "backfill2026"):
         raise SafeError("INVALID_MODE")
@@ -367,14 +468,15 @@ def run(mode):
             print("SMOKE_ONLY_CUSTOMER_RECORD_WRITES_0")
             return
         backfill = mode == "backfill2026"
-        cap_limit = 300 if backfill else 100
-        cap = min(max(1, int(os.environ.get("FEISHU_MAIL_BATCH_PER_FOLDER", "45"))), cap_limit)
         days = min(max(1, int(os.environ.get("FEISHU_MAIL_SCAN_DAYS", "30"))), 60)
-        new_rows = collect_from_imap(
-            im, indexed, cap, days,
-            since_date="31-Dec-2025" if backfill else None,
-            min_date_kst="2026-01-01" if backfill else None,
-        )
+        if backfill:
+            # One invocation, at most 3,000 messages TOTAL, allocated across
+            # Inbox/Sent by pending counts (not 3,000 per folder).
+            total_limit = min(max(1,int(os.environ.get("FEISHU_MAIL_BACKFILL_TOTAL", "3000"))),3000)
+            new_rows = collect_2026_total(im,indexed,total_limit)
+        else:
+            cap = min(max(1,int(os.environ.get("FEISHU_MAIL_BATCH_PER_FOLDER", "45"))),100)
+            new_rows = collect_from_imap(im,indexed,cap,days)
         added = 0
         if backfill:
             # Feishu batch API reduces thousands of individual API writes.
@@ -388,9 +490,15 @@ def run(mode):
                 created = result.get("records") or []
                 if len(created) != len(batch) or any(not item.get("record_id") for item in created):
                     raise SafeError("QQ_2026_BATCH_CREATE_UNVERIFIED")
+                # Verified API create response; subsequent retries of the job
+                # reindex already-created Mail Keys, so partial runs are safe.
                 for row, record in zip(batch, created):
                     indexed[row["Mail Key"]] = record["record_id"]
                 added += len(batch)
+                if added % 250 == 0 or added == len(new_rows):
+                    print("QQ_2026_PROGRESS_ADDED="+str(added)+
+                          " target="+str(len(new_rows)))
+                time.sleep(0.25)  # Avoid Feishu batch-write rate limits.
         else:
             for row in new_rows:
                 mail_key = row["Mail Key"]
