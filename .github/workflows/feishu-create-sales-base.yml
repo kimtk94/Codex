@@ -17,9 +17,9 @@ jobs:
     if: github.repository == 'kimtk94/Codex'
     runs-on: ubuntu-latest
     environment: TaehoonServer
-      GITHUB_TOKEN: ${{ github.token }}
+    timeout-minutes: 10
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
     steps:
