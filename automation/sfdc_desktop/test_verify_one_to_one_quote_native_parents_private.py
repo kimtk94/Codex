@@ -10,6 +10,9 @@ def candidate(i,status="Need to submit",live=True):
             "quote_status":status,
             "known_contact_opportunity_live_evidence":live,
             "native_quote_parent_independently_live_verified":False,
+            "single_product_snapshot":True,
+            "snapshot_opportunity_and_contact_labels_match":True,
+            "quote_name_unique_in_full_inventory":True,
             "salesforce_save_allowed":False}
 
 
@@ -55,6 +58,20 @@ class ParentProofTests(unittest.TestCase):
         self.assertEqual(len(chosen),2)
         self.assertFalse(chosen[0]["known_contact_opportunity_live_evidence"])
         self.assertTrue(all(r["salesforce_save_allowed"] is False for r in chosen))
+
+    def test_mixed_product_or_nonunique_quote_never_native_checked(self):
+        x=candidate(1,live=False)
+        x["single_product_snapshot"]=False
+        y=candidate(2,live=False)
+        y["quote_name_unique_in_full_inventory"]=False
+        z=candidate(3,live=False)
+        z["snapshot_opportunity_and_contact_labels_match"]=False
+        self.assertEqual(select_remaining_native_cases([x,y,z],[],all_structural=True),[])
+
+    def test_invalid_record_id_never_navigated(self):
+        x=candidate(1,live=False)
+        x["quote_id"]="a0P_INVALID"
+        self.assertEqual(select_remaining_native_cases([x],[],all_structural=True),[])
 
     def test_default_only_contact_link_verified(self):
         rows=[candidate(1,live=False),candidate(2,live=True)]
