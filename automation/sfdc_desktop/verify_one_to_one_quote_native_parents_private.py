@@ -11,7 +11,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from verify_related_quote_native_parent import run_live,same_native
+from verify_related_quote_native_parent import run_live,same_native,OPPO,QUOTE
 ROOT=Path.home()/".sfdc_desktop"
 SOURCE="one_to_one_oppo_quote_learning_shortlist_PRIVATE.json"
 OUTPUT="one_to_one_quote_native_parent_verified_PRIVATE.json"
@@ -71,7 +71,15 @@ def select_remaining_native_cases(candidates,prior,*,all_structural=False,limit=
         if not isinstance(row,dict):
             continue
         key=(row.get("opportunity_id"),row.get("quote_id"))
-        if key in attempted or key in seen or row.get("salesforce_save_allowed") is not False:
+        if (not OPPO.fullmatch(str(key[0] or ""))
+                or not QUOTE.fullmatch(str(key[1] or ""))
+                or row.get("single_product_snapshot") is not True
+                or row.get("snapshot_opportunity_and_contact_labels_match") is not True
+                or row.get("quote_name_unique_in_full_inventory") is not True
+                or row.get("quote_status") not in ORDER
+                or row.get("salesforce_save_allowed") is not False):
+            continue
+        if key in attempted or key in seen:
             continue
         if row.get("native_quote_parent_independently_live_verified") is not False:
             continue
