@@ -99,6 +99,8 @@ def source_rows(token,root,tables,now):
                 cached[table_name] = (views,has_rows)
             views,has_rows = cached[table_name]
             vid = views.get(view_name)
+            if key == "DASHBOARD" and not vid:
+                vid = views.get("02 KPI 상세")  # Feishu gallery API may be unavailable.
             if vid:
                 url = BASE_URL + "?table=" + urllib.parse.quote(tid,safe="") + "&view=" + urllib.parse.quote(vid,safe="")
                 state = "DATA_PRESENT" if has_rows else "SOURCE_EMPTY"
