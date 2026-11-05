@@ -26,6 +26,21 @@ main{margin-left:254px;padding:26px clamp(18px,3vw,46px);max-width:1700px}
 dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow:0 18px 70px #14213555}dialog::backdrop{background:#07142688}.dialogtop{display:flex;align-items:center;justify-content:space-between}.bodytext{white-space:pre-wrap;overflow:auto;max-height:60vh;background:#f6f8fc;border-radius:12px;padding:18px;line-height:1.65;overflow-wrap:anywhere}.close{border:0;background:#e8eff7;padding:9px 13px;border-radius:9px}
 @media(max-width:950px){aside{width:76px;padding:18px 8px}.brand{font-size:12px;padding:5px}.brand small,.sidefoot,nav .group{display:none}nav button{font-size:12px;padding:12px 5px;text-align:center}main{margin-left:76px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.split{grid-template-columns:1fr}}
 @media(max-width:580px){aside{position:sticky;top:0;width:100%;height:auto;display:block;padding:9px;overflow:auto}.brand{display:none}nav{display:flex;overflow:auto}nav button{flex:0 0 auto;width:auto;padding:9px 11px}main{margin:0;padding:15px}.kpis{gap:8px}.kpi,.panel{padding:13px}.kpi strong{font-size:20px}}
+
+/* Dedicated, source-labeled Monthly Revenue view; legacy views remain intact. */
+.monthly-bar-chart{display:grid;grid-template-columns:repeat(12,minmax(50px,1fr));gap:7px;overflow-x:auto;min-height:175px;align-items:end;padding:15px 3px 6px}
+.monthly-bar-group{min-width:48px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.monthly-bar-pair{width:100%;height:140px;display:flex;gap:4px;justify-content:center;align-items:flex-end;border-bottom:1px solid #d5dfeb}
+.monthly-bar{min-width:10px;max-width:22px;flex:1;border-radius:5px 5px 0 0;min-height:0}
+.monthly-bar.official{background:#6b84a7}.monthly-bar.issued{background:#2276cf}
+.monthly-legend{display:flex;flex-wrap:wrap;gap:15px;color:#566980;font-size:12px}
+.monthly-legend span:before{content:'';display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-2px;background:#6b84a7}
+.monthly-legend span:last-child:before{background:#2276cf}
+.monthly-source{font-size:12px;color:#66758b;line-height:1.8;margin-top:14px}
+.legacy-links{display:flex;flex-wrap:wrap;gap:8px}
+.legacy-links a{border:1px solid #d6e2ee;border-radius:9px;padding:8px 11px;color:#245b99;text-decoration:none;font-size:12px}
+.legacy-links a:hover{background:#eef4fb}
+@media(max-width:760px){.monthly-bar-chart{grid-template-columns:repeat(12,minmax(48px,1fr))}}
 </style></head><body>
 <aside><div class="brand">NOVOGENE<small>SALES COMMAND CENTER</small></div>
 <nav id="nav">
@@ -34,6 +49,7 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <button data-view="projects">◫ 프로젝트 진행</button>
 <button data-view="contractReview">⊞ 미발행 계약번호 검증</button>
 <button data-view="revenue">▥ 매출 · Invoice</button>
+<button data-view="monthlyRevenue">▤ Monthly Revenue · 연도 비교</button>
 <button data-view="statements">▤ Statement · 결제</button>
 <div class="group">SALES & SERVICE</div>
 <button data-view="mail">✉ 미응답 메일</button>
@@ -58,6 +74,35 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <div class="tablewrap"><table><thead><tr><th>기관 · 프로젝트 / AMEA</th><th>기존 Watch X (사용 금지)</th><th>H 후보</th><th>X 후보 (확정 아님)</th><th>근거 · 판정</th><th>결제 원본일</th></tr></thead><tbody id="contractReviewRows"></tbody></table></div>
 </div></section>
 <section id="revenue" class="view"><div class="kpis" id="revenueKpi"></div><div class="panel"><h2>Actual / Pending / Forecast — 월별 내역</h2><div class="tablewrap"><table><thead><tr><th>월</th><th>Revenue VAT 제외 KRW</th><th>Invoice VAT 포함 KRW</th><th>Pending KRW</th><th>검증 청구액 KRW</th><th>검증 청구액 kUSD</th><th>Forecast KRW (미확정)</th><th>Forecast kUSD</th><th>Invoice 건수</th><th>Pending 건수</th></tr></thead><tbody id="revenueRows"></tbody></table></div></div></section>
+<section id="monthlyRevenue" class="view">
+<div class="panel">
+<h2>Monthly Revenue · Actual / Pending / Forecast</h2>
+<p class="operator-hint">2025 공식 Revenue는 USD 기반·세금 제외 실적의 KRW@1,500 환산값입니다. 2026 원본 Invoice 발행액은 다른 집계 기준이며, 두 금액을 단순 YoY 성장률로 비교하지 않습니다. Pending은 미발행 청구 후보이고 Forecast는 확정 매출이 아닙니다.</p>
+<div class="filter">
+<label>표시 <select id="monthlyMode" aria-label="Monthly Revenue 표시 방식"><option value="operations">2026 월별 운영</option><option value="compare">2025 공식 vs 2026 발행 참고 비교</option></select></label>
+<label>월 <select id="monthlyFilter" aria-label="Monthly Revenue 월 선택"><option value="all">전체 12개월</option></select></label>
+</div>
+<p class="operator-hint" id="monthlySourceStatus" role="status" aria-live="polite">공식 매출 데이터 연결을 확인하는 중입니다.</p>
+<div class="kpis" id="monthlyKpi"></div>
+<div class="monthly-legend"><span>2025 공식 Revenue · VAT 제외</span><span>2026 Invoice 발행액 · 원본 기준</span></div>
+<div class="monthly-bar-chart" id="monthlyChart" role="img" aria-label="2025 공식 Revenue 및 2026 Invoice 발행액 월별 참고 그래프"></div>
+<div class="tablewrap"><table><thead id="monthlyHeaders"></thead><tbody id="monthlyRows"></tbody></table></div>
+<div class="monthly-source" id="monthlyFootnote">원본 기반 검증 상태 확인 중</div>
+</div>
+<div class="panel"><h2>기존 매출·프로젝트 원본 리포트</h2>
+<p class="operator-hint">기존 Google Sheets 기능은 보존합니다. 아래 링크는 각 원본 탭을 열며, 접근 권한은 Google 계정으로 확인합니다.</p>
+<div class="legacy-links">
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=129540641" target="_blank" rel="noopener noreferrer">BI Revenue Executive 2026</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1936002610" target="_blank" rel="noopener noreferrer">2025 vs 2026 Overlay</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1173034481" target="_blank" rel="noopener noreferrer">2025 Official Monthly</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=922488543" target="_blank" rel="noopener noreferrer">Revenue L4 Monthly Mix</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1163754742" target="_blank" rel="noopener noreferrer">Revenue Monthly Institution</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1856711491" target="_blank" rel="noopener noreferrer">BI Project Month Control</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=246817115" target="_blank" rel="noopener noreferrer">Billing Control Dashboard</a>
+<a href="https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit#gid=1740242851" target="_blank" rel="noopener noreferrer">Revenue Net VAT Monthly</a>
+</div>
+</div>
+</section>
 <section id="statements" class="view"><div class="panel"><h2>Statement · TAX INVOICE 추적</h2><div class="notice">J번호 + X 하위 프로젝트로 식별합니다. Statement 검증 금액과 실제 Tax Invoice 발행액은 별도 표시합니다. Payment는 입금 증거가 없으면 완료로 표시하지 않습니다.</div><div class="filter"><input id="statementQuery" placeholder="Statement ID · 기관 · 연구자 · AMEA 검색"><select id="statementState"><option value="">전체 상태</option><option value="PENDING">미발행 Pending</option><option value="INVOICED">Tax Invoice 발행</option><option value="REVIEW">검토 필요</option></select></div><p id="statementSummary" class="subtitle"></p><div class="tablewrap"><table><thead><tr><th>Statement ID · 날짜</th><th>기관 · 연구자 · 서비스</th><th>원본 Statement</th><th>Tax Invoice 발행액</th><th>상태 · 발행번호</th></tr></thead><tbody id="statementRows"></tbody></table></div></div></section>
 <section id="mail" class="view"><div class="panel"><h2>미응답 메일함</h2><p id="mailBackfillStatus" class="subtitle">메일 본문 백필 검증 정보 확인 중</p><div class="filter"><input id="mailQuery" placeholder="발신자 · 제목 · 프로젝트 검색"><select id="mailSort"><option value="days">경과일 높은 순</option><option value="recent">최근 메일 순</option></select></div><div class="tablewrap"><table><thead><tr><th>우선순위</th><th>경과</th><th>발신자 · 제목</th><th>수신</th><th>프로젝트</th><th>본문</th></tr></thead><tbody id="mailRows"></tbody></table></div></div></section>
 <section id="leads" class="view"><div class="panel"><h2>Lead 업무 대기열</h2><div class="filter"><input id="leadQuery" placeholder="기관 · 고객 · 담당 이메일"></div><div class="tablewrap"><table><thead><tr><th>우선순위</th><th>기관 · 고객</th><th>상태</th><th>예정일</th><th>설명</th></tr></thead><tbody id="leadRows"></tbody></table></div></div></section>
