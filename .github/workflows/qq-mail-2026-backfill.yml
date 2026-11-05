@@ -1,0 +1,55 @@
+name: QQ Mail 2026 Historical Backfill
+on:
+  push:
+    branches: [feat/feishu-direct-mail-2026-20261105]
+    paths:
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/mail_classification_2026.py'
+      - 'automation/feishu/test_qq_mail_2026_backfill.py'
+      - '.github/workflows/qq-mail-2026-backfill.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '7,37 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: qq-feishu-mail-ingest
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 2026 historical mail ingestion tests
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_ingest.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_2026_backfill.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_mail_classification_2026.py' -v
+  collect_2026:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 45
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      FEISHU_MAIL_MODE: backfill2026
+      FEISHU_MAIL_BATCH_PER_FOLDER: '180'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Direct QQ IMAP 2026 KST backfill to Feishu Base
+        run: python3 automation/feishu/qq_mail_ingest.py
+      - name: Privacy-safe independent Feishu record audit
+        if: ${{ !cancelled() }}
+        run: python3 automation/feishu/qq_mail_audit.py

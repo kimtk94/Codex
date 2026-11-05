@@ -299,8 +299,9 @@ def select_uids(unseen, cap):
     return older[:cap - len(recent)] + recent
 
 
-def collect_from_imap(im, indexed, max_per_folder, scan_days):
+def collect_from_imap(im, indexed, max_per_folder, scan_days, since_date=None, min_date_kst=None):
     incoming = []
+    cutoff_skipped = 0
     for folder, direction in folders(im):
         status, _ = im.select('"' + folder.replace('"', "") + '"', readonly=True)
         if status != "OK":
@@ -309,7 +310,7 @@ def collect_from_imap(im, indexed, max_per_folder, scan_days):
         if not validity or not validity[0]:
             raise SafeError("QQ_UIDVALIDITY_MISSING")
         uidvalidity = validity[0].decode("ascii", "replace")
-        since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=scan_days)).strftime("%d-%b-%Y")
+        since = since_date or (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=scan_days)).strftime("%d-%b-%Y")
         status, data = im.uid("SEARCH", None, "SINCE", since)
         if status != "OK":
             raise SafeError("QQ_IMAP_SEARCH_FAILED")
@@ -327,12 +328,20 @@ def collect_from_imap(im, indexed, max_per_folder, scan_days):
                             if isinstance(part, tuple) and isinstance(part[1], bytes)), None)
             if payload is None:
                 raise SafeError("QQ_IMAP_FETCH_EMPTY")
-            incoming.append(decode_mail(payload, folder, direction, uidvalidity, uid.decode("ascii")))
+            row = decode_mail(payload, folder, direction, uidvalidity, uid.decode("ascii"))
+            if min_date_kst is not None:
+                from mail_classification_2026 import since_2026
+                if not since_2026(row.get("Received At")):
+                    cutoff_skipped += 1
+                    continue
+            incoming.append(row)
+    if since_date is not None:
+        print("QQ_2026_CUTOFF_SKIPPED="+str(cutoff_skipped))
     return incoming
 
 
 def run(mode):
-    if mode not in ("probe", "smoke", "sync"):
+    if mode not in ("probe", "smoke", "sync", "backfill2026"):
         raise SafeError("INVALID_MODE")
     # Validate all required secrets before side effects.
     mail_user = required("CSS_QQ_MAIL_ADDRESS")
@@ -357,16 +366,38 @@ def run(mode):
             smoke(token, table_path, indexed)
             print("SMOKE_ONLY_CUSTOMER_RECORD_WRITES_0")
             return
-        cap = min(max(1, int(os.environ.get("FEISHU_MAIL_BATCH_PER_FOLDER", "45"))), 100)
+        backfill = mode == "backfill2026"
+        cap_limit = 300 if backfill else 100
+        cap = min(max(1, int(os.environ.get("FEISHU_MAIL_BATCH_PER_FOLDER", "45"))), cap_limit)
         days = min(max(1, int(os.environ.get("FEISHU_MAIL_SCAN_DAYS", "30"))), 60)
-        new_rows = collect_from_imap(im, indexed, cap, days)
+        new_rows = collect_from_imap(
+            im, indexed, cap, days,
+            since_date="31-Dec-2025" if backfill else None,
+            min_date_kst="2026-01-01" if backfill else None,
+        )
         added = 0
-        for row in new_rows:
-            mail_key = row["Mail Key"]
-            if mail_key in indexed:
-                continue
-            indexed[mail_key] = write_record(token, table_path, row)
-            added += 1
+        if backfill:
+            # Feishu batch API reduces thousands of individual API writes.
+            for offset in range(0, len(new_rows), 25):
+                batch = [r for r in new_rows[offset:offset+25] if r["Mail Key"] not in indexed]
+                if not batch:
+                    continue
+                result = api("POST", table_path+"/records/batch_create", token,
+                             data={"records":[{"fields":r} for r in batch]},
+                             action="qq_2026_batch_create")
+                created = result.get("records") or []
+                if len(created) != len(batch) or any(not item.get("record_id") for item in created):
+                    raise SafeError("QQ_2026_BATCH_CREATE_UNVERIFIED")
+                for row, record in zip(batch, created):
+                    indexed[row["Mail Key"]] = record["record_id"]
+                added += len(batch)
+        else:
+            for row in new_rows:
+                mail_key = row["Mail Key"]
+                if mail_key in indexed:
+                    continue
+                indexed[mail_key] = write_record(token, table_path, row)
+                added += 1
         print("FEISHU_MAIL_SYNC_PASS added=" + str(added) + " scanned=" + str(len(new_rows)))
         print("OTHER_FEISHU_TABLE_WRITES=0 EXTERNAL_MAIL_SENDS=0")
         im.logout()
