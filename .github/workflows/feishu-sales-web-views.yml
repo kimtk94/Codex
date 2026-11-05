@@ -1,0 +1,56 @@
+name: Feishu Native Sales Web Views
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/setup_sales_web.py'
+      - 'automation/feishu/test_setup_sales_web.py'
+      - '.github/workflows/feishu-sales-web-views.yml'
+  push:
+    branches: [main, feat/feishu-sales-native-web-20261105]
+    paths:
+      - 'automation/feishu/setup_sales_web.py'
+      - 'automation/feishu/test_setup_sales_web.py'
+      - '.github/workflows/feishu-sales-web-views.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'plan read-only or apply missing native Feishu views'
+        type: choice
+        required: true
+        default: plan
+        options: [plan, apply]
+permissions:
+  contents: read
+concurrency:
+  group: feishu-sales-native-web-views
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test web view setup safety
+        run: python3 -m unittest discover -s automation/feishu -p 'test_setup_sales_web.py' -v
+  configure:
+    needs: tests
+    if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_SALES_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_WEB_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'apply' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Configure new Feishu Base web views
+        run: python3 automation/feishu/setup_sales_web.py
