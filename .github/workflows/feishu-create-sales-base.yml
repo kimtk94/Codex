@@ -5,6 +5,7 @@ on:
       - feat/qq-mail-feishu-write-safe-20261105
     paths:
       - .github/workflows/feishu-create-sales-base.yml
+      - automation/feishu/create_sales_base.py
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,7 +20,7 @@ jobs:
     environment: TaehoonServer
     timeout-minutes: 10
     env:
-      GITHUB_TOKEN: ${{ github.token }}
+      FEISHU_SALES_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
     steps:
