@@ -30,6 +30,11 @@ class RunnerSafetyTests(unittest.TestCase):
             expected_email='a@example.org', korean_name='김철수',
             convert_visible=False), 'already_converted')
 
+    def test_ready_lead_preflight_does_not_write(self):
+        self.assertEqual(preflight_lead_text('김철수\na@example.org\nNew',
+            expected_email='a@example.org', korean_name='김철수',
+            convert_visible=True), 'ready')
+
     def test_bad_email_or_name_fails_closed(self):
         with self.assertRaises(ConversionStopped):
             preflight_lead_text('김철수\nb@example.org',
