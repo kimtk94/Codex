@@ -1,19 +1,35 @@
 name: QQ Mail 2026 Historical Backfill
 on:
+  pull_request:
+    paths:
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/qq_mail_catchup_drain.py'
+      - 'automation/feishu/test_qq_mail_catchup_drain.py'
+      - '.github/workflows/qq-mail-2026-backfill.yml'
   push:
     branches: [main, feat/qq-backfill-2026-3000-per-run]
     paths:
       - 'automation/feishu/qq_mail_ingest.py'
       - 'automation/feishu/mail_classification_2026.py'
       - 'automation/feishu/test_qq_mail_2026_backfill.py'
+      - 'automation/feishu/qq_mail_catchup_drain.py'
+      - 'automation/feishu/test_qq_mail_catchup_drain.py'
       - '.github/workflows/qq-mail-2026-backfill.yml'
   workflow_dispatch:
+    inputs:
+      rounds:
+        description: 'Sequential 3,000-mail backfill batches, max 6; stop if no new records'
+        type: choice
+        required: true
+        options: ['1', '2', '3', '4', '5', '6']
+        default: '6'
   schedule:
-    - cron: '7,37 * * * *'
+    # Once every 6 hours: avoids overlapping a multi-hour six-round catch-up.
+    - cron: '7 0,6,12,18 * * *'
 permissions:
   contents: read
 concurrency:
-  group: qq-feishu-mail-ingest
+  group: ${{ github.event_name == 'pull_request' && format('qq-feishu-mail-tests-{0}', github.event.pull_request.number) || 'qq-feishu-mail-ingest' }}
   cancel-in-progress: false
 jobs:
   tests:
@@ -29,12 +45,13 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_ingest.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_2026_backfill.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_mail_classification_2026.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_catchup_drain.py' -v
   collect_2026:
     needs: tests
     if: ${{ needs.tests.result == 'success' && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 100
+    timeout-minutes: 355
     env:
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -43,13 +60,14 @@ jobs:
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       FEISHU_MAIL_MODE: backfill2026
       FEISHU_MAIL_BACKFILL_TOTAL: '3000'
+      QQ_CATCHUP_MAX_ROUNDS: ${{ github.event_name == 'workflow_dispatch' && inputs.rounds || '6' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Direct QQ IMAP 2026 KST backfill up to 3000 to Feishu Base
-        run: python3 automation/feishu/qq_mail_ingest.py
+      - name: Sequential bounded QQ 2026 backlog drain (max 6 x 3000)
+        run: python3 automation/feishu/qq_mail_catchup_drain.py
       - name: Privacy-safe independent Feishu record audit
         if: ${{ !cancelled() }}
         run: python3 automation/feishu/qq_mail_audit.py
