@@ -295,6 +295,11 @@ def decode_mail(payload, folder, direction, uidvalidity, uid):
 
 def select_uids(unseen, cap):
     # Prioritize the freshest half while gradually backfilling older unmatched records.
+    # Python's [-0:] would otherwise select the entire mailbox.
+    if cap <= 0 or not unseen:
+        return []
+    if cap == 1:
+        return unseen[-1:]
     recent = unseen[-(cap // 2):]
     older = [u for u in unseen if u not in set(recent)]
     return older[:cap - len(recent)] + recent
