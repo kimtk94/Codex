@@ -1,0 +1,113 @@
+name: Kalman QLD Joint 40 Option Interactions (Research Only)
+
+on:
+  pull_request:
+    paths:
+      - 'research/kalman_integrated_regime/joint_*'
+      - 'research/kalman_integrated_regime/test_joint_*'
+      - '.github/workflows/kalman-qld-joint-options.yml'
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - 'research/kalman_integrated_regime/joint_*'
+      - 'research/kalman_integrated_regime/test_joint_*'
+      - '.github/workflows/kalman-qld-joint-options.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: qld-joint40-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Isolated dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'scikit-learn>=1.4,<2' 'pyarrow>=17' 'exchange-calendars>=4.7'
+      - name: All joint execution and aggregation contracts
+        run: |
+          python -m unittest research.kalman_integrated_regime.test_joint_policy research.kalman_integrated_regime.test_joint_report -v
+          python -m compileall -q research/kalman_integrated_regime
+
+  joint-sweep:
+    if: github.event_name != 'pull_request'
+    needs: contracts
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated private research environment
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'scikit-learn>=1.4,<2' 'pyarrow>=17' 'exchange-calendars>=4.7' 'requests>=2.31,<3' google-auth google-api-python-client
+      - name: Fetch Alpaca SIP 2024-2026 once, research only
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID || secrets.APCA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY || secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_integrated_regime/sip_backfill.py \
+            --start 2024-01-01 --end-exclusive 2026-10-31 \
+            --out "$RUNNER_TEMP/ql40"
+      - name: Fetch private daily macro features once
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_triple_barrier/drive_input.py \
+            --file-id 1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd \
+            --output "$RUNNER_TEMP/ql40/market.zip"
+      - name: Evaluate 800 full 40-axis combinations in four local parallel processes
+        run: |
+          mkdir -p "$RUNNER_TEMP/ql40/results"
+          for shard in 0 1 2 3; do
+            python -m research.kalman_integrated_regime.joint_policy \
+              --daily "$RUNNER_TEMP/ql40/qld_qqq_daily_sip_all_private.csv" \
+              --intraday "$RUNNER_TEMP/ql40/qld_qqq_15m_sip_all_private.parquet" \
+              --market-zip "$RUNNER_TEMP/ql40/market.zip" \
+              --configs 800 --shard "$shard" --shards 4 \
+              --out "$RUNNER_TEMP/ql40/results" \
+              > "$RUNNER_TEMP/ql40/shard_$shard.log" 2>&1 &
+            pids[$shard]=$!
+          done
+          rc=0
+          for shard in 0 1 2 3; do
+            if wait "${pids[$shard]}"; then
+              echo "SHARD_$shard"_"PASS"
+              tail -n 1 "$RUNNER_TEMP/ql40/shard_$shard.log"
+            else
+              echo "SHARD_$shard"_"FAILED"
+              tail -n 20 "$RUNNER_TEMP/ql40/shard_$shard.log"
+              rc=1
+            fi
+          done
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+      - name: Full-grid manifest, interaction summary and fail-closed completeness check
+        run: |
+          python -m research.kalman_integrated_regime.joint_report \
+            --source "$RUNNER_TEMP/ql40/results" \
+            --configs 800 --out "$RUNNER_TEMP/ql40/final"
+      - name: Upload full configuration-level scoreboard without raw market prices
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qld40-joint-all-800-combinations
+          path: ${{ runner.temp }}/ql40/final/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove private SIP inputs and individual job files
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/ql40/qld_qqq_daily_sip_all_private.csv"
+          rm -f "$RUNNER_TEMP/ql40/qld_qqq_15m_sip_all_private.parquet"
+          rm -f "$RUNNER_TEMP/ql40/market.zip"

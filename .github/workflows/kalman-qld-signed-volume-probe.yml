@@ -1,0 +1,67 @@
+name: Kalman QLD QQQ SIP Quote-Aligned Aggressor Volume Probe (Research Only)
+
+on:
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - '.github/workflows/kalman-qld-signed-volume-probe.yml'
+      - 'research/kalman_integrated_regime/sip_quote_aggressor_probe.py'
+      - 'research/kalman_integrated_regime/test_volume_drift_quote.py'
+  pull_request:
+    paths:
+      - '.github/workflows/kalman-qld-signed-volume-probe.yml'
+      - 'research/kalman_integrated_regime/sip_quote_aggressor_probe.py'
+      - 'research/kalman_integrated_regime/test_volume_drift_quote.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qld-signed-volume-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install probe libraries
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'scikit-learn>=1.4,<2' 'exchange-calendars>=4.7' 'requests>=2.31,<3'
+      - name: Validate bid ask, unknown shares and no future quote
+        run: |
+          python -m research.kalman_integrated_regime.sip_quote_aggressor_probe --self-test
+          python -m unittest research.kalman_integrated_regime.test_volume_drift_quote -v
+  historical-quote-probe:
+    needs: contracts
+    if: github.event_name != 'pull_request'
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal probe deps
+        run: python -m pip install --disable-pip-version-check 'requests>=2.31,<3' 'pandas>=2.2,<3'
+      - name: 10-second historical SIP prints and quotes (no live execution)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID || secrets.APCA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY || secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python -m research.kalman_integrated_regime.sip_quote_aggressor_probe \
+            --max-pages 15 --stale-ms 1000 \
+            --out "$RUNNER_TEMP/sip_quote_signed_volume.json"
+      - name: Keep aggregate signed-volume estimates only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qld-qqq-quote-aligned-aggressor-probe
+          path: ${{ runner.temp }}/sip_quote_signed_volume.json
+          retention-days: 14
+          if-no-files-found: warn

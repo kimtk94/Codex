@@ -1,0 +1,141 @@
+name: Kalman QLD SIP Historical Backfill and Regime OOS (Research Only)
+
+on:
+  pull_request:
+    paths:
+      - 'research/kalman_integrated_regime/**'
+      - '.github/workflows/kalman-qld-sip-backfill.yml'
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - 'research/kalman_integrated_regime/**'
+      - '.github/workflows/kalman-qld-sip-backfill.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qld-sip-research-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated research dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'scikit-learn>=1.4,<2' 'pyarrow>=17' 'exchange-calendars>=4.7' 'requests>=2.31,<3'
+      - name: Validate no-network research contracts
+        run: python -m unittest research.kalman_integrated_regime.test_run research.kalman_integrated_regime.test_sip_backfill research.kalman_integrated_regime.test_study_100 -v
+      - name: Syntax check
+        run: python -m compileall -q research/kalman_integrated_regime
+
+  historical-only:
+    needs: offline-contracts
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated backfill dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'scikit-learn>=1.4,<2' 'pyarrow>=17' 'exchange-calendars>=4.7' 'requests>=2.31,<3' google-auth google-api-python-client
+      - name: SIP historical entitlement probe (no secrets in logs)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID || secrets.APCA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY || secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_integrated_regime/sip_backfill.py \
+            --start 2024-01-01 --end-exclusive 2026-10-31 \
+            --probe-only --out "$RUNNER_TEMP/qld_sip_probe"
+      - name: Download QLD & QQQ monthly SIP, aggregate diagnostics
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID || secrets.APCA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY || secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_integrated_regime/sip_backfill.py \
+            --start 2024-01-01 --end-exclusive 2026-10-31 \
+            --out "$RUNNER_TEMP/qld_sip"
+      - name: Retrieve private latest market macro bundle (FRED excluded as feature)
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python - <<'PY'
+          import base64, io, json, os
+          from pathlib import Path
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaIoBaseDownload
+          raw=(os.getenv('CKD_DRIVE_SA_JSON') or '').strip()
+          if not raw:
+              encoded=(os.getenv('GDRIVE_SA_JSON_B64') or '').strip()
+              if not encoded:
+                  raise RuntimeError('RESEARCH_DRIVE_AUTH_UNAVAILABLE')
+              raw=base64.b64decode(encoded,validate=True).decode()
+          creds=service_account.Credentials.from_service_account_info(
+              json.loads(raw),scopes=['https://www.googleapis.com/auth/drive.readonly'])
+          api=build('drive','v3',credentials=creds,cache_discovery=False)
+          req=api.files().get_media(fileId='1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd',supportsAllDrives=True)
+          buf=io.BytesIO()
+          transfer=MediaIoBaseDownload(buf,req,chunksize=4*1024*1024)
+          finished=False
+          while not finished:
+              _,finished=transfer.next_chunk()
+          path=Path(os.environ['RUNNER_TEMP'])/'qld_sip'/'market.zip'
+          path.parent.mkdir(parents=True,exist_ok=True)
+          path.write_bytes(buf.getvalue())
+          print('PRIVATE_MARKET_BUNDLE_READ',path.stat().st_size)
+          PY
+      - name: Read existing private QLD/QQQ aligned daily for price-adjustment audit
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_triple_barrier/drive_input.py \
+            --file-id 1AHPws_x_q_TALFlZUoeSSTM3ChYaSa6R \
+            --output "$RUNNER_TEMP/qld_sip/legacy_QLD_QQQ_daily.csv"
+      - name: Refit price-only and integrated Regime; 2025 and 2026 OOS
+        run: |
+          python research/kalman_integrated_regime/run.py \
+            --daily "$RUNNER_TEMP/qld_sip/qld_qqq_daily_sip_all_private.csv" \
+            --intraday "$RUNNER_TEMP/qld_sip/qld_qqq_15m_sip_all_private.parquet" \
+            --market-zip "$RUNNER_TEMP/qld_sip/market.zip" \
+            --out "$RUNNER_TEMP/qld_sip/evaluation"
+      - name: 100 paired train-only block bootstrap fits per test year and price-source audit
+        run: |
+          python -m research.kalman_integrated_regime.study_100 \
+            --daily "$RUNNER_TEMP/qld_sip/qld_qqq_daily_sip_all_private.csv" \
+            --legacy-daily "$RUNNER_TEMP/qld_sip/legacy_QLD_QQQ_daily.csv" \
+            --intraday "$RUNNER_TEMP/qld_sip/qld_qqq_15m_sip_all_private.parquet" \
+            --market-zip "$RUNNER_TEMP/qld_sip/market.zip" \
+            --repeats 100 --block-size 10 \
+            --out "$RUNNER_TEMP/qld_sip/stability"
+      - name: Publish diagnostic and aggregate OOS results only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qld-sip-research-evidence-only
+          path: |
+            ${{ runner.temp }}/qld_sip_probe/status.json
+            ${{ runner.temp }}/qld_sip/status.json
+            ${{ runner.temp }}/qld_sip/evaluation/summary.json
+            ${{ runner.temp }}/qld_sip/stability/retrain_100_summary.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Remove research raw inputs from runner
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/qld_sip/qld_qqq_15m_sip_all_private.parquet"
+          rm -f "$RUNNER_TEMP/qld_sip/qld_qqq_daily_sip_all_private.csv"
+          rm -f "$RUNNER_TEMP/qld_sip/market.zip"
+          rm -f "$RUNNER_TEMP/qld_sip/legacy_QLD_QQQ_daily.csv"
+          rm -f "$RUNNER_TEMP/qld_sip/evaluation/trades_private.csv"
