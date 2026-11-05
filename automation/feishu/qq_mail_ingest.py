@@ -301,7 +301,8 @@ def select_uids(unseen, cap):
     if cap == 1:
         return unseen[-1:]
     recent = unseen[-(cap // 2):]
-    older = [u for u in unseen if u not in set(recent)]
+    recent_set = set(recent)
+    older = [u for u in unseen if u not in recent_set]
     return older[:cap - len(recent)] + recent
 
 
