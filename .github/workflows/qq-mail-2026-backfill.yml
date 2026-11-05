@@ -1,7 +1,7 @@
 name: QQ Mail 2026 Historical Backfill
 on:
   push:
-    branches: [feat/feishu-direct-mail-2026-20261105]
+    branches: [main, feat/qq-backfill-2026-3000-per-run]
     paths:
       - 'automation/feishu/qq_mail_ingest.py'
       - 'automation/feishu/mail_classification_2026.py'
@@ -34,7 +34,7 @@ jobs:
     if: ${{ needs.tests.result == 'success' && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 45
+    timeout-minutes: 100
     env:
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -42,13 +42,13 @@ jobs:
       CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
       CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
       FEISHU_MAIL_MODE: backfill2026
-      FEISHU_MAIL_BATCH_PER_FOLDER: '180'
+      FEISHU_MAIL_BACKFILL_TOTAL: '3000'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Direct QQ IMAP 2026 KST backfill to Feishu Base
+      - name: Direct QQ IMAP 2026 KST backfill up to 3000 to Feishu Base
         run: python3 automation/feishu/qq_mail_ingest.py
       - name: Privacy-safe independent Feishu record audit
         if: ${{ !cancelled() }}
