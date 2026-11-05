@@ -1,0 +1,50 @@
+name: Kalman Integrated Harness (Read Only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'harness/**'
+    paths:
+      - 'kalman-harness/**'
+      - '.github/workflows/kalman-integrated-harness.yml'
+  schedule:
+    - cron: '17 */6 * * *'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: kalman-integrated-harness-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Fail-closed audit report
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Checkout read-only worktree
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Safety regression tests
+        run: python3 -m unittest discover -s kalman-harness/tests -p 'test_*.py' -v
+      - name: Collect allowlisted GitHub Actions metadata (GET only)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 kalman-harness/harness_runner.py --output-dir kalman-harness/out
+      - name: Upload sanitized status report
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-harness-status-${{ github.run_id }}
+          path: |
+            kalman-harness/out/status.json
+            kalman-harness/out/STATUS.md
+          if-no-files-found: error
+          retention-days: 30
