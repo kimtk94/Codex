@@ -50,6 +50,7 @@ SCHEMAS = {
     ],
 }
 REQUIRED = {
+    "CSS Project Dashboard": ("project_id", "institution", "customer_name", "current_stage", "progress_percent"),
     "CSS Contract-SIF Tracker": ("Status", "Institution", "AMEA No.", "SIF No.", "sif_first_seen_at"),
     "BI Project Lifecycle Overview": ("AMEA", "CSS Progress %", "Feishu Status (latest)"),
     "CSS Invoice Monthly Summary": ("invoice_month", "invoice_count", "total_amount_krw"),
@@ -116,6 +117,7 @@ def sheet_sources():
     s=sheets_session()
     conf=[
         (CSS_SHEET,"CSS Contract-SIF Tracker",1600),
+        (CSS_SHEET,"CSS Project Dashboard",800),
         (UNIFIED_SHEET,"BI Project Lifecycle Overview",3000),
         (CSS_SHEET,"CSS Invoice Monthly Summary",160),
         (UNIFIED_SHEET,"Revenue Invoice Base",2500),
@@ -126,7 +128,7 @@ def sheet_sources():
     outputs={}
     for book,tab,limit in conf:
         outputs[tab]=req_sheet(s,book,tab,limit)
-    if not outputs["CSS Contract-SIF Tracker"] or not outputs["Revenue Invoice Base"] or not outputs["SFDC Weekly Overview"]:
+    if not outputs["CSS Project Dashboard"] or not outputs["Revenue Invoice Base"] or not outputs["SFDC Weekly Overview"]:
         raise SafeError("MANDATORY_SOURCES_EMPTY")
     return outputs
 
@@ -136,47 +138,83 @@ def timestamp():
 
 
 def project_rows(source):
+    # Project dashboard is the *complete* baseline; Contract-SIF has only
+    # a small subset of projects, so it is used solely as proof of SIF status.
+    sif_index=collections.defaultdict(list)
+    for item in source["CSS Contract-SIF Tracker"]:
+        key=cell(item,"project_id").upper()
+        if key:sif_index[key].append(item)
     lifecycle=collections.defaultdict(list)
     for item in source["BI Project Lifecycle Overview"]:
         key=cell(item,"AMEA").upper()
         if key:lifecycle[key].append(item)
     output={}
-    for item in source["CSS Contract-SIF Tracker"]:
-        rawkey=cell(item,"record_id")
-        amea=cell(item,"AMEA No.").upper()
-        contract=cell(item,"Contract No.")
-        if not rawkey and not (amea and contract):
-            continue
-        key="SIF:"+rawkey if rawkey else "SIF:"+amea+"|"+contract
+    for item in source["CSS Project Dashboard"]:
+        project_id=cell(item,"project_id").upper()
+        if not project_id:continue
+        key="PROJECT:"+project_id
         if key in output:raise SafeError("DUPLICATE_PROJECT_SOURCE_KEY")
-        sif=cell(item,"SIF No.")
-        first_seen=cell(item,"sif_first_seen_at")
-        status=cell(item,"Status")
-        wf=cell(item,"workflow_status")
-        evidence=(status+" "+wf).lower()
-        approved=bool(re.search(r"\bsif\s+approved\b|sif\s+승인",evidence))
-        submitted=bool(re.search(r"\bsif\s+(?:submitted|received|approved)\b|sif\s+(?:제출|접수|승인)",evidence)) or bool(sif and first_seen)
-        state="APPROVED" if approved else "SUBMITTED_EVIDENCE" if submitted else "NUMBER_ONLY_REVIEW" if sif else "NOT_VERIFIED"
-        matched=lifecycle.get(amea,[]) if amea else []
-        match=matched[0] if len(matched)==1 else {}
-        progress=numer(cell(match,"CSS Progress %"))
+        linked_sif=sif_index.get(project_id,[])
+        sif=linked_sif[0] if len(linked_sif)==1 else {}
+        linked_life=lifecycle.get(project_id,[])
+        life=linked_life[0] if len(linked_life)==1 else {}
+        number=cell(sif,"SIF No.")
+        first_seen=cell(sif,"sif_first_seen_at")
+        css_status=cell(sif,"Status")
+        wf=cell(sif,"workflow_status")
+        words=(css_status+" "+wf).lower()
+        approved=bool(re.search(r"\bsif\s+approved\b|sif\s+승인",words))
+        submitted=bool(re.search(r"\bsif\s+(?:submitted|received|approved)\b|sif\s+(?:제출|접수|승인)",words)) or bool(number and first_seen)
+        state="APPROVED" if approved else "SUBMITTED_EVIDENCE" if submitted else "NUMBER_ONLY_REVIEW" if number else "NOT_VERIFIED"
+        progress=numer(cell(item,"progress_percent"))
+        if progress is None:progress=numer(cell(life,"CSS Progress %"))
+        stage=cell(life,"Feishu Status (latest)") or cell(item,"current_stage")
         data={
-            "Source Key":key,"Institution":cell(item,"Institution"),
-            "Customer":cell(item,"Customer Name"),"AMEA":amea,
-            "Project":cell(item,"Project Name") or cell(item,"AMEA Full Name"),
-            "Service":cell(match,"Service"),"CSS Status":status,
-            "Current Stage":cell(match,"Feishu Status (latest)") or status,
-            "SIF No":sif,"SIF State":state,"SIF First Seen":first_seen,
+            "Source Key":key,
+            "Institution":cell(item,"institution") or cell(sif,"Institution"),
+            "Customer":cell(item,"customer_name") or cell(sif,"Customer Name"),
+            "AMEA":project_id,
+            "Project":cell(item,"project_description") or cell(sif,"Project Name"),
+            "Service":cell(item,"service") or cell(life,"Service"),
+            "CSS Status":css_status or cell(item,"current_stage"),
+            "Current Stage":stage,
+            "SIF No":number,"SIF State":state,"SIF First Seen":first_seen,
             "SIF Approved":"YES" if approved else "NOT_VERIFIED",
-            "Next Action":cell(item,"Next Action") or cell(match,"Immediate Next Step"),
-            "Contract No":contract,
-            "Evidence":"CSS Contract-SIF; "+("lifecycle_unique_match" if len(matched)==1 else "lifecycle_unmatched_or_ambiguous"),
+            "Next Action":cell(sif,"Next Action") or cell(item,"latest_action_required") or cell(life,"Immediate Next Step"),
+            "Contract No":cell(sif,"Contract No."),
+            "Evidence":"CSS Project Dashboard; SIF "+("EXACT_PROJECT_MATCH" if len(linked_sif)==1 else "NOT_MATCHED_OR_AMBIGUOUS")+
+                "; lifecycle "+("EXACT_AMEA_MATCH" if len(linked_life)==1 else "NOT_MATCHED_OR_AMBIGUOUS"),
         }
         if progress is not None:data["Progress %"]=float(progress)
         output[key]=data
+    # Preserve SIF-only projects that have no matching dashboard record.
+    for pid,items in sif_index.items():
+        key="PROJECT:"+pid
+        if key in output:continue
+        if len(items)!=1:raise SafeError("AMBIGUOUS_SIF_ONLY_PROJECT")
+        item=items[0]
+        number=cell(item,"SIF No.")
+        submitted=bool(number and cell(item,"sif_first_seen_at"))
+        output[key]={
+            "Source Key":key,"Institution":cell(item,"Institution"),
+            "Customer":cell(item,"Customer Name"),"AMEA":pid,
+            "Project":cell(item,"Project Name"),"Service":"",
+            "CSS Status":cell(item,"Status"),"Current Stage":cell(item,"Status"),
+            "SIF No":number,
+            "SIF State":"SUBMITTED_EVIDENCE" if submitted else "NUMBER_ONLY_REVIEW" if number else "NOT_VERIFIED",
+            "SIF First Seen":cell(item,"sif_first_seen_at"),
+            "SIF Approved":"NOT_VERIFIED",
+            "Next Action":cell(item,"Next Action"),
+            "Contract No":cell(item,"Contract No."),
+            "Evidence":"CSS Contract-SIF ONLY; PROJECT_DASHBOARD_NOT_MATCHED",
+        }
     if not output:raise SafeError("PROJECT_SOURCE_NO_KEYS")
-    # Most relevant (not yet confirmed) statuses first for initial batch.
-    return sorted(output.values(),key=lambda r:(r["SIF State"]=="APPROVED",r["SIF State"]=="SUBMITTED_EVIDENCE",r["Source Key"]))
+    # Show project rows requiring attention earliest during bounded backfill.
+    return sorted(output.values(),key=lambda r:(
+        r["SIF State"]=="APPROVED",
+        r["SIF State"]=="SUBMITTED_EVIDENCE",
+        r["Source Key"],
+    ))
 
 
 def monthly_rows(source,fx=D("1500")):
