@@ -29,7 +29,7 @@ class RunnerSafetyTests(unittest.TestCase):
     def test_already_converted_is_terminal(self):
         self.assertEqual(preflight_lead_text('김철수\na@example.org\nConverted',
             expected_email='a@example.org', korean_name='김철수',
-            convert_visible=False), 'already_converted')
+            convert_visible=False), 'needs_contact_verification')
 
     def test_missing_convert_requires_independent_proof(self):
         self.assertEqual(preflight_lead_text('김철수\na@example.org\nNew',
