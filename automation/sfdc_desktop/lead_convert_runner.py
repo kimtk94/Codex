@@ -128,7 +128,10 @@ def read_account_address(page: Any, account_id: str, account_name: str) -> dict[
     if section.count() == 1 and section.get_attribute('aria-expanded') == 'false':
         section.click()
     # Lightning renders address fields asynchronously after the page header.
-    page.get_by_role('button', name='Edit Billing Address').wait_for(timeout=20000)
+    page.get_by_role('button', name='Address Information').wait_for(timeout=20000)
+    page.wait_for_timeout(400)
+    if page.get_by_role('button', name='Edit Billing Address').count() == 0:
+        raise ConversionStopped('Account Billing Address is empty or not available')
     body = page.locator('body').inner_text()
     if account_name not in body:
         raise ConversionStopped('Account name does not match Account ID')
@@ -156,6 +159,57 @@ def verify_contact_readback(page: Any, contact_id: str, plan: Any) -> None:
         raise ConversionStopped('Persisted Job Function mismatch')
     page.get_by_role('button', name='Cancel', exact=True).last.click()
     page.get_by_role('button', name='Edit', exact=True).first.wait_for(timeout=20000)
+
+
+def prepare_conversion_modal(page: Any, plan: Any, account_name: str) -> Any:
+    """Populate Convert Lead UI without committing. Caller must Convert or Cancel.
+
+    Tested against the authorized Salesforce Lightning 2026-11-05 modal.
+    """
+    require_one_visible(page.get_by_role('button', name='Convert', exact=True), 'Convert').click()
+    modal = page.locator('[role=dialog]').filter(has_text='Convert Lead').last
+    try:
+        modal.get_by_text('Choose Existing Account', exact=True).wait_for(
+            state='visible', timeout=15000)
+        modal.get_by_text('Choose Existing Account', exact=True).click()
+        modal.get_by_placeholder('Search for matching accounts').fill(account_name)
+        choice = modal.get_by_text(account_name, exact=True)
+        choice.wait_for(state='visible', timeout=15000)
+        if choice.count() != 1:
+            raise ConversionStopped('Account search not uniquely matched')
+        choice.click()
+        selected = 'Account Search - Current Selection: ' + account_name
+        if selected not in modal.inner_text():
+            raise ConversionStopped('Existing Account was not selected')
+        contact_section = require_one_visible(
+            modal.get_by_role('button', name='Contact', exact=True), 'Contact section')
+        if contact_section.get_attribute('aria-expanded') == 'false':
+            contact_section.click()
+        require_one_visible(modal.get_by_label('First Name', exact=True), 'First Name').fill(
+            plan.first_name)
+        require_one_visible(modal.get_by_label('Last Name', exact=True), 'Last Name').fill(
+            plan.last_name)
+        checkbox = require_one_visible(
+            modal.locator('input[aria-labelledby="checkbox input"]'),
+            "Don't create an opportunity upon conversion",
+        )
+        if not checkbox.is_checked():
+            label = require_one_visible(
+                modal.locator('label[for="' + checkbox.get_attribute('id') + '"]'),
+                'No-Opportunity checkbox label',
+            )
+            label.click()
+        if not checkbox.is_checked():
+            raise ConversionStopped('No-Opportunity checkbox failed to set')
+        if modal.get_by_label('First Name', exact=True).input_value() != plan.first_name:
+            raise ConversionStopped('Korean full-name field did not retain its value')
+        if modal.get_by_label('Last Name', exact=True).input_value() != plan.last_name:
+            raise ConversionStopped('English full-name field did not retain its value')
+        return modal
+    except Exception:
+        if modal.count() and modal.get_by_role('button', name='Cancel', exact=True).count():
+            modal.get_by_role('button', name='Cancel', exact=True).last.click()
+        raise
 
 
 def run(args: argparse.Namespace) -> dict[str, str]:
@@ -268,26 +322,17 @@ def run(args: argparse.Namespace) -> dict[str, str]:
             account_address=address, org_type=args.org_type, job_options=[ACADEMIC_PI],
         )
         if not args.execute:
+            if getattr(args, 'audit_convert_form', False):
+                modal = prepare_conversion_modal(page, plan, args.account_name)
+                try:
+                    return {'status': 'FORM_AUDIT_PASS_CANCELLED',
+                            'lead_id': args.lead_id, 'account_id': args.account_id}
+                finally:
+                    modal.get_by_role('button', name='Cancel', exact=True).last.click()
             return {'status': 'DRY_RUN_PASS', 'lead_id': args.lead_id, 'account_id': args.account_id}
 
         # Side effect #1: Convert. Never repeat automatically after timeout.
-        require_one_visible(page.get_by_role('button', name='Convert', exact=True), 'Convert').click()
-        modal = page.locator('[role=dialog]').filter(has_text='Convert Lead').last
-        modal.get_by_text('Choose Existing Account', exact=True).click()
-        modal.get_by_placeholder('Search for matching accounts').fill(args.account_name)
-        choice = modal.get_by_text(args.account_name, exact=True).last
-        choice.wait_for(timeout=15000)
-        choice.click()
-        section = modal.locator('button[aria-expanded="false"]').filter(has_text='Contact')
-        if section.count() == 1:
-            section.click()
-        modal.get_by_label('First Name', exact=True).fill(plan.first_name)
-        modal.get_by_label('Last Name', exact=True).fill(plan.last_name)
-        checkbox = require_one_visible(modal.locator('input[aria-labelledby="checkbox input"]'),
-                                       'Do not create Opportunity')
-        modal.locator('label[for="' + checkbox.get_attribute('id') + '"]').click()
-        if not checkbox.is_checked():
-            raise ConversionStopped('No-Opportunity guard not selected')
+        modal = prepare_conversion_modal(page, plan, args.account_name)
         modal.get_by_role('button', name='Convert', exact=True).click()
         page.get_by_text('Your lead has been converted', exact=True).wait_for(timeout=30000)
         links = [(a.inner_text().strip(), a.get_attribute('href') or '') for a in page.locator('a').all()]
@@ -347,9 +392,13 @@ def main() -> int:
     ap.add_argument('--lead-business-id', default=None,
                     help='Optional human-readable converted Lead ID for read-only cross-check')
     ap.add_argument('--cdp', default='http://127.0.0.1:9222')
+    ap.add_argument('--audit-convert-form', action='store_true',
+                    help='Open, populate, validate, and Cancel the unsaved Convert form')
     ap.add_argument('--execute', action='store_true',
                     help='Explicitly authorize live Salesforce conversion, editing, and CDMS sync')
     args = ap.parse_args()
+    if args.execute and args.audit_convert_form:
+        ap.error('--execute and --audit-convert-form are mutually exclusive')
     try:
         result = run(args)
     except ConversionStopped as err:
