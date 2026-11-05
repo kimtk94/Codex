@@ -1,0 +1,21 @@
+name: QQ Mail to Feishu Base
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/test_qq_mail_ingest.py'
+      - '.github/workflows/qq-mail-feishu-sync.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/qq_mail_ingest.py'
+      - '.github/workflows/qq-mail-feishu-sync.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline mail connector tests
+        run: python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_ingest.py' -v
