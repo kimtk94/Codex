@@ -1,0 +1,29 @@
+name: Provision New Feishu Sales Base
+on:
+  push:
+    branches:
+      - feat/qq-mail-feishu-write-safe-20261105
+    paths:
+      - .github/workflows/feishu-create-sales-base.yml
+      - automation/feishu/create_sales_base.py
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: feishu-new-sales-base-one-time
+  cancel-in-progress: false
+jobs:
+  provision:
+    if: github.repository == 'kimtk94/Codex'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    env:
+      FEISHU_SALES_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create new independent Base and seven empty tables
+        run: python3 automation/feishu/create_sales_base.py

@@ -1,0 +1,65 @@
+name: QQ Mail to Feishu Base
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/test_qq_mail_ingest.py'
+      - '.github/workflows/qq-mail-feishu-sync.yml'
+  push:
+    branches: [main, feat/qq-mail-feishu-write-safe-20261105]
+    paths:
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/test_qq_mail_ingest.py'
+      - '.github/workflows/qq-mail-feishu-sync.yml'
+  schedule:
+    - cron: '13,43 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'probe = read only, smoke = test record, sync = actual mail'
+        required: true
+        type: choice
+        options: [probe, smoke, sync]
+        default: smoke
+permissions:
+  contents: read
+concurrency:
+  group: qq-feishu-mail-ingest
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Offline connector safety tests
+        run: python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_ingest.py' -v
+      - name: Validate syntax
+        run: python3 -m py_compile automation/feishu/qq_mail_ingest.py
+  feishu:
+    needs: test
+    if: ${{ needs.test.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      FEISHU_MAIL_SCAN_DAYS: '30'
+      FEISHU_MAIL_BATCH_PER_FOLDER: '45'
+      FEISHU_MAIL_MODE: ${{ github.event_name == 'schedule' && 'sync' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'smoke') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify new Base token is configured
+        run: test -n "$FEISHU_BASE_APP_TOKEN"
+      - name: Import QQ mail to isolated sales Base
+        run: python3 automation/feishu/qq_mail_ingest.py
