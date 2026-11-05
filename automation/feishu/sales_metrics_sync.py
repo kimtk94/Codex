@@ -272,26 +272,37 @@ def approved(value):
     return str(value or "").strip().upper() in ("YES","TRUE","1","ACTIVE")
 
 
+def salesforce_id15(value):
+    # Salesforce 15-char IDs are case-sensitive; 18-char IDs contain an
+    # additional case-insensitive checksum. Keep the first 15 *unchanged*.
+    value=str(value or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?",value):
+        return value[:15]
+    return ""
+
+
 def weekly_rows(source):
-    # Match quote value to approval ONLY through immutable Salesforce ID or QID.
+    # Strict immutable Salesforce record-ID join. Quotation ID may refer to
+    # an AMEA project instead of SFDC's QID and must not be force-matched.
     by_id=collections.defaultdict(list)
     for q in source["Quote Portfolio"]:
         if not approved(cell(q,"Active")):continue
-        for col in ("Salesforce Quote ID (18)","Quote QID"):
-            val=cell(q,col).upper()
-            if val:by_id[(col,val)].append(q)
+        sf=salesforce_id15(cell(q,"Salesforce Quote ID (18)"))
+        qid=cell(q,"Quote QID").upper()
+        if sf:by_id[("SF15",sf)].append(q)
+        if qid:by_id[("QID",qid)].append(q)
     by_week=collections.defaultdict(dict)
     for approval_row in source["Quotation Approval List"]:
         week=cell(approval_row,"week_start")
         if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}",week):continue
-        sf=cell(approval_row,"salesforce_record_id").upper()
+        sf=salesforce_id15(cell(approval_row,"salesforce_record_id"))
         qid=cell(approval_row,"quotation_id").upper()
-        key=("SF",sf) if sf else ("QID",qid) if qid else None
+        key=("SF15",sf) if sf else ("QID",qid) if qid else None
         if key is None:continue
         if key in by_week[week]:continue
         candidates=[]
-        if sf:candidates+=by_id.get(("Salesforce Quote ID (18)",sf),[])
-        if qid:candidates+=by_id.get(("Quote QID",qid),[])
+        if sf:candidates+=by_id.get(("SF15",sf),[])
+        if qid:candidates+=by_id.get(("QID",qid),[])
         matches={id(x):x for x in candidates}
         price=None
         if len(matches)==1:
