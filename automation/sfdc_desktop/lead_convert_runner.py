@@ -47,16 +47,36 @@ def preflight_lead_text(body: str, *, expected_email: str, korean_name: str, con
     return 'ready'
 
 
+def _following_field_value(text: str, label: str) -> str:
+    """Read the next nonblank line below an exact Salesforce field label."""
+    rows = [line.strip() for line in text.splitlines()]
+    for index, value in enumerate(rows):
+        if value == label:
+            for candidate in rows[index + 1:index + 3]:
+                if candidate:
+                    return candidate
+    return ''
+
+
 def verify_prior_conversion(*, lead_body: str, contact_body: str,
                             expected_email: str, account_name: str,
                             expected_korean_name: str) -> str:
-    """Validate the Contact's converted Lead business ID, email and Account.
+    """Verify independent Lead-to-Contact identity before declaring converted."""
+    lead_business_id = _following_field_value(lead_body, 'SFDC Lead ID')
+    if not re.fullmatch(r'Lead-\d{4}-\d{2}-\d{2}-\d+', lead_business_id):
+        raise ConversionStopped('Valid Lead business ID not found')
+    if _following_field_value(contact_body, 'Lead Converted ID') != lead_business_id:
+        raise ConversionStopped('Contact not proven linked to the requested Lead')
+    if expected_email.casefold() not in contact_body.casefold():
+        raise ConversionStopped('Converted Contact email mismatch')
+    if account_name not in contact_body:
+        raise ConversionStopped('Converted Contact Account mismatch')
+    if expected_korean_name not in contact_body:
+        raise ConversionStopped('Converted Contact Korean name mismatch')
+    return cms_id_from_view(contact_body)
 
-    This is read-only and must be used before returning ALREADY_CONVERTED.
-    It cannot rely on a missing Convert button, or on email alone.
-    """
-    lead_match = re.search(
-        r'(?m)^SFDC Lead ID\\s*\\n(Lead-\\d{4}-\\d{2}-\\d{2}-\\d+)\\s*def contact_id_from_success_links(links: list[tuple[str, str]]) -> str:
+
+def contact_id_from_success_links(links: list[tuple[str, str]]) -> str:
     for _label, href in links:
         match = re.fullmatch(
             r'/lightning/r/(?:Contact/)?(003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)/view', href or '')
