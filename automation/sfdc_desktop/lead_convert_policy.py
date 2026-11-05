@@ -95,8 +95,8 @@ def build_contact_plan(
     if any(not account_address.get(k, "").strip() for k in required):
         raise ValueError("Account address missing a required component; do not guess")
     return LeadContactPlan(
-        first_name=name,
-        last_name=english_full_name(romanized_surname, romanized_given_syllables),
+        first_name=names.first_name,
+        last_name=names.last_name,
         account_id=verified_account_id,
         org_type=org_type,
         job_function=first_option,
