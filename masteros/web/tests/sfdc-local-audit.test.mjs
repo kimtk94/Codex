@@ -99,3 +99,24 @@ test("repeat three times deterministic",()=>{
   assert.deepEqual(results[0],results[1]);
   assert.deepEqual(results[1],results[2]);
 });
+
+test("private expansion progress reports counts only",()=>{
+  const args=fixtures();
+  args.push({new_cohort_total:195,new_cohort_reviewed:170,
+    new_cohort_pass:139,new_cohort_hold:31,new_cohort_unreviewed:25,
+    total_approved_contacts:args[4].length,salesforce_save_allowed:false,
+    salesforce_writes:0,contact_name:"must never show"});
+  const result=projectPrivateAudit(...args);
+  assert.equal(result.expanded_contact_reviewed,170);
+  assert.equal(result.expanded_contact_unreviewed,25);
+  assert.equal(JSON.stringify(result).includes("must never show"),false);
+  assert.equal(result.save_allowed,false);
+});
+
+test("inconsistent Contact expansion totals fail closed",()=>{
+  const args=fixtures();
+  args.push({new_cohort_total:195,new_cohort_reviewed:170,
+    new_cohort_pass:139,new_cohort_hold:30,new_cohort_unreviewed:25,
+    total_approved_contacts:1,salesforce_save_allowed:false,salesforce_writes:0});
+  assert.throws(()=>projectPrivateAudit(...args),/INCONSISTENT/);
+});
