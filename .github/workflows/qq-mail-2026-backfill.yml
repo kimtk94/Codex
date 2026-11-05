@@ -1,5 +1,11 @@
 name: QQ Mail 2026 Historical Backfill
 on:
+  pull_request:
+    paths:
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/qq_mail_catchup_drain.py'
+      - 'automation/feishu/test_qq_mail_catchup_drain.py'
+      - '.github/workflows/qq-mail-2026-backfill.yml'
   push:
     branches: [main, feat/qq-backfill-2026-3000-per-run]
     paths:
