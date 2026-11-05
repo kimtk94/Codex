@@ -1,0 +1,63 @@
+name: Kalman Regime Countertrend Research
+on:
+  push:
+    branches: [main, research/regime-countertrend-ci-20261102]
+    paths:
+      - 'research/regime_countertrend/**'
+      - '.github/workflows/regime-countertrend-research.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/regime_countertrend/**'
+      - '.github/workflows/regime-countertrend-research.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy pandas scipy pyarrow
+      - name: Unit and leakage tests
+        run: python -m unittest discover -s research/regime_countertrend -p 'test_*.py' -v
+      - name: Validate pinned historical source
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+          path=Path("research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv")
+          if not path.is_file():
+              raise SystemExit("DATA_MISSING: cannot claim CI success without verified snapshot")
+          df=pd.read_csv(path)
+          required={"date_ny","open_qld","high_qld","low_qld","close_qld","close_qqq","volume_qld"}
+          if not required.issubset(df.columns) or len(df)!=2432:
+              raise SystemExit("DATA_INVALID: schema or row count differs from frozen baseline")
+          if df.date_ny.iloc[0]!="2017-01-03" or df.date_ny.iloc[-1]!="2026-09-04":
+              raise SystemExit("DATA_INVALID: unexpected historical coverage")
+          if df.date_ny.duplicated().any():
+              raise SystemExit("DATA_INVALID: duplicate dates")
+          print("DATA_OK 2432 rows, historical cutoff 2026-09-04 (NOT LIVE)")
+          PY
+      - name: Compute full research artifact
+        shell: bash
+        run: |
+          python -m research.regime_countertrend.analyze --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend
+          python -m research.regime_countertrend.failure_diagnostics --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend/failures
+          python -m research.regime_countertrend.failure_stats --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/stats
+          python -m research.regime_countertrend.gate_audit --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/gate
+          python -m research.regime_countertrend.multifactor_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/multifactor
+          python -m research.regime_countertrend.advanced_failure_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/advanced
+          python -m research.regime_countertrend.bb_regime_stability --trades results/regime_countertrend/advanced/trade_features.csv --out results/regime_countertrend/stability
+          python -m research.regime_countertrend.stock_relative --data-dir research/regime_countertrend/data/stock_history --out results/regime_countertrend/cross_symbol
+      - name: Strict real broker evidence gate
+        run: python -m research.regime_countertrend.execution_source_gate_runner
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regime-countertrend-results
+          path: results/regime_countertrend/
