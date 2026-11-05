@@ -1,0 +1,55 @@
+name: Feishu Native KPI Dashboard
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/*kpi*.py'
+      - '.github/workflows/feishu-native-kpi-dashboard.yml'
+  push:
+    branches: [main, feat/feishu-native-kpi-dashboard-20261106]
+    paths:
+      - 'automation/feishu/*kpi*.py'
+      - '.github/workflows/feishu-native-kpi-dashboard.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [plan, apply]
+        default: plan
+  schedule:
+    - cron: '57 0,6,12,18 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: feishu-native-kpi-dashboard
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: KPI evidence tests
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_kpi_dashboard.py' -v
+          python3 -m py_compile automation/feishu/sales_kpi_dashboard.py
+  dashboard:
+    needs: test
+    if: ${{ github.event_name != 'pull_request' && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 35
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_DASHBOARD_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Refresh native Feishu KPI cards
+        run: python3 automation/feishu/sales_kpi_dashboard.py
