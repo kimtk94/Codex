@@ -23,6 +23,10 @@ FIELDS = ("Menu Key", "그룹", "화면", "바로가기 URL", "데이터 상태"
 # All are known Feishu Base grid views; not external Vercel or speculative URLs.
 # The navigation distinguishes native QQ mail from legacy KPI/CRM source snapshots.
 MENUS = (
+    ("MONTHLY_TREND","00 대시보드","월별 Revenue 추이","02 매출 견적 추이",
+     "월별 Revenue 추이","Feishu Monthly Tax Invoice","연도·월별 VAT 제외 매출과 VAT 포함 Invoice 비교용 데이터"),
+    ("WEEKLY_TREND","00 대시보드","Weekly Quote 추이","02 매출 견적 추이",
+     "Weekly Quote 추이","Feishu Weekly Quote KPI","주별 Quote 승인 건수와 검증 금액 추이 데이터"),
     ("DASHBOARD","00 대시보드","핵심 KPI 카드","01 핵심 KPI 대시보드",
      "01 KPI 카드","Feishu 원본 집계","메일·고객·프로젝트·매출·견적 핵심 지표"),
     ("MAIL_CURRENT","01 메일","최근 30일 메일","QQ Mail Intake",
