@@ -282,7 +282,7 @@ def decode_mail(payload, folder, direction, uidvalidity, uid):
         "To": address(msg.get("To")), "CC": address(msg.get("Cc")),
         "Subject": subject, "Body Excerpt": extract_body(msg),
         "AMEA": ", ".join(sorted(set(re.findall(r"AMEA\d{7,}", subject, re.I)))),
-        "H Project": ", ".join(sorted(set(re.findall(r"\bH[- ]?\d{5,}\b", subject, re.I)))),
+        "H Project": ", ".join(sorted(set(re.findall(r"\bH[- ]?(?:\d{5,}|\d{2,}[A-Z]{1,4}\d{3,})\b", subject, re.I)))),
         "Captured UTC": dt.datetime.now(dt.timezone.utc).isoformat(),
         "In Reply To": short(msg.get("In-Reply-To"), 300),
     }
