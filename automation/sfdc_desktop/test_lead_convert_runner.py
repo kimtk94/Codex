@@ -29,7 +29,7 @@ class RunnerSafetyTests(unittest.TestCase):
             extract_billing_address('Billing Address\nKorea\nEdit Billing Address')
 
     def test_already_converted_is_terminal(self):
-        self.assertEqual(preflight_lead_text('김철수\na@example.org\nConverted',
+        self.assertEqual(preflight_lead_text('Lead\n김철수\na@example.org\nConverted',
             expected_email='a@example.org', korean_name='김철수',
             convert_visible=False), 'needs_contact_verification')
 
@@ -40,6 +40,12 @@ class RunnerSafetyTests(unittest.TestCase):
             lead, expected_email='s@example.org', korean_name='심재욱',
             convert_visible=True), 'ready')
 
+    def test_header_only_lead_preflight_handles_loading_details(self):
+        text = 'Lead\n재욱 심\nConvert\nEmail\ns@example.org\nTabs\nDetails\n'
+        self.assertEqual(preflight_lead_text(
+            text, expected_email='s@example.org',
+            korean_name='심재욱', convert_visible=True), 'ready')
+
     def test_reversed_name_must_match_full_given_name(self):
         lead = ('Lead\n재욱 박\nEmail\ns@example.org\n'
                 'Contact Information\nName\n재욱 박\nEdit Name\n')
@@ -49,7 +55,7 @@ class RunnerSafetyTests(unittest.TestCase):
                 korean_name='심재욱', convert_visible=True)
 
     def test_missing_convert_requires_independent_proof(self):
-        self.assertEqual(preflight_lead_text('김철수\na@example.org\nNew',
+        self.assertEqual(preflight_lead_text('Lead\n김철수\na@example.org\nNew',
             expected_email='a@example.org', korean_name='김철수',
             convert_visible=False), 'needs_contact_verification')
 
@@ -83,16 +89,16 @@ class RunnerSafetyTests(unittest.TestCase):
                 account_name='Example University', expected_korean_name='김철수')
 
     def test_ready_lead_preflight_does_not_write(self):
-        self.assertEqual(preflight_lead_text('김철수\na@example.org\nNew',
+        self.assertEqual(preflight_lead_text('Lead\n김철수\na@example.org\nNew',
             expected_email='a@example.org', korean_name='김철수',
             convert_visible=True), 'ready')
 
     def test_bad_email_or_name_fails_closed(self):
         with self.assertRaises(ConversionStopped):
-            preflight_lead_text('김철수\nb@example.org',
+            preflight_lead_text('Lead\n김철수\nb@example.org',
                 expected_email='a@example.org', korean_name='김철수', convert_visible=True)
         with self.assertRaises(ConversionStopped):
-            preflight_lead_text('이영희\na@example.org',
+            preflight_lead_text('Lead\n이영희\na@example.org',
                 expected_email='a@example.org', korean_name='김철수', convert_visible=True)
 
     def test_contact_link_must_be_specific(self):
