@@ -30,8 +30,7 @@ class MailFeishuTests(unittest.TestCase):
         m.set_content("Safe mail text")
         m.add_attachment(b"SECRET_ATTACHMENT", maintype="application", subtype="octet-stream",
                          filename="secret.bin")
-        row = q.decode_mail(m.as_bytes(), "INBOX", "10", "X", "15") if False else q.decode_mail(
-            m.as_bytes(), "INBOX", "INBOUND", "10", "15")
+        row = q.decode_mail(m.as_bytes(), "INBOX", "INBOUND", "10", "15")
         self.assertEqual(row["Body Excerpt"], "Safe mail text")
         self.assertNotIn("SECRET_ATTACHMENT", row["Body Excerpt"])
         self.assertEqual(row["AMEA"], "AMEA2026042239")
