@@ -1,0 +1,63 @@
+name: Feishu Sales SIF Invoice Weekly KPI
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/sales_metrics_sync.py'
+      - 'automation/feishu/test_sales_metrics_sync.py'
+      - '.github/workflows/feishu-sales-metrics.yml'
+  push:
+    branches: [main, feat/feishu-sif-invoice-weekly-kpi-20261105]
+    paths:
+      - 'automation/feishu/sales_metrics_sync.py'
+      - 'automation/feishu/test_sales_metrics_sync.py'
+      - '.github/workflows/feishu-sales-metrics.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'plan read-only or apply KPI pages and source-backed rows'
+        type: choice
+        options: [plan, apply]
+        default: plan
+  schedule:
+    - cron: '27 0,3,6,9,12,15,18,21 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: feishu-sales-metrics-sync
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install source read client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Test SIF evidence, invoice VAT and weekly quotes
+        run: python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
+      - name: Validate sync syntax
+        run: python3 -m py_compile automation/feishu/sales_metrics_sync.py
+  sync:
+    needs: tests
+    if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 28
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_METRIC_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheets read dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Sync source-verified KPIs to new Feishu Sales Base
+        run: python3 automation/feishu/sales_metrics_sync.py
