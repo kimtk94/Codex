@@ -407,7 +407,13 @@ def equivalent(before,new):
     return True
 
 
+def batches(rows, size=25):
+    for i in range(0,len(rows),size):
+        yield rows[i:i+size]
+
+
 def sync_table(token,path,desired,limit):
+    # Read the existing ledger first, then never overwrite or duplicate a key.
     existing=list_all(path+"/records",token,"metric_records")
     index={}
     for rec in existing:
@@ -415,32 +421,63 @@ def sync_table(token,path,desired,limit):
         if not key:continue
         if key in index:raise SafeError("DUPLICATE_TARGET_SOURCE_KEY")
         index[key]=rec
-    created=updated=unchanged=0
+    pending_create=[]
+    pending_update=[]
+    unchanged=0
+    seen=set()
     for obj in desired:
         key=obj["Source Key"]
+        if key in seen:raise SafeError("DUPLICATE_SOURCE_KEY_IN_BATCH")
+        seen.add(key)
         prev=index.get(key)
         if prev and equivalent(prev.get("fields") or {},obj):
             unchanged+=1
             continue
-        if created+updated>=limit:break
+        if len(pending_create)+len(pending_update)>=limit:continue
         fields={**obj,"Last Sync KST":timestamp()}
         if prev:
-            record_id=prev.get("record_id")
-            if not record_id:raise SafeError("MISSING_TARGET_RECORD_ID")
-            api("PUT",path+"/records/"+urllib.parse.quote(record_id,safe=""),token,
-                data={"fields":fields},action="metric_record_update")
-            updated+=1
+            rid=prev.get("record_id")
+            if not rid:raise SafeError("MISSING_TARGET_RECORD_ID")
+            pending_update.append({"record_id":rid,"fields":fields})
         else:
-            data=api("POST",path+"/records",token,data={"fields":fields},action="metric_record_create")
-            rid=(data.get("record") or {}).get("record_id")
-            if not rid:raise SafeError("METRIC_CREATE_RESPONSE_NO_RECORD_ID")
-            created+=1
+            pending_create.append({"fields":fields})
+    # Feishu officially supports at most 500 records per batch request.
+    # Use 25 to bound payload sizes and minimize write-conflict risk.
+    for batch in batches(pending_create):
+        data=api("POST",path+"/records/batch_create",token,
+                 data={"records":batch},action="metric_batch_create")
+        result=data.get("records") or []
+        if len(result)!=len(batch) or any(not x.get("record_id") for x in result):
+            raise SafeError("METRIC_BATCH_CREATE_UNCONFIRMED")
+    for batch in batches(pending_update):
+        data=api("POST",path+"/records/batch_update",token,
+                 data={"records":batch},action="metric_batch_update")
+        result=data.get("records") or []
+        if len(result)!=len(batch) or any(not x.get("record_id") for x in result):
+            raise SafeError("METRIC_BATCH_UPDATE_UNCONFIRMED")
+    # Independent readback is essential: responses alone do not prove all writes.
+    if pending_create or pending_update:
+        after=list_all(path+"/records",token,"metric_readback")
+        verified={}
+        for row in after:
+            k=raw_value((row.get("fields") or {}).get("Source Key")).strip()
+            if not k:continue
+            if k in verified:raise SafeError("METRIC_READBACK_DUPLICATE_KEY")
+            verified[k]=row
+        expected=pending_create+[{"fields":row["fields"]} for row in pending_update]
+        for rec in expected:
+            fields=rec["fields"]
+            k=fields["Source Key"]
+            observed=verified.get(k)
+            if not observed or not equivalent(observed.get("fields") or {},fields):
+                raise SafeError("METRIC_BATCH_READBACK_MISMATCH")
+    created=len(pending_create)
+    updated=len(pending_update)
     print("METRIC_SYNC_RESULT table="+re.sub(r"[^a-zA-Z]","_",path.split("/")[-1])+
           " created="+str(created)+" updated="+str(updated)+
           " unchanged="+str(unchanged)+" desired="+str(len(desired))+
           " bounded="+str(limit))
     return created,updated,unchanged
-
 
 
 VIEW_SPECS = {
@@ -510,7 +547,7 @@ def main():
     paths=ensure_tables(token,root)
     setup_views(token,paths)
     # Prioritize numeric KPI summaries; SIF backfill progresses across scheduled runs.
-    bounds={"Monthly Tax Invoice":50,"Weekly Quote KPI":75,"Project SIF Monitor":70}
+    bounds={"Monthly Tax Invoice":100,"Weekly Quote KPI":150,"Project SIF Monitor":500}
     total=0
     for name in ("Monthly Tax Invoice","Weekly Quote KPI","Project SIF Monitor"):
         result=sync_table(token,paths[name],output[name],bounds[name])
