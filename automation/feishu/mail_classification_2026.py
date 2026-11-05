@@ -4,7 +4,7 @@ import re
 from email.utils import getaddresses
 from zoneinfo import ZoneInfo
 
-VERSION = "2026-v1"
+VERSION = "2026-v2"
 KST = ZoneInfo("Asia/Seoul")
 CUTOFF = dt.datetime(2026, 1, 1, tzinfo=KST)
 CSS = "css@novogene-amea.com"
@@ -21,6 +21,9 @@ STAGES = [
     ("LIBRARY_QC", "library qc"),
     ("SAMPLE_QC", "sample qc"),
     ("SAMPLE_RECEIVED", "sample received"),
+    ("CONTRACT_READY", "contract ready"),
+    ("HDD_SHIPPED", "hdd shipped"),
+    ("REPORT_READY", "report ready to download"),
 ]
 ORDER = ["TAX_INVOICE", "STATEMENT", "SIF", "QUOTE", "PROJECT", "PAYMENT", "LEAD", "SYSTEM_REPORT", "GENERAL"]
 
