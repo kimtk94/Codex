@@ -66,9 +66,14 @@ def create_missing_tables(token, app_token):
         if result.get("code") != 0:
             raise RuntimeError("CREATE_TABLE_FAILED_" + name.replace(" ", "_") +
                                "_CODE_" + str(result.get("code")))
-        table_id = ((result.get("data") or {}).get("table") or {}).get("table_id")
-        if not table_id:
-            raise RuntimeError("CREATE_TABLE_ID_MISSING_" + name.replace(" ", "_"))
+        # Feishu API responses can vary by table-creation response shape.
+        # Confirm persistence via a new list instead of relying on nested IDs.
+        check = request("GET", prefix + "/tables?page_size=100", token=token)
+        if check.get("code") != 0:
+            raise RuntimeError("NEW_TABLE_READBACK_FAILED_" + name.replace(" ", "_"))
+        names_after = [item.get("name") for item in ((check.get("data") or {}).get("items") or [])]
+        if names_after.count(name) != 1:
+            raise RuntimeError("NEW_TABLE_MISSING_AFTER_CREATE_" + name.replace(" ", "_"))
         print("TABLE_CREATED=" + name)
 
 
