@@ -105,6 +105,40 @@ class HistoricalMailTests(unittest.TestCase):
         self.assertEqual(len(rows),1)
         self.assertTrue(rows[0]["Received At"].startswith("2026-01-01"))
 
+    def test_verified_backfill_ignores_logout_abort_only(self):
+        row={"Mail Key":"a"*64,"Direction":"INBOUND",
+             "Received At":"2026-03-11T12:00:00+09:00"}
+        with mock.patch.object(q,"required",side_effect=["qq@example.com","authcode"]), \
+             mock.patch.object(q,"auth",return_value=("token","/base")), \
+             mock.patch.object(q,"find_table",return_value="tbl"), \
+             mock.patch.object(q,"ensure_table",return_value="/base/tables/tbl"), \
+             mock.patch.object(q,"existing",return_value={}), \
+             mock.patch.object(q,"collect_2026_total",return_value=[row]), \
+             mock.patch.object(q,"api",return_value={"records":[{"record_id":"rec"}]}), \
+             mock.patch.object(q.time,"sleep"), \
+             mock.patch.object(q.imaplib,"IMAP4_SSL") as client:
+            server=client.return_value.__enter__.return_value
+            server.login.return_value=("OK",[])
+            server.list.return_value=("OK",[b'() "/" "Sent Messages"'])
+            client.return_value.__exit__.side_effect=q.imaplib.IMAP4.abort("connection closed")
+            q.run("backfill2026")  # successful write must not fail on cleanup
+            client.return_value.__exit__.assert_called_once()
+
+    def test_fetch_abort_is_never_masked(self):
+        with mock.patch.object(q,"required",side_effect=["qq@example.com","authcode"]), \
+             mock.patch.object(q,"auth",return_value=("token","/base")), \
+             mock.patch.object(q,"find_table",return_value="tbl"), \
+             mock.patch.object(q,"ensure_table",return_value="/base/tables/tbl"), \
+             mock.patch.object(q,"existing",return_value={}), \
+             mock.patch.object(q,"collect_2026_total",
+                               side_effect=q.imaplib.IMAP4.abort("fetch failed")), \
+             mock.patch.object(q.imaplib,"IMAP4_SSL") as client:
+            server=client.return_value.__enter__.return_value
+            server.login.return_value=("OK",[])
+            server.list.return_value=("OK",[b'() "/" "Sent Messages"'])
+            with self.assertRaisesRegex(q.imaplib.IMAP4.abort,"fetch failed"):
+                q.run("backfill2026")
+
     def test_scan_older_than_2026_is_dropped(self):
         class FakeIMAP:
             def select(self,*args,**kw):

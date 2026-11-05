@@ -449,66 +449,75 @@ def run(mode):
     mail_pass = required("CSS_QQ_MAIL_AUTH_CODE")
     token, base = auth()
     table_id = find_table(token, base)
-    with imaplib.IMAP4_SSL("imap.exmail.qq.com", 993, timeout=40) as im:
-        if im.login(mail_user, mail_pass)[0] != "OK":
-            raise SafeError("QQ_LOGIN_FAILED")
-        folders(im)
-        print("QQ_MAIL_AUTH_PASS")
-        print("FEISHU_AUTH_PASS")
-        if mode == "probe":
-            print("STAGING_TABLE_EXISTS=" + str(bool(table_id)))
-            print("PROBE_PASS_WRITES_0")
-            return
-        table_path = ensure_table(token, base)
-        indexed = existing(token, table_path)
-        # Smoke writes are deliberately reserved for explicit smoke mode.
-        # Scheduled ingestion must not mutate the synthetic test row each run.
-        if mode == "smoke":
-            smoke(token, table_path, indexed)
-            print("SMOKE_ONLY_CUSTOMER_RECORD_WRITES_0")
-            return
-        backfill = mode == "backfill2026"
-        days = min(max(1, int(os.environ.get("FEISHU_MAIL_SCAN_DAYS", "30"))), 60)
-        if backfill:
-            # One invocation, at most 3,000 messages TOTAL, allocated across
-            # Inbox/Sent by pending counts (not 3,000 per folder).
-            total_limit = min(max(1,int(os.environ.get("FEISHU_MAIL_BACKFILL_TOTAL", "3000"))),3000)
-            new_rows = collect_2026_total(im,indexed,total_limit)
-        else:
-            cap = min(max(1,int(os.environ.get("FEISHU_MAIL_BATCH_PER_FOLDER", "45"))),100)
-            new_rows = collect_from_imap(im,indexed,cap,days)
-        added = 0
-        if backfill:
-            # Feishu batch API reduces thousands of individual API writes.
-            for offset in range(0, len(new_rows), 25):
-                batch = [r for r in new_rows[offset:offset+25] if r["Mail Key"] not in indexed]
-                if not batch:
-                    continue
-                result = api("POST", table_path+"/records/batch_create", token,
-                             data={"records":[{"fields":r} for r in batch]},
-                             action="qq_2026_batch_create")
-                created = result.get("records") or []
-                if len(created) != len(batch) or any(not item.get("record_id") for item in created):
-                    raise SafeError("QQ_2026_BATCH_CREATE_UNVERIFIED")
-                # Verified API create response; subsequent retries of the job
-                # reindex already-created Mail Keys, so partial runs are safe.
-                for row, record in zip(batch, created):
-                    indexed[row["Mail Key"]] = record["record_id"]
-                added += len(batch)
-                if added % 250 == 0 or added == len(new_rows):
-                    print("QQ_2026_PROGRESS_ADDED="+str(added)+
-                          " target="+str(len(new_rows)))
-                time.sleep(0.25)  # Avoid Feishu batch-write rate limits.
-        else:
-            for row in new_rows:
-                mail_key = row["Mail Key"]
-                if mail_key in indexed:
-                    continue
-                indexed[mail_key] = write_record(token, table_path, row)
-                added += 1
-        print("FEISHU_MAIL_SYNC_PASS added=" + str(added) + " scanned=" + str(len(new_rows)))
-        print("OTHER_FEISHU_TABLE_WRITES=0 EXTERNAL_MAIL_SENDS=0")
-        im.logout()
+    ingestion_verified = False
+    try:
+        with imaplib.IMAP4_SSL("imap.exmail.qq.com", 993, timeout=40) as im:
+            if im.login(mail_user, mail_pass)[0] != "OK":
+                raise SafeError("QQ_LOGIN_FAILED")
+            folders(im)
+            print("QQ_MAIL_AUTH_PASS")
+            print("FEISHU_AUTH_PASS")
+            if mode == "probe":
+                print("STAGING_TABLE_EXISTS=" + str(bool(table_id)))
+                print("PROBE_PASS_WRITES_0")
+                return
+            table_path = ensure_table(token, base)
+            indexed = existing(token, table_path)
+            # Smoke writes are deliberately reserved for explicit smoke mode.
+            # Scheduled ingestion must not mutate the synthetic test row each run.
+            if mode == "smoke":
+                smoke(token, table_path, indexed)
+                print("SMOKE_ONLY_CUSTOMER_RECORD_WRITES_0")
+                return
+            backfill = mode == "backfill2026"
+            days = min(max(1, int(os.environ.get("FEISHU_MAIL_SCAN_DAYS", "30"))), 60)
+            if backfill:
+                # One invocation, at most 3,000 messages TOTAL, allocated across
+                # Inbox/Sent by pending counts (not 3,000 per folder).
+                total_limit = min(max(1,int(os.environ.get("FEISHU_MAIL_BACKFILL_TOTAL", "3000"))),3000)
+                new_rows = collect_2026_total(im,indexed,total_limit)
+            else:
+                cap = min(max(1,int(os.environ.get("FEISHU_MAIL_BATCH_PER_FOLDER", "45"))),100)
+                new_rows = collect_from_imap(im,indexed,cap,days)
+            added = 0
+            if backfill:
+                # Feishu batch API reduces thousands of individual API writes.
+                for offset in range(0, len(new_rows), 25):
+                    batch = [r for r in new_rows[offset:offset+25] if r["Mail Key"] not in indexed]
+                    if not batch:
+                        continue
+                    result = api("POST", table_path+"/records/batch_create", token,
+                                 data={"records":[{"fields":r} for r in batch]},
+                                 action="qq_2026_batch_create")
+                    created = result.get("records") or []
+                    if len(created) != len(batch) or any(not item.get("record_id") for item in created):
+                        raise SafeError("QQ_2026_BATCH_CREATE_UNVERIFIED")
+                    # Verified API create response; subsequent retries of the job
+                    # reindex already-created Mail Keys, so partial runs are safe.
+                    for row, record in zip(batch, created):
+                        indexed[row["Mail Key"]] = record["record_id"]
+                    added += len(batch)
+                    if added % 250 == 0 or added == len(new_rows):
+                        print("QQ_2026_PROGRESS_ADDED="+str(added)+
+                              " target="+str(len(new_rows)))
+                    time.sleep(0.25)  # Avoid Feishu batch-write rate limits.
+            else:
+                for row in new_rows:
+                    mail_key = row["Mail Key"]
+                    if mail_key in indexed:
+                        continue
+                    indexed[mail_key] = write_record(token, table_path, row)
+                    added += 1
+            print("FEISHU_MAIL_SYNC_PASS added=" + str(added) + " scanned=" + str(len(new_rows)))
+            print("OTHER_FEISHU_TABLE_WRITES=0 EXTERNAL_MAIL_SENDS=0")
+            ingestion_verified = True
+    except imaplib.IMAP4.abort:
+        # QQ may close the IMAP socket before LOGOUT after a long 3000-mail read.
+        # Never mask a fetch/parse/write failure; only tolerate logout aborts
+        # after all Feishu record creations were acknowledged successfully.
+        if not ingestion_verified:
+            raise
+        print("QQ_IMAP_LOGOUT_ABORT_AFTER_VERIFIED_INGEST=1")
 
 
 if __name__ == "__main__":

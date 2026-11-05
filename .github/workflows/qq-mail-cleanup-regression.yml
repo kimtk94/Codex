@@ -1,0 +1,29 @@
+name: QQ Historical Backfill Cleanup Regression
+on:
+  push:
+    branches: [fix/qq-2026-imap-logout-after-3000-20261106]
+    paths:
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/test_qq_mail_2026_backfill.py'
+      - '.github/workflows/qq-mail-cleanup-regression.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/qq_mail_ingest.py'
+      - 'automation/feishu/test_qq_mail_2026_backfill.py'
+      - '.github/workflows/qq-mail-cleanup-regression.yml'
+permissions:
+  contents: read
+jobs:
+  offline_regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Ensure 2026 backfill and cleanup tests pass without IMAP or Feishu
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_2026_backfill.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_qq_mail_ingest.py' -v
+          python3 -m py_compile automation/feishu/qq_mail_ingest.py
