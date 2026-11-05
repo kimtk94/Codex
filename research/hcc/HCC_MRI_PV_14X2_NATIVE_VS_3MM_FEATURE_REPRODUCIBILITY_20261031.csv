@@ -1,0 +1,11 @@
+feature,native_icc_a1,frozen_icc_a1,resampled_3mm_icc_a1,icc_change_resampled_minus_native,patient_mean_feature_spearman_rho,native_to_3mm_median_absolute_relative_change,native_to_3mm_max_absolute_relative_change,max_difference_patient,reader_reliability_native_frozen,reader_reliability_resampled_descriptive,primary_feature_locked
+original_shape_VoxelVolume,0.996282,0.99628,0.996233,-0.000049,1.0,0.00782,0.0283,TCGA-G3-AAV7,PASS,ICC_GE_0.90,NO
+original_shape_SurfaceArea,0.995259,0.99526,0.99547,0.000211,1.0,0.034091,0.081921,TCGA-DD-A4NF,PASS,ICC_GE_0.90,NO
+original_shape_Sphericity,0.821735,0.82174,0.860373,0.038637,0.802198,0.040565,0.088867,TCGA-DD-A4NF,EXCLUDE_BY_RELIABILITY,ICC_BELOW_0.90,NO
+original_shape_Elongation,0.727457,0.72746,0.805647,0.078189,0.991209,0.004309,0.059149,TCGA-G3-AAV7,EXCLUDE_BY_RELIABILITY,ICC_BELOW_0.90,NO
+original_firstorder_Mean,0.999486,0.99949,0.999458,-0.000028,1.0,0.002277,0.014671,TCGA-DD-A4NH,PASS,ICC_GE_0.90,NO
+original_firstorder_Median,0.999099,0.9991,0.998947,-0.000152,1.0,0.00248,0.006766,TCGA-G3-AAV7,PASS,ICC_GE_0.90,NO
+original_firstorder_Entropy,0.987377,0.98738,0.985965,-0.001411,0.986813,0.006891,0.044014,TCGA-G3-AAV7,PASS,ICC_GE_0.90,YES
+original_firstorder_InterquartileRange,0.989092,0.98909,0.992281,0.003189,1.0,0.01079,0.063107,TCGA-G3-AAV7,PASS,ICC_GE_0.90,YES
+original_glcm_Contrast,0.966796,0.9668,0.967815,0.00102,0.850549,0.770667,1.700827,TCGA-DD-A4NJ,PASS,ICC_GE_0.90,YES
+original_glcm_JointEntropy,0.984886,0.98489,0.987232,0.002346,0.96044,0.057358,0.141134,TCGA-DD-A4NH,PASS,ICC_GE_0.90,NO

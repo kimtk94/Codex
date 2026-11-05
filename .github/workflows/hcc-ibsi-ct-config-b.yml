@@ -1,0 +1,128 @@
+name: HCC IBSI-1 CT Configuration B Bilinear FBN32
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_ibsi1_ct_config_b_bilinear_fbn32.py"
+      - "research/hcc/ci/mri_ibsi1_ct_config_a_benchmark.py"
+      - ".github/workflows/hcc-ibsi-ct-config-b.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-ibsi-ct-b-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  reference-registry:
+    name: Verify B official reference/tolerance registry and REVIEW logic
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check official B reference/test guard
+        run: python research/hcc/ci/mri_ibsi1_ct_config_b_bilinear_fbn32.py --mode offline-test
+
+  independent:
+    name: CT B independent IBSI texture math on centered SimpleITK resampled input
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pinned numerical and resampling dependencies
+        run: python -m pip install "numpy==1.26.4" "SimpleITK==2.5.2" "nibabel>=5.2,<6"
+      - name: Retrieve only exact historical IBSI source commit
+        run: |
+          mkdir -p artifacts
+          git clone --filter=blob:none https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+          git -C artifacts/ibsi_original_repo fetch --depth=1 origin 6da96021bc91faf4c0cb7fd7fa56a4225d2064a8
+          git -C artifacts/ibsi_original_repo checkout --detach 6da96021bc91faf4c0cb7fd7fa56a4225d2064a8
+      - name: Reconstruct official CT B grid/ROI/FBN32 and independent GLCM
+        run: python research/hcc/ci/mri_ibsi1_ct_config_b_bilinear_fbn32.py --mode independent --out-dir artifacts/hcc_ibsi_ct_b_independent
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-ibsi-ct-b-independent
+          path: artifacts/hcc_ibsi_ct_b_independent/
+          if-no-files-found: warn
+          retention-days: 30
+
+  pyradiomics:
+    name: CT B PyRadiomics 3.1.0 after explicit IBSI FBN32
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install pinned PyRadiomics and SimpleITK resampling
+        run: python -m pip install "numpy==1.26.4" "pyradiomics==3.1.0" "SimpleITK==2.5.2" "nibabel>=5.2,<6"
+      - name: Retrieve only exact historical IBSI source commit
+        run: |
+          mkdir -p artifacts
+          git clone --filter=blob:none https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+          git -C artifacts/ibsi_original_repo fetch --depth=1 origin 6da96021bc91faf4c0cb7fd7fa56a4225d2064a8
+          git -C artifacts/ibsi_original_repo checkout --detach 6da96021bc91faf4c0cb7fd7fa56a4225d2064a8
+      - name: Extract official B features from fixed externally discretized CT
+        run: python research/hcc/ci/mri_ibsi1_ct_config_b_bilinear_fbn32.py --mode pyradiomics --out-dir artifacts/hcc_ibsi_ct_b_pyradiomics
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-ibsi-ct-b-pyradiomics
+          path: artifacts/hcc_ibsi_ct_b_pyradiomics/
+          if-no-files-found: warn
+          retention-days: 30
+
+  scientific-integration:
+    needs: [reference-registry,independent,pyradiomics]
+    name: HCC-18 CT B PASS or scientific REVIEW, clinical claims locked
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-ibsi-ct-b-independent
+          path: artifacts/hcc_ibsi_ct_b_independent/
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-ibsi-ct-b-pyradiomics
+          path: artifacts/hcc_ibsi_ct_b_pyradiomics/
+      - name: Contrast official references; never quietly accept source/model drift
+        run: python research/hcc/ci/mri_ibsi1_ct_config_b_bilinear_fbn32.py --mode join --out-dir artifacts/hcc_ibsi_ct_b_join
+      - name: Write scientific review and remaining independent-resampler limitation
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=json.loads(Path('artifacts/hcc_ibsi_ct_b_join/ct_b.json').read_text())
+          lines=['## IBSI-1 CT B bilinear/FBN32','',
+            f"- Verdict: **{d['status']}**",
+            f"- Official independent references matched: {d['independent_reference_matched']}/5",
+            f"- Official PyRadiomics comparisons matched: {d['pyradiomics_reference_matched']}/4",
+            f"- Same source+grid+ROI: {d['matched_preprocessing_diagnostics']}",
+            f"- 2.5D Contrast absolute difference: {d['cross_software_2_5D_contrast_absolute_difference']}",
+            "- Shared SimpleITK interpolation: NOT independently verified by two resamplers",
+            "- HCC-18 PARTIAL / HCC-20 PENDING / claim S0; no clinical inference"]
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf8') as f:
+              f.write('\n'.join(lines)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-ibsi-ct-b-integrated-review
+          path: artifacts/hcc_ibsi_ct_b_join/
+          if-no-files-found: error
+          retention-days: 30

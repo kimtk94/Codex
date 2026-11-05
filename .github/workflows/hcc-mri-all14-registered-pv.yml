@@ -1,0 +1,118 @@
+name: HCC P0 All14 Native versus Registered PV Radiomics Sensitivity
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_registered_pv_all14_sharded.py"
+      - "research/hcc/ci/mri_p0_registered_pv_all14_aggregate.py"
+      - "research/hcc/HCC_MRI_14_PREOUTCOME_INDEX_LESION_SELECTION_20261030.csv"
+      - ".github/workflows/hcc-mri-all14-registered-pv.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-mri14-pv-source-sensitivity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-validation:
+    name: Frozen all-14 roster, seven sharded batches, source and no-eligibility guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - run: python research/hcc/ci/mri_p0_registered_pv_all14_sharded.py --offline-test
+      - run: python research/hcc/ci/mri_p0_registered_pv_all14_aggregate.py --offline-test
+
+  source-shards:
+    needs: offline-validation
+    name: "Frozen source patient pair shard ${{ matrix.shard }} of 7 (10 features x 2 readers x 2 PV sources)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 42
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install official v3.1.0 PyRadiomics Linux binary, exact source reader
+        run: |
+          python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+          python -m pip install --only-binary=pyradiomics "pyradiomics==3.1.0"
+          python -c 'from importlib.metadata import version; import radiomics,sys; assert version("pyradiomics")=="3.1.0" and sys.version_info[:2]==(3,9); print("PYRADIOMICS_DISTRIBUTION_VERIFIED=3.1.0 RUNTIME="+str(radiomics.__version__))'
+      - name: Execute frozen 2-case shard without RNA data or source pixel export
+        run: python research/hcc/ci/mri_p0_registered_pv_all14_sharded.py --shard-index ${{ matrix.shard }} --out-dir artifacts/hcc_mri14_source_shards
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "hcc-mri14-pv-source-shard-${{ matrix.shard }}"
+          path: |
+            artifacts/hcc_mri14_source_shards/*.csv
+            artifacts/hcc_mri14_source_shards/*.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  source-aggregate:
+    needs: source-shards
+    name: Join seven source-shards, calculate 10-feature rank changes and 20 ICC estimates
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install purely descriptive ICC and source-value audit dependencies
+        run: python -m pip install "numpy==1.26.4"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-mri14-pv-source-shard-*
+          path: artifacts/hcc_mri14_source_shards
+          merge-multiple: true
+      - name: Require 14 unique patients and produce source-provenance comparison
+        run: python research/hcc/ci/mri_p0_registered_pv_all14_aggregate.py --shard-dir artifacts/hcc_mri14_source_shards --out-dir artifacts/hcc_mri14_registered_source_results
+      - name: Summarize critical source sensitivity and preserve clinical HOLD in GitHub Action summary
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          j=json.loads(Path("artifacts/hcc_mri14_registered_source_results/hcc_mri14_registered_source_reproducibility_summary.json").read_text())
+          assert j["n_patients"]==14 and j["n_source_rater_rows"]==56
+          assert j["n_features"]==10 and j["n_reader_icc_estimates"]==20
+          assert j["MRI_RNA_12_associations"]=="NOT_EXECUTED" and j["claim_ceiling"]=="S0"
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["historical_raw_PV_measurements_overwritten"] is False
+          lines=["## HCC P0 MRI14 source-phase sensitivity",
+                 "", "- Official source: LiverHccSeg v1.1",
+                 "- 14 index lesions, 2 expert mask readers, 2 portal venous images: **56 rows**",
+                 "- Frozen all-ten PyRadiomics 3.1.0 feature panel; no raw NIfTI upload",
+                 "- Biological MRI-RNA association: **NOT EXECUTED**, eligible n **NOT ASSESSED**, ceiling **S0**",
+                 "", "| Locked MRI feature | Median absolute source change % | Cases ≥10% | Rank rho across 14 patients |",
+                 "|---|---:|---:|---:|"]
+          for r in j["locked_feature_sensitivity"]:
+              lines.append(f"| {r['feature']} | {r['median_abs_pct_change']} | {r['n_cases_abs_pct_ge_10']} | {r['source_pairwise_patient_rank_rho']} |")
+          lines+=["",f"- Unestimable reader ICC cells: {j['unestimable_ICC_count']} / 20.",
+                  "- Independent tumor segmentation/registration reviewer sign-off still pending; never promote these source QC results to biological association."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("\n".join(lines)+"\n")
+          print("HCC_MRI14_REGISTERED_PV_SOURCE_SENSITIVITY_56_FEATURE_ROWS_20_ICCS_NO_MRI_RNA_PROMOTION_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-mri14-native-vs-registered-pv-ten-feature-comparison-and-icc
+          path: |
+            artifacts/hcc_mri14_registered_source_results/*.csv
+            artifacts/hcc_mri14_registered_source_results/*.json
+          retention-days: 30
+          if-no-files-found: warn

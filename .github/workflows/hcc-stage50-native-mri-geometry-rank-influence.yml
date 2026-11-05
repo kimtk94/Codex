@@ -1,0 +1,90 @@
+name: HCC Stage50 Native MRI Thickness ROI Volume and Rank Influence Source Audit
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage50_geometry_rank_influence.py"
+      - ".github/workflows/hcc-stage50-native-mri-geometry-rank-influence.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hcc-stage50-original-geometry-rank-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-frozen14-rater1-original-59-geometry-rank-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Negative synthetic rank and clinical S0 fixture
+        run: python3 research/hcc/ci/mri14_stage50_geometry_rank_influence.py --offline-test
+      - name: Download original Stage49 independently reproduced source full rank artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage49-original14-rater1-native3mm-rank-vs-external59-source-HOLD
+          run-id: 41448904879
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/stage49_original_rater1_frozen
+      - name: Check source Stage49 original patient rank signature and controls
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,csv
+          d=Path("artifacts/stage49_original_rater1_frozen")
+          s=json.loads((d/"stage49_original14_reader1_59_original_rank_summary.json").read_text())
+          with (d/"stage49_rater1_14_native3mm_patient_rank_evidence.csv").open() as f:
+              r=list(csv.DictReader(f))
+          assert len(r)==14 and len({x["patient_id"] for x in r})==14
+          assert s["original_full_feature_pairs"]==28
+          assert abs(s["internal_original_rater1_rank_rho"]-.810989010989011)<1e-9
+          assert abs(s["external_original_primary_mask_rank_rho"]-.9407948568088836)<1e-9
+          assert s["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert s["MRI_RNA_biology_tests"]==0 and s["claim_ceiling"]=="S0"
+          print("HCC_STAGE50_PINNED_STAGE49_ORIGINAL_28_RATER_AND_14_RANK_ROWS_PASS")
+          PY
+      - name: Independently crosswalk 14 original native slice/ROI measures with Stage49 ranks and 59 original independent cases
+        run: |
+          python3 research/hcc/ci/mri14_stage50_geometry_rank_influence.py \
+            --stage49-csv artifacts/stage49_original_rater1_frozen/stage49_rater1_14_native3mm_patient_rank_evidence.csv \
+            --stage49-json artifacts/stage49_original_rater1_frozen/stage49_original14_reader1_59_original_rank_summary.json \
+            --out-dir artifacts/hcc_stage50_influence
+      - name: Verify n14 59 source denominators and full-primary-versus-A10Y-posthoc sensitivity guard
+        run: |
+          python3 - <<'PY'
+          import json,csv,math
+          from pathlib import Path
+          p=Path("artifacts/hcc_stage50_influence")
+          s=json.loads((p/"stage50_A10Y_rank_influence_and_roi_volume_summary.json").read_text())
+          with (p/"stage50_frozen73_patient_geometry_roi_rank.csv").open() as f:
+              pats=list(csv.DictReader(f))
+          with (p/"stage50_geometry_roi_spearman_descriptive_correlations.csv").open() as f:
+              cor=list(csv.DictReader(f))
+          assert len(pats)==73 and len({r["patient_id"] for r in pats})==73
+          assert len(cor)==8
+          assert s["independent_patients_internal_n"]==14
+          assert s["independent_patients_external_n"]==59
+          assert abs(s["original_14_rater1_full_rho"]-.810989010989011)<1e-9
+          assert abs(s["original_external59_primary_mask_full_rho"]-.9407948568088836)<1e-9
+          assert s["source_high_thickness_patient_z_mm"]==10.8
+          assert s["source_A10Y_abs_patient_rank_displacement"]==6
+          assert s["original_14_other13_z_mm_max"]<5.0
+          assert math.isfinite(s["internal_13_no_A10Y_original_native_rater1_Spearman_rho"])
+          assert s["all14_primary_technical_patients_retained"]
+          assert s["high_thickness_case_is_posthoc_sensitivity_not_default_exclusion"]
+          assert not s["statistical_significance_pvalues_tested"]
+          assert not s["exact_MRI_index_lesion_to_RNA_aliquot_verified_n"]
+          assert s["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert s["MRI_RNA_biological_tests"]==0 and s["claim_ceiling"]=="S0"
+          assert s["thesis_direction"]=="CONDITIONAL_GO" and s["thesis_submission"]=="HOLD"
+          print("HCC_STAGE50_ORIGINAL_73_PATIENT_SOURCE_GEOMETRY_RANK_S0_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage50-nativeMRI-14rater1-59original-ROI-thickness-rank-influence-HOLD
+          path: artifacts/hcc_stage50_influence/*
+          retention-days: 90
+          if-no-files-found: error

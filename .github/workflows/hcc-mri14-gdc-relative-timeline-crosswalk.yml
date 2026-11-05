@@ -1,0 +1,79 @@
+name: HCC MRI14 GDC Treatment to RNA Specimen Relative Timeline Crosswalk
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_clinical_gdc_relative_timeline_crosswalk.py"
+      - "research/hcc/HCC_MRI_10_DATED_YES_TREATMENTS_SOURCE_20261031.csv"
+      - "research/hcc/HCC_MRI_14_GDC_CLINICAL_TREATMENT_GATE_20261031.csv"
+      - "research/hcc/HCC_MRI14_QUALIFIED_REVIEW_EVIDENCE_MATRIX_20261031.csv"
+      - ".github/workflows/hcc-mri14-gdc-relative-timeline-crosswalk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-mri14-gdc-relative-timeline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  negative-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    name: Reject false GDC treatment chronology, duplicate UUIDs and clinical auto-approval
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify 14 frozen source relationships and five negative controls
+        run: python3 research/hcc/ci/mri_p0_clinical_gdc_relative_timeline_crosswalk.py --offline-test
+
+  source-traceability:
+    needs: negative-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    name: Preserve GDC-relative treatment versus sample lineage without inferring MRI dates
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create one auditable row for every 14 case-level clinical review candidate
+        run: python3 research/hcc/ci/mri_p0_clinical_gdc_relative_timeline_crosswalk.py --out-dir artifacts/hcc_clinical_source_traceability
+      - name: Independently check output and enforce no eligible patient promotion
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          p=Path("artifacts/hcc_clinical_source_traceability")
+          with (p/"HCC_MRI14_GDC_TREATMENT_TISSUE_SOURCE_TRACEABILITY_20261031.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          j=json.loads((p/"HCC_MRI14_CLINICAL_SOURCE_RECONCILIATION_SUMMARY_20261031.json").read_text())
+          assert len(rows)==14 and len({r["patient_id"] for r in rows})==14
+          assert {r["clinical_evidence_priority"] for r in rows}=={"P0","P1","P2"}
+          assert sum(int(r["HCC_context_dated_yes_rows"]) for r in rows)==9
+          assert sum(int(r["non_HCC_dated_yes_rows"]) for r in rows)==1
+          assert sum(r["HCC_context_dated_yes_rows"]!="0" for r in rows)==4
+          assert all(r["eligible_radiogenomics"]=="NOT_ASSESSED" for r in rows)
+          assert all(r["source_MRI_scan_id_to_GDC_tissue_episode"]=="NOT_ASSESSED" for r in rows)
+          assert all(r["specific_MRI_pre_HCC_treatment"]=="NOT_ASSESSED" for r in rows)
+          assert all(r["same_MRI_index_lesion_to_RNA_aliquot"]=="NOT_ASSESSED" for r in rows)
+          assert not j["DICOM_dates_safe_to_join_to_GDC_relative_days"]
+          assert not j["TCIA_baseline_pre_surgical_is_case_level_pretherapy_evidence"]
+          assert j["claim_ceiling"]=="S0" and j["actual_MRI_RNA_tests"]==0
+          print("HCC_MRI14_TREATMENT_SOURCE_TRACE_14_CASE_GDC_RELATIVE_ONLY_HOLD_PASS")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write("## HCC MRI14 clinical evidence crosswalk — source-only PASS\n\n")
+              f.write("- GDC 10 dated Yes treatments before RNA specimen, **9 HCC-diagnosis context in 4 cases**; 1 unrelated cecum/appendix surgery in A5W4.\n")
+              f.write("- Source treatment relative days are **not** MRI acquisition dates; TCIA deidentified DICOM date offsets are incompatible with direct subtraction.\n")
+              f.write("- Case-level verified MRI before HCC therapy: **0 approved**; same lesion MRI-to-RNA approval: **0 approved**.\n")
+              f.write("- MRI–RNA tests: **0/12**, eligible cohort **NOT ASSESSED**, ceiling **S0**.\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-mri14-gdc-relative-timeline-source-evidence-hold
+          path: artifacts/hcc_clinical_source_traceability/*.csv
+          retention-days: 90
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-mri14-gdc-relative-timeline-summary
+          path: artifacts/hcc_clinical_source_traceability/*.json
+          retention-days: 90
+          if-no-files-found: error

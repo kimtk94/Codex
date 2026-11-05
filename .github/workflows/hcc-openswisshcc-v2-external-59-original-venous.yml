@@ -1,0 +1,166 @@
+name: HCC OpenSwissHCC v2 External MRI59 Original Venous Source Radiomics
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_external_openswisshcc_v2_59_shard_aggregate.py"
+      - ".github/workflows/hcc-openswisshcc-v2-external-59-original-venous.yml"
+      - "research/hcc/ci/mri_external_openswisshcc_v2_cohort_radiomics_sharded.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-openswiss-external59-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  no-biological-source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: Enforce frozen 59 subject source roster, 15 exact shards and patient-cluster uncertainty
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install source geometry and numerical fixture dependencies
+        run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - name: Validate original OpenSwiss venous source archive selection and reject arterial series
+        run: python research/hcc/ci/mri_external_openswisshcc_v2_cohort_radiomics_sharded.py --offline-test
+      - name: Ensure 24 feature/condition calculations use independent patient resampling and never MRI-RNA
+        run: python research/hcc/ci/mri_external_openswisshcc_v2_59_shard_aggregate.py --offline-test
+
+  external-real-venous-patient-shards:
+    name: "Original venous 4 source patients shard ${{ matrix.shard }}/14"
+    needs: no-biological-source-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 42
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Source-matched PyRadiomics 3.1.0, nibabel, HTTP ZIP member reader
+        run: |
+          python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+          python -m pip install --only-binary=pyradiomics "pyradiomics==3.1.0"
+          python -c 'import importlib.metadata as m; assert m.version("pyradiomics")=="3.1.0"'
+      - name: Re-fetch only SHA-pinned original 59 source-published index lesion manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/openswiss_v2_venous59
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13049177735/zip" \
+            --output artifacts/openswiss_v2_venous59/original_primary_59_hcc_mask_selected.zip
+      - name: Read only 4 original per-patient venous NIfTI + lesion-mask ZIP members with source identity
+        run: |
+          python research/hcc/ci/mri_external_openswisshcc_v2_cohort_radiomics_sharded.py \
+            --primary-source-zip artifacts/openswiss_v2_venous59/original_primary_59_hcc_mask_selected.zip \
+            --shard ${{ matrix.shard }} \
+            --out-dir artifacts/openswiss_v2_venous59/output
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-openswiss-v2-real-original-venous-shard-${{ matrix.shard }}
+          path: artifacts/openswiss_v2_venous59/output/*
+          retention-days: 90
+          if-no-files-found: warn
+
+  all59-paired-source-aggregation:
+    name: Account for all 59 subjects; report 14 other original shards + pinned 4-patient pilot
+    needs: external-real-venous-patient-shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" matplotlib
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-openswiss-v2-real-original-venous-shard-*
+          path: artifacts/openswiss_external59_source
+          merge-multiple: true
+      - name: Reuse exact previously verified 4-person original source shard rather than rereading source images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13049338566/zip" \
+            --output artifacts/openswiss_external59_source/locked_shard_0_original_4_patient_artifact.zip
+          unzip -j -o artifacts/openswiss_external59_source/locked_shard_0_original_4_patient_artifact.zip \
+            -d artifacts/openswiss_external59_source/
+      - name: Download original 59 independent subject index selection (source MD5/SHA locked)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13049177735/zip" \
+            --output artifacts/openswiss_external59_source/original_59_primary_frozen.zip
+      - name: Validate 59-person accountable source roster, actual geometry and independent 4k patient bootstrap
+        run: |
+          python research/hcc/ci/mri_external_openswisshcc_v2_59_shard_aggregate.py \
+            --source-primary-zip artifacts/openswiss_external59_source/original_59_primary_frozen.zip \
+            --shard-dir artifacts/openswiss_external59_source \
+            --out-dir artifacts/openswiss_external59_result
+      - name: Require explicit 59-person denominator, four-feature 24 condition table or descriptive HOLD
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          p=Path("artifacts/openswiss_external59_result")
+          j=json.loads((p/"external_venous_59_primary_source_technical_summary.json").read_text())
+          assert j["external_source_independent_subject_candidates"]==59
+          assert j["original_venous_HCC_manual_mask_candidates"]==90
+          assert j["source_accounting_n"]==59
+          assert j["succeeded_source_matched_venous_n"]+j["HOLD_source_geometry_or_extraction_n"]==59
+          assert j["source_extraction_rows"]==6*j["succeeded_source_matched_venous_n"]
+          assert j["clinical_predictive_utility"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_12_tests"]=="NOT_EXECUTED" and j["claim_ceiling"]=="S0"
+          with (p/"external_venous_59_primary_patient_source_profiles.csv").open() as f:
+              cases=list(csv.DictReader(f))
+          assert len(cases)==j["succeeded_source_matched_venous_n"]
+          assert len({r["patient_id"] for r in cases})==len(cases)
+          with (p/"external_venous_24_feature_condition_patient_bootstrap_ci.csv").open() as f:
+              estimates=list(csv.DictReader(f))
+          assert len(estimates) in (0,24) and j["feature_condition_statistics"]==len(estimates)
+          if len(cases)>=10:
+              assert len(estimates)==24
+          lines=["## OpenSwissHCC v2 external original venous MRI, source-locked 59 technical subjects",
+            "", "- One HCC venous lesion selected per independent patient using original published size (not radiomics).",
+            f"- Real MRI+mask pair, 6 condition features source-geometrically passed: **{j['succeeded_source_matched_venous_n']}/59**.",
+            f"- All source errors retained with patient ID and reason (HOLD): **{j['HOLD_source_geometry_or_extraction_n']}/59**.",
+            f"- Original 6-condition extraction rows: **{j['source_extraction_rows']}**.",
+            f"- Cohort-level descriptive source status: **{j['status']}**.",
+            "- This is independent *within-source preprocessing sensitivity*, not replication of raw vs registered phase intensity.",
+            "- 14-case LiverHccSeg clinical eligibility NOT ASSESSED, RNA associations 0/12, S0."]
+          effect=j.get("glcm_3mm25")
+          if effect:
+              lines.append(f"- GLCM native→3mm bw25 median abs source change **{effect['median_abs_pct']}%**, 95% independent patient bootstrap CI **[{effect['median_abs_pct_bootstrap95_low']}, {effect['median_abs_pct_bootstrap95_high']}]%**.")
+              lines.append(f"- External Spearman rho native versus 3mm bw25 **{effect['patient_rank_spearman']}**, independent n={effect['independent_technical_subjects']}.")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          print("HCC_OPEN_SWISS_SOURCE_59_PATIENT_COMPLETE_WITH_PROVENANCE_AND_S0",j)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-openswiss-v2-external59-original-venous-radiomics-24-condition-4k-bootstrap-result
+          path: artifacts/openswiss_external59_result/*
+          retention-days: 90
+          if-no-files-found: warn

@@ -1,0 +1,11 @@
+patient_id,diagnosis_barcode,primary_diagnosis,treatment_id,treatment_type,treatment_anatomic_sites,treatment_start_day,rna_specimen_collection_day
+"TCGA-BC-A10Y","TCGA-BC-A10Y_diagnosis","Hepatocellular carcinoma, NOS","16dae4fc-68bc-402f-b7e9-ac20de3aa5ef","Ablation, Radiofrequency","","0","2961"
+"TCGA-BC-A10Y","TCGA-BC-A10Y_diagnosis","Hepatocellular carcinoma, NOS","60b01714-f29e-4d92-913a-55a2273992bd","Chemoembolization","","527","2961"
+"TCGA-BC-A10Y","TCGA-BC-A10Y_diagnosis","Hepatocellular carcinoma, NOS","89a8e5c4-0108-485a-8b5c-8e5dae375113","Chemoembolization","","420","2961"
+"TCGA-BC-A10Y","TCGA-BC-A10Y_diagnosis","Hepatocellular carcinoma, NOS","a2ac42fd-ec66-43ea-ab98-a4cdfa76845e","Chemoembolization","","470","2961"
+"TCGA-BC-A10Y","TCGA-BC-A10Y_diagnosis","Hepatocellular carcinoma, NOS","ebadc7c9-b31e-44c7-b263-e1a4a60a07c6","Chemoembolization","","470","2961"
+"TCGA-BC-A10Y","TCGA-BC-A10Y_diagnosis","Hepatocellular carcinoma, NOS","fd7c22fe-3acb-4f69-930b-d5cfbfcfc8e4","Chemoembolization","","420","2961"
+"TCGA-BC-A5W4","TCGA-BC-A5W4_diagnosis3","Not Reported","fa382a8b-8b13-4077-94f5-10978e26e22c","Surgery, NOS","Cecum|Appendix","0","224"
+"TCGA-DD-A4NH","TCGA-DD-A4NH_diagnosis","Hepatocellular carcinoma, NOS","67841aa9-4cfb-5efd-8190-f56b218af7c0","Chemotherapy","","162","335"
+"TCGA-G3-A25T","TCGA-G3-A25T_diagnosis2","Hepatocellular carcinoma, NOS","b7a42d1c-e399-4e4b-9ebc-264c23aac1c1","Surgery, NOS","","452","1224"
+"TCGA-G3-AAV1","TCGA-G3-AAV1_diagnosis","Hepatocellular carcinoma, NOS","e5cd8f13-d065-45d4-b1b2-e4a01917c456","Chemoembolization","","75","146"

@@ -1,0 +1,96 @@
+{
+  "snapshot": "HCC_MRI_P0_SOURCE_SPACE_TWO_CASE_ACTUAL_v1",
+  "source": "https://zenodo.org/records/8179129",
+  "source_version": "1.1",
+  "ci_run": "https://github.com/kimtk94/Codex/actions/runs/41187537805",
+  "ci_artifact_id": 13037197740,
+  "scientific_status": "REVIEW_SOURCE_REGISTRATION_AND_EXPERT_ADJUDICATION_REQUIRED",
+  "contract": {
+    "documented_mask_reference": "art.nii.gz",
+    "documented_corregistered_pv": "art_pv.nii.gz",
+    "raw_pv": "not explicitly documented for mask application"
+  },
+  "pilots": [
+    {
+      "patient_id": "TCGA-BC-A10Y",
+      "index_tumor": 3,
+      "shape_xyz": [
+        512,
+        384,
+        19
+      ],
+      "mask_sha256": "90478ef8eacf16914938323777615d4b51ef6316da3a9cd096dd0a4174d2c594",
+      "measurements": [
+        {
+          "phase": "art",
+          "sha256": "c8079c6618f5703af9ab2a608ea943b3e0b230eb4495d8a202cb48240f6b997b",
+          "geometry": "PASS_GEOMETRY_ONLY",
+          "max_corner_offset_mm": 0,
+          "roi_voxels": 124420,
+          "roi_median": 152
+        },
+        {
+          "phase": "pv",
+          "sha256": "d3aebda11f28c853121f6e09f4966330ba6a605cf78a7c6a4db0d52b3a31320c",
+          "geometry": "PASS_GEOMETRY_ONLY",
+          "max_corner_offset_mm": 0,
+          "roi_voxels": 124420,
+          "roi_median": 251
+        },
+        {
+          "phase": "art_pv",
+          "sha256": "ecc0317d59436e9adf63983db90c4b69b9aea824bb041a8b245a9a954557b9d1",
+          "geometry": "AFFINE_MISMATCH",
+          "max_corner_offset_mm": 284.257812,
+          "roi_voxels": null,
+          "roi_median": null
+        }
+      ]
+    },
+    {
+      "patient_id": "TCGA-DD-A4NH",
+      "index_tumor": 1,
+      "shape_xyz": [
+        512,
+        384,
+        64
+      ],
+      "mask_sha256": "4f711e9dcf6c34780c2085eb75586fc6e0b22abd5fcc3d47e23001c6146da0bd",
+      "measurements": [
+        {
+          "phase": "art",
+          "sha256": "e536d9b5ac03e7bc3c36f81e5b734e195cc441d7117c7d8a84db0dba3d5df4cc",
+          "geometry": "PASS_GEOMETRY_ONLY",
+          "max_corner_offset_mm": 0,
+          "roi_voxels": 234873,
+          "roi_median": 146
+        },
+        {
+          "phase": "pv",
+          "sha256": "af23fdfc2a1d8c43b552ebcd1f1d579df9de33e1ea6c0baa6d7fbc13c3945e73",
+          "geometry": "PASS_GEOMETRY_ONLY",
+          "max_corner_offset_mm": 0,
+          "roi_voxels": 234873,
+          "roi_median": 193
+        },
+        {
+          "phase": "art_pv",
+          "sha256": "8196af5468c38b9f8351a1f5477da924523cb9801a5e154abb79c2c596f5382d",
+          "geometry": "AFFINE_MISMATCH",
+          "max_corner_offset_mm": 498.906274,
+          "roi_voxels": null,
+          "roi_median": null
+        }
+      ]
+    }
+  ],
+  "clinical": {
+    "qualified_roi_expert_reviews": 0,
+    "pretreatment_verified": 0,
+    "same_tumor_rna_confirmed": 0,
+    "eligible_n": "NOT_ASSESSED",
+    "primary_12_associations": "NOT_EXECUTED",
+    "claim_ceiling": "S0"
+  },
+  "interpretation": "Dissimilar affine headers in art_pv are NOT proof of failed registration; raw pv matching mask NIfTI geometry is NOT proof of intended anatomical reference. Do not resample, overwrite original PV features, or auto-promote biological inferences."
+}

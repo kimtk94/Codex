@@ -1,0 +1,87 @@
+name: HCC Stage40 Original PV NIfTI vs DICOM Pixel Pattern 2-Patient Pilot
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage40_source_dicom_pv_pixel_pattern_pilot.py"
+      - ".github/workflows/hcc-stage40-original-pv-dicom-pixel-pilot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-stage40-original-DICOM-pixel-pilot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  original-2patient-8series-24pixel-samples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install reproducible original source DICOM/NIfTI readers
+        run: python3 -m pip install "numpy==2.2.6" "nibabel==5.3.2" "pydicom==3.0.1"
+      - name: Offline source image orientation and negative pixel matching tests
+        run: python3 research/hcc/ci/mri14_stage40_source_dicom_pv_pixel_pattern_pilot.py --offline-test
+      - name: Restore successful Stage39 14-patient 247 DICOM geometry original source manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage39-14-original-PV-NIfTI-vs-247-DICOM-geometry-source
+          run-id: 41384565388
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/hcc_stage39_pinned
+      - name: Check pinned stage39 source exactly 14 cases, 247 series and 83 nonunique geometry candidates
+        run: |
+          python3 - <<'PY'
+          import json,csv
+          from pathlib import Path
+          root=Path("artifacts/hcc_stage39_pinned")
+          j=json.loads((root/"stage39_original_source_NIfTI_DICOM_geometry_summary.json").read_text())
+          with (root/"stage39_source_247_DICOM_series_to_PV_NIfTI_geometry.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)==247 and j["source_3way_geometry_compatible_rows"]==83
+          assert j["patients_with_multiple_3way_geometry_candidates"]==14
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biological_tests"]==0 and j["claim_ceiling"]=="S0"
+          print("HCC_STAGE40_SOURCE_STAGE39_247_GEOMETRY_83_AMBIGUOUS_FROZEN_PASS")
+          PY
+      - name: Read original two PV NIfTIs plus 24 original source DICOM image slices and compare
+        run: |
+          python3 research/hcc/ci/mri14_stage40_source_dicom_pv_pixel_pattern_pilot.py \
+            --stage39-csv artifacts/hcc_stage39_pinned/stage39_source_247_DICOM_series_to_PV_NIfTI_geometry.csv \
+            --out-dir artifacts/hcc_stage40_pixel_pattern_pilot
+      - name: Independently verify all 2 patients 8 candidate series 24 source sample decisions and clinical S0
+        run: |
+          python3 - <<'PY'
+          import json,csv
+          from pathlib import Path
+          root=Path("artifacts/hcc_stage40_pixel_pattern_pilot")
+          j=json.loads((root/"stage40_two_case_original_pixel_pattern_summary.json").read_text())
+          with (root/"stage40_24_original_DICOM_PV_NIfTI_slice_correlations.csv").open() as f:
+              samples=list(csv.DictReader(f))
+          with (root/"stage40_8_source_candidate_series_pixel_pattern_summary.csv").open() as f:
+              groups=list(csv.DictReader(f))
+          assert set(j["pilot_patients"])=={"TCGA-BC-A3KG","TCGA-BC-A69I"}
+          assert j["original_PV_source_NIfTI_voxel_volumes_verified"]==2
+          assert len(samples)==24 and len(groups)==8
+          assert j["source_DICOM_sample_instances_attempted"]==24
+          assert j["PV_source_to_DICOM_exact_registered_pixel_identity_verified_n"]==0
+          assert j["MRI_before_HCC_treatment_verified_n"]==0
+          assert j["RNA_from_same_selected_MRI_index_lesion_verified_n"]==0
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biology_tests"]==0 and j["claim_ceiling"]=="S0"
+          assert all(r["clinical_eligible"]=="NOT_ASSESSED" for r in samples)
+          print("HCC_STAGE40_TWO_PATIENT_8_SOURCE_SERIES_24_DICOM_SAMPLES_NO_FALSE_CLINICAL_GO_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage40-original-PV-NIfTI-vs-DICOM-2case-8series-24pixel-pilot
+          path: artifacts/hcc_stage40_pixel_pattern_pilot/*
+          retention-days: 90
+          if-no-files-found: warn

@@ -1,0 +1,11 @@
+feature,n_patients,paired_patient_bootstrap,raw_pv_icc_a1,registered_pv_icc_a1,registered_minus_raw_icc_delta,bootstrap_delta_ci95_low,bootstrap_delta_ci95_high,valid_paired_bootstrap,locked_MRI_feature,biological_tests_executed,claim_ceiling
+original_shape_VoxelVolume,14,4000,0.996282,0.996282,0.000000,0.000000,0.000000,4000,NO,0,S0
+original_shape_SurfaceArea,14,4000,0.995259,0.995259,0.000000,0.000000,0.000000,4000,NO,0,S0
+original_shape_Sphericity,14,4000,0.821735,0.821735,0.000000,0.000000,0.000000,4000,NO,0,S0
+original_shape_Elongation,14,4000,0.727457,0.727457,0.000000,0.000000,0.000000,4000,NO,0,S0
+original_firstorder_Mean,14,4000,0.999486,0.999411,-0.000075,-0.000710,0.000286,4000,NO,0,S0
+original_firstorder_Median,14,4000,0.999099,0.999236,0.000137,-0.000369,0.000768,4000,NO,0,S0
+original_firstorder_Entropy,14,4000,0.987377,0.989027,0.001651,-0.011886,0.021343,4000,YES,0,S0
+original_firstorder_InterquartileRange,14,4000,0.989092,0.993254,0.004163,-0.002475,0.019485,4000,YES,0,S0
+original_glcm_Contrast,14,4000,0.966796,0.951613,-0.015183,-0.033548,0.020041,4000,YES,0,S0
+original_glcm_JointEntropy,14,4000,0.984886,0.988347,0.003461,-0.006101,0.021548,4000,NO,0,S0

@@ -1,0 +1,143 @@
+name: HCC Stage42 Remaining 12 Original MRI DICOM Pixel Source Candidate Screen
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage42_remaining_source_pixel_candidates.py"
+      - ".github/workflows/hcc-stage42-remaining12-source-pixel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-stage42-remaining12-original-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  original-DICOM-pixel-12-source-patient-shards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        patient:
+          - TCGA-BC-A10Y
+          - TCGA-BC-A5W4
+          - TCGA-DD-A4NF
+          - TCGA-DD-A4NH
+          - TCGA-DD-A4NJ
+          - TCGA-G3-A25T
+          - TCGA-G3-A3CJ
+          - TCGA-G3-A7M7
+          - TCGA-G3-AAV1
+          - TCGA-G3-AAV2
+          - TCGA-G3-AAV3
+          - TCGA-G3-AAV7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install original NIfTI and DICOM source-only pinned readers
+        run: python3 -m pip install "numpy==2.2.6" "nibabel==5.3.2" "pydicom==3.0.1"
+      - name: Frozen 12-case roster and source-only pixel negative fixtures
+        run: python3 research/hcc/ci/mri14_stage42_remaining_source_pixel_candidates.py --offline-test
+      - name: Restore Stage39 authoritative 247 source geometries and 83 frozen candidates
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage39-14-original-PV-NIfTI-vs-247-DICOM-geometry-source
+          run-id: 41384565388
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/stage39_frozen
+      - name: Verify original 14-case, 247-header, 83 geometry frozen evidence and no biological promotion
+        run: |
+          python3 - <<'PY'
+          import json,csv
+          from pathlib import Path
+          p=Path("artifacts/stage39_frozen")
+          j=json.loads((p/"stage39_original_source_NIfTI_DICOM_geometry_summary.json").read_text())
+          with (p/"stage39_source_247_DICOM_series_to_PV_NIfTI_geometry.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)==247 and len({r["patient_id"] for r in rows})==14
+          assert j["source_3way_geometry_compatible_rows"]==83
+          assert j["patients_with_multiple_3way_geometry_candidates"]==14
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED" and j["MRI_RNA_biological_tests"]==0
+          print("HCC_STAGE42_FROZEN_14_SOURCE_PV_CANDIDATE_MANIFEST_PASS")
+          PY
+      - name: Audit all geometric source series of assigned patient with 3 original CRC-checked DICOM pixel samples per series
+        run: |
+          python3 research/hcc/ci/mri14_stage42_remaining_source_pixel_candidates.py \
+            --patient "${{ matrix.patient }}" \
+            --stage39-csv artifacts/stage39_frozen/stage39_source_247_DICOM_series_to_PV_NIfTI_geometry.csv \
+            --out-dir artifacts/hcc_stage42_patient
+      - name: Per-patient source discovery gate; never promote from pixel candidate to exact PV source identity
+        run: |
+          python3 - <<'PY'
+          import json,csv
+          from pathlib import Path
+          p=Path("artifacts/hcc_stage42_patient")
+          j=json.loads((p/"stage42_patient_source_pixel_candidate_summary.json").read_text())
+          with (p/"stage42_candidate_source_pixel_patterns.csv").open() as f:
+              r=list(csv.DictReader(f))
+          assert len(r)==j["source_candidate_geometry_series"] and len(r)>=1
+          assert sum(int(x["source_samples_tested"]) for x in r)==3*len(r)
+          assert sum(int(x["valid_original_dicom_samples"]) for x in r)==j["source_DICOM_sample_reads_valid"]
+          assert j["exact_original_PV_NIfTI_DICOM_full3d_match_verified_n"]==0
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED" and j["MRI_RNA_biological_tests"]==0
+          assert j["claim_ceiling"]=="S0"
+          print("HCC_STAGE42_PATIENT_SOURCE_CANDIDATE_REVIEW_ONLY_PASS",j["patient_id"],j["source_pixel_pattern_decision"])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage42-source-pixel-${{ matrix.patient }}
+          path: artifacts/hcc_stage42_patient/*
+          retention-days: 90
+          if-no-files-found: warn
+
+  aggregate-frozen12-original-source-pixel:
+    needs: original-DICOM-pixel-12-source-patient-shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Download all 12 original patient source artifacts without flattening independent identity
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-stage42-source-pixel-*
+          path: artifacts/stage42_source_shards
+      - name: Merge exactly 12 cases; maintain unverified selected PV clinical and MRI-RNA source gates
+        run: |
+          python3 research/hcc/ci/mri14_stage42_remaining_source_pixel_candidates.py \
+            --aggregate --shard-root artifacts/stage42_source_shards \
+            --out-dir artifacts/hcc_stage42_aggregate
+      - name: Assert all 12 source patients covered, remaining exact source identity zero and S0
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,csv
+          p=Path("artifacts/hcc_stage42_aggregate")
+          j=json.loads((p/"stage42_12patient_original_source_candidate_summary.json").read_text())
+          with (p/"stage42_12patient_source_priority.csv").open() as f:
+              cases=list(csv.DictReader(f))
+          assert len(cases)==12 and len({r["patient_id"] for r in cases})==12
+          assert j["stage41_3d_complete_n"]==2
+          assert j["stage42_patient_shards_completed"]==12
+          assert j["source_geometry_candidate_series_evaluated"]==75
+          assert j["source_patients_unique_strong_pixel_candidate"]+j["source_patients_ambiguous_or_no_strong_candidate"]==12
+          assert j["overall_full3D_source_provenance_verified_n"]==2
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED" and j["MRI_RNA_biological_tests"]==0 and j["claim_ceiling"]=="S0"
+          print("HCC_STAGE42_ORIGINAL_12_CASES_ALL_PIXEL_CANDIDATES_FROZEN_S0_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage42-12-original-MRI-DICOM-pixel-candidates-aggregate
+          path: artifacts/hcc_stage42_aggregate/*
+          retention-days: 90
+          if-no-files-found: error

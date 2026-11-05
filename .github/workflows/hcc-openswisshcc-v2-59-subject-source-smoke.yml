@@ -1,0 +1,98 @@
+name: HCC OpenSwissHCC v2 External 59-Subject Radiomics Source Shard Smoke
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_external_openswisshcc_v2_cohort_radiomics_sharded.py"
+      - ".github/workflows/hcc-openswisshcc-v2-59-subject-source-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-openswiss-venous-source-pilot-shard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    name: HCC source-only 59 patients, 15 independent shards, no modality confusion
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install source-only image dependency imports for fixture
+        run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - name: Verify predeclared source archive partition and reject arterial as venous
+        run: python3 research/hcc/ci/mri_external_openswisshcc_v2_cohort_radiomics_sharded.py --offline-test
+
+  first-four-real-cases:
+    needs: source-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    name: Four independent source-preselected HCC venous cases, preserve image/mask failures
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install original identical PyRadiomics 3.1.0 source-only dependencies
+        run: |
+          python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+          python -m pip install --only-binary=pyradiomics "pyradiomics==3.1.0"
+          python -c 'import importlib.metadata as m; assert m.version("pyradiomics")=="3.1.0"'
+      - name: Fetch original 59-case metadata preselection without transferring whole images
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/openswisshcc_v2_4patient_smoke
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13049177735/zip" \
+            --output artifacts/openswisshcc_v2_4patient_smoke/source_verified_59_primary_rois.zip
+      - name: Retrieve only needed original venous NIfTI and mask ZIP members with HTTP ranges
+        run: |
+          python research/hcc/ci/mri_external_openswisshcc_v2_cohort_radiomics_sharded.py \
+            --primary-source-zip artifacts/openswisshcc_v2_4patient_smoke/source_verified_59_primary_rois.zip \
+            --shard 0 \
+            --out-dir artifacts/openswisshcc_v2_4patient_smoke/output
+      - name: Verify four case-level decisions; reject source failures without silently dropping patients
+        run: |
+          python3 - <<'PY'
+          import json,csv,os
+          from pathlib import Path
+          root=Path("artifacts/openswisshcc_v2_4patient_smoke/output")
+          j=json.loads((root/"external_hcc_venous_source_shard_0.json").read_text())
+          assert j["shard"]==0 and j["n_expected"]==4
+          assert j["n_succeeded"]+j["n_hold"]==4
+          assert j["n_feature_grid_rows"]==j["n_succeeded"]*6
+          assert j["RNA_12_tests"]=="NOT_EXECUTED" and j["claim_ceiling"]=="S0"
+          assert not j["original_Zenodo_patient_zip_entirely_downloaded"]
+          with (root/"external_hcc_venous_pyradiomics_shard_0.csv").open() as f:
+              data=list(csv.DictReader(f))
+          assert len(data)==j["n_succeeded"]*6
+          assert all(x["source_phase"]=="original_native_venous_water" and
+                     x["clinical_eligibility"]=="NOT_ASSESSED" and
+                     x["external_cohort_replication_claim"]=="NO_INDIVIDUAL_SHARD" for x in data)
+          lines=["## OpenSwissHCC v2 real 4-person original HCC venous image and tumor mask feasibility",
+                 "", "- Original public OpenSwissHCC v2, 59 independent one-per-patient source-selected HCC tumor candidates.",
+                 "- This smoke test checks only four frozen patients from first source ZIP; failures recorded HOLD not silently dropped.",
+                 f"- Patient image+mask+6 parameter conditions succeeded: **{j['n_succeeded']}/4**.",
+                 f"- Technical input/geometry/extraction HOLD: **{j['n_hold']}/4**.",
+                 f"- Source-only feature rows: **{j['n_feature_grid_rows']}**.",
+                 "- No RNA data, no clinical eligibility, no independent study-wide external replication claim. S0."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          print("HCC_OPENSWISS_V2_4_ACTUAL_SOURCE_PATIENTS_QC_COMPLETE",j)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-openswiss-v2-4-patient-real-venous-radiomics-source-shard0
+          path: artifacts/openswisshcc_v2_4patient_smoke/output/*
+          retention-days: 90
+          if-no-files-found: warn

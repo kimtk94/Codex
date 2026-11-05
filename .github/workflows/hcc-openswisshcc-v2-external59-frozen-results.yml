@@ -1,0 +1,58 @@
+name: HCC OpenSwissHCC v2 External 59-Patient Immutable Results Gate
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/HCC_EXTERNAL_OPENSWISSHCC_V2_59_INDEX_PATIENT_GLCM_NATIVE3MM_FROZEN_20261101.csv"
+      - "research/hcc/HCC_EXTERNAL_OPENSWISSHCC_V2_59_24_CONDITION_BOOTSTRAP_FROZEN_20261101.csv"
+      - "research/hcc/ci/mri_external_openswisshcc_v2_59_immutable_result_guard.py"
+      - ".github/workflows/hcc-openswisshcc-v2-external59-frozen-results.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-openswiss-v2-n59-original-results-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-grounded-regression:
+    name: All 59 original patient values and 24 bootstrapped conditions must match 7 SHA sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate permanent 59 patient / 24 feature-condition file and clinical S0 status
+        run: python3 research/hcc/ci/mri_external_openswisshcc_v2_59_immutable_result_guard.py
+      - name: Recover actual full 16-of-16 PASS 59-person original source report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/hcc_59_frozen_source_qc
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13050138178/zip" \
+            --output artifacts/hcc_59_frozen_source_qc/original_16job_source_59_cases.zip
+      - name: All seven SHA256; all 59 case source/ROI values; 24 exact bootstrap estimates
+        run: |
+          python3 research/hcc/ci/mri_external_openswisshcc_v2_59_immutable_result_guard.py \
+            --original-source-zip artifacts/hcc_59_frozen_source_qc/original_16job_source_59_cases.zip
+      - name: Publish reproducibility and claim ceiling
+        run: |
+          python3 - <<'PY'
+          import os
+          lines=[
+            "## HCC external OpenSwissHCC v2 MRI-only n=59 immutable source regression",
+            "",
+            "- Original source [Actions #41221356861](https://github.com/kimtk94/Codex/actions/runs/41221356861), **16/16 PASS**, 59 exact independent tumor source NIfTI pairs; **0 technical HOLD**.",
+            "- Original 59 patient-level source compact values match full 354 rows' native/3mm GLCM exact source values.",
+            "- Original 24 parameter-condition 4,000 person-bootstrap intervals and Spearman coefficients exactly crosschecked.",
+            "- Seven original archive source members checked by SHA256; repository branch retains permanent compact CSVs.",
+            "- Original source is native-venous Swiss MRI; not equivalent to LiverHccSeg raw PV-vs-registered PV source.",
+            "- No diagnostic, survival, MRI-RNA or clinical pairing claims; original MRI–RNA 0/12; S0."
+          ]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          PY

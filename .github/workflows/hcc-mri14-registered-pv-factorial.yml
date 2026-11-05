@@ -1,0 +1,136 @@
+name: HCC P0 Official Registered PV 14-Case BinWidth Spacing Factorial
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_p0_registered_pv_binwidth_spacing_factorial.py"
+      - "research/hcc/ci/mri_p0_registered_pv_binwidth_spacing_aggregate.py"
+      - ".github/workflows/hcc-mri14-registered-pv-factorial.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-registered-pv-factorial-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-validation:
+    name: Frozen 14-case 2x3 grid and clinical HOLD negative tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - run: python research/hcc/ci/mri_p0_registered_pv_binwidth_spacing_factorial.py --offline-test
+      - run: python research/hcc/ci/mri_p0_registered_pv_binwidth_spacing_aggregate.py --offline-test
+
+  official-source-shards:
+    name: "Registered ART_PV patient pair shard ${{ matrix.shard }}/7"
+    needs: offline-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 42
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install same PyRadiomics 3.1.0 binary as frozen official source
+        run: |
+          python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+          python -m pip install --only-binary=pyradiomics "pyradiomics==3.1.0"
+          python -c 'import importlib.metadata as m; assert m.version("pyradiomics")=="3.1.0"'
+      - name: Extract 2 official source patients x 2 readers x 2 spacing x 3 binWidth
+        run: |
+          python research/hcc/ci/mri_p0_registered_pv_binwidth_spacing_factorial.py \
+            --shard ${{ matrix.shard }} --out-dir artifacts/hcc_registered_factorial
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-regpv-factorial-shard-${{ matrix.shard }}
+          path: artifacts/hcc_registered_factorial/*.csv
+          retention-days: 60
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-regpv-factorial-shard-${{ matrix.shard }}-manifest
+          path: artifacts/hcc_registered_factorial/*.json
+          retention-days: 60
+          if-no-files-found: warn
+
+  aggregate:
+    name: Verify immutable registered-native25 source baseline and quantify all 24 conditions
+    runs-on: ubuntu-latest
+    needs: official-source-shards
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-regpv-factorial-shard-*
+          path: artifacts/hcc_reg_factorial
+          merge-multiple: true
+      - name: Fetch original SHA256-verified official source 56-row feature reference
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/13039386584/zip" \
+            --output artifacts/hcc_reg_factorial/hcc_mri14_original_56_row_evidence.zip
+      - name: Require all 14 source patients, all 168 extraction rows, and original frozen 112 native25 values
+        run: |
+          python research/hcc/ci/mri_p0_registered_pv_binwidth_spacing_aggregate.py \
+            --shard-dir artifacts/hcc_reg_factorial \
+            --source-56-zip artifacts/hcc_reg_factorial/hcc_mri14_original_56_row_evidence.zip \
+            --out-dir artifacts/hcc_registered_factorial_summary
+      - name: Ensure source-only statistical research with exactly 14 patient units
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          p=Path("artifacts/hcc_registered_factorial_summary")
+          j=json.loads((p/"hcc_registered_pv_2x3_factorial_summary.json").read_text())
+          assert j["status"]=="PASS_ALL14_REGISTERED_PV_FACTORIAL_SOURCE_METHODS_ONLY"
+          assert j["original_registered_native_bw25_feature_checks"]==112
+          assert j["n_independent_patients"]==14 and j["n_extraction_rows"]==168
+          assert j["n_condition_metric_rows"]==24
+          assert j["original_12_MRI_RNA_tests"]=="NOT_EXECUTED" and j["claim_ceiling"]=="S0"
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert len(j["glcm_contrast_conditions"])==6
+          c=j["glcm_contrast_conditions"]
+          lines=["## HCC MRI14 registered PV 2×3 gray-level discretization/voxel grid methods gate",
+                 "", "- 14 independent patients, 2 expert masks each; 2 spatial grids and 3 bin widths, **168 source-only rows**.",
+                 "- Official registered source ART_PV, exact NIfTI signed-axis correction.",
+                 "- Registered native + binWidth25 reproduces source verified 56-row PyRadiomics artifact for all **112 feature values**.",
+                 "- No MRI-RNA test, eligible n NOT ASSESSED, claim ceiling S0.",
+                 "", "| Spacing grid | binWidth | Contrast ICC(A,1) | Median abs change vs registered native25 (%) | Patient rank rho |",
+                 "|---|---:|---:|---:|---:|"]
+          for x in c:
+              lines.append(f"| {x['grid']} | {x['bin_width']} | {x['reader_icc_A1']} | {x['median_abs_change_pct_vs_native25']} | {x['patient_mean_rank_rho_vs_native25']} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          print("HCC_REGISTERED_PV_FACTORIAL_168_ROWS_24_METRICS_112_NATIVE_REFERENCE_MATCH_S0_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-mri14-official-registered-pv-2x3-factorial-168-rows-and-24-condition-metrics
+          path: artifacts/hcc_registered_factorial_summary/*
+          retention-days: 90
+          if-no-files-found: warn

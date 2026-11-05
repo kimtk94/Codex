@@ -1,0 +1,108 @@
+name: HCC Stage41 Two Original Source DICOM Full 3D Stack Verification
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/hcc_stage41_fullstack_math.py"
+      - "research/hcc/ci/hcc_stage41_fullstack_original_source.py"
+      - ".github/workflows/hcc-stage41-source-fullstack-two-case.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hcc-stage41-real-fullstack-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  patient-original-source-fullstack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        patient: [TCGA-BC-A3KG, TCGA-BC-A69I]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install exact source NIfTI and original DICOM readers
+        run: python3 -m pip install "numpy==2.2.6" "nibabel==5.3.2" "pydicom==3.0.1"
+      - name: Offline complete 3D image mapping and full-resolution pixel negative fixture
+        run: python3 research/hcc/ci/hcc_stage41_fullstack_original_source.py --offline-test
+      - name: Download successful frozen Stage40 source candidates
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage40-original-PV-NIfTI-vs-DICOM-2case-8series-24pixel-pilot
+          run-id: 41389903430
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/stage40_verified
+      - name: Check Stage40 frozen two patients and no clinical promotion
+        run: |
+          python3 - <<'PY'
+          import csv,json
+          from pathlib import Path
+          d=Path("artifacts/stage40_verified")
+          s=json.loads((d/"stage40_two_case_original_pixel_pattern_summary.json").read_text())
+          with (d/"stage40_8_source_candidate_series_pixel_pattern_summary.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          assert set(s["pilot_patients"])=={"TCGA-BC-A3KG","TCGA-BC-A69I"}
+          assert len(rows)==8 and s["source_strong_pattern_candidate_series"]==2
+          assert s["source_DICOM_pixel_pattern_comparisons_valid"]==24
+          assert s["clinical_eligible_n"]=="NOT_ASSESSED" and s["MRI_RNA_biology_tests"]==0
+          print("HCC_STAGE41_VERIFIED_SOURCE_STAGE40_PIXEL_PILOT_FROZEN_PASS")
+          PY
+      - name: Read every original DICOM slice and compare full-resolution 3D PV NIfTI voxels and coordinates
+        run: |
+          python3 research/hcc/ci/hcc_stage41_fullstack_original_source.py \
+            --patient "${{ matrix.patient }}" \
+            --stage40-csv artifacts/stage40_verified/stage40_8_source_candidate_series_pixel_pattern_summary.csv \
+            --out-dir artifacts/hcc_stage41_source_fullstack
+      - name: Verify actual full source stack accounted and prohibit false clinical/biological claims
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,csv
+          d=Path("artifacts/hcc_stage41_source_fullstack")
+          j=json.loads((d/"stage41_full_source_DICOM_PV_3d_summary.json").read_text())
+          with (d/"stage41_original_all_DICOM_slice_fullresolution.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          assert j["original_DICOM_CRC_verified_instances"]==j["native_PV_shape_xyz"][2]
+          assert j["original_DICOM_unique_SOP_instances"]==j["native_PV_shape_xyz"][2]
+          assert len(rows)==j["native_PV_shape_xyz"][2]
+          assert j["clinical_eligible"]=="NOT_ASSESSED"
+          assert j["original_MRI_before_HCC_treatment_episode"]=="NOT_ASSESSED"
+          assert j["original_RNA_same_imaged_index_lesion"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biology_tests"]==0 and j["claim_ceiling"]=="S0"
+          print("HCC_STAGE41_REAL_COMPLETE_SOURCE_3D_PATIENT_FAIL_CLOSED_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage41-real-fullstack-${{ matrix.patient }}
+          path: artifacts/hcc_stage41_source_fullstack/*
+          retention-days: 90
+          if-no-files-found: warn
+  aggregate-original-source-3d:
+    needs: patient-original-source-fullstack
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-stage41-real-fullstack-*
+          path: artifacts/stage41_patient_results
+      - name: Check both independent patient verdicts and retain MRI RNA clinical HOLD
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          root=Path("artifacts/stage41_patient_results")
+          for pid in ("TCGA-BC-A3KG","TCGA-BC-A69I"):
+              p=root/("hcc-stage41-real-fullstack-"+pid)/"stage41_full_source_DICOM_PV_3d_summary.json"
+              assert p.is_file(),str(p)
+              j=json.loads(p.read_text())
+              assert j["patient_id"]==pid and j["clinical_eligible"]=="NOT_ASSESSED"
+              assert j["MRI_RNA_biology_tests"]==0 and j["claim_ceiling"]=="S0"
+              print("HCC_STAGE41_FULL_3D_PATIENT_RESULT",pid,j["technical_source_imaging_verdict"],j["fullres_min_pearson"],j["maximum_LPS_RAS_physical_coordinate_error_mm"])
+          print("HCC_STAGE41_TWO_PATIENT_FULL_ORIGINAL_3D_SOURCE_AUDIT_COMPLETE")
+          PY
