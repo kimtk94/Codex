@@ -29,7 +29,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: qq-feishu-mail-ingest
+  group: ${{ github.event_name == 'pull_request' && format('qq-feishu-mail-tests-{0}', github.event.pull_request.number) || 'qq-feishu-mail-ingest' }}
   cancel-in-progress: false
 jobs:
   tests:
