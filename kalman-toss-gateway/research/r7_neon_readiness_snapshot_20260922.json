@@ -1,0 +1,49 @@
+{
+  "schema": "kalman-r7-neon-readiness-snapshot-v2",
+  "generated_at_utc": "2026-09-22T08:45:00Z",
+  "source": "Neon project crimson-rain-35914476",
+  "live_query": false,
+  "data": {
+    "macro_release": {
+      "n": 0,
+      "first_available": null,
+      "last_available": null,
+      "indicators": 0,
+      "actual_ratio": null,
+      "consensus_ratio": null,
+      "strong_time_ratio": null,
+      "event_time_usable_ratio_120m": null,
+      "pit_audit_ratio": null
+    },
+    "macro_repricing": {
+      "n": 0,
+      "first_available": null,
+      "last_available": null
+    },
+    "news_article": {
+      "n": 839,
+      "first_available": "2013-04-18T12:30:00Z",
+      "last_available": "2026-09-22T02:00:00Z",
+      "sources": 10,
+      "usable_time_ratio": 0.35876042908224076
+    },
+    "news_entity": {
+      "n": 839,
+      "us_stock_symbols": 4,
+      "mapped_articles": 839
+    },
+    "news_snapshot": {
+      "n": 174,
+      "first_as_of": "2026-09-20T14:26:00Z",
+      "last_as_of": "2026-09-22T08:45:00Z",
+      "us_stock_symbols": 0,
+      "versions": 1
+    },
+    "news_coverage": {
+      "n": 13,
+      "duplicate_ratio": 0,
+      "unmapped_ratio": 0,
+      "exact_ts_ratio": 0.6923076923076923
+    }
+  }
+}
