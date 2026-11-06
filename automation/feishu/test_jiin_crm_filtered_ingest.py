@@ -51,6 +51,19 @@ class CRMOnlyTests(unittest.TestCase):
         with self.assertRaisesRegex(c.SafeError,"CRM_BODY_DATE_MISMATCH"):
             c.decode_checked(m.as_bytes(),"7","10")
 
+    def test_qq_exmail_uses_ssl_and_authorization_code_by_default(self):
+        with mock.patch.dict(os.environ,{
+                "JIIN_CRM_APP_PASSWORD": "a-test-only-fake-auth-code"
+             },clear=True), \
+             mock.patch.object(c.imaplib,"IMAP4_SSL") as server:
+            client=server.return_value
+            client.login.return_value=("OK",[])
+            self.assertIs(c.open_mail(),client)
+            server.assert_called_once_with("imap.exmail.qq.com",993,timeout=40)
+            client.login.assert_called_once_with("jiin.yoo@novogene.com",
+                                                 "a-test-only-fake-auth-code")
+            client.authenticate.assert_not_called()
+
     def test_no_access_without_auth_secret(self):
         with mock.patch.dict(os.environ,{"JIIN_CRM_IMAP_HOST":"outlook.office365.com",
                           "JIIN_CRM_AUTH_METHOD":"oauth2",
