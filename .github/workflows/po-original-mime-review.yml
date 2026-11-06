@@ -1,0 +1,56 @@
+name: PO Original MIME Read-only Evidence Review
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/po_original_mime_review.py'
+      - 'automation/feishu/test_po_original_mime_review.py'
+      - '.github/workflows/po-original-mime-review.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/po-original-mime-review.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '55 1 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: po-original-mime-readonly
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original MIME read-only and source identity guards
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_po_original_mime_review.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_po_body_multiplicity_audit.py' -v
+  live_mime_readonly:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' && vars.JIIN_CRM_READY == 'true' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      JIIN_CRM_IMAP_HOST: ${{ vars.JIIN_CRM_IMAP_HOST || 'imap.exmail.qq.com' }}
+      JIIN_CRM_IMAP_PORT: ${{ vars.JIIN_CRM_IMAP_PORT || '993' }}
+      JIIN_CRM_AUTH_METHOD: ${{ vars.JIIN_CRM_AUTH_METHOD || 'app_password' }}
+      JIIN_CRM_OAUTH_ACCESS_TOKEN: ${{ secrets.JIIN_CRM_OAUTH_ACCESS_TOKEN }}
+      JIIN_CRM_APP_PASSWORD: ${{ secrets.JIIN_CRM_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect original MIME only for high-priority PO body candidates
+        run: python3 automation/feishu/po_original_mime_review.py
