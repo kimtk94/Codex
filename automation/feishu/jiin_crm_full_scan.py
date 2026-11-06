@@ -241,7 +241,7 @@ def persist_batch(token, path, rows, indexed):
                              data={"records": [{"fields": single}]},
                              action="crm_scan_singleton_retry")
             except SafeError as retry_exc:
-                if "crm_scan_singleton_retry_HTTP_400" not in str(retry_exc):
+                if not str(retry_exc).endswith("_HTTP_400"):
                     raise
                 _reconcile_after_http400(token, path, indexed)
                 if single["Mail Key"] in indexed:
