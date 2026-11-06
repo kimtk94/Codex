@@ -6,10 +6,18 @@ on:
       - feat/sfdc-web-contact-search-command-intake-dryrun
     paths:
       - 'masteros/web/**'
+      - 'automation/sfdc/contact_lookup_source_gate.py'
+      - 'automation/sfdc/test_contact_lookup_source_gate.py'
+      - 'automation/sfdc_desktop/contact_preview_export.py'
+      - 'automation/sfdc_desktop/test_contact_preview_export.py'
       - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
   pull_request:
     paths:
       - 'masteros/web/**'
+      - 'automation/sfdc/contact_lookup_source_gate.py'
+      - 'automation/sfdc/test_contact_lookup_source_gate.py'
+      - 'automation/sfdc_desktop/contact_preview_export.py'
+      - 'automation/sfdc_desktop/test_contact_preview_export.py'
       - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
   workflow_dispatch:
 permissions:
