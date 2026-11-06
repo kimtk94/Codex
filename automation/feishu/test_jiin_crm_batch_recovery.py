@@ -62,8 +62,8 @@ class BatchRecoveryTests(unittest.TestCase):
     def test_invalid_singleton_control_char_only_is_repaired(self):
         row = self.row(1, "a\x00b")
         def api(method, path, token, data=None, action=""):
-            if action == "crm_scan_batch_create":
-                raise f.SafeError("crm_scan_batch_create_HTTP_400")
+            if action in ("crm_scan_batch_create", "crm_scan_singleton_retry"):
+                raise f.SafeError(action + "_HTTP_400")
             self.assertEqual(action, "crm_scan_control_fallback")
             self.assertEqual(data["records"][0]["fields"]["Body Excerpt"], "a b")
             return {"records": [{"record_id": "stored-1"}]}
