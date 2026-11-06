@@ -37,7 +37,8 @@ PRIORITY = {
 }
 
 
-def targets(source):
+def targets(source, owned_contracts=None):
+    """If provided, restrict MIME work to CSS-verified Contract project IDs."""
     selected = {}
     flagged = Counter()
     for name, sender in po.SOURCES:
@@ -47,6 +48,12 @@ def targets(source):
             event = audit.classify(fields, sender, name)
             if not event:
                 continue
+            if owned_contracts is not None:
+                project = event["project"]
+                received = po.parse_time(plain_field(fields.get("Received At")))
+                if (project not in owned_contracts or not received
+                        or received <= owned_contracts[project]):
+                    continue
             if event["body_signal"] not in PRIORITY and not event["body_near_excerpt_limit"]:
                 continue
             key = event["key"]
@@ -214,12 +221,34 @@ def main():
     for name, sender in po.SOURCES:
         path = po.find_source(token, root, tables, name)
         source[name] = list_all(path+"/records", token, "po_original_source")
-    selected, flagged = targets(source)
+    # CRM-only Contract announcements belong to other sales and must never
+    # expand the user's PO original-mail verification work.
+    tracker_matches = [t for t in tables if t.get("name") == po.TABLE]
+    if len(tracker_matches) != 1:
+        raise SafeError("PO_ORIGINAL_TRACKER_NOT_UNIQUE")
+    tracker_path = root + "/tables/" + urllib.parse.quote(
+        tracker_matches[0]["table_id"], safe=""
+    )
+    owned_contracts = {}
+    for rec in list_all(tracker_path + "/records", token, "po_original_owned_contracts"):
+        fields = rec.get("fields") or {}
+        scope = plain_field(fields.get("Contract Scope")).strip()
+        if scope == "EXCLUDED_NOT_MY_CSS_CONTRACT":
+            continue
+        if scope != "MY_CSS_CONTRACT" or plain_field(fields.get("Contract Source")) != "CSS":
+            raise SafeError("PO_ORIGINAL_CONTRACT_OWNERSHIP_UNVERIFIED")
+        project = plain_field(fields.get("Project ID")).strip()
+        created = po.parse_time(plain_field(fields.get("Contract Notice UTC")))
+        if not project or not created or project in owned_contracts:
+            raise SafeError("PO_ORIGINAL_DUPLICATE_OR_INVALID_CSS_CONTRACT")
+        owned_contracts[project] = created
+    selected, flagged = targets(source, owned_contracts)
     stats = {}
     for name, sender in po.SOURCES:
         stats["CRM" if sender == po.CRM_SENDER else "CSS"] = dict(
             verify_source(name, sender, selected[name]))
     output = {
+        "owned_css_contract_projects": len(owned_contracts),
         "candidate_mail_count": sum(len(x) for x in selected.values()),
         "candidate_sources": dict(flagged),
         "source_results": stats,
