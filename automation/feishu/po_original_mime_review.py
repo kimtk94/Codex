@@ -102,7 +102,13 @@ def inspect_message(raw, expected, source, total_size=None):
     """Never claim documentary receipt based on message text or MIME hints."""
     msg = BytesParser(policy=default).parsebytes(raw)
     header_sender = normalized_sender(msg.get("From"))
-    if header_sender != {source}:
+    stored_sender = normalized_sender(plain_field(expected.get("From")))
+    # 'source' selects the authorized mailbox, not necessarily From. In the
+    # user's own QQ mailbox, both CSS and CRM notifications can be valid;
+    # the same CRM message in Jiin's mailbox never proves Contract ownership.
+    # Bind MIME From to the stored exact sender as well as the source guard.
+    if (not po.exact_sender(expected, source) or len(stored_sender) != 1
+            or header_sender != stored_sender):
         raise SafeError("PO_ORIGINAL_SENDER_MISMATCH")
     if not po.since_2026(qq.date_string(msg.get("Date"))):
         raise SafeError("PO_ORIGINAL_DATE_MISMATCH")

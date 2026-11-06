@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: po-original-mime-readonly
+  group: ${{ github.event_name == 'pull_request' && format('po-original-mime-tests-{0}', github.event.pull_request.number) || 'po-original-mime-readonly' }}
   cancel-in-progress: false
 jobs:
   tests:
