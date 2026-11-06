@@ -41,7 +41,8 @@ jobs:
       - name: Install source read client
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Test SIF evidence, invoice VAT and weekly quotes
-        run: python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_progress_board.py' -v
       - name: Validate sync syntax
         run: python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/project_progress_board.py
