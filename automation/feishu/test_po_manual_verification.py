@@ -7,7 +7,7 @@ import contract_po_tracker as p
 
 def due():
     return {
-        "Project ID": "AMEA2026042239", "PO Status": "PO_REQUIRED",
+        "Project ID": "AMEA2026042239", "PO Status": "PO_REQUIRED", "Contract Source": "CSS",
         "Next Action": "REQUEST_PO", "Contract Mail Key": "source-mail",
         "Evidence Rule": "ORIGINAL_EXACT_SENDER_SUBJECT_V1", "Last Sync UTC": "now",
     }

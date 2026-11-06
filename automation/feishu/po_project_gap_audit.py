@@ -43,12 +43,24 @@ def classify_event(item):
 
 def project_rows(source, tracker_records):
     contracts = {}
+    seen_tracker_projects = set()
+    excluded_legacy = 0
     for rec in tracker_records:
         fields = rec.get("fields") or {}
         project = plain_field(fields.get("Project ID")).strip()
+        if not project or project in seen_tracker_projects:
+            raise SafeError("PO_GAP_CONTRACT_TRACKER_INVALID")
+        seen_tracker_projects.add(project)
+        source_name = plain_field(fields.get("Contract Source")).strip()
+        if source_name != "CSS":
+            # Old mixed-owner rows are kept for audit but must leave the due view.
+            if plain_field(fields.get("PO Followup Queue")) != "EXCLUDED_NO_OWNER_CONTRACT":
+                raise SafeError("PO_GAP_NON_OWNER_CONTRACT_IN_DUE_QUEUE")
+            excluded_legacy += 1
+            continue
         created = po.parse_time(plain_field(fields.get("Contract Notice UTC")))
         contract_key = plain_field(fields.get("Contract Mail Key")).strip()
-        if not project or project in contracts or not created or not contract_key:
+        if not created or not contract_key:
             raise SafeError("PO_GAP_CONTRACT_TRACKER_INVALID")
         queue = plain_field(fields.get("PO Followup Queue")).strip() or "NOT_YET_SYNCED"
         inference = plain_field(fields.get("Submission Inference")).strip()
@@ -164,7 +176,8 @@ def project_rows(source, tracker_records):
         "operational_po_missing_projects": counts["followup_PO_REQUIRED"],
         "inferred_po_submitted_projects": counts["followup_PO_SUBMITTED_INFERRED"],
         "verified_receipt_reduction": counts["file_attested"],
-        "policy": "CONTRACT_CREATED_THEN_POST_CONTRACT_ORIGINAL_SUBJECT_ID_ONLY",
+        "excluded_other_sales_or_unconfirmed_contract_projects": excluded_legacy,
+        "policy": "OWNER_CSS_CONTRACT_ONLY_THEN_POST_CONTRACT_SUBJECT_ID",
         "action": "READ_ONLY_NO_STATUS_CHANGES_NO_MANUAL_LINKS",
         "writes": 0,
     }

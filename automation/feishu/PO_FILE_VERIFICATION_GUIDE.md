@@ -4,9 +4,21 @@ This tracker is in the Feishu Sales Base: **Contract PO Tracker**.
 
 ## What starts the queue
 
-An original 2026 CSS/CRM notice with an unambiguous project ID and
-`Contract Ready/Created` triggers `PO_REQUIRED`. **No Contract notice,
-no automatic PO-required row.**
+**Only the user's own `QQ Mail Intake` (original CSS automatic email) is
+allowed to establish an owned Contract.** An original inbound 2026 CSS
+`Contract Ready/Created` notice with an unambiguous project ID starts PO
+follow-up. Jiin's separate `CRM Filtered Mail Intake` mixes other salespeople:
+its Contract creation mail **never** creates an owned PO follow-up project.
+
+For a project already confirmed by the user's own CSS/QQ Contract, original
+CRM mail may contribute PO, Final Report, or Statement *evidence*. It must
+match the exact project ID in the subject; do not link based on the body or
+on account/customer name alone.
+
+Historical CRM-only rows are retained for audit, but their derived
+`PO Followup Queue` is set to `EXCLUDED_NO_OWNER_CONTRACT` and they are
+removed from the `PO 수령 필요` view. No customer data or previously saved
+manual PO proof is deleted.
 
 The `PO Status` field is machine-generated from exact-sender source mail.
 Do **not** edit it as a substitute for actual document verification.
