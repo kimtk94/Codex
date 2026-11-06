@@ -445,7 +445,7 @@ def board_list_with_retry(token,path,action):
         try:
             return list_all(path+"/records",token,action)
         except SafeError as exc:
-            if not re.search(r"HTTP_(?:429|500|502|503|504)\\b",str(exc)) or attempt==3:
+            if not re.search(r"HTTP_(?:429|500|502|503|504)(?:$|[^0-9])",str(exc)) or attempt==3:
                 raise
             # Keep a 503 from causing partial/false success or extra writes.
             print("PROJECT_BOARD_TRANSIENT_READ_RETRY attempt="+str(attempt+1))
