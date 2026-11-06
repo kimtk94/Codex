@@ -23,6 +23,8 @@ FIELDS = (
     "Project ID", "PO Status", "Contract Notice UTC", "Contract Source",
     "Contract Mail Key", "Last PO Notice UTC", "PO Notice Source",
     "PO Mail Key", "Next Action", "Evidence Rule", "Last Sync UTC",
+    "PO Followup Queue", "PO Document Verification", "PO Document Reference",
+    "PO Verified At", "PO Verified By",
 )
 SOURCES = (("QQ Mail Intake", CSS), ("CRM Filtered Mail Intake", CRM_SENDER))
 AMEA = re.compile(r"\bAMEA\d{7,}(?:-\d+)?\b", re.I)
@@ -141,6 +143,35 @@ def build_tracker(events, at_utc):
     return rows
 
 
+def manual_file_verified(previous):
+    """User-entered attestation, never inferred from a mail subject alone.
+
+    Requires explicit verification, a traceable document reference, a named
+    reviewer, and a timestamp with timezone; incomplete claims stay on queue.
+    """
+    if plain_field(previous.get("PO Document Verification")).strip() != "FILE_VERIFIED":
+        return False
+    if not plain_field(previous.get("PO Document Reference")).strip():
+        return False
+    if not plain_field(previous.get("PO Verified By")).strip():
+        return False
+    return parse_time(plain_field(previous.get("PO Verified At"))) is not None
+
+
+def apply_followup(rows, indexed):
+    for fields in rows:
+        previous = (indexed.get(fields["Project ID"]) or {}).get("fields") or {}
+        if manual_file_verified(previous):
+            fields["PO Followup Queue"] = "FILE_VERIFIED_ATTESTED"
+            fields["Next Action"] = "NO_PO_FOLLOWUP_MANUAL_FILE_ATTESTED"
+        elif fields["PO Status"] == "PO_REQUIRED":
+            fields["PO Followup Queue"] = "PO_REQUIRED"
+            fields["Next Action"] = "REQUEST_PO"
+        else:
+            fields["PO Followup Queue"] = "PO_FILE_REVIEW"
+            fields["Next Action"] = "VERIFY_PO_FILE"
+
+
 def find_source(token, root, tables, name):
     matches = [x for x in tables if x.get("name") == name]
     if len(matches) != 1:
@@ -238,6 +269,9 @@ def sync(token, path, desired):
             raise SafeError("CONTRACT_PO_DUPLICATE_PROJECT")
         if key:
             indexed[key] = record
+    # Preserve user-edited manual evidence fields (never auto-write them).
+    # Only the derived queue and next action may depend on attestations.
+    apply_followup(desired, indexed)
     creates, updates = [], []
     for fields in desired:
         key = fields["Project ID"]
@@ -274,11 +308,14 @@ def main():
     desired = build_tracker(events, now)
     tid, path, fields = ensure_tracker(token, root, tables)
     created, updated, total = sync(token, path, desired)
-    vid = ensure_pending_view(token, path, fields["PO Status"]["field_id"])
-    pending = sum(x["PO Status"] == "PO_REQUIRED" for x in desired)
+    vid = ensure_pending_view(token, path, fields["PO Followup Queue"]["field_id"])
+    pending = sum(x["PO Followup Queue"] == "PO_REQUIRED" for x in desired)
+    manually_attested = sum(x["PO Followup Queue"] == "FILE_VERIFIED_ATTESTED" for x in desired)
+    needs_file_review = sum(x["PO Followup Queue"] == "PO_FILE_REVIEW" for x in desired)
     print("CONTRACT_PO_TRACKER_PASS contract_notices=" + str(counts["contract"]) +
           " po_notices=" + str(counts["po_notice"]) + " projects=" + str(total) +
-          " po_required=" + str(pending) + " created=" + str(created) +
+          " po_required=" + str(pending) + " manual_file_attested=" + str(manually_attested) +
+          " po_file_review=" + str(needs_file_review) + " created=" + str(created) +
           " updated=" + str(updated) + " source_mail_writes=0")
     print("CONTRACT_PO_PENDING_VIEW=" + BASE_URL + "?table=" + tid + "&view=" + vid)
 

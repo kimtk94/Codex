@@ -4,6 +4,7 @@ on:
     paths:
       - 'automation/feishu/contract_po_tracker.py'
       - 'automation/feishu/test_contract_po_tracker.py'
+      - 'automation/feishu/test_po_manual_verification.py'
       - 'automation/feishu/sales_native_home.py'
       - '.github/workflows/contract-po-tracker.yml'
   push:
@@ -34,6 +35,8 @@ jobs:
           python-version: '3.11'
       - name: Verify original contract gate and PO evidence
         run: python3 -m unittest discover -s automation/feishu -p 'test_contract_po_tracker.py' -v
+      - name: Verify manual PO file proof gate and derived follow-up view
+        run: python3 -m unittest discover -s automation/feishu -p 'test_po_manual_verification.py' -v
       - name: Verify existing SIF PO checks remain intact
         run: python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_sif_po_audit.py' -v
       - name: Verify native Feishu home navigation
