@@ -21,10 +21,11 @@ class ContractPOTrackerTests(unittest.TestCase):
         self.assertEqual(rows[0]["PO Status"], "PO_REQUIRED")
         self.assertEqual(rows[0]["Next Action"], "REQUEST_PO")
 
-    def test_explicit_created_from_crm_is_accepted(self):
+    def test_crm_contract_cannot_create_an_owner_project(self):
+        # Jiin is a different salesperson's mixed mail intake.
         e = p.event(message("Contract Created AMEA2026042239",
                             sender="crm@novogene.com"), p.CRM_SENDER)
-        self.assertTrue(e["contract"])
+        self.assertIsNone(e)
 
     def test_po_notice_without_contract_does_not_create_queue(self):
         e = p.event(message("PO Received AMEA2026042239",
