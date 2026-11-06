@@ -51,5 +51,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Audit verified 2026 PO mail titles and stored body excerpts
+      - name: Audit 2026 PO body evidence and owner QQ Contract cohort separately
         run: python3 automation/feishu/po_body_multiplicity_audit.py
