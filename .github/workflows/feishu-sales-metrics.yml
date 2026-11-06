@@ -27,7 +27,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: feishu-sales-metrics-sync
+  group: ${{ github.event_name == 'pull_request' && format('feishu-sales-metrics-pr-{0}', github.event.pull_request.number) || 'feishu-sales-metrics-sync' }}
   cancel-in-progress: false
 jobs:
   tests:
