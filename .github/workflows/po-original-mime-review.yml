@@ -52,5 +52,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Inspect original MIME only for high-priority PO body candidates
+      - name: Inspect original MIME only for PO notices after own QQ Contract
         run: python3 automation/feishu/po_original_mime_review.py
