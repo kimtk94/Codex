@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Contract-triggered PO queue from original CSS/CRM notices in Feishu.
 
-A contract notice starts PO follow-up. Explicit PO notices update the mail-only
-status. User-directed business rule: a later Final Report Ready or Statement
-Ready/Issued/Confirmed notice means PO submission is assumed for the due-list.
+Only an original Contract notice delivered to the user's CSS mailbox starts PO
+follow-up. The Jiin CRM-only mailbox includes OTHER SALES and is NEVER allowed
+to create the Contract cohort. CRM PO/Final Report/Statement notices may only
+serve as supplementary evidence after a CSS-verified Contract for exactly the
+same subject Project ID. A later Final Report/Statement means submitted for
+the due-list, not physical PO file verification.
 This is not independent proof of a received/signed PO file. Write ONLY the
 dedicated Contract PO Tracker table; never mutate original mail tables.
 """
@@ -28,7 +31,7 @@ FIELDS = (
     "PO Followup Queue", "PO Document Verification", "PO Document Reference",
     "PO Verified At", "PO Verified By",
     "Downstream Evidence Type", "Downstream Evidence UTC", "Downstream Source",
-    "Downstream Mail Key", "Submission Inference",
+    "Downstream Mail Key", "Submission Inference", "Contract Scope",
 )
 SOURCES = (("QQ Mail Intake", CSS), ("CRM Filtered Mail Intake", CRM_SENDER))
 AMEA = re.compile(r"\bAMEA\d{7,}(?:-\d+)?\b", re.I)
@@ -121,7 +124,12 @@ def event(row, source):
     project = unique_project(subject)  # Quoted body IDs are NOT an identity proof.
     if not project:
         return None
-    contract = bool(CONTRACT_CREATED.search(subject) and not CONTRACT_NEGATIVE.search(subject))
+    # Critical owner gate: Jiin CRM mailbox includes other sales.
+    # Contract ownership is evidenced ONLY by the user's CSS intake.
+    contract = bool(
+        source == CSS and CONTRACT_CREATED.search(subject)
+        and not CONTRACT_NEGATIVE.search(subject)
+    )
     po_state = document_evidence(subject, "", "PO", False)
     if po_state not in ("RECEIVED_NOTICE", "CONFIRMED_NOTICE", "NOT_RECEIVED_NOTICE", "ACTION_REQUESTED"):
         po_state = None
@@ -155,7 +163,7 @@ def build_tracker(events, at_utc):
     grouped = defaultdict(lambda: {"contracts": [], "po": [], "downstream": []})
     for e in events:
         g = grouped[e["project"]]
-        if e["contract"]:
+        if e["contract"] and e["source"] == "CSS":
             g["contracts"].append(e)
         if e["po"]:
             g["po"].append(e)
@@ -166,7 +174,10 @@ def build_tracker(events, at_utc):
         if not group["contracts"]:
             continue  # Contract absence is NOT a missing PO.
         contract = sorted(group["contracts"], key=lambda e: (e["at"], e["key"]))[0]
-        state, po, action = choose_state(contract, group["po"])
+        # Match PO notices only after the user's CSS Contract was created.
+        # CRM is supplementary evidence *within* this owned project cohort.
+        post_contract_po = [e for e in group["po"] if e["at"] > contract["at"]]
+        state, po, action = choose_state(contract, post_contract_po)
         # Final report / statement is a downstream process milestone. Require
         # original notice timestamp STRICTLY after the Contract creation.
         milestones = [e for e in group["downstream"] if e["at"] > contract["at"]]
@@ -175,12 +186,13 @@ def build_tracker(events, at_utc):
         evidence_type = "_AND_".join(sorted(evidence_types)) if evidence_types else ""
         contradictory = latest is not None and any(
             e["at"] > latest["at"] and e["po"] in ("ACTION_REQUESTED", "NOT_RECEIVED_NOTICE")
-            for e in group["po"]
+            for e in post_contract_po
         )
         inference = ("CONFLICT_REVIEW" if contradictory else
                      "ASSUMED_BY_DOWNSTREAM_NOTICE" if latest else "NOT_OBSERVED")
         rows.append({
             "Project ID": project,
+            "Contract Scope": "MY_CSS_CONTRACT",
             "PO Status": state,
             "Contract Notice UTC": contract["at"].isoformat(),
             "Contract Source": contract["source"],
@@ -189,7 +201,7 @@ def build_tracker(events, at_utc):
             "PO Notice Source": po["source"] if po else "",
             "PO Mail Key": po["key"] if po else "",
             "Next Action": action,
-            "Evidence Rule": "ORIGINAL_EXACT_SENDER_SUBJECT_V2_DOWNSTREAM_AFTER_CONTRACT",
+            "Evidence Rule": "CSS_ONLY_CONTRACT_CRM_SUPPLEMENT_V3_DOWNSTREAM_AFTER_CONTRACT",
             "Last Sync UTC": at_utc,
             "Downstream Evidence Type": evidence_type,
             "Downstream Evidence UTC": latest["at"].isoformat() if latest else "",
@@ -348,6 +360,23 @@ def sync(token, path, desired):
         elif any(plain_field((old.get("fields") or {}).get(k)) != str(v)
                  for k, v in fields.items() if k != "Last Sync UTC"):
             updates.append({"record_id": old["record_id"], "fields": fields})
+    # Preserve historical CRM-only projects for audit, but remove them from
+    # the user's actionable PO queue without deleting records or manual proof.
+    # Idempotent: re-running the tracker never resurrects other-sales rows.
+    selected = {f["Project ID"] for f in desired}
+    archived = []
+    for key, record in indexed.items():
+        if key in selected:
+            continue
+        old = record.get("fields") or {}
+        fields = {
+            "Contract Scope": "EXCLUDED_NOT_MY_CSS_CONTRACT",
+            "PO Followup Queue": "OUT_OF_SCOPE_OTHER_SALES",
+            "Next Action": "NO_ACTION_OTHER_SALES_CONTRACT",
+        }
+        if any(plain_field(old.get(k)) != v for k, v in fields.items()):
+            archived.append({"record_id": record["record_id"], "fields": fields})
+    updates.extend(archived)
     for operation, batches in (("batch_create", creates), ("batch_update", updates)):
         for offset in range(0, len(batches), 25):
             chunk = batches[offset:offset + 25]
@@ -363,6 +392,18 @@ def sync(token, path, desired):
         if any(plain_field(actual.get(k)) != str(v) for k, v in fields.items()
                if k != "Last Sync UTC"):
             raise SafeError("CONTRACT_PO_READBACK_MISMATCH")
+    for archived_row in archived:
+        actual = (lookup.get(next(
+            (key for key, record in indexed.items()
+             if record["record_id"] == archived_row["record_id"]), ""
+        )) or {}).get("fields") or {}
+        if any(plain_field(actual.get(k)) != v
+               for k, v in archived_row["fields"].items()):
+            raise SafeError("CONTRACT_PO_SCOPE_ARCHIVE_READBACK_MISMATCH")
+    print("CONTRACT_PO_SCOPE_AUDIT active_css_contract_projects=" + str(len(desired)) +
+          " historical_other_sales_rows=" + str(len(indexed) - len(selected & set(indexed))) +
+          " newly_archived=" + str(len(archived)) +
+          " source_mail_writes=0")
     return len(creates), len(updates), len(desired)
 
 
@@ -390,6 +431,7 @@ def main():
           " downstream_notice_mails=" + str(counts["downstream_mail_notices"]) +
           " final_report_projects=" + str(report_evidence) +
           " statement_projects=" + str(statement_evidence) +
+          " owned_contract_source=CSS" +
           " inferred_po_submitted_projects=" + str(inferred) +
           " po_evidence_conflict_review=" + str(conflicting) +
           " created=" + str(created) + " updated=" + str(updated) +
