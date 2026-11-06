@@ -162,61 +162,22 @@ def run():
     if os.environ.get("FEISHU_BASE_APP_TOKEN") != EXPECTED_BASE:
         raise SafeError("CRM_UNEXPECTED_FEISHU_BASE")
     mode = os.environ.get("JIIN_CRM_MODE", "probe").strip().lower()
-    if mode not in ("probe", "apply"):
+    if mode not in ("probe", "apply", "backfill"):
         raise SafeError("CRM_MODE_INVALID")
-    cap = min(1000, max(1, int(os.environ.get("JIIN_CRM_MAIL_LIMIT", "300"))))
+    limit = int(os.environ.get(
+        "JIIN_CRM_MAIL_LIMIT", "15000" if mode == "backfill" else "300"))
+    if not (1 <= limit <= (15000 if mode == "backfill" else 1000)):
+        raise SafeError("CRM_MAIL_LIMIT_INVALID")
     token, root = auth()
-    # Authenticate and verify mailbox ownership/access before any Feishu side effect.
+    if mode in ("apply", "backfill"):
+        # The full scan uses an idempotent UID checkpoint. Scheduled jobs
+        # process up to 300 more candidates; explicit backfills drain 15,000.
+        from jiin_crm_full_scan import drain
+        return drain(token, root, limit)
+    # Probe checks authorized login only: no mailbox headers or Feishu writes.
     im = open_mail()
-    verified = False
     try:
-        if mode == "probe":
-            print("CRM_AUTH_PROBE_PASS read_headers=0 writes=0")
-            verified = True
-            return
-        path = ensure_table(token, root, allow_create=True)
-        existing = list_all(path + "/records", token, "crm_existing")
-        indexed = {}
-        for r in existing:
-            key = plain_field((r.get("fields") or {}).get("Mail Key"))
-            if key:
-                if key in indexed:
-                    raise SafeError("CRM_DUPLICATE_MAIL_KEY")
-                indexed[key] = r.get("record_id")
-        uids, validity = matching_candidates(im, indexed, cap)
-        added = 0
-        for i in range(0, len(uids), 25):
-            batch = []
-            for uid in uids[i:i+25]:
-                status, parts = im.uid("FETCH", uid,
-                                       "(BODY.PEEK[]<0." + str(BODY_LIMIT) + ">)")
-                if status != "OK":
-                    raise SafeError("JIIN_CRM_BODY_FETCH_FAILED")
-                payload = next((item[1] for item in (parts or [])
-                                if isinstance(item, tuple) and isinstance(item[1], bytes)), None)
-                if payload is None:
-                    raise SafeError("JIIN_CRM_BODY_MISSING")
-                row = decode_checked(payload, validity, uid.decode("ascii"))
-                if row["Mail Key"] not in indexed:
-                    batch.append({"fields": row})
-            if not batch:
-                continue
-            response = api("POST", path + "/records/batch_create", token,
-                           data={"records": batch}, action="crm_filtered_create")
-            records = response.get("records") or []
-            if len(records) != len(batch) or any(not r.get("record_id") for r in records):
-                raise SafeError("CRM_BATCH_CREATE_NOT_VERIFIED")
-            for record, entry in zip(records, batch):
-                indexed[entry["fields"]["Mail Key"]] = record["record_id"]
-            added += len(batch)
-            time.sleep(0.25)
-        print("CRM_FILTERED_APPLY_PASS added=" + str(added) +
-              " selected=" + str(len(uids)) + " other_table_writes=0")
-        verified = True
-    except imaplib.IMAP4.abort:
-        if not verified:
-            raise
-        print("CRM_IMAP_LOGOUT_ABORT_AFTER_VERIFIED=1")
+        print("CRM_AUTH_PROBE_PASS read_headers=0 writes=0")
     finally:
         try:
             im.logout()
