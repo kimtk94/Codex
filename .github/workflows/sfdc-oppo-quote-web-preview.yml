@@ -30,6 +30,8 @@ jobs:
         run: |
           python3 -m unittest discover -s ../../automation/sfdc -p 'test_contact_lookup_source_gate.py' -v
           python3 -m py_compile ../../automation/sfdc/contact_lookup_source_gate.py
+          python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_contact_preview_export.py' -v
+          python3 -m py_compile ../../automation/sfdc_desktop/contact_preview_export.py
       - name: Install isolated web dependencies
         run: npm install --no-audit --no-fund
       - name: Run unit, local readback privacy and no-Save checks
