@@ -12,6 +12,10 @@ on:
   push:
     branches: [main]
     paths:
+      - 'automation/feishu/contract_po_tracker.py'
+      - 'automation/feishu/test_po_owner_contract_scope.py'
+      - 'automation/feishu/test_contract_po_tracker.py'
+      - 'automation/feishu/test_po_downstream_inference.py'
       - '.github/workflows/contract-po-tracker.yml'
   workflow_dispatch:
   schedule:
@@ -20,6 +24,7 @@ on:
     workflows:
       - Jiin CRM 2026 Full Backfill One-Time
       - Jiin CRM Sender-Only Feishu Import
+      - QQ Mail 2026 Historical Backfill
     types: [completed]
 permissions:
   contents: read
