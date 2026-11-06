@@ -21,7 +21,7 @@ permissions:
   contents: read
 concurrency:
   group: sif-po-issue-diagnosis-readonly
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   tests:
     runs-on: ubuntu-latest
