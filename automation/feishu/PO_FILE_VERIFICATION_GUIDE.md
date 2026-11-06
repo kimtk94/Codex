@@ -4,10 +4,11 @@ This tracker is in the Feishu Sales Base: **Contract PO Tracker**.
 
 ## What starts the queue
 
-**Only the user's own `QQ Mail Intake` (original CSS automatic email) is
-allowed to establish an owned Contract.** An original inbound 2026 CSS
-`Contract Ready/Created` notice with an unambiguous project ID starts PO
-follow-up. Jiin's separate `CRM Filtered Mail Intake` mixes other salespeople:
+**Only the user's own `QQ Mail Intake` may establish an owned
+Contract.** A 2026 original `Contract Ready/Created` notice received in
+that mailbox from either the authorized `css@novogene-amea.com` or
+`crm@novogene.com` sender, with a unique subject project ID, starts
+PO follow-up. Jiin's separate `CRM Filtered Mail Intake` mixes other salespeople:
 its Contract creation mail **never** creates an owned PO follow-up project.
 
 For a project already confirmed by the user's own CSS/QQ Contract, original
