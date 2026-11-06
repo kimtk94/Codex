@@ -49,6 +49,8 @@ MENUS = (
      "프로젝트별 메일","QQ 메일 + 프로젝트 참조","AMEA/H 프로젝트 ID 정확 매칭"),
     ("CSS_NOTICES","03 프로젝트","CSS 진행 알림","Mail Identity 2026",
      "CSS 진행 안내","QQ 메일 · Feishu 분석","CSS 단계별 알림, 고객 회신 대상 아님"),
+    ("PROJECT_PROGRESS","03 프로젝트","프로젝트별 진행률 · Quote Full Name","Project Progress Board",
+     "프로젝트별 진행률","원본 CSS·SFDC·Prepayment·SIF","프로젝트별 0~100% 진행 바와 전체 Quote 이름, SIF/PO 후속 업무"),
     ("SIF","03 프로젝트","SIF 진행 현황","Project SIF Monitor",
      "프로젝트 진행 · SIF","기존 프로젝트·SIF 검증 시트","SIF 제출/승인 증빙 기준"),
     ("SIF_EVIDENCE","03 프로젝트","SIF 승인 확인 필요","SIF Evidence Tracker",
