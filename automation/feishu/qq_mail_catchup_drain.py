@@ -7,6 +7,8 @@ IMAP sessions, outbound mail, external URL publishing or SFDC writes.
 """
 import os
 import sys
+import time
+import imaplib
 import qq_mail_ingest as q
 
 def positive_env(name, default, cap):
@@ -29,7 +31,20 @@ def drain(batch_runner=None):
     for n in range(1,rounds+1):
         print("CATCHUP_ROUND_START="+str(n)+"/"+str(rounds)+" limit="+str(batch_size),
               flush=True)
-        result=batch_runner("backfill2026")
+        # QQ may abort a long-lived IMAP session during folder SEARCH/FETCH.
+        # Only IMAP4.abort is retryable. Every retry re-reads Feishu Mail Keys,
+        # making resumed runs safe after any previously acknowledged batch writes.
+        result=None
+        for attempt in range(3):
+            try:
+                result=batch_runner("backfill2026")
+                break
+            except imaplib.IMAP4.abort:
+                if attempt==2:
+                    raise
+                print("CATCHUP_IMAP_ABORT_RETRY round="+str(n)+
+                      " attempt="+str(attempt+1)+"/2",flush=True)
+                time.sleep(20*(attempt+1))
         if not isinstance(result,dict) or "added" not in result or "scanned" not in result:
             raise q.SafeError("CATCHUP_MISSING_VERIFIED_BATCH_COUNTS")
         added,scanned=result["added"],result["scanned"]
