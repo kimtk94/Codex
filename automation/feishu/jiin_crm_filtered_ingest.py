@@ -165,7 +165,14 @@ def run():
         raise SafeError("CRM_MODE_INVALID")
     cap = min(1000, max(1, int(os.environ.get("JIIN_CRM_MAIL_LIMIT", "300"))))
     token, root = auth()
-    if mode == "apply":
+    # Authenticate and verify mailbox ownership/access before any Feishu side effect.
+    im = open_mail()
+    verified = False
+    try:
+        if mode == "probe":
+            print("CRM_AUTH_PROBE_PASS read_headers=0 writes=0")
+            verified = True
+            return
         path = ensure_table(token, root, allow_create=True)
         existing = list_all(path + "/records", token, "crm_existing")
         indexed = {}
@@ -175,17 +182,6 @@ def run():
                 if key in indexed:
                     raise SafeError("CRM_DUPLICATE_MAIL_KEY")
                 indexed[key] = r.get("record_id")
-    else:
-        # Probe only validates credentials; never fetches mail or creates a table.
-        indexed = {}
-        path = None
-    im = open_mail()
-    verified = False
-    try:
-        if mode == "probe":
-            print("CRM_AUTH_PROBE_PASS read_headers=0 writes=0")
-            verified = True
-            return
         uids, validity = matching_candidates(im, indexed, cap)
         added = 0
         for i in range(0, len(uids), 25):
