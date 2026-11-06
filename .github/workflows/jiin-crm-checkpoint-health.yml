@@ -1,0 +1,51 @@
+name: Jiin CRM Backfill Checkpoint Health
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/jiin_crm_checkpoint_health.py'
+      - 'automation/feishu/test_jiin_crm_checkpoint_health.py'
+      - '.github/workflows/jiin-crm-checkpoint-health.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/jiin-crm-checkpoint-health.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '5 * * * *'
+  workflow_run:
+    workflows:
+      - Jiin CRM 2026 Full Backfill One-Time
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: jiin-crm-checkpoint-health
+  cancel-in-progress: true
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify checkpoint integrity and read-only behavior
+        run: python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_checkpoint_health.py' -v
+  snapshot:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' && github.event_name != 'pull_request' && vars.JIIN_CRM_READY == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read the Feishu UID checkpoint and audit exact sender mail counts
+        run: python3 automation/feishu/jiin_crm_checkpoint_health.py
