@@ -40,6 +40,32 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(row["SIF State"],"APPROVED")
         self.assertEqual(row["Progress %"],20.0)
 
+    def test_prepayment_waives_sif_and_submitted_advances(self):
+        pid="AMEA2026100751"
+        base={"CSS Project Dashboard":[{"project_id":pid,"current_stage":"SIF requested",
+             "progress_percent":"10","latest_action_required":"Please submit SIF"}],
+              "CSS Contract-SIF Tracker":[{"project_id":pid,"Prepayment":"TRUE",
+               "Status":"SIF requested","Next Action":"SIF 제출 확인"}],
+              "BI Project Lifecycle Overview":[],"Feishu Latest Prepayments":[]}
+        r=m.project_rows(base)[0]
+        self.assertEqual(r["SIF State"],"WAIVED_PREPAYMENT")
+        self.assertIn("SIF 제출 필수 아님",r["Next Action"])
+        base["CSS Contract-SIF Tracker"][0].update(
+            {"Status":"SIF received","sif_first_seen_at":"2026-11-06"})
+        r=m.project_rows(base)[0]
+        self.assertEqual(r["SIF State"],"SUBMITTED_EVIDENCE")
+        self.assertIn("후속 공정",r["Next Action"])
+
+    def test_exact_quotation_prepayment_waives_without_css_tracker(self):
+        pid="AMEA2026100751"
+        data={"CSS Project Dashboard":[{"project_id":pid,"current_stage":"SIF requested",
+             "progress_percent":"10","latest_action_required":"SIF 제출 확인"}],
+              "CSS Contract-SIF Tracker":[],"BI Project Lifecycle Overview":[],
+              "Feishu Latest Prepayments":[{"Quotation Number":pid}]}
+        r=m.project_rows(data)[0]
+        self.assertEqual(r["SIF State"],"WAIVED_PREPAYMENT")
+        self.assertIn("SIF 제출 필수 아님",r["Next Action"])
+
     def test_monthly_dedup_and_vat_separated(self):
         source={
             "Revenue Invoice Base":[
