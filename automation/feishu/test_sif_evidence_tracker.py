@@ -99,9 +99,11 @@ class SIFTrackerTests(unittest.TestCase):
     def test_body_only_sif_notice_not_used_for_approval(self):
         self.assertIsNone(s.sif_event(
             row("Progress AMEA2026042239", **{"Body Excerpt": "SIF Approved"}), po.CSS))
-        self.assertIsNone(s.sif_event(
+        unlinked = s.sif_event(
             row("SIF Approved", **{"Body Excerpt": "AMEA2026042239"}), po.CSS
-        ) if False else None)  # no body identity is used
+        )
+        self.assertIsNone(unlinked["project"])
+        self.assertEqual(s.build_rows([], [unlinked], "now"), [])
 
     def test_different_projects_stay_separate(self):
         rows = s.build_rows([], [e("SIF Approved AMEA2026042239"),
