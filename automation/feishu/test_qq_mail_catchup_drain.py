@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """No mail contents or external credentials needed for catch-up tests."""
 import os
+import imaplib
 import unittest
 from unittest import mock
 import qq_mail_catchup_drain as d
@@ -43,6 +44,34 @@ class CatchupTests(unittest.TestCase):
                 with self.subTest(result=result):
                     with self.assertRaises(d.q.SafeError):
                         d.drain(lambda _:result)
+
+    def test_transient_imap_abort_retries_then_succeeds(self):
+        attempts=[]
+        def flaky(mode):
+            attempts.append(mode)
+            if len(attempts)==1:
+                raise imaplib.IMAP4.abort("QQ socket dropped")
+            return {"added":257,"scanned":260}
+        with mock.patch.dict(os.environ,{"QQ_CATCHUP_MAX_ROUNDS":"1",
+                                         "FEISHU_MAIL_BACKFILL_TOTAL":"3000"}), \
+             mock.patch.object(d.time,"sleep") as delay:
+            result=d.drain(flaky)
+        self.assertEqual(result,{"rounds":1,"added":257})
+        self.assertEqual(len(attempts),2)
+        delay.assert_called_once_with(20)
+
+    def test_repeated_imap_abort_stops_after_two_retries(self):
+        attempts=[]
+        def fail(mode):
+            attempts.append(mode)
+            raise imaplib.IMAP4.abort("QQ socket dropped")
+        with mock.patch.dict(os.environ,{"QQ_CATCHUP_MAX_ROUNDS":"6",
+                                         "FEISHU_MAIL_BACKFILL_TOTAL":"3000"}), \
+             mock.patch.object(d.time,"sleep") as delay:
+            with self.assertRaises(imaplib.IMAP4.abort):
+                d.drain(fail)
+        self.assertEqual(len(attempts),3)
+        self.assertEqual(delay.call_count,2)
 
     def test_no_swallow_ingest_exceptions(self):
         def fail(_):
