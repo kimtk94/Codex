@@ -4,6 +4,7 @@ on:
     paths:
       - 'automation/feishu/po_project_gap_audit.py'
       - 'automation/feishu/test_po_project_gap_audit.py'
+      - 'automation/feishu/test_po_css_owned_contracts.py'
       - '.github/workflows/po-project-gap-audit.yml'
   push:
     branches: [main]
@@ -34,6 +35,7 @@ jobs:
       - name: Test Contract-first project cohort and PO evidence rules
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_po_project_gap_audit.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_po_css_owned_contracts.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_po_body_multiplicity_audit.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_po_manual_verification.py' -v
   snapshot:
@@ -51,5 +53,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Analyze 204 Contract project PO due-list reduction opportunities
+      - name: Audit own CSS Contract project PO follow-up only, excluding other-sales history
         run: python3 automation/feishu/po_project_gap_audit.py
