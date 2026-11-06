@@ -165,20 +165,100 @@ def selected_mail(im, uid, validity, indexed):
     return c.decode_checked(body, validity, str_uid)
 
 
+def _reconcile_after_http400(token, path, indexed):
+    """Check Feishu readback before any retry; never assume 400 means no write.
+
+    The batch may have been committed before a gateway error. Only Mail Key
+    hashes are inspected and no customer content is included in logs.
+    """
+    records = list_all(path + "/records", token, "crm_scan_400_readback")
+    seen = {}
+    for item in records:
+        key = plain_field((item.get("fields") or {}).get("Mail Key")).strip()
+        if not key:
+            continue
+        if key in seen or not item.get("record_id"):
+            raise SafeError("CRM_SCAN_400_DUPLICATE_OR_MISSING_ID")
+        seen[key] = item["record_id"]
+    indexed.update(seen)
+
+
+def _remove_invalid_controls(row):
+    """Replace only unsupported Unicode control code points, not content."""
+    clean = {}
+    count = 0
+    for name, value in row.items():
+        if not isinstance(value, str):
+            clean[name] = value
+            continue
+        new = []
+        for ch in value:
+            cp = ord(ch)
+            bad = (cp < 32 and ch not in "\\t\\n\\r") or (127 <= cp <= 159)
+            bad = bad or (0xD800 <= cp <= 0xDFFF) or cp in (0xFFFE, 0xFFFF)
+            if bad:
+                new.append(" ")
+                count += 1
+            else:
+                new.append(ch)
+        clean[name] = "".join(new)
+    return clean, count
+
+
 def persist_batch(token, path, rows, indexed):
+    """Idempotent 400 recovery: reconcile, bisect, then fail closed on a row."""
     if not rows:
         return 0
     if len(rows) > 25:
         raise SafeError("CRM_SCAN_BATCH_OVER_LIMIT")
-    result = api("POST", path + "/records/batch_create", token,
-                 data={"records": [{"fields": row} for row in rows]},
-                 action="crm_scan_batch_create")
+    keys = [r.get("Mail Key") for r in rows]
+    if len(set(keys)) != len(rows) or any(not k for k in keys):
+        raise SafeError("CRM_SCAN_BATCH_DUPLICATE_OR_EMPTY_KEY")
+    pending = [row for row in rows if row["Mail Key"] not in indexed]
+    if not pending:
+        return 0
+    try:
+        result = api("POST", path + "/records/batch_create", token,
+                     data={"records": [{"fields": row} for row in pending]},
+                     action="crm_scan_batch_create")
+    except SafeError as exc:
+        if "crm_scan_batch_create_HTTP_400" not in str(exc):
+            raise
+        # Feishu can reject a large batch or a single malformed string.
+        # Read back committed rows before retrying to avoid duplicate Mail Keys.
+        _reconcile_after_http400(token, path, indexed)
+        remaining = [row for row in pending if row["Mail Key"] not in indexed]
+        if not remaining:
+            print("CRM_SCAN_HTTP400_RECONCILED rows=" + str(len(pending)), flush=True)
+            return 0
+        if len(remaining) == 1:
+            safe_row, replaced = _remove_invalid_controls(remaining[0])
+            if replaced:
+                print("CRM_SCAN_HTTP400_CONTROL_REPLACEMENTS=" + str(replaced),
+                      flush=True)
+                try:
+                    result = api("POST", path + "/records/batch_create", token,
+                                 data={"records": [{"fields": safe_row}]},
+                                 action="crm_scan_control_fallback")
+                except SafeError:
+                    raise SafeError("CRM_SCAN_SINGLE_ROW_400_REQUIRES_REVIEW") from None
+                stored = result.get("records") or []
+                if len(stored) != 1 or not stored[0].get("record_id"):
+                    raise SafeError("CRM_SCAN_CONTROL_FALLBACK_UNVERIFIED")
+                indexed[safe_row["Mail Key"]] = stored[0]["record_id"]
+                return 1
+            raise SafeError("CRM_SCAN_SINGLE_ROW_400_REQUIRES_REVIEW") from None
+        mid = len(remaining) // 2
+        print("CRM_SCAN_HTTP400_SPLIT size=" + str(len(remaining)), flush=True)
+        left = persist_batch(token, path, remaining[:mid], indexed)
+        right = persist_batch(token, path, remaining[mid:], indexed)
+        return left + right
     records = result.get("records") or []
-    if len(records) != len(rows) or any(not r.get("record_id") for r in records):
+    if len(records) != len(pending) or any(not r.get("record_id") for r in records):
         raise SafeError("CRM_SCAN_FEISHU_SAVE_UNVERIFIED")
-    for row, item in zip(rows, records):
+    for row, item in zip(pending, records):
         indexed[row["Mail Key"]] = item["record_id"]
-    return len(rows)
+    return len(pending)
 
 
 def scan_block(im, token, mail_path, state_path, checkpoint_id, state, indexed, cap):
