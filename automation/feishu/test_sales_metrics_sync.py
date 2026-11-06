@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Source evidence and numeric correctness tests for Feishu KPI pages."""
 import unittest
+from unittest import mock
 
 import sales_metrics_sync as m
 from qq_mail_ingest import SafeError
@@ -65,6 +66,31 @@ class MetricsTests(unittest.TestCase):
         r=m.project_rows(data)[0]
         self.assertEqual(r["SIF State"],"WAIVED_PREPAYMENT")
         self.assertIn("SIF 제출 필수 아님",r["Next Action"])
+
+    def test_board_unchanged_does_not_repeat_405_row_readback(self):
+        row={"Source Key":"PROJECT:AMEA2026100751","AMEA":"AMEA2026100751",
+             "Progress %":40,"Quote Full Name":"Full Quote"}
+        old={"record_id":"r1","fields":{**row,"Last Sync KST":"previous"}}
+        with mock.patch.object(m,"list_all",return_value=[old]) as listing, mock.patch.object(m,"api") as api:
+            result=m.sync_board_table("token","/tables/t1",[row])
+        self.assertEqual(result,(0,0,1))
+        listing.assert_called_once()
+        api.assert_not_called()
+
+    def test_transient_503_readback_retries_but_bad_schema_does_not(self):
+        with mock.patch.object(m,"list_all",side_effect=[
+                SafeError("project_board_readback_HTTP_503"),[{"record_id":"r1"}]
+             ]) as listing,mock.patch.object(m.time,"sleep") as sleep:
+            values=m.board_list_with_retry("token","/tables/t","project_board_readback")
+        self.assertEqual(len(values),1)
+        self.assertEqual(listing.call_count,2)
+        sleep.assert_called_once()
+        with mock.patch.object(m,"list_all",side_effect=SafeError("SHEETS_SCHEMA_MISMATCH")) as listing,\
+             mock.patch.object(m.time,"sleep") as sleep:
+            with self.assertRaisesRegex(SafeError,"SCHEMA_MISMATCH"):
+                m.board_list_with_retry("token","/tables/t","project_board_readback")
+            listing.assert_called_once()
+            sleep.assert_not_called()
 
     def test_monthly_dedup_and_vat_separated(self):
         source={
