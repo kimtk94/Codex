@@ -20,7 +20,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: po-project-gap-readonly
+  group: ${{ github.event_name == 'pull_request' && format('po-project-gap-tests-{0}', github.event.pull_request.number) || 'po-project-gap-readonly' }}
   cancel-in-progress: false
 jobs:
   tests:
