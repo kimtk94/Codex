@@ -232,8 +232,24 @@ def persist_batch(token, path, rows, indexed):
             print("CRM_SCAN_HTTP400_RECONCILED rows=" + str(len(pending)), flush=True)
             return 0
         if len(remaining) == 1:
-            safe_row, replaced = _remove_invalid_controls(remaining[0])
-            if replaced:
+            single = remaining[0]
+            # A record isolated from a rejected batch has not yet been
+            # individually attempted. A one-row request can succeed where
+            # a malformed/oversized multi-row request returned HTTP 400.
+            try:
+                result = api("POST", path + "/records/batch_create", token,
+                             data={"records": [{"fields": single}]},
+                             action="crm_scan_singleton_retry")
+            except SafeError as retry_exc:
+                if "crm_scan_singleton_retry_HTTP_400" not in str(retry_exc):
+                    raise
+                _reconcile_after_http400(token, path, indexed)
+                if single["Mail Key"] in indexed:
+                    print("CRM_SCAN_SINGLETON_COMMITTED_AFTER_400", flush=True)
+                    return 0
+                safe_row, replaced = _remove_invalid_controls(single)
+                if not replaced:
+                    raise SafeError("CRM_SCAN_SINGLE_ROW_400_REQUIRES_REVIEW") from None
                 print("CRM_SCAN_HTTP400_CONTROL_REPLACEMENTS=" + str(replaced),
                       flush=True)
                 try:
@@ -242,12 +258,11 @@ def persist_batch(token, path, rows, indexed):
                                  action="crm_scan_control_fallback")
                 except SafeError:
                     raise SafeError("CRM_SCAN_SINGLE_ROW_400_REQUIRES_REVIEW") from None
-                stored = result.get("records") or []
-                if len(stored) != 1 or not stored[0].get("record_id"):
-                    raise SafeError("CRM_SCAN_CONTROL_FALLBACK_UNVERIFIED")
-                indexed[safe_row["Mail Key"]] = stored[0]["record_id"]
-                return 1
-            raise SafeError("CRM_SCAN_SINGLE_ROW_400_REQUIRES_REVIEW") from None
+            stored = result.get("records") or []
+            if len(stored) != 1 or not stored[0].get("record_id"):
+                raise SafeError("CRM_SCAN_SINGLETON_SAVE_UNVERIFIED")
+            indexed[single["Mail Key"]] = stored[0]["record_id"]
+            return 1
         mid = len(remaining) // 2
         print("CRM_SCAN_HTTP400_SPLIT size=" + str(len(remaining)), flush=True)
         left = persist_batch(token, path, remaining[:mid], indexed)
