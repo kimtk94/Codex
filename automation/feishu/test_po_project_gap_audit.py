@@ -191,6 +191,54 @@ class ProjectGapTests(unittest.TestCase):
         self.assertEqual(result["inferred_po_submitted_projects"],1)
         self.assertEqual(result["operational_po_missing_projects"],1)
 
+    def test_pending_root_causes_partition_project_count_without_double_count(self):
+        contracts = [
+            contract("AMEA2026042239", **{"PO Followup Queue": "PO_REQUIRED"}),
+            contract("AMEA2026042240", **{"PO Followup Queue": "PO_REQUIRED"}),
+            contract("AMEA2026042241", **{"PO Followup Queue": "PO_REQUIRED"}),
+            contract("AMEA2026042242", **{
+                "PO Followup Queue": "PO_SUBMITTED_INFERRED",
+                "Submission Inference": "ASSUMED_BY_DOWNSTREAM_NOTICE",
+                "Downstream Evidence Type": "STATEMENT",
+                "Downstream Evidence UTC": T,
+                "Downstream Mail Key": "statement-one",
+            }),
+            contract("AMEA2026042243", **{
+                "PO Followup Queue": "PO_SUBMITTED_INFERRED",
+                "Submission Inference": "ASSUMED_BY_DOWNSTREAM_NOTICE",
+                "Downstream Evidence Type": "FINAL_REPORT",
+                "Downstream Evidence UTC": T,
+                "Downstream Mail Key": "final-two",
+            }),
+        ]
+        result = g.project_rows(sources(css=[
+            mail("AMEA2026042240", body="Please send PO", key="request"),
+            mail("AMEA2026042240", body="PO still pending", when=L, key="followup"),
+            mail("AMEA2026042241", body="PO not received yet", key="missing"),
+            mail("AMEA2026042243", body="Please submit PO", key="inferred-request"),
+        ]), contracts)
+        causes = result["pending_po_root_causes"]
+        self.assertEqual(causes["pending_total"], 3)
+        self.assertEqual(causes["no_post_contract_po_mail"], 1)
+        self.assertEqual(causes["latest_po_request_or_reminder"], 1)
+        self.assertEqual(causes["latest_po_missing_or_not_received"], 1)
+        self.assertEqual(causes["inferred_submitted_without_po_mail"], 1)
+        self.assertEqual(causes["inferred_submitted_with_po_mail"], 1)
+        self.assertEqual(result["inferred_po_submitted_projects"], 2)
+        self.assertEqual(result["writes"], 0)
+        self.assertNotIn("AMEA2026042243", json.dumps(result))
+
+    def test_pending_same_timestamp_conflict_counted_once(self):
+        result = g.project_rows(sources(css=[
+            mail(body="PO received", key="received", when=T),
+            mail(body="PO not received", key="missing", when=T),
+        ]), [contract(**{"PO Followup Queue": "PO_REQUIRED"})])
+        causes = result["pending_po_root_causes"]
+        self.assertEqual(causes["pending_total"], 1)
+        self.assertEqual(causes["latest_conflicting_notices"], 1)
+        self.assertEqual(causes["latest_receipt_claim_not_file_verified"], 0)
+        self.assertEqual(causes["no_post_contract_po_mail"], 0)
+
     def test_crm_contract_legacy_record_excluded_not_counted(self):
         prior=contract("AMEA2026042244", **{
             "Contract Source": "CRM",
