@@ -43,8 +43,17 @@ def classify_event(item):
 
 def project_rows(source, tracker_records):
     contracts = {}
+    excluded_historical = 0
     for rec in tracker_records:
         fields = rec.get("fields") or {}
+        scope = plain_field(fields.get("Contract Scope")).strip()
+        if scope == "EXCLUDED_NOT_MY_CSS_CONTRACT":
+            if plain_field(fields.get("PO Followup Queue")) != "OUT_OF_SCOPE_OTHER_SALES":
+                raise SafeError("PO_GAP_HISTORICAL_OTHER_SALES_STILL_DUE")
+            excluded_historical += 1
+            continue
+        if scope != "MY_CSS_CONTRACT" or plain_field(fields.get("Contract Source")) != "CSS":
+            raise SafeError("PO_GAP_CONTRACT_OWNERSHIP_UNVERIFIED")
         project = plain_field(fields.get("Project ID")).strip()
         created = po.parse_time(plain_field(fields.get("Contract Notice UTC")))
         contract_key = plain_field(fields.get("Contract Mail Key")).strip()
@@ -158,6 +167,8 @@ def project_rows(source, tracker_records):
     ):
         raise SafeError("PO_GAP_LATEST_PARTITION_INVALID")
     return {
+        "excluded_historical_other_sales_projects": excluded_historical,
+        "owned_contract_cohort_source": "CSS_ONLY",
         "project_cohorts": dict(sorted(counts.items())),
         "mail_matching": dict(sorted(stats.items())),
         "review_candidate_reduction": counts["potential_review_queue_reduction_not_verified"],
