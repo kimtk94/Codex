@@ -49,9 +49,9 @@ jobs:
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
-      JIIN_CRM_IMAP_HOST: ${{ vars.JIIN_CRM_IMAP_HOST }}
+      JIIN_CRM_IMAP_HOST: ${{ vars.JIIN_CRM_IMAP_HOST || 'imap.exmail.qq.com' }}
       JIIN_CRM_IMAP_PORT: ${{ vars.JIIN_CRM_IMAP_PORT || '993' }}
-      JIIN_CRM_AUTH_METHOD: ${{ vars.JIIN_CRM_AUTH_METHOD || 'oauth2' }}
+      JIIN_CRM_AUTH_METHOD: ${{ vars.JIIN_CRM_AUTH_METHOD || 'app_password' }}
       JIIN_CRM_OAUTH_ACCESS_TOKEN: ${{ secrets.JIIN_CRM_OAUTH_ACCESS_TOKEN }}
       JIIN_CRM_APP_PASSWORD: ${{ secrets.JIIN_CRM_APP_PASSWORD }}
       JIIN_CRM_MODE: ${{ github.event_name == 'schedule' && 'apply' || inputs.mode }}

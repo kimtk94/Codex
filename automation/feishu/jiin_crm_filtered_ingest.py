@@ -46,13 +46,14 @@ def mail_key(uidvalidity, uid):
 
 
 def open_mail():
-    host = os.environ.get("JIIN_CRM_IMAP_HOST", "").strip()
+    # Tencent Exmail (QQ enterprise mail) standard IMAP server.
+    host = os.environ.get("JIIN_CRM_IMAP_HOST", "imap.exmail.qq.com").strip()
     if not host or any(c.isspace() for c in host):
         raise SafeError("JIIN_CRM_IMAP_HOST_NOT_CONFIGURED")
     port = int(os.environ.get("JIIN_CRM_IMAP_PORT", "993"))
     if not (1 <= port <= 65535):
         raise SafeError("JIIN_CRM_IMAP_PORT_INVALID")
-    method = os.environ.get("JIIN_CRM_AUTH_METHOD", "oauth2").strip().lower()
+    method = os.environ.get("JIIN_CRM_AUTH_METHOD", "app_password").strip().lower()
     if method not in ("oauth2", "app_password"):
         raise SafeError("JIIN_CRM_AUTH_METHOD_INVALID")
     if method == "oauth2":
