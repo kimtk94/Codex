@@ -1,0 +1,55 @@
+name: PO Mail Body and Repeat Analysis
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/po_body_multiplicity_audit.py'
+      - 'automation/feishu/test_po_body_multiplicity_audit.py'
+      - '.github/workflows/po-body-multiplicity-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/po-body-multiplicity-audit.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '50 2,11 * * *'
+  workflow_run:
+    workflows:
+      - Contract-triggered PO Required Tracker
+      - Jiin CRM Sender-Only Feishu Import
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: po-body-multiplicity-readonly
+  cancel-in-progress: false
+jobs:
+  offline_tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify body-context and duplicate handling
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_po_body_multiplicity_audit.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_contract_po_tracker.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_po_manual_verification.py' -v
+  live_read_only_audit:
+    needs: offline_tests
+    if: ${{ needs.offline_tests.result == 'success' && vars.JIIN_CRM_READY == 'true' && github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit verified 2026 PO mail titles and stored body excerpts
+        run: python3 automation/feishu/po_body_multiplicity_audit.py
