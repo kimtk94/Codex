@@ -139,9 +139,10 @@ def audit_one(korean_name, opportunity_id):
             view_label = "All Contacts" if tab.title().startswith("All Contacts") else "unknown"
             cid = strict_single_view(korean_name,view_label,text,entries)
             detail.goto(HOST+"/lightning/r/Contact/"+cid+"/view",wait_until="domcontentloaded",timeout=20000)
-            detail.wait_for_timeout(900)
-            if "Contact" not in detail.title():
-                raise Hold("HOLD_CONTACT_DETAIL_MISSING")
+            try:
+                detail.wait_for_function("() => document.title.includes(' | Contact | Salesforce')",timeout=15000)
+            except Exception:
+                raise Hold("HOLD_CONTACT_DETAIL_NOT_READY")
             accounts = visible_record_links(detail,"Account","001")
             if len(accounts)!=1:
                 raise Hold("HOLD_CONTACT_ACCOUNT_NOT_UNIQUE")
@@ -153,9 +154,10 @@ def audit_one(korean_name, opportunity_id):
             if len(unique_mail)!=1:
                 raise Hold("HOLD_CONTACT_EMAIL_UNVERIFIED")
             opp.goto(HOST+"/lightning/r/Opportunity/"+opportunity_id+"/view",wait_until="domcontentloaded",timeout=20000)
-            opp.wait_for_timeout(800)
-            if "Opportunity" not in opp.title():
-                raise Hold("HOLD_OPPORTUNITY_DETAIL_MISSING")
+            try:
+                opp.wait_for_function("() => document.title.includes(' | Opportunity | Salesforce')",timeout=15000)
+            except Exception:
+                raise Hold("HOLD_OPPORTUNITY_DETAIL_NOT_READY")
             op_contacts = visible_record_links(opp,"Contact","003")
             op_accounts = visible_record_links(opp,"Account","001")
             if len(op_contacts)!=1 or len(op_accounts)!=1:
