@@ -6,6 +6,8 @@ on:
       - 'automation/feishu/test_jiin_crm_filtered_ingest.py'
       - 'automation/feishu/jiin_crm_full_scan.py'
       - 'automation/feishu/test_jiin_crm_full_scan.py'
+      - 'automation/feishu/jiin_crm_source_audit.py'
+      - 'automation/feishu/test_jiin_crm_source_audit.py'
       - '.github/workflows/jiin-crm-only-feishu-ingest.yml'
   push:
     branches: [main, feat/jiin-crm-only-email-ingest-20261106]
@@ -14,6 +16,8 @@ on:
       - 'automation/feishu/test_jiin_crm_filtered_ingest.py'
       - 'automation/feishu/jiin_crm_full_scan.py'
       - 'automation/feishu/test_jiin_crm_full_scan.py'
+      - 'automation/feishu/jiin_crm_source_audit.py'
+      - 'automation/feishu/test_jiin_crm_source_audit.py'
       - '.github/workflows/jiin-crm-only-feishu-ingest.yml'
   workflow_dispatch:
     inputs:
@@ -43,6 +47,7 @@ jobs:
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_filtered_ingest.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_full_scan.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_source_audit.py' -v
           python3 -m py_compile automation/feishu/jiin_crm_filtered_ingest.py automation/feishu/jiin_crm_full_scan.py
   import:
     needs: offline_tests
@@ -68,3 +73,6 @@ jobs:
           python-version: '3.11'
       - name: Verify configured authorized jiin mailbox without logging password
         run: python3 automation/feishu/jiin_crm_filtered_ingest.py
+      - name: Independent CRM-only Feishu row integrity audit
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.mode != 'probe' || !cancelled() && github.event_name == 'schedule' }}
+        run: python3 automation/feishu/jiin_crm_source_audit.py
