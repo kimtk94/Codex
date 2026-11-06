@@ -149,6 +149,11 @@ def timestamp():
 
 
 def project_rows(source):
+    prepaid_quotation_ids={
+        cell(r,"Quotation Number").upper()
+        for r in source.get("Feishu Latest Prepayments",[])
+        if cell(r,"Quotation Number")
+    }
     # Project dashboard is the *complete* baseline; Contract-SIF has only
     # a small subset of projects, so it is used solely as proof of SIF status.
     sif_index=collections.defaultdict(list)
@@ -176,10 +181,17 @@ def project_rows(source):
         words=(css_status+" "+wf).lower()
         approved=bool(re.search(r"\bsif\s+approved\b|sif\s+승인",words))
         submitted=bool(re.search(r"\bsif\s+(?:submitted|received|approved)\b|sif\s+(?:제출|접수|승인)",words)) or bool(number and first_seen)
-        state="APPROVED" if approved else "SUBMITTED_EVIDENCE" if submitted else "NUMBER_ONLY_REVIEW" if number else "NOT_VERIFIED"
+        prepaid=(cell(sif,"Prepayment").upper() in ("TRUE","YES","1") or
+                 project_id in prepaid_quotation_ids)
+        state="APPROVED" if approved else "SUBMITTED_EVIDENCE" if submitted else "WAIVED_PREPAYMENT" if prepaid else "NUMBER_ONLY_REVIEW" if number else "NOT_VERIFIED"
         progress=numer(cell(item,"progress_percent"))
         if progress is None:progress=numer(cell(life,"CSS Progress %"))
         stage=cell(life,"Feishu Status (latest)") or cell(item,"current_stage")
+        next_action=cell(sif,"Next Action") or cell(item,"latest_action_required") or cell(life,"Immediate Next Step")
+        if prepaid and not submitted:
+            next_action="Prepayment 등재 · SIF 제출 필수 아님 · 샘플 입고 및 다음 단계 확인"
+        elif (submitted or (progress is not None and progress>=40)) and re.search(r"\bSIF\b",next_action,re.I):
+            next_action="기존 SIF 요청 제외 · 샘플 및 후속 공정 확인"
         data={
             "Source Key":key,
             "Institution":cell(item,"institution") or cell(sif,"Institution"),
@@ -191,7 +203,7 @@ def project_rows(source):
             "Current Stage":stage,
             "SIF No":number,"SIF State":state,"SIF First Seen":first_seen,
             "SIF Approved":"YES" if approved else "NOT_VERIFIED",
-            "Next Action":cell(sif,"Next Action") or cell(item,"latest_action_required") or cell(life,"Immediate Next Step"),
+            "Next Action":next_action,
             "Contract No":cell(sif,"Contract No."),
             "Evidence":"CSS Project Dashboard; SIF "+("EXACT_PROJECT_MATCH" if len(linked_sif)==1 else "NOT_MATCHED_OR_AMBIGUOUS")+
                 "; lifecycle "+("EXACT_AMEA_MATCH" if len(linked_life)==1 else "NOT_MATCHED_OR_AMBIGUOUS"),
@@ -206,16 +218,22 @@ def project_rows(source):
         item=items[0]
         number=cell(item,"SIF No.")
         submitted=bool(number and cell(item,"sif_first_seen_at"))
+        prepaid=(cell(item,"Prepayment").upper() in ("TRUE","YES","1") or
+                 pid in prepaid_quotation_ids)
         output[key]={
             "Source Key":key,"Institution":cell(item,"Institution"),
             "Customer":cell(item,"Customer Name"),"AMEA":pid,
             "Project":cell(item,"Project Name"),"Service":"",
             "CSS Status":cell(item,"Status"),"Current Stage":cell(item,"Status"),
             "SIF No":number,
-            "SIF State":"SUBMITTED_EVIDENCE" if submitted else "NUMBER_ONLY_REVIEW" if number else "NOT_VERIFIED",
+            "SIF State":"SUBMITTED_EVIDENCE" if submitted else "WAIVED_PREPAYMENT" if prepaid else "NUMBER_ONLY_REVIEW" if number else "NOT_VERIFIED",
             "SIF First Seen":cell(item,"sif_first_seen_at"),
             "SIF Approved":"NOT_VERIFIED",
-            "Next Action":cell(item,"Next Action"),
+            "Next Action":("Prepayment 등재 · SIF 제출 필수 아님 · 샘플 입고 및 다음 단계 확인"
+                           if prepaid and not submitted else
+                           "기존 SIF 요청 제외 · 샘플 및 후속 공정 확인"
+                           if submitted and re.search(r"\bSIF\b",cell(item,"Next Action"),re.I)
+                           else cell(item,"Next Action")),
             "Contract No":cell(item,"Contract No."),
             "Evidence":"CSS Contract-SIF ONLY; PROJECT_DASHBOARD_NOT_MATCHED",
         }
@@ -511,6 +529,7 @@ VIEW_SPECS = {
     "Project SIF Monitor": (
         ("프로젝트 진행 · SIF", None, None),
         ("SIF 제출 미확인", "SIF State", "NOT_VERIFIED"),
+        ("Prepayment · SIF 면제", "SIF State", "WAIVED_PREPAYMENT"),
         ("SIF 번호만 확인", "SIF State", "NUMBER_ONLY_REVIEW"),
         ("SIF 제출 증빙 있음", "SIF State", "SUBMITTED_EVIDENCE"),
         ("SIF 승인 완료", "SIF State", "APPROVED"),
