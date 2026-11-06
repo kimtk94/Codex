@@ -76,6 +76,20 @@ class PoBodyAnalysisTests(unittest.TestCase):
         self.assertEqual(report["manual_links"],0)
         self.assertNotIn("AMEA2026042239",str(report))
 
+    def test_owned_contract_po_statistics_do_not_count_other_sales(self):
+        source={"QQ Mail Intake":[
+            row("PO AMEA2026042239","Please send PO",uid="ours1"),
+            row("PO AMEA2026042239","PO pending",uid="ours2"),
+            row("PO AMEA2026042240","PO received",uid="others"),
+        ],"CRM Filtered Mail Intake":[]}
+        result=a.summarize(source,["AMEA2026042239"])
+        own=result["owned_project_counts"]
+        self.assertEqual(own["owned_css_contract_projects"],1)
+        self.assertEqual(own["owned_projects_with_po_mail"],1)
+        self.assertEqual(own["owned_projects_with_multiple_po_mails"],1)
+        self.assertEqual(own["owned_total_po_related_mails"],2)
+        self.assertEqual(result["po_mail_categories"]["po_relevant_mail"],3)
+
     def test_duplicate_mail_key_fails_closed(self):
         source={"QQ Mail Intake":[
             row("PO AMEA2026042239",uid="dup"),
