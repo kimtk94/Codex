@@ -194,7 +194,7 @@ def _remove_invalid_controls(row):
         new = []
         for ch in value:
             cp = ord(ch)
-            bad = (cp < 32 and ch not in "\\t\\n\\r") or (127 <= cp <= 159)
+            bad = (cp < 32 and ch not in "\t\n\r") or (127 <= cp <= 159)
             bad = bad or (0xD800 <= cp <= 0xDFFF) or cp in (0xFFFE, 0xFFFF)
             if bad:
                 new.append(" ")
