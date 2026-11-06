@@ -26,6 +26,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify SFDC source gate with synthetic evidence
+        run: |
+          python3 -m unittest discover -s ../../automation/sfdc -p 'test_contact_lookup_source_gate.py' -v
+          python3 -m py_compile ../../automation/sfdc/contact_lookup_source_gate.py
       - name: Install isolated web dependencies
         run: npm install --no-audit --no-fund
       - name: Run unit, local readback privacy and no-Save checks
