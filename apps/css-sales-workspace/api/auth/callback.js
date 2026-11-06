@@ -38,7 +38,7 @@ module.exports=async(req,res)=>{
  }
  const expiry=String(Math.floor(Date.now()/1000)+86400);
  const signature=sign('oauth-session:'+owner+':'+expiry);
- res.setHeader('Set-Cookie',[cookie('css_oauth_pending','',0,'/api/auth'),cookie('css_oauth_session',owner+'.'+expiry+'.'+signature,86400,'/api/lifecycle')]);
+ res.setHeader('Set-Cookie',[cookie('css_oauth_pending','',0,'/api/auth'),cookie('css_oauth_session',owner+'.'+expiry+'.'+signature,86400,'/api')]);
  return res.redirect(302,host+'/');
  }catch(e){
    // Enumerated error labels only; never write tokens, cookies, users or codes.
