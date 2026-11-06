@@ -1,0 +1,51 @@
+name: Jiin CRM SIF and PO Evidence Audit
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/jiin_crm_sif_po_audit.py'
+      - 'automation/feishu/test_jiin_crm_sif_po_audit.py'
+      - '.github/workflows/jiin-crm-sif-po-audit.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '50 1 * * *'
+  workflow_run:
+    workflows:
+      - Jiin CRM 2026 Full Backfill One-Time
+      - Jiin CRM Sender-Only Feishu Import
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: jiin-crm-sif-po-readonly
+  cancel-in-progress: false
+jobs:
+  offline_tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test SIF PO notice distinctions and source identity protections
+        run: python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_sif_po_audit.py' -v
+  read_only_audit:
+    needs: offline_tests
+    if: ${{ needs.offline_tests.result == 'success' && vars.JIIN_CRM_READY == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'workflow_run') }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Report upstream backfill or sync status without customer content
+        if: ${{ github.event_name == 'workflow_run' }}
+        run: echo "CRM_AUDIT_PARENT_CONCLUSION=${{ github.event.workflow_run.conclusion }}"
+      - name: Read and classify all authenticated CRM mail without changing source
+        run: python3 automation/feishu/jiin_crm_sif_po_audit.py
