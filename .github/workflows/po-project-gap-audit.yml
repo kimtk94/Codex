@@ -51,5 +51,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Analyze 204 Contract project PO due-list reduction opportunities
+      - name: Audit CSS-owned PO_REQUIRED projects by original-mail root cause
         run: python3 automation/feishu/po_project_gap_audit.py
