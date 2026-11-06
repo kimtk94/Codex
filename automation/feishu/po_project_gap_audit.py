@@ -126,9 +126,15 @@ def project_rows(source, tracker_records):
         counts["followup_" + contract["followup_queue"]] += 1
         counts["file_attested"] += int(contract["manual_verified"])
         events = grouped.get(project, [])
+        is_pending = contract["followup_queue"] == "PO_REQUIRED"
+        is_inferred = contract["followup_queue"] == "PO_SUBMITTED_INFERRED"
         if not events:
             counts["no_post_contract_po_mail"] += 1
+            counts["pending_no_post_contract_po_mail"] += int(is_pending)
+            counts["inferred_no_post_contract_po_mail"] += int(is_inferred)
             continue
+        counts["pending_with_post_contract_po_mail"] += int(is_pending)
+        counts["inferred_with_post_contract_po_mail"] += int(is_inferred)
         counts["projects_with_post_contract_po_mail"] += 1
         counts["post_contract_po_mail_total"] += len(events)
         counts["projects_post_contract_repeated_po_mail"] += int(len(events) > 1)
@@ -147,9 +153,13 @@ def project_rows(source, tracker_records):
         latest_types = {e["classification"] for e in events if e["at"] == latest_at}
         if len(latest_types) > 1:
             counts["latest_conflicting_notice"] += 1
+            counts["pending_latest_conflict"] += int(is_pending)
+            counts["inferred_latest_conflict"] += int(is_inferred)
             continue
         latest = next(iter(latest_types))
         counts["latest_" + latest] += 1
+        counts["pending_latest_" + latest] += int(is_pending)
+        counts["inferred_latest_" + latest] += int(is_inferred)
         if latest == "POSITIVE_CANDIDATE":
             counts["potential_review_queue_reduction_not_verified"] += 1
             latest_positive = [e for e in events
@@ -169,8 +179,30 @@ def project_rows(source, tracker_records):
         sum(counts["latest_" + state] for state in ORDER)
     ):
         raise SafeError("PO_GAP_LATEST_PARTITION_INVALID")
+    if counts["followup_PO_REQUIRED"] != (
+        counts["pending_no_post_contract_po_mail"] + counts["pending_latest_conflict"] +
+        sum(counts["pending_latest_" + state] for state in ORDER)
+    ):
+        raise SafeError("PO_GAP_PENDING_CAUSE_PARTITION_INVALID")
+    if counts["followup_PO_SUBMITTED_INFERRED"] != (
+        counts["inferred_no_post_contract_po_mail"] + counts["inferred_latest_conflict"] +
+        sum(counts["inferred_latest_" + state] for state in ORDER)
+    ):
+        raise SafeError("PO_GAP_INFERRED_CAUSE_PARTITION_INVALID")
+    pending_causes = {
+        "pending_total": counts["followup_PO_REQUIRED"],
+        "no_post_contract_po_mail": counts["pending_no_post_contract_po_mail"],
+        "latest_po_request_or_reminder": counts["pending_latest_REQUEST_OR_REMINDER"],
+        "latest_po_missing_or_not_received": counts["pending_latest_MISSING_OR_NOT_RECEIVED"],
+        "latest_po_mention_only": counts["pending_latest_MENTION_ONLY"],
+        "latest_receipt_claim_not_file_verified": counts["pending_latest_POSITIVE_CANDIDATE"],
+        "latest_conflicting_notices": counts["pending_latest_conflict"],
+        "inferred_submitted_without_po_mail": counts["inferred_no_post_contract_po_mail"],
+        "inferred_submitted_with_po_mail": counts["inferred_with_post_contract_po_mail"],
+    }
     return {
         "project_cohorts": dict(sorted(counts.items())),
+        "pending_po_root_causes": pending_causes,
         "mail_matching": dict(sorted(stats.items())),
         "review_candidate_reduction": counts["potential_review_queue_reduction_not_verified"],
         "operational_po_missing_projects": counts["followup_PO_REQUIRED"],
