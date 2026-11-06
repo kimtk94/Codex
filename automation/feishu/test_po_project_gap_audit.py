@@ -17,6 +17,7 @@ Q = "AMEA2026042240"
 def contract(project=P, when=C, **extra):
     return {"fields": {"Project ID": project, "Contract Notice UTC": when,
                         "Contract Mail Key": "contract-"+project,
+                        "Contract Source": "CSS", "Contract Scope": "MY_CSS_CONTRACT",
                         "PO Status": "PO_REQUIRED", **extra}}
 
 
@@ -189,6 +190,35 @@ class ProjectGapTests(unittest.TestCase):
         self.assertEqual(result["project_cohorts"]["all_contract_projects"],2)
         self.assertEqual(result["inferred_po_submitted_projects"],1)
         self.assertEqual(result["operational_po_missing_projects"],1)
+
+
+    def test_archived_other_sales_excluded_from_owned_denominator(self):
+        archived=contract("AMEA2026042240", **{
+            "Contract Source":"CRM",
+            "Contract Scope":"EXCLUDED_NOT_MY_CSS_CONTRACT",
+            "PO Followup Queue":"OUT_OF_SCOPE_OTHER_SALES",
+        })
+        owned=contract()
+        report=g.project_rows(sources(),[owned,archived])
+        self.assertEqual(report["project_cohorts"]["all_contract_projects"], 1)
+        self.assertEqual(report["excluded_historical_other_sales_projects"], 1)
+        self.assertEqual(report["owned_contract_cohort_source"],"CSS_ONLY")
+
+    def test_old_crm_only_record_cannot_be_accepted_as_owned(self):
+        unguarded=contract("AMEA2026042240", **{
+            "Contract Source":"CRM", "Contract Scope":"MY_CSS_CONTRACT",
+        })
+        with self.assertRaisesRegex(g.SafeError,"CONTRACT_OWNERSHIP_UNVERIFIED"):
+            g.project_rows(sources(),[unguarded])
+
+    def test_archived_other_sales_must_not_appear_in_due_view(self):
+        bad=contract("AMEA2026042240", **{
+            "Contract Source":"CRM",
+            "Contract Scope":"EXCLUDED_NOT_MY_CSS_CONTRACT",
+            "PO Followup Queue":"PO_REQUIRED",
+        })
+        with self.assertRaisesRegex(g.SafeError,"HISTORICAL_OTHER_SALES_STILL_DUE"):
+            g.project_rows(sources(),[bad])
 
     def test_duplicate_source_mail_fails_closed(self):
         with self.assertRaisesRegex(g.SafeError,"SOURCE_MAIL_DUPLICATE"):
