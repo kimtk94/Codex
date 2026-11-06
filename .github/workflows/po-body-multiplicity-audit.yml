@@ -20,7 +20,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: po-body-multiplicity-readonly
+  group: ${{ github.event_name == 'pull_request' && format('po-body-tests-{0}', github.event.pull_request.number) || 'po-body-multiplicity-readonly' }}
   cancel-in-progress: false
 jobs:
   offline_tests:
