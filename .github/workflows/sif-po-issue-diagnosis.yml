@@ -1,0 +1,55 @@
+name: SIF PO Read-only Issue Diagnosis
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/sif_po_issue_diagnostics.py'
+      - 'automation/feishu/test_sif_po_issue_diagnostics.py'
+      - '.github/workflows/sif-po-issue-diagnosis.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sif-po-issue-diagnosis.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '45 2,11 * * *'
+  workflow_run:
+    workflows:
+      - Project SIF Evidence Lifecycle Tracker
+      - Contract-triggered PO Required Tracker
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: sif-po-issue-diagnosis-readonly
+  cancel-in-progress: true
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test no guesses no manual joins no source writes
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_sif_po_issue_diagnostics.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_sif_evidence_tracker.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_contract_po_tracker.py' -v
+  snapshot:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' && vars.JIIN_CRM_READY == 'true' && github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read-only live source and tracker issue breakdown
+        run: python3 automation/feishu/sif_po_issue_diagnostics.py
