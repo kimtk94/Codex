@@ -126,6 +126,15 @@ def summarize(source, tracker_ids=()):
                           "po_mail_in_multiple_projects": sum(len(v) for v in groups.values() if len(v)>1),
                           "max_mails_per_project": max((len(v) for v in groups.values()), default=0),
                           "subject_linked_mail": sum(len(v) for v in groups.values())})
+    owned_groups = {project: msgs for project, msgs in groups.items()
+                    if project in trusted_contract_ids}
+    owned = {
+        "owned_css_contract_projects": len(trusted_contract_ids),
+        "owned_projects_with_po_mail": len(owned_groups),
+        "owned_projects_without_po_mail": len(trusted_contract_ids) - len(owned_groups),
+        "owned_projects_with_multiple_po_mails": sum(len(v) > 1 for v in owned_groups.values()),
+        "owned_total_po_related_mails": sum(len(v) for v in owned_groups.values()),
+    }
     contract = {
         "po_mails_for_existing_contracts": sum(
             len(v) for k,v in groups.items() if k in trusted_contract_ids),
@@ -139,6 +148,7 @@ def summarize(source, tracker_ids=()):
             "body_scope": "FIRST_1800_NORMALIZED_CHARACTERS_NOT_FULL_MAIL",
             "po_mail_categories": dict(sorted(counters.items())),
             "repeat_project_counts": dict(duplicates),
+            "owned_project_counts": owned,
             "contract_context": contract,
             "document_file_verification": "NOT_ATTEMPTED_NO_ATTACHMENT_BYTES",
             "source_writes": 0, "manual_links": 0}
@@ -158,11 +168,20 @@ def main():
         raise SafeError("PO_BODY_TRACKER_NOT_UNIQUE")
     path = root+"/tables/"+tracker[0]["table_id"]
     records = list_all(path+"/records", token, "po_body_tracker")
-    contract_ids = [plain_field((r.get("fields") or {}).get("Project ID")).strip()
-                    for r in records]
+    contract_ids = []
+    excluded_historical = 0
+    for record in records:
+        fields = record.get("fields") or {}
+        if plain_field(fields.get("Contract Source")) == "CSS":
+            contract_ids.append(plain_field(fields.get("Project ID")).strip())
+        else:
+            if plain_field(fields.get("PO Followup Queue")) != "EXCLUDED_NO_OWNER_CONTRACT":
+                raise SafeError("PO_BODY_OTHER_SALES_NOT_EXCLUDED")
+            excluded_historical += 1
     if len(contract_ids) != len(set(contract_ids)) or any(not s for s in contract_ids):
         raise SafeError("PO_BODY_DUPLICATE_OR_EMPTY_CONTRACT_KEY")
     report = summarize(source, contract_ids)
+    report["excluded_historical_other_sales_projects"] = excluded_historical
     print("PO_BODY_MULTIPLICITY_AUDIT_PASS "+json.dumps(report, ensure_ascii=True, sort_keys=True))
     return report
 

@@ -37,7 +37,8 @@ PRIORITY = {
 }
 
 
-def targets(source):
+def targets(source, owned_contracts=None):
+    """When given, examine only mail after an owner QQ Contract."""
     selected = {}
     flagged = Counter()
     for name, sender in po.SOURCES:
@@ -47,6 +48,12 @@ def targets(source):
             event = audit.classify(fields, sender, name)
             if not event:
                 continue
+            if owned_contracts is not None:
+                project = event["project"]
+                arrived = po.parse_time(plain_field(fields.get("Received At")))
+                if (project not in owned_contracts or not arrived
+                        or arrived <= owned_contracts[project]):
+                    continue
             if event["body_signal"] not in PRIORITY and not event["body_near_excerpt_limit"]:
                 continue
             key = event["key"]
@@ -214,12 +221,32 @@ def main():
     for name, sender in po.SOURCES:
         path = po.find_source(token, root, tables, name)
         source[name] = list_all(path+"/records", token, "po_original_source")
-    selected, flagged = targets(source)
+    candidates = [x for x in tables if x.get("name") == po.TABLE]
+    if len(candidates) != 1:
+        raise SafeError("PO_ORIGINAL_OWNER_TRACKER_NOT_UNIQUE")
+    tracker_path = root + "/tables/" + urllib.parse.quote(candidates[0]["table_id"], safe="")
+    owned_contracts = {}
+    excluded = 0
+    for record in list_all(tracker_path + "/records", token, "po_original_contract_cohort"):
+        fields = record.get("fields") or {}
+        if plain_field(fields.get("Contract Source")) != "CSS":
+            if plain_field(fields.get("PO Followup Queue")) != "EXCLUDED_NO_OWNER_CONTRACT":
+                raise SafeError("PO_ORIGINAL_OTHER_SALES_STILL_IN_DUE_QUEUE")
+            excluded += 1
+            continue
+        project = plain_field(fields.get("Project ID")).strip()
+        created = po.parse_time(plain_field(fields.get("Contract Notice UTC")))
+        if not project or not created or project in owned_contracts:
+            raise SafeError("PO_ORIGINAL_OWNER_CONTRACT_INVALID")
+        owned_contracts[project] = created
+    selected, flagged = targets(source, owned_contracts)
     stats = {}
     for name, sender in po.SOURCES:
         stats["CRM" if sender == po.CRM_SENDER else "CSS"] = dict(
             verify_source(name, sender, selected[name]))
     output = {
+        "owned_qq_contract_projects": len(owned_contracts),
+        "excluded_historical_other_sales_projects": excluded,
         "candidate_mail_count": sum(len(x) for x in selected.values()),
         "candidate_sources": dict(flagged),
         "source_results": stats,
