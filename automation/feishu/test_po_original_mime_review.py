@@ -124,6 +124,26 @@ class MimeReviewTests(unittest.TestCase):
                                        po.CRM_SENDER,
                                        "CRM Filtered Mail Intake")["project"],None)
 
+    def test_only_mime_for_owned_qq_contract_after_creation(self):
+        source={"CRM Filtered Mail Intake":[
+            row("PO AMEA2026042239","We received PO",uid="owned-after"),
+            row("PO AMEA2026042240","We received PO",uid="other-sales"),
+            row("PO AMEA2026042239","We received PO",uid="owned-before"),
+        ],"QQ Mail Intake":[]}
+        source["CRM Filtered Mail Intake"][2]["fields"]["Received At"]="2026-11-05T09:00:00+09:00"
+        owned={"AMEA2026042239":po.parse_time("2026-11-06T09:00:00+09:00")}
+        selected,counts=p.targets(source,owned)
+        self.assertEqual(list(selected["CRM Filtered Mail Intake"]),["owned-after"])
+        self.assertEqual(counts["source_CRM"],1)
+
+    def test_body_only_project_id_never_auto_joins_owner(self):
+        source={"CRM Filtered Mail Intake":[
+            row("Weekly update","PO received AMEA2026042239",uid="body-only"),
+        ],"QQ Mail Intake":[]}
+        owned={"AMEA2026042239":po.parse_time("2026-11-05T09:00:00+09:00")}
+        selected,_=p.targets(source,owned)
+        self.assertEqual(selected["CRM Filtered Mail Intake"],{})
+
     def test_fetch_is_readonly_and_lookup_key_matches(self):
         raw=raw_message("PO has been received")
         key=p.lookup_key("CRM Filtered Mail Intake","77","123")
