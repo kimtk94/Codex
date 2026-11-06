@@ -93,7 +93,15 @@ def unique_project(subject):
 
 
 def exact_sender(row, expected):
+    """Sender whitelist depends on which authorized mailbox owns the record.
+
+    QQ Mail Intake is the user's inbox: original CSS or CRM notifications
+    arriving THERE may establish ownership. Jiin's CRM-only table is evidence
+    only; messages arriving there never establish an owner Contract.
+    """
     actual = email_set(plain_field(row.get("From")))
+    if expected == CSS:
+        return actual in ({CSS}, {CRM_SENDER})
     return actual == {expected}
 
 
