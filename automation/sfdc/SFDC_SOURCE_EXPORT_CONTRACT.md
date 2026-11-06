@@ -41,3 +41,21 @@ owner-only live Contact recheck remains required for web lookup and saving.
 - Source readiness GitHub Actions: `.github/workflows/sfdc-contact-lookup-readiness.yml`.
 - CI (synthetic): https://github.com/kimtk94/Codex/actions/runs/42135799602
 - No live CRM write, no Quote creation, no customer email, no automatic approval.
+
+## Authorized desktop single-contact browser readback — 2026-11-06
+
+A read-only browser audit on the authorized Windows Chrome session established:
+- Salesforce `All Contacts` view is selectable; an exact Korean-name search showed matching UI count, rendered row count, and 003 Contact link count (all **one** for the tested reference case).
+- The 003 Contact detail supplied a unique 001 Account link and email; an independently opened 006 Opportunity detail linked to the **same** 003 Contact and 001 Account.
+- The reusable `automation/sfdc_desktop/contact_preview_export.py` was run on the authorized desktop without `--out`. It returned `PASS_SINGLE_VERIFIED_RELATIONSHIP`, `candidate_count=1`, `file_written=false`, `salesforce_save=false` after a readiness-wait fix.
+- GitHub Actions validates only synthetic examples; real customer identities and CRM URLs are never pushed to GitHub.
+
+### Running it on the authorized Windows workstation
+
+```powershell
+python automation/sfdc_desktop/contact_preview_export.py --korean-name <KOREAN_FULL_NAME> --reference-opportunity-id <EXISTING_006_OPPORTUNITY_ID>
+```
+
+Default behavior is validation only; console output contains **only state and count**. A reviewed operator can optionally specify `--out` with a private local path **outside the Git repository** to produce a short-lived JSON preview file for the existing web UI. Do not upload that JSON to a shared repository, public storage, or Actions; it may contain customer email and CRM IDs.
+
+**Scope:** This tool proves only a *single* exact Contact result returned by the authorized operator's All Contacts list and a single known existing Opportunity. Multiple matching Contacts, missing IDs, conflicting Accounts, missing mailto, inaccessible records, and unsupported UI count all return HOLD. It is not a complete-organization lookup service or proof that all customer records are indexed. The original Sheet source gate remains BLOCK, and the authenticated browser-to-web backend is still pending.
