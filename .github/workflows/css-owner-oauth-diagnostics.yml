@@ -1,0 +1,37 @@
+name: CSS Owner OAuth Diagnostics and Regressions
+on:
+  pull_request:
+    paths:
+      - 'apps/css-sales-workspace/lib/auth-common.js'
+      - 'apps/css-sales-workspace/lib/lifecycle-owner-auth.js'
+      - 'apps/css-sales-workspace/api/auth/**'
+      - 'apps/css-sales-workspace/index.html'
+      - 'apps/css-sales-workspace/test/owner-oauth-diagnostics.test.js'
+      - '.github/workflows/css-owner-oauth-diagnostics.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/css-sales-workspace/lib/auth-common.js'
+      - 'apps/css-sales-workspace/lib/lifecycle-owner-auth.js'
+      - 'apps/css-sales-workspace/api/auth/**'
+      - 'apps/css-sales-workspace/index.html'
+      - 'apps/css-sales-workspace/test/owner-oauth-diagnostics.test.js'
+      - '.github/workflows/css-owner-oauth-diagnostics.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  owner-login-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: OAuth authorize and callback syntax
+        run: |
+          node --check apps/css-sales-workspace/api/auth/authorize.js
+          node --check apps/css-sales-workspace/api/auth/callback.js
+          node --check apps/css-sales-workspace/lib/lifecycle-owner-auth.js
+      - name: Owner OAuth browser regression
+        run: node --test apps/css-sales-workspace/test/owner-oauth-diagnostics.test.js

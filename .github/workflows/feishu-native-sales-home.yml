@@ -11,6 +11,10 @@ on:
       - 'automation/feishu/sales_native_home.py'
       - 'automation/feishu/test_sales_native_home.py'
       - '.github/workflows/feishu-native-sales-home.yml'
+  workflow_run:
+    workflows: ['Feishu Sales SIF Invoice Weekly KPI']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
@@ -41,7 +45,7 @@ jobs:
           python3 -m py_compile automation/feishu/sales_native_home.py
   home:
     needs: test
-    if: ${{ github.event_name != 'pull_request' && needs.test.result == 'success' }}
+    if: ${{ github.event_name != 'pull_request' && needs.test.result == 'success' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 25
@@ -49,7 +53,7 @@ jobs:
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
-      FEISHU_PORTAL_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_PORTAL_MODE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

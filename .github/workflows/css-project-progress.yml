@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'apps/css-sales-workspace/index.html'
+      - 'apps/css-sales-workspace/api/auth/**'
+      - 'apps/css-sales-workspace/test/owner-oauth-diagnostics.test.js'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/project-milestones.js'
       - 'apps/css-sales-workspace/test/project-milestones.test.js'
@@ -13,6 +15,8 @@ on:
       - 'feat/css-project-progress-*'
     paths:
       - 'apps/css-sales-workspace/index.html'
+      - 'apps/css-sales-workspace/api/auth/**'
+      - 'apps/css-sales-workspace/test/owner-oauth-diagnostics.test.js'
       - 'apps/css-sales-workspace/api/lifecycle.js'
       - 'apps/css-sales-workspace/lib/project-milestones.js'
       - 'apps/css-sales-workspace/test/project-milestones.test.js'
@@ -34,4 +38,6 @@ jobs:
           node --check apps/css-sales-workspace/api/lifecycle.js
           node -e "const fs=require('fs'),vm=require('vm');const html=fs.readFileSync('apps/css-sales-workspace/index.html','utf8');const scripts=[...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/g)].map(x=>x[1]);if(scripts.length!==1)process.exit(1);new vm.Script(scripts[0]);console.log('inline browser JS parse PASS');"
       - name: Project evidence and progress tests
-        run: node --test apps/css-sales-workspace/test/project-milestones.test.js
+        run: |
+          node --test apps/css-sales-workspace/test/project-milestones.test.js
+          node --test apps/css-sales-workspace/test/owner-oauth-diagnostics.test.js

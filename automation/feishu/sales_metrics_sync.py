@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from qq_mail_ingest import auth, api, list_all, SafeError
+from project_progress_board import prepare_project_board
 
 EXPECTED_BASE = "IpMkbUD0vaFqtYs93a3csXtdn1b"
 CSS_SHEET = "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
@@ -32,6 +33,14 @@ SCHEMAS = {
         ("Current Stage", 1), ("SIF No", 1), ("SIF State", 1),
         ("SIF First Seen", 1), ("SIF Approved", 1), ("Next Action", 1),
         ("Contract No", 1), ("Evidence", 1), ("Last Sync KST", 1),
+    ],
+    "Project Progress Board": [
+        ("Source Key", 1), ("AMEA", 1), ("Quote Full Name", 1),
+        ("Quote Match State", 1), ("Institution", 1), ("Customer", 1),
+        ("Service", 1), ("Current Stage", 1), ("Progress %", 2),
+        ("Progress Bar", 1), ("Prepayment", 1), ("Prepayment Evidence", 1),
+        ("SIF State", 1), ("PO Evidence", 1), ("Next Action", 1),
+        ("Evidence", 1), ("Last Sync KST", 1),
     ],
     "Monthly Tax Invoice": [
         ("Source Key", 1), ("Month", 1), ("Invoice Count", 2),
@@ -57,7 +66,8 @@ REQUIRED = {
     "Revenue Invoice Base": ("Invoice No", "Year-Month", "Revenue KRW (Tax Invoice)", "Net Revenue KRW (VAT excl; per invoice)"),
     "SFDC Weekly Overview": ("week_start", "week_end", "quotation_approvals", "approvals_created_in_week", "krw_per_usd"),
     "Quotation Approval List": ("week_start", "salesforce_record_id", "quotation_id"),
-    "Quote Portfolio": ("Salesforce Quote ID (18)", "Quote QID", "Active", "Quote USD"),
+    "Quote Portfolio": ("Salesforce Quote ID (18)", "Quote QID", "Active", "Quote USD", "Approved AMEA ID", "Quote Name", "Approval Match"),
+    "Feishu Latest Prepayments": ("Project Number", "Quotation Number"),
 }
 
 
@@ -124,6 +134,7 @@ def sheet_sources():
         (UNIFIED_SHEET,"SFDC Weekly Overview",1500),
         (CSS_SHEET,"Quotation Approval List",1500),
         (UNIFIED_SHEET,"Quote Portfolio",2600),
+        (UNIFIED_SHEET,"Feishu Latest Prepayments",500),
     ]
     outputs={}
     for book,tab,limit in conf:
@@ -344,10 +355,12 @@ def weekly_rows(source):
 
 
 def prepare_data(sources):
+    projects = project_rows(sources)
     return {
         "Monthly Tax Invoice":monthly_rows(sources),
         "Weekly Quote KPI":weekly_rows(sources),
-        "Project SIF Monitor":project_rows(sources),
+        "Project SIF Monitor":projects,
+        "Project Progress Board":prepare_project_board(sources,projects),
     }
 
 
@@ -407,6 +420,52 @@ def equivalent(before,new):
     return True
 
 
+def sync_board_table(token,path,desired):
+    """Batch 25, source-owned upsert; independent readback of all project keys."""
+    existing=list_all(path+"/records",token,"project_board_existing")
+    indexed={}
+    for rec in existing:
+        key=raw_value((rec.get("fields") or {}).get("Source Key")).strip()
+        if not key:continue
+        if key in indexed:raise SafeError("PROJECT_BOARD_DUPLICATE_RECORD")
+        indexed[key]=rec
+    creates=[];updates=[];unchanged=0
+    for row in desired:
+        key=row["Source Key"]
+        old=indexed.get(key)
+        if old and equivalent(old.get("fields") or {},row):
+            unchanged+=1
+            continue
+        fields={**row,"Last Sync KST":timestamp()}
+        if old:
+            rid=old.get("record_id")
+            if not rid:raise SafeError("PROJECT_BOARD_MISSING_RECORD_ID")
+            updates.append({"record_id":rid,"fields":fields})
+        else:
+            creates.append({"fields":fields})
+    for verb,records in (("batch_create",creates),("batch_update",updates)):
+        for start in range(0,len(records),25):
+            chunk=records[start:start+25]
+            result=api("POST",path+"/records/"+verb,token,
+                       data={"records":chunk},action="project_board_"+verb)
+            if len(result.get("records") or [])!=len(chunk):
+                raise SafeError("PROJECT_BOARD_BATCH_WRITE_NOT_CONFIRMED")
+    readback=list_all(path+"/records",token,"project_board_readback")
+    got={}
+    for record in readback:
+        key=raw_value((record.get("fields") or {}).get("Source Key")).strip()
+        if not key:continue
+        if key in got:raise SafeError("PROJECT_BOARD_READBACK_DUPLICATE")
+        got[key]=record.get("fields") or {}
+    for item in desired:
+        if item["Source Key"] not in got or not equivalent(got[item["Source Key"]],item):
+            raise SafeError("PROJECT_BOARD_READBACK_MISMATCH")
+    print("PROJECT_BOARD_SYNC_PASS desired="+str(len(desired))+
+          " created="+str(len(creates))+" updated="+str(len(updates))+
+          " unchanged="+str(unchanged))
+    return len(creates),len(updates),unchanged
+
+
 def sync_table(token,path,desired,limit):
     existing=list_all(path+"/records",token,"metric_records")
     index={}
@@ -444,6 +503,11 @@ def sync_table(token,path,desired,limit):
 
 
 VIEW_SPECS = {
+    "Project Progress Board": (
+        ("프로젝트별 진행률", None, None),
+        ("Prepayment · SIF 면제", "SIF State", "WAIVED_PREPAYMENT"),
+        ("Quote 원문 검토", "Quote Match State", "CSS_ORIGINAL_UNVERIFIED"),
+    ),
     "Project SIF Monitor": (
         ("프로젝트 진행 · SIF", None, None),
         ("SIF 제출 미확인", "SIF State", "NOT_VERIFIED"),
@@ -512,6 +576,10 @@ def main():
     # Prioritize numeric KPI summaries; SIF backfill progresses across scheduled runs.
     bounds={"Monthly Tax Invoice":50,"Weekly Quote KPI":75,"Project SIF Monitor":70}
     total=0
+    # Project-by-project web coverage is committed in bounded Feishu batches,
+    # so the new view doesn't remain at the legacy 70-project backfill limit.
+    board=sync_board_table(token,paths["Project Progress Board"],output["Project Progress Board"])
+    total+=sum(board[:2])
     for name in ("Monthly Tax Invoice","Weekly Quote KPI","Project SIF Monitor"):
         result=sync_table(token,paths[name],output[name],bounds[name])
         total+=sum(result[:2])

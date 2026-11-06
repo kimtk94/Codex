@@ -3,8 +3,11 @@ module.exports=async(req,res)=>{
  if(req.method!=='GET')return res.status(405).end();
  const host=oauthOrigin();
  if(!host)return res.status(503).json({error:'PREVIEW_ORIGIN_UNAVAILABLE'});
+ // Production deployment aliases and Preview links must start OAuth at
+ // the canonical, registered callback origin; never authorize from a host
+ // supplied by a request header.
  if(!matchesOriginHost(req,host))
-   return res.status(409).json({error:'OAUTH_ORIGIN_MISMATCH',expectedOrigin:host});
+   return res.redirect(302,host+'/api/auth/authorize');
  if(!client()||!secret())return res.status(503).json({error:'OAUTH_UNCONFIGURED'});
  const state=crypto.randomBytes(24).toString('hex'),verifier=crypto.randomBytes(32).toString('base64url');
  const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
