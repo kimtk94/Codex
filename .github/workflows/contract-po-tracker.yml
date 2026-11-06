@@ -1,0 +1,57 @@
+name: Contract-triggered PO Required Tracker
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/contract_po_tracker.py'
+      - 'automation/feishu/test_contract_po_tracker.py'
+      - 'automation/feishu/sales_native_home.py'
+      - '.github/workflows/contract-po-tracker.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/contract-po-tracker.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '15 2,10 * * *'
+  workflow_run:
+    workflows:
+      - Jiin CRM 2026 Full Backfill One-Time
+      - Jiin CRM Sender-Only Feishu Import
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: contract-po-tracker-feishu
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original contract gate and PO evidence
+        run: python3 -m unittest discover -s automation/feishu -p 'test_contract_po_tracker.py' -v
+      - name: Verify existing SIF PO checks remain intact
+        run: python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_sif_po_audit.py' -v
+      - name: Verify native Feishu home navigation
+        run: python3 -m unittest discover -s automation/feishu -p 'test_sales_native_home.py' -v
+  sync:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' && vars.JIIN_CRM_READY == 'true' && github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Sync PO due from verified contract emails (dedicated table only)
+        run: python3 automation/feishu/contract_po_tracker.py
