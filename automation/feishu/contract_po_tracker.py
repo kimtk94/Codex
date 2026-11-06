@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Contract-triggered PO queue from original CSS/CRM notices in Feishu.
 
-A contract notice starts PO follow-up. A PO mention does not close the queue.
-Only an original, source-verified PO receipt/approval notice changes its state.
-Write ONLY the dedicated Contract PO Tracker table; never mutate mail tables.
+A contract notice starts PO follow-up. Explicit PO notices update the mail-only
+status. User-directed business rule: a later Final Report Ready or Statement
+Ready/Issued/Confirmed notice means PO submission is assumed for the due-list.
+This is not independent proof of a received/signed PO file. Write ONLY the
+dedicated Contract PO Tracker table; never mutate original mail tables.
 """
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -25,6 +27,8 @@ FIELDS = (
     "PO Mail Key", "Next Action", "Evidence Rule", "Last Sync UTC",
     "PO Followup Queue", "PO Document Verification", "PO Document Reference",
     "PO Verified At", "PO Verified By",
+    "Downstream Evidence Type", "Downstream Evidence UTC", "Downstream Source",
+    "Downstream Mail Key", "Submission Inference",
 )
 SOURCES = (("QQ Mail Intake", CSS), ("CRM Filtered Mail Intake", CRM_SENDER))
 AMEA = re.compile(r"\bAMEA\d{7,}(?:-\d+)?\b", re.I)
@@ -39,6 +43,38 @@ CONTRACT_NEGATIVE = re.compile(
     r"|\bnot\s+(?:yet\s+)?created\b.{0,35}\bcontract\b", re.I
 )
 REPLY = re.compile(r"^\s*(?:re|fw|fwd|답장|전달|회신)\s*[:：]", re.I)
+FINAL_REPORT_TITLE = re.compile(r"\bfinal[\s_-]*report\b", re.I)
+STATEMENT_TITLE = re.compile(r"\bstatement\b", re.I)
+DOWNSTREAM_READY = re.compile(
+    r"\b(?:ready|available|released|completed|delivered|issued|"
+    r"confirmed|download(?:able)?|uploaded|sent)\b", re.I
+)
+DOWNSTREAM_NEGATIVE = re.compile(
+    r"\b(?:not\s+(?:yet\s+)?(?:ready|available|released|completed|"
+    r"delivered|issued|confirmed|uploaded|sent)|pending|draft|awaiting|"
+    r"cancell?ed|failed|rejected|on\s+hold|revision\s+required|"
+    r"reminder|requested)\b", re.I
+)
+
+
+def downstream_evidence(subject):
+    """Only affirmative final report or statement *notices* in original subjects.
+
+    An isolated body mention, draft, reminder, or statement of work is not an
+    issued deliverable. Never use a reply/forwarded subject as original proof.
+    """
+    subject = str(subject or "")
+    if DOWNSTREAM_NEGATIVE.search(subject):
+        return frozenset()
+    found = set()
+    if FINAL_REPORT_TITLE.search(subject) and DOWNSTREAM_READY.search(subject):
+        found.add("FINAL_REPORT")
+    # Statement of Work (SOW) is unrelated to an issued billing Statement.
+    if (STATEMENT_TITLE.search(subject) and DOWNSTREAM_READY.search(subject)
+            and not re.search(r"\bstatement\s+of\s+work\b", subject, re.I)):
+        found.add("STATEMENT")
+    return frozenset(found)
+
 
 
 def unique_project(subject):
@@ -89,9 +125,11 @@ def event(row, source):
     po_state = document_evidence(subject, "", "PO", False)
     if po_state not in ("RECEIVED_NOTICE", "CONFIRMED_NOTICE", "NOT_RECEIVED_NOTICE", "ACTION_REQUESTED"):
         po_state = None
-    if not contract and not po_state:
+    downstream = downstream_evidence(subject)
+    if not contract and not po_state and not downstream:
         return None
     return dict(project=project, at=date, contract=contract, po=po_state,
+                downstream=downstream,
                 source="CRM" if source == CRM_SENDER else "CSS", key=key)
 
 
@@ -114,19 +152,33 @@ def choose_state(contract, po_events):
 
 
 def build_tracker(events, at_utc):
-    grouped = defaultdict(lambda: {"contracts": [], "po": []})
+    grouped = defaultdict(lambda: {"contracts": [], "po": [], "downstream": []})
     for e in events:
         g = grouped[e["project"]]
         if e["contract"]:
             g["contracts"].append(e)
         if e["po"]:
             g["po"].append(e)
+        if e.get("downstream"):
+            g["downstream"].append(e)
     rows = []
     for project, group in sorted(grouped.items()):
         if not group["contracts"]:
             continue  # Contract absence is NOT a missing PO.
         contract = sorted(group["contracts"], key=lambda e: (e["at"], e["key"]))[0]
         state, po, action = choose_state(contract, group["po"])
+        # Final report / statement is a downstream process milestone. Require
+        # original notice timestamp STRICTLY after the Contract creation.
+        milestones = [e for e in group["downstream"] if e["at"] > contract["at"]]
+        latest = max(milestones, key=lambda e: (e["at"], e["key"])) if milestones else None
+        evidence_types = set().union(*(e["downstream"] for e in milestones))
+        evidence_type = "_AND_".join(sorted(evidence_types)) if evidence_types else ""
+        contradictory = latest is not None and any(
+            e["at"] > latest["at"] and e["po"] in ("ACTION_REQUESTED", "NOT_RECEIVED_NOTICE")
+            for e in group["po"]
+        )
+        inference = ("CONFLICT_REVIEW" if contradictory else
+                     "ASSUMED_BY_DOWNSTREAM_NOTICE" if latest else "NOT_OBSERVED")
         rows.append({
             "Project ID": project,
             "PO Status": state,
@@ -137,8 +189,13 @@ def build_tracker(events, at_utc):
             "PO Notice Source": po["source"] if po else "",
             "PO Mail Key": po["key"] if po else "",
             "Next Action": action,
-            "Evidence Rule": "ORIGINAL_EXACT_SENDER_SUBJECT_V1",
+            "Evidence Rule": "ORIGINAL_EXACT_SENDER_SUBJECT_V2_DOWNSTREAM_AFTER_CONTRACT",
             "Last Sync UTC": at_utc,
+            "Downstream Evidence Type": evidence_type,
+            "Downstream Evidence UTC": latest["at"].isoformat() if latest else "",
+            "Downstream Source": latest["source"] if latest else "",
+            "Downstream Mail Key": latest["key"] if latest else "",
+            "Submission Inference": inference,
         })
     return rows
 
@@ -164,6 +221,15 @@ def apply_followup(rows, indexed):
         if manual_file_verified(previous):
             fields["PO Followup Queue"] = "FILE_VERIFIED_ATTESTED"
             fields["Next Action"] = "NO_PO_FOLLOWUP_MANUAL_FILE_ATTESTED"
+        elif fields["PO Status"] in ("PO_RECEIVED_NOTICE", "PO_CONFIRMED_NOTICE"):
+            fields["PO Followup Queue"] = "PO_FILE_REVIEW"
+            fields["Next Action"] = "VERIFY_PO_FILE"
+        elif fields.get("Submission Inference") == "ASSUMED_BY_DOWNSTREAM_NOTICE":
+            fields["PO Followup Queue"] = "PO_SUBMITTED_INFERRED"
+            fields["Next Action"] = "NO_PO_REQUEST_FINAL_REPORT_OR_STATEMENT"
+        elif fields.get("Submission Inference") == "CONFLICT_REVIEW":
+            fields["PO Followup Queue"] = "PO_EVIDENCE_CONFLICT_REVIEW"
+            fields["Next Action"] = "REVIEW_CONTRADICTORY_PO_NOTICE"
         elif fields["PO Status"] == "PO_REQUIRED":
             fields["PO Followup Queue"] = "PO_REQUIRED"
             fields["Next Action"] = "REQUEST_PO"
@@ -197,6 +263,7 @@ def load_events(token, root):
                 events.append(item)
                 counts["contract"] += int(item["contract"])
                 counts["po_notice"] += int(bool(item["po"]))
+                counts["downstream_mail_notices"] += int(bool(item.get("downstream")))
     return events, counts, tables
 
 
@@ -312,11 +379,21 @@ def main():
     pending = sum(x["PO Followup Queue"] == "PO_REQUIRED" for x in desired)
     manually_attested = sum(x["PO Followup Queue"] == "FILE_VERIFIED_ATTESTED" for x in desired)
     needs_file_review = sum(x["PO Followup Queue"] == "PO_FILE_REVIEW" for x in desired)
+    inferred = sum(x["PO Followup Queue"] == "PO_SUBMITTED_INFERRED" for x in desired)
+    conflicting = sum(x["PO Followup Queue"] == "PO_EVIDENCE_CONFLICT_REVIEW" for x in desired)
+    report_evidence = sum("FINAL_REPORT" in x["Downstream Evidence Type"] for x in desired)
+    statement_evidence = sum("STATEMENT" in x["Downstream Evidence Type"] for x in desired)
     print("CONTRACT_PO_TRACKER_PASS contract_notices=" + str(counts["contract"]) +
           " po_notices=" + str(counts["po_notice"]) + " projects=" + str(total) +
           " po_required=" + str(pending) + " manual_file_attested=" + str(manually_attested) +
-          " po_file_review=" + str(needs_file_review) + " created=" + str(created) +
-          " updated=" + str(updated) + " source_mail_writes=0")
+          " po_file_review=" + str(needs_file_review) +
+          " downstream_notice_mails=" + str(counts["downstream_mail_notices"]) +
+          " final_report_projects=" + str(report_evidence) +
+          " statement_projects=" + str(statement_evidence) +
+          " inferred_po_submitted_projects=" + str(inferred) +
+          " po_evidence_conflict_review=" + str(conflicting) +
+          " created=" + str(created) + " updated=" + str(updated) +
+          " source_mail_writes=0")
     print("CONTRACT_PO_PENDING_VIEW=" + BASE_URL + "?table=" + tid + "&view=" + vid)
 
 
