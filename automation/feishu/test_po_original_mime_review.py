@@ -37,7 +37,7 @@ def row(subject, body="", sender=po.CRM_SENDER, uid="one"):
 class FakeIMAP:
     def __init__(self, key, uid, body):
         self.key=key
-        self.uid=uid
+        self.uid_value=uid
         self.body=body
         self.is_readonly=False
         self.fetches=0
@@ -52,7 +52,7 @@ class FakeIMAP:
 
     def uid(self, command, *args):
         if command=="SEARCH":
-            return "OK", [self.uid.encode()]
+            return "OK", [self.uid_value.encode()]
         if command=="FETCH":
             self.fetches+=1
             return "OK", [(b"1 (UID 123 RFC822.SIZE "+str(len(self.body)).encode()
