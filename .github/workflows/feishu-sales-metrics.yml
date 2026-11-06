@@ -3,12 +3,16 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/sales_metrics_sync.py'
+      - 'automation/feishu/project_progress_board.py'
+      - 'automation/feishu/test_project_progress_board.py'
       - 'automation/feishu/test_sales_metrics_sync.py'
       - '.github/workflows/feishu-sales-metrics.yml'
   push:
     branches: [main, feat/feishu-sif-invoice-weekly-kpi-20261105]
     paths:
       - 'automation/feishu/sales_metrics_sync.py'
+      - 'automation/feishu/project_progress_board.py'
+      - 'automation/feishu/test_project_progress_board.py'
       - 'automation/feishu/test_sales_metrics_sync.py'
       - '.github/workflows/feishu-sales-metrics.yml'
   workflow_dispatch:
@@ -38,8 +42,9 @@ jobs:
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Test SIF evidence, invoice VAT and weekly quotes
         run: python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_project_progress_board.py' -v
       - name: Validate sync syntax
-        run: python3 -m py_compile automation/feishu/sales_metrics_sync.py
+        run: python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/project_progress_board.py
   sync:
     needs: tests
     if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' }}
@@ -51,7 +56,7 @@ jobs:
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
-      FEISHU_METRIC_MODE: ${{ github.event_name == 'schedule' && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_METRIC_MODE: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
