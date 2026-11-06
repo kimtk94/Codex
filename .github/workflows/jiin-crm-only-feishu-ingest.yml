@@ -6,6 +6,7 @@ on:
       - 'automation/feishu/test_jiin_crm_filtered_ingest.py'
       - 'automation/feishu/jiin_crm_full_scan.py'
       - 'automation/feishu/test_jiin_crm_full_scan.py'
+      - 'automation/feishu/test_jiin_crm_batch_recovery.py'
       - 'automation/feishu/jiin_crm_source_audit.py'
       - 'automation/feishu/contract_po_tracker.py'
       - 'automation/feishu/test_contract_po_tracker.py'
@@ -49,6 +50,7 @@ jobs:
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_filtered_ingest.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_full_scan.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_batch_recovery.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_source_audit.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_contract_po_tracker.py' -v
           python3 -m py_compile automation/feishu/jiin_crm_filtered_ingest.py automation/feishu/jiin_crm_full_scan.py
