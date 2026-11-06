@@ -40,6 +40,6 @@ function ownerSessionCookie(token,now=Math.floor(Date.now()/1000)){
   const expiry=String(now+86400);
   const signature=crypto.createHmac('sha256',token).update('css-owner:'+expiry).digest('hex');
   return 'css_owner_session='+expiry+'.'+signature+
-    '; HttpOnly; Secure; SameSite=Strict; Path=/api/lifecycle; Max-Age=86400';
+    '; HttpOnly; Secure; SameSite=Strict; Path=/api; Max-Age=86400';
 }
 module.exports={checkOwner,ownerSessionCookie};
