@@ -50,8 +50,22 @@ def project_rows(source, tracker_records):
         contract_key = plain_field(fields.get("Contract Mail Key")).strip()
         if not project or project in contracts or not created or not contract_key:
             raise SafeError("PO_GAP_CONTRACT_TRACKER_INVALID")
+        queue = plain_field(fields.get("PO Followup Queue")).strip() or "NOT_YET_SYNCED"
+        inference = plain_field(fields.get("Submission Inference")).strip()
+        if queue == "PO_SUBMITTED_INFERRED":
+            downstream_at = po.parse_time(plain_field(fields.get("Downstream Evidence UTC")))
+            evidence_type = plain_field(fields.get("Downstream Evidence Type")).strip()
+            evidence_key = plain_field(fields.get("Downstream Mail Key")).strip()
+            if (inference != "ASSUMED_BY_DOWNSTREAM_NOTICE" or
+                not downstream_at or downstream_at <= created or
+                evidence_type not in ("FINAL_REPORT", "STATEMENT",
+                                      "FINAL_REPORT_AND_STATEMENT") or
+                not evidence_key or po.manual_file_verified(fields)):
+                raise SafeError("PO_GAP_INFERRED_SUBMISSION_PROOF_INVALID")
         contracts[project] = {"created": created, "key": contract_key,
                               "mail_status": plain_field(fields.get("PO Status")),
+                              "followup_queue": queue,
+                              "inference": inference,
                               "manual_verified": po.manual_file_verified(fields)}
 
     grouped = defaultdict(list)
@@ -97,6 +111,7 @@ def project_rows(source, tracker_records):
     for project, contract in contracts.items():
         counts["all_contract_projects"] += 1
         counts["existing_mail_status_" + (contract["mail_status"] or "UNKNOWN")] += 1
+        counts["followup_" + contract["followup_queue"]] += 1
         counts["file_attested"] += int(contract["manual_verified"])
         events = grouped.get(project, [])
         if not events:
@@ -146,6 +161,8 @@ def project_rows(source, tracker_records):
         "project_cohorts": dict(sorted(counts.items())),
         "mail_matching": dict(sorted(stats.items())),
         "review_candidate_reduction": counts["potential_review_queue_reduction_not_verified"],
+        "operational_po_missing_projects": counts["followup_PO_REQUIRED"],
+        "inferred_po_submitted_projects": counts["followup_PO_SUBMITTED_INFERRED"],
         "verified_receipt_reduction": counts["file_attested"],
         "policy": "CONTRACT_CREATED_THEN_POST_CONTRACT_ORIGINAL_SUBJECT_ID_ONLY",
         "action": "READ_ONLY_NO_STATUS_CHANGES_NO_MANUAL_LINKS",
