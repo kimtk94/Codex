@@ -1,0 +1,53 @@
+name: Jiin CRM 2026 Full Backfill One-Time
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/jiin-crm-full-backfill-20261106.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: jiin-crm-filtered-feishu
+  cancel-in-progress: false
+jobs:
+  safety_tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact sender and resumable scan before live ingest
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_filtered_ingest.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_full_scan.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_source_audit.py' -v
+  full_backfill:
+    needs: safety_tests
+    if: ${{ needs.safety_tests.result == 'success' && vars.JIIN_CRM_READY == 'true' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 355
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      JIIN_CRM_IMAP_HOST: ${{ vars.JIIN_CRM_IMAP_HOST || 'imap.exmail.qq.com' }}
+      JIIN_CRM_IMAP_PORT: ${{ vars.JIIN_CRM_IMAP_PORT || '993' }}
+      JIIN_CRM_AUTH_METHOD: ${{ vars.JIIN_CRM_AUTH_METHOD || 'app_password' }}
+      JIIN_CRM_OAUTH_ACCESS_TOKEN: ${{ secrets.JIIN_CRM_OAUTH_ACCESS_TOKEN }}
+      JIIN_CRM_APP_PASSWORD: ${{ secrets.JIIN_CRM_APP_PASSWORD }}
+      JIIN_CRM_MODE: backfill
+      JIIN_CRM_MAIL_LIMIT: '15000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Sequential full 2026 CRM-only mailbox scan with UID checkpoint
+        run: python3 automation/feishu/jiin_crm_filtered_ingest.py
+      - name: Independently audit all stored CRM-only Feishu rows
+        if: ${{ !cancelled() }}
+        run: python3 automation/feishu/jiin_crm_source_audit.py
