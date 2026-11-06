@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.parse
 from zoneinfo import ZoneInfo
 
@@ -438,9 +439,22 @@ def equivalent(before,new):
     return True
 
 
+def board_list_with_retry(token,path,action):
+    """Read-only bounded retry for transient Feishu list failures only."""
+    for attempt in range(4):
+        try:
+            return list_all(path+"/records",token,action)
+        except SafeError as exc:
+            if not re.search(r"HTTP_(?:429|500|502|503|504)\\b",str(exc)) or attempt==3:
+                raise
+            # Keep a 503 from causing partial/false success or extra writes.
+            print("PROJECT_BOARD_TRANSIENT_READ_RETRY attempt="+str(attempt+1))
+            time.sleep(2*(attempt+1))
+
+
 def sync_board_table(token,path,desired):
     """Batch 25, source-owned upsert; independent readback of all project keys."""
-    existing=list_all(path+"/records",token,"project_board_existing")
+    existing=board_list_with_retry(token,path,"project_board_existing")
     indexed={}
     for rec in existing:
         key=raw_value((rec.get("fields") or {}).get("Source Key")).strip()
@@ -468,7 +482,13 @@ def sync_board_table(token,path,desired):
                        data={"records":chunk},action="project_board_"+verb)
             if len(result.get("records") or [])!=len(chunk):
                 raise SafeError("PROJECT_BOARD_BATCH_WRITE_NOT_CONFIRMED")
-    readback=list_all(path+"/records",token,"project_board_readback")
+    if not creates and not updates:
+        # All desired rows were individually compared with the initial live
+        # Feishu listing. A second full scan only burns API quota and can 503.
+        print("PROJECT_BOARD_SYNC_PASS desired="+str(len(desired))+
+              " created=0 updated=0 unchanged="+str(unchanged)+" readback=EXISTING_VERIFIED")
+        return 0,0,unchanged
+    readback=board_list_with_retry(token,path,"project_board_readback")
     got={}
     for record in readback:
         key=raw_value((record.get("fields") or {}).get("Source Key")).strip()
