@@ -1,0 +1,65 @@
+name: Feishu Base Web UI and Contract
+on:
+  pull_request:
+    paths:
+      - 'apps/css-sales-workspace/feishu.html'
+      - 'apps/css-sales-workspace/feishu.js'
+      - 'apps/css-sales-workspace/api/feishu/**'
+      - 'apps/css-sales-workspace/lib/feishu-base.js'
+      - 'apps/css-sales-workspace/test/feishu-web.test.js'
+      - 'apps/css-sales-workspace/api/auth/callback.js'
+      - 'apps/css-sales-workspace/lib/lifecycle-owner-auth.js'
+      - 'automation/feishu/web_base_contract_probe.py'
+      - '.github/workflows/feishu-sales-web.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/css-sales-workspace/feishu.html'
+      - 'apps/css-sales-workspace/feishu.js'
+      - 'apps/css-sales-workspace/api/feishu/**'
+      - 'apps/css-sales-workspace/lib/feishu-base.js'
+      - 'apps/css-sales-workspace/test/feishu-web.test.js'
+      - 'automation/feishu/web_base_contract_probe.py'
+      - '.github/workflows/feishu-sales-web.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  frontend-and-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and Base-backed web regressions
+        run: |
+          node --check apps/css-sales-workspace/feishu.js
+          node --check apps/css-sales-workspace/lib/feishu-base.js
+          node --check apps/css-sales-workspace/api/feishu/projects.js
+          node --test apps/css-sales-workspace/test/feishu-web.test.js
+      - name: UI is standalone and never embeds Feishu app credentials
+        run: |
+          node -e "const fs=require('fs');const x=fs.readFileSync('apps/css-sales-workspace/feishu.html','utf8');if(!x.includes('id=\"projects\"')||!x.includes('id=\"drawer\"')||!x.includes('/feishu.js')||/FEISHU_APP_SECRET|FEISHU_APP_ID/.test(x))process.exit(1);console.log('STANDALONE_BASE_UI_PASS')"
+  feishu-base-source:
+    needs: frontend-and-api
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read-only Feishu Base record and field validation
+        run: python3 automation/feishu/web_base_contract_probe.py
