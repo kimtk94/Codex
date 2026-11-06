@@ -2,9 +2,30 @@
 
 This tracker is in the Feishu Sales Base: **Contract PO Tracker**.
 
+## Ownership: my Contracts only (mandatory)
+
+**Only a Contract Ready/Created notification received in the user's CSS QQ
+mailbox (`QQ Mail Intake`, sender `css@novogene-amea.com`) may establish
+the ownership/cohort of a Contract.** The separate `CRM Filtered Mail Intake`
+collected from Jiin's QQ mailbox includes other sales. Its Contract notices
+must **never** create new projects in this user's PO follow-up list.
+
+Once an exact Project ID has a trusted CSS Contract, original Jiin CRM notices
+with that **same unambiguous ID** may contribute PO notice, Final Report or
+Statement evidence, strictly after the CSS Contract timestamp. The body must
+never be used to guess a project ID for this join.
+
+- `Contract Scope=MY_CSS_CONTRACT`: included in active PO tracking
+- `Contract Scope=EXCLUDED_NOT_MY_CSS_CONTRACT`: historic CRM-only record,
+  kept as an audit record but assigned `OUT_OF_SCOPE_OTHER_SALES` to remove
+  it from actionable PO views. Never delete existing evidence/attestations.
+- The prior aggregate 204 projects may include other sales and is **not** the
+  verified count of the user's Contracts. Recompute the CSS-only denominator
+  before interpreting PO-needed or PO-submitted counts.
+
 ## What starts the queue
 
-An original 2026 CSS/CRM notice with an unambiguous project ID and
+An original **CSS-only** 2026 notice with an unambiguous project ID and
 `Contract Ready/Created` triggers `PO_REQUIRED`. **No Contract notice,
 no automatic PO-required row.**
 
