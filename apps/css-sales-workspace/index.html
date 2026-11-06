@@ -15,6 +15,10 @@ main{margin-left:254px;padding:26px clamp(18px,3vw,46px);max-width:1700px}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin:18px 0 23px}.kpi,.panel{background:#fff;border:1px solid #e1e7f0;border-radius:15px;padding:20px}.kpi .label{font-size:12px;color:#72839a}.kpi strong{display:block;font-size:25px;margin-top:8px;letter-spacing:-.5px}.kpi small{color:#72839a}
 .panel{margin-top:17px}.panel h2{font-size:17px;margin:0 0 16px}.filter{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
 .tablewrap{overflow:auto;max-height:65vh}table{border-collapse:collapse;width:100%;min-width:750px;font-size:13px}th{position:sticky;top:0;background:#f3f6fa;text-align:left;font-size:12px;color:#536985}th,td{padding:12px;border-bottom:1px solid #e9edf3;vertical-align:top}tbody tr:hover{background:#f7faff}.rowbutton{border:0;color:#245b99;background:none;text-align:left;font-weight:700;padding:0}.tag{padding:5px 8px;background:#eef3f8;border-radius:7px;font-size:11px;display:inline-block;white-space:nowrap}
+.quote-full-name{min-width:320px;max-width:480px;overflow-wrap:anywhere;white-space:pre-wrap;font-weight:600;line-height:1.5}.source-hint{color:#6f8196;font-size:11px;display:block;margin-top:5px;font-weight:400}
+.progress-cell{min-width:180px}.progress-value{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}.progress-track{height:9px;border-radius:10px;background:#e6edf5;overflow:hidden;margin:7px 0}.progress-fill{height:100%;background:#2d76a9;border-radius:10px;min-width:0}.progress-missing{color:#8b9aae}
+.project-evidence{font-size:12px;min-width:150px;line-height:1.9}.project-evidence span{display:block}
+
 .notice{border-left:3px solid #e3ac53;padding:13px 15px;background:#fffaf0;color:#745c35;margin:16px 0}
 .operator-hint{color:#64758f;font-size:12px;line-height:1.65}
 .run-link{color:#245b99;font-weight:700;text-decoration:underline}
@@ -49,7 +53,11 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <section id="overview" class="view active"><div class="kpis" id="overviewKpi"></div>
 <div class="split"><div class="panel"><h2>프로젝트 진행 현황</h2><div id="overviewStages" class="empty">연결 후 표시됩니다.</div></div><div class="panel"><h2>우선 처리할 업무</h2><div id="overviewActions" class="empty">연결 후 표시됩니다.</div></div></div>
 <div class="panel"><h2>최근 월별 매출 흐름</h2><div class="tablewrap"><table><thead><tr><th>월</th><th>매출 VAT 제외 KRW</th><th>발행 VAT 포함 KRW</th><th>Pending KRW</th><th>검증 청구액 KRW</th><th>Forecast (미확정)</th></tr></thead><tbody id="overviewRevenue"></tbody></table></div></div></section>
-<section id="projects" class="view"><div class="panel"><h2>프로젝트 진행 모니터링</h2><div class="filter"><input id="projectQuery" placeholder="기관 · 고객 · 서비스 · AMEA"><select id="projectStatus"><option value="">전체 단계</option><option value="PROJECT FORECAST">진행 / Forecast</option><option value="STATEMENT">Statement</option><option value="ISSUED">Invoice 발행</option><option value="BLOCKED">보류</option></select></div><div class="tablewrap"><table><thead><tr><th>기관 · 고객 · 서비스</th><th>프로젝트</th><th>진행 단계</th><th>예상 월</th><th>청구 상태</th><th>다음 조치</th></tr></thead><tbody id="projectRows"></tbody></table></div></div></section>
+<section id="projects" class="view"><div class="panel"><h2>프로젝트별 진행률 및 후속 조치</h2>
+<p class="operator-hint" id="projectCoverage">프로젝트 단계·Quote 연결 증거를 확인 중입니다.</p>
+<div class="notice">진행률은 실제 확인된 CSS/Feishu 프로젝트 단계 기준입니다. 청구·Prepayment Invoice 발행만으로 100% 완료 처리하지 않습니다. Quote 이름은 SFDC 원본과 정확히 일치하는 경우에만 확정으로 표시합니다.</div>
+<div class="filter"><input id="projectQuery" placeholder="Quote Full Name · 기관 · 고객 · 서비스 · AMEA · X번호"><select id="projectStatus"><option value="">전체 단계</option><option value="PROJECT FORECAST">진행 / Forecast</option><option value="STATEMENT">Statement</option><option value="ISSUED">Invoice 발행</option><option value="BLOCKED">보류</option></select></div>
+<div class="tablewrap"><table><thead><tr><th>Quote Full Name (전체)</th><th>프로젝트 ID / 기관·고객·서비스</th><th>진행률</th><th>현재 단계</th><th>Prepayment · SIF · PO</th><th>예상 월 · 청구</th><th>다음 조치</th></tr></thead><tbody id="projectRows"></tbody></table></div></div></section>
 <section id="contractReview" class="view"><div class="panel">
 <h2>미발행 프로젝트 AMEA / 계약번호 후보 검증</h2>
 <div class="notice">H·X·Stage는 AMEA 원본 연결 후보이며 계약 귀속 확정이 아닙니다. 기존 Watch X번호는 독립 행 FILTER 오연결로 확인되었으므로 거래번호나 Revenue 매칭에 사용하지 마세요. Tax Invoice 발행·수금 여부와도 무관합니다.</div>
@@ -160,8 +168,52 @@ put('revenueRows',data.months.map(r=>[r.month,netText(r.netRevenue),money(r.actu
 const stats=new Map();for(const p of ps){const key=p.billing.startsWith('ISSUED')?'Invoice 발행':p.billing.includes('STATEMENT')?'Statement 대기':p.billing.includes('BLOCKED')?'보류':'진행 중';stats.set(key,(stats.get(key)||0)+1)}$('overviewStages').replaceChildren(...[...stats].map(([k,v])=>elt('p',k+'   '+v+'건')));
 $('overviewActions').replaceChildren(elt('p','미응답 메일 '+ml.length+'건'),elt('p','Lead '+ls.length+'건'),elt('p','미발행 Statement '+ps.filter(p=>p.pendingStatement).length+'개 프로젝트'));
 const pq=$('projectQuery').value.toLowerCase(),cat=$('projectStatus').value;
-const proj=ps.filter(p=>(!cat||p.billing.includes(cat))&&(!pq||[p.project,p.amea,p.institution,p.customer,p.service].join(' ').toLowerCase().includes(pq)));
-put('projectRows',proj.map(p=>[[p.institution,p.customer,p.service].filter(Boolean).join(' · '),p.amea||p.project,p.stage+' / '+p.status,p.expectedMonth||'미정',p.billing,p.next]));
+const proj=ps.filter(p=>(!cat||String(p.billing||'').includes(cat))&&(!pq||
+  [p.project,p.amea,p.institution,p.customer,p.service,p.quoteFullName,p.cssProjectDescription].join(' ').toLowerCase().includes(pq)));
+const cov=data.projectCoverage||{};
+$('projectCoverage').textContent='프로젝트 '+fmt(cov.total??ps.length)+'건 · 단계 증거 '+fmt(cov.progressVerified??0)+'건 · SFDC Quote Full Name 확인 '+fmt(cov.quoteVerified??0)+
+  '건 · Quote 확인 필요 '+fmt(Math.max(0,(cov.total??ps.length)-(cov.quoteVerified??0)))+'건 · Prepayment '+fmt(cov.prepayment??0)+'건 · CSS 소스 '+(cov.cssSource||'미확인');
+const quoteCell=p=>{
+  const cell=elt('div',undefined,'quote-full-name');
+  if(p.quoteFullName){
+    cell.append(elt('div',p.quoteFullName),elt('small',p.quoteNameState==='SFDC_VERIFIED'?'SFDC Quote · AMEA 정확 일치':'복수 Quote · 확인 필요','source-hint'));
+  }else{
+    cell.append(elt('div','SFDC Quote Full Name 미연결'));
+    if(p.cssProjectDescription)cell.append(elt('small','CSS 프로젝트 원문: '+p.cssProjectDescription,'source-hint'));
+  }
+  return cell;
+};
+const progressCell=p=>{
+  const cell=elt('div',undefined,'progress-cell'),value=Number(p.progress);
+  if(p.progress===null||p.progress===undefined||!Number.isFinite(value)||value<0||value>100){
+    cell.append(elt('div','미확인','progress-value progress-missing'),elt('small','진행 증거 없음','source-hint'));return cell;
+  }
+  const track=elt('div',undefined,'progress-track'),fill=elt('div',undefined,'progress-fill');
+  track.setAttribute('role','progressbar');track.setAttribute('aria-label','프로젝트 진행률');
+  track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');
+  track.setAttribute('aria-valuenow',String(value));
+  fill.style.width=value+'%';track.append(fill);
+  cell.append(elt('div',value+'%','progress-value'),track,
+     elt('small',p.progressEvidence==='CSS_PROJECT_CHECKPOINT'?'CSS 진행 증거':'프로젝트별 CSS 메일 단계','source-hint'));
+  return cell;
+};
+const evidenceCell=p=>{
+  const cell=elt('div',undefined,'project-evidence');
+  const sif={WAIVED_PREPAYMENT:'SIF: Prepayment 면제',SUBMITTED:'SIF: 제출 확인',APPROVED:'SIF: 승인 확인',REQUESTED:'SIF: 요청 확인',NOT_VERIFIED:'SIF: 미확인'};
+  cell.append(elt('span',p.prepayment?'Prepayment: 등재':'Prepayment: 미확인'),
+     elt('span',sif[p.sifState]||'SIF: 미확인'),
+     elt('span',p.poState==='INFERRED_FROM_REPORT_OR_STATEMENT'?'PO: Report/Statement로 제출 간주':'PO: 직접 확인 필요'));
+  return cell;
+};
+put('projectRows',proj.map(p=>[
+  quoteCell(p),
+  [p.project,p.amea,p.institution,p.customer,p.service].filter(Boolean).join(' · '),
+  progressCell(p),
+  p.stage+' / '+p.status,
+  evidenceCell(p),
+  [p.expectedMonth||'예상월 미확인',p.billing||'청구 미확인'].join(' · '),
+  p.next||'후속 확인'
+]));
 const cr=data.contractReview||{available:false,items:[]},allContracts=cr.items||[];
 $('contractReviewSummary').textContent=!cr.available
  ?'원본 검증 실패 또는 미동기화 · 계약번호 표시를 중단했습니다. 기존 Watch의 행번호 기반 X번호를 사용하지 않습니다.'
