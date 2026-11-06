@@ -1,0 +1,53 @@
+name: SFDC Contact Lookup Source Readiness
+
+on:
+  pull_request:
+    paths:
+      - 'automation/sfdc/contact_lookup_source_gate.py'
+      - 'automation/sfdc/test_contact_lookup_source_gate.py'
+      - 'automation/sfdc_desktop/contact_preview_export.py'
+      - 'automation/sfdc_desktop/test_contact_preview_export.py'
+      - 'automation/sfdc/SFDC_SOURCE_EXPORT_CONTRACT.md'
+      - '.github/workflows/sfdc-contact-lookup-readiness.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '15 0,3,8 * * 1-5' # weekday 09:15, 12:15, 17:15 KST
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sfdc-contact-lookup-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate source freshness and Contact relation contracts (synthetic)
+        run: |
+          python -m unittest discover -s automation/sfdc -p 'test_contact_lookup_source_gate.py' -v
+          python -m unittest discover -s automation/sfdc_desktop -p 'test_contact_preview_export.py' -v
+          python -m py_compile automation/sfdc/contact_lookup_source_gate.py automation/sfdc_desktop/contact_preview_export.py
+  private-readiness:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    needs: offline-regression
+    environment: TaehoonServer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Google Sheets dependencies
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Inspect private SFDC source freshness (no CRM or Sheet writes)
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: python automation/sfdc/contact_lookup_source_gate.py
