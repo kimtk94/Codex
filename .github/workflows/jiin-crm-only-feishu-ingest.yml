@@ -4,19 +4,23 @@ on:
     paths:
       - 'automation/feishu/jiin_crm_filtered_ingest.py'
       - 'automation/feishu/test_jiin_crm_filtered_ingest.py'
+      - 'automation/feishu/jiin_crm_full_scan.py'
+      - 'automation/feishu/test_jiin_crm_full_scan.py'
       - '.github/workflows/jiin-crm-only-feishu-ingest.yml'
   push:
     branches: [main, feat/jiin-crm-only-email-ingest-20261106]
     paths:
       - 'automation/feishu/jiin_crm_filtered_ingest.py'
       - 'automation/feishu/test_jiin_crm_filtered_ingest.py'
+      - 'automation/feishu/jiin_crm_full_scan.py'
+      - 'automation/feishu/test_jiin_crm_full_scan.py'
       - '.github/workflows/jiin-crm-only-feishu-ingest.yml'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'probe checks authorized mailbox login; apply reads only exact crm sender'
+        description: 'probe tests login; apply scans next 300 candidates; backfill scans up to 15,000 with checkpoint'
         type: choice
-        options: [probe, apply]
+        options: [probe, apply, backfill]
         default: probe
         required: true
   schedule:
@@ -38,13 +42,14 @@ jobs:
       - name: Enforce exact sender, no credential leaks and read-only probe
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_filtered_ingest.py' -v
-          python3 -m py_compile automation/feishu/jiin_crm_filtered_ingest.py
+          python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_full_scan.py' -v
+          python3 -m py_compile automation/feishu/jiin_crm_filtered_ingest.py automation/feishu/jiin_crm_full_scan.py
   import:
     needs: offline_tests
     if: ${{ needs.offline_tests.result == 'success' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.JIIN_CRM_READY == 'true')) }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 35
+    timeout-minutes: 355
     env:
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
@@ -55,7 +60,7 @@ jobs:
       JIIN_CRM_OAUTH_ACCESS_TOKEN: ${{ secrets.JIIN_CRM_OAUTH_ACCESS_TOKEN }}
       JIIN_CRM_APP_PASSWORD: ${{ secrets.JIIN_CRM_APP_PASSWORD }}
       JIIN_CRM_MODE: ${{ github.event_name == 'schedule' && 'apply' || inputs.mode }}
-      JIIN_CRM_MAIL_LIMIT: '300'
+      JIIN_CRM_MAIL_LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'backfill' && '15000' || '300' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
