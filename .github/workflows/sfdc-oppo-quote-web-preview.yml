@@ -1,0 +1,60 @@
+name: SFDC Oppo-Quote web preview (no CRM writes)
+on:
+  push:
+    branches:
+      - feat/sfdc-web-preview-mainline-20261106
+    paths:
+      - 'masteros/web/**'
+      - 'automation/sfdc/contact_lookup_source_gate.py'
+      - 'automation/sfdc/test_contact_lookup_source_gate.py'
+      - 'automation/sfdc_desktop/contact_preview_export.py'
+      - 'automation/sfdc_desktop/test_contact_preview_export.py'
+      - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
+  pull_request:
+    paths:
+      - 'masteros/web/**'
+      - 'automation/sfdc/contact_lookup_source_gate.py'
+      - 'automation/sfdc/test_contact_lookup_source_gate.py'
+      - 'automation/sfdc_desktop/contact_preview_export.py'
+      - 'automation/sfdc_desktop/test_contact_preview_export.py'
+      - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate-web-draft:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: masteros/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify SFDC source gate with synthetic evidence
+        run: |
+          python3 -m unittest discover -s ../../automation/sfdc -p 'test_contact_lookup_source_gate.py' -v
+          python3 -m py_compile ../../automation/sfdc/contact_lookup_source_gate.py
+          python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_contact_preview_export.py' -v
+          python3 -m py_compile ../../automation/sfdc_desktop/contact_preview_export.py
+      - name: Install isolated web dependencies
+        run: npm install --no-audit --no-fund
+      - name: Run unit, local readback privacy and no-Save checks
+        run: npm run test:sfdc
+      - name: Compile Next.js draft workspace
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+      - name: Check production output route exists
+        run: |
+          node -e "const fs=require('fs'); if (!fs.existsSync('.next/server/app/sales/oppo-quote')) { throw new Error('Oppo-Quote compiled route missing') }"
+      - name: Install isolated synthetic-browser test tooling
+        run: npm install --no-save --no-audit --no-fund playwright@1.56.1
+      - name: Install Chromium for synthetic-browser smoke test
+        run: npx playwright install --with-deps chromium
+      - name: Verify local Contact evidence browser flow, PE250 units and zero CRM writes
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: node --test tests/sfdc-oppo-quote.e2e.mjs
