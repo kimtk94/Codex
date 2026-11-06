@@ -48,7 +48,7 @@ dialog{width:min(850px,94vw);border:0;border-radius:18px;padding:24px;box-shadow
 <button data-view="health">⚙ 자동화 컨트롤 타워</button>
 </nav><div class="sidefoot">Owner-scoped · Read-only<br>자동 갱신 데이터 / 권한 유지</div></aside>
 <main><div class="top"><div><h1 id="heading">전체 대시보드</h1><div class="subtitle" id="timestamp">원본 자동화 상태를 확인하세요.</div></div>
-<div class="controls"><label class="operator-hint" for="dashboardMonth">매출 기준월 <select id="dashboardMonth" aria-label="매출 대표 기준월" title="매출과 Forecast 기준월" disabled></select></label><button class="primary" id="login" type="button" hidden>Vercel 로그인</button><button class="primary" id="load">새로고침</button><input id="token" type="password" autocomplete="off" aria-label="기존 토큰" hidden><span class="status" id="state">미연결</span></div></div>
+<div class="controls"><label class="operator-hint" for="dashboardMonth">매출 기준월 <select id="dashboardMonth" aria-label="매출 대표 기준월" title="매출과 Forecast 기준월" disabled></select></label><button class="primary" id="login" type="button" hidden>Vercel 계정으로 로그인</button><button class="primary" id="load">새로고침</button><input id="token" type="password" autocomplete="off" aria-label="기존 토큰" hidden><span class="status" id="state">미연결</span></div></div>
 <div class="notice" id="authNotice">인증 상태를 확인하는 중입니다. 인증에 실패한 경우에만 연결 안내가 표시됩니다.</div>
 <section id="overview" class="view active"><div class="kpis" id="overviewKpi"></div>
 <div class="split"><div class="panel"><h2>프로젝트 진행 현황</h2><div id="overviewStages" class="empty">연결 후 표시됩니다.</div></div><div class="panel"><h2>우선 처리할 업무</h2><div id="overviewActions" class="empty">연결 후 표시됩니다.</div></div></div>
@@ -309,14 +309,27 @@ async function load(){
   const res=await fetch('/api/lifecycle',options);
   if(res.status===401){
    auth=null;$('login').hidden=false;$('authNotice').hidden=false;$('ownerSmoke').disabled=true;
-   $('authNotice').textContent='Vercel 계정으로 로그인하면 별도 조회 토큰 없이 연결됩니다. 계정 소유자만 접근할 수 있습니다.';
+   const reason=new URLSearchParams(window.location.search).get('auth')||'';
+   const labels={
+     owner_only:'로그인한 Vercel 계정이 이 웹의 소유자가 아닙니다. 계정을 전환한 후 다시 로그인하세요.',
+     state_missing:'로그인 인증 정보가 브라우저에서 전달되지 않았습니다. Safari 또는 Chrome 일반 탭으로 열어 다시 로그인하세요.',
+     state_invalid:'로그인 인증 세션이 만료되었거나 일치하지 않습니다. 다시 로그인하세요.',
+     provider_denied:'Vercel 인증이 취소되었거나 권한을 승인하지 않았습니다. 다시 로그인하세요.',
+     token_exchange:'Vercel 인증 토큰 교환에 실패했습니다. 앱의 등록된 Callback URL과 권한을 점검해야 합니다.',
+     access_token_missing:'Vercel 인증 서버가 토큰을 반환하지 않았습니다.',
+     userinfo_failed:'Vercel 사용자 정보 인증이 실패했습니다. 앱의 openid 권한을 점검해야 합니다.',
+     unknown:'Vercel 인증 실패 원인을 확인해야 합니다.'
+   };
+   $('authNotice').textContent=labels[reason]||'Vercel 계정으로 로그인하면 별도 조회 토큰 없이 연결됩니다. 계정 소유자만 접근할 수 있습니다.';
    $('state').textContent='인증 필요';return;
   }
   if(!res.ok)throw Error('데이터 조회 실패 '+res.status);
   data=await res.json();
   auth=token||null;
   $('token').value='';$('token').hidden=true;$('login').hidden=true;
-  $('state').textContent='연결됨';$('authNotice').hidden=true;$('ownerSmoke').disabled=false;draw();
+  $('state').textContent='연결됨';$('authNotice').hidden=true;$('ownerSmoke').disabled=false;
+  if(new URLSearchParams(window.location.search).has('auth'))history.replaceState(null,'',window.location.pathname);
+  draw();
  }catch(e){$('ownerSmoke').disabled=true;$('state').textContent=e.message;$('authNotice').hidden=false;$('authNotice').textContent='데이터가 준비되지 않았습니다. '+e.message}
  finally{$('load').disabled=false}
 }
