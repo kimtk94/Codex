@@ -55,3 +55,7 @@ jobs:
           python-version: '3.11'
       - name: Sync PO due from verified contract emails (dedicated table only)
         run: python3 automation/feishu/contract_po_tracker.py
+      - name: Publish PO required link in native Sales Home after table sync
+        env:
+          FEISHU_PORTAL_MODE: apply
+        run: python3 automation/feishu/sales_native_home.py
