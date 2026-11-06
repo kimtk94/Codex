@@ -36,6 +36,29 @@ attested PO records remain in the overall table for audit; they are never
 deleted. The machine-generated `PO Status` retains the original mail-only
 classification, even when a human has verified the actual file.
 
+## Final Report / Statement downstream evidence (automatic)
+
+Following the business rule, a verified original Final Report or Statement
+*notice* that occurs **strictly after Contract creation** is sufficient to
+**assume PO was submitted for follow-up purposes**, even if no PO mail exists.
+Recognized subjects include `Final Report Ready`, `Final Report Released`,
+`Statement Ready`, `Statement Issued` and `Statement Confirmed`.
+
+Only original inbound 2026 CSS/CRM exact-sender mail with a unique project ID
+in the subject qualifies. A body-only ID, a forwarded/reply subject, a draft,
+request, failure, pending, cancelled, or pre-Contract milestone is excluded.
+
+- `Submission Inference=ASSUMED_BY_DOWNSTREAM_NOTICE`: a downstream milestone
+  exists (do not describe this as independently verified PO receipt)
+- `Downstream Evidence Type/UTC/Source/Mail Key`: auditable evidence reference
+- `PO Followup Queue=PO_SUBMITTED_INFERRED`: excluded from the PO 수령 필요 view
+- Later explicit PO missing/request notice after the downstream milestone
+  yields `PO_EVIDENCE_CONFLICT_REVIEW` instead of silently closing.
+- A direct received PO notification remains `PO_FILE_REVIEW`, and a fully
+  manually attested file remains `FILE_VERIFIED_ATTESTED`.
+- `PO Status` continues to represent PO-specific mail notices only. An
+  inferred submission is never written to the manual proof fields.
+
 ## Scope and safeguards
 
 - Original CSS / CRM mail tables, source mailbox, SFDC, and invoice records
