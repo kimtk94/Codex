@@ -96,6 +96,25 @@ class MimeReviewTests(unittest.TestCase):
             p.inspect_message(raw,row("PO AMEA2026042239")["fields"],
                               po.CRM_SENDER,len(raw))
 
+    def test_owner_qq_mailbox_accepts_crm_sender_and_verifies_identity(self):
+        raw=raw_message("PO received",sender=po.CRM_SENDER)
+        f=row("PO AMEA2026042239","PO received",sender=po.CRM_SENDER)["fields"]
+        result=p.inspect_message(raw,f,po.CSS,len(raw))
+        self.assertTrue(result["identity_validated"])
+        self.assertTrue(result["complete_mime"])
+
+    def test_owner_qq_mailbox_rejects_mismatch_with_stored_from(self):
+        raw=raw_message("PO received",sender=po.CRM_SENDER)
+        f=row("PO AMEA2026042239","PO received",sender=po.CSS)["fields"]
+        with self.assertRaisesRegex(p.SafeError,"SENDER_MISMATCH"):
+            p.inspect_message(raw,f,po.CSS,len(raw))
+
+    def test_jiin_crm_source_rejects_css_sender_even_if_stored_matches(self):
+        raw=raw_message("PO received",sender=po.CSS)
+        f=row("PO AMEA2026042239","PO received",sender=po.CSS)["fields"]
+        with self.assertRaisesRegex(p.SafeError,"SENDER_MISMATCH"):
+            p.inspect_message(raw,f,po.CRM_SENDER,len(raw))
+
     def test_message_id_mismatch_rejected(self):
         raw=raw_message("PO received")
         f=row("PO AMEA2026042239")["fields"]
