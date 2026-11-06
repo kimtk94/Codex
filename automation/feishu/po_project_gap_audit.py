@@ -126,8 +126,10 @@ def project_rows(source, tracker_records):
         counts["followup_" + contract["followup_queue"]] += 1
         counts["file_attested"] += int(contract["manual_verified"])
         events = grouped.get(project, [])
+        is_due = contract["followup_queue"] == "PO_REQUIRED"
         if not events:
             counts["no_post_contract_po_mail"] += 1
+            counts["due_no_post_contract_po_mail"] += int(is_due)
             continue
         counts["projects_with_post_contract_po_mail"] += 1
         counts["post_contract_po_mail_total"] += len(events)
@@ -147,9 +149,12 @@ def project_rows(source, tracker_records):
         latest_types = {e["classification"] for e in events if e["at"] == latest_at}
         if len(latest_types) > 1:
             counts["latest_conflicting_notice"] += 1
+            counts["due_latest_conflicting_notice"] += int(is_due)
             continue
         latest = next(iter(latest_types))
         counts["latest_" + latest] += 1
+        if is_due:
+            counts["due_latest_" + latest] += 1
         if latest == "POSITIVE_CANDIDATE":
             counts["potential_review_queue_reduction_not_verified"] += 1
             latest_positive = [e for e in events
@@ -169,7 +174,17 @@ def project_rows(source, tracker_records):
         sum(counts["latest_" + state] for state in ORDER)
     ):
         raise SafeError("PO_GAP_LATEST_PARTITION_INVALID")
+    due_categories = (
+        "due_no_post_contract_po_mail",
+        "due_latest_conflicting_notice",
+        *( "due_latest_" + status for status in ORDER ),
+    )
+    due_total = sum(counts[key] for key in due_categories)
+    if due_total != counts["followup_PO_REQUIRED"]:
+        raise SafeError("PO_GAP_DUE_COHORT_PARTITION_INVALID")
     return {
+        "po_required_root_causes": {key: counts[key] for key in due_categories},
+        "po_required_root_causes_total": due_total,
         "project_cohorts": dict(sorted(counts.items())),
         "mail_matching": dict(sorted(stats.items())),
         "review_candidate_reduction": counts["potential_review_queue_reduction_not_verified"],
