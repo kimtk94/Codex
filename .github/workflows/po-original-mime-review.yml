@@ -4,6 +4,7 @@ on:
     paths:
       - 'automation/feishu/po_original_mime_review.py'
       - 'automation/feishu/test_po_original_mime_review.py'
+      - 'automation/feishu/contract_po_tracker.py'
       - '.github/workflows/po-original-mime-review.yml'
   push:
     branches: [main]
@@ -52,5 +53,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Inspect original MIME only for high-priority PO body candidates
+      - name: Inspect original MIME only for PO evidence after own CSS Contract
         run: python3 automation/feishu/po_original_mime_review.py
