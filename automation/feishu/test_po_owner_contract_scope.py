@@ -18,6 +18,21 @@ class OwnerContractScopeTests(unittest.TestCase):
         self.assertIsNone(crm)
         self.assertEqual(po.build_tracker([], "now"), [])
 
+    def test_crm_sender_delivered_to_own_qq_mail_creates_owner_contract(self):
+        own=row("Contract Created AMEA2026042239",source=po.CRM_SENDER)
+        # The same FROM belongs to the user only when it arrived in QQ Mail Intake.
+        event=po.event(own,po.CSS)
+        self.assertTrue(event["contract"])
+        self.assertEqual(event["source"],"CSS")
+        project=po.build_tracker([event],"now")[0]
+        self.assertEqual(project["Contract Source"],"CSS")
+
+    def test_qq_mail_rejects_untrusted_or_multi_from(self):
+        self.assertIsNone(po.event(
+            row("Contract Created AMEA2026042239",source="other@novogene.com"),po.CSS))
+        self.assertIsNone(po.event(
+            row("Contract Created AMEA2026042239",source="css@novogene-amea.com, crm@novogene.com"),po.CSS))
+
     def test_qq_owner_contract_with_crm_downstream_is_eligible(self):
         own = po.event(row("Contract Ready AMEA2026042239"), po.CSS)
         other = po.event(row("Final Report & Statement Ready AMEA2026042239",
