@@ -51,6 +51,8 @@ MENUS = (
      "CSS 진행 안내","QQ 메일 · Feishu 분석","CSS 단계별 알림, 고객 회신 대상 아님"),
     ("SIF","03 프로젝트","SIF 진행 현황","Project SIF Monitor",
      "프로젝트 진행 · SIF","기존 프로젝트·SIF 검증 시트","SIF 제출/승인 증빙 기준"),
+    ("PO_REQUIRED","03 프로젝트","Contract 생성 후 PO 수령 필요","Contract PO Tracker",
+     "PO 수령 필요","원본 CSS·CRM Contract 통지","Contract 통지 이후 PO 접수 확인·요청 목록"),
     ("INVOICE","04 지표","월별 Tax Invoice","Monthly Tax Invoice",
      "월별 Tax Invoice","기존 매출·Invoice 검증 시트","VAT 포함 Invoice와 VAT 제외 Revenue 구분"),
     ("QUOTE","04 지표","Weekly Quote","Weekly Quote KPI",
