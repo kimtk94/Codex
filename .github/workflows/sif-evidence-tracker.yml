@@ -1,0 +1,61 @@
+name: Project SIF Evidence Lifecycle Tracker
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/sif_evidence_tracker.py'
+      - 'automation/feishu/test_sif_evidence_tracker.py'
+      - 'automation/feishu/sales_native_home.py'
+      - '.github/workflows/sif-evidence-tracker.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sif-evidence-tracker.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '25 1,9 * * *'
+  workflow_run:
+    workflows:
+      - Jiin CRM 2026 Full Backfill One-Time
+      - Jiin CRM Sender-Only Feishu Import
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: sif-evidence-tracker-feishu
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test SIF evidence lifecycle against full-backfill sender guard
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_sif_evidence_tracker.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_sif_po_audit.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_contract_po_tracker.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_native_home.py' -v
+  sync:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' && github.event_name != 'pull_request' && vars.JIIN_CRM_READY == 'true' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Sync SIF evidence to independent Feishu review tracker
+        run: python3 automation/feishu/sif_evidence_tracker.py
+      - name: Publish SIF approval review link in Feishu Sales Home
+        env:
+          FEISHU_PORTAL_MODE: apply
+        run: python3 automation/feishu/sales_native_home.py
