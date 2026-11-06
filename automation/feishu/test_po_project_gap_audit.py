@@ -17,6 +17,7 @@ Q = "AMEA2026042240"
 def contract(project=P, when=C, **extra):
     return {"fields": {"Project ID": project, "Contract Notice UTC": when,
                         "Contract Mail Key": "contract-"+project,
+                        "Contract Source": "CSS",
                         "PO Status": "PO_REQUIRED", **extra}}
 
 
@@ -189,6 +190,23 @@ class ProjectGapTests(unittest.TestCase):
         self.assertEqual(result["project_cohorts"]["all_contract_projects"],2)
         self.assertEqual(result["inferred_po_submitted_projects"],1)
         self.assertEqual(result["operational_po_missing_projects"],1)
+
+    def test_crm_contract_legacy_record_excluded_not_counted(self):
+        prior=contract("AMEA2026042244", **{
+            "Contract Source": "CRM",
+            "PO Followup Queue": "EXCLUDED_NO_OWNER_CONTRACT",
+        })
+        report=g.project_rows(sources(),[contract(),prior])
+        self.assertEqual(report["project_cohorts"]["all_contract_projects"],1)
+        self.assertEqual(report["excluded_other_sales_or_unconfirmed_contract_projects"],1)
+
+    def test_crm_contract_in_po_required_queue_fails_closed(self):
+        prior=contract("AMEA2026042244",**{
+            "Contract Source": "CRM",
+            "PO Followup Queue": "PO_REQUIRED",
+        })
+        with self.assertRaisesRegex(g.SafeError,"NON_OWNER_CONTRACT_IN_DUE_QUEUE"):
+            g.project_rows(sources(),[prior])
 
     def test_duplicate_source_mail_fails_closed(self):
         with self.assertRaisesRegex(g.SafeError,"SOURCE_MAIL_DUPLICATE"):
