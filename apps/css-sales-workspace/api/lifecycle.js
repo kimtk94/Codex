@@ -1,4 +1,5 @@
 const {GoogleAuth}=require('google-auth-library');
+const {buildProjectCards}=require('../lib/project-milestones');
 const {projectPersonalLeads}=require('../lib/personal-leads');
 const {projectAutomationConsole}=require('../lib/automation-console');
 const {projectOperationalAcceptance}=require('../lib/operational-acceptance');
@@ -6,7 +7,7 @@ const {projectUnissuedContracts}=require('../lib/unissued-contract-candidates');
 const {checkOwner,ownerSessionCookie}=require('../lib/lifecycle-owner-auth');
 const SHEET='1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI';
 const QQ_SHEET='1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY';
-const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J35","'CSS Mail Backfill Status'!A1:O2"];
+const ranges=["'BI Revenue Lifecycle Monthly'!A1:Q20","'BI Project Lifecycle Overview'!A1:X400","'Automation Health'!A1:D60","'Unanswered Emails'!A1:V700","'Lead My Sent Audit'!A1:T650","'Email Review Decisions'!A1:J700","'Automation Master Progress'!A5:K55","'Parallel Track Status'!A1:G5","'Automation Workflow Runs'!A1:J35","'CSS Mail Backfill Status'!A1:O2","'Quote Portfolio'!A1:I2500","'Feishu Latest Prepayments'!A1:S165"];
 module.exports=async function handler(req,res){
   res.setHeader('Cache-Control','private, no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -23,6 +24,25 @@ module.exports=async function handler(req,res){
     const auth=new GoogleAuth({credentials:JSON.parse(raw),scopes:['https://www.googleapis.com/auth/spreadsheets.readonly']});
     const client=await auth.getClient();
     const access=await client.getAccessToken();
+    // Supplement owner-scoped lifecycle with project-specific CSS checkpoints
+    // and SIF evidence. Optional source failures must never create fake matches.
+    const cssProjectPromise=(async()=>{
+      try{
+        const qqRanges=["'CSS Project Dashboard'!A1:AK500","'CSS Contract-SIF Tracker'!A1:AJ700"];
+        const url='https://sheets.googleapis.com/v4/spreadsheets/'+QQ_SHEET+'/values:batchGet?'+
+          qqRanges.map(x=>'ranges='+encodeURIComponent(x)).join('&');
+        const response=await fetch(url,{
+          headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(10000)
+        });
+        if(!response.ok)return {state:'UNAVAILABLE',cssProjects:[],sifRecords:[]};
+        const result=await response.json();
+        const [cssProjects,sifRecords]=(result.valueRanges||[]).map(x=>x.values||[]);
+        if(!cssProjects?.[0]?.includes('project_id')||!cssProjects[0].includes('progress_percent')||
+           !sifRecords?.[0]?.includes('project_id')||!sifRecords[0].includes('Prepayment'))
+          return {state:'SCHEMA_MISMATCH',cssProjects:[],sifRecords:[]};
+        return {state:'VERIFIED',cssProjects,sifRecords};
+      }catch(_err){return {state:'UNAVAILABLE',cssProjects:[],sifRecords:[]}}
+    })();
     // Start independently so an optional operations status fetch cannot stall
     // or break business data. This source is exclusively read-only.
     const acceptanceRange="'CSS Operational Acceptance'!A1:H20";
@@ -62,7 +82,7 @@ module.exports=async function handler(req,res){
     const reply=await fetch(url,{headers:{Authorization:'Bearer '+access.token},signal:AbortSignal.timeout(15000)});
     if(!reply.ok)throw new Error('SHEETS_HTTP_'+reply.status);
     const data=await reply.json();
-    const [monthly,projects,health,unanswered,lead,decisions,masterProgress,parallelTracks,workflowRuns,mailBackfillSource]=(data.valueRanges||[]).map(x=>x.values||[]);
+    const [monthly,projects,health,unanswered,lead,decisions,masterProgress,parallelTracks,workflowRuns,mailBackfillSource,quoteRecords,prepaymentRecords]=(data.valueRanges||[]).map(x=>x.values||[]);
     const expected=['Month','Project / Sub-project','Component'];
     if(!monthly[0]||!projects[0]||!health[0]||[monthly[0][0],projects[0][0],health[0][0]].some((v,i)=>v!==expected[i]))
       return res.status(503).json({error:'SOURCE_SCHEMA_MISMATCH'});
@@ -73,6 +93,20 @@ module.exports=async function handler(req,res){
       invoiceCount:money(x[14]),actual:money(x[15]),billing:x[16]||'',
       forecast:money(x[17]),next:x[18]||'',pendingStatement:x[20]||'',noticeAt:x[21]||'',
       pendingVerified:money(x[22]),pendingEvidence:x[23]||''}));
+    const cssSupplement=await cssProjectPromise;
+    // Require exact official quote and prepayment column names. Missing or
+    // reordered sources cannot silently turn into a positive identity claim.
+    const quoteRows=quoteRecords?.[0]?.includes('Approved AMEA ID')&&
+      quoteRecords[0].includes('Quote Name')&&quoteRecords[0].includes('Approval Match')?quoteRecords:[];
+    const prepaymentRows=prepaymentRecords?.[0]?.includes('Quotation Number')&&
+      prepaymentRecords[0].includes('Project Number')?prepaymentRecords:[];
+    const {projects:projectCards,coverage:projectCoverage}=buildProjectCards(lifecycles,{
+      cssProjects:cssSupplement.cssProjects,sifRecords:cssSupplement.sifRecords,
+      quoteRecords:quoteRows,prepaymentRecords:prepaymentRows
+    });
+    projectCoverage.cssSource=cssSupplement.state;
+    projectCoverage.quoteSource=quoteRows.length?'VERIFIED':'UNAVAILABLE';
+    projectCoverage.prepaymentSource=prepaymentRows.length?'VERIFIED':'UNAVAILABLE';
     const months=monthly.slice(1).filter(x=>/^20\d\d-\d\d$/.test(x[0]||'')).map(x=>({
       month:x[0],actual:money(x[1]),pending:money(x[2]),forecast:money(x[3]),
       combined:money(x[4]),invoices:money(x[5]),openStatements:money(x[6]),
@@ -264,6 +298,6 @@ module.exports=async function handler(req,res){
     automation.acceptance=projectOperationalAcceptance(await acceptancePromise);
     const reviews=decisions.slice(1).filter(r=>r[4]).map(r=>({uid:r[4],decision:r[0]||'NONE',sync:r[7]||'',sender:r[1]||'',subject:r[9]||''}));
     const contractReview=projectUnissuedContracts(await contractsPromise);
-    return res.status(200).json({months,revenueNetStatus,projects:lifecycles,statements,statementSource,status,inbox,leads,reviews,mailBackfill,automation,contractReview,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
+    return res.status(200).json({months,revenueNetStatus,projects:projectCards,projectCoverage,statements,statementSource,status,inbox,leads,reviews,mailBackfill,automation,contractReview,capabilities:{manualMailReview:process.env.CSS_WEB_DECISIONS_ENABLED==='true'},refreshed:months[0]?.refreshed||''});
   }catch(e){return res.status(503).json({error:'DATA_FETCH_FAILED'});}
 };
