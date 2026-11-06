@@ -1,0 +1,37 @@
+name: CSS Project Progress and Quote Identity
+on:
+  pull_request:
+    paths:
+      - 'apps/css-sales-workspace/index.html'
+      - 'apps/css-sales-workspace/api/lifecycle.js'
+      - 'apps/css-sales-workspace/lib/project-milestones.js'
+      - 'apps/css-sales-workspace/test/project-milestones.test.js'
+      - '.github/workflows/css-project-progress.yml'
+  push:
+    branches:
+      - main
+      - 'feat/css-project-progress-*'
+    paths:
+      - 'apps/css-sales-workspace/index.html'
+      - 'apps/css-sales-workspace/api/lifecycle.js'
+      - 'apps/css-sales-workspace/lib/project-milestones.js'
+      - 'apps/css-sales-workspace/test/project-milestones.test.js'
+      - '.github/workflows/css-project-progress.yml'
+  workflow_dispatch:
+jobs:
+  source-backed-project-cards:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript syntax check
+        run: |
+          node --check apps/css-sales-workspace/lib/project-milestones.js
+          node --check apps/css-sales-workspace/api/lifecycle.js
+          node -e "const fs=require('fs'),vm=require('vm');const html=fs.readFileSync('apps/css-sales-workspace/index.html','utf8');const scripts=[...html.matchAll(/<script(?:\\s[^>]*)?>([\\s\\S]*?)<\\/script>/g)].map(x=>x[1]);if(scripts.length!==1)process.exit(1);new vm.Script(scripts[0]);console.log('inline browser JS parse PASS');"
+      - name: Project evidence and progress tests
+        run: node --test apps/css-sales-workspace/test/project-milestones.test.js
