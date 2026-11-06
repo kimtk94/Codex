@@ -146,6 +146,50 @@ class ProjectGapTests(unittest.TestCase):
         self.assertEqual(d["verified_receipt_reduction"],1)
         self.assertEqual(d["review_candidate_reduction"],0)
 
+    def test_inferred_submitted_counter_separate_from_verified_receipt(self):
+        tracker=contract(**{
+            "PO Followup Queue": "PO_SUBMITTED_INFERRED",
+            "Submission Inference": "ASSUMED_BY_DOWNSTREAM_NOTICE",
+            "Downstream Evidence Type": "FINAL_REPORT",
+            "Downstream Evidence UTC": "2026-11-05T10:00:00+09:00",
+            "Downstream Mail Key": "downstream-evidence",
+        })
+        result=g.project_rows(sources(),[tracker])
+        self.assertEqual(result["inferred_po_submitted_projects"], 1)
+        self.assertEqual(result["operational_po_missing_projects"], 0)
+        self.assertEqual(result["verified_receipt_reduction"], 0)
+
+    def test_inferred_status_without_evidence_fails_closed(self):
+        tracker=contract(**{"PO Followup Queue": "PO_SUBMITTED_INFERRED",
+                            "Submission Inference": "ASSUMED_BY_DOWNSTREAM_NOTICE"})
+        with self.assertRaisesRegex(g.SafeError,"INFERRED_SUBMISSION_PROOF_INVALID"):
+            g.project_rows(sources(),[tracker])
+
+    def test_precontract_downstream_evidence_cannot_close_queue(self):
+        tracker=contract(**{
+            "PO Followup Queue": "PO_SUBMITTED_INFERRED",
+            "Submission Inference": "ASSUMED_BY_DOWNSTREAM_NOTICE",
+            "Downstream Evidence Type": "STATEMENT",
+            "Downstream Evidence UTC": "2026-11-03T10:00:00+09:00",
+            "Downstream Mail Key": "a",
+        })
+        with self.assertRaisesRegex(g.SafeError,"INFERRED_SUBMISSION_PROOF_INVALID"):
+            g.project_rows(sources(),[tracker])
+
+    def test_distinct_contract_projects_count_inferred_and_due(self):
+        tracker1=contract(P, **{
+            "PO Followup Queue": "PO_SUBMITTED_INFERRED",
+            "Submission Inference": "ASSUMED_BY_DOWNSTREAM_NOTICE",
+            "Downstream Evidence Type": "FINAL_REPORT_AND_STATEMENT",
+            "Downstream Evidence UTC": "2026-11-05T10:00:00+09:00",
+            "Downstream Mail Key": "one",
+        })
+        tracker2=contract(Q, **{"PO Followup Queue": "PO_REQUIRED"})
+        result=g.project_rows(sources(),[tracker1,tracker2])
+        self.assertEqual(result["project_cohorts"]["all_contract_projects"],2)
+        self.assertEqual(result["inferred_po_submitted_projects"],1)
+        self.assertEqual(result["operational_po_missing_projects"],1)
+
     def test_duplicate_source_mail_fails_closed(self):
         with self.assertRaisesRegex(g.SafeError,"SOURCE_MAIL_DUPLICATE"):
             g.project_rows(sources(css=[mail(key="dup"),mail(key="dup")]),[contract()])
