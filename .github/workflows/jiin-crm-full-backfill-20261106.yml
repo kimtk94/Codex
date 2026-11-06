@@ -23,6 +23,7 @@ jobs:
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_filtered_ingest.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_full_scan.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_batch_recovery.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_jiin_crm_source_audit.py' -v
   full_backfill:
     needs: safety_tests
@@ -46,7 +47,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Sequential full 2026 CRM-only mailbox scan with UID checkpoint
+      - name: Resume full 2026 CRM-only scan from committed UID checkpoint after HTTP400 recovery
         run: python3 automation/feishu/jiin_crm_filtered_ingest.py
       - name: Independently audit all stored CRM-only Feishu rows
         if: ${{ !cancelled() }}
