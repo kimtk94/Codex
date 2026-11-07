@@ -45,8 +45,8 @@ SCHEMAS = {
         ("SIF State", 1), ("PO Evidence", 1), ("Next Action", 1),
         ("Evidence", 1), ("Project Display Name", 1),
         ("Completion Evidence", 1), ("Workflow Lane", 1),
-        ("Payment State", 1), ("Payment Owner Scope", 1), ("Invoice Gross KRW", 2),
-        ("Outstanding Balance KRW", 2),
+        ("Payment State", 1), ("Payment Owner Scope", 1), ("Invoice Gross KRW", 2), ("Invoice Gross M KRW", 2),
+        ("Outstanding Balance KRW", 2), ("Outstanding Balance M KRW", 2),
         ("Payment Invoice No", 1), ("Bank Receipt Reference", 1),
         ("Verified Invoice KRW", 2), ("Verified Received KRW", 2),
         ("Receipt Verified At", 1), ("Receipt Verified By", 1),
@@ -58,7 +58,7 @@ SCHEMAS = {
     "Monthly Tax Invoice": [
         ("Source Key", 1), ("Month", 1), ("Invoice Count", 2),
         ("Tax Invoice KRW Incl VAT", 2), ("Net Revenue KRW Ex VAT", 2),
-        ("Net Revenue K USD", 2), ("CSS Source Invoice Count", 2),
+        ("Net Revenue M KRW", 2), ("Net Revenue K USD", 2), ("CSS Source Invoice Count", 2),
         ("CSS Source KRW Incl VAT", 2), ("Source Difference KRW", 2),
         ("Coverage Status", 1), ("Evidence", 1), ("Last Sync KST", 1),
     ],
@@ -67,7 +67,7 @@ SCHEMAS = {
         ("Chart Week Label", 1), ("Chart Window", 1),
         ("Approved Quote Count", 2), ("Created In Week Count", 2),
         ("Verified Amount Quote Count", 2), ("Verified Quote Value KRW FX", 2),
-        ("Verified Quote Value K USD", 2), ("Unmatched Amount Count", 2),
+        ("Verified Quote Value M KRW FX", 2), ("Verified Quote Value K USD", 2), ("Unmatched Amount Count", 2),
         ("Amount Status", 1), ("Week Status", 1), ("Reporting KRW Per USD", 2),
         ("Evidence", 1), ("Last Sync KST", 1),
     ],
@@ -273,6 +273,19 @@ def project_rows(source):
     ))
 
 
+def scaled_m_krw(value):
+    """Display-only M KRW; full KRW remains unchanged in source fields."""
+    n=D(str(value))/D("1000000")
+    n=n.quantize(D("0.0001"))
+    return int(n) if n==n.to_integral_value() else float(n)
+
+
+def scaled_k_usd(value):
+    """Display-only K USD, integer when exactly whole K."""
+    n=(D(str(value))/D("1000")).quantize(D("0.0001"))
+    return int(n) if n==n.to_integral_value() else float(n)
+
+
 def monthly_rows(source,fx=D("1500")):
     official={}
     invalid=0
@@ -313,7 +326,9 @@ def monthly_rows(source,fx=D("1500")):
                else "SOURCE_SCOPE_REVIEW")
         row={"Source Key":"INVOICE:"+month,"Month":month,
              "Invoice Count":stat["count"],"Tax Invoice KRW Incl VAT":gross,
-             "Net Revenue KRW Ex VAT":net,"Net Revenue K USD":round(float(D(net)/fx/D(1000)),4),
+             "Net Revenue KRW Ex VAT":net,
+             "Net Revenue M KRW":scaled_m_krw(net),
+             "Net Revenue K USD":scaled_k_usd(D(net)/fx),
              "Coverage Status":state,
              "Evidence":"Unified Revenue Invoice Base; deduplicated by Invoice No; excludes VAT for net. Independent CSS month cross-check."}
         if other is not None:
@@ -409,7 +424,8 @@ def weekly_rows(source):
         if verified:
             usd=sum(verified,D(0))
             row["Verified Quote Value KRW FX"]=currency(usd*fx)
-            row["Verified Quote Value K USD"]=round(float(usd/D(1000)),4)
+            row["Verified Quote Value M KRW FX"]=scaled_m_krw(currency(usd*fx))
+            row["Verified Quote Value K USD"]=scaled_k_usd(usd)
         output[week]=row
     if not output:raise SafeError("WEEKLY_NO_VALID_SOURCE")
     # The screenshot compares four complete weekly periods. In-progress
@@ -449,6 +465,44 @@ def table_path(root,table_id):
     return root+"/tables/"+urllib.parse.quote(table_id,safe="")
 
 
+# Source Base numeric display format governs chart labels. Keep raw numbers.
+COUNT_FIELD_FORMATS={
+    "Weekly Quote KPI":{
+        "Approved Quote Count","Created In Week Count",
+        "Verified Amount Quote Count","Unmatched Amount Count",
+    },
+    "Monthly Tax Invoice":{"Invoice Count","CSS Source Invoice Count"},
+}
+def ensure_integer_field_display(token,path,table,fields):
+    targets=COUNT_FIELD_FORMATS.get(table,set())
+    by_name={row.get("field_name"):row for row in fields}
+    for name in sorted(targets):
+        item=by_name.get(name)
+        if not item or item.get("type")!=2 or not item.get("field_id"):
+            raise SafeError("METRIC_NUMERIC_FORMAT_SOURCE_MISSING")
+        prop=item.get("property") or {}
+        if prop.get("formatter")=="0":continue
+        # PUT is a full field-definition update; refuse non-numeric/UI types.
+        if item.get("ui_type") not in (None,"Number"):
+            raise SafeError("METRIC_NUMERIC_FORMAT_UI_TYPE_UNSAFE")
+        data=api("PUT",path+"/fields/"+urllib.parse.quote(
+                 item["field_id"],safe=""),token,
+                 data={"field_name":name,"type":2,
+                       "property":{"formatter":"0"}},
+                 action="metric_integer_format_update")
+        updated=data.get("field") or {}
+        if updated.get("field_name")!=name or (
+                updated.get("property") or {}).get("formatter")!="0":
+            raise SafeError("METRIC_NUMERIC_FORMAT_UPDATE_UNVERIFIED")
+        print("METRIC_INTEGER_FIELD_FORMAT_SET="+table+":"+name)
+    if not targets:return
+    verified={r.get("field_name"):r for r in
+              list_all(path+"/fields",token,"metric_integer_format_readback")}
+    if any((verified.get(name,{}).get("property") or {}).get("formatter")!="0"
+           for name in targets):
+        raise SafeError("METRIC_INTEGER_FIELD_FORMAT_READBACK_FAILED")
+
+
 def ensure_tables(token,root):
     catalog=table_catalog(token,root)
     paths={}
@@ -469,8 +523,8 @@ def ensure_tables(token,root):
         names={f.get("field_name"):f.get("type") for f in fields}
         allowed={
             "Project Display Name","Completion Evidence",
-            "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW",
-            "Outstanding Balance KRW",*EVIDENCE_FIELDS,
+            "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW","Invoice Gross M KRW",
+            "Outstanding Balance KRW","Outstanding Balance M KRW",*EVIDENCE_FIELDS,
         }
         for field_name,field_type in spec:
             if field_name in names:
@@ -478,7 +532,9 @@ def ensure_tables(token,root):
                     raise SafeError("METRIC_SCHEMA_TYPE_MISMATCH")
             elif (name=="Project Progress Board" and field_name in allowed) or (
                     name=="Weekly Quote KPI" and field_name in
-                    {"Chart Week Label","Chart Window"}):
+                    {"Chart Week Label","Chart Window","Verified Quote Value M KRW FX"}) or (
+                    name=="Monthly Tax Invoice" and field_name in
+                    {"Net Revenue M KRW"}):
                 api("POST",p+"/fields",token,
                     data={"field_name":field_name,"type":field_type},
                     action="metric_project_payment_field_add")
@@ -489,6 +545,7 @@ def ensure_tables(token,root):
         names={f.get("field_name"):f.get("type") for f in fields}
         if any(names.get(f)!=t for f,t in spec):
             raise SafeError("METRIC_SCHEMA_MISMATCH_"+name.replace(" ","_"))
+        ensure_integer_field_display(token,p,name,fields)
         paths[name]=p
     return paths
 
@@ -559,6 +616,13 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
             if proof and not manual:
                 row.update(proof)
             row=finalize(row,evidence)
+        # Derive display-only M KRW; do not alter CMS/Receipt evidence.
+        for raw_name,display_name in (
+            ("Invoice Gross KRW","Invoice Gross M KRW"),
+            ("Outstanding Balance KRW","Outstanding Balance M KRW"),
+        ):
+            if raw_name in row and row[raw_name] is not None and row[raw_name]!="":
+                row[display_name]=scaled_m_krw(row[raw_name])
         final_rows.append(row)
         if old and equivalent(original,row):
             unchanged+=1

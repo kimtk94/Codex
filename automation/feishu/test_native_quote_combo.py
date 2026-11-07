@@ -10,7 +10,7 @@ class QuoteComboTests(unittest.TestCase):
             self.assertEqual(config["table_name"],"Weekly Quote KPI")
             self.assertEqual(config["group_by"][0]["field_name"],"Chart Week Label")
             self.assertEqual(config["group_by"][0]["sort"],
-                             {"type":"view","order":"desc"})
+                             {"type":"view","order":"asc"})
             self.assertEqual(config["filter"],
                 {"conjunction":"and","conditions":[
                     {"field_name":"Chart Window","operator":"is",
@@ -23,7 +23,22 @@ class QuoteComboTests(unittest.TestCase):
             self.assertTrue("Quote" in name)
         fields={config["series"][1]["field_name"] for _,config in combos}
         self.assertEqual(fields,{"Verified Quote Value K USD",
-                                 "Verified Quote Value KRW FX"})
+                                 "Verified Quote Value M KRW FX"})
+    def test_amount_series_use_display_units_only(self):
+        combos=[(name,config) for name,kind,config in BLOCKS if kind=="combo"]
+        krw=next(c for name,c in combos if "(M KRW)" in name)
+        usd=next(c for name,c in combos if "(K USD)" in name)
+        self.assertEqual(krw["series"][1]["field_name"],
+                         "Verified Quote Value M KRW FX")
+        self.assertEqual(usd["series"][1]["field_name"],
+                         "Verified Quote Value K USD")
+        monthly=next(c for name,kind,c in BLOCKS if name.startswith("월별 Revenue"))
+        self.assertEqual(monthly["series"][0]["field_name"],"Net Revenue M KRW")
+        for name,kind,c in BLOCKS:
+            if kind=="statistics" and c.get("count_all"):
+                self.assertEqual(c["number_format"],{"formatName":"digital","precision":0})
+        self.assertFalse(any("KRW FX"==c["series"][1]["field_name"]
+            for _,c in combos))
     def test_count_and_amount_are_not_mislabeled_final_revenue(self):
         texts=[x[2]["text"] for x in BLOCKS if x[1]=="text"]
         self.assertTrue(any("금액 미확인" in x for x in texts))

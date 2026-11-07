@@ -35,6 +35,17 @@ class NativePaymentDashboardTests(unittest.TestCase):
     with self.assertRaisesRegex(RuntimeError,"DUPLICATE"):
       find_block({"items":[{"name":"Test","block_id":"cht1"},
                            {"name":"Test","block_id":"cht2"}]},"Test")
+  def test_monetary_dashboard_series_use_mkrw_and_integer_count_cards(self):
+    for name,kind,config in PAYMENT_BLOCKS:
+      if kind=="statistics" and config.get("count_all"):
+        self.assertEqual(config["number_format"],
+                         {"formatName":"digital","precision":0})
+      if kind in ("statistics","bar") and config.get("series"):
+        fields=[x["field_name"] for x in config["series"]]
+        self.assertFalse("Invoice Gross KRW" in fields)
+        self.assertFalse("Outstanding Balance KRW" in fields)
+        self.assertTrue(all(x.endswith(" M KRW") for x in fields))
+        self.assertIn("(M KRW)",name)
   def test_source_tables_are_original_base(self):
     self.assertTrue(all(
        x[2].get("table_name")=="Project Progress Board"

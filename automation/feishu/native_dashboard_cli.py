@@ -31,9 +31,9 @@ BLOCKS=[
                      "sort":{"type":"group","order":"asc"}}]}),
     ("SIF 상태","pie",{"table_name":TABLE,"count_all":True,
         "group_by":[{"field_name":"SIF State","mode":"integrated"}]}),
-    ("월별 Revenue · VAT 제외","line",{
+    ("월별 Revenue · VAT 제외 (M KRW)","line",{
         "table_name":"Monthly Tax Invoice",
-        "series":[{"field_name":"Net Revenue KRW Ex VAT","rollup":"SUM"}],
+        "series":[{"field_name":"Net Revenue M KRW","rollup":"SUM"}],
         "group_by":[{"field_name":"Month","mode":"integrated",
                      "sort":{"type":"group","order":"asc"}}]}),
     ("Weekly 승인 Quote","column",{
@@ -46,23 +46,29 @@ BLOCKS=[
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
                   {"field_name":"Verified Quote Value K USD","rollup":"SUM"}],
         "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
-                     "sort":{"type":"view","order":"desc"}}],
+                     "sort":{"type":"view","order":"asc"}}],
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_COMPLETED"}]}}),
-    ("KOREA · Quote Count / Value (KRW)","combo",{
+    ("KOREA · Quote Count / Value (M KRW)","combo",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
-                  {"field_name":"Verified Quote Value KRW FX","rollup":"SUM"}],
+                  {"field_name":"Verified Quote Value M KRW FX","rollup":"SUM"}],
         "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
-                     "sort":{"type":"view","order":"desc"}}],
+                     "sort":{"type":"view","order":"asc"}}],
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_COMPLETED"}]}}),
     ("Quote 금액 검증 기준","text",{
-        "text":"# KOREA · Quote Count / Value\n**차트 대상:** 최근 종료된 4개 주간, 금요일~목요일 기준입니다. X축은 Oct W2 · Oct W3 · Oct W4 · Nov W1처럼 해당 기간의 월요일을 기준으로 표시합니다.\n**파란 막대:** Approved Quote Count(건), **왼쪽 Y축: Count**.\n**주황색 선:** Verified Quote Value K USD(천 USD) 또는 Verified Quote Value KRW FX(원), **오른쪽 Y축: Value (K USD/KRW)**.\n데이터 라벨·가로 그리드·좌우 축을 표시합니다. 두 계열의 색상, 막대/선 유형, 2차 축 지정은 Feishu 차트의 [설정 → 시리즈]에서 선택해야 합니다. 현재 공식 CLI는 개별 시리즈 스타일/2차 축 인수를 제공하지 않습니다.\n**금액 검증:** SFDC Quote ID가 연결된 승인 견적 금액만 합산합니다. 금액 미확인 건도 Count에는 포함하지만 금액을 0으로 간주하지 않습니다."})
+        "text":"# KOREA · Quote Count / Value\n**차트 대상:** 최근 종료된 4개 주간, 금요일~목요일 기준입니다. X축은 Oct W2 · Oct W3 · Oct W4 · Nov W1처럼 해당 기간의 월요일을 기준으로 표시합니다.\n**파란 막대:** Approved Quote Count(건), **왼쪽 Y축: Count**.\n**주황색 선:** Verified Quote Value K USD(천 USD) 또는 Verified Quote Value M KRW FX(백만원), **오른쪽 Y축: Value (K USD/M KRW)**.\n데이터 라벨·가로 그리드·좌우 축을 표시합니다. Quote 승인 건수는 정수(예: 13), KRW는 M, USD는 K로 표시합니다. 두 계열의 색상, 막대/선 유형, 소수점 표시 및 2차 축 지정은 Feishu 차트의 [설정 → 시리즈]에서 선택해야 합니다. 현재 공식 CLI는 개별 시리즈 스타일/2차 축 인수를 제공하지 않습니다.\n**금액 검증:** SFDC Quote ID가 연결된 승인 견적 금액만 합산합니다. 금액 미확인 건도 Count에는 포함하지만 금액을 0으로 간주하지 않습니다."})
 
 ]
+
+# Feishu official CLI permits number_format only on statistics cards.
+# Count metrics are integers; never display a trailing .0 on a count card.
+for _title,_kind,_config in BLOCKS:
+    if _kind=="statistics" and _config.get("count_all"):
+        _config["number_format"]={"formatName":"digital","precision":0}
 
 # Active pipeline only: paid/completed projects belong to Payment Dashboard.
 ACTIVE_STAGE={"field_name":"Workflow Lane","operator":"is","value":"PRODUCTION_ACTIVE"}
@@ -143,8 +149,9 @@ def legacy_dashboard_block(rows,name,expected_type=None):
 
 LEGACY_COMBO_NAMES={
     "KOREA · Quote Count / Value (K USD)":"Weekly Quote · 건수 + 검증금액 K USD",
-    "KOREA · Quote Count / Value (KRW)":"Weekly Quote · 건수 + 검증금액 KRW",
+    "KOREA · Quote Count / Value (M KRW)":"KOREA · Quote Count / Value (KRW)",
 }
+LEGACY_REVENUE_NAME="월별 Revenue · VAT 제외"
 def locate_chart(rows,target):
     for row in collect(rows):
         if row.get("name")==target:
@@ -218,9 +225,21 @@ def main():
                 updated+=1
                 print("FEISHU_QUOTE_COMBO_UPDATED type=combo window=RECENT_4_COMPLETED")
                 continue
+        if name=="월별 Revenue · VAT 제외 (M KRW)":
+            old=locate_chart(existing,name) or locate_chart(existing,LEGACY_REVENUE_NAME)
+            if old:
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",dashboard_id,"--block-id",old,
+                    "--name",name,
+                    "--data-config",json.dumps(config,ensure_ascii=False,
+                                               separators=(",",":")))
+                updated+=1
+                print("FEISHU_REVENUE_UNIT_UPDATED=M_KRW")
+                continue
         if name in names:
             info=locate_chart(existing,name)
-            if name in {"Quote 금액 검증 기준","운영 안내"} and info:
+            if (name in {"Quote 금액 검증 기준","운영 안내"} or
+                kind=="statistics") and info:
                 cli("+dashboard-block-update","--base-token",BASE,
                     "--dashboard-id",dashboard_id,"--block-id",info,
                     "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
