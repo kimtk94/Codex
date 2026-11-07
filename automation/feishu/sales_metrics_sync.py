@@ -890,6 +890,17 @@ def main():
     if mode not in ("plan","apply"):raise SafeError("INVALID_METRIC_MODE")
     sources=sheet_sources()  # Fetch all before any writes.
     output=prepare_data(sources)
+    # Aggregate-only reconciliation log: no customer identifiers or QIDs in CI.
+    for q in output["Weekly Quote KPI"]:
+        if q.get("Chart Window")!="RECENT_4_COMPLETED":
+            continue
+        print("QUOTE_PROCESS_WEEK_RECALC week="+q["Week Start"]+
+              " approved="+str(q["Approved Quote Count"])+
+              " calculated="+str(q["Calculated Quote Count"])+
+              " exception="+str(q["Quote Amount Exception Count"])+
+              " k_usd="+str(q.get("Calculated Quote Value K USD"))+
+              " m_krw="+str(q.get("Calculated Quote Value M KRW FX"))+
+              " status="+q["Quote Calculation Source"])
     matched,billing,audit=build_payment_evidence(sources,
         sources.get("Feishu Source Manifest",[]))
     print("PAYMENT_SNAPSHOT_AUDIT projects_with_invoices="+
