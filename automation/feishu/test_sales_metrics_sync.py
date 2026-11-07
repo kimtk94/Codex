@@ -8,6 +8,16 @@ from qq_mail_ingest import SafeError
 
 
 class MetricsTests(unittest.TestCase):
+    def test_payment_views_are_exact_owner_scoped(self):
+        definitions=m.VIEW_SPECS["Project Progress Board"]
+        views={row[0]:row for row in definitions}
+        for name,lane in (("완료 · 결제 관리","PAYMENT_FOLLOWUP"),
+                          ("결제 완료 · 보관","PAID_ARCHIVED")):
+            self.assertEqual(views[name][1:],
+                ("Workflow Lane",lane,"Payment Owner Scope","MY_VERIFIED"))
+        self.assertIn(("Payment Owner Scope",1),
+                      m.SCHEMAS["Project Progress Board"])
+
     def test_sif_number_alone_is_not_submission(self):
         source={
             "CSS Project Dashboard":[{"project_id":"AMEA2026012345","institution":"U",
