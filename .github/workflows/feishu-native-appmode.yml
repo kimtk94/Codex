@@ -1,0 +1,30 @@
+name: Feishu Native App Mode Preflight
+on:
+  push:
+    branches:
+      - 'feat/feishu-native-appmode-*'
+      - main
+    paths:
+      - 'automation/feishu/native_appmode_probe.py'
+      - '.github/workflows/feishu-native-appmode.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  feishu-app-mode-readonly:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 8
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify native App Mode prerequisites in Feishu only
+        run: python3 automation/feishu/native_appmode_probe.py
