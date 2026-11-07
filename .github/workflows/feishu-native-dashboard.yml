@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/native_dashboard_cli.py'
+      - 'automation/feishu/test_native_quote_combo.py'
       - '.github/workflows/feishu-native-dashboard.yml'
   push:
     branches:
@@ -35,6 +36,7 @@ jobs:
       - name: Validate native dashboard scripts
         run: |
           python3 -m py_compile automation/feishu/native_dashboard_cli.py
+          python3 -m unittest discover -s automation/feishu -p 'test_native_quote_combo.py' -v
           python3 - <<'PY'
           import ast
           p=ast.parse(open('automation/feishu/native_dashboard_cli.py').read())
