@@ -125,16 +125,17 @@ def summarize(data, now=None):
         duplicates = invalid_id = nonblank_values = active_proven = qualified_values = 0
         for item in items:
             record_id = normalized_id(item["SFDC Record ID"])
+            first_seen_id = bool(record_id) and record_id not in seen
             if not record_id:
                 invalid_id += 1
-            elif record_id in seen:
+            elif not first_seen_id:
                 duplicates += 1
             else:
                 seen.add(record_id)
             amount = number(item["Verified Amount kUSD"])
             if amount is not None:
                 nonblank_values += 1
-            verified = (record_id and record_id in seen and
+            verified = (first_seen_id and
                         item["Approved AND Active"] == "YES" and
                         item["Quote Status"] == "ACTIVE" and
                         item["Currency"].upper() == "USD")
