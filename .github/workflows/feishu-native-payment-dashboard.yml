@@ -6,11 +6,13 @@ on:
       - 'automation/feishu/latest_payment_bridge.py'
       - 'automation/feishu/test_native_payment_dashboard.py'
       - 'automation/feishu/test_native_progress_dashboard.py'
+      - 'automation/feishu/test_compact_units.py'
       - '.github/workflows/feishu-native-payment-dashboard.yml'
   push:
     branches:
       - main
       - 'feat/feishu-payment-dashboard-*'
+      - 'feat/feishu-compact-sales-ui-units-*'
     paths:
       - 'automation/feishu/native_payment_dashboard_cli.py'
       - 'automation/feishu/test_native_payment_dashboard.py'
@@ -48,6 +50,7 @@ jobs:
           python3 -m py_compile automation/feishu/native_payment_dashboard_cli.py
           python3 -m unittest discover -s automation/feishu -p 'test_native_payment_dashboard.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_progress_dashboard.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_compact_units.py' -v
   native:
     needs: offline
     if: github.event_name != 'pull_request'
