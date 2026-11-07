@@ -45,8 +45,8 @@ SCHEMAS = {
         ("SIF State", 1), ("PO Evidence", 1), ("Next Action", 1),
         ("Evidence", 1), ("Project Display Name", 1),
         ("Completion Evidence", 1), ("Workflow Lane", 1),
-        ("Payment State", 1), ("Payment Owner Scope", 1), ("Invoice Gross KRW", 2),
-        ("Outstanding Balance KRW", 2),
+        ("Payment State", 1), ("Payment Owner Scope", 1), ("Invoice Gross KRW", 2), ("Invoice Gross M KRW", 2),
+        ("Outstanding Balance KRW", 2), ("Outstanding Balance M KRW", 2),
         ("Payment Invoice No", 1), ("Bank Receipt Reference", 1),
         ("Verified Invoice KRW", 2), ("Verified Received KRW", 2),
         ("Receipt Verified At", 1), ("Receipt Verified By", 1),
@@ -58,7 +58,7 @@ SCHEMAS = {
     "Monthly Tax Invoice": [
         ("Source Key", 1), ("Month", 1), ("Invoice Count", 2),
         ("Tax Invoice KRW Incl VAT", 2), ("Net Revenue KRW Ex VAT", 2),
-        ("Net Revenue K USD", 2), ("CSS Source Invoice Count", 2),
+        ("Net Revenue M KRW", 2), ("Net Revenue K USD", 2), ("CSS Source Invoice Count", 2),
         ("CSS Source KRW Incl VAT", 2), ("Source Difference KRW", 2),
         ("Coverage Status", 1), ("Evidence", 1), ("Last Sync KST", 1),
     ],
@@ -67,7 +67,7 @@ SCHEMAS = {
         ("Chart Week Label", 1), ("Chart Window", 1),
         ("Approved Quote Count", 2), ("Created In Week Count", 2),
         ("Verified Amount Quote Count", 2), ("Verified Quote Value KRW FX", 2),
-        ("Verified Quote Value K USD", 2), ("Unmatched Amount Count", 2),
+        ("Verified Quote Value M KRW FX", 2), ("Verified Quote Value K USD", 2), ("Unmatched Amount Count", 2),
         ("Amount Status", 1), ("Week Status", 1), ("Reporting KRW Per USD", 2),
         ("Evidence", 1), ("Last Sync KST", 1),
     ],
@@ -273,6 +273,13 @@ def project_rows(source):
     ))
 
 
+def scaled_m_krw(value):
+    """Display-only M KRW; full KRW remains unchanged in source fields."""
+    n=D(str(value))/D("1000000")
+    n=n.quantize(D("0.0001"))
+    return int(n) if n==n.to_integral_value() else float(n)
+
+
 def monthly_rows(source,fx=D("1500")):
     official={}
     invalid=0
@@ -313,7 +320,9 @@ def monthly_rows(source,fx=D("1500")):
                else "SOURCE_SCOPE_REVIEW")
         row={"Source Key":"INVOICE:"+month,"Month":month,
              "Invoice Count":stat["count"],"Tax Invoice KRW Incl VAT":gross,
-             "Net Revenue KRW Ex VAT":net,"Net Revenue K USD":round(float(D(net)/fx/D(1000)),4),
+             "Net Revenue KRW Ex VAT":net,
+             "Net Revenue M KRW":scaled_m_krw(net),
+             "Net Revenue K USD":round(float(D(net)/fx/D(1000)),4),
              "Coverage Status":state,
              "Evidence":"Unified Revenue Invoice Base; deduplicated by Invoice No; excludes VAT for net. Independent CSS month cross-check."}
         if other is not None:
@@ -409,6 +418,7 @@ def weekly_rows(source):
         if verified:
             usd=sum(verified,D(0))
             row["Verified Quote Value KRW FX"]=currency(usd*fx)
+            row["Verified Quote Value M KRW FX"]=scaled_m_krw(currency(usd*fx))
             row["Verified Quote Value K USD"]=round(float(usd/D(1000)),4)
         output[week]=row
     if not output:raise SafeError("WEEKLY_NO_VALID_SOURCE")
@@ -469,8 +479,8 @@ def ensure_tables(token,root):
         names={f.get("field_name"):f.get("type") for f in fields}
         allowed={
             "Project Display Name","Completion Evidence",
-            "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW",
-            "Outstanding Balance KRW",*EVIDENCE_FIELDS,
+            "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW","Invoice Gross M KRW",
+            "Outstanding Balance KRW","Outstanding Balance M KRW",*EVIDENCE_FIELDS,
         }
         for field_name,field_type in spec:
             if field_name in names:
@@ -478,7 +488,9 @@ def ensure_tables(token,root):
                     raise SafeError("METRIC_SCHEMA_TYPE_MISMATCH")
             elif (name=="Project Progress Board" and field_name in allowed) or (
                     name=="Weekly Quote KPI" and field_name in
-                    {"Chart Week Label","Chart Window"}):
+                    {"Chart Week Label","Chart Window","Verified Quote Value M KRW FX"}) or (
+                    name=="Monthly Tax Invoice" and field_name in
+                    {"Net Revenue M KRW"}):
                 api("POST",p+"/fields",token,
                     data={"field_name":field_name,"type":field_type},
                     action="metric_project_payment_field_add")
@@ -559,6 +571,13 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
             if proof and not manual:
                 row.update(proof)
             row=finalize(row,evidence)
+        # Derive display-only M KRW; do not alter CMS/Receipt evidence.
+        for raw_name,display_name in (
+            ("Invoice Gross KRW","Invoice Gross M KRW"),
+            ("Outstanding Balance KRW","Outstanding Balance M KRW"),
+        ):
+            if raw_name in row and row[raw_name] is not None and row[raw_name]!="":
+                row[display_name]=scaled_m_krw(row[raw_name])
         final_rows.append(row)
         if old and equivalent(original,row):
             unchanged+=1
