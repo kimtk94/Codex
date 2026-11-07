@@ -354,6 +354,33 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(m.scaled_m_krw(1000000),1)
         self.assertEqual(m.scaled_k_usd(1000),1)
 
+    def test_zero_approval_period_no_keyerror_and_no_price(self):
+        import test_quote_process_amount as fixture
+        source=fixture.finalize(fixture.fixture(count=1))
+        source["SFDC Weekly Overview"].append({
+            "week_start":"2026-11-06","week_end":"2026-11-12",
+            "quotation_approvals":"0","approvals_created_in_week":"0",
+            "weekly_basis":"FRI_THU_IN_PROGRESS","krw_per_usd":"1500"})
+        items={r["Week Start"]:r for r in m.weekly_rows(source,now=fixture.NOW)}
+        zero=items["2026-11-06"]
+        self.assertEqual(zero["Approved Quote Count"],0)
+        self.assertEqual(zero["Calculated Quote Count"],0)
+        self.assertEqual(zero["Quote Amount Exception Count"],0)
+        self.assertIn("NO_APPROVALS",zero["Quote Calculation Source"])
+        self.assertIsNone(zero["Calculated Quote Value K USD"])
+        self.assertEqual(zero["Chart Window"],"HISTORY")
+        self.assertEqual(items["2026-10-30"]["Calculated Quote Count"],1)
+
+    def test_zero_week_with_approval_evidence_mismatch_stays_withheld(self):
+        import test_quote_process_amount as fixture
+        source=fixture.finalize(fixture.fixture(count=1))
+        source["SFDC Weekly Overview"][0]["quotation_approvals"]="0"
+        row=m.weekly_rows(source,now=fixture.NOW)[0]
+        self.assertEqual(row["Calculated Quote Count"],0)
+        self.assertEqual(row["Quote Amount Exception Count"],0)
+        self.assertIn("WITHHELD_APPROVAL_COUNT_MISMATCH",row["Quote Calculation Source"])
+        self.assertIsNone(row["Calculated Quote Value K USD"])
+
     def test_equivalent_numeric_and_text_ignores_timestamp(self):
         old={"Invoice Count":2.0,"Source Key":[{"text":"INVOICE:2026-10"}],
              "Last Sync KST":"old"}
