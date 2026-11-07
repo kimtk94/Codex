@@ -13,6 +13,7 @@ class QuoteComboTests(unittest.TestCase):
         name,cfg=combos[0]
         self.assertEqual(name,QUOTE_CHART_NAME)
         self.assertIn("계산 K USD",name)
+        self.assertIn("이번 주",name)
         self.assertEqual(cfg["table_name"],"Weekly Quote KPI")
         self.assertEqual(cfg["series"],[
             {"field_name":"Approved Quote Count","rollup":"SUM"},
@@ -22,7 +23,7 @@ class QuoteComboTests(unittest.TestCase):
         self.assertEqual(cfg["group_by"][0]["sort"],{"type":"view","order":"asc"})
         self.assertEqual(cfg["filter"]["conditions"],[
             {"field_name":"Chart Window","operator":"is",
-             "value":"RECENT_4_COMPLETED"}])
+             "value":"RECENT_4_PLUS_CURRENT"}])
         self.assertNotIn(name,LEGACY_REDUNDANT_QUOTE_WIDGETS)
         self.assertEqual(len([x for x in BLOCKS if x[0]=="Quote 계산 기준" and x[1]=="text"]),1)
 
@@ -30,6 +31,7 @@ class QuoteComboTests(unittest.TestCase):
         advisory=[c["text"] for n,k,c in BLOCKS if k=="text" and n=="Quote 계산 기준"]
         self.assertEqual(len(advisory),1)
         self.assertIn("추정치",advisory[0])
+        self.assertIn("이번 주",advisory[0])
         self.assertIn("Revenue",advisory[0])
         self.assertIn("0원이라고 해석하면 안",advisory[0])
 

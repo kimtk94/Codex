@@ -549,12 +549,20 @@ def weekly_rows(source, now=None):
         raise SafeError("WEEKLY_NO_VALID_SOURCE")
     completed=sorted((week for week,row in output.items()
                       if "IN_PROGRESS" not in row["Week Status"].upper()),reverse=True)[:4]
+    # Show the actual ongoing week as a separate fifth point. An approved
+    # count of 0 is not evidence that the 3-report mail ingest is missing.
+    progress_weeks=sorted((week for week,row in output.items()
+                           if "IN_PROGRESS" in row["Week Status"].upper()),reverse=True)
+    current_week=progress_weeks[0] if progress_weeks else None
     included=set(completed)
+    if current_week:
+        included.add(current_week)
     for week,row in output.items():
-        row["Chart Week Label"]=quote_chart_week_label(week)
-        row["Chart Window"]="RECENT_4_COMPLETED" if week in included else "HISTORY"
-        if not row["Chart Week Label"]:
+        label=quote_chart_week_label(week)
+        if not label:
             raise SafeError("WEEKLY_CHART_INVALID_START")
+        row["Chart Week Label"]=label+(" · 진행 중" if week==current_week else "")
+        row["Chart Window"]="RECENT_4_PLUS_CURRENT" if week in included else "HISTORY"
     return [output[k] for k in sorted(output,reverse=True)]
 
 def prepare_data(sources):

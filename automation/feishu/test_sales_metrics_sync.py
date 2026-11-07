@@ -194,14 +194,14 @@ class MetricsTests(unittest.TestCase):
             "Quote Portfolio":[],
         }
         rows=m.weekly_rows(source)
-        shown=[r for r in rows if r["Chart Window"]=="RECENT_4_COMPLETED"]
-        self.assertEqual(len(shown),4)
+        shown=[r for r in rows if r["Chart Window"]=="RECENT_4_PLUS_CURRENT"]
+        self.assertEqual(len(shown),5)
         self.assertEqual([r["Chart Week Label"] for r in sorted(
             shown,key=lambda r:r["Week Start"])],
-            ["Oct W2","Oct W3","Oct W4","Nov W1"])
-        self.assertNotIn("2026-11-06",[r["Week Start"] for r in shown])
-        self.assertEqual(rows[0]["Chart Window"],"HISTORY")
-        self.assertEqual(rows[0]["Chart Week Label"],"Nov W2")
+            ["Oct W2","Oct W3","Oct W4","Nov W1","Nov W2 · 진행 중"])
+        self.assertIn("2026-11-06",[r["Week Start"] for r in shown])
+        self.assertEqual(rows[0]["Chart Window"],"RECENT_4_PLUS_CURRENT")
+        self.assertEqual(rows[0]["Chart Week Label"],"Nov W2 · 진행 중")
         self.assertEqual(rows[-1]["Chart Window"],"HISTORY")
         self.assertTrue(all(r["Approved Quote Count"]==5 for r in shown))
         self.assertTrue(all(r["Verified Quote Value K USD"] is None for r in shown))
@@ -368,7 +368,8 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(zero["Quote Amount Exception Count"],0)
         self.assertIn("NO_APPROVALS",zero["Quote Calculation Source"])
         self.assertIsNone(zero["Calculated Quote Value K USD"])
-        self.assertEqual(zero["Chart Window"],"HISTORY")
+        self.assertEqual(zero["Chart Window"],"RECENT_4_PLUS_CURRENT")
+        self.assertIn("진행 중",zero["Chart Week Label"])
         self.assertEqual(items["2026-10-30"]["Calculated Quote Count"],1)
 
     def test_shifted_weekly_count_repaired_from_dedup(self):
