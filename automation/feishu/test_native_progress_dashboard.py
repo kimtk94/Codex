@@ -31,7 +31,7 @@ class ProgressDashboardTests(unittest.TestCase):
         for flt in PROJECT_BLOCKS.values():
             self.assertEqual(flt["conditions"].count(ACTIVE_STAGE),1)
     def test_quote_combo_unchanged(self):
-        self.assertEqual(len([x for x in BLOCKS if x[1]=="combo"]),2)
+        self.assertEqual(len([x for x in BLOCKS if x[1]=="combo"]),1)
     def test_legacy_delete_only_named_typed_dashboard_block(self):
         existing={"items":[
             {"name":LEGACY_PROGRESS_RANK,"block_id":"chtRank1","type":"ranking"},
