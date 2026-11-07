@@ -291,6 +291,7 @@ def analyze(data,now=None):
     # Withhold all monetary sums until the USD-vs-FX unit discrepancy is resolved.
     seen=collections.defaultdict(set)
     global_ids=collections.defaultdict(set)
+    absent_opportunity_ids=set()
     parity={"old_value_compared":0,"old_value_equal":0,"old_value_conflicts":0}
     matched_historic=set()
     for entry in src["Quote Approval Dedup"]:
@@ -332,6 +333,7 @@ def analyze(data,now=None):
             stat["owner_unresolved"]+=1
             if candidate["opportunity"] not in older_owner_by_opp:
                 stat["owner_opp_missing_in_both_reports"]+=1
+                absent_opportunity_ids.add(candidate["opportunity"])
             else:
                 stat["owner_opp_found_in_older_report_only"]+=1
         elif owner=="Kim Taehoon":
@@ -394,6 +396,7 @@ def analyze(data,now=None):
             "quote_index":qstatus,"historic_overlap":parity,
             "portfolio_unit_check":unit_check,
             "process_amount_evidence":process_status,
+            "missing_distinct_opportunity_ids":len(absent_opportunity_ids),
             "currency_and_unit_evidence":currency_evidence,"four_weeks":week_rows,
             "blockers":block,
             "note":"A crosswalk amount is quote-level once only. Counts are not owner-verified; do not promote to revenue."}
@@ -424,6 +427,7 @@ def markdown(r):
            r["currency_and_unit_evidence"],sort_keys=True),
        "Owner IDs absent from both fresh and older Opportunity sources: "+
        str(sum(x.get("owner_opp_missing_in_both_reports",0) for x in r["four_weeks"])),
+       "Distinct missing Opportunity IDs: "+str(r["missing_distinct_opportunity_ids"]),
        "Blockers: "+", ".join(r["blockers"]), "",
        "No customer data, quote IDs, opportunity IDs or product rows are exposed. "
        "Candidate USD amounts are NOT monthly Revenue or finalized owner-scoped Quote KPIs."]
