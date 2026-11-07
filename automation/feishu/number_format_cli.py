@@ -7,7 +7,7 @@ only after reading and validating each numeric field's current configuration.
 import json
 import os
 import sys
-from native_dashboard_cli import BASE,cli
+from native_dashboard_cli import BASE,cli,collect
 
 COUNTS=(
     ("Weekly Quote KPI","Approved Quote Count"),
@@ -21,11 +21,22 @@ COUNTS=(
 def read_field(table,name):
     result=cli("+field-get","--base-token",BASE,
                "--table-id",table,"--field-id",name)
-    candidate=result.get("field") if isinstance(result,dict) else None
-    if not isinstance(candidate,dict):
+    found=[item for item in collect(result)
+           if (item.get("name") or item.get("field_name"))==name
+           and "type" in item]
+    if len(found)!=1:
+        # Print safe shape metadata only. No field values or secrets.
+        keys=sorted(result.keys()) if isinstance(result,dict) else []
+        print("FEISHU_FIELD_GET_SHAPE root_keys="+",".join(keys)+
+              " matching_field_candidates="+str(len(found)),file=sys.stderr)
         raise RuntimeError("NUMBER_FIELD_SCHEMA_UNKNOWN")
-    if candidate.get("name")!=name or candidate.get("type")!="number":
+    candidate=found[0]
+    if candidate.get("type") not in ("number",2):
         raise RuntimeError("NUMBER_FIELD_TYPE_OR_NAME_MISMATCH")
+    if "name" not in candidate:
+        candidate={**candidate,"name":name,"type":"number"}
+    elif candidate["type"]==2:
+        candidate={**candidate,"type":"number"}
     style=candidate.get("style") or {"type":"plain"}
     if not isinstance(style,dict) or style.get("type","plain")!="plain":
         raise RuntimeError("NUMBER_FIELD_NONPLAIN_STYLE")
