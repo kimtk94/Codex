@@ -37,12 +37,12 @@ class QuotationEmailTests(unittest.TestCase):
         self.assertEqual(got[0][10:15],["001ABC","Yonsei","003ABC","Researcher","Project"])
     def test_rejection_reason_is_aggregate_only(self):
         reasons={}
-        rows=parse_attachment(b"Opportunity Name,Amount\\nExample,10\\n","no_report.csv",reasons)
+        rows=parse_attachment(b"Opportunity Name,Amount\nExample,10\n","no_report.csv",reasons)
         self.assertEqual(rows,[])
         self.assertEqual(reasons,{"schema_mismatch":1})
         valid_headers=",".join(["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID","Quotation Name","Active","Exclude Tax After Discount USD"])
         reasons={}
-        got=parse_attachment((valid_headers+"\\nQ1,OPP,NOT_AN_ID,Test,1,10\\n").encode(),"report.csv",reasons)
+        got=parse_attachment((valid_headers+"\nQ1,OPP,NOT_AN_ID,Test,1,10\n").encode(),"report.csv",reasons)
         self.assertEqual(got,[])
         self.assertEqual(reasons,{"no_valid_quote_rows":1})
     def test_github_output_and_summary_are_well_formed(self):
@@ -53,8 +53,8 @@ class QuotationEmailTests(unittest.TestCase):
                 publish_run_status(False,{"schema_mismatch":7,"parse_exception":3})
                 publish_run_status(True,{"parseable":1})
             text=pathlib.Path(output).read_text()
-            self.assertEqual(text,"imported=false\\nimported=true\\n")
-            self.assertNotIn(r"\\n",text)
+            self.assertEqual(text,"imported=false\nimported=true\n")
+            self.assertNotIn(r"\n",text)
             note=pathlib.Path(summary).read_text()
             self.assertIn("NO_NEW_VALID_REPORT",note)
             self.assertIn("SOURCE_IMPORTED",note)
