@@ -119,7 +119,22 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(row["Invoice Count"],2)
         self.assertEqual(row["Tax Invoice KRW Incl VAT"],3300)
         self.assertEqual(row["Net Revenue KRW Ex VAT"],3000)
+        self.assertEqual(row["Net Revenue M KRW"],0.003)
         self.assertEqual(row["Coverage Status"],"SOURCE_SCOPE_MATCH")
+
+    def test_money_units_and_integer_display_without_mutating_raw(self):
+        self.assertEqual(m.scaled_m_krw(125000000),125)
+        self.assertIsInstance(m.scaled_m_krw(125000000),int)
+        self.assertEqual(m.scaled_m_krw(125500000),125.5)
+        self.assertEqual(m.scaled_m_krw(12345678),12.3457)
+        self.assertEqual(m.scaled_k_usd(39000),39)
+        self.assertEqual(m.scaled_k_usd(39100),39.1)
+        self.assertEqual(m.scaled_k_usd(1000),1)
+        self.assertIsInstance(m.scaled_k_usd(1000),int)
+        self.assertIn(("Net Revenue M KRW",2),m.SCHEMAS["Monthly Tax Invoice"])
+        self.assertIn(("Verified Quote Value M KRW FX",2),m.SCHEMAS["Weekly Quote KPI"])
+        self.assertIn(("Invoice Gross M KRW",2),m.SCHEMAS["Project Progress Board"])
+        self.assertIn(("Outstanding Balance M KRW",2),m.SCHEMAS["Project Progress Board"])
 
     def test_conflicting_invoice_key_blocks_all(self):
         source={
@@ -185,7 +200,9 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(row["Unmatched Amount Count"],2)
         self.assertEqual(row["Amount Status"],"VERIFIED_PARTIAL")
         self.assertEqual(row["Verified Quote Value KRW FX"],1500000)
-        self.assertEqual(row["Verified Quote Value K USD"],1.0)
+        self.assertEqual(row["Verified Quote Value M KRW FX"],1.5)
+        self.assertEqual(row["Verified Quote Value K USD"],1)
+        self.assertIsInstance(row["Verified Quote Value K USD"],int)
 
     def test_sf_15_18_id_join_with_case_sensitivity(self):
         sf15="a0PAbCdEfGhIjKl"
