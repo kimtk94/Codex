@@ -1,5 +1,10 @@
 name: SFDC Quotation Report Email Import
 on:
+  pull_request:
+    paths:
+      - 'automation/sfdc/quotation_email_ingest.py'
+      - 'automation/sfdc/test_quotation_email_ingest.py'
+      - '.github/workflows/sfdc-quotation-email-import.yml'
   workflow_dispatch:
   schedule:
     # Check each hour, including 16:25 KST after a 16:00 report subscription.
@@ -16,7 +21,21 @@ concurrency:
   group: sales-weekly-writer
   cancel-in-progress: false
 jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install parser dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3' 'openpyxl>=3.1,<4'
+      - name: Test attachment parser, rejection diagnostics and action output
+        run: python3 automation/sfdc/test_quotation_email_ingest.py
   import:
+    needs: offline
+    if: github.event_name != 'pull_request'
     environment: TaehoonServer
     runs-on: ubuntu-latest
     timeout-minutes: 10
