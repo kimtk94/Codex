@@ -201,6 +201,9 @@ def weekly_calculations(source,now):
     for wk,seen in approvals.items():
         result={"source_state":source_info["source_state"],
                 "approval_ids":len(seen),"calculated_count":0,
+                "created_in_week_count":sum(
+                    1 for qid in seen.values() if qid and
+                    week_for(qid[4:14])==wk),
                 "candidate_usd":D(0),"issues":collections.Counter(issues[wk]),
                 "hist_parity_count":0,"without_historic_count":0}
         if source_info["source_state"]!="SOURCE_QQ_REPORT_VERIFIED":
