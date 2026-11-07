@@ -460,10 +460,44 @@ def weekly_rows(source, now=None):
             continue
         if week in output:
             raise SafeError("DUPLICATE_WEEKLY_SOURCE_WEEK")
-        count=numer(cell(item,"quotation_approvals"))
+        count_text=cell(item,"quotation_approvals")
+        count=numer(count_text)
         created=numer(cell(item,"approvals_created_in_week"))
-        if count is None or count<0:
+        if count is None:
+            if count_text:
+                # Nonempty malformed data must fail; never silently drop a week.
+                raise SafeError("WEEKLY_APPROVAL_COUNT_NOT_NUMERIC")
+            # A blank weekly count does not prove zero approvals. Keep the
+            # historical week visible in the target Base as a source-gap
+            # record, with every count and money measure explicitly withheld.
+            # This also clears a formerly populated, unverified old Feishu
+            # value instead of leaving an apparently valid orphaned week.
+            output[week]={
+                "Source Key":"QUOTE:"+week,
+                "Week Start":week,
+                "Week End":cell(item,"week_end"),
+                "Approved Quote Count":None,
+                "Created In Week Count":None,
+                "Verified Amount Quote Count":None,
+                "Unmatched Amount Count":None,
+                "Calculated Quote Count":None,
+                "Quote Amount Exception Count":None,
+                "Verified Quote Value KRW FX":None,
+                "Verified Quote Value M KRW FX":None,
+                "Verified Quote Value K USD":None,
+                "Calculated Quote Value K USD":None,
+                "Calculated Quote Value M KRW FX":None,
+                "Reporting KRW Per USD":None,
+                "Quote Calculation Source":"WITHHELD_WEEKLY_APPROVAL_COUNT_MISSING",
+                "Amount Status":"WITHHELD_WEEKLY_APPROVAL_COUNT_MISSING",
+                "Week Status":cell(item,"weekly_basis"),
+                "Evidence":"SFDC Weekly Overview has a blank approval count; "
+                           "no verified weekly count is asserted. "
+                           "Zero must not be inferred from absent evidence."
+            }
             continue
+        if count<0 or count!=count.to_integral_value():
+            raise SafeError("WEEKLY_APPROVAL_COUNT_INVALID")
         current=calculated.get(week,{})
         # The legacy Weekly Overview can lag its event-level approvals by one
         # week. Exact immutable Salesforce-ID approvals are authoritative.
@@ -547,6 +581,10 @@ def weekly_rows(source, now=None):
         output[week]=row
     if not output:
         raise SafeError("WEEKLY_NO_VALID_SOURCE")
+    gaps=sum(row["Approved Quote Count"] is None for row in output.values())
+    print("QUOTE_WEEKLY_COVERAGE source_weeks="+str(len(output))+
+          " counted="+str(len(output)-gaps)+" missing_count="+str(gaps)+
+          " policy=RETAIN_WEEK_WITH_NULL_MEASURES")
     completed=sorted((week for week,row in output.items()
                       if "IN_PROGRESS" not in row["Week Status"].upper()),reverse=True)[:4]
     # Show the actual ongoing week as a separate fifth point. An approved
@@ -805,6 +843,14 @@ def sync_table(token,path,desired,limit):
         if not key:continue
         if key in index:raise SafeError("DUPLICATE_TARGET_SOURCE_KEY")
         index[key]=rec
+    is_weekly_quote=bool(desired) and all(
+        str(obj.get("Source Key","")).startswith("QUOTE:") for obj in desired)
+    if is_weekly_quote:
+        source_keys={obj["Source Key"] for obj in desired}
+        orphans={key for key in index if key.startswith("QUOTE:")}-source_keys
+        if orphans:
+            print("QUOTE_KPI_ORPHAN_REVIEW count="+str(len(orphans))+
+                  " policy=NO_AUTOMATIC_DELETE")
     created=updated=unchanged=0
     for obj in desired:
         key=obj["Source Key"]
@@ -825,6 +871,21 @@ def sync_table(token,path,desired,limit):
             rid=(data.get("record") or {}).get("record_id")
             if not rid:raise SafeError("METRIC_CREATE_RESPONSE_NO_RECORD_ID")
             created+=1
+    if is_weekly_quote and (created or updated):
+        records=board_list_with_retry(token,path,"quote_kpi_readback")
+        seen={}
+        for record in records:
+            key=raw_value((record.get("fields") or {}).get("Source Key")).strip()
+            if key.startswith("QUOTE:"):
+                if key in seen:raise SafeError("QUOTE_KPI_DUPLICATE_READBACK")
+                seen[key]=record.get("fields") or {}
+        for obj in desired:
+            if obj["Source Key"] not in seen or not equivalent(
+                    seen[obj["Source Key"]],obj):
+                raise SafeError("QUOTE_KPI_READBACK_MISMATCH")
+        print("QUOTE_KPI_READBACK_PASS checked="+str(len(desired))+
+              " missing_count="+str(sum(obj.get("Approved Quote Count") is None
+                                       for obj in desired)))
     print("METRIC_SYNC_RESULT table="+re.sub(r"[^a-zA-Z]","_",path.split("/")[-1])+
           " created="+str(created)+" updated="+str(updated)+
           " unchanged="+str(unchanged)+" desired="+str(len(desired))+
@@ -921,7 +982,7 @@ def main():
     output=prepare_data(sources)
     # Aggregate-only reconciliation log: no customer identifiers or QIDs in CI.
     for q in output["Weekly Quote KPI"]:
-        if q.get("Chart Window")!="RECENT_4_COMPLETED":
+        if q.get("Chart Window")!="RECENT_4_PLUS_CURRENT":
             continue
         print("QUOTE_PROCESS_WEEK_RECALC week="+q["Week Start"]+
               " approved="+str(q["Approved Quote Count"])+

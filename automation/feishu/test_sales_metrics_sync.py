@@ -399,6 +399,86 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(found["2026-11-06"]["Approved Quote Count"],0)
         self.assertIsNone(found["2026-11-06"]["Calculated Quote Value K USD"])
 
+    def test_missing_historical_quote_count_is_retained_not_zero(self):
+        source={"SFDC Weekly Overview":[{
+            "week_start":"2025-04-25","week_end":"2025-05-01",
+            "weekly_basis":"FRI_THU_CSS_EXISTING",
+            "quotation_approvals":"","approvals_created_in_week":"",
+            "krw_per_usd":""}], "Quote Approval Dedup":[],
+            "SFDC Quote Export":[]}
+        rows=m.weekly_rows(source)
+        self.assertEqual(len(rows),1)
+        row=rows[0]
+        self.assertEqual(row["Source Key"],"QUOTE:2025-04-25")
+        self.assertIsNone(row["Approved Quote Count"])
+        self.assertIsNone(row["Quote Amount Exception Count"])
+        self.assertIsNone(row["Created In Week Count"])
+        self.assertIsNone(row["Calculated Quote Value K USD"])
+        self.assertIsNone(row["Verified Quote Value K USD"])
+        self.assertEqual(row["Amount Status"],
+                         "WITHHELD_WEEKLY_APPROVAL_COUNT_MISSING")
+        self.assertIn("Zero must not",row["Evidence"])
+        self.assertEqual(row["Chart Window"],"RECENT_4_PLUS_CURRENT")
+
+    def test_95_week_coverage_survives_ten_blank_count_slots(self):
+        first=m.dt.date(2025,1,10)
+        weeks=[]
+        for n in range(95):
+            start=first+m.dt.timedelta(days=7*n)
+            week=start.isoformat()
+            weeks.append({"week_start":week,
+                          "week_end":(start+m.dt.timedelta(days=6)).isoformat(),
+                          "weekly_basis":"FRI_THU_CSS_EXISTING",
+                          "quotation_approvals":"" if n in set(range(0,10)) else "2",
+                          "approvals_created_in_week":"",
+                          "krw_per_usd":"1500"})
+        source={"SFDC Weekly Overview":weeks,
+                "Quote Approval Dedup":[],"SFDC Quote Export":[]}
+        rows=m.weekly_rows(source)
+        self.assertEqual(len(rows),95)
+        self.assertEqual(sum(r["Approved Quote Count"] is None for r in rows),10)
+        self.assertEqual(sum(r["Approved Quote Count"]==2 for r in rows),85)
+        self.assertEqual(len({r["Source Key"] for r in rows}),95)
+        self.assertTrue(all(r["Approved Quote Count"] is None
+                        or isinstance(r["Approved Quote Count"],int) for r in rows))
+
+    def test_malformed_weekly_approval_count_must_fail_not_disappear(self):
+        source={"SFDC Weekly Overview":[{
+            "week_start":"2025-04-25","week_end":"2025-05-01",
+            "weekly_basis":"FRI_THU_CSS_EXISTING",
+            "quotation_approvals":"unknown"}],
+            "Quote Approval Dedup":[],"SFDC Quote Export":[]}
+        with self.assertRaisesRegex(SafeError,"WEEKLY_APPROVAL_COUNT_NOT_NUMERIC"):
+            m.weekly_rows(source)
+
+    def test_existing_stale_week_count_is_cleared_and_readback_verified(self):
+        old={"record_id":"rec1","fields":{
+            "Source Key":"QUOTE:2025-04-25","Approved Quote Count":5,
+            "Amount Status":"VERIFIED_ALL","Last Sync KST":"2026-10-01"}}
+        cleared={"record_id":"rec1","fields":{
+            "Source Key":"QUOTE:2025-04-25","Approved Quote Count":None,
+            "Amount Status":"WITHHELD_WEEKLY_APPROVAL_COUNT_MISSING"}}
+        desired={"Source Key":"QUOTE:2025-04-25",
+                 "Approved Quote Count":None,
+                 "Amount Status":"WITHHELD_WEEKLY_APPROVAL_COUNT_MISSING"}
+        with mock.patch.object(m,"list_all",side_effect=[[old],[cleared]]) as listing,\
+             mock.patch.object(m,"api") as api:
+            result=m.sync_table("token","/tables/weekly",[desired],120)
+        self.assertEqual(result,(0,1,0))
+        self.assertEqual(listing.call_count,2)
+        api.assert_called_once()
+        self.assertIn("metric_record_update",str(api.call_args))
+
+    def test_quote_readback_rejects_old_non_null_count_after_clear(self):
+        old={"record_id":"rec1","fields":{
+            "Source Key":"QUOTE:2025-04-25","Approved Quote Count":5}}
+        desired={"Source Key":"QUOTE:2025-04-25",
+                 "Approved Quote Count":None}
+        with mock.patch.object(m,"list_all",side_effect=[[old],[old]]),\
+             mock.patch.object(m,"api"):
+            with self.assertRaisesRegex(SafeError,"QUOTE_KPI_READBACK_MISMATCH"):
+                m.sync_table("token","/tables/weekly",[desired],120)
+
     def test_equivalent_numeric_and_text_ignores_timestamp(self):
         old={"Invoice Count":2.0,"Source Key":[{"text":"INVOICE:2026-10"}],
              "Last Sync KST":"old"}
