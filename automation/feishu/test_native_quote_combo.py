@@ -12,10 +12,11 @@ class QuoteComboTests(unittest.TestCase):
         self.assertEqual(len(combos),1)
         name,cfg=combos[0]
         self.assertEqual(name,QUOTE_CHART_NAME)
+        self.assertIn("계산 K USD",name)
         self.assertEqual(cfg["table_name"],"Weekly Quote KPI")
         self.assertEqual(cfg["series"],[
             {"field_name":"Approved Quote Count","rollup":"SUM"},
-            {"field_name":"Verified Quote Value K USD","rollup":"SUM"},
+            {"field_name":"Calculated Quote Value K USD","rollup":"SUM"},
         ])
         self.assertEqual(cfg["group_by"][0]["field_name"],"Chart Week Label")
         self.assertEqual(cfg["group_by"][0]["sort"],{"type":"view","order":"asc"})
@@ -23,6 +24,13 @@ class QuoteComboTests(unittest.TestCase):
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_COMPLETED"}])
         self.assertNotIn(name,LEGACY_REDUNDANT_QUOTE_WIDGETS)
+
+    def test_quote_amount_disclaimer_preserved(self):
+        advisory=[c["text"] for n,k,c in BLOCKS if k=="text" and n=="Quote 계산 기준"]
+        self.assertEqual(len(advisory),1)
+        self.assertIn("추정치",advisory[0])
+        self.assertIn("Revenue",advisory[0])
+        self.assertIn("0원이라고 해석하면 안",advisory[0])
 
     def test_monthly_revenue_dual_currency_is_preserved(self):
         monthly=next(c for name,kind,c in BLOCKS
