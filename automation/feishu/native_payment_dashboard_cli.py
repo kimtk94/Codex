@@ -122,18 +122,24 @@ def main():
     existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",payment)
     created_count=0
     updated_count=0
-    for name,kind,config in PAYMENT_BLOCKS:
+    for index,(name,kind,config) in enumerate(PAYMENT_BLOCKS,1):
         prior=find_block(existing,name)
         if prior is None and name in LEGACY_PAYMENT_NAMES:
             prior=find_block(existing,LEGACY_PAYMENT_NAMES[name])
         if prior:
             # Full config update is necessary when monetary sources change
             # from raw KRW to display-only M KRW. Preserve owner filters.
-            cli("+dashboard-block-update","--base-token",BASE,
-                "--dashboard-id",payment,"--block-id",block_id(prior),
-                "--name",name,
-                "--data-config",json.dumps(config,ensure_ascii=False,
-                                           separators=(",",":")))
+            print("FEISHU_PAYMENT_UPDATE_START scope=payment widget="+str(index)+
+                  " kind="+kind+" name="+name,flush=True)
+            try:
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",payment,"--block-id",block_id(prior),
+                    "--name",name,
+                    "--data-config",json.dumps(config,ensure_ascii=False,
+                                               separators=(",",":")))
+            except RuntimeError as exc:
+                raise RuntimeError("PAYMENT_WIDGET_UPDATE_FAILED index="+str(index)+
+                                   " kind="+kind+" name="+name) from exc
             updated_count+=1
             continue
         cli("+dashboard-block-create","--base-token",BASE,
@@ -151,9 +157,13 @@ def main():
         block=find_block(original,name)
         if not block:raise RuntimeError("PRODUCTION_PROJECT_BLOCK_NOT_FOUND")
         bid=block_id(block)
-        cli("+dashboard-block-update","--base-token",BASE,
-            "--dashboard-id",production,"--block-id",bid,
-            "--data-config",json.dumps({"filter":flt},ensure_ascii=False,separators=(",",":")))
+        print("FEISHU_PAYMENT_UPDATE_START scope=production kind=filter name="+name,flush=True)
+        try:
+            cli("+dashboard-block-update","--base-token",BASE,
+                "--dashboard-id",production,"--block-id",bid,
+                "--data-config",json.dumps({"filter":flt},ensure_ascii=False,separators=(",",":")))
+        except RuntimeError as exc:
+            raise RuntimeError("PRODUCTION_FILTER_UPDATE_FAILED name="+name) from exc
         updated+=1
     print("FEISHU_PROJECT_PAYMENT_DASHBOARDS_PASS production="+production+
           " payment="+payment+" payment_widgets="+str(len(PAYMENT_BLOCKS))+
