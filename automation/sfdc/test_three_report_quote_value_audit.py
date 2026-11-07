@@ -15,7 +15,7 @@ def fixture():
           "Quotation Product ID","Unit Price USD","Sample Quantity"]
     entry=[QID,"1","006OPP","USD","374.00","QD-TEST-1","350","1"]
     return {
-     "SFDC Email Quotation Raw":[head,entry,entry],
+     "SFDC Email Quotation Raw":[head,entry.copy(),entry.copy()],
      "Quote Approval Dedup":[["Approval KST","Quotation Name","SFDC Record ID"],
                              ["2026-11-05 10:00:00","Sales Quote "+QID+" approved",SF]],
      "Quote Portfolio":[["Salesforce Quote ID (18)","Quote QID","Quote USD"],[SF,QID,"374"]],
