@@ -11,12 +11,12 @@ NOW=dt.datetime(2026,11,7,9,0,tzinfo=KST)
 P="AMEA2026100751"
 X="X209SC26102746"
 I="209126000991"
-def etax(invoice=I,pid=P,amount="1100000",x=X):
+def etax(invoice=I,pid=P,amount="1100000",x=X,sales="Kim Taehoon"):
     return {"CMS Invoice Num":invoice,"Quotation Number":pid,"Project Number":x,
-            "Amount":amount}
-def out(invoice=I,pid=P,amount="1100000",balance="",x=X):
+            "Amount":amount,"Sales":sales}
+def out(invoice=I,pid=P,amount="1100000",balance="",x=X,sales="Kim Taehoon"):
     return {"CMS Invoice Number":invoice,"Quotation Number":pid,"Project Number":x,
-            "Invoice Amount":amount,"Balance":balance}
+            "Invoice Amount":amount,"Balance":balance,"Sales":sales}
 def receipt(invoice=I,amount="1100000",date="45960"):
     return {"CMS No.":invoice,"Amount (KRW)":amount,"Deposit Date":date,
             "CMS No. [2]":"","Amount":"","Date":"",
@@ -43,8 +43,46 @@ class LatestPaymentTests(unittest.TestCase):
         self.assertEqual(matches[P]["Verified Received KRW"],1100000)
         self.assertEqual(matches[P]["Receipt Source Snapshot Date"],"2026-10-31")
         self.assertEqual(billing[P]["Invoice Gross KRW"],1100000)
+        self.assertEqual(billing[P]["Payment Owner Scope"],"MY_VERIFIED")
         self.assertEqual(info["projects_source_receipt_complete"],1)
         self.assertTrue(verified_full_payment(matches[P]))
+    def test_other_sales_is_not_my_payment(self):
+        matched,billing,info=build_payment_evidence(
+            sources(es=[etax(sales="Yinglan Piao 朴英兰")],
+                    outs=[out(sales="Yinglan Piao 朴英兰")]),manifest(),NOW)
+        self.assertEqual(billing[P]["Payment Owner Scope"],"OTHER_SALES")
+        self.assertEqual(info["my_verified_invoice_projects"],0)
+        # A valid receipt for another salesperson must never pass personal filter.
+        self.assertIn(P,matched)
+    def test_mixed_sales_labels_fail_closed(self):
+        _,billing,_=build_payment_evidence(
+            sources(es=[etax(sales="Kim Taehoon")],
+                    outs=[out(sales="Hyunseok KOO")]),manifest(),NOW)
+        self.assertEqual(billing[P]["Payment Owner Scope"],"OWNER_UNVERIFIED")
+    def test_missing_sales_labels_fail_closed(self):
+        _,billing,_=build_payment_evidence(
+            sources(es=[etax(sales="")],
+                    outs=[out(sales="Kim Taehoon")]),manifest(),NOW)
+        self.assertEqual(billing[P]["Payment Owner Scope"],"OWNER_UNVERIFIED")
+    def test_similar_name_or_substring_is_not_accepted(self):
+        _,billing,_=build_payment_evidence(
+            sources(es=[etax(sales="Kim Taehoon (Other)")],
+                    outs=[out(sales="Kim Taehoon (Other)")]),manifest(),NOW)
+        self.assertNotEqual(billing[P]["Payment Owner Scope"],"MY_VERIFIED")
+    def test_multiple_invoice_owners_must_all_be_mine(self):
+        second="209126000992"
+        _,billing,_=build_payment_evidence(sources(
+            es=[etax(),etax(invoice=second,sales="Lim Hyunjung")],
+            outs=[out(),out(invoice=second,sales="Lim Hyunjung")]),
+            manifest(),NOW)
+        self.assertEqual(billing[P]["Payment Owner Scope"],"OWNER_UNVERIFIED" if
+            "OWNER_UNVERIFIED"==billing[P]["Payment Owner Scope"] else "OTHER_SALES")
+    def test_identity_whitespace_normalized_only(self):
+        _,billing,_=build_payment_evidence(
+            sources(es=[etax(sales="Kim   Taehoon")],
+                    outs=[out(sales=" Kim Taehoon ")]),manifest(),NOW)
+        self.assertEqual(billing[P]["Payment Owner Scope"],"MY_VERIFIED")
+
     def test_invoiced_but_not_completed_stays_active(self):
         matches,_,_=build_payment_evidence(sources(),manifest(),NOW)
         row={"Completion Evidence":"NOT_VERIFIED","Next Action":"QC"}
