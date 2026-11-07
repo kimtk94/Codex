@@ -46,7 +46,7 @@ BLOCKS=[
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
                   {"field_name":"Verified Quote Value K USD","rollup":"SUM"}],
         "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
-                     "sort":{"type":"view","order":"desc"}}],
+                     "sort":{"type":"view","order":"asc"}}],
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_COMPLETED"}]}}),
@@ -55,7 +55,7 @@ BLOCKS=[
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
                   {"field_name":"Verified Quote Value M KRW FX","rollup":"SUM"}],
         "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
-                     "sort":{"type":"view","order":"desc"}}],
+                     "sort":{"type":"view","order":"asc"}}],
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_COMPLETED"}]}}),
