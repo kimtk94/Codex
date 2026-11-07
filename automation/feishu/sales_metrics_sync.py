@@ -479,6 +479,9 @@ def weekly_rows(source, now=None):
         process_usd=None
         if process_state!="SOURCE_QQ_REPORT_VERIFIED":
             calc_status=process_state
+        elif int(count)==0:
+            calc_status=("NO_APPROVALS" if current.get("approval_ids",0)==0
+                         else "WITHHELD_APPROVAL_COUNT_MISMATCH")
         elif current.get("approval_ids",0)!=int(count):
             calc_status="WITHHELD_APPROVAL_COUNT_MISMATCH"
         else:
