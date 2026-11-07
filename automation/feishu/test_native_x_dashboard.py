@@ -16,6 +16,11 @@ class NativeXDashboardTests(unittest.TestCase):
             self.assertNotEqual(kind,"ranking")
             self.assertIn(config["table_name"],
                 {"X Project Registry","X Invoice Ledger"})
+    def test_integer_project_sample_and_invoice_count_cards(self):
+        for name,kind,config in WIDGETS:
+            if kind=="statistics":
+                self.assertEqual(config["number_format"],
+                    {"formatName":"digital","precision":0},name)
     def test_x_registry_never_inherits_amea_progress(self):
         fields={name for name,_ in LINK_SCHEMAS["X Project Registry"]}
         self.assertNotIn("Progress %",fields)
