@@ -1,15 +1,17 @@
 name: Feishu Native Sales Home
 on:
   push:
-    branches: [main, feat/feishu-native-sales-home-20261106]
+    branches: [main, feat/feishu-native-sales-home-20261106, 'feat/feishu-compact-sales-ui-units-*']
     paths:
       - 'automation/feishu/sales_native_home.py'
       - 'automation/feishu/test_sales_native_home.py'
+      - 'automation/feishu/test_compact_units.py'
       - '.github/workflows/feishu-native-sales-home.yml'
   pull_request:
     paths:
       - 'automation/feishu/sales_native_home.py'
       - 'automation/feishu/test_sales_native_home.py'
+      - 'automation/feishu/test_compact_units.py'
       - '.github/workflows/feishu-native-sales-home.yml'
   workflow_run:
     workflows: ['Feishu Sales SIF Invoice Weekly KPI']
