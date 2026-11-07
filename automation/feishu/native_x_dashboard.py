@@ -15,7 +15,7 @@ def scope(*conditions):
     return {"conjunction":"and","conditions":list(conditions)}
 WIDGETS=[
   ("X 프로젝트 안내","text",{
-      "text":"# Novogene · X 하위 프로젝트 현황\n**X-Z01은 실제 프로젝트**, AMEA는 견적/영업 그룹, H는 계약, SAM은 시료입니다.\n프로젝트별 단계·TAT·시료 연결을 확인하세요. 정확하지 않은 연결은 별도 검토이며 AMEA 진행률 100%를 X에 복사하지 않습니다.\n프로젝트 상세는 Feishu Base의 '내 X 프로젝트', 시료는 'X-SAM 확정 연결'에서 확인할 수 있습니다. 결제 완료는 CMS Invoice와 Receipt 및 실제 프로젝트 완료가 모두 확인된 경우에만 보관 처리합니다."}),
+      "text":"# Novogene · X 하위 프로젝트 현황\n**X-Z01은 실제 프로젝트**, AMEA는 견적/영업 그룹, H는 계약, SAM은 시료입니다.\n프로젝트별 단계·TAT·시료 연결을 확인하세요. **P0 즉시 확인, P1 후속 확인, P2 모니터링**으로 표시합니다.\n'최근 날짜 메모'는 진행 기록에 적힌 날짜를 뜻하며 실제 레코드 마지막 수정일은 아닙니다. 14일·30일 메모 공백만으로 프로젝트 정체를 확정하지 않습니다. 정확하지 않은 연결은 별도 검토이며 AMEA 진행률 100%를 X에 복사하지 않습니다.\n프로젝트 상세는 Feishu Base의 '내 X 프로젝트', 시료는 'X-SAM 확정 연결'에서 확인할 수 있습니다. 결제 완료는 CMS Invoice와 Receipt 및 실제 프로젝트 완료가 모두 확인된 경우에만 보관 처리합니다."}),
   ("내 X 프로젝트 건수","statistics",{
       "table_name":"X Project Registry","count_all":True,
       "filter":scope(CURRENT,MINE)}),
@@ -39,6 +39,28 @@ WIDGETS=[
       "table_name":"X Project Registry","count_all":True,
       "group_by":[{"field_name":"AMEA Link State","mode":"integrated"}],
       "filter":scope(CURRENT,MINE)}),
+  ("내 즉시 확인 X","statistics",{
+      "table_name":"X Project Registry","count_all":True,
+      "filter":scope(CURRENT,MINE,
+          {"field_name":"Exception Priority","operator":"is",
+           "value":"P0_URGENT"})}),
+  ("내 후속 확인 X","statistics",{
+      "table_name":"X Project Registry","count_all":True,
+      "filter":scope(CURRENT,MINE,
+          {"field_name":"Attention State","operator":"is",
+           "value":"REVIEW_REQUIRED"})}),
+  ("내 30일 이상 날짜 메모 X","statistics",{
+      "table_name":"X Project Registry","count_all":True,
+      "filter":scope(CURRENT,MINE,
+          {"field_name":"Dated Note Age Flag","operator":"is",
+           "value":"DATED_NOTE_30D_PLUS"})}),
+  ("내 X 예외 원인별 현황","bar",{
+      "table_name":"X Project Registry","count_all":True,
+      "group_by":[{"field_name":"Primary Reason","mode":"integrated"}],
+      "filter":scope(CURRENT,MINE,
+          {"field_name":"Attention State","operator":"is",
+           "value":"REVIEW_REQUIRED"})}),
+
 ]
 
 def bid(block):
@@ -75,7 +97,12 @@ def main():
         prior=find_block(existing,title)
         if prior:
             if typ=="text":
-                # Existing stable explanatory text needs no rewrites.
+                # Keep warning copy current after rule/schema revisions.
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",dashboard,"--block-id",bid(prior),
+                    "--data-config",json.dumps(config,ensure_ascii=False,
+                                               separators=(",",":")))
+                updated_count+=1
                 continue
             cli("+dashboard-block-update","--base-token",BASE,
                 "--dashboard-id",dashboard,"--block-id",bid(prior),
