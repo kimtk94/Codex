@@ -49,9 +49,7 @@ class QuoteComboTests(unittest.TestCase):
                          "type":"line"}]}
         self.assertEqual(legacy_dashboard_block(items,"Weekly 승인 Quote",
                                                   "column"),"chtOld")
-        self.assertIsNone(legacy_dashboard_block(items,"Monthly Revenue",
-                                                  "combo") if False else
-                          legacy_dashboard_block(items,"Unknown","combo"))
+        self.assertIsNone(legacy_dashboard_block(items,"Unknown","combo"))
         with self.assertRaisesRegex(RuntimeError,"TYPE_MISMATCH"):
             legacy_dashboard_block(items,"Weekly 승인 Quote","combo")
 
