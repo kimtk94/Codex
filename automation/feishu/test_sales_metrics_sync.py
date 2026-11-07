@@ -134,6 +134,42 @@ class MetricsTests(unittest.TestCase):
         with self.assertRaisesRegex(SafeError,"MONTHLY_CONFLICTING_INVOICE_ID"):
             m.monthly_rows(source)
 
+    def test_korea_chart_last_four_completed_and_oct_nov_labels(self):
+        fridays=["2026-10-02","2026-10-09","2026-10-16",
+                 "2026-10-23","2026-10-30","2026-11-06"]
+        source={
+            "SFDC Weekly Overview":[{
+                "week_start":week,
+                "week_end":(m.dt.date.fromisoformat(week)+
+                            m.dt.timedelta(days=6)).isoformat(),
+                "weekly_basis":"FRI_THU_IN_PROGRESS" if week=="2026-11-06"
+                               else "FRI_THU_CSS_EXISTING",
+                "quotation_approvals":"5",
+                "approvals_created_in_week":"4",
+                "krw_per_usd":"1500",
+            } for week in fridays],
+            "Quotation Approval List":[],
+            "Quote Portfolio":[],
+        }
+        rows=m.weekly_rows(source)
+        shown=[r for r in rows if r["Chart Window"]=="RECENT_4_COMPLETED"]
+        self.assertEqual(len(shown),4)
+        self.assertEqual([r["Chart Week Label"] for r in sorted(
+            shown,key=lambda r:r["Week Start"])],
+            ["Oct W2","Oct W3","Oct W4","Nov W1"])
+        self.assertNotIn("2026-11-06",[r["Week Start"] for r in shown])
+        self.assertEqual(rows[0]["Chart Window"],"HISTORY")
+        self.assertEqual(rows[0]["Chart Week Label"],"Nov W2")
+        self.assertEqual(rows[-1]["Chart Window"],"HISTORY")
+        self.assertTrue(all(r["Approved Quote Count"]==5 for r in shown))
+        self.assertTrue(all("Verified Quote Value K USD" not in r for r in shown))
+    def test_chart_label_requires_friday_start(self):
+        self.assertEqual(m.quote_chart_week_label("2026-10-30"),"Nov W1")
+        self.assertEqual(m.quote_chart_week_label("2026-10-09"),"Oct W2")
+        self.assertEqual(m.quote_chart_week_label("2026-11-06"),"Nov W2")
+        self.assertEqual(m.quote_chart_week_label("2026-11-07"),"")
+        self.assertEqual(m.quote_chart_week_label("not-a-date"),"")
+
     def test_quote_value_partial_not_claimed_complete(self):
         source={
             "SFDC Weekly Overview":[{"week_start":"2026-10-30","week_end":"2026-11-05",
