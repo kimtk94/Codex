@@ -464,6 +464,23 @@ def weekly_rows(source, now=None):
         created=numer(cell(item,"approvals_created_in_week"))
         if count is None or count<0:
             continue
+        current=calculated.get(week,{})
+        # The legacy Weekly Overview can lag its event-level approvals by one
+        # week. Exact immutable Salesforce-ID approvals are authoritative.
+        # Never shift a count based on a guessed week/row offset.
+        legacy_count=int(count)
+        evidence_count=current.get("approval_ids",0)
+        if evidence_count>0 and not (current.get("issues") or {}).get(
+                "invalid_approval_identifier",0):
+            count=D(evidence_count)
+            created=D(current.get("created_in_week_count",0))
+            if evidence_count!=legacy_count:
+                print("QUOTE_WEEKLY_COUNT_RECONCILED week="+week+
+                      " source="+str(legacy_count)+
+                      " dedup="+str(evidence_count))
+            count_source="IMMUTABLE_APPROVAL_DEDUP"
+        else:
+            count_source="LEGACY_WEEKLY_FALLBACK"
         fx=numer(cell(item,"krw_per_usd")) or D(1500)
         if fx<=0:
             raise SafeError("INVALID_WEEKLY_FX")
@@ -473,7 +490,6 @@ def weekly_rows(source, now=None):
                   if proof=="QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED" and complete_evidence
                   else [])
         unmatched=max(0,int(count)-len(verified))
-        current=calculated.get(week,{})
         process_state=process_info["source_state"]
         process_count=0
         process_usd=None
@@ -508,8 +524,10 @@ def weekly_rows(source, now=None):
              "Quote Amount Exception Count":max(0,int(count)-process_count),
              "Calculated Quote Value K USD":None,
              "Calculated Quote Value M KRW FX":None,
-             "Quote Calculation Source":calc_status+" / "+process_state,
-             "Evidence":"SFDC Weekly Overview + Quote Approval Dedup immutable Salesforce ID; "
+             "Quote Calculation Source":calc_status+" / "+process_state+
+                  " / count="+count_source,
+             "Evidence":"Quote approval count="+count_source+
+                        "; SFDC Weekly Overview schedule; Quote Approval Dedup immutable Salesforce ID; "
                         "money requires fresh Salesforce Quote Object Exclude Tax USD, "
                         "Active, owner and exact count proof. Status: "+status,
              # Explicit nulls clear stale number cells in the existing Feishu record.
