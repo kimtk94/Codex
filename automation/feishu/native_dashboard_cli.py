@@ -64,6 +64,27 @@ BLOCKS=[
 
 ]
 
+# Active pipeline only: paid/completed projects belong to Payment Dashboard.
+ACTIVE_STAGE={"field_name":"Workflow Lane","operator":"is","value":"PRODUCTION_ACTIVE"}
+for _,kind,_config in BLOCKS:
+    if kind=="text" or _config.get("table_name")!=TABLE:
+        continue
+    current=(_config.get("filter") or {}).get("conditions") or []
+    if ACTIVE_STAGE not in current:
+        _config["filter"]={"conjunction":"and","conditions":[*current,ACTIVE_STAGE]}
+
+
+def delete_dashboard_block(dashboard_id,block_id):
+    """Delete only a verified dashboard block; empty successful replies are OK."""
+    p=subprocess.run([
+        "lark-cli","base","+dashboard-block-delete",
+        "--base-token",BASE,"--dashboard-id",dashboard_id,
+        "--block-id",block_id,"--yes","--as","bot","--format","json",
+    ],text=True,capture_output=True,timeout=70)
+    if p.returncode:
+        raise RuntimeError("FEISHU_DASHBOARD_BLOCK_DELETE_FAILED")
+
+
 def cli(*args):
     process=subprocess.run(["lark-cli","base",*args,"--as","bot","--format","json"],
                            text=True,capture_output=True,timeout=70)
@@ -159,8 +180,7 @@ def main():
     legacy_rank=legacy_dashboard_block(existing,LEGACY_PROGRESS_RANK,"ranking")
     deleted=0
     if legacy_rank:
-        cli("+dashboard-block-delete","--base-token",BASE,
-            "--dashboard-id",dashboard_id,"--block-id",legacy_rank,"--yes")
+        delete_dashboard_block(dashboard_id,legacy_rank)
         deleted=1
         print("FEISHU_PROGRESS_RANK_REMOVED title="+LEGACY_PROGRESS_RANK)
     count=0
@@ -168,8 +188,7 @@ def main():
     existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
     legacy_stage=legacy_dashboard_block(existing,LEGACY_RAW_STAGE_CHART,"bar")
     if legacy_stage:
-        cli("+dashboard-block-delete","--base-token",BASE,
-            "--dashboard-id",dashboard_id,"--block-id",legacy_stage,"--yes")
+        delete_dashboard_block(dashboard_id,legacy_stage)
         deleted+=1
         print("FEISHU_RAW_STAGE_GRAPH_REMOVED")
         existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
@@ -189,13 +208,19 @@ def main():
                 print("FEISHU_QUOTE_COMBO_UPDATED type=combo window=RECENT_4_COMPLETED")
                 continue
         if name in names:
-            if name=="Quote 금액 검증 기준":
-                info=locate_chart(existing,name)
-                if info:
-                    cli("+dashboard-block-update","--base-token",BASE,
-                        "--dashboard-id",dashboard_id,"--block-id",info,
-                        "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
-                    updated+=1
+            info=locate_chart(existing,name)
+            if name in {"Quote 금액 검증 기준","운영 안내"} and info:
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",dashboard_id,"--block-id",info,
+                    "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
+                updated+=1
+            elif config.get("table_name")==TABLE and info:
+                # Rewrite only the scope, never reposition the user's widgets.
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",dashboard_id,"--block-id",info,
+                    "--data-config",json.dumps({"filter":config["filter"]},
+                        ensure_ascii=False,separators=(",",":")))
+                updated+=1
             continue
         cli("+dashboard-block-create","--base-token",BASE,"--dashboard-id",dashboard_id,
             "--name",name,"--type",kind,
