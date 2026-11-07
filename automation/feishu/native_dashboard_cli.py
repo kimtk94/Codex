@@ -164,6 +164,17 @@ def main():
     dashboard_id=find_named(dashboards,TITLE)
     print("FEISHU_NATIVE_DASHBOARD_LIST_PASS exists="+str(bool(dashboard_id)))
     if mode=="plan":
+        if dashboard_id:
+            existing=cli("+dashboard-block-list","--base-token",BASE,
+                         "--dashboard-id",dashboard_id)
+            for legacy in (LEGACY_PROGRESS_RANK,LEGACY_RAW_STAGE_CHART):
+                candidates=[x for x in collect(existing) if x.get("name")==legacy
+                            and x.get("block_id")]
+                if len(candidates)>1:
+                    raise RuntimeError("LEGACY_PROGRESS_MULTIPLE_BLOCKS")
+                print("FEISHU_PROGRESS_PRECHECK name="+legacy+
+                      " exists="+str(bool(candidates))+
+                      " type="+str(candidates[0].get("type") if candidates else "none"))
         print("FEISHU_NATIVE_DASHBOARD_PLAN_PASS source="+BASE+" writes=0 planned_blocks="+str(len(BLOCKS)))
         return
     if not dashboard_id:
