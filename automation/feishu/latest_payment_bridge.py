@@ -134,7 +134,7 @@ def receipt_map(rows):
     return evidence,ambiguous
 
 def build_payment_evidence(sources,manifest,now=None):
-    """Return (AMEA->exact receipt evidence, aggregate review diagnostics)."""
+    """Return exact receipt proof, invoice/balance context, and aggregate counts."""
     dates=source_dates(manifest,now)
     invoices,invoice_conflicts=invoice_map(
         sources.get("Feishu Latest eTax",[]),
@@ -144,6 +144,7 @@ def build_payment_evidence(sources,manifest,now=None):
     for number,inv in invoices.items():
         groups[inv["project"]].append((number,inv))
     matched={}
+    billing={}
     diagnostics={"projects_with_invoices":len(groups),
                  "projects_source_receipt_complete":0,
                  "invoice_conflicts":len(invoice_conflicts),
@@ -161,6 +162,17 @@ def build_payment_evidence(sources,manifest,now=None):
                    amt==inv["amount"] and
                    (outstanding is None or outstanding==0))
             checks.append((no,inv,amt,deposits,clear))
+        # Outstanding balance is unknown if the invoice is absent from the
+        # dated Outstanding snapshot, not zero or paid by inference.
+        current_balances=[inv["balance"] for _,inv,_,_,_ in checks]
+        gross_total=sum((inv["amount"] for _,inv,_,_,_ in checks),Decimal("0"))
+        billing[pid]={
+            "Payment Invoice No":";".join(sorted(no for no,_,_,_,_ in checks)),
+            "Invoice Gross KRW":int(gross_total),
+            "Outstanding Source Snapshot Date":dates["Payment Outstanding"],
+        }
+        if current_balances and all(x is not None for x in current_balances):
+            billing[pid]["Outstanding Balance KRW"]=int(sum(current_balances,Decimal("0")))
         if not checks or not all(c[4] for c in checks):
             diagnostics["projects_review_required"]+=1
             continue
@@ -181,4 +193,4 @@ def build_payment_evidence(sources,manifest,now=None):
             "Outstanding Source Snapshot Date":dates["Payment Outstanding"],
         }
         diagnostics["projects_source_receipt_complete"]+=1
-    return matched,diagnostics
+    return matched,billing,diagnostics
