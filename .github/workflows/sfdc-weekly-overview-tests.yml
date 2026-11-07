@@ -1,0 +1,33 @@
+name: SFDC Weekly Quote Count Readback Offline Tests
+on:
+  pull_request:
+    paths:
+      - 'automation/sfdc/weekly_overview.py'
+      - 'automation/sfdc/test_weekly_overview.py'
+      - '.github/workflows/sfdc-weekly-overview-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/sfdc/weekly_overview.py'
+      - 'automation/sfdc/test_weekly_overview.py'
+      - '.github/workflows/sfdc-weekly-overview-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing Sheets read client
+        run: python3 -m pip install 'google-auth>=2.35,<3' 'requests>=2.31,<3'
+      - name: Verify Friday–Thursday Quote count source and published readback
+        run: |
+          python3 -m unittest discover -s automation/sfdc -p 'test_weekly_overview.py' -v
+          python3 -m py_compile automation/sfdc/weekly_overview.py
