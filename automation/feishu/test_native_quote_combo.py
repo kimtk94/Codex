@@ -33,7 +33,12 @@ class QuoteComboTests(unittest.TestCase):
         self.assertEqual(usd["series"][1]["field_name"],
                          "Verified Quote Value K USD")
         monthly=next(c for name,kind,c in BLOCKS if name.startswith("월별 Revenue"))
-        self.assertEqual(monthly["series"][0]["field_name"],"Net Revenue M KRW")
+        self.assertEqual(monthly["series"],[
+            {"field_name":"Net Revenue M KRW","rollup":"SUM"},
+            {"field_name":"Net Revenue K USD","rollup":"SUM"},
+        ])
+        titles=[name for name,_,_ in BLOCKS if name=="월별 Revenue · VAT 제외 · M KRW (K USD)"]
+        self.assertEqual(len(titles),1)
         for name,kind,c in BLOCKS:
             if kind=="statistics" and c.get("count_all"):
                 self.assertEqual(c["number_format"],{"formatName":"digital","precision":0})
