@@ -30,8 +30,10 @@ class ProgressDashboardTests(unittest.TestCase):
         self.assertEqual(len(PROJECT_BLOCKS),6)
         for flt in PROJECT_BLOCKS.values():
             self.assertEqual(flt["conditions"].count(ACTIVE_STAGE),1)
-    def test_quote_combo_unchanged(self):
-        self.assertEqual(len([x for x in BLOCKS if x[1]=="combo"]),2)
+    def test_quote_combo_unified_no_duplicate(self):
+        self.assertEqual(len([x for x in BLOCKS if x[1]=="combo"]),1)
+        self.assertEqual(len([x for x in BLOCKS if x[1]=="column" and
+                              x[2].get("table_name")=="Weekly Quote KPI"]),0)
     def test_legacy_delete_only_named_typed_dashboard_block(self):
         existing={"items":[
             {"name":LEGACY_PROGRESS_RANK,"block_id":"chtRank1","type":"ranking"},
