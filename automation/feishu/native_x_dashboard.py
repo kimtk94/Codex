@@ -15,7 +15,7 @@ def scope(*conditions):
     return {"conjunction":"and","conditions":list(conditions)}
 WIDGETS=[
   ("X 프로젝트 안내","text",{
-      "text":"# Novogene · X 하위 프로젝트 현황\n**X-Z01은 실제 프로젝트**, AMEA는 견적/영업 그룹, H는 계약, SAM은 시료입니다.\n프로젝트별 단계·TAT·시료 연결을 확인하세요. **P0 즉시 확인, P1 후속 확인, P2 모니터링**으로 표시합니다.\n'최근 날짜 메모'는 진행 기록에 적힌 날짜를 뜻하며 실제 레코드 마지막 수정일은 아닙니다. 14일·30일 메모 공백만으로 프로젝트 정체를 확정하지 않습니다. 정확하지 않은 연결은 별도 검토이며 AMEA 진행률 100%를 X에 복사하지 않습니다.\n프로젝트 상세는 Feishu Base의 '내 X 프로젝트', 시료는 'X-SAM 확정 연결'에서 확인할 수 있습니다. 결제 완료는 CMS Invoice와 Receipt 및 실제 프로젝트 완료가 모두 확인된 경우에만 보관 처리합니다."}),
+      "text":"# X 프로젝트 운영\n**X-Z01=프로젝트 · SAM=시료 · AMEA=견적 · H=계약**\n**P0 즉시 확인 / P1 후속 확인 / P2 모니터링**\n메모 날짜는 실제 수정일이 아닙니다. 상세는 '내 X 프로젝트', 시료는 'X-SAM 확정 연결'에서 확인하세요. X별 진행률·입금 완료는 증빙 없이는 추정하지 않습니다."}),
   ("내 X 프로젝트 건수","statistics",{
       "table_name":"X Project Registry","count_all":True,
       "filter":scope(CURRENT,MINE)}),
@@ -62,6 +62,12 @@ WIDGETS=[
            "value":"REVIEW_REQUIRED"})}),
 
 ]
+
+# All source counts (X projects, SAM, invoices) are integer quantities.
+# Only statistics type accepts the official CLI number_format property.
+for _name,_kind,_config in WIDGETS:
+    if _kind=="statistics":
+        _config["number_format"]={"formatName":"digital","precision":0}
 
 def bid(block):
     for field in ("block_id","id"):
