@@ -7,6 +7,7 @@ misrepresented as a verified Salesforce quotation name.
 """
 import collections
 import re
+from project_settlement import completion_evidence, finalize
 
 
 def value(row, key):
@@ -135,6 +136,8 @@ def prepare_project_board(sources, project_rows):
         # No false PO receipt claim; future tracker evidence can override this.
         result = {
             "Source Key": value(row, "Source Key"),
+            "Project Display Name": (quote_name.replace("\n"," / ")+" | "+pid),
+            "Completion Evidence": completion_evidence(stage,lifecycles),
             "AMEA": pid,
             "Quote Full Name": quote_name,
             "Quote Match State": quote_state,
@@ -152,7 +155,7 @@ def prepare_project_board(sources, project_rows):
         }
         if pct is not None:
             result["Progress %"] = pct
-        output.append(result)
+        output.append(finalize(result))
     if len(output) != len({x["Source Key"] for x in output}):
         raise ValueError("DUPLICATE_BOARD_SOURCE_KEY")
     return output

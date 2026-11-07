@@ -19,6 +19,8 @@ from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
 from qq_mail_ingest import auth, api, list_all, SafeError
 from project_progress_board import prepare_project_board
+from project_settlement import EVIDENCE_FIELDS, finalize, counts
+from latest_payment_bridge import build_payment_evidence
 
 EXPECTED_BASE = "IpMkbUD0vaFqtYs93a3csXtdn1b"
 CSS_SHEET = "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
@@ -41,7 +43,17 @@ SCHEMAS = {
         ("Service", 1), ("Current Stage", 1), ("Progress %", 2),
         ("Progress Bar", 1), ("Prepayment", 1), ("Prepayment Evidence", 1),
         ("SIF State", 1), ("PO Evidence", 1), ("Next Action", 1),
-        ("Evidence", 1), ("Last Sync KST", 1),
+        ("Evidence", 1), ("Project Display Name", 1),
+        ("Completion Evidence", 1), ("Workflow Lane", 1),
+        ("Payment State", 1), ("Invoice Gross KRW", 2),
+        ("Outstanding Balance KRW", 2),
+        ("Payment Invoice No", 1), ("Bank Receipt Reference", 1),
+        ("Verified Invoice KRW", 2), ("Verified Received KRW", 2),
+        ("Receipt Verified At", 1), ("Receipt Verified By", 1),
+        ("Receipt Source", 1), ("Receipt Verification Status", 1),
+        ("Receipt Source Snapshot Date", 1),
+        ("Outstanding Source Snapshot Date", 1),
+        ("Last Sync KST", 1),
     ],
     "Monthly Tax Invoice": [
         ("Source Key", 1), ("Month", 1), ("Invoice Count", 2),
@@ -69,6 +81,15 @@ REQUIRED = {
     "Quotation Approval List": ("week_start", "salesforce_record_id", "quotation_id"),
     "Quote Portfolio": ("Salesforce Quote ID (18)", "Quote QID", "Active", "Quote USD", "Approved AMEA ID", "Quote Name", "Approval Match"),
     "Feishu Latest Prepayments": ("Project Number", "Quotation Number"),
+    "Feishu Latest Receipts": ("CMS No.", "Amount (KRW)", "Deposit Date",
+                               "CMS No. [2]", "Amount", "Date",
+                               "CMS No. [3]", "Amount [2]", "Date [2]"),
+    "Feishu Latest Outstanding": ("CMS Invoice Number", "Quotation Number",
+                                   "Project Number", "Invoice Amount","Balance"),
+    "Feishu Latest eTax": ("CMS Invoice Num", "Quotation Number",
+                           "Project Number", "Amount"),
+    "Feishu Source Manifest": ("Source", "Source Date", "Synced At KST",
+                                 "Source ID", "Schema"),
 }
 
 
@@ -136,6 +157,10 @@ def sheet_sources():
         (CSS_SHEET,"Quotation Approval List",1500),
         (UNIFIED_SHEET,"Quote Portfolio",2600),
         (UNIFIED_SHEET,"Feishu Latest Prepayments",500),
+        (UNIFIED_SHEET,"Feishu Latest Receipts",700),
+        (UNIFIED_SHEET,"Feishu Latest Outstanding",500),
+        (UNIFIED_SHEET,"Feishu Latest eTax",250),
+        (UNIFIED_SHEET,"Feishu Source Manifest",20),
     ]
     outputs={}
     for book,tab,limit in conf:
@@ -413,6 +438,24 @@ def ensure_tables(token,root):
         p=table_path(root,ids[0])
         fields=list_all(p+"/fields",token,"metric_schema")
         names={f.get("field_name"):f.get("type") for f in fields}
+        allowed={
+            "Project Display Name","Completion Evidence",
+            "Workflow Lane","Payment State","Invoice Gross KRW",
+            "Outstanding Balance KRW",*EVIDENCE_FIELDS,
+        }
+        for field_name,field_type in spec:
+            if field_name in names:
+                if names[field_name]!=field_type:
+                    raise SafeError("METRIC_SCHEMA_TYPE_MISMATCH")
+            elif name=="Project Progress Board" and field_name in allowed:
+                api("POST",p+"/fields",token,
+                    data={"field_name":field_name,"type":field_type},
+                    action="metric_project_payment_field_add")
+                print("METRIC_PAYMENT_FIELD_CREATED="+field_name)
+            else:
+                raise SafeError("METRIC_SCHEMA_UNEXPECTED_MISSING_FIELD")
+        fields=list_all(p+"/fields",token,"metric_schema_readback")
+        names={f.get("field_name"):f.get("type") for f in fields}
         if any(names.get(f)!=t for f,t in spec):
             raise SafeError("METRIC_SCHEMA_MISMATCH_"+name.replace(" ","_"))
         paths[name]=p
@@ -452,7 +495,7 @@ def board_list_with_retry(token,path,action):
             time.sleep(2*(attempt+1))
 
 
-def sync_board_table(token,path,desired):
+def sync_board_table(token,path,desired,payment_matches=None,billing_context=None):
     """Batch 25, source-owned upsert; independent readback of all project keys."""
     existing=board_list_with_retry(token,path,"project_board_existing")
     indexed={}
@@ -462,10 +505,31 @@ def sync_board_table(token,path,desired):
         if key in indexed:raise SafeError("PROJECT_BOARD_DUPLICATE_RECORD")
         indexed[key]=rec
     creates=[];updates=[];unchanged=0
-    for row in desired:
+    final_rows=[]
+    payment_matches=payment_matches or {}
+    billing_context=billing_context or {}
+    for raw in desired:
+        row=dict(raw)
         key=row["Source Key"]
         old=indexed.get(key)
-        if old and equivalent(old.get("fields") or {},row):
+        original=old.get("fields") or {} if old else {}
+        if "Completion Evidence" in row:
+            pid=raw_value(row.get("AMEA")).upper()
+            proof=payment_matches.get(pid)
+            billing=billing_context.get(pid)
+            if billing:
+                row.update(billing)
+            # Never overwrite a manually verified bank/ERP receipt with an
+            # automatically matched spreadsheet receipt.
+            manual=(raw_value(original.get("Receipt Verification Status"))=="VERIFIED"
+                    and raw_value(original.get("Receipt Source")) in
+                        {"BANK_RECEIPT","ERP_CASH_RECEIPT"})
+            evidence=original if manual else (proof or original)
+            if proof and not manual:
+                row.update(proof)
+            row=finalize(row,evidence)
+        final_rows.append(row)
+        if old and equivalent(original,row):
             unchanged+=1
             continue
         fields={**row,"Last Sync KST":timestamp()}
@@ -482,6 +546,11 @@ def sync_board_table(token,path,desired):
                        data={"records":chunk},action="project_board_"+verb)
             if len(result.get("records") or [])!=len(chunk):
                 raise SafeError("PROJECT_BOARD_BATCH_WRITE_NOT_CONFIRMED")
+    if final_rows and all("Workflow Lane" in r for r in final_rows):
+        lanes=counts(final_rows)
+        print("PROJECT_LANE_COUNTS active="+str(lanes["PRODUCTION_ACTIVE"])+
+              " payment="+str(lanes["PAYMENT_FOLLOWUP"])+
+              " archived="+str(lanes["PAID_ARCHIVED"]))
     if not creates and not updates:
         # All desired rows were individually compared with the initial live
         # Feishu listing. A second full scan only burns API quota and can 503.
@@ -495,7 +564,7 @@ def sync_board_table(token,path,desired):
         if not key:continue
         if key in got:raise SafeError("PROJECT_BOARD_READBACK_DUPLICATE")
         got[key]=record.get("fields") or {}
-    for item in desired:
+    for item in final_rows:
         if item["Source Key"] not in got or not equivalent(got[item["Source Key"]],item):
             raise SafeError("PROJECT_BOARD_READBACK_MISMATCH")
     print("PROJECT_BOARD_SYNC_PASS desired="+str(len(desired))+
@@ -543,6 +612,9 @@ def sync_table(token,path,desired,limit):
 VIEW_SPECS = {
     "Project Progress Board": (
         ("프로젝트별 진행률", None, None),
+        ("진행 중 프로젝트", "Workflow Lane", "PRODUCTION_ACTIVE"),
+        ("완료 · 결제 관리", "Workflow Lane", "PAYMENT_FOLLOWUP"),
+        ("결제 완료 · 보관", "Workflow Lane", "PAID_ARCHIVED"),
         ("Prepayment · SIF 면제", "SIF State", "WAIVED_PREPAYMENT"),
         ("Quote 원문 검토", "Quote Match State", "CSS_ORIGINAL_UNVERIFIED"),
     ),
@@ -604,6 +676,13 @@ def main():
     if mode not in ("plan","apply"):raise SafeError("INVALID_METRIC_MODE")
     sources=sheet_sources()  # Fetch all before any writes.
     output=prepare_data(sources)
+    matched,billing,audit=build_payment_evidence(sources,
+        sources.get("Feishu Source Manifest",[]))
+    print("PAYMENT_SNAPSHOT_AUDIT projects_with_invoices="+
+          str(audit["projects_with_invoices"])+
+          " projects_source_receipt_complete="+
+          str(audit["projects_source_receipt_complete"])+
+          " review_required="+str(audit["projects_review_required"]))
     for name,items in output.items():
         print("METRIC_SOURCE_READY="+name+" rows="+str(len(items)))
     if mode=="plan":
@@ -617,7 +696,8 @@ def main():
     total=0
     # Project-by-project web coverage is committed in bounded Feishu batches,
     # so the new view doesn't remain at the legacy 70-project backfill limit.
-    board=sync_board_table(token,paths["Project Progress Board"],output["Project Progress Board"])
+    board=sync_board_table(token,paths["Project Progress Board"],
+                           output["Project Progress Board"],matched,billing)
     total+=sum(board[:2])
     for name in ("Monthly Tax Invoice","Weekly Quote KPI","Project SIF Monitor"):
         result=sync_table(token,paths[name],output[name],bounds[name])
