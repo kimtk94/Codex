@@ -36,7 +36,7 @@ class CompactDisplayTests(unittest.TestCase):
             else:
                 self.assertIn("(K USD)",name)
                 self.assertEqual(field,"Verified Quote Value K USD")
-        monthly=next(c for n,t,c in BLOCKS if n=="월별 VAT 제외 Revenue")
+        monthly=next(c for n,t,c in BLOCKS if n=="월별 Revenue · VAT 제외")
         self.assertEqual(monthly["series"][0]["field_name"],
                          "Net Revenue M KRW Ex VAT")
         self.assertEqual(LEGACY_COMBO_NAMES[
