@@ -198,18 +198,20 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(len(shown),4)
         self.assertEqual([r["Chart Week Label"] for r in sorted(
             shown,key=lambda r:r["Week Start"])],
-            ["Oct W2","Oct W3","Oct W4","Nov W1"])
+            ["10/12","10/19","10/26","11/02"])
         self.assertNotIn("2026-11-06",[r["Week Start"] for r in shown])
         self.assertEqual(rows[0]["Chart Window"],"HISTORY")
-        self.assertEqual(rows[0]["Chart Week Label"],"Nov W2")
+        self.assertEqual(rows[0]["Chart Week Label"],"11/09")
         self.assertEqual(rows[-1]["Chart Window"],"HISTORY")
         self.assertTrue(all(r["Approved Quote Count"]==5 for r in shown))
         self.assertTrue(all("Verified Quote Value K USD" not in r for r in shown))
     def test_chart_label_requires_friday_start(self):
-        self.assertEqual(m.quote_chart_week_label("2026-10-30"),"Nov W1")
-        self.assertEqual(m.quote_chart_week_label("2026-10-09"),"Oct W2")
-        self.assertEqual(m.quote_chart_week_label("2026-11-06"),"Nov W2")
+        self.assertEqual(m.quote_chart_week_label("2026-10-30"),"11/02")
+        self.assertEqual(m.quote_chart_week_label("2026-10-09"),"10/12")
+        self.assertEqual(m.quote_chart_week_label("2026-11-06"),"11/09")
         self.assertEqual(m.quote_chart_week_label("2026-11-07"),"")
+        self.assertEqual(m.quote_chart_week_label("2026-12-25"),"12/28")
+        self.assertEqual(m.quote_chart_week_label("2027-01-01"),"01/04")
         self.assertEqual(m.quote_chart_week_label("not-a-date"),"")
 
     def test_quote_value_partial_not_claimed_complete(self):
