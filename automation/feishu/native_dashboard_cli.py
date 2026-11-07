@@ -33,7 +33,7 @@ BLOCKS=[
         "group_by":[{"field_name":"SIF State","mode":"integrated"}]}),
     ("월별 Revenue · VAT 제외","line",{
         "table_name":"Monthly Tax Invoice",
-        "series":[{"field_name":"Net Revenue KRW Ex VAT","rollup":"SUM"}],
+        "series":[{"field_name":"Net Revenue M KRW Ex VAT","rollup":"SUM"}],
         "group_by":[{"field_name":"Month","mode":"integrated",
                      "sort":{"type":"group","order":"asc"}}]}),
     ("Weekly 승인 Quote","column",{
@@ -50,17 +50,17 @@ BLOCKS=[
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_COMPLETED"}]}}),
-    ("KOREA · Quote Count / Value (KRW)","combo",{
+    ("KOREA · Quote Count / Value (M KRW)","combo",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
-                  {"field_name":"Verified Quote Value KRW FX","rollup":"SUM"}],
+                  {"field_name":"Verified Quote Value M KRW","rollup":"SUM"}],
         "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
                      "sort":{"type":"view","order":"desc"}}],
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_COMPLETED"}]}}),
     ("Quote 금액 검증 기준","text",{
-        "text":"# KOREA · Quote Count / Value\n**차트 대상:** 최근 종료된 4개 주간, 금요일~목요일 기준입니다. X축은 Oct W2 · Oct W3 · Oct W4 · Nov W1처럼 해당 기간의 월요일을 기준으로 표시합니다.\n**파란 막대:** Approved Quote Count(건), **왼쪽 Y축: Count**.\n**주황색 선:** Verified Quote Value K USD(천 USD) 또는 Verified Quote Value KRW FX(원), **오른쪽 Y축: Value (K USD/KRW)**.\n데이터 라벨·가로 그리드·좌우 축을 표시합니다. 두 계열의 색상, 막대/선 유형, 2차 축 지정은 Feishu 차트의 [설정 → 시리즈]에서 선택해야 합니다. 현재 공식 CLI는 개별 시리즈 스타일/2차 축 인수를 제공하지 않습니다.\n**금액 검증:** SFDC Quote ID가 연결된 승인 견적 금액만 합산합니다. 금액 미확인 건도 Count에는 포함하지만 금액을 0으로 간주하지 않습니다."})
+        "text":"# KOREA · Quote Count / Value\n**차트 대상:** 최근 종료된 4개 주간, 금요일~목요일 기준입니다. X축은 Oct W2 · Oct W3 · Oct W4 · Nov W1처럼 해당 기간의 월요일을 기준으로 표시합니다.\n**파란 막대:** Approved Quote Count(건), **왼쪽 Y축: Count**.\n**주황색 선:** Verified Quote Value K USD(천 USD) 또는 Verified Quote Value M KRW(백만원), **오른쪽 Y축: Value (K USD / M KRW)**. 승인 건수는 소수점 없는 정수로 표시합니다.\n데이터 라벨·가로 그리드·좌우 축을 표시합니다. 두 계열의 색상, 막대/선 유형, 2차 축 지정은 Feishu 차트의 [설정 → 시리즈]에서 선택해야 합니다. 현재 공식 CLI는 개별 시리즈 스타일/2차 축 인수를 제공하지 않습니다.\n**금액 검증:** SFDC Quote ID가 연결된 승인 견적 금액만 합산합니다. 금액 미확인 건도 Count에는 포함하지만 금액을 0으로 간주하지 않습니다."})
 
 ]
 
@@ -143,7 +143,7 @@ def legacy_dashboard_block(rows,name,expected_type=None):
 
 LEGACY_COMBO_NAMES={
     "KOREA · Quote Count / Value (K USD)":"Weekly Quote · 건수 + 검증금액 K USD",
-    "KOREA · Quote Count / Value (KRW)":"Weekly Quote · 건수 + 검증금액 KRW",
+    "KOREA · Quote Count / Value (M KRW)":"KOREA · Quote Count / Value (KRW)",
 }
 def locate_chart(rows,target):
     for row in collect(rows):
