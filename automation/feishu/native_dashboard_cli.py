@@ -36,31 +36,15 @@ BLOCKS=[
         "series":[{"field_name":"Net Revenue M KRW","rollup":"SUM"}],
         "group_by":[{"field_name":"Month","mode":"integrated",
                      "sort":{"type":"group","order":"asc"}}]}),
-    ("Weekly 승인 Quote","column",{
-        "table_name":"Weekly Quote KPI",
-        "series":[{"field_name":"Approved Quote Count","rollup":"SUM"}],
-        "group_by":[{"field_name":"Week Start","mode":"integrated",
-                     "sort":{"type":"group","order":"asc"}}]}),
-    ("KOREA · Quote Count / Value (K USD)","combo",{
+    ("KOREA · Weekly Quote (Count + K USD)","combo",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
                   {"field_name":"Verified Quote Value K USD","rollup":"SUM"}],
         "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
-                     "sort":{"type":"view","order":"asc"}}],
+                     "sort":{"type":"group","order":"asc"}}],
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_COMPLETED"}]}}),
-    ("KOREA · Quote Count / Value (M KRW)","combo",{
-        "table_name":"Weekly Quote KPI",
-        "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
-                  {"field_name":"Verified Quote Value M KRW FX","rollup":"SUM"}],
-        "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
-                     "sort":{"type":"view","order":"asc"}}],
-        "filter":{"conjunction":"and","conditions":[
-            {"field_name":"Chart Window","operator":"is",
-             "value":"RECENT_4_COMPLETED"}]}}),
-    ("Quote 금액 검증 기준","text",{
-        "text":"# KOREA · Quote Count / Value\n**차트 대상:** 최근 종료된 4개 주간, 금요일~목요일 기준입니다. X축은 Oct W2 · Oct W3 · Oct W4 · Nov W1처럼 해당 기간의 월요일을 기준으로 표시합니다.\n**파란 막대:** Approved Quote Count(건), **왼쪽 Y축: Count**.\n**주황색 선:** Verified Quote Value K USD(천 USD) 또는 Verified Quote Value M KRW FX(백만원), **오른쪽 Y축: Value (K USD/M KRW)**.\n데이터 라벨·가로 그리드·좌우 축을 표시합니다. Quote 승인 건수는 정수(예: 13), KRW는 M, USD는 K로 표시합니다. 두 계열의 색상, 막대/선 유형, 소수점 표시 및 2차 축 지정은 Feishu 차트의 [설정 → 시리즈]에서 선택해야 합니다. 현재 공식 CLI는 개별 시리즈 스타일/2차 축 인수를 제공하지 않습니다.\n**금액 검증:** SFDC Quote ID가 연결된 승인 견적 금액만 합산합니다. 금액 미확인 건도 Count에는 포함하지만 금액을 0으로 간주하지 않습니다."})
 
 ]
 
@@ -147,10 +131,20 @@ def legacy_dashboard_block(rows,name,expected_type=None):
     return current.get("block_id") or current.get("id")
 
 
-LEGACY_COMBO_NAMES={
-    "KOREA · Quote Count / Value (K USD)":"Weekly Quote · 건수 + 검증금액 K USD",
-    "KOREA · Quote Count / Value (M KRW)":"KOREA · Quote Count / Value (KRW)",
-}
+QUOTE_CHART_NAME="KOREA · Weekly Quote (Count + K USD)"
+QUOTE_COMBO_ALIASES=(
+    "KOREA · Quote Count / Value (K USD)",
+    "Weekly Quote · 건수 + 검증금액 K USD",
+)
+# Only these verified dashboard widgets are redundant. Never remove a
+# data table/Feishu Base view or the still-used 4-week source records.
+LEGACY_QUOTE_REMOVALS=(
+    ("Weekly 승인 Quote","column"),
+    ("KOREA · Quote Count / Value (M KRW)","combo"),
+    ("KOREA · Quote Count / Value (KRW)","combo"),
+    ("Weekly Quote · 건수 + 검증금액 KRW","combo"),
+    ("Quote 금액 검증 기준","text"),
+)
 LEGACY_REVENUE_NAME="월별 Revenue · VAT 제외"
 def locate_chart(rows,target):
     for row in collect(rows):
@@ -182,6 +176,14 @@ def main():
                 print("FEISHU_PROGRESS_PRECHECK name="+legacy+
                       " exists="+str(bool(candidates))+
                       " type="+str(candidates[0].get("type") if candidates else "none"))
+            for title,kind in LEGACY_QUOTE_REMOVALS:
+                block_id=legacy_dashboard_block(existing,title,kind)
+                print("FEISHU_QUOTE_CLEANUP_PRECHECK name="+title+
+                      " existing="+str(bool(block_id))+" type="+kind)
+            for title in (QUOTE_CHART_NAME,*QUOTE_COMBO_ALIASES):
+                block_id=legacy_dashboard_block(existing,title,"combo")
+                print("FEISHU_QUOTE_KEEP_PRECHECK name="+title+
+                      " existing="+str(bool(block_id)))
         print("FEISHU_NATIVE_DASHBOARD_PLAN_PASS source="+BASE+" writes=0 planned_blocks="+str(len(BLOCKS)))
         return
     if not dashboard_id:
@@ -210,21 +212,39 @@ def main():
         deleted+=1
         print("FEISHU_RAW_STAGE_GRAPH_REMOVED")
         existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
+    # Delete only exact, type-verified redundant *chart blocks*. The
+    # Weekly Quote KPI Base source and all monetary evidence stay intact.
+    for title,kind in LEGACY_QUOTE_REMOVALS:
+        old_block=legacy_dashboard_block(existing,title,kind)
+        if old_block:
+            delete_dashboard_block(dashboard_id,old_block)
+            deleted+=1
+            print("FEISHU_QUOTE_DUPLICATE_REMOVED name="+title+" type="+kind)
+    existing=cli("+dashboard-block-list","--base-token",BASE,
+                 "--dashboard-id",dashboard_id)
+    # Preserve an existing K USD combo so chart layout is not destroyed.
+    keep=None
+    for title in (QUOTE_CHART_NAME,*QUOTE_COMBO_ALIASES):
+        current=legacy_dashboard_block(existing,title,"combo")
+        if current and keep is None:
+            keep=current
+        elif current:
+            delete_dashboard_block(dashboard_id,current)
+            deleted+=1
+            print("FEISHU_QUOTE_DUPLICATE_COMBO_REMOVED name="+title)
+    existing=cli("+dashboard-block-list","--base-token",BASE,
+                 "--dashboard-id",dashboard_id)
     names={row.get("name") for row in collect(existing) if isinstance(row.get("name"),str)}
     for name,kind,config in BLOCKS:
-        if kind=="combo":
-            chart=locate_chart(existing,name) or locate_chart(
-                existing,LEGACY_COMBO_NAMES.get(name,""))
-            if chart:
-                # Update the real existing combo instead of creating a duplicate
-                # and restrict the data to the latest 4 completed sales weeks.
-                cli("+dashboard-block-update","--base-token",BASE,
-                    "--dashboard-id",dashboard_id,"--block-id",chart,
-                    "--name",name,
-                    "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
-                updated+=1
-                print("FEISHU_QUOTE_COMBO_UPDATED type=combo window=RECENT_4_COMPLETED")
-                continue
+        if kind=="combo" and keep:
+            cli("+dashboard-block-update","--base-token",BASE,
+                "--dashboard-id",dashboard_id,"--block-id",keep,
+                "--name",name,
+                "--data-config",json.dumps(config,ensure_ascii=False,
+                                          separators=(",",":")))
+            updated+=1
+            print("FEISHU_QUOTE_SINGLE_COMBO_UPDATED date=MM/DD last=4 complete K_USD=YES")
+            continue
         if name=="월별 Revenue · VAT 제외 (M KRW)":
             old=locate_chart(existing,name) or locate_chart(existing,LEGACY_REVENUE_NAME)
             if old:
@@ -262,6 +282,14 @@ def main():
         raise RuntimeError("PROGRESS_RANK_STILL_EXISTS")
     if legacy_dashboard_block(final,LEGACY_RAW_STAGE_CHART):
         raise RuntimeError("LEGACY_STAGE_GRAPH_STILL_EXISTS")
+    for title,_kind in LEGACY_QUOTE_REMOVALS:
+        if legacy_dashboard_block(final,title):
+            raise RuntimeError("DUPLICATE_QUOTE_BLOCK_STILL_EXISTS")
+    if not legacy_dashboard_block(final,QUOTE_CHART_NAME,"combo"):
+        raise RuntimeError("SINGLE_QUOTE_COMBO_NOT_VERIFIED")
+    if any(legacy_dashboard_block(final,title) for title in QUOTE_COMBO_ALIASES):
+        raise RuntimeError("LEGACY_KUSD_COMBO_STILL_EXISTS")
+    print("FEISHU_QUOTE_SINGLE_COMBO_PASS charts=1 series=2 last_4_completed=True label=MM/DD")
     found={row.get("name") for row in collect(final) if isinstance(row.get("name"),str)}
     missing={n for n,_,_ in BLOCKS}-found
     if missing:raise RuntimeError("FEISHU_NATIVE_COMPONENTS_MISSING_"+str(len(missing)))
