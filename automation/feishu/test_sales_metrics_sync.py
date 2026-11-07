@@ -122,6 +122,32 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(row["Net Revenue M KRW"],0.003)
         self.assertEqual(row["Coverage Status"],"SOURCE_SCOPE_MATCH")
 
+    def test_integer_field_formatter_only_touches_count_fields(self):
+        fields=[{"field_name":name,"field_id":"fld"+str(i),"type":2,
+                 "property":{"formatter":"0.0"},"ui_type":"Number"}
+                for i,name in enumerate(sorted(
+                    m.COUNT_FIELD_FORMATS["Weekly Quote KPI"]))]
+        calls=[]
+        def fake_api(method,url,token,data,action):
+            calls.append((method,url,data,action))
+            return {"field":{"field_name":data["field_name"],
+                             "property":data["property"]}}
+        updated=[{**r,"property":{"formatter":"0"}} for r in fields]
+        with mock.patch.object(m,"api",side_effect=fake_api), \
+             mock.patch.object(m,"list_all",return_value=updated):
+            m.ensure_integer_field_display("tok","/tables/t",
+                                           "Weekly Quote KPI",fields)
+        self.assertEqual(len(calls),4)
+        self.assertTrue(all(c[0]=="PUT" and
+                            c[2]["property"]=={"formatter":"0"}
+                            for c in calls))
+        self.assertTrue(all("Value" not in c[2]["field_name"]
+                            for c in calls))
+        with mock.patch.object(m,"api") as mutate:
+            m.ensure_integer_field_display("tok","/tables/t",
+                "Weekly Quote KPI",updated)
+            mutate.assert_not_called()
+
     def test_money_units_and_integer_display_without_mutating_raw(self):
         self.assertEqual(m.scaled_m_krw(125000000),125)
         self.assertIsInstance(m.scaled_m_krw(125000000),int)
