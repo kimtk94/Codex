@@ -18,6 +18,7 @@ from sales_metrics_sync import (EXPECTED_BASE,CSS_SHEET,UNIFIED_SHEET,
                                 sheets_session,req_sheet,table_catalog,
                                 raw_value,equivalent,timestamp)
 from x_project_lineage import build,LINK_SCHEMAS
+from x_exception_triage import EXCEPTION_SCHEMA
 
 def source_rows():
     session=sheets_session()
@@ -91,6 +92,21 @@ def ensure_tables(token,root):
         path=path_of(root,existing[0])
         found=list_all(path+"/fields",token,"x_bridge_fields")
         actual={r.get("field_name"):r.get("type") for r in found}
+        # Add only audited exception fields to the existing X Registry. Reject
+        # unexpected field-type changes, never edit existing customer columns.
+        allowed={n for n,_ in EXCEPTION_SCHEMA} if name=="X Project Registry" else set()
+        for field_name,field_type in fields:
+            if field_name in actual:
+                if actual[field_name]!=field_type:
+                    raise SafeError("X_BRIDGE_TABLE_SCHEMA_TYPE_CONFLICT")
+            elif field_name in allowed:
+                api("POST",path+"/fields",token,
+                    data={"field_name":field_name,"type":field_type},
+                    action="x_exception_add_field")
+                print("X_EXCEPTION_FIELD_CREATED="+field_name)
+            else:raise SafeError("X_BRIDGE_UNEXPECTED_MISSING_FIELD")
+        actual={r.get("field_name"):r.get("type") for r in
+                list_all(path+"/fields",token,"x_bridge_fields_verified")}
         if any(actual.get(n)!=t for n,t in fields):
             raise SafeError("X_BRIDGE_TABLE_SCHEMA_MISMATCH")
         paths[name]=path
@@ -210,6 +226,16 @@ VIEWS={
         ("내 X 프로젝트",[("Record State","CURRENT"),("Owner Scope","MY_VERIFIED")]),
         ("AMEA 정확 연결",[("Record State","CURRENT"),("AMEA Link State","EXACT_LIFECYCLE")]),
         ("H 후보 · 확인 필요",[("Record State","CURRENT"),("AMEA Link State","UNIQUE_H_CANDIDATE")]),
+        ("내 즉시 확인 X",[("Record State","CURRENT"),("Owner Scope","MY_VERIFIED"),
+                              ("Exception Priority","P0_URGENT")]),
+        ("내 후속 확인 X",[("Record State","CURRENT"),("Owner Scope","MY_VERIFIED"),
+                              ("Attention State","REVIEW_REQUIRED")]),
+        ("내 오래된 메모 30일+",[("Record State","CURRENT"),("Owner Scope","MY_VERIFIED"),
+                                 ("Dated Note Age Flag","DATED_NOTE_30D_PLUS")]),
+        ("내 재제출 X",[("Record State","CURRENT"),("Owner Scope","MY_VERIFIED"),
+                        ("Project Status","Resending Sample")]),
+        ("내 추가 시퀀싱 X",[("Record State","CURRENT"),("Owner Scope","MY_VERIFIED"),
+                            ("Project Status","Add-seq")]),
     ],
     "AMEA H X SAM Link":[
         ("전체 연결 관계",[("Record State","CURRENT")]),

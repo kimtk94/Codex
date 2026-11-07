@@ -5,8 +5,10 @@ All data are evidence-labelled, never cross-join ambiguous projects or samples.
 No calls, writes, or secrets in this module.
 """
 import collections
+import datetime as dt
 import re
 from decimal import Decimal, InvalidOperation
+from x_exception_triage import EXCEPTION_SCHEMA, classify, parse_remaining
 
 AMEA_RE=re.compile(r"^AMEA\d{7,}(?:-\d{1,3})?$")
 H_RE=re.compile(r"H\d+SC\d+(?:-B\d+)?")
@@ -31,7 +33,8 @@ LINK_SCHEMAS={
     ("Invoice Gross KRW Incl VAT",2),("Outstanding KRW Verified",2),
     ("Invoice Link State",1),("Payment Followup",1),
     ("Next Action",1),("Evidence",1),
-    ("Record State",1),("Last Sync KST",1)
+    ("Record State",1),("Last Sync KST",1),
+    *EXCEPTION_SCHEMA,
   ],
   "X Invoice Ledger": [
     ("Source Key",1),("CMS Invoice",1),("X Base",1),("X Project",1),
@@ -105,6 +108,19 @@ def build(sources):
     etax=sources.get("Feishu Latest eTax") or []
     outstanding=sources.get("Feishu Latest Outstanding") or []
     if not css or not online:raise ValueError("REQUIRED_LINEAGE_SOURCE_EMPTY")
+    online_manifest=[
+        r for r in sources.get("Feishu Source Manifest",[])
+        if field(r,"Source")=="Online-Project"
+    ]
+    if online_manifest:
+        if len(online_manifest)!=1:
+            raise ValueError("ONLINE_MANIFEST_DUPLICATE")
+        try:
+            asof=dt.date.fromisoformat(field(online_manifest[0],"Source Date"))
+        except ValueError:
+            raise ValueError("ONLINE_MANIFEST_INVALID_DATE") from None
+    else:
+        asof=dt.date.today()
 
     ah=collections.defaultdict(set)
     amsam_current=collections.defaultdict(set)
@@ -309,7 +325,7 @@ def build(sources):
     for x,row in sorted(online_by_x.items()):
         amea,status=x_am[x]
         h=h_root(upper(row,"Contract Number"))
-        rem=amount(field(row,"Remaining Lead Time-Calendar Days"))
+        rem=parse_remaining(field(row,"Remaining Lead Time-Calendar Days"))
         sales=field(row,"Sales")
         owner_scope=owner(sales)
         invn=inv_counts[x]
@@ -341,6 +357,7 @@ def build(sources):
             "Payment Followup":follow,
             "Next Action":next_action,
             "Evidence":"Feishu Latest Online exact X/H; lifecycle AMEA only when exact",
+            **{k:v for k,v in classify(row,asof).items() if v is not None},
         }
         if rem is not None:reg["Remaining TAT Days"]=float(rem)
         if invn:reg["Invoice Gross KRW Incl VAT"]=float(inv_total[x])
@@ -361,6 +378,15 @@ def build(sources):
         "invoice_review":sum(v["Invoice Link State"]!="EXACT_X_AMEA_CMS"
                               for v in invoices.values()),
         "my_x":sum(r["Owner Scope"]=="MY_VERIFIED" for r in registry.values()),
+        "my_attention_urgent":sum(r["Owner Scope"]=="MY_VERIFIED" and
+                                  r["Exception Priority"]=="P0_URGENT"
+                                  for r in registry.values()),
+        "my_attention_review":sum(r["Owner Scope"]=="MY_VERIFIED" and
+                                  r["Exception Priority"]=="P1_REVIEW"
+                                  for r in registry.values()),
+        "my_dated_note_30d":sum(r["Owner Scope"]=="MY_VERIFIED" and
+                               r["Dated Note Age Flag"]=="DATED_NOTE_30D_PLUS"
+                               for r in registry.values()),
     }
     return {"AMEA H X SAM Link":list(links.values()),
             "X Project Registry":list(registry.values()),
