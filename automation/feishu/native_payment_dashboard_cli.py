@@ -61,7 +61,7 @@ PAYMENT_BLOCKS=[
         "filter":filter_lane("PAYMENT_FOLLOWUP")}),
     ("결제 대기 프로젝트 미수금 (M KRW)","bar",{
         "table_name":TABLE,
-        "series":[{"field_name":"Outstanding Balance KRW","rollup":"SUM"}],
+        "series":[{"field_name":"Outstanding Balance M KRW","rollup":"SUM"}],
         "group_by":[{"field_name":"Project Display Name","mode":"integrated",
                      "sort":{"type":"value","order":"desc"}}],
         "filter":filter_lane("PAYMENT_FOLLOWUP")}),
