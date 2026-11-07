@@ -204,7 +204,8 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(rows[0]["Chart Week Label"],"Nov W2")
         self.assertEqual(rows[-1]["Chart Window"],"HISTORY")
         self.assertTrue(all(r["Approved Quote Count"]==5 for r in shown))
-        self.assertTrue(all("Verified Quote Value K USD" not in r for r in shown))
+        self.assertTrue(all(r["Verified Quote Value K USD"] is None for r in shown))
+        self.assertTrue(all(r["Amount Status"]=="WITHHELD_QUOTE_OBJECT_EXPORT_MISSING" for r in shown))
     def test_chart_label_requires_friday_start(self):
         self.assertEqual(m.quote_chart_week_label("2026-10-30"),"Nov W1")
         self.assertEqual(m.quote_chart_week_label("2026-10-09"),"Oct W2")
@@ -212,17 +213,48 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(m.quote_chart_week_label("2026-11-07"),"")
         self.assertEqual(m.quote_chart_week_label("not-a-date"),"")
 
-    def test_quote_value_partial_not_claimed_complete(self):
-        source={
-            "SFDC Weekly Overview":[{"week_start":"2026-10-30","week_end":"2026-11-05",
-                "quotation_approvals":"3","approvals_created_in_week":"2",
-                "weekly_basis":"FRI_THU_IN_PROGRESS","krw_per_usd":"1500"}],
-            "Quotation Approval List":[{"week_start":"2026-10-30",
-                "salesforce_record_id":"SF001","quotation_id":"QID1"}],
-            "Quote Portfolio":[{"Salesforce Quote ID (18)":"SF001","Quote QID":"QID1",
-                "Active":"YES","Quote USD":"1000"}],
-        }
-        row=m.weekly_rows(source)[0]
+    def _verified_quote_fixture(self, count=3):
+        sf15="a0PAbCdEfGhIjKl"
+        return {"SFDC Weekly Overview":[{"week_start":"2026-10-30",
+                    "week_end":"2026-11-05","quotation_approvals":str(count),
+                    "approvals_created_in_week":"2","weekly_basis":"FRI_THU_CSS_EXISTING",
+                    "krw_per_usd":"1500"}],
+                "Quote Approval Dedup":[{"Approval KST":"2026-11-05 12:00:00",
+                    "SFDC Record ID":sf15,"Quotation Name":"Quotation"}],
+                "SFDC Quote Export":[{"Salesforce Record ID":sf15+"XYZ",
+                    "IsActive":"1","Exclude Tax After Discount USD":"1000",
+                    "CurrencyIsoCode":"USD","Opportunity ID":"006OPP",
+                    "Exported At KST":"2026-11-07 12:00:08 KST"}],
+                "SFDC Email Opportunities Raw":[{"Opportunity ID":"006OPP",
+                    "Opportunity Owner":"Kim Taehoon"}],
+                "SFDC Email Ingest Audit":[{"Entity":"Opportunities",
+                    "Source Received KST":"2026-11-07 12:00:24 KST",
+                    "State":"STAGED_NOT_PROMOTED"}]}
+    def _now(self):
+        return m.dt.datetime(2026,11,7,16,0,tzinfo=m.KST)
+
+    def test_count_survives_stale_quote_export_and_old_quote_portfolio(self):
+        source=self._verified_quote_fixture(count=1)
+        source["SFDC Quote Export"][0]["Exported At KST"]="2026-10-24 18:00:08 KST"
+        source["Quote Portfolio"]=[{"Salesforce Quote ID (18)":"a0PAbCdEfGhIjKlXYZ",
+                                   "Active":"ACTIVE","Quote USD":"2500000"}]
+        row=m.weekly_rows(source,now=self._now())[0]
+        self.assertEqual(row["Approved Quote Count"],1)
+        self.assertEqual(row["Verified Amount Quote Count"],0)
+        self.assertEqual(row["Unmatched Amount Count"],1)
+        self.assertEqual(row["Amount Status"],"WITHHELD_QUOTE_OBJECT_EXPORT_STALE")
+        self.assertIsNone(row["Verified Quote Value KRW FX"])
+        self.assertIsNone(row["Verified Quote Value M KRW FX"])
+        self.assertIsNone(row["Verified Quote Value K USD"])
+
+    def test_quote_object_partial_and_money_value(self):
+        source=self._verified_quote_fixture(count=3)
+        # Need complete approval evidence for the 3 weekly approved records.
+        for char in ("A","B"):
+            sid="a0P"+char*12
+            source["Quote Approval Dedup"].append(
+                {"Approval KST":"2026-11-05 13:00:00","SFDC Record ID":sid})
+        row=m.weekly_rows(source,now=self._now())[0]
         self.assertEqual(row["Verified Amount Quote Count"],1)
         self.assertEqual(row["Unmatched Amount Count"],2)
         self.assertEqual(row["Amount Status"],"VERIFIED_PARTIAL")
@@ -232,38 +264,47 @@ class MetricsTests(unittest.TestCase):
         self.assertIsInstance(row["Verified Quote Value K USD"],int)
 
     def test_sf_15_18_id_join_with_case_sensitivity(self):
-        sf15="a0PAbCdEfGhIjKl"
-        sf18=sf15+"XYZ"
-        source={
-            "SFDC Weekly Overview":[{"week_start":"2026-10-30",
-                "week_end":"2026-11-05","quotation_approvals":"1",
-                "approvals_created_in_week":"1","weekly_basis":"FRI_THU",
-                "krw_per_usd":"1500"}],
-            "Quotation Approval List":[{"week_start":"2026-10-30",
-                "salesforce_record_id":sf15,"quotation_id":"AMEA2026012345"}],
-            "Quote Portfolio":[{"Salesforce Quote ID (18)":sf18,
-                "Quote QID":"QID-OTHER","Active":"YES","Quote USD":"2000"}],
-        }
-        self.assertEqual(m.salesforce_id15(sf18),sf15)
-        row=m.weekly_rows(source)[0]
+        source=self._verified_quote_fixture(count=1)
+        sf15=source["Quote Approval Dedup"][0]["SFDC Record ID"]
+        self.assertEqual(m.salesforce_id15(sf15+"XYZ"),sf15)
+        row=m.weekly_rows(source,now=self._now())[0]
         self.assertEqual(row["Amount Status"],"VERIFIED_ALL")
         self.assertEqual(row["Verified Amount Quote Count"],1)
-        self.assertEqual(row["Verified Quote Value KRW FX"],3000000)
-        source["Quotation Approval List"][0]["salesforce_record_id"]=sf15.swapcase()
-        row=m.weekly_rows(source)[0]
+        self.assertEqual(row["Verified Quote Value KRW FX"],1500000)
+        source["Quote Approval Dedup"][0]["SFDC Record ID"]=sf15.swapcase()
+        row=m.weekly_rows(source,now=self._now())[0]
+        self.assertEqual(row["Amount Status"],"WITHHELD_APPROVAL_COUNT_MISMATCH")
+        self.assertIsNone(row["Verified Quote Value KRW FX"])
+
+    def test_incomplete_approvals_and_wrong_owner_cannot_publish_money(self):
+        source=self._verified_quote_fixture(count=2)
+        row=m.weekly_rows(source,now=self._now())[0]
+        self.assertEqual(row["Amount Status"],"WITHHELD_APPROVAL_COUNT_MISMATCH")
+        self.assertIsNone(row["Verified Quote Value K USD"])
+        source["SFDC Weekly Overview"][0]["quotation_approvals"]="1"
+        source["SFDC Email Opportunities Raw"][0]["Opportunity Owner"]="Other Sales"
+        row=m.weekly_rows(source,now=self._now())[0]
         self.assertEqual(row["Amount Status"],"NO_QUOTE_VALUE")
-        self.assertNotIn("Verified Quote Value KRW FX",row)
+        self.assertEqual(row["Unmatched Amount Count"],1)
+        self.assertIsNone(row["Verified Quote Value K USD"])
+
+    def test_stale_owner_snapshot_fails_closed(self):
+        source=self._verified_quote_fixture(count=1)
+        source["SFDC Email Ingest Audit"][0]["Source Received KST"]="2026-10-24 12:00:24 KST"
+        row=m.weekly_rows(source,now=self._now())[0]
+        self.assertEqual(row["Amount Status"],"WITHHELD_OPPORTUNITY_OWNER_SNAPSHOT_STALE")
+        self.assertIsNone(row["Verified Quote Value K USD"])
 
     def test_no_quote_price_cannot_be_zero(self):
-        source={
-            "SFDC Weekly Overview":[{"week_start":"2026-10-30","week_end":"2026-11-05",
-                "quotation_approvals":"3","approvals_created_in_week":"3","krw_per_usd":"1500"}],
-            "Quotation Approval List":[],
-            "Quote Portfolio":[],
-        }
-        row=m.weekly_rows(source)[0]
-        self.assertEqual(row["Amount Status"],"NO_QUOTE_VALUE")
-        self.assertNotIn("Verified Quote Value KRW FX",row)
+        source={"SFDC Weekly Overview":[{"week_start":"2026-10-30",
+                    "week_end":"2026-11-05","quotation_approvals":"3",
+                    "approvals_created_in_week":"3","krw_per_usd":"1500"}],
+                "Quote Approval Dedup":[]}
+        row=m.weekly_rows(source,now=self._now())[0]
+        self.assertEqual(row["Amount Status"],"WITHHELD_QUOTE_OBJECT_EXPORT_MISSING")
+        self.assertEqual(row["Unmatched Amount Count"],3)
+        self.assertIsNone(row["Verified Quote Value KRW FX"])
+
 
     def test_equivalent_numeric_and_text_ignores_timestamp(self):
         old={"Invoice Count":2.0,"Source Key":[{"text":"INVOICE:2026-10"}],
@@ -271,6 +312,10 @@ class MetricsTests(unittest.TestCase):
         new={"Invoice Count":2,"Source Key":"INVOICE:2026-10","Last Sync KST":"new"}
         self.assertTrue(m.equivalent(old,new))
         self.assertFalse(m.equivalent(old,{**new,"Invoice Count":3}))
+        self.assertFalse(m.equivalent({"Verified Quote Value K USD":12.4},
+                                     {"Verified Quote Value K USD":None}))
+        self.assertTrue(m.equivalent({"Verified Quote Value K USD":None},
+                                    {"Verified Quote Value K USD":None}))
 
 
 if __name__=="__main__":
