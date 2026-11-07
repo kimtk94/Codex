@@ -353,17 +353,16 @@ def salesforce_id15(value):
 
 
 def quote_chart_week_label(week_start):
-    """Use the Monday within the Fri-Thu sales week to label crossover weeks.
+    """Display only MM/DD for the Friday start of each Fri-Thu sales week.
 
-    Friday 2026-10-30 to Thursday 2026-11-05 -> Nov W1, as in
-    the user-supplied KOREA Count/Value graph.
+    Keep Week Start as the full ISO date for identity and chronology. Never
+    replace the source date with a locale-specific label.
     """
     try:
         start=dt.date.fromisoformat(week_start)
-        monday=start+dt.timedelta(days=3)
-        if monday.weekday()!=0:
+        if start.weekday()!=4:
             raise ValueError("NOT_FRIDAY_ANCHORED")
-        return monday.strftime("%b")+" W"+str((monday.day-1)//7+1)
+        return start.strftime("%m/%d")
     except ValueError:
         return ""
 
@@ -428,7 +427,7 @@ def weekly_rows(source):
             row["Verified Quote Value K USD"]=scaled_k_usd(usd)
         output[week]=row
     if not output:raise SafeError("WEEKLY_NO_VALID_SOURCE")
-    # The screenshot compares four complete weekly periods. In-progress
+    # Single Quote count/value chart covers four complete weekly periods. In-progress
     # periods remain in the Base but are excluded from this chart.
     completed=sorted((
         week for week,row in output.items()
