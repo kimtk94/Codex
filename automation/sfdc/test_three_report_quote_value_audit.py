@@ -112,7 +112,7 @@ class QuoteValueTests(unittest.TestCase):
     def test_duplicate_positive_process_key_does_not_sum(self):
         data=fixture()
         data["SFDC Email Quotation Raw"][2][6]="PROC-1"
-        data["SFDC Email Quotation Raw"][2][7]="200"
+        data["SFDC Email Quotation Raw"][2][7]="350"
         result=m.analyze(data,now=NOW)
         self.assertEqual(result["process_amount_evidence"]["duplicate_positive_process_keys"],1)
         self.assertEqual(result["currency_and_unit_evidence"]["by_opportunity_currency"]["USD"]["price_unit_sum_present"],0)
@@ -130,6 +130,16 @@ class QuoteValueTests(unittest.TestCase):
         self.assertEqual(result["process_amount_evidence"]["candidate_qids"],1)
         self.assertEqual(result["four_weeks"][-1]["positive_process_amount_candidate"],1)
         self.assertEqual(result["four_weeks"][-1]["historic_process_amount_parity_2pct"],1)
+    def test_same_process_id_different_unit_price_keeps_distinct_charge(self):
+        data=fixture()
+        data["SFDC Email Quotation Raw"][2][6]="PROC-1"
+        data["SFDC Email Quotation Raw"][2][7]="200"
+        data["Quote Portfolio"][1][2]="550"
+        result=m.analyze(data,now=NOW)
+        self.assertEqual(result["process_amount_evidence"]["duplicate_positive_process_keys"],0)
+        self.assertEqual(result["process_amount_evidence"]["candidate_qids"],1)
+        self.assertEqual(result["four_weeks"][-1]["historic_process_amount_parity_2pct"],1)
+
     def test_missing_opportunity_held_when_absent_in_both_exports(self):
         data=fixture()
         data["SFDC Email Opportunities Raw"][1][0]="OTHER_OPP"
