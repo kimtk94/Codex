@@ -8,7 +8,14 @@ class QuoteComboTests(unittest.TestCase):
         self.assertEqual(len(combos),2)
         for name,config in combos:
             self.assertEqual(config["table_name"],"Weekly Quote KPI")
-            self.assertEqual(config["group_by"][0]["field_name"],"Week Start")
+            self.assertEqual(config["group_by"][0]["field_name"],"Chart Week Label")
+            self.assertEqual(config["group_by"][0]["sort"],
+                             {"type":"view","order":"desc"})
+            self.assertEqual(config["filter"],
+                {"conjunction":"and","conditions":[
+                    {"field_name":"Chart Window","operator":"is",
+                     "value":"RECENT_4_COMPLETED"}]})
+            self.assertTrue(name.startswith("KOREA · Quote Count / Value"))
             self.assertEqual(config["series"][0],
                 {"field_name":"Approved Quote Count","rollup":"SUM"})
             self.assertEqual(len(config["series"]),2)
