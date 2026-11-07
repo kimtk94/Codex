@@ -306,6 +306,54 @@ class MetricsTests(unittest.TestCase):
         self.assertIsNone(row["Verified Quote Value KRW FX"])
 
 
+    def test_quote_process_price_calculation_is_separate_from_verified_money(self):
+        import test_quote_process_amount as fixture
+        source=fixture.finalize(fixture.fixture(count=1))
+        source["SFDC Quote Export"]=[]  # stale/missing object does not erase process estimate
+        row=m.weekly_rows(source,now=fixture.NOW)[0]
+        self.assertEqual(row["Approved Quote Count"],1)
+        self.assertEqual(row["Calculated Quote Count"],1)
+        self.assertEqual(row["Quote Amount Exception Count"],0)
+        self.assertEqual(row["Calculated Quote Value K USD"],0.154)
+        self.assertEqual(row["Calculated Quote Value M KRW FX"],0.231)
+        self.assertEqual(row["Amount Status"],"PROCESS_PRICE_CALCULATED_COMPLETE")
+        self.assertEqual(row["Quote Calculation Source"],
+            "PROCESS_PRICE_CALCULATED_COMPLETE / SOURCE_QQ_REPORT_VERIFIED")
+        self.assertIsNone(row["Verified Quote Value K USD"])
+        self.assertIsNone(row["Verified Quote Value KRW FX"])
+
+    def test_partial_price_with_missing_owner_and_count_kept(self):
+        import test_quote_process_amount as fixture
+        source=fixture.fixture(count=2)
+        source["Quote Approval Dedup"].append({
+            "Approval KST":"2026-11-04 12:00:00",
+            "SFDC Record ID":"a0P"+"B"*12,
+            "Quotation Name":"QID-2026-11-02-45678"})
+        source=fixture.finalize(source)
+        row=m.weekly_rows(source,now=fixture.NOW)[0]
+        self.assertEqual(row["Approved Quote Count"],2)
+        self.assertEqual(row["Calculated Quote Count"],1)
+        self.assertEqual(row["Quote Amount Exception Count"],1)
+        self.assertEqual(row["Amount Status"],"PROCESS_PRICE_CALCULATED_PARTIAL")
+        self.assertEqual(row["Calculated Quote Value K USD"],0.154)
+
+    def test_stale_or_bad_quotation_source_wipes_calculated_estimates(self):
+        import test_quote_process_amount as fixture
+        source=fixture.finalize(fixture.fixture(count=1))
+        source["SFDC Email Quotation Raw"][0]["Unit Price USD"]="9999.99"
+        row=m.weekly_rows(source,now=fixture.NOW)[0]
+        self.assertEqual(row["Approved Quote Count"],1)
+        self.assertEqual(row["Calculated Quote Count"],0)
+        self.assertEqual(row["Quote Amount Exception Count"],1)
+        self.assertIsNone(row["Calculated Quote Value K USD"])
+        self.assertIn("WITHHELD_3REPORT_SHA_MISMATCH",row["Quote Calculation Source"])
+
+    def test_monthly_revenue_unchanged_by_quote_process_logic(self):
+        # This mutation is read-only and must not alter VAT exclusion logic.
+        self.assertEqual(m.currency(m.D("1100")/m.D("1.1")),1000)
+        self.assertEqual(m.scaled_m_krw(1000000),1)
+        self.assertEqual(m.scaled_k_usd(1000),1)
+
     def test_equivalent_numeric_and_text_ignores_timestamp(self):
         old={"Invoice Count":2.0,"Source Key":[{"text":"INVOICE:2026-10"}],
              "Last Sync KST":"old"}
