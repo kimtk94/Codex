@@ -1,0 +1,69 @@
+name: Feishu Native Project Dashboard No Vercel
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/native_dashboard_cli.py'
+      - '.github/workflows/feishu-native-dashboard.yml'
+  push:
+    branches:
+      - main
+      - 'feat/feishu-dashboard-no-vercel-*'
+    paths:
+      - 'automation/feishu/native_dashboard_cli.py'
+      - '.github/workflows/feishu-native-dashboard.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Create/update Feishu dashboard or read-only plan
+        type: choice
+        options: [plan, apply]
+        default: plan
+permissions:
+  contents: read
+concurrency:
+  group: feishu-native-dashboard
+  cancel-in-progress: false
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate native dashboard scripts
+        run: |
+          python3 -m py_compile automation/feishu/native_dashboard_cli.py
+          python3 - <<'PY'
+          import ast
+          p=ast.parse(open('automation/feishu/native_dashboard_cli.py').read())
+          assert p and len(p.body)>5
+          print('FEISHU_NATIVE_DASHBOARD_SYNTAX_PASS')
+          PY
+  native:
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 14
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_DASHBOARD_MODE: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install official Lark CLI
+        run: npm install --global '@larksuite/cli@1.0.98'
+      - name: Configure ephemeral Feishu app identity
+        run: |
+          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name css-sales-native --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
+          lark-cli profile use css-sales-native
+      - name: Create Feishu-hosted native dashboard (source tables unchanged)
+        run: python3 automation/feishu/native_dashboard_cli.py
