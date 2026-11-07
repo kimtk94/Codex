@@ -14,6 +14,7 @@ on:
     - cron: '40 0,3,8 * * *' # 09:40, 12:40, 17:40 KST; mail delivery may lag
     - cron: '27 4 * * 1-5' # 13:27 KST weekday backup if last valid 3-report ingest is stale
     - cron: '12 9,11 * * *' # 18:12 and 20:12 KST missed-evening fallback
+    - cron: '25 10,12,13 * * *' # 19:25, 21:25, 22:25 KST additional report recovery
   push:
     branches: [main]
     paths:
@@ -21,6 +22,8 @@ on:
       - 'automation/sfdc/report_fallback_gate.py'
       - 'automation/sfdc/test_report_fallback_gate.py'
       - 'automation/sfdc/report_slot_recovery.py'
+      - 'automation/sfdc/source_freshness_guard.py'
+      - 'automation/sfdc/test_source_freshness_guard.py'
       - 'automation/sfdc/test_report_slot_recovery.py'
       - 'automation/sfdc/three_report_relationship_qc.py'
       - 'automation/sfdc/three_report_verified_views.py'
@@ -44,6 +47,8 @@ on:
       - 'automation/sfdc/report_fallback_gate.py'
       - 'automation/sfdc/test_report_fallback_gate.py'
       - 'automation/sfdc/report_slot_recovery.py'
+      - 'automation/sfdc/source_freshness_guard.py'
+      - 'automation/sfdc/test_source_freshness_guard.py'
       - 'automation/sfdc/test_report_slot_recovery.py'
       - 'automation/sfdc/test_three_report_email_ingest.py'
       - 'automation/sfdc/test_three_report_header_prefilter.py'
@@ -98,6 +103,8 @@ jobs:
       - name: Test strict noon backup gate offline
         if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
         run: python -m unittest discover -s automation/sfdc -p 'test_report_fallback_gate.py' -v
+      - name: Verify the latest subscription-slot freshness gate offline
+        run: python -m unittest discover -s automation/sfdc -p 'test_source_freshness_guard.py' -v
       - name: Test missed-slot recovery gate offline
         if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
         run: python -m unittest discover -s automation/sfdc -p 'test_report_slot_recovery.py' -v
@@ -134,3 +141,6 @@ jobs:
         env:
           SFDC_SUBJECT_PAIR_APPLY: 'true'
         run: python automation/sfdc/three_report_subject_pairs.py
+      - name: Check current 09/12/17 report slot after staging
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
+        run: python automation/sfdc/source_freshness_guard.py
