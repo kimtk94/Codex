@@ -142,7 +142,7 @@ LEGACY_REDUNDANT_QUOTE_WIDGETS={
     "KOREA · Quote Count / Value (KRW)":"combo",
     "Weekly Quote · 건수 + 검증금액 KRW":"combo",
     "Quote 금액 검증 기준":"text",
-    *{name:"combo" for name in LEGACY_QUOTE_CHART_NAMES},
+    **{name:"combo" for name in LEGACY_QUOTE_CHART_NAMES},
 }
 LEGACY_REVENUE_NAME="월별 Revenue · VAT 제외"
 def locate_chart(rows,target):
