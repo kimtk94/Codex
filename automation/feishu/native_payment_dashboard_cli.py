@@ -35,17 +35,17 @@ for name,typ,config in BLOCKS:
                                     else [*previous,active]))
 
 PAYMENT_BLOCKS=[
-    ("결제 업무 안내","text",{"text":"# Novogene · 결제 대시보드\n**내 담당자(Kim Taehoon) 원본 일치 건만 표시합니다.** 완료된 프로젝트는 이 화면에서 Invoice·미수금·Receipt를 추적합니다. 결제 완료 건은 운영 목록에서 숨기되 Feishu Base에 보관합니다.\n**결제 완료 판정:** 최신 날짜의 Payment Receipt + CMS Invoice + AMEA/X + VAT 포함 금액/입금일 정확 일치. Outstanding 잔액이 충돌하면 자동 완료하지 않습니다."}),
+    ("결제 업무 안내","text",{"text":"# Novogene · 결제 대시보드\n**내 담당자(Kim Taehoon) 원본 일치 건만 표시합니다.** 완료된 프로젝트는 이 화면에서 Invoice·미수금·Receipt를 추적합니다. 결제 완료 건은 운영 목록에서 숨기되 Feishu Base에 보관합니다.\n**표시 기준:** KRW 금액은 백만원(M KRW), 건수는 정수. 원본 Invoice/Receipt는 원 단위로 보존합니다.\n**결제 완료 판정:** 최신 날짜의 Payment Receipt + CMS Invoice + AMEA/X + VAT 포함 금액/입금일 정확 일치. Outstanding 잔액이 충돌하면 자동 완료하지 않습니다."}),
     ("결제 확인 대기 프로젝트","statistics",{
         "table_name":TABLE,"count_all":True,
         "filter":filter_lane("PAYMENT_FOLLOWUP")}),
-    ("결제 대기 Invoice 총액 (연결 확인분)","statistics",{
+    ("결제 대기 Invoice 총액 (M KRW)","statistics",{
         "table_name":TABLE,
-        "series":[{"field_name":"Invoice Gross KRW","rollup":"SUM"}],
+        "series":[{"field_name":"Invoice Gross M KRW","rollup":"SUM"}],
         "filter":filter_lane("PAYMENT_FOLLOWUP")}),
-    ("결제 대기 미수 잔액 (원본 확인분)","statistics",{
+    ("결제 대기 미수 잔액 (M KRW)","statistics",{
         "table_name":TABLE,
-        "series":[{"field_name":"Outstanding Balance KRW","rollup":"SUM"}],
+        "series":[{"field_name":"Outstanding Balance M KRW","rollup":"SUM"}],
         "filter":filter_lane("PAYMENT_FOLLOWUP")}),
     ("입금 확인 · 보관 건수","statistics",{
         "table_name":TABLE,"count_all":True,
@@ -59,13 +59,24 @@ PAYMENT_BLOCKS=[
         "table_name":TABLE,"count_all":True,
         "group_by":[{"field_name":"Payment State","mode":"integrated"}],
         "filter":filter_lane("PAYMENT_FOLLOWUP")}),
-    ("결제 대기 프로젝트 미수금","bar",{
+    ("결제 대기 프로젝트 미수금 (M KRW)","bar",{
         "table_name":TABLE,
         "series":[{"field_name":"Outstanding Balance KRW","rollup":"SUM"}],
         "group_by":[{"field_name":"Project Display Name","mode":"integrated",
                      "sort":{"type":"value","order":"desc"}}],
         "filter":filter_lane("PAYMENT_FOLLOWUP")}),
 ]
+# Counts: official Dashboard statistics.number_format with precision 0.
+for _name,_kind,_config in PAYMENT_BLOCKS:
+    if _kind=="statistics" and _config.get("count_all"):
+        _config["number_format"]={"formatName":"digital","precision":0}
+
+LEGACY_PAYMENT_NAMES={
+    "결제 대기 Invoice 총액 (M KRW)":"결제 대기 Invoice 총액 (연결 확인분)",
+    "결제 대기 미수 잔액 (M KRW)":"결제 대기 미수 잔액 (원본 확인분)",
+    "결제 대기 프로젝트 미수금 (M KRW)":"결제 대기 프로젝트 미수금",
+}
+
 def block_id(row):
     for key in ("block_id","id"):
         value=row.get(key)
@@ -113,15 +124,17 @@ def main():
     updated_count=0
     for name,kind,config in PAYMENT_BLOCKS:
         prior=find_block(existing,name)
+        if prior is None and name in LEGACY_PAYMENT_NAMES:
+            prior=find_block(existing,LEGACY_PAYMENT_NAMES[name])
         if prior:
-            if kind!="text":
-                # Existing Payment dashboard was previously all-sales. Always
-                # replace the filter, even on an already-created block.
-                cli("+dashboard-block-update","--base-token",BASE,
-                    "--dashboard-id",payment,"--block-id",block_id(prior),
-                    "--data-config",json.dumps({"filter":config["filter"]},
-                        ensure_ascii=False,separators=(",",":")))
-                updated_count+=1
+            # Full config update is necessary when monetary sources change
+            # from raw KRW to display-only M KRW. Preserve owner filters.
+            cli("+dashboard-block-update","--base-token",BASE,
+                "--dashboard-id",payment,"--block-id",block_id(prior),
+                "--name",name,
+                "--data-config",json.dumps(config,ensure_ascii=False,
+                                           separators=(",",":")))
+            updated_count+=1
             continue
         cli("+dashboard-block-create","--base-token",BASE,
             "--dashboard-id",payment,"--name",name,"--type",kind,
