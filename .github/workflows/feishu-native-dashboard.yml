@@ -5,12 +5,15 @@ on:
       - 'automation/feishu/native_dashboard_cli.py'
       - 'automation/feishu/test_native_quote_combo.py'
       - 'automation/feishu/test_native_progress_dashboard.py'
+      - 'automation/feishu/test_compact_units.py'
+      - 'automation/feishu/number_format_cli.py'
       - '.github/workflows/feishu-native-dashboard.yml'
   push:
     branches:
       - main
       - 'feat/feishu-dashboard-no-vercel-*'
       - 'feat/feishu-project-progress-no-ranking-*'
+      - 'feat/feishu-compact-sales-ui-units-*'
     paths:
       - 'automation/feishu/native_dashboard_cli.py'
       - '.github/workflows/feishu-native-dashboard.yml'
@@ -45,6 +48,8 @@ jobs:
           python3 -m py_compile automation/feishu/native_dashboard_cli.py
           python3 -m unittest discover -s automation/feishu -p 'test_native_quote_combo.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_progress_dashboard.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_compact_units.py' -v
+          python3 -m py_compile automation/feishu/number_format_cli.py
           python3 - <<'PY'
           import ast
           p=ast.parse(open('automation/feishu/native_dashboard_cli.py').read())
@@ -62,6 +67,7 @@ jobs:
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
       FEISHU_DASHBOARD_MODE: ${{ (github.event_name == 'workflow_run') && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_NUMBER_FORMAT_MODE: ${{ (github.event_name == 'workflow_run') && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,3 +83,5 @@ jobs:
           lark-cli profile use css-sales-native
       - name: Create Feishu-hosted native dashboard (source tables unchanged)
         run: python3 automation/feishu/native_dashboard_cli.py
+      - name: Set integer count field display to 0 decimal places
+        run: python3 automation/feishu/number_format_cli.py
