@@ -74,7 +74,7 @@ def find_block(rows,name):
         if row.get("name")==name and block_id(row):
             matching[block_id(row)]=row
     if len(matching)>1:raise RuntimeError("DUPLICATE_PAYMENT_DASHBOARD_BLOCK")
-    return next(iter(matching)) if matching else None
+    return next(iter(matching.values())) if matching else None
 
 def ensure_dashboard(name):
     listing=cli("+dashboard-list","--base-token",BASE)
