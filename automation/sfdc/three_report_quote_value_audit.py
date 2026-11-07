@@ -20,11 +20,13 @@ BOOK="1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
 REQUIRED={
     "SFDC Email Quotation Raw":(
         "SFDC Quotation ID","Active","Opportunity ID",
-        "Total Price USD (converted) Currency","Total Price USD (converted)"),
+        "Total Price USD (converted) Currency","Total Price USD (converted)",
+        "Quotation Product ID","Unit Price USD","Sample Quantity"),
     "Quote Approval Dedup":("Approval KST","Quotation Name","SFDC Record ID"),
     "Quote Portfolio":("Salesforce Quote ID (18)","Quote QID","Quote USD"),
     "SFDC Email Ingest Audit":("Entity","Source Received KST","State"),
-    "SFDC Email Opportunities Raw":("Opportunity ID","Opportunity Owner"),
+    "SFDC Email Opportunities Raw":("Opportunity ID","Opportunity Owner","Amount Currency"),
+    "SFDC Import Opportunities":("Opportunity ID","Opportunity Owner"),
 }
 QID_RE=re.compile(r"(?<![A-Za-z0-9-])(QID-\d{4}-\d{2}-\d{2}-[A-Za-z0-9]+)(?![A-Za-z0-9-])",re.I)
 ID_RE=re.compile(r"a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?")
@@ -34,6 +36,7 @@ RANGES={
     "Quote Portfolio":"A1:I2800",
     "SFDC Email Ingest Audit":"A1:J15",
     "SFDC Email Opportunities Raw":"A1:O900",
+    "SFDC Import Opportunities":"A1:O900",
 }
 
 def read_sources():
@@ -168,6 +171,81 @@ def portfolio_unit_check(qidx,portfolio):
             buckets["other_ratio"]+=1
     return buckets
 
+def safe_unit_price_sum(process_rows):
+    """Independent quote price * sample qty floor; each product counted once.
+
+    This is a *sanity reference*, not a verified final quote amount: discounts,
+    free processes and additional charges may differ. Never auto-promote it.
+    """
+    by_qid=collections.defaultdict(lambda:collections.defaultdict(set))
+    for row in process_rows:
+        qid=row["SFDC Quotation ID"].strip().upper()
+        pid=row["Quotation Product ID"].strip()
+        price=money(row["Unit Price USD"])
+        qty=money(row["Sample Quantity"])
+        if not qid or not pid or price is None or qty is None or price<=0 or qty<=0:
+            continue
+        by_qid[qid][pid].add(price*qty)
+    sums={}
+    ambiguous=0
+    for qid,prods in by_qid.items():
+        # Multiple distinct non-zero price×quantity totals for one product ID
+        # cannot be arbitrarily reduced to a max or a first row.
+        if any(len(items)>1 for items in prods.values()):
+            ambiguous+=1
+            continue
+        value=sum((next(iter(items)) for items in prods.values()),Decimal(0))
+        if value>0:sums[qid]=value
+    return sums,ambiguous
+
+def currency_and_price_evidence(process_rows,qidx,portfolio,opportunities):
+    """Count conversion behaviors by original Opportunity currency.
+
+    Historic Quote USD is numeric evidence, *not* a proven unit. Never
+    interpret an observed 1500x ratio as permission for financial conversion.
+    """
+    by_opp=collections.defaultdict(set)
+    for row in opportunities:
+        if row["Opportunity ID"].strip():
+            by_opp[row["Opportunity ID"].strip()].add(row["Amount Currency"].strip().upper())
+    price_units,ambiguous=safe_unit_price_sum(process_rows)
+    hist=portfolio_index(portfolio)
+    output={name:{"compared":0,"ratio_near_1":0,"ratio_near_1500":0,
+                  "other_ratio":0,"price_unit_sum_present":0,
+                  "historic_close_to_unit_sum_10pct":0} for name in ("KRW","USD","UNKNOWN")}
+    noncomparable=0
+    for qid,old_entries in hist.items():
+        source=qidx.get(qid)
+        distinct=set(old_entries)
+        if not source or len(distinct)!=1:
+            noncomparable+=1
+            continue
+        old_price=next(iter(distinct))[1]
+        report_price=source["amount"]
+        if old_price is None or report_price<=0:
+            noncomparable+=1
+            continue
+        currencies=by_opp.get(source["opportunity"],set())
+        curr=next(iter(currencies)) if len(currencies)==1 else "UNKNOWN"
+        if curr not in ("KRW","USD"):curr="UNKNOWN"
+        item=output[curr]
+        item["compared"]+=1
+        rate=old_price/report_price
+        if abs(rate-1)<=Decimal("0.02"):
+            item["ratio_near_1"]+=1
+        elif abs(rate-1500)<=Decimal(75):
+            item["ratio_near_1500"]+=1
+        else:
+            item["other_ratio"]+=1
+        unit_sum=price_units.get(qid)
+        if unit_sum is not None:
+            item["price_unit_sum_present"]+=1
+            if abs(old_price-unit_sum)<=max(Decimal("1"),unit_sum*Decimal("0.10")):
+                item["historic_close_to_unit_sum_10pct"]+=1
+    return {"by_opportunity_currency":output,"not_comparable":noncomparable,
+            "ambiguous_product_prices":ambiguous,
+            "assurance":"READ_ONLY_SANITY_NOT_VERIFIED_CURRENCY_OR_QUOTE_AMOUNT"}
+
 def analyze(data,now=None):
     now=now or dt.datetime.now(KST)
     if now.tzinfo is None:raise ValueError("TIMEZONE_REQUIRED")
@@ -176,7 +254,10 @@ def analyze(data,now=None):
     qidx,qstatus=quote_index(src["SFDC Email Quotation Raw"])
     historic=portfolio_index(src["Quote Portfolio"])
     owner_by_opp=source_owner_map(src["SFDC Email Opportunities Raw"])
+    older_owner_by_opp=source_owner_map(src["SFDC Import Opportunities"])
     unit_check=portfolio_unit_check(qidx,src["Quote Portfolio"])
+    currency_evidence=currency_and_price_evidence(src["SFDC Email Quotation Raw"],qidx,
+        src["Quote Portfolio"],src["SFDC Email Opportunities Raw"])
     four=last_four(now.date())
     statistics=collections.defaultdict(lambda:collections.Counter())
     # Withhold all monetary sums until the USD-vs-FX unit discrepancy is resolved.
@@ -216,6 +297,10 @@ def analyze(data,now=None):
         owner=owner_by_opp.get(candidate["opportunity"])
         if owner is None or not owner:
             stat["owner_unresolved"]+=1
+            if candidate["opportunity"] not in older_owner_by_opp:
+                stat["owner_opp_missing_in_both_reports"]+=1
+            else:
+                stat["owner_opp_found_in_older_report_only"]+=1
         elif owner=="Kim Taehoon":
             stat["my_owner_verified"]+=1
         else:
@@ -265,7 +350,8 @@ def analyze(data,now=None):
     return {"status":"HOLD" if block else "PASS",
             "source_age_hours":age,"fresh":fresh,"product_rows":len(src["SFDC Email Quotation Raw"]),
             "quote_index":qstatus,"historic_overlap":parity,
-            "portfolio_unit_check":unit_check,"four_weeks":week_rows,
+            "portfolio_unit_check":unit_check,
+            "currency_and_unit_evidence":currency_evidence,"four_weeks":week_rows,
             "blockers":block,
             "note":"A crosswalk amount is quote-level once only. Counts are not owner-verified; do not promote to revenue."}
 
@@ -290,6 +376,10 @@ def markdown(r):
     output+=["","Historic amount cross-check: "+json.dumps(r["historic_overlap"],sort_keys=True),
        "Product-row QID consistency: "+json.dumps(r["quote_index"],sort_keys=True),
        "Portfolio price unit check: "+json.dumps(r["portfolio_unit_check"],sort_keys=True),
+       "Currency and independent unit-price check: "+json.dumps(
+           r["currency_and_unit_evidence"],sort_keys=True),
+       "Owner IDs absent from both fresh and older Opportunity sources: "+
+       str(sum(x.get("owner_opp_missing_in_both_reports",0) for x in r["four_weeks"])),
        "Blockers: "+", ".join(r["blockers"]), "",
        "No customer data, quote IDs, opportunity IDs or product rows are exposed. "
        "Candidate USD amounts are NOT monthly Revenue or finalized owner-scoped Quote KPIs."]
