@@ -39,6 +39,37 @@ def physical(stage):
     return bool(re.search(r"sif|sample|\bqc\b|library|sequenc|production|data ready|final report|completed", text)) and not bool(re.search(r"invoice issued|statement confirmed", text))
 
 
+
+PROGRESS_PHASES = (
+    "01 계약/SIF",
+    "02 샘플/QC",
+    "03 라이브러리",
+    "04 시퀀싱",
+    "05 데이터/리포트",
+    "진행 단계 미확인",
+)
+
+
+def progress_phase(stage):
+    """Normalise explicit operational milestones for stage distribution only.
+
+    Does not infer the numerical progress %, guarantee ETA, or convert a
+    billing-only milestone to physical production evidence.
+    """
+    t = str(stage or "").strip().lower()
+    if re.search(r"data ready|download|final report|result release|report ready|data deliver", t):
+        return "05 데이터/리포트"
+    if re.search(r"sequenc|nova\s*seq|sequence\s*run|production", t):
+        return "04 시퀀싱"
+    if re.search(r"library|lib prep|lib qc", t):
+        return "03 라이브러리"
+    if re.search(r"sample|receiv|\bqc\b|quality control", t):
+        return "02 샘플/QC"
+    if re.search(r"contract|\bsif\b|\bpo\b", t):
+        return "01 계약/SIF"
+    return "진행 단계 미확인"
+
+
 def exact_records(rows, col):
     index = collections.defaultdict(list)
     for r in rows:
@@ -146,6 +177,7 @@ def prepare_project_board(sources, project_rows):
             "Customer": value(row, "Customer"),
             "Service": value(row, "Service"),
             "Current Stage": stage or "미확인",
+            "Progress Phase": progress_phase(stage),
             "Progress Bar": bar(pct),
             "Prepayment": "YES" if prepay else "NOT_VERIFIED",
             "Prepayment Evidence": prepay_evidence,

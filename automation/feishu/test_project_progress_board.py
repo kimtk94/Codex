@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Source-backed project-by-project Feishu native web verification."""
 import unittest
-from project_progress_board import prepare_project_board,percent,bar
+from project_progress_board import prepare_project_board,percent,bar,progress_phase,PROGRESS_PHASES
 
 
 PID="AMEA2026100751"
@@ -25,6 +25,7 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertEqual(r["Quote Match State"],"SFDC_EXACT_VERIFIED")
         self.assertEqual(r["Progress Bar"],"████░░░░░░  40%")
         self.assertEqual(r["Progress %"],40)
+        self.assertEqual(r["Progress Phase"],"02 샘플/QC")
 
     def test_prepaid_sif_waiver_still_follows_sample(self):
         sif={"project_id":PID,"Prepayment":"TRUE","Status":"SIF requested"}
@@ -80,6 +81,29 @@ class ProjectBoardTests(unittest.TestCase):
         life={"AMEA":PID,"CSS Stage (legacy)":"Final report ready"}
         r=prepare_project_board(sources(**{"BI Project Lifecycle Overview":[life]}),[BASE])[0]
         self.assertEqual(r["PO Evidence"],"REPORT_STATEMENT_INFERRED")
+
+    def test_grouping_by_physical_stage_not_comparative_rank(self):
+        sample={
+            "SIF approved":"01 계약/SIF",
+            "Sample Received":"02 샘플/QC",
+            "Library QC":"03 라이브러리",
+            "Sequencing run":"04 시퀀싱",
+            "Data Ready":"05 데이터/리포트",
+            "Final Report Ready":"05 데이터/리포트",
+            "Invoice Issued":"진행 단계 미확인",
+            "Statement confirmed":"진행 단계 미확인",
+            "":"진행 단계 미확인",
+        }
+        self.assertEqual(len(PROGRESS_PHASES),6)
+        for stage,expected in sample.items():
+            with self.subTest(stage=stage):
+                self.assertEqual(progress_phase(stage),expected)
+    def test_no_invented_progress_from_sif_or_invoice(self):
+        raw={**BASE,"Current Stage":"Invoice issued","Progress %":100}
+        item=prepare_project_board(sources(**{"CSS Project Dashboard":[
+            {"project_id":PID,"current_stage":"Invoice issued"}]}),[raw])[0]
+        self.assertEqual(item["Progress Phase"],"진행 단계 미확인")
+        self.assertNotIn("Progress %",item)
 
     def test_clamp_invalid_progress(self):
         self.assertIsNone(percent("-1"))

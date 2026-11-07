@@ -30,8 +30,9 @@ PROJECT_BLOCKS={}
 for name,typ,config in BLOCKS:
     if typ=="text" or config.get("table_name")!=TABLE:continue
     previous=(config.get("filter") or {}).get("conditions") or []
-    PROJECT_BLOCKS[name]=filter_and(*previous,
-                                   condition("Workflow Lane","is","PRODUCTION_ACTIVE"))
+    active=condition("Workflow Lane","is","PRODUCTION_ACTIVE")
+    PROJECT_BLOCKS[name]=filter_and(*(previous if active in previous
+                                    else [*previous,active]))
 
 PAYMENT_BLOCKS=[
     ("결제 업무 안내","text",{"text":"# Novogene · 결제 대시보드\n**내 담당자(Kim Taehoon) 원본 일치 건만 표시합니다.** 완료된 프로젝트는 이 화면에서 Invoice·미수금·Receipt를 추적합니다. 결제 완료 건은 운영 목록에서 숨기되 Feishu Base에 보관합니다.\n**결제 완료 판정:** 최신 날짜의 Payment Receipt + CMS Invoice + AMEA/X + VAT 포함 금액/입금일 정확 일치. Outstanding 잔액이 충돌하면 자동 완료하지 않습니다."}),

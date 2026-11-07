@@ -40,7 +40,7 @@ SCHEMAS = {
     "Project Progress Board": [
         ("Source Key", 1), ("AMEA", 1), ("Quote Full Name", 1),
         ("Quote Match State", 1), ("Institution", 1), ("Customer", 1),
-        ("Service", 1), ("Current Stage", 1), ("Progress %", 2),
+        ("Service", 1), ("Current Stage", 1), ("Progress Phase", 1), ("Progress %", 2),
         ("Progress Bar", 1), ("Prepayment", 1), ("Prepayment Evidence", 1),
         ("SIF State", 1), ("PO Evidence", 1), ("Next Action", 1),
         ("Evidence", 1), ("Project Display Name", 1),
@@ -469,7 +469,7 @@ def ensure_tables(token,root):
         names={f.get("field_name"):f.get("type") for f in fields}
         allowed={
             "Project Display Name","Completion Evidence",
-            "Workflow Lane","Payment State","Payment Owner Scope","Invoice Gross KRW",
+            "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW",
             "Outstanding Balance KRW",*EVIDENCE_FIELDS,
         }
         for field_name,field_type in spec:

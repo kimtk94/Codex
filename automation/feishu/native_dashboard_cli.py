@@ -16,19 +16,19 @@ TABLE="Project Progress Board"
 
 # Each data config is grounded in the verified Sales Base field schema.
 BLOCKS=[
-    ("운영 안내","text",{"text":"# Novogene · 프로젝트 진행 현황\n**Feishu Base 실시간 데이터** · Quote Full Name 원문과 개별 진행률을 추적합니다.\nPrepayment는 SIF 제출이 필수가 아니며, Final Report/Statement의 PO 제출 여부는 추정과 직접 접수를 구분합니다."}),
+    ("운영 안내","text",{"text":"# Novogene · 프로젝트 진행 현황\n**순위 없음:** 진행률 %는 프로젝트 간 우열을 비교하는 지표가 아니라 개별 공정 진행 상태입니다.\n**공정 분포:** 계약/SIF → 샘플/QC → 라이브러리 → 시퀀싱 → 데이터/리포트. 불명확한 단계는 별도로 표시합니다.\n**개별 프로젝트:** Feishu Base의 '진행 중 프로젝트' 보기에서 Quote Full Name, Progress Bar, Current Stage, Next Action을 검색·확인하세요. 낮은 %가 우선순위를 의미하지 않습니다.\n**운영:** Prepayment는 SIF 의무가 아닙니다. Final Report/Statement 완료는 Payment 대시보드로 이동하며, 결제 완료는 목록에서 숨깁니다. 지연 판정은 확정된 예정일·근거가 있는 경우에만 합니다."}),
     ("전체 프로젝트","statistics",{"table_name":TABLE,"count_all":True}),
     ("진행률 확인 건수","statistics",{"table_name":TABLE,"count_all":True,
         "filter":{"conjunction":"and","conditions":[{"field_name":"Progress %","operator":"isNotEmpty"}]}}),
     ("Prepayment 프로젝트","statistics",{"table_name":TABLE,"count_all":True,
         "filter":{"conjunction":"and","conditions":[{"field_name":"Prepayment","operator":"is","value":"YES"}]}}),
-    ("진행률 · Quote Full Name","ranking",{"table_name":TABLE,
-        "series":[{"field_name":"Progress %","rollup":"AVERAGE"}],
-        "group_by":[{"field_name":"Quote Full Name","mode":"integrated",
-                     "sort":{"type":"value","order":"asc"}}],
-        "limit_size":500}),
-    ("프로젝트 단계별 분포","bar",{"table_name":TABLE,"count_all":True,
-        "group_by":[{"field_name":"Current Stage","mode":"integrated"}]}),
+    ("진행률 미확인 건수","statistics",{"table_name":TABLE,
+        "count_all":True,
+        "filter":{"conjunction":"and","conditions":[
+            {"field_name":"Progress %","operator":"isEmpty"}]}}),
+    ("프로젝트 공정별 현황","bar",{"table_name":TABLE,"count_all":True,
+        "group_by":[{"field_name":"Progress Phase","mode":"integrated",
+                     "sort":{"type":"group","order":"asc"}}]}),
     ("SIF 상태","pie",{"table_name":TABLE,"count_all":True,
         "group_by":[{"field_name":"SIF State","mode":"integrated"}]}),
     ("월별 Revenue · VAT 제외","line",{
@@ -63,6 +63,27 @@ BLOCKS=[
         "text":"# KOREA · Quote Count / Value\n**차트 대상:** 최근 종료된 4개 주간, 금요일~목요일 기준입니다. X축은 Oct W2 · Oct W3 · Oct W4 · Nov W1처럼 해당 기간의 월요일을 기준으로 표시합니다.\n**파란 막대:** Approved Quote Count(건), **왼쪽 Y축: Count**.\n**주황색 선:** Verified Quote Value K USD(천 USD) 또는 Verified Quote Value KRW FX(원), **오른쪽 Y축: Value (K USD/KRW)**.\n데이터 라벨·가로 그리드·좌우 축을 표시합니다. 두 계열의 색상, 막대/선 유형, 2차 축 지정은 Feishu 차트의 [설정 → 시리즈]에서 선택해야 합니다. 현재 공식 CLI는 개별 시리즈 스타일/2차 축 인수를 제공하지 않습니다.\n**금액 검증:** SFDC Quote ID가 연결된 승인 견적 금액만 합산합니다. 금액 미확인 건도 Count에는 포함하지만 금액을 0으로 간주하지 않습니다."})
 
 ]
+
+# Active pipeline only: paid/completed projects belong to Payment Dashboard.
+ACTIVE_STAGE={"field_name":"Workflow Lane","operator":"is","value":"PRODUCTION_ACTIVE"}
+for _,kind,_config in BLOCKS:
+    if kind=="text" or _config.get("table_name")!=TABLE:
+        continue
+    current=(_config.get("filter") or {}).get("conditions") or []
+    if ACTIVE_STAGE not in current:
+        _config["filter"]={"conjunction":"and","conditions":[*current,ACTIVE_STAGE]}
+
+
+def delete_dashboard_block(dashboard_id,block_id):
+    """Delete only a verified dashboard block; empty successful replies are OK."""
+    p=subprocess.run([
+        "lark-cli","base","+dashboard-block-delete",
+        "--base-token",BASE,"--dashboard-id",dashboard_id,
+        "--block-id",block_id,"--yes","--as","bot","--format","json",
+    ],text=True,capture_output=True,timeout=70)
+    if p.returncode:
+        raise RuntimeError("FEISHU_DASHBOARD_BLOCK_DELETE_FAILED")
+
 
 def cli(*args):
     process=subprocess.run(["lark-cli","base",*args,"--as","bot","--format","json"],
@@ -103,6 +124,23 @@ def find_named(resp,name):
     if len(matches)>1:raise RuntimeError("FEISHU_DUPLICATE_DASHBOARD_OR_BLOCK")
     return next(iter(matches)) if matches else None
 
+LEGACY_PROGRESS_RANK="진행률 · Quote Full Name"
+LEGACY_RAW_STAGE_CHART="프로젝트 단계별 분포"
+
+def legacy_dashboard_block(rows,name,expected_type=None):
+    """Find exactly one named dashboard-only block, never a Base source table."""
+    candidates=[row for row in collect(rows)
+                if row.get("name")==name
+                and isinstance(row.get("block_id") or row.get("id"),str)
+                and str(row.get("block_id") or row.get("id")).startswith(("cht","blk"))]
+    if len(candidates)>1:raise RuntimeError("LEGACY_DASHBOARD_BLOCK_AMBIGUOUS")
+    if not candidates:return None
+    current=candidates[0]
+    if expected_type is not None and current.get("type")!=expected_type:
+        raise RuntimeError("LEGACY_DASHBOARD_TYPE_MISMATCH")
+    return current.get("block_id") or current.get("id")
+
+
 LEGACY_COMBO_NAMES={
     "KOREA · Quote Count / Value (K USD)":"Weekly Quote · 건수 + 검증금액 K USD",
     "KOREA · Quote Count / Value (KRW)":"Weekly Quote · 건수 + 검증금액 KRW",
@@ -126,6 +164,17 @@ def main():
     dashboard_id=find_named(dashboards,TITLE)
     print("FEISHU_NATIVE_DASHBOARD_LIST_PASS exists="+str(bool(dashboard_id)))
     if mode=="plan":
+        if dashboard_id:
+            existing=cli("+dashboard-block-list","--base-token",BASE,
+                         "--dashboard-id",dashboard_id)
+            for legacy in (LEGACY_PROGRESS_RANK,LEGACY_RAW_STAGE_CHART):
+                candidates=[x for x in collect(existing) if x.get("name")==legacy
+                            and x.get("block_id")]
+                if len(candidates)>1:
+                    raise RuntimeError("LEGACY_PROGRESS_MULTIPLE_BLOCKS")
+                print("FEISHU_PROGRESS_PRECHECK name="+legacy+
+                      " exists="+str(bool(candidates))+
+                      " type="+str(candidates[0].get("type") if candidates else "none"))
         print("FEISHU_NATIVE_DASHBOARD_PLAN_PASS source="+BASE+" writes=0 planned_blocks="+str(len(BLOCKS)))
         return
     if not dashboard_id:
@@ -137,9 +186,24 @@ def main():
         print("FEISHU_NATIVE_DASHBOARD_CREATED="+dashboard_id)
     existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
     names={row.get("name") for row in collect(existing) if isinstance(row.get("name"),str)}
+    # User requested removal of the comparative ranking. Delete the precise
+    # old dashboard widget only; never touch project rows or Base views.
+    legacy_rank=legacy_dashboard_block(existing,LEGACY_PROGRESS_RANK,"ranking")
+    deleted=0
+    if legacy_rank:
+        delete_dashboard_block(dashboard_id,legacy_rank)
+        deleted=1
+        print("FEISHU_PROGRESS_RANK_REMOVED title="+LEGACY_PROGRESS_RANK)
     count=0
     updated=0
     existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
+    legacy_stage=legacy_dashboard_block(existing,LEGACY_RAW_STAGE_CHART,"bar")
+    if legacy_stage:
+        delete_dashboard_block(dashboard_id,legacy_stage)
+        deleted+=1
+        print("FEISHU_RAW_STAGE_GRAPH_REMOVED")
+        existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
+    names={row.get("name") for row in collect(existing) if isinstance(row.get("name"),str)}
     for name,kind,config in BLOCKS:
         if kind=="combo":
             chart=locate_chart(existing,name) or locate_chart(
@@ -155,13 +219,19 @@ def main():
                 print("FEISHU_QUOTE_COMBO_UPDATED type=combo window=RECENT_4_COMPLETED")
                 continue
         if name in names:
-            if name=="Quote 금액 검증 기준":
-                info=locate_chart(existing,name)
-                if info:
-                    cli("+dashboard-block-update","--base-token",BASE,
-                        "--dashboard-id",dashboard_id,"--block-id",info,
-                        "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
-                    updated+=1
+            info=locate_chart(existing,name)
+            if name in {"Quote 금액 검증 기준","운영 안내"} and info:
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",dashboard_id,"--block-id",info,
+                    "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
+                updated+=1
+            elif config.get("table_name")==TABLE and info:
+                # Rewrite only the scope, never reposition the user's widgets.
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",dashboard_id,"--block-id",info,
+                    "--data-config",json.dumps({"filter":config["filter"]},
+                        ensure_ascii=False,separators=(",",":")))
+                updated+=1
             continue
         cli("+dashboard-block-create","--base-token",BASE,"--dashboard-id",dashboard_id,
             "--name",name,"--type",kind,
@@ -169,11 +239,15 @@ def main():
         count+=1
         print("FEISHU_NATIVE_COMPONENT_CREATED="+kind+" index="+str(count))
     final=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
+    if legacy_dashboard_block(final,LEGACY_PROGRESS_RANK):
+        raise RuntimeError("PROGRESS_RANK_STILL_EXISTS")
+    if legacy_dashboard_block(final,LEGACY_RAW_STAGE_CHART):
+        raise RuntimeError("LEGACY_STAGE_GRAPH_STILL_EXISTS")
     found={row.get("name") for row in collect(final) if isinstance(row.get("name"),str)}
     missing={n for n,_,_ in BLOCKS}-found
     if missing:raise RuntimeError("FEISHU_NATIVE_COMPONENTS_MISSING_"+str(len(missing)))
     print("FEISHU_NATIVE_DASHBOARD_PASS id="+dashboard_id+
-          " blocks="+str(len(BLOCKS))+" created="+str(count)+" updated="+str(updated)+
+          " blocks="+str(len(BLOCKS))+" created="+str(count)+" updated="+str(updated)+" legacy_removed="+str(deleted)+
           " customer_rows_written=0 VERCEL_REQUIRED=FALSE")
     print("FEISHU_NATIVE_DASHBOARD_BASE_URL=https://ocnz4cb25scn.feishu.cn/base/"+BASE)
 if __name__=="__main__":
