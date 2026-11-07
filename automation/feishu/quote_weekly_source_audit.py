@@ -62,7 +62,7 @@ def get_all():
 
 def number(value):
     s = str(value or "").strip().replace(",", "")
-    if not re.fullmatch(r"\\d+(?:\\.\\d+)?", s):
+    if not re.fullmatch(r"\d+(?:\.\d+)?", s):
         return None
     return float(s)
 
@@ -195,7 +195,7 @@ def summary_markdown(result):
     lines += ["", "Blockers: " + (", ".join(result["blockers"]) if result["blockers"] else "none"),
               "", "No customers, quote IDs, amounts or source records are printed or modified.",
               ""]
-    return "\\n".join(lines)
+    return "\n".join(lines)
 
 def main():
     result = summarize(get_all())
