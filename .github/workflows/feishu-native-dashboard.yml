@@ -16,6 +16,8 @@ on:
       - 'feat/feishu-compact-sales-ui-units-*'
     paths:
       - 'automation/feishu/native_dashboard_cli.py'
+      - 'automation/feishu/number_format_cli.py'
+      - 'automation/feishu/test_compact_units.py'
       - '.github/workflows/feishu-native-dashboard.yml'
   workflow_run:
     workflows: ['Feishu Sales SIF Invoice Weekly KPI']
