@@ -16,19 +16,19 @@ TABLE="Project Progress Board"
 
 # Each data config is grounded in the verified Sales Base field schema.
 BLOCKS=[
-    ("운영 안내","text",{"text":"# Novogene · 프로젝트 진행 현황\n**Feishu Base 실시간 데이터** · Quote Full Name 원문과 개별 진행률을 추적합니다.\nPrepayment는 SIF 제출이 필수가 아니며, Final Report/Statement의 PO 제출 여부는 추정과 직접 접수를 구분합니다."}),
+    ("운영 안내","text",{"text":"# Novogene · 프로젝트 진행 현황\n**순위 없음:** 진행률 %는 프로젝트 간 우열을 비교하는 지표가 아니라 개별 공정 진행 상태입니다.\n**공정 분포:** 계약/SIF → 샘플/QC → 라이브러리 → 시퀀싱 → 데이터/리포트. 불명확한 단계는 별도로 표시합니다.\n**개별 프로젝트:** Feishu Base의 '진행 중 프로젝트' 보기에서 Quote Full Name, Progress Bar, Current Stage, Next Action을 검색·확인하세요. 낮은 %가 우선순위를 의미하지 않습니다.\n**운영:** Prepayment는 SIF 의무가 아닙니다. Final Report/Statement 완료는 Payment 대시보드로 이동하며, 결제 완료는 목록에서 숨깁니다. 지연 판정은 확정된 예정일·근거가 있는 경우에만 합니다."}),
     ("전체 프로젝트","statistics",{"table_name":TABLE,"count_all":True}),
     ("진행률 확인 건수","statistics",{"table_name":TABLE,"count_all":True,
         "filter":{"conjunction":"and","conditions":[{"field_name":"Progress %","operator":"isNotEmpty"}]}}),
     ("Prepayment 프로젝트","statistics",{"table_name":TABLE,"count_all":True,
         "filter":{"conjunction":"and","conditions":[{"field_name":"Prepayment","operator":"is","value":"YES"}]}}),
-    ("진행률 · Quote Full Name","ranking",{"table_name":TABLE,
-        "series":[{"field_name":"Progress %","rollup":"AVERAGE"}],
-        "group_by":[{"field_name":"Quote Full Name","mode":"integrated",
-                     "sort":{"type":"value","order":"asc"}}],
-        "limit_size":500}),
-    ("프로젝트 단계별 분포","bar",{"table_name":TABLE,"count_all":True,
-        "group_by":[{"field_name":"Current Stage","mode":"integrated"}]}),
+    ("진행률 미확인 건수","statistics",{"table_name":TABLE,
+        "count_all":True,
+        "filter":{"conjunction":"and","conditions":[
+            {"field_name":"Progress %","operator":"isEmpty"}]}}),
+    ("프로젝트 공정별 현황","bar",{"table_name":TABLE,"count_all":True,
+        "group_by":[{"field_name":"Progress Phase","mode":"integrated",
+                     "sort":{"type":"group","order":"asc"}}]}),
     ("SIF 상태","pie",{"table_name":TABLE,"count_all":True,
         "group_by":[{"field_name":"SIF State","mode":"integrated"}]}),
     ("월별 Revenue · VAT 제외","line",{
@@ -103,6 +103,23 @@ def find_named(resp,name):
     if len(matches)>1:raise RuntimeError("FEISHU_DUPLICATE_DASHBOARD_OR_BLOCK")
     return next(iter(matches)) if matches else None
 
+LEGACY_PROGRESS_RANK="진행률 · Quote Full Name"
+LEGACY_RAW_STAGE_CHART="프로젝트 단계별 분포"
+
+def legacy_dashboard_block(rows,name,expected_type=None):
+    """Find exactly one named dashboard-only block, never a Base source table."""
+    candidates=[row for row in collect(rows)
+                if row.get("name")==name
+                and isinstance(row.get("block_id") or row.get("id"),str)
+                and str(row.get("block_id") or row.get("id")).startswith(("cht","blk"))]
+    if len(candidates)>1:raise RuntimeError("LEGACY_DASHBOARD_BLOCK_AMBIGUOUS")
+    if not candidates:return None
+    current=candidates[0]
+    if expected_type is not None and current.get("type")!=expected_type:
+        raise RuntimeError("LEGACY_DASHBOARD_TYPE_MISMATCH")
+    return current.get("block_id") or current.get("id")
+
+
 LEGACY_COMBO_NAMES={
     "KOREA · Quote Count / Value (K USD)":"Weekly Quote · 건수 + 검증금액 K USD",
     "KOREA · Quote Count / Value (KRW)":"Weekly Quote · 건수 + 검증금액 KRW",
@@ -137,9 +154,26 @@ def main():
         print("FEISHU_NATIVE_DASHBOARD_CREATED="+dashboard_id)
     existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
     names={row.get("name") for row in collect(existing) if isinstance(row.get("name"),str)}
+    # User requested removal of the comparative ranking. Delete the precise
+    # old dashboard widget only; never touch project rows or Base views.
+    legacy_rank=legacy_dashboard_block(existing,LEGACY_PROGRESS_RANK,"ranking")
+    deleted=0
+    if legacy_rank:
+        cli("+dashboard-block-delete","--base-token",BASE,
+            "--dashboard-id",dashboard_id,"--block-id",legacy_rank,"--yes")
+        deleted=1
+        print("FEISHU_PROGRESS_RANK_REMOVED title="+LEGACY_PROGRESS_RANK)
     count=0
     updated=0
     existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
+    legacy_stage=legacy_dashboard_block(existing,LEGACY_RAW_STAGE_CHART,"bar")
+    if legacy_stage:
+        cli("+dashboard-block-delete","--base-token",BASE,
+            "--dashboard-id",dashboard_id,"--block-id",legacy_stage,"--yes")
+        deleted+=1
+        print("FEISHU_RAW_STAGE_GRAPH_REMOVED")
+        existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
+    names={row.get("name") for row in collect(existing) if isinstance(row.get("name"),str)}
     for name,kind,config in BLOCKS:
         if kind=="combo":
             chart=locate_chart(existing,name) or locate_chart(
@@ -169,11 +203,15 @@ def main():
         count+=1
         print("FEISHU_NATIVE_COMPONENT_CREATED="+kind+" index="+str(count))
     final=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
+    if legacy_dashboard_block(final,LEGACY_PROGRESS_RANK):
+        raise RuntimeError("PROGRESS_RANK_STILL_EXISTS")
+    if legacy_dashboard_block(final,LEGACY_RAW_STAGE_CHART):
+        raise RuntimeError("LEGACY_STAGE_GRAPH_STILL_EXISTS")
     found={row.get("name") for row in collect(final) if isinstance(row.get("name"),str)}
     missing={n for n,_,_ in BLOCKS}-found
     if missing:raise RuntimeError("FEISHU_NATIVE_COMPONENTS_MISSING_"+str(len(missing)))
     print("FEISHU_NATIVE_DASHBOARD_PASS id="+dashboard_id+
-          " blocks="+str(len(BLOCKS))+" created="+str(count)+" updated="+str(updated)+
+          " blocks="+str(len(BLOCKS))+" created="+str(count)+" updated="+str(updated)+" legacy_removed="+str(deleted)+
           " customer_rows_written=0 VERCEL_REQUIRED=FALSE")
     print("FEISHU_NATIVE_DASHBOARD_BASE_URL=https://ocnz4cb25scn.feishu.cn/base/"+BASE)
 if __name__=="__main__":
