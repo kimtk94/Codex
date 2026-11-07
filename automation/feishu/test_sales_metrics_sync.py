@@ -120,6 +120,8 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(row["Tax Invoice KRW Incl VAT"],3300)
         self.assertEqual(row["Net Revenue KRW Ex VAT"],3000)
         self.assertEqual(row["Coverage Status"],"SOURCE_SCOPE_MATCH")
+        self.assertEqual(row["Tax Invoice M KRW Incl VAT"],0.0033)
+        self.assertEqual(row["Net Revenue M KRW Ex VAT"],0.003)
 
     def test_conflicting_invoice_key_blocks_all(self):
         source={
@@ -186,6 +188,7 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(row["Amount Status"],"VERIFIED_PARTIAL")
         self.assertEqual(row["Verified Quote Value KRW FX"],1500000)
         self.assertEqual(row["Verified Quote Value K USD"],1.0)
+        self.assertEqual(row["Verified Quote Value M KRW"],1.5)
 
     def test_sf_15_18_id_join_with_case_sensitivity(self):
         sf15="a0PAbCdEfGhIjKl"
@@ -209,6 +212,7 @@ class MetricsTests(unittest.TestCase):
         row=m.weekly_rows(source)[0]
         self.assertEqual(row["Amount Status"],"NO_QUOTE_VALUE")
         self.assertNotIn("Verified Quote Value KRW FX",row)
+        self.assertNotIn("Verified Quote Value M KRW",row)
 
     def test_no_quote_price_cannot_be_zero(self):
         source={
@@ -220,6 +224,7 @@ class MetricsTests(unittest.TestCase):
         row=m.weekly_rows(source)[0]
         self.assertEqual(row["Amount Status"],"NO_QUOTE_VALUE")
         self.assertNotIn("Verified Quote Value KRW FX",row)
+        self.assertNotIn("Verified Quote Value M KRW",row)
 
     def test_equivalent_numeric_and_text_ignores_timestamp(self):
         old={"Invoice Count":2.0,"Source Key":[{"text":"INVOICE:2026-10"}],
