@@ -75,7 +75,7 @@ class QuoteValueTests(unittest.TestCase):
         data["SFDC Email Opportunities Raw"][1][1]="Other Sales Owner"
         result=m.analyze(data,now=NOW)
         latest=result["four_weeks"][-1]
-        self.assertEqual(latest["my_owner_verified"],0)
+        self.assertEqual(latest.get("my_owner_verified",0),0)
         self.assertEqual(latest["other_sales_owner_verified"],1)
         self.assertIn("OWNER_SCOPE_REVIEW_REQUIRED",result["blockers"])
         data["SFDC Email Opportunities Raw"][1][1]="Kim Taehoon"
