@@ -80,7 +80,11 @@ REQUIRED = {
     "Revenue Invoice Base": ("Invoice No", "Year-Month", "Revenue KRW (Tax Invoice)", "Net Revenue KRW (VAT excl; per invoice)"),
     "SFDC Weekly Overview": ("week_start", "week_end", "quotation_approvals", "approvals_created_in_week", "krw_per_usd"),
     "Quotation Approval List": ("week_start", "salesforce_record_id", "quotation_id"),
-    "Quote Portfolio": ("Salesforce Quote ID (18)", "Quote QID", "Active", "Quote USD", "Approved AMEA ID", "Quote Name", "Approval Match"),
+    "Quote Approval Dedup": ("Approval KST", "SFDC Record ID", "Quotation Name"),
+    "SFDC Quote Export": ("Salesforce Record ID", "IsActive", "Exclude Tax After Discount USD",
+                           "CurrencyIsoCode", "Opportunity ID", "Exported At KST"),
+    "SFDC Email Opportunities Raw": ("Opportunity ID", "Opportunity Owner"),
+    "SFDC Email Ingest Audit": ("Entity", "Source Received KST", "State"),
     "Feishu Latest Prepayments": ("Project Number", "Quotation Number"),
     "Feishu Latest Receipts": ("CMS No.", "Amount (KRW)", "Deposit Date",
                                "CMS No. [2]", "Amount", "Date",
@@ -155,8 +159,10 @@ def sheet_sources():
         (CSS_SHEET,"CSS Invoice Monthly Summary",160),
         (UNIFIED_SHEET,"Revenue Invoice Base",2500),
         (UNIFIED_SHEET,"SFDC Weekly Overview",1500),
-        (CSS_SHEET,"Quotation Approval List",1500),
-        (UNIFIED_SHEET,"Quote Portfolio",2600),
+        (UNIFIED_SHEET,"Quote Approval Dedup",1600),
+        (UNIFIED_SHEET,"SFDC Quote Export",2600),
+        (UNIFIED_SHEET,"SFDC Email Opportunities Raw",950),
+        (UNIFIED_SHEET,"SFDC Email Ingest Audit",30),
         (UNIFIED_SHEET,"Feishu Latest Prepayments",500),
         (UNIFIED_SHEET,"Feishu Latest Receipts",700),
         (UNIFIED_SHEET,"Feishu Latest Outstanding",500),
@@ -368,72 +374,125 @@ def quote_chart_week_label(week_start):
         return ""
 
 
-def weekly_rows(source):
-    # Strict immutable Salesforce record-ID join. Quotation ID may refer to
-    # an AMEA project instead of SFDC's QID and must not be force-matched.
-    by_id=collections.defaultdict(list)
-    for q in source["Quote Portfolio"]:
-        if not approved(cell(q,"Active")):continue
-        sf=salesforce_id15(cell(q,"Salesforce Quote ID (18)"))
-        qid=cell(q,"Quote QID").upper()
-        if sf:by_id[("SF15",sf)].append(q)
-        if qid:by_id[("QID",qid)].append(q)
+def _recent_sfdc_time(value, now, max_hours=48):
+    value=str(value or "").strip().replace(" KST","")
+    try:
+        when=dt.datetime.strptime(value,"%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+    except ValueError:
+        return False
+    seconds=(now-when).total_seconds()
+    return 0<=seconds<=max_hours*3600
+
+
+def _verified_quote_object_source(source, now):
+    """Only a recent independently exported Salesforce Quote object proves money.
+
+    Quote Portfolio and process-level converted totals are NOT authorized.
+    """
+    raw=source.get("SFDC Quote Export",[])
+    if not raw:
+        return {}, "WITHHELD_QUOTE_OBJECT_EXPORT_MISSING"
+    if any(not _recent_sfdc_time(cell(r,"Exported At KST"),now) for r in raw):
+        return {}, "WITHHELD_QUOTE_OBJECT_EXPORT_STALE"
+    audits=[r for r in source.get("SFDC Email Ingest Audit",[])
+            if cell(r,"Entity")=="Opportunities"]
+    if len(audits)!=1 or not _recent_sfdc_time(cell(audits[0],"Source Received KST"),now):
+        return {}, "WITHHELD_OPPORTUNITY_OWNER_SNAPSHOT_STALE"
+    if cell(audits[0],"State") not in ("STAGED_NOT_PROMOTED","PRESERVED_NO_NEW_REPORT"):
+        return {}, "WITHHELD_OPPORTUNITY_OWNER_SOURCE_UNVERIFIED"
+    owners=collections.defaultdict(set)
+    for r in source.get("SFDC Email Opportunities Raw",[]):
+        oid=cell(r,"Opportunity ID")
+        if oid:
+            owners[oid].add(cell(r,"Opportunity Owner"))
+    by_sf=collections.defaultdict(list)
+    for r in raw:
+        sid=salesforce_id15(cell(r,"Salesforce Record ID"))
+        if not sid.startswith("a0P"):
+            return {}, "WITHHELD_QUOTE_EXPORT_INVALID_IMMUTABLE_ID"
+        by_sf[sid].append(r)
+    if any(len(items)!=1 for items in by_sf.values()):
+        return {}, "WITHHELD_QUOTE_EXPORT_DUPLICATE_ID"
+    verified={}
+    for sid,records in by_sf.items():
+        q=records[0]
+        if not approved(cell(q,"IsActive")) or cell(q,"CurrencyIsoCode").upper()!="USD":
+            continue
+        usd=numer(cell(q,"Exclude Tax After Discount USD"))
+        if usd is None or usd<=0:
+            continue
+        oid=cell(q,"Opportunity ID")
+        if owners.get(oid,set())!={"Kim Taehoon"}:
+            continue
+        verified[sid]=usd
+    return verified,"QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED"
+
+
+def weekly_rows(source, now=None):
+    """Friday-Thursday approval count; only a fresh Quote-object report proves USD."""
+    now=now or dt.datetime.now(KST)
+    quote_values,proof=_verified_quote_object_source(source,now)
     by_week=collections.defaultdict(dict)
-    for approval_row in source["Quotation Approval List"]:
-        week=cell(approval_row,"week_start")
-        if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}",week):continue
-        sf=salesforce_id15(cell(approval_row,"salesforce_record_id"))
-        qid=cell(approval_row,"quotation_id").upper()
-        key=("SF15",sf) if sf else ("QID",qid) if qid else None
-        if key is None:continue
-        if key in by_week[week]:continue
-        candidates=[]
-        if sf:candidates+=by_id.get(("SF15",sf),[])
-        if qid:candidates+=by_id.get(("QID",qid),[])
-        matches={id(x):x for x in candidates}
-        price=None
-        if len(matches)==1:
-            quote=next(iter(matches.values()))
-            price=numer(cell(quote,"Quote USD"))
-            if price is not None and price<0:price=None
-        by_week[week][key]=price
+    for entry in source.get("Quote Approval Dedup",[]):
+        try:
+            date=dt.date.fromisoformat(cell(entry,"Approval KST")[:10])
+        except ValueError:
+            continue
+        wk=(date-dt.timedelta(days=(date.weekday()-4)%7)).isoformat()
+        sid=salesforce_id15(cell(entry,"SFDC Record ID"))
+        if sid.startswith("a0P"):
+            by_week[wk][sid]=quote_values.get(sid)
     output={}
     for item in source["SFDC Weekly Overview"]:
         week=cell(item,"week_start")
-        if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}",week):continue
-        if week in output:raise SafeError("DUPLICATE_WEEKLY_SOURCE_WEEK")
+        if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}",week):
+            continue
+        if week in output:
+            raise SafeError("DUPLICATE_WEEKLY_SOURCE_WEEK")
         count=numer(cell(item,"quotation_approvals"))
         created=numer(cell(item,"approvals_created_in_week"))
-        if count is None or count<0:continue
+        if count is None or count<0:
+            continue
         fx=numer(cell(item,"krw_per_usd")) or D(1500)
-        if fx<=0:raise SafeError("INVALID_WEEKLY_FX")
-        prices=list(by_week.get(week,{}).values())
-        verified=[p for p in prices if p is not None]
+        if fx<=0:
+            raise SafeError("INVALID_WEEKLY_FX")
+        entries=by_week.get(week,{})
+        complete_evidence=len(entries)==int(count)
+        verified=([p for p in entries.values() if p is not None]
+                  if proof=="QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED" and complete_evidence
+                  else [])
         unmatched=max(0,int(count)-len(verified))
-        state=("NO_QUOTE_VALUE" if not verified else "VERIFIED_PARTIAL" if unmatched else "VERIFIED_ALL")
+        status=(proof if proof!="QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED"
+                else "WITHHELD_APPROVAL_COUNT_MISMATCH" if not complete_evidence
+                else "NO_QUOTE_VALUE" if not verified
+                else "VERIFIED_PARTIAL" if unmatched else "VERIFIED_ALL")
         row={"Source Key":"QUOTE:"+week,"Week Start":week,
              "Week End":cell(item,"week_end"),
              "Approved Quote Count":int(count),
              "Verified Amount Quote Count":len(verified),
              "Unmatched Amount Count":unmatched,
-             "Amount Status":state,
+             "Amount Status":status,
              "Week Status":cell(item,"weekly_basis"),
              "Reporting KRW Per USD":float(fx),
-             "Evidence":"SFDC Weekly Overview approval counts; Quote Portfolio active ID matches only. FX reporting estimate, not revenue."}
-        if created is not None:row["Created In Week Count"]=int(created)
+             "Evidence":"SFDC Weekly Overview + Quote Approval Dedup immutable Salesforce ID; "
+                        "money requires fresh Salesforce Quote Object Exclude Tax USD, "
+                        "Active, owner and exact count proof. Status: "+status,
+             # Explicit nulls clear stale number cells in the existing Feishu record.
+             "Verified Quote Value KRW FX":None,
+             "Verified Quote Value M KRW FX":None,
+             "Verified Quote Value K USD":None}
+        if created is not None:
+            row["Created In Week Count"]=int(created)
         if verified:
             usd=sum(verified,D(0))
             row["Verified Quote Value KRW FX"]=currency(usd*fx)
             row["Verified Quote Value M KRW FX"]=scaled_m_krw(currency(usd*fx))
             row["Verified Quote Value K USD"]=scaled_k_usd(usd)
         output[week]=row
-    if not output:raise SafeError("WEEKLY_NO_VALID_SOURCE")
-    # The screenshot compares four complete weekly periods. In-progress
-    # periods remain in the Base but are excluded from this chart.
-    completed=sorted((
-        week for week,row in output.items()
-        if "IN_PROGRESS" not in row["Week Status"].upper()
-    ),reverse=True)[:4]
+    if not output:
+        raise SafeError("WEEKLY_NO_VALID_SOURCE")
+    completed=sorted((week for week,row in output.items()
+                      if "IN_PROGRESS" not in row["Week Status"].upper()),reverse=True)[:4]
     included=set(completed)
     for week,row in output.items():
         row["Chart Week Label"]=quote_chart_week_label(week)
@@ -441,7 +500,6 @@ def weekly_rows(source):
         if not row["Chart Week Label"]:
             raise SafeError("WEEKLY_CHART_INVALID_START")
     return [output[k] for k in sorted(output,reverse=True)]
-
 
 def prepare_data(sources):
     projects = project_rows(sources)
@@ -562,6 +620,9 @@ def equivalent(before,new):
     for k,v in new.items():
         if k=="Last Sync KST":continue
         a=raw_value(before.get(k)).strip()
+        if v is None:
+            if a=="":continue
+            return False
         b=str(v).strip()
         if isinstance(v,(int,float)):
             x=numer(a)
