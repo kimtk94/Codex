@@ -31,11 +31,14 @@ BLOCKS=[
                      "sort":{"type":"group","order":"asc"}}]}),
     ("SIF 상태","pie",{"table_name":TABLE,"count_all":True,
         "group_by":[{"field_name":"SIF State","mode":"integrated"}]}),
-    ("월별 Revenue · VAT 제외 (M KRW)","line",{
+    ("월별 Revenue · VAT 제외 · M KRW (K USD)","line",{
         "table_name":"Monthly Tax Invoice",
-        "series":[{"field_name":"Net Revenue M KRW","rollup":"SUM"}],
+        "series":[{"field_name":"Net Revenue M KRW","rollup":"SUM"},
+                  {"field_name":"Net Revenue K USD","rollup":"SUM"}],
         "group_by":[{"field_name":"Month","mode":"integrated",
                      "sort":{"type":"group","order":"asc"}}]}),
+    ("월별 Revenue 표시 기준","text",{
+        "text":"**월별 Revenue: M KRW (K USD)** — VAT 제외 실적만 집계합니다. 원화는 백만원(M KRW), 달러는 천 달러(K USD) 환산 표시입니다. 두 금액은 같은 매출을 서로 다른 통화로 표현하며 합산하면 안 됩니다. K USD는 보고용 환율(기본값 1 USD = 1,500 KRW)을 기준으로 환산한 참고값입니다. 실제 청구 통화/회계 환율과 동일하다는 뜻은 아닙니다."}),
     ("Weekly 승인 Quote","column",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"}],
@@ -151,7 +154,10 @@ LEGACY_COMBO_NAMES={
     "KOREA · Quote Count / Value (K USD)":"Weekly Quote · 건수 + 검증금액 K USD",
     "KOREA · Quote Count / Value (M KRW)":"KOREA · Quote Count / Value (KRW)",
 }
-LEGACY_REVENUE_NAME="월별 Revenue · VAT 제외"
+LEGACY_REVENUE_NAMES=(
+    "월별 Revenue · VAT 제외 (M KRW)",
+    "월별 Revenue · VAT 제외",
+)
 def locate_chart(rows,target):
     for row in collect(rows):
         if row.get("name")==target:
@@ -225,8 +231,13 @@ def main():
                 updated+=1
                 print("FEISHU_QUOTE_COMBO_UPDATED type=combo window=RECENT_4_COMPLETED")
                 continue
-        if name=="월별 Revenue · VAT 제외 (M KRW)":
-            old=locate_chart(existing,name) or locate_chart(existing,LEGACY_REVENUE_NAME)
+        if name=="월별 Revenue · VAT 제외 · M KRW (K USD)":
+            old=locate_chart(existing,name)
+            if not old:
+                for old_name in LEGACY_REVENUE_NAMES:
+                    old=locate_chart(existing,old_name)
+                    if old:
+                        break
             if old:
                 cli("+dashboard-block-update","--base-token",BASE,
                     "--dashboard-id",dashboard_id,"--block-id",old,
@@ -234,7 +245,7 @@ def main():
                     "--data-config",json.dumps(config,ensure_ascii=False,
                                                separators=(",",":")))
                 updated+=1
-                print("FEISHU_REVENUE_UNIT_UPDATED=M_KRW")
+                print("FEISHU_MONTHLY_REVENUE_DUAL_CURRENCY_UPDATED=M_KRW,K_USD")
                 continue
         if name in names:
             info=locate_chart(existing,name)
