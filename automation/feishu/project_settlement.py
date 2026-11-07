@@ -16,6 +16,7 @@ EVIDENCE_FIELDS=(
     "Payment Invoice No","Bank Receipt Reference","Verified Invoice KRW",
     "Verified Received KRW","Receipt Verified At","Receipt Verified By",
     "Receipt Source","Receipt Verification Status",
+    "Receipt Source Snapshot Date","Outstanding Source Snapshot Date",
 )
 
 def cell(fields,name):
@@ -64,19 +65,24 @@ def parsed_amount(value):
         return None
 
 def verified_full_payment(evidence):
-    """Receipt provenance + date + unique invoice + fully matched value required."""
-    if cell(evidence,"Receipt Verification Status")!="VERIFIED":
-        return False
-    if cell(evidence,"Receipt Source") not in {"BANK_RECEIPT","ERP_CASH_RECEIPT"}:
-        return False
+    """Source-exact receipt or independently signed bank/ERP evidence only."""
+    status=cell(evidence,"Receipt Verification Status")
+    source=cell(evidence,"Receipt Source")
+    manual=(status=="VERIFIED" and source in {"BANK_RECEIPT","ERP_CASH_RECEIPT"})
+    automatic=(status=="SOURCE_EXACT_VERIFIED" and
+        source=="FEISHU_LATEST_PAYMENT_RECEIPT" and
+        cell(evidence,"Receipt Verified By")=="AUTO_FEISHU_EXACT_CMS_AMOUNT" and
+        all(re.fullmatch(r"20\\d\\d-\\d\\d-\\d\\d",cell(evidence,k))
+            for k in ("Receipt Source Snapshot Date","Outstanding Source Snapshot Date")))
+    if not manual and not automatic:return False
     strings=("Payment Invoice No","Bank Receipt Reference","Receipt Verified At","Receipt Verified By")
-    if any(not cell(evidence,k) for k in strings):
-        return False
-    if not re.fullmatch(r"20\d\d-\d\d-\d\d",cell(evidence,"Receipt Verified At")):
+    if any(not cell(evidence,k) for k in strings):return False
+    if not re.fullmatch(r"20\\d\\d-\\d\\d-\\d\\d",cell(evidence,"Receipt Verified At")):
         return False
     invoice=parsed_amount(cell(evidence,"Verified Invoice KRW"))
     received=parsed_amount(cell(evidence,"Verified Received KRW"))
-    return invoice is not None and received is not None and received>=invoice
+    return invoice is not None and received is not None and received==invoice
+
 
 def finalize(row,receipt_fields=None):
     item=dict(row)
@@ -86,8 +92,13 @@ def finalize(row,receipt_fields=None):
     ispaid=ended and verified_full_payment(receipt_fields or {})
     if ispaid:
         item["Workflow Lane"]=ARCHIVE
-        item["Payment State"]="PAID_VERIFIED"
-        item["Next Action"]="입금 증빙 검증 완료 · 일반 운영 화면에서 숨김 (기록 보존)"
+        source_exact=cell(receipt_fields,"Receipt Verification Status")=="SOURCE_EXACT_VERIFIED"
+        item["Payment State"]="PAID_SOURCE_MATCHED" if source_exact else "PAID_VERIFIED"
+        item["Next Action"]=(
+            "최신 Payment Receipt 원본 대조 완료 · 결제 목록에서 숨김 (원본 보관)"
+            if source_exact else
+            "입금 증빙 검증 완료 · 일반 운영 화면에서 숨김 (기록 보존)"
+        )
     elif ended:
         item["Workflow Lane"]=PAYMENT
         item["Payment State"]="PAYMENT_EVIDENCE_REVIEW" if any(
