@@ -32,6 +32,8 @@ def source_rows():
         (UNIFIED_SHEET,"Feishu Source Manifest",30),
     ]:
         sources[name]=req_sheet(session,book,name,limit)
+        if len(sources[name])>=limit-1:
+            raise SafeError("X_BRIDGE_SOURCE_RANGE_TRUNCATION_RISK")
     expected={
         "CSS Project Dashboard":{"project_id","h_project_numbers","sam_numbers"},
         "CSS Project Timeline":{"project_id","sam_numbers","h_project_numbers"},
