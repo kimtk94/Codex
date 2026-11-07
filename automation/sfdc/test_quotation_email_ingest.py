@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Offline Salesforce subscription-export regression; no mailbox access."""
-import sys, pathlib, unittest
+import sys, pathlib, unittest, os, tempfile
+from unittest import mock
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent))
-from quotation_email_ingest import parse_attachment
+from quotation_email_ingest import parse_attachment, publish_run_status
 class QuotationEmailTests(unittest.TestCase):
     def test_korean_html_xls(self):
         cols=["Quotation: SFDC Quotation ID","*Account Id","Account Name","Contact ID","Contact Name","Opportunity ID","Opportunity Name","Quotation: ID","Quotation Name","Active","Sync CMS","Exclude Tax After Discount USD","Quotation Create Date","Contract Creation"]
@@ -34,6 +35,30 @@ class QuotationEmailTests(unittest.TestCase):
         got=parse_attachment(payload.encode("utf-8"),"report.csv")
         self.assertEqual(len(got),1)
         self.assertEqual(got[0][10:15],["001ABC","Yonsei","003ABC","Researcher","Project"])
+    def test_rejection_reason_is_aggregate_only(self):
+        reasons={}
+        rows=parse_attachment(b"Opportunity Name,Amount\\nExample,10\\n","no_report.csv",reasons)
+        self.assertEqual(rows,[])
+        self.assertEqual(reasons,{"schema_mismatch":1})
+        valid_headers=",".join(["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID","Quotation Name","Active","Exclude Tax After Discount USD"])
+        reasons={}
+        got=parse_attachment((valid_headers+"\\nQ1,OPP,NOT_AN_ID,Test,1,10\\n").encode(),"report.csv",reasons)
+        self.assertEqual(got,[])
+        self.assertEqual(reasons,{"no_valid_quote_rows":1})
+    def test_github_output_and_summary_are_well_formed(self):
+        with tempfile.TemporaryDirectory() as td:
+            output=os.path.join(td,"output")
+            summary=os.path.join(td,"summary")
+            with mock.patch.dict(os.environ,{"GITHUB_OUTPUT":output,"GITHUB_STEP_SUMMARY":summary}):
+                publish_run_status(False,{"schema_mismatch":7,"parse_exception":3})
+                publish_run_status(True,{"parseable":1})
+            text=pathlib.Path(output).read_text()
+            self.assertEqual(text,"imported=false\\nimported=true\\n")
+            self.assertNotIn(r"\\n",text)
+            note=pathlib.Path(summary).read_text()
+            self.assertIn("NO_NEW_VALID_REPORT",note)
+            self.assertIn("SOURCE_IMPORTED",note)
+            self.assertNotIn("Customer",note)
     def test_missing_quote_fields_is_not_accepted(self):
         html=b"<table><tr><th>Opportunity Name</th><th>Amount</th></tr><tr><td>A</td><td>250</td></tr></table>"
         self.assertEqual(parse_attachment(html,"bad.xls"),[])
