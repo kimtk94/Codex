@@ -39,31 +39,23 @@ BLOCKS=[
                      "sort":{"type":"group","order":"asc"}}]}),
     ("월별 Revenue 표시 기준","text",{
         "text":"**월별 Revenue: M KRW (K USD)** — VAT 제외 실적만 집계합니다. 원화는 백만원(M KRW), 달러는 천 달러(K USD) 환산 표시입니다. 두 금액은 같은 매출을 서로 다른 통화로 표현하며 합산하면 안 됩니다. K USD는 보고용 환율(기본값 1 USD = 1,500 KRW)을 기준으로 환산한 참고값입니다. 실제 청구 통화/회계 환율과 동일하다는 뜻은 아닙니다."}),
-    ("Weekly 승인 Quote","column",{
-        "table_name":"Weekly Quote KPI",
-        "series":[{"field_name":"Approved Quote Count","rollup":"SUM"}],
-        "group_by":[{"field_name":"Week Start","mode":"integrated",
-                     "sort":{"type":"group","order":"asc"}}]}),
-    ("KOREA · Quote Count / Value (K USD)","combo",{
+    ("KOREA · Weekly Quote · 최근 4주 (Count + 계산 K USD)","combo",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
-                  {"field_name":"Verified Quote Value K USD","rollup":"SUM"}],
+                  {"field_name":"Calculated Quote Value K USD","rollup":"SUM"}],
         "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
                      "sort":{"type":"view","order":"asc"}}],
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_COMPLETED"}]}}),
-    ("KOREA · Quote Count / Value (M KRW)","combo",{
-        "table_name":"Weekly Quote KPI",
-        "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
-                  {"field_name":"Verified Quote Value M KRW FX","rollup":"SUM"}],
-        "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
-                     "sort":{"type":"view","order":"asc"}}],
-        "filter":{"conjunction":"and","conditions":[
-            {"field_name":"Chart Window","operator":"is",
-             "value":"RECENT_4_COMPLETED"}]}}),
-    ("Quote 금액 검증 기준","text",{
-        "text":"# KOREA · Quote Count / Value\n**차트 대상:** 최근 종료된 4개 주간, 금요일~목요일 기준입니다. X축은 Oct W2 · Oct W3 · Oct W4 · Nov W1처럼 해당 기간의 월요일을 기준으로 표시합니다.\n**파란 막대:** Approved Quote Count(건), **왼쪽 Y축: Count**.\n**주황색 선:** Verified Quote Value K USD(천 USD) 또는 Verified Quote Value M KRW FX(백만원), **오른쪽 Y축: Value (K USD/M KRW)**.\n데이터 라벨·가로 그리드·좌우 축을 표시합니다. Quote 승인 건수는 정수(예: 13), KRW는 M, USD는 K로 표시합니다. 두 계열의 색상, 막대/선 유형, 소수점 표시 및 2차 축 지정은 Feishu 차트의 [설정 → 시리즈]에서 선택해야 합니다. 현재 공식 CLI는 개별 시리즈 스타일/2차 축 인수를 제공하지 않습니다.\n**금액 검증:** SFDC Quote ID가 연결된 승인 견적 금액만 합산합니다. 금액 미확인 건도 Count에는 포함하지만 금액을 0으로 간주하지 않습니다."})
+    ("Quote 계산 기준","text",{
+        "text":"**Quote 금액은 추정치입니다.** 최근 완료된 4주(금~목)의 승인 건수는 모든 승인 근거를 포함합니다. "
+               "견적 금액은 QQ SFDC 3종 Report의 원본 해시·최신성을 확인한 뒤, "
+               "각 Quotation의 공정별 Unit Price USD × Sample Quantity를 중복 없이 합산한 값입니다. "
+               "담당 Opportunity Owner가 본인이고, 기존 금액과 충돌하지 않는 견적만 계산합니다. "
+               "예외 건은 금액 합계에서 제외되며 0원이라고 해석하면 안 됩니다. "
+               "M KRW는 표시용 환율 적용, K USD는 원본 USD를 천 단위로 표시합니다. "
+               "Quote 예상금액은 Tax Invoice 매출(Revenue)이 아니며 VAT 제외 Revenue와 합산하면 안 됩니다."}),
 
 ]
 
@@ -150,9 +142,25 @@ def legacy_dashboard_block(rows,name,expected_type=None):
     return current.get("block_id") or current.get("id")
 
 
-LEGACY_COMBO_NAMES={
-    "KOREA · Quote Count / Value (K USD)":"Weekly Quote · 건수 + 검증금액 K USD",
-    "KOREA · Quote Count / Value (M KRW)":"KOREA · Quote Count / Value (KRW)",
+QUOTE_CHART_NAME="KOREA · Weekly Quote · 최근 4주 (Count + 계산 K USD)"
+LEGACY_QUOTE_ALIASES=(
+    "KOREA · Weekly Quote · 최근 4주 (승인 건수 + 계산액 K USD)",
+    "KOREA · Quote Count / Value (K USD)",
+    "Weekly Quote · 건수 + 검증금액 K USD",
+)
+# Remove only known obsolete dashboard widgets, after verifying the kept chart.
+# Never delete source Base tables, views, fields, or quote records.
+LEGACY_REDUNDANT_QUOTE_WIDGETS={
+    "KOREA · Weekly Quote · 최근 4주 (Count + K USD)":"combo",
+
+    "Weekly 승인 Quote":"column",
+    "KOREA · Quote Count / Value (K USD)":"combo",
+    "Weekly Quote · 건수 + 검증금액 K USD":"combo",
+    "KOREA · Weekly Quote · 최근 4주 (승인 건수 + 계산액 K USD)":"combo",
+    "KOREA · Quote Count / Value (M KRW)":"combo",
+    "KOREA · Quote Count / Value (KRW)":"combo",
+    "Weekly Quote · 건수 + 검증금액 KRW":"combo",
+    "Quote 금액 검증 기준":"text",
 }
 LEGACY_REVENUE_NAMES=(
     "월별 Revenue · VAT 제외 (M KRW)",
@@ -218,9 +226,12 @@ def main():
         existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
     names={row.get("name") for row in collect(existing) if isinstance(row.get("name"),str)}
     for name,kind,config in BLOCKS:
-        if kind=="combo":
-            chart=locate_chart(existing,name) or locate_chart(
-                existing,LEGACY_COMBO_NAMES.get(name,""))
+        if kind=="combo" and name==QUOTE_CHART_NAME:
+            chart=locate_chart(existing,name)
+            if not chart:
+                for alias in LEGACY_QUOTE_ALIASES:
+                    chart=locate_chart(existing,alias)
+                    if chart:break
             if chart:
                 # Update the real existing combo instead of creating a duplicate
                 # and restrict the data to the latest 4 completed sales weeks.
@@ -249,7 +260,7 @@ def main():
                 continue
         if name in names:
             info=locate_chart(existing,name)
-            if (name in {"Quote 금액 검증 기준","운영 안내"} or
+            if (name in {"Quote 금액 검증 기준","Quote 계산 기준","운영 안내"} or
                 kind=="statistics") and info:
                 cli("+dashboard-block-update","--base-token",BASE,
                     "--dashboard-id",dashboard_id,"--block-id",info,
@@ -269,10 +280,28 @@ def main():
         count+=1
         print("FEISHU_NATIVE_COMPONENT_CREATED="+kind+" index="+str(count))
     final=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
+    if not legacy_dashboard_block(final,QUOTE_CHART_NAME,"combo"):
+        raise RuntimeError("WEEKLY_QUOTE_CANONICAL_CHART_NOT_VERIFIED")
+    # Do not remove old widgets until a single valid new chart is confirmed.
+    for old_name,old_type in LEGACY_REDUNDANT_QUOTE_WIDGETS.items():
+        obsolete=legacy_dashboard_block(final,old_name,old_type)
+        if obsolete:
+            delete_dashboard_block(dashboard_id,obsolete)
+            deleted+=1
+            print("FEISHU_WEEKLY_QUOTE_REDUNDANT_BLOCK_REMOVED="+old_name)
+            final=cli("+dashboard-block-list","--base-token",BASE,
+                      "--dashboard-id",dashboard_id)
     if legacy_dashboard_block(final,LEGACY_PROGRESS_RANK):
         raise RuntimeError("PROGRESS_RANK_STILL_EXISTS")
     if legacy_dashboard_block(final,LEGACY_RAW_STAGE_CHART):
         raise RuntimeError("LEGACY_STAGE_GRAPH_STILL_EXISTS")
+    for old_name,old_type in LEGACY_REDUNDANT_QUOTE_WIDGETS.items():
+        if legacy_dashboard_block(final,old_name,old_type):
+            raise RuntimeError("REDUNDANT_QUOTE_BLOCK_STILL_EXISTS")
+    if sum(1 for row in collect(final)
+           if row.get("name")==QUOTE_CHART_NAME and
+           (row.get("block_id") or row.get("id")) and row.get("type")=="combo")!=1:
+        raise RuntimeError("QUOTE_SINGLE_COMBO_NOT_VERIFIED")
     found={row.get("name") for row in collect(final) if isinstance(row.get("name"),str)}
     missing={n for n,_,_ in BLOCKS}-found
     if missing:raise RuntimeError("FEISHU_NATIVE_COMPONENTS_MISSING_"+str(len(missing)))
