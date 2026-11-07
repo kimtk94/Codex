@@ -41,20 +41,26 @@ BLOCKS=[
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"}],
         "group_by":[{"field_name":"Week Start","mode":"integrated",
                      "sort":{"type":"group","order":"asc"}}]}),
-    ("Weekly Quote · 건수 + 검증금액 K USD","combo",{
+    ("KOREA · Quote Count / Value (K USD)","combo",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
                   {"field_name":"Verified Quote Value K USD","rollup":"SUM"}],
-        "group_by":[{"field_name":"Week Start","mode":"integrated",
-                     "sort":{"type":"group","order":"asc"}}]}),
-    ("Weekly Quote · 건수 + 검증금액 KRW","combo",{
+        "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
+                     "sort":{"type":"view","order":"desc"}}],
+        "filter":{"conjunction":"and","conditions":[
+            {"field_name":"Chart Window","operator":"is",
+             "value":"RECENT_4_COMPLETED"}]}}),
+    ("KOREA · Quote Count / Value (KRW)","combo",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
                   {"field_name":"Verified Quote Value KRW FX","rollup":"SUM"}],
-        "group_by":[{"field_name":"Week Start","mode":"integrated",
-                     "sort":{"type":"group","order":"asc"}}]}),
+        "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
+                     "sort":{"type":"view","order":"desc"}}],
+        "filter":{"conjunction":"and","conditions":[
+            {"field_name":"Chart Window","operator":"is",
+             "value":"RECENT_4_COMPLETED"}]}}),
     ("Quote 금액 검증 기준","text",{
-        "text":"**Quote 복합 그래프** · X축: 주간 승인일(Week Start). 두 지표는 승인 Quote 건수와 금액이 확인된 Quote의 환산금액(KRW 또는 K USD)입니다. 승인 건수에 금액 미확인 견적도 포함되므로 금액은 전체 승인액보다 작을 수 있습니다. Count와 금액은 서로 단위가 다르므로 Feishu 화면 편집에서 시리즈별 좌·우 Y축을 구분할 수 있습니다."})
+        "text":"# KOREA · Quote Count / Value\n**차트 대상:** 최근 종료된 4개 주간, 금요일~목요일 기준입니다. X축은 Oct W2 · Oct W3 · Oct W4 · Nov W1처럼 해당 기간의 월요일을 기준으로 표시합니다.\n**파란 막대:** Approved Quote Count(건), **왼쪽 Y축: Count**.\n**주황색 선:** Verified Quote Value K USD(천 USD) 또는 Verified Quote Value KRW FX(원), **오른쪽 Y축: Value (K USD/KRW)**.\n데이터 라벨·가로 그리드·좌우 축을 표시합니다. 두 계열의 색상, 막대/선 유형, 2차 축 지정은 Feishu 차트의 [설정 → 시리즈]에서 선택해야 합니다. 현재 공식 CLI는 개별 시리즈 스타일/2차 축 인수를 제공하지 않습니다.\n**금액 검증:** SFDC Quote ID가 연결된 승인 견적 금액만 합산합니다. 금액 미확인 건도 Count에는 포함하지만 금액을 0으로 간주하지 않습니다."})
 
 ]
 
@@ -97,6 +103,19 @@ def find_named(resp,name):
     if len(matches)>1:raise RuntimeError("FEISHU_DUPLICATE_DASHBOARD_OR_BLOCK")
     return next(iter(matches)) if matches else None
 
+LEGACY_COMBO_NAMES={
+    "KOREA · Quote Count / Value (K USD)":"Weekly Quote · 건수 + 검증금액 K USD",
+    "KOREA · Quote Count / Value (KRW)":"Weekly Quote · 건수 + 검증금액 KRW",
+}
+def locate_chart(rows,target):
+    for row in collect(rows):
+        if row.get("name")==target:
+            ident_value=row.get("block_id") or row.get("id")
+            if isinstance(ident_value,str) and ident_value.startswith(("cht","blk")):
+                return ident_value
+    return None
+
+
 def main():
     if os.environ.get("FEISHU_BASE_APP_TOKEN")!=BASE:
         raise RuntimeError("REFUSE_OTHER_BASE")
@@ -119,8 +138,31 @@ def main():
     existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
     names={row.get("name") for row in collect(existing) if isinstance(row.get("name"),str)}
     count=0
+    updated=0
+    existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
     for name,kind,config in BLOCKS:
-        if name in names:continue
+        if kind=="combo":
+            chart=locate_chart(existing,name) or locate_chart(
+                existing,LEGACY_COMBO_NAMES.get(name,""))
+            if chart:
+                # Update the real existing combo instead of creating a duplicate
+                # and restrict the data to the latest 4 completed sales weeks.
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",dashboard_id,"--block-id",chart,
+                    "--name",name,
+                    "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
+                updated+=1
+                print("FEISHU_QUOTE_COMBO_UPDATED type=combo window=RECENT_4_COMPLETED")
+                continue
+        if name in names:
+            if name=="Quote 금액 검증 기준":
+                info=locate_chart(existing,name)
+                if info:
+                    cli("+dashboard-block-update","--base-token",BASE,
+                        "--dashboard-id",dashboard_id,"--block-id",info,
+                        "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
+                    updated+=1
+            continue
         cli("+dashboard-block-create","--base-token",BASE,"--dashboard-id",dashboard_id,
             "--name",name,"--type",kind,
             "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
@@ -131,7 +173,7 @@ def main():
     missing={n for n,_,_ in BLOCKS}-found
     if missing:raise RuntimeError("FEISHU_NATIVE_COMPONENTS_MISSING_"+str(len(missing)))
     print("FEISHU_NATIVE_DASHBOARD_PASS id="+dashboard_id+
-          " blocks="+str(len(BLOCKS))+" created="+str(count)+
+          " blocks="+str(len(BLOCKS))+" created="+str(count)+" updated="+str(updated)+
           " customer_rows_written=0 VERCEL_REQUIRED=FALSE")
     print("FEISHU_NATIVE_DASHBOARD_BASE_URL=https://ocnz4cb25scn.feishu.cn/base/"+BASE)
 if __name__=="__main__":
