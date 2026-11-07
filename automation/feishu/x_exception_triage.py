@@ -30,6 +30,10 @@ def latest_dated_note(text,asof):
         try:date=dt.date(yy,mm,dd)
         except ValueError:continue
         if not year and date>asof:
+            # An upcoming 12.12 is not proof of an event in last December.
+            # Only infer previous year at the Jan/Feb crossover.
+            if not (asof.month<=2 and mm>=11):
+                continue
             try:date=dt.date(yy-1,mm,dd)
             except ValueError:continue
         if date>asof or (asof-date).days>366:continue
