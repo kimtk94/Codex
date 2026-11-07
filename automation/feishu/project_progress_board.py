@@ -138,6 +138,7 @@ def prepare_project_board(sources, project_rows):
             "Source Key": value(row, "Source Key"),
             "Project Display Name": (quote_name.replace("\n"," / ")+" | "+pid),
             "Completion Evidence": completion_evidence(stage,lifecycles),
+            "Payment Owner Scope": "OWNER_UNVERIFIED",
             "AMEA": pid,
             "Quote Full Name": quote_name,
             "Quote Match State": quote_state,

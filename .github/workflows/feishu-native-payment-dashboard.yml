@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/native_payment_dashboard_cli.py'
+      - 'automation/feishu/latest_payment_bridge.py'
       - 'automation/feishu/test_native_payment_dashboard.py'
       - '.github/workflows/feishu-native-payment-dashboard.yml'
   push:
@@ -13,6 +14,10 @@ on:
       - 'automation/feishu/native_payment_dashboard_cli.py'
       - 'automation/feishu/test_native_payment_dashboard.py'
       - '.github/workflows/feishu-native-payment-dashboard.yml'
+  workflow_run:
+    workflows: ['Feishu Sales SIF Invoice Weekly KPI']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
@@ -27,6 +32,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   offline:
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
@@ -50,7 +56,7 @@ jobs:
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
-      FEISHU_PAYMENT_DASHBOARD_MODE: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_PAYMENT_DASHBOARD_MODE: ${{ (github.event_name == 'workflow_run') && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
     steps:
       - uses: actions/checkout@v4
         with:

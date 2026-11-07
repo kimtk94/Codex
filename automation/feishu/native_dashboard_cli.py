@@ -40,7 +40,22 @@ BLOCKS=[
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"}],
         "group_by":[{"field_name":"Week Start","mode":"integrated",
-                     "sort":{"type":"group","order":"asc"}}]})
+                     "sort":{"type":"group","order":"asc"}}]}),
+    ("Weekly Quote · 건수 + 검증금액 K USD","combo",{
+        "table_name":"Weekly Quote KPI",
+        "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
+                  {"field_name":"Verified Quote Value K USD","rollup":"SUM"}],
+        "group_by":[{"field_name":"Week Start","mode":"integrated",
+                     "sort":{"type":"group","order":"asc"}}]}),
+    ("Weekly Quote · 건수 + 검증금액 KRW","combo",{
+        "table_name":"Weekly Quote KPI",
+        "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
+                  {"field_name":"Verified Quote Value KRW FX","rollup":"SUM"}],
+        "group_by":[{"field_name":"Week Start","mode":"integrated",
+                     "sort":{"type":"group","order":"asc"}}]}),
+    ("Quote 금액 검증 기준","text",{
+        "text":"**Quote 복합 그래프** · X축: 주간 승인일(Week Start). 두 지표는 승인 Quote 건수와 금액이 확인된 Quote의 환산금액(KRW 또는 K USD)입니다. 승인 건수에 금액 미확인 견적도 포함되므로 금액은 전체 승인액보다 작을 수 있습니다. Count와 금액은 서로 단위가 다르므로 Feishu 화면 편집에서 시리즈별 좌·우 Y축을 구분할 수 있습니다."})
+
 ]
 
 def cli(*args):

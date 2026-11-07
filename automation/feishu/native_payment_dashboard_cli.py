@@ -12,9 +12,13 @@ from native_dashboard_cli import BASE,TABLE,TITLE,BLOCKS,cli,collect,ident,find_
 
 PAYMENT_TITLE="Novogene 결제 관리 대시보드"
 
+OWNER_FIELD="Payment Owner Scope"
+MINE="MY_VERIFIED"
 def filter_lane(lane):
+    # Fail closed: never show teammates' invoices or unverified sales tags.
     return {"conjunction":"and","conditions":[
-        {"field_name":"Workflow Lane","operator":"is","value":lane}]}
+        {"field_name":"Workflow Lane","operator":"is","value":lane},
+        {"field_name":OWNER_FIELD,"operator":"is","value":MINE}]}
 def filter_and(*conditions):
     return {"conjunction":"and","conditions":list(conditions)}
 def condition(field,operator,value=None):
@@ -30,7 +34,7 @@ for name,typ,config in BLOCKS:
                                    condition("Workflow Lane","is","PRODUCTION_ACTIVE"))
 
 PAYMENT_BLOCKS=[
-    ("결제 업무 안내","text",{"text":"# Novogene · 결제 대시보드\n완료된 프로젝트는 이 화면에서 Invoice·미수금·Receipt를 추적합니다. 결제 완료 건은 운영 목록에서 숨기되 Feishu Base에 보관합니다.\n**결제 완료 판정:** 최신 날짜의 Payment Receipt + CMS Invoice + AMEA/X + VAT 포함 금액/입금일 정확 일치. Outstanding 잔액이 충돌하면 자동 완료하지 않습니다."}),
+    ("결제 업무 안내","text",{"text":"# Novogene · 결제 대시보드\n**내 담당자(Kim Taehoon) 원본 일치 건만 표시합니다.** 완료된 프로젝트는 이 화면에서 Invoice·미수금·Receipt를 추적합니다. 결제 완료 건은 운영 목록에서 숨기되 Feishu Base에 보관합니다.\n**결제 완료 판정:** 최신 날짜의 Payment Receipt + CMS Invoice + AMEA/X + VAT 포함 금액/입금일 정확 일치. Outstanding 잔액이 충돌하면 자동 완료하지 않습니다."}),
     ("결제 확인 대기 프로젝트","statistics",{
         "table_name":TABLE,"count_all":True,
         "filter":filter_lane("PAYMENT_FOLLOWUP")}),
@@ -105,8 +109,19 @@ def main():
     payment,created=ensure_dashboard(PAYMENT_TITLE)
     existing=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",payment)
     created_count=0
+    updated_count=0
     for name,kind,config in PAYMENT_BLOCKS:
-        if find_block(existing,name):continue
+        prior=find_block(existing,name)
+        if prior:
+            if kind!="text":
+                # Existing Payment dashboard was previously all-sales. Always
+                # replace the filter, even on an already-created block.
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",payment,"--block-id",block_id(prior),
+                    "--data-config",json.dumps({"filter":config["filter"]},
+                        ensure_ascii=False,separators=(",",":")))
+                updated_count+=1
+            continue
         cli("+dashboard-block-create","--base-token",BASE,
             "--dashboard-id",payment,"--name",name,"--type",kind,
             "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
@@ -128,7 +143,8 @@ def main():
         updated+=1
     print("FEISHU_PROJECT_PAYMENT_DASHBOARDS_PASS production="+production+
           " payment="+payment+" payment_widgets="+str(len(PAYMENT_BLOCKS))+
-          " created="+str(created_count)+" production_filters="+str(updated)+
+          " created="+str(created_count)+" owner_filters_updated="+str(updated_count)+
+          " production_filters="+str(updated)+
           " source=Feishu_Base source_record_writes=0 VERCEL_REQUIRED=FALSE")
     print("FEISHU_PAYMENT_DASHBOARD_BASE_URL=https://ocnz4cb25scn.feishu.cn/base/"+BASE)
 
