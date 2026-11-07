@@ -18,6 +18,9 @@ class NativePaymentDashboardTests(unittest.TestCase):
       if typ=="text":continue
       conditions=(config.get("filter") or {}).get("conditions") or []
       lane=[c["value"] for c in conditions if c["field_name"]=="Workflow Lane"]
+      owners=[c["value"] for c in conditions if c["field_name"]=="Payment Owner Scope"]
+      self.assertEqual(owners,["MY_VERIFIED"])
+      self.assertEqual(config["filter"]["conjunction"],"and")
       if name=="입금 확인 · 보관 건수":
         self.assertEqual(lane,["PAID_ARCHIVED"])
       else:self.assertEqual(lane,["PAYMENT_FOLLOWUP"])
