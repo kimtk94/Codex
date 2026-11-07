@@ -353,17 +353,17 @@ def salesforce_id15(value):
 
 
 def quote_chart_week_label(week_start):
-    """Use the Monday within the Fri-Thu sales week to label crossover weeks.
+    """Compact MM/DD x-axis label for the Monday of a Fri-Thu sales week.
 
-    Friday 2026-10-30 to Thursday 2026-11-05 -> Nov W1, as in
-    the user-supplied KOREA Count/Value graph.
+    The underlying immutable Week Start/Week End dates remain unchanged.
+    For example, 2026-10-30 to 2026-11-05 displays 11/02.
     """
     try:
         start=dt.date.fromisoformat(week_start)
-        monday=start+dt.timedelta(days=3)
-        if monday.weekday()!=0:
+        if start.weekday()!=4:
             raise ValueError("NOT_FRIDAY_ANCHORED")
-        return monday.strftime("%b")+" W"+str((monday.day-1)//7+1)
+        monday=start+dt.timedelta(days=3)
+        return monday.strftime("%m/%d")
     except ValueError:
         return ""
 
