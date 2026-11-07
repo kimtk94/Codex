@@ -21,6 +21,7 @@ from qq_mail_ingest import auth, api, list_all, SafeError
 from project_progress_board import prepare_project_board
 from project_settlement import EVIDENCE_FIELDS, finalize, counts
 from latest_payment_bridge import build_payment_evidence
+from quote_process_amount import weekly_calculations
 
 EXPECTED_BASE = "IpMkbUD0vaFqtYs93a3csXtdn1b"
 CSS_SHEET = "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
@@ -68,6 +69,9 @@ SCHEMAS = {
         ("Approved Quote Count", 2), ("Created In Week Count", 2),
         ("Verified Amount Quote Count", 2), ("Verified Quote Value KRW FX", 2),
         ("Verified Quote Value M KRW FX", 2), ("Verified Quote Value K USD", 2), ("Unmatched Amount Count", 2),
+        ("Calculated Quote Count", 2), ("Quote Amount Exception Count", 2),
+        ("Calculated Quote Value K USD", 2), ("Calculated Quote Value M KRW FX", 2),
+        ("Quote Calculation Source", 1),
         ("Amount Status", 1), ("Week Status", 1), ("Reporting KRW Per USD", 2),
         ("Evidence", 1), ("Last Sync KST", 1),
     ],
@@ -84,7 +88,11 @@ REQUIRED = {
     "SFDC Quote Export": ("Salesforce Record ID", "IsActive", "Exclude Tax After Discount USD",
                            "CurrencyIsoCode", "Opportunity ID", "Exported At KST"),
     "SFDC Email Opportunities Raw": ("Opportunity ID", "Opportunity Owner"),
-    "SFDC Email Ingest Audit": ("Entity", "Source Received KST", "State"),
+    "SFDC Email Ingest Audit": ("Entity", "Source Received KST", "State",
+                                "Rows", "Unique IDs", "Content SHA256", "Source Kind"),
+    "SFDC Email Quotation Raw": ("SFDC Quotation ID", "Quotation Product ID",
+        "Opportunity ID", "Active", "Unit Price USD", "Process Name: SFDC Process ID",
+        "Sample Quantity"),
     "Feishu Latest Prepayments": ("Project Number", "Quotation Number"),
     "Feishu Latest Receipts": ("CMS No.", "Amount (KRW)", "Deposit Date",
                                "CMS No. [2]", "Amount", "Date",
@@ -162,7 +170,9 @@ def sheet_sources():
         (UNIFIED_SHEET,"Quote Approval Dedup",1600),
         (UNIFIED_SHEET,"SFDC Quote Export",2600),
         (UNIFIED_SHEET,"SFDC Email Opportunities Raw",950),
+        (UNIFIED_SHEET,"SFDC Email Quotation Raw",4500),
         (UNIFIED_SHEET,"SFDC Email Ingest Audit",30),
+        (UNIFIED_SHEET,"Quote Portfolio",2600),
         (UNIFIED_SHEET,"Feishu Latest Prepayments",500),
         (UNIFIED_SHEET,"Feishu Latest Receipts",700),
         (UNIFIED_SHEET,"Feishu Latest Outstanding",500),
@@ -432,6 +442,7 @@ def weekly_rows(source, now=None):
     """Friday-Thursday approval count; only a fresh Quote-object report proves USD."""
     now=now or dt.datetime.now(KST)
     quote_values,proof=_verified_quote_object_source(source,now)
+    calculated,process_info=weekly_calculations(source,now)
     by_week=collections.defaultdict(dict)
     for entry in source.get("Quote Approval Dedup",[]):
         try:
@@ -462,10 +473,26 @@ def weekly_rows(source, now=None):
                   if proof=="QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED" and complete_evidence
                   else [])
         unmatched=max(0,int(count)-len(verified))
+        current=calculated.get(week,{})
+        process_state=process_info["source_state"]
+        process_count=0
+        process_usd=None
+        if process_state!="SOURCE_QQ_REPORT_VERIFIED":
+            calc_status=process_state
+        elif current.get("approval_ids",0)!=int(count):
+            calc_status="WITHHELD_APPROVAL_COUNT_MISMATCH"
+        else:
+            process_count=current["calculated_count"]
+            process_usd=current["candidate_usd"] if process_count else None
+            calc_status=("PROCESS_PRICE_CALCULATED_COMPLETE" if count and process_count==int(count)
+                         else "PROCESS_PRICE_CALCULATED_PARTIAL" if process_count
+                         else "NO_SAFE_PROCESS_QUOTE_PRICE")
         status=(proof if proof!="QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED"
                 else "WITHHELD_APPROVAL_COUNT_MISMATCH" if not complete_evidence
                 else "NO_QUOTE_VALUE" if not verified
                 else "VERIFIED_PARTIAL" if unmatched else "VERIFIED_ALL")
+        if process_state=="SOURCE_QQ_REPORT_VERIFIED" and process_count:
+            status=calc_status  # visible calculation status; verified object proof remains separate
         row={"Source Key":"QUOTE:"+week,"Week Start":week,
              "Week End":cell(item,"week_end"),
              "Approved Quote Count":int(count),
@@ -474,6 +501,11 @@ def weekly_rows(source, now=None):
              "Amount Status":status,
              "Week Status":cell(item,"weekly_basis"),
              "Reporting KRW Per USD":float(fx),
+             "Calculated Quote Count":process_count,
+             "Quote Amount Exception Count":max(0,int(count)-process_count),
+             "Calculated Quote Value K USD":None,
+             "Calculated Quote Value M KRW FX":None,
+             "Quote Calculation Source":calc_status+" / "+process_state,
              "Evidence":"SFDC Weekly Overview + Quote Approval Dedup immutable Salesforce ID; "
                         "money requires fresh Salesforce Quote Object Exclude Tax USD, "
                         "Active, owner and exact count proof. Status: "+status,
@@ -483,6 +515,9 @@ def weekly_rows(source, now=None):
              "Verified Quote Value K USD":None}
         if created is not None:
             row["Created In Week Count"]=int(created)
+        if process_usd is not None:
+            row["Calculated Quote Value K USD"]=scaled_k_usd(process_usd)
+            row["Calculated Quote Value M KRW FX"]=scaled_m_krw(currency(process_usd*fx))
         if verified:
             usd=sum(verified,D(0))
             row["Verified Quote Value KRW FX"]=currency(usd*fx)
@@ -528,6 +563,7 @@ COUNT_FIELD_FORMATS={
     "Weekly Quote KPI":{
         "Approved Quote Count","Created In Week Count",
         "Verified Amount Quote Count","Unmatched Amount Count",
+        "Calculated Quote Count","Quote Amount Exception Count",
     },
     "Monthly Tax Invoice":{"Invoice Count","CSS Source Invoice Count"},
 }
@@ -590,7 +626,10 @@ def ensure_tables(token,root):
                     raise SafeError("METRIC_SCHEMA_TYPE_MISMATCH")
             elif (name=="Project Progress Board" and field_name in allowed) or (
                     name=="Weekly Quote KPI" and field_name in
-                    {"Chart Week Label","Chart Window","Verified Quote Value M KRW FX"}) or (
+                    {"Chart Week Label","Chart Window","Verified Quote Value M KRW FX",
+                     "Calculated Quote Count","Quote Amount Exception Count",
+                     "Calculated Quote Value K USD","Calculated Quote Value M KRW FX",
+                     "Quote Calculation Source"}) or (
                     name=="Monthly Tax Invoice" and field_name in
                     {"Net Revenue M KRW"}):
                 api("POST",p+"/fields",token,
@@ -870,7 +909,7 @@ def main():
     paths=ensure_tables(token,root)
     setup_views(token,paths)
     # Prioritize numeric KPI summaries; SIF backfill progresses across scheduled runs.
-    bounds={"Monthly Tax Invoice":50,"Weekly Quote KPI":75,"Project SIF Monitor":70}
+    bounds={"Monthly Tax Invoice":50,"Weekly Quote KPI":120,"Project SIF Monitor":70}
     total=0
     # Project-by-project web coverage is committed in bounded Feishu batches,
     # so the new view doesn't remain at the legacy 70-project backfill limit.
