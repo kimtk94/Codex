@@ -24,6 +24,7 @@ REQUIRED={
     "Quote Approval Dedup":("Approval KST","Quotation Name","SFDC Record ID"),
     "Quote Portfolio":("Salesforce Quote ID (18)","Quote QID","Quote USD"),
     "SFDC Email Ingest Audit":("Entity","Source Received KST","State"),
+    "SFDC Email Opportunities Raw":("Opportunity ID","Opportunity Owner"),
 }
 QID_RE=re.compile(r"(?<![A-Za-z0-9-])(QID-\d{4}-\d{2}-\d{2}-[A-Za-z0-9]+)(?![A-Za-z0-9-])",re.I)
 ID_RE=re.compile(r"a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?")
@@ -32,6 +33,7 @@ RANGES={
     "Quote Approval Dedup":"A1:Q1600",
     "Quote Portfolio":"A1:I2800",
     "SFDC Email Ingest Audit":"A1:J15",
+    "SFDC Email Opportunities Raw":"A1:O900",
 }
 
 def read_sources():
@@ -134,6 +136,38 @@ def portfolio_index(data):
         if qid and sf:output[qid].append((sf,money(row["Quote USD"])))
     return output
 
+def source_owner_map(opportunities):
+    by_id=collections.defaultdict(set)
+    for row in opportunities:
+        opportunity=row["Opportunity ID"].strip()
+        if opportunity:
+            by_id[opportunity].add(row["Opportunity Owner"].strip())
+    return {opportunity:next(iter(owners)) if len(owners)==1 else None
+            for opportunity,owners in by_id.items()}
+
+def portfolio_unit_check(qidx,portfolio):
+    buckets={"compared":0,"direct_usd_parity":0,"ratio_near_1500":0,"other_ratio":0,"not_comparable":0}
+    old=portfolio_index(portfolio)
+    for qid,entries in old.items():
+        source=qidx.get(qid)
+        distinct={(sf,price) for sf,price in entries}
+        if not source or len(distinct)!=1:
+            buckets["not_comparable"]+=1
+            continue
+        amount=source["amount"]
+        old_amount=next(iter(distinct))[1]
+        if old_amount is None or amount<=0:
+            buckets["not_comparable"]+=1
+            continue
+        buckets["compared"]+=1
+        if abs(old_amount-amount)<=max(Decimal("0.01"),abs(amount)*Decimal("0.001")):
+            buckets["direct_usd_parity"]+=1
+        elif abs(old_amount/amount-Decimal(1500))<=Decimal(75):
+            buckets["ratio_near_1500"]+=1
+        else:
+            buckets["other_ratio"]+=1
+    return buckets
+
 def analyze(data,now=None):
     now=now or dt.datetime.now(KST)
     if now.tzinfo is None:raise ValueError("TIMEZONE_REQUIRED")
@@ -141,9 +175,11 @@ def analyze(data,now=None):
     fresh,age=get_freshness(src["SFDC Email Ingest Audit"],now)
     qidx,qstatus=quote_index(src["SFDC Email Quotation Raw"])
     historic=portfolio_index(src["Quote Portfolio"])
+    owner_by_opp=source_owner_map(src["SFDC Email Opportunities Raw"])
+    unit_check=portfolio_unit_check(qidx,src["Quote Portfolio"])
     four=last_four(now.date())
     statistics=collections.defaultdict(lambda:collections.Counter())
-    amount_totals=collections.defaultdict(lambda:Decimal(0))
+    # Withhold all monetary sums until the USD-vs-FX unit discrepancy is resolved.
     seen=collections.defaultdict(set)
     global_ids=collections.defaultdict(set)
     parity={"old_value_compared":0,"old_value_equal":0,"old_value_conflicts":0}
@@ -177,6 +213,13 @@ def analyze(data,now=None):
             stat["report_inactive"]+=1
             continue
         stat["report_active"]+=1
+        owner=owner_by_opp.get(candidate["opportunity"])
+        if owner is None or not owner:
+            stat["owner_unresolved"]+=1
+        elif owner=="Kim Taehoon":
+            stat["my_owner_verified"]+=1
+        else:
+            stat["other_sales_owner_verified"]+=1
         old=historic.get(qid,[])
         old_distinct={(rid,price) for rid,price in old}
         # A historic QID crosswalk is independent evidence tying QID to SF record ID.
@@ -194,18 +237,18 @@ def analyze(data,now=None):
         else:
             stat["qid_only_no_historic_sf_crosswalk"]+=1
         if fresh and historic_id:
-            stat["fresh_active_record_id_verified"]+=1
-            amount_totals[week]+=candidate["amount"]
+            stat["fresh_active_record_id_crosswalk"]+=1
         elif fresh:
             stat["fresh_active_qid_candidate_only"]+=1
     for qid,identities in global_ids.items():
         if len(identities)>1:
             for week in statistics:
-                statistics[week]["qid_to_sf_id_conflicts"]+=1
+                if qid in seen[week]:
+                    statistics[week]["qid_to_sf_id_conflicts"]+=1
     week_rows=[]
     for week in sorted(four):
         row={"week_start":week,**statistics[week]}
-        row["verified_crosswalk_k_usd"]=str((amount_totals[week]/1000).quantize(Decimal("0.0001")))
+        row["amount_display"]="WITHHELD_UNIT_PARITY"
         week_rows.append(row)
     block=[]
     if not fresh:block.append("3REPORT_QUOTATION_SNAPSHOT_STALE")
@@ -215,10 +258,14 @@ def analyze(data,now=None):
             r.get("qid_missing_or_inconsistent_in_3report",0)+
             r.get("no_unique_qid_in_name",0)+r.get("report_inactive",0)) for r in week_rows):
         block.append("SOME_APPROVALS_NOT_FULLY_RECONCILED")
-    block.append("SALES_OWNER_SCOPE_NOT_VERIFIED")
+    if any(r.get("owner_unresolved",0)+r.get("other_sales_owner_verified",0) for r in week_rows):
+        block.append("OWNER_SCOPE_REVIEW_REQUIRED")
+    if unit_check["ratio_near_1500"] or unit_check["other_ratio"]:
+        block.append("SOURCE_AMOUNT_UNIT_CONFLICT")
     return {"status":"HOLD" if block else "PASS",
             "source_age_hours":age,"fresh":fresh,"product_rows":len(src["SFDC Email Quotation Raw"]),
-            "quote_index":qstatus,"historic_overlap":parity,"four_weeks":week_rows,
+            "quote_index":qstatus,"historic_overlap":parity,
+            "portfolio_unit_check":unit_check,"four_weeks":week_rows,
             "blockers":block,
             "note":"A crosswalk amount is quote-level once only. Counts are not owner-verified; do not promote to revenue."}
 
@@ -228,19 +275,21 @@ def markdown(r):
       str(r["source_age_hours"])+" hours; product rows "+
       str(r["product_rows"])+"; unique QIDs "+
       str(r["quote_index"]["unique_qids"])+".", "",
-      "| Week | Approval evidence | QID extracted | Exact QID match | Active | SF ID crosswalk | QID-only | Crosswalk K USD |",
-      "|---|---:|---:|---:|---:|---:|---:|---:|"]
+      "| Week | Approval evidence | QID matched | Active | My owner | Owner unknown | SF ID crosswalk | QID-only | Amount |",
+      "|---|---:|---:|---:|---:|---:|---:|---:|---|"]
     for x in r["four_weeks"]:
         output.append("| "+x["week_start"]+" | "+
            str(x.get("approval_evidence_rows",0))+" | "+
-           str(x.get("qid_extracted",0))+" | "+
            str(x.get("qid_exact_report_match",0))+" | "+
            str(x.get("report_active",0))+" | "+
+           str(x.get("my_owner_verified",0))+" | "+
+           str(x.get("owner_unresolved",0))+" | "+
            str(x.get("historic_record_id_confirmed",0))+" | "+
            str(x.get("qid_only_no_historic_sf_crosswalk",0))+" | "+
-           x["verified_crosswalk_k_usd"]+" |")
+           x["amount_display"]+" |")
     output+=["","Historic amount cross-check: "+json.dumps(r["historic_overlap"],sort_keys=True),
        "Product-row QID consistency: "+json.dumps(r["quote_index"],sort_keys=True),
+       "Portfolio price unit check: "+json.dumps(r["portfolio_unit_check"],sort_keys=True),
        "Blockers: "+", ".join(r["blockers"]), "",
        "No customer data, quote IDs, opportunity IDs or product rows are exposed. "
        "Candidate USD amounts are NOT monthly Revenue or finalized owner-scoped Quote KPIs."]
