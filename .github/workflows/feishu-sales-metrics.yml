@@ -10,6 +10,8 @@ on:
       - 'automation/feishu/test_project_progress_board.py'
       - 'automation/feishu/test_sales_metrics_sync.py'
       - 'automation/feishu/quote_process_amount.py'
+      - 'automation/sfdc/source_freshness_guard.py'
+      - 'automation/sfdc/test_source_freshness_guard.py'
       - 'automation/feishu/test_quote_process_amount.py'
       - '.github/workflows/feishu-sales-metrics.yml'
   push:
@@ -23,6 +25,8 @@ on:
       - 'automation/feishu/test_project_progress_board.py'
       - 'automation/feishu/test_sales_metrics_sync.py'
       - 'automation/feishu/quote_process_amount.py'
+      - 'automation/sfdc/source_freshness_guard.py'
+      - 'automation/sfdc/test_source_freshness_guard.py'
       - 'automation/feishu/test_quote_process_amount.py'
       - '.github/workflows/feishu-sales-metrics.yml'
   workflow_dispatch:
@@ -32,6 +36,10 @@ on:
         type: choice
         options: [plan, apply]
         default: plan
+  workflow_run:
+    workflows: ['SFDC Three Report Mail Digestion']
+    types: [completed]
+    branches: [main]
   schedule:
     - cron: '27 0,3,6,9,12,15,18,21 * * *'
 permissions:
@@ -52,6 +60,7 @@ jobs:
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Test SIF evidence, invoice VAT and weekly quotes
         run: |
+          python3 -m unittest discover -s automation/sfdc -p 'test_source_freshness_guard.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_progress_board.py' -v
@@ -60,7 +69,7 @@ jobs:
         run: python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/quote_process_amount.py automation/feishu/project_progress_board.py automation/feishu/project_settlement.py automation/feishu/latest_payment_bridge.py
   sync:
     needs: tests
-    if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' }}
+    if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 28
@@ -69,7 +78,7 @@ jobs:
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
-      FEISHU_METRIC_MODE: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_METRIC_MODE: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -77,5 +86,7 @@ jobs:
           python-version: '3.11'
       - name: Install Google Sheets read dependencies
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Gate all Feishu KPI writes on current 09/12/17 SFDC source
+        run: python3 automation/sfdc/source_freshness_guard.py
       - name: Sync source-verified KPIs to new Feishu Sales Base
         run: python3 automation/feishu/sales_metrics_sync.py
