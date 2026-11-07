@@ -137,7 +137,7 @@ class MetricsTests(unittest.TestCase):
              mock.patch.object(m,"list_all",return_value=updated):
             m.ensure_integer_field_display("tok","/tables/t",
                                            "Weekly Quote KPI",fields)
-        self.assertEqual(len(calls),4)
+        self.assertEqual(len(calls),len(m.COUNT_FIELD_FORMATS['Weekly Quote KPI']))
         self.assertTrue(all(c[0]=="PUT" and
                             c[2]["property"]=={"formatter":"0"}
                             for c in calls))
