@@ -37,7 +37,6 @@ BLOCKS=[
                   {"field_name":"Net Revenue K USD","rollup":"SUM"}],
         "group_by":[{"field_name":"Month","mode":"integrated",
                      "sort":{"type":"group","order":"asc"}}]}),
-    ("Quote 계산 기준","text",{"text":"**승인 Quote 건수:** 최신 승인 증거(QID/SFDC Record ID) 기준. **계산액 (K USD):** SFDC 3종 Report 공정별 Unit Price USD × Sample Quantity 합계 중 Active, 담당자 Kim Taehoon, 중복 차단, 과거 금액 검증 등을 통과한 건만 반영합니다. 아직 확인되지 않은 견적은 제외·예외 건수로 남으며 0원 처리하지 않습니다. **M KRW**는 보고용 환율에 따른 환산 참고액으로 Weekly Quote KPI에서 확인할 수 있습니다. Quote 계산액은 확정 매출·VAT 제외 Revenue·실제 Tax Invoice가 아닙니다."}),
     ("월별 Revenue 표시 기준","text",{
         "text":"**월별 Revenue: M KRW (K USD)** — VAT 제외 실적만 집계합니다. 원화는 백만원(M KRW), 달러는 천 달러(K USD) 환산 표시입니다. 두 금액은 같은 매출을 서로 다른 통화로 표현하며 합산하면 안 됩니다. K USD는 보고용 환율(기본값 1 USD = 1,500 KRW)을 기준으로 환산한 참고값입니다. 실제 청구 통화/회계 환율과 동일하다는 뜻은 아닙니다."}),
     ("KOREA · Weekly Quote · 최근 4주 (Count + 계산 K USD)","combo",{
