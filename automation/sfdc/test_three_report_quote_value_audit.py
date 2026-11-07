@@ -20,6 +20,8 @@ def fixture():
      "Quote Portfolio":[["Salesforce Quote ID (18)","Quote QID","Quote USD"],[SF,QID,"374"]],
      "SFDC Email Ingest Audit":[["Entity","Source Received KST","State"],
                                 ["Quotation","2026-11-07 12:00:07 KST","STAGED_NOT_PROMOTED"]],
+     "SFDC Email Opportunities Raw":[["Opportunity ID","Opportunity Owner"],
+                                     ["006OPP","Kim Taehoon"]],
     }
 
 class QuoteValueTests(unittest.TestCase):
@@ -32,9 +34,11 @@ class QuoteValueTests(unittest.TestCase):
         self.assertEqual(x["approval_evidence_rows"],1)
         self.assertEqual(x["qid_exact_report_match"],1)
         self.assertEqual(x["historic_record_id_confirmed"],1)
-        self.assertEqual(x["verified_crosswalk_k_usd"],"0.3740")
+        self.assertEqual(x["my_owner_verified"],1)
+        self.assertEqual(x["amount_display"],"WITHHELD_UNIT_PARITY")
         self.assertEqual(report["historic_overlap"]["old_value_equal"],1)
-        self.assertIn("SALES_OWNER_SCOPE_NOT_VERIFIED",report["blockers"])
+        self.assertEqual(report["portfolio_unit_check"]["direct_usd_parity"],1)
+        self.assertNotIn("OWNER_SCOPE_REVIEW_REQUIRED",report["blockers"])
         self.assertNotIn(QID,m.markdown(report))
         self.assertNotIn(SF,m.markdown(report))
     def test_inconsistent_product_values_are_not_added(self):
@@ -43,14 +47,14 @@ class QuoteValueTests(unittest.TestCase):
         r=m.analyze(data,now=NOW)
         self.assertEqual(r["quote_index"]["valid_qids"],0)
         self.assertIn("QUOTE_PRODUCT_ROW_INCONSISTENCIES",r["blockers"])
-        self.assertEqual(r["four_weeks"][-1]["verified_crosswalk_k_usd"],"0.0000")
+        self.assertEqual(r["four_weeks"][-1]["amount_display"],"WITHHELD_UNIT_PARITY")
     def test_unmatched_historic_sf_crosswalk_cannot_promote(self):
         data=fixture()
         data["Quote Portfolio"]=[data["Quote Portfolio"][0]]
         r=m.analyze(data,now=NOW)
         x=r["four_weeks"][-1]
         self.assertEqual(x["fresh_active_qid_candidate_only"],1)
-        self.assertEqual(x["verified_crosswalk_k_usd"],"0.0000")
+        self.assertEqual(x["amount_display"],"WITHHELD_UNIT_PARITY")
     def test_stale_report_and_wrong_active_are_blocked(self):
         data=fixture()
         data["SFDC Email Ingest Audit"][1][1]="2026-10-24 10:00:00 KST"
@@ -66,6 +70,25 @@ class QuoteValueTests(unittest.TestCase):
         r=m.analyze(data,now=NOW)
         self.assertEqual(r["historic_overlap"]["old_value_conflicts"],1)
         self.assertIn("HISTORIC_PRICE_PARITY_MISMATCH",r["blockers"])
+    def test_owner_must_match_exact_verified_opportunity(self):
+        data=fixture()
+        data["SFDC Email Opportunities Raw"][1][1]="Other Sales Owner"
+        result=m.analyze(data,now=NOW)
+        latest=result["four_weeks"][-1]
+        self.assertEqual(latest["my_owner_verified"],0)
+        self.assertEqual(latest["other_sales_owner_verified"],1)
+        self.assertIn("OWNER_SCOPE_REVIEW_REQUIRED",result["blockers"])
+        data["SFDC Email Opportunities Raw"][1][1]="Kim Taehoon"
+        data["SFDC Email Opportunities Raw"][1][0]="DIFFERENT_OPP"
+        result=m.analyze(data,now=NOW)
+        self.assertEqual(result["four_weeks"][-1]["owner_unresolved"],1)
+    def test_ratio_1500_detected_but_not_applied_as_usd(self):
+        data=fixture()
+        data["Quote Portfolio"][1][2]="561000"  # 374 * 1500, no unit proof
+        result=m.analyze(data,now=NOW)
+        self.assertEqual(result["portfolio_unit_check"]["ratio_near_1500"],1)
+        self.assertIn("SOURCE_AMOUNT_UNIT_CONFLICT",result["blockers"])
+        self.assertEqual(result["four_weeks"][-1]["amount_display"],"WITHHELD_UNIT_PARITY")
     def test_qid_requires_one_precise_identifier(self):
         self.assertEqual(m.single_qid("Quotation "+QID+" complete"),QID)
         self.assertIsNone(m.single_qid("Missing QID"))
