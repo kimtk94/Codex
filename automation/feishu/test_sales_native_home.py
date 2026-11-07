@@ -10,6 +10,9 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(len(keys),len(set(keys)))
         self.assertTrue(all(len(x)==7 for x in p.MENUS))
         self.assertFalse(any("vercel" in str(x).lower() for x in p.MENUS))
+        self.assertEqual(len(p.PINNED_KEYS),12)
+        self.assertIn("PAYMENT_FOLLOWUP",p.PINNED_KEYS)
+        self.assertTrue(p.PINNED_KEYS.issubset(set(keys)))
 
     def test_link_and_empty_source(self):
         tables={"QQ Mail Intake":"tblMAIL","Contacts":"tblCUSTOMER"}
@@ -22,6 +25,8 @@ class PortalTests(unittest.TestCase):
             self.assertEqual(rows["MAIL_CURRENT"]["데이터 상태"],"DATA_PRESENT")
             self.assertIn("&view=v1",rows["MAIL_CURRENT"]["바로가기 URL"])
             self.assertEqual(rows["CONTACTS"]["데이터 상태"],"SOURCE_EMPTY")
+            self.assertEqual(rows["MAIL_CURRENT"]["표시"],p.CURATED_DISPLAY)
+            self.assertEqual(rows["CONTACTS"]["표시"],p.ARCHIVE_DISPLAY)
             self.assertEqual(rows["PROJECT_MAIL"]["데이터 상태"],"SOURCE_TABLE_NOT_READY")
             self.assertEqual(api.call_count,2)
 
