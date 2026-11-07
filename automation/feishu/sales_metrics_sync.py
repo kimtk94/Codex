@@ -64,6 +64,7 @@ SCHEMAS = {
     ],
     "Weekly Quote KPI": [
         ("Source Key", 1), ("Week Start", 1), ("Week End", 1),
+        ("Chart Week Label", 1), ("Chart Window", 1),
         ("Approved Quote Count", 2), ("Created In Week Count", 2),
         ("Verified Amount Quote Count", 2), ("Verified Quote Value KRW FX", 2),
         ("Verified Quote Value K USD", 2), ("Unmatched Amount Count", 2),
@@ -336,6 +337,22 @@ def salesforce_id15(value):
     return ""
 
 
+def quote_chart_week_label(week_start):
+    """Use the Monday within the Fri-Thu sales week to label crossover weeks.
+
+    Friday 2026-10-30 to Thursday 2026-11-05 -> Nov W1, as in
+    the user-supplied KOREA Count/Value graph.
+    """
+    try:
+        start=dt.date.fromisoformat(week_start)
+        monday=start+dt.timedelta(days=3)
+        if monday.weekday()!=0:
+            raise ValueError("NOT_FRIDAY_ANCHORED")
+        return monday.strftime("%b")+" W"+str((monday.day-1)//7+1)
+    except ValueError:
+        return ""
+
+
 def weekly_rows(source):
     # Strict immutable Salesforce record-ID join. Quotation ID may refer to
     # an AMEA project instead of SFDC's QID and must not be force-matched.
@@ -395,6 +412,18 @@ def weekly_rows(source):
             row["Verified Quote Value K USD"]=round(float(usd/D(1000)),4)
         output[week]=row
     if not output:raise SafeError("WEEKLY_NO_VALID_SOURCE")
+    # The screenshot compares four complete weekly periods. In-progress
+    # periods remain in the Base but are excluded from this chart.
+    completed=sorted((
+        week for week,row in output.items()
+        if "IN_PROGRESS" not in row["Week Status"].upper()
+    ),reverse=True)[:4]
+    included=set(completed)
+    for week,row in output.items():
+        row["Chart Week Label"]=quote_chart_week_label(week)
+        row["Chart Window"]="RECENT_4_COMPLETED" if week in included else "HISTORY"
+        if not row["Chart Week Label"]:
+            raise SafeError("WEEKLY_CHART_INVALID_START")
     return [output[k] for k in sorted(output,reverse=True)]
 
 
@@ -447,7 +476,9 @@ def ensure_tables(token,root):
             if field_name in names:
                 if names[field_name]!=field_type:
                     raise SafeError("METRIC_SCHEMA_TYPE_MISMATCH")
-            elif name=="Project Progress Board" and field_name in allowed:
+            elif (name=="Project Progress Board" and field_name in allowed) or (
+                    name=="Weekly Quote KPI" and field_name in
+                    {"Chart Week Label","Chart Window"}):
                 api("POST",p+"/fields",token,
                     data={"field_name":field_name,"type":field_type},
                     action="metric_project_payment_field_add")
