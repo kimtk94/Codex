@@ -280,6 +280,12 @@ def scaled_m_krw(value):
     return int(n) if n==n.to_integral_value() else float(n)
 
 
+def scaled_k_usd(value):
+    """Display-only K USD, integer when exactly whole K."""
+    n=(D(str(value))/D("1000")).quantize(D("0.0001"))
+    return int(n) if n==n.to_integral_value() else float(n)
+
+
 def monthly_rows(source,fx=D("1500")):
     official={}
     invalid=0
@@ -322,7 +328,7 @@ def monthly_rows(source,fx=D("1500")):
              "Invoice Count":stat["count"],"Tax Invoice KRW Incl VAT":gross,
              "Net Revenue KRW Ex VAT":net,
              "Net Revenue M KRW":scaled_m_krw(net),
-             "Net Revenue K USD":round(float(D(net)/fx/D(1000)),4),
+             "Net Revenue K USD":scaled_k_usd(D(net)/fx),
              "Coverage Status":state,
              "Evidence":"Unified Revenue Invoice Base; deduplicated by Invoice No; excludes VAT for net. Independent CSS month cross-check."}
         if other is not None:
@@ -419,7 +425,7 @@ def weekly_rows(source):
             usd=sum(verified,D(0))
             row["Verified Quote Value KRW FX"]=currency(usd*fx)
             row["Verified Quote Value M KRW FX"]=scaled_m_krw(currency(usd*fx))
-            row["Verified Quote Value K USD"]=round(float(usd/D(1000)),4)
+            row["Verified Quote Value K USD"]=scaled_k_usd(usd)
         output[week]=row
     if not output:raise SafeError("WEEKLY_NO_VALID_SOURCE")
     # The screenshot compares four complete weekly periods. In-progress
