@@ -72,12 +72,12 @@ def verified_full_payment(evidence):
     automatic=(status=="SOURCE_EXACT_VERIFIED" and
         source=="FEISHU_LATEST_PAYMENT_RECEIPT" and
         cell(evidence,"Receipt Verified By")=="AUTO_FEISHU_EXACT_CMS_AMOUNT" and
-        all(re.fullmatch(r"20\\d\\d-\\d\\d-\\d\\d",cell(evidence,k))
+        all(re.fullmatch(r"20\d\d-\d\d-\d\d",cell(evidence,k))
             for k in ("Receipt Source Snapshot Date","Outstanding Source Snapshot Date")))
     if not manual and not automatic:return False
     strings=("Payment Invoice No","Bank Receipt Reference","Receipt Verified At","Receipt Verified By")
     if any(not cell(evidence,k) for k in strings):return False
-    if not re.fullmatch(r"20\\d\\d-\\d\\d-\\d\\d",cell(evidence,"Receipt Verified At")):
+    if not re.fullmatch(r"20\d\d-\d\d-\d\d",cell(evidence,"Receipt Verified At")):
         return False
     invoice=parsed_amount(cell(evidence,"Verified Invoice KRW"))
     received=parsed_amount(cell(evidence,"Verified Received KRW"))
