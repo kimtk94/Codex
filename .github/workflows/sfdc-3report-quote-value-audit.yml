@@ -1,0 +1,55 @@
+name: SFDC 3Report Quote Value Bridge Audit (read-only)
+on:
+  pull_request:
+    paths:
+      - 'automation/sfdc/three_report_quote_value_audit.py'
+      - 'automation/sfdc/test_three_report_quote_value_audit.py'
+      - '.github/workflows/sfdc-3report-quote-value-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/sfdc/three_report_quote_value_audit.py'
+      - 'automation/sfdc/test_three_report_quote_value_audit.py'
+      - '.github/workflows/sfdc-3report-quote-value-audit.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '50 3,8 * * *' # 12:50 and 17:50 Asia/Seoul
+permissions:
+  contents: read
+concurrency:
+  group: sfdc-3report-quote-value-audit
+  cancel-in-progress: false
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test exact QID, quote-level value and Active safeguards
+        run: |
+          python3 automation/sfdc/test_three_report_quote_value_audit.py
+          python3 -m py_compile automation/sfdc/three_report_quote_value_audit.py
+  live-readonly:
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 7
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Sheets auth client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Audit fresh Quotation QID Active and quote-level USD crosswalk
+        run: python3 automation/sfdc/three_report_quote_value_audit.py
