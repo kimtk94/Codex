@@ -62,9 +62,13 @@ class XExceptionTriageTests(unittest.TestCase):
         found,basis=latest_dated_note("2026-10-21 completed",ASOF)
         self.assertEqual(found,dt.date(2026,10,21))
         self.assertEqual(basis,"EXPLICIT_DATE_IN_NARRATIVE")
-    def test_future_month_uses_last_year_only_as_inference(self):
-        found,basis=latest_dated_note("12.12-older note",ASOF)
-        self.assertEqual(found,dt.date(2025,12,12))
+    def test_future_date_is_not_misrepresented_as_last_year(self):
+        found,basis=latest_dated_note("12.12-upcoming possible milestone",ASOF)
+        self.assertIsNone(found)
+        self.assertEqual(basis,"NO_DATED_EVENT")
+        found,basis=latest_dated_note("12.29 previous year",
+                                      dt.date(2026,1,7))
+        self.assertEqual(found,dt.date(2025,12,29))
         self.assertEqual(basis,"YEAR_INFERRED_FROM_SNAPSHOT")
     def test_empty_tat_never_assumed_zero(self):
         self.assertIsNone(parse_remaining(""))
