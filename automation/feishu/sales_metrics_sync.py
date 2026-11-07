@@ -46,7 +46,8 @@ SCHEMAS = {
         ("Evidence", 1), ("Project Display Name", 1),
         ("Completion Evidence", 1), ("Workflow Lane", 1),
         ("Payment State", 1), ("Payment Owner Scope", 1), ("Invoice Gross KRW", 2),
-        ("Outstanding Balance KRW", 2),
+        ("Invoice Gross M KRW", 2),
+        ("Outstanding Balance KRW", 2), ("Outstanding Balance M KRW", 2),
         ("Payment Invoice No", 1), ("Bank Receipt Reference", 1),
         ("Verified Invoice KRW", 2), ("Verified Received KRW", 2),
         ("Receipt Verified At", 1), ("Receipt Verified By", 1),
@@ -58,6 +59,7 @@ SCHEMAS = {
     "Monthly Tax Invoice": [
         ("Source Key", 1), ("Month", 1), ("Invoice Count", 2),
         ("Tax Invoice KRW Incl VAT", 2), ("Net Revenue KRW Ex VAT", 2),
+        ("Tax Invoice M KRW Incl VAT", 2), ("Net Revenue M KRW Ex VAT", 2),
         ("Net Revenue K USD", 2), ("CSS Source Invoice Count", 2),
         ("CSS Source KRW Incl VAT", 2), ("Source Difference KRW", 2),
         ("Coverage Status", 1), ("Evidence", 1), ("Last Sync KST", 1),
@@ -67,7 +69,8 @@ SCHEMAS = {
         ("Chart Week Label", 1), ("Chart Window", 1),
         ("Approved Quote Count", 2), ("Created In Week Count", 2),
         ("Verified Amount Quote Count", 2), ("Verified Quote Value KRW FX", 2),
-        ("Verified Quote Value K USD", 2), ("Unmatched Amount Count", 2),
+        ("Verified Quote Value K USD", 2), ("Verified Quote Value M KRW", 2),
+        ("Unmatched Amount Count", 2),
         ("Amount Status", 1), ("Week Status", 1), ("Reporting KRW Per USD", 2),
         ("Evidence", 1), ("Last Sync KST", 1),
     ],
@@ -314,6 +317,8 @@ def monthly_rows(source,fx=D("1500")):
         row={"Source Key":"INVOICE:"+month,"Month":month,
              "Invoice Count":stat["count"],"Tax Invoice KRW Incl VAT":gross,
              "Net Revenue KRW Ex VAT":net,"Net Revenue K USD":round(float(D(net)/fx/D(1000)),4),
+              "Tax Invoice M KRW Incl VAT":round(float(D(gross)/D(1000000)),4),
+              "Net Revenue M KRW Ex VAT":round(float(D(net)/D(1000000)),4),
              "Coverage Status":state,
              "Evidence":"Unified Revenue Invoice Base; deduplicated by Invoice No; excludes VAT for net. Independent CSS month cross-check."}
         if other is not None:
@@ -410,6 +415,7 @@ def weekly_rows(source):
             usd=sum(verified,D(0))
             row["Verified Quote Value KRW FX"]=currency(usd*fx)
             row["Verified Quote Value K USD"]=round(float(usd/D(1000)),4)
+            row["Verified Quote Value M KRW"]=round(float(usd*fx/D(1000000)),4)
         output[week]=row
     if not output:raise SafeError("WEEKLY_NO_VALID_SOURCE")
     # The screenshot compares four complete weekly periods. In-progress
@@ -470,6 +476,7 @@ def ensure_tables(token,root):
         allowed={
             "Project Display Name","Completion Evidence",
             "Workflow Lane","Payment State","Payment Owner Scope","Progress Phase","Invoice Gross KRW",
+            "Invoice Gross M KRW","Outstanding Balance M KRW",
             "Outstanding Balance KRW",*EVIDENCE_FIELDS,
         }
         for field_name,field_type in spec:
@@ -478,7 +485,9 @@ def ensure_tables(token,root):
                     raise SafeError("METRIC_SCHEMA_TYPE_MISMATCH")
             elif (name=="Project Progress Board" and field_name in allowed) or (
                     name=="Weekly Quote KPI" and field_name in
-                    {"Chart Week Label","Chart Window"}):
+                    {"Chart Week Label","Chart Window","Verified Quote Value M KRW"}) or (
+                    name=="Monthly Tax Invoice" and field_name in
+                    {"Tax Invoice M KRW Incl VAT","Net Revenue M KRW Ex VAT"}):
                 api("POST",p+"/fields",token,
                     data={"field_name":field_name,"type":field_type},
                     action="metric_project_payment_field_add")
@@ -550,6 +559,12 @@ def sync_board_table(token,path,desired,payment_matches=None,billing_context=Non
             billing=billing_context.get(pid)
             if billing:
                 row.update(billing)
+                for raw_field,m_field in (
+                    ("Invoice Gross KRW","Invoice Gross M KRW"),
+                    ("Outstanding Balance KRW","Outstanding Balance M KRW")):
+                    value=billing.get(raw_field)
+                    if isinstance(value,(int,float)) and not isinstance(value,bool):
+                        row[m_field]=round(value/1000000,4)
             # Never overwrite a manually verified bank/ERP receipt with an
             # automatically matched spreadsheet receipt.
             manual=(raw_value(original.get("Receipt Verification Status"))=="VERIFIED"
