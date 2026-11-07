@@ -143,7 +143,8 @@ class MetricsTests(unittest.TestCase):
                             for c in calls))
         self.assertTrue(all("Value" not in c[2]["field_name"]
                             for c in calls))
-        with mock.patch.object(m,"api") as mutate:
+        with mock.patch.object(m,"api") as mutate, \
+             mock.patch.object(m,"list_all",return_value=updated):
             m.ensure_integer_field_display("tok","/tables/t",
                 "Weekly Quote KPI",updated)
             mutate.assert_not_called()
