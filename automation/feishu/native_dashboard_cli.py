@@ -232,6 +232,14 @@ def main():
                     "--data-config",json.dumps({"filter":config["filter"]},
                         ensure_ascii=False,separators=(",",":")))
                 updated+=1
+            elif config.get("table_name")=="Monthly Tax Invoice" and info:
+                # Source now exposes display-only M KRW; update the existing
+                # chart series without deleting or duplicating the chart.
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",dashboard_id,"--block-id",info,
+                    "--data-config",json.dumps({"series":config["series"]},
+                        ensure_ascii=False,separators=(",",":")))
+                updated+=1
             continue
         cli("+dashboard-block-create","--base-token",BASE,"--dashboard-id",dashboard_id,
             "--name",name,"--type",kind,
