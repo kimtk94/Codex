@@ -12,11 +12,16 @@ from decimal import Decimal, InvalidOperation
 
 FRESHNESS_HOURS=72
 PAYMENT_SOURCES=("Payment Receipt","Payment Outstanding","eTax Invoice")
+# Exact sales ledger label; never include another salesperson via fuzzy name.
+PERSONAL_SALES_LABEL="Kim Taehoon"
+OWNER_MATCH="MY_VERIFIED"
+OWNER_OTHER="OTHER_SALES"
+OWNER_REVIEW="OWNER_UNVERIFIED"
 REQUIRED_RECEIPTS={"Deposit Date","Amount (KRW)","CMS No.",
                    "Date","Amount","CMS No. [2]",
                    "Date [2]","Amount [2]","CMS No. [3]"}
-REQUIRED_INVOICE={"CMS Invoice Num","Quotation Number","Project Number","Amount"}
-REQUIRED_OUT={"CMS Invoice Number","Quotation Number","Project Number","Invoice Amount","Balance"}
+REQUIRED_INVOICE={"CMS Invoice Num","Quotation Number","Project Number","Amount","Sales"}
+REQUIRED_OUT={"CMS Invoice Number","Quotation Number","Project Number","Invoice Amount","Balance","Sales"}
 INVOICE_RE=re.compile(r"\d{10,15}\Z")
 AMEA_RE=re.compile(r"AMEA\d{10}\Z")
 X_RE=re.compile(r"X\d+SC\d+(?:-Z\d+)?\Z")
@@ -71,13 +76,31 @@ def source_dates(manifest,now=None):
     if set(dates)!=set(PAYMENT_SOURCES):raise ValueError("PAYMENT_SOURCE_MANIFEST_INCOMPLETE")
     return dates
 
+def exact_sales_name(name):
+    # Whitespace variation only, no substring or ambiguous nickname matching.
+    return " ".join(str(name or "").split()).casefold()
+
+def invoice_owner(invoices):
+    if not invoices:return OWNER_REVIEW
+    owners=set()
+    for invoice in invoices:
+        invoice_owners=invoice["owners"]
+        if not invoice_owners:return OWNER_REVIEW
+        owners.update(invoice_owners)
+    if owners=={exact_sales_name(PERSONAL_SALES_LABEL)}:
+        return OWNER_MATCH
+    if exact_sales_name(PERSONAL_SALES_LABEL) in owners:
+        return OWNER_REVIEW
+    return OWNER_OTHER
+
+
 def invoice_map(etax,outstanding):
     """Use official CMS+AMEA+X+VAT-gross exact linkage, never customer names."""
     ensure_headers(etax,REQUIRED_INVOICE,"ETAX")
     ensure_headers(outstanding,REQUIRED_OUT,"OUTSTANDING")
     by_number={}
     conflicts=set()
-    def insert(no,amea,x,amount,source,balance=None):
+    def insert(no,amea,x,amount,source,sales,balance=None):
         if not (INVOICE_RE.fullmatch(no) and AMEA_RE.fullmatch(amea)
                 and X_RE.fullmatch(x) and amount is not None):
             return
@@ -88,17 +111,23 @@ def invoice_map(etax,outstanding):
             return
         if prev is None:
             by_number[no]={"project":amea,"x":x,"amount":amount,
-                           "sources":set(),"balance":None}
+                           "sources":set(),"owners":set(),"balance":None}
+        if not exact_sales_name(sales):
+            # Unknown ownership remains review-only, even if a different
+            # source happens to have a sales tag.
+            by_number[no]["owner_incomplete"]=True
+        else:by_number[no]["owners"].add(exact_sales_name(sales))
         by_number[no]["sources"].add(source)
         if balance is not None:
             by_number[no]["balance"]=balance
     for r in etax:
         insert(norm(r,"CMS Invoice Num"),norm(r,"Quotation Number").upper(),
-               norm(r,"Project Number").upper(),money(norm(r,"Amount"),True),"ETAX")
+               norm(r,"Project Number").upper(),money(norm(r,"Amount"),True),
+               "ETAX",norm(r,"Sales"))
     for r in outstanding:
         insert(norm(r,"CMS Invoice Number"),norm(r,"Quotation Number").upper(),
                norm(r,"Project Number").upper(),money(norm(r,"Invoice Amount"),True),
-               "OUTSTANDING",money(norm(r,"Balance")))
+               "OUTSTANDING",norm(r,"Sales"),money(norm(r,"Balance")))
     for no in conflicts:by_number.pop(no,None)
     return by_number,conflicts
 
@@ -146,6 +175,9 @@ def build_payment_evidence(sources,manifest,now=None):
     matched={}
     billing={}
     diagnostics={"projects_with_invoices":len(groups),
+                 "my_verified_invoice_projects":0,
+                 "other_sales_invoice_projects":0,
+                 "owner_review_projects":0,
                  "projects_source_receipt_complete":0,
                  "invoice_conflicts":len(invoice_conflicts),
                  "receipt_ambiguities":len(receipt_conflicts),
@@ -166,7 +198,14 @@ def build_payment_evidence(sources,manifest,now=None):
         # dated Outstanding snapshot, not zero or paid by inference.
         current_balances=[inv["balance"] for _,inv,_,_,_ in checks]
         gross_total=sum((inv["amount"] for _,inv,_,_,_ in checks),Decimal("0"))
+        owner=invoice_owner([inv for _,inv in items])
+        if any(inv.get("owner_incomplete") for _,inv in items):
+            owner=OWNER_REVIEW
+        if owner==OWNER_MATCH:diagnostics["my_verified_invoice_projects"]+=1
+        elif owner==OWNER_OTHER:diagnostics["other_sales_invoice_projects"]+=1
+        else:diagnostics["owner_review_projects"]+=1
         billing[pid]={
+            "Payment Owner Scope":owner,
             "Payment Invoice No":";".join(sorted(no for no,_,_,_,_ in checks)),
             "Invoice Gross KRW":int(gross_total),
             "Outstanding Source Snapshot Date":dates["Payment Outstanding"],
