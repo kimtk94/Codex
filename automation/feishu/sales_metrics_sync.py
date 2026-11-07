@@ -45,7 +45,7 @@ SCHEMAS = {
         ("SIF State", 1), ("PO Evidence", 1), ("Next Action", 1),
         ("Evidence", 1), ("Project Display Name", 1),
         ("Completion Evidence", 1), ("Workflow Lane", 1),
-        ("Payment State", 1), ("Invoice Gross KRW", 2),
+        ("Payment State", 1), ("Payment Owner Scope", 1), ("Invoice Gross KRW", 2),
         ("Outstanding Balance KRW", 2),
         ("Payment Invoice No", 1), ("Bank Receipt Reference", 1),
         ("Verified Invoice KRW", 2), ("Verified Received KRW", 2),
@@ -440,7 +440,7 @@ def ensure_tables(token,root):
         names={f.get("field_name"):f.get("type") for f in fields}
         allowed={
             "Project Display Name","Completion Evidence",
-            "Workflow Lane","Payment State","Invoice Gross KRW",
+            "Workflow Lane","Payment State","Payment Owner Scope","Invoice Gross KRW",
             "Outstanding Balance KRW",*EVIDENCE_FIELDS,
         }
         for field_name,field_type in spec:
@@ -613,8 +613,8 @@ VIEW_SPECS = {
     "Project Progress Board": (
         ("프로젝트별 진행률", None, None),
         ("진행 중 프로젝트", "Workflow Lane", "PRODUCTION_ACTIVE"),
-        ("완료 · 결제 관리", "Workflow Lane", "PAYMENT_FOLLOWUP"),
-        ("결제 완료 · 보관", "Workflow Lane", "PAID_ARCHIVED"),
+        ("완료 · 결제 관리", "Workflow Lane", "PAYMENT_FOLLOWUP", "Payment Owner Scope", "MY_VERIFIED"),
+        ("결제 완료 · 보관", "Workflow Lane", "PAID_ARCHIVED", "Payment Owner Scope", "MY_VERIFIED"),
         ("Prepayment · SIF 면제", "SIF State", "WAIVED_PREPAYMENT"),
         ("Quote 원문 검토", "Quote Match State", "CSS_ORIGINAL_UNVERIFIED"),
     ),
@@ -640,26 +640,45 @@ VIEW_SPECS = {
 
 def setup_views(token, paths):
     # All URLs are base-local and require Feishu sign-in.
-    from setup_sales_web import resolve_view, get_view, filter_matches, field_map
+    from setup_sales_web import resolve_view, get_view, field_map
+    def matches(view, expected):
+        info=((view.get("property") or {}).get("filter_info") or {})
+        conditions=info.get("conditions") or []
+        if info.get("conjunction")!="and" or len(conditions)!=len(expected):
+            return False
+        actual=set()
+        for condition in conditions:
+            try:vals=json.loads(condition.get("value") or "null")
+            except (ValueError,TypeError):return False
+            if condition.get("operator")!="is" or not isinstance(vals,list) or len(vals)!=1:
+                return False
+            actual.add((condition.get("field_id"),str(vals[0])))
+        return actual==set(expected)
     for table, specs in VIEW_SPECS.items():
         path = paths[table]
         fields = field_map(token, path)
-        for name, filterfield, value in specs:
-            view_id, _ = resolve_view(token, path, name, filterfield is not None)
+        for spec in specs:
+            name=spec[0]
+            pairs=list(zip(spec[1::2],spec[2::2]))
+            filtered=bool(pairs and pairs[0][0])
+            view_id, _ = resolve_view(token, path, name, filtered)
             view = get_view(token, path, view_id)
-            if filterfield is not None:
-                field_id = fields.get(filterfield)
-                if not field_id:raise SafeError("VIEW_FILTER_FIELD_MISSING")
-                if not (view.get("view_name") == name and filter_matches(view,field_id,value)):
+            if filtered:
+                expected=[]
+                for field_name,target in pairs:
+                    field_id=fields.get(field_name)
+                    if not field_id:raise SafeError("VIEW_FILTER_FIELD_MISSING")
+                    expected.append((field_id,str(target)))
+                if not (view.get("view_name")==name and matches(view,expected)):
                     api("PATCH",path+"/views/"+urllib.parse.quote(view_id,safe=""),token,
                         data={"view_name":name,"property":{"filter_info":{
                             "conjunction":"and","conditions":[{
-                                "field_id":field_id,"operator":"is",
-                                "value":json.dumps([value],ensure_ascii=False),
-                            }],
+                                "field_id":fid,"operator":"is",
+                                "value":json.dumps([val],ensure_ascii=False)
+                            } for fid,val in expected],
                         }}},action="metric_view_filter_patch")
                     view=get_view(token,path,view_id)
-                    if not (view.get("view_name")==name and filter_matches(view,field_id,value)):
+                    if not (view.get("view_name")==name and matches(view,expected)):
                         raise SafeError("METRIC_FILTER_READBACK_FAILED")
             elif view.get("view_name")!=name:
                 raise SafeError("METRIC_VIEW_READBACK_FAILED")
@@ -682,6 +701,9 @@ def main():
           str(audit["projects_with_invoices"])+
           " projects_source_receipt_complete="+
           str(audit["projects_source_receipt_complete"])+
+          " my_verified="+str(audit["my_verified_invoice_projects"])+
+          " other_sales="+str(audit["other_sales_invoice_projects"])+
+          " owner_review="+str(audit["owner_review_projects"])+
           " review_required="+str(audit["projects_review_required"]))
     for name,items in output.items():
         print("METRIC_SOURCE_READY="+name+" rows="+str(len(items)))
