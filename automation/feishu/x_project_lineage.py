@@ -18,7 +18,8 @@ MINE="KIM TAEHOON"
 LINK_SCHEMAS={
   "AMEA H X SAM Link": [
     ("Source Key",1),("Link Type",1),("AMEA",1),("H Contract",1),
-    ("X Project",1),("SAM",1),("Link State",1),("Evidence",1),("Last Sync KST",1)
+    ("X Project",1),("SAM",1),("Link State",1),("Evidence",1),
+    ("Record State",1),("Last Sync KST",1)
   ],
   "X Project Registry": [
     ("Source Key",1),("X Project",1),("X Base",1),("H Contract",1),
@@ -29,14 +30,16 @@ LINK_SCHEMAS={
     ("SAM Linked",2),("SAM Review",2),("Invoice Linked",2),
     ("Invoice Gross KRW Incl VAT",2),("Outstanding KRW Verified",2),
     ("Invoice Link State",1),("Payment Followup",1),
-    ("Next Action",1),("Evidence",1),("Last Sync KST",1)
+    ("Next Action",1),("Evidence",1),
+    ("Record State",1),("Last Sync KST",1)
   ],
   "X Invoice Ledger": [
     ("Source Key",1),("CMS Invoice",1),("X Base",1),("X Project",1),
     ("AMEA",1),("H Contract",1),("Sales",1),("Owner Scope",1),
     ("Invoice Gross KRW Incl VAT",2),("Outstanding Balance KRW",2),
     ("Receipt Match State",1),("Invoice Link State",1),
-    ("Sources",1),("Next Action",1),("Evidence",1),("Last Sync KST",1)
+    ("Sources",1),("Next Action",1),("Evidence",1),
+    ("Record State",1),("Last Sync KST",1)
   ],
 }
 
