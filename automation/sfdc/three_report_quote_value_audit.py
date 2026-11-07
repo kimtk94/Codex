@@ -177,7 +177,7 @@ def safe_process_amount_sums(process_rows):
 
     The Quote process report can contain multiple chargeable processes per
     product. Never choose one price per product. Repeated positive
-    (Quotation Product ID, SFDC Process ID) keys fail closed for that QID.
+    (Quotation Product ID, SFDC Process ID, Unit Price, Quantity) keys fail closed.
     Discounts, credits, and line-item completeness still need source QC.
     """
     entries=collections.defaultdict(lambda:{"sum":Decimal(0),"keys":set(),
@@ -200,7 +200,10 @@ def safe_process_amount_sums(process_rows):
             missing_process_identity+=1
             item["invalid"]=True
             continue
-        key=(product,process)
+        # SFDC process identifiers can recur within one quotation product
+        # for distinct priced/quantity lines. Block only exact charge-row
+        # repeats; normalize numeric values before comparing identities.
+        key=(product,process,price,quantity)
         if key in item["keys"]:
             duplicate_process_keys+=1
             item["invalid"]=True
