@@ -7,6 +7,7 @@ read-only API metadata and one-row presence checks. No client payload in logs.
 """
 import collections
 import datetime as dt
+import json
 import os
 import sys
 import urllib.parse
@@ -18,7 +19,7 @@ from setup_sales_web import BASE_URL, EXPECTED_BASE, list_views
 HOME = "00 영업 홈"
 KST = ZoneInfo("Asia/Seoul")
 FIELDS = ("Menu Key", "그룹", "화면", "바로가기 URL", "데이터 상태",
-          "업무 내용", "원본 기준", "갱신 시각")
+          "업무 내용", "원본 기준", "표시", "갱신 시각")
 
 # All are known Feishu Base grid views; not external Vercel or speculative URLs.
 # The navigation distinguishes native QQ mail from legacy KPI/CRM source snapshots.
@@ -65,6 +66,8 @@ MENUS = (
      "X-SAM 확정 연결","CSS / Feishu / BI Lifecycle","X가 유일하게 확인된 시료만 프로젝트에 부착"),
     ("X_SAMPLE_REVIEW","03 프로젝트","공유 SAM 검토","AMEA H X SAM Link",
      "공유 SAM 검토","CSS Timeline","다른 AMEA에도 나타난 SAM은 자동 확정 금지"),
+    ("PAYMENT_FOLLOWUP","03 프로젝트","내 결제 대기 프로젝트","Project Progress Board",
+     "완료 · 결제 관리","Feishu Payment Receipt / Outstanding","본인 담당이며 작업 완료된 프로젝트의 Invoice·잔액 확인"),
     ("X_MY_INVOICE","04 지표","내 X별 Invoice","X Invoice Ledger",
      "내 X Invoice","최신 Feishu eTax / Outstanding","CMS·X·AMEA 정확 연결, 결제 완료 단독 확정 금지"),
     ("SIF","03 프로젝트","SIF 진행 현황","Project SIF Monitor",
@@ -90,6 +93,22 @@ MENUS = (
     ("REVENUE","05 SFDC 준비","월별 매출","Revenue",
      "월별 매출","새 Feishu Base 운영 테이블","검증되지 않은 Revenue 값을 추가하지 않음"),
 )
+
+
+# Only these twelve operational destinations appear in the main menu. The
+# remaining source/diagnostic routes are retained for admins and automation.
+# Do not drop their table records or remove any old Feishu Base tables.
+PINNED_KEYS=frozenset({
+    "DASHBOARD","WEEKLY_TREND","MONTHLY_TREND",
+    "MAIL_CURRENT","CUSTOMER_REVIEW",
+    "X_MY_PROJECTS","X_URGENT","X_FOLLOWUP",
+    "PAYMENT_FOLLOWUP","X_MY_INVOICE",
+    "SIF_EVIDENCE","PO_REQUIRED",
+})
+CURATED_VIEW="업무용 메뉴"
+CURATED_DISPLAY="주요"
+ARCHIVE_DISPLAY="관리용"
+
 
 
 def target_path(root, table_id):
@@ -137,6 +156,7 @@ def source_rows(token,root,tables,now):
             "Menu Key":key, "그룹":group, "화면":title,
             "바로가기 URL":url, "데이터 상태":state,
             "업무 내용":instruction, "원본 기준":source,
+            "표시":CURATED_DISPLAY if key in PINNED_KEYS else ARCHIVE_DISPLAY,
         })
     for state,count in sorted(status.items()):
         print("PORTAL_ROUTE_"+state+"="+str(count))
@@ -217,6 +237,37 @@ def update_home(token,path,desired):
           " source_table_record_writes=0")
 
 
+def ensure_curated_view(token,path):
+    """A safe filtered home view; all raw Base tables remain accessible."""
+    from setup_sales_web import resolve_view,get_view,field_map
+    vid,_=resolve_view(token,path,CURATED_VIEW,True)
+    fid=field_map(token,path).get("표시")
+    if not fid:raise SafeError("PORTAL_VISIBILITY_FIELD_MISSING")
+    target_path=path+"/views/"+urllib.parse.quote(vid,safe="")
+    def valid():
+        v=get_view(token,path,vid)
+        info=((v.get("property") or {}).get("filter_info") or {})
+        conditions=info.get("conditions") or []
+        if v.get("view_name")!=CURATED_VIEW or info.get("conjunction")!="and":
+            return False
+        if len(conditions)!=1:return False
+        condition=conditions[0]
+        try:values=json.loads(condition.get("value") or "null")
+        except (TypeError,ValueError):return False
+        return (condition.get("field_id")==fid and condition.get("operator")=="is"
+                and values==[CURATED_DISPLAY])
+    if not valid():
+        api("PATCH",target_path,token,data={
+            "view_name":CURATED_VIEW,
+            "property":{"filter_info":{"conjunction":"and",
+                "conditions":[{"field_id":fid,"operator":"is",
+                               "value":json.dumps([CURATED_DISPLAY],
+                                   ensure_ascii=False)}]}}
+        },action="portal_curated_view_filter")
+        if not valid():raise SafeError("PORTAL_CURATED_FILTER_READBACK_FAILED")
+    return vid
+
+
 def main():
     if os.environ.get("FEISHU_BASE_APP_TOKEN") != EXPECTED_BASE:
         raise SafeError("PORTAL_REFUSE_NON_SALES_BASE")
@@ -231,6 +282,11 @@ def main():
         return
     tid,path=ensure_home(token,root,tables)
     update_home(token,path,desired)
+    curated_id=ensure_curated_view(token,path)
+    print("PORTAL_CURATED_VIEW_PASS shown="+str(len(PINNED_KEYS))+
+          " hidden_from_curated="+str(len(desired)-len(PINNED_KEYS))+
+          " records_deleted=0 source_tables_removed=0")
+    print("PORTAL_CURATED_HOME_URL="+BASE_URL+"?table="+tid+"&view="+curated_id)
     views=list_views(token,path)
     if not views:
         raise SafeError("PORTAL_HOME_NO_VIEWS")
