@@ -31,6 +31,54 @@ def numeric(x):
     except ValueError:return 0
 def week_start(day):
     return day-dt.timedelta(days=(day.weekday()-4)%7)
+def approved_event_counts(dedup):
+    """Exact approval event weeks; never offset a week to align with CSS rows."""
+    required={"Approval KST","SFDC Record ID","Quotation Name"}
+    if not dedup or not required.issubset(set(dedup[0])):
+        raise RuntimeError("QUOTE_DEDUP_SOURCE_MISSING_OR_INVALID")
+    by_week=collections.defaultdict(dict)
+    created=collections.Counter()
+    h=dedup[0]
+    for row in dedup[1:]:
+        date=parse_date(get(row,index(h,"Approval KST")))
+        stable=get(row,index(h,"SFDC Record ID"))
+        qname=get(row,index(h,"Quotation Name"))
+        identity=stable or qname
+        if date is None or not identity:
+            continue
+        wk=week_start(date)
+        previous=by_week[wk].get(identity)
+        if previous and get(previous,index(h,"Quotation Name"))!=qname:
+            raise RuntimeError("QUOTE_ID_APPROVAL_EVENT_CONFLICT")
+        by_week[wk][identity]=row
+    if not by_week:
+        raise RuntimeError("QUOTE_DEDUP_SOURCE_HAS_NO_APPROVALS")
+    for wk,unique in by_week.items():
+        for row in unique.values():
+            qname=get(row,index(h,"Quotation Name"))
+            match=re.search(r"QID[- ](20\d{2}-\d{2}-\d{2})",qname,re.I)
+            if match:
+                made=parse_date(match.group(1))
+                if made and week_start(made)==wk:
+                    created[wk]+=1
+    return by_week,created
+
+def verify_weekly_approval_readback(live,by_week):
+    if not live or "week_start" not in live[0] or "quotation_approvals" not in live[0]:
+        raise RuntimeError("WEEKLY_APPROVAL_READBACK_SCHEMA_INVALID")
+    h=live[0]
+    observed={}
+    for row in live[1:]:
+        wk=get(row,index(h,"week_start"))
+        if wk:
+            if wk in observed:
+                raise RuntimeError("DUPLICATE_WEEKLY_READBACK_WEEK")
+            observed[wk]=numeric(get(row,index(h,"quotation_approvals")))
+    for week,entries in by_week.items():
+        if observed.get(week.isoformat())!=len(entries):
+            raise RuntimeError("WEEKLY_QUOTE_APPROVAL_COUNT_READBACK_MISMATCH")
+    return len(by_week)
+
 def main():
     sess=auth()
     op=range_data(sess,OUTPUT_ID,"SFDC Opportunity Raw",2000)
@@ -62,25 +110,7 @@ def main():
         all_week[begin]=row
     # Stable-ID quote approvals and issued invoices are authoritative for all
     # Fri–Thu weeks, including weeks absent from legacy CSS weekly summaries.
-    quote_by_week=collections.defaultdict(dict)
-    qcreated=collections.Counter()
-    if dedup and {"Approval KST","SFDC Record ID","Quotation Name"}.issubset(set(dedup[0])):
-        dh=dedup[0]
-        for entry in dedup[1:]:
-            date=parse_date(get(entry,index(dh,"Approval KST")))
-            rid=get(entry,index(dh,"SFDC Record ID"))
-            qname=get(entry,index(dh,"Quotation Name"))
-            identity=rid or qname
-            if not date or not identity:continue
-            wk=week_start(date)
-            quote_by_week[wk][identity]=entry
-        for wk, unique in quote_by_week.items():
-            for entry in unique.values():
-                qname=get(entry,index(dedup[0],"Quotation Name"))
-                match=re.search(r"QID[- ](20\d{2}-\d{2}-\d{2})",qname,re.I)
-                if match:
-                    made=parse_date(match.group(1))
-                    if made and week_start(made)==wk:qcreated[wk]+=1
+    quote_by_week,qcreated=approved_event_counts(dedup)
     invoice_by_week=collections.defaultdict(dict)
     if invoices and {"issued_at","invoice_number","amount_krw"}.issubset(set(invoices[0])):
         ih=invoices[0]
@@ -144,8 +174,16 @@ def main():
     meta=call(sess,"GET",root+"?fields=sheets.properties",stage="weekly_metadata")
     if TAB not in {x["properties"]["title"] for x in meta["sheets"]}:
         call(sess,"POST",root+":batchUpdate",json={"requests":[{"addSheet":{"properties":{"title":TAB,"hidden":True}}}]},stage="weekly_create")
+    # Re-read the actual published tab; a successful write API reply alone
+    # cannot guarantee correctly aligned Friday–Thursday approval counts.
     replace_tab(sess,TAB,result)
-    print(json.dumps({"weeks":len(result)-1,"opportunity_rows":len(op)-1,
+    readback=range_data(sess,OUTPUT_ID,TAB,max(250,len(result)+8))
+    checked_weeks=verify_weekly_approval_readback(readback,quote_by_week)
+    four=[current-dt.timedelta(days=7*i) for i in range(1,5)]
+    print("SFDC_WEEKLY_APPROVAL_EVIDENCE "+
+          json.dumps({wk.isoformat():len(quote_by_week.get(wk,{}))
+                      for wk in sorted(four)},sort_keys=True))
+    print(json.dumps({"weeks":len(result)-1,"checked_approval_weeks":checked_weeks,"opportunity_rows":len(op)-1,
         "quotation_active_unknown_global":audit.get("unknown_status","UNAVAILABLE"),
         "latest_week":str(keys[0]) if keys else None}))
 if __name__=="__main__":main()
