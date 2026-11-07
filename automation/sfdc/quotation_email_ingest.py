@@ -26,7 +26,7 @@ class TableParser(HTMLParser):
         elif tag=="tr" and self.row is not None:
             if self.row:self.rows.append(self.row)
             self.row=None
-def parse_attachment(blob,filename):
+def parse_attachment(blob,filename,reasons=None):
     if filename.lower().endswith(".xlsx"):
         wb=load_workbook(io.BytesIO(blob),read_only=True,data_only=True)
         try: table=[["" if v is None else str(v) for v in row] for row in wb.active.iter_rows(values_only=True)]
@@ -44,9 +44,13 @@ def parse_attachment(blob,filename):
             parser=TableParser();parser.feed(raw);table=parser.rows
         else:
             table=list(csv.reader(io.StringIO(raw)))
-    if not table:return []
+    if not table:
+        if reasons is not None:reasons["empty_table"]=reasons.get("empty_table",0)+1
+        return []
     heads=table[0]
-    if not set(FIELDS).issubset(set(heads)):return []
+    if not set(FIELDS).issubset(set(heads)):
+        if reasons is not None:reasons["schema_mismatch"]=reasons.get("schema_mismatch",0)+1
+        return []
     idx={h:heads.index(h) for h in FIELDS}
     rows=[]
     for record in table[1:]:
@@ -59,6 +63,8 @@ def parse_attachment(blob,filename):
         if not re.fullmatch(r"a0P[A-Za-z0-9]{12,15}",sid):continue
         if flag not in ("0","1") or not re.fullmatch(r"\d+(?:\.\d+)?",amount):continue
         rows.append([sid,flag,float(amount),"USD",record[idx["Opportunity ID"]],"",record[idx["Quotation Name"]],qid,"",""]+[record[heads.index(col)] if col in heads else "" for col in ("*Account Id","Account Name","Contact ID","Contact Name","Opportunity Name")])
+    if not rows and reasons is not None:
+        reasons["no_valid_quote_rows"]=reasons.get("no_valid_quote_rows",0)+1
     return rows
 def sheet_call(session,method,suffix,**kwargs):
     base="https://sheets.googleapis.com/v4/spreadsheets/"+SHEET
@@ -68,11 +74,25 @@ def sheet_call(session,method,suffix,**kwargs):
             time.sleep(min(60,2**attempt));continue
         if not resp.ok:raise RuntimeError("SHEETS_HTTP_"+str(resp.status_code))
         return resp.json() if resp.content else {}
+def publish_run_status(imported,diagnostics):
+    # GitHub output needs a literal newline; never emit a backslash-n sequence.
+    if os.getenv("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+            out.write("imported="+("true" if imported else "false")+"\n")
+    if os.getenv("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as out:
+            out.write("## Salesforce Quote Report ingestion\n")
+            out.write("**"+("SOURCE_IMPORTED" if imported else "NO_NEW_VALID_REPORT")+"**\n\n")
+            out.write("All diagnostic numbers are aggregate counters only. "
+                      "No mail content, subjects, filenames, IDs or monetary amounts are disclosed.\n\n")
+            for key in sorted(diagnostics):
+                out.write("- "+key+": "+str(diagnostics[key])+"\n")
+
 def main():
     user=os.environ["CSS_QQ_MAIL_ADDRESS"];auth=os.environ["CSS_QQ_MAIL_AUTH_CODE"]
     since=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(days=3)).strftime("%d-%b-%Y")
     selected=None
-    diagnostics={"scanned":0,"report_like":0,"attachments":0,"parseable":0,"valid":0,"other_mail":0,"salesforce_sender":0,"salesforce_sender_with_file":0,"report_like_without_file":0,"report_link_only":0}
+    diagnostics={"scanned":0,"report_like":0,"attachments":0,"parseable":0,"valid":0,"other_mail":0,"salesforce_sender":0,"salesforce_sender_with_file":0,"report_like_without_file":0,"report_link_only":0,"schema_mismatch":0,"empty_table":0,"no_valid_quote_rows":0,"parse_exception":0,"xls_files":0,"xlsx_files":0,"csv_files":0}
     with imaplib.IMAP4_SSL("imap.exmail.qq.com",993,timeout=45) as im:
         im.login(user,auth);im.select("INBOX",readonly=True)
         ok,hits=im.uid("SEARCH",None,"SINCE",since)
@@ -104,12 +124,17 @@ def main():
             if not file_parts and any("salesforce.com/" in str(p.get_payload() or "").lower() for p in msg.walk() if p.get_content_type().startswith("text/")):diagnostics["report_link_only"]+=1
             for part in msg.walk():
                 filename=str(part.get_filename() or "")
-                if not filename.lower().endswith((".xls",".xlsx",".csv")):continue
+                lower=filename.lower()
+                if not lower.endswith((".xls",".xlsx",".csv")):continue
+                extension="xlsx_files" if lower.endswith(".xlsx") else "xls_files" if lower.endswith(".xls") else "csv_files"
+                diagnostics[extension]+=1
                 data=part.get_payload(decode=True)
                 diagnostics["attachments"]+=1
                 if not data or len(data)>8_000_000:continue
-                try:rows=parse_attachment(data,filename)
-                except (UnicodeError,ValueError,ImportError,IndexError,TypeError):continue
+                try:rows=parse_attachment(data,filename,diagnostics)
+                except (UnicodeError,ValueError,ImportError,IndexError,TypeError):
+                    diagnostics["parse_exception"]+=1
+                    continue
                 if rows:diagnostics["parseable"]+=1
                 if not rows or len(rows)!=len({r[0] for r in rows}):continue
                 diagnostics["valid"]+=1
@@ -120,6 +145,8 @@ def main():
                 if selected is None or date>selected[0]:selected=(date,stamp,rows)
     if selected is None:
         print("SFDC_QUOTE_EMAIL: NO_VALID_ATTACHMENT (no source overwritten) "+json.dumps(diagnostics,sort_keys=True))
+        print("SFDC_QUOTE_IMPORT_DATA_STATUS=NO_NEW_VALID_REPORT")
+        publish_run_status(False,diagnostics)
         return 0
     stamp=selected[1];rows=selected[2]
     for row in rows:row[9]=stamp
@@ -136,8 +163,7 @@ def main():
     sheet_call(session,"PUT","/values/"+cell+"?valueInputOption=RAW",json={"values":[HEADER]+rows})
     health=urllib.parse.quote("'Automation Health'!A7",safe="")
     sheet_call(session,"PUT","/values/"+health+"?valueInputOption=RAW",json={"values":[["SFDC Quote Report Email",stamp,"PASS","rows="+str(len(rows))+" active="+str(sum(r[1]=="1" for r in rows))]]})
-    if os.getenv("GITHUB_OUTPUT"):
-        with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:out.write("imported=true\\n")
+    publish_run_status(True,diagnostics)
     print("SFDC_QUOTE_EMAIL_PASS rows="+str(len(rows))+" active="+str(sum(r[1]=="1" for r in rows))+" "+json.dumps(diagnostics,sort_keys=True))
     return 0
 if __name__=="__main__":
