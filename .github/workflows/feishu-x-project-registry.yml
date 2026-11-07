@@ -15,6 +15,7 @@ on:
     branches:
       - main
       - 'feat/feishu-x-sam-lineage-registry-*'
+      - 'feat/feishu-x-stale-exception-monitor-*'
     paths:
       - 'automation/feishu/x_project_lineage.py'
       - 'automation/feishu/sync_x_project_registry.py'
