@@ -39,7 +39,7 @@ BLOCKS=[
                      "sort":{"type":"group","order":"asc"}}]}),
     ("월별 Revenue 표시 기준","text",{
         "text":"**월별 Revenue: M KRW (K USD)** — VAT 제외 실적만 집계합니다. 원화는 백만원(M KRW), 달러는 천 달러(K USD) 환산 표시입니다. 두 금액은 같은 매출을 서로 다른 통화로 표현하며 합산하면 안 됩니다. K USD는 보고용 환율(기본값 1 USD = 1,500 KRW)을 기준으로 환산한 참고값입니다. 실제 청구 통화/회계 환율과 동일하다는 뜻은 아닙니다."}),
-    ("KOREA · Weekly Quote · 최근 4주 (Count + 계산 K USD)","combo",{
+    ("KOREA · Weekly Quote · 완료 4주 + 이번 주 (Count + 계산 K USD)","combo",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
                   {"field_name":"Calculated Quote Value K USD","rollup":"SUM"}],
@@ -47,12 +47,13 @@ BLOCKS=[
                      "sort":{"type":"view","order":"asc"}}],
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
-             "value":"RECENT_4_COMPLETED"}]}}),
+             "value":"RECENT_4_PLUS_CURRENT"}]}}),
     ("Quote 계산 기준","text",{
-        "text":"**Quote 금액은 추정치입니다.** 최근 완료된 4주(금~목)의 승인 건수는 모든 승인 근거를 포함합니다. "
+        "text":"**Quote 금액은 추정치입니다.** 최근 완료된 4주(금~목)와 이번 주 진행 중 데이터를 함께 표시합니다. "
                "견적 금액은 QQ SFDC 3종 Report의 원본 해시·최신성을 확인한 뒤, "
                "각 Quotation의 공정별 Unit Price USD × Sample Quantity를 중복 없이 합산한 값입니다. "
                "담당 Opportunity Owner가 본인이고, 기존 금액과 충돌하지 않는 견적만 계산합니다. "
+               "이번 주 승인 0건은 원본 수집 누락을 의미하지 않습니다. 승인 여부와 최신 SFDC Report 수집 여부는 별개입니다. "
                "예외 건은 금액 합계에서 제외되며 0원이라고 해석하면 안 됩니다. "
                "M KRW는 표시용 환율 적용, K USD는 원본 USD를 천 단위로 표시합니다. "
                "Quote 예상금액은 Tax Invoice 매출(Revenue)이 아니며 VAT 제외 Revenue와 합산하면 안 됩니다."}),
@@ -142,8 +143,9 @@ def legacy_dashboard_block(rows,name,expected_type=None):
     return current.get("block_id") or current.get("id")
 
 
-QUOTE_CHART_NAME="KOREA · Weekly Quote · 최근 4주 (Count + 계산 K USD)"
+QUOTE_CHART_NAME="KOREA · Weekly Quote · 완료 4주 + 이번 주 (Count + 계산 K USD)"
 LEGACY_QUOTE_ALIASES=(
+    "KOREA · Weekly Quote · 최근 4주 (Count + 계산 K USD)",
     "KOREA · Weekly Quote · 최근 4주 (승인 건수 + 계산액 K USD)",
     "KOREA · Quote Count / Value (K USD)",
     "Weekly Quote · 건수 + 검증금액 K USD",
@@ -234,13 +236,13 @@ def main():
                     if chart:break
             if chart:
                 # Update the real existing combo instead of creating a duplicate
-                # and restrict the data to the latest 4 completed sales weeks.
+                # and restrict the data to four completed weeks plus this week.
                 cli("+dashboard-block-update","--base-token",BASE,
                     "--dashboard-id",dashboard_id,"--block-id",chart,
                     "--name",name,
                     "--data-config",json.dumps(config,ensure_ascii=False,separators=(",",":")))
                 updated+=1
-                print("FEISHU_QUOTE_COMBO_UPDATED type=combo window=RECENT_4_COMPLETED")
+                print("FEISHU_QUOTE_COMBO_UPDATED type=combo window=RECENT_4_PLUS_CURRENT")
                 continue
         if name=="월별 Revenue · VAT 제외 · M KRW (K USD)":
             old=locate_chart(existing,name)
