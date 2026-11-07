@@ -21,7 +21,8 @@ REQUIRED={
     "SFDC Email Quotation Raw":(
         "SFDC Quotation ID","Active","Opportunity ID",
         "Total Price USD (converted) Currency","Total Price USD (converted)",
-        "Quotation Product ID","Unit Price USD","Sample Quantity"),
+        "Quotation Product ID","Process Name: SFDC Process ID",
+        "Unit Price USD","Sample Quantity"),
     "Quote Approval Dedup":("Approval KST","Quotation Name","SFDC Record ID"),
     "Quote Portfolio":("Salesforce Quote ID (18)","Quote QID","Quote USD"),
     "SFDC Email Ingest Audit":("Entity","Source Received KST","State"),
@@ -171,32 +172,52 @@ def portfolio_unit_check(qidx,portfolio):
             buckets["other_ratio"]+=1
     return buckets
 
-def safe_unit_price_sum(process_rows):
-    """Independent quote price * sample qty floor; each product counted once.
+def safe_process_amount_sums(process_rows):
+    """Independent QID-level USD candidates from distinct positive process lines.
 
-    This is a *sanity reference*, not a verified final quote amount: discounts,
-    free processes and additional charges may differ. Never auto-promote it.
+    The Quote process report can contain multiple chargeable processes per
+    product. Never choose one price per product. Repeated positive
+    (Quotation Product ID, SFDC Process ID) keys fail closed for that QID.
+    Discounts, credits, and line-item completeness still need source QC.
     """
-    by_qid=collections.defaultdict(lambda:collections.defaultdict(set))
+    entries=collections.defaultdict(lambda:{"sum":Decimal(0),"keys":set(),
+                                       "invalid":False,"positive":0})
+    all_ids=set()
+    duplicate_process_keys=missing_process_identity=0
     for row in process_rows:
         qid=row["SFDC Quotation ID"].strip().upper()
-        pid=row["Quotation Product ID"].strip()
+        if not qid:continue
+        all_ids.add(qid)
         price=money(row["Unit Price USD"])
-        qty=money(row["Sample Quantity"])
-        if not qid or not pid or price is None or qty is None or price<=0 or qty<=0:
+        quantity=money(row["Sample Quantity"])
+        if price is None or quantity is None or price<=0 or quantity<=0:
             continue
-        by_qid[qid][pid].add(price*qty)
-    sums={}
-    ambiguous=0
-    for qid,prods in by_qid.items():
-        # Multiple distinct non-zero price×quantity totals for one product ID
-        # cannot be arbitrarily reduced to a max or a first row.
-        if any(len(items)>1 for items in prods.values()):
-            ambiguous+=1
+        item=entries[qid]
+        item["positive"]+=1
+        product=row["Quotation Product ID"].strip()
+        process=row["Process Name: SFDC Process ID"].strip()
+        if not product or not process:
+            missing_process_identity+=1
+            item["invalid"]=True
             continue
-        value=sum((next(iter(items)) for items in prods.values()),Decimal(0))
-        if value>0:sums[qid]=value
-    return sums,ambiguous
+        key=(product,process)
+        if key in item["keys"]:
+            duplicate_process_keys+=1
+            item["invalid"]=True
+            continue
+        item["keys"].add(key)
+        item["sum"]+=price*quantity
+    valid={qid:item["sum"] for qid,item in entries.items()
+           if not item["invalid"] and item["sum"]>0}
+    blocked=sum(item["invalid"] for item in entries.values())
+    return valid,{"quote_qids":len(all_ids),"positive_process_rows":sum(
+                     item["positive"] for item in entries.values()),
+                  "distinct_qids_with_positive_processes":len(entries),
+                  "candidate_qids":len(valid),
+                  "invalid_qids":blocked,
+                  "duplicate_positive_process_keys":duplicate_process_keys,
+                  "missing_positive_process_identity":missing_process_identity,
+                  "no_positive_process_qids":len(all_ids)-len(entries)}
 
 def currency_and_price_evidence(process_rows,qidx,portfolio,opportunities):
     """Count conversion behaviors by original Opportunity currency.
@@ -208,11 +229,12 @@ def currency_and_price_evidence(process_rows,qidx,portfolio,opportunities):
     for row in opportunities:
         if row["Opportunity ID"].strip():
             by_opp[row["Opportunity ID"].strip()].add(row["Amount Currency"].strip().upper())
-    price_units,ambiguous=safe_unit_price_sum(process_rows)
+    price_units,process_diag=safe_process_amount_sums(process_rows)
     hist=portfolio_index(portfolio)
     output={name:{"compared":0,"ratio_near_1":0,"ratio_near_1500":0,
                   "other_ratio":0,"price_unit_sum_present":0,
-                  "historic_close_to_unit_sum_10pct":0} for name in ("KRW","USD","UNKNOWN")}
+                  "historic_close_to_process_sum_2pct":0,
+                  "historic_close_to_process_sum_10pct":0} for name in ("KRW","USD","UNKNOWN")}
     noncomparable=0
     for qid,old_entries in hist.items():
         source=qidx.get(qid)
@@ -240,11 +262,13 @@ def currency_and_price_evidence(process_rows,qidx,portfolio,opportunities):
         unit_sum=price_units.get(qid)
         if unit_sum is not None:
             item["price_unit_sum_present"]+=1
+            if abs(old_price-unit_sum)<=max(Decimal("0.01"),unit_sum*Decimal("0.02")):
+                item["historic_close_to_process_sum_2pct"]+=1
             if abs(old_price-unit_sum)<=max(Decimal("1"),unit_sum*Decimal("0.10")):
-                item["historic_close_to_unit_sum_10pct"]+=1
+                item["historic_close_to_process_sum_10pct"]+=1
     return {"by_opportunity_currency":output,"not_comparable":noncomparable,
-            "ambiguous_product_prices":ambiguous,
-            "assurance":"READ_ONLY_SANITY_NOT_VERIFIED_CURRENCY_OR_QUOTE_AMOUNT"}
+            "process_evidence":process_diag,
+            "assurance":"READ_ONLY_PROCESS_SUM_CANDIDATE_NOT_FINAL_QUOTE_PRICE"}
 
 def analyze(data,now=None):
     now=now or dt.datetime.now(KST)
@@ -256,6 +280,7 @@ def analyze(data,now=None):
     owner_by_opp=source_owner_map(src["SFDC Email Opportunities Raw"])
     older_owner_by_opp=source_owner_map(src["SFDC Import Opportunities"])
     unit_check=portfolio_unit_check(qidx,src["Quote Portfolio"])
+    process_sums,process_status=safe_process_amount_sums(src["SFDC Email Quotation Raw"])
     currency_evidence=currency_and_price_evidence(src["SFDC Email Quotation Raw"],qidx,
         src["Quote Portfolio"],src["SFDC Email Opportunities Raw"])
     four=last_four(now.date())
@@ -294,6 +319,11 @@ def analyze(data,now=None):
             stat["report_inactive"]+=1
             continue
         stat["report_active"]+=1
+        process_sum=process_sums.get(qid)
+        if process_sum is not None:
+            stat["positive_process_amount_candidate"]+=1
+        else:
+            stat["process_amount_missing_or_ambiguous"]+=1
         owner=owner_by_opp.get(candidate["opportunity"])
         if owner is None or not owner:
             stat["owner_unresolved"]+=1
@@ -311,6 +341,13 @@ def analyze(data,now=None):
         historic_id=bool(old_distinct) and {rid for rid,_ in old_distinct}=={sf}
         if historic_id:
             stat["historic_record_id_confirmed"]+=1
+            if process_sum is not None and len(old_distinct)==1:
+                historic_price=next(iter(old_distinct))[1]
+                if historic_price is not None and abs(historic_price-process_sum)<=max(
+                    Decimal("0.01"),process_sum*Decimal("0.02")):
+                    stat["historic_process_amount_parity_2pct"]+=1
+                else:
+                    stat["historic_process_amount_mismatch"]+=1
             if qid not in matched_historic:
                 for rid,price in old_distinct:
                     if price is not None:
@@ -321,6 +358,8 @@ def analyze(data,now=None):
                 matched_historic.add(qid)
         else:
             stat["qid_only_no_historic_sf_crosswalk"]+=1
+        if process_sum is not None and owner=="Kim Taehoon":
+            stat["my_owner_with_process_candidate"]+=1
         if fresh and historic_id:
             stat["fresh_active_record_id_crosswalk"]+=1
         elif fresh:
@@ -351,6 +390,7 @@ def analyze(data,now=None):
             "source_age_hours":age,"fresh":fresh,"product_rows":len(src["SFDC Email Quotation Raw"]),
             "quote_index":qstatus,"historic_overlap":parity,
             "portfolio_unit_check":unit_check,
+            "process_amount_evidence":process_status,
             "currency_and_unit_evidence":currency_evidence,"four_weeks":week_rows,
             "blockers":block,
             "note":"A crosswalk amount is quote-level once only. Counts are not owner-verified; do not promote to revenue."}
@@ -361,7 +401,7 @@ def markdown(r):
       str(r["source_age_hours"])+" hours; product rows "+
       str(r["product_rows"])+"; unique QIDs "+
       str(r["quote_index"]["unique_qids"])+".", "",
-      "| Week | Approval evidence | QID matched | Active | My owner | Owner unknown | SF ID crosswalk | QID-only | Amount |",
+      "| Week | Approval evidence | QID matched | Active | My owner | Owner unknown | Process amount candidates | Historic process parity | Amount |",
       "|---|---:|---:|---:|---:|---:|---:|---:|---|"]
     for x in r["four_weeks"]:
         output.append("| "+x["week_start"]+" | "+
@@ -370,11 +410,12 @@ def markdown(r):
            str(x.get("report_active",0))+" | "+
            str(x.get("my_owner_verified",0))+" | "+
            str(x.get("owner_unresolved",0))+" | "+
-           str(x.get("historic_record_id_confirmed",0))+" | "+
-           str(x.get("qid_only_no_historic_sf_crosswalk",0))+" | "+
+           str(x.get("positive_process_amount_candidate",0))+" | "+
+           str(x.get("historic_process_amount_parity_2pct",0))+" | "+
            x["amount_display"]+" |")
     output+=["","Historic amount cross-check: "+json.dumps(r["historic_overlap"],sort_keys=True),
        "Product-row QID consistency: "+json.dumps(r["quote_index"],sort_keys=True),
+       "Process line amount provenance: "+json.dumps(r["process_amount_evidence"],sort_keys=True),
        "Portfolio price unit check: "+json.dumps(r["portfolio_unit_check"],sort_keys=True),
        "Currency and independent unit-price check: "+json.dumps(
            r["currency_and_unit_evidence"],sort_keys=True),
