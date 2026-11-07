@@ -27,5 +27,5 @@ class QuoteComboTests(unittest.TestCase):
     def test_count_and_amount_are_not_mislabeled_final_revenue(self):
         texts=[x[2]["text"] for x in BLOCKS if x[1]=="text"]
         self.assertTrue(any("금액 미확인" in x for x in texts))
-        self.assertTrue(any("승인 Quote" in x for x in texts))
+        self.assertTrue(any("승인 견적" in x for x in texts))
 if __name__=="__main__":unittest.main()
