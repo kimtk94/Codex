@@ -465,6 +465,44 @@ def table_path(root,table_id):
     return root+"/tables/"+urllib.parse.quote(table_id,safe="")
 
 
+# Source Base numeric display format governs chart labels. Keep raw numbers.
+COUNT_FIELD_FORMATS={
+    "Weekly Quote KPI":{
+        "Approved Quote Count","Created In Week Count",
+        "Verified Amount Quote Count","Unmatched Amount Count",
+    },
+    "Monthly Tax Invoice":{"Invoice Count","CSS Source Invoice Count"},
+}
+def ensure_integer_field_display(token,path,table,fields):
+    targets=COUNT_FIELD_FORMATS.get(table,set())
+    by_name={row.get("field_name"):row for row in fields}
+    for name in sorted(targets):
+        item=by_name.get(name)
+        if not item or item.get("type")!=2 or not item.get("field_id"):
+            raise SafeError("METRIC_NUMERIC_FORMAT_SOURCE_MISSING")
+        prop=item.get("property") or {}
+        if prop.get("formatter")=="0":continue
+        # PUT is a full field-definition update; refuse non-numeric/UI types.
+        if item.get("ui_type") not in (None,"Number"):
+            raise SafeError("METRIC_NUMERIC_FORMAT_UI_TYPE_UNSAFE")
+        data=api("PUT",path+"/fields/"+urllib.parse.quote(
+                 item["field_id"],safe=""),token,
+                 data={"field_name":name,"type":2,
+                       "property":{"formatter":"0"}},
+                 action="metric_integer_format_update")
+        updated=data.get("field") or {}
+        if updated.get("field_name")!=name or (
+                updated.get("property") or {}).get("formatter")!="0":
+            raise SafeError("METRIC_NUMERIC_FORMAT_UPDATE_UNVERIFIED")
+        print("METRIC_INTEGER_FIELD_FORMAT_SET="+table+":"+name)
+    if not targets:return
+    verified={r.get("field_name"):r for r in
+              list_all(path+"/fields",token,"metric_integer_format_readback")}
+    if any((verified.get(name,{}).get("property") or {}).get("formatter")!="0"
+           for name in targets):
+        raise SafeError("METRIC_INTEGER_FIELD_FORMAT_READBACK_FAILED")
+
+
 def ensure_tables(token,root):
     catalog=table_catalog(token,root)
     paths={}
@@ -507,6 +545,7 @@ def ensure_tables(token,root):
         names={f.get("field_name"):f.get("type") for f in fields}
         if any(names.get(f)!=t for f,t in spec):
             raise SafeError("METRIC_SCHEMA_MISMATCH_"+name.replace(" ","_"))
+        ensure_integer_field_display(token,p,name,fields)
         paths[name]=p
     return paths
 
