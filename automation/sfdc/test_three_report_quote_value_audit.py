@@ -146,7 +146,26 @@ class QuoteValueTests(unittest.TestCase):
         data["SFDC Import Opportunities"][1][0]="OTHER_OPP"
         result=m.analyze(data,now=NOW)
         self.assertEqual(result["four_weeks"][-1]["owner_opp_missing_in_both_reports"],1)
-        self.assertIn("Owner IDs absent from both fresh and older",m.markdown(result))
+        self.assertEqual(result["missing_distinct_opportunity_ids"],1)
+        self.assertIn("Distinct missing Opportunity IDs: 1",m.markdown(result))
+
+    def test_two_approved_quotes_share_one_missing_opportunity(self):
+        data=fixture()
+        data["SFDC Email Opportunities Raw"][1][0]="OTHER_OPP"
+        data["SFDC Import Opportunities"][1][0]="OTHER_OPP"
+        another="QID-2026-11-02-67890"
+        copy=list(data["SFDC Email Quotation Raw"][1])
+        copy[0]=another
+        copy[6]="OTHER_PRODUCT"
+        copy[7]="OTHER_PROCESS"
+        data["SFDC Email Quotation Raw"].append(copy)
+        data["Quote Approval Dedup"].append(
+            ["2026-11-04 10:00:00","Approved "+another,"a0P"+"B"*12])
+        result=m.analyze(data,now=NOW)
+        latest=result["four_weeks"][-1]
+        self.assertEqual(latest["owner_opp_missing_in_both_reports"],2)
+        self.assertEqual(result["missing_distinct_opportunity_ids"],1)
+        self.assertEqual(latest["qid_exact_report_match"],2)
 
     def test_qid_requires_one_precise_identifier(self):
         self.assertEqual(m.single_qid("Quotation "+QID+" complete"),QID)
