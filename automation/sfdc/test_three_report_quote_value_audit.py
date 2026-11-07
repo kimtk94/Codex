@@ -12,10 +12,12 @@ NOW=dt.datetime(2026,11,7,16,0,tzinfo=ZoneInfo("Asia/Seoul"))
 def fixture():
     head=["SFDC Quotation ID","Active","Opportunity ID",
           "Total Price USD (converted) Currency","Total Price USD (converted)",
-          "Quotation Product ID","Unit Price USD","Sample Quantity"]
-    entry=[QID,"1","006OPP","USD","374.00","QD-TEST-1","350","1"]
+          "Quotation Product ID","Process Name: SFDC Process ID",
+          "Unit Price USD","Sample Quantity"]
+    entry=[QID,"1","006OPP","USD","374.00","QD-TEST-1","PROC-1","350","1"]
     return {
-     "SFDC Email Quotation Raw":[head,entry.copy(),entry.copy()],
+     "SFDC Email Quotation Raw":[head,entry.copy(),
+        [QID,"1","006OPP","USD","374.00","QD-TEST-1","PROC-2","0","1"]],
      "Quote Approval Dedup":[["Approval KST","Quotation Name","SFDC Record ID"],
                              ["2026-11-05 10:00:00","Sales Quote "+QID+" approved",SF]],
      "Quote Portfolio":[["Salesforce Quote ID (18)","Quote QID","Quote USD"],[SF,QID,"374"]],
@@ -46,7 +48,7 @@ class QuoteValueTests(unittest.TestCase):
         self.assertNotIn(SF,m.markdown(report))
     def test_inconsistent_product_values_are_not_added(self):
         data=fixture()
-        data["SFDC Email Quotation Raw"][2]=[QID,"1","006OPP","USD","375","QD-TEST-1","350","1"]
+        data["SFDC Email Quotation Raw"][2]=[QID,"1","006OPP","USD","375","QD-TEST-1","PROC-2","0","1"]
         r=m.analyze(data,now=NOW)
         self.assertEqual(r["quote_index"]["valid_qids"],0)
         self.assertIn("QUOTE_PRODUCT_ROW_INCONSISTENCIES",r["blockers"])
@@ -97,23 +99,37 @@ class QuoteValueTests(unittest.TestCase):
         # Independent product unit price * quantity: 4200 USD, not 3 USD.
         data["SFDC Email Quotation Raw"][1][4]="3"
         data["SFDC Email Quotation Raw"][2][4]="3"
-        data["SFDC Email Quotation Raw"][1][6]="4200"
-        data["SFDC Email Quotation Raw"][2][6]="4200"
+        data["SFDC Email Quotation Raw"][1][7]="4200"
         data["SFDC Email Opportunities Raw"][1][2]="KRW"
         data["Quote Portfolio"][1][2]="4500"
         result=m.analyze(data,now=NOW)
         evidence=result["currency_and_unit_evidence"]["by_opportunity_currency"]["KRW"]
         self.assertEqual(evidence["compared"],1)
         self.assertEqual(evidence["ratio_near_1500"],1)
-        self.assertEqual(evidence["historic_close_to_unit_sum_10pct"],1)
+        self.assertEqual(evidence["historic_close_to_process_sum_10pct"],1)
         self.assertEqual(evidence["price_unit_sum_present"],1)
         self.assertEqual(result["four_weeks"][-1]["amount_display"],"WITHHELD_UNIT_PARITY")
-    def test_inconsistent_duplicate_product_price_does_not_sum(self):
+    def test_duplicate_positive_process_key_does_not_sum(self):
         data=fixture()
-        data["SFDC Email Quotation Raw"][2][6]="200"
+        data["SFDC Email Quotation Raw"][2][6]="PROC-1"
+        data["SFDC Email Quotation Raw"][2][7]="200"
         result=m.analyze(data,now=NOW)
-        self.assertEqual(result["currency_and_unit_evidence"]["ambiguous_product_prices"],1)
+        self.assertEqual(result["process_amount_evidence"]["duplicate_positive_process_keys"],1)
         self.assertEqual(result["currency_and_unit_evidence"]["by_opportunity_currency"]["USD"]["price_unit_sum_present"],0)
+    def test_distinct_process_charges_same_product_are_added(self):
+        data=fixture()
+        # The same quotation product may contain multiple billable processes.
+        data["SFDC Email Quotation Raw"][1][7]="20"
+        data["SFDC Email Quotation Raw"][1][8]="5"
+        data["SFDC Email Quotation Raw"][2][7]="10"
+        data["SFDC Email Quotation Raw"][2][8]="3"
+        data["Quote Portfolio"][1][2]="130"
+        data["SFDC Email Quotation Raw"][1][4]="130"
+        data["SFDC Email Quotation Raw"][2][4]="130"
+        result=m.analyze(data,now=NOW)
+        self.assertEqual(result["process_amount_evidence"]["candidate_qids"],1)
+        self.assertEqual(result["four_weeks"][-1]["positive_process_amount_candidate"],1)
+        self.assertEqual(result["four_weeks"][-1]["historic_process_amount_parity_2pct"],1)
     def test_missing_opportunity_held_when_absent_in_both_exports(self):
         data=fixture()
         data["SFDC Email Opportunities Raw"][1][0]="OTHER_OPP"
