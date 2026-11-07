@@ -7,6 +7,8 @@ on:
       - 'automation/feishu/native_x_dashboard.py'
       - 'automation/feishu/test_x_project_lineage.py'
       - 'automation/feishu/test_native_x_dashboard.py'
+      - 'automation/feishu/x_exception_triage.py'
+      - 'automation/feishu/test_x_exception_triage.py'
       - 'automation/feishu/sales_native_home.py'
       - '.github/workflows/feishu-x-project-registry.yml'
   push:
@@ -52,6 +54,8 @@ jobs:
           python3 -m py_compile automation/feishu/x_project_lineage.py
           python3 -m py_compile automation/feishu/sync_x_project_registry.py
           python3 -m py_compile automation/feishu/native_x_dashboard.py
+          python3 -m py_compile automation/feishu/x_exception_triage.py
+          python3 -m unittest discover -s automation/feishu -p 'test_x_exception_triage.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_x_project_lineage.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_x_dashboard.py' -v
   sync:
