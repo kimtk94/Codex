@@ -128,6 +128,43 @@
     $('notice').innerHTML='<strong>'+esc(title)+'</strong><div>'+esc(detail)+'</div>'+action;
   }
   function clearNotice(){$('notice').hidden=true;$('notice').textContent=''}
+  function chartHtml(rows,labelKey,valueKey,kind){
+    const records=rows.slice(-8);
+    if(!records.length)return '<div class="metric-warning">Feishu Base에 검증된 통계가 없습니다.</div>';
+    const maximum=Math.max(1,...records.map(r=>Math.max(0,Number(r[valueKey])||0)));
+    const fmt=n=>kind==='quote'?Number(n).toLocaleString('ko-KR'):
+      (Number(n)>=1000000?(Number(n)/1000000).toFixed(1)+'M':
+       Number(n)>=1000?(Number(n)/1000).toFixed(0)+'K':Number(n).toLocaleString('ko-KR'));
+    return '<div class="mini-bars" role="img" aria-label="'+esc(kind==='quote'?'주간 승인 Quote':'월별 Revenue')+'">'
+      +records.map(r=>{
+        const v=Math.max(0,Number(r[valueKey])||0);
+        const height=Math.max(2,Math.round(v/maximum*110));
+        const label=kind==='quote'?String(r[labelKey]||'').slice(5):
+          String(r[labelKey]||'').slice(5);
+        return '<div class="mini-bar-item" title="'+esc(String(r[labelKey])+' : '+fmt(v))+'">'
+           +'<span class="mini-value">'+esc(fmt(v))+'</span>'
+           +'<div class="mini-column '+(kind==='quote'?'quote':'')+'" style="height:'+height+'px"></div>'
+           +'<span class="mini-label">'+esc(label)+'</span></div>';
+      }).join('')+'</div>';
+  }
+  async function loadMetrics(){
+    try{
+      const response=await fetch('/api/feishu/kpis',{cache:'no-store',credentials:'same-origin'});
+      if(!response.ok)throw new Error('HTTP_'+response.status);
+      const values=await response.json();
+      if(values.source!=='FEISHU_BASE'||!Array.isArray(values.monthly)||!Array.isArray(values.weekly))
+        throw new Error('FEISHU_METRICS_INVALID');
+      $('monthlyChart').innerHTML=chartHtml(values.monthly,'month','revenueNet','revenue');
+      $('weeklyChart').innerHTML=chartHtml(values.weekly,'week','approved','quote');
+      $('monthlySource').textContent=values.monthly.length+'개월 검증';
+      $('weeklySource').textContent=values.weekly.length+'주 검증';
+    }catch(error){
+      const msg='Feishu Base 직접 연결 확인 필요 ('+esc(error.message||'API unavailable')+')';
+      $('monthlyChart').innerHTML='<div class="metric-warning">'+msg+'</div>';
+      $('weeklyChart').innerHTML='<div class="metric-warning">'+msg+'</div>';
+      $('monthlySource').textContent='미검증';$('weeklySource').textContent='미검증';
+    }
+  }
   function renderMetrics(){
     const s=stats(state.rows);
     $('kTotal').textContent=s.total.toLocaleString('ko-KR');
@@ -204,4 +241,5 @@
   $('shade').addEventListener('click',closeDrawer);
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer()});
   refresh();
+  loadMetrics();
 })();
