@@ -1,7 +1,7 @@
 name: Feishu Native Sales Home
 on:
   push:
-    branches: [main, feat/feishu-native-sales-home-20261106]
+    branches: [main, feat/feishu-native-sales-home-20261106, 'feat/feishu-curated-sales-home-*']
     paths:
       - 'automation/feishu/sales_native_home.py'
       - 'automation/feishu/test_sales_native_home.py'
@@ -53,7 +53,7 @@ jobs:
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
-      FEISHU_PORTAL_MODE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run') && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_PORTAL_MODE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
