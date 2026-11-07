@@ -23,7 +23,7 @@ class QuoteComboTests(unittest.TestCase):
             self.assertTrue("Quote" in name)
         fields={config["series"][1]["field_name"] for _,config in combos}
         self.assertEqual(fields,{"Verified Quote Value K USD",
-                                 "Verified Quote Value KRW FX"})
+                                 "Verified Quote Value M KRW"})
     def test_count_and_amount_are_not_mislabeled_final_revenue(self):
         texts=[x[2]["text"] for x in BLOCKS if x[1]=="text"]
         self.assertTrue(any("금액 미확인" in x for x in texts))
