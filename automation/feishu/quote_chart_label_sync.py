@@ -92,13 +92,16 @@ def sync_labels(token,table_path,mode):
             changes.append({"record_id":rec["record_id"],
                             "fields":{LABEL_FIELD:desired[key]}})
     if len(changes)>MAX_CHANGES:raise SafeError("QUOTE_LABEL_WRITE_LIMIT")
-    recent=sorted((name for key,name in desired.items()
-                   if raw(before[key]["fields"].get("Chart Window"))=="RECENT_4_PLUS_CURRENT"))
-    if len(recent)!=5:
+    recent_weeks=sorted(raw(before[key]["fields"].get("Week Start"))
+                        for key in desired if
+                        raw(before[key]["fields"].get("Chart Window"))=="RECENT_4_PLUS_CURRENT")
+    if len(recent_weeks)!=5 or len(set(recent_weeks))!=5:
         raise SafeError("QUOTE_LABEL_CHART_WINDOW_NOT_FIVE_WEEKS")
-    if recent!=sorted(recent) or not all(
-            re.match(r"20\d{2}-\d{2}-\d{2} · ",v) for v in recent):
+    chronological=[desired["QUOTE:"+week] for week in recent_weeks]
+    if chronological!=sorted(chronological) or not all(
+            re.match(r"20\d{2}-\d{2}-\d{2} · ",v) for v in chronological):
         raise SafeError("QUOTE_LABEL_CHRONOLOGY_INVALID")
+    recent=chronological
     print("FEISHU_QUOTE_LABEL_PLAN weeks="+str(len(before))+
           " chart_weeks="+str(len(recent))+
           " changes="+str(len(changes))+" mode="+mode,flush=True)
