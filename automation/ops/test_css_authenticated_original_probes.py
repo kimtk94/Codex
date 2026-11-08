@@ -1,4 +1,5 @@
 """Regression: original source vs sink projection must fail closed and never certify business."""
+import datetime as dt
 import pathlib
 import sys
 import unittest
@@ -6,6 +7,7 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from css_authenticated_original_probes import (
     compare_feishu_projection, validate_mail_coverage, same_rows, manifest_index,
+    latest_ingest_checkpoint, parse_internaldate, missing_arrival_buckets,
 )
 
 
@@ -85,6 +87,44 @@ class OriginalProbesTests(unittest.TestCase):
     def test_duplicate_staging_key_blocks(self):
         with self.assertRaisesRegex(ValueError, "DUPLICATE_UID_KEY"):
             validate_mail_coverage(mail_folders(), ["INBOX|256|1"] * 2)
+
+    def test_latest_ingest_checkpoint_uses_actual_fetched_at_not_mail_received_date(self):
+        rows = [["fetched_at_utc"], ["2026-11-08T22:00:00Z"],
+                ["2026-11-08T22:23:40.014311+00:00"]]
+        t = latest_ingest_checkpoint(rows)
+        self.assertEqual(t.isoformat(), "2026-11-08T22:23:40.014311+00:00")
+
+    def test_bad_checkpoint_does_not_become_no_new_data(self):
+        with self.assertRaisesRegex(ValueError, "TIMESTAMP_SCHEMA_INVALID"):
+            latest_ingest_checkpoint([["received_at"]])
+        with self.assertRaisesRegex(ValueError, "TIMESTAMP_NAIVE"):
+            latest_ingest_checkpoint([["fetched_at_utc"], ["2026-11-08T22:00:00"]])
+
+    def test_missing_internaldate_parsing_without_subject_or_body(self):
+        stamp = parse_internaldate([b'42 (UID 123 INTERNALDATE "09-Nov-2026 07:50:12 +0900")'])
+        self.assertEqual(stamp.isoformat(), "2026-11-08T22:50:12+00:00")
+        with self.assertRaisesRegex(ValueError, "INTERNALDATE_MISSING"):
+            parse_internaldate([b'42 (UID 123 RFC822.SIZE 123)'])
+
+    def test_six_new_arrivals_after_last_ingest_not_prior_sink_lag(self):
+        base = dt.datetime(2026, 11, 8, 22, 23, tzinfo=dt.timezone.utc)
+        times = [base + dt.timedelta(minutes=25 + i) for i in range(6)]
+        r = missing_arrival_buckets(times, base)
+        self.assertEqual(r, {"before_last_ingest": 0, "after_last_ingest": 6,
+                             "near_ingest_boundary": 0})
+
+    def test_missing_uid_before_last_ingest_is_real_prior_gap(self):
+        base = dt.datetime(2026, 11, 8, 22, 23, tzinfo=dt.timezone.utc)
+        arrivals = [base - dt.timedelta(minutes=40), base + dt.timedelta(minutes=10),
+                    base + dt.timedelta(seconds=30)]
+        r = missing_arrival_buckets(arrivals, base)
+        self.assertEqual(r, {"before_last_ingest": 1, "after_last_ingest": 1,
+                             "near_ingest_boundary": 1})
+
+    def test_naive_arrival_time_blocks(self):
+        base = dt.datetime(2026, 11, 8, 22, 23, tzinfo=dt.timezone.utc)
+        with self.assertRaisesRegex(ValueError, "ARRIVAL_TIME_UNVERIFIED"):
+            missing_arrival_buckets([dt.datetime(2026, 11, 8, 22, 23)], base)
 
     def test_original_feishu_full_row_projection_and_date(self):
         obj = feishu_snapshot()
