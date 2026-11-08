@@ -1,0 +1,172 @@
+{
+  "policy_version": "2026-11-09",
+  "scope": "GitHub Actions, QQ/CRM mail, SFDC, Feishu; Vercel excluded",
+  "status_enum": [
+    "PASS",
+    "NO_NEW_DATA",
+    "STALE",
+    "SOURCE_UNAVAILABLE",
+    "SINK_LAG",
+    "BLOCK"
+  ],
+  "required_evidence": [
+    "source_event_at",
+    "source_probe_at",
+    "ingest_at",
+    "sink_readback_at",
+    "verified_at",
+    "source_identity",
+    "source_count",
+    "sink_count",
+    "gap_count",
+    "source_ref",
+    "sink_ref",
+    "run_url"
+  ],
+  "domains": [
+    {
+      "id": "mail",
+      "name": "메일 수집",
+      "level": "운영 경로 존재; 원본 전체 커버리지 별도 검증",
+      "checks": [
+        {
+          "axis": "source",
+          "rule": "QQ/CRM 원본 UID·Message-ID·MIME 본문과 수신 시각을 커서/해시·누락 건수와 비교"
+        },
+        {
+          "axis": "sink",
+          "rule": "목적지 Ledger 마지막 UID·본문 준비/오류 카운트와 원본 집합 비교"
+        }
+      ],
+      "workflow": "css-raw-mail-checkpoint-health.yml"
+    },
+    {
+      "id": "lead",
+      "name": "Lead·Contact",
+      "level": "부분 자동화; SFDC 실저장 별도 검증",
+      "checks": [
+        {
+          "axis": "source",
+          "rule": "본인 메일·SFDC Leads/Contacts 최신 Report 원본 ID·기관·성명·수신 시각 검증"
+        },
+        {
+          "axis": "sink",
+          "rule": "Lead/Contact 고유 ID와 전환·Sync To CDMS readback, 동명이인/기관 중복 검증"
+        }
+      ],
+      "workflow": "lead-sent-audit-validation.yml"
+    },
+    {
+      "id": "quote",
+      "name": "Opportunity·Quote",
+      "level": "부분 자동화; Save 미확인 건 HOLD",
+      "checks": [
+        {
+          "axis": "source",
+          "rule": "SFDC Oppo·Quote Report 최신 원본 ID·승인시각·기존 Product Catalog 검증"
+        },
+        {
+          "axis": "sink",
+          "rule": "Contact–Oppo–Quote 연결, 서비스·샘플수·단가·KRW/USD 및 Weekly Quote 원천 합계 대조"
+        }
+      ],
+      "workflow": "quote-weekly-source-parity.yml"
+    },
+    {
+      "id": "contract_po",
+      "name": "Contract·PO",
+      "level": "자동 추적; 원본 PO 파일은 구분",
+      "checks": [
+        {
+          "axis": "source",
+          "rule": "본인 QQ의 계약 생성 메일만 소유권 인정, 프로젝트 식별자 및 이벤트 순서 교차 확인"
+        },
+        {
+          "axis": "sink",
+          "rule": "PO_REQUIRED/FILE_VERIFIED/INFERRED 분리, 계약 후 Final Report·Statement 추정과 실제 파일 readback 분리"
+        }
+      ],
+      "workflow": "contract-po-tracker.yml"
+    },
+    {
+      "id": "sif_project",
+      "name": "SIF·프로젝트 단계/TAT",
+      "level": "부분 자동화; 단계별 확인 필수",
+      "checks": [
+        {
+          "axis": "source",
+          "rule": "CRM 공정/샘플/SIF 알림과 Online Project 날짜·ID 검증, Prepayment SIF 미제출 독촉 금지"
+        },
+        {
+          "axis": "sink",
+          "rule": "프로젝트 공정·진행률·예상월/override를 원본과 비교, AMEA 다중 프로젝트는 SAM/계약 보조키 대조"
+        }
+      ],
+      "workflow": "feishu-project-sync.yml"
+    },
+    {
+      "id": "invoice",
+      "name": "Tax Invoice",
+      "level": "원본 메일 증빙 기반 집계 자동화",
+      "checks": [
+        {
+          "axis": "source",
+          "rule": "본인 QQ 원본 Tax Invoice UID·첨부 파일명·발행일·계약·VAT 포함 금액 검증"
+        },
+        {
+          "axis": "sink",
+          "rule": "Invoice 고유키·원본 금액·세액·중복·상대 계약 확인, 타 고객 연결 시 BLOCK"
+        }
+      ],
+      "workflow": "css-qq-tax-invoice-mail-only-audit.yml"
+    },
+    {
+      "id": "payment_revenue",
+      "name": "Payment·Monthly Revenue",
+      "level": "월별 매출 자동 집계; 입금 확정은 별도",
+      "checks": [
+        {
+          "axis": "source",
+          "rule": "발행 Invoice 원본과 Payment Receipt/Outstanding 원천 날짜 확인, Invoice≠입금증빙"
+        },
+        {
+          "axis": "sink",
+          "rule": "월별 VAT 제외 Revenue·Invoice 수량과 VAT 포함 원본 대조, Pending/Forecast/입금 분리"
+        }
+      ],
+      "workflow": "feishu-canonical-monthly-revenue.yml"
+    },
+    {
+      "id": "feishu_bi",
+      "name": "Feishu BI·Weekly KPI",
+      "level": "자동 대시보드 갱신; 실데이터 정합성 필요",
+      "checks": [
+        {
+          "axis": "source",
+          "rule": "Quote 승인·Invoice·프로젝트 원천별 이벤트 watermark/원본 집합 및 주간 기준 확인"
+        },
+        {
+          "axis": "sink",
+          "rule": "Feishu 카드·주간 건수/금액·월별 매출 readback, KRW M/USD K·정수 표시·누락 확인"
+        }
+      ],
+      "workflow": "feishu-native-kpi-dashboard.yml"
+    },
+    {
+      "id": "monitor",
+      "name": "GitHub Actions 운영",
+      "level": "정기 CI와 상태 ledger 운영",
+      "checks": [
+        {
+          "axis": "source",
+          "rule": "최신 main run/job 단계별 결론·검증 대상 원천 이벤트 시각 확인, 이전 SUCCESS로 실패 덮지 않기"
+        },
+        {
+          "axis": "sink",
+          "rule": "원천 조회/수집/목적지 readback/검증 시각 및 상태를 ledger에 분리 기록"
+        }
+      ],
+      "workflow": "css-central-workflow-health.yml"
+    }
+  ]
+}
