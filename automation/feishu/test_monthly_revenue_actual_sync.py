@@ -5,12 +5,34 @@ import unittest
 
 from qq_mail_ingest import SafeError
 from monthly_revenue_actual_sync import (verify_monthly_readback,
-                                          index_records,safe_existing_fields)
+                                          index_records,safe_existing_fields,
+                                          validate_mail_only_existing)
 from monthly_revenue_canonical import evidence_rows
 from test_monthly_revenue_canonical import source
 
 
 class MonthlyActualSyncTests(unittest.TestCase):
+    def test_erp_manual_and_forecast_records_are_rejected_from_source_table(self):
+        valid=[{"record_id":"r1","fields":{"Source Key":"INVOICE:2026-10"}}]
+        validate_mail_only_existing(valid)
+        for bad in ("ERP_ETAX:2026-10:20910000208+20910000209",
+                    "MANUAL:2026-10","FORECAST:2026-10",
+                    "QUOTE:2026-10","INVOICE:2026-13"):
+            with self.subTest(bad=bad):
+                rows=valid+[{"record_id":"r2",
+                             "fields":{"Source Key":bad,"Month":"2026-10"}}]
+                with self.assertRaisesRegex(SafeError,"NON_MAIL_SOURCE"):
+                    validate_mail_only_existing(rows)
+
+    def test_readback_fails_if_erp_row_would_enter_chart(self):
+        valid=[{"record_id":"r1","fields":{"Source Key":"INVOICE:2026-10",
+               "Invoice Count":48}}]
+        after=valid+[{"record_id":"r2",
+                      "fields":{"Source Key":"ERP_ETAX:2026-10:manual",
+                                "Month":"2026-10","Invoice Count":1}}]
+        with self.assertRaisesRegex(SafeError,"NON_MAIL_SOURCE"):
+            verify_monthly_readback(valid,after,[])
+
     def test_readback_preserves_all_unrelated_historical_months(self):
         desired=evidence_rows(source())
         historical={"record_id":"recHistory",
