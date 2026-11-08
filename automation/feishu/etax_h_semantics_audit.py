@@ -18,7 +18,7 @@ from etax_original_tracking_proof import (
 INTERESTING=("20910000203","20910000208","20910000209",
              "20910000197","209126001032","209126000926",
              "209126000984")
-HEADER_COLUMNS=(3,4,6,7,8,9,10,11)
+HEADER_COLUMNS=(0,1,2,3,4,5,6,7,8,9,10,11,12,13)
 PDF_TOKENS=("PDF",".PDF","发票文件","첨부","ATTACHMENT")
 ISSUANCE_TOKENS=("已开票","已开具","开票成功","발행 완료","ISSUED","发票已","전자세금계산서")
 PENDING_TOKENS=("未开票","未开","待开","未生成","미발행","NOT ISSUED","CANCEL","待确认")
@@ -95,6 +95,14 @@ def audit(token):
         h=safe_header(row[i] if len(row)>i else "")
         print("ETAX_SEMANTIC_HEADER col="+col+" label="+h,flush=True)
     resolved=0
+    tax_number_map={}
+    for record in full[1:]:
+        if len(record)<5:continue
+        erp_id=scalar(record[0])
+        no=scalar(record[4])
+        if not erp_id or not no:continue
+        tax_number_map.setdefault(no,set()).add(erp_id)
+    audit_passed=0
     for invoice in INTERESTING:
         status,line=index.get(invoice,("",0))
         if not line:
@@ -110,8 +118,26 @@ def audit(token):
         h=cell_data(r[7])
         g=cell_data(r[6] if len(r)>6 else "")
         i=cell_data(r[8] if len(r)>8 else "")
-        # The metadata column header H, not the user's mirrored formula,
-        # determines whether H represents a status, a file or a date.
+        j=cell_data(r[9] if len(r)>9 else "")
+        h_raw=scalar(r[7])
+        matches=tax_number_map.get(h_raw,set())
+        if invoice not in matches:
+            raise SafeError("ETAX_SEMANTIC_NUMBER_NOT_IN_ALL_ROW_INDEX")
+        if len(matches)!=1:
+            print("ETAX_SEMANTIC_DUPLICATE_TAX_NUMBER invoice="+invoice+
+                  " matched_erp_count="+str(len(matches))+
+                  " must_review_before_any_revenue_update=YES",flush=True)
+        g_owner=scalar(r[6] if len(r)>6 else "")
+        is_owner_label=g_owner.casefold().strip() in {
+            "kim taehoon","kimtaehoon","김태훈"}
+        is_not_cancelled=not scalar(r[9] if len(r)>9 else "")
+        positive=(
+            "ISSUANCE_WORD" in i["signals"]
+            and "NEGATIVE_OR_PENDING_WORD" not in i["signals"])
+        if is_owner_label and is_not_cancelled and positive and len(matches)==1:
+            audit_passed+=1
+        # The eTax H field is a certificate identifier, not status;
+        # I is a textual remark, J explicitly contains cancellation IDs.
         print("ETAX_SEMANTIC invoice="+invoice+
               " row="+str(line)+
               " H_class="+h["classification"]+
@@ -119,9 +145,20 @@ def audit(token):
               " H_signals="+",".join(h["signals"])+
               " H_length="+str(h["length"])+
               " G_signals="+",".join(g["signals"])+
+              " G_sales_label_matches_user="+str(is_owner_label).lower()+
+              " I_class="+i["classification"]+
               " I_signals="+",".join(i["signals"])+
+              " J_cancel_number_present="+str(not is_not_cancelled).lower()+
+              " J_kind="+j["kind"]+
+              " etax_number_unique="+str(len(matches)==1).lower()+
+              " etax_number_digit_count="+str(sum(ch.isdigit() for ch in h_raw))+
+              " etax_number_nondigit_count="+str(sum(not ch.isdigit() for ch in h_raw))+
+              " remark_positive_without_negative="+str(positive).lower()+
               " raw_values_logged=NO",flush=True)
         resolved+=1
+    print("ETAX_SEMANTIC_ISSUANCE_EVIDENCE candidates="+str(audit_passed)+
+          " status=PROOF_OF_ORIGINAL_ETAX_ENTRY_NOT_IFRS_REVENUE"+
+          " cancellation_link_uniqueness_and_sales_label_checked",flush=True)
     print("ETAX_SEMANTIC_AUDIT_PASS indexed="+str(len(index))+
           " checked="+str(len(INTERESTING))+
           " original_rows="+str(len(full))+
