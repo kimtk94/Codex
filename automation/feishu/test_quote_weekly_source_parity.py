@@ -34,6 +34,14 @@ class WeeklyCoverageTests(unittest.TestCase):
         self.assertIsNone(unknown["source_approved_count"])
         self.assertTrue(result["zero_is_not_imputed"])
 
+    def test_trailing_omitted_cells_remain_unverified(self):
+        weekly,approved=self.setup_rows()
+        weekly[2]=weekly[2][:6]  # Google values API trims trailing empty fields.
+        result=audit(weekly,approved)
+        self.assertEqual(result["coverage_gaps"],1)
+        self.assertIsNone(result["weeks"][1]["source_approved_count"])
+        self.assertEqual(result["weeks"][1]["status"],"UNVERIFIED_SOURCE_GAP")
+
     def test_zero_must_be_explicit_in_source(self):
         weekly,approved=self.setup_rows()
         weekly[2][6]="0"
