@@ -111,6 +111,17 @@ class ReceiptQueueTests(unittest.TestCase):
                             for row in rows[1:]))
         self.assertEqual(actual["209126000108"][11],"YES")
 
+    def test_suffixed_cms_with_amount_mismatch_is_amount_review(self):
+        invoices,receipts,outstanding,manifest=self.data()
+        invoices.append(invoice("209126000114",amount=1100))
+        receipts.append(rec("2026-10-25",900,"209126000114-01"))
+        manifest=source(receipts)
+        rows,counts=build(invoices,receipts,outstanding,manifest)
+        entry=next(row for row in rows[1:] if row[0]=="209126000114")
+        self.assertEqual(entry[9],"RECEIPT_AMOUNT_MISMATCH_REVIEW")
+        self.assertEqual(counts["RECEIPT_AMOUNT_MISMATCH_REVIEW"],2)
+        self.assertEqual(entry[13],"UNKNOWN")
+
     def test_qc_crosscheck_fail_closed(self):
         rows,counts=build(*self.data())
         qc=[
