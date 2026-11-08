@@ -21,8 +21,36 @@ def latest(rows,key,until):
     if not choices:return None
     date=max(x for x,_ in choices)
     selected=[r for x,r in choices if x==date]
-    if len(selected)!=1:raise SafeError("KPI_DUPLICATE_FINANCIAL_PERIOD")
-    return selected[0]
+    if len(selected)==1:return selected[0]
+    # Manual original eTax is a separate Source Key in the *same Month*, not
+    # a duplicate of the canonical QQ-issued CMS source. Summation here
+    # mirrors the native Feishu Revenue chart's SUM-by-Month behaviour.
+    # Weekly Quote still forbids duplicate period rows.
+    if key!="Month":
+        raise SafeError("KPI_DUPLICATE_FINANCIAL_PERIOD")
+    keys=[val(r.get("Source Key")) for r in selected]
+    if len(set(keys))!=len(keys) or not all(
+            k.startswith("INVOICE:"+date) or
+            k.startswith("ERP_ETAX:"+date+":") for k in keys):
+        raise SafeError("KPI_MONTHLY_UNKNOWN_OR_DUPLICATE_SOURCE_KEY")
+    if sum(k.startswith("INVOICE:"+date) for k in keys)!=1:
+        raise SafeError("KPI_MONTHLY_QQ_CANONICAL_NOT_UNIQUE")
+    total={"Month":date}
+    for name in ("Net Revenue KRW Ex VAT","Net Revenue K USD",
+                 "Tax Invoice KRW Incl VAT","Invoice Count"):
+        numbers=[amount(r.get(name)) for r in selected]
+        if any(n is None or n<0 for n in numbers):
+            raise SafeError("KPI_MONTHLY_INCOMPLETE_SOURCE_AMOUNT")
+        subtotal=sum(numbers)
+        total[name]=int(subtotal) if name=="Invoice Count" else subtotal
+    total["Coverage Status"]=";".join(sorted(
+        {val(r.get("Coverage Status")) for r in selected}))
+    print("KPI_MONTHLY_MULTISOURCE_SUM month="+date+
+          " contributing_keys="+str(len(keys))+
+          " issued_eTax_documents="+str(total["Invoice Count"])+
+          " net_krw="+str(int(total["Net Revenue KRW Ex VAT"]))+
+          " other_periods_unchanged=true",flush=True)
+    return total
 
 def financial(source,links,now):
     rows=[];stamp=now.strftime("%Y-%m-%d %H:%M KST")
