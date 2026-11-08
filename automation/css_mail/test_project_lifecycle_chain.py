@@ -83,7 +83,11 @@ class LifecycleTests(unittest.TestCase):
                   "Forecast KRW","Combined KRW","Invoice Count",
                   "Open Statement Count","Pending Amount Unknown"],
                  ["2026-10",0,1881000,0,1881000,0,1,0]]
-        reconciled=reconcile_pending(data[5],data[2],rows,monthly)
+        source_headers=["statement_key","project_x","statement_no","amount_krw",
+                        "currency","notice_at","imap_uid","uidvalidity",
+                        "validation_status","verified_at_utc","subject"]
+        reconciled=reconcile_pending([source_headers]+data[5][1:],
+                                     data[2],rows,monthly)
         self.assertEqual(reconciled,(1,1881000))
 
 
