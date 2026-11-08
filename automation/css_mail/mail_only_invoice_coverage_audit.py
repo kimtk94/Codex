@@ -121,6 +121,7 @@ def assert_official_notice(msg):
 def original_proof(msg,attachment_names,invoice,expected):
     month,amount,amea,state,uid=expected
     assert_official_notice(msg)
+    subject=str(msg.get("Subject") or "").strip()
     matches=[]
     for filename in attachment_names:
         x=extract(filename)
