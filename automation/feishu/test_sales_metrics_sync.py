@@ -136,6 +136,42 @@ class MetricsTests(unittest.TestCase):
             listing.assert_called_once()
             sleep.assert_not_called()
 
+    def test_monthly_current_actuals_override_legacy_without_rewriting_history(self):
+        from test_monthly_revenue_canonical import source as verified_source
+        src=verified_source()
+        src["Revenue Invoice Base"]=[
+            {"Invoice No":"old-sept","Year-Month":"2026-09",
+             "Revenue KRW (Tax Invoice)":"1100000",
+             "Net Revenue KRW (VAT excl; per invoice)":"1000000"},
+            {"Invoice No":"old-oct","Year-Month":"2026-10",
+             "Revenue KRW (Tax Invoice)":"56633500",
+             "Net Revenue KRW (VAT excl; per invoice)":"51485000"},
+        ]
+        src["CSS Invoice Monthly Summary"]=[
+            {"invoice_month":"2026-10","invoice_count":"24",
+             "total_amount_krw":"56633500 KRW"}]
+        result=m.monthly_rows(src)
+        rows={r["Month"]:r for r in result}
+        self.assertEqual(set(rows),{"2026-09","2026-10","2026-11"})
+        self.assertEqual(rows["2026-10"]["Invoice Count"],48)
+        self.assertEqual(rows["2026-10"]["Net Revenue M KRW"],144.129)
+        self.assertEqual(rows["2026-11"]["Invoice Count"],4)
+        self.assertEqual(rows["2026-11"]["Net Revenue M KRW"],34.783)
+        self.assertEqual(rows["2026-09"]["Invoice Count"],1)
+        self.assertEqual(rows["2026-09"]["Net Revenue M KRW"],1)
+        self.assertIsNone(rows["2026-10"]["CSS Source Invoice Count"])
+        self.assertNotIn("2026-12",rows)
+
+    def test_partial_canonical_authority_cannot_fallback_to_stale(self):
+        src={"Revenue Invoice Base":[
+                {"Invoice No":"old-oct","Year-Month":"2026-10",
+                 "Revenue KRW (Tax Invoice)":"1100000",
+                 "Net Revenue KRW (VAT excl; per invoice)":"1000000"}],
+             "CSS Invoice Monthly Summary":[],
+             "BI Revenue Net VAT Monthly":[{"Month":"2026-10"}]}
+        with self.assertRaisesRegex(SafeError,"MONTHLY_CANONICAL_AUTHORITY_BLOCKED"):
+            m.monthly_rows(src)
+
     def test_monthly_dedup_and_vat_separated(self):
         source={
             "Revenue Invoice Base":[

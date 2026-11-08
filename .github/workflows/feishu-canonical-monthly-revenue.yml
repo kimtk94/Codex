@@ -1,0 +1,72 @@
+name: Feishu Canonical Monthly Revenue Actual
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/monthly_revenue_canonical.py'
+      - 'automation/feishu/monthly_revenue_actual_sync.py'
+      - 'automation/feishu/test_monthly_revenue_canonical.py'
+      - 'automation/feishu/test_monthly_revenue_actual_sync.py'
+      - 'automation/feishu/sales_metrics_sync.py'
+      - 'automation/feishu/test_sales_metrics_sync.py'
+      - '.github/workflows/feishu-canonical-monthly-revenue.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/monthly_revenue_canonical.py'
+      - 'automation/feishu/monthly_revenue_actual_sync.py'
+      - 'automation/feishu/sales_metrics_sync.py'
+      - '.github/workflows/feishu-canonical-monthly-revenue.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [plan, apply]
+        default: plan
+  schedule:
+    # 09:25, 15:25, 21:25, 03:25 KST; independent of SFDC quote reports
+    - cron: '25 0,6,12,18 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: feishu-canonical-monthly-revenue
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google read-only clients
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Validate authoritative issued Revenue and isolated monthly-only sync
+        run: |
+          python3 -m py_compile automation/feishu/monthly_revenue_canonical.py automation/feishu/monthly_revenue_actual_sync.py automation/feishu/sales_metrics_sync.py
+          python3 -m unittest discover -s automation/feishu -p 'test_monthly_revenue_canonical.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_monthly_revenue_actual_sync.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
+  sync:
+    needs: test
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 10
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_METRIC_MODE: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google read-only clients
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Sync only source-authorized monthly Revenue (no forecast, no SFDC bypass)
+        run: python3 automation/feishu/monthly_revenue_actual_sync.py
