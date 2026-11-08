@@ -1,0 +1,37 @@
+name: CSS Freshness Dual Crosscheck Policy
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'docs/css-automation-freshness-crosscheck-20261109.md'
+      - 'automation/ops/css_freshness_policy.json'
+      - 'automation/ops/css_freshness_policy.py'
+      - 'automation/ops/test_css_freshness_policy.py'
+      - '.github/workflows/css-freshness-policy-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/css-automation-freshness-crosscheck-20261109.md'
+      - 'automation/ops/css_freshness_policy.json'
+      - 'automation/ops/css_freshness_policy.py'
+      - 'automation/ops/test_css_freshness_policy.py'
+      - '.github/workflows/css-freshness-policy-check.yml'
+permissions:
+  contents: read
+jobs:
+  offline-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate source/sink crosscheck policy (not live freshness)
+        run: python automation/ops/css_freshness_policy.py validate
+      - name: Regression tests (fail closed on missing evidence)
+        run: python -m unittest discover -s automation/ops -p 'test_css_freshness_policy.py' -v
+      - name: Publish explicit verification boundary
+        run: echo 'POLICY_TEST_PASS_ONLY; LIVE_SOURCE_AND_SINK_NOT_CERTIFIED' >> "$GITHUB_STEP_SUMMARY"
