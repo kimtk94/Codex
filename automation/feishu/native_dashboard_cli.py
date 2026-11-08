@@ -43,7 +43,7 @@ BLOCKS=[
         "group_by":[{"field_name":"Month","mode":"integrated",
                      "sort":{"type":"group","order":"asc"}}]}),
     ("월별 Revenue 표시 기준","text",{
-        "text":"**월별 Revenue: M KRW (K USD) — 원본 커버리지 검토 중.** 최근 월 집계는 QQ 발행 안내 메일의 CMS Invoice(209126...)만을 중복 제거하고 VAT 제외로 계산한 **확인된 부분합계**입니다. 수기 ERP Invoice는 별도 eTax/ERP 원본의 발행·계약·담당자 확인 전까지 포함하지 않으며, QQ 백필 중 담당자가 미확인된 증빙도 자동으로 개인 매출에 합산하지 않습니다. 원본의 발행 확인 부분합계가 해당 월 전체 개인 매출이라는 뜻은 아닙니다. **Pending·Forecast는 실적에서 제외.** KRW는 M, USD는 K 단위이며 1 USD=1,500 KRW 보고용 환율로 같은 금액을 표시합니다."}),
+        "text":"**월별 Revenue: Tax Invoice 수신 메일만 집계 · M KRW (K USD).** QQ 메일함의 공식 CSS \"Invoice Issued & Statement Confirmed\" 원본 메일에서 확인된 CMS Invoice(209126...)만 Invoice 번호로 중복 제거하고 VAT를 제외해 표시합니다. **수기 ERP Invoice·Feishu eTax·Payment·Pending·Forecast·Quote는 발행 검증 여부와 관계없이 합산하지 않습니다.** 백필 원본 메일 누락 후보는 제목·발신자·첨부파일명·금액 검증 전까지 합산하지 않습니다. 메일 수신월 기준 발행 안내 합계로서 회계상 매출 인식이나 입금 완료를 의미하지 않으며, 아직 전체 메일 수집 범위 검증 중입니다. KRW는 M, USD는 K 단위, 1 USD=1,500 KRW 보고용 환율로 동일 금액을 표시합니다."}),
     ("KOREA · Weekly Quote · 완료 4주 + 이번 주 (Count + 계산 K USD)","combo",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
