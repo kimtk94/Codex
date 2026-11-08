@@ -44,6 +44,83 @@ def mapping(rows):
         pairs.pop(x_id, None)
     return pairs, len(conflicts)
 
+RECEIPT_GROUPS=((0,2,3),(5,7,6),(9,11,12))
+RECEIPT_HEADERS=((0,"Deposit Date"),(2,"Amount (KRW)"),(3,"CMS No."),
+                 (5,"Date"),(6,"CMS No. [2]"),(7,"Amount"),
+                 (9,"Date [2]"),(11,"Amount [2]"),(12,"CMS No. [3]"))
+RECEIPT_NUMBER=re.compile(r"(?<![A-Z0-9])2091(?:25|26)\d{6}(?![A-Z0-9])")
+
+def amount_int(value):
+    clean=str(value or "").strip().replace(",","").replace("₩","")
+    clean=re.sub(r"\s*KRW\s*$","",clean,flags=re.I).strip()
+    if not re.fullmatch(r"\d+(?:\.0+)?",clean):
+        return None
+    return int(clean.split(".")[0])
+
+def valid_receipt_date(value):
+    text=str(value or "").strip()
+    if re.fullmatch(r"\d{5}",text):
+        day=int(text)
+        return 40000 <= day <= 60000
+    for fmt in ("%Y-%m-%d","%d-%b-%y","%d-%B-%y",
+                "%d-%b-%Y","%d-%B-%Y"):
+        try:
+            dt.datetime.strptime(text,fmt)
+            return True
+        except ValueError:
+            continue
+    return False
+
+def audit_receipt_candidates(receipts,invoice_amounts):
+    """Match source CMS numbers for review; NEVER infer bank payment settlement.
+
+    Each source row may contain three independent payment sections, and one
+    section may cite multiple invoices. No grouped amount is allocated to
+    individual invoices without authoritative allocation evidence.
+    """
+    if not receipts or len(receipts[0])<13 or any(
+        str(receipts[0][i])!=header for i,header in RECEIPT_HEADERS
+    ):
+        raise RuntimeError("RECEIPT_SOURCE_HEADER_CHANGED")
+    references={}
+    source_entries=0
+    for source_row in receipts[1:]:
+        for date_col,amount_col,cms_col in RECEIPT_GROUPS:
+            cms=str(source_row[cms_col]) if len(source_row)>cms_col else ""
+            numbers=RECEIPT_NUMBER.findall(cms.upper())
+            if not numbers:continue
+            source_entries+=1
+            money=amount_int(source_row[amount_col] if len(source_row)>amount_col else "")
+            isdated=valid_receipt_date(source_row[date_col] if len(source_row)>date_col else "")
+            for no in set(numbers):
+                if no not in invoice_amounts:continue
+                references.setdefault(no,[]).append((len(numbers),money,isdated))
+    stats=Counter({"RECEIPT_SOURCE_ENTRIES":source_entries,
+                   "RECEIPT_LINKED_INVOICE_IDS":len(references)})
+    for invoice,records in references.items():
+        if len(records)!=1:
+            stats["RECEIPT_DUPLICATE_REFERENCE_REVIEW"]+=1
+            continue
+        group_count,money,isdated=records[0]
+        if group_count!=1:
+            stats["RECEIPT_GROUPED_ALLOCATION_REVIEW"]+=1
+        elif not isdated:
+            stats["RECEIPT_DATE_REVIEW"]+=1
+        elif money is None or invoice_amounts[invoice] is None:
+            stats["RECEIPT_AMOUNT_MISSING_REVIEW"]+=1
+        elif money==invoice_amounts[invoice]:
+            stats["RECEIPT_EXACT_AMOUNT_CANDIDATE"]+=1
+        else:
+            stats["RECEIPT_AMOUNT_MISMATCH_REVIEW"]+=1
+    # Every matching invoice identifier is classified once.
+    if sum(stats[k] for k in (
+        "RECEIPT_DUPLICATE_REFERENCE_REVIEW",
+        "RECEIPT_GROUPED_ALLOCATION_REVIEW","RECEIPT_DATE_REVIEW",
+        "RECEIPT_AMOUNT_MISSING_REVIEW","RECEIPT_EXACT_AMOUNT_CANDIDATE",
+        "RECEIPT_AMOUNT_MISMATCH_REVIEW"))!=len(references):
+        raise RuntimeError("RECEIPT_CANDIDATE_ACCOUNTING_MISMATCH")
+    return stats
+
 def analyze(invoices, feishu, bridge_rows):
     bridges, conflicts = mapping(bridge_rows)
     by_h = {}
@@ -101,7 +178,8 @@ def main():
     session = AuthorizedSession(creds)
     meta = request(session, "GET", "?fields=sheets.properties(title,sheetId)")
     titles = {s["properties"]["title"] for s in meta["sheets"]}
-    if not {SOURCE_INVOICE, SOURCE_FEISHU, "Quote Invoice Ledger", "CSS Tax Invoices"}.issubset(titles):
+    if not {SOURCE_INVOICE, SOURCE_FEISHU, "Quote Invoice Ledger",
+            "CSS Tax Invoices", "Feishu Latest Receipts"}.issubset(titles):
         raise RuntimeError("REQUIRED_SOURCE_TABS_MISSING")
     invoices = value_range(session, SOURCE_INVOICE, "A1:P2000")
     projects = value_range(session, SOURCE_FEISHU, "A1:J2000")
@@ -173,6 +251,10 @@ def main():
         ])
     if len(detail) - 1 != stats["INVOICES"]:
         raise RuntimeError("DETAIL_INVOICE_COUNT_MISMATCH")
+    receipt_rows=value_range(session,"Feishu Latest Receipts","A1:M1000")
+    gross_by_invoice={norm(row[0]):amount_int(row[2])
+                      for row in detail[1:] if row and row[0]}
+    receipt_stats=audit_receipt_candidates(receipt_rows,gross_by_invoice)
     stats["INVOICE_TO_FEISHU_EXACT_VERIFIED"] = validated_links
     stats["LINKED_OUTSTANDING_FLAGS"] = outstanding_linked
     stats["LINKED_UNISSUED_FLAGS"] = issued_linked
@@ -197,6 +279,14 @@ def main():
         ["Duplicate invoice keys", stats["DUPLICATE_INVOICE_ID"], "Investigate if nonzero"],
         ["Status", "PAYMENT_PROOF_REQUIRED", "Project flags matched where explicit invoice subject evidence exists; bank remittance still required"],
         ["Source tabs", SOURCE_INVOICE + "; " + SOURCE_FEISHU + "; Quote Invoice Ledger", "No operational source values modified"],
+        ["Receipt source entries",receipt_stats["RECEIPT_SOURCE_ENTRIES"],"Three independent payment sections; snapshot only"],
+        ["Receipt linked invoice IDs",receipt_stats["RECEIPT_LINKED_INVOICE_IDS"],"Candidate ID overlap; not proof of collection"],
+        ["Receipt single-ID exact-amount candidates",receipt_stats["RECEIPT_EXACT_AMOUNT_CANDIDATE"],"Date parses and amount matches, still NOT paid-certified"],
+        ["Receipt grouped-allocation review",receipt_stats["RECEIPT_GROUPED_ALLOCATION_REVIEW"],"Several CMS invoice IDs in one source entry; do not distribute amount"],
+        ["Receipt duplicate-ID review",receipt_stats["RECEIPT_DUPLICATE_REFERENCE_REVIEW"],"Invoice number appears in multiple source entries; no sum inference"],
+        ["Receipt amount mismatch review",receipt_stats["RECEIPT_AMOUNT_MISMATCH_REVIEW"],"Single invoice referenced with differing receipt amount"],
+        ["Receipt missing date/amount review",receipt_stats["RECEIPT_DATE_REVIEW"]+receipt_stats["RECEIPT_AMOUNT_MISSING_REVIEW"],"Missing or unparsable source evidence"],
+        ["Receipt candidate disposition","REVIEW_ONLY_NOT_PAID","No invoice paid status, cash totals, or original source rows are changed"],
     ]
     if DETAIL_TITLE not in titles:
         request(session, "POST", ":batchUpdate", json={"requests":[{"addSheet":{"properties":{"title":DETAIL_TITLE,"gridProperties":{"rowCount":1000,"columnCount":12,"frozenRowCount":1}}}}]})
@@ -208,6 +298,13 @@ def main():
     request(session, "PUT", "/values/" + address + "?valueInputOption=RAW", json={"values":out})
     print("PAYMENT_RECONCILIATION_QC_PASS invoices=%d projects=%d outstanding_flags=%d verified_invoice_links=%d" %
           (stats["INVOICES"], stats["FEISHU_PROJECTS"], stats["OUTSTANDING_FLAG_PROJECTS"], validated_links))
+    print("PAYMENT_RECEIPT_CANDIDATES_REVIEW_ONLY linked=%d exact_candidate=%d grouped=%d duplicates=%d amount_review=%d date_or_missing=%d paid_certified=UNKNOWN" %
+          (receipt_stats["RECEIPT_LINKED_INVOICE_IDS"],
+           receipt_stats["RECEIPT_EXACT_AMOUNT_CANDIDATE"],
+           receipt_stats["RECEIPT_GROUPED_ALLOCATION_REVIEW"],
+           receipt_stats["RECEIPT_DUPLICATE_REFERENCE_REVIEW"],
+           receipt_stats["RECEIPT_AMOUNT_MISMATCH_REVIEW"],
+           receipt_stats["RECEIPT_DATE_REVIEW"]+receipt_stats["RECEIPT_AMOUNT_MISSING_REVIEW"]))
     if stats["DUPLICATE_INVOICE_ID"] or stats["BRIDGE_CONFLICTS"] or stats["INVOICE_SUBJECT_CONFLICTS"]:
         raise RuntimeError("QC_CONFLICT_REVIEW_REQUIRED")
 

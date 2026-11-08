@@ -1,5 +1,10 @@
 name: Sales Payment Reconciliation QC
 on:
+  pull_request:
+    paths:
+      - 'automation/feishu/payment_reconciliation_qc.py'
+      - 'automation/feishu/test_payment_reconciliation_qc.py'
+      - '.github/workflows/sales-payment-reconciliation.yml'
   workflow_dispatch:
   workflow_run:
     workflows: ["Feishu Project Status Sync"]
@@ -17,8 +22,24 @@ concurrency:
   group: sales-payment-reconciliation-qc
   cancel-in-progress: false
 jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Validate receipt candidate classifications (no external writes)
+        run: |
+          python3 -m py_compile automation/feishu/payment_reconciliation_qc.py
+          python3 automation/feishu/test_payment_reconciliation_qc.py
+
   reconcile:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    needs: offline
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 10
