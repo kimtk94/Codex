@@ -81,8 +81,14 @@ def inspect(rows, now, grace_minutes=35):
             raise ValueError("AUDIT_TIMESTAMP_IN_FUTURE")
         received[name] = original
         checked[name] = audit_check
-        # Allow a 10 minute early subscription, but never a 5-hour-old report.
-        if original < due - dt.timedelta(minutes=10):
+        # Salesforce subscription mail is observed around 08:00 KST on
+        # 2026-11-08 even though the canonical morning due slot is 09:00.
+        # A delivered 08:00 report is still *today's morning* snapshot.
+        # Allow at most 75 minutes early (09:00 -> 07:45), without accepting
+        # yesterday's 17:00 source or an old morning source after the 12:00
+        # and 17:00 due slots. The received header, not the check time,
+        # remains the authoritative freshness evidence.
+        if original < due - dt.timedelta(minutes=75):
             stale.append(name)
     return {"due": due, "stale": stale, "received": received, "checked": checked}
 
