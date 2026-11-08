@@ -140,8 +140,8 @@ def original_proof(msg,attachment_names,invoice,expected):
 
 
 def audit_with_original_imap(missing,imap_factory=imaplib.IMAP4_SSL):
-    verified={};blocked={}
-    if not missing:return verified,blocked
+    verified={};blocked={};excluded={}
+    if not missing:return verified,blocked,excluded
     user=os.environ["CSS_QQ_MAIL_ADDRESS"]
     pw=os.environ["CSS_QQ_MAIL_AUTH_CODE"]
     with imap_factory("imap.exmail.qq.com",993,timeout=60) as im:
@@ -163,9 +163,18 @@ def audit_with_original_imap(missing,imap_factory=imaplib.IMAP4_SSL):
                 if not names:raise ValueError("NO_TAX_INVOICE_ATTACHMENT_FILENAME")
                 verified[inv]=original_proof(msg,names,inv,expected)
             except (ValueError,TypeError) as exc:
-                blocked[inv]=type(exc).__name__+":"+str(exc)
+                error=type(exc).__name__+":"+str(exc)
+                if (isinstance(exc,ValueError) and
+                        str(exc).startswith(
+                            "ORIGINAL_TAX_INVOICE_EMAIL_IDENTITY_UNVERIFIED")):
+                    # Original email is categorically NOT the official CSS
+                    # issued-notice sender/subject. A reply is also excluded,
+                    # not a collectible Revenue gap. Preserve reasons.
+                    excluded[inv]=error
+                else:
+                    blocked[inv]=error
         im.logout()
-    return verified,blocked
+    return verified,blocked,excluded
 
 
 def main():
@@ -180,7 +189,7 @@ def main():
           " absent_from=CSS_TAX_INVOICE_EXTRACT"+
           " count="+str(len(missing))+
           " excluded=MANUAL_ERP_ETAX_FORECAST_PENDING",flush=True)
-    verified,blocked=audit_with_original_imap(missing)
+    verified,blocked,excluded=audit_with_original_imap(missing)
     for inv,detail in sorted(verified.items()):
         print("MAIL_ONLY_ORIGINAL_PROOF invoice="+inv+
               " month="+detail["month"]+
@@ -190,6 +199,9 @@ def main():
               " css_sender_and_original_notice=PASS",flush=True)
     for inv,reason in sorted(blocked.items()):
         print("MAIL_ONLY_ORIGINAL_HOLD invoice="+inv+" reason="+reason,flush=True)
+    for inv,reason in sorted(excluded.items()):
+        print("MAIL_ONLY_NONOFFICIAL_EXCLUDED invoice="+inv+
+              " reason="+reason,flush=True)
     by={}
     for inv,detail in verified.items():
         rec=by.setdefault(detail["month"],[0,0,0])
@@ -198,17 +210,24 @@ def main():
         print("MAIL_ONLY_VERIFIED_MISSING_MONTH month="+month+
               " count="+str(info[0])+" gross_krw="+str(info[1])+
               " net_krw="+str(info[2]),flush=True)
-    print("MAIL_ONLY_AUDIT_RESULT missing="+str(len(missing))+
-          " original_verified="+str(len(verified))+
+    print("MAIL_ONLY_AUDIT_RESULT candidates="+str(len(missing))+
+          " original_verified_missing="+str(len(verified))+
+          " nonofficial_excluded="+str(len(excluded))+
           " review="+str(len(blocked))+
           " source_writes=0 revenue_writes=0",flush=True)
+    if len(verified)+len(blocked)+len(excluded)!=len(missing):
+        raise ValueError("MAIL_ONLY_MISSING_SOURCE_NOT_FULLY_CLASSIFIED")
     if blocked:
         raise ValueError("MAIL_ONLY_ORIGINAL_CONFIRMATION_INCOMPLETE")
-    if missing:
-        # Not silently mark a successful full Revenue sync when verified
-        # original CSS mail exists but is absent from the monthly source.
+    if verified:
+        # Verified original CSS source but missing from monthly input:
+        # hold until source ingestion has promoted the document.
         raise ValueError("MAIL_ONLY_REVENUE_SOURCE_COVERAGE_GAP_"+
                          str(len(verified)))
+    print("MAIL_ONLY_SOURCE_POLICY_PASS every_extra_historical_mail="+
+          ("EXCLUDED_NOT_ORIGINAL" if missing else "NO_GAP")+
+          " genuine_official_missing=0"+
+          " manual_ERP_eTax_invoice_allowed=0",flush=True)
 
 
 if __name__=="__main__":
