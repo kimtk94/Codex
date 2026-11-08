@@ -94,6 +94,45 @@ class LifecycleTests(unittest.TestCase):
         self.assertGreaterEqual(out[7],55)
         self.assertIn("contract-level",out[6])
 
+    def test_verified_statement_without_feishu_project_becomes_exact_x_pending_only(self):
+        data=fixtures()
+        missing_x="X209SC26106973-Z01"
+        missing_j="J001-"+missing_x
+        original_subject=(
+            "❗️Action Required: Final Report & Statement Ready For Confirmation"
+            " – "+missing_j+" - H209SC26106973 - "
+            "Korea-AgingLab-3-PMP-90Gb-WOBI-JeonSungWon-AMEA2026102103")
+        original_date="2026-11-05T16:17:01+08:00"
+        data[5].append([missing_j,missing_x,"J001","1881000","KRW",
+                        original_date,"41835","1776302013","AMOUNT_VERIFIED",
+                        "2026-11-05T09:21:53+00:00",original_subject])
+        out=build(*data)
+        self.assertEqual(len(out),3)  # Feishu row + exact source-only row.
+        created=out[2]
+        self.assertEqual(created[0],missing_x)
+        self.assertEqual(created[1],"AMEA2026102103")
+        self.assertEqual(created[14],0)
+        self.assertEqual(created[15],0)
+        self.assertEqual(created[16],"STATEMENT READY - INVOICE PENDING")
+        self.assertEqual(created[17],0)  # no inferred Forecast.
+        self.assertEqual(created[20],"J001")
+        self.assertEqual(created[21],original_date)
+        self.assertEqual(created[22],1881000)
+        self.assertEqual(created[23],"AMOUNT_VERIFIED 1/1")
+        self.assertEqual(created[12],"2026-11")
+
+    def test_source_only_statement_wrong_x_or_missing_uid_is_rejected(self):
+        data=fixtures()
+        missing_x="X209SC26106973-Z01"
+        missing_j="J001-"+missing_x
+        subject=("❗️Action Required: Final Report & Statement Ready For Confirmation"
+                 " – "+missing_j+" - H209SC26106973 - AMEA2026102103")
+        data[5].append([missing_j,missing_x,"J002","1881000","KRW",
+                        "2026-11-05T16:17:01+08:00","41835","1776302013",
+                        "AMOUNT_VERIFIED","2026-11-05T09:21:53+00:00",subject])
+        with self.assertRaisesRegex(RuntimeError,"EVIDENCE_INVALID"):
+            build(*data)
+
     def test_original_notices_only_and_stale_invoice_filter(self):
         mail=[["ingest_key"],source_mail(J2)[:16]]  # Sheets trims empty Q:R for originals
         replied=source_mail(J1)
