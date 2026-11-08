@@ -49,6 +49,8 @@ def validate_mail_coverage(folders, staged_keys):
     if len(staged_keys) != len(set(staged_keys)):
         raise ValueError("MAIL_STAGING_DUPLICATE_UID_KEY")
     original = set()
+    recent_original = set()
+    scan_original = set()
     counts = {}
     for label, entry in folders.items():
         folder, validity, uids = entry["folder"], entry["uidvalidity"], entry["uids"]
@@ -59,11 +61,24 @@ def validate_mail_coverage(folders, staged_keys):
         keys = {str(folder) + "|" + str(validity) + "|" + str(uid) for uid in uids}
         if keys & original:
             raise ValueError("ORIGINAL_MAIL_UID_NAMESPACE_CONFLICT")
+        for field, collector in (("recent_uids", recent_original), ("scan_uids", scan_original)):
+            members = entry.get(field)
+            if not isinstance(members, list) or len(members) != len(set(members)):
+                raise ValueError("ORIGINAL_MAIL_WINDOW_EVIDENCE_MISSING")
+            if not all(str(uid).isdigit() for uid in members):
+                raise ValueError("ORIGINAL_MAIL_WINDOW_UID_INVALID")
+            window = {str(folder) + "|" + str(validity) + "|" + str(uid) for uid in members}
+            if not window.issubset(keys):
+                raise ValueError("ORIGINAL_MAIL_WINDOW_NOT_SUBSET_OF_ALL")
+            collector.update(window)
         original |= keys
         counts[label] = len(uids)
     if not original:
         raise ValueError("ORIGINAL_MAILBOX_UNEXPECTED_EMPTY")
-    missing = len(original - set(staged_keys))
+    staged = set(staged_keys)
+    missing = len(original - staged)
+    recent_missing = len(recent_original - staged)
+    scan_missing = len(scan_original - staged)
     return {
         "original_mailboxes_queried": 2,
         "imap_uid_count": len(original),
@@ -71,7 +86,14 @@ def validate_mail_coverage(folders, staged_keys):
         "staging_unique_keys": len(staged_keys),
         "covered_uid_count": len(original) - missing,
         "missing_uid_count": missing,
-        "uid_coverage_state": "PASS_UID_ONLY" if missing == 0 else "SINK_LAG",
+        "uid_coverage_state": "PASS_UID_ONLY" if missing == 0 else "HISTORICAL_SINK_LAG",
+        "recent_3d_uid_count": len(recent_original),
+        "recent_3d_missing_uid_count": recent_missing,
+        "recent_3d_state": "PASS_UID_ONLY" if recent_missing == 0 else "SINK_LAG",
+        "scan_60d_uid_count": len(scan_original),
+        "scan_60d_missing_uid_count": scan_missing,
+        "scan_60d_state": "PASS_UID_ONLY" if scan_missing == 0 else "SINK_LAG",
+        "historical_outside_60d_uid_gap": len((original - scan_original) - staged),
         "mime_body_verified": False,
         "mailbox_history_scope": "CURRENT_IMAP_INBOX_AND_SENT_ONLY",
     }
@@ -169,7 +191,16 @@ def live_mail(session):
             if status != "OK" or not result or result[0] is None:
                 raise RuntimeError("QQ_FULL_UID_SEARCH_FAILED")
             ids = [v.decode("ascii", "strict") for v in result[0].split()]
-            results[label] = {"folder": folder, "uidvalidity": validity, "uids": ids}
+            since = {}
+            for days, window in ((3, "recent_uids"), (60, "scan_uids")):
+                cutoff = (dt.datetime.now(dt.timezone.utc) -
+                          dt.timedelta(days=days)).strftime("%d-%b-%Y")
+                code, reply = im.uid("SEARCH", None, "SINCE", cutoff)
+                if code != "OK" or not reply or reply[0] is None:
+                    raise RuntimeError("QQ_WINDOW_UID_SEARCH_FAILED")
+                since[window] = [v.decode("ascii", "strict") for v in reply[0].split()]
+            results[label] = {"folder": folder, "uidvalidity": validity,
+                              "uids": ids, **since}
         im.logout()
     return validate_mail_coverage(results, keys)
 
@@ -286,6 +317,11 @@ def main():
         "qq_source": mail.get("status"),
         "qq_uid_coverage": mail.get("uid_coverage_state", "UNVERIFIED"),
         "qq_uid_gap_count": mail.get("missing_uid_count"),
+        "qq_recent_3d_uid_gap": mail.get("recent_3d_missing_uid_count"),
+        "qq_recent_3d_state": mail.get("recent_3d_state", "UNVERIFIED"),
+        "qq_scan_60d_uid_gap": mail.get("scan_60d_missing_uid_count"),
+        "qq_scan_60d_state": mail.get("scan_60d_state", "UNVERIFIED"),
+        "qq_historical_outside_60d_gap": mail.get("historical_outside_60d_uid_gap"),
         "feishu_source": feishu.get("status"),
         "feishu_mirror": feishu.get("mirror_projection_status", "UNVERIFIED"),
         "eTax_dated_source": (feishu.get("formats") or {}).get("eTax Invoice", {}).get("source_date", "UNKNOWN"),
@@ -300,7 +336,10 @@ def main():
             out.write("| Check | Original probe | Projection/readback | Business acceptance |\n")
             out.write("|---|---|---|---|\n")
             out.write("| QQ IMAP current UID sets | " + mail.get("status", "UNVERIFIED") +
-                      " | " + mail.get("uid_coverage_state", "UNVERIFIED") + " | Not certified: MIME/body |\n")
+                      " | recent 3d " + mail.get("recent_3d_state", "UNVERIFIED") +
+                      "; last 60d " + mail.get("scan_60d_state", "UNVERIFIED") +
+                      "; full history " + mail.get("uid_coverage_state", "UNVERIFIED") +
+                      " | Not certified: MIME/body |\n")
             out.write("| Original Feishu dated Sheets | " + feishu.get("status", "UNVERIFIED") +
                       " | " + feishu.get("mirror_projection_status", "UNVERIFIED") +
                       " | Not certified: invoicing/payment |\n")
