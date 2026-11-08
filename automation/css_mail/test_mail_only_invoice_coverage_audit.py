@@ -4,6 +4,7 @@ import unittest
 from email.parser import Parser
 from mail_only_invoice_coverage_audit import (
     identify_missing,original_proof,net,numeric,
+    audit_with_original_imap,
 )
 
 
@@ -42,6 +43,35 @@ class MailOnlyTests(unittest.TestCase):
         self.assertEqual(set(missing),{"209126000887","209126000926"})
         self.assertEqual(sum(v[1] for v in missing.values()),13482150)
         self.assertEqual(sum(net(v[1]) for v in missing.values()),12256500)
+
+    def test_nonofficial_inbox_reply_excluded_not_missing_revenue(self):
+        from email.message import EmailMessage
+        class FakeIMAP:
+            def __init__(self,*args,**kwargs):pass
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def login(self,user,password):pass
+            def select(self,folder,readonly=False):
+                assert readonly and folder=="INBOX"
+                return "OK",[]
+            def uid(self,verb,uid,query):
+                assert verb=="FETCH" and uid=="41234"
+                if "HEADER.FIELDS" in query:
+                    return "OK",[(b"1 FETCH",(
+                        b"From: Someone <other@novogene.com>\r\n"
+                        b"Subject: Re: Invoice Issued & Statement Confirmed\r\n"
+                        b"In-Reply-To: <orig@novogene.com>\r\n\r\n"))]
+                raise AssertionError("BODYSTRUCTURE must not be read")
+            def logout(self):pass
+        missing={"209126000887":("2026-10",12012000,
+                "AMEA2026030802","FILENAME_PARSED","41234")}
+        verified,blocked,excluded=audit_with_original_imap(
+            missing,imap_factory=FakeIMAP)
+        self.assertEqual(verified,{})
+        self.assertEqual(blocked,{})
+        self.assertEqual(set(excluded),{"209126000887"})
+        self.assertIn("sender_css=false",excluded["209126000887"])
+        self.assertIn("subject_reply=true",excluded["209126000887"])
 
     def test_strict_original_filename_amount_notice_and_sender(self):
         original=("TAX INVOICE-209126000887-H209SC26065705-PO9-"
