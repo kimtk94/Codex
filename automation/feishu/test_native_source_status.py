@@ -19,7 +19,7 @@ class DashboardSourceNoticeTests(unittest.TestCase):
         note,age=source_status_notice(audit(),now)
         self.assertGreater(age,1000)
         self.assertIn("11/07 17:00",note)
-        self.assertIn("11/08",note)
+        self.assertIn("2026-11-08",note)
         self.assertIn("수신 지연",note)
         self.assertIn("화면 갱신",note)
         self.assertNotIn("최신화 완료",note)
