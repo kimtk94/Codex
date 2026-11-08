@@ -31,6 +31,48 @@ class VatEvidenceTests(unittest.TestCase):
         self.assertEqual(r[5],0)
         self.assertEqual(r[6],21152370)
 
+    def test_november_six_original_invoices_reconcile_exactly(self):
+        # Live 11/08 source audit: 4 invoices received 11/04 plus 2 on 11/06.
+        records=[
+            ("209126001054",1287000,"2026-11-04T12:33:57+09:00"),
+            ("209126001053",1721500,"2026-11-04T12:13:17+09:00"),
+            ("209126001051",665500,"2026-11-04T11:11:16+09:00"),
+            ("209126001058",34587300,"2026-11-04T16:01:08+09:00"),
+            ("209126001072",222750,"2026-11-06T09:07:52+09:00"),
+            ("209126001077",8712000,"2026-11-06T17:46:05+09:00"),
+        ]
+        invoices=[["invoice_number"]]
+        for i,(number,amount,date) in enumerate(records):
+            item=invoice(number,amount,date)
+            item[8]=str(50000+i)
+            item[9]="INBOX|1776302013|"+str(50000+i)
+            invoices.append(item)
+        header=["Month","Actual Invoice KRW","Pending Verified KRW",
+                "Forecast KRW","Combined KRW (verified + estimate)",
+                "Invoice Count"]
+        ledger=[header,
+                ["2026-10","0","0","0","0","0"],
+                ["2026-11","47196050","18429400","43767645",
+                 "109393095","6"]]
+        rows=build(invoices,ledger,NOW)
+        nov=next(r for r in rows[1:] if r[0]=="2026-11")
+        self.assertEqual((nov[1],nov[2],nov[4]),(47196050,42905500,6))
+        self.assertEqual(nov[5:7],[18429400,43767645])
+        # A lifecycle snapshot with four invoices cannot certify six.
+        ledger[-1][1]="38261300"
+        ledger[-1][5]="4"
+        with self.assertRaisesRegex(ValueError,"PARITY_FAILED_2026-11"):
+            build(invoices,ledger,NOW)
+
+    def test_missing_november_lifecycle_never_silently_drops_issued_invoices(self):
+        records=[["invoice_number"],
+                 invoice("209126001072",222750,"2026-11-06T09:07:52+09:00")]
+        ledger=[["Month","Actual Invoice KRW","Pending Verified KRW",
+                 "Forecast KRW","Combined KRW (verified + estimate)",
+                 "Invoice Count"],month(0,0)]
+        with self.assertRaisesRegex(ValueError,"NOT_IN_LIFECYCLE"):
+            build(records,ledger,NOW)
+
     def test_vat_rounded_per_invoice(self):
         self.assertEqual(net_won(4438500),4035000)
         self.assertEqual(net_won(11),10)
