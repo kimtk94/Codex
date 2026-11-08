@@ -11,8 +11,10 @@ from css_authenticated_original_probes import (
 
 def mail_folders():
     return {
-        "INBOX": {"folder": "INBOX", "uidvalidity": "256", "uids": ["1", "2"]},
-        "SENT": {"folder": "Sent Messages", "uidvalidity": "512", "uids": ["3"]},
+        "INBOX": {"folder": "INBOX", "uidvalidity": "256", "uids": ["1", "2"],
+                  "recent_uids": ["2"], "scan_uids": ["1", "2"]},
+        "SENT": {"folder": "Sent Messages", "uidvalidity": "512", "uids": ["3"],
+                 "recent_uids": ["3"], "scan_uids": ["3"]},
     }
 
 
@@ -37,8 +39,36 @@ class OriginalProbesTests(unittest.TestCase):
 
     def test_missing_staging_uid_is_sink_lag_not_no_new_data(self):
         r = validate_mail_coverage(mail_folders(), ["INBOX|256|1"])
-        self.assertEqual(r["uid_coverage_state"], "SINK_LAG")
+        self.assertEqual(r["uid_coverage_state"], "HISTORICAL_SINK_LAG")
+        self.assertEqual(r["recent_3d_state"], "SINK_LAG")
+        self.assertEqual(r["recent_3d_missing_uid_count"], 2)
         self.assertEqual(r["missing_uid_count"], 2)
+
+    def test_historical_missing_does_not_imply_current_three_day_lag(self):
+        folders = mail_folders()
+        folders["INBOX"]["scan_uids"] = ["2"]
+        result = validate_mail_coverage(folders, [
+            "INBOX|256|2", "Sent Messages|512|3",
+        ])
+        self.assertEqual(result["missing_uid_count"], 1)
+        self.assertEqual(result["recent_3d_missing_uid_count"], 0)
+        self.assertEqual(result["scan_60d_missing_uid_count"], 0)
+        self.assertEqual(result["historical_outside_60d_uid_gap"], 1)
+        self.assertEqual(result["recent_3d_state"], "PASS_UID_ONLY")
+        self.assertEqual(result["scan_60d_state"], "PASS_UID_ONLY")
+        self.assertEqual(result["uid_coverage_state"], "HISTORICAL_SINK_LAG")
+
+    def test_window_search_must_succeed_not_implicitly_zero(self):
+        folders = mail_folders()
+        del folders["INBOX"]["recent_uids"]
+        with self.assertRaisesRegex(ValueError, "WINDOW_EVIDENCE_MISSING"):
+            validate_mail_coverage(folders, ["INBOX|256|2"])
+
+    def test_recent_window_cannot_contain_uid_not_in_all_source(self):
+        folders = mail_folders()
+        folders["INBOX"]["recent_uids"].append("999")
+        with self.assertRaisesRegex(ValueError, "WINDOW_NOT_SUBSET_OF_ALL"):
+            validate_mail_coverage(folders, ["INBOX|256|2"])
 
     def test_uidvalidity_necessary_for_identity(self):
         original = mail_folders()
