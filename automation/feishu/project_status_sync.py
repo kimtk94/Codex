@@ -6,6 +6,7 @@ Missing project IDs are excluded and counted; a failed audit cannot erase histor
 """
 import datetime as dt
 import json, os, re, sys, urllib.parse, time, random
+from requests.exceptions import ConnectionError as RequestConnectionError, Timeout as RequestTimeout
 from collections import defaultdict
 from base_readonly_probe import request,require
 from payment_table_audit import list_pages, TARGET as OUTSTANDING_TABLE
@@ -45,13 +46,29 @@ def google():
     creds=service_account.Credentials.from_service_account_info(json.loads(raw),scopes=["https://www.googleapis.com/auth/spreadsheets"])
     return AuthorizedSession(creds)
 def api(s,method,suffix,**kw):
-    for attempt in range(7):
-        r=s.request(method,"https://sheets.googleapis.com/v4/spreadsheets/"+SHEET+suffix,timeout=45,**kw)
-        if r.status_code in (429,500,502,503,504) and attempt<6:
-            time.sleep(min(60,2**attempt+random.uniform(0,1)))
+    """Retry only idempotent Sheets calls; never replay a possibly committed batch."""
+    method=method.upper()
+    retryable=method in ("GET","PUT")
+    attempts=5 if retryable else 1
+    for attempt in range(attempts):
+        try:
+            r=s.request(method,"https://sheets.googleapis.com/v4/spreadsheets/"+SHEET+suffix,
+                        timeout=45,**kw)
+        except (RequestTimeout,RequestConnectionError) as exc:
+            if retryable and attempt+1<attempts:
+                print("FEISHU_PROJECT_SHEETS_TRANSPORT_RETRY method="+method+
+                      " attempt="+str(attempt+1)+" cause="+type(exc).__name__,flush=True)
+                time.sleep(min(12,2**attempt+random.uniform(0,1)))
+                continue
+            raise RuntimeError("SHEETS_TRANSPORT_"+method+"_"+type(exc).__name__) from exc
+        if r.status_code in (429,500,502,503,504) and retryable and attempt+1<attempts:
+            print("FEISHU_PROJECT_SHEETS_HTTP_RETRY method="+method+
+                  " attempt="+str(attempt+1)+" status="+str(r.status_code),flush=True)
+            time.sleep(min(12,2**attempt+random.uniform(0,1)))
             continue
         if not r.ok:raise RuntimeError("SHEETS_HTTP_"+str(r.status_code))
         return r.json() if r.content else {}
+
 
 def sheet(s,title):
     meta=api(s,"GET","?fields=sheets.properties.title")
