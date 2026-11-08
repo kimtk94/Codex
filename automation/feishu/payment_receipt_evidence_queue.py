@@ -122,12 +122,12 @@ def build(invoices, receipts, outstanding, manifest):
             code,check = "DUPLICATE_REFERENCE_REVIEW","Review multiple Receipt sections/rows; do not double-count"
         elif receipt["count"]!=1:
             code,check = "GROUPED_ALLOCATION_REVIEW","Require per-invoice allocation for grouped CMS receipt"
-        elif not receipt["exact"]:
-            code,check = "RECEIPT_CMS_SUFFIX_REVIEW","Verify full CMS number and suffix against original"
         elif gross is None or receipt["amount"] is None:
             code,check = "RECEIPT_AMOUNT_MISSING_REVIEW","Obtain original invoice and receipt amounts"
         elif receipt["amount"]!=gross:
             code,check = "RECEIPT_AMOUNT_MISMATCH_REVIEW","Review partial, excess, or unrelated remittance"
+        elif not receipt["exact"]:
+            code,check = "RECEIPT_CMS_SUFFIX_REVIEW","Verify full CMS number and suffix against original"
         elif issue is None or receipt["date"] is None:
             code,check = "RECEIPT_DATE_MISSING_REVIEW","Verify original date and issue chronology"
         elif receipt["date"] < issue:
