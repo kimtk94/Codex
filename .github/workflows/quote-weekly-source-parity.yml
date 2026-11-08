@@ -1,0 +1,70 @@
+name: CSS Quote Weekly Source Parity
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/quote_weekly_source_parity.py'
+      - 'automation/feishu/test_quote_weekly_source_parity.py'
+      - '.github/workflows/quote-weekly-source-parity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/quote_weekly_source_parity.py'
+      - 'automation/feishu/test_quote_weekly_source_parity.py'
+      - '.github/workflows/quote-weekly-source-parity.yml'
+  workflow_run:
+    workflows: ['Feishu Sales SIF Invoice Weekly KPI']
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: '10 3,15 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: css-quote-weekly-source-parity
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install import dependency
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify weekly evidence and never-impute-zero contract
+        run: |
+          python3 -m py_compile automation/feishu/quote_weekly_source_parity.py
+          python3 -m unittest discover -s automation/feishu -p 'test_quote_weekly_source_parity.py' -v
+
+  source-parity:
+    needs: offline
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: TaehoonServer
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Google Sheet client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Audit source counts and immutable approvals without source writes
+        run: python3 automation/feishu/quote_weekly_source_parity.py
+      - name: Save sanitized Quote coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quote-weekly-source-parity
+          path: quote_weekly_coverage.json
+          if-no-files-found: ignore
+          retention-days: 14
