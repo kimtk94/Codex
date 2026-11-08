@@ -51,6 +51,38 @@ class SemanticProofTests(unittest.TestCase):
         finally:
             s.INTERESTING=original
 
+    def test_cancelled_or_repeated_etax_number_never_counts_as_valid_issuance_candidate(self):
+        from contextlib import redirect_stdout
+        import io
+        original=s.INTERESTING
+        try:
+            s.INTERESTING=("20910000208","20910000209")
+            rows=[[""]*5,["20910000208",None,None,None,"CERTIFICATE12345678"],
+                  ["20910000209",None,None,None,"CERTIFICATE12345678"]]
+            rec_a=[""]*10
+            rec_b=[""]*10
+            for rec,key in ((rec_a,"20910000208"),(rec_b,"20910000209")):
+                rec[3]=key
+                rec[6]="Kim Taehoon"
+                rec[7]="CERTIFICATE12345678"
+                rec[8]="issued"
+            rec_b[9]="CANCELLED_DOCUMENT_REFERENCE"
+            def row_read(token,sid,first,last):
+                return [[""]*14] if first==1 else [rec_a] if first==2 else [rec_b]
+            with mock.patch.object(s,"read_tracking",return_value=(rows,3)),\
+                 mock.patch.object(s,"find_sheet",return_value="sheet"),\
+                 mock.patch.object(s,"row_read",side_effect=row_read):
+                output=io.StringIO()
+                with redirect_stdout(output):
+                    s.audit("token")
+            text=output.getvalue()
+            self.assertIn("ETAX_SEMANTIC_DUPLICATE_TAX_NUMBER",text)
+            self.assertIn("J_cancel_number_present=true",text)
+            self.assertIn("candidates=0",text)
+            self.assertNotIn("CANCELLED_DOCUMENT_REFERENCE",text)
+        finally:
+            s.INTERESTING=original
+
     def test_only_target_invoice_row_is_fetched(self):
         original=s.INTERESTING
         calls=[]
