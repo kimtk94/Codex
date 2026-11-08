@@ -60,6 +60,33 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(out[12],"2026-11")
         self.assertEqual(out[13],"2026-11")
 
+    def test_verified_qq_statement_missing_from_feishu_is_tracked_separately(self):
+        data=fixtures()
+        data[1]=[data[1][0]]  # No Feishu subproject, no manual X association.
+        data[4].append(notice(J1))
+        data[5].append([J1,X,"J001",1881000,"KRW",
+                        "2026-10-28T10:00:00+08:00","40005","1776302013",
+                        "AMOUNT_VERIFIED","2026-10-28",notice(J1)[4]])
+        rows=build(*data)
+        self.assertEqual(len(rows),2)
+        r=rows[1]
+        self.assertEqual(r[0],X)
+        self.assertEqual(r[5],"NOT_IN_FEISHU_SOURCE")
+        self.assertEqual(r[15],0)
+        self.assertEqual(r[16],"STATEMENT READY - INVOICE PENDING [QQ_ONLY]")
+        self.assertEqual(r[20],"J001")
+        self.assertEqual(r[22],1881000)
+        self.assertEqual(r[23],"AMOUNT_VERIFIED 1/1")
+        self.assertFalse(r[3])  # No fabricated customer
+
+    def test_unverified_orphan_does_not_generate_pending_amount(self):
+        data=fixtures()
+        orphan=notice("J001-X209SC26106973-Z01")
+        data[4].append(orphan)
+        rows=build(*data)
+        self.assertEqual(len(rows),2)  # No verified amount; no phantom project.
+        self.assertEqual(rows[1][0],X)
+
     def test_replied_invoice_does_not_establish_actual(self):
         data=fixtures()
         data[2].append(inv(J1,"209126000989",1320000,subject_prefix="Re: ❗️Notice: Invoice Issued & Statement Confirmed"))
