@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - 'automation/ops/css_live_freshness_evidence.py'
+      - 'automation/ops/css_authenticated_original_probes.py'
+      - 'automation/ops/test_css_authenticated_original_probes.py'
       - 'automation/ops/test_css_live_freshness_evidence.py'
       - 'automation/ops/css_freshness_policy.py'
       - 'automation/ops/css_freshness_policy.json'
@@ -43,6 +45,7 @@ jobs:
           python -m py_compile automation/ops/css_live_freshness_evidence.py
           python -m unittest discover -s automation/ops -p 'test_css_live_freshness_evidence.py' -v
           python -m unittest discover -s automation/ops -p 'test_css_freshness_policy.py' -v
+          python -m unittest discover -s automation/ops -p 'test_css_authenticated_original_probes.py' -v
 
   mirror-evidence:
     needs: offline
@@ -76,3 +79,40 @@ jobs:
         run: |
           echo 'MIRROR_OBSERVED_IS_NOT_SOURCE_PASS;SFDC_SAVE_NOT_VERIFIED;FEISHU_READBACK_NOT_VERIFIED' >> "$GITHUB_STEP_SUMMARY"
           echo 'NO_CUSTOMER_MAIL;NO_SFDC_SAVE;NO_FINANCE_WRITES;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
+
+  original-source-proof:
+    needs: offline
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 16
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Google read-only dependency
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Probe original QQ full INBOX/SENT UID sets and original Feishu financial Sheets
+        run: python automation/ops/css_authenticated_original_probes.py
+      - name: Upload sanitized original-vs-mirror aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: css-authenticated-original-probes
+          path: audit-results/css-authenticated-original-probes.json
+          if-no-files-found: ignore
+          retention-days: 21
+      - name: State independent business gates
+        if: always()
+        run: |
+          echo 'UID_SET_PARITY_ONLY;FULL_MIME_NOT_VERIFIED;ORIGINAL_FEISHU_SHEET_PROJECTION_ONLY' >> "$GITHUB_STEP_SUMMARY"
+          echo 'SFDC_OBJECT_SAVE_NOT_VERIFIED;ETAX_ISSUANCE_NOT_CERTIFIED;BANK_PAYMENT_NOT_CERTIFIED;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
