@@ -57,6 +57,23 @@ class RevenueLifecycleTests(unittest.TestCase):
         self.assertEqual(oct_row[6], 1)
         self.assertFalse(any(r[0] == "2026-12" and r[2] for r in out[1:]))
 
+    def test_latest_six_november_invoices_rebuild_stale_lifecycle_month(self):
+        invoices=[["invoice_number"]]
+        amounts=[1287000,1721500,665500,34587300,222750,8712000]
+        numbers=["209126001054","209126001053","209126001051",
+                 "209126001058","209126001072","209126001077"]
+        for number,value in zip(numbers,amounts):
+            row=invoice(number,value)
+            row[7]="2026-11-06T17:46:05+09:00"
+            invoices.append(row)
+        monthly=compute(invoices,[["Project / Sub-project"]],
+                        dt.datetime(2026,11,8,tzinfo=dt.timezone.utc))
+        nov=next(row for row in monthly[1:] if row[0]=="2026-11")
+        self.assertEqual(nov[1],47196050)
+        self.assertEqual(nov[5],6)
+        self.assertEqual((nov[2],nov[3]),(0,0))
+        self.assertEqual(nov[4],47196050)
+
     def test_invoice_number_conflict_fails_closed(self):
         inv=[["invoice_number"],invoice("209126000989",1320000),invoice("209126000989",1320000)]
         inv[2][7]="2026-11-04T12:00:00+08:00"

@@ -20,7 +20,7 @@ on:
       - 'automation/feishu/quote_chart_label_sync.py'
       - '.github/workflows/feishu-native-dashboard.yml'
   workflow_run:
-    workflows: ['Feishu Sales SIF Invoice Weekly KPI']
+    workflows: ['Feishu Sales SIF Invoice Weekly KPI', 'Feishu Canonical Monthly Revenue Actual']
     types: [completed]
     branches: [main]
   schedule:

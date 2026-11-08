@@ -91,6 +91,12 @@ def build(invoice_rows, monthly_rows, now):
         item[0] += amount
         item[1] += net_won(amount)
         item[2] += 1
+    # Do not silently omit an issued month if the lifecycle materialization
+    # has not yet reached the newly received original invoice notices.
+    unknown_months=set(verified)-set(monthly)
+    if unknown_months:
+        raise ValueError("ISSUED_INVOICE_MONTH_NOT_IN_LIFECYCLE_"+
+                         ",".join(sorted(unknown_months)))
     timestamp = now.astimezone(KST).strftime("%Y-%m-%d %H:%M:%S KST")
     rows = [HEAD]
     for month, record in sorted(monthly.items()):
@@ -139,6 +145,10 @@ def main():
             shown = re.sub(r"[₩,\s]", "", cell(actual,j))
             if Decimal(shown) != Decimal(str(expected[j])):
                 raise ValueError("REVENUE_NET_VAT_READBACK_VALUE_MISMATCH")
+    for month, gross, net, count in ((r[0],r[1],r[2],r[4]) for r in generated[1:]):
+        print("NET_VAT_ORIGINAL_INVOICE_RECALC month="+str(month)+
+              " invoices="+str(count)+" gross_krw="+str(gross)+
+              " net_krw="+str(net),flush=True)
     oct_row = next(r for r in generated if r[0] == "2026-10")
     print("NET_VAT_VERIFIED month=2026-10 invoices=" + str(oct_row[4])
           + " gross_krw=" + str(oct_row[1]) + " net_krw=" + str(oct_row[2]),

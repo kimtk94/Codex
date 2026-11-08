@@ -16,6 +16,10 @@ on:
       - 'automation/feishu/monthly_revenue_actual_sync.py'
       - 'automation/feishu/sales_metrics_sync.py'
       - '.github/workflows/feishu-canonical-monthly-revenue.yml'
+  workflow_run:
+    workflows: ['CSS Revenue Source Authority Audit']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
@@ -49,7 +53,7 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
   sync:
     needs: test
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 10
@@ -58,7 +62,7 @@ jobs:
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
-      FEISHU_METRIC_MODE: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_METRIC_MODE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
     steps:
       - uses: actions/checkout@v4
         with:
