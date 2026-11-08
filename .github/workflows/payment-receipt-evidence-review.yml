@@ -1,0 +1,64 @@
+name: CSS Payment Receipt Evidence Review
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/payment_receipt_evidence_queue.py'
+      - 'automation/feishu/test_payment_receipt_evidence_queue.py'
+      - '.github/workflows/payment-receipt-evidence-review.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/payment_receipt_evidence_queue.py'
+      - 'automation/feishu/test_payment_receipt_evidence_queue.py'
+      - '.github/workflows/payment-receipt-evidence-review.yml'
+  workflow_run:
+    workflows: ['Sales Payment Reconciliation QC']
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: '50 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: css-payment-receipt-evidence-review
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Google clients for imports
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Test exact Receipt provenance and fail-closed classifications
+        run: |
+          python3 -m py_compile automation/feishu/payment_receipt_evidence_queue.py
+          python3 -m unittest discover -s automation/feishu -p 'test_payment_receipt_evidence_queue.py' -v
+
+  review:
+    needs: offline
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: TaehoonServer
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheet client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Create source-verified review queue (no paid or owner inference)
+        run: python3 automation/feishu/payment_receipt_evidence_queue.py
