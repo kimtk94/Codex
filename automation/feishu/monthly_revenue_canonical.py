@@ -9,6 +9,7 @@ explicit 2026 Revenue Source Authority audit, not a stale legacy CSS ledger.
 import datetime as dt
 import decimal
 import re
+from zoneinfo import ZoneInfo
 
 D=decimal.Decimal
 
@@ -58,7 +59,7 @@ def verified_at(value):
         stamp=dt.datetime.strptime(value,"%Y-%m-%d %H:%M:%S KST")
     except ValueError as e:
         raise RevenueEvidenceError("CANONICAL_VERIFIED_TIMESTAMP_INVALID") from e
-    if stamp>dt.datetime.now()+dt.timedelta(minutes=10):
+    if stamp>dt.datetime.now(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)+dt.timedelta(minutes=10):
         raise RevenueEvidenceError("CANONICAL_VERIFIED_IN_FUTURE")
     return value
 
