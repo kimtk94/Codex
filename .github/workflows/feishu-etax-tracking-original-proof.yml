@@ -5,12 +5,16 @@ on:
     paths:
       - 'automation/feishu/etax_original_tracking_proof.py'
       - 'automation/feishu/test_etax_original_tracking_proof.py'
+      - 'automation/feishu/etax_h_semantics_audit.py'
+      - 'automation/feishu/test_etax_h_semantics_audit.py'
       - '.github/workflows/feishu-etax-tracking-original-proof.yml'
   push:
     branches: [main]
     paths:
       - 'automation/feishu/etax_original_tracking_proof.py'
       - 'automation/feishu/test_etax_original_tracking_proof.py'
+      - 'automation/feishu/etax_h_semantics_audit.py'
+      - 'automation/feishu/test_etax_h_semantics_audit.py'
       - '.github/workflows/feishu-etax-tracking-original-proof.yml'
   workflow_dispatch:
   schedule:
@@ -36,6 +40,7 @@ jobs:
         run: |
           python3 -m py_compile automation/feishu/etax_original_tracking_proof.py
           python3 -m unittest discover -s automation/feishu -p 'test_etax_original_tracking_proof.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_etax_h_semantics_audit.py' -v
 
   proof:
     needs: test
@@ -56,3 +61,5 @@ jobs:
           python-version: '3.11'
       - name: Read actual eTax tracking D:H original status without updating Revenue
         run: python3 automation/feishu/etax_original_tracking_proof.py
+      - name: Classify original H header and matched invoice rows with no raw field logs
+        run: python3 automation/feishu/etax_h_semantics_audit.py
