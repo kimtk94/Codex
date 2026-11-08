@@ -93,8 +93,8 @@ def header_payload(parts):
     return BytesParser(policy=default).parsebytes(chunks[0],headersonly=True)
 
 
-def original_proof(msg,attachment_names,invoice,expected):
-    month,amount,amea,state,uid=expected
+def assert_official_notice(msg):
+    """Fail on non-CSS sender, replies and non-original notice before MIME fetch."""
     sender=parseaddr(str(msg.get("From") or ""))[1].casefold()
     subject=str(msg.get("Subject") or "").strip()
     known_sender=sender==CSS_SENDER
@@ -116,6 +116,11 @@ def original_proof(msg,attachment_names,invoice,expected):
                          ":invoice_terms="+str(keyword_subject).lower()+
                          ":subject_reply="+str(is_reply).lower()+
                          ":reply_header="+str(reply_header).lower())
+
+
+def original_proof(msg,attachment_names,invoice,expected):
+    month,amount,amea,state,uid=expected
+    assert_official_notice(msg)
     matches=[]
     for filename in attachment_names:
         x=extract(filename)
@@ -155,6 +160,7 @@ def audit_with_original_imap(missing,imap_factory=imaplib.IMAP4_SSL):
                                    "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT IN-REPLY-TO)])")
                 if status!="OK":raise ValueError("HEADER_FETCH_FAILED")
                 msg=header_payload(head)
+                assert_official_notice(msg)
                 status,parts=im.uid("FETCH",uid,"(BODYSTRUCTURE)")
                 if status!="OK":raise ValueError("BODYSTRUCTURE_FETCH_FAILED")
                 names=[]
