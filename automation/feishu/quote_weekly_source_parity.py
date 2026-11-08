@@ -72,7 +72,10 @@ def audit(weekly_rows, approval_rows):
     for row in weekly_rows[1:]:
         if not row or not row[0]:
             continue
-        if len(row)<7:
+        # Sheets omits empty trailing cells in a row. A blank approval
+        # count may therefore be absent altogether; that is a source gap,
+        # never a proven zero or a malformed source.
+        if len(row)<2:
             raise RuntimeError("WEEKLY_SOURCE_ROW_TOO_SHORT")
         start,end=date_or_fail(row[0]),date_or_fail(row[1])
         key=start.isoformat()
