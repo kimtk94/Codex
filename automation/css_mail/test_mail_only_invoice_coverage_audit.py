@@ -37,9 +37,8 @@ class MailOnlyTests(unittest.TestCase):
             # No ERP manual invoice is in the original QQ mail scope.
             backfill("20910000208",1287000),
         ]
-        extracted_rows=[{"invoice_number":"invoice_number"},
-                        extracted("209126000989",2282500)]
-        missing=identify_missing([{"invoice_number":"invoice_number"}]+history,extracted_rows)
+        extracted_rows=[extracted("209126000989",2282500)]
+        missing=identify_missing(history,extracted_rows)
         self.assertEqual(set(missing),{"209126000887","209126000926"})
         self.assertEqual(sum(v[1] for v in missing.values()),13482150)
         self.assertEqual(sum(net(v[1]) for v in missing.values()),12256500)
@@ -85,11 +84,10 @@ class MailOnlyTests(unittest.TestCase):
                             "FILENAME_PARSED","41234"))
 
     def test_duplicate_id_amount_conflict_not_silently_ignored(self):
-        rows=[{"invoice_number":"invoice_number"},
-              backfill("209126000887",12012000),
+        rows=[backfill("209126000887",12012000),
               backfill("209126000887",12012001)]
         with self.assertRaisesRegex(ValueError,"DUPLICATE_SOURCE_CONFLICT"):
-            identify_missing(rows,[{"invoice_number":"invoice_number"}])
+            identify_missing(rows,[extracted("209126000001",1)])
 
     def test_positive_krw_only_and_invoice_vat_rounding(self):
         self.assertEqual(net(4438500),4035000)
@@ -104,9 +102,8 @@ class MailOnlyTests(unittest.TestCase):
     def test_no_sent_folder_is_considered_original_received_mail(self):
         with self.assertRaisesRegex(ValueError,"NOT_ORIGINAL_INBOX"):
             identify_missing([
-                {"invoice_number":"invoice_number"},
                 backfill("209126000887",12012000,folder="Sent Messages")],
-                [{"invoice_number":"invoice_number"}])
+                [extracted("209126000001",1)])
 
 
 if __name__=="__main__":
