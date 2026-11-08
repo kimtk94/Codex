@@ -1,0 +1,58 @@
+name: Feishu Original eTax Tracking Proof Read Only
+
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/etax_original_tracking_proof.py'
+      - 'automation/feishu/test_etax_original_tracking_proof.py'
+      - '.github/workflows/feishu-etax-tracking-original-proof.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/etax_original_tracking_proof.py'
+      - 'automation/feishu/test_etax_original_tracking_proof.py'
+      - '.github/workflows/feishu-etax-tracking-original-proof.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '45 0 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feishu-etax-tracking-original-proof
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit correctness and no-write guarantees
+        run: |
+          python3 -m py_compile automation/feishu/etax_original_tracking_proof.py
+          python3 -m unittest discover -s automation/feishu -p 'test_etax_original_tracking_proof.py' -v
+
+  proof:
+    needs: test
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 7
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read actual eTax tracking D:H original status without updating Revenue
+        run: python3 automation/feishu/etax_original_tracking_proof.py
