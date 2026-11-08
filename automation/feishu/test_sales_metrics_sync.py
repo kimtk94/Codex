@@ -8,6 +8,40 @@ from qq_mail_ingest import SafeError
 
 
 class MetricsTests(unittest.TestCase):
+    def test_transient_google_sheets_429_recovers_without_stale_fallback(self):
+        class Response:
+            def __init__(self,status,rows=None):
+                self.status_code=status
+                self.ok=status==200
+                self.headers={}
+                self._rows=rows or []
+            def json(self):
+                return {"values":self._rows}
+        valid=[["week_start","week_end","quotation_approvals",
+                "approvals_created_in_week","krw_per_usd"],
+               ["2026-11-06","2026-11-12","0","0","1500"]]
+        session=mock.Mock()
+        session.get.side_effect=[Response(429),Response(503),Response(200,valid)]
+        with mock.patch.object(m.time,"sleep") as nap:
+            rows=m.req_sheet(session,"book","SFDC Weekly Overview",10)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]["quotation_approvals"],"0")
+        self.assertEqual(session.get.call_count,3)
+        self.assertEqual(nap.call_count,2)
+
+    def test_permanent_google_sheets_error_does_not_retry(self):
+        class Response:
+            ok=False
+            status_code=403
+            headers={}
+        session=mock.Mock()
+        session.get.return_value=Response()
+        with mock.patch.object(m.time,"sleep") as nap:
+            with self.assertRaisesRegex(SafeError,"SHEETS_READ_FAILED_.*_403"):
+                m.req_sheet(session,"book","SFDC Weekly Overview",10)
+        session.get.assert_called_once()
+        nap.assert_not_called()
+
     def test_payment_views_are_exact_owner_scoped(self):
         definitions=m.VIEW_SPECS["Project Progress Board"]
         views={row[0]:row for row in definitions}

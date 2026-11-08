@@ -109,7 +109,25 @@ REQUIRED = {
 def req_sheet(session,book,title,limit):
     rg=urllib.parse.quote("'" + title.replace("'","''") + "'!A1:AZ" + str(limit),safe="")
     url="https://sheets.googleapis.com/v4/spreadsheets/"+book+"/values/"+rg
-    res=session.get(url,timeout=45)
+    # Quotation source is large and shared Sheets quota intermittently returns
+    # HTTP 429. Retry only transient statuses with bounded provider-aware
+    # backoff; never label an unsuccessful read as a valid fresh snapshot.
+    res=None
+    for attempt in range(6):
+        res=session.get(url,timeout=45)
+        if res.status_code not in (429,500,502,503,504) or attempt==5:
+            break
+        try:
+            retry_after=float(res.headers.get("Retry-After","0"))
+        except (TypeError,ValueError):
+            retry_after=0.0
+        delay=min(45.0,max(2.0,float(2**(attempt+1)),retry_after))
+        print("SHEETS_READ_TRANSIENT_RETRY tab="+
+              re.sub(r"[^a-zA-Z0-9]+","_",title)+
+              " status="+str(res.status_code)+
+              " attempt="+str(attempt+1)+
+              " delay_seconds="+str(delay),flush=True)
+        time.sleep(delay)
     if not res.ok:
         raise SafeError("SHEETS_READ_FAILED_"+re.sub(r"[^a-zA-Z0-9]+","_",title)+"_"+str(res.status_code))
     rows=res.json().get("values") or []

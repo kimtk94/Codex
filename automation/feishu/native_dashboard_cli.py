@@ -5,14 +5,19 @@ No Vercel, no user-hosted server, no customer table edits.
 All Feishu data stays in the original Base. The app identity must have
 dashboard creation scopes and actual Base management permissions.
 """
+import datetime as dt
 import json
 import os
 import subprocess
 import sys
+import urllib.parse
+from zoneinfo import ZoneInfo
 
 BASE="IpMkbUD0vaFqtYs93a3csXtdn1b"
 TITLE="Novogene 프로젝트 운영 대시보드"
 TABLE="Project Progress Board"
+KST=ZoneInfo("Asia/Seoul")
+AUDIT_BOOK="1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
 
 # Each data config is grounded in the verified Sales Base field schema.
 BLOCKS=[
@@ -74,6 +79,74 @@ for _,kind,_config in BLOCKS:
     current=(_config.get("filter") or {}).get("conditions") or []
     if ACTIVE_STAGE not in current:
         _config["filter"]={"conjunction":"and","conditions":[*current,ACTIVE_STAGE]}
+
+
+def source_status_notice(rows,now):
+    """Evidence-based source/as-of banner, independent of dashboard rerender time.
+
+    A newly updated Feishu chart must never imply fresh Salesforce records.
+    This is the trusted ingest audit's 3-report *source-received* time, not the
+    most recent successful Action or Google Sheets ingest-check timestamp.
+    """
+    if now.tzinfo is None:
+        raise ValueError("DASHBOARD_NOW_NEEDS_TIMEZONE")
+    head=("Entity","Source Received KST","Ingest Checked KST","Rows",
+          "Unique IDs","Duplicate IDs","Missing IDs","Content SHA256",
+          "State","Source Kind")
+    if not rows or tuple(rows[0][:10])!=head:
+        raise ValueError("DASHBOARD_SOURCE_AUDIT_SCHEMA")
+    by={}
+    for row in rows[1:]:
+        if row and row[0] in {"Leads","Opportunities","Quotation"}:
+            if row[0] in by or len(row)<10:
+                raise ValueError("DASHBOARD_SOURCE_AUDIT_DUPLICATE")
+            by[row[0]]=row
+    if set(by)!={"Leads","Opportunities","Quotation"}:
+        raise ValueError("DASHBOARD_SOURCE_AUDIT_MISSING_ENTITY")
+    sources={}
+    for entity,row in by.items():
+        if row[8] not in ("STAGED_NOT_PROMOTED","PRESERVED_NO_NEW_REPORT") or row[9]!="QQ IMAP":
+            raise ValueError("DASHBOARD_SOURCE_AUDIT_UNTRUSTED")
+        import re
+        if not re.fullmatch(r"[0-9a-fA-F]{64}",row[7]):
+            raise ValueError("DASHBOARD_SOURCE_AUDIT_BAD_HASH")
+        try:
+            received=dt.datetime.strptime(row[1],"%Y-%m-%d %H:%M:%S KST").replace(tzinfo=KST)
+        except ValueError as exc:
+            raise ValueError("DASHBOARD_SOURCE_AUDIT_TIMESTAMP") from exc
+        if received>now.astimezone(KST)+dt.timedelta(minutes=10):
+            raise ValueError("DASHBOARD_SOURCE_IN_FUTURE")
+        sources[entity]=received
+    age=max(0,int((now.astimezone(KST)-min(sources.values())).total_seconds()//60))
+    # No guesses about whether weekend/holiday subscriptions are actually sent.
+    status=("원본 수신 지연 · 신규 Report 반영 여부 미확인" if age>360
+            else "최근 수신본 · 신규 발송 여부는 별도 검증")
+    stamp=", ".join(entity+" "+sources[entity].strftime("%m/%d %H:%M")
+                    for entity in ("Leads","Opportunities","Quotation"))
+    block=("**SFDC Report 기준시각(KST):** "+stamp+
+           "  \n**원본 수신 후 경과:** "+str(age//60)+"시간 "+str(age%60)+"분"+
+           " · **"+status+"**"+
+           "  \n**Feishu 화면 갱신:** "+now.astimezone(KST).strftime("%Y-%m-%d %H:%M KST")+
+           ". 화면을 새로고침해도 새 SFDC 원본이 수집됐다는 뜻은 아닙니다.")
+    return block,age
+
+
+def read_sfdc_source_notice(now):
+    raw=os.environ.get("GCP_SERVICE_ACCOUNT_JSON")
+    if not raw:
+        raise RuntimeError("DASHBOARD_AUDIT_READ_CREDENTIAL_MISSING")
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import AuthorizedSession
+    auth=service_account.Credentials.from_service_account_info(
+        json.loads(raw),scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+    rg=urllib.parse.quote("'SFDC Email Ingest Audit'!A1:J10",safe="")
+    url="https://sheets.googleapis.com/v4/spreadsheets/"+AUDIT_BOOK+"/values/"+rg
+    result=AuthorizedSession(auth).get(url,timeout=45)
+    result.raise_for_status()
+    notice,age=source_status_notice(result.json().get("values",[]),now)
+    print("FEISHU_DASHBOARD_SOURCE_PROVENANCE=PASS age_minutes="+str(age)+
+          " stale="+str(age>360)+" evidence=SFDC_EMAIL_INGEST_AUDIT")
+    return notice
 
 
 def delete_dashboard_block(dashboard_id,block_id):
@@ -183,6 +256,9 @@ def main():
     if os.environ.get("FEISHU_DASHBOARD_MODE","plan") not in {"plan","apply"}:
         raise RuntimeError("BAD_MODE")
     mode=os.environ.get("FEISHU_DASHBOARD_MODE","plan")
+    if mode=="apply":
+        # Clear separation: chart refresh time is not Salesforce data time.
+        BLOCKS[0][2]["text"]+="\n\n"+read_sfdc_source_notice(dt.datetime.now(KST))
     dashboards=cli("+dashboard-list","--base-token",BASE)
     dashboard_id=find_named(dashboards,TITLE)
     print("FEISHU_NATIVE_DASHBOARD_LIST_PASS exists="+str(bool(dashboard_id)))
