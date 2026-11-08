@@ -22,6 +22,7 @@ from project_progress_board import prepare_project_board
 from project_settlement import EVIDENCE_FIELDS, finalize, counts
 from latest_payment_bridge import build_payment_evidence
 from quote_process_amount import weekly_calculations
+from monthly_revenue_canonical import evidence_rows,RevenueEvidenceError
 
 EXPECTED_BASE = "IpMkbUD0vaFqtYs93a3csXtdn1b"
 CSS_SHEET = "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
@@ -82,6 +83,13 @@ REQUIRED = {
     "BI Project Lifecycle Overview": ("AMEA", "CSS Progress %", "Feishu Status (latest)"),
     "CSS Invoice Monthly Summary": ("invoice_month", "invoice_count", "total_amount_krw"),
     "Revenue Invoice Base": ("Invoice No", "Year-Month", "Revenue KRW (Tax Invoice)", "Net Revenue KRW (VAT excl; per invoice)"),
+    "BI Revenue Net VAT Monthly": ("Month", "Issued Invoice Gross KRW (VAT incl)",
+        "Issued Net Revenue KRW (VAT excl)", "Issued Net Revenue kUSD @1500",
+        "Issued Invoice Count", "Verified At KST", "Evidence State"),
+    "BI Revenue Lifecycle Monthly": ("Month", "Actual Invoice KRW", "Invoice Count"),
+    "Revenue Source Authority": ("Month", "Source Tab", "Source Role",
+        "Issued Invoice Count", "Amount KRW", "Tax Basis", "Source Parity",
+        "Authoritative For KPI", "Verified KST"),
     "SFDC Weekly Overview": ("week_start", "week_end", "quotation_approvals", "approvals_created_in_week", "krw_per_usd"),
     "Quotation Approval List": ("week_start", "salesforce_record_id", "quotation_id"),
     "Quote Approval Dedup": ("Approval KST", "SFDC Record ID", "Quotation Name"),
@@ -184,6 +192,9 @@ def sheet_sources():
         (UNIFIED_SHEET,"BI Project Lifecycle Overview",3000),
         (CSS_SHEET,"CSS Invoice Monthly Summary",160),
         (UNIFIED_SHEET,"Revenue Invoice Base",2500),
+        (UNIFIED_SHEET,"BI Revenue Net VAT Monthly",120),
+        (UNIFIED_SHEET,"BI Revenue Lifecycle Monthly",120),
+        (UNIFIED_SHEET,"Revenue Source Authority",250),
         (UNIFIED_SHEET,"SFDC Weekly Overview",1500),
         (UNIFIED_SHEET,"Quote Approval Dedup",1600),
         (UNIFIED_SHEET,"SFDC Quote Export",2600),
@@ -369,6 +380,25 @@ def monthly_rows(source,fx=D("1500")):
             row.update({"CSS Source Invoice Count":other[0],"CSS Source KRW Incl VAT":other[1],
                         "Source Difference KRW":gross-other[1]})
         output.append(row)
+    # Current 2026 official monthly actuals supersede the legacy invoice
+    # ledger only when independently signed by the canonical net+gross source
+    # authority records. Existing historical months remain untouched.
+    canonical_names=("BI Revenue Net VAT Monthly",
+                     "BI Revenue Lifecycle Monthly","Revenue Source Authority")
+    if any(name in source for name in canonical_names):
+        try:
+            canonical=evidence_rows(source,fx)
+        except RevenueEvidenceError as exc:
+            raise SafeError("MONTHLY_CANONICAL_AUTHORITY_BLOCKED:"+str(exc)) from exc
+        by_month={row["Month"]:row for row in output}
+        for row in canonical:
+            original=by_month.get(row["Month"])
+            print("MONTHLY_CANONICAL_AUTHORIZED month="+row["Month"]+
+                  " invoice_count="+str(row["Invoice Count"])+
+                  " net_m_krw="+str(row["Net Revenue M KRW"])+
+                  " legacy_month_superseded="+str(original is not None))
+            by_month[row["Month"]]=row
+        output=[by_month[key] for key in sorted(by_month,reverse=True)]
     if invalid:print("MONTHLY_SOURCE_EXCLUDED_UNVERIFIED_ROWS="+str(invalid))
     return output
 
