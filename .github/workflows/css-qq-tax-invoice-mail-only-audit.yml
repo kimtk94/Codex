@@ -1,0 +1,70 @@
+name: CSS QQ Tax Invoice Mail Only Coverage Audit
+
+on:
+  pull_request:
+    paths:
+      - 'automation/css_mail/mail_only_invoice_coverage_audit.py'
+      - 'automation/css_mail/test_mail_only_invoice_coverage_audit.py'
+      - 'automation/feishu/monthly_revenue_actual_sync.py'
+      - 'automation/feishu/test_monthly_revenue_actual_sync.py'
+      - '.github/workflows/css-qq-tax-invoice-mail-only-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/mail_only_invoice_coverage_audit.py'
+      - 'automation/css_mail/test_mail_only_invoice_coverage_audit.py'
+      - '.github/workflows/css-qq-tax-invoice-mail-only-audit.yml'
+  workflow_run:
+    workflows: ['QQ Historical Tax Invoice Backfill 2026']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Verify source completeness at 11:50 and 19:50 Korea time.
+    - cron: '50 2,10 * * *'
+
+permissions:
+  contents: read
+concurrency:
+  group: css-mail-only-invoice-coverage
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google API read-only dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Validate original-only mail, invoice amount and no-manual guards
+        run: |
+          python3 -m py_compile automation/css_mail/mail_only_invoice_coverage_audit.py automation/feishu/monthly_revenue_actual_sync.py
+          python3 -m unittest discover -s automation/css_mail -p 'test_mail_only_invoice_coverage_audit.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_monthly_revenue_actual_sync.py' -v
+
+  verify-original-email:
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    needs: tests
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 15
+    env:
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      BACKFILL_YEAR: '2026'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify actual original CSS Tax Invoice email, UID and filename (read-only)
+        run: python3 automation/css_mail/mail_only_invoice_coverage_audit.py
