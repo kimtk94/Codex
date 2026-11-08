@@ -43,7 +43,7 @@ BLOCKS=[
         "group_by":[{"field_name":"Month","mode":"integrated",
                      "sort":{"type":"group","order":"asc"}}]}),
     ("월별 Revenue 표시 기준","text",{
-        "text":"**월별 Revenue: M KRW (K USD)** — VAT 제외 발행 확정 실적만 집계합니다. 최근 월은 BI Revenue Net VAT Monthly + BI Revenue Lifecycle Monthly + Revenue Source Authority를 대조한 정식 발행 실적이며, 이전 역사적 월은 Revenue Invoice Base의 검증된 발행 내역입니다. 각 월의 Evidence에 원본 검증 시각을 기록합니다. **Pending·Forecast는 매출 실적에 포함하지 않습니다.** 원화는 백만원(M KRW), 달러는 천 달러(K USD)로 같은 매출을 표현하므로 합산하면 안 됩니다. K USD는 보고용 환율(기본 1 USD = 1,500 KRW)을 적용한 참고값으로 청구·회계 환율과 다를 수 있습니다."}),
+        "text":"**월별 Revenue: M KRW (K USD) — 원본 커버리지 검토 중.** 최근 월 집계는 QQ 발행 안내 메일의 CMS Invoice(209126...)만을 중복 제거하고 VAT 제외로 계산한 **확인된 부분합계**입니다. 2026년 10월에는 별도 수기 ERP Invoice 3건(매출 후보 VAT 제외 35.610 M KRW)이 존재하지만, 세금계산서 발행 확인·계약 연결이 충분하지 않아 실적에 합산하지 않았습니다. QQ 백필에도 담당자가 확인되지 않은 2건(VAT 제외 12.710 M KRW)이 있어 별도 검토 중입니다. 기존 2026-10 발행 안내 원본 합계 144.129 M KRW가 10월 전체 개인 매출을 의미하지는 않습니다. **Pending·Forecast는 실적에서 제외.** KRW는 M, USD는 K 단위이며 1 USD=1,500 KRW 보고용 환율로 같은 금액을 표시합니다."}),
     ("KOREA · Weekly Quote · 완료 4주 + 이번 주 (Count + 계산 K USD)","combo",{
         "table_name":"Weekly Quote KPI",
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
