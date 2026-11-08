@@ -7,6 +7,7 @@ already reconciled official issued-invoice Revenue rows in Monthly Tax Invoice.
 """
 import os
 import sys
+import re
 
 from qq_mail_ingest import SafeError,auth,list_all
 from monthly_revenue_canonical import evidence_rows,RevenueEvidenceError
@@ -49,12 +50,29 @@ def index_records(records):
     return index
 
 
+def validate_mail_only_existing(records):
+    """Never let an ERP/eTax/Forecast source row enter the monthly chart."""
+    seen=set()
+    for record in records:
+        fields=record.get("fields") or {}
+        key=raw_value(fields.get("Source Key")).strip()
+        if not re.fullmatch(r"INVOICE:20\d{2}-(?:0[1-9]|1[0-2])",key):
+            raise SafeError("MONTHLY_NON_MAIL_SOURCE_RECORD_PRESENT")
+        if key in seen:raise SafeError("MONTHLY_DUPLICATE_MAIL_SOURCE_MONTH")
+        seen.add(key)
+    print("MONTHLY_MAIL_ONLY_SOURCE_GUARD_PASS rows="+str(len(records))+
+          " source_keys=INVOICE_MONTH_ONLY"+
+          " manual_ERP_eTax_pending_forecast=EXCLUDED",flush=True)
+
+
 def safe_existing_fields(record):
     return {k:raw_value(v).strip() for k,v in
             (record.get("fields") or {}).items() if k!="Last Sync KST"}
 
 
 def verify_monthly_readback(before,after,desired):
+    validate_mail_only_existing(before)
+    validate_mail_only_existing(after)
     a=index_records(before)
     b=index_records(after)
     if not set(a).issubset(b):
@@ -92,6 +110,7 @@ def main():
            for name,kind in SCHEMAS["Monthly Tax Invoice"]):
         raise SafeError("MONTHLY_TARGET_SCHEMA_UNVERIFIED")
     before=list_all(path+"/records",token,"monthly_existing")
+    validate_mail_only_existing(before)
     index_records(before)
     print("MONTHLY_CANONICAL_PLAN source_months="+str(len(desired))+
           " existing_target_rows="+str(len(before))+" mode="+mode,flush=True)
