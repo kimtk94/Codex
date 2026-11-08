@@ -73,6 +73,25 @@ class GroupedOriginalEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"ROW_IDENTITY_WRONG"):
             m.evidence(details,docs)
 
+    def test_sales_alias_may_have_bilingual_suffix_without_exact_match(self):
+        label="Kim Taehoon 김태훈"
+        self.assertEqual(m.sales_hint(label),"DIFFERENT_OR_FORMAT_UNVERIFIED")
+        clues=m.sales_token_clues(label)
+        self.assertTrue(clues["has_kim"])
+        self.assertTrue(clues["has_taehoon"])
+        self.assertTrue(clues["has_full_alias"])
+        self.assertFalse(m.sales_token_clues("Other Representative")["has_full_alias"])
+
+    def test_exact_certificate_prefix_date_is_a_hint_not_issued_posting(self):
+        self.assertEqual(m.date_hint("46317"),"20261022")
+        self.assertEqual(m.date_hint("2026-10-22"),"20261022")
+        self.assertEqual(m.date_hint("2026/10/22"),"20261022")
+        self.assertEqual(m.date_hint("2026-13-22"),"UNKNOWN")
+        rows,docs=fixture()
+        result=m.evidence(rows,docs)
+        self.assertTrue(all(x["cert_prefix_date_matches_C"]
+                            for x in result["details"].values()))
+
     def test_date_hint_is_not_pretended_to_be_etax_issuance(self):
         self.assertEqual(m.month_hint("46317"),"2026-10")
         self.assertEqual(m.month_hint("2026-10-22"),"2026-10")

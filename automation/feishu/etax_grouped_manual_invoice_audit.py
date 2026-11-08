@@ -54,6 +54,29 @@ def sales_hint(value):
             "DIFFERENT_OR_FORMAT_UNVERIFIED")
 
 
+def sales_token_clues(value):
+    val=normalized_person(value)
+    return {
+        "has_kim": "kim" in val or "김" in val,
+        "has_taehoon": "taehoon" in val or "태훈" in val,
+        "has_full_alias": any(alias in val for alias in
+                               ("kimtaehoon","taehoonkim","김태훈")),
+        "normalized_length":len(val),
+    }
+
+
+def date_hint(value):
+    raw=scalar(value)
+    if re.fullmatch(r"4[4-9]\d{3}(?:\.0+)?",raw):
+        return (dt.datetime(1899,12,30)+dt.timedelta(days=float(raw))).strftime("%Y%m%d")
+    m=re.match(r"^(20\d{2})[-./](\d{1,2})[-./](\d{1,2})(?:\D|$)",raw)
+    if m:
+        try:
+            return dt.date(int(m.group(1)),int(m.group(2)),int(m.group(3))).strftime("%Y%m%d")
+        except ValueError:return "UNKNOWN"
+    return "UNKNOWN"
+
+
 def evidence(values,original_rows):
     """values is an exact ERP -> full Feishu A:N row mapping."""
     if set(values)!=set(TARGETS):
@@ -81,7 +104,9 @@ def evidence(values,original_rows):
             "expected_erp_gross":expected,
             "amount_match":amount==expected,
             "cms_month_hint":month_hint(row[2]),
+            "cms_date_hint":date_hint(row[2]),
             "sales_hint":sales_hint(row[6]),
+            "sales_token_clues":sales_token_clues(row[6]),
             "sales_raw":scalar(row[6]),
             "remark_positive":("ISSUANCE_WORD" in remarks and
                                "NEGATIVE_OR_PENDING_WORD" not in remarks),
@@ -89,6 +114,9 @@ def evidence(values,original_rows):
             "etax_number":cert,
             "cert_group_members":set(all_h[cert]),
             "num_digits":sum(c.isdigit() for c in cert),
+            "cert_prefix_date_matches_C":(
+                date_hint(row[2])!="UNKNOWN"
+                and "".join(c for c in cert if c.isdigit()).startswith(date_hint(row[2]))),
         }
     c0=detail["20910000208"]["etax_number"]
     c1=detail["20910000209"]["etax_number"]
@@ -145,6 +173,13 @@ def main():
               " F_match="+str(x["amount_match"]).lower()+
               " CMS_invoice_month_hint="+x["cms_month_hint"]+
               " Sales_label="+x["sales_hint"]+
+              " Sales_has_kim_token="+str(x["sales_token_clues"]["has_kim"]).lower()+
+              " Sales_has_taehoon_token="+str(x["sales_token_clues"]["has_taehoon"]).lower()+
+              " Sales_has_full_alias="+str(x["sales_token_clues"]["has_full_alias"]).lower()+
+              " Sales_normalized_length="+str(x["sales_token_clues"]["normalized_length"])+
+              " CMS_invoice_date_hint="+x["cms_date_hint"]+
+              " eTax_cert_prefix_matches_C_date="+
+              str(x["cert_prefix_date_matches_C"]).lower()+
               " positive_remark="+str(x["remark_positive"]).lower()+
               " cancel_cert_present="+str(x["cancel_number_present"]).lower()+
               " eTax_cert_digits="+str(x["num_digits"])+
