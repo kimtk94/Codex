@@ -57,10 +57,11 @@ def classify_status(value):
         return "TRACKING_DATE_PRESENT_VERIFY_DATE_TYPE"
     if re.fullmatch(r"4[4-9]\d{3}(?:\.0+)?",state):
         return "TRACKING_EXCEL_DATE_SERIAL_VERIFY_DATE_TYPE"
-    if any(word in state for word in ("已开票","已开具","已开","발행","开票","ISSUED","완료")):
-        return "TRACKING_ISSUANCE_WORD_REVIEW_DETAILS"
+    # Negative markers must take priority (e.g. NOT ISSUED contains ISSUED).
     if any(word in state for word in ("未开票","未开","미발행","待开","NOT ISSUED","CANCEL")):
         return "TRACKING_NEGATIVE_WORD_REVIEW_DETAILS"
+    if any(word in state for word in ("已开票","已开具","已开","발행","开票","ISSUED","완료")):
+        return "TRACKING_ISSUANCE_WORD_REVIEW_DETAILS"
     return "TRACKING_VALUE_UNRECOGNIZED_REVIEW"
 
 
