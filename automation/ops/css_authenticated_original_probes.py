@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+"""Read-only original QQ IMAP UID vs staging and original Feishu Sheets vs mirror.
+
+This supplements (never overrides) the 9x2 business freshness policy.
+A pass certifies *only* the named projection/UID coverage, not body MIME,
+Salesforce object saves, eTax issuance, paid invoices or dashboard KPIs.
+No customer-level rows, keys or message content are written to logs/artifacts.
+"""
+import base64
+import datetime as dt
+import imaplib
+import json
+import os
+from pathlib import Path
+import sys
+import urllib.parse
+from zoneinfo import ZoneInfo
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "feishu"))
+sys.path.insert(0, str(ROOT / "css_mail"))
+
+SHEET_ID = "1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
+MAIL_BOOK = "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
+MAX_GRID_ROWS = 10000
+SOURCE_NAMES = {
+    "Payment Outstanding": "Feishu Latest Outstanding",
+    "Payment Receipt": "Feishu Latest Receipts",
+    "Prepayments": "Feishu Latest Prepayments",
+    "eTax Invoice": "Feishu Latest eTax",
+}
+
+
+def clean(value):
+    """Only for in-memory parity; never log value contents."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def validate_mail_coverage(folders, staged_keys):
+    """Separate source access from destination completeness; do not equate no data with no access."""
+    if len(folders) != 2 or set(folders) != {"INBOX", "SENT"}:
+        raise ValueError("ORIGINAL_MAIL_FOLDER_COVERAGE_MISSING")
+    if not isinstance(staged_keys, list) or not staged_keys:
+        raise ValueError("MAIL_STAGING_NOT_READ")
+    if len(staged_keys) != len(set(staged_keys)):
+        raise ValueError("MAIL_STAGING_DUPLICATE_UID_KEY")
+    original = set()
+    counts = {}
+    for label, entry in folders.items():
+        folder, validity, uids = entry["folder"], entry["uidvalidity"], entry["uids"]
+        if not folder or not str(validity).isdigit() or not isinstance(uids, list):
+            raise ValueError("ORIGINAL_MAIL_UID_EVIDENCE_INVALID")
+        if len(uids) != len(set(uids)) or not all(str(uid).isdigit() for uid in uids):
+            raise ValueError("ORIGINAL_MAIL_UID_LIST_INVALID")
+        keys = {str(folder) + "|" + str(validity) + "|" + str(uid) for uid in uids}
+        if keys & original:
+            raise ValueError("ORIGINAL_MAIL_UID_NAMESPACE_CONFLICT")
+        original |= keys
+        counts[label] = len(uids)
+    if not original:
+        raise ValueError("ORIGINAL_MAILBOX_UNEXPECTED_EMPTY")
+    missing = len(original - set(staged_keys))
+    return {
+        "original_mailboxes_queried": 2,
+        "imap_uid_count": len(original),
+        "imap_by_folder": counts,
+        "staging_unique_keys": len(staged_keys),
+        "covered_uid_count": len(original) - missing,
+        "missing_uid_count": missing,
+        "uid_coverage_state": "PASS_UID_ONLY" if missing == 0 else "SINK_LAG",
+        "mime_body_verified": False,
+        "mailbox_history_scope": "CURRENT_IMAP_INBOX_AND_SENT_ONLY",
+    }
+
+
+def same_rows(source, mirror):
+    """Exact projected string cells with trailing empty-cell normalization."""
+    if len(source) != len(mirror):
+        return False
+    width = max((len(r) for r in source), default=0)
+    if not width or any(not isinstance(r, list) for r in source + mirror):
+        return False
+    def normalize(row):
+        if len(row) > width and any(clean(v) for v in row[width:]):
+            return None
+        return tuple(clean(v) for v in row[:width]) + ("",) * max(0, width - len(row))
+    return all(normalize(a) == normalize(b) for a, b in zip(source, mirror))
+
+
+def compare_feishu_projection(source, mirror_meta, mirror_grid):
+    """The Feishu original is independently fetched, including all projected rows."""
+    identity_ok = (source.get("sheet_id") == mirror_meta.get("id") and
+                   source.get("source_date") == mirror_meta.get("date"))
+    count_ok = (isinstance(mirror_meta.get("rows"), int)
+                and source.get("row_count") == mirror_meta["rows"])
+    schema_ok = source.get("schema") == mirror_meta.get("schema")
+    content_ok = same_rows(source.get("projected_grid") or [], mirror_grid)
+    parity = identity_ok and count_ok and schema_ok and content_ok
+    return {
+        "source_date": source.get("source_date"),
+        "source_rows": source.get("row_count"),
+        "mirror_rows": mirror_meta.get("rows"),
+        "identity_parity": identity_ok,
+        "row_count_parity": count_ok,
+        "schema_parity": schema_ok,
+        "content_parity": content_ok,
+        "status": "PASS_SNAPSHOT_PROJECTION_ONLY" if parity else "SINK_LAG",
+        "invoice_issue_dates_certified": False,
+        "bank_payments_certified": False,
+    }
+
+
+def sheets_session():
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import AuthorizedSession
+    raw = os.environ.get("CKD_DRIVE_SA_JSON", "").strip()
+    if not raw:
+        raise RuntimeError("GOOGLE_READ_CREDENTIALS_MISSING")
+    try:
+        info = json.loads(raw)
+    except (ValueError, TypeError):
+        info = json.loads(base64.b64decode(raw))
+    creds = service_account.Credentials.from_service_account_info(
+        info, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+    return AuthorizedSession(creds)
+
+
+def read_range(session, book, a1):
+    url = "https://sheets.googleapis.com/v4/spreadsheets/" + book + "/values/" + urllib.parse.quote(a1, safe="")
+    response = session.get(url, timeout=60)
+    response.raise_for_status()
+    rows = response.json().get("values")
+    if not isinstance(rows, list):
+        raise RuntimeError("GOOGLE_SHEET_RANGE_NOT_AVAILABLE")
+    return rows
+
+
+def live_mail(session):
+    from incremental_sync import folder_names
+    rows = read_range(session, MAIL_BOOK, "'CSS Git Ingest'!A1:A100000")
+    if not rows or rows[0] != ["ingest_key"]:
+        raise RuntimeError("STAGING_UID_SCHEMA_INVALID")
+    keys = [str(r[0]) for r in rows[1:] if r and r[0]]
+    address = os.environ["CSS_QQ_MAIL_ADDRESS"]
+    code = os.environ["CSS_QQ_MAIL_AUTH_CODE"]
+    if not address or not code:
+        raise RuntimeError("QQ_CREDENTIAL_MISSING")
+    results = {}
+    with imaplib.IMAP4_SSL("imap.exmail.qq.com", 993, timeout=45) as im:
+        if im.login(address, code)[0] != "OK":
+            raise RuntimeError("QQ_LOGIN_FAILED")
+        all_folders = folder_names(im)
+        sent = next((f for f, t in all_folders if "\\sent" in t or f.lower()
+                     in ("sent", "sent items", "sent messages")), None)
+        if not sent:
+            raise RuntimeError("QQ_SENT_FOLDER_UNAVAILABLE")
+        for label, folder in (("INBOX", "INBOX"), ("SENT", sent)):
+            if im.select('"' + folder.replace('"', '') + '"', readonly=True)[0] != "OK":
+                raise RuntimeError("QQ_FOLDER_SELECT_FAILED")
+            status, values = im.response("UIDVALIDITY")
+            if status != "UIDVALIDITY" or not values or not values[0]:
+                raise RuntimeError("QQ_UIDVALIDITY_MISSING")
+            validity = values[0].decode("ascii", "strict")
+            status, result = im.uid("SEARCH", None, "ALL")
+            if status != "OK" or not result or result[0] is None:
+                raise RuntimeError("QQ_FULL_UID_SEARCH_FAILED")
+            ids = [v.decode("ascii", "strict") for v in result[0].split()]
+            results[label] = {"folder": folder, "uidvalidity": validity, "uids": ids}
+        im.logout()
+    return validate_mail_coverage(results, keys)
+
+
+def manifest_index(rows):
+    if not rows or rows[0][:7] != ["Source", "Source Date", "Synced At KST", "Source ID", "Rows", "Schema", "Meaning"]:
+        raise ValueError("FEISHU_MANIFEST_HEADER_INVALID")
+    found = {}
+    for r in rows[1:]:
+        if not r or r[0] not in SOURCE_NAMES:
+            continue
+        name = str(r[0])
+        if name in found:
+            raise ValueError("DUPLICATE_FEISHU_MANIFEST_FORMAT")
+        row_count = str(r[4]) if len(r) > 4 else ""
+        if not row_count.isdigit():
+            raise ValueError("FEISHU_MANIFEST_COUNT_INVALID")
+        found[name] = {"date": str(r[1]), "id": str(r[3]),
+                       "rows": int(row_count), "schema": str(r[5])}
+    if set(found) != set(SOURCE_NAMES):
+        raise ValueError("FEISHU_MANIFEST_FORMAT_INCOMPLETE")
+    return found
+
+
+def live_feishu(session):
+    from sheets_tab_discovery import api, TOKEN
+    from latest_four_formats import select
+    from latest_source_sync import shape, text as feishu_text
+    auth = api("/open-apis/auth/v3/tenant_access_token/internal",
+        payload={"app_id": os.environ["FEISHU_APP_ID"],
+                 "app_secret": os.environ["FEISHU_APP_SECRET"]})
+    token = auth.get("tenant_access_token")
+    if not token:
+        raise RuntimeError("FEISHU_AUTH_FAILED")
+    root = "/open-apis/sheets/v3/spreadsheets/" + urllib.parse.quote(TOKEN, safe="")
+    tabs = api(root + "/sheets/query", token).get("sheets")
+    if not isinstance(tabs, list):
+        raise RuntimeError("FEISHU_ORIGINAL_SHEETS_UNAVAILABLE")
+    selected, _ = select(tabs, dt.datetime.now(ZoneInfo("Asia/Seoul")).date())
+    if selected is None:
+        raise RuntimeError("FEISHU_LATEST_FORMATS_MISSING")
+    manifest = manifest_index(read_range(session, SHEET_ID, "'Feishu Source Manifest'!A1:G12"))
+    evidence = {}
+    for fmt in SOURCE_NAMES:
+        source = selected[fmt]
+        tab = next((t for t in tabs if t.get("sheet_id") == source["sheet_id"]), None)
+        if not tab:
+            raise RuntimeError("FEISHU_ORIGINAL_TAB_ID_MISSING")
+        row_count = int((tab.get("grid_properties") or {}).get("row_count") or MAX_GRID_ROWS)
+        col_count = int((tab.get("grid_properties") or {}).get("column_count") or 52)
+        if row_count < 1 or row_count > MAX_GRID_ROWS or col_count > 52:
+            raise RuntimeError("FEISHU_ORIGINAL_GRID_UNBOUNDED")
+        span = urllib.parse.quote(source["sheet_id"] + "!A1:AZ" + str(row_count), safe="!:")
+        payload = api("/open-apis/sheets/v2/spreadsheets/" + urllib.parse.quote(TOKEN, safe="") +
+                      "/values/" + span, token)
+        grid = (payload.get("valueRange") or {}).get("values") or []
+        if not grid:
+            raise RuntimeError("FEISHU_ORIGINAL_GRID_EMPTY")
+        header, rows, schema = shape([[feishu_text(v) for v in r] for r in grid])
+        if not rows:
+            raise RuntimeError("FEISHU_ORIGINAL_RECORDS_EMPTY")
+        prepared = {"sheet_id": source["sheet_id"], "source_date": source["date"],
+                    "row_count": len(rows), "schema": schema,
+                    "projected_grid": [header] + rows}
+        mirror = read_range(session, SHEET_ID,
+                     "'" + SOURCE_NAMES[fmt] + "'!A1:AZ" + str(len(rows) + 2))
+        evidence[fmt] = compare_feishu_projection(prepared, manifest[fmt], mirror)
+    etax_date = dt.date.fromisoformat(evidence["eTax Invoice"]["source_date"])
+    local = dt.datetime.now(ZoneInfo("Asia/Seoul")).date()
+    evidence["eTax Invoice"]["source_month_matches_current_month"] = (
+        (etax_date.year, etax_date.month) == (local.year, local.month)
+    )
+    evidence["eTax Invoice"]["current_month_issuance_proven"] = False
+    return {
+        "source_probe": "PASS_ORIGINAL_READ",
+        "mirror_projection_status": "PASS" if all(x["status"] ==
+            "PASS_SNAPSHOT_PROJECTION_ONLY" for x in evidence.values()) else "SINK_LAG",
+        "formats": evidence,
+        "scope": "ORIGINAL_FEISHU_SHEETS_VS_GOOGLE_MIRROR_ONLY",
+        "live_base_payment_certified": False,
+    }
+
+
+def main():
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    result = {
+        "checked_utc": now,
+        "no_original_message_content_logged": True,
+        "qq_mail": {"status": "SOURCE_UNAVAILABLE"},
+        "feishu_sheets": {"status": "SOURCE_UNAVAILABLE"},
+        "sfdc_object_readback": "NOT_CHECKED",
+        "domain_business_pass": False,
+    }
+    try:
+        session = sheets_session()
+    except Exception as exc:
+        result["sheet_read"] = {"status": "SOURCE_UNAVAILABLE", "error_type": type(exc).__name__}
+        session = None
+    if session:
+        for name, func in (("qq_mail", live_mail), ("feishu_sheets", live_feishu)):
+            try:
+                obj = func(session)
+                obj["status"] = "SOURCE_PROBED"
+                result[name] = obj
+            except Exception as exc:
+                result[name] = {"status": "SOURCE_UNAVAILABLE",
+                                "error_type": type(exc).__name__}
+    path = Path("audit-results/css-authenticated-original-probes.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    mail = result["qq_mail"]
+    feishu = result["feishu_sheets"]
+    print("CSS_ORIGINAL_SOURCE_PROBES " + json.dumps({
+        "qq_source": mail.get("status"),
+        "qq_uid_coverage": mail.get("uid_coverage_state", "UNVERIFIED"),
+        "qq_uid_gap_count": mail.get("missing_uid_count"),
+        "feishu_source": feishu.get("status"),
+        "feishu_mirror": feishu.get("mirror_projection_status", "UNVERIFIED"),
+        "eTax_dated_source": (feishu.get("formats") or {}).get("eTax Invoice", {}).get("source_date", "UNKNOWN"),
+        "sfdc_object_readback": "NOT_CHECKED",
+        "customer_data_writes": 0, "customer_mail_sends": 0,
+        "business_acceptance_certified": False,
+    }, sort_keys=True))
+    summary = os.getenv("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as out:
+            out.write("## Original QQ and Feishu vs mirror (read only)\n\n")
+            out.write("| Check | Original probe | Projection/readback | Business acceptance |\n")
+            out.write("|---|---|---|---|\n")
+            out.write("| QQ IMAP current UID sets | " + mail.get("status", "UNVERIFIED") +
+                      " | " + mail.get("uid_coverage_state", "UNVERIFIED") + " | Not certified: MIME/body |\n")
+            out.write("| Original Feishu dated Sheets | " + feishu.get("status", "UNVERIFIED") +
+                      " | " + feishu.get("mirror_projection_status", "UNVERIFIED") +
+                      " | Not certified: invoicing/payment |\n")
+            out.write("| SFDC objects | Not checked | Not checked | Not certified: Save |\n\n")
+            out.write("Source access failures never count as NO_NEW_DATA. See sanitized artifact.\n")
+    # Reporting must succeed even if the source is unavailable; each source has
+    # explicit SOURCE_UNAVAILABLE evidence and can never be promoted to PASS.
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
