@@ -6,6 +6,8 @@ on:
       - 'automation/feishu/test_native_quote_combo.py'
       - 'automation/feishu/test_native_source_status.py'
       - 'automation/feishu/test_native_dashboard_layout.py'
+      - 'automation/feishu/quote_chart_label_sync.py'
+      - 'automation/feishu/test_quote_chart_label_sync.py'
       - 'automation/feishu/test_native_progress_dashboard.py'
       - '.github/workflows/feishu-native-dashboard.yml'
   push:
@@ -15,6 +17,7 @@ on:
       - 'feat/feishu-project-progress-no-ranking-*'
     paths:
       - 'automation/feishu/native_dashboard_cli.py'
+      - 'automation/feishu/quote_chart_label_sync.py'
       - '.github/workflows/feishu-native-dashboard.yml'
   workflow_run:
     workflows: ['Feishu Sales SIF Invoice Weekly KPI']
@@ -50,6 +53,7 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_native_quote_combo.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_source_status.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_dashboard_layout.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_quote_chart_label_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_progress_dashboard.py' -v
           python3 - <<'PY'
           import ast
@@ -84,5 +88,7 @@ jobs:
         run: |
           printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name css-sales-native --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
           lark-cli profile use css-sales-native
+      - name: Correct stored Quote x-axis labels only (no SFDC/amount reads)
+        run: python3 automation/feishu/quote_chart_label_sync.py
       - name: Create Feishu-hosted native dashboard (source tables unchanged)
         run: python3 automation/feishu/native_dashboard_cli.py
