@@ -1,0 +1,66 @@
+name: CSS October Revenue Completeness Audit Read Only
+
+on:
+  pull_request:
+    paths:
+      - 'automation/css_mail/october_revenue_completeness_audit.py'
+      - 'automation/css_mail/test_october_revenue_completeness_audit.py'
+      - '.github/workflows/css-october-revenue-completeness.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/october_revenue_completeness_audit.py'
+      - 'automation/css_mail/test_october_revenue_completeness_audit.py'
+      - '.github/workflows/css-october-revenue-completeness.yml'
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['CSS Verified Net Revenue VAT Audit']
+    types: [completed]
+    branches: [main]
+  schedule:
+    # 09:35 and 17:35 KST; report unresolved scope issues regardless of upstream success
+    - cron: '35 0,8 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: css-oct-revenue-completeness
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install read-only Google API dependencies
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Test no-overcount, VAT calculation, owner and GL scope
+        working-directory: automation/css_mail
+        run: |
+          python -m py_compile october_revenue_completeness_audit.py test_october_revenue_completeness_audit.py
+          python -m unittest -v test_october_revenue_completeness_audit
+
+  audit:
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: test
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 7
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install read-only Google API dependencies
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Audit original October QQ and ERP evidence without changing financial data
+        run: python automation/css_mail/october_revenue_completeness_audit.py
