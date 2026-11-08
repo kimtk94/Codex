@@ -10,13 +10,15 @@ recognition or independently certified owner. Never auto-post Revenue.
 """
 import re
 import sys
+import datetime as dt
 import urllib.parse
 
 from qq_mail_ingest import api, SafeError, auth
 
 TRACKING_TOKEN="WI6msu7UihcZQotx8XKjDbFypvh"
 TRACKING_TAB="Tracking file 2026"
-MAX_ROWS=5000
+PAGE_ROWS=1000
+MAX_ROWS=20000
 TARGETS={
     "20910000203":"OCT_MANUAL_28_567M_GROSS",
     "20910000208":"OCT_MANUAL_1_287M_GROSS",
@@ -51,8 +53,15 @@ def classify_status(value):
         return "TRACKING_MARKED_ISSUED_NOT_ACCOUNTING_PROOF"
     if state in {"NO","N","NOT ISSUED","UNISSUED","未开票","待开票","PENDING"}:
         return "TRACKING_MARKED_NOT_ISSUED"
-    if re.fullmatch(r"20\d{2}-\d{2}-\d{2}(?:[ T].*)?",state):
+    if re.fullmatch(r"20\d{2}[-./]\d{1,2}[-./]\d{1,2}(?:[ T].*)?",state):
         return "TRACKING_DATE_PRESENT_VERIFY_DATE_TYPE"
+    if re.fullmatch(r"4[4-9]\d{3}(?:\.0+)?",state):
+        return "TRACKING_EXCEL_DATE_SERIAL_VERIFY_DATE_TYPE"
+    # Negative markers must take priority (e.g. NOT ISSUED contains ISSUED).
+    if any(word in state for word in ("未开票","未开","미발행","待开","NOT ISSUED","CANCEL")):
+        return "TRACKING_NEGATIVE_WORD_REVIEW_DETAILS"
+    if any(word in state for word in ("已开票","已开具","已开","발행","开票","ISSUED","완료")):
+        return "TRACKING_ISSUANCE_WORD_REVIEW_DETAILS"
     return "TRACKING_VALUE_UNRECOGNIZED_REVIEW"
 
 
@@ -81,12 +90,33 @@ def read_tracking(token):
              if x.get("title")==TRACKING_TAB]
     if len(matches)!=1 or not matches[0].get("sheet_id"):
         raise SafeError("TRACKING_TAB_INACCESSIBLE_OR_MISSING")
-    sid=matches[0]["sheet_id"]
-    interval=urllib.parse.quote(f"{sid}!D1:H{MAX_ROWS}",safe="")
-    data=api("GET",f"/open-apis/sheets/v2/spreadsheets/{s}/values/{interval}",
-             token,action="etax_tracking_cells_read")
-    range_=data.get("valueRange") or {}
-    return range_.get("values") or [],data.get("revision")
+    sheet=matches[0]
+    sid=sheet["sheet_id"]
+    n=(sheet.get("grid_properties") or {}).get("row_count")
+    if not isinstance(n,int) or not 1<=n<=MAX_ROWS:
+        raise SafeError("TRACKING_FULL_ROW_COVERAGE_NOT_PROVABLE")
+    all_rows=[]
+    revisions=[]
+    for first in range(1,n+1,PAGE_ROWS):
+        last=min(n,first+PAGE_ROWS-1)
+        interval=urllib.parse.quote(f"{sid}!D{first}:H{last}",safe="")
+        data=api("GET",f"/open-apis/sheets/v2/spreadsheets/{s}/values/{interval}",
+                 token,action="etax_tracking_cells_read")
+        if not isinstance(data.get("valueRange"),dict):
+            raise SafeError("TRACKING_RANGE_RESPONSE_MISSING")
+        segment=data["valueRange"].get("values") or []
+        if not isinstance(segment,list) or len(segment)>last-first+1:
+            raise SafeError("TRACKING_RANGE_ROW_COUNT_INVALID")
+        all_rows.extend(segment)
+        all_rows.extend([[] for _ in range(last-first+1-len(segment))])
+        revisions.append(data.get("revision"))
+    if len(all_rows)!=n:raise SafeError("TRACKING_FULL_ROW_COVERAGE_INCOMPLETE")
+    if len(set(v for v in revisions if v is not None))>1:
+        raise SafeError("TRACKING_CHANGED_DURING_READ_RETRY")
+    print("ETAX_TRACKING_FULL_COVERAGE rows_declared="+str(n)+
+          " rows_scanned="+str(len(all_rows))+
+          " pages="+str(len(revisions)),flush=True)
+    return all_rows,revisions[0] if revisions else None
 
 
 def main():
@@ -99,6 +129,15 @@ def main():
         value,line=indexed.get(invoice,("",0))
         state=classify_status(value) if line else "NOT_IN_TRACKING"
         states[invoice]=state
+        if line and state=="TRACKING_VALUE_UNRECOGNIZED_REVIEW":
+            raw=scalar(value)
+            characters=("NUMERIC" if re.fullmatch(r"[0-9.]+",raw) else
+                        "LATIN_TEXT" if re.fullmatch(r"[A-Za-z ._/-]+",raw) else
+                        "NON_LATIN_OR_MIXED")
+            print("ETAX_TRACKING_STATUS_SHAPE invoice="+invoice+
+                  " characters="+characters+
+                  " length="+str(len(raw))+
+                  " no_raw_value_logged=true",flush=True)
         print("ETAX_TRACKING_PROOF invoice="+invoice+
               " case="+kind+" matched="+str(bool(line)).lower()+
               " status="+state,flush=True)
