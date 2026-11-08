@@ -60,9 +60,9 @@ class MonthlyRevenueEvidenceTests(unittest.TestCase):
         self.assertEqual(oct["Net Revenue M KRW"],144.129)
         self.assertAlmostEqual(nov["Net Revenue K USD"],23.1887,places=4)
         self.assertEqual(oct["Net Revenue K USD"],96.086)
-        self.assertTrue(all(x["Coverage Status"]=="QQ_ISSUED_VERIFIED_ERP_MANUAL_SCOPE_REVIEW"
+        self.assertTrue(all(x["Coverage Status"]=="QQ_TAX_INVOICE_MAIL_ONLY_BACKFILL_REVIEW"
                             for x in rows))
-        self.assertTrue(all("manual ERP billing" in x["Evidence"]
+        self.assertTrue(all("manual ERP/eTax" in x["Evidence"]
                             for x in rows))
         self.assertNotIn("2026-12",[r["Month"] for r in rows])
         self.assertNotIn("43767645",str(rows))
