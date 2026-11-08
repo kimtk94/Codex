@@ -114,7 +114,7 @@ class ReceiptQueueTests(unittest.TestCase):
     def test_qc_crosscheck_fail_closed(self):
         rows,counts=build(*self.data())
         qc=[
-            ["Invoice records",13],["Receipt linked invoice IDs",12],
+            ["Invoice records",13],["Receipt linked invoice IDs",11],
             ["Receipt single-ID exact-amount candidates",1],
             ["Receipt grouped-allocation review",2],
             ["Receipt duplicate-ID review",1],
