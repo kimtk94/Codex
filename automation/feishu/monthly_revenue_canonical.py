@@ -136,10 +136,17 @@ def evidence_rows(source,fx=D("1500")):
             "CSS Source Invoice Count":None,
             "CSS Source KRW Incl VAT":None,
             "Source Difference KRW":None,
-            "Coverage Status":"CANONICAL_ISSUED_VAT_VERIFIED",
+            # Audit signs the *QQ-issued CMS subset*, not the completeness
+            # of the sales owner's billing portfolio. Manual ERP invoices are
+            # outside the 209126... original-email parser and some QQ backfill
+            # invoices still lack independently verified salesperson ownership.
+            # Distinguish valid subtotal math from complete October revenue.
+            "Coverage Status":"QQ_ISSUED_VERIFIED_ERP_MANUAL_SCOPE_REVIEW",
             "Evidence":"BI Revenue Net VAT Monthly / BI Revenue Lifecycle Monthly / "+
-                "Revenue Source Authority; issued-invoice net only; "+snapshot+
-                "; VAT gross independently reconciled; pending/forecast excluded."
+                "Revenue Source Authority; issued QQ CMS invoice subset only; "+
+                snapshot+"; VAT gross independently reconciled; "+
+                "manual ERP billing and unmatched QQ owner/issuance pending "+
+                "separate review; pending/forecast excluded."
         })
     if not result:
         raise RevenueEvidenceError("CANONICAL_NO_ISSUED_MONTHS")
