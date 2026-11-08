@@ -62,3 +62,19 @@
 **정적 정책 검사:** `.github/workflows/css-freshness-policy-check.yml` — 9개 기능과 18개 검증 포인트·상태 계약이 유지되는지 검사. **실제 최신 원천 데이터 검사까지 했다는 의미는 아님.**
 
 참고: [SFDC_Automation_Followup_2026](https://docs.google.com/spreadsheets/d/1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI/edit) / [Novogene_All_Emails](https://docs.google.com/spreadsheets/d/1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY/edit).
+
+
+## 2026-11-09 08:38 KST: 실제 원본 최신화 교차검증 (PR #643–#645)
+
+- **직접 조회 구현:** `automation/ops/css_authenticated_original_probes.py`. 로그인된 QQ IMAP INBOX/SENT UIDVALIDITY 및 UID 집합을 별도 조회해 Google `CSS Git Ingest`의 고유키 집합과 비교. Feishu 원본 4종 dated Sheet도 직접 읽어 source sheet ID/일자, 모든 투영 행·셀과 Google mirror를 비교. **고객 내용·개별 UID는 로그/증거에 기록하지 않는다.**
+- **실행 증거:** [GitHub Actions #42536011134](https://github.com/kimtk94/Codex/actions/runs/42536011134) (main, 오프라인 테스트·mirror·original job 성공, 단 업무 전체 PASS 아님). 원본 인증은 QQ 및 Feishu 모두 성공.
+- **QQ 전체 메일함 차이:** IMAP UID 기준 미적재 **34,558건**, 이 중 **최근 3일 6건**, **최근 60일 6건**, **60일 이전 역사적 미적재 34,552건**. 원본 대비 staging 범위 차이로, 이 34,552건을 현재 3일 최신화 장애로 잘못 표시하지 않는다. 다만 60일 범위의 6건은 실제 해당 시점의 `SINK_LAG`이며 다음 CSS QQ Mail 원본 수집 실행·readback 후 0건인지 재검증한다.
+- **Feishu 원본 대조:** dated Payment Outstanding, Payment Receipt, Prepayments, eTax Invoice의 원본 전체 투영 내용과 Google mirror의 ID·일자·행 수·컬럼·값 대조 `PASS`. **eTax 최신 dated 원천일은 여전히 2026-10-31.** 11월 eTax 발행 증빙·실제 bank paid 확정은 불가.
+- **SFDC:** 3 Report QQ 메일 적재는 별도 검증되지만 Salesforce 객체의 Save/readback은 이 직접 프로브 범위가 아니므로 미인증으로 남는다.
+- **자동 실행:** `.github/workflows/css-live-freshness-evidence.yml`에서 PR 테스트 + main push/매일 KST 04:12, 10:12, 16:12, 22:12 원본 읽기·증거 artifact. PR #645에서 원본 프로브 파일 변경도 main push 트리거에 포함하도록 수정.
+
+### 이후 운영 점검 순서
+1. 우선 최근 3일 IMAP↔Google staging UID 누락 건수와 메일 본문 캐시 별도 점검. 6건이 다음 수집 후에도 남으면 UIDVALIDITY/폴더/실제 원본 수집 실패 원인 추적.
+2. 최근 60일 차이와 60일 이전 **역사적 백필**을 별도 KPI로 보고. Feishu 2026 백필과 Google 60일 수집은 서로 다른 수집 경로이므로 수치를 합치지 않는다.
+3. Feishu dated 원본 원본↔미러 전체 콘텐츠 PASS와 **최신 발행 Invoice/입금증빙 PASS는 별도**. 최신 eTax source date가 10/31이어도 원본 자체에 신규 데이터가 없는 정상 상태인지 확인 전에는 임의로 STALE/PASS 확정하지 않는다.
+4. SFDC 실제 Save와 Quote 승인·KPI readback은 독립 확인. Monthly Revenue는 VAT 제외 발행 QQ Tax Invoice만 authoritative actual로 취급.
