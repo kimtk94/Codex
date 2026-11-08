@@ -78,6 +78,14 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(r[22],1881000)
         self.assertEqual(r[23],"AMOUNT_VERIFIED 1/1")
         self.assertFalse(r[3])  # No fabricated customer
+        from revenue_lifecycle_monthly import reconcile_pending
+        monthly=[["Month","Actual Invoice KRW","Pending Verified KRW",
+                  "Forecast KRW","Combined KRW","Invoice Count",
+                  "Open Statement Count","Pending Amount Unknown"],
+                 ["2026-10",0,1881000,0,1881000,0,1,0]]
+        reconciled=reconcile_pending(data[5],data[2],rows,monthly)
+        self.assertEqual(reconciled,(1,1881000))
+
 
     def test_unverified_orphan_does_not_generate_pending_amount(self):
         data=fixtures()
