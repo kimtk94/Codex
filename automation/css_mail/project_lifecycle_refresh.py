@@ -85,6 +85,7 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
     # CSS Git Ingest header metadata is more recent than legacy CSS timeline.
     # Search original official notices only, never RE/FW or in-reply-to.
     statement_notices={}
+    source_amea_by_x={}
     stage_evidence={}
     by_h,by_amea={},{}
     for project in feishu_rows[1:]:
@@ -125,6 +126,10 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
             "revised statement" in subject.lower()):
             x=m.group(2).upper()
             j=m.group(1).upper()
+            # Exact X-number in an original QQ notice; never guess a Feishu row.
+            found_amea={v.upper() for v in A.findall(subject)}
+            if len(found_amea)==1:
+                source_amea_by_x.setdefault(x,set()).update(found_amea)
             prev=statement_notices.setdefault(x,{})
             if j not in prev or date>prev[j]:
                 prev[j]=date
@@ -230,6 +235,42 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
              max((notices[j] for j in open_j),default=""),
              pending_verified,evidence]
         out.append(row)
+    # An original, amount-verified QQ Statement can precede the Feishu Online
+    # snapshot. Retain that exact X+J as a clearly marked source-only project,
+    # rather than dropping it and blocking all unrelated issued Invoice Revenue.
+    # Do not invent Feishu status, forecast, customer, or relationship evidence.
+    feishu_x={str(row[0]).strip().upper() for row in out[1:]}
+    for x,notices in sorted(statement_notices.items()):
+        if x in feishu_x:continue
+        issued=issued_statements.get(x,set())
+        open_j=sorted(set(notices)-issued)
+        if not open_j:continue
+        verified=[]
+        for j in open_j:
+            record=statement_amounts.get(j+"-"+x)
+            if record and record[1]==notices[j]:
+                verified.append(record[0])
+        if not verified:
+            # Unverified/no-amount notices are not new finance evidence.
+            continue
+        am_set=source_amea_by_x.get(x,set())
+        amea=next(iter(am_set)) if len(am_set)==1 else ""
+        last_notice=max(notices[j] for j in open_j)
+        inv=invoices.get(x,{})
+        billing=("ISSUED + STATEMENT PENDING [QQ_ONLY]" if inv
+                 else "STATEMENT READY - INVOICE PENDING [QQ_ONLY]")
+        out.append([
+            x,amea,"","","","NOT_IN_FEISHU_SOURCE",
+            "Statement confirmation [QQ direct; no Feishu snapshot]",97,
+            last_notice,"","","","",
+            "",len(inv),sum(inv.values()),billing,0,
+            "Verify missing Feishu subproject; retain original Statement evidence",
+            "Original CSS QQ Statement; Feishu subproject not found",
+            " | ".join(open_j),last_notice,sum(verified),
+            "AMOUNT_VERIFIED "+str(len(verified))+"/"+str(len(open_j))
+        ])
+        # The pending reconciliation remains strict: every source-verified J
+        # must match exactly once; missing, changed or partial values still fail.
     if len(out)<2:raise RuntimeError("Empty lifecycle input; refusing update")
     return out
 
