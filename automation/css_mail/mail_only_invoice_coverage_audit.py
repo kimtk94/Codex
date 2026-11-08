@@ -97,11 +97,25 @@ def original_proof(msg,attachment_names,invoice,expected):
     month,amount,amea,state,uid=expected
     sender=parseaddr(str(msg.get("From") or ""))[1].casefold()
     subject=str(msg.get("Subject") or "").strip()
-    if (sender!=CSS_SENDER or
-            not ISSUED.match(subject) or
-            REPLY_PREFIX.match(subject) or
-            str(msg.get("In-Reply-To") or "").strip()):
-        raise ValueError("ORIGINAL_TAX_INVOICE_EMAIL_IDENTITY_UNVERIFIED")
+    known_sender=sender==CSS_SENDER
+    known_domain=sender.endswith(("@novogene.com","@novogene-amea.com",
+                                  "@novogene.cn"))
+    official_subject=bool(ISSUED.match(subject))
+    keyword_subject=("invoice issued" in subject.lower()
+                     and "statement confirmed" in subject.lower())
+    is_reply=bool(REPLY_PREFIX.match(subject))
+    reply_header=bool(str(msg.get("In-Reply-To") or "").strip())
+    if not (known_sender and official_subject and not is_reply
+            and not reply_header):
+        # Expose ONLY bounded boolean classification, never headers, sender
+        # email, addresses or customer information in CI logs.
+        raise ValueError("ORIGINAL_TAX_INVOICE_EMAIL_IDENTITY_UNVERIFIED"+
+                         ":sender_css="+str(known_sender).lower()+
+                         ":sender_novogene_domain="+str(known_domain).lower()+
+                         ":official_notice="+str(official_subject).lower()+
+                         ":invoice_terms="+str(keyword_subject).lower()+
+                         ":subject_reply="+str(is_reply).lower()+
+                         ":reply_header="+str(reply_header).lower())
     matches=[]
     for filename in attachment_names:
         x=extract(filename)
