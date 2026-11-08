@@ -11,6 +11,7 @@ import datetime as dt
 import imaplib
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import urllib.parse
@@ -161,12 +162,76 @@ def read_range(session, book, a1):
     return rows
 
 
+def latest_ingest_checkpoint(rows):
+    if not rows or rows[0] != ["fetched_at_utc"]:
+        raise ValueError("MAIL_INGEST_TIMESTAMP_SCHEMA_INVALID")
+    parsed = []
+    for row in rows[1:]:
+        if not row or not row[0]:
+            continue
+        try:
+            moment = dt.datetime.fromisoformat(str(row[0]).replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("MAIL_INGEST_TIMESTAMP_MALFORMED") from None
+        if moment.tzinfo is None:
+            raise ValueError("MAIL_INGEST_TIMESTAMP_NAIVE")
+        parsed.append(moment.astimezone(dt.timezone.utc))
+    if not parsed:
+        raise ValueError("MAIL_INGEST_TIMESTAMP_MISSING")
+    return max(parsed)
+
+
+def parse_internaldate(items):
+    """Parse IMAP INTERNALDATE only; no SUBJECT, BODY, or identifying headers."""
+    for item in items or []:
+        pieces = [item] if isinstance(item, bytes) else (
+            [v for v in item if isinstance(v, bytes)] if isinstance(item, tuple) else [])
+        for piece in pieces:
+            found = re.search(rb'INTERNALDATE "([^"]+)"', piece)
+            if found:
+                try:
+                    return dt.datetime.strptime(
+                        found.group(1).decode("ascii"), "%d-%b-%Y %H:%M:%S %z"
+                    ).astimezone(dt.timezone.utc)
+                except (ValueError, UnicodeDecodeError):
+                    raise ValueError("IMAP_INTERNALDATE_INVALID") from None
+    raise ValueError("IMAP_INTERNALDATE_MISSING")
+
+
+def missing_arrival_buckets(arrivals, checkpoint, margin_seconds=300):
+    """Classify missing mail against last successful header fetch checkpoint."""
+    if not isinstance(checkpoint, dt.datetime) or checkpoint.tzinfo is None:
+        raise ValueError("LATEST_INGEST_CHECKPOINT_UNVERIFIED")
+    if not isinstance(margin_seconds, int) or margin_seconds < 0:
+        raise ValueError("INVALID_INGEST_MARGIN")
+    out = {"before_last_ingest": 0, "after_last_ingest": 0,
+           "near_ingest_boundary": 0}
+    checkpoint = checkpoint.astimezone(dt.timezone.utc)
+    for when in arrivals:
+        if not isinstance(when, dt.datetime) or when.tzinfo is None:
+            raise ValueError("ARRIVAL_TIME_UNVERIFIED")
+        age = (when.astimezone(dt.timezone.utc) - checkpoint).total_seconds()
+        if age < -margin_seconds:
+            out["before_last_ingest"] += 1
+        elif age > margin_seconds:
+            out["after_last_ingest"] += 1
+        else:
+            out["near_ingest_boundary"] += 1
+    return out
+
+
 def live_mail(session):
     from incremental_sync import folder_names
     rows = read_range(session, MAIL_BOOK, "'CSS Git Ingest'!A1:A100000")
     if not rows or rows[0] != ["ingest_key"]:
         raise RuntimeError("STAGING_UID_SCHEMA_INVALID")
     keys = [str(r[0]) for r in rows[1:] if r and r[0]]
+    latest_fetch = latest_ingest_checkpoint(
+        read_range(session, MAIL_BOOK, "'CSS Git Ingest'!O1:O100000")
+    )
+    stage_keys = set(keys)
+    missing_arrivals = []
+    per_folder_missing = {}
     address = os.environ["CSS_QQ_MAIL_ADDRESS"]
     code = os.environ["CSS_QQ_MAIL_AUTH_CODE"]
     if not address or not code:
@@ -199,10 +264,28 @@ def live_mail(session):
                 if code != "OK" or not reply or reply[0] is None:
                     raise RuntimeError("QQ_WINDOW_UID_SEARCH_FAILED")
                 since[window] = [v.decode("ascii", "strict") for v in reply[0].split()]
+            missing_uids = [uid for uid in since["recent_uids"]
+                            if folder + "|" + validity + "|" + uid not in stage_keys]
+            per_folder_missing[label] = len(missing_uids)
+            if len(missing_uids) > 100:
+                raise RuntimeError("RECENT_UNCOLLECTED_OVER_DIAGNOSTIC_LIMIT")
+            for missing_uid in missing_uids:
+                fetch_status, fetch_items = im.uid("FETCH", missing_uid, "(INTERNALDATE)")
+                if fetch_status != "OK":
+                    raise RuntimeError("RECENT_MISSING_UID_INTERNALDATE_FETCH_FAILED")
+                missing_arrivals.append(parse_internaldate(fetch_items))
             results[label] = {"folder": folder, "uidvalidity": validity,
                               "uids": ids, **since}
         im.logout()
-    return validate_mail_coverage(results, keys)
+    report = validate_mail_coverage(results, keys)
+    bucket = missing_arrival_buckets(missing_arrivals, latest_fetch)
+    if sum(bucket.values()) != report["recent_3d_missing_uid_count"]:
+        raise RuntimeError("RECENT_MISSING_ARRIVAL_COUNT_MISMATCH")
+    report["recent_3d_arrival_vs_last_ingest"] = bucket
+    report["recent_3d_missing_by_folder"] = per_folder_missing
+    report["last_header_fetch_utc"] = latest_fetch.isoformat()
+    report["arrival_diagnostic_scope"] = "INTERNALDATE_ONLY_NO_MESSAGE_CONTENT"
+    return report
 
 
 def manifest_index(rows):
@@ -318,6 +401,9 @@ def main():
         "qq_uid_coverage": mail.get("uid_coverage_state", "UNVERIFIED"),
         "qq_uid_gap_count": mail.get("missing_uid_count"),
         "qq_recent_3d_uid_gap": mail.get("recent_3d_missing_uid_count"),
+        "qq_recent_3d_missing_by_folder": mail.get("recent_3d_missing_by_folder"),
+        "qq_recent_3d_arrival_vs_last_ingest": mail.get("recent_3d_arrival_vs_last_ingest"),
+        "qq_last_header_fetch_utc": mail.get("last_header_fetch_utc"),
         "qq_recent_3d_state": mail.get("recent_3d_state", "UNVERIFIED"),
         "qq_scan_60d_uid_gap": mail.get("scan_60d_missing_uid_count"),
         "qq_scan_60d_state": mail.get("scan_60d_state", "UNVERIFIED"),
