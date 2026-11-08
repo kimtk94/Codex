@@ -34,6 +34,27 @@ class FreshnessGateTests(unittest.TestCase):
     def test_slot_grace_prevents_false_alarm(self):
         self.assertEqual(inspect(sheet(),now(17,34))["stale"],[])
         self.assertEqual(len(inspect(sheet(),now(17,36))["stale"]),3)
+    def test_0800_subscription_is_current_for_0900_slot(self):
+        current=sheet(received="2026-11-08 08:01:12",
+                      checked="2026-11-08 10:35:03")
+        self.assertEqual(inspect(current,now(10,40,date=8))["stale"],[])
+
+    def test_prior_evening_cannot_masquerade_as_morning(self):
+        yesterday=sheet(received="2026-11-07 17:00:07",
+                        checked="2026-11-08 10:35:03")
+        self.assertEqual(inspect(yesterday,now(10,40,date=8))["stale"],
+                         ["Leads","Opportunities","Quotation"])
+
+    def test_0800_is_stale_after_noon_report_due(self):
+        morning=sheet(received="2026-11-08 08:01:12",
+                      checked="2026-11-08 12:40:03")
+        self.assertEqual(len(inspect(morning,now(12,40,date=8))["stale"]),3)
+
+    def test_pre_0745_is_not_current_for_0900_slot(self):
+        too_early=sheet(received="2026-11-08 07:44:59",
+                        checked="2026-11-08 10:35:03")
+        self.assertEqual(len(inspect(too_early,now(10,40,date=8))["stale"]),3)
+
     def test_overnight_targets_prior_17h(self):
         self.assertEqual(latest_due(now(8,0,date=8)).strftime("%Y-%m-%d %H:%M"),
                          "2026-11-07 17:00")
