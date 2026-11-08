@@ -48,18 +48,18 @@ RECEIPT_GROUPS=((0,2,3),(5,7,6),(9,11,12))
 RECEIPT_HEADERS=((0,"Deposit Date"),(2,"Amount (KRW)"),(3,"CMS No."),
                  (5,"Date"),(6,"CMS No. [2]"),(7,"Amount"),
                  (9,"Date [2]"),(11,"Amount [2]"),(12,"CMS No. [3]"))
-RECEIPT_NUMBER=re.compile(r"(?<![A-Z0-9])2091(?:25|26)\\d{6}(?![A-Z0-9])")
+RECEIPT_NUMBER=re.compile(r"(?<![A-Z0-9])2091(?:25|26)\d{6}(?![A-Z0-9])")
 
 def amount_int(value):
     clean=str(value or "").strip().replace(",","").replace("₩","")
-    clean=re.sub(r"\\s*KRW\\s*$","",clean,flags=re.I).strip()
-    if not re.fullmatch(r"\\d+(?:\\.0+)?",clean):
+    clean=re.sub(r"\s*KRW\s*$","",clean,flags=re.I).strip()
+    if not re.fullmatch(r"\d+(?:\.0+)?",clean):
         return None
     return int(clean.split(".")[0])
 
 def valid_receipt_date(value):
     text=str(value or "").strip()
-    if re.fullmatch(r"\\d{5}",text):
+    if re.fullmatch(r"\d{5}",text):
         day=int(text)
         return 40000 <= day <= 60000
     for fmt in ("%Y-%m-%d","%d-%b-%y","%d-%B-%y",
