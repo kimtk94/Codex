@@ -20,7 +20,7 @@ class QuoteComboTests(unittest.TestCase):
             {"field_name":"Calculated Quote Value K USD","rollup":"SUM"},
         ])
         self.assertEqual(cfg["group_by"][0]["field_name"],"Chart Week Label")
-        self.assertEqual(cfg["group_by"][0]["sort"],{"type":"view","order":"asc"})
+        self.assertEqual(cfg["group_by"][0]["sort"],{"type":"group","order":"asc"})
         self.assertEqual(cfg["filter"]["conditions"],[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_PLUS_CURRENT"}])

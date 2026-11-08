@@ -49,7 +49,7 @@ BLOCKS=[
         "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
                   {"field_name":"Calculated Quote Value K USD","rollup":"SUM"}],
         "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
-                     "sort":{"type":"view","order":"asc"}}],
+                     "sort":{"type":"group","order":"asc"}}],
         "filter":{"conjunction":"and","conditions":[
             {"field_name":"Chart Window","operator":"is",
              "value":"RECENT_4_PLUS_CURRENT"}]}}),
@@ -64,6 +64,104 @@ BLOCKS=[
                "Quote 예상금액은 Tax Invoice 매출(Revenue)이 아니며 VAT 제외 Revenue와 합산하면 안 됩니다."}),
 
 ]
+
+
+# Stable reading order on Feishu's 12-column dashboard grid:
+# provenance -> project KPIs -> production stages -> weekly quotes -> Revenue.
+# Positions are dashboard presentation only; they never modify Base rows.
+BLOCK_POSITIONS={
+    "운영 안내":                           {"x":0,"y":0,"w":12,"h":7},
+    "전체 프로젝트":                       {"x":0,"y":8,"w":3,"h":4},
+    "진행률 확인 건수":                     {"x":3,"y":8,"w":3,"h":4},
+    "진행률 미확인 건수":                   {"x":6,"y":8,"w":3,"h":4},
+    "Prepayment 프로젝트":                 {"x":9,"y":8,"w":3,"h":4},
+    "프로젝트 공정별 현황":                 {"x":0,"y":13,"w":8,"h":7},
+    "SIF 상태":                            {"x":8,"y":13,"w":4,"h":7},
+    "KOREA · Weekly Quote · 완료 4주 + 이번 주 (Count + 계산 K USD)":
+                                            {"x":0,"y":21,"w":12,"h":7},
+    "Quote 계산 기준":                     {"x":0,"y":29,"w":12,"h":4},
+    "월별 Revenue · VAT 제외 · M KRW (K USD)":
+                                            {"x":0,"y":34,"w":12,"h":7},
+    "월별 Revenue 표시 기준":              {"x":0,"y":42,"w":12,"h":4},
+}
+
+
+def validate_dashboard_layout(blocks=BLOCKS,positions=BLOCK_POSITIONS):
+    titles=[name for name,_,_ in blocks]
+    if len(set(titles))!=len(titles) or set(titles)!=set(positions):
+        raise RuntimeError("DASHBOARD_LAYOUT_TITLE_SET_MISMATCH")
+    used=set()
+    for title,position in positions.items():
+        if set(position)!={"x","y","w","h"}:
+            raise RuntimeError("DASHBOARD_LAYOUT_SHAPE_INVALID")
+        x,y,w,h=[position[k] for k in ("x","y","w","h")]
+        if not all(isinstance(v,int) and not isinstance(v,bool) for v in (x,y,w,h)):
+            raise RuntimeError("DASHBOARD_LAYOUT_NON_INTEGER")
+        if x<0 or y<0 or w<1 or h<1 or x+w>12:
+            raise RuntimeError("DASHBOARD_LAYOUT_OUT_OF_GRID")
+        for col in range(x,x+w):
+            for row in range(y,y+h):
+                p=(col,row)
+                if p in used:raise RuntimeError("DASHBOARD_LAYOUT_OVERLAP")
+                used.add(p)
+    return True
+
+
+def dashboard_layout_order(rows):
+    """Return only known named blocks in visual top-to-bottom, left-to-right order."""
+    found={}
+    for r in collect(rows):
+        name=r.get("name")
+        if name not in BLOCK_POSITIONS:
+            continue
+        pos=r.get("position")
+        if not isinstance(pos,dict) or not all(isinstance(pos.get(k),int)
+                                                for k in ("x","y","w","h")):
+            raise RuntimeError("DASHBOARD_LAYOUT_POSITION_UNVERIFIED")
+        if name in found:raise RuntimeError("DASHBOARD_LAYOUT_DUPLICATE_NAME")
+        found[name]=pos
+    if set(found)!=set(BLOCK_POSITIONS):
+        raise RuntimeError("DASHBOARD_LAYOUT_BLOCKS_MISSING")
+    return tuple(sorted(found,key=lambda n:(found[n]["y"],found[n]["x"]))),found
+
+
+def apply_dashboard_layout(dashboard_id,blocks):
+    """Arrange existing blocks without deletes, duplicates, or customer table writes."""
+    validate_dashboard_layout()
+    current_order,current=dashboard_layout_order(blocks)
+    expected=tuple(sorted(BLOCK_POSITIONS,
+                          key=lambda n:(BLOCK_POSITIONS[n]["y"],BLOCK_POSITIONS[n]["x"])))
+    if current_order==expected and all(current[n]==BLOCK_POSITIONS[n] for n in expected):
+        print("FEISHU_DASHBOARD_LAYOUT_PASS blocks="+str(len(expected))+" changed=0")
+        return
+    # Stage into a temporary nonoverlapping tail: moving directly to occupied
+    # coordinates may cause Feishu auto-arrange to shuffle unrelated blocks.
+    indexes={}
+    for row in collect(blocks):
+        name=row.get("name")
+        if name not in BLOCK_POSITIONS:continue
+        block_id=row.get("block_id") or row.get("id")
+        if not isinstance(block_id,str) or not block_id.startswith(("cht","blk")):
+            raise RuntimeError("DASHBOARD_LAYOUT_BLOCK_ID_INVALID")
+        indexes[name]=block_id
+    for i,name in enumerate(expected):
+        target=dict(BLOCK_POSITIONS[name])
+        target["y"]=80+10*i
+        cli("+dashboard-block-update","--base-token",BASE,
+            "--dashboard-id",dashboard_id,"--block-id",indexes[name],
+            "--position",json.dumps(target,separators=(",",":")))
+    for name in expected:
+        cli("+dashboard-block-update","--base-token",BASE,
+            "--dashboard-id",dashboard_id,"--block-id",indexes[name],
+            "--position",json.dumps(BLOCK_POSITIONS[name],separators=(",",":")))
+    final=cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",dashboard_id)
+    new_order,new=dashboard_layout_order(final)
+    if new_order!=expected or any(new[name]!=BLOCK_POSITIONS[name] for name in expected):
+        print("FEISHU_DASHBOARD_LAYOUT_READBACK_REVIEW blocks="+str(len(new_order)))
+        raise RuntimeError("DASHBOARD_LAYOUT_READBACK_MISMATCH")
+    print("FEISHU_DASHBOARD_LAYOUT_PASS blocks="+str(len(expected))+
+          " changed="+str(len(expected))+" order=PROVENANCE_PROJECT_QUOTE_REVENUE")
+
 
 # Feishu official CLI permits number_format only on statistics cards.
 # Count metrics are integers; never display a trailing .0 on a count card.
@@ -383,6 +481,7 @@ def main():
     found={row.get("name") for row in collect(final) if isinstance(row.get("name"),str)}
     missing={n for n,_,_ in BLOCKS}-found
     if missing:raise RuntimeError("FEISHU_NATIVE_COMPONENTS_MISSING_"+str(len(missing)))
+    apply_dashboard_layout(dashboard_id,final)
     print("FEISHU_NATIVE_DASHBOARD_PASS id="+dashboard_id+
           " blocks="+str(len(BLOCKS))+" created="+str(count)+" updated="+str(updated)+" legacy_removed="+str(deleted)+
           " customer_rows_written=0 VERCEL_REQUIRED=FALSE")

@@ -617,7 +617,10 @@ def weekly_rows(source, now=None):
         label=quote_chart_week_label(week)
         if not label:
             raise SafeError("WEEKLY_CHART_INVALID_START")
-        row["Chart Week Label"]=label+(" · 진행 중" if week==current_week else "")
+        # ISO prefix makes the x-axis lexical group order identical to
+        # chronological Friday week_start, including Dec/Jan year rollover.
+        # Keep the familiar Oct W2/Nov W1 label as a readable suffix.
+        row["Chart Week Label"]=week+" · "+label+(" · 진행 중" if week==current_week else "")
         row["Chart Window"]="RECENT_4_PLUS_CURRENT" if week in included else "HISTORY"
     return [output[k] for k in sorted(output,reverse=True)]
 

@@ -232,14 +232,32 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(len(shown),5)
         self.assertEqual([r["Chart Week Label"] for r in sorted(
             shown,key=lambda r:r["Week Start"])],
-            ["Oct W2","Oct W3","Oct W4","Nov W1","Nov W2 · 진행 중"])
+            ["2026-10-09 · Oct W2","2026-10-16 · Oct W3",
+             "2026-10-23 · Oct W4","2026-10-30 · Nov W1",
+             "2026-11-06 · Nov W2 · 진행 중"])
         self.assertIn("2026-11-06",[r["Week Start"] for r in shown])
         self.assertEqual(rows[0]["Chart Window"],"RECENT_4_PLUS_CURRENT")
-        self.assertEqual(rows[0]["Chart Week Label"],"Nov W2 · 진행 중")
+        self.assertEqual(rows[0]["Chart Week Label"],"2026-11-06 · Nov W2 · 진행 중")
         self.assertEqual(rows[-1]["Chart Window"],"HISTORY")
         self.assertTrue(all(r["Approved Quote Count"]==5 for r in shown))
         self.assertTrue(all(r["Verified Quote Value K USD"] is None for r in shown))
         self.assertTrue(all(r["Amount Status"]=="WITHHELD_QUOTE_OBJECT_EXPORT_MISSING" for r in shown))
+    def test_chart_lexical_labels_sort_across_new_year(self):
+        weeks=["2026-12-18","2026-12-25","2027-01-01","2027-01-08","2027-01-15"]
+        source={"SFDC Weekly Overview":[{
+            "week_start":week,
+            "week_end":(m.dt.date.fromisoformat(week)+m.dt.timedelta(days=6)).isoformat(),
+            "weekly_basis":"FRI_THU_IN_PROGRESS" if week==weeks[-1] else "FRI_THU_CSS_EXISTING",
+            "quotation_approvals":"0", "approvals_created_in_week":"0",
+            "krw_per_usd":"1500"} for week in weeks],
+            "Quote Approval Dedup":[],"SFDC Quote Export":[]}
+        rows=m.weekly_rows(source)
+        names=[r["Chart Week Label"] for r in rows if r["Chart Window"]=="RECENT_4_PLUS_CURRENT"]
+        self.assertEqual(sorted(names),[
+            r["Chart Week Label"] for r in sorted(rows,key=lambda r:r["Week Start"])])
+        self.assertEqual(len(names),5)
+        self.assertTrue(all(x.startswith(("2026-","2027-")) for x in names))
+
     def test_chart_label_requires_friday_start(self):
         self.assertEqual(m.quote_chart_week_label("2026-10-30"),"Nov W1")
         self.assertEqual(m.quote_chart_week_label("2026-10-09"),"Oct W2")
