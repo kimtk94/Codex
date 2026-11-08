@@ -230,6 +230,81 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
              max((notices[j] for j in open_j),default=""),
              pending_verified,evidence]
         out.append(row)
+    # A source-verified open Statement can exist before the Feishu project
+    # snapshot is populated (one real 11/08 case: exact J001+X present in QQ
+    # evidence but the matching X not among 110 Feishu project rows).
+    # Preserve the deterministic original J+X entry as SOURCE_ONLY instead
+    # of silently omitting it, or declaring unrelated real issued invoices
+    # incorrect. Never invent a customer, expected price, Feishu progress,
+    # ownership, or completed/invoiced status.
+    feishu_keys={str(present(r,1)).strip().upper()
+                 for r in feishu_rows[1:] if present(r,1)}
+    from collections import defaultdict
+    missing=defaultdict(dict)
+    for record in statement_amount_rows[1:]:
+        key=str(present(record,0)).strip().upper()
+        if present(record,8)!="AMOUNT_VERIFIED" or present(record,4)!="KRW":
+            continue
+        m=INV_STMT.fullmatch(key)
+        if not m:continue
+        j,x=m.group(1).upper(),m.group(2).upper()
+        if x in feishu_keys or j in issued_statements.get(x,set()):
+            continue
+        # Original validated Statement row requires exact immutable X/J,
+        # official notice subject, original UID and a source timestamp.
+        subject=str(present(record,10))
+        when=str(present(record,5))
+        uid=str(present(record,6))
+        if (str(present(record,1)).strip().upper()!=x
+                or str(present(record,2)).strip().upper()!=j
+                or key not in subject.upper() or not uid
+                or not when or REPLY.match(subject)
+                or "statement ready" not in subject.lower()):
+            raise RuntimeError("SOURCE_ONLY_STATEMENT_EVIDENCE_INVALID")
+        try:
+            original=dt.datetime.fromisoformat(when.replace("Z","+00:00"))
+            if original.tzinfo is None:raise ValueError("without timezone")
+            month=original.astimezone(KST).strftime("%Y-%m")
+            amount=int(present(record,3))
+        except (ValueError,TypeError) as exc:
+            raise RuntimeError("SOURCE_ONLY_STATEMENT_VALUE_INVALID") from exc
+        if amount<=0:raise RuntimeError("SOURCE_ONLY_STATEMENT_AMOUNT_INVALID")
+        am=set(v.upper() for v in A.findall(subject))
+        if len(am)!=1:
+            raise RuntimeError("SOURCE_ONLY_STATEMENT_AMEA_NOT_UNIQUE")
+        old=missing[x].get(j)
+        proof=(amount,when,next(iter(am)))
+        if old is not None and old!=proof:
+            raise RuntimeError("SOURCE_ONLY_STATEMENT_CONFLICT")
+        matching_notice=statement_notices.get(x,{}).get(j)
+        if matching_notice and matching_notice!=when:
+            raise RuntimeError("SOURCE_ONLY_STATEMENT_NOTICE_CONFLICT")
+        missing[x][j]=proof
+    if len(missing)>50:raise RuntimeError("SOURCE_ONLY_STATEMENT_SCOPE_LIMIT")
+    for x,by_j in sorted(missing.items()):
+        am={value[2] for value in by_j.values()}
+        months={dt.datetime.fromisoformat(value[1].replace("Z","+00:00"))
+                .astimezone(KST).strftime("%Y-%m") for value in by_j.values()}
+        if len(am)!=1 or len(months)!=1:
+            raise RuntimeError("SOURCE_ONLY_STATEMENT_MULTI_MONTH_REVIEW")
+        notes=[value[1] for value in by_j.values()]
+        inv=invoices.get(x,{})
+        pending_total=sum(value[0] for value in by_j.values())
+        billing=("ISSUED + STATEMENT PENDING" if inv
+                 else "STATEMENT READY - INVOICE PENDING")
+        out.append([x,next(iter(am)),"","","",
+                    "NOT_IN_FEISHU_SNAPSHOT",
+                    "Statement confirmation [QQ exact X]",97,
+                    max(notes),"","", "",next(iter(months)),"",
+                    len(inv),sum(inv.values()),billing,0,
+                    "Review exact X project match and pending Invoice",
+                    "QQ original verified Statement (not Feishu source)",
+                    " | ".join(sorted(by_j)),max(notes),pending_total,
+                    "AMOUNT_VERIFIED "+str(len(by_j))+"/"+str(len(by_j))])
+    if missing:
+        print("PROJECT_LIFECYCLE_SOURCE_ONLY_VERIFIED_STATEMENTS="+
+              str(len(missing))+" attribution=EXACT_J_X pending_not_revenue",
+              flush=True)
     if len(out)<2:raise RuntimeError("Empty lifecycle input; refusing update")
     return out
 
