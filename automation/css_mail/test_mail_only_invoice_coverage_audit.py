@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verified original TAX INVOICE CSS mail only; never manual ERP or forecast."""
 import unittest
+from unittest import mock
 from email.parser import Parser
 from mail_only_invoice_coverage_audit import (
     identify_missing,original_proof,net,numeric,
@@ -65,8 +66,11 @@ class MailOnlyTests(unittest.TestCase):
             def logout(self):pass
         missing={"209126000887":("2026-10",12012000,
                 "AMEA2026030802","FILENAME_PARSED","41234")}
-        verified,blocked,excluded=audit_with_original_imap(
-            missing,imap_factory=FakeIMAP)
+        with mock.patch.dict("os.environ",{
+                "CSS_QQ_MAIL_ADDRESS":"test@example.com",
+                "CSS_QQ_MAIL_AUTH_CODE":"test-only"}):
+            verified,blocked,excluded=audit_with_original_imap(
+                missing,imap_factory=FakeIMAP)
         self.assertEqual(verified,{})
         self.assertEqual(blocked,{})
         self.assertEqual(set(excluded),{"209126000887"})
