@@ -17,6 +17,8 @@ on:
     branches: [main]
     paths:
       - 'automation/ops/css_live_freshness_evidence.py'
+      - 'automation/ops/css_authenticated_original_probes.py'
+      - 'automation/ops/test_css_authenticated_original_probes.py'
       - 'automation/ops/test_css_live_freshness_evidence.py'
       - 'automation/ops/css_freshness_policy.py'
       - 'automation/ops/css_freshness_policy.json'
