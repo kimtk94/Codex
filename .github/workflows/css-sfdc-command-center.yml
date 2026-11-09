@@ -18,6 +18,10 @@ on:
       - 'masteros/web/scripts/sfdc_pair_cache.py'
       - 'masteros/web/scripts/sfdc_product_line_registry.py'
       - 'masteros/web/scripts/sfdc_quote_report_index.py'
+      - 'masteros/web/scripts/sfdc_feishu_report_local.py'
+      - 'masteros/web/scripts/test_sfdc_feishu_report_local.py'
+      - 'masteros/web/app/api/sfdc/feishu-report-local/**'
+      - 'masteros/web/tests/sfdc-feishu-report-local.test.mjs'
       - 'masteros/web/scripts/sfdc_quote_report_sheet.py'
       - 'masteros/web/scripts/test_sfdc_quote_report_sheet.py'
       - 'masteros/web/app/api/sfdc/report-local/**'
@@ -65,6 +69,10 @@ on:
       - 'masteros/web/scripts/sfdc_pair_cache.py'
       - 'masteros/web/scripts/sfdc_product_line_registry.py'
       - 'masteros/web/scripts/sfdc_quote_report_index.py'
+      - 'masteros/web/scripts/sfdc_feishu_report_local.py'
+      - 'masteros/web/scripts/test_sfdc_feishu_report_local.py'
+      - 'masteros/web/app/api/sfdc/feishu-report-local/**'
+      - 'masteros/web/tests/sfdc-feishu-report-local.test.mjs'
       - 'masteros/web/scripts/sfdc_quote_report_sheet.py'
       - 'masteros/web/scripts/test_sfdc_quote_report_sheet.py'
       - 'masteros/web/app/api/sfdc/report-local/**'
@@ -131,6 +139,8 @@ jobs:
           python3 -m py_compile scripts/sfdc_product_line_registry.py scripts/sfdc_pair_cache.py
           python3 -m unittest discover -s scripts -p test_sfdc_pair_cache.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_quote_report_sheet.py -v
+          python3 -m py_compile scripts/sfdc_feishu_report_local.py
+          python3 -m unittest discover -s scripts -p test_sfdc_feishu_report_local.py -v
       - name: Validate single-service per-process Cloud 100 Gb rules
         run: python3 -m unittest discover -s scripts -p test_sfdc_single_service_cloud.py -v
       - name: Unit-test live health classifier without Salesforce access
@@ -154,13 +164,15 @@ jobs:
         run: node --test tests/sfdc-pair-cache-route.test.mjs
       - name: Test fast Quote Report indexing endpoint and no Salesforce write paths
         run: node --test tests/sfdc-quote-report-route.test.mjs
+      - name: Test Feishu direct-source route enforces local read-only access
+        run: node --test tests/sfdc-feishu-report-local.test.mjs
       - name: Build local command center
         env:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build
       - name: Verify compiled UI and API routes
         run: |
-          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/commands','.next/server/app/api/sfdc/commands-local','.next/server/app/sales/commands/pair','.next/server/app/api/sfdc/pair-check-local','.next/server/app/api/sfdc/cache-local','.next/server/app/api/sfdc/report-local'])if(!fs.existsSync(p))process.exit(1)"
+          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/commands','.next/server/app/api/sfdc/commands-local','.next/server/app/sales/commands/pair','.next/server/app/api/sfdc/pair-check-local','.next/server/app/api/sfdc/cache-local','.next/server/app/api/sfdc/report-local','.next/server/app/api/sfdc/feishu-report-local'])if(!fs.existsSync(p))process.exit(1)"
       - name: Ensure historical views stay hidden but preserved
         run: |
           node -e "const fs=require('fs');const p=fs.readFileSync('app/page.jsx','utf8');if(!p.includes('redirect(\"/sales/commands\")'))process.exit(1);if(!fs.existsSync('app/legacy/page.jsx'))process.exit(1);const q=fs.readFileSync('app/sales/commands/page.jsx','utf8');if(q.includes('href=\"/sales/oppo-quote\"'))process.exit(1);"
