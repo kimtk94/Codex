@@ -53,10 +53,22 @@ def request(method, url, token=None, body=None):
     if token: headers["Authorization"]="Bearer "+token
     data=json.dumps(body,ensure_ascii=False).encode() if body is not None else None
     req=ur.Request(url,data=data,headers=headers,method=method)
-    with ur.urlopen(req,timeout=32) as res:
-        obj=json.load(res)
+    try:
+        with ur.urlopen(req,timeout=32) as res:
+            obj=json.load(res)
+    except __import__("urllib.error",fromlist=["HTTPError"]).HTTPError as exc:
+        try:
+            details=json.loads(exc.read(4096))
+            vendor_code=int(details.get("code",0))
+        except Exception:
+            vendor_code=0
+        path=up.urlsplit(url).path
+        stage="AUTH" if "/auth/" in path else "FIELDS" if path.endswith("/fields") else (
+            "VIEWS" if path.endswith("/views") else
+            "TABLES" if path.endswith("/tables") else "OTHER")
+        raise RuntimeError("FEISHU_HTTP_"+str(exc.code)+"_CODE_"+str(vendor_code)+"_"+stage) from None
     if not isinstance(obj,dict) or obj.get("code") != 0:
-        raise RuntimeError("FEISHU_API_REJECTED")
+        raise RuntimeError("FEISHU_RESPONSE_CODE_"+str(int(obj.get("code",0))) if isinstance(obj,dict) else "FEISHU_RESPONSE_NOT_OBJECT")
     if url.endswith("/tenant_access_token/internal"):
         return obj
     return obj.get("data") or {}
@@ -246,8 +258,9 @@ def main():
             result.update({"records_read":len(records),"queue_eligible":len(valid)})
         print(json.dumps(result,sort_keys=True,ensure_ascii=True))
     except Exception as exc:
+        safe_code=str(exc) if isinstance(exc,RuntimeError) and re.fullmatch(r"[A-Z0-9_]{4,110}",str(exc)) else "DETAILS_SUPPRESSED"
         print(json.dumps({"status":"BLOCK","error_type":type(exc).__name__,
-                          "error_message_suppressed":True},sort_keys=True))
+                          "safe_error_code":safe_code},sort_keys=True))
         sys.exit(2)
 
 if __name__=="__main__":main()
