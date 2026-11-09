@@ -118,6 +118,30 @@ class TestOwnerScope(unittest.TestCase):
         self.assertEqual(r["owner_opportunities_without_verified_quotes"], 1)
         self.assertEqual(r["owner_distinct_opportunities_with_verified_quotes"], 1)
 
+    def test_quote_unlinked_owner_opportunities_are_stage_scoped_not_assumed_missing(self):
+        data = source()
+        stages = ["Quotation Issued", "Proposal Sent", "Closed Won",
+                  "Prospective", "Closed Lost", "Other Custom"]
+        for idx, stage in enumerate(stages, 3):
+            data["SFDC Email Opportunities Raw"].append({
+                "Opportunity ID": "Opp-" + str(idx),
+                "Opportunity Owner": "Kim Taehoon",
+                "Stage": stage,
+            })
+        r = owner_report_audit(data)
+        self.assertEqual(r["owner_opportunities_without_verified_quotes"], 6)
+        self.assertEqual(r["owner_opportunities_without_verified_quote_by_stage"],
+                         {x: 1 for x in stages})
+        triage = r["owner_opportunities_without_quote_triage"]
+        self.assertEqual(triage["REPORT_SCOPE_REVIEW_QUOTATION_ISSUED"], 1)
+        self.assertEqual(triage["REPORT_SCOPE_REVIEW_PROPOSAL_SENT"], 1)
+        self.assertEqual(triage["REPORT_SCOPE_REVIEW_CLOSED_WON"], 1)
+        self.assertEqual(triage["PROSPECTIVE_NO_QUOTE_EXPECTED_OR_REVIEW"], 1)
+        self.assertEqual(triage["CLOSED_LOST_NO_AUTOFOLLOWUP"], 1)
+        self.assertEqual(triage["OTHER_STAGE_REVIEW"], 1)
+        self.assertFalse(r["owner_unlinked_quote_absence_certified"])
+        self.assertEqual(r["scope_status"], "PASS_REPORT_OWNER_TO_SINK_ONLY")
+
     def test_owner_name_matching_is_whitespace_case_normalized(self):
         data = source()
         data["SFDC Email Opportunities Raw"][0]["Opportunity Owner"] = "  KIM   TAEHOON  "
