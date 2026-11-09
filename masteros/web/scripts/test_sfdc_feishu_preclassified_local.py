@@ -13,12 +13,16 @@ class PreclassifiedLocalTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.db=Path(self.tmp.name)/"quote.sqlite3"
-        with sqlite3.connect(self.db) as db:
+        db=sqlite3.connect(self.db)
+        try:
             db.execute("CREATE TABLE quote_lines(qid TEXT,quote_product TEXT)")
             db.executemany("INSERT INTO quote_lines VALUES(?,?)",[
                 ("QID-2026-11-09-001001","QD-1"),
                 ("QID-2026-11-09-001002","QD-2")
             ])
+            db.commit()
+        finally:
+            db.close()
         p1=patch.object(base,"_connect",lambda:sqlite3.connect(self.db))
         p2=patch.object(idx,"DB",Path(self.tmp.name)/"preindex.sqlite3")
         p1.start();p2.start()
