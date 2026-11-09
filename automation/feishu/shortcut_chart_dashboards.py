@@ -64,7 +64,19 @@ def expected_components(chart_name,note_name,kind,source,detail_url=None):
             "수동 체크를 해제하면 다시 포함되며, Inactive는 체크를 해제해도 합산되지 않습니다.\n\n"
             +note_config["text"]
         )
-    return ((chart_name,kind,chart_config),(note_name,"text",note_config))
+    components=((chart_name,kind,chart_config),(note_name,"text",note_config))
+    if kind=="combo" and source=="Weekly Quote KPI" and detail_url:
+        action_text=(
+            "# [최근 5주 실제 Quote 목록 · 제외 체크 바로가기]("+detail_url+")\n"
+            "**최신 5주 전체 승인 Quote를 주차별로 확인하세요.** "
+            "기관·서비스·공정별 샘플 수·원본 USD 금액·Active 근거를 비교한 뒤 "
+            "해당 행의 `합산 제외` 칸을 체크하세요.\n"
+            "그래프와 개별 목록은 동일한 Weekly Quote KPI / Quote Review 데이터입니다. "
+            "체크박스는 Grid에서 편집하며, 15분 주기 변경 감지 후 재계산합니다.\n"
+            "**주의:** 금액이 NO_VALUE인 건은 0 USD가 아닙니다."
+        )
+        components+=(("실제 견적 목록 · 합산 제외 선택","text",{"text":action_text}),)
+    return components
 
 
 def blocks_by_name(rows):
@@ -109,9 +121,25 @@ def verify_components(dashboard_id,expected,allow_create):
     after=cli("+dashboard-block-list","--base-token",BASE,
               "--dashboard-id",dashboard_id)
     final=blocks_by_name(after)
-    for name,kind,_ in expected:
+    for name,kind,config in expected:
         if name not in final or final[name].get("type")!=kind:
             raise RuntimeError("CHART_SHORTCUT_WIDGET_READBACK_MISMATCH")
+        if name=="실제 견적 목록 · 합산 제외 선택":
+            block_id=final[name].get("block_id") or final[name].get("id")
+            snapshot=cli("+dashboard-block-get","--base-token",BASE,
+                         "--dashboard-id",dashboard_id,"--block-id",block_id)
+            seen=[node.get("data_config") for node in collect(snapshot)
+                  if isinstance(node.get("data_config"),(dict,str))]
+            def text_value(value):
+                if isinstance(value,str):
+                    try:value=json.loads(value)
+                    except json.JSONDecodeError:return ""
+                return value.get("text","") if isinstance(value,dict) else ""
+            expected_url=config["text"].split("](",1)[-1].split(")",1)[0]
+            if not any(expected_url and expected_url in text_value(value)
+                       for value in seen):
+                raise RuntimeError("CHART_SHORTCUT_EDITABLE_LINK_READBACK_FAILED")
+            print("CHART_SHORTCUT_EDITABLE_LIST_LINK_READBACK_PASS",flush=True)
     return created
 
 

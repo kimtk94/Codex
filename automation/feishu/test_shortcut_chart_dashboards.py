@@ -42,6 +42,24 @@ class ChartShortcutTests(unittest.TestCase):
             updates=[c for c in cli.call_args_list if c.args[0]=="+dashboard-block-update"]
             self.assertEqual(len(updates),2)
 
+    def test_weekly_dashboard_adds_real_editable_grid_link_as_third_widget(self):
+        url="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblReview&view=vewFive"
+        components=s.expected_components(s.CHARTS[1][3],s.CHARTS[1][4],
+                                         "combo","Weekly Quote KPI",url)
+        self.assertEqual(len(components),3)
+        self.assertEqual(components[2][1],"text")
+        self.assertIn(url,components[2][2]["text"])
+        old={"items":[{"name":n,"type":k,"block_id":"cht"+str(i)}
+                      for i,(n,k,_) in enumerate(components[:2])]}
+        new={"items":[*old["items"],{"name":components[2][0],
+             "type":"text","block_id":"chtNew"}]}
+        detail={"block":{"name":components[2][0],"type":"text",
+                "data_config":components[2][2]}}
+        with mock.patch.object(s,"cli",side_effect=[
+            old,{"ok":True},{"ok":True},{"block_id":"chtNew"},new,detail]) as api:
+            self.assertEqual(s.verify_components("blkWeek",components,True),1)
+        self.assertEqual(api.call_count,6)
+
     def test_identity_and_types_fail_closed(self):
         with mock.patch.object(s,"cli",return_value={"items":[
             {"name":s.CHARTS[0][3],"type":"table","block_id":"cht001"}]}):
