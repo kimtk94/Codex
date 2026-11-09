@@ -45,7 +45,7 @@ class UnifiedPipelineContracts(unittest.TestCase):
         self.assertIn('"operations":("Project SIF Monitor",)',src)
         self.assertIn('if scope!="quote":',src)
         self.assertIn('if scope!="operations":',src)
-        self.assertIn("scope="+scope,src)
+        self.assertIn('"METRIC_SCOPE="+scope',src)
 
 if __name__=="__main__":
     unittest.main()
