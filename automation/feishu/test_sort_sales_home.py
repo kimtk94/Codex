@@ -13,6 +13,16 @@ class SortTests(unittest.TestCase):
                       {"sort_config":[{"field":"화면","desc":False}]}):
             self.assertFalse(s.sort_matches(value, "fld123"))
 
+    def test_view_columns(self):
+        fields=[{"field_id":"f"+str(i),"field_name":name}
+                for i,name in enumerate(s.CURATED_COLUMNS)]
+        self.assertTrue(s.matches_columns(
+            {"visible_fields":list(s.CURATED_COLUMNS)},fields))
+        self.assertTrue(s.matches_columns(
+            {"data":{"visible_fields":["f"+str(i) for i in range(len(fields))]}},fields))
+        self.assertFalse(s.matches_columns(
+            {"visible_fields":list(reversed(s.CURATED_COLUMNS))},fields))
+
     def test_filter_guard(self):
         valid={"view_name":s.CURATED_VIEW,"view_type":"grid",
                "property":{"filter_info":{"conjunction":"and","conditions":[{
@@ -38,6 +48,8 @@ class SortTests(unittest.TestCase):
                 "화면":label,
                 "메뉴 구분":color,
                 "표시":s.CURATED_DISPLAY if key in s.PINNED_KEYS else s.ARCHIVE_DISPLAY,
+                "바로가기 URL":"https://ocnz4cb25scn.feishu.cn/base/x?table=y&view=z",
+                "바로가기":{"text":"열기","link":"https://ocnz4cb25scn.feishu.cn/base/x?table=y&view=z"},
             }})
         with mock.patch.object(s,"list_all",return_value=list(reversed(records))):
             self.assertTrue(s.verify_view_rows("token","root","view"))
