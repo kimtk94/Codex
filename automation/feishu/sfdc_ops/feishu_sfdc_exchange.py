@@ -70,7 +70,7 @@ def publish_queue(session,rows):
     write_range(session,QUEUE_TAB,'A1:R'+str(len(padded)),padded)
     verify=read_sheet(session,QUEUE_TAB,'A1:R'+str(len(rows)+1))
     for wanted,found in zip([QUEUE_COLUMNS]+rows,verify):
-        if [str(x).strip() for x in wanted]!=[str(x).strip() for x in found]:
+        if [str(x).strip() for x in wanted]!=[str(x).strip() for x in (found+['']*(len(wanted)-len(found)))]:
             raise RuntimeError('QUEUE_READBACK_MISMATCH')
     if len(verify)!=len(rows)+1:
         raise RuntimeError('QUEUE_SHORT_READBACK')
