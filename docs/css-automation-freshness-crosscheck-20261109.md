@@ -78,3 +78,12 @@
 2. 최근 60일 차이와 60일 이전 **역사적 백필**을 별도 KPI로 보고. Feishu 2026 백필과 Google 60일 수집은 서로 다른 수집 경로이므로 수치를 합치지 않는다.
 3. Feishu dated 원본 원본↔미러 전체 콘텐츠 PASS와 **최신 발행 Invoice/입금증빙 PASS는 별도**. 최신 eTax source date가 10/31이어도 원본 자체에 신규 데이터가 없는 정상 상태인지 확인 전에는 임의로 STALE/PASS 확정하지 않는다.
 4. SFDC 실제 Save와 Quote 승인·KPI readback은 독립 확인. Monthly Revenue는 VAT 제외 발행 QQ Tax Invoice만 authoritative actual로 취급.
+
+
+## 2026-11-09 09:03 KST: QQ 신규 메일 재수집 후 직접 검증
+
+- [PR #647](https://github.com/kimtk94/Codex/pull/647): QQ 최근 3일 누락 UID를 `INTERNALDATE`와 `CSS Git Ingest.fetched_at_utc`로 교차검증. 09:00의 최근 3일 누락은 **9건 전부 마지막 수집 체크포인트 이후 도착**, 이전 수집이 놓친 메일 **0건**으로 판정. 이 판정은 제목·본문·개별 UID를 출력하지 않고 집계만 공개함.
+- QQ 수집 GitHub Actions [#42529997566](https://github.com/kimtk94/Codex/actions/runs/42529997566)의 **css-mail job 재실행** 성공. 기존 `CSS Git Ingest`에 신규 9행이 append된 것을 직접 readback 확인 (UID 원문 비공개 운영 증거로 유지).
+- [original source 재검증 #42537764294](https://github.com/kimtk94/Codex/actions/runs/42537764294): 2026-11-09 09:03 KST 원본 QQ IMAP INBOX/SENT 재조회 성공, 최근 **3일 gap=0**, 최근 **60일 gap=0**, 60일 이전 과거 backlog **34,552** 유지. 마지막 수집 `2026-11-09T00:01:15.188389Z`. 상태 `PASS_UID_ONLY`이며 MIME/body/첨부·전체 역사적 백필의 PASS는 아님.
+- Feishu 원본 4종 dated Sheets와 Google mirror 대조는 재검증에서 PASS. 최신 eTax dated 원천은 **2026-10-31**로 11월 eTax issuance/Payment 입금 증빙은 여전히 미인증. SFDC 실제 객체 Save/readback도 미검증.
+- 이 지표에서 **신규 9건은 수집 시각 이후 대기분**이었음. GitHub 스케줄 누락/지연 여부는 반복 모니터링하되, 0건 재검증만으로 cron 지연 원인이 확정되지는 않음. 60일 이전 34,552건은 역사적 별도 backfill로 관리.
