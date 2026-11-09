@@ -9,6 +9,8 @@ on:
       - 'automation/sfdc/three_report_staged_vs_generated_audit.py'
       - 'automation/sfdc/three_report_owner_scope.py'
       - 'automation/sfdc/test_three_report_owner_scope.py'
+      - 'automation/sfdc/three_report_owner_historical_quote_evidence.py'
+      - 'automation/sfdc/test_three_report_owner_historical_quote_evidence.py'
       - 'automation/sfdc/test_three_report_staged_vs_generated_audit.py'
       - '.github/workflows/css-sfdc-report-sink-parity.yml'
   push:
@@ -17,6 +19,8 @@ on:
       - 'automation/sfdc/three_report_staged_vs_generated_audit.py'
       - 'automation/sfdc/three_report_owner_scope.py'
       - 'automation/sfdc/test_three_report_owner_scope.py'
+      - 'automation/sfdc/three_report_owner_historical_quote_evidence.py'
+      - 'automation/sfdc/test_three_report_owner_historical_quote_evidence.py'
       - 'automation/sfdc/test_three_report_staged_vs_generated_audit.py'
       - '.github/workflows/css-sfdc-report-sink-parity.yml'
 
@@ -43,6 +47,7 @@ jobs:
           python -m py_compile automation/sfdc/three_report_staged_vs_generated_audit.py
           python -m unittest discover -s automation/sfdc -p 'test_three_report_staged_vs_generated_audit.py' -v
           python -m unittest discover -s automation/sfdc -p 'test_three_report_owner_scope.py' -v
+          python -m unittest discover -s automation/sfdc -p 'test_three_report_owner_historical_quote_evidence.py' -v
 
   live-readonly:
     needs: offline
