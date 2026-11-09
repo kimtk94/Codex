@@ -62,6 +62,12 @@ def verify_components(dashboard_id,expected,allow_create):
         if existing:
             if existing.get("type")!=kind:
                 raise RuntimeError("CHART_SHORTCUT_WIDGET_TYPE_MISMATCH")
+            if allow_create and kind in ("combo","text"):
+                cli("+dashboard-block-update","--base-token",BASE,
+                    "--dashboard-id",dashboard_id,
+                    "--block-id",existing.get("block_id") or existing.get("id"),
+                    "--data-config",json.dumps(config,ensure_ascii=False,
+                                               separators=(",",":")))
             continue
         if not allow_create:
             raise RuntimeError("CHART_SHORTCUT_REQUIRED_WIDGET_MISSING")

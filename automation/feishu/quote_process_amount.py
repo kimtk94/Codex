@@ -175,7 +175,7 @@ def prepare(source,now):
     result,stats=process_totals(source["SFDC Email Quotation Raw"])
     return result,{"source_state":guard,**stats}
 
-def weekly_calculations(source,now):
+def weekly_calculations(source,now,included_sids=None):
     """Return week-level *calculated estimate* and exceptions, not booked revenue."""
     candidates,source_info=prepare(source,now)
     owners=owner_lookup(source.get("SFDC Email Opportunities Raw",[]))
@@ -215,6 +215,9 @@ def weekly_calculations(source,now):
             results[wk]=result
             continue
         for sid,qid in seen.items():
+            if included_sids is not None and sid not in included_sids:
+                result["issues"]["inactive_or_manually_excluded"]+=1
+                continue
             quote=candidates.get(qid)
             if not quote:
                 result["issues"]["no_safe_priced_quote"]+=1
