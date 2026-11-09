@@ -7,6 +7,8 @@ on:
     paths:
       - 'masteros/web/lib/sfdc-commands.mjs'
       - 'masteros/web/scripts/sfdc_action_executor.py'
+      - 'masteros/web/scripts/feishu_sfdc_local_worker.py'
+      - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
       - 'masteros/web/tests/sfdc-paired-clone.test.mjs'
@@ -31,6 +33,8 @@ on:
     paths:
       - 'masteros/web/lib/sfdc-commands.mjs'
       - 'masteros/web/scripts/sfdc_action_executor.py'
+      - 'masteros/web/scripts/feishu_sfdc_local_worker.py'
+      - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
       - 'masteros/web/tests/sfdc-paired-clone.test.mjs'
@@ -71,6 +75,10 @@ jobs:
           python-version: '3.11'
       - name: Compile local-only Salesforce executor (no browser connection)
         run: python3 -m py_compile scripts/sfdc_action_executor.py
+      - name: Test Feishu local queue without any live CRM writes
+        run: |
+          python3 -m py_compile scripts/feishu_sfdc_local_worker.py
+          python3 -m unittest discover -s scripts -p test_feishu_sfdc_local_worker.py -v
       - name: Test existing-record selector without CRM access
         run: |
           python3 -m py_compile scripts/sfdc_record_catalog.py

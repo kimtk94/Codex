@@ -42,7 +42,7 @@ jobs:
           python3 -m py_compile automation/feishu/sfdc_command_queue.py
   live:
     needs: offline
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || vars.FEISHU_SFDC_BRIDGE_ENABLED == 'true')
     runs-on: ubuntu-24.04
     environment: TaehoonServer
     timeout-minutes: 12
