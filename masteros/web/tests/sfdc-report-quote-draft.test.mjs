@@ -92,11 +92,38 @@ test("Description is concise, dated, reference-based, and does not copy old Prog
   assert.match(description,/Reference Quote: QID-/);
   assert.doesNotMatch(description,/99 samples|12 samples/);
   const preflight=draftPreflight({...draft,description:description+" 수동 변경"});
-  assert.equal(preflight.status,"PREVIEW_READY");
+  assert.equal(preflight.status,"HOLD");
+  assert.ok(preflight.errors.includes("REFERENCE_ACCOUNT_CONTACT_UNVERIFIED"));
   assert.equal(preflight.description.endsWith("수동 변경"),true);
   assert.equal(preflight.salesforceWrite,false);
   assert.equal(preflight.feishuWrite,false);
   assert.equal(preflight.crmSavePermitted,false);
+});
+
+test("Preclassified reference can keep source Account and Contact independently of project Gb",()=>{
+  const old=quote();
+  old.reference={
+    status:"PASS",opportunityName:"Korea-Synthetic-mRNA",
+    opportunityExternalId:"Opp-2026-11-09-901",
+    accountId:"001000000000000AAA",accountName:"Synthetic University",
+    contactId:"003000000000000AAA",contactName:"Synthetic Scientist",
+    contactEmail:"synthetic@example.test",products:[]
+  };
+  const draft=fromFeishuQuote(old).draft;
+  draft.name="Korea-Synthetic-New";
+  draft.products[0].samples="5";draft.products[0].sampleUnitKrw="100000";
+  const check=draftPreflight({...draft,description:draftDescription(draft)});
+  assert.equal(check.status,"PREVIEW_READY");
+  assert.equal(check.accountContactMode,"KEEP");
+  assert.equal(check.crmSavePermitted,false);
+  draft.accountMode="CHANGE";
+  draft.account={id:"001000000000000AAB",name:"Different Institute"};
+  draft.contact={id:"",name:"Different Researcher",email:""};
+  const changed=draftPreflight({...draft,description:draftDescription(draft)});
+  assert.equal(changed.status,"HOLD");
+  assert.ok(changed.errors.includes("ACCOUNT_CONTACT_REVALIDATION_REQUIRED"));
+  assert.equal(calculateDraft(draft).items[0].projectKey,
+               check.pricing.items[0].projectKey);
 });
 
 test("No verified source ID gives HOLD but can be used as a reference",()=>{
