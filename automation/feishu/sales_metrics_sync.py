@@ -75,7 +75,8 @@ SCHEMAS = {
         ("Source Key", 1), ("Week Start", 1), ("Week End", 1),
         ("Chart Week Label", 1), ("Chart Window", 1),
         ("Approved Quote Count", 2), ("Included Quote Count", 2),
-        ("Excluded Quote Count", 2), ("Created In Week Count", 2),
+        ("Excluded Quote Count", 2), ("Active Unverified Quote Count", 2),
+        ("Active Coverage Status", 1), ("Created In Week Count", 2),
         ("Verified Amount Quote Count", 2), ("Verified Quote Value KRW FX", 2),
         ("Verified Quote Value M KRW FX", 2), ("Verified Quote Value K USD", 2), ("Unmatched Amount Count", 2),
         ("Calculated Quote Count", 2), ("Quote Amount Exception Count", 2),
@@ -498,8 +499,11 @@ def _verified_quote_object_source(source, now):
 def weekly_rows(source, now=None, review=None):
     """Retain all approvals; sum only Active + user-included Quotes."""
     now=now or dt.datetime.now(KST)
-    review=review if review is not None else build_quote_review(source)
+    review=review if review is not None else build_quote_review(source,now=now)
     approval_members,include_members=quote_review_membership(review)
+    unverified_by_week=collections.Counter(
+        r["Week Start"] for r in review
+        if r.get("제외 이유")=="ACTIVE_NOT_VERIFIED")
     permitted_ids=set().union(*include_members.values()) if include_members else set()
     quote_values,proof=_verified_quote_object_source(source,now)
     calculated,process_info=weekly_calculations(source,now,included_sids=permitted_ids)
@@ -539,6 +543,8 @@ def weekly_rows(source, now=None, review=None):
                 "Approved Quote Count":None,
                 "Included Quote Count":None,
                 "Excluded Quote Count":None,
+                "Active Unverified Quote Count":None,
+                "Active Coverage Status":"NO_VALUE_APPROVAL_SOURCE",
                 "Created In Week Count":None,
                 "Verified Amount Quote Count":None,
                 "Unmatched Amount Count":None,
@@ -588,6 +594,17 @@ def weekly_rows(source, now=None, review=None):
                         if selection_covered else None)
         excluded_count=(int(count)-eligible_count
                         if eligible_count is not None else None)
+        unverified_count=(unverified_by_week.get(week,0)
+                          if selection_covered else None)
+        # A missing Active snapshot is NOT proof that there are zero Active
+        # Quotes. Keep numeric chart/amount series NULL (displayed as '-')
+        # when no confirmed Active and some source statuses are unknown.
+        no_value_active=(eligible_count==0 and (unverified_count or 0)>0)
+        active_coverage=("NO_VALUE_ACTIVE_STATUS" if no_value_active else
+                         "PARTIAL_ACTIVE_STATUS" if (unverified_count or 0)>0 else
+                         "VERIFIED_ACTIVE_SCOPE" if selection_covered else
+                         "NO_VALUE_APPROVAL_COVERAGE")
+        included_display=None if no_value_active else eligible_count
         verified=([p for p in entries.values() if p is not None]
                   if proof=="QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED" and complete_evidence
                   else [])
@@ -603,6 +620,8 @@ def weekly_rows(source, now=None, review=None):
                          else "WITHHELD_APPROVAL_COUNT_MISMATCH")
         elif not selection_covered:
             calc_status="WITHHELD_ACTIVE_MEMBERSHIP_COVERAGE_GAP"
+        elif no_value_active:
+            calc_status="NO_VALUE_ACTIVE_STATUS"
         elif eligible_count==0:
             calc_status="NO_ELIGIBLE_ACTIVE_QUOTES"
         elif current.get("approval_ids",0)!=int(count):
@@ -622,20 +641,24 @@ def weekly_rows(source, now=None, review=None):
         row={"Source Key":"QUOTE:"+week,"Week Start":week,
              "Week End":cell(item,"week_end"),
              "Approved Quote Count":int(count),
-             "Included Quote Count":eligible_count,
+             "Included Quote Count":included_display,
              "Excluded Quote Count":excluded_count,
-             "Verified Amount Quote Count":len(verified),
-             "Unmatched Amount Count":unmatched,
+             "Active Unverified Quote Count":unverified_count,
+             "Active Coverage Status":active_coverage,
+             "Verified Amount Quote Count":(None if no_value_active else len(verified)),
+             "Unmatched Amount Count":(None if no_value_active else unmatched),
              "Amount Status":status,
              "Week Status":cell(item,"weekly_basis"),
              "Reporting KRW Per USD":float(fx),
-             "Calculated Quote Count":process_count,
-             "Quote Amount Exception Count":(max(0,eligible_count-process_count)
-                                             if eligible_count is not None else None),
+             "Calculated Quote Count":(None if no_value_active else process_count),
+             "Quote Amount Exception Count":(
+                 None if no_value_active or eligible_count is None else
+                 max(0,eligible_count-process_count)),
              "Calculated Quote Value K USD":None,
              "Calculated Quote Value M KRW FX":None,
              "Quote Calculation Source":calc_status+" / "+process_state+
-                  " / count="+count_source+" / active_only=TRUE / manual_exclude=ON",
+                  " / count="+count_source+" / active_only=TRUE / manual_exclude=ON"
+                  +" / coverage="+active_coverage,
              "Evidence":"Quote approval count="+count_source+
                         "; Active=Quote Status ACTIVE + Approved AND Active YES + SFDC IsActive 1; "
                          "manual exclusion respected; SFDC Weekly Overview; "
@@ -709,7 +732,7 @@ def table_path(root,table_id):
 COUNT_FIELD_FORMATS={
     "Weekly Quote KPI":{
         "Approved Quote Count","Included Quote Count","Excluded Quote Count",
-        "Created In Week Count",
+        "Active Unverified Quote Count","Created In Week Count",
         "Verified Amount Quote Count","Unmatched Amount Count",
         "Calculated Quote Count","Quote Amount Exception Count",
     },
@@ -774,9 +797,12 @@ def ensure_tables(token,root):
                 if names[field_name]!=field_type:
                     raise SafeError("METRIC_SCHEMA_TYPE_MISMATCH")
             elif (name=="Project Progress Board" and field_name in allowed) or (
+                    name==QUOTE_REVIEW_TABLE and field_name in
+                    {"Active Evidence Source","Active Evidence KST"}) or (
                     name=="Weekly Quote KPI" and field_name in
                     {"Chart Week Label","Chart Window","Verified Quote Value M KRW FX",
                      "Included Quote Count","Excluded Quote Count",
+                     "Active Unverified Quote Count","Active Coverage Status",
                      "Calculated Quote Count","Quote Amount Exception Count",
                      "Calculated Quote Value K USD","Calculated Quote Value M KRW FX",
                      "Quote Calculation Source"}) or (
@@ -1106,7 +1132,7 @@ def main():
         existing_review=board_list_with_retry(
             token,paths[QUOTE_REVIEW_TABLE],"weekly_review_existing")
         overrides=quote_manual_overrides(existing_review)
-        review=build_quote_review(sources,overrides)
+        review=build_quote_review(sources,overrides,now=dt.datetime.now(KST))
         output["Weekly Quote KPI"]=weekly_rows(sources,review=review)
     setup_views(token,paths)
     if scope!="operations":

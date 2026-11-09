@@ -329,8 +329,10 @@ class MetricsTests(unittest.TestCase):
                                    "Active":"ACTIVE","Quote USD":"2500000"}]
         row=m.weekly_rows(source,now=self._now())[0]
         self.assertEqual(row["Approved Quote Count"],1)
-        self.assertEqual(row["Verified Amount Quote Count"],0)
-        self.assertEqual(row["Unmatched Amount Count"],1)
+        self.assertIsNone(row["Verified Amount Quote Count"])
+        self.assertIsNone(row["Unmatched Amount Count"])
+        self.assertIsNone(row["Included Quote Count"])
+        self.assertEqual(row["Active Coverage Status"],"NO_VALUE_ACTIVE_STATUS")
         self.assertEqual(row["Amount Status"],"WITHHELD_QUOTE_OBJECT_EXPORT_STALE")
         self.assertIsNone(row["Verified Quote Value KRW FX"])
         self.assertIsNone(row["Verified Quote Value M KRW FX"])
@@ -413,7 +415,7 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(row["Calculated Quote Value M KRW FX"],0.231)
         self.assertEqual(row["Amount Status"],"PROCESS_PRICE_CALCULATED_COMPLETE")
         self.assertEqual(row["Quote Calculation Source"],
-            "PROCESS_PRICE_CALCULATED_COMPLETE / SOURCE_QQ_REPORT_VERIFIED / count=IMMUTABLE_APPROVAL_DEDUP / active_only=TRUE / manual_exclude=ON")
+            "PROCESS_PRICE_CALCULATED_COMPLETE / SOURCE_QQ_REPORT_VERIFIED / count=IMMUTABLE_APPROVAL_DEDUP / active_only=TRUE / manual_exclude=ON / coverage=VERIFIED_ACTIVE_SCOPE")
         self.assertIsNone(row["Verified Quote Value K USD"])
         self.assertIsNone(row["Verified Quote Value KRW FX"])
 
@@ -432,9 +434,13 @@ class MetricsTests(unittest.TestCase):
         source=fixture.finalize(source)
         row=m.weekly_rows(source,now=fixture.NOW)[0]
         self.assertEqual(row["Approved Quote Count"],2)
+        self.assertEqual(row["Included Quote Count"],1)
+        self.assertEqual(row["Active Unverified Quote Count"],1)
         self.assertEqual(row["Calculated Quote Count"],1)
-        self.assertEqual(row["Quote Amount Exception Count"],1)
-        self.assertEqual(row["Amount Status"],"PROCESS_PRICE_CALCULATED_PARTIAL")
+        # Missing current QID in authenticated report is unverified Active,
+        # not a confirmed priced-Quote exception.
+        self.assertEqual(row["Quote Amount Exception Count"],0)
+        self.assertEqual(row["Amount Status"],"PROCESS_PRICE_CALCULATED_COMPLETE")
         self.assertEqual(row["Calculated Quote Value K USD"],0.154)
 
     def test_stale_or_bad_quotation_source_wipes_calculated_estimates(self):
@@ -459,7 +465,7 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(active["Calculated Quote Count"],1)
         self.assertEqual(active["Calculated Quote Value K USD"],0.154)
         sid=source["Quote Approval Dedup"][0]["SFDC Record ID"]
-        manual=review_rows(source,{"QUOTE_REVIEW:"+sid:True})
+        manual=review_rows(source,{"QUOTE_REVIEW:"+sid:True},now=fixture.NOW)
         excluded=m.weekly_rows(source,now=fixture.NOW,review=manual)[0]
         self.assertEqual(excluded["Approved Quote Count"],1)
         self.assertEqual(excluded["Included Quote Count"],0)
@@ -469,10 +475,40 @@ class MetricsTests(unittest.TestCase):
         self.assertIsNone(excluded["Calculated Quote Value K USD"])
         self.assertIsNone(excluded["Verified Quote Value K USD"])
         self.assertIn("NO_ELIGIBLE_ACTIVE_QUOTES",excluded["Quote Calculation Source"])
-        source["SFDC Quote Export"][0]["IsActive"]="0"
+        source["SFDC Email Quotation Raw"][0]["Active"]="0"
+        source["SFDC Email Quotation Raw"][1]["Active"]="0"
+        source["SFDC Email Quotation Raw"][2]["Active"]="0"
+        source=fixture.finalize(source)
         inactive=m.weekly_rows(source,now=fixture.NOW)[0]
         self.assertEqual(inactive["Included Quote Count"],0)
         self.assertIsNone(inactive["Calculated Quote Value K USD"])
+
+    def test_approved_four_but_active_missing_is_no_value_not_zero(self):
+        import test_quote_process_amount as fixture
+        source=fixture.finalize(fixture.fixture(count=4))
+        source["SFDC Quote Export"]=[]
+        source["Quote Approval Dedup"]=[]
+        for i in range(4):
+            source["Quote Approval Dedup"].append({
+                "Approval KST":"2026-11-09 18:20:00",
+                "SFDC Record ID":"a0P"+str(i)*12,
+                "Quotation Name":"QID-2026-11-09-41286"+str(i),
+                "Quote Status":"UNKNOWN","Approved AND Active":"UNVERIFIED"})
+        source["SFDC Weekly Overview"]=[{
+            "week_start":"2026-11-06","week_end":"2026-11-12",
+            "quotation_approvals":"0","approvals_created_in_week":"0",
+            "weekly_basis":"FRI_THU_IN_PROGRESS","krw_per_usd":"1500"}]
+        # Source report is validated, but does not contain these four QIDs:
+        # no falsely asserted Active=0 or money=0.
+        row=m.weekly_rows(source,now=fixture.NOW)[0]
+        self.assertEqual(row["Approved Quote Count"],4)
+        self.assertIsNone(row["Included Quote Count"])
+        self.assertIsNone(row["Calculated Quote Count"])
+        self.assertIsNone(row["Quote Amount Exception Count"])
+        self.assertEqual(row["Active Unverified Quote Count"],4)
+        self.assertEqual(row["Active Coverage Status"],"NO_VALUE_ACTIVE_STATUS")
+        self.assertIn("NO_VALUE_ACTIVE_STATUS",row["Quote Calculation Source"])
+        self.assertIsNone(row["Calculated Quote Value K USD"])
 
     def test_monthly_revenue_unchanged_by_quote_process_logic(self):
         # This mutation is read-only and must not alter VAT exclusion logic.
