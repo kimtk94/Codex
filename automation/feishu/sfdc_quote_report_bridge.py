@@ -21,6 +21,8 @@ from sfdc_command_queue import auth, path, pages, call, google, gs
 
 HEAD_TAB="SFDC Quote Export"
 LINE_TAB="SFDC Email Quotation Raw"
+AUDIT_TAB="SFDC Email Ingest Audit"
+AUDIT_RANGE="A1:J15"
 SHEET_RANGE_HEAD="A1:O2000"
 SHEET_RANGE_LINES="A1:Y6000"
 TABLE_LINES="SFDC Quote Report Lines"
@@ -66,6 +68,71 @@ def spreadsheet_values(session,tab,range_):
             for row in matrix[1:] if isinstance(row,list) and any(str(v).strip() for v in row)],heads
 
 
+
+def verify_qq_process_report_audit(source_lines,source_audit):
+    """Cross-check the complete 25-column report against QQ mail receipt evidence.
+
+    The three-report importer stores SHA256(JSON([headers, rows])) under
+    SFDC Email Ingest Audit. Recompute from the exact Sheets raw records;
+    never infer report freshness from Quote Created Date or header Quote Export.
+    """
+    rows,headers=source_lines
+    audit_rows,audit_headers=source_audit
+    required={
+      "Entity","Source Received KST","Ingest Checked KST","Rows","Unique IDs",
+      "Duplicate IDs","Missing IDs","Content SHA256","State","Source Kind"}
+    if not required.issubset(set(audit_headers)):
+        raise ReportSourceError("QUOTE_MAIL_AUDIT_SCHEMA_MISSING")
+    matching=[r for r in audit_rows if r.get("Entity")=="Quotation"]
+    if len(matching)!=1:
+        raise ReportSourceError("QUOTE_MAIL_AUDIT_NOT_UNIQUE")
+    a=matching[0]
+    if a.get("Source Kind")!="QQ IMAP" or a.get("State") not in (
+            "STAGED_NOT_PROMOTED","PRESERVED_NO_NEW_REPORT"):
+        raise ReportSourceError("QUOTE_MAIL_AUDIT_STATE_UNVERIFIED")
+    if not rows or len(rows)>MAX_LINES:
+        raise ReportSourceError("QUOTE_MAIL_DETAIL_COUNT_INVALID")
+    values=[[str(row.get(header,"")) for header in headers] for row in rows]
+    sha=hashlib.sha256(json.dumps([headers,values],ensure_ascii=False,
+                        separators=(",",":")).encode("utf-8")).hexdigest()
+    if not re.fullmatch(r"[a-f0-9]{64}",str(a.get("Content SHA256",""))) or sha!=a["Content SHA256"]:
+        raise ReportSourceError("QUOTE_MAIL_AUDIT_HASH_MISMATCH")
+    if "SFDC Quotation ID" not in headers:
+        raise ReportSourceError("QUOTE_MAIL_QID_FIELD_MISSING")
+    keys=[r.get("SFDC Quotation ID","") for r in rows]
+    unique=len(set(keys))
+    stats=(len(rows),unique,len(rows)-unique,sum(not k for k in keys))
+    try:
+        expected=tuple(int(a[k]) for k in ("Rows","Unique IDs","Duplicate IDs","Missing IDs"))
+    except (ValueError,TypeError):
+        raise ReportSourceError("QUOTE_MAIL_AUDIT_COUNTER_INVALID")
+    if stats!=expected or stats[3]!=0:
+        raise ReportSourceError("QUOTE_MAIL_AUDIT_COUNT_MISMATCH")
+    fmt="%Y-%m-%d %H:%M:%S KST"
+    try:
+        received=datetime.strptime(a["Source Received KST"],fmt).replace(
+            tzinfo=timezone(timedelta(hours=9)))
+        checked=datetime.strptime(a["Ingest Checked KST"],fmt).replace(
+            tzinfo=timezone(timedelta(hours=9)))
+    except (TypeError,ValueError):
+        raise ReportSourceError("QUOTE_MAIL_AUDIT_DATE_INVALID")
+    current=datetime.now(timezone.utc)
+    if received>current+timedelta(minutes=10) or checked>current+timedelta(minutes=10):
+        raise ReportSourceError("QUOTE_MAIL_AUDIT_FUTURE_TIMESTAMP")
+    if checked<received:
+        raise ReportSourceError("QUOTE_MAIL_AUDIT_TEMPORAL_ORDER_INVALID")
+    return {
+       "received_kst":a["Source Received KST"],
+       "checked_kst":a["Ingest Checked KST"],
+       "source_sha256":sha,
+       "audit_state":a["State"],
+       "source_age_hours":round(max(0,(current-received).total_seconds()/3600),2),
+       "source_checked_age_hours":round(max(0,(current-checked).total_seconds()/3600),2),
+       "source_mail_hash_verified":True,
+       "source_mail_timestamp_verified":True,
+    }
+
+
 def num_text(value):
     text=str(value if value is not None else "").strip().replace(",","")
     if text.lower() in ("","null","-"):return ""
@@ -78,7 +145,7 @@ def num_text(value):
     return format(n,"f")
 
 
-def build_records(source_lines,source_headers,now=None):
+def build_records(source_lines,source_headers,now=None,verified_evidence=None):
     """Build normalized Feishu records; fail before writes on bad join/source."""
     required_lines={
       "SFDC Quotation ID","Quotation Product ID","Process Name: SFDC Process ID",
@@ -116,6 +183,7 @@ def build_records(source_lines,source_headers,now=None):
     # 25-column process-price report. Never stamp old header time onto
     # newer process rows as if that proves the process report was current.
     report_status="DETAIL_REPORT_TIME_UNVERIFIED"
+    received=verified_evidence["received_kst"] if verified_evidence else ""
     product_groups=defaultdict(list)
     process_defs={}
     occurrences=Counter()
@@ -154,6 +222,7 @@ def build_records(source_lines,source_headers,now=None):
           "Active":str(row.get("Active","")).strip(),
           "Quote Created":str(row.get("Created Date","")).strip(),
           "Source Exported KST":"",
+          "Source Received KST":received,
           "Source Row Hash":checksum(row),
           "Source Status":report_status if linked else "QUOTE_RECORD_ID_UNVERIFIED",
         })
@@ -211,6 +280,12 @@ def build_records(source_lines,source_headers,now=None):
            "krw_rate_verified":False,
            "source_is_live":False,
            "process_report_export_time_verified":False,
+           "source_mail_timestamp_verified":bool(verified_evidence),
+           "source_mail_hash_verified":bool(verified_evidence),
+           "process_report_received_kst":received,
+           "source_mail_audit_checked_kst":verified_evidence["checked_kst"] if verified_evidence else "",
+           "source_mail_audit_state":verified_evidence["audit_state"] if verified_evidence else "UNVERIFIED",
+           "source_mail_sha256":verified_evidence["source_sha256"] if verified_evidence else "",
            "crm_writes":0
         }
     }
@@ -219,8 +294,10 @@ def build_records(source_lines,source_headers,now=None):
 def load_source():
     s=google()
     lines=spreadsheet_values(s,LINE_TAB,SHEET_RANGE_LINES)
+    audit=spreadsheet_values(s,AUDIT_TAB,AUDIT_RANGE)
+    evidence=verify_qq_process_report_audit(lines,audit)
     heads=spreadsheet_values(s,HEAD_TAB,SHEET_RANGE_HEAD)
-    return build_records(lines,heads)
+    return build_records(lines,heads,verified_evidence=evidence)
 
 
 def field_spec(name):
