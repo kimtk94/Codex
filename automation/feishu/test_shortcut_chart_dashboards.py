@@ -38,7 +38,9 @@ class ChartShortcutTests(unittest.TestCase):
                           for i,(name,kind,_) in enumerate(comp)]}
         with mock.patch.object(s,"cli",return_value=existing) as cli:
             self.assertEqual(s.verify_components("blkOld",comp,True),0)
-            self.assertEqual(cli.call_count,2)
+            self.assertEqual(cli.call_count,4)
+            updates=[c for c in cli.call_args_list if c.args[0]=="+dashboard-block-update"]
+            self.assertEqual(len(updates),2)
 
     def test_identity_and_types_fail_closed(self):
         with mock.patch.object(s,"cli",return_value={"items":[
