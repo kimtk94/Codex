@@ -415,7 +415,7 @@ def visible_equal(old,desired):
                 return False
         elif isinstance(value,(float,int)):
             try:
-                if abs(float(plain_field(existing))-float(value))>0.01:
+                if abs(float(existing if isinstance(existing,(int,float)) else plain_field(existing))-float(value))>0.01:
                     return False
             except (ValueError,TypeError):
                 return False
