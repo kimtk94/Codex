@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'automation/sfdc/quotation_email_ingest.py'
+      - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'automation/sfdc/test_quotation_email_ingest.py'
       - '.github/workflows/sfdc-quotation-email-import.yml'
   workflow_dispatch:
@@ -13,6 +15,8 @@ on:
     branches: [main]
     paths:
       - 'automation/sfdc/quotation_email_ingest.py'
+      - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'automation/sfdc/test_quotation_email_ingest.py'
       - '.github/workflows/sfdc-quotation-email-import.yml'
 permissions:
@@ -35,6 +39,8 @@ jobs:
         run: python3 automation/sfdc/test_quotation_email_ingest.py
   import:
     needs: offline
+    outputs:
+      imported: ${{ steps.quote_import.outputs.imported }}
     if: github.event_name != 'pull_request'
     environment: TaehoonServer
     runs-on: ubuntu-latest
@@ -61,3 +67,33 @@ jobs:
       - name: Reconcile approved Quote IDs, Active amounts, weekly totals and master
         if: steps.quote_import.outputs.imported == 'true'
         run: python3 automation/css_mail/sfdc_quote_validation.py
+
+  feishu-report-sync:
+    name: Mirror imported Quote Report to Feishu Base
+    needs: import
+    if: github.event_name != 'pull_request' && needs.import.outputs.imported == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install authenticated Sheet transport
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Check Quote Report identity and process/price field completeness
+        run: python3 automation/feishu/sfdc_quote_report_bridge.py audit
+      - name: Sync normalized Quote Report evidence to user-owned Feishu
+        run: python3 automation/feishu/sfdc_quote_report_bridge.py sync
+      - name: Declare no CRM writes or hosting
+        if: always()
+        run: echo 'MAIL_REPORT_TO_FEISHU;STABLE_QUOTE_PRODUCT_PROCESS_KEYS;NO_SFDC_WRITE;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
