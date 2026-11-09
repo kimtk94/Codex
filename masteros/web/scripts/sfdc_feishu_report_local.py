@@ -272,8 +272,14 @@ def _connect():
 
 
 def refresh():
-    lines,process,product,revisions,elapsed=_read_all_from_browser()
+    raw_lines,process,product,revisions,elapsed=_read_all_from_browser()
+    superseded=[r for r in raw_lines if r.get("Source Status")=="SUPERSEDED_NOT_IN_CURRENT_REPORT"]
+    if len(superseded)>100 or len(superseded)>max(10,len(raw_lines)//50):
+        raise FeishuSourceError("FEISHU_HISTORICAL_DRIFT_TOO_LARGE")
+    lines=[r for r in raw_lines if r.get("Source Status")!="SUPERSEDED_NOT_IN_CURRENT_REPORT"]
     summary=_validate(lines,process,product)
+    summary["physical_feishu_rows"]=len(raw_lines)
+    summary["historical_retained_rows"]=len(superseded)
     DB_DIR.mkdir(parents=True,exist_ok=True)
     if os.name!="nt":os.chmod(DB_DIR,0o700)
     staged=DB_DIR/"feishu_quote_report_stage_PRIVATE.sqlite3"
@@ -348,6 +354,8 @@ def status():
                 "process_rows":int(meta["process_rows"]),
                 "unique_process_definitions":int(meta["unique_process_definitions"]),
                 "product_template_count":int(meta["product_templates"]),
+                "physical_feishu_rows":int(meta.get("physical_feishu_rows",meta["process_rows"])),
+                "historical_retained_rows":int(meta.get("historical_retained_rows","0")),
                 "linked_sfdc_record_count":cx.execute(
                     "SELECT count(distinct qid) FROM quote_lines WHERE quote_record_id!=''").fetchone()[0],
                 "unmapped_sfdc_record_count":cx.execute(
