@@ -10,6 +10,7 @@ on:
       - 'automation/feishu/sales_metrics_sync.py'
       - '.github/workflows/feishu-sources-unified.yml'
       - 'automation/feishu/test_unified_workflow_contracts.py'
+      - 'automation/css_mail/project_lifecycle_refresh.py'
       - 'automation/feishu/test_sales_metrics_scope.py'
   workflow_dispatch:
     inputs:
@@ -47,6 +48,7 @@ jobs:
           python3 automation/feishu/test_payment_reconciliation_qc.py
           python3 -m unittest discover -s automation/feishu -p 'test_sales_native_trends.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_payment_dashboard.py' -v
+          python3 -m unittest discover -s automation/css_mail -p 'test_project_lifecycle_chain.py' -v
           python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/online_project_tat_forecast.py automation/feishu/native_payment_dashboard_cli.py
   # Stage source files once; Payment and Monthly run as independent jobs
   # after ingest, so a lifecycle HOLD cannot suppress Payment updates.
