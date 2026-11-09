@@ -38,7 +38,8 @@ ALLOWED_STAGING = {"STAGED_NOT_PROMOTED", "PRESERVED_NO_NEW_REPORT"}
 
 
 def parse(matrix, name):
-    if not isinstance(matrix, list) or len(matrix) < 2:
+    min_length = 1 if name in ("SFDC Verified Relations", "SFDC Quote Link Review") else 2
+    if not isinstance(matrix, list) or len(matrix) < min_length:
         raise ValueError("SOURCE_OR_SINK_TABLE_EMPTY:" + name)
     header = [str(x).strip() for x in matrix[0]]
     if len(set(header)) != len(header):
