@@ -111,7 +111,12 @@ def _decode(response,table):
     return value
 
 
-def _read_table(context,page,kind):
+def _read_table(context,page,kind,source_request=None):
+    """Use the authenticated Feishu UI request pattern; read exact table only.
+
+    Small dictionary tables do not issue automatic /records requests when
+    opened. The same authenticated GET with no viewId reads them safely.
+    """
     table_id,ids=TABLES[kind]
     captured=[]
     def handler(req):
@@ -121,48 +126,62 @@ def _read_table(context,page,kind):
             query=urllib.parse.parse_qs(urllib.parse.urlsplit(req.url).query)
             if query.get("tableId")==[table_id]:
                 captured.append(req.url)
-    page.on("request",handler)
-    try:
-        page.goto(_url_for(kind),wait_until="domcontentloaded",timeout=35000)
-        until=time.monotonic()+19
-        while not captured and time.monotonic()<until:
-            page.wait_for_timeout(700)
+    if source_request is None:
+        page.on("request",handler)
+        try:
+            page.goto(_url_for(kind),wait_until="domcontentloaded",timeout=35000)
+            until=time.monotonic()+19
+            while not captured and time.monotonic()<until:
+                page.wait_for_timeout(700)
+        finally:
+            page.remove_listener("request",handler)
         if not captured:
             raise FeishuSourceError("FEISHU_AUTHENTICATED_RECORD_REQUEST_MISSING")
-        original=urllib.parse.urlsplit(captured[-1])
-        if original.scheme!="https" or original.hostname!=HOST:
-            raise FeishuSourceError("FEISHU_REQUEST_HOST_INVALID")
-        params={k:v[0] for k,v in urllib.parse.parse_qs(original.query).items()}
-        rows={}
-        total_expected=None
-        revision=None
-        for offset in range(0,MAX_REPORT_ROWS,MAX_PAGE):
-            params.update({"offset":str(offset),"limit":str(MAX_PAGE)})
-            url=urllib.parse.urlunsplit((original.scheme,original.netloc,original.path,
-                urllib.parse.urlencode(params),""))
-            res=context.request.get(url,timeout=35000)
-            data=_decode(res,kind)
-            total=data["tableRecordNum"]
-            if total_expected is None:
-                total_expected=total
-                revision=data.get("tableRev")
-            elif total!=total_expected or data.get("tableRev")!=revision:
-                raise FeishuSourceError("FEISHU_SOURCE_MUTATED_DURING_READ")
-            entries=data["recordMap"]
-            if len(entries)>MAX_PAGE or len(rows)+len(entries)>MAX_REPORT_ROWS:
-                raise FeishuSourceError("FEISHU_PAGE_COUNT_OUT_OF_RANGE")
-            for recid,cells in entries.items():
-                if recid in rows or not isinstance(cells,dict):
-                    raise FeishuSourceError("FEISHU_RECORD_DUPLICATED")
-                parsed={key:_text(cells.get(fid)) for key,fid in ids.items()}
-                rows[recid]=parsed
-            if len(rows)==total:
-                break
-        if len(rows)!=total_expected:
-            raise FeishuSourceError("FEISHU_RECORD_PAGINATION_INCOMPLETE")
-        return list(rows.values()),revision
-    finally:
-        page.remove_listener("request",handler)
+        seed=captured[-1]
+    else:
+        seed=source_request
+
+    original=urllib.parse.urlsplit(seed)
+    if (original.scheme!="https" or original.hostname!=HOST or
+        original.path!=f"/space/api/v1/bitable/{APP}/records"):
+        raise FeishuSourceError("FEISHU_REQUEST_HOST_INVALID")
+    params={k:v[0] for k,v in urllib.parse.parse_qs(original.query).items()}
+    if source_request is not None:
+        params["tableId"]=table_id
+        params["tableID"]=table_id
+        # A view from the Lines table is not valid on other tables.
+        # This Feishu API accepts exact table reads with no view ID.
+        for key in ("viewId","viewID","viewLazyLoad","tableRev","depRev"):
+            params.pop(key,None)
+
+    rows={}
+    total_expected=None
+    revision=None
+    for offset in range(0,MAX_REPORT_ROWS,MAX_PAGE):
+        params.update({"offset":str(offset),"limit":str(MAX_PAGE)})
+        url=urllib.parse.urlunsplit((original.scheme,original.netloc,original.path,
+            urllib.parse.urlencode(params),""))
+        res=context.request.get(url,timeout=35000)
+        data=_decode(res,kind)
+        total=data["tableRecordNum"]
+        if total_expected is None:
+            total_expected=total
+            revision=data.get("tableRev")
+        elif total!=total_expected or data.get("tableRev")!=revision:
+            raise FeishuSourceError("FEISHU_SOURCE_MUTATED_DURING_READ")
+        entries=data["recordMap"]
+        if len(entries)>MAX_PAGE or len(rows)+len(entries)>MAX_REPORT_ROWS:
+            raise FeishuSourceError("FEISHU_PAGE_COUNT_OUT_OF_RANGE")
+        for recid,cells in entries.items():
+            if recid in rows or not isinstance(cells,dict):
+                raise FeishuSourceError("FEISHU_RECORD_DUPLICATED")
+            parsed={key:_text(cells.get(fid)) for key,fid in ids.items()}
+            rows[recid]=parsed
+        if len(rows)==total:
+            break
+    if len(rows)!=total_expected:
+        raise FeishuSourceError("FEISHU_RECORD_PAGINATION_INCOMPLETE")
+    return list(rows.values()),revision,seed
 
 
 def _read_all_from_browser():
@@ -175,9 +194,9 @@ def _read_all_from_browser():
         context=browser.contexts[0]
         page=context.new_page()
         try:
-            process,p_rev=_read_table(context,page,"process")
-            product,t_rev=_read_table(context,page,"product")
-            lines,l_rev=_read_table(context,page,"lines")
+            lines,l_rev,seed=_read_table(context,page,"lines")
+            process,p_rev,_=_read_table(context,page,"process",seed)
+            product,t_rev,_=_read_table(context,page,"product",seed)
         finally:
             page.close()
     return lines,process,product,{"lines":l_rev,"process":p_rev,"product":t_rev},round(time.monotonic()-started,1)
