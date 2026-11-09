@@ -101,7 +101,7 @@ def lead_convert(page,x):
     page.wait_for_timeout(1200)
     body=page.locator("body").inner_text()[:14000]
     converted=page.get_by_text("Convert",exact=True).count()==0 and "Converted" in body
-    status["status"]="PASS" if converted else "SAVE_SUBMITTED_READBACK_REQUIRED"
+    status["status"]="PARTIAL_LEAD_CONVERTED_CONTACT_CDMS_UNVERIFIED" if converted else "SAVE_SUBMITTED_READBACK_REQUIRED"
     status["lead_id"]=x["leadId"]
     return status
 def opportunity_create(page,x):
@@ -148,7 +148,7 @@ def opportunity_create(page,x):
     detail=page.get_by_role("tab",name="Details",exact=True)
     if detail.count()==1:detail.click(timeout=4000)
     text=page.locator("body").inner_text(timeout=7000)
-    r["status"]="PASS" if x["opportunityName"] in text and x["progressDescription"] in text else "SAVE_SUBMITTED_READBACK_REQUIRED"
+    r["status"]="PASS" if all(v in text for v in [x["opportunityName"],x["accountName"],x["contactName"],x["progressDescription"]]) else "SAVE_SUBMITTED_READBACK_REQUIRED"
     r["url"]=BASE+"/lightning/r/Opportunity/"+record_id+"/view"
     return r
 
@@ -299,7 +299,8 @@ def save_quote_and_products(page,x,r):
         body=page.locator("body").inner_text(timeout=6000)
         count=re.search(r"Quotation Products\s*\((\d+)\)",body)
         r["product_added"]=bool(count and int(count.group(1))>0)
-        r["status"]="PASS" if r["product_added"] else "PARTIAL_PRODUCT_READBACK_REQUIRED"
+        r["status"]="PARTIAL_PRICE_REVIEW_REQUIRED" if r["product_added"] else "PARTIAL_PRODUCT_READBACK_REQUIRED"
+        r["price_verified"]=False
     except Exception as exc:
         r["status"]="PARTIAL_QUOTE_CREATED_PRODUCT_HOLD"
         r["product_error_type"]=type(exc).__name__
