@@ -12,6 +12,8 @@ on:
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
+      - 'masteros/web/scripts/sfdc_pair_readback.py'
+      - 'masteros/web/scripts/test_sfdc_pair_readback.py'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
       - 'masteros/web/tests/sfdc-paired-clone.test.mjs'
       - 'masteros/web/scripts/test_sfdc_single_service_cloud.py'
@@ -40,6 +42,8 @@ on:
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
+      - 'masteros/web/scripts/sfdc_pair_readback.py'
+      - 'masteros/web/scripts/test_sfdc_pair_readback.py'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
       - 'masteros/web/tests/sfdc-paired-clone.test.mjs'
       - 'masteros/web/scripts/test_sfdc_single_service_cloud.py'
@@ -88,6 +92,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/sfdc_record_catalog.py
           python3 -m unittest discover -s scripts -p test_sfdc_record_catalog.py -v
+          python3 -m unittest discover -s scripts -p test_sfdc_pair_readback.py -v
       - name: Validate single-service per-process Cloud 100 Gb rules
         run: python3 -m unittest discover -s scripts -p test_sfdc_single_service_cloud.py -v
       - name: Unit-test live health classifier without Salesforce access
