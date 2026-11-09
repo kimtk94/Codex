@@ -13,6 +13,7 @@ from native_dashboard_cli import BASE, BLOCKS, cli, collect, find_named, ident
 from qq_mail_ingest import auth, list_all, SafeError
 from setup_sales_web import list_views
 from sales_native_home import HOME, table_map, target_path
+from quote_dashboard_preview import BLOCK_NAME,read_preview
 
 CHARTS = (
     ("MONTHLY_TREND","FEISHU_SHORTCUT_MONTHLY_DASHBOARD_ID",
@@ -43,7 +44,7 @@ def editable_quote_url():
     return url
 
 
-def expected_components(chart_name,note_name,kind,source,detail_url=None):
+def expected_components(chart_name,note_name,kind,source,detail_url=None,preview=None):
     available={name:(typ,config) for name,typ,config in BLOCKS}
     if chart_name not in available or note_name not in available:
         raise RuntimeError("CHART_SHORTCUT_REFERENCE_WIDGET_MISSING")
@@ -64,7 +65,10 @@ def expected_components(chart_name,note_name,kind,source,detail_url=None):
             "수동 체크를 해제하면 다시 포함되며, Inactive는 체크를 해제해도 합산되지 않습니다.\n\n"
             +note_config["text"]
         )
-    return ((chart_name,kind,chart_config),(note_name,"text",note_config))
+    components=((chart_name,kind,chart_config),(note_name,"text",note_config))
+    if kind=="combo" and preview is not None:
+        components+=(BLOCK_NAME,"text",{"text":preview}),
+    return components
 
 
 def blocks_by_name(rows):
@@ -145,7 +149,8 @@ def main():
     ids={}
     for key,env_key,title,chart_name,note_name,kind,source in CHARTS:
         detail_url=editable_quote_url() if kind=="combo" else None
-        expected=expected_components(chart_name,note_name,kind,source,detail_url)
+        preview=read_preview() if kind=="combo" else None
+        expected=expected_components(chart_name,note_name,kind,source,detail_url,preview)
         dash_id=ensure_graph_dashboard(title,expected,mode,dashboards)
         if dash_id:
             ids[env_key]=dash_id

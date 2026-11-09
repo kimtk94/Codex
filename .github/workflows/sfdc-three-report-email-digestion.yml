@@ -37,6 +37,8 @@ on:
       - 'automation/feishu/weekly_quote_review_layout.py'
       - 'automation/feishu/test_weekly_quote_review_layout.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
+      - 'automation/feishu/quote_dashboard_preview.py'
+      - 'automation/feishu/test_quote_dashboard_preview.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
   pull_request:
     paths:
@@ -62,6 +64,8 @@ on:
       - 'automation/feishu/weekly_quote_review_layout.py'
       - 'automation/feishu/test_weekly_quote_review_layout.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
+      - 'automation/feishu/quote_dashboard_preview.py'
+      - 'automation/feishu/test_quote_dashboard_preview.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
 permissions:
   contents: read
@@ -111,6 +115,7 @@ jobs:
       - name: Verify isolated Quote KPI scope
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_quote_dashboard_preview.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review_layout.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_scope.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
