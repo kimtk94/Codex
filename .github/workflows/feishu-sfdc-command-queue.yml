@@ -1,0 +1,75 @@
+name: Feishu SFDC Command Queue Bridge
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Mode
+        type: choice
+        options: [bootstrap, pull, push]
+        default: pull
+  schedule:
+    - cron: '*/10 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/sfdc_command_queue.py'
+      - 'automation/feishu/test_sfdc_command_queue.py'
+      - '.github/workflows/feishu-sfdc-command-queue.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/sfdc_command_queue.py'
+      - 'automation/feishu/test_sfdc_command_queue.py'
+      - '.github/workflows/feishu-sfdc-command-queue.yml'
+permissions:
+  contents: read
+concurrency:
+  group: feishu-sfdc-queue-bridge
+  cancel-in-progress: false
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify approval, duplicate and replay guards
+        run: |
+          python3 -m unittest discover -s automation/feishu -p test_sfdc_command_queue.py -v
+          python3 -m py_compile automation/feishu/sfdc_command_queue.py
+  live:
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheets auth
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Ensure dedicated Feishu command table
+        run: python3 automation/feishu/sfdc_command_queue.py bootstrap
+      - name: Mirror Feishu requests into private inbox
+        if: github.event_name != 'workflow_dispatch' || inputs.mode == 'pull'
+        run: python3 automation/feishu/sfdc_command_queue.py pull
+      - name: Publish completed local results to Feishu
+        if: github.event_name != 'workflow_dispatch' || inputs.mode == 'push'
+        run: python3 automation/feishu/sfdc_command_queue.py push
+      - name: State safe boundary
+        if: always()
+        run: |
+          echo 'FEISHU_QUEUE_ONLY;NO_SALESFORCE_WRITE_FROM_CI;LOCAL_AUTH_REQUIRED;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
