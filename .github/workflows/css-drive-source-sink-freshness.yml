@@ -1,0 +1,42 @@
+name: CSS Drive Source-Sink Freshness (Read Only)
+on:
+  workflow_dispatch:
+  schedule:
+    # 08:10 / 12:10 / 17:10 KST
+    - cron: '10 23,3,8 * * *'
+  pull_request:
+    paths:
+      - 'scripts/css_drive_source_sink_guard.py'
+      - 'scripts/test_css_drive_source_sink_guard.py'
+      - '.github/workflows/css-drive-source-sink-freshness.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test source/sink statuses and privacy
+        run: python3 -m unittest discover -s scripts -p test_css_drive_source_sink_guard.py -v
+
+  live-readonly:
+    needs: synthetic
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    environment: TaehoonServer
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Google client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Compare source mail freshness and WEB_EXPORT
+        run: python3 scripts/css_drive_source_sink_guard.py
