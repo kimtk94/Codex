@@ -7,6 +7,7 @@ import styles from "./page.module.css";
 
 const FEISHU_BASE="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkzYT2OAVQssL3Y";
 const money=(x)=>Number.isSafeInteger(x)?x.toLocaleString("ko-KR")+" KRW":"검증 전";
+const bytes=(v)=>Number.isFinite(v)?(v>=1024?(v/1024).toFixed(1)+" KiB":v.toLocaleString("ko-KR")+" B"):"—";
 const kst=(value)=>value?new Date(value).toLocaleString("ko-KR",{timeZone:"Asia/Seoul",hour12:false}):"기록 없음";
 const empty={sourceOpportunityId:"",sourceQuoteId:"",newOpportunityName:"",
   samples:1,dataSizeGb:1,productUnitOverrideKrw:"",
@@ -176,7 +177,11 @@ export default function PairedQuoteWeb(){
         <div><small>유효한 Opportunity 목록</small><strong>{cacheInfo?.tiers?.list?.fresh??"—"}개 스냅샷</strong></div>
         <div><small>유효한 연결 Quote</small><strong>{cacheInfo?.tiers?.bundle?.fresh??"—"}건</strong></div>
         <div><small>만료된 연결 Quote</small><strong>{cacheInfo?.tiers?.bundle?.stale??"—"}건</strong></div>
+        <div><small>고유 Product Line 템플릿</small><strong>{cacheInfo?.product_line_dictionary?.unique_templates??"—"}개</strong></div>
+        <div><small>중복 재사용 템플릿</small><strong>{cacheInfo?.product_line_dictionary?.reused_templates??"—"}개</strong></div>
+        <div><small>중복 구조 절감량 (논리 데이터)</small><strong>{bytes(cacheInfo?.product_line_dictionary?.logical_bytes_saved)}</strong></div>
       </div>
+      <p className={styles.hint}>동일 Product·공정 구성만 공통 저장합니다. 고객별 단가·할인·수량·Quote 금액은 별도 보관하며, 중복이 없으면 템플릿도 생성하지 않습니다. 절감량은 JSON 논리 크기 비교로 SQLite 실제 파일 크기와 다를 수 있습니다.</p>
       <p className={styles.hint}>마지막 Quote 조회: {kst(cacheInfo?.tiers?.bundle?.last_checked_at_utc)} · 수집값은 예상 견적용이며 새로운 Salesforce Quote 저장 및 최종 금액 검증에 재사용하지 않습니다.</p>
       <div className={styles.actions}>
         <button type="button" disabled={Boolean(busy)||cacheBusy} onClick={warmCache}>
