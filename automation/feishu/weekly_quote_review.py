@@ -30,7 +30,7 @@ SCHEMA=[
     ("Active Evidence KST",1),
     ("Chart Window",1), ("기관",1), ("Opportunity",1),
     ("서비스·공정",1), ("샘플수(공정별)",1),
-    ("참고 금액 K USD",2), ("금액 근거",1),
+    ("참고 금액 K USD",2), ("참고 견적 USD",1), ("금액 근거",1),
     (CHECKBOX,7),
     ("합산 상태",1),
     ("제외 이유",1),
@@ -219,6 +219,8 @@ def review_rows(source,overrides=None,now=None):
             "Chart Window":("RECENT_4_PLUS_CURRENT" if week in shown_weeks else "HISTORY"),
             **detail,
             "참고 금액 K USD":round(float(amount)/1000,4) if amount is not None else None,
+            "참고 견적 USD":("USD "+format(amount,"f") if amount is not None
+                             else "NO_VALUE"),
             "금액 근거":("SOURCE_QQ_PROCESS_OWNER_PARITY" if amount is not None
                         else "NO_VALUE"),
             "합산 상태":NOT_INCLUDED if reason else INCLUDED,
