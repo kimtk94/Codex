@@ -5,7 +5,15 @@ on:
       - 'automation/sfdc/quotation_email_ingest.py'
       - 'automation/sfdc/test_quotation_email_ingest.py'
       - '.github/workflows/sfdc-quotation-email-import.yml'
+      - 'automation/sfdc/quotation_process_mail_audit.py'
+      - 'automation/sfdc/test_quotation_process_mail_audit.py'
   workflow_dispatch:
+    inputs:
+      process_audit:
+        description: Only audit the 25-column Quotation process attachment (no writes)
+        required: false
+        type: boolean
+        default: false
   schedule:
     # Check each hour, including 16:25 KST after a 16:00 report subscription.
     - cron: '25 * * * *'
@@ -15,6 +23,8 @@ on:
       - 'automation/sfdc/quotation_email_ingest.py'
       - 'automation/sfdc/test_quotation_email_ingest.py'
       - '.github/workflows/sfdc-quotation-email-import.yml'
+      - 'automation/sfdc/quotation_process_mail_audit.py'
+      - 'automation/sfdc/test_quotation_process_mail_audit.py'
 permissions:
   contents: read
 concurrency:
@@ -35,7 +45,7 @@ jobs:
         run: python3 automation/sfdc/test_quotation_email_ingest.py
   import:
     needs: offline
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.process_audit)
     environment: TaehoonServer
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -61,3 +71,27 @@ jobs:
       - name: Reconcile approved Quote IDs, Active amounts, weekly totals and master
         if: steps.quote_import.outputs.imported == 'true'
         run: python3 automation/css_mail/sfdc_quote_validation.py
+
+  process_audit:
+    name: Schema-only detailed Quote Report mail audit (no writes)
+    if: github.event_name == 'workflow_dispatch' && inputs.process_audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: TaehoonServer
+    env:
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install parser
+        run: python3 -m pip install 'openpyxl>=3.1,<4'
+      - name: Validate schema parser before inbox access
+        run: python3 -m unittest discover -s automation/sfdc -p test_quotation_process_mail_audit.py -v
+      - name: Inspect QQ 25-column process Report attachments without writes
+        run: python3 automation/sfdc/quotation_process_mail_audit.py
