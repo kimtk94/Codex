@@ -159,7 +159,8 @@ def main():
             out=pull(token,s,tid) if mode=="pull" else push(token,s,tid)
         print(json.dumps(out,sort_keys=True))
     except Exception as exc:
+        safe=str(exc) if isinstance(exc,ValueError) and __import__("re").fullmatch(r"[A-Z][A-Z0-9_]{4,95}",str(exc)) else "API_OR_TRANSPORT_FAILURE"
         print(json.dumps({"status":"BLOCK","error_type":type(exc).__name__,
-                          "mode":mode}),file=sys.stderr)
+                          "reason":safe,"mode":mode}),file=sys.stderr)
         sys.exit(2)
 if __name__=="__main__":main()
