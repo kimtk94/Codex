@@ -16,7 +16,7 @@ class FeishuPriceE2ETests(unittest.TestCase):
           "Approval":"PREFLIGHT","Run Mode":"CHECK","Status":"NEW"}}
         env={"CSS_SFDC_SMOKE_OPPO_ID":f["fields"]["Source Oppo ID"],
              "CSS_SFDC_SMOKE_QUOTE_ID":f["fields"]["Source Quote ID"]}
-        with patch.dict(os.environ,env),patch("sfdc_price_smoke.locate",side_effect=[[],[f]]):
+        with patch.dict(os.environ,env),patch("sfdc_price_smoke.endpoint",return_value="/fake"),patch("sfdc_price_smoke.locate",side_effect=[[],[f]]):
             with patch("sfdc_price_smoke.call",return_value={"record":{"record_id":"recTEST"}}) as api:
                 out=seed("token","tbl")
         self.assertTrue(out["read_only"])
