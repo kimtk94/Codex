@@ -143,7 +143,7 @@ def presentation(key,title,source_index):
 CURATED_VIEW="업무용 메뉴"
 CURATED_DISPLAY="주요"
 ARCHIVE_DISPLAY="관리용"
-# A separate existing Feishu view; do not reduce the curated 12 or delete any records.
+# Existing filtered views and source records remain; shortcut stays five keys.
 SHORTCUT_VIEW="바로가기"
 FULL_VIEW="전체 메뉴"  # all records; separate from five shortcuts and curated views.
 # Actual graph dashboards use Feishu block IDs (blk...), not table/view grids.
@@ -446,7 +446,7 @@ def ensure_shortcut_view(token,path):
     if not shortcut_filter_matches(get_view(token,path,view_id),fid):
         raise SafeError("PORTAL_SHORTCUT_FILTER_READBACK_MISMATCH")
     print("PORTAL_SHORTCUT_FILTER_PASS shown=5 hidden_from_shortcut="
-          +str(len(MENUS)-5)+" unchanged_curated=12 changed="+str(int(changed)))
+          +str(len(MENUS)-5)+" unchanged_curated="+str(len(CURATED_ORDER))+" changed="+str(int(changed)))
     return view_id
 
 
