@@ -218,6 +218,7 @@ def cohort(out, work, ref, gatk):
 def summarise(vcf, root, out, sha):
     import pysam
     co = out / "cohort"
+    co.mkdir(parents=True, exist_ok=True)
     csv_path = co / "joint_variant_audit.csv"
     key_path = root / "outputs/lofreq_genomewide_v9_1/lofreq_integrated_candidate_classification.csv"
     lofreq = set()
