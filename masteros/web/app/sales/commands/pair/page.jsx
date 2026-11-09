@@ -6,6 +6,9 @@ import {previewCandidate,pairWebRequest,priceLines,cloudQuantity} from "../../..
 import styles from "./page.module.css";
 
 const FEISHU_BASE="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkzYT2OAVQssL3Y";
+const FEISHU_REPORT_LINES="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblHme64Ccdj4Fwv";
+const FEISHU_REPORT_PRODUCTS="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tbl2tGZyBlEbyruO";
+const FEISHU_REPORT_PROCESSES="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblD2XMNWeAcvGWe";
 const money=(x)=>Number.isSafeInteger(x)?x.toLocaleString("ko-KR")+" KRW":"검증 전";
 const bytes=(v)=>Number.isFinite(v)?(v>=1024?(v/1024).toFixed(1)+" KiB":v.toLocaleString("ko-KR")+" B"):"—";
 const kst=(value)=>value?new Date(value).toLocaleString("ko-KR",{timeZone:"Asia/Seoul",hour12:false}):"기록 없음";
@@ -217,6 +220,7 @@ export default function PairedQuoteWeb(){
         <p>기존 Salesforce Quote 공정·품목별 가격 → 수량 재계산 → 신규 연결 검증</p></div>
       <div className={styles.nav}>
         <Link href="/sales/commands">기존 업무 실행</Link>
+        <a href={FEISHU_REPORT_LINES} target="_blank" rel="noreferrer">Feishu Quote 상세 Report</a>
         <a href={FEISHU_BASE} target="_blank" rel="noreferrer">Feishu Base</a>
       </div>
     </header>
@@ -228,7 +232,7 @@ export default function PairedQuoteWeb(){
       <div className={styles.panelHead}>
         <span className={styles.step}>R</span>
         <div><h2>Quote Report 우선 검색</h2>
-          <p>인증된 Salesforce 화면을 열지 않고, 이미 수집된 Quote Report의 공정별 Product 가격을 즉시 검색합니다.</p></div>
+          <p>메일 Report → Feishu 상세 테이블 → 웹용 Report 캐시. 기존 Salesforce 화면을 열지 않고 805개 견적의 공정별 가격을 조회합니다.</p></div>
         <Status value={reportStatus?.source_state||"REPORT_NOT_READY"}/>
       </div>
       <div className={styles.statStrip}>
@@ -238,6 +242,12 @@ export default function PairedQuoteWeb(){
         <div><small>공통 공정 구조</small><strong>{reportStatus?.unique_process_definitions??"—"}종</strong></div>
         <div><small>Record ID 매핑</small><strong>{reportStatus?.linked_sfdc_record_count??"—"}건</strong></div>
         <div><small>매핑 대기</small><strong>{reportStatus?.unmapped_sfdc_record_count??"—"}건</strong></div>
+      </div>
+      <p className={styles.hint}>Feishu Report 미러 검증: 2026-11-09 · Quote 805개, Product 889개, 공정별 3,741행. 원본 기준일 2026-10-24로 STALE입니다. 이 웹의 검색 결과는 로컬 Report 캐시에서 제공하며 Feishu API 실시간 조회 결과가 아닙니다.</p>
+      <div className={styles.nav}>
+        <a href={FEISHU_REPORT_LINES} target="_blank" rel="noreferrer">Feishu 공정별 견적 3,741행</a>
+        <a href={FEISHU_REPORT_PRODUCTS} target="_blank" rel="noreferrer">Product 템플릿 102개</a>
+        <a href={FEISHU_REPORT_PROCESSES} target="_blank" rel="noreferrer">공통 공정 37개</a>
       </div>
       <p className={styles.hint}>최신 Quote 생성일: {reportStatus?.newest_quote_created_date||"미확인"} · Report 수집: {kst(reportStatus?.ingested_at_utc)} · {reportStatus?.source||"SOURCE_NOT_READY"}</p>
       <div className={styles.warning}>
