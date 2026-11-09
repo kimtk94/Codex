@@ -99,7 +99,7 @@ export default function Page() {
         <div>
           <p className="eyebrow">MASTEROS · PRIVATE RESEARCH SNAPSHOT</p>
           <h1>Research × CSS Intelligence</h1>
-          <p className="lede">Google Drive → Colab → Obsidian → Web. 고객 개인정보 없이 연구 진행상황과 CSS 집계만 표시합니다.</p>
+          <p className="lede">연구 상태와 CSS 업무 기능을 확인합니다.</p>
         </div>
         <div className="stamp">Snapshot<br/><b>{snapshot.generatedAt}</b></div>
       </header>
@@ -108,12 +108,13 @@ export default function Page() {
         <a href="#overview">Overview</a>
         <a href="#ckd">CKD</a>
         <a href="#css">CSS Summary</a>
-        <a href="/sales/projects">CSS Projects (Live Mirror)</a>
+        <a href="/sales/projects">CSS Projects</a>
+        <a href="/sales/commands">Lead Convert · Oppo · Quote</a>
         <a href="/sales/oppo-quote">Oppo + Quote</a>
       </nav>
 
       <section id="overview">
-        <div className="sectionHead"><div><p className="eyebrow">OVERVIEW</p><h2>현재 상태</h2></div><Badge tone="warn">Historical snapshot — see CSS Projects</Badge></div>
+        <div className="sectionHead"><div><p className="eyebrow">OVERVIEW</p><h2>현재 상태</h2></div><Badge tone="warn">Historical snapshot</Badge></div>
         <div className="metrics six">
           <Metric label="CSS projects" value={css.projects} sub={css.active+" active"} />
           <Metric label="CSS completed" value={css.completed} />
