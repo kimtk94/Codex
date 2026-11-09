@@ -70,7 +70,51 @@ export default function ReportOppoDraft({quote,enabled=true}){
       <p className={styles.hint}>
         참고 Quote {draft.qid} · QQ 메일 수신 {draft.sourceReceivedKst||"미확인"}
         · 기존 Product 가격 USD는 비교 근거일 뿐 KRW/샘플 단가는 아닙니다.
+        · 사전 분류 {draft.referenceIndexStatus}
       </p>
+      <fieldset className={styles.accountOptions} aria-label="Account Contact 처리 방식">
+        <legend><b>Account · Contact 처리 방식</b></legend>
+        <label className={styles.modeOption}>
+          <input type="radio" name={"identity-mode-"+draft.qid} checked={draft.accountMode==="KEEP"}
+            onChange={()=>{setDraft(old=>old?{...old,accountMode:"KEEP",
+              account:{...old.referenceAccount},contact:{...old.referenceContact}}:old);setCheck(null);}}/>
+          기존 Account·Contact 유지 (참고 Quote의 고객 정보)
+        </label>
+        <label className={styles.modeOption}>
+          <input type="radio" name={"identity-mode-"+draft.qid} checked={draft.accountMode==="CHANGE"}
+            onChange={()=>{setDraft(old=>old?{...old,accountMode:"CHANGE",
+              account:{id:"",name:""},contact:{id:"",name:"",email:""}}:old);setCheck(null);}}/>
+          Account·Contact 변경 (신규 고객 또는 다른 기존 고객)
+        </label>
+        {draft.accountMode==="KEEP"?<div className={styles.identitySummary}>
+          <div><b>Account</b><span>{draft.account.name||"미확인"}</span><small>{draft.account.id||"SFDC ID 미확인"}</small></div>
+          <div><b>Contact</b><span>{draft.contact.name||"미확인"}</span>
+            <small>{draft.contact.externalId?"외부 코드 "+draft.contact.externalId+" · CRM ID 재확인 필요":draft.contact.id||"SFDC Contact ID 미확인"}</small></div>
+          <p className={styles.hint}>참고 Quote의 값만 유지합니다. Salesforce Contact 레코드가 일치하는지는 신규 저장 전 재검증합니다.</p>
+        </div>:<div className={styles.grid}>
+          <label>변경할 Account 이름
+            <input aria-label="변경 Account 이름" value={draft.account.name}
+              placeholder="기관 선택 또는 입력" onChange={e=>edit("account",{...draft.account,name:e.target.value})}/>
+          </label>
+          <label>Account Salesforce ID (001...)
+            <input aria-label="변경 Account Salesforce ID" value={draft.account.id}
+              placeholder="확인된 기존 Account ID" onChange={e=>edit("account",{...draft.account,id:e.target.value})}/>
+          </label>
+          <label>변경할 Contact 이름
+            <input aria-label="변경 Contact 이름" value={draft.contact.name}
+              placeholder="담당 고객 이름" onChange={e=>edit("contact",{...draft.contact,name:e.target.value})}/>
+          </label>
+          <label>Contact Salesforce ID (003...)
+            <input aria-label="변경 Contact Salesforce ID" value={draft.contact.id}
+              placeholder="CRM에서 검증 필요" onChange={e=>edit("contact",{...draft.contact,id:e.target.value})}/>
+          </label>
+          <label>Contact 이메일 (선택)
+            <input aria-label="변경 Contact 이메일" value={draft.contact.email||""}
+              placeholder="연결 검증 참고" onChange={e=>edit("contact",{...draft.contact,email:e.target.value})}/>
+          </label>
+          <p className={styles.hint}>변경값은 초안에만 적용됩니다. Account·Contact를 새로 생성하거나 기존 Salesforce 레코드를 변경하지 않습니다.</p>
+        </div>}
+      </fieldset>
       {draft.products.map((p,index)=>{
         const item=amounts?.items[index];
         return <div className={styles.draftProduct} key={p.id}>
@@ -127,7 +171,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
         <b>초안 검증 · {check.status}</b>
         {check.errors.length>0&&<p className={styles.warning}>{check.errors.join(" · ")}</p>}
         <p className={styles.hint}>
-          Oppo와 Quote 이름 동일 · 원본 가격은 USD 참고값 · 고객/Contact와 KRW 단가 원본 미검증 ·
+          Oppo와 Quote 이름 동일 · Account/Contact {draft.accountMode==="KEEP"?"기존 참고":"변경 후 재검증"} · 원본 가격은 USD 참고값 · CRM Contact ID 확인 전 ·
           Salesforce 또는 Feishu 저장 0건
         </p>
       </div>}
