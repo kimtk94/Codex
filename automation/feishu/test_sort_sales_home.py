@@ -32,7 +32,11 @@ class SortTests(unittest.TestCase):
               for i,key in enumerate(s.CURATED_ORDER,1)]
         with mock.patch.object(s,"api",return_value={"items":rows,"has_more":False}):
             self.assertTrue(s.verify_view_rows("token","root","view"))
-        with mock.patch.object(s,"api",return_value={"items":list(reversed(rows)),"has_more":False}), \
+        with mock.patch.object(s,"api",return_value={"items":list(reversed(rows)),"has_more":False}):
+            self.assertTrue(s.verify_view_rows("token","root","view"))
+        bad_rows = list(rows)
+        bad_rows[0] = {"fields":{"Menu Key":s.CURATED_ORDER[0],"표시순서":99}}
+        with mock.patch.object(s,"api",return_value={"items":bad_rows,"has_more":False}), \
              mock.patch.object(s.time,"sleep"):
             with self.assertRaisesRegex(s.SafeError,"READBACK_MISMATCH"):
                 s.verify_view_rows("token","root","view")
