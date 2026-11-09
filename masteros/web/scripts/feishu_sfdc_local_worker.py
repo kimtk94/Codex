@@ -15,7 +15,7 @@ import sys
 import urllib.parse
 from sfdc_quote_price_fields import (
     PRICE_INPUT_FIELDS, PRICE_RESULT_FIELDS,
-    evaluate as evaluate_price, PriceError,
+    evaluate as evaluate_price, evaluate_multi as evaluate_multi_price, PriceError,
 )
 
 BASE="1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
@@ -94,14 +94,18 @@ def prepare_pair(x):
     original=bundle["opportunity"];quote=bundle["linkedQuotes"][0]
     if quote.get("id")!=quoteid or quote.get("opportunityId")!=oppid:
         return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PAIR_MISMATCH"}
-    if quote.get("pricingStatus")!="VERIFIED_PROCESS_LINES" or quote.get("sourceVatRateVerified10Pct") is not True:
-        return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PRICE_UNVERIFIED"}
-    if quote.get("cloudLinePresent") is not True or quote.get("productCount")!=1:
+    multi=isinstance(quote.get("productCount"),int) and quote["productCount"]>1
+    status="VERIFIED_MULTI_PRODUCT_LINES" if multi else "VERIFIED_PROCESS_LINES"
+    if quote.get("pricingStatus")!=status or quote.get("sourceVatRateVerified10Pct") is not True:
+        return {"status":"PREFLIGHT_BLOCK","code":
+            "SOURCE_MULTI_PRODUCT_LINES_NOT_VERIFIED" if multi else "SOURCE_PRICE_UNVERIFIED"}
+    if not multi and (quote.get("cloudLinePresent") is not True or quote.get("productCount")!=1):
         return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PRODUCT_UNVERIFIED"}
     if size!=float(quote.get("dataSize") or 0):
         return {"status":"PREFLIGHT_BLOCK","code":"DATA_SIZE_RATE_UNVERIFIED"}
     try:
-        prices=evaluate_price(quote,n,size,
+        evaluator=evaluate_multi_price if multi else evaluate_price
+        prices=evaluator(quote,n,size,
             x.get("Requested Product Unit KRW",""),
             x.get("Requested Cloud Unit KRW",""))
     except PriceError as exc:
@@ -122,6 +126,13 @@ def prepare_pair(x):
        "contactName":original["contactName"],"opportunityName":name,
        "samples":n,"amountKrw":net,"closeDate":close,
        "progressDescription":progress}
+    if multi:
+        # The existing Salesforce Quote writer is single-product only.
+        # Expose each verified projected unit rate in Feishu, never execute
+        # clone/save until the multi-product UI and final Quote readback work.
+        return {"status":"PRICE_ONLY","code":"MULTI_PRODUCT_QUOTE_FORM_NOT_VERIFIED",
+                "price_fields":prices,"expectedNet":net,
+                "expectedCloudUnits":cloud_count}
     if not quote.get("productCategory") or not quote.get("processNames"):
         return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PRODUCT_CATALOG_UNVERIFIED"}
     quote_req={"action":"quote_create","mode":"check","sourceQuoteId":quoteid,
@@ -153,6 +164,9 @@ def process(x):
         return {"status":"BLOCK","code":r.get("code") or "LEAD_SAVE_READBACK_REQUIRED"}
     if x.get("Action")=="OPPO_QUOTE_PAIR":
         p=prepare_pair(x)
+        if p["status"]=="PRICE_ONLY":
+            return {"status":"PREFLIGHT_BLOCK","code":"MULTI_PRODUCT_QUOTE_FORM_NOT_VERIFIED",
+                    "price_fields":p["price_fields"]}
         if p["status"]!="READY":return p
         if x["Run Mode"]=="SAVE":
             # Do NOT create an Oppo without reliably setting Cloud process
