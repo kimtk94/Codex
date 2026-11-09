@@ -16,6 +16,7 @@ on:
       - 'masteros/web/scripts/test_sfdc_pair_readback.py'
       - 'masteros/web/scripts/sfdc_pair_web_preview.py'
       - 'masteros/web/scripts/sfdc_pair_cache.py'
+      - 'masteros/web/scripts/sfdc_product_line_registry.py'
       - 'masteros/web/scripts/sfdc_pair_cache_warm.py'
       - 'masteros/web/scripts/test_sfdc_pair_cache.py'
       - 'masteros/web/app/api/sfdc/cache-local/**'
@@ -57,6 +58,7 @@ on:
       - 'masteros/web/scripts/test_sfdc_pair_readback.py'
       - 'masteros/web/scripts/sfdc_pair_web_preview.py'
       - 'masteros/web/scripts/sfdc_pair_cache.py'
+      - 'masteros/web/scripts/sfdc_product_line_registry.py'
       - 'masteros/web/scripts/sfdc_pair_cache_warm.py'
       - 'masteros/web/scripts/test_sfdc_pair_cache.py'
       - 'masteros/web/app/api/sfdc/cache-local/**'
@@ -116,6 +118,7 @@ jobs:
           python3 -m unittest discover -s scripts -p test_sfdc_record_catalog.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_pair_readback.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_pair_web_preview.py -v
+          python3 -m py_compile scripts/sfdc_product_line_registry.py scripts/sfdc_pair_cache.py
           python3 -m unittest discover -s scripts -p test_sfdc_pair_cache.py -v
       - name: Validate single-service per-process Cloud 100 Gb rules
         run: python3 -m unittest discover -s scripts -p test_sfdc_single_service_cloud.py -v
