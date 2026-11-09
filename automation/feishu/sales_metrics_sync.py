@@ -1062,10 +1062,18 @@ def main():
         raise SafeError("REFUSE_UNKNOWN_FEISHU_BASE")
     mode=os.environ.get("FEISHU_METRIC_MODE","plan").strip()
     if mode not in ("plan","apply"):raise SafeError("INVALID_METRIC_MODE")
-    sources=sheet_sources()  # Fetch all before any writes.
-    output=prepare_data(sources)
-    # Aggregate-only reconciliation log: no customer identifiers or QIDs in CI.
-    for q in output["Weekly Quote KPI"]:
+    scope=os.environ.get("FEISHU_METRIC_SCOPE","all").strip().lower()
+    if scope not in ("all","quote","operations"):
+        raise SafeError("INVALID_METRIC_SCOPE")
+    sources=sheet_sources()  # Fetch all required source evidence before writing.
+    if scope=="operations":
+        projects=project_rows(sources)
+        output={"Project SIF Monitor":projects,
+                "Project Progress Board":prepare_project_board(sources,projects)}
+    else:
+        output=prepare_data(sources)
+    print("METRIC_SCOPE="+scope+" source_integrity=VERIFIED",flush=True)
+    for q in output.get("Weekly Quote KPI",[]):
         if q.get("Chart Window")!="RECENT_4_PLUS_CURRENT":
             continue
         print("QUOTE_PROCESS_WEEK_RECALC week="+q["Week Start"]+
@@ -1075,47 +1083,54 @@ def main():
               " k_usd="+str(q.get("Calculated Quote Value K USD"))+
               " m_krw="+str(q.get("Calculated Quote Value M KRW FX"))+
               " status="+q["Quote Calculation Source"])
-    matched,billing,audit=build_payment_evidence(sources,
-        sources.get("Feishu Source Manifest",[]))
-    print("PAYMENT_SNAPSHOT_AUDIT projects_with_invoices="+
-          str(audit["projects_with_invoices"])+
-          " projects_source_receipt_complete="+
-          str(audit["projects_source_receipt_complete"])+
-          " my_verified="+str(audit["my_verified_invoice_projects"])+
-          " other_sales="+str(audit["other_sales_invoice_projects"])+
-          " owner_review="+str(audit["owner_review_projects"])+
-          " review_required="+str(audit["projects_review_required"]))
+    matched=billing=None
+    if scope!="quote":
+        matched,billing,audit=build_payment_evidence(
+            sources,sources.get("Feishu Source Manifest",[]))
+        print("PAYMENT_SNAPSHOT_AUDIT projects_with_invoices="+
+              str(audit["projects_with_invoices"])+
+              " projects_source_receipt_complete="+
+              str(audit["projects_source_receipt_complete"])+
+              " my_verified="+str(audit["my_verified_invoice_projects"])+
+              " other_sales="+str(audit["other_sales_invoice_projects"])+
+              " owner_review="+str(audit["owner_review_projects"])+
+              " review_required="+str(audit["projects_review_required"]))
     for name,items in output.items():
         print("METRIC_SOURCE_READY="+name+" rows="+str(len(items)))
     if mode=="plan":
-        print("METRIC_PLAN_PASS writes=0")
+        print("METRIC_PLAN_PASS scope="+scope+" writes=0")
         return
     token,root=auth()
     paths=ensure_tables(token,root)
-    existing_review=board_list_with_retry(
-        token,paths[QUOTE_REVIEW_TABLE],"weekly_review_existing")
-    overrides=quote_manual_overrides(existing_review)
-    review=build_quote_review(sources,overrides)
-    output["Weekly Quote KPI"]=weekly_rows(sources,review=review)
+    if scope!="operations":
+        existing_review=board_list_with_retry(
+            token,paths[QUOTE_REVIEW_TABLE],"weekly_review_existing")
+        overrides=quote_manual_overrides(existing_review)
+        review=build_quote_review(sources,overrides)
+        output["Weekly Quote KPI"]=weekly_rows(sources,review=review)
     setup_views(token,paths)
-    review_flags=sync_quote_review(
-        token,paths[QUOTE_REVIEW_TABLE],review,existing_review,timestamp())
-    if any(overrides.get(r["Source Key"],False)!=
-           review_flags.get(r["Source Key"],False) for r in review):
-        raise SafeError("WEEKLY_REVIEW_OVERRIDE_CONFLICT_BEFORE_KPI")
-    # Prioritize numeric KPI summaries; SIF backfill progresses across scheduled runs.
+    if scope!="operations":
+        review_flags=sync_quote_review(
+            token,paths[QUOTE_REVIEW_TABLE],review,existing_review,timestamp())
+        if any(overrides.get(r["Source Key"],False)!=
+               review_flags.get(r["Source Key"],False) for r in review):
+            raise SafeError("WEEKLY_REVIEW_OVERRIDE_CONFLICT_BEFORE_KPI")
     bounds={"Monthly Tax Invoice":50,"Weekly Quote KPI":120,"Project SIF Monitor":70}
     total=0
-    # Project-by-project web coverage is committed in bounded Feishu batches,
-    # so the new view doesn't remain at the legacy 70-project backfill limit.
-    board=sync_board_table(token,paths["Project Progress Board"],
-                           output["Project Progress Board"],matched,billing)
-    total+=sum(board[:2])
-    for name in ("Monthly Tax Invoice","Weekly Quote KPI","Project SIF Monitor"):
+    if scope!="quote":
+        board=sync_board_table(token,paths["Project Progress Board"],
+                               output["Project Progress Board"],matched,billing)
+        total+=sum(board[:2])
+    targets={
+        "quote":("Weekly Quote KPI",),
+        "operations":("Project SIF Monitor",),
+        "all":("Monthly Tax Invoice","Weekly Quote KPI","Project SIF Monitor"),
+    }[scope]
+    for name in targets:
         result=sync_table(token,paths[name],output[name],bounds[name])
         total+=sum(result[:2])
-    print("FEISHU_SALES_METRIC_APPLY_PASS record_writes="+str(total)+" all_other_feishu_bases_writes=0")
-
+    print("FEISHU_SALES_METRIC_APPLY_PASS scope="+scope+
+          " record_writes="+str(total)+" all_other_feishu_bases_writes=0")
 
 if __name__=="__main__":
     try:main()

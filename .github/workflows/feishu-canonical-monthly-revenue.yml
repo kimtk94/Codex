@@ -9,26 +9,12 @@ on:
       - 'automation/feishu/sales_metrics_sync.py'
       - 'automation/feishu/test_sales_metrics_sync.py'
       - '.github/workflows/feishu-canonical-monthly-revenue.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'automation/feishu/monthly_revenue_canonical.py'
-      - 'automation/feishu/monthly_revenue_actual_sync.py'
-      - 'automation/feishu/sales_metrics_sync.py'
-      - '.github/workflows/feishu-canonical-monthly-revenue.yml'
-  workflow_run:
-    workflows: ['CSS Revenue Source Authority Audit']
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
         type: choice
         options: [plan, apply]
         default: plan
-  schedule:
-    # 09:25, 15:25, 21:25, 03:25 KST; independent of SFDC quote reports
-    - cron: '25 0,6,12,18 * * *'
 permissions:
   contents: read
 concurrency:
