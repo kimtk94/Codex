@@ -1,0 +1,73 @@
+name: Feishu Weekly Quote Checkbox Recalculate
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/quote_checkbox_refresh.py'
+      - 'automation/feishu/test_quote_checkbox_refresh.py'
+      - 'automation/feishu/weekly_quote_review.py'
+      - 'automation/feishu/quote_process_amount.py'
+      - '.github/workflows/feishu-weekly-quote-checkbox.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/quote_checkbox_refresh.py'
+      - 'automation/feishu/weekly_quote_review.py'
+      - '.github/workflows/feishu-weekly-quote-checkbox.yml'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Check manual exclusions and recalculate if changed'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '7,22,37,52 * * * *' # At least every 15 minutes (GitHub may delay).
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('quote-checkbox-pr-{0}',github.event.pull_request.number) || 'sales-weekly-writer' }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check manual exclusions, price evidence, and source-owned fields
+        run: |
+          python -m unittest discover -s automation/feishu -p 'test_quote_checkbox_refresh.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_weekly_quote_review.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
+          python -m py_compile automation/feishu/quote_checkbox_refresh.py
+  refresh:
+    needs: test
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 22
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_METRIC_MODE: apply
+      FEISHU_METRIC_SCOPE: quote
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install verified Feishu and Google source clients
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Poll checkbox only, preserve user edits, reconcile validated KPI on changes
+        run: python3 automation/feishu/quote_checkbox_refresh.py
+      - name: Audit refresh scope
+        if: always()
+        run: |
+          echo 'Quote checkbox review -> quote KPI only; 15-minute schedule with no-op detection.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'User checkbox is never written by the workflow; no Invoice/Payment/Revenue data writes.' >> "$GITHUB_STEP_SUMMARY"
