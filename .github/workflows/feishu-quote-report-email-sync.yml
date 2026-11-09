@@ -1,0 +1,78 @@
+name: Feishu Quote Report Email Source Sync
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate source only or sync source to Feishu
+        required: true
+        type: choice
+        options: [audit, sync]
+        default: audit
+  schedule:
+    # QQ subscribed report import starts at :25. This follows at :40.
+    - cron: '40 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/test_sfdc_quote_report_bridge.py'
+      - '.github/workflows/feishu-quote-report-email-sync.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/test_sfdc_quote_report_bridge.py'
+      - '.github/workflows/feishu-quote-report-email-sync.yml'
+permissions:
+  contents: read
+concurrency:
+  group: sales-weekly-writer
+  cancel-in-progress: false
+jobs:
+  offline:
+    name: Quote Report schema and safe-record regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate quotation parsing and Feishu readback gates
+        run: |
+          python3 -m py_compile automation/feishu/sfdc_quote_report_bridge.py
+          python3 -m unittest discover -s automation/feishu -p test_sfdc_quote_report_bridge.py -v
+  live:
+    needs: offline
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install authenticated Google Sheet transport
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Audit entire mail-origin Quote Report before Feishu writes
+        run: python3 automation/feishu/sfdc_quote_report_bridge.py audit
+      - name: Sync latest source rows to existing user-owned Feishu tables
+        if: github.event_name != 'workflow_dispatch' || inputs.mode == 'sync'
+        run: python3 automation/feishu/sfdc_quote_report_bridge.py sync
+      - name: Report source and sink freshness separately
+        if: always()
+        run: |
+          echo 'SOURCE=SFDC_EMAIL_QUOTATION_RAW;SINK=FEISHU_QUOTE_REPORT_LINES' >> "$GITHUB_STEP_SUMMARY"
+          echo 'PRICE_CURRENCY=USD_CONVERTED_ONLY;KRW_SOURCE_RATE_UNVERIFIED' >> "$GITHUB_STEP_SUMMARY"
+          echo 'UNMAPPED_QUOTE_ID=HOLD;DETAIL_REPORT_RECEIPT_TIME_UNVERIFIED' >> "$GITHUB_STEP_SUMMARY"
+          echo 'CRM_WRITES=0;VERCEL_DEPLOYMENT=0' >> "$GITHUB_STEP_SUMMARY"
