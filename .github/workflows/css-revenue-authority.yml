@@ -6,17 +6,6 @@ on:
       - 'automation/css_mail/test_revenue_source_authority.py'
       - '.github/workflows/css-revenue-authority.yml'
   workflow_dispatch:
-  workflow_run:
-    workflows: ["CSS Verified Net Revenue VAT Audit"]
-    types: [completed]
-  schedule:
-    - cron: '23 1,7,13,19 * * *'
-  push:
-    branches: [main]
-    paths:
-      - 'automation/css_mail/revenue_source_authority.py'
-      - 'automation/css_mail/test_revenue_source_authority.py'
-      - '.github/workflows/css-revenue-authority.yml'
 permissions:
   contents: read
 concurrency:
