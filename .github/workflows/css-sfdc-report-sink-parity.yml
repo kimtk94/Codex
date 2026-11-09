@@ -1,0 +1,73 @@
+name: CSS SFDC Report-to-Generated Link Crosscheck
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '55 0,4,9 * * *' # 09:55, 13:55, 18:55 KST after the report-import windows
+  pull_request:
+    paths:
+      - 'automation/sfdc/three_report_staged_vs_generated_audit.py'
+      - 'automation/sfdc/test_three_report_staged_vs_generated_audit.py'
+      - '.github/workflows/css-sfdc-report-sink-parity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/sfdc/three_report_staged_vs_generated_audit.py'
+      - 'automation/sfdc/test_three_report_staged_vs_generated_audit.py'
+      - '.github/workflows/css-sfdc-report-sink-parity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: css-sfdc-report-sink-parity
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate stable Quote IDs, bounded process rows, and fail-closed derived sink parity
+        run: |
+          python -m py_compile automation/sfdc/three_report_staged_vs_generated_audit.py
+          python -m unittest discover -s automation/sfdc -p 'test_three_report_staged_vs_generated_audit.py' -v
+
+  live-readonly:
+    needs: offline
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Google Sheets read-only dependency
+        run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Independently compare 3 staged reports and generated Quote relations (no writes)
+        run: python automation/sfdc/three_report_staged_vs_generated_audit.py
+      - name: Upload aggregate evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: css-sfdc-stage-generated-link-parity
+          path: audit-results/css-sfdc-report-generated-parity.json
+          if-no-files-found: ignore
+          retention-days: 21
+      - name: Preserve Salesforce object and financial boundaries
+        if: always()
+        run: |
+          echo 'REPORT_STAGE_AND_GENERATED_SINK_ONLY;SFDC_OBJECT_SAVE_NOT_VERIFIED' >> "$GITHUB_STEP_SUMMARY"
+          echo 'NO_SFDC_WRITE;NO_CUSTOMER_MAIL;NO_FINANCE_WRITE;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
