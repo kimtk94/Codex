@@ -1,0 +1,66 @@
+name: CSS WEB_EXPORT_V4 Project Mirror (Private Google Sheets)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 08:25 / 12:25 / 17:25 KST, after upstream mail and Feishu refresh
+    - cron: '25 23,3,8 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/css_project_web_export_v4.py'
+      - 'scripts/test_css_project_web_export_v4.py'
+      - '.github/workflows/css-project-web-export-v4.yml'
+  pull_request:
+    paths:
+      - 'scripts/css_project_web_export_v4.py'
+      - 'scripts/test_css_project_web_export_v4.py'
+      - '.github/workflows/css-project-web-export-v4.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: css-project-web-export-v4
+  cancel-in-progress: false
+
+jobs:
+  contract-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate mirror-only status, uniqueness and no leaked customer data
+        run: python3 -m unittest discover -s scripts -p test_css_project_web_export_v4.py -v
+      - name: Confirm import syntax
+        run: python3 -m py_compile scripts/css_project_web_export_v4.py
+
+  sync-private-drive:
+    needs: contract-test
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    environment: TaehoonServer
+    timeout-minutes: 12
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheets API auth
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Update only WEB_EXPORT_V4 tab and independently verify readback
+        run: python3 scripts/css_project_web_export_v4.py
+      - name: State original-source certification boundary
+        if: always()
+        run: |
+          echo 'MIRROR_SOURCE_TO_SINK_ONLY;NO_FEISHU_ORIGINAL_CERTIFICATION;NO_REVENUE_CERTIFICATION;NO_SFDC_SAVE;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
