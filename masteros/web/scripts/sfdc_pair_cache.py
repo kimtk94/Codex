@@ -19,6 +19,8 @@ import re
 import sqlite3
 import time
 
+from sfdc_product_line_registry import compact, expand, refs, compact_json, TemplateIntegrityError
+
 CACHE_DIR=Path.home()/".sfdc_desktop"
 CACHE_FILE=CACHE_DIR/"sf_oppo_quote_prices_PRIVATE.sqlite3"
 VERSION=1
@@ -40,6 +42,11 @@ def _db():
         observed_utc INTEGER NOT NULL,expires_utc INTEGER NOT NULL,
         schema_version INTEGER NOT NULL,content_sha256 TEXT NOT NULL,
         payload_json TEXT NOT NULL
+    )""")
+    cx.execute("""CREATE TABLE IF NOT EXISTS product_line_templates(
+        template_sha256 TEXT PRIMARY KEY,
+        content_json TEXT NOT NULL,
+        last_seen_utc INTEGER NOT NULL
     )""")
     return cx
 
@@ -104,18 +111,43 @@ def _iso(seconds):
     return dt.datetime.fromtimestamp(seconds,dt.timezone.utc).isoformat(timespec="seconds")
 
 
+def _prune_unused_templates(cx):
+    """Remove templates with no references in the retained cache."""
+    used=set()
+    for (raw,) in cx.execute("SELECT payload_json FROM entries").fetchall():
+        try:
+            used.update(refs(json.loads(raw)))
+        except (TypeError,ValueError,AttributeError):
+            return  # Do not delete metadata when a retained row is unreadable.
+    for (identifier,) in cx.execute("SELECT template_sha256 FROM product_line_templates").fetchall():
+        if identifier not in used:
+            cx.execute("DELETE FROM product_line_templates WHERE template_sha256=?",(identifier,))
+
+
 def save(request,output,now=None):
     if not _valid(request,output):
         return False
     key,kind=key_for(request)
-    # Do not preserve cache metadata from earlier snapshots.
+    # Only shared structural metadata is normalized; per-customer prices,
+    # pack quantity, discounts and Quote IDs remain in the individual snapshot.
     payload={k:v for k,v in output.items() if k!="cache"}
-    raw=json.dumps(payload,ensure_ascii=False,separators=(",",":"),sort_keys=True)
+    try:
+        payload,templates=compact(payload)
+    except (TemplateIntegrityError,TypeError,ValueError):
+        return False
+    raw=compact_json(payload)
     if len(raw.encode("utf-8"))>MAX_RECORD_BYTES:
         return False
     checked=int(time.time() if now is None else now)
     sha=hashlib.sha256(raw.encode("utf-8")).hexdigest()
     with _connect() as cx:
+        for identifier,template in templates.items():
+            cx.execute("""INSERT INTO product_line_templates(
+                template_sha256,content_json,last_seen_utc)
+                VALUES(?,?,?)
+                ON CONFLICT(template_sha256) DO UPDATE SET
+                last_seen_utc=excluded.last_seen_utc""",
+                (identifier,compact_json(template),checked))
         cx.execute("""INSERT INTO entries(cache_key,kind,observed_utc,expires_utc,schema_version,content_sha256,payload_json)
             VALUES(?,?,?,?,?,?,?)
             ON CONFLICT(cache_key) DO UPDATE SET kind=excluded.kind,
@@ -123,8 +155,8 @@ def save(request,output,now=None):
             schema_version=excluded.schema_version,content_sha256=excluded.content_sha256,
             payload_json=excluded.payload_json""",
             (key,kind,checked,checked+TTL_SECONDS[kind],VERSION,sha,raw))
-        # Avoid retaining private records indefinitely.
         cx.execute("DELETE FROM entries WHERE expires_utc<?",(checked-86400,))
+        _prune_unused_templates(cx)
     return True
 
 
@@ -137,11 +169,16 @@ def lookup(request,now=None):
         with _connect() as cx:
             row=cx.execute("""SELECT observed_utc,expires_utc,schema_version,content_sha256,payload_json
                 FROM entries WHERE cache_key=?""",(identity[0],)).fetchone()
-        if row is None or row[2]!=VERSION or row[1]<=checked or row[0]>checked+60:
-            return None
-        if hashlib.sha256(row[4].encode("utf-8")).hexdigest()!=row[3]:
-            return None
-        output=json.loads(row[4])
+            if row is None or row[2]!=VERSION or row[1]<=checked or row[0]>checked+60:
+                return None
+            if hashlib.sha256(row[4].encode("utf-8")).hexdigest()!=row[3]:
+                return None
+            persisted=json.loads(row[4])
+            def fetch_template(identifier):
+                found=cx.execute("""SELECT content_json FROM product_line_templates
+                    WHERE template_sha256=?""",(identifier,)).fetchone()
+                return json.loads(found[0]) if found else None
+            output=expand(persisted,fetch_template)
         if not _valid(request,output):
             return None
         output["cache"]={"state":"FRESH_CACHE","checked_at_utc":_iso(row[0]),
