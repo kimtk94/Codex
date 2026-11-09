@@ -35,8 +35,8 @@ HEADER=("SFDC Quotation ID","Quotation Product ID",
  "Quotation PDF Created Time","Data Unit","Sample Quantity","Data Size")
 
 
-def load_staged_chunks(folder=STAGING):
-    folder=Path(folder)
+def load_staged_chunks(folder=None):
+    folder=Path(STAGING if folder is None else folder)
     if folder.resolve()!=STAGING.resolve():
         raise ReportError("UNEXPECTED_SHEET_STAGE")
     parts=sorted(folder.glob("part_*.json"))
