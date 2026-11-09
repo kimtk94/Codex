@@ -329,7 +329,7 @@ class MetricsTests(unittest.TestCase):
                                    "Active":"ACTIVE","Quote USD":"2500000"}]
         row=m.weekly_rows(source,now=self._now())[0]
         self.assertEqual(row["Approved Quote Count"],1)
-        self.assertEqual(row["Verified Amount Quote Count"],0)
+        self.assertIsNone(row["Verified Amount Quote Count"])
         self.assertIsNone(row["Unmatched Amount Count"])
         self.assertIsNone(row["Included Quote Count"])
         self.assertEqual(row["Active Coverage Status"],"NO_VALUE_ACTIVE_STATUS")
@@ -434,9 +434,13 @@ class MetricsTests(unittest.TestCase):
         source=fixture.finalize(source)
         row=m.weekly_rows(source,now=fixture.NOW)[0]
         self.assertEqual(row["Approved Quote Count"],2)
+        self.assertEqual(row["Included Quote Count"],1)
+        self.assertEqual(row["Active Unverified Quote Count"],1)
         self.assertEqual(row["Calculated Quote Count"],1)
-        self.assertEqual(row["Quote Amount Exception Count"],1)
-        self.assertEqual(row["Amount Status"],"PROCESS_PRICE_CALCULATED_PARTIAL")
+        # Missing current QID in authenticated report is unverified Active,
+        # not a confirmed priced-Quote exception.
+        self.assertEqual(row["Quote Amount Exception Count"],0)
+        self.assertEqual(row["Amount Status"],"PROCESS_PRICE_CALCULATED_COMPLETE")
         self.assertEqual(row["Calculated Quote Value K USD"],0.154)
 
     def test_stale_or_bad_quotation_source_wipes_calculated_estimates(self):
