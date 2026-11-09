@@ -36,6 +36,8 @@ function Status({value}){
 
 export default function PairedQuoteWeb(){
   const [reportQuery,setReportQuery]=useState("");
+  const [reportBackend,setReportBackend]=useState("FEISHU");
+  const reportEndpoint=reportBackend==="FEISHU"?"/api/sfdc/feishu-report-local":"/api/sfdc/report-local";
   const [reportStatus,setReportStatus]=useState(null);
   const [reportRows,setReportRows]=useState([]);
   const [reportSelected,setReportSelected]=useState(null);
@@ -126,7 +128,7 @@ export default function PairedQuoteWeb(){
 
   const getReportStatus=useCallback(async()=>{
     try{
-      const response=await fetch("/api/sfdc/report-local",{
+      const response=await fetch(reportEndpoint,{
         headers:{"X-SFDC-Command":"1"},cache:"no-store",credentials:"omit"
       });
       const data=await response.json();
@@ -134,31 +136,31 @@ export default function PairedQuoteWeb(){
       if(data.status!=="PASS")setReportError(data.code||"REPORT_NOT_INDEXED");
       return data;
     }catch{setReportStatus(null);setReportError("REPORT_SOURCE_UNAVAILABLE");return null;}
-  },[]);
+  },[reportEndpoint]);
 
   const searchReport=useCallback(async(text="")=>{
     setReportBusy("SEARCH");setReportError("");setReportSelected(null);
     try{
-      const data=await localRead("/api/sfdc/report-local",{
+      const data=await localRead(reportEndpoint,{
         mode:"SEARCH",query:text,limit:25
       });
       if(data.status!=="PASS")throw Error(data.code||"REPORT_SEARCH_FAILED");
       setReportRows(data.rows||[]);
     }catch(e){setReportRows([]);setReportError(e.message||"REPORT_SEARCH_FAILED");
     }finally{setReportBusy("");}
-  },[]);
+  },[reportEndpoint]);
 
   useEffect(()=>{
-    if(reportStarted.current)return;
-    reportStarted.current=true;
+    if(reportStarted.current===reportBackend)return;
+    reportStarted.current=reportBackend;
     getReportStatus();
     searchReport("");
-  },[getReportStatus,searchReport]);
+  },[getReportStatus,searchReport,reportBackend]);
 
   async function chooseReport(item){
     setReportBusy("DETAIL");setReportError("");setReportSelected(null);
     try{
-      const data=await localRead("/api/sfdc/report-local",{
+      const data=await localRead(reportEndpoint,{
         mode:"DETAIL",id:item.qid
       });
       if(data.status!=="PASS")throw Error(data.code||"REPORT_DETAIL_UNAVAILABLE");
@@ -170,7 +172,7 @@ export default function PairedQuoteWeb(){
   async function syncStagedReport(){
     setReportBusy("SYNC");setReportError("");setReportSelected(null);
     try{
-      const data=await localRead("/api/sfdc/report-local",{mode:"SYNC_STAGED"});
+      const data=await localRead(reportEndpoint,{mode:reportBackend==="FEISHU"?"REFRESH":"SYNC_STAGED"});
       if(data.status!=="PASS")throw Error(data.code||"SHEET_SYNC_FAILED");
       setReportStatus(data);
       setReportRows([]);
@@ -217,7 +219,7 @@ export default function PairedQuoteWeb(){
     <header className={styles.header}>
       <div><p className={styles.eyebrow}>SALES AUTOMATION / VERIFIED WORKSPACE</p>
         <h1>Opportunity → Quote 통합 검증</h1>
-        <p>기존 Salesforce Quote 공정·품목별 가격 → 수량 재계산 → 신규 연결 검증</p></div>
+        <p>Feishu의 저장된 Quote Report → 공정별 단가 조회 → 필요한 경우에만 Salesforce 재검증</p></div>
       <div className={styles.nav}>
         <Link href="/sales/commands">기존 업무 실행</Link>
         <a href={FEISHU_REPORT_LINES} target="_blank" rel="noreferrer">Feishu Quote 상세 Report</a>
@@ -232,7 +234,7 @@ export default function PairedQuoteWeb(){
       <div className={styles.panelHead}>
         <span className={styles.step}>R</span>
         <div><h2>Quote Report 우선 검색</h2>
-          <p>메일 Report → Feishu 상세 테이블 → 웹용 Report 캐시. 기존 Salesforce 화면을 열지 않고 805개 견적의 공정별 가격을 조회합니다.</p></div>
+          <p>메일 Report → Feishu 상세 테이블 → 웹용 검색 캐시. 기본값은 로그인된 Feishu 원본이며 Salesforce 화면을 열지 않습니다.</p></div>
         <Status value={reportStatus?.source_state||"REPORT_NOT_READY"}/>
       </div>
       <div className={styles.statStrip}>
@@ -243,7 +245,7 @@ export default function PairedQuoteWeb(){
         <div><small>Record ID 매핑</small><strong>{reportStatus?.linked_sfdc_record_count??"—"}건</strong></div>
         <div><small>매핑 대기</small><strong>{reportStatus?.unmapped_sfdc_record_count??"—"}건</strong></div>
       </div>
-      <p className={styles.hint}>Feishu Report 미러 검증: 2026-11-09 · Quote 805개, Product 889개, 공정별 3,741행. 원본 기준일 2026-10-24로 STALE입니다. 이 웹의 검색 결과는 로컬 Report 캐시에서 제공하며 Feishu API 실시간 조회 결과가 아닙니다.</p>
+      <p className={styles.hint}>조회 경로: {reportBackend==="FEISHU"?"로그인된 Feishu → 검증된 로컬 검색 캐시":"Google Sheet Report 보조 캐시"} · Feishu 직접 수집 시각 {kst(reportStatus?.ingested_at_utc)} · 원본 Report 기준 시각 {reportStatus?.source_report_exported_kst||"별도 미확인"} · KRW 단가 미검증</p>
       <div className={styles.nav}>
         <a href={FEISHU_REPORT_LINES} target="_blank" rel="noreferrer">Feishu 공정별 견적 3,741행</a>
         <a href={FEISHU_REPORT_PRODUCTS} target="_blank" rel="noreferrer">Product 템플릿 102개</a>
@@ -258,8 +260,12 @@ export default function PairedQuoteWeb(){
           onChange={e=>setReportQuery(e.target.value)}
           placeholder="Quote ID · 기관 · Contact · 공정명"/>
         <button type="submit" disabled={Boolean(reportBusy)||!reportStatus}>Report 검색</button>
-        <button type="button" disabled={Boolean(reportBusy)||!reportStatus}
-          onClick={syncStagedReport}>저장된 최신 Report 재색인</button>
+        <button type="button" disabled={Boolean(reportBusy)}
+          onClick={syncStagedReport}>{reportBackend==="FEISHU"?"Feishu 원본 다시 불러오기":"보조 Report 재색인"}</button>
+        <button type="button" disabled={Boolean(reportBusy)}
+          onClick={()=>{setReportBackend(reportBackend==="FEISHU"?"LOCAL":"FEISHU");setReportRows([]);setReportSelected(null);setReportStatus(null);setReportError("");}}>
+          {reportBackend==="FEISHU"?"보조 Google Report 대조":"Feishu 원본 사용"}
+        </button>
       </form>
       {reportError&&<p className={styles.warning} role="alert">Report 확인 필요: {reportError}</p>}
       <div className={styles.results} aria-label="Quote Report 검색 결과">
@@ -274,7 +280,7 @@ export default function PairedQuoteWeb(){
       </div>
       {reportSelected&&<div className={styles.source} aria-live="polite">
         <div className={styles.inlineHead}><b>{reportSelected.qid} · Report 공정별 단가</b>
-          <Status value="REPORT_USD_ONLY"/></div>
+          <Status value={reportBackend==="FEISHU"?"FEISHU_REPORT_USD_ONLY":"GOOGLE_REPORT_USD_ONLY"}/></div>
         <div className={styles.tableScroll}>
           <table><thead><tr><th>Quote Product</th><th>공정</th><th>Data Unit</th>
             <th>단가 (환산 USD)</th><th>샘플</th><th>Data Size</th></tr></thead>
