@@ -281,7 +281,7 @@ def verify_view_rows(token, table_path, view_id):
     print("PORTAL_SORT_SOURCE_PASS total=" + str(len(expected))
           + " curated=" + str(len(PINNED_KEYS))
           + " managed=" + str(len(expected) - len(PINNED_KEYS))
-          + " priorities=01_to_12 colors=verified")
+          + " priorities=01_to_"+str(len(CURATED_ORDER))+" colors=verified")
     return True
 
 
