@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 import hashlib
+import gzip
 import json
 import os
 from pathlib import Path
@@ -39,14 +40,20 @@ def load_staged_chunks(folder=None):
     folder=Path(STAGING if folder is None else folder)
     if folder.resolve()!=STAGING.resolve():
         raise ReportError("UNEXPECTED_SHEET_STAGE")
-    parts=sorted(folder.glob("part_*.json"))
+    names={}
+    for path in sorted(folder.glob("part_*.json")):
+        names[path.stem]=path
+    for path in sorted(folder.glob("part_*.json.gz")):
+        names[path.name[:-8]]=path  # part_000.json.gz -> part_000
+    parts=[names[k] for k in sorted(names)]
     if not parts:
         raise ReportError("SHEET_REPORT_NOT_STAGED")
     first=2
     rows=[]
     hashes=[]
     for path in parts:
-        value=path.read_bytes()
+        raw=path.read_bytes()
+        value=gzip.decompress(raw) if path.name.endswith(".json.gz") else raw
         if len(value)>900000:raise ReportError("SHEET_PART_TOO_LARGE")
         payload=json.loads(value.decode("utf-8"))
         if (not isinstance(payload,dict) or payload.get("source")!="SFDC_Email_Quotation_Raw"
