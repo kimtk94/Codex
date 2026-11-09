@@ -35,7 +35,7 @@ WORKFLOWS=(
 KST=ZoneInfo("Asia/Seoul")
 FIELDS=(
     ("실행명",1),("Run Key",1),("워크플로",1),("운영 여부",1),
-    ("실행 구분",1),("실행 상태",1),("원본 검증",1),("결과 검증",1),
+    ("최근 표시",1),("실행 구분",1),("실행 상태",1),("원본 검증",1),("결과 검증",1),
     ("검증 상태",1),("단계별 결과",1),
     ("시작 KST",1),("종료 KST",1),("실제 소요 분",2),
     ("예약 시간 KST",1),("다음 예약 KST",1),
@@ -43,8 +43,11 @@ FIELDS=(
 )
 VISIBLE=("실행명","실행 상태","원본 검증","결과 검증","단계별 결과",
          "실행 구분","시작 KST","종료 KST","다음 예약 KST","실행 링크")
-VIEW_FILTERS=((VIEW_OPERATION,"운영 여부","OPERATION"),
-              (VIEW_PROBLEMS,"검증 상태","CHECK"),(VIEW_ALL,None,None))
+VIEW_FILTERS=(
+    (VIEW_OPERATION,(("최근 표시","RECENT"),)),
+    (VIEW_PROBLEMS,(("최근 표시","RECENT"),("검증 상태","CHECK"))),
+    (VIEW_ALL,()),
+)
 
 
 def gh(path):
@@ -244,7 +247,7 @@ def build_row(label,run,jobs,schedule,now):
     return {
         "실행명":label+" · "+show_time(start),
         "Run Key":label.split(" ")[0].upper()+":"+str(run_id),
-        "워크플로":label,"운영 여부":operation,
+        "워크플로":label,"운영 여부":operation,"최근 표시":"HISTORY",
         "실행 구분":kind,"실행 상태":state,
         "원본 검증":source,"결과 검증":sink,"검증 상태":verdict,
         "단계별 결과":" / ".join(k+"="+v for k,v in parts.items()),
@@ -270,7 +273,11 @@ def collect_rows(now):
         testing=[r for r in runs if r.get("event")=="pull_request"]
         if not operating:
             raise SafeError("HISTORY_NO_MAIN_BRANCH_OPERATING_RUNS")
-        for run in operating[:12]+testing[:5]:
+        for i,run in enumerate(operating[:12]):
+            row=build_row(label,run,get_jobs(run["id"]),schedules[label],now)
+            row["최근 표시"]="RECENT" if i<6 and row["운영 여부"]=="OPERATION" else "HISTORY"
+            result.append(row)
+        for run in testing[:5]:
             result.append(build_row(label,run,get_jobs(run["id"]),schedules[label],now))
     keys=[r["Run Key"] for r in result]
     if len(set(keys))!=len(keys):
@@ -318,40 +325,46 @@ def ensure_table(token,root):
     return tid,path
 
 
-def filter_config(field_id,value):
-    return {"conjunction":"and","conditions":[{
-        "field_id":field_id,"operator":"is",
-        "value":json.dumps([value],ensure_ascii=False),
-    }]}
+def filter_config(criteria,field_ids):
+    conditions=[]
+    for name,value in criteria:
+        if name not in field_ids or not field_ids[name]:
+            raise SafeError("HISTORY_FILTER_FIELD_NOT_FOUND")
+        conditions.append({"field_id":field_ids[name],"operator":"is",
+                           "value":json.dumps([value],ensure_ascii=False)})
+    return {"conjunction":"and","conditions":conditions}
 
 
-def matches_filter(view,field_id,value):
-    filt=((view.get("property") or {}).get("filter_info") or {})
-    cond=filt.get("conditions") or []
-    if value is None:
-        return not cond
-    return filt.get("conjunction")=="and" and len(cond)==1 and (
-        cond[0].get("field_id")==field_id and
-        cond[0].get("operator")=="is" and
-        json.loads(cond[0].get("value") or "null")==[value])
+def matches_filter(view,criteria,field_ids):
+    current=((view.get("property") or {}).get("filter_info") or {})
+    conditions=current.get("conditions") or []
+    if not criteria:
+        return not conditions
+    if current.get("conjunction")!="and" or len(conditions)!=len(criteria):
+        return False
+    expected=filter_config(criteria,field_ids)["conditions"]
+    def key(condition):
+        try:
+            parsed=json.loads(condition.get("value") or "null")
+        except (TypeError,ValueError):
+            return None
+        return condition.get("field_id"),condition.get("operator"),parsed
+    return all(key(a)==key(b) for a,b in zip(conditions,expected))
 
 
 def ensure_views(token,path):
     fields={f.get("field_name"):f.get("field_id") for f in get_fields(token,path)}
     views={}
-    for name,field,value in VIEW_FILTERS:
-        vid,_=resolve_view(token,path,name,field is not None)
+    for name,criteria in VIEW_FILTERS:
+        vid,_=resolve_view(token,path,name,bool(criteria))
         current=get_view(token,path,vid)
-        field_id=fields.get(field) if field else None
-        if field and not field_id:
-            raise SafeError("HISTORY_FILTER_FIELD_NOT_FOUND")
-        if current.get("view_name")!=name or not matches_filter(current,field_id,value):
-            info=filter_config(field_id,value) if field else {"conjunction":"and","conditions":[]}
+        if current.get("view_name")!=name or not matches_filter(current,criteria,fields):
+            info=filter_config(criteria,fields)
             api("PATCH",path+"/views/"+urllib.parse.quote(vid,safe=""),token,
                 data={"view_name":name,"property":{"filter_info":info}},
                 action="history_configure_view")
         after=get_view(token,path,vid)
-        if after.get("view_name")!=name or after.get("view_type")!="grid" or not matches_filter(after,field_id,value):
+        if after.get("view_name")!=name or after.get("view_type")!="grid" or not matches_filter(after,criteria,fields):
             raise SafeError("HISTORY_VIEW_READBACK_FAILED")
         views[name]=vid
     return views
@@ -437,6 +450,14 @@ def write_rows(token,path,rows):
             raise SafeError("HISTORY_EXISTING_DUPLICATE_OR_BAD_KEY")
         indexed[key]=record
     create=[]; update=[]; same=0
+    desired_keys={item["Run Key"] for item in rows}
+    # Historical rows are never deleted. When a run falls out of the rolling
+    # window, clear only its synthetic "recent" flag.
+    for key,record in indexed.items():
+        if key not in desired_keys and plain_field(
+                (record.get("fields") or {}).get("최근 표시"))=="RECENT":
+            update.append({"record_id":record["record_id"],
+                           "fields":{"최근 표시":"HISTORY"}})
     for item in rows:
         key=item["Run Key"]
         old=indexed.get(key)
@@ -464,6 +485,10 @@ def write_rows(token,path,rows):
     if any(r["Run Key"] not in observed or not visible_equal(observed[r["Run Key"]],r)
            for r in rows):
         raise SafeError("HISTORY_SOURCE_TO_SINK_READBACK_MISMATCH")
+    if any(plain_field(observed[k].get("최근 표시"))!="HISTORY"
+           for k in indexed if k not in desired_keys
+           and plain_field((indexed[k].get("fields") or {}).get("최근 표시"))=="RECENT"):
+        raise SafeError("HISTORY_OLD_RECENT_FLAG_NOT_CLEARED")
     print("HISTORY_SINK_READBACK_PASS desired="+str(len(rows))+
           " created="+str(len(create))+" updated="+str(len(update))+
           " unchanged="+str(same)+" records_deleted=0")
