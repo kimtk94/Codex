@@ -408,6 +408,29 @@ def search(query="",limit=25):
         raise FeishuSourceError("FEISHU_SEARCH_INVALID")
     if status().get("status")!="PASS":
         raise FeishuSourceError("FEISHU_REPORT_NOT_SYNCED")
+    try:
+        import sfdc_feishu_preclassified_local as pre
+        if pre.status().get("status")=="PASS":
+            matching=pre.search_reference(query,limit)
+            with _connect() as db:
+                items=[]
+                for row in matching["rows"]:
+                    data=db.execute("""SELECT COUNT(DISTINCT quote_product),COUNT(*),
+                        MAX(created),MAX(source_status),MAX(quote_record_id)
+                        FROM quote_lines WHERE qid=?""",(row["qid"],)).fetchone()
+                    if data and data[1]:
+                        items.append({"qid":row["qid"],"sfdc_record_id":data[4],
+                            "product_count":data[0],"process_lines":data[1],
+                            "created_date":data[2],"source_status":data[3],
+                            "account_name":row["account_name"],
+                            "contact_name":row["contact_name"],
+                            "opportunity_name":row["opportunity_name"]})
+            return {"status":"PASS","source":"FEISHU_PRECLASSIFIED_QUOTE_REFERENCES",
+                "source_state":status()["source_state"],"rows":items,
+                "currency":"USD_CONVERTED_ONLY","krw_rate_verified":False,
+                "salesforce_write":False,"feishu_writes":0,"local_only":True}
+    except (ImportError,FeishuSourceError,OSError,sqlite3.DatabaseError,ValueError):
+        pass
     cx=_connect()
     try:
         pat="%"+query+"%"
@@ -450,7 +473,15 @@ def detail(identifier):
         if len(rows)>120:raise FeishuSourceError("FEISHU_QUOTE_TOO_MANY_LINES")
         rec_ids={r[9] for r in rows}
         if len(rec_ids)!=1:raise FeishuSourceError("FEISHU_QUOTE_RECORD_ID_CONFLICT")
+        try:
+            import sfdc_feishu_preclassified_local as pre
+            reference=pre.get_reference(identifier)
+        except (ImportError,OSError,sqlite3.DatabaseError,FeishuSourceError):
+            reference=None
+        if reference is not None and reference.get("sourceQuoteRecordId")!=rows[0][9]:
+            raise FeishuSourceError("FEISHU_PREINDEX_QUOTE_IDENTITY_CONFLICT")
         return {"status":"PASS","source":SOURCE,"source_state":status()["source_state"],
+            "reference":reference,
             "qid":identifier,"sfdc_record_id":rows[0][9],
             "product_count":len({r[0] for r in rows}),
             "source_report_exported_kst":rows[0][11],
@@ -471,7 +502,18 @@ def run(request):
         raise FeishuSourceError("FEISHU_INPUT_INVALID")
     mode=request.get("mode")
     if mode=="STATUS":return status()
-    if mode=="REFRESH":return refresh()
+    if mode=="REFRESH":
+        result=refresh()
+        import sfdc_feishu_preclassified_local as pre
+        proof=pre.refresh()
+        return {**result,"preclassified":proof,
+                "preclassified_ready":proof.get("status")=="PASS"}
+    if mode=="REFRESH_REFERENCES":
+        import sfdc_feishu_preclassified_local as pre
+        return pre.refresh()
+    if mode=="REFERENCE_STATUS":
+        import sfdc_feishu_preclassified_local as pre
+        return pre.status()
     if mode=="SEARCH":return search(request.get("query",""),request.get("limit",25))
     if mode=="DETAIL":return detail(request.get("id"))
     raise FeishuSourceError("FEISHU_READ_ONLY_MODE_REQUIRED")
