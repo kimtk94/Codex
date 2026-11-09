@@ -52,6 +52,11 @@ def integer(x):
         n=int(x)
         return n if n>0 and n<=500 and str(n)==str(x).strip() else None
     except (ValueError,TypeError):return None
+def money(x):
+    try:
+        n=int(x)
+        return n if n>0 and n<=1000000000 else None
+    except (ValueError,TypeError):return None
 def quantity(x):
     try:
         n=float(x)
@@ -79,8 +84,8 @@ def prepare_pair(x):
         return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PRODUCT_UNVERIFIED"}
     if size!=float(quote.get("dataSize") or 0):
         return {"status":"PREFLIGHT_BLOCK","code":"DATA_SIZE_RATE_UNVERIFIED"}
-    unit=integer(quote.get("sampleUnitNetKrw"))
-    cloud=integer(quote.get("cloudUnitNetKrw"))
+    unit=money(quote.get("sampleUnitNetKrw"))
+    cloud=money(quote.get("cloudUnitNetKrw"))
     if not unit or not cloud:
         return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_UNIT_PRICE_UNVERIFIED"}
     if name==original.get("name"):
