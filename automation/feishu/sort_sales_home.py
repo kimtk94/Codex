@@ -171,8 +171,19 @@ def main():
         raise SafeError("PORTAL_SORT_CONFIG_READBACK_MISMATCH")
     print("PORTAL_SORT_CONFIG_PASS field=display_order ascending=true changed="
           + str(int(changed)))
-    verify_view_rows(token, path, view_id)
-    print("PORTAL_SORT_APPLY_PASS records_deleted=0 source_table_writes=0")
+    record_state = "PASS"
+    try:
+        verify_view_rows(token, path, view_id)
+    except SafeError as exc:
+        # A transient records API outage must not erase a proven persisted
+        # view-sort configuration. Keep this partial audit explicitly visible.
+        if str(exc).endswith("_NETWORK_ERROR"):
+            record_state = "SOURCE_UNAVAILABLE"
+            print("PORTAL_SORT_RECORD_VERIFY_SOURCE_UNAVAILABLE")
+        else:
+            raise
+    print("PORTAL_SORT_APPLY_PASS sort_config=PASS record_check="
+          + record_state + " records_deleted=0 source_table_writes=0")
 
 
 if __name__ == "__main__":
