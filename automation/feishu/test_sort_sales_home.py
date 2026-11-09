@@ -13,6 +13,18 @@ class SortTests(unittest.TestCase):
                       {"sort_config":[{"field":"화면","desc":False}]}):
             self.assertFalse(s.sort_matches(value, "fld123"))
 
+    def test_full_group_policy(self):
+        self.assertEqual(s.FULL_VIEW,"전체 메뉴")
+        self.assertEqual(s.FULL_GROUP_FIELD,"그룹")
+        self.assertTrue(s.group_matches(s.FULL_GROUP,"fldGroup"))
+        self.assertTrue(s.group_matches(
+            {"data":{"group_config":[{"field":"fldGroup","desc":False}]}},
+            "fldGroup"))
+        self.assertFalse(s.group_matches(
+            {"group_config":[{"field":"그룹","desc":True}]},"fldGroup"))
+        self.assertFalse(s.group_matches({"group_config":[]},"fldGroup"))
+        self.assertEqual(len(s.MENUS),34)
+
     def test_shortcut_filter_and_layout_unchanged(self):
         self.assertEqual(s.SHORTCUT_VIEW,"바로가기")
         self.assertEqual(set(s.SHORTCUT_KEYS),{
