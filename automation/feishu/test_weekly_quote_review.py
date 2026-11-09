@@ -116,6 +116,42 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(row["제외 이유"],"ACTIVE_NOT_VERIFIED")
         self.assertEqual(row["Active Evidence Source"],"NO_VALUE")
 
+    def test_recent_five_week_grid_and_context_verified(self):
+        import test_quote_process_amount as fixture
+        src=fixture.fixture(count=1)
+        for row in src["SFDC Email Quotation Raw"]:
+            row["Account Name: Account Name"]="Korea Sample University"
+            row["Opportunity Name: Opportunity Name"]="Project RNA"
+            row["Quote Process Name"]="Sequencing"
+        src["SFDC Weekly Overview"]=[
+            {"week_start":(fixture.dt.date(2026,10,2)+
+                 fixture.dt.timedelta(days=7*i)).isoformat(),
+             "weekly_basis":("FRI_THU_IN_PROGRESS" if i==5
+                             else "FRI_THU_CSS_EXISTING")}
+            for i in range(6)]
+        src=fixture.finalize(src)
+        items=q.review_rows(src,now=fixture.NOW)
+        self.assertEqual(len(items),1)
+        row=items[0]
+        self.assertEqual(row["기관"],"Korea Sample University")
+        self.assertEqual(row["Opportunity"],"Project RNA")
+        self.assertEqual(row["서비스·공정"],"Sequencing")
+        self.assertEqual(row["참고 금액 K USD"],0.154)
+        self.assertEqual(row["금액 근거"],"SOURCE_QQ_PROCESS_OWNER_PARITY")
+        self.assertEqual(row["Chart Window"],"RECENT_4_PLUS_CURRENT")
+        self.assertEqual(q.chart_window_weeks(src,fixture.NOW),
+                         {"2026-10-09","2026-10-16","2026-10-23","2026-10-30","2026-11-06"})
+        self.assertTrue(q.equal_source(row,dict(row)))
+        self.assertTrue(q.equal_source({**row,"참고 금액 K USD":0.154},
+                                       dict(row)))
+
+    def test_unverified_amount_is_empty_and_checkbox_preserved(self):
+        data=source()
+        a=q.review_rows(data,now=NOW)[0]
+        self.assertIsNone(a["참고 금액 K USD"])
+        self.assertEqual(a["금액 근거"],"NO_VALUE")
+        self.assertTrue(q.equal_source({**a,"참고 금액 K USD":None},a))
+
     def test_strict_override_reader(self):
         self.assertTrue(q.checkbox(True))
         self.assertTrue(q.checkbox("true"))
