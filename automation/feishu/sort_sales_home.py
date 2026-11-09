@@ -90,10 +90,15 @@ def verify_view_rows(token, table_path, view_id):
         keys = [plain_field((r.get("fields") or {}).get("Menu Key")).strip()
                 for r in rows]
         positions = [(r.get("fields") or {}).get(SORT_FIELD) for r in rows]
-        if (not data.get("has_more")
-                and keys == list(CURATED_ORDER)
-                and positions == list(range(1, len(CURATED_ORDER) + 1))):
-            print("PORTAL_SORT_RECORD_ORDER_PASS rows=12 01_to_12=verified")
+        # Feishu v1 list(view_id=...) may return backend record order even when
+        # the native Base v3 grid has a saved sort. Verify membership and ranks
+        # here, and independently verify the persisted grid sort via v3 GET.
+        expected = {key: rank for rank, key in enumerate(CURATED_ORDER, 1)}
+        actual = dict(zip(keys, positions))
+        if (not data.get("has_more") and len(rows) == len(expected)
+                and len(set(keys)) == len(expected) and actual == expected):
+            print("PORTAL_SORT_RECORD_MEMBERSHIP_PASS rows=12 assignments=12"
+                  + " api_return_sorted=" + str(keys == list(CURATED_ORDER)))
             return True
         last = (len(rows), len(set(keys)), data.get("has_more"))
         if i < 3:
