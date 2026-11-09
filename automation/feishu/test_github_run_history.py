@@ -132,9 +132,9 @@ class RunHistoryTests(unittest.TestCase):
         run_data=run()
         schedule=("09:50, 10:20, 12:50, 13:20, 17:50, 18:20, 19:20, 20:20",
                   "2026-11-09 20:20:00")
-        with mock.patch.object(h,"workflow_activation",return_value=
-                dt.datetime(2026,11,9,10,30,tzinfo=dt.timezone.utc)),\\
-             mock.patch.object(h,"get_jobs",return_value=[SFDC_JOB]):
+        with (mock.patch.object(h,"workflow_activation",return_value=
+                dt.datetime(2026,11,9,10,30,tzinfo=dt.timezone.utc)),
+             mock.patch.object(h,"get_jobs",return_value=[SFDC_JOB])):
             row=h.build_monitor_row("SFDC Report",
                 "sfdc-three-report-email-digestion.yml",schedule,
                 [run_data],[run_data],NOW)
@@ -153,9 +153,9 @@ class RunHistoryTests(unittest.TestCase):
         now=dt.datetime(2026,11,9,12,6,tzinfo=dt.timezone.utc)
         schedule=("09:50, 10:20, 12:50, 13:20, 17:50, 18:20, 19:20, 20:20",
                   "2026-11-10 09:50:00")
-        with mock.patch.object(h,"workflow_activation",return_value=
-                dt.datetime(2026,11,9,10,30,tzinfo=dt.timezone.utc)),\\
-             mock.patch.object(h,"get_jobs",return_value=[SFDC_JOB]):
+        with (mock.patch.object(h,"workflow_activation",return_value=
+                dt.datetime(2026,11,9,10,30,tzinfo=dt.timezone.utc)),
+             mock.patch.object(h,"get_jobs",return_value=[SFDC_JOB])):
             row=h.build_monitor_row("SFDC Report",
                 "sfdc-three-report-email-digestion.yml",schedule,
                 [historical],[historical],now)
