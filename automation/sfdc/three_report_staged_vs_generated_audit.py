@@ -22,6 +22,7 @@ RANGES = {
     "SFDC Verified Relations": "A1:O1100",
     "SFDC Quote Link Review": "A1:H1100",
     "SFDC Email Ingest Audit": "A1:J10",
+    "SFDC Quote Export": "A1:O2000",
 }
 COLUMNS = {
     "SFDC Email Leads Raw": ("SFDC Lead ID",),
@@ -31,6 +32,7 @@ COLUMNS = {
     "SFDC Quote Link Review": ("Quotation ID", "Quote Process Rows",
         "Distinct Opportunity IDs", "Opportunity ID Missing Rows", "Opportunity IDs Not In Export",
         "Reason", "Review State"),
+    "SFDC Quote Export": ("Salesforce Record ID", "AMEA Quotation ID", "Opportunity ID", "Exported At KST", "IsActive"),
     "SFDC Email Ingest Audit": ("Entity", "Source Received KST", "Ingest Checked KST",
         "Rows", "Unique IDs", "Duplicate IDs", "Missing IDs", "Content SHA256", "State"),
 }
@@ -225,7 +227,15 @@ def main():
     tables = load_all()
     report = evaluate(tables)
     owner = owner_report_audit(tables)
+    from three_report_owner_historical_quote_evidence import compare_owner_priority
+    history = compare_owner_priority(
+        tables["SFDC Email Opportunities Raw"], tables["SFDC Email Quotation Raw"],
+        tables["SFDC Quote Export"],
+    )
+    if history["owner_without_staged_quote_opportunities"] != owner["owner_opportunities_without_verified_quotes"]:
+        raise ValueError("OWNER_123_UNLINKED_SCOPE_DISAGREES_WITH_HISTORICAL_TRIAGE")
     report["owner_scope"] = owner
+    report["owner_historical_quote_corrob"] = history
     folder = Path("audit-results")
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / "css-sfdc-report-generated-parity.json"
@@ -236,6 +246,7 @@ def main():
         "exception_reasons": report["relation_exception_reasons"],
         "sink": report["sink"],
         "owner_scope": owner,
+        "owner_historical_quote_corrob": history,
         "sfdc_object_readback": "SOURCE_UNAVAILABLE",
         "source_original_qq_attachment_compared": False,
         "financial_mutations": 0,
@@ -254,8 +265,18 @@ def main():
                     "; owner verified Quote IDs: " + str(owner["owner_verified_quote_ids"]) +
                     "; unattributable review Quote IDs: " + str(owner["review_unattributable_quote_ids"]) +
                     "; source owner/stage/active readback: **" + owner["scope_status"] + "**\\n\\n")
+            f.write("Owner stage-priority opportunity review: " +
+                    str(history["priority_opportunity_count"]) +
+                    "; corroborated in older Quote Export: " +
+                    str(history["priority_with_historic_record_id"]) +
+                    "; old export absent: " +
+                    str(history["priority_without_historic_record_id"]) +
+                    "; review: **" + history["review_status"] + "**\\n\\n")
             f.write("Original Salesforce object Save/readback: **NOT CHECKED**. "
                     "Report staging is not a live SFDC object query.\n")
+    if history["review_status"] != "PASS_HISTORICAL_CORROBORATION_ONLY":
+        print("CSS_SFDC_HISTORICAL_QUOTE_EVIDENCE_BLOCKED", file=sys.stderr)
+        return 2
     if owner["scope_status"] != "PASS_REPORT_OWNER_TO_SINK_ONLY":
         print("CSS_SFDC_OWNER_SCOPE_READBACK_BLOCKED", file=sys.stderr)
         return 2
