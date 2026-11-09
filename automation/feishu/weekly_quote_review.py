@@ -110,9 +110,9 @@ def review_rows(source,overrides=None,now=None):
         if key in output:
             raise SafeError("WEEKLY_REVIEW_DUPLICATE_APPROVAL_ID")
         qid=quote_id(cell(row,"Quotation Name"))
-        if not qid:
-            raise SafeError("WEEKLY_REVIEW_APPROVAL_QID_UNVERIFIED")
-        raw_flag=raw_states.get(qid,set()) if verified_mail else set()
+        # An unparseable QID remains visible, but cannot prove Active.
+        # Never infer its identity or delete the approved-list entry.
+        raw_flag=raw_states.get(qid,set()) if verified_mail and qid else set()
         evidence_source=""
         evidence_when=""
         if verified_mail:
