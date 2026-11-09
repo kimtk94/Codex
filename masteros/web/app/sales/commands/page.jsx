@@ -27,7 +27,7 @@ function Field({label,value,onChange,required=true,type="text",step,placeholder}
 }
 function Flag({label,state}){
   const p=String(state||"BLOCK");
-  const color=/^PASS|READY|CANDIDATE|GATED|RULE/.test(p)?"ok":p.includes("BLOCK")?"bad":"warn";
+  const color=["PASS","PREFLIGHT_PASS","SNAPSHOT_READY"].includes(p)?"ok":p.includes("BLOCK")?"bad":"warn";
   return <div className={styles.flag}><span>{label}</span><b data-tone={color}>{p}</b></div>;
 }
 export default function SfdcCommandCenter(){
