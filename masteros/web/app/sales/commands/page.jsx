@@ -228,6 +228,7 @@ export default function SfdcCommandCenter(){
       <div><p className={styles.eyebrow}>SALES AUTOMATION</p>
         <h1>업무 실행</h1><p>입력 → 검증 → 실행 → 결과 확인</p></div>
       <div className={styles.navigation}>
+        <Link href="/sales/commands/pair">Oppo → Quote 통합 검증</Link>
         <Link href="/sales/projects">프로젝트</Link>
         <button type="button" onClick={loadHealth} disabled={healthBusy}>{healthBusy?"점검 중":"Health Check"}</button>
       </div>
