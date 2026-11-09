@@ -251,8 +251,14 @@ def membership(rows):
 def equal_source(before,row):
     for name,value in row.items():
         observed=before.get(name)
-        if value is None and plain_field(observed).strip()=="":
+        if value is None and observed in (None,"",[]):
             continue
+        if isinstance(value,(int,float)) and not isinstance(value,bool):
+            try:
+                if abs(float(observed)-float(value))<0.00005:
+                    continue
+            except (ValueError,TypeError):
+                pass
         if plain_field(observed).strip()!=str(value).strip():
             return False
     return True
