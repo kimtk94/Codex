@@ -132,7 +132,8 @@ def prepare_pair(x):
         # clone/save until the multi-product UI and final Quote readback work.
         return {"status":"PRICE_ONLY","code":"MULTI_PRODUCT_QUOTE_FORM_NOT_VERIFIED",
                 "price_fields":prices,"expectedNet":net,
-                "expectedCloudUnits":cloud_count}
+                "expectedCloudUnits":cloud_count,
+                "sourceCache":bundle.get("cache",{"state":"UNKNOWN"})}
     if not quote.get("productCategory") or not quote.get("processNames"):
         return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PRODUCT_CATALOG_UNVERIFIED"}
     quote_req={"action":"quote_create","mode":"check","sourceQuoteId":quoteid,
@@ -142,7 +143,8 @@ def prepare_pair(x):
        "processNames":quote["processNames"],"samples":n,"dataSize":size}
     return {"status":"READY","code":"PRICING_VALIDATED","opportunity":opp,"quotation":quote_req,
        "expectedNet":net,"expectedCloudUnits":cloud_count,
-       "expectedGross":prices["Quote Gross KRW"],"price_fields":prices}
+       "expectedGross":prices["Quote Gross KRW"],"price_fields":prices,
+       "sourceCache":bundle.get("cache",{"state":"UNKNOWN"})}
 
 def process(x):
     if x.get("Action")=="LEAD_CONVERT":
