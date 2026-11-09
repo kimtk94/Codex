@@ -259,9 +259,18 @@ def _validate(lines,process,product):
         quote_product.add((row["Quote ID"],row["Quote Product ID"]))
     if len(export_times)!=1:
         raise FeishuSourceError("FEISHU_SOURCE_EXPORT_TIMES_CONFLICT")
+    # Quote creation date can establish data coverage but never proves the
+    # subscribed process-report email receipt timestamp.
+    created=[]
+    for row in lines:
+        try:
+            created.append(dt.datetime.strptime(row["Quote Created"],"%m/%d/%Y").date())
+        except (ValueError,KeyError):
+            continue
     return {"quote_count":len(quote),"product_count":len(quote_product),
             "process_rows":len(lines),"unique_process_definitions":len(procs),
             "product_templates":len(templates),
+            "latest_quote_created":max(created).isoformat() if created else "",
             "source_report_exported_kst":next(iter(export_times))}
 
 
@@ -344,10 +353,11 @@ def status():
                 when=dt.datetime.strptime(source,"%Y-%m-%d %H:%M:%S KST").replace(
                     tzinfo=dt.timezone(dt.timedelta(hours=9)))
                 stale=(dt.datetime.now(dt.timezone.utc)-when)>dt.timedelta(hours=24)
+                source_state="STALE_SOURCE" if stale else "REPORT_SNAPSHOT"
             except ValueError:
-                stale=True
+                source_state="PROCESS_REPORT_RECEIPT_UNVERIFIED"
             return {"status":"PASS","source":SOURCE,
-                "source_state":"STALE_SOURCE" if stale else "REPORT_SNAPSHOT",
+                "source_state":source_state,
                 "feishu_snapshot_state":"CACHED_FROM_AUTHENTICATED_FEISHU",
                 "quote_count":int(meta["quote_count"]),
                 "product_count":int(meta["product_count"]),
@@ -361,6 +371,7 @@ def status():
                 "unmapped_sfdc_record_count":cx.execute(
                     "SELECT count(distinct qid) FROM quote_lines WHERE quote_record_id=''").fetchone()[0],
                 "source_report_exported_kst":source,
+                "latest_quote_created":meta.get("latest_quote_created",""),
                 "ingested_at_utc":meta["feishu_synced_at_utc"],
                 "feishu_revision":meta["feishu_revision"],
                 "currency":"USD_CONVERTED_ONLY",
