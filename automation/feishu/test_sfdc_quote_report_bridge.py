@@ -105,6 +105,52 @@ class ReportBridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ReportSourceError,"QUOTE_MAIL_AUDIT_STATE_UNVERIFIED"):
             verify_qq_process_report_audit(source,audit)
 
+    def test_received_time_not_confused_with_old_quote_header(self):
+        source,audit=self._mail_audit()
+        received=verify_qq_process_report_audit(source,audit)
+        output=build_records(source,data()[1],verified_evidence=received)
+        values=output["tables"]
+        self.assertTrue(all(row["Source Received KST"]=="2026-11-09 17:00:23 KST"
+                            for rows in values.values() for row in rows))
+        self.assertTrue(all(row["Source Exported KST"]==""
+                            for rows in values.values() for row in rows))
+        self.assertEqual(output["summary"]["status"],
+                         "MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED")
+        self.assertTrue(all(x["Source Status"]==
+                            "MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED"
+                            for x in values[TABLE_LINES]))
+
+    def test_prior_mail_receipt_cannot_be_downgraded(self):
+        row={"Line Key":"l1","Source Exported KST":"",
+             "Source Received KST":"2026-11-09 17:00:23 KST",
+             "Source Status":"MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED"}
+        old={"record_id":"rec1","fields":dict(row,
+              **{"Source Received KST":"2026-11-10 01:00:00 KST"})}
+        with patch("sfdc_quote_report_bridge.path",return_value="/apps/test"):
+            with patch("sfdc_quote_report_bridge.pages",return_value=[old]):
+                with self.assertRaisesRegex(ReportSourceError,"FEISHU_MAIL_RECEIPT_REGRESSION"):
+                    sync_one("token","tid","Line Key",[row])
+
+    def test_add_only_verified_source_received_field_to_owned_mirror(self):
+        from sfdc_quote_report_bridge import ensure_table
+        old=[{"field_name":"Process Key","type":1},
+             {"field_name":"Process ID","type":1},
+             {"field_name":"Process Name","type":1},
+             {"field_name":"Data Unit","type":1},
+             {"field_name":"Source Exported KST","type":1}]
+        new=old+[{"field_name":"Source Received KST","type":1}]
+        with patch("sfdc_quote_report_bridge.list_tables",
+                   return_value={"SFDC Quote Process Dictionary":{"table_id":"tbl_a"}}):
+            with patch("sfdc_quote_report_bridge.path",return_value="/apps/base"):
+                with patch("sfdc_quote_report_bridge.pages",side_effect=[old,new]):
+                    with patch("sfdc_quote_report_bridge.call",
+                               return_value={"field":{"field_name":"Source Received KST","type":1}}) as created:
+                        table=ensure_table("token","SFDC Quote Process Dictionary")
+        self.assertEqual(table,"tbl_a")
+        self.assertEqual(created.call_count,1)
+        self.assertEqual(created.call_args.args[1],"/apps/base/tables/tbl_a/fields")
+        self.assertEqual(created.call_args.args[3]["field_name"],"Source Received KST")
+
     def test_qq_mail_provenance_rejects_future_receipt(self):
         source,audit=self._mail_audit()
         audit[0][0]["Source Received KST"]="2099-01-01 00:00:00 KST"
