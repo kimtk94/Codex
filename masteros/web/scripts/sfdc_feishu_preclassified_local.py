@@ -90,9 +90,12 @@ def _verified_refs(rows,classes,base):
         raise report.FeishuSourceError("FEISHU_PREINDEX_CLASS_ORPHAN")
     # Independent comparison: each preclassified QID/Quote Product must have
     # a corresponding line in the already validated local Feishu report cache.
-    with report._connect() as cx:
+    cx=report._connect()
+    try:
         pairs={(q,p) for q,p in cx.execute(
             "SELECT DISTINCT qid,quote_product FROM quote_lines").fetchall()}
+    finally:
+        cx.close()
     indexed={(q,p["quoteProductId"]) for q,(_,products) in refs.items() for p in products}
     if indexed!=pairs:
         raise report.FeishuSourceError("FEISHU_PREINDEX_PRODUCT_IDENTITY_MISMATCH")
