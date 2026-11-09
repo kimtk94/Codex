@@ -7,6 +7,12 @@ on:
       - 'Feishu Sources Payment Online Monthly Unified'
     types: [completed]
     branches: [main]
+  pull_request:
+    paths:
+      - 'automation/feishu/github_run_history.py'
+      - 'automation/feishu/test_github_run_history.py'
+      - 'automation/feishu/sales_native_home.py'
+      - '.github/workflows/feishu-automation-run-history.yml'
   workflow_dispatch:
   schedule:
     - cron: '12,42 * * * *' # Every 30 minutes, may be delayed by GitHub scheduler.
@@ -37,7 +43,7 @@ jobs:
           python3 -m py_compile automation/feishu/github_run_history.py
   update:
     needs: tests
-    if: ${{ needs.tests.result == 'success' }}
+    if: ${{ needs.tests.result == 'success' && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 18
