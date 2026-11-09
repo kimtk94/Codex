@@ -1,0 +1,198 @@
+"use client";
+
+import {useCallback,useEffect,useMemo,useState} from "react";
+import Link from "next/link";
+import {alicloudUnits,freshProgress,validateRequest} from "../../../lib/sfdc-commands.mjs";
+import styles from "./page.module.css";
+
+const common={confirmSave:false,noDuplicateConfirmed:false};
+const initial={
+  lead_convert:{leadId:"",accountName:"",koreanName:"",englishName:""},
+  opportunity_create:{referenceOpportunityId:"",accountId:"",contactId:"",
+    accountName:"",contactName:"",opportunityName:"",samples:1,
+    amountKrw:0,closeDate:"",progressDescription:"",service:"",dataSize:1,unit:"Gb",referenceAmea:""},
+  quote_create:{opportunityId:"",sourceQuoteId:"",quoteName:"",
+    accountName:"",contactName:"",productCategory:"",productName:"",
+    samples:1,dataSize:1,unit:"Gb",processNames:""},
+};
+const tabs=[
+  {id:"lead_convert",name:"Lead Convert",caption:"기존 Account → Contact · Oppo 생성 안 함"},
+  {id:"opportunity_create",name:"Opportunity 생성",caption:"기존 Oppo 참조 · 새 Progress Description"},
+  {id:"quote_create",name:"Quote 생성",caption:"기존 제품만 · 가격 검증 우선"},
+];
+function Field({label,value,onChange,required=true,type="text",step,placeholder}){
+  return <label className={styles.field}><span>{label}</span>
+    <input type={type} value={value??""} onChange={e=>onChange(type==="number"?Number(e.target.value):e.target.value)}
+      required={required} step={step} placeholder={placeholder||""}/></label>;
+}
+function Flag({label,state}){
+  const p=String(state||"BLOCK");
+  const color=/^PASS|READY|CANDIDATE|GATED|RULE/.test(p)?"ok":p.includes("BLOCK")?"bad":"warn";
+  return <div className={styles.flag}><span>{label}</span><b data-tone={color}>{p}</b></div>;
+}
+export default function SfdcCommandCenter(){
+  const [tab,setTab]=useState("lead_convert");
+  const [forms,setForms]=useState(()=>structuredClone(initial));
+  const [health,setHealth]=useState(null);
+  const [healthBusy,setHealthBusy]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [result,setResult]=useState(null);
+  const [preflight,setPreflight]=useState("");
+  const [confirmed,setConfirmed]=useState(false);
+  const [dedup,setDedup]=useState(false);
+  const form=forms[tab];
+  const signature=useMemo(()=>JSON.stringify({tab,...form}),[tab,form]);
+  const ready=signature===preflight;
+  const update=(key,value)=>{
+    setForms(prev=>({...prev,[tab]:{...prev[tab],[key]:value}}));
+    setResult(null);setPreflight("");
+  };
+  const loadHealth=useCallback(async()=>{
+    setHealthBusy(true);
+    try{
+      const r=await fetch("/api/sfdc/commands-local",{
+        cache:"no-store",headers:{"X-SFDC-Command":"1"},credentials:"omit"
+      });
+      if(!r.ok)throw Error("LOCAL_HEALTH_UNAVAILABLE");
+      setHealth(await r.json());
+    }catch{setHealth({status:"SOURCE_UNAVAILABLE"});}
+    finally{setHealthBusy(false);}
+  },[]);
+  useEffect(()=>{loadHealth();},[loadHealth]);
+  async function run(mode){
+    if(busy)return;
+    const req={...form,action:tab,mode,confirmSave:mode==="save"&&confirmed,
+      noDuplicateConfirmed:mode==="save"&&dedup};
+    if(mode==="save"&&!ready){
+      setResult({status:"BLOCK",code:"PREFLIGHT_REQUIRED"});return;
+    }
+    const validity=validateRequest(req);
+    if(!validity.ok){setResult({status:"BLOCK",code:validity.code});return;}
+    setBusy(true);
+    try{
+      const response=await fetch("/api/sfdc/commands-local",{
+        method:"POST",headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+        cache:"no-store",credentials:"omit",body:JSON.stringify(req)
+      });
+      const data=await response.json();
+      setResult(data);
+      if(mode==="check")setPreflight(data.status==="PREFLIGHT_PASS"?signature:"");
+      if(mode==="save"){setPreflight("");setConfirmed(false);setDedup(false);loadHealth();}
+    }catch{
+      setResult({status:"BLOCK",code:"LOCAL_REQUEST_FAILED"});
+    }finally{setBusy(false);}
+  }
+  function regenerate(){
+    try{
+      const description=freshProgress({
+        accountName:form.accountName,contactName:form.contactName,
+        service:form.service,samples:form.samples,dataSize:form.dataSize,
+        unit:form.unit,referenceAmea:form.referenceAmea
+      });
+      update("progressDescription",description);
+    }catch{setResult({status:"BLOCK",code:"PROGRESS_FIELDS_INCOMPLETE"});}
+  }
+  const totalGb=tab==="opportunity_create"&&form.unit==="Gb"?
+    form.samples*form.dataSize:null;
+  return <main className={styles.wrap}>
+    <header className={styles.top}>
+      <div><p className={styles.eyebrow}>SALES AUTOMATION</p>
+        <h1>업무 실행</h1><p>입력 → 검증 → 실행 → 결과 확인</p></div>
+      <div className={styles.navigation}>
+        <Link href="/sales/projects">프로젝트</Link>
+        <Link href="/sales/oppo-quote">기존 Draft</Link>
+        <button type="button" onClick={loadHealth} disabled={healthBusy}>{healthBusy?"점검 중":"Health Check"}</button>
+      </div>
+    </header>
+    <section className={styles.health}>
+      <div className={styles.sectionHead}><h2>Health Check</h2><span>{health?.status||"점검 전"}</span></div>
+      <div className={styles.healthGrid}>
+        <Flag label="Salesforce 브라우저" state={health?.salesforce_browser}/>
+        <Flag label="Contact 조회" state={health?.contact_lookup}/>
+        <Flag label="Oppo·Quote 자료" state={health?.opportunity_quote_history}/>
+        <Flag label="Lead Convert" state={health?.lead_convert}/>
+        <Flag label="Oppo 생성" state={health?.opportunity_create}/>
+        <Flag label="Quote 제품 저장" state={health?.quote_create}/>
+      </div>
+    </section>
+    <section className={styles.commands}>
+      <div className={styles.tabbar}>
+        {tabs.map(x=><button type="button" key={x.id} data-active={tab===x.id}
+          onClick={()=>{setTab(x.id);setResult(null);setPreflight("");setConfirmed(false);setDedup(false);}}>
+          <b>{x.name}</b><small>{x.caption}</small></button>)}
+      </div>
+      <div className={styles.content}>
+        <div className={styles.fields}>
+          {tab==="lead_convert"&&<>
+            <Field label="Lead ID (00Q)" value={form.leadId} onChange={v=>update("leadId",v)}/>
+            <Field label="기존 Account 이름" value={form.accountName} onChange={v=>update("accountName",v)}/>
+            <Field label="Contact 한글 이름" value={form.koreanName} onChange={v=>update("koreanName",v)}/>
+            <Field label="Contact 영어 이름" value={form.englishName} onChange={v=>update("englishName",v)} placeholder="OhJunHyeok"/>
+            <p className={styles.hint}>기존 Account 사용 · 신규 Contact 생성 · Opportunity 생성하지 않음</p>
+          </>}
+          {tab==="opportunity_create"&&<>
+            <Field label="참고 Opportunity ID (006)" value={form.referenceOpportunityId} onChange={v=>update("referenceOpportunityId",v)}/>
+            <Field label="Account ID (001)" value={form.accountId} onChange={v=>update("accountId",v)}/>
+            <Field label="Contact ID (003)" value={form.contactId} onChange={v=>update("contactId",v)}/>
+            <Field label="기관 이름" value={form.accountName} onChange={v=>update("accountName",v)}/>
+            <Field label="고객 이름" value={form.contactName} onChange={v=>update("contactName",v)}/>
+            <Field label="Opportunity 이름" value={form.opportunityName} onChange={v=>update("opportunityName",v)}/>
+            <Field label="서비스" value={form.service} onChange={v=>update("service",v)}/>
+            <div className={styles.two}>
+              <Field label="시료 수" type="number" value={form.samples} onChange={v=>update("samples",v)}/>
+              <Field label="시료당 데이터량" type="number" step="any" value={form.dataSize} onChange={v=>update("dataSize",v)}/>
+            </div>
+            <div className={styles.two}>
+              <Field label="금액 (KRW, VAT 제외)" type="number" value={form.amountKrw} onChange={v=>update("amountKrw",v)}/>
+              <Field label="Close Date" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
+            </div>
+            <Field label="참고 AMEA (선택)" required={false} value={form.referenceAmea} onChange={v=>update("referenceAmea",v)}/>
+            {totalGb>0&&<p className={styles.hint}>AliCloud: {alicloudUnits(totalGb)}개 (100 Gb당 1개)</p>}
+            <div className={styles.field}><span>Progress Description · 신규 작성</span>
+              <textarea rows={5} value={form.progressDescription} onChange={e=>update("progressDescription",e.target.value)} />
+              <button className={styles.subtle} type="button" onClick={regenerate}>현재 입력값으로 새로 작성</button>
+            </div>
+          </>}
+          {tab==="quote_create"&&<>
+            <Field label="대상 Opportunity ID (006)" value={form.opportunityId} onChange={v=>update("opportunityId",v)}/>
+            <Field label="참고 Quote ID (a0P)" value={form.sourceQuoteId} onChange={v=>update("sourceQuoteId",v)}/>
+            <Field label="Quote 이름 (Oppo와 동일)" value={form.quoteName} onChange={v=>update("quoteName",v)}/>
+            <Field label="기관 이름" value={form.accountName} onChange={v=>update("accountName",v)}/>
+            <Field label="Contact 이름" value={form.contactName} onChange={v=>update("contactName",v)}/>
+            <Field label="기존 제품 카테고리" value={form.productCategory} onChange={v=>update("productCategory",v)}/>
+            <Field label="기존 제품명 (정확히)" value={form.productName} onChange={v=>update("productName",v)}/>
+            <Field label="공정명 (쉼표로 구분)" value={form.processNames} onChange={v=>update("processNames",v)} placeholder="NovaSeq Reagent Kit (500 Cycles), Data quality control, AliCloud"/>
+            <div className={styles.two}>
+              <Field label="시료 수" type="number" value={form.samples} onChange={v=>update("samples",v)}/>
+              <Field label="데이터량" type="number" step="any" value={form.dataSize} onChange={v=>update("dataSize",v)}/>
+            </div>
+            <p className={styles.hint}>KRW · Korea · VAT 10% · Coop TS Yoo Ji In · 기존 제품 재사용</p>
+          </>}
+        </div>
+        <aside className={styles.actionBox}>
+          <h2>실행</h2>
+          <p>저장 전 필드·고객·제품을 확인합니다.</p>
+          <button className={styles.check} type="button" disabled={busy}
+            onClick={()=>run("check")}>{busy?"처리 중":"1. 사전 검증"}</button>
+          <span className={styles.ready} data-ready={ready}>
+            {ready?"사전 검증 PASS":"사전 검증 필요"}
+          </span>
+          <label className={styles.checkbox}><input type="checkbox" checked={dedup} onChange={e=>setDedup(e.target.checked)}/>
+            중복 생성 여부 확인</label>
+          <label className={styles.checkbox}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
+            실제 Salesforce 저장 승인</label>
+          <button className={styles.save} type="button"
+            disabled={busy||!ready||!dedup||!confirmed}
+            onClick={()=>run("save")}>2. 실제 실행</button>
+          <p className={styles.hint}>검증 실패 시 저장하지 않습니다. Quote는 제품 포함 저장 후 재조회합니다.</p>
+          {result&&<section className={styles.result} aria-live="polite">
+            <strong data-status={result.status}>{result.status}</strong>
+            <p>{result.code||result.detail||""}</p>
+            {result.record_id&&<a target="_blank" rel="noreferrer" href={result.url}>생성 레코드 확인</a>}
+            <div className={styles.small}>Save: {result.save_clicked?"SUBMITTED":"NOT SUBMITTED"}</div>
+          </section>}
+        </aside>
+      </div>
+    </section>
+  </main>;
+}
