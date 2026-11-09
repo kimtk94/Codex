@@ -16,10 +16,10 @@ CHECKBOX="합산 제외"
 INCLUDED="INCLUDED"
 NOT_INCLUDED="NOT_INCLUDED"
 SCHEMA=[
+    ("Quote Name",1),  # Primary column for human-friendly native grid
     ("Source Key",1),
     ("Week Start",1),
     ("Approval KST",1),
-    ("Quote Name",1),
     ("SFDC Record ID",1),
     ("Quote Status",1),
     ("Approved AND Active",1),
