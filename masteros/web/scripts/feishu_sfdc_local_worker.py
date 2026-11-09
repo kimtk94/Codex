@@ -13,6 +13,10 @@ import pathlib
 import subprocess
 import sys
 import urllib.parse
+from sfdc_quote_price_fields import (
+    PRICE_INPUT_FIELDS, PRICE_RESULT_FIELDS,
+    evaluate as evaluate_price, PriceError,
+)
 
 BASE="1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
 TAB="CSS SFDC Command Queue"
@@ -21,7 +25,17 @@ HEAD=["record_id","Request ID","Action","Source Oppo ID","Source Quote ID","Lead
 "Contact Korean Name","Contact English Name","Approval","Duplicate Checked",
 "Price Checked","Run Mode","Status","New Oppo ID","New Quote ID",
 "New Contact ID","Error Code","Checked At"]
+HEAD+=PRICE_INPUT_FIELDS+PRICE_RESULT_FIELDS
 FINAL={"PREFLIGHT_PASS","PREFLIGHT_BLOCK","PASS","PARTIAL","BLOCK","SOURCE_UNAVAILABLE"}
+def column_name(zero_index):
+    n=zero_index+1
+    if n<1:raise ValueError("INVALID_COL")
+    out=""
+    while n:
+        n,r=divmod(n-1,26)
+        out=chr(65+r)+out
+    return out
+LAST_COLUMN=column_name(len(HEAD)-1)
 KST=dt.timezone(dt.timedelta(hours=9))
 def json_run(script,payload,timeout=100):
     child=subprocess.run([sys.executable,str(pathlib.Path(__file__).with_name(script))],
@@ -84,14 +98,16 @@ def prepare_pair(x):
         return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PRODUCT_UNVERIFIED"}
     if size!=float(quote.get("dataSize") or 0):
         return {"status":"PREFLIGHT_BLOCK","code":"DATA_SIZE_RATE_UNVERIFIED"}
-    unit=money(quote.get("sampleUnitNetKrw"))
-    cloud=money(quote.get("cloudUnitNetKrw"))
-    if not unit or not cloud:
-        return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_UNIT_PRICE_UNVERIFIED"}
+    try:
+        prices=evaluate_price(quote,n,size,
+            x.get("Requested Product Unit KRW",""),
+            x.get("Requested Cloud Unit KRW",""))
+    except PriceError as exc:
+        return {"status":"PREFLIGHT_BLOCK","code":str(exc)}
     if name==original.get("name"):
         return {"status":"PREFLIGHT_BLOCK","code":"NAME_DUPLICATES_SOURCE"}
-    cloud_count=math.ceil(n*size/100)
-    net=n*unit+cloud_count*cloud
+    cloud_count=prices["Cloud Qty"]
+    net=prices["Quote Net KRW"]
     if not all(original.get(k) for k in ("accountId","contactId","accountName","contactName")):
         return {"status":"PREFLIGHT_BLOCK","code":"ACCOUNT_CONTACT_UNVERIFIED"}
     # Reference only: source progress is NEVER copied.
@@ -104,13 +120,16 @@ def prepare_pair(x):
        "contactName":original["contactName"],"opportunityName":name,
        "samples":n,"amountKrw":net,"closeDate":close,
        "progressDescription":progress}
+    if not quote.get("productCategory") or not quote.get("processNames"):
+        return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PRODUCT_CATALOG_UNVERIFIED"}
     quote_req={"action":"quote_create","mode":"check","sourceQuoteId":quoteid,
        "opportunityId":oppid,"quoteName":name,
        "accountName":original["accountName"],"contactName":original["contactName"],
        "productName":quote["productName"],"productCategory":quote["productCategory"],
        "processNames":quote["processNames"],"samples":n,"dataSize":size}
     return {"status":"READY","code":"PRICING_VALIDATED","opportunity":opp,"quotation":quote_req,
-       "expectedNet":net,"expectedCloudUnits":cloud_count,"expectedGross":net*11//10}
+       "expectedNet":net,"expectedCloudUnits":cloud_count,
+       "expectedGross":prices["Quote Gross KRW"],"price_fields":prices}
 
 def process(x):
     if x.get("Action")=="LEAD_CONVERT":
@@ -136,12 +155,14 @@ def process(x):
         if x["Run Mode"]=="SAVE":
             # Do NOT create an Oppo without reliably setting Cloud process
             # quantities on the Quote and independently reading final net.
-            return {"status":"BLOCK","code":"CLOUD_PROCESS_SAVE_READBACK_NOT_VERIFIED"}
+            return {"status":"BLOCK","code":"CLOUD_PROCESS_SAVE_READBACK_NOT_VERIFIED",
+                    "price_fields":p["price_fields"]}
         r=json_run("sfdc_action_executor.py",p["opportunity"])
         return {"status":"PREFLIGHT_PASS" if r.get("status")=="PREFLIGHT_PASS" else "PREFLIGHT_BLOCK",
                 "code":("NET_"+str(p["expectedNet"])+"_CLOUD_"+str(p["expectedCloudUnits"]))
                         if r.get("status")=="PREFLIGHT_PASS" else
-                        r.get("code","OPPORTUNITY_PREFLIGHT_FAILED")}
+                        r.get("code","OPPORTUNITY_PREFLIGHT_FAILED"),
+                "price_fields":p["price_fields"]}
     return {"status":"BLOCK","code":"ACTION_NOT_SUPPORTED"}
 
 def session():
@@ -162,12 +183,12 @@ def url_range(area):
       urllib.parse.quote("'"+TAB+"'!"+area,safe="!'"))
 
 def read(s):
-    res=s.get(url_range("A1:V2000"),timeout=35)
+    res=s.get(url_range("A1:"+LAST_COLUMN+"2000"),timeout=35)
     res.raise_for_status()
     return res.json().get("values",[])
 
 def cell(s,index,column,value):
-    letter=chr(65+column)
+    letter=column_name(column)
     url=url_range(letter+str(index))+ "?valueInputOption=RAW"
     res=s.put(url,json={"values":[[value]]},timeout=35)
     res.raise_for_status()
@@ -175,6 +196,22 @@ def cell(s,index,column,value):
     verify.raise_for_status()
     if verify.json().get("values")!=[[value]]:
         raise ValueError("QUEUE_CELL_READBACK_FAILED")
+
+def write_price(s,index,fields):
+    if not fields:return
+    if set(fields)!=set(PRICE_RESULT_FIELDS):
+        raise ValueError("PRICE_FIELDS_INCOMPLETE")
+    start=HEAD.index(PRICE_RESULT_FIELDS[0])
+    end=HEAD.index(PRICE_RESULT_FIELDS[-1])
+    rng=column_name(start)+str(index)+":"+column_name(end)+str(index)
+    values=[str(fields[k]) for k in PRICE_RESULT_FIELDS]
+    resp=s.put(url_range(rng)+"?valueInputOption=RAW",
+        json={"values":[values]},timeout=35)
+    resp.raise_for_status()
+    verify=s.get(url_range(rng),timeout=35)
+    verify.raise_for_status()
+    if verify.json().get("values")!=[values]:
+        raise ValueError("PRICE_SINK_READBACK_FAILED")
 
 def run():
     s=session();rows=read(s)
@@ -188,6 +225,7 @@ def run():
         # Claim first, then never retry automatically after possible CRM writes.
         cell(s,i,status_col,"RUNNING")
         result=process(row_data(row))
+        write_price(s,i,result.get("price_fields"))
         stamp=dt.datetime.now(KST).isoformat(timespec="seconds")
         for k,value in [("Error Code",str(result.get("code") or "")),
                         ("Checked At",stamp),("Status",result["status"])]:
