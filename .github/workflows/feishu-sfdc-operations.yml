@@ -13,9 +13,8 @@ on:
       - 'automation/feishu/sfdc_ops/**'
       - 'masteros/web/scripts/sfdc_feishu_local_worker.py'
       - '.github/workflows/feishu-sfdc-operations.yml'
-  schedule:
-    # 08:03-20:58 KST, every 5 min while workday is active.
-    - cron: '3/5 23,0-11 * * 1-6'
+  # Schedule remains intentionally disabled until Feishu Base grants
+  # edit/manage permission to the existing application (91403).
 
 permissions:
   contents: read
@@ -40,6 +39,26 @@ jobs:
           python3 -m unittest discover -s automation/feishu/sfdc_ops -p 'test_*.py' -v
           python3 -m py_compile automation/feishu/sfdc_ops/*.py
           python3 -m py_compile masteros/web/scripts/sfdc_feishu_local_worker.py
+  google-queue-bootstrap:
+    if: github.event_name != 'pull_request'
+    needs: offline-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: TaehoonServer
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google Sheets client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Create and read back isolated SFDC command Queue and Results sheets
+        run: |
+          python3 -c "import sys,json;sys.path.insert(0,'automation/feishu/sfdc_ops');from feishu_sfdc_exchange import google_session,bootstrap_sheets,read_sheet,QUEUE_TAB,RESULTS_TAB,QUEUE_COLUMNS,RESULT_COLUMNS;s=google_session();bootstrap_sheets(s);a=read_sheet(s,QUEUE_TAB,'A1:R1');b=read_sheet(s,RESULTS_TAB,'A1:K1');assert a[0]==QUEUE_COLUMNS and b[0]==RESULT_COLUMNS;print(json.dumps({'status':'PASS','queue_header_readback':'PASS','results_header_readback':'PASS','crm_write_performed':False}))"
   provision:
     if: github.event_name != 'pull_request'
     needs: offline-tests
@@ -60,7 +79,7 @@ jobs:
       - name: Idempotently provision SFDC operations table and input form
         run: python3 automation/feishu/sfdc_ops/feishu_sfdc_bridge.py bootstrap --write
   sync:
-    needs: provision
+    needs: [provision, google-queue-bootstrap]
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     environment: TaehoonServer
