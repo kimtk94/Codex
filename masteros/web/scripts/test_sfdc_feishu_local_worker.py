@@ -1,5 +1,5 @@
 import unittest
-from sfdc_feishu_local_worker import (price_pair, validate_queue_row, process_row, QHEAD, RHEAD)
+from sfdc_feishu_local_worker import (price_pair, validate_queue_row, process_row, result_append_url, QHEAD, RHEAD)
 
 ROW=['rec123456789','SFDC-20261109-A001','a'*64,'oppo_quote_pair','PREFLIGHT',
      '006000000000000AAA','a0P000000000000AAA','Korea-New-12-mRNA','Example Univ.',
@@ -12,6 +12,9 @@ BUNDLE={'status':'PASS','selectionStatus':'EXACT_ONE','opportunity':{
           'productCount':1,'sourceVatRateVerified10Pct':True,'cloudLinePresent':True,
           'sampleUnitNetKrw':190000,'cloudUnitNetKrw':35000,'dataSize':12.0}]}
 class Tests(unittest.TestCase):
+ def test_append_endpoint(self):
+    self.assertIn(':append?',result_append_url())
+    self.assertIn('valueInputOption=RAW',result_append_url())
  def test_calc(self):
     self.assertEqual(price_pair(BUNDLE,ROW),(2350000,235000,2))
  def test_source_no_cloud(self):
