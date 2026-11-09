@@ -97,6 +97,18 @@ def main():
                       "table_id":tid if name in (
                           "SFDC Quote Process Dictionary","SFDC Quote Product Templates",
                           "SFDC Quote Report Lines") else "",
+                      "readonly_column_ids":{
+                          x.get("field_name"):x.get("field_id")
+                          for x in fields
+                          if name=="SFDC Quote Report Lines"
+                          and x.get("field_name") in (
+                              "Line Key","Quote ID","Quote Record ID",
+                              "Quote Product ID","Product Template Key",
+                              "Process Key","Unit Price USD","Sales Price USD",
+                              "Process Total USD","Sample Qty","Data Size",
+                              "Active","Quote Created","Source Exported KST",
+                              "Source Row Hash","Source Status")
+                      },
                       "field_count":len(fields),
                       "report_line_schema_complete":process_ready,
                       "report_field_coverage":coverage})
