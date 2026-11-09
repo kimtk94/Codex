@@ -9,7 +9,6 @@ import json
 import re
 import sys
 from datetime import date, timedelta
-from playwright.sync_api import sync_playwright
 
 BASE="https://novogene.lightning.force.com"
 OBJECTS={"lead":("Lead","00Q"),"opportunity":("Opportunity","006"),"quote":("Quotation__c","a0P")}
@@ -173,6 +172,7 @@ def read_item(page,resource,record_id):
 def main():
     try:
         request=check(json.loads(sys.stdin.buffer.read(3000).decode("utf-8")))
+        from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
             browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=10000)
             page=browser.contexts[0].new_page()
