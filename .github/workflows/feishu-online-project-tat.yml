@@ -1,15 +1,6 @@
 name: Feishu Online Project TAT Forecast
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "automation/feishu/online_project_tat_forecast.py"
-      - "automation/feishu/tax_invoice_forecast_reconcile.py"
-      - "automation/feishu/test_tax_invoice_forecast_reconcile.py"
-      - ".github/workflows/feishu-online-project-tat.yml"
-  schedule:
-    - cron: "27 0 * * *"
 permissions:
   contents: read
 concurrency:
