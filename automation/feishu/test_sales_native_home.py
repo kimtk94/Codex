@@ -10,13 +10,13 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(len(keys),len(set(keys)))
         self.assertTrue(all(len(x)==7 for x in p.MENUS))
         self.assertFalse(any("vercel" in str(x).lower() for x in p.MENUS))
-        self.assertEqual(len(p.PINNED_KEYS),12)
+        self.assertEqual(len(p.PINNED_KEYS),13)
         self.assertIn("PAYMENT_FOLLOWUP",p.PINNED_KEYS)
         self.assertTrue(p.PINNED_KEYS.issubset(set(keys)))
 
     def test_full_menu_view_filter_is_empty_and_existing_views_are_untouched(self):
         self.assertEqual(p.FULL_VIEW,"전체 메뉴")
-        self.assertEqual(len(p.MENUS),34)
+        self.assertEqual(len(p.MENUS),35)
         from unittest.mock import patch
         proper={"view_name":p.FULL_VIEW,"view_type":"grid",
                 "property":{"filter_info":{"conditions":[]}}}
@@ -40,7 +40,7 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(p.SHORTCUT_KEYS,(
             "MONTHLY_TREND","WEEKLY_TREND","SIF_EVIDENCE",
             "X_MY_PROJECTS","PAYMENT_FOLLOWUP"))
-        self.assertEqual(len(p.PINNED_KEYS),12)
+        self.assertEqual(len(p.PINNED_KEYS),13)
         cfg=p.shortcut_filter("fldMain")
         self.assertEqual(cfg["conjunction"],"or")
         self.assertEqual(len(cfg["conditions"]),5)
@@ -71,8 +71,8 @@ class PortalTests(unittest.TestCase):
             self.assertIn("/views/vewShortcut",api.call_args.args[1])
 
     def test_menu_order_colors_and_stable_ids(self):
-        self.assertEqual(len(p.CURATED_ORDER),12)
-        self.assertEqual(len(set(p.CURATED_ORDER)),12)
+        self.assertEqual(len(p.CURATED_ORDER),13)
+        self.assertEqual(len(set(p.CURATED_ORDER)),13)
         self.assertEqual(p.presentation("DASHBOARD","핵심 KPI 카드",1),
                          (1,"01 · 핵심 KPI 카드","핵심 KPI"))
         self.assertEqual(p.presentation("X_URGENT","긴급",2)[2],"즉시 확인")

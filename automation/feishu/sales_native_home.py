@@ -82,6 +82,8 @@ MENUS = (
     ("QUOTE","04 지표","Weekly Quote 전체 목록","Weekly Quote Review",
      "전체 Quote 목록","SFDC Quote Export + Feishu 수동 제외",
      "전체 승인 Quote를 표시하고 Active 검증 및 합산 제외 체크에 따라 집계"),
+    ("SFDC_COMMANDS","05 SFDC 실행","SFDC 실행 요청","SFDC_COMMAND_QUEUE",
+     "SFDC Requests","Salesforce 원본 + 승인된 실행 큐","기존 Lead 또는 Oppo+Quote 선택·수정 후 검증 요청; 저장은 승인과 재조회 필수"),
     ("ACCOUNTS","05 SFDC 준비","기관별 고객","Accounts",
      "기관별 고객","새 Feishu Base 운영 테이블","빈 테이블이면 데이터 연결 준비로 표시"),
     ("CONTACTS","05 SFDC 준비","한글 고객 검색","Contacts",
@@ -99,7 +101,7 @@ MENUS = (
 
 # Ordered by daily usage, not by underlying table creation order.
 CURATED_ORDER=(
-    "DASHBOARD", "WEEKLY_TREND", "MONTHLY_TREND",
+    "DASHBOARD", "SFDC_COMMANDS", "WEEKLY_TREND", "MONTHLY_TREND",
     "MAIL_CURRENT", "CUSTOMER_REVIEW",
     "X_MY_PROJECTS", "X_URGENT", "X_FOLLOWUP",
     "SIF_EVIDENCE", "PO_REQUIRED",
@@ -122,6 +124,7 @@ COLOR_KEY_MAP={
     **dict.fromkeys(("MAIL_CURRENT","CUSTOMER_REVIEW"),"고객·메일"),
     **dict.fromkeys(("X_MY_PROJECTS","X_FOLLOWUP"),"프로젝트"),
     "X_URGENT":"즉시 확인",
+    "SFDC_COMMANDS":"프로젝트",
     **dict.fromkeys(("SIF_EVIDENCE","PO_REQUIRED"),"확인·증빙"),
     **dict.fromkeys(("PAYMENT_FOLLOWUP","X_MY_INVOICE"),"매출·결제"),
 }
@@ -142,7 +145,7 @@ CURATED_DISPLAY="주요"
 ARCHIVE_DISPLAY="관리용"
 # A separate existing Feishu view; do not reduce the curated 12 or delete any records.
 SHORTCUT_VIEW="바로가기"
-FULL_VIEW="전체 메뉴"  # 34 records, no filter; separate from 5- and 12-row views.
+FULL_VIEW="전체 메뉴"  # all records; separate from five shortcuts and curated views.
 # Actual graph dashboards use Feishu block IDs (blk...), not table/view grids.
 CHART_SHORTCUT_ENV={
     "MONTHLY_TREND":"FEISHU_SHORTCUT_MONTHLY_DASHBOARD_ID",
