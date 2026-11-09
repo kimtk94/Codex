@@ -1,0 +1,66 @@
+name: CSS SFDC Local Command Center (No Hosting)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'masteros/web/lib/sfdc-commands.mjs'
+      - 'masteros/web/scripts/sfdc_action_executor.py'
+      - 'masteros/web/app/api/sfdc/commands-local/**'
+      - 'masteros/web/app/sales/commands/**'
+      - 'masteros/web/tests/sfdc-commands.test.mjs'
+      - 'masteros/web/scripts/start-css-local.ps1'
+      - 'masteros/web/app/sales/projects/page.jsx'
+      - 'masteros/web/app/page.jsx'
+      - 'masteros/web/app/sales/oppo-quote/page.jsx'
+      - '.github/workflows/css-sfdc-command-center.yml'
+  pull_request:
+    paths:
+      - 'masteros/web/lib/sfdc-commands.mjs'
+      - 'masteros/web/scripts/sfdc_action_executor.py'
+      - 'masteros/web/app/api/sfdc/commands-local/**'
+      - 'masteros/web/app/sales/commands/**'
+      - 'masteros/web/tests/sfdc-commands.test.mjs'
+      - 'masteros/web/scripts/start-css-local.ps1'
+      - 'masteros/web/app/sales/projects/page.jsx'
+      - 'masteros/web/app/page.jsx'
+      - 'masteros/web/app/sales/oppo-quote/page.jsx'
+      - '.github/workflows/css-sfdc-command-center.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  local-command-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    defaults:
+      run:
+        working-directory: masteros/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile local-only Salesforce executor (no browser connection)
+        run: python3 -m py_compile scripts/sfdc_action_executor.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install local Next.js dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test request validation, progress text and loopback security
+        run: node --test tests/sfdc-commands.test.mjs
+      - name: Build local command center
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+      - name: Verify compiled UI and API routes
+        run: |
+          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/commands','.next/server/app/api/sfdc/commands-local'])if(!fs.existsSync(p))process.exit(1)"
+      - name: Publish business verification boundary
+        run: |
+          echo 'CODE_TEST_PASS_ONLY;LIVE_SFDC_WRITE_NOT_EXECUTED_BY_CI;CONTACT_AND_QUOTE_READBACK_REQUIRED;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
