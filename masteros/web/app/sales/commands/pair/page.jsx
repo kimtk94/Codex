@@ -38,6 +38,7 @@ export default function PairedQuoteWeb(){
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState("");
   const seq=useRef(0);
+  const initialListStarted=useRef(false);
   const source=useMemo(()=>previewCandidate(selected),[selected]);
   const lines=useMemo(()=>priceLines(result?.pricing),[result]);
   const totalGb=form.samples*form.dataSizeGb;
@@ -50,15 +51,15 @@ export default function PairedQuoteWeb(){
     setBusy("LIST");setListStatus("LOADING");setSelected(null);setResult(null);setForm(empty);
     try{
       let data;
-      for(let retry=0;retry<5;retry++){
+      for(let retry=0;retry<20;retry++){
         try{
           data=await localRead("/api/sfdc/records-local",{
             resource:"opportunity",mode:"list",query:term
           });
           break;
         }catch(e){
-          if(!String(e.message).includes("BUSY")||retry===4)throw e;
-          await new Promise(resolve=>setTimeout(resolve,1500));
+          if(!String(e.message).includes("BUSY")||retry===19)throw e;
+          await new Promise(resolve=>setTimeout(resolve,2000));
         }
       }
       if(current!==seq.current)return;
@@ -69,7 +70,11 @@ export default function PairedQuoteWeb(){
       if(current===seq.current){setList([]);setListStatus(e.message||"SOURCE_UNAVAILABLE");}
     }finally{if(current===seq.current)setBusy("");}
   },[]);
-  useEffect(()=>{browse("");},[browse]);
+  useEffect(()=>{
+    if(initialListStarted.current)return;
+    initialListStarted.current=true;
+    browse("");
+  },[browse]);
 
   async function choose(item){
     if(busy)return;
