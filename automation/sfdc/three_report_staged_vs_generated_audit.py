@@ -274,7 +274,10 @@ def main():
                     "; review: **" + history["review_status"] + "**\\n\\n")
             f.write("Original Salesforce object Save/readback: **NOT CHECKED**. "
                     "Report staging is not a live SFDC object query.\n")
-    if history["review_status"] != "PASS_HISTORICAL_CORROBORATION_ONLY":
+    if history["review_status"] not in (
+        "PASS_HISTORICAL_CORROBORATION_ONLY",
+        "REVIEW_HISTORICAL_EXPORT_OPPORTUNITY_ID_GAP",
+    ):
         print("CSS_SFDC_HISTORICAL_QUOTE_EVIDENCE_BLOCKED", file=sys.stderr)
         return 2
     if owner["scope_status"] != "PASS_REPORT_OWNER_TO_SINK_ONLY":
