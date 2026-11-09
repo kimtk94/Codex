@@ -31,7 +31,7 @@ SCHEMAS[TABLE_CLASS]=[
 ]
 SCHEMAS[TABLE_REFERENCE]=[
     "Quote ID","Quote Record ID","Opportunity External ID","Opportunity Name",
-    "Account ID","Account Name","Contact ID","Contact Name","Contact Email",
+    "Account ID","Account Name","Contact ID","Contact External ID","Contact Name","Contact Email",
     "Account Contact Status","Products JSON","Product Count",
     "Reference Status","Source Exported KST","Source Received KST","Reference SHA256"
 ]
@@ -101,18 +101,21 @@ def preclassify(raw_rows,original,verified_mail):
             raise ReportSourceError("PREINDEX_PRODUCT_SOURCE_MISMATCH")
         account_id,acc_id_status=resolve_single(rows,"*Account Id")
         account_name,acc_name_status=resolve_single(rows,"Account Name: Account Name")
-        contact_id,con_id_status=resolve_single(rows,"Contact ID")
+        raw_contact_id,con_id_status=resolve_single(rows,"Contact ID")
+        contact_id=raw_contact_id if CONTACT_PATTERN.fullmatch(raw_contact_id) else ""
+        contact_external_id=raw_contact_id if raw_contact_id and not contact_id else ""
         contact_name,con_name_status=resolve_single(rows,"Contact Name: Full Name")
         contact_email,con_email_status=resolve_single(rows,"Email")
         opp_external,opp_id_status=resolve_single(rows,"Opportunity ID")
         opp_name,opp_name_status=resolve_single(rows,"Opportunity Name: Opportunity Name")
         if account_id and not ACCOUNT_PATTERN.fullmatch(account_id):
             acc_id_status="INVALID";account_id=""
-        if contact_id and not CONTACT_PATTERN.fullmatch(contact_id):
-            con_id_status="INVALID";contact_id=""
-        identity_state="PASS" if all(v=="PASS" for v in (
-            acc_id_status,acc_name_status,con_id_status,con_name_status
-        )) else "HOLD_IDENTITY"
+        if contact_external_id:
+            con_id_status="EXTERNAL_ONLY" if re.fullmatch(r"CP[A-Za-z0-9-]{5,40}",contact_external_id) else "UNKNOWN_FORMAT"
+        id_valid=acc_id_status=="PASS" and acc_name_status=="PASS" and con_name_status=="PASS"
+        identity_state=("PASS" if id_valid and con_id_status=="PASS"
+                        else "CONTACT_EXTERNAL_ONLY" if id_valid and con_id_status=="EXTERNAL_ONLY"
+                        else "HOLD_IDENTITY")
         linked_id={r["Quote Record ID"] for r in lines if r["Quote ID"]==qid}
         if len(linked_id)!=1:
             raise ReportSourceError("PREINDEX_LINKED_RECORD_CONFLICT")
@@ -147,7 +150,8 @@ def preclassify(raw_rows,original,verified_mail):
             "Quote ID":qid,"Quote Record ID":record_id,
             "Opportunity External ID":opp_external,"Opportunity Name":opp_name,
             "Account ID":account_id,"Account Name":account_name,
-            "Contact ID":contact_id,"Contact Name":contact_name,
+            "Contact ID":contact_id,"Contact External ID":contact_external_id,
+            "Contact Name":contact_name,
             "Contact Email":contact_email,
             "Account Contact Status":identity_state,
             "Products JSON":canonical(product_refs),
@@ -196,6 +200,20 @@ def execute(mode):
         return {"status":"PASS","mode":"audit",
             "summary":indexed["summary"],"feishu_writes":0,"crm_writes":0}
     token=auth()
+    # This is the only allowed schema migration: add external Contact ID
+    # to the dedicated preindex table. Salesforce 003 IDs never inherit CP IDs.
+    from sfdc_quote_report_bridge import list_tables,pages,path,call
+    existing=list_tables(token).get(TABLE_REFERENCE)
+    if existing:
+        tid=existing.get("table_id","")
+        fields=pages(token,path()+"/tables/"+tid+"/fields")
+        field_map={x.get("field_name"):x.get("type") for x in fields}
+        if "Contact External ID" not in field_map:
+            missing=set(SCHEMAS[TABLE_REFERENCE])-set(field_map)
+            if missing!={"Contact External ID"}:
+                raise ReportSourceError("PREINDEX_SCHEMA_MIGRATION_BLOCK")
+            call("POST",path()+"/tables/"+tid+"/fields",token,
+                 {"field_name":"Contact External ID","type":1})
     keys={TABLE_CLASS:"Class Key",TABLE_REFERENCE:"Quote ID"}
     results={}
     for table,rows in indexed["tables"].items():
