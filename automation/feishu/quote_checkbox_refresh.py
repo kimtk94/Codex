@@ -42,12 +42,18 @@ def main():
     existing=list_all(path+"/records",token,"quote_checkbox_scan")
     changed=pending_manual_changes(existing)
     if not changed:
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+                out.write("quote_changed=false\n")
         print("QUOTE_CHECKBOX_NO_CHANGE_PASS checked="+str(len(existing))+
               " source_writes=0 sink_writes=0",flush=True)
         return
     print("QUOTE_CHECKBOX_CHANGES_DETECTED count="+str(len(changed))+
           " next=source_validate_and_quote_only",flush=True)
     metrics.main()
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+            out.write("quote_changed=true\n")
     print("QUOTE_CHECKBOX_REFRESH_PASS changed="+str(len(changed))+
           " manual_checkbox_writes=0 payment_monthly_writes=0",flush=True)
 
