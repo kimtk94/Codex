@@ -1,13 +1,15 @@
-name: Ewha Day0-Day12 GATK smoke
+name: Ewha Day0-Day12 GATK and MW2 smoke
 
 on:
   push:
     paths:
       - 'research/ewha_day0_day12/**'
+      - 'colab/Day0_Day12*ipynb'
       - '.github/workflows/ewha-gatk-smoke.yml'
   pull_request:
     paths:
       - 'research/ewha_day0_day12/**'
+      - 'colab/Day0_Day12*ipynb'
       - '.github/workflows/ewha-gatk-smoke.yml'
   workflow_dispatch:
 
@@ -25,9 +27,28 @@ jobs:
           python-version: '3.11'
       - name: Install test dependency
         run: python -m pip install --disable-pip-version-check pysam
-      - name: Compile pipeline and check CLI
+      - name: Compile both GATK pipelines and inspect CLI
         run: |
           python -m py_compile research/ewha_day0_day12/gatk_haploid_pipeline.py
+          python -m py_compile research/ewha_day0_day12/mw2_mapping_pipeline.py
           python research/ewha_day0_day12/gatk_haploid_pipeline.py --help
-      - name: Test sample classification using synthetic haploid VCF
+          python research/ewha_day0_day12/mw2_mapping_pipeline.py --help
+      - name: Test haploid and MW2 plasmid classification
         run: python -m unittest discover -s research/ewha_day0_day12 -p 'test_*.py' -v
+      - name: Verify Colab code-cell syntax and notebook structure
+        run: |
+          python - <<'PY'
+          import ast
+          import json
+          from pathlib import Path
+          for p in (
+              Path('colab/Day0_Day12_GATK_HaplotypeCaller_v1.ipynb'),
+              Path('colab/Day0_Day12_MW2_NC_003923_1_Mapping_v1.ipynb'),
+          ):
+              doc = json.loads(p.read_text(encoding='utf-8'))
+              assert doc['nbformat'] == 4
+              for i, cell in enumerate(doc['cells']):
+                  if cell['cell_type'] == 'code':
+                      ast.parse(''.join(cell['source']), filename=f'{p}:{i}')
+              print('Notebook syntax PASS:', p)
+          PY
