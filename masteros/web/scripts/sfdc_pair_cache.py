@@ -124,6 +124,62 @@ def _prune_unused_templates(cx):
             cx.execute("DELETE FROM product_line_templates WHERE template_sha256=?",(identifier,))
 
 
+def normalize_existing(now=None):
+    """Repack existing live-origin records without changing their TTL or amount.
+
+    This migration reads only the user's local SQLite database. It never
+    impersonates a new Salesforce observation or connects to Salesforce.
+    """
+    t=int(time.time() if now is None else now)
+    migrated=0
+    failed=0
+    with _connect() as cx:
+        records=cx.execute("""SELECT cache_key,kind,observed_utc,
+            content_sha256,payload_json FROM entries
+            WHERE schema_version=? AND expires_utc>?""",(VERSION,t)).fetchall()
+        for key,kind,observed,checksum,raw in records:
+            if kind not in ("bundle","detail"):
+                continue
+            if hashlib.sha256(raw.encode("utf-8")).hexdigest()!=checksum:
+                failed+=1
+                continue
+            try:
+                data=json.loads(raw)
+                if refs(data):
+                    # Already normalized by a previous save/migration.
+                    continue
+                if kind=="bundle":
+                    request={"resource":"opportunity","mode":"bundle",
+                             "recordId":key.split(":")[-1]}
+                else:
+                    request={"resource":key.split(":")[0],"mode":"detail",
+                             "recordId":key.split(":")[-1]}
+                if not _valid(request,data):
+                    failed+=1
+                    continue
+                smaller,templates=compact(data)
+                if not templates:
+                    continue
+                value=compact_json(smaller)
+                for identifier,template in templates.items():
+                    cx.execute("""INSERT INTO product_line_templates(
+                        template_sha256,content_json,last_seen_utc)
+                        VALUES(?,?,?)
+                        ON CONFLICT(template_sha256) DO NOTHING""",
+                        (identifier,compact_json(template),observed))
+                cx.execute("""UPDATE entries SET payload_json=?,content_sha256=?
+                    WHERE cache_key=? AND content_sha256=?""",
+                    (value,hashlib.sha256(value.encode("utf-8")).hexdigest(),
+                     key,checksum))
+                migrated+=1
+            except (ValueError,TypeError,KeyError,TemplateIntegrityError):
+                failed+=1
+        _prune_unused_templates(cx)
+    return {"status":"PASS" if failed==0 else "PARTIAL",
+        "migrated":migrated,"failed":failed,
+        "source_observation_timestamps_unchanged":True,"crm_writes":0}
+
+
 def save(request,output,now=None):
     if not _valid(request,output):
         return False
@@ -204,14 +260,40 @@ def stats(now=None):
         with _connect() as cx:
             allrows=cx.execute("""SELECT kind, observed_utc, expires_utc
                 FROM entries WHERE schema_version=?""",(VERSION,)).fetchall()
+            templates={key:raw for key,raw in cx.execute(
+                "SELECT template_sha256,content_json FROM product_line_templates").fetchall()}
+            persisted=[json.loads(raw) for (raw,) in cx.execute(
+                "SELECT payload_json FROM entries WHERE schema_version=?",
+                (VERSION,)).fetchall()]
         kinds={}
         for kind in TTL_SECONDS:
             rows=[r for r in allrows if r[0]==kind]
             fresh=[r for r in rows if r[2]>t and r[1]<=t+60]
             kinds[kind]={"fresh":len(fresh),"stale":len(rows)-len(fresh),
                          "last_checked_at_utc":_iso(max(x[1] for x in rows)) if rows else None}
+        use_counts={}
+        for row in persisted:
+            for identifier in refs(row):
+                use_counts[identifier]=use_counts.get(identifier,0)+1
+        shared=sum(1 for key in templates if use_counts.get(key,0)>1)
+        references=sum(use_counts.values())
+        # Compare payload bytes rather than disk pages; SQLite may retain
+        # allocated pages until a separate VACUUM operation (not performed).
+        compact_bytes=sum(len(compact_json(x).encode("utf-8")) for x in persisted)
+        template_bytes=sum(len(v.encode("utf-8")) for v in templates.values())
+        def local_template(identifier):
+            value=templates.get(identifier)
+            return json.loads(value) if value else None
+        expanded_bytes=sum(len(compact_json(expand(x,local_template)).encode("utf-8"))
+            for x in persisted)
+        logical_bytes_saved=expanded_bytes-compact_bytes-template_bytes
         return {"status":"PASS","cache_status":"FRESH" if any(x["fresh"] for x in kinds.values()) else "EMPTY_OR_STALE",
                 "tiers":kinds,"freshness_policy_seconds":TTL_SECONDS,
+                "product_line_dictionary":{
+                    "unique_templates":len(templates),
+                    "references":references,"reused_templates":shared,
+                    "logical_bytes_saved":logical_bytes_saved,
+                    "measurement":"JSON_PAYLOAD_PLUS_TEMPLATE_BYTES_NOT_SQLITE_DISK_PAGES"},
                 "observed_at_utc":_iso(t),"local_only":True,
                 "salesforce_write":False}
     except (OSError,sqlite3.DatabaseError,ValueError):
@@ -222,5 +304,7 @@ if __name__=="__main__":
     import sys
     if len(sys.argv)==2 and sys.argv[1]=="status":
         print(json.dumps(stats(),ensure_ascii=False))
+    elif len(sys.argv)==2 and sys.argv[1]=="normalize":
+        print(json.dumps(normalize_existing(),ensure_ascii=False))
     else:
-        print(json.dumps({"status":"BLOCK","code":"CACHE_READONLY_STATUS_ONLY"}))
+        print(json.dumps({"status":"BLOCK","code":"CACHE_READONLY_STATUS_OR_NORMALIZE_ONLY"}))
