@@ -22,6 +22,12 @@ from project_progress_board import prepare_project_board
 from project_settlement import EVIDENCE_FIELDS, finalize, counts
 from latest_payment_bridge import build_payment_evidence
 from quote_process_amount import weekly_calculations
+from weekly_quote_review import (
+    TABLE as QUOTE_REVIEW_TABLE, SCHEMA as QUOTE_REVIEW_SCHEMA,
+    VIEW_SPECS as QUOTE_REVIEW_VIEWS, INCLUDED as REVIEW_INCLUDED,
+    review_rows as build_quote_review, membership as quote_review_membership,
+    read_overrides as quote_manual_overrides, sync_review as sync_quote_review,
+)
 from monthly_revenue_canonical import evidence_rows,RevenueEvidenceError
 
 EXPECTED_BASE = "IpMkbUD0vaFqtYs93a3csXtdn1b"
@@ -64,10 +70,12 @@ SCHEMAS = {
         ("CSS Source KRW Incl VAT", 2), ("Source Difference KRW", 2),
         ("Coverage Status", 1), ("Evidence", 1), ("Last Sync KST", 1),
     ],
+    QUOTE_REVIEW_TABLE: QUOTE_REVIEW_SCHEMA,
     "Weekly Quote KPI": [
         ("Source Key", 1), ("Week Start", 1), ("Week End", 1),
         ("Chart Week Label", 1), ("Chart Window", 1),
-        ("Approved Quote Count", 2), ("Created In Week Count", 2),
+        ("Approved Quote Count", 2), ("Included Quote Count", 2),
+        ("Excluded Quote Count", 2), ("Created In Week Count", 2),
         ("Verified Amount Quote Count", 2), ("Verified Quote Value KRW FX", 2),
         ("Verified Quote Value M KRW FX", 2), ("Verified Quote Value K USD", 2), ("Unmatched Amount Count", 2),
         ("Calculated Quote Count", 2), ("Quote Amount Exception Count", 2),
@@ -92,7 +100,8 @@ REQUIRED = {
         "Authoritative For KPI", "Verified KST"),
     "SFDC Weekly Overview": ("week_start", "week_end", "quotation_approvals", "approvals_created_in_week", "krw_per_usd"),
     "Quotation Approval List": ("week_start", "salesforce_record_id", "quotation_id"),
-    "Quote Approval Dedup": ("Approval KST", "SFDC Record ID", "Quotation Name"),
+    "Quote Approval Dedup": ("Approval KST", "SFDC Record ID", "Quotation Name",
+                             "Quote Status", "Approved AND Active"),
     "SFDC Quote Export": ("Salesforce Record ID", "IsActive", "Exclude Tax After Discount USD",
                            "CurrencyIsoCode", "Opportunity ID", "Exported At KST"),
     "SFDC Email Opportunities Raw": ("Opportunity ID", "Opportunity Owner"),
@@ -486,11 +495,14 @@ def _verified_quote_object_source(source, now):
     return verified,"QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED"
 
 
-def weekly_rows(source, now=None):
-    """Friday-Thursday approval count; only a fresh Quote-object report proves USD."""
+def weekly_rows(source, now=None, review=None):
+    """Retain all approvals; sum only Active + user-included Quotes."""
     now=now or dt.datetime.now(KST)
+    review=review if review is not None else build_quote_review(source)
+    approval_members,include_members=quote_review_membership(review)
+    permitted_ids=set().union(*include_members.values()) if include_members else set()
     quote_values,proof=_verified_quote_object_source(source,now)
-    calculated,process_info=weekly_calculations(source,now)
+    calculated,process_info=weekly_calculations(source,now,included_sids=permitted_ids)
     by_week=collections.defaultdict(dict)
     for entry in source.get("Quote Approval Dedup",[]):
         try:
@@ -500,7 +512,7 @@ def weekly_rows(source, now=None):
         wk=(date-dt.timedelta(days=(date.weekday()-4)%7)).isoformat()
         sid=salesforce_id15(cell(entry,"SFDC Record ID"))
         if sid.startswith("a0P"):
-            by_week[wk][sid]=quote_values.get(sid)
+            by_week[wk][sid]=quote_values.get(sid) if sid in permitted_ids else None
     output={}
     for item in source["SFDC Weekly Overview"]:
         week=cell(item,"week_start")
@@ -525,6 +537,8 @@ def weekly_rows(source, now=None):
                 "Week Start":week,
                 "Week End":cell(item,"week_end"),
                 "Approved Quote Count":None,
+                "Included Quote Count":None,
+                "Excluded Quote Count":None,
                 "Created In Week Count":None,
                 "Verified Amount Quote Count":None,
                 "Unmatched Amount Count":None,
@@ -568,10 +582,17 @@ def weekly_rows(source, now=None):
             raise SafeError("INVALID_WEEKLY_FX")
         entries=by_week.get(week,{})
         complete_evidence=len(entries)==int(count)
+        selection_covered=(len(approval_members.get(week,set()))==int(count)
+                           and complete_evidence)
+        eligible_count=(len(include_members.get(week,set()))
+                        if selection_covered else None)
+        excluded_count=(int(count)-eligible_count
+                        if eligible_count is not None else None)
         verified=([p for p in entries.values() if p is not None]
                   if proof=="QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED" and complete_evidence
                   else [])
-        unmatched=max(0,int(count)-len(verified))
+        unmatched=(max(0,eligible_count-len(verified))
+                   if eligible_count is not None else None)
         process_state=process_info["source_state"]
         process_count=0
         process_usd=None
@@ -580,12 +601,16 @@ def weekly_rows(source, now=None):
         elif int(count)==0:
             calc_status=("NO_APPROVALS" if current.get("approval_ids",0)==0
                          else "WITHHELD_APPROVAL_COUNT_MISMATCH")
+        elif not selection_covered:
+            calc_status="WITHHELD_ACTIVE_MEMBERSHIP_COVERAGE_GAP"
+        elif eligible_count==0:
+            calc_status="NO_ELIGIBLE_ACTIVE_QUOTES"
         elif current.get("approval_ids",0)!=int(count):
             calc_status="WITHHELD_APPROVAL_COUNT_MISMATCH"
         else:
             process_count=current["calculated_count"]
             process_usd=current["candidate_usd"] if process_count else None
-            calc_status=("PROCESS_PRICE_CALCULATED_COMPLETE" if count and process_count==int(count)
+            calc_status=("PROCESS_PRICE_CALCULATED_COMPLETE" if count and process_count==eligible_count
                          else "PROCESS_PRICE_CALCULATED_PARTIAL" if process_count
                          else "NO_SAFE_PROCESS_QUOTE_PRICE")
         status=(proof if proof!="QUOTE_OBJECT_ACTIVE_OWNER_FRESH_VERIFIED"
@@ -597,19 +622,23 @@ def weekly_rows(source, now=None):
         row={"Source Key":"QUOTE:"+week,"Week Start":week,
              "Week End":cell(item,"week_end"),
              "Approved Quote Count":int(count),
+             "Included Quote Count":eligible_count,
+             "Excluded Quote Count":excluded_count,
              "Verified Amount Quote Count":len(verified),
              "Unmatched Amount Count":unmatched,
              "Amount Status":status,
              "Week Status":cell(item,"weekly_basis"),
              "Reporting KRW Per USD":float(fx),
              "Calculated Quote Count":process_count,
-             "Quote Amount Exception Count":max(0,int(count)-process_count),
+             "Quote Amount Exception Count":(max(0,eligible_count-process_count)
+                                             if eligible_count is not None else None),
              "Calculated Quote Value K USD":None,
              "Calculated Quote Value M KRW FX":None,
              "Quote Calculation Source":calc_status+" / "+process_state+
-                  " / count="+count_source,
+                  " / count="+count_source+" / active_only=TRUE / manual_exclude=ON",
              "Evidence":"Quote approval count="+count_source+
-                        "; SFDC Weekly Overview schedule; Quote Approval Dedup immutable Salesforce ID; "
+                        "; Active=Quote Status ACTIVE + Approved AND Active YES + SFDC IsActive 1; "
+                         "manual exclusion respected; SFDC Weekly Overview; "
                         "money requires fresh Salesforce Quote Object Exclude Tax USD, "
                         "Active, owner and exact count proof. Status: "+status,
              # Explicit nulls clear stale number cells in the existing Feishu record.
@@ -654,11 +683,11 @@ def weekly_rows(source, now=None):
         row["Chart Window"]="RECENT_4_PLUS_CURRENT" if week in included else "HISTORY"
     return [output[k] for k in sorted(output,reverse=True)]
 
-def prepare_data(sources):
+def prepare_data(sources,review=None):
     projects = project_rows(sources)
     return {
         "Monthly Tax Invoice":monthly_rows(sources),
-        "Weekly Quote KPI":weekly_rows(sources),
+        "Weekly Quote KPI":weekly_rows(sources,review=review),
         "Project SIF Monitor":projects,
         "Project Progress Board":prepare_project_board(sources,projects),
     }
@@ -679,7 +708,8 @@ def table_path(root,table_id):
 # Source Base numeric display format governs chart labels. Keep raw numbers.
 COUNT_FIELD_FORMATS={
     "Weekly Quote KPI":{
-        "Approved Quote Count","Created In Week Count",
+        "Approved Quote Count","Included Quote Count","Excluded Quote Count",
+        "Created In Week Count",
         "Verified Amount Quote Count","Unmatched Amount Count",
         "Calculated Quote Count","Quote Amount Exception Count",
     },
@@ -745,6 +775,7 @@ def ensure_tables(token,root):
             elif (name=="Project Progress Board" and field_name in allowed) or (
                     name=="Weekly Quote KPI" and field_name in
                     {"Chart Week Label","Chart Window","Verified Quote Value M KRW FX",
+                     "Included Quote Count","Excluded Quote Count",
                      "Calculated Quote Count","Quote Amount Exception Count",
                      "Calculated Quote Value K USD","Calculated Quote Value M KRW FX",
                      "Quote Calculation Source"}) or (
@@ -966,6 +997,7 @@ VIEW_SPECS = {
         ("월별 Tax Invoice", None, None),
         ("Tax Invoice 원본 차이 검토", "Coverage Status", "SOURCE_SCOPE_REVIEW"),
     ),
+    QUOTE_REVIEW_TABLE: QUOTE_REVIEW_VIEWS,
     "Weekly Quote KPI": (
         ("매주 Quote 건수 · 금액", None, None),
         ("견적 금액 미확인", "Amount Status", "NO_QUOTE_VALUE"),
@@ -1059,7 +1091,17 @@ def main():
         return
     token,root=auth()
     paths=ensure_tables(token,root)
+    existing_review=board_list_with_retry(
+        token,paths[QUOTE_REVIEW_TABLE],"weekly_review_existing")
+    overrides=quote_manual_overrides(existing_review)
+    review=build_quote_review(sources,overrides)
+    output["Weekly Quote KPI"]=weekly_rows(sources,review=review)
     setup_views(token,paths)
+    review_flags=sync_quote_review(
+        token,paths[QUOTE_REVIEW_TABLE],review,existing_review,timestamp())
+    if any(overrides.get(r["Source Key"],False)!=
+           review_flags.get(r["Source Key"],False) for r in review):
+        raise SafeError("WEEKLY_REVIEW_OVERRIDE_CONFLICT_BEFORE_KPI")
     # Prioritize numeric KPI summaries; SIF backfill progresses across scheduled runs.
     bounds={"Monthly Tax Invoice":50,"Weekly Quote KPI":120,"Project SIF Monitor":70}
     total=0
