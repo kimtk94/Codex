@@ -140,6 +140,7 @@ CURATED_DISPLAY="주요"
 ARCHIVE_DISPLAY="관리용"
 # A separate existing Feishu view; do not reduce the curated 12 or delete any records.
 SHORTCUT_VIEW="바로가기"
+FULL_VIEW="전체 메뉴"  # 34 records, no filter; separate from 5- and 12-row views.
 SHORTCUT_KEYS=(
     "MONTHLY_TREND",
     "WEEKLY_TREND",
@@ -415,6 +416,26 @@ def ensure_shortcut_view(token,path):
     return view_id
 
 
+def ensure_full_view(token,path):
+    """Keep all 34 menu entries accessible in their own unfiltered grid view."""
+    from setup_sales_web import resolve_view,get_view
+    view_id,_=resolve_view(token,path,FULL_VIEW,False)
+    view=get_view(token,path,view_id)
+    if view.get("view_name")!=FULL_VIEW or view.get("view_type")!="grid":
+        raise SafeError("PORTAL_FULL_VIEW_IDENTITY_MISMATCH")
+    filt=((view.get("property") or {}).get("filter_info") or {})
+    if filt.get("conditions"):
+        api("PATCH",path+"/views/"+urllib.parse.quote(view_id,safe=""),token,
+            data={"view_name":FULL_VIEW,
+                  "property":{"filter_info":{"conjunction":"and",
+                                               "conditions":[]}}},
+            action="portal_full_view_clear_filter")
+        view=get_view(token,path,view_id)
+        if ((view.get("property") or {}).get("filter_info") or {}).get("conditions"):
+            raise SafeError("PORTAL_FULL_VIEW_FILTER_NOT_CLEARED")
+    print("PORTAL_FULL_VIEW_FILTER_PASS scope=ALL menu_count="+str(len(MENUS)))
+    return view_id
+
 def main():
     if os.environ.get("FEISHU_BASE_APP_TOKEN") != EXPECTED_BASE:
         raise SafeError("PORTAL_REFUSE_NON_SALES_BASE")
@@ -431,6 +452,8 @@ def main():
     update_home(token,path,desired)
     curated_id=ensure_curated_view(token,path)
     shortcut_id=ensure_shortcut_view(token,path)
+    full_id=ensure_full_view(token,path)
+    print("PORTAL_FULL_VIEW_URL="+BASE_URL+"?table="+tid+"&view="+full_id)
     print("PORTAL_SHORTCUT_URL="+BASE_URL+"?table="+tid+"&view="+shortcut_id)
     print("PORTAL_CURATED_VIEW_PASS shown="+str(len(PINNED_KEYS))+
           " hidden_from_curated="+str(len(desired)-len(PINNED_KEYS))+

@@ -14,6 +14,28 @@ class PortalTests(unittest.TestCase):
         self.assertIn("PAYMENT_FOLLOWUP",p.PINNED_KEYS)
         self.assertTrue(p.PINNED_KEYS.issubset(set(keys)))
 
+    def test_full_menu_view_filter_is_empty_and_existing_views_are_untouched(self):
+        self.assertEqual(p.FULL_VIEW,"전체 메뉴")
+        self.assertEqual(len(p.MENUS),34)
+        from unittest.mock import patch
+        proper={"view_name":p.FULL_VIEW,"view_type":"grid",
+                "property":{"filter_info":{"conditions":[]}}}
+        with patch("setup_sales_web.resolve_view",return_value=("vewFull",False)), \
+             patch("setup_sales_web.get_view",return_value=proper), \
+             mock.patch.object(p,"api") as api:
+            self.assertEqual(p.ensure_full_view("token","/tbl"),"vewFull")
+            api.assert_not_called()
+        filtered={"view_name":p.FULL_VIEW,"view_type":"grid",
+                  "property":{"filter_info":{"conditions":[{"field_id":"fld",
+                   "operator":"is","value":'[\\"주요\\"]'}]}}}
+        with patch("setup_sales_web.resolve_view",return_value=("vewFull",False)), \
+             patch("setup_sales_web.get_view",side_effect=[filtered,proper]), \
+             mock.patch.object(p,"api") as api:
+            self.assertEqual(p.ensure_full_view("token","/tbl"),"vewFull")
+            self.assertEqual(api.call_count,1)
+            self.assertEqual(api.call_args.args[0],"PATCH")
+            self.assertEqual(api.call_args.kwargs["data"]["property"]["filter_info"]["conditions"],[])
+
     def test_shortcut_exact_five_and_existing_twelve(self):
         self.assertEqual(p.SHORTCUT_KEYS,(
             "MONTHLY_TREND","WEEKLY_TREND","SIF_EVIDENCE",
