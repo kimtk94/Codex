@@ -19,6 +19,8 @@ on:
       - 'masteros/web/scripts/sfdc_product_line_registry.py'
       - 'masteros/web/scripts/sfdc_quote_report_index.py'
       - 'masteros/web/scripts/sfdc_feishu_report_local.py'
+      - 'masteros/web/scripts/sfdc_feishu_preclassified_local.py'
+      - 'masteros/web/scripts/test_sfdc_feishu_preclassified_local.py'
       - 'masteros/web/scripts/test_sfdc_feishu_report_local.py'
       - 'masteros/web/app/api/sfdc/feishu-report-local/**'
       - 'masteros/web/tests/sfdc-feishu-report-local.test.mjs'
@@ -73,6 +75,8 @@ on:
       - 'masteros/web/scripts/sfdc_product_line_registry.py'
       - 'masteros/web/scripts/sfdc_quote_report_index.py'
       - 'masteros/web/scripts/sfdc_feishu_report_local.py'
+      - 'masteros/web/scripts/sfdc_feishu_preclassified_local.py'
+      - 'masteros/web/scripts/test_sfdc_feishu_preclassified_local.py'
       - 'masteros/web/scripts/test_sfdc_feishu_report_local.py'
       - 'masteros/web/app/api/sfdc/feishu-report-local/**'
       - 'masteros/web/tests/sfdc-feishu-report-local.test.mjs'
@@ -147,6 +151,7 @@ jobs:
           python3 -m unittest discover -s scripts -p test_sfdc_quote_report_sheet.py -v
           python3 -m py_compile scripts/sfdc_feishu_report_local.py
           python3 -m unittest discover -s scripts -p test_sfdc_feishu_report_local.py -v
+          python3 -m unittest discover -s scripts -p test_sfdc_feishu_preclassified_local.py -v
       - name: Validate single-service per-process Cloud 100 Gb rules
         run: python3 -m unittest discover -s scripts -p test_sfdc_single_service_cloud.py -v
       - name: Unit-test live health classifier without Salesforce access
