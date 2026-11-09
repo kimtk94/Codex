@@ -9,7 +9,9 @@ import datetime as dt
 import re
 
 from qq_mail_ingest import SafeError, api, list_all, plain_field
-from quote_process_amount import sf15, quote_id, week_for
+from quote_process_amount import (
+    sf15, quote_id, week_for, validate_source, source_fresh, KST,
+)
 
 TABLE="Weekly Quote Review"
 CHECKBOX="합산 제외"
@@ -24,6 +26,8 @@ SCHEMA=[
     ("Quote Status",1),
     ("Approved AND Active",1),
     ("SFDC IsActive",1),
+    ("Active Evidence Source",1),
+    ("Active Evidence KST",1),
     (CHECKBOX,7),
     ("합산 상태",1),
     ("제외 이유",1),
@@ -64,10 +68,30 @@ def read_overrides(records):
     return result
 
 
-def review_rows(source,overrides=None):
-    """List every canonical approval by immutable Quote ID even if inactive."""
+def review_rows(source,overrides=None,now=None):
+    """Review ALL approvals using authenticated, timely SFDC Quote Active proof.
+
+    Preferred: 17:00 authenticated QQ Quotation report with process-row Active
+    uniformly 1 or 0 for an exact immutable QID.
+    Fallback: timely direct Salesforce Quote Export with independently matched
+    Quote Status. A stale October export must NEVER turn a November unknown
+    quote into 0/Inactive. Manual exclusions always take precedence.
+    """
     overrides=overrides or {}
+    now=now or dt.datetime.now(KST)
     approval=source.get("Quote Approval Dedup",[])
+    state=validate_source(source,now)
+    verified_mail=state=="SOURCE_QQ_REPORT_VERIFIED"
+    source_stamps=[cell(r,"Source Received KST")
+                   for r in source.get("SFDC Email Ingest Audit",[])
+                   if cell(r,"Entity")=="Quotation"]
+    receipt=source_stamps[0] if len(source_stamps)==1 else ""
+    raw_states=collections.defaultdict(set)
+    if verified_mail:
+        for row in source["SFDC Email Quotation Raw"]:
+            qid=quote_id(cell(row,"SFDC Quotation ID"))
+            if qid:
+                raw_states[qid].add(cell(row,"Active").lower())
     exported={}
     for row in source.get("SFDC Quote Export",[]):
         sid=sf15(cell(row,"Salesforce Record ID"))
@@ -75,7 +99,7 @@ def review_rows(source,overrides=None):
             raise SafeError("WEEKLY_REVIEW_INVALID_EXPORT_ID")
         if sid in exported:
             raise SafeError("WEEKLY_REVIEW_DUPLICATE_EXPORT_ID")
-        exported[sid]=cell(row,"IsActive").lower()
+        exported[sid]=row
     output={}
     for row in approval:
         sid=sf15(cell(row,"SFDC Record ID"))
@@ -85,15 +109,40 @@ def review_rows(source,overrides=None):
         key="QUOTE_REVIEW:"+sid
         if key in output:
             raise SafeError("WEEKLY_REVIEW_DUPLICATE_APPROVAL_ID")
-        status=cell(row,"Quote Status").upper()
-        approved=cell(row,"Approved AND Active").upper()
-        is_active=exported.get(sid,"")
+        qid=quote_id(cell(row,"Quotation Name"))
+        if not qid:
+            raise SafeError("WEEKLY_REVIEW_APPROVAL_QID_UNVERIFIED")
+        raw_flag=raw_states.get(qid,set()) if verified_mail else set()
+        evidence_source=""
+        evidence_when=""
+        if verified_mail:
+            # An ambiguous/missing QID or contradictory Active rows is NO_VALUE.
+            flag=next(iter(raw_flag)) if len(raw_flag)==1 else ""
+            flag=flag if flag in ("0","1") else ""
+            if flag:
+                evidence_source="QQ_3REPORT_VERIFIED"
+                evidence_when=receipt
+        else:
+            old=exported.get(sid,{})
+            flag=cell(old,"IsActive").lower()
+            fresh=source_fresh(cell(old,"Exported At KST"),now)
+            status=cell(row,"Quote Status").upper()
+            approved=cell(row,"Approved AND Active").upper()
+            # Missing/inconsistent historical snapshot cannot prove Active.
+            consistent=(flag=="1" and status=="ACTIVE" and approved=="YES") or (
+                        flag=="0" and status=="INACTIVE" and approved=="NO")
+            flag=flag if fresh and consistent else ""
+            if flag:
+                evidence_source="FRESH_SFDC_EXPORT"
+                evidence_when=cell(old,"Exported At KST")
+        status="ACTIVE" if flag=="1" else "INACTIVE" if flag=="0" else "UNKNOWN"
+        approved="YES" if flag=="1" else "NO" if flag=="0" else "UNVERIFIED"
         manual=bool(overrides.get(key,False))
         if manual:
             reason="MANUAL_EXCLUDED"
-        elif status=="INACTIVE" or approved=="NO" or is_active in ("0","false"):
+        elif flag=="0":
             reason="NOT_ACTIVE"
-        elif status=="ACTIVE" and approved=="YES" and is_active in ("1","true"):
+        elif flag=="1":
             reason=""
         else:
             reason="ACTIVE_NOT_VERIFIED"
@@ -103,15 +152,19 @@ def review_rows(source,overrides=None):
             "Approval KST":cell(row,"Approval KST"),
             "Quote Name":cell(row,"Quotation Name"),
             "SFDC Record ID":sid,
-            "Quote Status":status or "UNKNOWN",
-            "Approved AND Active":approved or "UNVERIFIED",
-            "SFDC IsActive":is_active or "UNVERIFIED",
+            "Quote Status":status,
+            "Approved AND Active":approved,
+            "SFDC IsActive":flag or "UNVERIFIED",
+            "Active Evidence Source":evidence_source or "NO_VALUE",
+            "Active Evidence KST":evidence_when,
             "합산 상태":NOT_INCLUDED if reason else INCLUDED,
             "제외 이유":reason,
         }
     print("QUOTE_REVIEW_SOURCE_PASS total="+str(len(output))
           +" included="+str(sum(r["합산 상태"]==INCLUDED for r in output.values()))
           +" excluded="+str(sum(r["합산 상태"]==NOT_INCLUDED for r in output.values()))
+          +" active_unverified="+str(sum(r["제외 이유"]=="ACTIVE_NOT_VERIFIED" for r in output.values()))
+          +" active_evidence="+("QQ_3REPORT_VERIFIED" if verified_mail else "FALLBACK_OR_NO_VALUE")
           +" manual="+str(sum(bool(overrides.get(k,False)) for k in output)))
     return list(output.values())
 
