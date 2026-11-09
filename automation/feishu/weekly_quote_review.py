@@ -10,7 +10,7 @@ import re
 
 from qq_mail_ingest import SafeError, api, list_all, plain_field
 from quote_process_amount import (
-    sf15, quote_id, week_for, validate_source, source_fresh, KST,
+    sf15, quote_id, week_for, validate_source, source_fresh, KST, weekly_calculations,
 )
 
 TABLE="Weekly Quote Review"
@@ -28,12 +28,16 @@ SCHEMA=[
     ("SFDC IsActive",1),
     ("Active Evidence Source",1),
     ("Active Evidence KST",1),
+    ("Chart Window",1), ("기관",1), ("Opportunity",1),
+    ("서비스·공정",1), ("샘플수(공정별)",1),
+    ("참고 금액 K USD",2), ("금액 근거",1),
     (CHECKBOX,7),
     ("합산 상태",1),
     ("제외 이유",1),
     ("Last Sync KST",1),
 ]
 VIEW_SPECS=(
+    ("그래프 연동 · 최근 5주 검토","Chart Window","RECENT_4_PLUS_CURRENT"),
     ("전체 Quote 목록",None,None),
     ("합산 대상 Quote","합산 상태",INCLUDED),
     ("합산 제외 · 미확인","합산 상태",NOT_INCLUDED),
@@ -68,6 +72,50 @@ def read_overrides(records):
     return result
 
 
+def chart_window_weeks(source,now):
+    """Mirror Weekly KPI's 4 closed Friday weeks + 1 ongoing week."""
+    valid={}
+    for entry in source.get("SFDC Weekly Overview",[]):
+        week=cell(entry,"week_start")
+        if not re.fullmatch(r"20\d{2}-\d{2}-\d{2}",week):
+            continue
+        try:
+            date=dt.date.fromisoformat(week)
+        except ValueError:
+            continue
+        if date.weekday()!=4:
+            continue
+        if week in valid:
+            raise SafeError("WEEKLY_REVIEW_DUPLICATE_WEEK")
+        valid[week]="IN_PROGRESS" in cell(entry,"weekly_basis").upper()
+    if valid:
+        closed=sorted((w for w,p in valid.items() if not p),reverse=True)[:4]
+        running=sorted((w for w,p in valid.items() if p),reverse=True)[:1]
+        return set(closed+running)
+    # Unit fixtures without a weekly overview still get a safe 5-week scope;
+    # production report weeks always follow the verified KPI overview.
+    today=dt.date.fromisoformat(week_for(now.date().isoformat()))
+    return {(today-dt.timedelta(days=7*n)).isoformat() for n in range(5)}
+
+
+def quote_detail(rows):
+    """Use the latest authenticated QQ Report for decision context only."""
+    if not rows:
+        return {"기관":"","Opportunity":"","서비스·공정":"",
+                "샘플수(공정별)":""}
+    account={cell(r,"Account Name: Account Name") for r in rows}
+    opportunity={cell(r,"Opportunity Name: Opportunity Name") for r in rows}
+    services=sorted({cell(r,"Quote Process Name") or
+                     cell(r,"Quotation Process Name") for r in rows} - {""})
+    quantity=sorted({cell(r,"Sample Quantity") for r in rows} - {""})
+    return {
+        "기관":next(iter(account)) if len(account)==1 else "원본 불일치·검토",
+        "Opportunity":next(iter(opportunity)) if len(opportunity)==1 else "원본 불일치·검토",
+        "서비스·공정":" / ".join(services),
+        "샘플수(공정별)":" / ".join(quantity),
+    }
+
+
 def review_rows(source,overrides=None,now=None):
     """Review ALL approvals using authenticated, timely SFDC Quote Active proof.
 
@@ -87,11 +135,20 @@ def review_rows(source,overrides=None,now=None):
                    if cell(r,"Entity")=="Quotation"]
     receipt=source_stamps[0] if len(source_stamps)==1 else ""
     raw_states=collections.defaultdict(set)
+    detail_by_qid=collections.defaultdict(list)
     if verified_mail:
         for row in source["SFDC Email Quotation Raw"]:
             qid=quote_id(cell(row,"SFDC Quotation ID"))
             if qid:
                 raw_states[qid].add(cell(row,"Active").lower())
+                detail_by_qid[qid].append(row)
+    amounts_by_week,amount_info=weekly_calculations(source,now)
+    amount_by_sid={sid:amount
+                   for week in amounts_by_week.values()
+                   for sid,amount in week["amount_by_sid"].items()}
+    if amount_info["source_state"]!="SOURCE_QQ_REPORT_VERIFIED":
+        amount_by_sid={}
+    shown_weeks=chart_window_weeks(source,now)
     exported={}
     for row in source.get("SFDC Quote Export",[]):
         sid=sf15(cell(row,"Salesforce Record ID"))
@@ -146,6 +203,8 @@ def review_rows(source,overrides=None,now=None):
             reason=""
         else:
             reason="ACTIVE_NOT_VERIFIED"
+        detail=quote_detail(detail_by_qid.get(qid,[])) if verified_mail else quote_detail([])
+        amount=amount_by_sid.get(sid)
         output[key]={
             "Source Key":key,
             "Week Start":week,
@@ -157,6 +216,11 @@ def review_rows(source,overrides=None,now=None):
             "SFDC IsActive":flag or "UNVERIFIED",
             "Active Evidence Source":evidence_source or "NO_VALUE",
             "Active Evidence KST":evidence_when,
+            "Chart Window":("RECENT_4_PLUS_CURRENT" if week in shown_weeks else "HISTORY"),
+            **detail,
+            "참고 금액 K USD":round(float(amount)/1000,4) if amount is not None else None,
+            "금액 근거":("SOURCE_QQ_PROCESS_OWNER_PARITY" if amount is not None
+                        else "NO_VALUE"),
             "합산 상태":NOT_INCLUDED if reason else INCLUDED,
             "제외 이유":reason,
         }
@@ -187,6 +251,14 @@ def membership(rows):
 def equal_source(before,row):
     for name,value in row.items():
         observed=before.get(name)
+        if value is None and observed in (None,"",[]):
+            continue
+        if isinstance(value,(int,float)) and not isinstance(value,bool):
+            try:
+                if abs(float(observed)-float(value))<0.00005:
+                    continue
+            except (ValueError,TypeError):
+                pass
         if plain_field(observed).strip()!=str(value).strip():
             return False
     return True

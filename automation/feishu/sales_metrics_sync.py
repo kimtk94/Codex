@@ -798,7 +798,9 @@ def ensure_tables(token,root):
                     raise SafeError("METRIC_SCHEMA_TYPE_MISMATCH")
             elif (name=="Project Progress Board" and field_name in allowed) or (
                     name==QUOTE_REVIEW_TABLE and field_name in
-                    {"Active Evidence Source","Active Evidence KST"}) or (
+                    {"Active Evidence Source","Active Evidence KST",
+                     "Chart Window","기관","Opportunity","서비스·공정",
+                     "샘플수(공정별)","참고 금액 K USD","금액 근거"}) or (
                     name=="Weekly Quote KPI" and field_name in
                     {"Chart Week Label","Chart Window","Verified Quote Value M KRW FX",
                      "Included Quote Count","Excluded Quote Count",

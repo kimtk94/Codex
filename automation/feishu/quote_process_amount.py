@@ -204,7 +204,8 @@ def weekly_calculations(source,now,included_sids=None):
                 "created_in_week_count":sum(
                     1 for qid in seen.values() if qid and
                     week_for(qid[4:14])==wk),
-                "candidate_usd":D(0),"issues":collections.Counter(issues[wk]),
+                "candidate_usd":D(0),"amount_by_sid":{},
+                 "issues":collections.Counter(issues[wk]),
                 "hist_parity_count":0,"without_historic_count":0}
         if source_info["source_state"]!="SOURCE_QQ_REPORT_VERIFIED":
             results[wk]=result
@@ -245,5 +246,6 @@ def weekly_calculations(source,now,included_sids=None):
                 result["without_historic_count"]+=1
             result["calculated_count"]+=1
             result["candidate_usd"]+=quote["amount_usd"]
+            result["amount_by_sid"][sid]=quote["amount_usd"]
         results[wk]=result
     return results,source_info

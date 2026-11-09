@@ -67,6 +67,7 @@ class ProcessQuoteTests(unittest.TestCase):
         self.assertEqual(rows["2026-10-30"]["calculated_count"],1)
         self.assertEqual(rows["2026-10-30"]["hist_parity_count"],1)
         self.assertEqual(rows["2026-10-30"]["candidate_usd"],q.D("154.00"))
+        self.assertEqual(rows["2026-10-30"]["amount_by_sid"][SF],q.D("154.00"))
 
     def test_same_process_id_with_different_price_is_additional_charge(self):
         data=fixture()
