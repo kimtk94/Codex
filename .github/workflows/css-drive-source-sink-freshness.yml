@@ -1,6 +1,12 @@
 name: CSS Drive Source-Sink Freshness (Read Only)
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/css_drive_source_sink_guard.py'
+      - 'scripts/test_css_drive_source_sink_guard.py'
+      - '.github/workflows/css-drive-source-sink-freshness.yml'
   schedule:
     # 08:10 / 12:10 / 17:10 KST
     - cron: '10 23,3,8 * * *'
