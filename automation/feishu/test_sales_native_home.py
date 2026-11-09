@@ -43,6 +43,10 @@ class PortalTests(unittest.TestCase):
             rows={r["Menu Key"]:r for r in desired}
             self.assertEqual(rows["MAIL_CURRENT"]["데이터 상태"],"DATA_PRESENT")
             self.assertIn("&view=v1",rows["MAIL_CURRENT"]["바로가기 URL"])
+            self.assertEqual(rows["MAIL_CURRENT"]["바로가기"],{
+                "text":"열기","link":rows["MAIL_CURRENT"]["바로가기 URL"]})
+            self.assertEqual(rows["CONTACTS"]["바로가기"],{
+                "text":"열기","link":rows["CONTACTS"]["바로가기 URL"]})
             self.assertEqual(rows["CONTACTS"]["데이터 상태"],"SOURCE_EMPTY")
             self.assertEqual(rows["MAIL_CURRENT"]["표시"],p.CURATED_DISPLAY)
             self.assertEqual(rows["CONTACTS"]["표시"],p.ARCHIVE_DISPLAY)
@@ -56,6 +60,14 @@ class PortalTests(unittest.TestCase):
             result=next(r for r in rows if r["Menu Key"]=="MAIL_CURRENT")
             self.assertEqual(result["데이터 상태"],"VIEW_NOT_READY")
             self.assertEqual(result["바로가기 URL"],"")
+            self.assertIsNone(result["바로가기"])
+
+    def test_link_readback_and_schema(self):
+        self.assertEqual(p.MENU_EXTRA_FIELDS["바로가기"]["type"],15)
+        link={"text":"열기","link":"https://ocnz4cb25scn.feishu.cn/base/x?table=y&view=z"}
+        self.assertTrue(p.same({"바로가기":link},{"바로가기":link}))
+        self.assertTrue(p.same({"바로가기":None},{"바로가기":None}))
+        self.assertFalse(p.same({"바로가기":None},{"바로가기":link}))
 
     def test_no_writes_when_unchanged(self):
         data={"Menu Key":"TEST","데이터 상태":"DATA_PRESENT"}
