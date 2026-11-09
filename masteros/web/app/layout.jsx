@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "MasterOS",
-  description: "Research and CSS intelligence dashboard",
+  title: "CSS Automation",
+  description: "CSS 업무 실행 및 Health Check"
 };
 
 export default function RootLayout({ children }) {

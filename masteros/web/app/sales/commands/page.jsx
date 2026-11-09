@@ -100,19 +100,19 @@ export default function SfdcCommandCenter(){
         <h1>업무 실행</h1><p>입력 → 검증 → 실행 → 결과 확인</p></div>
       <div className={styles.navigation}>
         <Link href="/sales/projects">프로젝트</Link>
-        <Link href="/sales/oppo-quote">기존 Draft</Link>
         <button type="button" onClick={loadHealth} disabled={healthBusy}>{healthBusy?"점검 중":"Health Check"}</button>
       </div>
     </header>
     <section className={styles.health}>
       <div className={styles.sectionHead}><h2>Health Check</h2><span>{health?.status||"점검 전"}</span></div>
       <div className={styles.healthGrid}>
-        <Flag label="Salesforce 브라우저" state={health?.salesforce_browser}/>
+        <Flag label="Lead 접속" state={health?.lead_view}/>
+        <Flag label="Oppo 접속" state={health?.opportunity_view}/>
+        <Flag label="Quote 접속" state={health?.quote_view}/>
         <Flag label="Contact 조회" state={health?.contact_lookup}/>
-        <Flag label="Oppo·Quote 자료" state={health?.opportunity_quote_history}/>
         <Flag label="Lead Convert" state={health?.lead_convert}/>
         <Flag label="Oppo 생성" state={health?.opportunity_create}/>
-        <Flag label="Quote 제품 저장" state={health?.quote_create}/>
+        <Flag label="Quote 저장" state={health?.quote_create}/>
       </div>
     </section>
     <section className={styles.commands}>

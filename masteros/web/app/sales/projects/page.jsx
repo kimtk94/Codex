@@ -64,8 +64,6 @@ export default function CssProjectsLocal(){
       </div>
       <div className={styles.actions}>
         <Link href="/sales/commands">업무 실행</Link>
-        <Link href="/sales/oppo-quote">Oppo · Quote</Link>
-        <Link href="/">홈</Link>
         <button type="button" onClick={refresh} disabled={loading}>
           {loading?"동기화 확인 중":"새로고침"}
         </button>

@@ -1,4 +1,5 @@
-import {spawn} from "node:child_process";
+import {spawn,execFile} from "node:child_process";
+import {promisify} from "node:util";
 import {join} from "node:path";
 import {homedir} from "node:os";
 import {stat} from "node:fs/promises";
@@ -86,28 +87,34 @@ export async function GET(request){
      request.headers.get("origin")==="http://"+request.headers.get("host")) &&
     !["cross-site","same-site"].includes(request.headers.get("sec-fetch-site"));
   if(!ok)return reply({status:"BLOCK",code:"LOCAL_ONLY"},403);
-  let ui="SOURCE_UNAVAILABLE";
+  // Do not confuse a CDP tab with a logged-in, operational Salesforce view.
+  let views={lead_view:"BLOCK",opportunity_view:"BLOCK",quote_view:"BLOCK"};
   try{
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),3000);
-    try{
-      const res=await fetch("http://127.0.0.1:9222/json/list",{signal:controller.signal,cache:"no-store"});
-      if(res.ok){
-        const pages=await res.json();
-        ui=Array.isArray(pages)&&pages.some(p=>typeof p.url==="string"&&p.url.startsWith("https://novogene.lightning.force.com/"))?"UI_CANDIDATE":"SOURCE_UNAVAILABLE";
-      }
-    }finally{clearTimeout(timer);}
-  }catch{}
+    const python=process.env.SFDC_LOCAL_PYTHON||"python";
+    const script=join(process.cwd(),"scripts","sfdc_live_ui_health.py");
+    const {stdout}=await promisify(execFile)(python,[script],{
+      timeout:60000,maxBuffer:12000,windowsHide:true,
+      env:{...process.env,PYTHONIOENCODING:"utf-8",PYTHONDONTWRITEBYTECODE:"1"},
+    });
+    const result=JSON.parse(stdout);
+    for(const k of ["lead_view","opportunity_view","quote_view"]){
+      views[k]=result?.[k]==="PASS"?"PASS":"BLOCK";
+    }
+  }catch{
+    // Missing/expired Salesforce session is BLOCK, never an implicit PASS.
+  }
   const dataDir=join(homedir(),".sfdc_desktop");
   const contacts=await fileExists(join(dataDir,"account_contact_all_scope_PRIVATE.json"));
   const quote=await fileExists(join(dataDir,"all_quotation_inventory_20261103_PRIVATE.json"));
+  const browserReady=Object.values(views).every(v=>v==="PASS");
   return reply({status:"HEALTH_CHECK",
     contact_lookup:contacts?"SNAPSHOT_READY":"BLOCK",
     opportunity_quote_history:quote?"SNAPSHOT_READY":"BLOCK",
-    salesforce_browser:ui,
-    lead_convert:"UI_GATED",
-    opportunity_create:"UI_GATED",
-    quote_create:"LIVE_PRODUCT_SAVE_UNVERIFIED",
+    salesforce_browser:browserReady?"PASS":"BLOCK",
+    ...views,
+    lead_convert:views.lead_view==="PASS"?"UI_READY_SAVE_UNVERIFIED":"BLOCK",
+    opportunity_create:views.opportunity_view==="PASS"?"UI_READY_SAVE_UNVERIFIED":"BLOCK",
+    quote_create:"PRODUCT_SAVE_UNVERIFIED",
     live_salesforce_object_verified:false,
     save_readback_verified:false,
     operation_running:inProgress
