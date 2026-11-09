@@ -10,6 +10,7 @@ The SQLite database remains under the logged-in user's home directory.
 from __future__ import annotations
 
 import datetime as dt
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -41,6 +42,17 @@ def _db():
         payload_json TEXT NOT NULL
     )""")
     return cx
+
+
+@contextmanager
+def _connect():
+    """sqlite3.Connection context alone does not close on Windows."""
+    cx=_db()
+    try:
+        with cx:
+            yield cx
+    finally:
+        cx.close()
 
 
 def key_for(request):
@@ -103,7 +115,7 @@ def save(request,output,now=None):
         return False
     checked=int(time.time() if now is None else now)
     sha=hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    with _db() as cx:
+    with _connect() as cx:
         cx.execute("""INSERT INTO entries(cache_key,kind,observed_utc,expires_utc,schema_version,content_sha256,payload_json)
             VALUES(?,?,?,?,?,?,?)
             ON CONFLICT(cache_key) DO UPDATE SET kind=excluded.kind,
@@ -122,7 +134,7 @@ def lookup(request,now=None):
         return None
     checked=int(time.time() if now is None else now)
     try:
-        with _db() as cx:
+        with _connect() as cx:
             row=cx.execute("""SELECT observed_utc,expires_utc,schema_version,content_sha256,payload_json
                 FROM entries WHERE cache_key=?""",(identity[0],)).fetchone()
         if row is None or row[2]!=VERSION or row[1]<=checked or row[0]>checked+60:
@@ -152,7 +164,7 @@ def live_meta(kind,now=None):
 def stats(now=None):
     t=int(time.time() if now is None else now)
     try:
-        with _db() as cx:
+        with _connect() as cx:
             allrows=cx.execute("""SELECT kind, observed_utc, expires_utc
                 FROM entries WHERE schema_version=?""",(VERSION,)).fetchall()
         kinds={}
