@@ -6,6 +6,8 @@ on:
       - 'automation/feishu/sales_native_home.py'
       - 'automation/feishu/test_sales_native_home.py'
       - 'automation/feishu/sort_sales_home.py'
+      - 'automation/feishu/shortcut_chart_dashboards.py'
+      - 'automation/feishu/test_shortcut_chart_dashboards.py'
       - 'automation/feishu/test_sort_sales_home.py'
       - '.github/workflows/feishu-native-sales-home.yml'
   pull_request:
@@ -14,6 +16,8 @@ on:
       - 'automation/feishu/test_sales_native_home.py'
       - 'automation/feishu/sort_sales_home.py'
       - 'automation/feishu/test_sort_sales_home.py'
+      - 'automation/feishu/shortcut_chart_dashboards.py'
+      - 'automation/feishu/test_shortcut_chart_dashboards.py'
       - '.github/workflows/feishu-native-sales-home.yml'
   workflow_run:
     workflows: ['Feishu Sales SIF Invoice Weekly KPI']
@@ -46,7 +50,8 @@ jobs:
       - name: Native home offline tests
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_sales_native_home.py' -v
-          python3 -m py_compile automation/feishu/sales_native_home.py automation/feishu/sort_sales_home.py
+          python3 -m py_compile automation/feishu/sales_native_home.py automation/feishu/sort_sales_home.py automation/feishu/shortcut_chart_dashboards.py
+          python3 -m unittest discover -s automation/feishu -p 'test_shortcut_chart_dashboards.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sort_sales_home.py' -v
   home:
     needs: test
@@ -64,8 +69,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Build Feishu native internal sales portal
-        run: python3 automation/feishu/sales_native_home.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -75,5 +78,9 @@ jobs:
         run: |
           printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name css-home-sort --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
           lark-cli profile use css-home-sort
+      - name: Verify native Weekly and Monthly graph dashboards
+        run: python3 automation/feishu/shortcut_chart_dashboards.py
+      - name: Build Feishu native internal sales portal
+        run: python3 automation/feishu/sales_native_home.py
       - name: Save and read back actual Feishu view ordering
         run: python3 automation/feishu/sort_sales_home.py
