@@ -265,7 +265,7 @@ def write_batch(token,url,records,update=False):
     return result.get("records") or []
 
 
-def sync_one(token,tid,key_field,rows):
+def sync_one(token,tid,key_field,rows,legacy_header_exported_kst=None):
     base=path()+"/tables/"+tid+"/records"
     current=pages(token,base)
     old={}
@@ -290,7 +290,19 @@ def sync_one(token,tid,key_field,rows):
                 legacy=before_status in ("STALE","PROCESS_REPORT_FRESHNESS_UNVERIFIED")
                 unverified=after_status in ("DETAIL_REPORT_TIME_UNVERIFIED",
                                             "QUOTE_RECORD_ID_UNVERIFIED")
-                if not (legacy and unverified and not target_time):
+                # Previously both template tables (without Source Status)
+                # copied the *header* export stamp into a misleading
+                # process-detail export field. Only clear that EXACT
+                # independently identified incorrect historical stamp.
+                legacy_dictionary=(
+                    key_field in ("Process Key","Product Template Key")
+                    and timestamp==legacy_header_exported_kst
+                    and before_status==""
+                    and after_status==""
+                )
+                if not (not target_time and (
+                    (legacy and unverified) or legacy_dictionary
+                )):
                     raise ReportSourceError("FEISHU_REPORT_SOURCE_REGRESSION")
     to_create=[]
     to_update=[]
@@ -348,7 +360,8 @@ def execute(mode):
     }
     for table,rows in indexed["tables"].items():
         tid=ensure_table(token,table)
-        results[table]=sync_one(token,tid,mapping[table],rows)
+        results[table]=sync_one(token,tid,mapping[table],rows,
+            legacy_header_exported_kst=indexed["summary"]["header_exported_kst"])
     return {"status":"PASS","mode":"sync",
             "summary":indexed["summary"],
             "table_results":results,
