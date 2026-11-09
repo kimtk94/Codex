@@ -46,7 +46,7 @@ BLOCKS=[
         "text":"**월별 Revenue: Tax Invoice 수신 메일만 집계 · M KRW (K USD).** QQ 메일함의 공식 CSS \"Invoice Issued & Statement Confirmed\" 원본 메일에서 확인된 CMS Invoice(209126...)만 Invoice 번호로 중복 제거하고 VAT를 제외해 표시합니다. **수기 ERP Invoice·Feishu eTax·Payment·Pending·Forecast·Quote는 발행 검증 여부와 관계없이 합산하지 않습니다.** 백필 원본 메일 누락 후보는 제목·발신자·첨부파일명·금액 검증 전까지 합산하지 않습니다. 메일 수신월 기준 발행 안내 합계로서 회계상 매출 인식이나 입금 완료를 의미하지 않으며, 아직 전체 메일 수집 범위 검증 중입니다. KRW는 M, USD는 K 단위, 1 USD=1,500 KRW 보고용 환율로 동일 금액을 표시합니다."}),
     ("KOREA · Weekly Quote · 완료 4주 + 이번 주 (Count + 계산 K USD)","combo",{
         "table_name":"Weekly Quote KPI",
-        "series":[{"field_name":"Approved Quote Count","rollup":"SUM"},
+        "series":[{"field_name":"Included Quote Count","rollup":"SUM"},
                   {"field_name":"Calculated Quote Value K USD","rollup":"SUM"}],
         "group_by":[{"field_name":"Chart Week Label","mode":"integrated",
                      "sort":{"type":"group","order":"asc"}}],
@@ -57,6 +57,10 @@ BLOCKS=[
         "text":"**Quote 금액은 추정치입니다.** 최근 완료된 4주(금~목)와 이번 주 진행 중 데이터를 함께 표시합니다. "
                "견적 금액은 QQ SFDC 3종 Report의 원본 해시·최신성을 확인한 뒤, "
                "각 Quotation의 공정별 Unit Price USD × Sample Quantity를 중복 없이 합산한 값입니다. "
+               "**승인 목록은 모두 유지하고, 그래프 합계는 Active 견적만 반영합니다.** "
+               "Quote Status=ACTIVE, Approved AND Active=YES, SFDC IsActive=1이고 "
+               "Weekly Quote Review의 합산 제외 체크가 없는 건만 집계합니다. "
+               "Inactive·미확인·수동 제외는 승인 목록에 남지만 건수와 금액 합계에서 제외합니다. "
                "담당 Opportunity Owner가 본인이고, 기존 금액과 충돌하지 않는 견적만 계산합니다. "
                "이번 주 승인 0건은 원본 수집 누락을 의미하지 않습니다. 승인 여부와 최신 SFDC Report 수집 여부는 별개입니다. "
                "예외 건은 금액 합계에서 제외되며 0원이라고 해석하면 안 됩니다. "
@@ -436,7 +440,7 @@ def main():
                 continue
         if name in names:
             info=locate_chart(existing,name)
-            if (name in {"Quote 금액 검증 기준","Quote 계산 기준","운영 안내"} or
+            if (name in {"Quote 금액 검증 기준","Quote 계산 기준","운영 안내",QUOTE_CHART_NAME} or
                 kind=="statistics") and info:
                 cli("+dashboard-block-update","--base-token",BASE,
                     "--dashboard-id",dashboard_id,"--block-id",info,
