@@ -7,6 +7,7 @@ import styles from "./page.module.css";
 
 const FEISHU_BASE="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkzYT2OAVQssL3Y";
 const money=(x)=>Number.isSafeInteger(x)?x.toLocaleString("ko-KR")+" KRW":"검증 전";
+const kst=(value)=>value?new Date(value).toLocaleString("ko-KR",{timeZone:"Asia/Seoul",hour12:false}):"기록 없음";
 const empty={sourceOpportunityId:"",sourceQuoteId:"",newOpportunityName:"",
   samples:1,dataSizeGb:1,productUnitOverrideKrw:"",
   cloudUnitOverrideKrw:"",newOpportunityId:""};
@@ -37,6 +38,10 @@ export default function PairedQuoteWeb(){
   const [form,setForm]=useState(empty);
   const [result,setResult]=useState(null);
   const [busy,setBusy]=useState("");
+  const [cacheInfo,setCacheInfo]=useState(null);
+  const [cacheBusy,setCacheBusy]=useState(false);
+  const [cacheOffset,setCacheOffset]=useState(0);
+  const [cacheNotice,setCacheNotice]=useState("");
   const seq=useRef(0);
   const initialListStarted=useRef(false);
   const source=useMemo(()=>previewCandidate(selected),[selected]);
@@ -75,6 +80,44 @@ export default function PairedQuoteWeb(){
     initialListStarted.current=true;
     browse("");
   },[browse]);
+
+  const loadCacheStatus=useCallback(async()=>{
+    try{
+      const response=await fetch("/api/sfdc/cache-local",{
+        cache:"no-store",credentials:"omit",headers:{"X-SFDC-Command":"1"}
+      });
+      const value=await response.json();
+      if(value.status!=="PASS")throw Error(value.code||"CACHE_STATUS_UNAVAILABLE");
+      setCacheInfo(value);
+      return value;
+    }catch{
+      setCacheInfo({cache_status:"SOURCE_UNAVAILABLE",tiers:{}});
+      return null;
+    }
+  },[]);
+  useEffect(()=>{loadCacheStatus();},[loadCacheStatus]);
+
+  async function warmCache(){
+    if(cacheBusy||busy)return;
+    setCacheBusy(true);setCacheNotice("Salesforce 읽기 전용 사전 수집 중 · 선택한 최대 3건...");
+    try{
+      const response=await fetch("/api/sfdc/cache-local",{
+        method:"POST",cache:"no-store",credentials:"omit",
+        headers:{"X-SFDC-Command":"1","Content-Type":"application/json"},
+        body:JSON.stringify({mode:"WARM",limit:3,offset:cacheOffset})
+      });
+      const value=await response.json();
+      if(!["PASS","PARTIAL"].includes(value.status))
+        throw Error(value.code||value.stage||"SOURCE_UNAVAILABLE");
+      setCacheNotice(`수집 ${value.sampled??0}건 · 캐시 보유 ${value.bundles_available??0}건 · 원본 가격 확인 ${value.source_price_verified??0}건 · 보류 ${value.source_price_hold??0}건`);
+      setCacheOffset(prev=>(prev+3)>=30?0:prev+3);
+      await loadCacheStatus();
+      if(!selected)browse("");
+    }catch(e){
+      setCacheNotice("사전 수집 실패: "+(e?.message||"SOURCE_UNAVAILABLE"));
+      await loadCacheStatus();
+    }finally{setCacheBusy(false);}
+  }
 
   async function choose(item){
     if(busy)return;
@@ -123,6 +166,27 @@ export default function PairedQuoteWeb(){
       <b>CHECK ONLY · Salesforce 저장 0건</b>
       <span>이 화면은 로컬 PC의 인증된 Salesforce를 조회합니다. Feishu의 기존 요청 큐는 유지되며, 이 화면에서 고객 데이터 전송·견적 발행·Salesforce 저장은 수행하지 않습니다.</span>
     </div>
+    <section className={styles.panel} aria-label="Salesforce 사전 캐시">
+      <div className={styles.panelHead}><span className={styles.step}>00</span>
+        <div><h2>Salesforce 사전 캐시 · 빠른 조회</h2>
+          <p>로컬 PC 비공개 보관 · 목록 15분 / Quote·단가 근거 20분 유효 · 만료 시 원본 재조회</p></div>
+        <Status value={cacheInfo?.cache_status}/>
+      </div>
+      <div className={styles.statStrip}>
+        <div><small>유효한 Opportunity 목록</small><strong>{cacheInfo?.tiers?.list?.fresh??"—"}개 스냅샷</strong></div>
+        <div><small>유효한 연결 Quote</small><strong>{cacheInfo?.tiers?.bundle?.fresh??"—"}건</strong></div>
+        <div><small>만료된 연결 Quote</small><strong>{cacheInfo?.tiers?.bundle?.stale??"—"}건</strong></div>
+      </div>
+      <p className={styles.hint}>마지막 Quote 조회: {kst(cacheInfo?.tiers?.bundle?.last_checked_at_utc)} · 수집값은 예상 견적용이며 새로운 Salesforce Quote 저장 및 최종 금액 검증에 재사용하지 않습니다.</p>
+      <div className={styles.actions}>
+        <button type="button" disabled={Boolean(busy)||cacheBusy} onClick={warmCache}>
+          {cacheBusy?"사전 수집 중":"다음 3건 미리 수집 · 비공개 저장"}
+        </button>
+        <button type="button" className={styles.secondary} disabled={cacheBusy}
+          onClick={loadCacheStatus}>캐시 상태 확인</button>
+      </div>
+      {cacheNotice&&<p className={styles.hint} role="status">{cacheNotice}</p>}
+    </section>
     <section className={styles.panel}>
       <div className={styles.panelHead}><span className={styles.step}>01</span>
         <div><h2>기존 Opportunity 선택</h2><p>Salesforce 현재 목록에서 검색하고, 연결된 Quote를 정확히 하나만 확인합니다.</p></div>
@@ -144,6 +208,7 @@ export default function PairedQuoteWeb(){
       </div>
       {source.ok&&<div className={styles.source}>
         <div className={styles.inlineHead}><b>원본 Quote</b><Status value={source.priceStatus}/></div>
+        {selected?.cache&&<p className={styles.hint}>원본 조회: {selected.cache.state} · 확인 {kst(selected.cache.checked_at_utc)} · 유효 기한 {kst(selected.cache.expires_at_utc)}. 캐시값은 실시간 Salesforce 상태를 보증하지 않습니다.</p>}
         <div className={styles.sourceGrid}>
           <div><span>연결 관계</span><strong>1 Opportunity ↔ 1 Quote</strong></div>
           <div><span>Product 개수</span><strong>{source.productCount??"확인 필요"}</strong></div>
@@ -198,6 +263,7 @@ export default function PairedQuoteWeb(){
       </div>
       {result&&<section className={styles.output} aria-live="polite">
         <div className={styles.inlineHead}><strong>검증 결과 · {result.code||""}</strong><Status value={result.status}/></div>
+        {result.cache&&<p className={styles.hint}>계산 근거: {result.cache.state} · 마지막 Salesforce 확인 {kst(result.cache.checked_at_utc)}. 원본 수정 여부는 별도 실시간 재조회가 필요합니다.</p>}
         {lines.length>0&&<div className={styles.tableScroll}>
           <table><thead><tr><th>Product</th><th>단가</th><th>수량</th><th>합계 (VAT 제외)</th></tr></thead>
             <tbody>{lines.map((p,i)=><tr key={i}><td>{p.product}</td><td>{money(p.unit_krw)}</td>
