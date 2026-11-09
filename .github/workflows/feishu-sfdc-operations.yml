@@ -1,0 +1,81 @@
+name: Feishu SFDC Operations Bridge
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/sfdc_ops/**'
+      - 'masteros/web/scripts/sfdc_feishu_local_worker.py'
+      - '.github/workflows/feishu-sfdc-operations.yml'
+  schedule:
+    # 08:03-20:58 KST, every 5 min while workday is active.
+    - cron: '3/5 23,0-11 * * 1-6'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feishu-sfdc-operations
+  cancel-in-progress: false
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check source request schema, no-save guards and reconciliation
+        run: |
+          python3 -m unittest discover -s automation/feishu/sfdc_ops -p 'test_*.py' -v
+          python3 -m py_compile automation/feishu/sfdc_ops/*.py
+          python3 -m py_compile masteros/web/scripts/sfdc_feishu_local_worker.py
+  provision:
+    if: github.event_name != 'pull_request'
+    needs: offline-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Idempotently provision SFDC operations table and input form
+        run: python3 automation/feishu/sfdc_ops/feishu_sfdc_bridge.py bootstrap --write
+  sync:
+    needs: provision
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install private Google Sheets transport dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Feishu input → Google private queue, agent output → Feishu status
+        run: python3 automation/feishu/sfdc_ops/feishu_sfdc_exchange.py --write
+      - name: Declare action and CRM verification scope
+        if: always()
+        run: echo 'FEISHU_REQUEST_QUEUE_BRIDGE;NO_GITHUB_SFDC_SESSION;NO_CRM_SAVE_BY_ACTIONS;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
