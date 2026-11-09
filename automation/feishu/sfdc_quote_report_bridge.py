@@ -319,7 +319,25 @@ def sync_one(token,tid,key_field,rows,legacy_header_exported_kst=None):
             to_update.append({"record_id":existing["record_id"],"fields":row})
     if len(current)>len(rows)+5000:
         raise ReportSourceError("FEISHU_TARGET_UNEXPECTED_SIZE")
-    # Deliberately do not delete out-of-scope records from existing Feishu table.
+    superseded=0
+    # Previous reports may have 1-2 retired process rows per Quote.
+    # Never delete user records: mark old-only source lines as superseded,
+    # so the web indexes ONLY the exact latest Report subset.
+    if key_field=="Line Key":
+        old_only=[(key,rec) for key,rec in old.items() if key not in wanted]
+        if len(old_only)>100 or len(old_only)>max(10,len(rows)//50):
+            raise ReportSourceError("FEISHU_HISTORICAL_LINE_DRIFT_TOO_LARGE")
+        for key,rec in old_only:
+            status=plain((rec.get("fields") or {}).get("Source Status"))
+            if status=="SUPERSEDED_NOT_IN_CURRENT_REPORT":
+                continue
+            if status not in ("STALE","DETAIL_REPORT_TIME_UNVERIFIED",
+                              "QUOTE_RECORD_ID_UNVERIFIED",
+                              "PROCESS_REPORT_FRESHNESS_UNVERIFIED"):
+                raise ReportSourceError("FEISHU_ORPHAN_LINE_NOT_SAFE_TO_SUPERSEDE")
+            to_update.append({"record_id":rec["record_id"],
+                              "fields":{"Source Status":"SUPERSEDED_NOT_IN_CURRENT_REPORT"}})
+            superseded+=1
     for mode,batch in ((False,to_create),(True,to_update)):
         for i in range(0,len(batch),200):
             created=write_batch(token,base,batch[i:i+200],update=mode)
@@ -338,9 +356,16 @@ def sync_one(token,tid,key_field,rows,legacy_header_exported_kst=None):
         fields=mapped[key]
         if any(plain(fields.get(k))!=plain(v) for k,v in expected.items()):
             raise ReportSourceError("FEISHU_READBACK_FIELD_MISMATCH")
+    orphan_rows=[r for r in after if plain((r.get("fields") or {}).get(key_field)) not in wanted]
+    if key_field=="Line Key" and any(
+        plain((r.get("fields") or {}).get("Source Status"))!="SUPERSEDED_NOT_IN_CURRENT_REPORT"
+        for r in orphan_rows
+    ):
+        raise ReportSourceError("FEISHU_HISTORICAL_SUPERSEDE_READBACK_FAILED")
     return {"source_rows":len(rows),"created":len(to_create),
-            "updated":len(to_update),"unchanged":unchanged,
-            "readback":"PASS"}
+            "updated":len(to_update)-superseded,"unchanged":unchanged,
+            "superseded":superseded,"historical_retained_rows":len(orphan_rows),
+            "physical_feishu_rows":len(after),"readback":"PASS"}
 
 
 def execute(mode):
