@@ -72,7 +72,7 @@ class ScheduleTests(unittest.TestCase):
         now=dt.datetime(2026,11,9,12,7,tzinfo=UTC)
         base={"event":"schedule","head_branch":"main",
               "status":"completed","conclusion":"success",
-              "created_at":"2026-11-09T12:05:00Z"}
+              "created_at":"2026-11-09T12:06:00Z"}
         self.assertEqual(f.watch_schedule(now,self.activation,self.slots,[base])[0],
                          "LATE")
         base["conclusion"]="failure"
