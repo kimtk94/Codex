@@ -19,10 +19,10 @@ def evidence():
     process=[{"Process Key":process_key,
         "Process ID":"Process-2020-01-01-00001",
         "Process Name":"Library Preparation","Data Unit":"sample",
-        "Source Exported KST":"2026-10-24 18:00:08 KST"}]
+        "Source Exported KST":"","Source Received KST":"2026-10-24 18:00:08 KST"}]
     product=[{"Product Template Key":template_key,
         "Process Keys":json.dumps([process_key]),
-        "Process Count":"1","Source Exported KST":"2026-10-24 18:00:08 KST"}]
+        "Process Count":"1","Source Exported KST":"","Source Received KST":"2026-10-24 18:00:08 KST"}]
     lines=[]
     for i,price in enumerate(("190","210")):
         lines.append({
@@ -37,9 +37,10 @@ def evidence():
             "Process Total USD":str(20*int(price)),
             "Sample Qty":"20","Data Size":"6",
             "Active":"1","Quote Created":"10/20/2026",
-            "Source Exported KST":"2026-10-24 18:00:08 KST",
+            "Source Exported KST":"",
+            "Source Received KST":"2026-10-24 18:00:08 KST",
             "Source Row Hash":sha("original"+str(i)),
-            "Source Status":"STALE",
+            "Source Status":"MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED",
         })
     return lines,process,product
 
@@ -79,7 +80,23 @@ class FeishuReportTests(unittest.TestCase):
         self.assertEqual(f.detail(data[0][0]["Quote ID"])["process_lines"][0]["unit_price_usd"],"190")
         self.assertEqual(f.detail(data[0][1]["Quote ID"])["process_lines"][0]["unit_price_usd"],"210")
         self.assertFalse(f.status()["krw_rate_verified"])
-        self.assertEqual(f.status()["source_state"],"STALE_SOURCE")
+        self.assertEqual(f.status()["source_state"],"STALE_MAIL_SOURCE")
+        self.assertEqual(f.status()["source_mail_received_kst"],"2026-10-24 18:00:08 KST")
+        self.assertFalse(f.status()["process_export_time_verified"])
+
+    def test_missing_feishu_received_timestamp_blocks_publication(self):
+        data=list(evidence())
+        data[0][0]["Source Received KST"]=""
+        with self.assertRaisesRegex(f.FeishuSourceError,
+                                     "FEISHU_MAIL_RECEIPT_SOURCE_MISSING"):
+            f._validate(*data)
+
+    def test_different_source_mail_timestamps_block_snapshot(self):
+        data=list(evidence())
+        data[0][0]["Source Received KST"]="2026-11-09 17:00:23 KST"
+        with self.assertRaisesRegex(f.FeishuSourceError,
+                                     "FEISHU_MAIL_RECEIPT_SOURCE_MISSING"):
+            f._validate(*data)
 
     def test_unreadable_sfdc_record_id_blocks_before_cache_swap(self):
         data=list(evidence())
