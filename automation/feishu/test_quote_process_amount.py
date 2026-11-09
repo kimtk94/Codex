@@ -27,9 +27,14 @@ def fixture(count=1):
                     "Opportunity Owner":"Kim Taehoon","Amount Currency":"KRW"}]
     approvals=[{"Approval KST":"2026-11-04 13:00:00",
                 "Quotation Name":QID+" sales approved",
+                "Quote Status":"ACTIVE","Approved AND Active":"YES",
                 "SFDC Record ID":SF}]
     return {"SFDC Email Quotation Raw":quotation,
             "SFDC Email Opportunities Raw":opportunities,
+            "SFDC Quote Export":[{"Salesforce Record ID":SF+"XYZ",
+                "IsActive":"1","CurrencyIsoCode":"USD",
+                "Opportunity ID":"006OPP","Exported At KST":"2026-11-07 12:00:08 KST",
+                "Exclude Tax After Discount USD":""}],
             "Quote Approval Dedup":approvals,
             "Quote Portfolio":[{"Quote QID":QID,
                                 "Salesforce Quote ID (18)":SF+"XYZ","Quote USD":"154.00"}],
