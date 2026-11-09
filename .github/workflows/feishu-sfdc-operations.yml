@@ -8,6 +8,11 @@ on:
       - 'automation/feishu/sfdc_ops/**'
       - 'masteros/web/scripts/sfdc_feishu_local_worker.py'
       - '.github/workflows/feishu-sfdc-operations.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/sfdc_ops/**'
+      - 'masteros/web/scripts/sfdc_feishu_local_worker.py'
+      - '.github/workflows/feishu-sfdc-operations.yml'
   schedule:
     # 08:03-20:58 KST, every 5 min while workday is active.
     - cron: '3/5 23,0-11 * * 1-6'
