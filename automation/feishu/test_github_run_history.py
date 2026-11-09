@@ -53,6 +53,12 @@ class RunHistoryTests(unittest.TestCase):
         self.assertEqual(row["운영 여부"],"TEST")
         self.assertEqual(row["검증 상태"],"TEST_ONLY")
 
+    def test_failed_pr_is_not_an_operating_alert(self):
+        row=h.build_row("SFDC Report",run(event="pull_request",conclusion="failure"),[],
+                        ("09:50","2026-11-10 09:50:00"),NOW)
+        self.assertEqual(row["운영 여부"],"TEST")
+        self.assertEqual(row["검증 상태"],"TEST_FAILURE")
+
     def test_feishu_partial_payment_pass_is_not_complete_success(self):
         jobs=[{"name":"ingest","conclusion":"success"},
               {"name":"lifecycle","conclusion":"success"},

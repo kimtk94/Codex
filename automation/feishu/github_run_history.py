@@ -228,6 +228,10 @@ def build_row(label,run,jobs,schedule,now):
     if link!="https://github.com/"+REPO+"/actions/runs/"+str(run_id):
         raise SafeError("HISTORY_RUN_URL_MISMATCH")
     source,sink,verdict,parts=result_states(label,run,jobs)
+    # PR regression failures must stay visible in the full archive but must
+    # never masquerade as operational incidents in the action-required view.
+    if event=="pull_request":
+        verdict="TEST_FAILURE" if verdict=="CHECK" else "TEST_ONLY"
     kind={"schedule":"예약","workflow_dispatch":"수동","push":"코드 변경",
           "pull_request":"PR 테스트","workflow_run":"연계 실행"}[event]
     operation="TEST" if event=="pull_request" or verdict=="TEST_ONLY" else "OPERATION"
