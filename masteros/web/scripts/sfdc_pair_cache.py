@@ -205,7 +205,7 @@ def normalize_existing(now=None):
     impersonates a new Salesforce observation or connects to Salesforce.
     """
     t=int(time.time() if now is None else now)
-    migrated=0
+    candidates=[]
     failed=0
     with _connect() as cx:
         records=cx.execute("""SELECT cache_key,kind,observed_utc,
@@ -245,10 +245,17 @@ def normalize_existing(now=None):
                     WHERE cache_key=? AND content_sha256=?""",
                     (value,hashlib.sha256(value.encode("utf-8")).hexdigest(),
                      key,checksum))
-                migrated+=1
+                candidates.append(key)
             except (ValueError,TypeError,KeyError,TemplateIntegrityError):
                 failed+=1
         _rebalance_templates(cx)
+        # A one-off template that cannot reduce storage is immediately
+        # re-inlined and must not be reported as a successful deduplication.
+        migrated=0
+        for key in candidates:
+            row=cx.execute("SELECT payload_json FROM entries WHERE cache_key=?",(key,)).fetchone()
+            if row and refs(json.loads(row[0])):
+                migrated+=1
     return {"status":"PASS" if failed==0 else "PARTIAL",
         "migrated":migrated,"failed":failed,
         "source_observation_timestamps_unchanged":True,"crm_writes":0}
