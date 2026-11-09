@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from qq_mail_ingest import SafeError,api,auth,list_all,get_fields,plain_field
 from setup_sales_web import get_view,list_views,resolve_view
 from sort_sales_home import get_group_items,get_sort_items,visible_items,run_cli
+from run_monitor_flags import stage_flags,watch_schedule
 
 BASE="IpMkbUD0vaFqtYs93a3csXtdn1b"
 BASE_URL="https://ocnz4cb25scn.feishu.cn/base/"+BASE
@@ -28,6 +29,7 @@ TABLE="Automation Run History"
 VIEW_OPERATION="최근 운영 실행"
 VIEW_PROBLEMS="확인 필요"
 VIEW_ALL="전체 실행 기록"
+VIEW_MONITOR="현재 단계·다음 실행"
 WORKFLOWS=(
     ("SFDC Report","sfdc-three-report-email-digestion.yml"),
     ("Feishu Payment·Online·Monthly","feishu-sources-unified.yml"),
@@ -35,17 +37,24 @@ WORKFLOWS=(
 KST=ZoneInfo("Asia/Seoul")
 FIELDS=(
     ("실행명",1),("Run Key",1),("워크플로",1),("운영 여부",1),
-    ("최근 표시",1),("실행 구분",1),("실행 상태",1),("원본 검증",1),("결과 검증",1),
-    ("검증 상태",1),("단계별 결과",1),
+    ("최근 표시",1),("확인 필요",1),("실행 구분",1),("실행 상태",1),
+    ("진행 단계",1),("진행률",1),("시작 FLAG",1),("중간 FLAG",1),
+    ("완료 FLAG",1),("현재 작업",1),
+    ("원본 검증",1),("결과 검증",1),("검증 상태",1),
+    ("예약 점검",1),("최근 예약 슬롯 KST",1),("감시 시작 KST",1),("단계별 결과",1),
     ("시작 KST",1),("종료 KST",1),("실제 소요 분",2),
     ("예약 시간 KST",1),("다음 예약 KST",1),
     ("실행 링크",15),("최종 확인 KST",1),
 )
-VISIBLE=("실행명","실행 상태","원본 검증","결과 검증","단계별 결과",
-         "실행 구분","시작 KST","종료 KST","다음 예약 KST","실행 링크")
+VISIBLE=("실행명","진행 단계","실행 상태","원본 검증","결과 검증",
+         "실행 구분","시작 KST","현재 작업","다음 예약 KST","실행 링크")
+MONITOR_VISIBLE=("실행명","진행 단계","진행률","현재 작업",
+                 "시작 FLAG","중간 FLAG","완료 FLAG","예약 점검",
+                 "최근 예약 슬롯 KST","다음 예약 KST","검증 상태","실행 링크")
 VIEW_FILTERS=(
+    (VIEW_MONITOR,(("운영 여부","MONITOR"),)),
     (VIEW_OPERATION,(("최근 표시","RECENT"),)),
-    (VIEW_PROBLEMS,(("최근 표시","RECENT"),("검증 상태","CHECK"))),
+    (VIEW_PROBLEMS,(("확인 필요","YES"),)),
     (VIEW_ALL,()),
 )
 
@@ -231,6 +240,7 @@ def build_row(label,run,jobs,schedule,now):
     if link!="https://github.com/"+REPO+"/actions/runs/"+str(run_id):
         raise SafeError("HISTORY_RUN_URL_MISMATCH")
     source,sink,verdict,parts=result_states(label,run,jobs)
+    flags=stage_flags(label,run,jobs,source,sink)
     # PR regression failures must stay visible in the full archive but must
     # never masquerade as operational incidents in the action-required view.
     if event=="pull_request":
@@ -248,9 +258,10 @@ def build_row(label,run,jobs,schedule,now):
         "실행명":label+" · "+show_time(start),
         "Run Key":label.split(" ")[0].upper()+":"+str(run_id),
         "워크플로":label,"운영 여부":operation,"최근 표시":"HISTORY",
-        "실행 구분":kind,"실행 상태":state,
+        "확인 필요":"NO","실행 구분":kind,"실행 상태":state,
+        **flags,
         "원본 검증":source,"결과 검증":sink,"검증 상태":verdict,
-        "단계별 결과":" / ".join(k+"="+v for k,v in parts.items()),
+        "예약 점검":"RUN_LOG","최근 예약 슬롯 KST":"","감시 시작 KST":"",
         "시작 KST":show_time(start),"종료 KST":show_time(end),
         "실제 소요 분":minutes,
         "예약 시간 KST":schedule[0],"다음 예약 KST":schedule[1],
@@ -258,6 +269,81 @@ def build_row(label,run,jobs,schedule,now):
         "최종 확인 KST":show_time(now),
     }
 
+
+
+
+def workflow_activation(filename):
+    """Do not accuse a schedule slot preceding the deployed workflow definition."""
+    path=".github/workflows/"+filename
+    url="/repos/"+REPO+"/commits?"+urllib.parse.urlencode({"path":path,"per_page":1})
+    commits=gh(url)
+    if not isinstance(commits,list) or not commits:
+        raise SafeError("HISTORY_ACTIVATION_NOT_READABLE")
+    details=(commits[0].get("commit") or {}).get("committer") or {}
+    activated=parse_when(details.get("date"))
+    if not activated:
+        raise SafeError("HISTORY_ACTIVATION_UNVERIFIED")
+    return activated
+
+
+def build_monitor_row(label,filename,schedule,operating,runs,now):
+    """One stable Feishu record per workflow; stage + schedule are independent."""
+    if not operating:
+        raise SafeError("HISTORY_MONITOR_NO_OPERATING_RUN")
+    latest=operating[0]
+    evidence=build_row(label,latest,get_jobs(latest["id"]),schedule,now)
+    activated=workflow_activation(filename)
+    try:
+        schedule_state,due,matched=watch_schedule(now,activated,schedule[0],runs)
+    except (ValueError,TypeError):
+        raise SafeError("HISTORY_SCHEDULE_PARSE_FAILED") from None
+    status_map={
+        "WAIT_FIRST_SLOT":"FIRST_SLOT_PENDING",
+        "DUE_WAITING":"SCHEDULE_PENDING",
+        "SCHEDULE_MISSING":"SCHEDULE_MISSING",
+        "EXECUTED":"SCHEDULE_EXECUTED",
+        "RUNNING":"SCHEDULE_RUNNING",
+        "RUN_FAILED":"SCHEDULE_FAILED",
+        "LATE":"SCHEDULE_LATE",
+    }
+    if schedule_state not in status_map:
+        raise SafeError("HISTORY_SCHEDULE_STATUS_UNKNOWN")
+    flagged=schedule_state in ("SCHEDULE_MISSING","RUN_FAILED","LATE")
+    # Prior scheduled failures remain visible even if a manual/push run succeeded.
+    if evidence["운영 여부"]=="OPERATION" and evidence["검증 상태"]=="CHECK":
+        flagged=True
+    current=evidence["현재 작업"]
+    if schedule_state=="SCHEDULE_MISSING":
+        current="예약 실행 생성되지 않음 · GitHub 스케줄 확인"
+    elif schedule_state=="DUE_WAITING" and evidence["진행 단계"]=="완료":
+        current="예약 실행 대기 (45분 유예)"
+    elif schedule_state=="WAIT_FIRST_SLOT" and evidence["진행 단계"]=="완료":
+        current="새 예약 정의의 첫 실행 대기"
+    elif schedule_state=="RUNNING":
+        current="예약 실행 진행 중"
+    result=dict(evidence)
+    result.update({
+        "실행명":label+" · 현재 상태",
+        "Run Key":"MONITOR:"+("SFDC" if label=="SFDC Report" else "FEISHU"),
+        "운영 여부":"MONITOR","최근 표시":"HISTORY",
+        "확인 필요":"YES" if flagged else "NO",
+        "실행 구분":"예약 감시",
+        "검증 상태":"CHECK" if flagged else evidence["검증 상태"],
+        "예약 점검":status_map[schedule_state],
+        "최근 예약 슬롯 KST":show_time(due),
+        "감시 시작 KST":show_time(activated),
+        "현재 작업":current,
+        "최종 확인 KST":show_time(now),
+    })
+    print("HISTORY_MONITOR_SLOT name="+label+
+          " schedule="+schedule_state+
+          " due="+(show_time(due) or "NONE")+
+          " next="+schedule[1]+
+          " phase="+result["진행 단계"]+
+          " flags="+"/".join(result[k] for k in
+                ("시작 FLAG","중간 FLAG","완료 FLAG"))+
+          " alert="+result["확인 필요"])
+    return result
 
 def collect_rows(now):
     schedules=schedule_map(now)
@@ -275,10 +361,13 @@ def collect_rows(now):
             raise SafeError("HISTORY_NO_MAIN_BRANCH_OPERATING_RUNS")
         for i,run in enumerate(operating[:12]):
             row=build_row(label,run,get_jobs(run["id"]),schedules[label],now)
-            row["최근 표시"]="RECENT" if i<6 and row["운영 여부"]=="OPERATION" else "HISTORY"
+            recent=i<6 and row["운영 여부"]=="OPERATION"
+            row["최근 표시"]="RECENT" if recent else "HISTORY"
+            row["확인 필요"]="YES" if recent and row["검증 상태"]=="CHECK" else "NO"
             result.append(row)
         for run in testing[:5]:
             result.append(build_row(label,run,get_jobs(run["id"]),schedules[label],now))
+        result.append(build_monitor_row(label,filename,schedules[label],operating,runs,now))
     keys=[r["Run Key"] for r in result]
     if len(set(keys))!=len(keys):
         raise SafeError("HISTORY_DUPLICATE_RUN_KEY")
@@ -384,14 +473,14 @@ def match_group(doc,field_id):
         entries[0].get("desc") is False)
 
 
-def match_visible(doc,field_ids):
+def match_visible(doc,field_ids,columns=VISIBLE):
     entries=visible_items(doc)
     if not isinstance(entries,list):
         return False
     names=[field_ids.get(x,x) if isinstance(x,str) else
            field_ids.get(x.get("field_id",x.get("field")),x.get("field_id",x.get("field")))
            for x in entries]
-    return names==list(VISIBLE)
+    return names==list(columns)
 
 
 def ensure_layout(tid,views,token,path):
@@ -401,13 +490,14 @@ def ensure_layout(tid,views,token,path):
     if not by_name.get("워크플로") or not by_name.get("시작 KST"):
         raise SafeError("HISTORY_LAYOUT_FIELDS_MISSING")
     for name,view_id in views.items():
+        columns=MONITOR_VISIBLE if name==VIEW_MONITOR else VISIBLE
         for action,expected,desired in (
             ("group",lambda x:match_group(x,by_name["워크플로"]),
              {"group_config":[{"field":"워크플로","desc":False}]}),
             ("sort",lambda x:match_sort(x,by_name["시작 KST"]),
              {"sort_config":[{"field":"시작 KST","desc":True}]}),
-            ("visible-fields",lambda x:match_visible(x,by_id),
-             {"visible_fields":list(VISIBLE)}),
+            ("visible-fields",lambda x:match_visible(x,by_id,columns),
+             {"visible_fields":list(columns)}),
         ):
             before=run_cli("+view-get-"+action,BASE,tid,view_id)
             if not expected(before):
@@ -415,12 +505,12 @@ def ensure_layout(tid,views,token,path):
             if not expected(run_cli("+view-get-"+action,BASE,tid,view_id)):
                 raise SafeError("HISTORY_LAYOUT_READBACK_FAILED_"+action)
         print("HISTORY_VIEW_LAYOUT_PASS view="+name+
-              " group=workflow sort=started_desc columns="+str(len(VISIBLE)))
+              " group=workflow sort=started_desc columns="+str(len(columns)))
 
 
 def visible_equal(old,desired):
     for name,value in desired.items():
-        if name=="최종 확인 KST":
+        if name=="최종 확인 KST" and old.get("운영 여부")!="MONITOR":
             continue
         existing=old.get(name)
         if isinstance(value,dict):
@@ -457,7 +547,7 @@ def write_rows(token,path,rows):
         if key not in desired_keys and plain_field(
                 (record.get("fields") or {}).get("최근 표시"))=="RECENT":
             update.append({"record_id":record["record_id"],
-                           "fields":{"최근 표시":"HISTORY"}})
+                           "fields":{"최근 표시":"HISTORY","확인 필요":"NO"}})
     for item in rows:
         key=item["Run Key"]
         old=indexed.get(key)
@@ -485,7 +575,8 @@ def write_rows(token,path,rows):
     if any(r["Run Key"] not in observed or not visible_equal(observed[r["Run Key"]],r)
            for r in rows):
         raise SafeError("HISTORY_SOURCE_TO_SINK_READBACK_MISMATCH")
-    if any(plain_field(observed[k].get("최근 표시"))!="HISTORY"
+    if any(plain_field(observed[k].get("최근 표시"))!="HISTORY" or
+           plain_field(observed[k].get("확인 필요"))!="NO"
            for k in indexed if k not in desired_keys
            and plain_field((indexed[k].get("fields") or {}).get("최근 표시"))=="RECENT"):
         raise SafeError("HISTORY_OLD_RECENT_FLAG_NOT_CLEARED")

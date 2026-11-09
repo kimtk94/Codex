@@ -85,14 +85,15 @@ class RunHistoryTests(unittest.TestCase):
         self.assertNotEqual(a[2],"PASS")
 
     def test_filter_policies_and_utc_prefix(self):
-        fields={"최근 표시":"fldRecent","검증 상태":"fldVerdict"}
+        fields={"최근 표시":"fldRecent","검증 상태":"fldVerdict",
+                "운영 여부":"fldOperation","확인 필요":"fldAlert"}
         cfg=h.filter_config((("최근 표시","RECENT"),),fields)
         self.assertEqual(cfg["conjunction"],"and")
         view={"property":{"filter_info":cfg}}
         self.assertTrue(h.matches_filter(view,(("최근 표시","RECENT"),),fields))
         self.assertFalse(h.matches_filter(view,(("최근 표시","HISTORY"),),fields))
-        problems=(("최근 표시","RECENT"),("검증 상태","CHECK"))
-        self.assertEqual(len(h.filter_config(problems,fields)["conditions"]),2)
+        problems=(("확인 필요","YES"),)
+        self.assertEqual(len(h.filter_config(problems,fields)["conditions"]),1)
         self.assertTrue(h.matches_filter(
             {"property":{"filter_info":h.filter_config(problems,fields)}},
             problems,fields))
@@ -118,13 +119,51 @@ class RunHistoryTests(unittest.TestCase):
                         ("09:50","2026-11-10 09:50:00"),NOW)
 
     def test_operating_and_problems_views_ignore_old_runs_and_pr(self):
-        self.assertEqual(h.VIEW_FILTERS[0][1],(("최근 표시","RECENT"),))
-        self.assertEqual(h.VIEW_FILTERS[1][1],
-                         (("최근 표시","RECENT"),("검증 상태","CHECK")))
+        self.assertEqual(h.VIEW_FILTERS[0][0],h.VIEW_MONITOR)
+        self.assertEqual(h.VIEW_FILTERS[0][1],(("운영 여부","MONITOR"),))
+        self.assertEqual(h.VIEW_FILTERS[1][1],(("최근 표시","RECENT"),))
+        self.assertEqual(h.VIEW_FILTERS[2][1],(("확인 필요","YES"),))
         row=h.build_row("SFDC Report",run(event="pull_request",conclusion="failure"),[],
                         ("09:50","next"),NOW)
         self.assertEqual(row["최근 표시"],"HISTORY")
         self.assertEqual(row["검증 상태"],"TEST_FAILURE")
+
+    def test_monitor_rows_show_start_middle_complete_and_next_clock(self):
+        run_data=run()
+        schedule=("09:50, 10:20, 12:50, 13:20, 17:50, 18:20, 19:20, 20:20",
+                  "2026-11-09 20:20:00")
+        with (mock.patch.object(h,"workflow_activation",return_value=
+                dt.datetime(2026,11,9,10,30,tzinfo=dt.timezone.utc)),
+             mock.patch.object(h,"get_jobs",return_value=[SFDC_JOB])):
+            row=h.build_monitor_row("SFDC Report",
+                "sfdc-three-report-email-digestion.yml",schedule,
+                [run_data],[run_data],NOW)
+        self.assertEqual(row["Run Key"],"MONITOR:SFDC")
+        self.assertEqual(row["운영 여부"],"MONITOR")
+        self.assertEqual(row["진행 단계"],"완료")
+        self.assertEqual(row["진행률"],"3/3")
+        self.assertEqual(row["시작 FLAG"],"PASS")
+        self.assertEqual(row["완료 FLAG"],"PASS")
+        self.assertEqual(row["예약 점검"],"FIRST_SLOT_PENDING")
+        self.assertEqual(row["다음 예약 KST"],"2026-11-09 20:20:00")
+        self.assertEqual(row["확인 필요"],"NO")
+
+    def test_monitor_missing_slot_causes_alert_even_after_prior_success(self):
+        historical=run()
+        now=dt.datetime(2026,11,9,12,6,tzinfo=dt.timezone.utc)
+        schedule=("09:50, 10:20, 12:50, 13:20, 17:50, 18:20, 19:20, 20:20",
+                  "2026-11-10 09:50:00")
+        with (mock.patch.object(h,"workflow_activation",return_value=
+                dt.datetime(2026,11,9,10,30,tzinfo=dt.timezone.utc)),
+             mock.patch.object(h,"get_jobs",return_value=[SFDC_JOB])):
+            row=h.build_monitor_row("SFDC Report",
+                "sfdc-three-report-email-digestion.yml",schedule,
+                [historical],[historical],now)
+        self.assertEqual(row["예약 점검"],"SCHEDULE_MISSING")
+        self.assertEqual(row["확인 필요"],"YES")
+        self.assertEqual(row["검증 상태"],"CHECK")
+        self.assertEqual(row["완료 FLAG"],"PASS")
+        self.assertEqual(row["최근 예약 슬롯 KST"],"2026-11-09 20:20:00")
 
     def test_latest_main_branch_runs_are_required_before_writes(self):
         with mock.patch.object(h,"schedule_map",return_value={
