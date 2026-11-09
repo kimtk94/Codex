@@ -4,6 +4,7 @@ import Link from "next/link";
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {previewCandidate,pairWebRequest,priceLines,cloudQuantity} from "../../../../lib/sfdc-pair-workspace.mjs";
 import styles from "./page.module.css";
+import ReportOppoDraft from "./ReportOppoDraft";
 
 const FEISHU_BASE="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkzYT2OAVQssL3Y";
 const FEISHU_REPORT_LINES="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblHme64Ccdj4Fwv";
@@ -247,8 +248,8 @@ export default function PairedQuoteWeb(){
       </div>
       <p className={styles.hint}>조회 경로: {reportBackend==="FEISHU"?"로그인된 Feishu → 검증된 로컬 검색 캐시":"Google Sheet Report 보조 캐시"} · Feishu 읽기 시각 {kst(reportStatus?.ingested_at_utc)} · QQ 메일 수신 시각 {reportStatus?.source_mail_received_kst||"미검증"} · Salesforce 공정 Report 생성 시각 별도 미확인 · KRW 단가 미검증</p>
       <div className={styles.nav}>
-        <a href={FEISHU_REPORT_LINES} target="_blank" rel="noreferrer">Feishu 공정별 견적 3,741행</a>
-        <a href={FEISHU_REPORT_PRODUCTS} target="_blank" rel="noreferrer">Product 템플릿 102개</a>
+        <a href={FEISHU_REPORT_LINES} target="_blank" rel="noreferrer">Feishu 공정별 견적 {reportStatus?.process_rows??"—"}행</a>
+        <a href={FEISHU_REPORT_PRODUCTS} target="_blank" rel="noreferrer">Product 템플릿 {reportStatus?.product_template_count??"—"}개</a>
         <a href={FEISHU_REPORT_PROCESSES} target="_blank" rel="noreferrer">공통 공정 37개</a>
       </div>
       <p className={styles.hint}>최신 Quote 생성일: {reportStatus?.latest_quote_created||reportStatus?.newest_quote_created_date||"미확인"} · Feishu 원본 상태: {reportStatus?.source_state||"미검증"} · {reportStatus?.source||"SOURCE_NOT_READY"}</p>
@@ -283,17 +284,19 @@ export default function PairedQuoteWeb(){
           <Status value={reportBackend==="FEISHU"?"FEISHU_REPORT_USD_ONLY":"GOOGLE_REPORT_USD_ONLY"}/></div>
         <div className={styles.tableScroll}>
           <table><thead><tr><th>Quote Product</th><th>공정</th><th>Data Unit</th>
-            <th>단가 (환산 USD)</th><th>샘플</th><th>Data Size</th></tr></thead>
+            <th>공정 단가 (환산 USD)</th><th>생산량(Gb) 기준값</th></tr></thead>
             <tbody>{(reportSelected.process_lines||[]).map((line,i)=><tr key={i}>
               <td>{line.quotation_product_id}</td><td>{line.process_name}</td>
               <td>{line.data_unit||"—"}</td>
               <td>{line.unit_price_usd??"—"} USD</td>
-              <td>{line.sample_quantity??"—"}</td><td>{line.data_size??"—"}</td>
+              <td>{/^(?:g(?:b)?\s*(?:raw\s*data|data|produced|production)?|gigabytes?)$/i.test((line.data_unit||"").trim())?(line.data_size||"확인 필요")+" Gb":"—"}</td>
             </tr>)}</tbody></table>
         </div>
         <p className={styles.hint}>{reportSelected.sfdc_record_id
           ?"Report의 Salesforce Record ID 연결 확인 · 현재 가격이 변경됐는지는 별도 검증 필요"
           :"신규 Quote로 Report ID만 확인됨 · Salesforce Record ID 연결 검증 대기"}</p>
+        <ReportOppoDraft key={reportSelected.qid} quote={reportSelected}
+          enabled={reportBackend==="FEISHU"}/>
       </div>}
     </section>
     <section className={styles.panel} aria-label="Salesforce 사전 캐시">
