@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from sfdc_quote_report_bridge import (
-    build_records,ReportSourceError,TABLE_PROCESS,TABLE_PRODUCT,TABLE_LINES,
+    build_records,verify_qq_process_report_audit,ReportSourceError,TABLE_PROCESS,TABLE_PRODUCT,TABLE_LINES,
     sync_one,execute,
 )
 
@@ -53,6 +53,110 @@ def data():
 
 
 class ReportBridgeTests(unittest.TestCase):
+    def _mail_audit(self):
+        import hashlib,json
+        source,_=data()
+        lines,headers=source
+        digest=hashlib.sha256(json.dumps(
+            [headers,[[row.get(h,"") for h in headers] for row in lines]],
+            ensure_ascii=False,separators=(",",":")).encode()).hexdigest()
+        audit={
+            "Entity":"Quotation",
+            "Source Received KST":"2026-11-09 17:00:23 KST",
+            "Ingest Checked KST":"2026-11-10 00:35:37 KST",
+            "Rows":str(len(lines)),
+            "Unique IDs":str(len({r["SFDC Quotation ID"] for r in lines})),
+            "Duplicate IDs":str(len(lines)-len({r["SFDC Quotation ID"] for r in lines})),
+            "Missing IDs":"0",
+            "Content SHA256":digest,"State":"PRESERVED_NO_NEW_REPORT",
+            "Source Kind":"QQ IMAP",
+        }
+        return source,([audit],list(audit))
+
+    def test_qq_mail_sha_and_receipt_provenance(self):
+        source,audit=self._mail_audit()
+        proof=verify_qq_process_report_audit(source,audit)
+        self.assertTrue(proof["source_mail_hash_verified"])
+        self.assertEqual(proof["received_kst"],"2026-11-09 17:00:23 KST")
+        self.assertEqual(proof["audit_state"],"PRESERVED_NO_NEW_REPORT")
+        records=build_records(source,data()[1],verified_evidence=proof)
+        self.assertTrue(records["summary"]["source_mail_timestamp_verified"])
+        self.assertTrue(records["summary"]["source_mail_hash_verified"])
+        self.assertFalse(records["summary"]["process_report_export_time_verified"])
+        self.assertTrue(all(x["Source Received KST"]==proof["received_kst"]
+                            and x["Source Exported KST"]==""
+                            for x in records["tables"][TABLE_LINES]))
+
+    def test_qq_mail_sha_detects_stale_or_edited_sheet(self):
+        source,audit=self._mail_audit()
+        source[0][0]["Unit Price USD"]="9999"
+        with self.assertRaisesRegex(ReportSourceError,"QUOTE_MAIL_AUDIT_HASH_MISMATCH"):
+            verify_qq_process_report_audit(source,audit)
+
+    def test_qq_mail_provenance_rejects_false_source_counters(self):
+        source,audit=self._mail_audit()
+        audit[0][0]["Rows"]="9999"
+        with self.assertRaisesRegex(ReportSourceError,"QUOTE_MAIL_AUDIT_COUNT_MISMATCH"):
+            verify_qq_process_report_audit(source,audit)
+
+    def test_qq_mail_provenance_rejects_untrusted_source(self):
+        source,audit=self._mail_audit()
+        audit[0][0]["Source Kind"]="Manual CSV"
+        with self.assertRaisesRegex(ReportSourceError,"QUOTE_MAIL_AUDIT_STATE_UNVERIFIED"):
+            verify_qq_process_report_audit(source,audit)
+
+    def test_received_time_not_confused_with_old_quote_header(self):
+        source,audit=self._mail_audit()
+        received=verify_qq_process_report_audit(source,audit)
+        output=build_records(source,data()[1],verified_evidence=received)
+        values=output["tables"]
+        self.assertTrue(all(row["Source Received KST"]=="2026-11-09 17:00:23 KST"
+                            for rows in values.values() for row in rows))
+        self.assertTrue(all(row["Source Exported KST"]==""
+                            for rows in values.values() for row in rows))
+        self.assertEqual(output["summary"]["status"],
+                         "MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED")
+        self.assertTrue(all(x["Source Status"]==
+                            "MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED"
+                            for x in values[TABLE_LINES]))
+
+    def test_prior_mail_receipt_cannot_be_downgraded(self):
+        row={"Line Key":"l1","Source Exported KST":"",
+             "Source Received KST":"2026-11-09 17:00:23 KST",
+             "Source Status":"MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED"}
+        old={"record_id":"rec1","fields":dict(row,
+              **{"Source Received KST":"2026-11-10 01:00:00 KST"})}
+        with patch("sfdc_quote_report_bridge.path",return_value="/apps/test"):
+            with patch("sfdc_quote_report_bridge.pages",return_value=[old]):
+                with self.assertRaisesRegex(ReportSourceError,"FEISHU_MAIL_RECEIPT_REGRESSION"):
+                    sync_one("token","tid","Line Key",[row])
+
+    def test_add_only_verified_source_received_field_to_owned_mirror(self):
+        from sfdc_quote_report_bridge import ensure_table
+        old=[{"field_name":"Process Key","type":1},
+             {"field_name":"Process ID","type":1},
+             {"field_name":"Process Name","type":1},
+             {"field_name":"Data Unit","type":1},
+             {"field_name":"Source Exported KST","type":1}]
+        new=old+[{"field_name":"Source Received KST","type":1}]
+        with patch("sfdc_quote_report_bridge.list_tables",
+                   return_value={"SFDC Quote Process Dictionary":{"table_id":"tbl_a"}}):
+            with patch("sfdc_quote_report_bridge.path",return_value="/apps/base"):
+                with patch("sfdc_quote_report_bridge.pages",side_effect=[old,new]):
+                    with patch("sfdc_quote_report_bridge.call",
+                               return_value={"field":{"field_name":"Source Received KST","type":1}}) as created:
+                        table=ensure_table("token","SFDC Quote Process Dictionary")
+        self.assertEqual(table,"tbl_a")
+        self.assertEqual(created.call_count,1)
+        self.assertEqual(created.call_args.args[1],"/apps/base/tables/tbl_a/fields")
+        self.assertEqual(created.call_args.args[3]["field_name"],"Source Received KST")
+
+    def test_qq_mail_provenance_rejects_future_receipt(self):
+        source,audit=self._mail_audit()
+        audit[0][0]["Source Received KST"]="2099-01-01 00:00:00 KST"
+        with self.assertRaisesRegex(ReportSourceError,"QUOTE_MAIL_AUDIT_FUTURE_TIMESTAMP"):
+            verify_qq_process_report_audit(source,audit)
+
     def test_repeated_product_line_dedup_keeps_contact_quotes_distinct(self):
         output=build_records(*data())
         self.assertEqual(output["summary"]["quote_count"],2)

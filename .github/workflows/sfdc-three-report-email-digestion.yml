@@ -15,6 +15,8 @@ on:
     branches: [main]
     paths:
       - 'automation/sfdc/three_report_email_ingest.py'
+      - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'automation/sfdc/report_fallback_gate.py'
       - 'automation/sfdc/test_report_fallback_gate.py'
       - 'automation/sfdc/report_slot_recovery.py'
@@ -49,6 +51,8 @@ on:
       - 'automation/sfdc/three_report_verified_views.py'
       - 'automation/sfdc/test_three_report_verified_views.py'
       - 'automation/sfdc/three_report_email_ingest.py'
+      - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'automation/sfdc/report_fallback_gate.py'
       - 'automation/sfdc/test_report_fallback_gate.py'
       - 'automation/sfdc/report_slot_recovery.py'
@@ -179,3 +183,43 @@ jobs:
           echo 'SFDC source: QQ Report mail / source received times are authoritative.' >> "$GITHUB_STEP_SUMMARY"
           echo 'SFDC sink: Weekly Quote KPI and Quote Review only after freshness PASS.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Payment, Online and Monthly are exclusively owned by Feishu Sources Unified.' >> "$GITHUB_STEP_SUMMARY"
+
+  mirror-quotation-details:
+    name: QQ Quotation detail → Feishu receipt-evidenced mirror
+    needs: validate-and-stage
+    # Separate job so a broken Quote process mirror cannot write to or
+    # silently mask the other Lead/Oppo/Quote dashboard steps.
+    if: ${{ always() && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging == true) && needs.validate-and-stage.result != 'cancelled' }}
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install trusted Google Sheet transport
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Validate source/sink mapping regression before accessing Feishu
+        run: |
+          python3 -m py_compile automation/feishu/sfdc_quote_report_bridge.py
+          python3 -m unittest discover -s automation/feishu -p test_sfdc_quote_report_bridge.py -v
+      - name: Verify QQ attachment SHA256 and source mail Date, not Quote Created Date
+        run: python3 automation/feishu/sfdc_quote_report_bridge.py audit
+      - name: Mirror exact current Quotation details to user-owned Feishu Base
+        run: python3 automation/feishu/sfdc_quote_report_bridge.py sync
+      - name: Persist explicit semantic freshness in GitHub run summary
+        if: always()
+        run: |
+          echo 'QUOTATION_SOURCE=SFDC_EMAIL_QUOTATION_RAW;EVIDENCE=QQ_IMAP_SHA256' >> "$GITHUB_STEP_SUMMARY"
+          echo 'PROCESS_REPORT_EXPORT_DATE=UNVERIFIED;SOURCE_MAIL_RECEIVED_SEPARATE' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Feishu Bitable sink readback is required; job success alone is not source freshness.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'CRM_WRITES=0;VERCEL_WRITES=0' >> "$GITHUB_STEP_SUMMARY"
