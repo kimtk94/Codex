@@ -7,10 +7,10 @@ import sys
 import time
 import urllib.parse
 
-from qq_mail_ingest import SafeError, api, auth, get_fields, plain_field
+from qq_mail_ingest import SafeError, auth, get_fields, list_all, plain_field
 from sales_native_home import (
     EXPECTED_BASE, HOME, CURATED_VIEW, CURATED_ORDER, CURATED_DISPLAY,
-    table_map, list_views, target_path,
+    table_map, list_views, target_path, MENUS, presentation, PINNED_KEYS, ARCHIVE_DISPLAY,
 )
 from setup_sales_web import get_view
 
@@ -97,39 +97,50 @@ def numeric_rank(value):
 
 
 def verify_view_rows(token, table_path, view_id):
-    """Check filter membership and rank assignment; v1 list order isn't native UI order."""
-    view_url = (table_path + "/records?page_size=100&view_id="
-                + urllib.parse.quote(view_id, safe=""))
-    filtered = api("GET", view_url, token, action="portal_sorted_records")
-    view_rows = filtered.get("items") or []
-    keys = [plain_field((r.get("fields") or {}).get("Menu Key")).strip()
-            for r in view_rows]
-    expected = {key: rank for rank, key in enumerate(CURATED_ORDER, 1)}
-    if (filtered.get("has_more") or len(keys) != len(expected)
-            or len(set(keys)) != len(expected) or set(keys) != set(expected)):
-        raise SafeError("PORTAL_SORT_FILTERED_MEMBERSHIP_MISMATCH")
-    # A view-scoped records query may omit hidden columns such as 표시순서.
-    # Read the source home table separately to validate persisted rank values.
-    all_data = api("GET", table_path + "/records?page_size=100",
-                   token, action="portal_home_record_ranks")
-    full_rows = all_data.get("items") or []
-    if all_data.get("has_more"):
-        raise SafeError("PORTAL_SORT_HOME_ROWS_PAGED")
-    positions = {}
-    for record in full_rows:
+    """Audit stored menu rows independently from the native saved sort metadata.
+
+    The Feishu view-scoped records API has repeatedly timed out even with a
+    12-row view. Reading the small home table directly avoids that endpoint.
+    The view filter and saved sort are validated separately in main().
+    """
+    del view_id
+    records = list_all(table_path + "/records", token, "portal_sort_home_rows")
+    expected = {}
+    for source_index, menu in enumerate(MENUS, 1):
+        key, _, title, *_ = menu
+        rank, label, color = presentation(key, title, source_index)
+        expected[key] = {
+            "rank": rank, "label": label, "color": color,
+            "display": CURATED_DISPLAY if key in PINNED_KEYS else ARCHIVE_DISPLAY,
+        }
+    indexed = {}
+    for record in records:
         fields = record.get("fields") or {}
         key = plain_field(fields.get("Menu Key")).strip()
-        if key in positions:
-            raise SafeError("PORTAL_SORT_DUPLICATE_MENU_KEY")
-        positions[key] = numeric_rank(fields.get(SORT_FIELD))
-    bad = [key for key, rank in expected.items() if positions.get(key) != rank]
-    if bad:
-        # Keys refer only to known dashboard route identifiers, never customer content.
-        print("PORTAL_SORT_RANK_MISMATCH keys=" + ",".join(bad)
-              + " ranks_found=" + str(sum(k in positions for k in expected)))
+        if not key or key in indexed:
+            raise SafeError("PORTAL_SORT_DUPLICATE_OR_EMPTY_KEY")
+        indexed[key] = fields
+    if set(indexed) != set(expected) or len(records) != len(expected):
+        raise SafeError("PORTAL_SORT_SOURCE_MEMBERSHIP_MISMATCH")
+    issues = []
+    for key, rule in expected.items():
+        fields = indexed[key]
+        got = {
+            "rank": numeric_rank(fields.get(SORT_FIELD)),
+            "label": plain_field(fields.get("화면")).strip(),
+            "color": plain_field(fields.get("메뉴 구분")).strip(),
+            "display": plain_field(fields.get("표시")).strip(),
+        }
+        if got != rule:
+            issues.append(key)
+    if issues:
+        # Only menu route keys, never customer data, enter the audit log.
+        print("PORTAL_SORT_SOURCE_DIFFERENCES=" + ",".join(issues))
         raise SafeError("PORTAL_SORT_RECORD_READBACK_MISMATCH")
-    print("PORTAL_SORT_RECORD_MEMBERSHIP_PASS rows=12 assignments=12"
-          " api_return_sorted=" + str(keys == list(CURATED_ORDER)))
+    print("PORTAL_SORT_SOURCE_PASS total=" + str(len(expected))
+          + " curated=" + str(len(PINNED_KEYS))
+          + " managed=" + str(len(expected) - len(PINNED_KEYS))
+          + " priorities=01_to_12 colors=verified")
     return True
 
 
@@ -179,7 +190,7 @@ def main():
         # view-sort configuration. Keep this partial audit explicitly visible.
         if str(exc).endswith("_NETWORK_ERROR"):
             record_state = "SOURCE_UNAVAILABLE"
-            print("PORTAL_SORT_RECORD_VERIFY_SOURCE_UNAVAILABLE")
+            print("PORTAL_SORT_SOURCE_VERIFY_SOURCE_UNAVAILABLE")
         else:
             raise
     print("PORTAL_SORT_APPLY_PASS sort_config=PASS record_check="
