@@ -44,6 +44,14 @@ class SortTests(unittest.TestCase):
             with self.assertRaisesRegex(s.SafeError,"READBACK_MISMATCH"):
                 s.verify_view_rows("token","root","view")
 
+    def test_network_read_failure_is_separately_labeled(self):
+        with mock.patch.object(s, "verify_view_rows",
+                               side_effect=s.SafeError("portal_sorted_records_NETWORK_ERROR")):
+            try:
+                s.verify_view_rows("t","p","v")
+            except s.SafeError as exc:
+                self.assertTrue(str(exc).endswith("_NETWORK_ERROR"))
+
     def test_numeric_rank(self):
         self.assertEqual(s.numeric_rank("12"),12)
         self.assertEqual(s.numeric_rank(1.0),1)
