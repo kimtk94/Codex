@@ -448,6 +448,32 @@ class MetricsTests(unittest.TestCase):
         self.assertIsNone(row["Calculated Quote Value K USD"])
         self.assertIn("WITHHELD_3REPORT_SHA_MISMATCH",row["Quote Calculation Source"])
 
+    def test_weekly_active_only_manual_exclude_controls_chart_count_and_value(self):
+        import test_quote_process_amount as fixture
+        from weekly_quote_review import review_rows
+        source=fixture.finalize(fixture.fixture(count=1))
+        active=m.weekly_rows(source,now=fixture.NOW)[0]
+        self.assertEqual(active["Approved Quote Count"],1)
+        self.assertEqual(active["Included Quote Count"],1)
+        self.assertEqual(active["Excluded Quote Count"],0)
+        self.assertEqual(active["Calculated Quote Count"],1)
+        self.assertEqual(active["Calculated Quote Value K USD"],0.154)
+        sid=source["Quote Approval Dedup"][0]["SFDC Record ID"]
+        manual=review_rows(source,{"QUOTE_REVIEW:"+sid:True})
+        excluded=m.weekly_rows(source,now=fixture.NOW,review=manual)[0]
+        self.assertEqual(excluded["Approved Quote Count"],1)
+        self.assertEqual(excluded["Included Quote Count"],0)
+        self.assertEqual(excluded["Excluded Quote Count"],1)
+        self.assertEqual(excluded["Calculated Quote Count"],0)
+        self.assertEqual(excluded["Quote Amount Exception Count"],0)
+        self.assertIsNone(excluded["Calculated Quote Value K USD"])
+        self.assertIsNone(excluded["Verified Quote Value K USD"])
+        self.assertIn("NO_ELIGIBLE_ACTIVE_QUOTES",excluded["Quote Calculation Source"])
+        source["SFDC Quote Export"][0]["IsActive"]="0"
+        inactive=m.weekly_rows(source,now=fixture.NOW)[0]
+        self.assertEqual(inactive["Included Quote Count"],0)
+        self.assertIsNone(inactive["Calculated Quote Value K USD"])
+
     def test_monthly_revenue_unchanged_by_quote_process_logic(self):
         # This mutation is read-only and must not alter VAT exclusion logic.
         self.assertEqual(m.currency(m.D("1100")/m.D("1.1")),1000)
