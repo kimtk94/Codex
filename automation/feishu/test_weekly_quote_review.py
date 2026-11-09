@@ -146,6 +146,12 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(q.equal_source({**row,"참고 금액 K USD":0.154},
                                        dict(row)))
 
+    def test_real_usd_precision_never_false_zero(self):
+        self.assertEqual(q.format_quote_usd(q.D("154.0000")),"USD 154.00")
+        self.assertEqual(q.format_quote_usd(q.D("0.0004")),"USD 0.0004")
+        self.assertEqual(q.format_quote_usd(q.D("0.01")),"USD 0.01")
+        self.assertEqual(q.format_quote_usd(None),"NO_VALUE")
+
     def test_unverified_amount_is_empty_and_checkbox_preserved(self):
         data=source()
         a=q.review_rows(data,now=NOW)[0]
