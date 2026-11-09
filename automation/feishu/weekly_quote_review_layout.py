@@ -17,10 +17,11 @@ from sales_metrics_sync import (
 )
 
 COLUMNS=(
-    "Quote Name","합산 제외","합산 상태","제외 이유",
-    "Quote Status","SFDC IsActive","Active Evidence Source",
-    "Active Evidence KST","Week Start","Approval KST",
-    "SFDC Record ID",
+    "Quote Name","합산 제외","기관","Opportunity","서비스·공정",
+    "샘플수(공정별)","참고 금액 K USD","금액 근거",
+    "합산 상태","제외 이유","Quote Status","SFDC IsActive",
+    "Active Evidence Source","Active Evidence KST",
+    "Week Start","Approval KST","SFDC Record ID",
 )
 SORT={"sort_config":[{"field":"Approval KST","desc":True}]}
 
