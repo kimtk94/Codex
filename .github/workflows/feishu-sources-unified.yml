@@ -143,10 +143,6 @@ jobs:
           python-version: '3.11'
       - name: Install source client
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      - name: Prove project lifecycle is not shrinking before Revenue refresh
-        run: python3 automation/css_mail/project_lifecycle_refresh.py
-      - name: Rebuild invoice-stage Actual Pending Forecast monthly lifecycle
-        run: python3 automation/css_mail/revenue_lifecycle_monthly.py
       - name: Verify and publish VAT-excluded net Revenue
         run: python3 automation/css_mail/revenue_net_vat_publish.py
       - name: Reconcile authoritative source parity
@@ -156,4 +152,29 @@ jobs:
       - name: Refresh trend sources with current Monthly and Weekly data
         run: python3 automation/feishu/sales_native_trends.py
       - name: Confirm Monthly source-to-sink status
-        run: echo 'FEISHU_MONTHLY_UNIFIED_PASS=lifecycle,vat,authority,feishu_monthly,trends' >> "$GITHUB_STEP_SUMMARY"
+        run: echo 'FEISHU_MONTHLY_UNIFIED_PASS=vat,authority,feishu_monthly,trends; lifecycle=separate' >> "$GITHUB_STEP_SUMMARY"
+
+  lifecycle:
+    needs: ingest
+    if: ${{ needs.ingest.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install guarded lifecycle source clients
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Reconcile project lifecycle with strict no-shrink policy
+        run: python3 automation/css_mail/project_lifecycle_refresh.py
+      - name: Publish verified pending and forecast month totals
+        run: python3 automation/css_mail/revenue_lifecycle_monthly.py
+      - name: Confirm lifecycle review
+        run: echo 'FEISHU_LIFECYCLE_UNIFIED_PASS=no_shrink,latest_source,pending_forecast' >> "$GITHUB_STEP_SUMMARY"
