@@ -499,7 +499,7 @@ def _verified_quote_object_source(source, now):
 def weekly_rows(source, now=None, review=None):
     """Retain all approvals; sum only Active + user-included Quotes."""
     now=now or dt.datetime.now(KST)
-    review=review if review is not None else build_quote_review(source)
+    review=review if review is not None else build_quote_review(source,now=now)
     approval_members,include_members=quote_review_membership(review)
     unverified_by_week=collections.Counter(
         r["Week Start"] for r in review
@@ -797,6 +797,8 @@ def ensure_tables(token,root):
                 if names[field_name]!=field_type:
                     raise SafeError("METRIC_SCHEMA_TYPE_MISMATCH")
             elif (name=="Project Progress Board" and field_name in allowed) or (
+                    name==QUOTE_REVIEW_TABLE and field_name in
+                    {"Active Evidence Source","Active Evidence KST"}) or (
                     name=="Weekly Quote KPI" and field_name in
                     {"Chart Week Label","Chart Window","Verified Quote Value M KRW FX",
                      "Included Quote Count","Excluded Quote Count",
@@ -1130,7 +1132,7 @@ def main():
         existing_review=board_list_with_retry(
             token,paths[QUOTE_REVIEW_TABLE],"weekly_review_existing")
         overrides=quote_manual_overrides(existing_review)
-        review=build_quote_review(sources,overrides)
+        review=build_quote_review(sources,overrides,now=dt.datetime.now(KST))
         output["Weekly Quote KPI"]=weekly_rows(sources,review=review)
     setup_views(token,paths)
     if scope!="operations":
