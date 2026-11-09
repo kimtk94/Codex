@@ -176,6 +176,26 @@ class ReportBridgeTests(unittest.TestCase):
         self.assertEqual(audit["feishu_writes"],0)
         auth.assert_not_called()
 
+    def test_old_source_only_lines_retained_but_marked_superseded(self):
+        latest={"Line Key":"current-hash","Source Status":"DETAIL_REPORT_TIME_UNVERIFIED",
+                "Source Exported KST":""}
+        prior={"record_id":"live1","fields":dict(latest)}
+        old={"record_id":"historic1","fields":{"Line Key":"old-hash",
+                "Source Status":"STALE","Source Exported KST":EXPORTED}}
+        retired={"record_id":"historic1","fields":dict(old["fields"],
+            **{"Source Status":"SUPERSEDED_NOT_IN_CURRENT_REPORT"})}
+        with patch("sfdc_quote_report_bridge.path",return_value="/apps/test"):
+            with patch("sfdc_quote_report_bridge.pages",
+                       side_effect=[[prior,old],[prior,retired]]):
+                with patch("sfdc_quote_report_bridge.write_batch",
+                           return_value=[retired]):
+                    result=sync_one("t","tbl","Line Key",[latest])
+        self.assertEqual(result["source_rows"],1)
+        self.assertEqual(result["superseded"],1)
+        self.assertEqual(result["historical_retained_rows"],1)
+        self.assertEqual(result["physical_feishu_rows"],2)
+        self.assertEqual(result["readback"],"PASS")
+
     def test_upsert_reuses_existing_exact_line(self):
         qid="QID-2026-10-20-200101"
         records=[{"Line Key":"hash1","Quote ID":qid,"Source Exported KST":EXPORTED}]
