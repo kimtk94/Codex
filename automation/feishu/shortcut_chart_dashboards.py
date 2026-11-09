@@ -58,10 +58,10 @@ def expected_components(chart_name,note_name,kind,source,detail_url=None):
         note_config=dict(note_config)
         note_config["text"]=(
             "### [실제 Quote 목록 보기 · 최근 5주 / 합산 제외 체크]("+detail_url+")\n"
-            "**결정할 때 필요한 기관·서비스·공정별 샘플수·참고금액·Active 증빙을 같은 목록에서 확인하세요.**\\n"
+            "**결정할 때 필요한 기관·서비스·공정별 샘플수·참고금액·Active 증빙을 같은 목록에서 확인하세요.**\n"
             "체크한 Quote는 계속 목록에 남고, 최대 15분 주기 GitHub Actions가 "
-            "반영 여부를 확인해 집계와 차트를 갱신합니다. 예약 실행은 지연될 수 있습니다.\\n"
-            "수동 체크를 해제하면 다시 포함되며, Inactive는 체크를 해제해도 합산되지 않습니다.\\n\\n"
+            "반영 여부를 확인해 집계와 차트를 갱신합니다. 예약 실행은 지연될 수 있습니다.\n"
+            "수동 체크를 해제하면 다시 포함되며, Inactive는 체크를 해제해도 합산되지 않습니다.\n\n"
             +note_config["text"]
         )
     return ((chart_name,kind,chart_config),(note_name,"text",note_config))
