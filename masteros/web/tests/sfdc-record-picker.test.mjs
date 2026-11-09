@@ -45,3 +45,9 @@ test("Quote source maps actual product and parent opportunity; user can alter qu
  assert.equal(input.processNames,"");
  assert.equal(input.quoteName,src.opportunityName);
 });
+
+test("Only Opportunity may request source linked Quote bundle",()=>{
+  assert.equal(validRecordPickerRequest({resource:"opportunity",mode:"bundle",recordId:id.opportunity}).ok,true);
+  assert.equal(validRecordPickerRequest({resource:"quote",mode:"bundle",recordId:id.quote}).ok,false);
+  assert.equal(validRecordPickerRequest({resource:"opportunity",mode:"bundle",recordId:id.quote}).ok,false);
+});
