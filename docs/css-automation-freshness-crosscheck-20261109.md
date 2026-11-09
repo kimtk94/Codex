@@ -99,3 +99,14 @@
 - **SFDC 실제 객체 Save/readback, CRM Contact 연결, 본인 소유 관계, CDMS 동기화와 고객 발송은 인증되지 않았다.** 56개 out-of-export를 객체 삭제·부재라고 단정하거나 자동 생성해서는 안 된다.
 - `.github/workflows/css-sfdc-report-sink-parity.yml` cron KST **09:55, 13:55, 18:55**; 누락·연결값 오류·원천 ID 불완전 시 fail closed. Vercel 제외.
 - 다음 수용 검증: 본인 소유 Opportunity만 별도 집계한 후, 권한이 있는 SFDC 실제 객체 read-only 조회 경로를 확보해 Quote/Opportunity 18자리 실제 Salesforce ID와 report ID 매핑을 검증. Desktop Commander NGKR-SAL-TH는 본 검사 당시 **오프라인**, 직접 Save 인증 불가.
+
+
+## 2026-11-09 09:38 KST: SFDC 내 Owner 보고서 기준 Quote/Oppo 범위와 우선 확인 항목
+
+- [PR #651](https://github.com/kimtk94/Codex/pull/651): 독립 SFDC stage→sink 파이프라인에 Opportunity ID 기반 Owner, Stage, Quote Active 직접 비교 추가. [GitHub Actions #42540953825](https://github.com/kimtk94/Codex/actions/runs/42540953825) SUCCESS. **원천 보고서와 생성 결과 테이블 간** Owner 불일치 0, Stage 불일치 0, Quote Active 불일치 0. `PASS_REPORT_OWNER_TO_SINK_ONLY`.
+- 수신된 **2026-11-08 17:00 KST** SFDC 3종 Report 기준 Opportunities 706 중 Owner exact `Kim Taehoon` **559개**, 기타 147개. 정상 연결 Quote 781개 중 **772개 본인**, 기타 9개. 연결 검토 57개는 Opportunity Owner 검증 불가로 **자동 본인 할당 금지**.
+- 본인 소유 Opportunity 559개 중 Quote 연결 확인 Opportunity **436개**, Quote 연결 미확인 Opportunity **123개**. 후자는 절대로 SFDC 실제 Quote가 없다고 확정하지 않는다.
+- 본인 고유 Quote **772개**, 이중 Active 보고값 `1` **712개**, `0` **60개**. Stage별 Quote: Closed Won **675**, Closed Lost **12**, Negotiation **16**, PO Received **29**, Quotation Issued **40**. 공정 원본 행 **3,582**개이며 3,582개 Quote라는 의미가 아니다.
+- [PR #652](https://github.com/kimtk94/Codex/pull/652), [GitHub Actions #42541273776](https://github.com/kimtk94/Codex/actions/runs/42541273776): 123개 Quote 연결 미확인 Opportunity를 **Quotation Issued 7, Proposal Sent 12, Closed Won 28, Prospective 39, Closed Lost 37**로 원천 Stage에 맞게 100% 분류. `owner_unlinked_quote_absence_certified=false` 유지. 
+- 실무 우선순위: **Quotation Issued 7, Proposal Sent 12, Closed Won 28**은 원본 Quote가 보이지 않는 이유(보고서 범위, 추출 기준, 실제 객체) 검증 대상으로 분리. Prospective 39는 Quote 의무 단계 아님. Closed Lost 37은 자동 고객 팔로업 대상 아님.
+- **인증 범위 주의:** QQ-delivered SFDC Report staging→Google generated mirror의 Owner/Stage/Active 및 연결 ID 대조만 PASS. 실제 Salesforce 객체 Save/조회는 데스크톱 오프라인 및 연결 제한으로 `NOT_CHECKED`; 이 결과를 Salesforce 객체 최신성 PASS로 승격시키지 않는다. 매일 09:55/13:55/18:55 KST Actions 읽기 전용 점검 지속. 고객 발송/재견적 생성/SFDC 쓰기 작업은 없음.
