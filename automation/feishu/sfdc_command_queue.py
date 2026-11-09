@@ -11,7 +11,7 @@ FIELDS=["Request ID","Action","Source Oppo ID","Source Quote ID","Lead ID",
 "Price Checked","Run Mode","Status","New Oppo ID","New Quote ID",
 "New Contact ID","Error Code","Checked At"]
 HEAD=["record_id"]+FIELDS
-FINAL={"PREFLIGHT_PASS","PREPARED","PREFLIGHT_BLOCK","SAVE_APPROVED",
+FINAL={"RUNNING","PREFLIGHT_PASS","PREPARED","PREFLIGHT_BLOCK","SAVE_APPROVED",
        "PASS","PARTIAL","BLOCK","SOURCE_UNAVAILABLE"}
 def env(key):
     v=os.getenv(key,"").strip()
@@ -112,7 +112,12 @@ def pull(token,s,tid):
     rows=[normalized(x) for x in records]
     if len(rows)>1800 or len(set(r[0] for r in rows))!=len(rows):
         raise ValueError("DUPLICATE_OR_EXCESS_RECORDS")
+    keyed=[r[HEAD.index("Request ID")] for r in rows if eligible(r)]
+    if not all(keyed) or len(set(keyed))!=len(keyed):
+        raise ValueError("DUPLICATE_OR_EMPTY_REQUEST_ID")
     prior=mirror(s)
+    if set(prior)-set(r[0] for r in rows):
+        raise ValueError("SOURCE_RECORD_DISAPPEARED")
     for row in rows:
         old=dict(zip(HEAD,prior.get(row[0],[])))
         if old.get("Status") in FINAL:
@@ -123,7 +128,9 @@ def pull(token,s,tid):
     gs(s,"PUT","/values/"+adr("A1:V"+str(len(values)))+"?valueInputOption=RAW",
        {"values":values})
     actual=gs(s,"GET","/values/"+adr("A1:V"+str(len(values)))).get("values",[])
-    if actual!=values:raise ValueError("SINK_READBACK_MISMATCH")
+    norm=lambda row:list(row[:next((i for i in range(len(row)-1,-1,-1) if str(row[i])!=""),-1)+1])
+    if [norm(v) for v in actual]!=[norm(v) for v in values]:
+        raise ValueError("SINK_READBACK_MISMATCH")
     return {"mode":"pull","status":"PASS","requests":len(rows),
             "eligible":sum(eligible(r) for r in rows),"sink_readback":"PASS"}
 def push(token,s,tid):
