@@ -38,6 +38,7 @@ TABLES={
         "Active":"fldfqnLBjF",
         "Quote Created":"fld9lGYlIi",
         "Source Exported KST":"fld7IKVveb",
+        "Source Received KST":"fld1GGhINh",
         "Source Row Hash":"fldIftYE0C",
         "Source Status":"fldUbRXH77",
     }),
@@ -47,12 +48,14 @@ TABLES={
         "Process Name":"fld5NRMd13",
         "Data Unit":"fldjAnKMbl",
         "Source Exported KST":"fldYUj5Kyx",
+        "Source Received KST":"fldom78Kst",
     }),
     "product":("tbl2tGZyBlEbyruO",{
         "Product Template Key":"fldKJ2bmNq",
         "Process Keys":"fldVoh4j37",
         "Process Count":"fld9uFvsFR",
         "Source Exported KST":"fldsH5z43G",
+        "Source Received KST":"fldENK6a1H",
     }),
 }
 DB_DIR=Path.home()/".sfdc_desktop"
@@ -240,6 +243,7 @@ def _validate(lines,process,product):
     quote=set()
     quote_product=set()
     export_times=set()
+    received_times=set()
     for row in lines:
         key=row["Line Key"]
         if not SHA.fullmatch(key) or key in unique:
@@ -255,10 +259,20 @@ def _validate(lines,process,product):
         for f in ("Unit Price USD","Sales Price USD","Process Total USD","Sample Qty","Data Size"):
             row[f]=_decimal(row[f])
         export_times.add(row["Source Exported KST"])
+        received_times.add(row["Source Received KST"])
         quote.add(row["Quote ID"])
         quote_product.add((row["Quote ID"],row["Quote Product ID"]))
     if len(export_times)!=1:
         raise FeishuSourceError("FEISHU_SOURCE_EXPORT_TIMES_CONFLICT")
+    if len(received_times)!=1 or not next(iter(received_times)):
+        raise FeishuSourceError("FEISHU_MAIL_RECEIPT_SOURCE_MISSING")
+    try:
+        received=dt.datetime.strptime(next(iter(received_times)),"%Y-%m-%d %H:%M:%S KST").replace(
+            tzinfo=dt.timezone(dt.timedelta(hours=9)))
+    except ValueError:
+        raise FeishuSourceError("FEISHU_MAIL_RECEIPT_DATE_INVALID")
+    if received>dt.datetime.now(dt.timezone.utc)+dt.timedelta(minutes=10):
+        raise FeishuSourceError("FEISHU_MAIL_RECEIPT_DATE_IN_FUTURE")
     # Quote creation date can establish data coverage but never proves the
     # subscribed process-report email receipt timestamp.
     created=[]
@@ -271,7 +285,8 @@ def _validate(lines,process,product):
             "process_rows":len(lines),"unique_process_definitions":len(procs),
             "product_templates":len(templates),
             "latest_quote_created":max(created).isoformat() if created else "",
-            "source_report_exported_kst":next(iter(export_times))}
+            "source_report_exported_kst":next(iter(export_times)),
+            "source_mail_received_kst":next(iter(received_times))}
 
 
 def _connect():
@@ -305,7 +320,7 @@ def refresh():
                     quote_product TEXT NOT NULL,product_template TEXT NOT NULL,
                     process_key TEXT NOT NULL,unit_usd TEXT,sales_usd TEXT,total_usd TEXT,
                     sample_qty TEXT,data_size TEXT,active TEXT,created TEXT,
-                    exported_kst TEXT,row_hash TEXT,source_status TEXT,
+                    exported_kst TEXT,received_kst TEXT,row_hash TEXT,source_status TEXT,
                     FOREIGN KEY(process_key) REFERENCES process_dict(process_key));
                 CREATE INDEX ix_feishu_qid ON quote_lines(qid);
                 CREATE INDEX ix_feishu_product ON quote_lines(quote_product);
@@ -314,13 +329,13 @@ def refresh():
             cx.executemany("INSERT INTO process_dict VALUES(?,?,?,?)",(
                 (r["Process Key"],r["Process ID"],r["Process Name"],r["Data Unit"])
                 for r in process))
-            cx.executemany("INSERT INTO quote_lines VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(
+            cx.executemany("INSERT INTO quote_lines VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(
                 (r["Line Key"],r["Quote ID"],r["Quote Record ID"],
                  r["Quote Product ID"],r["Product Template Key"],
                  r["Process Key"],r["Unit Price USD"],r["Sales Price USD"],
                  r["Process Total USD"],r["Sample Qty"],r["Data Size"],
                  r["Active"],r["Quote Created"],r["Source Exported KST"],
-                 r["Source Row Hash"],r["Source Status"]) for r in lines))
+                 r["Source Received KST"],r["Source Row Hash"],r["Source Status"]) for r in lines))
             meta={**summary,
                   "source":SOURCE,
                   "feishu_synced_at_utc":checked,
@@ -349,11 +364,13 @@ def status():
         try:
             meta=dict(cx.execute("SELECT k,v FROM meta").fetchall())
             source=meta["source_report_exported_kst"]
+            receipt=meta.get("source_mail_received_kst","")
             try:
-                when=dt.datetime.strptime(source,"%Y-%m-%d %H:%M:%S KST").replace(
+                when=dt.datetime.strptime(receipt,"%Y-%m-%d %H:%M:%S KST").replace(
                     tzinfo=dt.timezone(dt.timedelta(hours=9)))
-                stale=(dt.datetime.now(dt.timezone.utc)-when)>dt.timedelta(hours=24)
-                source_state="STALE_SOURCE" if stale else "REPORT_SNAPSHOT"
+                elapsed=(dt.datetime.now(dt.timezone.utc)-when).total_seconds()
+                source_state=("STALE_MAIL_SOURCE" if elapsed>48*3600
+                              else "MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED")
             except ValueError:
                 source_state="PROCESS_REPORT_RECEIPT_UNVERIFIED"
             return {"status":"PASS","source":SOURCE,
@@ -371,6 +388,9 @@ def status():
                 "unmapped_sfdc_record_count":cx.execute(
                     "SELECT count(distinct qid) FROM quote_lines WHERE quote_record_id=''").fetchone()[0],
                 "source_report_exported_kst":source,
+                "source_mail_received_kst":receipt,
+                "source_mail_timestamp_verified":bool(receipt),
+                "process_export_time_verified":False,
                 "latest_quote_created":meta.get("latest_quote_created",""),
                 "ingested_at_utc":meta["feishu_synced_at_utc"],
                 "feishu_revision":meta["feishu_revision"],
@@ -422,7 +442,7 @@ def detail(identifier):
             identifier=qids[0][0]
         rows=cx.execute("""SELECT l.quote_product,p.process_id,p.process_name,p.data_unit,
             l.unit_usd,l.sales_usd,l.total_usd,l.sample_qty,l.data_size,
-            l.quote_record_id,l.source_status,l.exported_kst
+            l.quote_record_id,l.source_status,l.exported_kst,l.received_kst
             FROM quote_lines l JOIN process_dict p ON p.process_key=l.process_key
             WHERE l.qid=? ORDER BY l.created,l.line_key LIMIT 121""",
             (identifier,)).fetchall()
@@ -434,6 +454,7 @@ def detail(identifier):
             "qid":identifier,"sfdc_record_id":rows[0][9],
             "product_count":len({r[0] for r in rows}),
             "source_report_exported_kst":rows[0][11],
+            "source_mail_received_kst":rows[0][12],
             "process_lines":[{"quotation_product_id":r[0],"process_id":r[1],
                 "process_name":r[2],"data_unit":r[3],
                 "unit_price_usd":r[4],"sales_price_usd_converted":r[5],
