@@ -108,10 +108,12 @@ export default function Page() {
         <a href="#overview">Overview</a>
         <a href="#ckd">CKD</a>
         <a href="#css">CSS Summary</a>
+        <a href="/sales/projects">CSS Projects (Live Mirror)</a>
+        <a href="/sales/oppo-quote">Oppo + Quote</a>
       </nav>
 
       <section id="overview">
-        <div className="sectionHead"><div><p className="eyebrow">OVERVIEW</p><h2>현재 상태</h2></div><Badge tone="good">Drive refresh verified</Badge></div>
+        <div className="sectionHead"><div><p className="eyebrow">OVERVIEW</p><h2>현재 상태</h2></div><Badge tone="warn">Historical snapshot — see CSS Projects</Badge></div>
         <div className="metrics six">
           <Metric label="CSS projects" value={css.projects} sub={css.active+" active"} />
           <Metric label="CSS completed" value={css.completed} />

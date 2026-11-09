@@ -1,0 +1,70 @@
+name: CSS Local Project Dashboard (No Hosting)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'masteros/web/scripts/css_projects_local.py'
+      - 'masteros/web/scripts/test_css_projects_local.py'
+      - 'masteros/web/lib/css-projects-local.mjs'
+      - 'masteros/web/app/api/css/projects-local/route.js'
+      - 'masteros/web/app/sales/projects/**'
+      - 'masteros/web/tests/css-projects-local.test.mjs'
+      - 'masteros/web/scripts/start-css-local.ps1'
+      - 'masteros/web/scripts/start-css-local.cmd'
+      - 'masteros/web/app/page.jsx'
+      - 'masteros/web/LOCAL_CSS.md'
+      - '.github/workflows/css-local-project-dashboard.yml'
+  pull_request:
+    paths:
+      - 'masteros/web/scripts/css_projects_local.py'
+      - 'masteros/web/scripts/test_css_projects_local.py'
+      - 'masteros/web/lib/css-projects-local.mjs'
+      - 'masteros/web/app/api/css/projects-local/route.js'
+      - 'masteros/web/app/sales/projects/**'
+      - 'masteros/web/tests/css-projects-local.test.mjs'
+      - 'masteros/web/scripts/start-css-local.ps1'
+      - 'masteros/web/scripts/start-css-local.cmd'
+      - 'masteros/web/app/page.jsx'
+      - 'masteros/web/LOCAL_CSS.md'
+      - '.github/workflows/css-local-project-dashboard.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  local-code-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: masteros/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate Google mirror-to-export logic (synthetic only)
+        run: |
+          python3 -m py_compile scripts/css_projects_local.py
+          python3 -m unittest discover -s scripts -p test_css_projects_local.py -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Next.js dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check loopback access control and project data integrity
+        run: node --test tests/css-projects-local.test.mjs
+      - name: Build Next.js local dashboard (no deployment)
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+      - name: Confirm compiled local routes
+        run: |
+          node -e "const fs=require('fs');if(!fs.existsSync('.next/server/app/sales/projects'))process.exit(1);if(!fs.existsSync('.next/server/app/api/css/projects-local'))process.exit(1)"
+      - name: State verification boundary
+        run: |
+          echo 'OFFLINE_TEST_ONLY;GOOGLE_SOURCE_AND_SINK_NOT_READ_LIVE;NO_SFDC_SAVE;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
