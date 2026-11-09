@@ -25,9 +25,9 @@ RANGES = {
 }
 COLUMNS = {
     "SFDC Email Leads Raw": ("SFDC Lead ID",),
-    "SFDC Email Opportunities Raw": ("Opportunity ID",),
-    "SFDC Email Quotation Raw": ("SFDC Quotation ID", "Opportunity ID", "Quotation Product ID"),
-    "SFDC Verified Relations": ("Quotation ID", "Opportunity ID", "Quote Process Rows", "Relation State"),
+    "SFDC Email Opportunities Raw": ("Opportunity ID", "Opportunity Owner", "Stage"),
+    "SFDC Email Quotation Raw": ("SFDC Quotation ID", "Opportunity ID", "Quotation Product ID", "Active"),
+    "SFDC Verified Relations": ("Quotation ID", "Opportunity ID", "Quote Process Rows", "Relation State", "Opportunity Owner", "Opportunity Stage", "Quote Active (report only)"),
     "SFDC Quote Link Review": ("Quotation ID", "Quote Process Rows",
         "Distinct Opportunity IDs", "Opportunity ID Missing Rows", "Opportunity IDs Not In Export",
         "Reason", "Review State"),
@@ -221,7 +221,11 @@ def load_all():
 
 
 def main():
-    report = evaluate(load_all())
+    from three_report_owner_scope import owner_report_audit
+    tables = load_all()
+    report = evaluate(tables)
+    owner = owner_report_audit(tables)
+    report["owner_scope"] = owner
     folder = Path("audit-results")
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / "css-sfdc-report-generated-parity.json"
@@ -231,6 +235,7 @@ def main():
                    ("source_received_kst", "ingest_checked_kst")},
         "exception_reasons": report["relation_exception_reasons"],
         "sink": report["sink"],
+        "owner_scope": owner,
         "sfdc_object_readback": "SOURCE_UNAVAILABLE",
         "source_original_qq_attachment_compared": False,
         "financial_mutations": 0,
@@ -245,8 +250,15 @@ def main():
             f.write("Verified relations: " + str(report["sink"]["sink_verified_quote_ids"]) +
                     "; review-only relations: " + str(report["sink"]["sink_review_quote_ids"]) +
                     "; result: **" + report["sink"]["report_to_generated_readback_status"] + "**\n\n")
+            f.write("Owner exact opportunity IDs: " + str(owner["owner_opportunities"]) +
+                    "; owner verified Quote IDs: " + str(owner["owner_verified_quote_ids"]) +
+                    "; unattributable review Quote IDs: " + str(owner["review_unattributable_quote_ids"]) +
+                    "; source owner/stage/active readback: **" + owner["scope_status"] + "**\\n\\n")
             f.write("Original Salesforce object Save/readback: **NOT CHECKED**. "
                     "Report staging is not a live SFDC object query.\n")
+    if owner["scope_status"] != "PASS_REPORT_OWNER_TO_SINK_ONLY":
+        print("CSS_SFDC_OWNER_SCOPE_READBACK_BLOCKED", file=sys.stderr)
+        return 2
     if report["sink"]["report_to_generated_readback_status"] != "PASS_STAGE_TO_GENERATED_ONLY":
         print("CSS_SFDC_GENERATED_READBACK_BLOCKED", file=sys.stderr)
         return 2
