@@ -11,7 +11,7 @@ from qq_mail_ingest import SafeError, auth, get_fields, list_all, plain_field
 from sales_native_home import (
     EXPECTED_BASE, HOME, CURATED_VIEW, CURATED_ORDER, CURATED_DISPLAY,
     table_map, list_views, target_path, MENUS, presentation, PINNED_KEYS, ARCHIVE_DISPLAY,
-    SHORTCUT_VIEW, SHORTCUT_KEYS, shortcut_filter_matches,
+    SHORTCUT_VIEW, SHORTCUT_KEYS, shortcut_filter_matches, FULL_VIEW,
 )
 from setup_sales_web import get_view
 
@@ -23,6 +23,11 @@ CURATED_COLUMNS=(
     "데이터 상태", "업무 내용", "갱신 시각",
 )
 COLUMNS_PAYLOAD={"visible_fields":list(CURATED_COLUMNS)}
+# View policies: five shortcuts = exact filter, no group, priority sort;
+# twelve curated = major filter, no group, priority sort;
+# full 34 = no filter, business-area grouping, priority sort within group.
+FULL_GROUP_FIELD="그룹"
+FULL_GROUP={"group_config":[{"field":FULL_GROUP_FIELD,"desc":False}]}
 
 
 def get_sort_items(document):
@@ -66,6 +71,68 @@ def run_cli(action, base, table_id, view_id, config=None):
         return json.loads(result.stdout)
     except (json.JSONDecodeError, TypeError):
         raise SafeError("PORTAL_SORT_CLI_BAD_JSON") from None
+
+
+def get_group_items(document):
+    if isinstance(document,list):
+        return document
+    if isinstance(document,dict):
+        if isinstance(document.get("group_config"),list):
+            return document["group_config"]
+        for key in ("data","result","property","group"):
+            nested=document.get(key)
+            if isinstance(nested,(dict,list)):
+                items=get_group_items(nested)
+                if items is not None:
+                    return items
+    return None
+
+
+def group_matches(document,field_id):
+    items=get_group_items(document)
+    if not isinstance(items,list) or len(items)!=1 or not isinstance(items[0],dict):
+        return False
+    item=items[0]
+    return (item.get("field",item.get("field_id")) in (FULL_GROUP_FIELD,field_id)
+            and item.get("desc") is False)
+
+
+def ensure_full_view_layout(token,path,base,table_id,views,fields,mode):
+    view_id=views.get(FULL_VIEW)
+    field_by_name={f.get("field_name"):f for f in fields}
+    group=field_by_name.get(FULL_GROUP_FIELD) or {}
+    sort_field=field_by_name.get(SORT_FIELD) or {}
+    if not view_id or group.get("type")!=1 or not group.get("field_id"):
+        raise SafeError("PORTAL_FULL_GROUP_FIELD_OR_VIEW_MISSING")
+    if sort_field.get("type")!=2 or not sort_field.get("field_id"):
+        raise SafeError("PORTAL_FULL_SORT_FIELD_MISSING")
+    view=get_view(token,path,view_id)
+    if view.get("view_type")!="grid" or view.get("view_name")!=FULL_VIEW:
+        raise SafeError("PORTAL_FULL_VIEW_IDENTITY_MISMATCH")
+    if ((view.get("property") or {}).get("filter_info") or {}).get("conditions"):
+        raise SafeError("PORTAL_FULL_VIEW_HAS_FILTER")
+    if mode=="plan":
+        print("PORTAL_FULL_LAYOUT_PLAN writes=0")
+        return
+    before=run_cli("+view-get-group",base,table_id,view_id)
+    group_changed=not group_matches(before,group["field_id"])
+    if group_changed:
+        run_cli("+view-set-group",base,table_id,view_id,FULL_GROUP)
+    after=run_cli("+view-get-group",base,table_id,view_id)
+    if not group_matches(after,group["field_id"]):
+        raise SafeError("PORTAL_FULL_GROUP_READBACK_MISMATCH")
+    current=run_cli("+view-get-sort",base,table_id,view_id)
+    sort_changed=not sort_matches(current,sort_field["field_id"])
+    if sort_changed:
+        run_cli("+view-set-sort",base,table_id,view_id,EXPECTED)
+    if not sort_matches(run_cli("+view-get-sort",base,table_id,view_id),
+                        sort_field["field_id"]):
+        raise SafeError("PORTAL_FULL_SORT_READBACK_MISMATCH")
+    ensure_column_order(base,table_id,view_id,fields,mode)
+    print("PORTAL_FULL_VIEW_LAYOUT_PASS rows=34 filter=NONE"
+          " group=business_area sort=priority_ascending"
+          " group_changed="+str(int(group_changed))
+          " sort_changed="+str(int(sort_changed)))
 
 
 def visible_items(document):
@@ -246,6 +313,7 @@ def main():
         print("PORTAL_SORT_PLAN_PASS configured="
               + str(sort_matches(current, sort_field["field_id"])) + " writes=0")
         ensure_column_order(EXPECTED_BASE, table_id, view_id, fields,mode)
+        ensure_full_view_layout(token,path,EXPECTED_BASE,table_id,views,fields,mode)
         return
     changed = not sort_matches(current, sort_field["field_id"])
     if changed:
@@ -270,6 +338,7 @@ def main():
         raise SafeError("PORTAL_SHORTCUT_SORT_READBACK_MISMATCH")
     ensure_column_order(EXPECTED_BASE,table_id,shortcut_id,fields,mode)
     print("PORTAL_SHORTCUT_VIEW_LAYOUT_PASS rows=5 sort=ascending columns=7")
+    ensure_full_view_layout(token,path,EXPECTED_BASE,table_id,views,fields,mode)
     record_state = "PASS"
     try:
         verify_view_rows(token, path, view_id)
