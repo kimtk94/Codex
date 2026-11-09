@@ -15,7 +15,7 @@ if (-not (Test-Path $node)) {
   exit 1
 }
 if (-not (Test-Path $next)) {
-  Write-Error "Dependencies missing. Run npm ci from masteros\web."
+  Write-Error "Dependencies missing. Run npm install from masteros\web."
   exit 1
 }
 if (-not (Test-Path (Join-Path $web '.next\BUILD_ID'))) {
