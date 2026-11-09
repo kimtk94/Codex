@@ -7,15 +7,6 @@ on:
       - 'automation/feishu/latest_source_sync.py'
       - '.github/workflows/feishu-project-sync.yml'
   workflow_dispatch:
-  schedule:
-    - cron: '9,39 * * * *'
-  push:
-    branches: [main, fix/feishu-latest-auto-20261027]
-    paths:
-      - 'automation/feishu/project_status_sync.py'
-      - 'automation/feishu/latest_source_sync.py'
-      - 'automation/feishu/latest_four_formats.py'
-      - '.github/workflows/feishu-project-sync.yml'
 permissions:
   contents: read
 concurrency:
