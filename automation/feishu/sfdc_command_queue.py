@@ -108,6 +108,8 @@ def schema(token):
 def plain(v):
     if v is None:return ""
     if isinstance(v,str):return v.strip()
+    if isinstance(v,(int,float)) and not isinstance(v,bool) and v==int(v):
+        return str(int(v))
     if isinstance(v,list):
         return "".join(plain(x.get("text","") if isinstance(x,dict) else x) for x in v)
     return str(v).strip()
