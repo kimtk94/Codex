@@ -70,7 +70,7 @@ export async function POST(request){
   if(raw.length>512)throw Error("REQUEST_TOO_LARGE");
   input=JSON.parse(raw);
   if(!input||typeof input!=="object"||Array.isArray(input)||
-   !["IMPORT","SEARCH","DETAIL"].includes(input.mode))
+   !["IMPORT","SYNC_STAGED","SEARCH","DETAIL"].includes(input.mode))
    return reply({status:"BLOCK",code:"READ_ONLY_REPORT_MODE_REQUIRED"},400);
   if(input.mode==="SEARCH"&&(
    typeof input.query!=="string"||input.query.length>80||
@@ -82,10 +82,10 @@ export async function POST(request){
    return reply({status:"BLOCK",code:"REPORT_QUOTE_ID_INVALID"},400);
  }catch{return reply({status:"BLOCK",code:"INVALID_JSON"},400);}
  if(isImporting)return reply({status:"BLOCK",code:"REPORT_IMPORT_BUSY"},409);
- if(input.mode==="IMPORT")isImporting=true;
+ if(["IMPORT","SYNC_STAGED"].includes(input.mode))isImporting=true;
  try{
-  const result=await runReport(input,input.mode==="IMPORT"?90000:12000);
+  const result=await runReport(input,["IMPORT","SYNC_STAGED"].includes(input.mode)?90000:12000);
   return reply(result,result.status==="PASS"?200:422);
  }catch{return reply({status:"BLOCK",code:"REPORT_SOURCE_UNAVAILABLE"},503);
- }finally{if(input.mode==="IMPORT")isImporting=false;}
+ }finally{if(["IMPORT","SYNC_STAGED"].includes(input.mode))isImporting=false;}
 }
