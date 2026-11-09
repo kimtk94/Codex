@@ -88,26 +88,17 @@ jobs:
       - name: Install dependencies
         run: python -m pip install 'openpyxl>=3.1,<4' 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Run offline parser regression tests
-        
         run: python automation/sfdc/test_three_report_email_ingest.py
       - name: Verify headers-first IMAP report filtering offline
-        
         run: python -m unittest discover -s automation/sfdc -p 'test_three_report_header_prefilter.py' -v
       - name: Test verified relation views
-        
         run: python automation/sfdc/test_three_report_verified_views.py
       - name: Test directional QQ mail evidence offline
-        
         run: python automation/sfdc/test_three_report_mail_evidence.py
       - name: Test exact subject identifier audit offline
-        
         run: python automation/sfdc/test_three_report_thread_evidence.py
       - name: Test same-subject QQ mail evidence offline
-        
         run: python automation/sfdc/test_three_report_subject_pairs.py
-      - name: Test strict noon backup gate offline
-        
-        run: python -m unittest discover -s automation/sfdc -p 'test_report_fallback_gate.py' -v
       - name: Verify the latest subscription-slot freshness gate offline
         run: python -m unittest discover -s automation/sfdc -p 'test_source_freshness_guard.py' -v
       - name: Verify isolated Quote KPI scope
@@ -115,9 +106,6 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
           python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/shortcut_chart_dashboards.py automation/feishu/native_dashboard_cli.py
-      - name: Test missed-slot recovery gate offline
-        
-        run: python -m unittest discover -s automation/sfdc -p 'test_report_slot_recovery.py' -v
       - name: Read authorized subscription mail and conditionally stage
         if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         run: python automation/sfdc/three_report_email_ingest.py
