@@ -124,6 +124,7 @@ COLOR_KEY_MAP={
     **dict.fromkeys(("PAYMENT_FOLLOWUP","X_MY_INVOICE"),"매출·결제"),
 }
 MENU_EXTRA_FIELDS={
+    "바로가기":{"field_name":"바로가기","type":15},
     "표시순서":{"field_name":"표시순서","type":2},
     "메뉴 구분":{"field_name":"메뉴 구분","type":3,
                "property":{"options":[{"name":n,"color":c} for n,c in MENU_COLORS]}},
@@ -189,6 +190,11 @@ def source_rows(token,root,tables,now):
             "업무 내용":instruction, "원본 기준":source,
             "표시":CURATED_DISPLAY if key in PINNED_KEYS else ARCHIVE_DISPLAY,
         })
+    for item in output:
+        url=item["바로가기 URL"]
+        item["바로가기"]={"text":"열기","link":url} if (
+            url.startswith(BASE_URL+"?table=") and "&view=" in url
+        ) else None
     for state,count in sorted(status.items()):
         print("PORTAL_ROUTE_"+state+"="+str(count))
     return output
@@ -234,9 +240,27 @@ def as_display(value):
     return plain_field(value).strip()
 
 
+def hyperlink(value):
+    if not value:
+        return None
+    if isinstance(value,list) and len(value)==1:
+        return hyperlink(value[0])
+    if not isinstance(value,dict):
+        return None
+    text=value.get("text")
+    link=value.get("link")
+    return (text,link) if isinstance(text,str) and isinstance(link,str) else None
+
+
 def same(original,expected):
-    return all(as_display(original.get(k))==str(v).strip()
-               for k,v in expected.items())
+    for name,expected_value in expected.items():
+        observed=original.get(name)
+        if name=="바로가기":
+            if hyperlink(observed)!=hyperlink(expected_value):
+                return False
+        elif as_display(observed)!=str(expected_value).strip():
+            return False
+    return True
 
 
 def update_home(token,path,desired):
