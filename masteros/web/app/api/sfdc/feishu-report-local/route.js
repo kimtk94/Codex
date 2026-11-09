@@ -77,7 +77,7 @@ export async function POST(request){
     if(raw.length>500)throw Error("INVALID_LENGTH");
     body=JSON.parse(raw);
     if(!body||typeof body!=="object"||Array.isArray(body))throw Error("INVALID_BODY");
-    if(!["REFRESH","SEARCH","DETAIL"].includes(body.mode))
+    if(!["REFRESH","REFRESH_REFERENCES","REFERENCE_STATUS","SEARCH","DETAIL"].includes(body.mode))
       return reply({status:"BLOCK",code:"FEISHU_READ_ONLY_MODE_REQUIRED"},400);
     if(body.mode==="SEARCH"&&
        (typeof body.query!=="string"||body.query.length>80||
@@ -89,10 +89,10 @@ export async function POST(request){
       return reply({status:"BLOCK",code:"FEISHU_QUOTE_ID_INVALID"},400);
   }catch{return reply({status:"BLOCK",code:"FEISHU_INPUT_INVALID"},400);}
   if(refreshing)return reply({status:"BLOCK",code:"FEISHU_REFRESH_BUSY"},409);
-  if(body.mode==="REFRESH")refreshing=true;
+  if(["REFRESH","REFRESH_REFERENCES"].includes(body.mode))refreshing=true;
   try{
-    const value=await pythonCall(body,body.mode==="REFRESH"?180000:18000);
+    const value=await pythonCall(body,["REFRESH","REFRESH_REFERENCES"].includes(body.mode)?180000:18000);
     return reply(value,value.status==="PASS"?200:422);
   }catch{return reply({status:"BLOCK",code:"FEISHU_READ_SOURCE_UNAVAILABLE"},503);
-  }finally{if(body.mode==="REFRESH")refreshing=false;}
+  }finally{if(["REFRESH","REFRESH_REFERENCES"].includes(body.mode))refreshing=false;}
 }
