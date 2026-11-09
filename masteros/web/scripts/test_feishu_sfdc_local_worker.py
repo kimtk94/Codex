@@ -13,8 +13,14 @@ SOURCE={"status":"PASS","selectionStatus":"EXACT_ONE",
  "linkedQuotes":[{"id":"a0P000000000000AAA","opportunityId":"006000000000000AAA",
  "pricingStatus":"VERIFIED_PROCESS_LINES","sourceVatRateVerified10Pct":True,
  "cloudLinePresent":True,"productCount":1,"dataSize":12.0,
+ "samples":42,"sourceCloudUnits":6,"totalPriceKrw":8190000,
  "sampleUnitNetKrw":190000,"cloudUnitNetKrw":35000,"productName":"Existing RNA Product",
- "productCategory":"RNA","processNames":"Preparation,AliCloud"}]}
+ "productCategory":"RNA","processNames":"Preparation,AliCloud",
+ "processPriceLines":[
+    {"processName":"Preparation","unitPriceKrw":190000,"sourceQty":42,
+     "sourceNetKrw":7980000,"isCloud":False},
+    {"processName":"AliCloud","unitPriceKrw":35000,"sourceQty":6,
+     "sourceNetKrw":210000,"isCloud":True}]}]}
 def base(**kw):
     x={"Action":"OPPO_QUOTE_PAIR","Source Oppo ID":"006000000000000AAA",
        "Source Quote ID":"a0P000000000000AAA","New Opportunity Name":"New-12",
@@ -38,6 +44,11 @@ class T(unittest.TestCase):
     self.assertEqual(p["expectedCloudUnits"],2)
     self.assertEqual(p["expectedNet"],2350000)
     self.assertEqual(p["expectedGross"],2585000)
+    self.assertEqual(p["price_fields"]["Product Unit KRW"],190000)
+    self.assertEqual(p["price_fields"]["Product Qty"],12)
+    self.assertEqual(p["price_fields"]["Product Net KRW"],2280000)
+    self.assertEqual(p["price_fields"]["Cloud Net KRW"],70000)
+    self.assertEqual(p["price_fields"]["Quote Net KRW"],2350000)
     self.assertNotIn("source progress",p["opportunity"]["progressDescription"].lower())
  def test_data_size_change_blocked(self):
     with patch("feishu_sfdc_local_worker.json_run",return_value=SOURCE):
@@ -52,6 +63,22 @@ class T(unittest.TestCase):
       p=process(base(**{"Run Mode":"SAVE"}))
     self.assertEqual(p["status"],"BLOCK")
     self.assertEqual(p["code"],"CLOUD_PROCESS_SAVE_READBACK_NOT_VERIFIED")
+ def test_user_changes_product_rate(self):
+    with patch("feishu_sfdc_local_worker.json_run",return_value=SOURCE):
+      p=prepare_pair(base(**{"Requested Product Unit KRW":"200000"}))
+    self.assertEqual(p["status"],"READY")
+    self.assertEqual(p["price_fields"]["Price Status"],"MANUAL_OVERRIDE_REVIEW_REQUIRED")
+    self.assertEqual(p["expectedNet"],2470000)
+ def test_user_changes_cloud_rate(self):
+    with patch("feishu_sfdc_local_worker.json_run",return_value=SOURCE):
+      p=prepare_pair(base(**{"Requested Cloud Unit KRW":"40000"}))
+    self.assertEqual(p["expectedNet"],2360000)
+    self.assertEqual(p["price_fields"]["Cloud Unit KRW"],40000)
+ def test_unverified_source_total_blocks(self):
+    src={**SOURCE,"linkedQuotes":[{**SOURCE["linkedQuotes"][0],"totalPriceKrw":100}]}
+    with patch("feishu_sfdc_local_worker.json_run",return_value=src):
+      p=prepare_pair(base())
+    self.assertEqual(p["code"],"SOURCE_QUOTE_RECONCILIATION_FAILED")
  def test_no_new_request(self):
     self.assertFalse(validate(row(Approval="")))
 if __name__=="__main__":unittest.main()
