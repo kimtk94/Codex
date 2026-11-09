@@ -1,0 +1,117 @@
+name: Feishu Sources Payment Online Monthly Unified
+# Independent of SFDC 09/12/17 report subscriptions. One ordered source-to-sink run.
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/project_status_sync.py'
+      - 'automation/feishu/online_project_tat_forecast.py'
+      - 'automation/feishu/payment_reconciliation_qc.py'
+      - 'automation/feishu/monthly_revenue_actual_sync.py'
+      - 'automation/feishu/sales_metrics_sync.py'
+      - '.github/workflows/feishu-sources-unified.yml'
+      - 'automation/feishu/test_unified_workflow_contracts.py'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Write verified Feishu sources, Payment, Online and Monthly'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '25 0,3,6,9,12,15,18,21 * * *' # 09:25,12:25,15:25,18:25,21:25,00:25,03:25,06:25 KST
+permissions:
+  contents: read
+concurrency:
+  group: feishu-sources-payment-online-monthly-unified
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install tests
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify source mapping, VAT and two-pipeline ownership
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_unified_workflow_contracts.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_project_status_sync.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_latest_source_sync.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_tax_invoice_forecast_reconcile.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_monthly_revenue_canonical.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_monthly_revenue_actual_sync.py' -v
+          python3 automation/feishu/test_payment_reconciliation_qc.py
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_native_trends.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_native_payment_dashboard.py' -v
+          python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/online_project_tat_forecast.py automation/feishu/native_payment_dashboard_cli.py
+  refresh:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true)) }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 50
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+      FEISHU_METRIC_SCOPE: operations
+      FEISHU_METRIC_MODE: apply
+      FEISHU_PAYMENT_DASHBOARD_MODE: apply
+      FEISHU_TREND_MODE: apply
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only source and generated-sheet clients
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Ingest newest five Feishu source files to dated snapshots and manifest
+        run: python3 automation/feishu/project_status_sync.py
+      - name: Derive Online project TAT and invoice-safe forecast
+        run: python3 automation/feishu/online_project_tat_forecast.py
+      - name: Refresh project lifecycle from Feishu snapshots
+        run: python3 automation/css_mail/project_lifecycle_refresh.py
+      - name: Refresh issued Pending Forecast monthly lifecycle
+        run: python3 automation/css_mail/revenue_lifecycle_monthly.py
+      - name: Publish verified VAT-excluded Revenue derived tab
+        run: python3 automation/css_mail/revenue_net_vat_publish.py
+      - name: Validate Revenue source authority and parity
+        run: python3 automation/css_mail/revenue_source_authority.py
+      - name: Reconcile Payment receipt and invoice proof without certifying paid
+        run: python3 automation/feishu/payment_reconciliation_qc.py
+      - name: Update only source-authorized Monthly Revenue in Feishu Sales Base
+        env:
+          FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+        run: python3 automation/feishu/monthly_revenue_actual_sync.py
+      - name: Update Payment and SIF project boards without writing Weekly Quote
+        env:
+          FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+        run: python3 automation/feishu/sales_metrics_sync.py
+      - name: Refresh native Monthly and Weekly trend source views
+        env:
+          FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+        run: python3 automation/feishu/sales_native_trends.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install official Feishu native dashboard CLI
+        run: npm install --global '@larksuite/cli@1.0.99'
+      - name: Configure ephemeral Feishu dashboard identity
+        run: |
+          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name feishu-source-unified --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
+          lark-cli profile use feishu-source-unified
+      - name: Update native Payment dashboard from verified Feishu source
+        env:
+          FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+        run: python3 automation/feishu/native_payment_dashboard_cli.py
+      - name: Confirm source-to-Feishu operational completion
+        run: |
+          echo 'FEISHU_SOURCES_UNIFIED_PASS=Payment,Online,Monthly,Project,SIF' >> "$GITHUB_STEP_SUMMARY"
+          echo 'SFDC Quote/Weekly and SFDC mail source are NOT written in this workflow.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Payment proof is not equivalent to bank receipt. Revenue is VAT excluded.' >> "$GITHUB_STEP_SUMMARY"
