@@ -18,7 +18,8 @@ from sales_metrics_sync import (
 
 COLUMNS=(
     "Quote Name","합산 제외","합산 상태","제외 이유",
-    "Quote Status","SFDC IsActive","Week Start","Approval KST",
+    "Quote Status","SFDC IsActive","Active Evidence Source",
+    "Active Evidence KST","Week Start","Approval KST",
     "SFDC Record ID",
 )
 SORT={"sort_config":[{"field":"Approval KST","desc":True}]}
