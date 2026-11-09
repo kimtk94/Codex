@@ -27,12 +27,13 @@ def historic_export_audit(rows, checked_at=None):
         raise ValueError("HISTORICAL_SFDC_QUOTE_EXPORT_MISSING")
     quote_ids, records, received = set(), set(), []
     by_opp = defaultdict(list)
+    missing_opp_ids = 0
     for r in rows:
         qid = str(r.get("AMEA Quotation ID", "")).strip()
         sfid = str(r.get("Salesforce Record ID", "")).strip()
         oppid = str(r.get("Opportunity ID", "")).strip()
         stamp = str(r.get("Exported At KST", "")).strip()
-        if not qid or not sfid or not oppid or not stamp:
+        if not qid or not sfid or not stamp:
             raise ValueError("HISTORIC_QUOTE_ID_OR_PROVENANCE_MISSING")
         if not SF_RECORD.fullmatch(sfid):
             raise ValueError("HISTORIC_SF_RECORD_ID_MALFORMED")
@@ -47,7 +48,10 @@ def historic_export_audit(rows, checked_at=None):
         quote_ids.add(qid)
         records.add(sfid)
         received.append(moment)
-        by_opp[oppid].append(r)
+        if oppid:
+            by_opp[oppid].append(r)
+        else:
+            missing_opp_ids += 1
     return {
         "indexed": by_opp,
         "quote_ids": quote_ids,
@@ -55,6 +59,7 @@ def historic_export_audit(rows, checked_at=None):
         "oldest_export": min(received).isoformat(),
         "latest_export": max(received).isoformat(),
         "rows": len(rows),
+        "missing_opportunity_ids": missing_opp_ids,
     }
 
 
@@ -129,6 +134,8 @@ def compare_owner_priority(opportunities, staged_quotations, historic_quotes,
     overlap = len(old["quote_ids"] & source_qids)
     if conflicting_quote_opportunity:
         classification = "BLOCK_CONFLICTING_STAGED_QID_RELATION"
+    elif old["missing_opportunity_ids"]:
+        classification = "REVIEW_HISTORICAL_EXPORT_OPPORTUNITY_ID_GAP"
     else:
         classification = "PASS_HISTORICAL_CORROBORATION_ONLY"
     return {
@@ -147,6 +154,7 @@ def compare_owner_priority(opportunities, staged_quotations, historic_quotes,
         "historical_quote_report_active_1_at_export": active_old_rows,
         "historic_quote_opportunity_conflict_count": conflicting_quote_opportunity,
         "historical_export_records": old["rows"],
+        "historical_export_unattributable_no_opp_id": old["missing_opportunity_ids"],
         "historical_export_unique_quote_ids": len(old["quote_ids"]),
         "historical_export_unique_sf_record_ids": len(old["record_ids"]),
         "historical_export_quote_ids_also_in_latest_staging": overlap,
