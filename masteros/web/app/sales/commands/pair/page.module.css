@@ -70,3 +70,14 @@
 .draftProduct .grid label:first-child{grid-column:auto}
 .draftTextLabel{display:flex;flex-direction:column;gap:8px;margin-top:17px;font-size:12px;font-weight:700;color:#4f687a}
 .draftTextLabel textarea{width:100%;min-height:125px;padding:13px;resize:vertical;border:1px solid #cbdfe9;background:white;border-radius:10px;line-height:1.65;font:inherit;font-size:12px;color:#254b5b}
+
+.accountOptions{border:1px solid #d4e6ed;border-radius:12px;background:#f9fdff;padding:15px 17px;margin-top:13px}
+.accountOptions legend{padding:0 6px;color:#23465b;font-size:12px}
+.modeOption{display:flex;align-items:center;gap:9px;margin:9px 0;font-size:12px;color:#345367}
+.modeOption input{width:auto;flex:0 0 auto;margin:0}
+.identitySummary{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+.identitySummary>div{display:flex;flex-direction:column;gap:4px;border-radius:8px;border:1px solid #dceaf1;background:white;padding:12px}
+.identitySummary>div b{font-size:11px;color:#567487}
+.identitySummary>div span{font-size:13px;color:#224659}
+.identitySummary>div small{font-size:11px;color:#6c7e8c;overflow-wrap:anywhere}
+.identitySummary .hint{grid-column:1 / -1}
