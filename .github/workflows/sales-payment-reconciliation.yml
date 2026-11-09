@@ -6,16 +6,6 @@ on:
       - 'automation/feishu/test_payment_reconciliation_qc.py'
       - '.github/workflows/sales-payment-reconciliation.yml'
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Feishu Project Status Sync"]
-    types: [completed]
-  schedule:
-    - cron: '43 0 * * *' # approx 09:43 KST; may be delayed
-  push:
-    branches: [main]
-    paths:
-      - 'automation/feishu/payment_reconciliation_qc.py'
-      - '.github/workflows/sales-payment-reconciliation.yml'
 permissions:
   contents: read
 concurrency:
