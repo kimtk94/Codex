@@ -20,9 +20,9 @@ import urllib.parse as up
 from sfdc_command_queue import auth, path, pages, call, google, gs
 
 HEAD_TAB="SFDC Quote Export"
-LINE_TAB="SFDC Import Quotation"
+LINE_TAB="SFDC Email Quotation Raw"
 SHEET_RANGE_HEAD="A1:O2000"
-SHEET_RANGE_LINES="A1:Y4000"
+SHEET_RANGE_LINES="A1:Y6000"
 TABLE_LINES="SFDC Quote Report Lines"
 TABLE_PROCESS="SFDC Quote Process Dictionary"
 TABLE_PRODUCT="SFDC Quote Product Templates"
@@ -112,15 +112,20 @@ def build_records(source_lines,source_headers,now=None):
         raise ReportSourceError("REPORT_EXPORT_TIME_INVALID")
     if date>datetime.now(timezone.utc)+timedelta(minutes=10):
         raise ReportSourceError("REPORT_EXPORT_IN_FUTURE")
-    stale=(datetime.now(timezone.utc)-date)>timedelta(hours=24)
-    report_status="STALE" if stale else "PROCESS_REPORT_FRESHNESS_UNVERIFIED"
+    # Header metadata refers to the older Quote EXPORT, not the source
+    # 25-column process-price report. Never stamp old header time onto
+    # newer process rows as if that proves the process report was current.
+    report_status="DETAIL_REPORT_TIME_UNVERIFIED"
     product_groups=defaultdict(list)
     process_defs={}
     occurrences=Counter()
     prepared=[]
     for i,row in enumerate(lines,1):
         qid=str(row["SFDC Quotation ID"]).strip()
-        if qid not in by_quote:raise ReportSourceError("REPORT_UNMATCHED_QUOTE")
+        linked=by_quote.get(qid)
+        # Report details may precede the separately exported Quote header.
+        # Preserve those rows with an empty SFDC record ID and a HOLD flag;
+        # do not invent an a0P record or block the whole report.
         product=str(row["Quotation Product ID"]).strip()
         proc=str(row["Process Name: SFDC Process ID"]).strip()
         label=str(row["Quote Process Name"]).strip()
@@ -142,29 +147,32 @@ def build_records(source_lines,source_headers,now=None):
         product_groups[(qid,product)].append(pkey)
         prepared.append({
           "Line Key":linekey,"Quote ID":qid,
-          "Quote Record ID":by_quote[qid]["Salesforce Record ID"],
+          "Quote Record ID":linked["Salesforce Record ID"] if linked else "",
           "Quote Product ID":product,"Process Key":pkey,
           "Unit Price USD":unit_price,"Sales Price USD":sales,
           "Process Total USD":total,"Sample Qty":qty,"Data Size":size,
           "Active":str(row.get("Active","")).strip(),
           "Quote Created":str(row.get("Created Date","")).strip(),
-          "Source Exported KST":exported,
+          "Source Exported KST":"",
           "Source Row Hash":checksum(row),
-          "Source Status":report_status,
+          "Source Status":report_status if linked else "QUOTE_RECORD_ID_UNVERIFIED",
         })
     if not prepared:raise ReportSourceError("REPORT_EMPTY_LINES")
-    # The QQ importer currently stamps the Quote HEADER export separately from
-    # the 25-column process detail report. Never use a newly refreshed header
-    # timestamp to disguise OLD process-price rows as freshly verified.
-    try:
-        latest_process_created=max(
-            datetime.strptime(r["Created Date"],"%m/%d/%Y")
-            .replace(tzinfo=timezone(timedelta(hours=9)))
-            for r in lines)
-    except (ValueError,KeyError):
-        raise ReportSourceError("REPORT_PROCESS_DATE_UNVERIFIED")
-    if date-latest_process_created>timedelta(days=3):
-        raise ReportSourceError("REPORT_PROCESS_SOURCE_LAG")
+    # Created Date describes the Quote, not when the subscribed
+    # process report arrived. Some older rows omit or null this date.
+    # Keep these distinctions visible and never block all 3,904 rows
+    # simply because one historical date is missing.
+    process_dates=[]
+    date_missing=0
+    for row in lines:
+        raw=str(row.get("Created Date","")).strip()
+        try:
+            process_dates.append(datetime.strptime(raw,"%m/%d/%Y"))
+        except ValueError:
+            date_missing+=1
+    if not process_dates:
+        raise ReportSourceError("REPORT_NO_PROCESS_DATES_VERIFIABLE")
+    newest_process_created=max(process_dates)
     product_template_defs={}
     product_to_key={}
     for group,process_sequence in product_groups.items():
@@ -173,12 +181,12 @@ def build_records(source_lines,source_headers,now=None):
         product_template_defs[tkey]={"Product Template Key":tkey,
           "Process Keys":canonical(process_sequence),
           "Process Count":str(len(process_sequence)),
-          "Source Exported KST":exported}
+          "Source Exported KST":""}
         product_to_key[group]=tkey
     for item in prepared:
         item["Product Template Key"]=product_to_key[(item["Quote ID"],item["Quote Product ID"])]
     process_items=[
-      {"Process Key":key,**definition,"Source Exported KST":exported}
+      {"Process Key":key,**definition,"Source Exported KST":""}
       for key,definition in sorted(process_defs.items())]
     product_items=[product_template_defs[k] for k in sorted(product_template_defs)]
     if len({x["Line Key"] for x in prepared})!=len(prepared):
@@ -187,9 +195,14 @@ def build_records(source_lines,source_headers,now=None):
         "tables":{TABLE_PROCESS:process_items,
                   TABLE_PRODUCT:product_items,TABLE_LINES:prepared},
         "summary":{
-           "status":"STALE_SOURCE" if stale else "SNAPSHOT",
-           "source_exported_kst":exported,
+           "status":"DETAIL_REPORT_TIME_UNVERIFIED",
+           "header_exported_kst":exported,
+           "source_tab":LINE_TAB,
+           "process_created_latest":newest_process_created.date().isoformat(),
+           "process_date_missing_rows":date_missing,
            "quote_count":len({r["Quote ID"] for r in prepared}),
+           "quote_record_ids_matched":len({r["Quote ID"] for r in prepared if r["Quote Record ID"]}),
+           "quote_record_ids_unmapped":len({r["Quote ID"] for r in prepared if not r["Quote Record ID"]}),
            "quote_product_count":len(product_groups),
            "report_lines":len(prepared),
            "process_templates":len(process_items),
@@ -267,8 +280,18 @@ def sync_one(token,tid,key_field,rows):
     for key,prior in old.items():
         if key in wanted:
             timestamp=plain((prior.get("fields") or {}).get("Source Exported KST"))
-            if timestamp and timestamp>wanted[key]["Source Exported KST"]:
-                raise ReportSourceError("FEISHU_REPORT_SOURCE_REGRESSION")
+            target_time=wanted[key]["Source Exported KST"]
+            if timestamp and (not target_time or timestamp>target_time):
+                before_status=plain((prior.get("fields") or {}).get("Source Status"))
+                after_status=wanted[key].get("Source Status","")
+                # The original mirror mislabeled an Oct 24 HEADER timestamp
+                # as a process-detail export time. Clearing it is safe only
+                # for explicitly unverified legacy rows, never a verified one.
+                legacy=before_status in ("STALE","PROCESS_REPORT_FRESHNESS_UNVERIFIED")
+                unverified=after_status in ("DETAIL_REPORT_TIME_UNVERIFIED",
+                                            "QUOTE_RECORD_ID_UNVERIFIED")
+                if not (legacy and unverified and not target_time):
+                    raise ReportSourceError("FEISHU_REPORT_SOURCE_REGRESSION")
     to_create=[]
     to_update=[]
     unchanged=0
