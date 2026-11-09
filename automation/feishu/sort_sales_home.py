@@ -26,7 +26,7 @@ CURATED_COLUMNS=(
 COLUMNS_PAYLOAD={"visible_fields":list(CURATED_COLUMNS)}
 # View policies: five shortcuts = exact filter, no group, priority sort;
 # twelve curated = major filter, no group, priority sort;
-# full 34 = no filter, business-area grouping, priority sort within group.
+# full list = no filter, business-area grouping, priority sort within group.
 FULL_GROUP_FIELD="그룹"
 FULL_GROUP={"group_config":[{"field":FULL_GROUP_FIELD,"desc":False}]}
 
@@ -230,7 +230,7 @@ def verify_view_rows(token, table_path, view_id):
     """Audit stored menu rows independently from the native saved sort metadata.
 
     The Feishu view-scoped records API has repeatedly timed out even with a
-    12-row view. Reading the small home table directly avoids that endpoint.
+    curated view. Reading the small home table directly avoids that endpoint.
     The view filter and saved sort are validated separately in main().
     """
     del view_id
@@ -326,7 +326,7 @@ def main():
     print("PORTAL_SORT_CONFIG_PASS field=display_order ascending=true changed="
           + str(int(changed)))
     ensure_column_order(EXPECTED_BASE, table_id, view_id, fields,mode)
-    # Shortcut is separate from the existing 12-row curated view.
+    # Shortcut is separate from the curated view.
     shortcut_id=views.get(SHORTCUT_VIEW)
     key_field=field_by_name.get("Menu Key") or {}
     if not shortcut_id or not key_field.get("field_id"):
