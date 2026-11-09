@@ -85,13 +85,19 @@ class RunHistoryTests(unittest.TestCase):
         self.assertNotEqual(a[2],"PASS")
 
     def test_filter_policies_and_utc_prefix(self):
-        cfg=h.filter_config("fldOperate","OPERATION")
+        fields={"최근 표시":"fldRecent","검증 상태":"fldVerdict"}
+        cfg=h.filter_config((("최근 표시","RECENT"),),fields)
         self.assertEqual(cfg["conjunction"],"and")
         view={"property":{"filter_info":cfg}}
-        self.assertTrue(h.matches_filter(view,"fldOperate","OPERATION"))
-        self.assertFalse(h.matches_filter(view,"fldOperate","TEST"))
+        self.assertTrue(h.matches_filter(view,(("최근 표시","RECENT"),),fields))
+        self.assertFalse(h.matches_filter(view,(("최근 표시","HISTORY"),),fields))
+        problems=(("최근 표시","RECENT"),("검증 상태","CHECK"))
+        self.assertEqual(len(h.filter_config(problems,fields)["conditions"]),2)
+        self.assertTrue(h.matches_filter(
+            {"property":{"filter_info":h.filter_config(problems,fields)}},
+            problems,fields))
         self.assertTrue(h.matches_filter({"property":{"filter_info":{"conditions":[]}}},
-                                         None,None))
+                                         (),fields))
 
     def test_readback_is_value_based_and_preserves_link(self):
         desired={"Run Key":"SFDC:123","실행 상태":"SUCCESS","실제 소요 분":5.2,
@@ -110,6 +116,15 @@ class RunHistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(h.SafeError,"RUN_URL_MISMATCH"):
             h.build_row("SFDC Report",row,[SFDC_JOB],
                         ("09:50","2026-11-10 09:50:00"),NOW)
+
+    def test_operating_and_problems_views_ignore_old_runs_and_pr(self):
+        self.assertEqual(h.VIEW_FILTERS[0][1],(("최근 표시","RECENT"),))
+        self.assertEqual(h.VIEW_FILTERS[1][1],
+                         (("최근 표시","RECENT"),("검증 상태","CHECK")))
+        row=h.build_row("SFDC Report",run(event="pull_request",conclusion="failure"),[],
+                        ("09:50","next"),NOW)
+        self.assertEqual(row["최근 표시"],"HISTORY")
+        self.assertEqual(row["검증 상태"],"TEST_FAILURE")
 
     def test_latest_main_branch_runs_are_required_before_writes(self):
         with mock.patch.object(h,"schedule_map",return_value={
