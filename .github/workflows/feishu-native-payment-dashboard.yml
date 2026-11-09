@@ -7,18 +7,6 @@ on:
       - 'automation/feishu/test_native_payment_dashboard.py'
       - 'automation/feishu/test_native_progress_dashboard.py'
       - '.github/workflows/feishu-native-payment-dashboard.yml'
-  push:
-    branches:
-      - main
-      - 'feat/feishu-payment-dashboard-*'
-    paths:
-      - 'automation/feishu/native_payment_dashboard_cli.py'
-      - 'automation/feishu/test_native_payment_dashboard.py'
-      - '.github/workflows/feishu-native-payment-dashboard.yml'
-  workflow_run:
-    workflows: ['Feishu Sales SIF Invoice Weekly KPI']
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
