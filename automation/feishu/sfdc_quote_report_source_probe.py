@@ -27,7 +27,9 @@ def request(method,path,token=None,payload=None):
         data=json.load(res)
     if data.get("code")!=0:
         raise RuntimeError("FEISHU_API_REJECTED_"+str(data.get("code")))
-    return data.get("data") or {}
+    # Feishu auth returns tenant_access_token at top level, whereas Bitable
+    # response payloads normally nest their data under a data key.
+    return data.get("data") or data
 
 
 def paginate(root,token,cap=300):
