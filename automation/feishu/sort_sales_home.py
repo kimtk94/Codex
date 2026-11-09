@@ -16,6 +16,12 @@ from setup_sales_web import get_view
 
 SORT_FIELD = "표시순서"
 EXPECTED = {"sort_config": [{"field": SORT_FIELD, "desc": False}]}
+# Index column remains first; category is the earliest movable column.
+CURATED_COLUMNS=(
+    "Menu Key", "메뉴 구분", "화면", "바로가기",
+    "데이터 상태", "업무 내용", "갱신 시각",
+)
+COLUMNS_PAYLOAD={"visible_fields":list(CURATED_COLUMNS)}
 
 
 def get_sort_items(document):
@@ -59,6 +65,61 @@ def run_cli(action, base, table_id, view_id, config=None):
         return json.loads(result.stdout)
     except (json.JSONDecodeError, TypeError):
         raise SafeError("PORTAL_SORT_CLI_BAD_JSON") from None
+
+
+def visible_items(document):
+    if isinstance(document,list):
+        return document
+    if isinstance(document,dict):
+        if isinstance(document.get("visible_fields"),list):
+            return document["visible_fields"]
+        for key in ("data","result","property"):
+            nested=document.get(key)
+            if isinstance(nested,(list,dict)):
+                values=visible_items(nested)
+                if values is not None:
+                    return values
+    return None
+
+
+def matches_columns(document, fields):
+    values=visible_items(document)
+    if values is None:
+        return False
+    by_id={row.get("field_id"):row.get("field_name") for row in fields}
+    names=[]
+    for item in values:
+        if isinstance(item,str):
+            names.append(by_id.get(item,item))
+        elif isinstance(item,dict):
+            key=item.get("field_id",item.get("field",item.get("name")))
+            if not isinstance(key,str):
+                return False
+            names.append(by_id.get(key,key))
+        else:
+            return False
+    return names==list(CURATED_COLUMNS)
+
+
+def ensure_column_order(base, table_id, view_id, fields,mode):
+    all_names={f.get("field_name") for f in fields}
+    if not set(CURATED_COLUMNS).issubset(all_names):
+        raise SafeError("PORTAL_COLUMNS_REQUIRED_FIELD_MISSING")
+    link=next(f for f in fields if f.get("field_name")=="바로가기")
+    if link.get("type")!=15:
+        raise SafeError("PORTAL_COLUMNS_HYPERLINK_TYPE_MISMATCH")
+    before=run_cli("+view-get-visible-fields",base,table_id,view_id)
+    already=matches_columns(before,fields)
+    if mode=="plan":
+        print("PORTAL_COLUMNS_PLAN configured="+str(already)+" writes=0")
+        return
+    if not already:
+        run_cli("+view-set-visible-fields",base,table_id,view_id,COLUMNS_PAYLOAD)
+    after=run_cli("+view-get-visible-fields",base,table_id,view_id)
+    if not matches_columns(after,fields):
+        raise SafeError("PORTAL_COLUMNS_READBACK_MISMATCH")
+    print("PORTAL_COLUMNS_PASS second=category fourth=direct_link "
+          "visible=7 changed="+str(int(not already)))
 
 
 def verify_filtered_view(view, field_id):
@@ -133,6 +194,16 @@ def verify_view_rows(token, table_path, view_id):
         }
         if got != rule:
             issues.append(key)
+        raw_url=plain_field(fields.get("바로가기 URL")).strip()
+        link=fields.get("바로가기")
+        if isinstance(link,list) and len(link)==1:
+            link=link[0]
+        expected_link={"text":"열기","link":raw_url} if raw_url else None
+        if (raw_url and not (raw_url.startswith("https://ocnz4cb25scn.feishu.cn/base/")
+                             and "?table=" in raw_url and "&view=" in raw_url)):
+            issues.append(key)
+        elif (link or None)!=expected_link:
+            issues.append(key)
     if issues:
         # Only menu route keys, never customer data, enter the audit log.
         print("PORTAL_SORT_SOURCE_DIFFERENCES=" + ",".join(issues))
@@ -173,6 +244,7 @@ def main():
     if mode == "plan":
         print("PORTAL_SORT_PLAN_PASS configured="
               + str(sort_matches(current, sort_field["field_id"])) + " writes=0")
+        ensure_column_order(EXPECTED_BASE, table_id, view_id, fields,mode)
         return
     changed = not sort_matches(current, sort_field["field_id"])
     if changed:
@@ -182,6 +254,7 @@ def main():
         raise SafeError("PORTAL_SORT_CONFIG_READBACK_MISMATCH")
     print("PORTAL_SORT_CONFIG_PASS field=display_order ascending=true changed="
           + str(int(changed)))
+    ensure_column_order(EXPECTED_BASE, table_id, view_id, fields,mode)
     record_state = "PASS"
     try:
         verify_view_rows(token, path, view_id)
