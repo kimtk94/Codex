@@ -27,13 +27,13 @@ TABLE_REFERENCE="SFDC Quote Reference Index"
 
 SCHEMAS[TABLE_CLASS]=[
     "Class Key","Product Template Key","Production Gb","Gb Status",
-    "Source Received KST"
+    "Source Exported KST","Source Received KST"
 ]
 SCHEMAS[TABLE_REFERENCE]=[
     "Quote ID","Quote Record ID","Opportunity External ID","Opportunity Name",
     "Account ID","Account Name","Contact ID","Contact Name","Contact Email",
     "Account Contact Status","Products JSON","Product Count",
-    "Reference Status","Source Received KST","Reference SHA256"
+    "Reference Status","Source Exported KST","Source Received KST","Reference SHA256"
 ]
 
 SOURCE_REQUIRED={
@@ -129,7 +129,7 @@ def preclassify(raw_rows,original,verified_mail):
             ckey=checksum([tkey,gb if gb else "UNVERIFIED"])
             classes[ckey]={
                 "Class Key":ckey,"Product Template Key":tkey,
-                "Production Gb":gb,"Gb Status":gb_state,
+                "Production Gb":gb,"Gb Status":gb_state,"Source Exported KST":"",
                 "Source Received KST":verified_mail["received_kst"]
             }
             totals={plain(r.get("Total Price USD (converted)")) for r in product_rows}
@@ -152,7 +152,7 @@ def preclassify(raw_rows,original,verified_mail):
             "Account Contact Status":identity_state,
             "Products JSON":canonical(product_refs),
             "Product Count":str(len(product_refs)),
-            "Reference Status":reference_status,
+            "Reference Status":reference_status,"Source Exported KST":"",
             "Source Received KST":verified_mail["received_kst"]
         }
         ref["Reference SHA256"]=checksum(ref)
