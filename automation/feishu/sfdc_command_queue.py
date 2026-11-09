@@ -10,7 +10,36 @@ FIELDS=["Request ID","Action","Source Oppo ID","Source Quote ID","Lead ID",
 "Contact Korean Name","Contact English Name","Approval","Duplicate Checked",
 "Price Checked","Run Mode","Status","New Oppo ID","New Quote ID",
 "New Contact ID","Error Code","Checked At"]
+# Keep the original A:V layout stable. All new columns are appended only.
+PRICE_VIEW="Quote Pricing"
+PRICE_INPUT_FIELDS=["Requested Product Unit KRW","Requested Cloud Unit KRW"]
+PRICE_RESULT_FIELDS=["Source Product Name","Sample Unit KRW","Product Unit KRW",
+    "Product Qty","Product Net KRW","Cloud Unit KRW","Cloud Qty","Cloud Net KRW",
+    "Quote Net KRW","VAT KRW","Quote Gross KRW","Price Basis","Price Status",
+    "Product Price Detail"]
+PRICE_NUMBER_FIELDS=frozenset([
+    "Requested Product Unit KRW","Requested Cloud Unit KRW",
+    "Sample Unit KRW","Product Unit KRW","Product Qty","Product Net KRW",
+    "Cloud Unit KRW","Cloud Qty","Cloud Net KRW","Quote Net KRW",
+    "VAT KRW","Quote Gross KRW"])
+FIELDS+=PRICE_INPUT_FIELDS+PRICE_RESULT_FIELDS
 HEAD=["record_id"]+FIELDS
+def column_name(zero_index):
+    if not isinstance(zero_index,int) or zero_index<0:raise ValueError("INVALID_COLUMN_INDEX")
+    n=zero_index+1
+    value=""
+    while n:
+        n,rem=divmod(n-1,26)
+        value=chr(65+rem)+value
+    return value
+LAST_COLUMN=column_name(len(HEAD)-1)
+SINK_FIELDS=("Status","New Oppo ID","New Quote ID","New Contact ID",
+             "Error Code","Checked At",*PRICE_RESULT_FIELDS)
+def field_spec(name):
+    if name in PRICE_NUMBER_FIELDS:
+        return {"field_name":name,"type":2,"property":{"formatter":"1,000"}}
+    return {"field_name":name,"type":1}
+
 FINAL={"RUNNING","PREFLIGHT_PASS","PREPARED","PREFLIGHT_BLOCK","SAVE_APPROVED",
        "PASS","PARTIAL","BLOCK","SOURCE_UNAVAILABLE"}
 def env(key):
@@ -64,7 +93,7 @@ def schema(token):
     if not found:
         api_phase("TABLE_CREATE",lambda:call("POST",root+"/tables",token,{"table":{"name":TABLE,
              "default_view_name":"SFDC Requests",
-             "fields":[{"field_name":name,"type":1} for name in FIELDS]}}))
+             "fields":[field_spec(name) for name in FIELDS]}}))
         found=[v for v in pages(token,root+"/tables") if v.get("name")==TABLE]
     if len(found)!=1:raise ValueError("TABLE_NOT_CREATED")
     tid=found[0]["table_id"]
@@ -72,13 +101,24 @@ def schema(token):
     names={v.get("field_name"):v.get("type") for v in api_phase("FIELD_LIST",lambda:pages(token,fp))}
     for name in FIELDS:
         if name not in names:
-            api_phase("FIELD_CREATE",lambda:call("POST",fp,token,{"field_name":name,"type":1}))
+            api_phase("FIELD_CREATE",lambda:call("POST",fp,token,field_spec(name)))
     names={v.get("field_name"):v.get("type") for v in pages(token,fp)}
-    if any(names.get(n)!=1 for n in FIELDS):raise ValueError("SCHEMA_UNEXPECTED")
+    if any(names.get(n)!=(2 if n in PRICE_NUMBER_FIELDS else 1) for n in FIELDS):
+        raise ValueError("SCHEMA_UNEXPECTED")
+    vp=root+"/tables/"+tid+"/views"
+    views=[v for v in pages(token,vp) if v.get("view_name")==PRICE_VIEW]
+    if not views:
+        api_phase("PRICING_VIEW_CREATE",
+            lambda:call("POST",vp,token,{"view_name":PRICE_VIEW,"view_type":"grid"}))
+        views=[v for v in pages(token,vp) if v.get("view_name")==PRICE_VIEW]
+    if len(views)!=1 or views[0].get("view_type")!="grid" or not views[0].get("view_id"):
+        raise ValueError("PRICING_VIEW_READBACK_FAILED")
     return tid
 def plain(v):
     if v is None:return ""
     if isinstance(v,str):return v.strip()
+    if isinstance(v,(int,float)) and not isinstance(v,bool) and v==int(v):
+        return str(int(v))
     if isinstance(v,list):
         return "".join(plain(x.get("text","") if isinstance(x,dict) else x) for x in v)
     return str(v).strip()
@@ -109,17 +149,35 @@ def gs(s,method,suffix,body=None):
 def adr(region):
     return urllib.parse.quote("'"+TAB+"'!"+region,safe="!'")
 def ensure_mirror(s):
-    d=gs(s,"GET","?fields=sheets.properties(title,gridProperties(rowCount,columnCount))")
-    tabs={x["properties"]["title"]:x["properties"]["gridProperties"] for x in d.get("sheets",[])}
+    d=gs(s,"GET","?fields=sheets.properties(title,sheetId,gridProperties(rowCount,columnCount))")
+    tabs={x["properties"]["title"]:x["properties"] for x in d.get("sheets",[])}
     if TAB not in tabs:
         gs(s,"POST",":batchUpdate",{"requests":[{"addSheet":{"properties":{"title":TAB,
             "gridProperties":{"rowCount":2000,"columnCount":len(HEAD),"frozenRowCount":1}}}}]})
-    elif tabs[TAB]["rowCount"]<1000 or tabs[TAB]["columnCount"]<len(HEAD):
-        raise ValueError("SHEET_GRID_SMALL")
+    else:
+        props=tabs[TAB]
+        if props["gridProperties"]["rowCount"]<1000:
+            raise ValueError("SHEET_GRID_SMALL")
+        if props["gridProperties"]["columnCount"]<len(HEAD):
+            gs(s,"POST",":batchUpdate",{"requests":[{"updateSheetProperties":{
+                "properties":{"sheetId":props["sheetId"],
+                              "gridProperties":{"columnCount":len(HEAD)}},
+                "fields":"gridProperties.columnCount"}}]})
+    current=gs(s,"GET","/values/"+adr("A1:"+LAST_COLUMN+"1")).get("values",[])
+    header=current[0] if current else []
+    if header and header!=HEAD:
+        if header!=HEAD[:len(header)]:
+            raise ValueError("SHEET_SCHEMA_MISMATCH")
+        gs(s,"PUT","/values/"+adr("A1:"+LAST_COLUMN+"1")+"?valueInputOption=RAW",
+           {"values":[HEAD]})
+    verify=gs(s,"GET","/values/"+adr("A1:"+LAST_COLUMN+"1")).get("values",[])
+    if verify and verify[0]!=HEAD:raise ValueError("SHEET_HEADER_MIGRATION_FAILED")
+
 def mirror(s):
-    rows=gs(s,"GET","/values/"+adr("A1:V2000")).get("values",[])
+    rows=gs(s,"GET","/values/"+adr("A1:"+LAST_COLUMN+"2000")).get("values",[])
     if rows and rows[0]!=HEAD:raise ValueError("SHEET_SCHEMA_MISMATCH")
     return {r[0]:r for r in rows[1:] if r and r[0]}
+
 def pull(token,s,tid):
     records=pages(token,path()+"/tables/"+tid+"/records")
     rows=[normalized(x) for x in records]
@@ -134,13 +192,12 @@ def pull(token,s,tid):
     for row in rows:
         old=dict(zip(HEAD,prior.get(row[0],[])))
         if old.get("Status") in FINAL:
-            for field in ("Status","New Oppo ID","New Quote ID","New Contact ID",
-                          "Error Code","Checked At"):
+            for field in SINK_FIELDS:
                 row[HEAD.index(field)]=old.get(field,"")
     values=[HEAD]+rows
-    gs(s,"PUT","/values/"+adr("A1:V"+str(len(values)))+"?valueInputOption=RAW",
+    gs(s,"PUT","/values/"+adr("A1:"+LAST_COLUMN+str(len(values)))+"?valueInputOption=RAW",
        {"values":values})
-    actual=gs(s,"GET","/values/"+adr("A1:V"+str(len(values)))).get("values",[])
+    actual=gs(s,"GET","/values/"+adr("A1:"+LAST_COLUMN+str(len(values)))).get("values",[])
     norm=lambda row:list(row[:next((i for i in range(len(row)-1,-1,-1) if str(row[i])!=""),-1)+1])
     if [norm(v) for v in actual]!=[norm(v) for v in values]:
         raise ValueError("SINK_READBACK_MISMATCH")
@@ -155,17 +212,31 @@ def push(token,s,tid):
         if rid not in before:continue
         fields=dict(zip(HEAD,row))
         if fields.get("Status") not in FINAL:continue
-        update={k:fields.get(k,"") for k in ("Status","New Oppo ID","New Quote ID",
-                      "New Contact ID","Error Code","Checked At")}
-        if all(plain(before[rid].get("fields",{}).get(k))==v for k,v in update.items()):
+        update={k:fields.get(k,"") for k in SINK_FIELDS}
+        for numeric in PRICE_NUMBER_FIELDS.intersection(update):
+            value=update[numeric]
+            if value!="":
+                try:
+                    number=int(value)
+                    if str(number)!=str(value) or number<0:
+                        raise ValueError()
+                except (TypeError,ValueError):
+                    raise ValueError("PRICE_OUTPUT_NOT_INTEGER")
+                update[numeric]=number
+            else:
+                update.pop(numeric)
+        if all(plain(before[rid].get("fields",{}).get(k))==str(v) for k,v in update.items()):
             continue
         call("PUT",endpoint+"/"+urllib.parse.quote(rid,safe=""),token,{"fields":update})
         changed+=1
     after={r["record_id"]:r for r in pages(token,endpoint)}
     for rid,row in rows.items():
         f=dict(zip(HEAD,row))
-        if rid in after and f.get("Status") in FINAL and plain(after[rid]["fields"].get("Status"))!=f["Status"]:
-            raise ValueError("FEISHU_READBACK_MISMATCH")
+        if rid in after and f.get("Status") in FINAL:
+            for key in SINK_FIELDS:
+                desired=f.get(key,"")
+                if desired and plain(after[rid]["fields"].get(key))!=desired:
+                    raise ValueError("FEISHU_READBACK_MISMATCH")
     return {"mode":"push","status":"PASS","updated":changed,
             "records":len(rows),"feishu_readback":"PASS"}
 def main():
@@ -173,7 +244,7 @@ def main():
     if mode not in ("bootstrap","pull","push"):raise SystemExit(2)
     try:
         token=auth();tid=schema(token)
-        if mode=="bootstrap":out={"mode":mode,"status":"PASS","table_id":tid}
+        if mode=="bootstrap":out={"mode":mode,"status":"PASS","table_id":tid,"fields":len(FIELDS),"currency_fields":len(PRICE_NUMBER_FIELDS),"pricing_view":PRICE_VIEW}
         else:
             s=google();ensure_mirror(s)
             out=pull(token,s,tid) if mode=="pull" else push(token,s,tid)
