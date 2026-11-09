@@ -6,15 +6,11 @@ on:
         description: 'Write validated raw reports into isolated SFDC Email staging tabs'
         type: boolean
         default: false
-  workflow_run:
-    workflows: ["CSS QQ Mail Read-only Probe"]
-    types: [completed]
-    branches: [main]
+  # No workflow_run dependency: this one Action fetches QQ mail, parses reports,
+  # validates freshness, updates Quote KPIs, and refreshes native chart widgets.
   schedule:
-    - cron: '40 0,3,8 * * *' # 09:40, 12:40, 17:40 KST; mail delivery may lag
-    - cron: '27 4 * * 1-5' # 13:27 KST weekday backup if last valid 3-report ingest is stale
-    - cron: '12 9,11 * * *' # 18:12 and 20:12 KST missed-evening fallback
-    - cron: '25 10,12,13 * * *' # 19:25, 21:25, 22:25 KST additional report recovery
+    - cron: '50 0,3,8 * * *' # 09:50, 12:50, 17:50 KST primary
+    - cron: '20 1,4,9,10,11 * * *' # 10:20,13:20,18:20,19:20,20:20 KST recovery
   push:
     branches: [main]
     paths:
@@ -34,6 +30,9 @@ on:
       - 'automation/sfdc/test_three_report_thread_evidence.py'
       - 'automation/sfdc/test_three_report_mail_evidence.py'
       - 'automation/sfdc/test_three_report_verified_views.py'
+      - 'automation/feishu/sales_metrics_sync.py'
+      - 'automation/feishu/weekly_quote_review.py'
+      - 'automation/feishu/shortcut_chart_dashboards.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
   pull_request:
     paths:
@@ -53,6 +52,9 @@ on:
       - 'automation/sfdc/test_three_report_email_ingest.py'
       - 'automation/sfdc/test_three_report_header_prefilter.py'
       - 'automation/sfdc/three_report_relationship_qc.py'
+      - 'automation/feishu/sales_metrics_sync.py'
+      - 'automation/feishu/weekly_quote_review.py'
+      - 'automation/feishu/shortcut_chart_dashboards.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
 permissions:
   contents: read
@@ -70,6 +72,13 @@ jobs:
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       SFDC_QQ_MAIL_CACHE_PATH: '/tmp/sfdc-qq-mail-snapshot.jsonl'
       SFDC_REQUIRE_ALL_REPORTS: 'false'
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_METRIC_MODE: ${{ github.event_name == 'pull_request' && 'plan' || (github.event_name == 'workflow_dispatch' && inputs.apply_staging != true) && 'plan' || 'apply' }}
+      FEISHU_METRIC_SCOPE: quote
+      FEISHU_PORTAL_MODE: apply
+      FEISHU_DASHBOARD_MODE: apply
       SFDC_REPORT_DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.apply_staging != true) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
@@ -78,69 +87,90 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: python -m pip install 'openpyxl>=3.1,<4' 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      - name: Check missed report slot after successful QQ sync or evening fallback
-        id: slot
-        if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'schedule' && github.event.schedule == '12 9,11 * * *') }}
-        run: python automation/sfdc/report_slot_recovery.py
       - name: Run offline parser regression tests
-        if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
+        
         run: python automation/sfdc/test_three_report_email_ingest.py
       - name: Verify headers-first IMAP report filtering offline
-        if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
+        
         run: python -m unittest discover -s automation/sfdc -p 'test_three_report_header_prefilter.py' -v
       - name: Test verified relation views
-        if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
+        
         run: python automation/sfdc/test_three_report_verified_views.py
       - name: Test directional QQ mail evidence offline
-        if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
+        
         run: python automation/sfdc/test_three_report_mail_evidence.py
       - name: Test exact subject identifier audit offline
-        if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
+        
         run: python automation/sfdc/test_three_report_thread_evidence.py
       - name: Test same-subject QQ mail evidence offline
-        if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
+        
         run: python automation/sfdc/test_three_report_subject_pairs.py
       - name: Test strict noon backup gate offline
-        if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
+        
         run: python -m unittest discover -s automation/sfdc -p 'test_report_fallback_gate.py' -v
       - name: Verify the latest subscription-slot freshness gate offline
         run: python -m unittest discover -s automation/sfdc -p 'test_source_freshness_guard.py' -v
+      - name: Verify isolated Quote KPI scope
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
+          python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/shortcut_chart_dashboards.py automation/feishu/native_dashboard_cli.py
       - name: Test missed-slot recovery gate offline
-        if: ${{ (github.event_name != 'workflow_run' && (github.event_name != 'schedule' || github.event.schedule != '12 9,11 * * *')) || steps.slot.outputs.refresh == 'true' }}
+        
         run: python -m unittest discover -s automation/sfdc -p 'test_report_slot_recovery.py' -v
-      - name: Check noon backup freshness before source writes
-        id: backup
-        if: github.event_name == 'schedule' && github.event.schedule == '27 4 * * 1-5'
-        run: python automation/sfdc/report_fallback_gate.py
       - name: Read authorized subscription mail and conditionally stage
-        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && steps.slot.outputs.refresh == 'true')) && (github.event_name != 'schedule' || (github.event.schedule != '27 4 * * 1-5' && github.event.schedule != '12 9,11 * * *') || steps.backup.outputs.refresh == 'true' || steps.slot.outputs.refresh == 'true') }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         run: python automation/sfdc/three_report_email_ingest.py
       - name: Audit staged Lead-Opportunity-Quote relationships (read only)
-        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && steps.slot.outputs.refresh == 'true')) && (github.event_name != 'schedule' || (github.event.schedule != '27 4 * * 1-5' && github.event.schedule != '12 9,11 * * *') || steps.backup.outputs.refresh == 'true' || steps.slot.outputs.refresh == 'true') }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         run: python automation/sfdc/three_report_relationship_qc.py
       - name: Refresh generated SFDC relationship views
-        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && steps.slot.outputs.refresh == 'true')) && (github.event_name != 'schedule' || (github.event.schedule != '27 4 * * 1-5' && github.event.schedule != '12 9,11 * * *') || steps.backup.outputs.refresh == 'true' || steps.slot.outputs.refresh == 'true') }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         env:
           SFDC_RELATIONS_APPLY: 'true'
         run: python automation/sfdc/three_report_verified_views.py
       - name: Assess QQ mail contact evidence (read only)
-        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && steps.slot.outputs.refresh == 'true')) && (github.event_name != 'schedule' || (github.event.schedule != '27 4 * * 1-5' && github.event.schedule != '12 9,11 * * *') || steps.backup.outputs.refresh == 'true' || steps.slot.outputs.refresh == 'true') }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         env:
           SFDC_MAIL_EVIDENCE_APPLY: 'true'
         run: python automation/sfdc/three_report_mail_evidence.py
       - name: Check QQ exact ID thread evidence (read only)
-        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && steps.slot.outputs.refresh == 'true')) && (github.event_name != 'schedule' || (github.event.schedule != '27 4 * * 1-5' && github.event.schedule != '12 9,11 * * *') || steps.backup.outputs.refresh == 'true' || steps.slot.outputs.refresh == 'true') }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         env:
           SFDC_THREAD_EVIDENCE_APPLY: 'true'
         run: python automation/sfdc/three_report_thread_evidence.py
       - name: Cool down Sheets read quota before final QQ audit
-        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && steps.slot.outputs.refresh == 'true')) && (github.event_name != 'schedule' || (github.event.schedule != '27 4 * * 1-5' && github.event.schedule != '12 9,11 * * *') || steps.backup.outputs.refresh == 'true' || steps.slot.outputs.refresh == 'true') }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         run: sleep 75
       - name: Refresh same-subject review snapshot
-        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && steps.slot.outputs.refresh == 'true')) && (github.event_name != 'schedule' || (github.event.schedule != '27 4 * * 1-5' && github.event.schedule != '12 9,11 * * *') || steps.backup.outputs.refresh == 'true' || steps.slot.outputs.refresh == 'true') }}
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         env:
           SFDC_SUBJECT_PAIR_APPLY: 'true'
         run: python automation/sfdc/three_report_subject_pairs.py
       - name: Check current 09/12/17 report slot after staging
         if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         run: python automation/sfdc/source_freshness_guard.py
+      - name: Publish only SFDC Quote Review and Weekly KPI (not Payment or Monthly)
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
+        run: python3 automation/feishu/sales_metrics_sync.py
+      - uses: actions/setup-node@v4
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
+        with:
+          node-version: '22'
+      - name: Install official Feishu native dashboard CLI
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
+        run: npm install --global '@larksuite/cli@1.0.99'
+      - name: Authenticate Feishu for Quote native charts
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
+        run: |
+          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name sfdc-report-unified --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
+          lark-cli profile use sfdc-report-unified
+      - name: Refresh and verify native Quote trend dashboards
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
+        run: python3 automation/feishu/shortcut_chart_dashboards.py
+      - name: Publish source and destination evidence to GitHub run summary
+        if: always()
+        run: |
+          echo 'SFDC source: QQ Report mail / source received times are authoritative.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'SFDC sink: Weekly Quote KPI and Quote Review only after freshness PASS.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Payment, Online and Monthly are exclusively owned by Feishu Sources Unified.' >> "$GITHUB_STEP_SUMMARY"
