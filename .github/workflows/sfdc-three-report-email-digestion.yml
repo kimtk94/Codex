@@ -31,6 +31,7 @@ on:
       - 'automation/sfdc/test_three_report_mail_evidence.py'
       - 'automation/sfdc/test_three_report_verified_views.py'
       - 'automation/feishu/sales_metrics_sync.py'
+      - 'automation/feishu/test_sales_metrics_scope.py'
       - 'automation/feishu/weekly_quote_review.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
@@ -104,6 +105,7 @@ jobs:
       - name: Verify isolated Quote KPI scope
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_scope.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
           python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/shortcut_chart_dashboards.py automation/feishu/native_dashboard_cli.py
       - name: Read authorized subscription mail and conditionally stage
