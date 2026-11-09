@@ -5,11 +5,13 @@ on:
     workflows:
       - 'SFDC Three Report Mail Digestion'
       - 'Feishu Sources Payment Online Monthly Unified'
-    types: [completed]
+    types: [requested, in_progress, completed]
     branches: [main]
   pull_request:
     paths:
       - 'automation/feishu/github_run_history.py'
+      - 'automation/feishu/run_monitor_flags.py'
+      - 'automation/feishu/test_run_monitor_flags.py'
       - 'automation/feishu/test_github_run_history.py'
       - 'automation/feishu/sales_native_home.py'
       - '.github/workflows/feishu-automation-run-history.yml'
@@ -20,6 +22,8 @@ on:
     branches: [main]
     paths:
       - 'automation/feishu/github_run_history.py'
+      - 'automation/feishu/run_monitor_flags.py'
+      - 'automation/feishu/test_run_monitor_flags.py'
       - 'automation/feishu/test_github_run_history.py'
       - '.github/workflows/feishu-automation-run-history.yml'
 permissions:
@@ -40,7 +44,8 @@ jobs:
       - name: Validate KST schedules and operation vs test run evidence
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_github_run_history.py' -v
-          python3 -m py_compile automation/feishu/github_run_history.py
+          python3 -m unittest discover -s automation/feishu -p 'test_run_monitor_flags.py' -v
+          python3 -m py_compile automation/feishu/github_run_history.py automation/feishu/run_monitor_flags.py
   update:
     needs: tests
     if: ${{ needs.tests.result == 'success' && github.event_name != 'pull_request' }}
