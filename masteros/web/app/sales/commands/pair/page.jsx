@@ -41,7 +41,7 @@ export default function PairedQuoteWeb(){
   const reportStarted=useRef(false);
   const [query,setQuery]=useState("");
   const [list,setList]=useState([]);
-  const [listStatus,setListStatus]=useState("NOT_CHECKED");
+  const [listStatus,setListStatus]=useState("REPORT_FIRST");
   const [selected,setSelected]=useState(null);
   const [form,setForm]=useState(empty);
   const [result,setResult]=useState(null);
@@ -51,7 +51,6 @@ export default function PairedQuoteWeb(){
   const [cacheOffset,setCacheOffset]=useState(0);
   const [cacheNotice,setCacheNotice]=useState("");
   const seq=useRef(0);
-  const initialListStarted=useRef(false);
   const source=useMemo(()=>previewCandidate(selected),[selected]);
   const lines=useMemo(()=>priceLines(result?.pricing),[result]);
   const totalGb=form.samples*form.dataSizeGb;
@@ -83,11 +82,6 @@ export default function PairedQuoteWeb(){
       if(current===seq.current){setList([]);setListStatus(e.message||"SOURCE_UNAVAILABLE");}
     }finally{if(current===seq.current)setBusy("");}
   },[]);
-  useEffect(()=>{
-    if(initialListStarted.current)return;
-    initialListStarted.current=true;
-    browse("");
-  },[browse]);
 
   const loadCacheStatus=useCallback(async()=>{
     try{
@@ -313,12 +307,12 @@ export default function PairedQuoteWeb(){
     </section>
     <section className={styles.panel}>
       <div className={styles.panelHead}><span className={styles.step}>01</span>
-        <div><h2>기존 Opportunity 선택</h2><p>Salesforce 현재 목록에서 검색하고, 연결된 Quote를 정확히 하나만 확인합니다.</p></div>
+        <div><h2>필요할 때만 Salesforce 원본 검증</h2><p>Report에 없는 KRW 원본 단가·Cloud 구성·신규 Record ID가 필요할 때만 인증된 Salesforce 화면을 조회합니다.</p></div>
         <Status value={listStatus}/></div>
       <form className={styles.search} onSubmit={e=>{e.preventDefault();browse(query);}}>
         <input aria-label="기존 Opportunity 검색" value={query}
           onChange={e=>setQuery(e.target.value)} placeholder="Opportunity · 기관 · AMEA"/>
-        <button disabled={Boolean(busy)} type="submit">검색</button>
+        <button disabled={Boolean(busy)} type="submit">Salesforce 목록 수동 조회</button>
         <button disabled={Boolean(busy)} type="button" onClick={()=>browse(query)}>새로고침</button>
       </form>
       <div className={styles.results} aria-label="Opportunity 검색 결과">
@@ -328,7 +322,7 @@ export default function PairedQuoteWeb(){
           <strong>{item.name}</strong>
           <small>{[item.institution,item.contact,item.status].filter(Boolean).join(" · ")}</small>
         </button>)}
-        {!list.length&&<p className={styles.hint}>표시할 Opportunity가 없습니다. 현재 Salesforce 목록 필터 또는 로그인 상태를 확인하세요.</p>}
+        {!list.length&&<p className={styles.hint}>기본 조회는 Quote Report입니다. Salesforce 실시간 목록은 위 버튼으로 필요한 경우에만 불러옵니다.</p>}
       </div>
       {source.ok&&<div className={styles.source}>
         <div className={styles.inlineHead}><b>원본 Quote</b><Status value={source.priceStatus}/></div>
