@@ -130,7 +130,7 @@ def ensure_full_view_layout(token,path,base,table_id,views,fields,mode):
                         sort_field["field_id"]):
         raise SafeError("PORTAL_FULL_SORT_READBACK_MISMATCH")
     ensure_column_order(base,table_id,view_id,fields,mode)
-    print("PORTAL_FULL_VIEW_LAYOUT_PASS rows=34 filter=NONE"
+    print("PORTAL_FULL_VIEW_LAYOUT_PASS rows=ALL filter=NONE"
           " group=business_area sort=priority_ascending"
           " group_changed="+str(int(group_changed))
           +" sort_changed="+str(int(sort_changed)))
