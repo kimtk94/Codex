@@ -1,0 +1,47 @@
+name: QQ SFDC Quote Process Report Attachment Audit
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/sfdc/quotation_process_mail_audit.py'
+      - 'automation/sfdc/test_quotation_process_mail_audit.py'
+      - '.github/workflows/qq-sfdc-process-report-audit.yml'
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install report parsers
+        run: python3 -m pip install 'openpyxl>=3.1,<4'
+      - name: Test no-PII Quote process attachment schema parser
+        run: |
+          python3 -m py_compile automation/sfdc/quotation_process_mail_audit.py
+          python3 -m unittest discover -s automation/sfdc -p test_quotation_process_mail_audit.py -v
+  audit:
+    needs: offline
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: TaehoonServer
+    env:
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install report parsers
+        run: python3 -m pip install 'openpyxl>=3.1,<4'
+      - name: Inspect subscribed 25-column Quote process report schema (no writes)
+        run: python3 automation/sfdc/quotation_process_mail_audit.py
