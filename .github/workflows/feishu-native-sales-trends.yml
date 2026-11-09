@@ -6,13 +6,6 @@ on:
       - 'automation/feishu/sales_native_trends.py'
       - 'automation/feishu/test_sales_native_trends.py'
       - '.github/workflows/feishu-native-sales-trends.yml'
-  push:
-    branches: [main, feat/feishu-sales-kpi-trends-20261106]
-    paths:
-      - 'automation/feishu/native_trend_rows.py'
-      - 'automation/feishu/sales_native_trends.py'
-      - 'automation/feishu/test_sales_native_trends.py'
-      - '.github/workflows/feishu-native-sales-trends.yml'
   workflow_dispatch:
     inputs:
       mode:
@@ -20,8 +13,6 @@ on:
         required: true
         options: [plan, apply]
         default: plan
-  schedule:
-    - cron: '47 0,6,12,18 * * *'
 permissions:
   contents: read
 concurrency:
