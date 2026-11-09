@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Feishu private Base command inbox -> Google Sheets mirror and result return."""
-import os,json,sys,urllib.request,urllib.parse,datetime as dt
+import os,json,sys,urllib.request,urllib.parse,urllib.error,datetime as dt
 
 TABLE="SFDC_COMMAND_QUEUE"
 SHEET="1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
@@ -159,7 +159,7 @@ def main():
             out=pull(token,s,tid) if mode=="pull" else push(token,s,tid)
         print(json.dumps(out,sort_keys=True))
     except Exception as exc:
-        safe=str(exc) if isinstance(exc,ValueError) and __import__("re").fullmatch(r"[A-Z][A-Z0-9_]{4,95}",str(exc)) else "API_OR_TRANSPORT_FAILURE"
+        safe=("FEISHU_HTTP_"+str(exc.code)) if isinstance(exc,urllib.error.HTTPError) else (str(exc) if isinstance(exc,ValueError) and __import__("re").fullmatch(r"[A-Z][A-Z0-9_]{4,95}",str(exc)) else "API_OR_TRANSPORT_FAILURE")
         print(json.dumps({"status":"BLOCK","error_type":type(exc).__name__,
                           "reason":safe,"mode":mode}),file=sys.stderr)
         sys.exit(2)
