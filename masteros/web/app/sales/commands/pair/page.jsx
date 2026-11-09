@@ -32,6 +32,13 @@ function Status({value}){
 }
 
 export default function PairedQuoteWeb(){
+  const [reportQuery,setReportQuery]=useState("");
+  const [reportStatus,setReportStatus]=useState(null);
+  const [reportRows,setReportRows]=useState([]);
+  const [reportSelected,setReportSelected]=useState(null);
+  const [reportBusy,setReportBusy]=useState("");
+  const [reportError,setReportError]=useState("");
+  const reportStarted=useRef(false);
   const [query,setQuery]=useState("");
   const [list,setList]=useState([]);
   const [listStatus,setListStatus]=useState("NOT_CHECKED");
@@ -120,6 +127,62 @@ export default function PairedQuoteWeb(){
     }finally{setCacheBusy(false);}
   }
 
+  const getReportStatus=useCallback(async()=>{
+    try{
+      const response=await fetch("/api/sfdc/report-local",{
+        headers:{"X-SFDC-Command":"1"},cache:"no-store",credentials:"omit"
+      });
+      const data=await response.json();
+      setReportStatus(data.status==="PASS"?data:null);
+      if(data.status!=="PASS")setReportError(data.code||"REPORT_NOT_INDEXED");
+      return data;
+    }catch{setReportStatus(null);setReportError("REPORT_SOURCE_UNAVAILABLE");return null;}
+  },[]);
+
+  const searchReport=useCallback(async(text="")=>{
+    setReportBusy("SEARCH");setReportError("");setReportSelected(null);
+    try{
+      const data=await localRead("/api/sfdc/report-local",{
+        mode:"SEARCH",query:text,limit:25
+      });
+      if(data.status!=="PASS")throw Error(data.code||"REPORT_SEARCH_FAILED");
+      setReportRows(data.rows||[]);
+    }catch(e){setReportRows([]);setReportError(e.message||"REPORT_SEARCH_FAILED");
+    }finally{setReportBusy("");}
+  },[]);
+
+  useEffect(()=>{
+    if(reportStarted.current)return;
+    reportStarted.current=true;
+    getReportStatus();
+    searchReport("");
+  },[getReportStatus,searchReport]);
+
+  async function chooseReport(item){
+    setReportBusy("DETAIL");setReportError("");setReportSelected(null);
+    try{
+      const data=await localRead("/api/sfdc/report-local",{
+        mode:"DETAIL",id:item.qid
+      });
+      if(data.status!=="PASS")throw Error(data.code||"REPORT_DETAIL_UNAVAILABLE");
+      setReportSelected(data);
+    }catch(e){setReportError(e.message||"REPORT_DETAIL_UNAVAILABLE");
+    }finally{setReportBusy("");}
+  }
+
+  async function syncStagedReport(){
+    setReportBusy("SYNC");setReportError("");setReportSelected(null);
+    try{
+      const data=await localRead("/api/sfdc/report-local",{mode:"SYNC_STAGED"});
+      if(data.status!=="PASS")throw Error(data.code||"SHEET_SYNC_FAILED");
+      setReportStatus(data);
+      setReportRows([]);
+      await getReportStatus();
+      await searchReport("");
+    }catch(e){setReportError(e.message||"SHEET_SYNC_FAILED");
+    }finally{setReportBusy("");}
+  }
+
   async function choose(item){
     if(busy)return;
     setBusy("BUNDLE");setResult(null);setSelected(null);
@@ -167,6 +230,62 @@ export default function PairedQuoteWeb(){
       <b>CHECK ONLY · Salesforce 저장 0건</b>
       <span>이 화면은 로컬 PC의 인증된 Salesforce를 조회합니다. Feishu의 기존 요청 큐는 유지되며, 이 화면에서 고객 데이터 전송·견적 발행·Salesforce 저장은 수행하지 않습니다.</span>
     </div>
+    <section className={styles.panel} aria-label="Quote Report 빠른 검색">
+      <div className={styles.panelHead}>
+        <span className={styles.step}>R</span>
+        <div><h2>Quote Report 우선 검색</h2>
+          <p>인증된 Salesforce 화면을 열지 않고, 이미 수집된 Quote Report의 공정별 Product 가격을 즉시 검색합니다.</p></div>
+        <Status value={reportStatus?.source_state||"REPORT_NOT_READY"}/>
+      </div>
+      <div className={styles.statStrip}>
+        <div><small>Report Quote</small><strong>{reportStatus?.quote_count??"—"}건</strong></div>
+        <div><small>Quote Products</small><strong>{reportStatus?.product_count??"—"}개</strong></div>
+        <div><small>공정별 가격 행</small><strong>{reportStatus?.process_rows??"—"}행</strong></div>
+        <div><small>공통 공정 구조</small><strong>{reportStatus?.unique_process_definitions??"—"}종</strong></div>
+        <div><small>Record ID 매핑</small><strong>{reportStatus?.linked_sfdc_record_count??"—"}건</strong></div>
+        <div><small>매핑 대기</small><strong>{reportStatus?.unmapped_sfdc_record_count??"—"}건</strong></div>
+      </div>
+      <p className={styles.hint}>최신 Quote 생성일: {reportStatus?.newest_quote_created_date||"미확인"} · Report 수집: {kst(reportStatus?.ingested_at_utc)} · {reportStatus?.source||"SOURCE_NOT_READY"}</p>
+      <div className={styles.warning}>
+        Report 금액은 **USD 환산값**입니다. KRW 원본 단가·할인·Cloud 수량·현재 Salesforce 견적은 별도 검증이 필요하며, 이 화면은 보고서 금액만으로 신규 견적을 확정하지 않습니다.
+      </div>
+      <form className={styles.search} onSubmit={e=>{e.preventDefault();searchReport(reportQuery);}}>
+        <input aria-label="Quote Report 검색" value={reportQuery}
+          onChange={e=>setReportQuery(e.target.value)}
+          placeholder="Quote ID · 기관 · Contact · 공정명"/>
+        <button type="submit" disabled={Boolean(reportBusy)||!reportStatus}>Report 검색</button>
+        <button type="button" disabled={Boolean(reportBusy)||!reportStatus}
+          onClick={syncStagedReport}>저장된 최신 Report 재색인</button>
+      </form>
+      {reportError&&<p className={styles.warning} role="alert">Report 확인 필요: {reportError}</p>}
+      <div className={styles.results} aria-label="Quote Report 검색 결과">
+        {reportRows.map(item=><button type="button" key={item.qid}
+          disabled={Boolean(reportBusy)} data-selected={reportSelected?.qid===item.qid}
+          onClick={()=>chooseReport(item)}>
+          <strong>{item.qid} · {item.product_count} Product · {item.process_lines} 공정</strong>
+          <small>{[item.account_name,item.contact_name,item.created_date].filter(Boolean).join(" · ")}</small>
+          <small>{item.sfdc_record_id?"Salesforce Record 연결됨":"Salesforce Record ID 매핑 대기"}</small>
+        </button>)}
+        {reportRows.length===0&&<p className={styles.hint}>Quote Report 데이터가 없거나 아직 검색하지 않았습니다.</p>}
+      </div>
+      {reportSelected&&<div className={styles.source} aria-live="polite">
+        <div className={styles.inlineHead}><b>{reportSelected.qid} · Report 공정별 단가</b>
+          <Status value="REPORT_USD_ONLY"/></div>
+        <div className={styles.tableScroll}>
+          <table><thead><tr><th>Quote Product</th><th>공정</th><th>Data Unit</th>
+            <th>단가 (환산 USD)</th><th>샘플</th><th>Data Size</th></tr></thead>
+            <tbody>{(reportSelected.process_lines||[]).map((line,i)=><tr key={i}>
+              <td>{line.quotation_product_id}</td><td>{line.process_name}</td>
+              <td>{line.data_unit||"—"}</td>
+              <td>{line.unit_price_usd??"—"} USD</td>
+              <td>{line.sample_quantity??"—"}</td><td>{line.data_size??"—"}</td>
+            </tr>)}</tbody></table>
+        </div>
+        <p className={styles.hint}>{reportSelected.sfdc_record_id
+          ?"Report의 Salesforce Record ID 연결 확인 · 현재 가격이 변경됐는지는 별도 검증 필요"
+          :"신규 Quote로 Report ID만 확인됨 · Salesforce Record ID 연결 검증 대기"}</p>
+      </div>}
+    </section>
     <section className={styles.panel} aria-label="Salesforce 사전 캐시">
       <div className={styles.panelHead}><span className={styles.step}>00</span>
         <div><h2>Salesforce 사전 캐시 · 빠른 조회</h2>
