@@ -129,6 +129,27 @@ class ReportBridgeTests(unittest.TestCase):
         self.assertEqual(result["updated"],1)
         self.assertEqual(result["readback"],"PASS")
 
+    def test_template_legacy_header_stamp_exact_match_only(self):
+        previous={"Process Key":"process-hash",
+                  "Source Exported KST":EXPORTED}
+        after={"Process Key":"process-hash","Source Exported KST":""}
+        with patch("sfdc_quote_report_bridge.path",return_value="/apps/test"):
+            with patch("sfdc_quote_report_bridge.pages",
+                       side_effect=[[{"record_id":"record1","fields":previous}],
+                                    [{"record_id":"record1","fields":after}]]):
+                with patch("sfdc_quote_report_bridge.write_batch",
+                           return_value=[{"record_id":"record1","fields":after}]):
+                    result=sync_one("t","tbl","Process Key",[after],
+                                    legacy_header_exported_kst=EXPORTED)
+        self.assertEqual(result["updated"],1)
+        self.assertEqual(result["readback"],"PASS")
+        with patch("sfdc_quote_report_bridge.path",return_value="/apps/test"):
+            with patch("sfdc_quote_report_bridge.pages",
+                       return_value=[{"record_id":"record1","fields":previous}]):
+                with self.assertRaisesRegex(ReportSourceError,"FEISHU_REPORT_SOURCE_REGRESSION"):
+                    sync_one("t","tbl","Process Key",[after],
+                             legacy_header_exported_kst="2026-01-01 00:00:00 KST")
+
     def test_verified_previous_source_timestamp_never_downgrades(self):
         row={"Line Key":"same","Quote ID":Q1,"Source Exported KST":"",
              "Source Status":"DETAIL_REPORT_TIME_UNVERIFIED"}
