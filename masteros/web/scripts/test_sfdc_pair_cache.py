@@ -127,5 +127,117 @@ class PrivateCacheTests(unittest.TestCase):
         self.assertEqual(warm.validate({"mode":"WARM","limit":3,"offset":4}),(3,4))
 
 
+    def test_shared_product_line_two_contacts_different_prices(self):
+        """Same structural Product may never share customer rates or discounts."""
+        req2={"resource":"opportunity","mode":"bundle","recordId":"006000000000000AAB"}
+        one=bundle()
+        first=one["linkedQuotes"][0]
+        first.update({
+            "productId":"01t000000000000AAA",
+            "productName":"Synthetic RNA Service",
+            "productCategory":"RNA",
+            "processNames":"Library Preparation;QC;Sequencing;Data Release;AliCloud",
+            "processPriceLines":[
+                {"processType":"Preparation","processName":"Library Preparation",
+                 "dataUnit":"sample","isCloud":False,
+                 "sourceQty":12,"unitPriceKrw":190000,"sourceNetKrw":2280000},
+                {"processType":"Cloud","processName":"AliCloud",
+                 "dataUnit":"100Gb","isCloud":True,
+                 "sourceQty":2,"unitPriceKrw":35000,"sourceNetKrw":70000},
+            ],
+            "discountRate":0.1,
+        })
+        two=json.loads(json.dumps(one))
+        two["opportunity"]["id"]=req2["recordId"]
+        two["opportunity"]["accountId"]="001000000000000AAB"
+        two["opportunity"]["contactId"]="003000000000000AAB"
+        second=two["linkedQuotes"][0]
+        second["id"]="a0P000000000000AAB"
+        second["opportunityId"]=req2["recordId"]
+        second["totalPriceKrw"]=2940000
+        second["grandTotalKrw"]=3234000
+        second["processPriceLines"][0]["unitPriceKrw"]=240000
+        second["processPriceLines"][0]["sourceNetKrw"]=2880000
+        second["processPriceLines"][1]["unitPriceKrw"]=30000
+        second["processPriceLines"][1]["sourceNetKrw"]=60000
+        second["discountRate"]=0.2
+        self.assertTrue(cache.save(BUNDLE_REQ,one,now=1000))
+        self.assertTrue(cache.save(req2,two,now=1000))
+        with cache._connect() as db:
+            cnt=db.execute("SELECT COUNT(*) FROM product_line_templates").fetchone()[0]
+            rows=db.execute("SELECT payload_json FROM entries WHERE kind='bundle'").fetchall()
+        self.assertEqual(cnt,1)
+        self.assertEqual(len(rows),2)
+        self.assertNotIn("Library Preparation",rows[0][0])
+        a=cache.lookup(BUNDLE_REQ,now=1100)
+        b=cache.lookup(req2,now=1100)
+        self.assertEqual(a["linkedQuotes"][0],first)
+        self.assertEqual(b["linkedQuotes"][0],second)
+        self.assertNotEqual(a["opportunity"]["contactId"],b["opportunity"]["contactId"])
+        self.assertNotEqual(a["linkedQuotes"][0]["processPriceLines"][0]["unitPriceKrw"],
+                            b["linkedQuotes"][0]["processPriceLines"][0]["unitPriceKrw"])
+        self.assertEqual(a["linkedQuotes"][0]["discountRate"],0.1)
+        self.assertEqual(b["linkedQuotes"][0]["discountRate"],0.2)
+        usage=cache.stats(now=1100)["product_line_dictionary"]
+        self.assertEqual(usage["unique_templates"],1)
+        self.assertEqual(usage["references"],2)
+        self.assertEqual(usage["reused_templates"],1)
+
+    def test_tampered_shared_product_template_blocks_lookup(self):
+        x=bundle()
+        x["linkedQuotes"][0]["productName"]="RNA Project"
+        self.assertTrue(cache.save(BUNDLE_REQ,x,now=1000))
+        with cache._connect() as cx:
+            cx.execute("UPDATE product_line_templates SET content_json='{}'")
+        self.assertIsNone(cache.lookup(BUNDLE_REQ,now=1100))
+
+    def test_legacy_cache_migration_keeps_source_observed_at(self):
+        import hashlib
+        req=BUNDLE_REQ
+        x=bundle()
+        x["linkedQuotes"][0]["productName"]="Shared RNA"
+        raw=json.dumps(x,ensure_ascii=False,sort_keys=True,separators=(",",":"))
+        key,_=cache.key_for(req)
+        with cache._connect() as cx:
+            cx.execute("""INSERT INTO entries(cache_key,kind,observed_utc,
+                expires_utc,schema_version,content_sha256,payload_json)
+                VALUES(?,?,?,?,?,?,?)""",
+                (key,"bundle",1000,2200,cache.VERSION,
+                 hashlib.sha256(raw.encode("utf-8")).hexdigest(),raw))
+        migrated=cache.normalize_existing(now=1100)
+        self.assertEqual(migrated["status"],"PASS")
+        self.assertEqual(migrated["migrated"],1)
+        loaded=cache.lookup(req,now=1100)
+        self.assertEqual(loaded["linkedQuotes"][0]["productName"],"Shared RNA")
+        self.assertEqual(loaded["cache"]["age_seconds"],100)
+        self.assertEqual(loaded["cache"]["expires_at_utc"],"1970-01-01T00:36:40+00:00")
+        self.assertEqual(cache.normalize_existing(now=1100)["migrated"],0)
+
+    def test_child_products_reuse_identical_source_product_descriptions(self):
+        a=bundle()
+        b=json.loads(json.dumps(a))
+        b["opportunity"]["id"]="006000000000000AAB"
+        b["linkedQuotes"][0]["id"]="a0P000000000000AAB"
+        b["linkedQuotes"][0]["opportunityId"]=b["opportunity"]["id"]
+        for i,q in enumerate((a["linkedQuotes"][0],b["linkedQuotes"][0])):
+            q["productCount"]=2
+            q["sourceProductEvidence"]=[
+                {"productKey":f"a0N000000000000A{i}A","productName":"Shared Process 1",
+                 "sourceProcessNames":"QC;Sequencing", "sourceQty":i+10,
+                 "observedProductTotalKrw":100000+i*1000},
+                {"productKey":f"a0N000000000000A{i}B","productName":"Shared Process 2",
+                 "sourceProcessNames":"Cloud;Data Release","sourceQty":i+10,
+                 "observedProductTotalKrw":200000+i*1000},
+            ]
+        req2={"resource":"opportunity","mode":"bundle","recordId":b["opportunity"]["id"]}
+        self.assertTrue(cache.save(BUNDLE_REQ,a,now=1000))
+        self.assertTrue(cache.save(req2,b,now=1000))
+        loaded=cache.lookup(req2,now=1100)
+        self.assertEqual(loaded["linkedQuotes"][0]["sourceProductEvidence"],
+                         b["linkedQuotes"][0]["sourceProductEvidence"])
+        stats=cache.stats(now=1100)["product_line_dictionary"]
+        self.assertEqual(stats["unique_templates"],2)
+        self.assertEqual(stats["references"],4)
+
 if __name__=="__main__":
     unittest.main()
