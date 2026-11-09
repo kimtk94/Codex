@@ -28,21 +28,28 @@ class SortTests(unittest.TestCase):
                 s.run_cli("+view-set-sort",s.EXPECTED_BASE,"tbl","vew",s.EXPECTED)
 
     def test_sorted_records_verification(self):
-        view_rows=[{"fields":{"Menu Key":key}}
-                   for key in s.CURATED_ORDER]
-        full_rows=[{"fields":{"Menu Key":key,"표시순서":str(i)}}
-                   for i,key in enumerate(s.CURATED_ORDER,1)]
-        with mock.patch.object(s,"api",side_effect=[
-                {"items":list(reversed(view_rows)),"has_more":False},
-                {"items":full_rows,"has_more":False}]):
+        records = []
+        for i, menu in enumerate(s.MENUS, 1):
+            key, _, title, *_ = menu
+            rank, label, color = s.presentation(key,title,i)
+            records.append({"fields":{
+                "Menu Key":key,
+                "표시순서":str(rank),
+                "화면":label,
+                "메뉴 구분":color,
+                "표시":s.CURATED_DISPLAY if key in s.PINNED_KEYS else s.ARCHIVE_DISPLAY,
+            }})
+        with mock.patch.object(s,"list_all",return_value=list(reversed(records))):
             self.assertTrue(s.verify_view_rows("token","root","view"))
-        bad_rows=list(full_rows)
-        bad_rows[0]={"fields":{"Menu Key":s.CURATED_ORDER[0],"표시순서":99}}
-        with mock.patch.object(s,"api",side_effect=[
-                {"items":view_rows,"has_more":False},
-                {"items":bad_rows,"has_more":False}]):
+        changed = [dict(record) for record in records]
+        changed[0] = {"fields":{**records[0]["fields"],"표시순서":999}}
+        with mock.patch.object(s,"list_all",return_value=changed):
             with self.assertRaisesRegex(s.SafeError,"READBACK_MISMATCH"):
                 s.verify_view_rows("token","root","view")
+        with mock.patch.object(s,"list_all",return_value=records[:-1]):
+            with self.assertRaisesRegex(s.SafeError,"MEMBERSHIP_MISMATCH"):
+                s.verify_view_rows("token","root","view")
+
 
     def test_network_read_failure_is_separately_labeled(self):
         with mock.patch.object(s, "verify_view_rows",
