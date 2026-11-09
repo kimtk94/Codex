@@ -39,6 +39,16 @@ class UnifiedPipelineContracts(unittest.TestCase):
             header=text.split("permissions:")[0]
             self.assertNotIn("  schedule:",header,name)
             self.assertNotIn("  workflow_run:",header,name)
+    def test_payment_monthly_and_lifecycle_are_independent_jobs(self):
+        s=(W/"feishu-sources-unified.yml").read_text(encoding="utf-8")
+        self.assertIn("  ingest:\n    needs: tests",s)
+        self.assertIn("  payment:\n    needs: ingest",s)
+        self.assertIn("  monthly:\n    needs: ingest",s)
+        self.assertIn("  lifecycle:\n    needs: ingest",s)
+        self.assertNotIn("    needs: lifecycle",s)
+        self.assertIn("LIFECYCLE_SOURCE_SHRINK_HOLD",
+            (ROOT/"automation/css_mail/project_lifecycle_refresh.py").read_text(encoding="utf-8"))
+
     def test_scope_writes_are_disjoint(self):
         src=(ROOT/"automation/feishu/sales_metrics_sync.py").read_text(encoding="utf-8")
         self.assertIn('"quote":("Weekly Quote KPI",)',src)
