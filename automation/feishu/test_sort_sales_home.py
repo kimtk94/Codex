@@ -23,14 +23,14 @@ class SortTests(unittest.TestCase):
         self.assertFalse(s.group_matches(
             {"group_config":[{"field":"그룹","desc":True}]},"fldGroup"))
         self.assertFalse(s.group_matches({"group_config":[]},"fldGroup"))
-        self.assertEqual(len(s.MENUS),34)
+        self.assertEqual(len(s.MENUS),35)
 
     def test_shortcut_filter_and_layout_unchanged(self):
         self.assertEqual(s.SHORTCUT_VIEW,"바로가기")
         self.assertEqual(set(s.SHORTCUT_KEYS),{
             "MONTHLY_TREND","WEEKLY_TREND","SIF_EVIDENCE",
             "X_MY_PROJECTS","PAYMENT_FOLLOWUP"})
-        self.assertEqual(len(s.PINNED_KEYS),12)
+        self.assertEqual(len(s.PINNED_KEYS),13)
         self.assertEqual(s.CURATED_COLUMNS[1],"메뉴 구분")
         self.assertEqual(s.CURATED_COLUMNS[3],"바로가기")
 
