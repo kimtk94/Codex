@@ -10,7 +10,7 @@ import re
 
 from qq_mail_ingest import SafeError, api, list_all, plain_field
 from quote_process_amount import (
-    sf15, quote_id, week_for, validate_source, source_fresh, KST, weekly_calculations,
+    sf15, quote_id, week_for, validate_source, source_fresh, KST, weekly_calculations, D,
 )
 
 TABLE="Weekly Quote Review"
@@ -30,7 +30,7 @@ SCHEMA=[
     ("Active Evidence KST",1),
     ("Chart Window",1), ("기관",1), ("Opportunity",1),
     ("서비스·공정",1), ("샘플수(공정별)",1),
-    ("참고 금액 K USD",2), ("금액 근거",1),
+    ("참고 금액 K USD",2), ("참고 견적 USD",1), ("금액 근거",1),
     (CHECKBOX,7),
     ("합산 상태",1),
     ("제외 이유",1),
@@ -96,6 +96,15 @@ def chart_window_weeks(source,now):
     # production report weeks always follow the verified KPI overview.
     today=dt.date.fromisoformat(week_for(now.date().isoformat()))
     return {(today-dt.timedelta(days=7*n)).isoformat() for n in range(5)}
+
+
+def format_quote_usd(amount):
+    """At least cents, but never round a nonzero subcent amount to zero."""
+    if amount is None:
+        return "NO_VALUE"
+    cents=amount.quantize(D("0.01"))
+    return "USD "+(format(cents,"f") if amount==cents
+                    else format(amount.normalize(),"f"))
 
 
 def quote_detail(rows):
@@ -219,6 +228,7 @@ def review_rows(source,overrides=None,now=None):
             "Chart Window":("RECENT_4_PLUS_CURRENT" if week in shown_weeks else "HISTORY"),
             **detail,
             "참고 금액 K USD":round(float(amount)/1000,4) if amount is not None else None,
+            "참고 견적 USD":format_quote_usd(amount),
             "금액 근거":("SOURCE_QQ_PROCESS_OWNER_PARITY" if amount is not None
                         else "NO_VALUE"),
             "합산 상태":NOT_INCLUDED if reason else INCLUDED,

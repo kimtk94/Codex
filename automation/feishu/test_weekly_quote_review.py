@@ -137,6 +137,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(row["Opportunity"],"Project RNA")
         self.assertEqual(row["서비스·공정"],"Sequencing")
         self.assertEqual(row["참고 금액 K USD"],0.154)
+        self.assertEqual(row["참고 견적 USD"],"USD 154.00")
         self.assertEqual(row["금액 근거"],"SOURCE_QQ_PROCESS_OWNER_PARITY")
         self.assertEqual(row["Chart Window"],"RECENT_4_PLUS_CURRENT")
         self.assertEqual(q.chart_window_weeks(src,fixture.NOW),
@@ -145,10 +146,17 @@ class PolicyTests(unittest.TestCase):
         self.assertTrue(q.equal_source({**row,"참고 금액 K USD":0.154},
                                        dict(row)))
 
+    def test_real_usd_precision_never_false_zero(self):
+        self.assertEqual(q.format_quote_usd(q.D("154.0000")),"USD 154.00")
+        self.assertEqual(q.format_quote_usd(q.D("0.0004")),"USD 0.0004")
+        self.assertEqual(q.format_quote_usd(q.D("0.01")),"USD 0.01")
+        self.assertEqual(q.format_quote_usd(None),"NO_VALUE")
+
     def test_unverified_amount_is_empty_and_checkbox_preserved(self):
         data=source()
         a=q.review_rows(data,now=NOW)[0]
         self.assertIsNone(a["참고 금액 K USD"])
+        self.assertEqual(a["참고 견적 USD"],"NO_VALUE")
         self.assertEqual(a["금액 근거"],"NO_VALUE")
         self.assertTrue(q.equal_source({**a,"참고 금액 K USD":None},a))
 
