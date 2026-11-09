@@ -89,6 +89,24 @@ class PortalTests(unittest.TestCase):
                                {"표시순서":1,"화면":"01 · KPI",
                                 "메뉴 구분":"핵심 KPI"}))
 
+    def test_chart_shortcuts_use_real_dashboard_ids_not_grid_views(self):
+        ids={"FEISHU_SHORTCUT_MONTHLY_DASHBOARD_ID":"blkMonthlyABC123",
+             "FEISHU_SHORTCUT_WEEKLY_DASHBOARD_ID":"blkWeeklyXYZ987"}
+        with mock.patch.dict(p.os.environ,ids):
+            rows=p.source_rows("t","root",{},None)
+        by_key={r["Menu Key"]:r for r in rows}
+        for key,dash_id in (("MONTHLY_TREND","blkMonthlyABC123"),
+                            ("WEEKLY_TREND","blkWeeklyXYZ987")):
+            row=by_key[key]
+            self.assertEqual(row["바로가기 URL"],p.BASE_URL+"?table="+dash_id)
+            self.assertEqual(row["데이터 상태"],"DASHBOARD_PRESENT")
+            self.assertEqual(row["바로가기"]["link"],row["바로가기 URL"])
+            self.assertTrue(p.valid_menu_url(key,row["바로가기 URL"]))
+            self.assertFalse(p.valid_menu_url(key,p.BASE_URL+"?table=tblGrid&view=vewGrid"))
+        self.assertIsNone(p.chart_shortcut_url("MONTHLY_TREND",{}))
+        self.assertFalse(p.valid_menu_url("MONTHLY_TREND",p.BASE_URL+"?table=blkInvalid&view=v"))
+        self.assertEqual(len(p.SHORTCUT_KEYS),5)
+
     def test_link_and_empty_source(self):
         tables={"QQ Mail Intake":"tblMAIL","Contacts":"tblCUSTOMER"}
         with mock.patch.object(p,"list_views",side_effect=[

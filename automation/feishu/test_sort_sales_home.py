@@ -69,8 +69,14 @@ class SortTests(unittest.TestCase):
                 "화면":label,
                 "메뉴 구분":color,
                 "표시":s.CURATED_DISPLAY if key in s.PINNED_KEYS else s.ARCHIVE_DISPLAY,
-                "바로가기 URL":"https://ocnz4cb25scn.feishu.cn/base/x?table=y&view=z",
-                "바로가기":{"text":"열기","link":"https://ocnz4cb25scn.feishu.cn/base/x?table=y&view=z"},
+                "바로가기 URL":(
+                    "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkChartABC123"
+                    if key in s.CHART_SHORTCUT_ENV
+                    else "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblX&view=vewY"),
+                "바로가기":{"text":"열기","link":(
+                    "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkChartABC123"
+                    if key in s.CHART_SHORTCUT_ENV
+                    else "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblX&view=vewY")},
             }})
         with mock.patch.object(s,"list_all",return_value=list(reversed(records))):
             self.assertTrue(s.verify_view_rows("token","root","view"))

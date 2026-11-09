@@ -12,6 +12,7 @@ from sales_native_home import (
     EXPECTED_BASE, HOME, CURATED_VIEW, CURATED_ORDER, CURATED_DISPLAY,
     table_map, list_views, target_path, MENUS, presentation, PINNED_KEYS, ARCHIVE_DISPLAY,
     SHORTCUT_VIEW, SHORTCUT_KEYS, shortcut_filter_matches, FULL_VIEW,
+    CHART_SHORTCUT_ENV, valid_menu_url,
 )
 from setup_sales_web import get_view
 
@@ -267,8 +268,9 @@ def verify_view_rows(token, table_path, view_id):
         if isinstance(link,list) and len(link)==1:
             link=link[0]
         expected_link={"text":"열기","link":raw_url} if raw_url else None
-        if (raw_url and not (raw_url.startswith("https://ocnz4cb25scn.feishu.cn/base/")
-                             and "?table=" in raw_url and "&view=" in raw_url)):
+        if raw_url and not valid_menu_url(key,raw_url):
+            issues.append(key)
+        if key in CHART_SHORTCUT_ENV and not raw_url:
             issues.append(key)
         elif (link or None)!=expected_link:
             issues.append(key)
