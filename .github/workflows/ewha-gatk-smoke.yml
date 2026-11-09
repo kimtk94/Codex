@@ -1,0 +1,33 @@
+name: Ewha Day0-Day12 GATK smoke
+
+on:
+  push:
+    paths:
+      - 'research/ewha_day0_day12/**'
+      - '.github/workflows/ewha-gatk-smoke.yml'
+  pull_request:
+    paths:
+      - 'research/ewha_day0_day12/**'
+      - '.github/workflows/ewha-gatk-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependency
+        run: python -m pip install --disable-pip-version-check pysam
+      - name: Compile pipeline and check CLI
+        run: |
+          python -m py_compile research/ewha_day0_day12/gatk_haploid_pipeline.py
+          python research/ewha_day0_day12/gatk_haploid_pipeline.py --help
+      - name: Test sample classification using synthetic haploid VCF
+        run: python -m unittest discover -s research/ewha_day0_day12 -p 'test_*.py' -v
