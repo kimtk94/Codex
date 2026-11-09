@@ -70,7 +70,7 @@ def report_coverage(fields):
         "product_identifier":present("quotationproductid","quoteproductid","productid"),
         "process_identifier":present("processid","sfdcprocessid","processname","processkey"),
         "unit_price":present("unitprice","단가"),
-        "sample_quantity":present("samplequantity","samples","샘플수량"),
+        "sample_quantity":present("samplequantity","sampleqty","samples","샘플수량"),
         "currency":present("currency","통화","unitpriceusd"),
         "source_updated_at":present("exportedat","sourceexportedkst","lastmodified","수집시각","reporttime","원본시각"),
     }
