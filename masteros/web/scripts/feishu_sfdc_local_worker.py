@@ -40,6 +40,8 @@ KST=dt.timezone(dt.timedelta(hours=9))
 def json_run(script,payload,timeout=100):
     child=subprocess.run([sys.executable,str(pathlib.Path(__file__).with_name(script))],
         input=json.dumps(payload,ensure_ascii=False),text=True,capture_output=True,
+        encoding="utf-8",errors="strict",
+        env={**os.environ,"PYTHONIOENCODING":"utf-8","PYTHONDONTWRITEBYTECODE":"1"},
         timeout=timeout)
     try:
         response=json.loads(child.stdout)
