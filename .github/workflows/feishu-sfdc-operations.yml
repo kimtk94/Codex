@@ -40,6 +40,7 @@ jobs:
           python3 -m py_compile automation/feishu/sfdc_ops/*.py
           python3 -m py_compile masteros/web/scripts/sfdc_feishu_local_worker.py
   google-queue-bootstrap:
+    if: github.event_name != 'pull_request'
     needs: offline-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 8
