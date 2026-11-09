@@ -7,6 +7,7 @@ Details use record IDs only and return explicitly verified fields.
 from __future__ import annotations
 import json
 import re
+import os
 import sys
 from datetime import date, timedelta
 
@@ -385,15 +386,30 @@ def read_item(page,resource,record_id):
 def main():
     try:
         request=check(json.loads(sys.stdin.buffer.read(3000).decode("utf-8")))
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as pw:
-            browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=10000)
-            page=browser.contexts[0].new_page()
-            try:
-                if request["mode"]=="list":out=list_items(page,request["resource"],request.get("query",""))
-                elif request["mode"]=="bundle":out=linked_oppo_quote_bundle(page,request["recordId"])
-                else:out=read_item(page,request["resource"],request["recordId"])
-            finally:page.close()
+        from sfdc_pair_cache import key_for, lookup, save, live_meta
+        identity=key_for(request)
+        cached=lookup(request) if identity and os.getenv("SFDC_PAIR_CACHE_ENABLED","1")=="1" else None
+        if cached is not None:
+            out=cached
+        else:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=10000)
+                page=browser.contexts[0].new_page()
+                try:
+                    if request["mode"]=="list":out=list_items(page,request["resource"],request.get("query",""))
+                    elif request["mode"]=="bundle":out=linked_oppo_quote_bundle(page,request["recordId"])
+                    else:out=read_item(page,request["resource"],request["recordId"])
+                finally:page.close()
+            if identity and out.get("status")=="PASS":
+                # Write only once after a successful authenticated UI fetch. Cache
+                # failures must never turn a good live read into a source failure.
+                try:
+                    if os.getenv("SFDC_PAIR_CACHE_ENABLED","1")=="1":
+                        save(request,out)
+                    out["cache"]=live_meta(identity[1])
+                except (OSError,ValueError):
+                    pass
     except Exception as exc:
         out={"status":"BLOCK","code":str(exc) if isinstance(exc,ValueError) and re.fullmatch("[A-Z_]{4,60}",str(exc)) else "SFDC_UI_"+type(exc).__name__}
     print(json.dumps(out,ensure_ascii=False,separators=(",",":")))
