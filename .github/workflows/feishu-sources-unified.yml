@@ -10,6 +10,7 @@ on:
       - 'automation/feishu/sales_metrics_sync.py'
       - '.github/workflows/feishu-sources-unified.yml'
       - 'automation/feishu/test_unified_workflow_contracts.py'
+      - 'automation/feishu/test_sales_metrics_scope.py'
   workflow_dispatch:
     inputs:
       apply:
@@ -37,6 +38,7 @@ jobs:
       - name: Verify source mapping, VAT and two-pipeline ownership
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_unified_workflow_contracts.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_scope.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_status_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_latest_source_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_tax_invoice_forecast_reconcile.py' -v
