@@ -39,3 +39,25 @@
 .small{margin-top:9px;font-size:11px;color:#81919a}
 @media(max-width:900px){.content{grid-template-columns:1fr}.actionBox{padding-left:0;border-left:0;border-top:1px solid #e9eef1;padding-top:17px}}
 @media(max-width:700px){.healthGrid{grid-template-columns:1fr 1fr}.tabbar small{display:none}.fields{grid-template-columns:1fr}.two{grid-template-columns:1fr}}
+
+.picker{padding:18px 22px 20px;border-bottom:1px solid #e0ebef;background:#f8fbfc}
+.pickerTop{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.pickerTop h2{font-size:16px;color:#24495f;margin:0 0 3px}
+.pickerTop p{font-size:12px;color:#738797;margin:0}
+.pickerTop span{font-size:11px;color:#44815a;font-weight:700}
+.pickerSearch{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pickerSearch input{min-width:220px;flex:1;border-radius:8px;border:1px solid #cedfe7;padding:10px 12px;font-size:13px}
+.pickerSearch button{border:1px solid #c6d7df;padding:10px 14px;background:#fff;border-radius:8px;color:#26617c;cursor:pointer;font-size:12px}
+.pickerSearch button:disabled,.recordItem:disabled{opacity:.5;cursor:wait}
+.recordList{margin-top:10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:300px;overflow:auto}
+.recordItem{display:flex;flex-direction:column;align-items:start;gap:3px;text-align:left;padding:11px 13px;border:1px solid #dae5e9;background:#fff;border-radius:9px;cursor:pointer;min-width:0;color:#2f4c5d}
+.recordItem b{font-size:12px;font-weight:720;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.recordItem span{font-size:11px;color:#778b97;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;max-width:100%}
+.recordItem[data-selected="true"]{border:2px solid #277d9f;background:#eef8fc}
+.recordItem:hover{border-color:#7aacbf}
+.selectedInfo{margin-top:12px;padding:12px 14px;background:#eaf6f2;border-radius:9px;display:flex;gap:4px;flex-direction:column}
+.selectedInfo strong{font-size:12px;color:#1c5b4c}
+.selectedInfo span{font-size:11px;color:#587d72}
+.selectedInfo p{margin:3px 0 0;font-size:11px;color:#657b73}
+.noRecords{grid-column:1/-1;padding:8px 4px;color:#72838b;font-size:12px}
+@media(max-width:690px){.recordList{grid-template-columns:1fr}.picker{padding:15px}}

@@ -3,6 +3,7 @@
 import {useCallback,useEffect,useMemo,useState} from "react";
 import Link from "next/link";
 import {alicloudUnits,freshProgress,validateRequest} from "../../../lib/sfdc-commands.mjs";
+import {recordToDraft,recordSelectionSummary} from "../../../lib/sfdc-record-picker.mjs";
 import styles from "./page.module.css";
 
 const common={confirmSave:false,noDuplicateConfirmed:false};
@@ -40,9 +41,18 @@ export default function SfdcCommandCenter(){
   const [preflight,setPreflight]=useState("");
   const [confirmed,setConfirmed]=useState(false);
   const [dedup,setDedup]=useState(false);
+  const [catalogue,setCatalogue]=useState({lead:[],opportunity:[],quote:[]});
+  const [query,setQuery]=useState("");
+  const [catalogueStatus,setCatalogueStatus]=useState("NOT_CHECKED");
+  const [catalogueBusy,setCatalogueBusy]=useState(false);
+  const [loadingDetail,setLoadingDetail]=useState(false);
+  const [selectedRecord,setSelectedRecord]=useState(null);
+  const [originalDraft,setOriginalDraft]=useState(null);
+  const [advanced,setAdvanced]=useState(false);
+  const resource=tab==="lead_convert"?"lead":tab==="opportunity_create"?"opportunity":"quote";
   const form=forms[tab];
   const signature=useMemo(()=>JSON.stringify({tab,...form}),[tab,form]);
-  const ready=signature===preflight;
+  const ready=signature===preflight && selectedRecord?.resource===resource;
   const update=(key,value)=>{
     setForms(prev=>({...prev,[tab]:{...prev[tab],[key]:value}}));
     setResult(null);setPreflight("");
@@ -59,8 +69,73 @@ export default function SfdcCommandCenter(){
     finally{setHealthBusy(false);}
   },[]);
   useEffect(()=>{loadHealth();},[loadHealth]);
+  const browse=useCallback(async(kind,search="")=>{
+    setCatalogueBusy(true);
+    setCatalogueStatus("LOADING");
+    setCatalogue(prev=>({...prev,[kind]:[]}));
+    setSelectedRecord(null);
+    setOriginalDraft(null);
+    setPreflight("");
+    try{
+      const response=await fetch("/api/sfdc/records-local",{
+        method:"POST",headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+        credentials:"omit",cache:"no-store",
+        body:JSON.stringify({resource:kind,mode:"list",query:search})
+      });
+      const data=await response.json();
+      if(!response.ok || data.status!=="PASS"||!Array.isArray(data.records))
+        throw new Error(data.code||"SOURCE_UNAVAILABLE");
+      setCatalogue(prev=>({...prev,[kind]:data.records}));
+      setCatalogueStatus("PASS");
+    }catch(e){
+      setCatalogue(prev=>({...prev,[kind]:[]}));
+      setCatalogueStatus(e?.message||"SOURCE_UNAVAILABLE");
+    }finally{setCatalogueBusy(false);}
+  },[]);
+  useEffect(()=>{
+    setQuery("");setSelectedRecord(null);setOriginalDraft(null);setAdvanced(false);
+    setResult(null);setPreflight("");
+    browse(resource,"");
+  },[resource,browse]);
+  async function chooseRecord(id){
+    if(loadingDetail||busy)return;
+    setLoadingDetail(true);setResult(null);setPreflight("");
+    try{
+      const response=await fetch("/api/sfdc/records-local",{
+        method:"POST",headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+        credentials:"omit",cache:"no-store",
+        body:JSON.stringify({resource,mode:"detail",recordId:id})
+      });
+      const item=await response.json();
+      if(!response.ok||item.status!=="PASS"||item.id!==id)throw Error(item.code||"DETAIL_UNAVAILABLE");
+      const next=recordToDraft(resource,item,initial[tab]);
+      if(!next)throw Error("RECORD_MISMATCH");
+      setForms(prev=>({...prev,[tab]:next}));
+      setSelectedRecord(item);
+      setOriginalDraft(next);
+      setDedup(false);setConfirmed(false);
+    }catch(e){
+      setSelectedRecord(null);setOriginalDraft(null);
+      setResult({status:"BLOCK",code:e?.message||"DETAIL_UNAVAILABLE"});
+    }finally{setLoadingDetail(false);}
+  }
+  const changedFields=useMemo(()=>{
+    if(!originalDraft)return [];
+    return Object.keys(originalDraft).filter(k=>form[k]!==originalDraft[k] &&
+      !["progressDescription","referenceAmea"].includes(k));
+  },[form,originalDraft]);
+  function switchTab(next){
+    setTab(next);setResult(null);setPreflight("");setConfirmed(false);setDedup(false);
+  }
   async function run(mode){
-    if(busy)return;
+    if(busy||catalogueBusy||loadingDetail)return;
+    if(!selectedRecord || selectedRecord.resource!==resource){
+      setResult({status:"BLOCK",code:"SELECT_EXISTING_RECORD_FIRST"});return;
+    }
+    const sourceKey=resource==="lead"?"leadId":resource==="opportunity"?"referenceOpportunityId":"sourceQuoteId";
+    if(form[sourceKey]!==selectedRecord.id){
+      setResult({status:"BLOCK",code:"SOURCE_ID_CHANGED"});return;
+    }
     const req={...form,action:tab,mode,confirmSave:mode==="save"&&confirmed,
       noDuplicateConfirmed:mode==="save"&&dedup};
     if(mode==="save"&&!ready){
@@ -118,22 +193,60 @@ export default function SfdcCommandCenter(){
     <section className={styles.commands}>
       <div className={styles.tabbar}>
         {tabs.map(x=><button type="button" key={x.id} data-active={tab===x.id}
-          onClick={()=>{setTab(x.id);setResult(null);setPreflight("");setConfirmed(false);setDedup(false);}}>
+          onClick={()=>switchTab(x.id)}>
           <b>{x.name}</b><small>{x.caption}</small></button>)}
       </div>
+      <section className={styles.picker} aria-label="기존 Salesforce 레코드 선택">
+        <div className={styles.pickerTop}>
+          <div><h2>1. 기존 {resource==="lead"?"Lead":resource==="opportunity"?"Opportunity":"Quote"} 불러오기</h2>
+            <p>현재 Salesforce 목록 · 검색 후 선택</p></div>
+          <span data-status={catalogueStatus}>{catalogueStatus}</span>
+        </div>
+        <form className={styles.pickerSearch} onSubmit={e=>{e.preventDefault();browse(resource,query)}}>
+          <input aria-label="기존 레코드 검색" placeholder="이름 · 기관 · AMEA 검색"
+            value={query} onChange={e=>setQuery(e.target.value)}/>
+          <button type="submit" disabled={catalogueBusy||loadingDetail}>
+            {catalogueBusy?"조회 중":"검색"}
+          </button>
+          <button type="button" disabled={catalogueBusy||loadingDetail}
+            onClick={()=>browse(resource,query)}>새로고침</button>
+        </form>
+        <div className={styles.recordList}>
+          {(catalogue[resource]||[]).map(item=>
+            <button type="button" key={item.id} className={styles.recordItem}
+              data-selected={selectedRecord?.id===item.id}
+              onClick={()=>chooseRecord(item.id)} disabled={catalogueBusy||loadingDetail||busy}>
+              <b>{item.name}</b>
+              <span>{[item.institution,item.contact,item.quotationNumber,item.status].filter(Boolean).join(" · ")}</span>
+            </button>)}
+          {!catalogueBusy && (catalogue[resource]||[]).length===0 &&
+            <p className={styles.noRecords}>검색 결과가 없습니다. Salesforce 목록 필터를 확인하세요.</p>}
+        </div>
+        {selectedRecord&&<div className={styles.selectedInfo}>
+          <strong>선택: {selectedRecord.name||selectedRecord.id}</strong>
+          <span>{selectedRecord.id} · 원본 선택 완료</span>
+          <span>{changedFields.length}개 항목 수정됨</span>
+          <p>{recordSelectionSummary(selectedRecord)?.warnings.join(" · ")}</p>
+        </div>}
+      </section>
       <div className={styles.content}>
         <div className={styles.fields}>
           {tab==="lead_convert"&&<>
-            <Field label="Lead ID (00Q)" value={form.leadId} onChange={v=>update("leadId",v)}/>
+            <p className={styles.hint}>Lead 목록에서 선택하면 이름·기관이 자동 입력됩니다.</p>
             <Field label="기존 Account 이름" value={form.accountName} onChange={v=>update("accountName",v)}/>
             <Field label="Contact 한글 이름" value={form.koreanName} onChange={v=>update("koreanName",v)}/>
             <Field label="Contact 영어 이름" value={form.englishName} onChange={v=>update("englishName",v)} placeholder="OhJunHyeok"/>
             <p className={styles.hint}>기존 Account 사용 · 신규 Contact 생성 · Opportunity 생성하지 않음</p>
           </>}
           {tab==="opportunity_create"&&<>
-            <Field label="참고 Opportunity ID (006)" value={form.referenceOpportunityId} onChange={v=>update("referenceOpportunityId",v)}/>
-            <Field label="Account ID (001)" value={form.accountId} onChange={v=>update("accountId",v)}/>
-            <Field label="Contact ID (003)" value={form.contactId} onChange={v=>update("contactId",v)}/>
+            <p className={styles.hint}>기존 Oppo를 선택한 뒤 바꿀 값만 수정하세요. Progress Description은 원본에서 복제하지 않습니다.</p>
+            <button type="button" className={styles.subtle} onClick={()=>setAdvanced(x=>!x)}>
+              {advanced?"고급 ID 편집 숨기기":"Account·Contact ID 편집"}
+            </button>
+            {advanced&&<div className={styles.two}>
+              <Field label="Account ID (001)" value={form.accountId} onChange={v=>update("accountId",v)}/>
+              <Field label="Contact ID (003)" value={form.contactId} onChange={v=>update("contactId",v)}/>
+            </div>}
             <Field label="기관 이름" value={form.accountName} onChange={v=>update("accountName",v)}/>
             <Field label="고객 이름" value={form.contactName} onChange={v=>update("contactName",v)}/>
             <Field label="Opportunity 이름" value={form.opportunityName} onChange={v=>update("opportunityName",v)}/>
@@ -155,7 +268,7 @@ export default function SfdcCommandCenter(){
           </>}
           {tab==="quote_create"&&<>
             <Field label="대상 Opportunity ID (006)" value={form.opportunityId} onChange={v=>update("opportunityId",v)}/>
-            <Field label="참고 Quote ID (a0P)" value={form.sourceQuoteId} onChange={v=>update("sourceQuoteId",v)}/>
+            <p className={styles.hint}>기존 Quote에서 고객·연결 Oppo·제품을 불러왔습니다. 수정할 항목만 변경하세요.</p>
             <Field label="Quote 이름 (Oppo와 동일)" value={form.quoteName} onChange={v=>update("quoteName",v)}/>
             <Field label="기관 이름" value={form.accountName} onChange={v=>update("accountName",v)}/>
             <Field label="Contact 이름" value={form.contactName} onChange={v=>update("contactName",v)}/>
@@ -166,13 +279,13 @@ export default function SfdcCommandCenter(){
               <Field label="시료 수" type="number" value={form.samples} onChange={v=>update("samples",v)}/>
               <Field label="데이터량" type="number" step="any" value={form.dataSize} onChange={v=>update("dataSize",v)}/>
             </div>
-            <p className={styles.hint}>KRW · Korea · VAT 10% · Coop TS Yoo Ji In · 기존 제품 재사용</p>
+            <p className={styles.hint}>KRW · Korea · VAT 10% · Coop TS Yoo Ji In · 기존 제품 재사용. 공정·수량·가격 확인 후 저장하세요.</p>
           </>}
         </div>
         <aside className={styles.actionBox}>
-          <h2>실행</h2>
-          <p>저장 전 필드·고객·제품을 확인합니다.</p>
-          <button className={styles.check} type="button" disabled={busy}
+          <h2>2. 검증·실행</h2>
+          <p>{selectedRecord?"선택한 기존 건을 기준으로 검증합니다.":"먼저 기존 레코드를 선택하세요."}</p>
+          <button className={styles.check} type="button" disabled={busy||catalogueBusy||loadingDetail||!selectedRecord}
             onClick={()=>run("check")}>{busy?"처리 중":"1. 사전 검증"}</button>
           <span className={styles.ready} data-ready={ready}>
             {ready?"사전 검증 PASS":"사전 검증 필요"}
@@ -182,7 +295,7 @@ export default function SfdcCommandCenter(){
           <label className={styles.checkbox}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
             실제 Salesforce 저장 승인</label>
           <button className={styles.save} type="button"
-            disabled={busy||!ready||!dedup||!confirmed}
+            disabled={busy||catalogueBusy||loadingDetail||!ready||!dedup||!confirmed}
             onClick={()=>run("save")}>2. 실제 실행</button>
           <p className={styles.hint}>검증 실패 시 저장하지 않습니다. Quote는 제품 포함 저장 후 재조회합니다.</p>
           {result&&<section className={styles.result} aria-live="polite">

@@ -7,6 +7,11 @@ on:
     paths:
       - 'masteros/web/lib/sfdc-commands.mjs'
       - 'masteros/web/scripts/sfdc_action_executor.py'
+      - 'masteros/web/scripts/sfdc_record_catalog.py'
+      - 'masteros/web/scripts/test_sfdc_record_catalog.py'
+      - 'masteros/web/lib/sfdc-record-picker.mjs'
+      - 'masteros/web/app/api/sfdc/records-local/**'
+      - 'masteros/web/tests/sfdc-record-picker.test.mjs'
       - 'masteros/web/scripts/sfdc_live_ui_health.py'
       - 'masteros/web/scripts/test_sfdc_live_ui_health.py'
       - 'masteros/web/app/api/sfdc/commands-local/**'
@@ -23,6 +28,11 @@ on:
     paths:
       - 'masteros/web/lib/sfdc-commands.mjs'
       - 'masteros/web/scripts/sfdc_action_executor.py'
+      - 'masteros/web/scripts/sfdc_record_catalog.py'
+      - 'masteros/web/scripts/test_sfdc_record_catalog.py'
+      - 'masteros/web/lib/sfdc-record-picker.mjs'
+      - 'masteros/web/app/api/sfdc/records-local/**'
+      - 'masteros/web/tests/sfdc-record-picker.test.mjs'
       - 'masteros/web/scripts/sfdc_live_ui_health.py'
       - 'masteros/web/scripts/test_sfdc_live_ui_health.py'
       - 'masteros/web/app/api/sfdc/commands-local/**'
@@ -55,6 +65,10 @@ jobs:
           python-version: '3.11'
       - name: Compile local-only Salesforce executor (no browser connection)
         run: python3 -m py_compile scripts/sfdc_action_executor.py
+      - name: Test existing-record selector without CRM access
+        run: |
+          python3 -m py_compile scripts/sfdc_record_catalog.py
+          python3 -m unittest discover -s scripts -p test_sfdc_record_catalog.py -v
       - name: Unit-test live health classifier without Salesforce access
         run: |
           python3 -m py_compile scripts/sfdc_live_ui_health.py
@@ -66,6 +80,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Test request validation, progress text and loopback security
         run: node --test tests/sfdc-commands.test.mjs
+      - name: Test record picker and immutable Progress Description source
+        run: node --test tests/sfdc-record-picker.test.mjs
       - name: Build local command center
         env:
           NEXT_TELEMETRY_DISABLED: '1'
