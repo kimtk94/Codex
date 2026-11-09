@@ -75,11 +75,18 @@ class ReportBridgeTests(unittest.TestCase):
         self.assertEqual(len({x["Line Key"] for x in result["tables"][TABLE_LINES]}),5)
         self.assertEqual(result["summary"]["report_lines"],5)
 
-    def test_unmatched_quote_report_export_blocks(self):
+    def test_unmatched_quote_report_is_kept_with_explicit_unverified_id(self):
         (lines,lh),headers=data()
         lines[0]["SFDC Quotation ID"]="QID-2026-10-20-999999"
-        with self.assertRaisesRegex(ReportSourceError,"REPORT_UNMATCHED_QUOTE"):
-            build_records((lines,lh),headers)
+        output=build_records((lines,lh),headers)
+        self.assertEqual(output["summary"]["report_lines"],4)
+        self.assertEqual(output["summary"]["quote_record_ids_unmapped"],1)
+        unmatched=next(x for x in output["tables"][TABLE_LINES]
+                       if x["Quote ID"]=="QID-2026-10-20-999999")
+        self.assertEqual(unmatched["Quote Record ID"],"")
+        self.assertEqual(unmatched["Source Status"],"QUOTE_RECORD_ID_UNVERIFIED")
+        self.assertEqual(unmatched["Source Exported KST"],"")
+        self.assertFalse(output["summary"]["process_report_export_time_verified"])
 
     def test_export_timestamp_conflict_blocks(self):
         source,head=data()
@@ -88,12 +95,17 @@ class ReportBridgeTests(unittest.TestCase):
             build_records(source,(head[0],head[1]))
 
     def test_new_header_cannot_relabel_old_process_lines_fresh(self):
-        """Header email alone cannot certify missing updated 25-column report."""
+        """Header email alone cannot certify process report export timestamp."""
         source,(headers,names)=data()
         for header in headers:
             header["Exported At KST"]="2026-11-09 18:00:08 KST"
-        with self.assertRaisesRegex(ReportSourceError,"REPORT_PROCESS_SOURCE_LAG"):
-            build_records(source,(headers,names))
+        result=build_records(source,(headers,names))
+        self.assertFalse(result["summary"]["process_report_export_time_verified"])
+        self.assertEqual(result["summary"]["status"],"DETAIL_REPORT_TIME_UNVERIFIED")
+        self.assertTrue(all(row["Source Exported KST"]==""
+                            for row in result["tables"][TABLE_LINES]))
+        self.assertEqual(result["summary"]["header_exported_kst"],
+                         "2026-11-09 18:00:08 KST")
 
     def test_report_input_missing_product_price_fails(self):
         (lines,lh),heads=data()
@@ -102,6 +114,38 @@ class ReportBridgeTests(unittest.TestCase):
             # Non-numeric value must not be promoted to a valid unit price.
             lines[0]["Unit Price USD"]="NOT_NUMERIC"
             build_records((lines,lh),heads)
+
+    def test_legacy_header_time_can_be_cleared_only_when_unverified(self):
+        row={"Line Key":"same","Quote ID":Q1,"Source Exported KST":"",
+             "Source Status":"DETAIL_REPORT_TIME_UNVERIFIED"}
+        prior={"record_id":"rec1","fields":dict(row,
+             **{"Source Exported KST":EXPORTED,"Source Status":"STALE"})}
+        after={"record_id":"rec1","fields":row}
+        with patch("sfdc_quote_report_bridge.path",return_value="/apps/test"):
+            with patch("sfdc_quote_report_bridge.pages",side_effect=[[prior],[after]]):
+                with patch("sfdc_quote_report_bridge.write_batch",
+                           return_value=[{"record_id":"rec1","fields":row}]):
+                    result=sync_one("t","tbl","Line Key",[row])
+        self.assertEqual(result["updated"],1)
+        self.assertEqual(result["readback"],"PASS")
+
+    def test_verified_previous_source_timestamp_never_downgrades(self):
+        row={"Line Key":"same","Quote ID":Q1,"Source Exported KST":"",
+             "Source Status":"DETAIL_REPORT_TIME_UNVERIFIED"}
+        prior={"record_id":"rec1","fields":dict(row,
+             **{"Source Exported KST":EXPORTED,"Source Status":"VERIFIED"})}
+        with patch("sfdc_quote_report_bridge.path",return_value="/apps/test"):
+            with patch("sfdc_quote_report_bridge.pages",return_value=[prior]):
+                with self.assertRaisesRegex(ReportSourceError,
+                                             "FEISHU_REPORT_SOURCE_REGRESSION"):
+                    sync_one("t","tbl","Line Key",[row])
+
+    def test_empty_created_dates_are_held_not_fatal(self):
+        (lines,lh),headers=data()
+        lines[0]["Created Date"]="null"
+        output=build_records((lines,lh),headers)
+        self.assertEqual(output["summary"]["process_date_missing_rows"],1)
+        self.assertEqual(output["summary"]["report_lines"],4)
 
     def test_audit_never_calls_feishu_writer(self):
         with patch("sfdc_quote_report_bridge.load_source",return_value=build_records(*data())):
