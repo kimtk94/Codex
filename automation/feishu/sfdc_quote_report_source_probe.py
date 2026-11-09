@@ -100,11 +100,14 @@ def main():
                       "readonly_column_ids":{
                           x.get("field_name"):x.get("field_id")
                           for x in fields
-                          if name=="SFDC Quote Report Lines"
+                          if name in ("SFDC Quote Report Lines",
+                                       "SFDC Quote Process Dictionary",
+                                       "SFDC Quote Product Templates")
                           and x.get("field_name") in (
                               "Line Key","Quote ID","Quote Record ID",
-                              "Quote Product ID","Product Template Key",
-                              "Process Key","Unit Price USD","Sales Price USD",
+                              "Quote Product ID","Product Template Key","Process Keys","Process Count",
+                              "Process Key","Process ID","Process Name","Data Unit",
+                              "Unit Price USD","Sales Price USD",
                               "Process Total USD","Sample Qty","Data Size",
                               "Active","Quote Created","Source Exported KST",
                               "Source Row Hash","Source Status")
