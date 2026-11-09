@@ -124,6 +124,80 @@ def _prune_unused_templates(cx):
             cx.execute("DELETE FROM product_line_templates WHERE template_sha256=?",(identifier,))
 
 
+def _rebalance_templates(cx):
+    """Keep only templates that actually reduce total retained JSON bytes.
+
+    Newly saved Quotes may have a structure previously stored inline in a
+    different Contact's Quote. Repack both before evaluating actual savings.
+    Source observation timestamps and Quote-specific money remain unchanged.
+    """
+    stored=cx.execute("""SELECT cache_key,kind,content_sha256,payload_json
+        FROM entries WHERE kind IN ('bundle','detail')""").fetchall()
+    for key,kind,sha,raw in stored:
+        if hashlib.sha256(raw.encode("utf-8")).hexdigest()!=sha:
+            continue
+        try:
+            record=json.loads(raw)
+            if refs(record):
+                continue
+            if kind=="bundle":
+                request={"resource":"opportunity","mode":"bundle","recordId":key.split(":")[-1]}
+            else:
+                request={"resource":key.split(":")[0],"mode":"detail",
+                         "recordId":key.split(":")[-1]}
+            if not _valid(request,record):
+                continue
+            smaller,templates=compact(record)
+            if not templates:
+                continue
+            for identifier,template in templates.items():
+                cx.execute("""INSERT INTO product_line_templates(
+                    template_sha256,content_json,last_seen_utc)
+                    VALUES(?,?,?)
+                    ON CONFLICT(template_sha256) DO NOTHING""",
+                    (identifier,compact_json(template),int(time.time())))
+            text=compact_json(smaller)
+            cx.execute("""UPDATE entries SET payload_json=?,content_sha256=?
+                WHERE cache_key=? AND content_sha256=?""",
+                (text,hashlib.sha256(text.encode("utf-8")).hexdigest(),key,sha))
+        except (ValueError,TypeError,KeyError,TemplateIntegrityError):
+            continue
+
+    templates=cx.execute("SELECT template_sha256,content_json FROM product_line_templates").fetchall()
+    for identifier,serialized in templates:
+        rows=cx.execute("SELECT cache_key,payload_json FROM entries").fetchall()
+        changed=[]
+        delta=0
+        def fetch(key):
+            if key!=identifier:
+                return None
+            return json.loads(serialized)
+        for key,raw in rows:
+            try:
+                data=json.loads(raw)
+                if identifier not in refs(data):
+                    continue
+                unshared=expand(data,fetch,only_refs={identifier})
+                new_json=compact_json(unshared)
+                delta+=len(new_json.encode("utf-8"))-len(raw.encode("utf-8"))
+                changed.append((key,new_json))
+            except (ValueError,TypeError,KeyError,TemplateIntegrityError):
+                # Fail closed: never discard any template referenced by a
+                # corrupt record, which must remain blocked on lookup.
+                changed=[]
+                delta=len(serialized.encode("utf-8"))+1
+                break
+        # A shared template must save strictly more than its own storage cost.
+        if delta<=len(serialized.encode("utf-8")):
+            for key,new_json in changed:
+                cx.execute("""UPDATE entries SET payload_json=?,content_sha256=?
+                    WHERE cache_key=?""",
+                    (new_json,hashlib.sha256(new_json.encode("utf-8")).hexdigest(),key))
+            cx.execute("DELETE FROM product_line_templates WHERE template_sha256=?",
+                       (identifier,))
+    _prune_unused_templates(cx)
+
+
 def normalize_existing(now=None):
     """Repack existing live-origin records without changing their TTL or amount.
 
@@ -174,7 +248,7 @@ def normalize_existing(now=None):
                 migrated+=1
             except (ValueError,TypeError,KeyError,TemplateIntegrityError):
                 failed+=1
-        _prune_unused_templates(cx)
+        _rebalance_templates(cx)
     return {"status":"PASS" if failed==0 else "PARTIAL",
         "migrated":migrated,"failed":failed,
         "source_observation_timestamps_unchanged":True,"crm_writes":0}
@@ -212,7 +286,7 @@ def save(request,output,now=None):
             payload_json=excluded.payload_json""",
             (key,kind,checked,checked+TTL_SECONDS[kind],VERSION,sha,raw))
         cx.execute("DELETE FROM entries WHERE expires_utc<?",(checked-86400,))
-        _prune_unused_templates(cx)
+        _rebalance_templates(cx)
     return True
 
 
