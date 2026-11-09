@@ -251,6 +251,8 @@ def membership(rows):
 def equal_source(before,row):
     for name,value in row.items():
         observed=before.get(name)
+        if value is None and plain_field(observed).strip()=="":
+            continue
         if plain_field(observed).strip()!=str(value).strip():
             return False
     return True
