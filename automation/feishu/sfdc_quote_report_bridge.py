@@ -29,14 +29,14 @@ TABLE_LINES="SFDC Quote Report Lines"
 TABLE_PROCESS="SFDC Quote Process Dictionary"
 TABLE_PRODUCT="SFDC Quote Product Templates"
 
-PROCESS_FIELDS=["Process Key","Process ID","Process Name","Data Unit","Source Exported KST"]
-PRODUCT_FIELDS=["Product Template Key","Process Keys","Process Count","Source Exported KST"]
+PROCESS_FIELDS=["Process Key","Process ID","Process Name","Data Unit","Source Exported KST","Source Received KST"]
+PRODUCT_FIELDS=["Product Template Key","Process Keys","Process Count","Source Exported KST","Source Received KST"]
 LINE_FIELDS=[
     "Line Key","Quote ID","Quote Record ID","Quote Product ID",
     "Product Template Key","Process Key",
     "Unit Price USD","Sales Price USD","Process Total USD",
     "Sample Qty","Data Size","Active","Quote Created",
-    "Source Exported KST","Source Row Hash","Source Status"]
+    "Source Exported KST","Source Received KST","Source Row Hash","Source Status"]
 TEXT_FIELDS={
     "Unit Price USD","Sales Price USD","Process Total USD",
     "Sample Qty","Data Size"}  # Preserve original decimal precision as text.
@@ -182,7 +182,8 @@ def build_records(source_lines,source_headers,now=None,verified_evidence=None):
     # Header metadata refers to the older Quote EXPORT, not the source
     # 25-column process-price report. Never stamp old header time onto
     # newer process rows as if that proves the process report was current.
-    report_status="DETAIL_REPORT_TIME_UNVERIFIED"
+    report_status=("MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED"
+                   if verified_evidence else "DETAIL_REPORT_TIME_UNVERIFIED")
     received=verified_evidence["received_kst"] if verified_evidence else ""
     product_groups=defaultdict(list)
     process_defs={}
@@ -250,12 +251,12 @@ def build_records(source_lines,source_headers,now=None,verified_evidence=None):
         product_template_defs[tkey]={"Product Template Key":tkey,
           "Process Keys":canonical(process_sequence),
           "Process Count":str(len(process_sequence)),
-          "Source Exported KST":""}
+          "Source Exported KST":"","Source Received KST":received}
         product_to_key[group]=tkey
     for item in prepared:
         item["Product Template Key"]=product_to_key[(item["Quote ID"],item["Quote Product ID"])]
     process_items=[
-      {"Process Key":key,**definition,"Source Exported KST":""}
+      {"Process Key":key,**definition,"Source Exported KST":"","Source Received KST":received}
       for key,definition in sorted(process_defs.items())]
     product_items=[product_template_defs[k] for k in sorted(product_template_defs)]
     if len({x["Line Key"] for x in prepared})!=len(prepared):
@@ -264,7 +265,7 @@ def build_records(source_lines,source_headers,now=None,verified_evidence=None):
         "tables":{TABLE_PROCESS:process_items,
                   TABLE_PRODUCT:product_items,TABLE_LINES:prepared},
         "summary":{
-           "status":"DETAIL_REPORT_TIME_UNVERIFIED",
+           "status":"MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED" if verified_evidence else "DETAIL_REPORT_TIME_UNVERIFIED",
            "header_exported_kst":exported,
            "source_tab":LINE_TAB,
            "process_created_latest":newest_process_created.date().isoformat(),
@@ -322,8 +323,17 @@ def ensure_table(token,name):
     tid=item["table_id"]
     field_items=pages(token,path()+"/tables/"+tid+"/fields")
     existing={x.get("field_name"):x.get("type") for x in field_items}
+    missing=set(SCHEMAS[name])-set(existing)
+    if missing:
+        # Safely extend ONLY these already owned mirror tables with the new
+        # evidence field, never mutate existing fields or unrelated tables.
+        if missing!={"Source Received KST"}:
+            raise ReportSourceError("FEISHU_TABLE_SCHEMA_MISSING")
+        call("POST",path()+"/tables/"+tid+"/fields",token,
+             field_spec("Source Received KST"))
+        field_items=pages(token,path()+"/tables/"+tid+"/fields")
+        existing={x.get("field_name"):x.get("type") for x in field_items}
     if not set(existing).issuperset(SCHEMAS[name]):
-        # Never mutate an already created table with a partial/conflicting schema.
         raise ReportSourceError("FEISHU_TABLE_SCHEMA_MISSING")
     if any(existing[x]!=1 for x in SCHEMAS[name]):
         raise ReportSourceError("FEISHU_TABLE_SCHEMA_TYPE_MISMATCH")
@@ -356,6 +366,10 @@ def sync_one(token,tid,key_field,rows,legacy_header_exported_kst=None):
     # Source timestamp regression is never allowed to overwrite newer reports.
     for key,prior in old.items():
         if key in wanted:
+            received_before=plain((prior.get("fields") or {}).get("Source Received KST"))
+            received_after=wanted[key].get("Source Received KST","")
+            if received_before and (not received_after or received_after<received_before):
+                raise ReportSourceError("FEISHU_MAIL_RECEIPT_REGRESSION")
             timestamp=plain((prior.get("fields") or {}).get("Source Exported KST"))
             target_time=wanted[key]["Source Exported KST"]
             if timestamp and (not target_time or timestamp>target_time):
@@ -410,7 +424,8 @@ def sync_one(token,tid,key_field,rows,legacy_header_exported_kst=None):
                 continue
             if status not in ("STALE","DETAIL_REPORT_TIME_UNVERIFIED",
                               "QUOTE_RECORD_ID_UNVERIFIED",
-                              "PROCESS_REPORT_FRESHNESS_UNVERIFIED"):
+                              "PROCESS_REPORT_FRESHNESS_UNVERIFIED",
+                              "MAIL_RECEIPT_VERIFIED_EXPORT_UNVERIFIED"):
                 raise ReportSourceError("FEISHU_ORPHAN_LINE_NOT_SAFE_TO_SUPERSEDE")
             to_update.append({"record_id":rec["record_id"],
                               "fields":{"Source Status":"SUPERSEDED_NOT_IN_CURRENT_REPORT"}})
