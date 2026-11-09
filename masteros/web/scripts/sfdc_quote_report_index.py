@@ -357,10 +357,29 @@ def detail(identifier):
 def run(request):
     if not isinstance(request,dict):raise ReportError("REPORT_REQUEST_INVALID")
     mode=request.get("mode")
-    if mode=="STATUS":return status()
     if mode=="IMPORT":return import_reports()
-    if mode=="SEARCH":return search(request.get("query",""),request.get("limit",25))
-    if mode=="DETAIL":return detail(request.get("id"))
+    # Google Sheet is the newer persisted *Report*, not a live Salesforce
+    # read. Keep the older local HTML .xls only as a fallback/ID bridge.
+    from sfdc_quote_report_sheet import status as sheet_status
+    from sfdc_quote_report_sheet import search as sheet_search
+    from sfdc_quote_report_sheet import detail as sheet_detail
+    from sfdc_quote_report_sheet import sync_staged
+    if mode=="SYNC_STAGED":return sync_staged()
+    if mode=="STATUS":
+        current=sheet_status()
+        return current if current.get("status")=="PASS" else status()
+    if mode=="SEARCH":
+        if sheet_status().get("status")=="PASS":
+            return sheet_search(request.get("query",""),request.get("limit",25))
+        return search(request.get("query",""),request.get("limit",25))
+    if mode=="DETAIL":
+        if sheet_status().get("status")=="PASS":
+            try:
+                return sheet_detail(request.get("id"))
+            except ReportError as exc:
+                if str(exc) not in ("SHEET_SFDC_ID_UNMAPPED","SHEET_QUOTE_NOT_FOUND"):
+                    raise
+        return detail(request.get("id"))
     raise ReportError("REPORT_MODE_NOT_ALLOWED")
 
 
