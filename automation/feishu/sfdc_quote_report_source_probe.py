@@ -116,7 +116,7 @@ def main():
                               "Source Row Hash","Source Status","Source Received KST",
                               "Class Key","Production Gb","Gb Status","Reference SHA256",
                               "Opportunity External ID","Opportunity Name",
-                              "Account ID","Account Name","Contact ID","Contact Name",
+                              "Account ID","Account Name","Contact ID","Contact External ID","Contact Name",
                               "Contact Email","Account Contact Status",
                               "Products JSON","Product Count","Reference Status")
                       },
