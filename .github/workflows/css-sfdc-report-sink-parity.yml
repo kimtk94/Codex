@@ -7,12 +7,16 @@ on:
   pull_request:
     paths:
       - 'automation/sfdc/three_report_staged_vs_generated_audit.py'
+      - 'automation/sfdc/three_report_owner_scope.py'
+      - 'automation/sfdc/test_three_report_owner_scope.py'
       - 'automation/sfdc/test_three_report_staged_vs_generated_audit.py'
       - '.github/workflows/css-sfdc-report-sink-parity.yml'
   push:
     branches: [main]
     paths:
       - 'automation/sfdc/three_report_staged_vs_generated_audit.py'
+      - 'automation/sfdc/three_report_owner_scope.py'
+      - 'automation/sfdc/test_three_report_owner_scope.py'
       - 'automation/sfdc/test_three_report_staged_vs_generated_audit.py'
       - '.github/workflows/css-sfdc-report-sink-parity.yml'
 
@@ -38,6 +42,7 @@ jobs:
         run: |
           python -m py_compile automation/sfdc/three_report_staged_vs_generated_audit.py
           python -m unittest discover -s automation/sfdc -p 'test_three_report_staged_vs_generated_audit.py' -v
+          python -m unittest discover -s automation/sfdc -p 'test_three_report_owner_scope.py' -v
 
   live-readonly:
     needs: offline
