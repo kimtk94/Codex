@@ -5,7 +5,7 @@ on:
       mode:
         description: Mode
         type: choice
-        options: [bootstrap, pull, push, smoke_seed, smoke_verify, smoke_cleanup, report_probe]
+        options: [bootstrap, pull, push, smoke_seed, smoke_verify, smoke_cleanup, report_probe, report_audit, report_sync]
         default: pull
   schedule:
     - cron: '*/10 * * * *'
@@ -14,6 +14,8 @@ on:
     paths:
       - 'automation/feishu/sfdc_command_queue.py'
       - 'automation/feishu/sfdc_quote_report_source_probe.py'
+      - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
@@ -29,6 +31,8 @@ on:
     paths:
       - 'automation/feishu/sfdc_command_queue.py'
       - 'automation/feishu/sfdc_quote_report_source_probe.py'
+      - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
@@ -62,6 +66,8 @@ jobs:
           python3 -m py_compile automation/feishu/sfdc_command_queue.py
           python3 -m py_compile automation/feishu/sfdc_price_smoke.py
           python3 -m py_compile automation/feishu/sfdc_quote_report_source_probe.py
+          python3 -m unittest discover -s automation/feishu -p test_sfdc_quote_report_bridge.py -v
+          python3 -m py_compile automation/feishu/sfdc_quote_report_bridge.py
           python3 -m unittest discover -s automation/feishu -p test_sfdc_price_smoke.py -v
           python3 -m unittest discover -s masteros/web/scripts -p test_sfdc_quote_price_fields.py -v
           python3 -m unittest discover -s masteros/web/scripts -p test_sfdc_multi_product_price_fields.py -v
@@ -98,11 +104,17 @@ jobs:
           fi
           echo 'TARGET_BASE=USER_SALES_WORKSPACE_2026' >> "$GITHUB_STEP_SUMMARY"
       - name: Ensure dedicated Feishu command table
-        if: github.event_name != 'workflow_dispatch' || inputs.mode != 'report_probe'
+        if: github.event_name != 'workflow_dispatch' || !startsWith(inputs.mode, 'report_')
         run: python3 automation/feishu/sfdc_command_queue.py bootstrap
       - name: Read-only Feishu Quote Report source coverage probe
         if: github.event_name == 'workflow_dispatch' && inputs.mode == 'report_probe'
         run: python3 automation/feishu/sfdc_quote_report_source_probe.py
+      - name: Audit mail-ingested Quote Report source (read-only)
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'report_audit'
+        run: python3 automation/feishu/sfdc_quote_report_bridge.py audit
+      - name: Mirror mail-ingested Quote Report lines to dedicated Feishu tables
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'report_sync'
+        run: python3 automation/feishu/sfdc_quote_report_bridge.py sync
       - name: Mirror Feishu requests into private inbox
         if: github.event_name != 'workflow_dispatch' || inputs.mode == 'pull'
         run: python3 automation/feishu/sfdc_command_queue.py pull
