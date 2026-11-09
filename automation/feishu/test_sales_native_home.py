@@ -14,6 +14,25 @@ class PortalTests(unittest.TestCase):
         self.assertIn("PAYMENT_FOLLOWUP",p.PINNED_KEYS)
         self.assertTrue(p.PINNED_KEYS.issubset(set(keys)))
 
+    def test_menu_order_colors_and_stable_ids(self):
+        self.assertEqual(len(p.CURATED_ORDER),12)
+        self.assertEqual(len(set(p.CURATED_ORDER)),12)
+        self.assertEqual(p.presentation("DASHBOARD","핵심 KPI 카드",1),
+                         (1,"01 · 핵심 KPI 카드","핵심 KPI"))
+        self.assertEqual(p.presentation("X_URGENT","긴급",2)[2],"즉시 확인")
+        self.assertEqual(p.presentation("PO_REQUIRED","PO",3)[2],"확인·증빙")
+        self.assertEqual(p.presentation("PAYMENT_FOLLOWUP","결제",4)[2],"매출·결제")
+        self.assertEqual(p.presentation("ACCOUNTS","기관",6),
+                         (106,"기관","관리용"))
+        self.assertEqual({n:c for n,c in p.MENU_COLORS}["즉시 확인"],0)
+        self.assertTrue(p.PINNED_KEYS==set(p.CURATED_ORDER))
+
+    def test_numeric_sort_fields_do_not_cause_repeated_writes(self):
+        self.assertTrue(p.same({"표시순서":1.0,"화면":"01 · KPI",
+                                "메뉴 구분":"핵심 KPI"},
+                               {"표시순서":1,"화면":"01 · KPI",
+                                "메뉴 구분":"핵심 KPI"}))
+
     def test_link_and_empty_source(self):
         tables={"QQ Mail Intake":"tblMAIL","Contacts":"tblCUSTOMER"}
         with mock.patch.object(p,"list_views",side_effect=[

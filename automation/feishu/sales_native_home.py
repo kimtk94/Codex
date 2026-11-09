@@ -95,16 +95,45 @@ MENUS = (
 )
 
 
-# Only these twelve operational destinations appear in the main menu. The
-# remaining source/diagnostic routes are retained for admins and automation.
-# Do not drop their table records or remove any old Feishu Base tables.
-PINNED_KEYS=frozenset({
-    "DASHBOARD","WEEKLY_TREND","MONTHLY_TREND",
-    "MAIL_CURRENT","CUSTOMER_REVIEW",
-    "X_MY_PROJECTS","X_URGENT","X_FOLLOWUP",
-    "PAYMENT_FOLLOWUP","X_MY_INVOICE",
-    "SIF_EVIDENCE","PO_REQUIRED",
-})
+# Ordered by daily usage, not by underlying table creation order.
+CURATED_ORDER=(
+    "DASHBOARD", "WEEKLY_TREND", "MONTHLY_TREND",
+    "MAIL_CURRENT", "CUSTOMER_REVIEW",
+    "X_MY_PROJECTS", "X_URGENT", "X_FOLLOWUP",
+    "SIF_EVIDENCE", "PO_REQUIRED",
+    "PAYMENT_FOLLOWUP", "X_MY_INVOICE",
+)
+PINNED_KEYS=frozenset(CURATED_ORDER)
+# Official Feishu single-select option color indices: red=0, orange=1,
+# green=10, blue=20. Business urgency is expressed only for explicit urgent views.
+MENU_COLORS=(
+    ("핵심 KPI",20),
+    ("고객·메일",20),
+    ("프로젝트",20),
+    ("즉시 확인",0),
+    ("확인·증빙",1),
+    ("매출·결제",10),
+    ("관리용",20),
+)
+COLOR_KEY_MAP={
+    **dict.fromkeys(("DASHBOARD","WEEKLY_TREND","MONTHLY_TREND"),"핵심 KPI"),
+    **dict.fromkeys(("MAIL_CURRENT","CUSTOMER_REVIEW"),"고객·메일"),
+    **dict.fromkeys(("X_MY_PROJECTS","X_FOLLOWUP"),"프로젝트"),
+    "X_URGENT":"즉시 확인",
+    **dict.fromkeys(("SIF_EVIDENCE","PO_REQUIRED"),"확인·증빙"),
+    **dict.fromkeys(("PAYMENT_FOLLOWUP","X_MY_INVOICE"),"매출·결제"),
+}
+MENU_EXTRA_FIELDS={
+    "표시순서":{"field_name":"표시순서","type":2},
+    "메뉴 구분":{"field_name":"메뉴 구분","type":3,
+               "property":{"options":[{"name":n,"color":c} for n,c in MENU_COLORS]}},
+}
+
+def presentation(key,title,source_index):
+    if key in PINNED_KEYS:
+        rank=CURATED_ORDER.index(key)+1
+        return rank, f"{rank:02d} · {title}", COLOR_KEY_MAP[key]
+    return 100+source_index, title, "관리용"
 CURATED_VIEW="업무용 메뉴"
 CURATED_DISPLAY="주요"
 ARCHIVE_DISPLAY="관리용"
@@ -129,7 +158,8 @@ def source_rows(token,root,tables,now):
     output = []
     cached = {}
     status = collections.Counter()
-    for key, group, title, table_name, view_name, source, instruction in MENUS:
+    for source_index, (key, group, title, table_name, view_name, source, instruction) in enumerate(MENUS, 1):
+        rank, display, color = presentation(key,title,source_index)
         tid = tables.get(table_name)
         url = ""
         state = "SOURCE_TABLE_NOT_READY"
@@ -153,7 +183,8 @@ def source_rows(token,root,tables,now):
                 state = "VIEW_NOT_READY"
         status[state] += 1
         output.append({
-            "Menu Key":key, "그룹":group, "화면":title,
+            "Menu Key":key, "그룹":group, "화면":display,
+            "표시순서":rank, "메뉴 구분":color,
             "바로가기 URL":url, "데이터 상태":state,
             "업무 내용":instruction, "원본 기준":source,
             "표시":CURATED_DISPLAY if key in PINNED_KEYS else ARCHIVE_DISPLAY,
@@ -168,27 +199,43 @@ def ensure_home(token,root,tables):
     if tid is None:
         api("POST",root+"/tables",token,data={"table":{
             "name":HOME,"default_view_name":"바로가기",
-            "fields":[{"field_name":name,"type":1} for name in FIELDS],
+            "fields":[{"field_name":name,"type":1} for name in FIELDS]
+                     + list(MENU_EXTRA_FIELDS.values()),
         }},action="portal_create_home")
         tid = table_map(token,root).get(HOME)
     if not tid:
         raise SafeError("PORTAL_HOME_CREATE_FAILED")
     path = target_path(root,tid)
-    fields = {r.get("field_name"):r.get("type") for r in get_fields(token,path)}
-    if any(name in fields and fields[name] != 1 for name in FIELDS):
+    required={name:{"field_name":name,"type":1} for name in FIELDS}
+    required.update(MENU_EXTRA_FIELDS)
+    fields={r.get("field_name"):r.get("type") for r in get_fields(token,path)}
+    if any(name in fields and fields[name]!=spec["type"]
+           for name,spec in required.items()):
         raise SafeError("PORTAL_HOME_FIELD_CONFLICT")
-    for name in FIELDS:
+    for name,spec in required.items():
         if name not in fields:
-            api("POST",path+"/fields",token,
-                data={"field_name":name,"type":1},action="portal_add_field")
-    final={r.get("field_name"):r.get("type") for r in get_fields(token,path)}
-    if any(final.get(name)!=1 for name in FIELDS):
+            api("POST",path+"/fields",token,data=spec,action="portal_add_field")
+    actual=get_fields(token,path)
+    final={r.get("field_name"):r for r in actual}
+    if any(final.get(name,{}).get("type")!=spec["type"]
+           for name,spec in required.items()):
         raise SafeError("PORTAL_HOME_SCHEMA_READBACK_FAILED")
+    tag_field=final["메뉴 구분"]
+    existing_options=(tag_field.get("property") or {}).get("options") or []
+    current={option.get("name"):option.get("color") for option in existing_options}
+    if any(current.get(n)!=c for n,c in MENU_COLORS):
+        raise SafeError("PORTAL_MENU_COLOR_OPTIONS_MISMATCH")
     return tid,path
 
 
+def as_display(value):
+    if isinstance(value,(int,float)) and not isinstance(value,bool):
+        return str(int(value)) if value==int(value) else str(value)
+    return plain_field(value).strip()
+
+
 def same(original,expected):
-    return all(plain_field(original.get(k)).strip()==str(v).strip()
+    return all(as_display(original.get(k))==str(v).strip()
                for k,v in expected.items())
 
 
