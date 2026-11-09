@@ -33,6 +33,9 @@ on:
       - 'automation/feishu/sales_metrics_sync.py'
       - 'automation/feishu/test_sales_metrics_scope.py'
       - 'automation/feishu/weekly_quote_review.py'
+      - 'automation/feishu/quote_process_amount.py'
+      - 'automation/feishu/weekly_quote_review_layout.py'
+      - 'automation/feishu/test_weekly_quote_review_layout.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
   pull_request:
@@ -55,6 +58,9 @@ on:
       - 'automation/sfdc/three_report_relationship_qc.py'
       - 'automation/feishu/sales_metrics_sync.py'
       - 'automation/feishu/weekly_quote_review.py'
+      - 'automation/feishu/quote_process_amount.py'
+      - 'automation/feishu/weekly_quote_review_layout.py'
+      - 'automation/feishu/test_weekly_quote_review_layout.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
       - '.github/workflows/sfdc-three-report-email-digestion.yml'
 permissions:
@@ -105,6 +111,7 @@ jobs:
       - name: Verify isolated Quote KPI scope
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review_layout.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_scope.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
           python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/shortcut_chart_dashboards.py automation/feishu/native_dashboard_cli.py
@@ -155,6 +162,9 @@ jobs:
         run: |
           printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name sfdc-report-unified --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
           lark-cli profile use sfdc-report-unified
+      - name: Configure and verify editable five-week Quote decision grid
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
+        run: python3 automation/feishu/weekly_quote_review_layout.py
       - name: Refresh and verify native Quote trend dashboards
         if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging) }}
         run: python3 automation/feishu/shortcut_chart_dashboards.py
