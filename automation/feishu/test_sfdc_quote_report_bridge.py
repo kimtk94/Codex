@@ -46,7 +46,7 @@ def data():
                 "Unit Price USD":amount,
                 "Total Price USD (converted)":amount,
                 "Sample Quantity":qty if proc=="Process-001" else "2",
-                "Data Size":"12","Active":"1","Created Date":"10/20/2026",
+                "Data Size":"12","Active":"1","Created Date":"10/23/2026",
                 "Sales Price USD (converted)":amount
             })
     return (lines,LINE_HEAD),(headers,HEAD_HEAD)
@@ -86,6 +86,14 @@ class ReportBridgeTests(unittest.TestCase):
         head[0][1]["Exported At KST"]="2026-10-25 18:00:08 KST"
         with self.assertRaisesRegex(ReportSourceError,"REPORT_EXPORT_TIME_CONFLICT"):
             build_records(source,(head[0],head[1]))
+
+    def test_new_header_cannot_relabel_old_process_lines_fresh(self):
+        """Header email alone cannot certify missing updated 25-column report."""
+        source,(headers,names)=data()
+        for header in headers:
+            header["Exported At KST"]="2026-11-09 18:00:08 KST"
+        with self.assertRaisesRegex(ReportSourceError,"REPORT_PROCESS_SOURCE_LAG"):
+            build_records(source,(headers,names))
 
     def test_report_input_missing_product_price_fails(self):
         (lines,lh),heads=data()
