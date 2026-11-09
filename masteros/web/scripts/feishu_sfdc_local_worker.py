@@ -174,10 +174,22 @@ def process(x):
             return {"status":"BLOCK","code":"CLOUD_PROCESS_SAVE_READBACK_NOT_VERIFIED",
                     "price_fields":p["price_fields"]}
         r=json_run("sfdc_action_executor.py",p["opportunity"])
-        return {"status":"PREFLIGHT_PASS" if r.get("status")=="PREFLIGHT_PASS" else "PREFLIGHT_BLOCK",
-                "code":("NET_"+str(p["expectedNet"])+"_CLOUD_"+str(p["expectedCloudUnits"]))
-                        if r.get("status")=="PREFLIGHT_PASS" else
-                        r.get("code","OPPORTUNITY_PREFLIGHT_FAILED"),
+        if r.get("status")!="PREFLIGHT_PASS" or r.get("save_clicked") is not False:
+            return {"status":"PREFLIGHT_BLOCK",
+                    "code":r.get("code") or "OPPORTUNITY_NO_SAVE_PREFLIGHT_FAILED",
+                    "price_fields":p["price_fields"]}
+        # Quote CHECK still targets the *source* Opportunity, not the not-yet
+        # saved new one. It validates catalog and header controls only.
+        # No Cloud process quantity or final new Quote total is written/read.
+        q=json_run("sfdc_action_executor.py",p["quotation"])
+        if (q.get("status")!="PREFLIGHT_PASS" or q.get("save_clicked") is not False
+                or q.get("product_added") is not False):
+            return {"status":"PREFLIGHT_BLOCK",
+                    "code":q.get("code") or "QUOTE_REFERENCE_NO_SAVE_PREFLIGHT_FAILED",
+                    "price_fields":p["price_fields"]}
+        return {"status":"PREFLIGHT_PASS",
+                "code":"NET_"+str(p["expectedNet"])+"_CLOUD_"+str(p["expectedCloudUnits"])+
+                       "_REFERENCE_QUOTE_FORM_ONLY_NO_SAVE",
                 "price_fields":p["price_fields"]}
     return {"status":"BLOCK","code":"ACTION_NOT_SUPPORTED"}
 
