@@ -14,6 +14,10 @@ on:
     paths:
       - 'automation/feishu/sfdc_command_queue.py'
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
+      - 'masteros/web/scripts/feishu_sfdc_local_worker.py'
+      - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
+      - 'masteros/web/scripts/test_sfdc_multi_product_price_fields.py'
+      - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'automation/feishu/test_sfdc_command_queue.py'
       - 'automation/feishu/sfdc_price_smoke.py'
       - 'automation/feishu/test_sfdc_price_smoke.py'
@@ -22,6 +26,10 @@ on:
     paths:
       - 'automation/feishu/sfdc_command_queue.py'
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
+      - 'masteros/web/scripts/feishu_sfdc_local_worker.py'
+      - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
+      - 'masteros/web/scripts/test_sfdc_multi_product_price_fields.py'
+      - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'automation/feishu/test_sfdc_command_queue.py'
       - 'automation/feishu/sfdc_price_smoke.py'
       - 'automation/feishu/test_sfdc_price_smoke.py'
@@ -48,6 +56,9 @@ jobs:
           python3 -m py_compile automation/feishu/sfdc_command_queue.py
           python3 -m py_compile automation/feishu/sfdc_price_smoke.py
           python3 -m unittest discover -s automation/feishu -p test_sfdc_price_smoke.py -v
+          python3 -m unittest discover -s masteros/web/scripts -p test_sfdc_quote_price_fields.py -v
+          python3 -m unittest discover -s masteros/web/scripts -p test_sfdc_multi_product_price_fields.py -v
+          python3 -m unittest discover -s masteros/web/scripts -p test_feishu_sfdc_local_worker.py -v
   live:
     needs: offline
     if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || vars.FEISHU_SFDC_BRIDGE_ENABLED == 'true')
