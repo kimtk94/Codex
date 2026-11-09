@@ -10,6 +10,7 @@ on:
       - 'automation/feishu/sales_metrics_sync.py'
       - '.github/workflows/feishu-sources-unified.yml'
       - 'automation/feishu/test_unified_workflow_contracts.py'
+      - 'automation/css_mail/project_lifecycle_refresh.py'
       - 'automation/feishu/test_sales_metrics_scope.py'
   workflow_dispatch:
     inputs:
@@ -47,22 +48,93 @@ jobs:
           python3 automation/feishu/test_payment_reconciliation_qc.py
           python3 -m unittest discover -s automation/feishu -p 'test_sales_native_trends.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_payment_dashboard.py' -v
+          python3 -m unittest discover -s automation/css_mail -p 'test_project_lifecycle_chain.py' -v
           python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/online_project_tat_forecast.py automation/feishu/native_payment_dashboard_cli.py
-  refresh:
+  # Stage source files once; Payment and Monthly run as independent jobs
+  # after ingest, so a lifecycle HOLD cannot suppress Payment updates.
+  ingest:
     needs: tests
     if: ${{ needs.tests.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true)) }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
-    timeout-minutes: 50
+    timeout-minutes: 20
     env:
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ secrets.FEISHU_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install private Feishu and Google source clients
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Ingest latest five Feishu source files and source manifest
+        run: python3 automation/feishu/project_status_sync.py
+      - name: Derive Online TAT and invoice-deduplicated forecast
+        run: python3 automation/feishu/online_project_tat_forecast.py
+      - name: Verify source-stage completion
+        run: echo 'FEISHU_SOURCE_STAGE_PASS=latest_files,manifest,online_tat' >> "$GITHUB_STEP_SUMMARY"
+
+  payment:
+    needs: ingest
+    if: ${{ needs.ingest.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 35
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
       FEISHU_METRIC_SCOPE: operations
       FEISHU_METRIC_MODE: apply
       FEISHU_PAYMENT_DASHBOARD_MODE: apply
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install source client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Reconcile Payment outstanding and receipt evidence
+        run: python3 automation/feishu/payment_reconciliation_qc.py
+      - name: Update only Payment and project SIF operational boards
+        run: python3 automation/feishu/sales_metrics_sync.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Feishu CLI
+        run: npm install --global '@larksuite/cli@1.0.99'
+      - name: Configure ephemeral Payment dashboard identity
+        run: |
+          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name feishu-source-unified-payment --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
+          lark-cli profile use feishu-source-unified-payment
+      - name: Update native Payment dashboard after source proof checks
+        run: python3 automation/feishu/native_payment_dashboard_cli.py
+      - name: Confirm Payment source-to-sink status
+        run: echo 'FEISHU_PAYMENT_UNIFIED_PASS=source,receipts,operations,dashboard' >> "$GITHUB_STEP_SUMMARY"
+
+  monthly:
+    needs: ingest
+    if: ${{ needs.ingest.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 35
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_METRIC_MODE: apply
       FEISHU_TREND_MODE: apply
     steps:
       - uses: actions/checkout@v4
@@ -71,49 +143,40 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install read-only source and generated-sheet clients
+      - name: Install source client
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      - name: Ingest newest five Feishu source files to dated snapshots and manifest
-        run: python3 automation/feishu/project_status_sync.py
-      - name: Derive Online project TAT and invoice-safe forecast
-        run: python3 automation/feishu/online_project_tat_forecast.py
-      - name: Refresh project lifecycle from Feishu snapshots
-        run: python3 automation/css_mail/project_lifecycle_refresh.py
-      - name: Refresh issued Pending Forecast monthly lifecycle
-        run: python3 automation/css_mail/revenue_lifecycle_monthly.py
-      - name: Publish verified VAT-excluded Revenue derived tab
+      - name: Verify and publish VAT-excluded net Revenue
         run: python3 automation/css_mail/revenue_net_vat_publish.py
-      - name: Validate Revenue source authority and parity
+      - name: Reconcile authoritative source parity
         run: python3 automation/css_mail/revenue_source_authority.py
-      - name: Reconcile Payment receipt and invoice proof without certifying paid
-        run: python3 automation/feishu/payment_reconciliation_qc.py
-      - name: Update only source-authorized Monthly Revenue in Feishu Sales Base
-        env:
-          FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      - name: Write verified issued Monthly Revenue to Sales Base
         run: python3 automation/feishu/monthly_revenue_actual_sync.py
-      - name: Update Payment and SIF project boards without writing Weekly Quote
-        env:
-          FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
-        run: python3 automation/feishu/sales_metrics_sync.py
-      - name: Refresh native Monthly and Weekly trend source views
-        env:
-          FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      - name: Refresh trend sources with current Monthly and Weekly data
         run: python3 automation/feishu/sales_native_trends.py
-      - uses: actions/setup-node@v4
+      - name: Confirm Monthly source-to-sink status
+        run: echo 'FEISHU_MONTHLY_UNIFIED_PASS=vat,authority,feishu_monthly,trends; lifecycle=separate' >> "$GITHUB_STEP_SUMMARY"
+
+  lifecycle:
+    needs: ingest
+    if: ${{ needs.ingest.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_UNIFIED_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+    steps:
+      - uses: actions/checkout@v4
         with:
-          node-version: '22'
-      - name: Install official Feishu native dashboard CLI
-        run: npm install --global '@larksuite/cli@1.0.99'
-      - name: Configure ephemeral Feishu dashboard identity
-        run: |
-          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name feishu-source-unified --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
-          lark-cli profile use feishu-source-unified
-      - name: Update native Payment dashboard from verified Feishu source
-        env:
-          FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
-        run: python3 automation/feishu/native_payment_dashboard_cli.py
-      - name: Confirm source-to-Feishu operational completion
-        run: |
-          echo 'FEISHU_SOURCES_UNIFIED_PASS=Payment,Online,Monthly,Project,SIF' >> "$GITHUB_STEP_SUMMARY"
-          echo 'SFDC Quote/Weekly and SFDC mail source are NOT written in this workflow.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Payment proof is not equivalent to bank receipt. Revenue is VAT excluded.' >> "$GITHUB_STEP_SUMMARY"
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install guarded lifecycle source clients
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Reconcile project lifecycle with strict no-shrink policy
+        run: python3 automation/css_mail/project_lifecycle_refresh.py
+      - name: Publish verified pending and forecast month totals
+        run: python3 automation/css_mail/revenue_lifecycle_monthly.py
+      - name: Confirm lifecycle review
+        run: echo 'FEISHU_LIFECYCLE_UNIFIED_PASS=no_shrink,latest_source,pending_forecast' >> "$GITHUB_STEP_SUMMARY"

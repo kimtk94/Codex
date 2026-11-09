@@ -301,7 +301,7 @@ def main():
     if not previous or previous[0] not in (HEAD,HEAD[:22],HEAD[:20]):
         raise RuntimeError("Lifecycle output header changed; refusing update")
     if len(previous)>len(result):
-        raise RuntimeError("Fewer projects than previous snapshot; refusing destructive shrink")
+        raise RuntimeError("LIFECYCLE_SOURCE_SHRINK_HOLD previous="+str(len(previous)-1)+" current="+str(len(result)-1)+" missing="+str(len(previous)-len(result)))
     put(s,DST,TAB,"A1",result,"RAW")
     # Verify the materialized result before reporting success. A stale sheet
     # must never be presented as a completed refresh.
