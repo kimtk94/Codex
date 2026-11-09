@@ -23,7 +23,7 @@ if (-not (Test-Path (Join-Path $web '.next\BUILD_ID'))) {
   exit 1
 }
 
-$url = "http://127.0.0.1:$Port/sales/projects"
+$url = "http://127.0.0.1:$Port/sales/commands"
 $listener = Get-NetTCPConnection -State Listen -LocalAddress 127.0.0.1 -LocalPort $Port -ErrorAction SilentlyContinue
 if ($listener) {
   try {
@@ -39,6 +39,8 @@ if ($listener) {
 }
 
 $env:CSS_LOCAL_PROJECTS_ENABLED = "1"
+$env:SFDC_LOCAL_COMMAND_ENABLED = "1"
+$env:SFDC_LOCAL_PYTHON = "python"
 $env:SFDC_LOCAL_CONTACT_LOOKUP_ENABLED = "1"
 $env:SFDC_LOCAL_FULL_AUDIT_ENABLED = "1"
 $env:SFDC_LOCAL_REVIEW_ENABLED = "1"

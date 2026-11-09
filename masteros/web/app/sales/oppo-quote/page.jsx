@@ -132,6 +132,7 @@ export default function OppoQuoteCommandPage() {
         <header className={styles.header}>
           <div className={styles.breadcrumb}>
             <Link href="/">MasterOS</Link>
+            <Link href="/sales/commands">실행 화면</Link>
             <span>/</span><span>Sales</span><span>/</span><strong>Oppo + Quote</strong>
           </div>
           <div className={styles.headerBottom}>
