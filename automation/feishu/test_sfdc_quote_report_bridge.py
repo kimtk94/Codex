@@ -107,9 +107,10 @@ class ReportBridgeTests(unittest.TestCase):
         qid="QID-2026-10-20-200101"
         records=[{"Line Key":"hash1","Quote ID":qid,"Source Exported KST":EXPORTED}]
         current=[{"record_id":"rec0000001","fields":dict(records[0])}]
-        with patch("sfdc_quote_report_bridge.pages",side_effect=[current,current]) as read:
-            with patch("sfdc_quote_report_bridge.write_batch") as writer:
-                result=sync_one("token","tbl0","Line Key",records)
+        with patch("sfdc_quote_report_bridge.path",return_value="/apps/test"):
+            with patch("sfdc_quote_report_bridge.pages",side_effect=[current,current]) as read:
+                with patch("sfdc_quote_report_bridge.write_batch") as writer:
+                    result=sync_one("token","tbl0","Line Key",records)
         self.assertEqual(result["unchanged"],1)
         self.assertEqual(result["readback"],"PASS")
         writer.assert_not_called()
