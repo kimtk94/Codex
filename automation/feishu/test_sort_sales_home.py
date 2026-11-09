@@ -13,6 +13,15 @@ class SortTests(unittest.TestCase):
                       {"sort_config":[{"field":"화면","desc":False}]}):
             self.assertFalse(s.sort_matches(value, "fld123"))
 
+    def test_shortcut_filter_and_layout_unchanged(self):
+        self.assertEqual(s.SHORTCUT_VIEW,"바로가기")
+        self.assertEqual(set(s.SHORTCUT_KEYS),{
+            "MONTHLY_TREND","WEEKLY_TREND","SIF_EVIDENCE",
+            "X_MY_PROJECTS","PAYMENT_FOLLOWUP"})
+        self.assertEqual(len(s.PINNED_KEYS),12)
+        self.assertEqual(s.CURATED_COLUMNS[1],"메뉴 구분")
+        self.assertEqual(s.CURATED_COLUMNS[3],"바로가기")
+
     def test_view_columns(self):
         fields=[{"field_id":"f"+str(i),"field_name":name}
                 for i,name in enumerate(s.CURATED_COLUMNS)]
