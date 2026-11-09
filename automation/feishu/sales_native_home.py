@@ -9,6 +9,7 @@ import collections
 import datetime as dt
 import json
 import os
+import re
 import sys
 import urllib.parse
 from zoneinfo import ZoneInfo
@@ -141,6 +142,30 @@ ARCHIVE_DISPLAY="관리용"
 # A separate existing Feishu view; do not reduce the curated 12 or delete any records.
 SHORTCUT_VIEW="바로가기"
 FULL_VIEW="전체 메뉴"  # 34 records, no filter; separate from 5- and 12-row views.
+# Actual graph dashboards use Feishu block IDs (blk...), not table/view grids.
+CHART_SHORTCUT_ENV={
+    "MONTHLY_TREND":"FEISHU_SHORTCUT_MONTHLY_DASHBOARD_ID",
+    "WEEKLY_TREND":"FEISHU_SHORTCUT_WEEKLY_DASHBOARD_ID",
+}
+
+def chart_shortcut_url(key,environ=None):
+    environ=os.environ if environ is None else environ
+    if key not in CHART_SHORTCUT_ENV:
+        return None
+    dash_id=environ.get(CHART_SHORTCUT_ENV[key],"")
+    if not re.fullmatch(r"blk[A-Za-z0-9]{6,}",dash_id):
+        return None
+    return BASE_URL+"?table="+dash_id
+
+
+def valid_menu_url(key,url):
+    if not isinstance(url,str) or not url.startswith(BASE_URL+"?table="):
+        return False
+    if key in CHART_SHORTCUT_ENV:
+        return bool(re.fullmatch(r"blk[A-Za-z0-9]{6,}",
+                                 url[len(BASE_URL+"?table="):]))
+    return "&view=" in url and "?table=tbl" in url
+
 SHORTCUT_KEYS=(
     "MONTHLY_TREND",
     "WEEKLY_TREND",
@@ -171,27 +196,32 @@ def source_rows(token,root,tables,now):
     status = collections.Counter()
     for source_index, (key, group, title, table_name, view_name, source, instruction) in enumerate(MENUS, 1):
         rank, display, color = presentation(key,title,source_index)
-        tid = tables.get(table_name)
         url = ""
         state = "SOURCE_TABLE_NOT_READY"
-        if tid:
-            if table_name not in cached:
-                path = target_path(root, tid)
-                views = list_views(token, path)
-                # page_size=1 checks for data without exposing client content.
-                check = api("GET", path + "/records?page_size=1", token,
-                            action="portal_check_data")
-                has_rows = bool(check.get("items"))
-                cached[table_name] = (views,has_rows)
-            views,has_rows = cached[table_name]
-            vid = views.get(view_name)
-            if key == "DASHBOARD" and not vid:
-                vid = views.get("02 KPI 상세")  # Feishu gallery API may be unavailable.
-            if vid:
-                url = BASE_URL + "?table=" + urllib.parse.quote(tid,safe="") + "&view=" + urllib.parse.quote(vid,safe="")
-                state = "DATA_PRESENT" if has_rows else "SOURCE_EMPTY"
-            else:
-                state = "VIEW_NOT_READY"
+        if key in CHART_SHORTCUT_ENV:
+            # Never silently substitute a data-table link for a chart dashboard.
+            url=chart_shortcut_url(key) or ""
+            state="DASHBOARD_PRESENT" if url else "DASHBOARD_NOT_VERIFIED"
+        else:
+            tid = tables.get(table_name)
+            if tid:
+                if table_name not in cached:
+                    path = target_path(root, tid)
+                    views = list_views(token, path)
+                    # page_size=1 checks for data without exposing client content.
+                    check = api("GET", path + "/records?page_size=1", token,
+                                action="portal_check_data")
+                    has_rows = bool(check.get("items"))
+                    cached[table_name] = (views,has_rows)
+                views,has_rows = cached[table_name]
+                vid = views.get(view_name)
+                if key == "DASHBOARD" and not vid:
+                    vid = views.get("02 KPI 상세")  # Feishu gallery API may be unavailable.
+                if vid:
+                    url = BASE_URL + "?table=" + urllib.parse.quote(tid,safe="") + "&view=" + urllib.parse.quote(vid,safe="")
+                    state = "DATA_PRESENT" if has_rows else "SOURCE_EMPTY"
+                else:
+                    state = "VIEW_NOT_READY"
         status[state] += 1
         output.append({
             "Menu Key":key, "그룹":group, "화면":display,
@@ -203,7 +233,7 @@ def source_rows(token,root,tables,now):
     for item in output:
         url=item["바로가기 URL"]
         item["바로가기"]={"text":"열기","link":url} if (
-            url.startswith(BASE_URL+"?table=") and "&view=" in url
+            valid_menu_url(item["Menu Key"],url)
         ) else None
     for state,count in sorted(status.items()):
         print("PORTAL_ROUTE_"+state+"="+str(count))
