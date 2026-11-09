@@ -22,7 +22,8 @@ class QueueGuard(unittest.TestCase):
         self.assertEqual(HEAD[21],"Checked At")
         self.assertEqual(HEAD[22:24],PRICE_INPUT_FIELDS)
         self.assertEqual(HEAD[24:],PRICE_RESULT_FIELDS)
-        self.assertEqual(LAST_COLUMN,"AL")
+        self.assertEqual(HEAD[-1],"Product Price Items JSON")
+        self.assertEqual(LAST_COLUMN,"AM")
         self.assertEqual(column_name(25),"Z")
         self.assertEqual(column_name(26),"AA")
     def test_currency_fields_are_numeric_in_feishu(self):
@@ -47,6 +48,7 @@ class QueueGuard(unittest.TestCase):
     def test_pricing_result_keys_are_sink_only(self):
         self.assertIn("Product Net KRW",SINK_FIELDS)
         self.assertIn("Price Status",SINK_FIELDS)
+        self.assertIn("Product Price Items JSON",SINK_FIELDS)
         self.assertNotIn("Requested Product Unit KRW",SINK_FIELDS)
     def test_numeric_feishu_source_readback_is_integer(self):
         from sfdc_command_queue import plain
