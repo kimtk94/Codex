@@ -14,8 +14,8 @@ const timeKst=value=>{
   }).format(date)+" KST";
 };
 const descriptions={
-  PASS_MIRROR_ONLY:"Google Drive 운영 미러와 V4 일치",
-  SINK_LAG:"원천 ↔ V4 불일치",
+  PASS_MIRROR_ONLY:"데이터 검증 PASS",
+  SINK_LAG:"데이터 불일치",
   STALE:"동기화 지연",
   SOURCE_UNAVAILABLE:"원천 접근 불가",
 };
@@ -60,9 +60,10 @@ export default function CssProjectsLocal(){
       <div>
         <p className={styles.eyebrow}>NOVOGENE · LOCAL OPERATIONS</p>
         <h1>CSS 프로젝트</h1>
-        <p>Google Drive → WEB_EXPORT_V4 · 읽기 전용</p>
+        <p>프로젝트 현황 · 검색 · Health Check</p>
       </div>
       <div className={styles.actions}>
+        <Link href="/sales/commands">업무 실행</Link>
         <Link href="/sales/oppo-quote">Oppo · Quote</Link>
         <Link href="/">홈</Link>
         <button type="button" onClick={refresh} disabled={loading}>
@@ -74,24 +75,24 @@ export default function CssProjectsLocal(){
     <section className={styles.statusCard} aria-live="polite">
       <div className={styles.statusRow}>
         <span className={styles.status} data-status={status}>{descriptions[status]||status}</span>
-        <span>Google Drive 운영 미러 기준 · 원본 시스템 검증 별도</span>
+        <span>Health Check</span>
       </div>
       <div className={styles.timestamps}>
-        <span>원천 미러: {timeKst(data?.source_synced_at)}</span>
-        <span>V4 생성: {timeKst(data?.sink_generated_at)}</span>
+        <span>최종 수집: {timeKst(data?.source_synced_at)}</span>
+        <span>최종 반영: {timeKst(data?.sink_generated_at)}</span>
         <span>재조회: {timeKst(data?.checked_at)}</span>
       </div>
       <p className={styles.caution}>
         {error?"조회 실패: "+error:
         status==="SINK_LAG"?"원천과 내보내기 결과가 일치하지 않습니다. 운영에 사용하기 전에 동기화가 필요합니다.":
         status==="STALE"?"원천이나 결과 갱신이 지연됐습니다. 최신화 후 확인하세요.":
-        "미러→V4 정합성은 검증하지만, Feishu·QQ 원본 최신성 및 SFDC 저장 성공은 인증하지 않습니다."}
+        "프로젝트 상태는 최종 검증 시각을 기준으로 표시합니다."}
       </p>
     </section>
 
     <section className={styles.metrics}>
-      <Metric name="프로젝트 / 서브프로젝트" value={data?.sink_count} detail="V4 표시 건수"/>
-      <Metric name="운영 원천" value={data?.source_count} detail="Google Drive 운영 미러"/>
+      <Metric name="프로젝트 / 서브프로젝트" value={data?.sink_count} detail="현황"/>
+      <Metric name="수집 건수" value={data?.source_count} detail="최종 집계"/>
       <Metric name="필드 불일치" value={data?.source_sink_mismatch_count} detail="각 프로젝트 교차 대조"/>
       <Metric name="누락된 프로젝트" value={data?.missing_project_count} detail="고유 프로젝트 ID 기준"/>
     </section>
@@ -134,8 +135,8 @@ export default function CssProjectsLocal(){
       </div>
     </section>
     <footer className={styles.footer}>
-      <a href="https://docs.google.com/spreadsheets/d/1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY/edit#gid=1142461809" target="_blank" rel="noreferrer">Google Drive · WEB_EXPORT_V4</a>
-      <span>로컬 전용 · 127.0.0.1 · CRM 저장 없음</span>
+      <Link href="/sales/commands">Lead Convert · Oppo · Quote 실행</Link>
+      <span>상태 확인 후 실행</span>
     </footer>
   </main>;
 }
