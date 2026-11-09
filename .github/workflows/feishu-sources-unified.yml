@@ -123,8 +123,10 @@ jobs:
         run: echo 'FEISHU_PAYMENT_UNIFIED_PASS=source,receipts,operations,dashboard' >> "$GITHUB_STEP_SUMMARY"
 
   monthly:
-    needs: ingest
-    if: ${{ needs.ingest.result == 'success' }}
+    # The authoritative VAT parity compares the just-materialized lifecycle.
+    # Do not race the independent lifecycle writer (2026-11 parity drift).
+    needs: [ingest, lifecycle]
+    if: ${{ needs.ingest.result == 'success' && needs.lifecycle.result == 'success' }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 35
