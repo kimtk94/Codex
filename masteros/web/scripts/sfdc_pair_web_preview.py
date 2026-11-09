@@ -19,7 +19,7 @@ ID_RE = {
 
 
 def _blocked(code):
-    return {"status": "BLOCK", "code": code, "salesforce_write": False}
+    return {"status": "BLOCK", "code": code, "salesforce_write": False, "save_permitted": False}
 
 
 def _id(value, prefix):
