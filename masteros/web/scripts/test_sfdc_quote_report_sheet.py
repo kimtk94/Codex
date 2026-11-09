@@ -99,6 +99,17 @@ class SheetTests(unittest.TestCase):
         with self.assertRaisesRegex(local.ReportError,"SHEET_SFDC_ID_UNMAPPED"):
             sheet.detail("a0P00000000000X")
 
+    def test_gzipped_stage_has_same_source_line_integrity(self):
+        import gzip
+        self.write([raw(QID1,"QD-1","190.00","A","A")])
+        src=self.root/"part_000.json"
+        z=self.root/"part_000.json.gz"
+        z.write_bytes(gzip.compress(src.read_bytes(),compresslevel=9))
+        src.unlink()
+        result=sheet.sync_staged()
+        self.assertEqual(result["process_rows"],1)
+        self.assertEqual(sheet.detail(QID1)["process_lines"][0]["unit_price_usd"],"190.00")
+
     def test_no_deduplication_of_money_fields(self):
         self.write([raw(QID1,"QD-1","190.01","A","A"),
                     raw(QID1,"QD-1","0.00","A","A")])
