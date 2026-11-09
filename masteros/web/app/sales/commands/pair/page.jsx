@@ -245,13 +245,13 @@ export default function PairedQuoteWeb(){
         <div><small>Record ID 매핑</small><strong>{reportStatus?.linked_sfdc_record_count??"—"}건</strong></div>
         <div><small>매핑 대기</small><strong>{reportStatus?.unmapped_sfdc_record_count??"—"}건</strong></div>
       </div>
-      <p className={styles.hint}>조회 경로: {reportBackend==="FEISHU"?"로그인된 Feishu → 검증된 로컬 검색 캐시":"Google Sheet Report 보조 캐시"} · Feishu 직접 수집 시각 {kst(reportStatus?.ingested_at_utc)} · 원본 Report 기준 시각 {reportStatus?.source_report_exported_kst||"별도 미확인"} · KRW 단가 미검증</p>
+      <p className={styles.hint}>조회 경로: {reportBackend==="FEISHU"?"로그인된 Feishu → 검증된 로컬 검색 캐시":"Google Sheet Report 보조 캐시"} · Feishu 읽기 시각 {kst(reportStatus?.ingested_at_utc)} · QQ 메일 수신 시각 {reportStatus?.source_mail_received_kst||"미검증"} · Salesforce 공정 Report 생성 시각 별도 미확인 · KRW 단가 미검증</p>
       <div className={styles.nav}>
         <a href={FEISHU_REPORT_LINES} target="_blank" rel="noreferrer">Feishu 공정별 견적 3,741행</a>
         <a href={FEISHU_REPORT_PRODUCTS} target="_blank" rel="noreferrer">Product 템플릿 102개</a>
         <a href={FEISHU_REPORT_PROCESSES} target="_blank" rel="noreferrer">공통 공정 37개</a>
       </div>
-      <p className={styles.hint}>최신 Quote 생성일: {reportStatus?.newest_quote_created_date||"미확인"} · Report 수집: {kst(reportStatus?.ingested_at_utc)} · {reportStatus?.source||"SOURCE_NOT_READY"}</p>
+      <p className={styles.hint}>최신 Quote 생성일: {reportStatus?.latest_quote_created||reportStatus?.newest_quote_created_date||"미확인"} · Feishu 원본 상태: {reportStatus?.source_state||"미검증"} · {reportStatus?.source||"SOURCE_NOT_READY"}</p>
       <div className={styles.warning}>
         Report 금액은 **USD 환산값**입니다. KRW 원본 단가·할인·Cloud 수량·현재 Salesforce 견적은 별도 검증이 필요하며, 이 화면은 보고서 금액만으로 신규 견적을 확정하지 않습니다.
       </div>
