@@ -67,7 +67,7 @@ def expected_components(chart_name,note_name,kind,source,detail_url=None):
     components=((chart_name,kind,chart_config),(note_name,"text",note_config))
     if kind=="combo" and source=="Weekly Quote KPI" and detail_url:
         action_text=(
-            "# [실제 Quote 54건 대상 목록 · 제외 체크 바로가기]("+detail_url+")\n"
+            "# [최근 5주 실제 Quote 목록 · 제외 체크 바로가기]("+detail_url+")\n"
             "**최신 5주 전체 승인 Quote를 주차별로 확인하세요.** "
             "기관·서비스·공정별 샘플 수·원본 USD 금액·Active 근거를 비교한 뒤 "
             "해당 행의 `합산 제외` 칸을 체크하세요.\n"
