@@ -113,7 +113,7 @@ def build_records(source_lines,source_headers,now=None):
     if date>datetime.now(timezone.utc)+timedelta(minutes=10):
         raise ReportSourceError("REPORT_EXPORT_IN_FUTURE")
     stale=(datetime.now(timezone.utc)-date)>timedelta(hours=24)
-    report_status="STALE" if stale else "SNAPSHOT_NOT_LIVE"
+    report_status="STALE" if stale else "PROCESS_REPORT_FRESHNESS_UNVERIFIED"
     product_groups=defaultdict(list)
     process_defs={}
     occurrences=Counter()
@@ -153,6 +153,18 @@ def build_records(source_lines,source_headers,now=None):
           "Source Status":report_status,
         })
     if not prepared:raise ReportSourceError("REPORT_EMPTY_LINES")
+    # The QQ importer currently stamps the Quote HEADER export separately from
+    # the 25-column process detail report. Never use a newly refreshed header
+    # timestamp to disguise OLD process-price rows as freshly verified.
+    try:
+        latest_process_created=max(
+            datetime.strptime(r["Created Date"],"%m/%d/%Y")
+            .replace(tzinfo=timezone(timedelta(hours=9)))
+            for r in lines)
+    except (ValueError,KeyError):
+        raise ReportSourceError("REPORT_PROCESS_DATE_UNVERIFIED")
+    if date-latest_process_created>timedelta(days=3):
+        raise ReportSourceError("REPORT_PROCESS_SOURCE_LAG")
     product_template_defs={}
     product_to_key={}
     for group,process_sequence in product_groups.items():
@@ -185,6 +197,7 @@ def build_records(source_lines,source_headers,now=None):
            "currency":"USD_CONVERTED_ONLY",
            "krw_rate_verified":False,
            "source_is_live":False,
+           "process_report_export_time_verified":False,
            "crm_writes":0
         }
     }
