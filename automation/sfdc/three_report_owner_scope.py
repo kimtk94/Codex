@@ -85,6 +85,30 @@ def owner_report_audit(tables, owner=OWNER_NAME):
 
     if mine_quote_ids & other_quote_ids:
         raise ValueError("CSS_OWNER_SCOPE_OVERLAPPING_QUOTE_IDS")
+    owner_without_quote = own_opportunities - mine_linked_opportunities
+    owner_without_quote_stages = Counter(
+        str(opp_by_id[opp_id].get("Stage", "")).strip() or "UNSPECIFIED"
+        for opp_id in owner_without_quote
+    )
+    owner_without_quote_triage = {
+        "REPORT_SCOPE_REVIEW_QUOTATION_ISSUED":
+            owner_without_quote_stages["Quotation Issued"],
+        "REPORT_SCOPE_REVIEW_PROPOSAL_SENT":
+            owner_without_quote_stages["Proposal Sent"],
+        "REPORT_SCOPE_REVIEW_CLOSED_WON":
+            owner_without_quote_stages["Closed Won"],
+        "PROSPECTIVE_NO_QUOTE_EXPECTED_OR_REVIEW":
+            owner_without_quote_stages["Prospective"],
+        "CLOSED_LOST_NO_AUTOFOLLOWUP":
+            owner_without_quote_stages["Closed Lost"],
+        "OTHER_STAGE_REVIEW": sum(
+            count for stage, count in owner_without_quote_stages.items()
+            if stage not in {"Quotation Issued", "Proposal Sent",
+                             "Closed Won", "Prospective", "Closed Lost"}
+        ),
+    }
+    if sum(owner_without_quote_triage.values()) != len(owner_without_quote):
+        raise ValueError("CSS_OWNER_UNLINKED_TRIAGE_COUNT_MISMATCH")
     covered = len(mine_quote_ids) + len(other_quote_ids) + len(expected_review)
     if covered != len(grouped):
         raise ValueError("CSS_OWNER_SCOPE_QUOTE_UNACCOUNTED")
@@ -107,7 +131,11 @@ def owner_report_audit(tables, owner=OWNER_NAME):
         "owner_verified_quote_ids": len(mine_quote_ids),
         "other_verified_quote_ids": len(other_quote_ids),
         "owner_distinct_opportunities_with_verified_quotes": len(mine_linked_opportunities),
-        "owner_opportunities_without_verified_quotes": len(own_opportunities - mine_linked_opportunities),
+        "owner_opportunities_without_verified_quotes": len(owner_without_quote),
+        "owner_opportunities_without_verified_quote_by_stage":
+            dict(sorted(owner_without_quote_stages.items())),
+        "owner_opportunities_without_quote_triage": owner_without_quote_triage,
+        "owner_unlinked_quote_absence_certified": False,
         "owner_verified_quote_process_rows": mine_source_process_rows,
         "owner_quote_stage_counts": dict(sorted(mine_stages.items())),
         "owner_quote_report_active_counts": dict(sorted(mine_active.items())),
