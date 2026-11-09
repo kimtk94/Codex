@@ -16,7 +16,8 @@ class PortalTests(unittest.TestCase):
 
     def test_full_menu_view_filter_is_empty_and_existing_views_are_untouched(self):
         self.assertEqual(p.FULL_VIEW,"전체 메뉴")
-        self.assertEqual(len(p.MENUS),35)
+        self.assertEqual(len(p.MENUS),36)
+        self.assertIn("AUTOMATION_HISTORY",{x[0] for x in p.MENUS})
         from unittest.mock import patch
         proper={"view_name":p.FULL_VIEW,"view_type":"grid",
                 "property":{"filter_info":{"conditions":[]}}}

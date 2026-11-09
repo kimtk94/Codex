@@ -1,0 +1,77 @@
+name: Feishu Automation Run History
+# Source monitoring is independent of the two writer workflows.
+on:
+  workflow_run:
+    workflows:
+      - 'SFDC Three Report Mail Digestion'
+      - 'Feishu Sources Payment Online Monthly Unified'
+    types: [completed]
+    branches: [main]
+  pull_request:
+    paths:
+      - 'automation/feishu/github_run_history.py'
+      - 'automation/feishu/test_github_run_history.py'
+      - 'automation/feishu/sales_native_home.py'
+      - '.github/workflows/feishu-automation-run-history.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '12,42 * * * *' # Every 30 minutes, may be delayed by GitHub scheduler.
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/github_run_history.py'
+      - 'automation/feishu/test_github_run_history.py'
+      - '.github/workflows/feishu-automation-run-history.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: feishu-automation-run-history
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate KST schedules and operation vs test run evidence
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_github_run_history.py' -v
+          python3 -m py_compile automation/feishu/github_run_history.py
+  update:
+    needs: tests
+    if: ${{ needs.tests.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 18
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Feishu native view layout CLI
+        run: npm install --global '@larksuite/cli@1.0.99'
+      - name: Configure ephemeral authorized Feishu identity
+        run: |
+          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name run-history-view --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
+          lark-cli profile use run-history-view
+      - name: Verify two main pipeline schedules and publish recent run history to Feishu
+        run: python3 automation/feishu/github_run_history.py
+      - name: Explain historical verification scope
+        run: |
+          echo 'Actions results are separated by scheduled/manual/push/PR runs.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Source and sink flags derive from named verification steps, not only run SUCCESS.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Feishu source records, Quote values, Payment and invoices are never written by this monitor.' >> "$GITHUB_STEP_SUMMARY"
