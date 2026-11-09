@@ -6,7 +6,7 @@ Run on an authorized Windows PC with the existing private Google service-account
 
 ```powershell
 cd "$env:USERPROFILE\Codex\Codex-SFDC-Git\masteros\web"
-npm ci
+npm install
 npm run build
 powershell -File .\scripts\start-css-local.ps1
 ```
