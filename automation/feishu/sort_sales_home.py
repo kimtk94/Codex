@@ -10,8 +10,9 @@ import urllib.parse
 from qq_mail_ingest import SafeError, api, auth, get_fields, plain_field
 from sales_native_home import (
     EXPECTED_BASE, HOME, CURATED_VIEW, CURATED_ORDER, CURATED_DISPLAY,
-    table_map, list_views, target_path, get_view,
+    table_map, list_views, target_path,
 )
+from setup_sales_web import get_view
 
 SORT_FIELD = "표시순서"
 EXPECTED = {"sort_config": [{"field": SORT_FIELD, "desc": False}]}
