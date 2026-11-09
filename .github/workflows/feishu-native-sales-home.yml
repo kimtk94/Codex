@@ -7,6 +7,8 @@ on:
       - 'automation/feishu/test_sales_native_home.py'
       - 'automation/feishu/sort_sales_home.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
+      - 'automation/feishu/quote_dashboard_preview.py'
+      - 'automation/feishu/test_quote_dashboard_preview.py'
       - 'automation/feishu/shortcut_links_audit.py'
       - 'automation/feishu/test_shortcut_links_audit.py'
       - 'automation/feishu/test_shortcut_chart_dashboards.py'
@@ -19,6 +21,8 @@ on:
       - 'automation/feishu/sort_sales_home.py'
       - 'automation/feishu/test_sort_sales_home.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
+      - 'automation/feishu/quote_dashboard_preview.py'
+      - 'automation/feishu/test_quote_dashboard_preview.py'
       - 'automation/feishu/shortcut_links_audit.py'
       - 'automation/feishu/test_shortcut_links_audit.py'
       - 'automation/feishu/test_shortcut_chart_dashboards.py'
@@ -56,6 +60,7 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_sales_native_home.py' -v
           python3 -m py_compile automation/feishu/sales_native_home.py automation/feishu/sort_sales_home.py automation/feishu/shortcut_chart_dashboards.py
           python3 -m unittest discover -s automation/feishu -p 'test_shortcut_chart_dashboards.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_quote_dashboard_preview.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_shortcut_links_audit.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sort_sales_home.py' -v
   home:
