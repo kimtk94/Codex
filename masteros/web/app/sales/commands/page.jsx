@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback,useEffect,useMemo,useState} from "react";
+import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import Link from "next/link";
 import {alicloudUnits,freshProgress,validateRequest} from "../../../lib/sfdc-commands.mjs";
 import {recordToDraft,recordSelectionSummary} from "../../../lib/sfdc-record-picker.mjs";
@@ -46,6 +46,7 @@ export default function SfdcCommandCenter(){
   const [query,setQuery]=useState("");
   const [catalogueStatus,setCatalogueStatus]=useState("NOT_CHECKED");
   const [catalogueBusy,setCatalogueBusy]=useState(false);
+  const pickerSequence=useRef(0);
   const [loadingDetail,setLoadingDetail]=useState(false);
   const [selectedRecord,setSelectedRecord]=useState(null);
   const [originalDraft,setOriginalDraft]=useState(null);
@@ -80,6 +81,7 @@ export default function SfdcCommandCenter(){
   },[]);
   useEffect(()=>{loadHealth();},[loadHealth]);
   const browse=useCallback(async(kind,search="")=>{
+    const seq=++pickerSequence.current;
     setCatalogueBusy(true);
     setCatalogueStatus("LOADING");
     setCatalogue(prev=>({...prev,[kind]:[]}));
@@ -87,20 +89,30 @@ export default function SfdcCommandCenter(){
     setOriginalDraft(null);
     setPreflight("");setPairedQuote(null);setPairStatus("NOT_CHECKED");
     try{
-      const response=await fetch("/api/sfdc/records-local",{
-        method:"POST",headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
-        credentials:"omit",cache:"no-store",
-        body:JSON.stringify({resource:kind,mode:"list",query:search})
-      });
-      const data=await response.json();
-      if(!response.ok || data.status!=="PASS"||!Array.isArray(data.records))
-        throw new Error(data.code||"SOURCE_UNAVAILABLE");
+      let data=null;
+      for(let attempt=0;attempt<9;attempt++){
+        if(seq!==pickerSequence.current)return;
+        const response=await fetch("/api/sfdc/records-local",{
+          method:"POST",headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+          credentials:"omit",cache:"no-store",
+          body:JSON.stringify({resource:kind,mode:"list",query:search})
+        });
+        data=await response.json();
+        if(response.status!==409||data.code!=="PICKER_BUSY")break;
+        await new Promise(resolve=>setTimeout(resolve,1500));
+      }
+      if(seq!==pickerSequence.current)return;
+      if(data?.status!=="PASS"||!Array.isArray(data.records))
+        throw new Error(data?.code||"SOURCE_UNAVAILABLE");
       setCatalogue(prev=>({...prev,[kind]:data.records}));
       setCatalogueStatus("PASS");
     }catch(e){
+      if(seq!==pickerSequence.current)return;
       setCatalogue(prev=>({...prev,[kind]:[]}));
       setCatalogueStatus(e?.message||"SOURCE_UNAVAILABLE");
-    }finally{setCatalogueBusy(false);}
+    }finally{
+      if(seq===pickerSequence.current)setCatalogueBusy(false);
+    }
   },[]);
   useEffect(()=>{
     setQuery("");setSelectedRecord(null);setOriginalDraft(null);setAdvanced(false);
