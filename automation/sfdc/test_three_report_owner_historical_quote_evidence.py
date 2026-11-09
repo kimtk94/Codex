@@ -82,6 +82,19 @@ class HistoricalQuoteTests(unittest.TestCase):
         self.assertEqual(got["review_status"], "BLOCK_CONFLICTING_STAGED_QID_RELATION")
         self.assertEqual(got["historic_quote_opportunity_conflict_count"], 1)
 
+    def test_old_quote_missing_opp_id_is_explicit_unattributable_exception(self):
+        opp, new, past = example()
+        unassigned = dict(past[1])
+        unassigned["Salesforce Record ID"] = "a0PTK00000BR2FV2B2"
+        unassigned["AMEA Quotation ID"] = "QID-no-opp"
+        unassigned["Opportunity ID"] = ""
+        result = compare_owner_priority(opp, new, past + [unassigned], checked_at=CHECKED)
+        self.assertEqual(result["historical_export_unattributable_no_opp_id"], 1)
+        self.assertEqual(result["priority_with_historic_record_id"], 1)
+        self.assertEqual(result["review_status"],
+                         "REVIEW_HISTORICAL_EXPORT_OPPORTUNITY_ID_GAP")
+        self.assertFalse(result["latest_sf_quote_exists_certified"])
+
     def test_duplicate_historic_quote_ids_fail_closed(self):
         _, _, past = example()
         dup = copy.deepcopy(past[0])
