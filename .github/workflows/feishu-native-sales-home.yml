@@ -7,6 +7,8 @@ on:
       - 'automation/feishu/test_sales_native_home.py'
       - 'automation/feishu/sort_sales_home.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
+      - 'automation/feishu/shortcut_links_audit.py'
+      - 'automation/feishu/test_shortcut_links_audit.py'
       - 'automation/feishu/test_shortcut_chart_dashboards.py'
       - 'automation/feishu/test_sort_sales_home.py'
       - '.github/workflows/feishu-native-sales-home.yml'
@@ -17,6 +19,8 @@ on:
       - 'automation/feishu/sort_sales_home.py'
       - 'automation/feishu/test_sort_sales_home.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
+      - 'automation/feishu/shortcut_links_audit.py'
+      - 'automation/feishu/test_shortcut_links_audit.py'
       - 'automation/feishu/test_shortcut_chart_dashboards.py'
       - '.github/workflows/feishu-native-sales-home.yml'
   workflow_run:
@@ -52,6 +56,7 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_sales_native_home.py' -v
           python3 -m py_compile automation/feishu/sales_native_home.py automation/feishu/sort_sales_home.py automation/feishu/shortcut_chart_dashboards.py
           python3 -m unittest discover -s automation/feishu -p 'test_shortcut_chart_dashboards.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_shortcut_links_audit.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sort_sales_home.py' -v
   home:
     needs: test
@@ -84,3 +89,6 @@ jobs:
         run: python3 automation/feishu/sales_native_home.py
       - name: Save and read back actual Feishu view ordering
         run: python3 automation/feishu/sort_sales_home.py
+      - name: Audit all 5 saved shortcuts and real destination views
+        if: ${{ env.FEISHU_PORTAL_MODE == 'apply' }}
+        run: python3 automation/feishu/shortcut_links_audit.py
