@@ -1,12 +1,12 @@
 {
   "workflow": "CKD Drive Readonly Intake",
-  "run_id": 42530287323,
+  "run_id": 42548176420,
   "run_attempt": 1,
-  "run_url": "https://github.com/kimtk94/Codex/actions/runs/42530287323",
+  "run_url": "https://github.com/kimtk94/Codex/actions/runs/42548176420",
   "event": "schedule",
   "intake_conclusion": "success",
   "verified_output": "CKD_STAGE_2B_TO_3B_QC_REPORT",
   "scientific_recomputation": false,
-  "source_commit": "c7f95ccc573d553171d9c0c27433d23bb550936b",
-  "recorded_utc": "2026-11-08T22:27:37.298378+00:00"
+  "source_commit": "179aba3e9c515e8d6c938833f4faba4aae4b97d0",
+  "recorded_utc": "2026-11-09T01:56:59.546071+00:00"
 }
