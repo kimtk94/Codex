@@ -25,7 +25,7 @@ def call(method,path,token="",payload=None):
         data=json.dumps(payload,ensure_ascii=False).encode() if payload is not None else None)
     with urllib.request.urlopen(req,timeout=35) as res:result=json.load(res)
     if result.get("code")!=0:raise ValueError("FEISHU_API_"+str(result.get("code")))
-    return result.get("data") or {}
+    return result.get("data") or result
 def auth():
     data=call("POST","/open-apis/auth/v3/tenant_access_token/internal",
         payload={"app_id":env("FEISHU_APP_ID"),"app_secret":env("FEISHU_APP_SECRET")})
