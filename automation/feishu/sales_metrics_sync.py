@@ -753,7 +753,8 @@ def ensure_tables(token,root):
         if len(ids)>1:raise SafeError("DUPLICATE_METRIC_TABLE_"+name.replace(" ","_"))
         if not ids:
             api("POST",root+"/tables",token,data={"table":{
-                "name":name,"default_view_name":"All",
+                "name":name,"default_view_name":("전체 Quote 목록"
+                                                if name==QUOTE_REVIEW_TABLE else "All"),
                 "fields":[{"field_name":f,"type":t} for f,t in spec],
             }},action="metric_create_table")
             catalog=table_catalog(token,root)
