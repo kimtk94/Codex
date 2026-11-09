@@ -17,10 +17,13 @@ def txt(x):return str(x or "").strip()
 def rec_id(x,prefix):
     return isinstance(x,str) and re.fullmatch(prefix+r"[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?",x) is not None
 def check(inp):
-    if not isinstance(inp,dict) or inp.get("resource") not in OBJECTS or inp.get("mode") not in ("list","detail"):
+    if not isinstance(inp,dict) or inp.get("resource") not in OBJECTS or inp.get("mode") not in ("list","detail","bundle"):
         stop("INVALID_OPERATION")
     if inp["mode"]=="list":
         if not isinstance(inp.get("query",""),str) or len(inp.get("query",""))>100:stop("INVALID_SEARCH")
+    elif inp["mode"]=="bundle":
+        if inp["resource"]!="opportunity" or not rec_id(inp.get("recordId"),"006"):
+            stop("INVALID_BUNDLE_RECORD")
     elif not rec_id(inp.get("recordId"),OBJECTS[inp["resource"]][1]):stop("INVALID_RECORD_ID")
     return inp
 def fields(page):
@@ -98,6 +101,151 @@ def list_items(page,resource,query):
             "query":query,"records":data,"count":len(data),"max_results":30,
             "read_only":True}
 
+
+def category_for_product(product_name):
+    """Resolve only an exact product-category match from the local private catalog."""
+    from pathlib import Path
+    cached = Path.home()/".sfdc_desktop"/"quote_product_catalog_all_p1_PRIVATE.json"
+    if not cached.is_file() or not product_name:
+        return ""
+    try:
+        categories=json.loads(cached.read_text(encoding="utf-8")).get("categories",[])
+        matches=[c["category"] for c in categories
+                 if product_name in c.get("visible_lines_after",[]) and c.get("found") is True]
+        return matches[0] if len(matches)==1 else ""
+    except (ValueError,KeyError,TypeError):
+        return ""
+
+def source_quote_product(page,quote_id,product_id,net_price):
+    """Read source line. Single-line invoice net has priority over Sales Price."""
+    result={"pricingStatus":"REVIEW_REQUIRED","productConfigurationStatus":"PARTIAL_REVIEW_REQUIRED"}
+    if not product_id:
+        return result
+    page.goto(BASE+"/lightning/r/Quotation_Products__c/"+product_id+"/view",
+              wait_until="domcontentloaded",timeout=28000)
+    detail=page.get_by_role("tab",name="Details",exact=True)
+    detail.wait_for(state="visible",timeout=10000)
+    detail.click(timeout=5500)
+    page.wait_for_timeout(300)
+    f=fields(page)
+    source_line_price=parse_money(f.get("Total Price",""))
+    raw_qty=f.get("Sample Quantity","")
+    try:sample_count=int(float(raw_qty.replace(",","")))
+    except (ValueError,TypeError):sample_count=0
+    product_name=f.get("Product Name","")
+    process_names=f.get("Quotation Process Name","")
+    requirement=f.get("Data Requirement","")
+    data_size=None
+    m=re.search(r"(\d+(?:\.\d+)?)\s*(?:G|Gb)\s+of\s+raw\s+data\s+per\s+sample",requirement,re.I)
+    if m:data_size=float(m.group(1))
+    unique_price=(
+        net_price>0 and source_line_price==net_price and sample_count>0
+        and (source_line_price % sample_count)==0
+        and bool(product_name and process_names)
+    )
+    result.update({
+        "productName":product_name,
+        "productCategory":category_for_product(product_name),
+        "processNames":process_names,
+        "samples":sample_count if sample_count else None,
+        "dataSize":data_size,
+        "sourceDataRequirement":requirement,
+        "sourceLineNetKrw":source_line_price,
+        "unitPriceNetKrw":source_line_price//sample_count if unique_price else None,
+        "pricingStatus":"VERIFIED_SINGLE_LINE" if unique_price else "REVIEW_REQUIRED",
+        "productConfigurationStatus":"LINE_FIELDS_READ" if unique_price else "PARTIAL_REVIEW_REQUIRED",
+        "pricingMethod":"SOURCE_QUOTE_NET_DIVIDED_BY_SAMPLE_COUNT",
+        "priceIsEstimateForChangedQuantity":True,
+    })
+    return result
+
+def parse_process_price_rows(rows,source_samples,gb_per_sample,expected_net):
+    """Validate per-process sample fees and 100-Gb Cloud blocks against Quote net."""
+    from math import ceil
+    if not isinstance(rows,list) or not 1<=len(rows)-1<=25:
+        raise ValueError("PROCESS_TABLE_MISSING")
+    head=[str(v).strip() for v in rows[0]]
+    expected=["Pack No.","Process Name","Process Type","Sample Number",
+              "Data Size","Data Unit","Unit Price","Total Price"]
+    if head[1:]!=expected:
+        raise ValueError("PROCESS_SCHEMA_UNEXPECTED")
+    parsed=[]
+    for cells in rows[1:]:
+        if not isinstance(cells,list) or len(cells)!=9:
+            raise ValueError("PROCESS_ROW_INVALID")
+        try:
+            qty=int(str(cells[4]).replace(",",""))
+            rate=int(str(cells[7]).replace(",",""))
+            total=int(str(cells[8]).replace(",",""))
+            size=float(str(cells[5]).replace(",",""))
+        except (ValueError,TypeError) as exc:
+            raise ValueError("PROCESS_NUMERIC_INVALID") from exc
+        if qty<=0 or rate<0 or qty*rate!=total or size<=0:
+            raise ValueError("PROCESS_ARITHMETIC_INVALID")
+        cloud=bool(re.search(r"(?i)(?:ali\s*)?cloud",str(cells[3])+" "+str(cells[2])))
+        if cloud:
+            if qty!=ceil(source_samples*gb_per_sample/100):
+                raise ValueError("SOURCE_CLOUD_QTY_INCORRECT")
+        elif qty!=source_samples:
+            raise ValueError("NONCLOUD_NON_SAMPLE_QUANTITY")
+        parsed.append({"processType":str(cells[2]).strip(),
+          "processName":str(cells[3]).strip(),"sourceQty":qty,
+          "dataSize":size,"dataUnit":str(cells[6]).strip(),
+          "unitPriceKrw":rate,"sourceNetKrw":total,"isCloud":cloud})
+    if sum(x["sourceNetKrw"] for x in parsed)!=expected_net:
+        raise ValueError("PROCESS_NET_SUM_MISMATCH")
+    clouds=[r for r in parsed if r["isCloud"]]
+    if len(clouds)>1:
+        raise ValueError("MULTIPLE_CLOUD_PROCESSES_UNSUPPORTED")
+    sample_unit=sum(x["unitPriceKrw"] for x in parsed if not x["isCloud"])
+    cloud_unit=sum(x["unitPriceKrw"] for x in clouds)
+    if sample_unit==0 and cloud_unit==0:
+        raise ValueError("NO_PRICED_PROCESS")
+    return {"pricingStatus":"VERIFIED_PROCESS_LINES",
+      "processPriceLines":parsed,"sampleUnitNetKrw":sample_unit,
+      "cloudUnitNetKrw":cloud_unit,
+      "sourceCloudUnits":ceil(source_samples*gb_per_sample/100),
+      "cloudLinePresent":bool(clouds),
+      "sourceProcessNetKrw":expected_net,
+      "pricingMethod":"SUM_PROCESS_QTY_TIMES_UNIT_PRICE"}
+
+def quote_price_breakdown(page,quote_id,source_samples,gb_per_sample,expected_net):
+    """Get process rows from Quote Detail, NOT Add/Edit (which modifies the source)."""
+    page.goto(BASE+"/lightning/r/Quotation__c/"+quote_id+"/view",
+              wait_until="domcontentloaded",timeout=28000)
+    page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=5500)
+    table=page.locator("table").filter(has_text="Process Name").filter(has_text="Unit Price")
+    table.first.wait_for(state="visible",timeout=14000)
+    if table.count()!=1:
+        raise ValueError("PROCESS_TABLE_NOT_UNIQUE")
+    rows=table.locator("tr").evaluate_all(
+        """es=>es.map(tr=>[...tr.querySelectorAll(':scope>th,:scope>td')]
+        .map(c=>c.innerText.trim().replace(/\\s+/g,' ')))""")
+    return parse_process_price_rows(rows,source_samples,gb_per_sample,expected_net)
+
+
+def linked_oppo_quote_bundle(page,oppo_id):
+    """Resolve Quote by exact parent ID; never select a different customer's quote."""
+    opp=read_item(page,"opportunity",oppo_id)
+    quote_list=list_items(page,"quote",opp["name"])
+    matched=[]
+    for candidate in quote_list.get("records",[])[:6]:
+        if not rec_id(candidate.get("id"),"a0P"):
+            continue
+        try:
+            quote=read_item(page,"quote",candidate["id"])
+            if quote.get("opportunityId")==oppo_id:
+                matched.append(quote)
+        except Exception:
+            continue
+    return {"status":"PASS","resource":"opportunity","mode":"bundle",
+        "opportunity":opp,"linkedQuotes":matched,
+        "quoteCount":len(matched),"selectionStatus":
+            "EXACT_ONE" if len(matched)==1 else
+            "NO_MATCH" if not matched else "MULTIPLE_SELECT_REQUIRED",
+        "read_only":True}
+
+
 def read_item(page,resource,record_id):
     name,_=OBJECTS[resource]
     page.goto(BASE+"/lightning/r/"+name+"/"+record_id+"/view",wait_until="domcontentloaded",timeout=28000)
@@ -152,12 +300,14 @@ def read_item(page,resource,record_id):
                     "accountId":account.get("id",""),"accountName":account.get("name",""),
                     "contactId":contact.get("id",""),"contactName":contact.get("name",""),
                     "quotationNumber":f.get("Quotation ID") or val_after(body,"Quotation ID"),
-                    "totalPriceKrw":original_amount,"productName":"",
+                    "totalPriceKrw":original_amount,"grandTotalKrw":parse_money(f.get("Grand Total") or val_after(body,"Grand Total")),"productName":"",
                     "productCategory":"","processNames":"","samples":None,"dataSize":None})
         related=page.get_by_role("tab",name="Related",exact=True)
         if related.count()==1:
             related.click(timeout=5500)
-            page.wait_for_timeout(500)
+            for _ in range(16):
+                if page.locator('a[href*="/lightning/r/a0N"]').count()>0:break
+                page.wait_for_timeout(300)
             prod_links=hyperlinks(page)
             product=find_href(prod_links,"01t") or {}
             if product:
@@ -167,6 +317,20 @@ def read_item(page,resource,record_id):
             if product_detail:out["quotationProductId"]=product_detail.get("id","")
             out["productCount"]=int(re.search(r"Quotation Products\s*\((\d+)\)",page.locator("body").inner_text()).group(1)) if re.search(r"Quotation Products\s*\((\d+)\)",page.locator("body").inner_text()) else None
         out["productConfigurationStatus"]="PARTIAL_REVIEW_REQUIRED"
+        if out.get("productCount")==1 and out.get("quotationProductId"):
+            product_fields=source_quote_product(
+                page,record_id,out["quotationProductId"],original_amount)
+            out.update(product_fields)
+            if out.get("unitPriceNetKrw") and out.get("grandTotalKrw"):
+                out["sourceVatRateVerified10Pct"]=(
+                    out["grandTotalKrw"]*10==original_amount*11)
+            if out.get("samples") and out.get("dataSize") and out.get("sourceVatRateVerified10Pct"):
+                try:
+                    out.update(quote_price_breakdown(
+                        page,record_id,out["samples"],out["dataSize"],original_amount))
+                except Exception as exc:
+                    out["pricingStatus"]="PROCESS_BREAKDOWN_UNVERIFIED"
+                    out["processBreakdownErrorType"]=type(exc).__name__
     return out
 
 def main():
@@ -178,6 +342,7 @@ def main():
             page=browser.contexts[0].new_page()
             try:
                 if request["mode"]=="list":out=list_items(page,request["resource"],request.get("query",""))
+                elif request["mode"]=="bundle":out=linked_oppo_quote_bundle(page,request["recordId"])
                 else:out=read_item(page,request["resource"],request["recordId"])
             finally:page.close()
     except Exception as exc:

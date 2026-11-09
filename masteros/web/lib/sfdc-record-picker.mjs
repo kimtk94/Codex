@@ -1,11 +1,12 @@
 export function validRecordPickerRequest(x){
   if(!x||typeof x!=="object"||Array.isArray(x)||
      !["lead","opportunity","quote"].includes(x.resource)||
-     !["list","detail"].includes(x.mode))return {ok:false,code:"PICKER_INVALID"};
+     !["list","detail","bundle"].includes(x.mode))return {ok:false,code:"PICKER_INVALID"};
   if(x.mode==="list"){
     if(typeof x.query!=="string"||x.query.length>100)
       return {ok:false,code:"SEARCH_INVALID"};
   }else{
+    if(x.mode==="bundle" && x.resource!=="opportunity")return {ok:false,code:"BUNDLE_OPPORTUNITY_ONLY"};
     const prefix={lead:"00Q",opportunity:"006",quote:"a0P"}[x.resource];
     if(typeof x.recordId!=="string"||
       !new RegExp("^"+prefix+"[a-zA-Z0-9]{12}(?:[a-zA-Z0-9]{3})?$").test(x.recordId))

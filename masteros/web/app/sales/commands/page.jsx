@@ -4,6 +4,7 @@ import {useCallback,useEffect,useMemo,useState} from "react";
 import Link from "next/link";
 import {alicloudUnits,freshProgress,validateRequest} from "../../../lib/sfdc-commands.mjs";
 import {recordToDraft,recordSelectionSummary} from "../../../lib/sfdc-record-picker.mjs";
+import {buildPairDraft,derivePairPrice} from "../../../lib/sfdc-paired-clone.mjs";
 import styles from "./page.module.css";
 
 const common={confirmSave:false,noDuplicateConfirmed:false};
@@ -49,12 +50,21 @@ export default function SfdcCommandCenter(){
   const [selectedRecord,setSelectedRecord]=useState(null);
   const [originalDraft,setOriginalDraft]=useState(null);
   const [advanced,setAdvanced]=useState(false);
+  const [pairedQuote,setPairedQuote]=useState(null);
+  const [pairStatus,setPairStatus]=useState("NOT_CHECKED");
   const resource=tab==="lead_convert"?"lead":tab==="opportunity_create"?"opportunity":"quote";
   const form=forms[tab];
   const signature=useMemo(()=>JSON.stringify({tab,...form}),[tab,form]);
   const ready=signature===preflight && selectedRecord?.resource===resource;
   const update=(key,value)=>{
-    setForms(prev=>({...prev,[tab]:{...prev[tab],[key]:value}}));
+    setForms(prev=>{
+      const next={...prev[tab],[key]:value};
+      if(tab==="opportunity_create"&&pairedQuote&&["samples","dataSize"].includes(key)){
+        const price=derivePairPrice(pairedQuote,next.samples,next.dataSize);
+        next.amountKrw=price.ok?price.netKrw:0;
+      }
+      return {...prev,[tab]:next};
+    });
     setResult(null);setPreflight("");
   };
   const loadHealth=useCallback(async()=>{
@@ -75,7 +85,7 @@ export default function SfdcCommandCenter(){
     setCatalogue(prev=>({...prev,[kind]:[]}));
     setSelectedRecord(null);
     setOriginalDraft(null);
-    setPreflight("");
+    setPreflight("");setPairedQuote(null);setPairStatus("NOT_CHECKED");
     try{
       const response=await fetch("/api/sfdc/records-local",{
         method:"POST",headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
@@ -94,12 +104,14 @@ export default function SfdcCommandCenter(){
   },[]);
   useEffect(()=>{
     setQuery("");setSelectedRecord(null);setOriginalDraft(null);setAdvanced(false);
+    setPairedQuote(null);setPairStatus("NOT_CHECKED");
     setResult(null);setPreflight("");
     browse(resource,"");
   },[resource,browse]);
   async function chooseRecord(id){
     if(loadingDetail||busy)return;
     setLoadingDetail(true);setResult(null);setPreflight("");
+    setPairedQuote(null);setPairStatus("NOT_CHECKED");
     try{
       const response=await fetch("/api/sfdc/records-local",{
         method:"POST",headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
@@ -117,6 +129,32 @@ export default function SfdcCommandCenter(){
     }catch(e){
       setSelectedRecord(null);setOriginalDraft(null);
       setResult({status:"BLOCK",code:e?.message||"DETAIL_UNAVAILABLE"});
+    }finally{setLoadingDetail(false);}
+  }
+  const pairProjection=useMemo(()=>{
+    if(!pairedQuote||tab!=="opportunity_create")return null;
+    return derivePairPrice(pairedQuote,form.samples,form.dataSize);
+  },[pairedQuote,form.samples,form.dataSize,tab]);
+  async function loadLinkedQuote(){
+    if(tab!=="opportunity_create"||!selectedRecord?.id||busy||loadingDetail)return;
+    setLoadingDetail(true);setPreflight("");setPairStatus("LOADING");
+    try{
+      const r=await fetch("/api/sfdc/records-local",{
+        method:"POST",cache:"no-store",credentials:"omit",
+        headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+        body:JSON.stringify({resource:"opportunity",mode:"bundle",recordId:selectedRecord.id})
+      });
+      const bundle=await r.json();
+      if(!r.ok||bundle.status!=="PASS")throw Error(bundle.code||"QUOTE_LINK_UNAVAILABLE");
+      const draft=buildPairDraft(bundle,form);
+      if(!draft.ok)throw Error(draft.code);
+      if(draft.quote.opportunityId!==selectedRecord.id)throw Error("WRONG_PARENT_OPPORTUNITY");
+      setPairedQuote(draft.quote);setPairStatus("PASS");
+      setForms(prev=>({...prev,[tab]:{...draft.form,closeDate:form.closeDate}}));
+      setResult(null);
+    }catch(e){
+      setPairedQuote(null);setPairStatus("BLOCK");
+      setResult({status:"BLOCK",code:e?.message||"SOURCE_PRICE_UNVERIFIED"});
     }finally{setLoadingDetail(false);}
   }
   const changedFields=useMemo(()=>{
@@ -138,6 +176,10 @@ export default function SfdcCommandCenter(){
     }
     const req={...form,action:tab,mode,confirmSave:mode==="save"&&confirmed,
       noDuplicateConfirmed:mode==="save"&&dedup};
+    if(tab==="opportunity_create"&&pairedQuote&&
+       (!pairProjection?.ok||form.amountKrw!==pairProjection.netKrw)){
+      setResult({status:"BLOCK",code:"CLOUD_PRICE_MISMATCH"});return;
+    }
     if(mode==="save"&&!ready){
       setResult({status:"BLOCK",code:"PREFLIGHT_REQUIRED"});return;
     }
@@ -239,6 +281,22 @@ export default function SfdcCommandCenter(){
             <p className={styles.hint}>기존 Account 사용 · 신규 Contact 생성 · Opportunity 생성하지 않음</p>
           </>}
           {tab==="opportunity_create"&&<>
+            <div className={styles.field}>
+              <span>연결된 기존 Quote 기준 가격</span>
+              <button type="button" className={styles.subtle} onClick={loadLinkedQuote}
+                disabled={!selectedRecord||loadingDetail||busy}>
+                기존 Oppo → Quote 공정·단가 불러오기
+              </button>
+              <small>{pairStatus==="PASS"?"견적 공정 검증 PASS":pairStatus==="BLOCK"?"연결 Quote 검증 차단":""}</small>
+              {pairedQuote&&pairProjection?.ok&&<div className={styles.selectedInfo}>
+                <strong>시료당 {pairProjection.unitPriceNetKrw.toLocaleString()} KRW</strong>
+                <span>Cloud 100 Gb당 1개 · {pairProjection.cloudUnits}개 × {pairProjection.cloudUnitNetKrw.toLocaleString()} KRW</span>
+                <span>총 {pairProjection.totalDataGb} Gb · VAT 제외 {pairProjection.netKrw.toLocaleString()} KRW</span>
+                <span>VAT 포함 {pairProjection.grossKrw.toLocaleString()} KRW</span>
+                <p>기존 공정별 단가로 계산한 예상액입니다. 새 Quote의 최종 가격은 저장 후 확인해야 합니다.</p>
+              </div>}
+              {pairedQuote&&!pairProjection?.ok&&<p className={styles.hint}>{pairProjection?.code||"PRICE_NOT_VERIFIED"}</p>}
+            </div>
             <p className={styles.hint}>기존 Oppo를 선택한 뒤 바꿀 값만 수정하세요. Progress Description은 원본에서 복제하지 않습니다.</p>
             <button type="button" className={styles.subtle} onClick={()=>setAdvanced(x=>!x)}>
               {advanced?"고급 ID 편집 숨기기":"Account·Contact ID 편집"}
