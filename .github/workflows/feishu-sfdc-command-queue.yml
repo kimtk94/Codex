@@ -13,11 +13,13 @@ on:
     branches: [main]
     paths:
       - 'automation/feishu/sfdc_command_queue.py'
+      - 'masteros/web/scripts/sfdc_quote_price_fields.py'
       - 'automation/feishu/test_sfdc_command_queue.py'
       - '.github/workflows/feishu-sfdc-command-queue.yml'
   pull_request:
     paths:
       - 'automation/feishu/sfdc_command_queue.py'
+      - 'masteros/web/scripts/sfdc_quote_price_fields.py'
       - 'automation/feishu/test_sfdc_command_queue.py'
       - '.github/workflows/feishu-sfdc-command-queue.yml'
 permissions:
