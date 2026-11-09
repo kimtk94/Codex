@@ -207,6 +207,9 @@ def import_reports(folder=ALLOWED_DOWNLOADS):
                 structural_id=hashlib.sha256(json.dumps(
                     canonical,ensure_ascii=False,separators=(",",":")).encode("utf-8")).hexdigest()
                 process_templates[structural_id]=canonical
+                # Foreign key must exist before the per-Quote price row.
+                cx.execute("""INSERT OR IGNORE INTO process_dictionary
+                    VALUES(?,?,?,?)""",(structural_id,*canonical))
                 raw_date=row["Created Date"].strip()
                 when=dt.datetime.strptime(raw_date,"%m/%d/%Y").date()
                 if newest is None or when>newest:newest=when
@@ -217,8 +220,6 @@ def import_reports(folder=ALLOWED_DOWNLOADS):
                     decimal_text(row["Total Price USD (converted)"]),
                     decimal_text(row["Sample Quantity"]),
                     decimal_text(row["Data Size"]),when.isoformat(),row.get("Active","")))
-            cx.executemany("INSERT INTO process_dictionary VALUES(?,?,?,?)",(
-                (identifier,*items) for identifier,items in process_templates.items()))
             meta={
                 "source":"LOCAL_SFDC_REPORT_HTML_EXPORT",
                 "line_file":path.name,"line_sha256":sha,
