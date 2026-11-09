@@ -138,6 +138,15 @@ def presentation(key,title,source_index):
 CURATED_VIEW="업무용 메뉴"
 CURATED_DISPLAY="주요"
 ARCHIVE_DISPLAY="관리용"
+# A separate existing Feishu view; do not reduce the curated 12 or delete any records.
+SHORTCUT_VIEW="바로가기"
+SHORTCUT_KEYS=(
+    "MONTHLY_TREND",
+    "WEEKLY_TREND",
+    "SIF_EVIDENCE",
+    "X_MY_PROJECTS",
+    "PAYMENT_FOLLOWUP",
+)
 
 
 
@@ -339,6 +348,73 @@ def ensure_curated_view(token,path):
     return vid
 
 
+
+def shortcut_filter(field_id):
+    if len(SHORTCUT_KEYS) != 5 or len(set(SHORTCUT_KEYS)) != 5:
+        raise SafeError("PORTAL_SHORTCUT_DUPLICATE_OR_MISSING_KEYS")
+    if not set(SHORTCUT_KEYS).issubset(PINNED_KEYS):
+        raise SafeError("PORTAL_SHORTCUT_NOT_CURATED")
+    return {
+        "conjunction":"or",
+        "conditions":[
+            {"field_id":field_id,"operator":"is",
+             "value":json.dumps([key],ensure_ascii=False)}
+            for key in SHORTCUT_KEYS
+        ],
+    }
+
+
+def shortcut_filter_matches(view, field_id):
+    if view.get("view_name")!=SHORTCUT_VIEW or view.get("view_type")!="grid":
+        return False
+    info=((view.get("property") or {}).get("filter_info") or {})
+    if info.get("conjunction")!="or":
+        return False
+    conditions=info.get("conditions") or []
+    if len(conditions)!=len(SHORTCUT_KEYS):
+        return False
+    keys=[]
+    for c in conditions:
+        if c.get("field_id")!=field_id or c.get("operator")!="is":
+            return False
+        try:
+            values=json.loads(c.get("value") or "null")
+        except (ValueError,TypeError):
+            return False
+        if not isinstance(values,list) or len(values)!=1:
+            return False
+        keys.append(values[0])
+    return len(set(keys))==len(SHORTCUT_KEYS) and set(keys)==set(SHORTCUT_KEYS)
+
+
+def ensure_shortcut_view(token,path):
+    """Filter only the existing default Shortcut view to five exact Menu Keys."""
+    from setup_sales_web import get_view
+    views=list_views(token,path)
+    view_id=views.get(SHORTCUT_VIEW)
+    if not view_id:
+        raise SafeError("PORTAL_SHORTCUT_VIEW_MISSING_NO_CREATE")
+    fields={f.get("field_name"):f for f in get_fields(token,path)}
+    primary=fields.get("Menu Key") or {}
+    if primary.get("type")!=1 or not primary.get("field_id"):
+        raise SafeError("PORTAL_SHORTCUT_PRIMARY_FIELD_MISMATCH")
+    fid=primary["field_id"]
+    existing=get_view(token,path,view_id)
+    if existing.get("view_type")!="grid" or existing.get("view_name")!=SHORTCUT_VIEW:
+        raise SafeError("PORTAL_SHORTCUT_WRONG_VIEW")
+    changed=not shortcut_filter_matches(existing,fid)
+    if changed:
+        api("PATCH",path+"/views/"+urllib.parse.quote(view_id,safe=""),token,
+            data={"view_name":SHORTCUT_VIEW,
+                  "property":{"filter_info":shortcut_filter(fid)}},
+            action="portal_shortcut_filter")
+    if not shortcut_filter_matches(get_view(token,path,view_id),fid):
+        raise SafeError("PORTAL_SHORTCUT_FILTER_READBACK_MISMATCH")
+    print("PORTAL_SHORTCUT_FILTER_PASS shown=5 hidden_from_shortcut="
+          +str(len(MENUS)-5)+" unchanged_curated=12 changed="+str(int(changed)))
+    return view_id
+
+
 def main():
     if os.environ.get("FEISHU_BASE_APP_TOKEN") != EXPECTED_BASE:
         raise SafeError("PORTAL_REFUSE_NON_SALES_BASE")
@@ -354,6 +430,8 @@ def main():
     tid,path=ensure_home(token,root,tables)
     update_home(token,path,desired)
     curated_id=ensure_curated_view(token,path)
+    shortcut_id=ensure_shortcut_view(token,path)
+    print("PORTAL_SHORTCUT_URL="+BASE_URL+"?table="+tid+"&view="+shortcut_id)
     print("PORTAL_CURATED_VIEW_PASS shown="+str(len(PINNED_KEYS))+
           " hidden_from_curated="+str(len(desired)-len(PINNED_KEYS))+
           " records_deleted=0 source_tables_removed=0")
