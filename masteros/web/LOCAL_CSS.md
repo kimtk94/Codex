@@ -8,7 +8,7 @@ Run on an authorized Windows PC with the existing private Google service-account
 cd "$env:USERPROFILE\Codex\Codex-SFDC-Git\masteros\web"
 npm install
 npm run build
-powershell -File .\scripts\start-css-local.ps1
+.\scripts\start-css-local.cmd
 ```
 
 Then open `http://127.0.0.1:3000/sales/projects`. Reuse an existing process rather than starting a second server on the same port.
