@@ -119,3 +119,44 @@ def verify_saved_pair(prepared, new_opportunity_id, live_bundle):
         "gross_krw": actual["Quote Gross KRW"],
         "cloud_qty": actual["Cloud Qty"],
     }
+
+
+def read_live_saved_pair(prepared, new_opportunity_id):
+    """Open authenticated local Salesforce UI to *read* an existing new pair."""
+    if not isinstance(prepared, dict) or prepared.get("status") != "READY":
+        return _block("EXPECTED_PAIR_NOT_READY")
+    if not _record(new_opportunity_id, "006"):
+        return _block("NEW_PARENT_ID_NOT_VERIFIED")
+    try:
+        from playwright.sync_api import sync_playwright
+        from sfdc_record_catalog import linked_oppo_quote_bundle
+        with sync_playwright() as pw:
+            browser=pw.chromium.connect_over_cdp(
+                "http://127.0.0.1:9222",timeout=10000)
+            page=browser.contexts[0].new_page()
+            try:
+                bundle=linked_oppo_quote_bundle(page,new_opportunity_id)
+            finally:
+                page.close()
+        return verify_saved_pair(prepared,new_opportunity_id,bundle)
+    except Exception:
+        # Do not log Salesforce record contents, URLs, tracebacks or tokens.
+        return _block("LIVE_UI_READBACK_UNAVAILABLE")
+
+
+def main():
+    import json
+    import sys
+    try:
+        raw=json.loads(sys.stdin.buffer.read(48000).decode("utf-8"))
+        if not isinstance(raw,dict) or raw.get("mode")!="CHECK_READBACK":
+            result=_block("READBACK_MODE_NOT_ALLOWED")
+        else:
+            result=read_live_saved_pair(raw.get("prepared"),raw.get("newOpportunityId"))
+    except (UnicodeError,ValueError,TypeError):
+        result=_block("READBACK_INPUT_INVALID")
+    print(json.dumps(result,ensure_ascii=False,separators=(",",":")))
+
+
+if __name__=="__main__":
+    main()
