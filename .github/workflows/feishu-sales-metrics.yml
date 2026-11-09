@@ -10,6 +10,8 @@ on:
       - 'automation/feishu/test_project_progress_board.py'
       - 'automation/feishu/test_sales_metrics_sync.py'
       - 'automation/feishu/quote_process_amount.py'
+      - 'automation/feishu/weekly_quote_review.py'
+      - 'automation/feishu/test_weekly_quote_review.py'
       - 'automation/sfdc/source_freshness_guard.py'
       - 'automation/sfdc/test_source_freshness_guard.py'
       - 'automation/feishu/test_quote_process_amount.py'
@@ -25,6 +27,8 @@ on:
       - 'automation/feishu/test_project_progress_board.py'
       - 'automation/feishu/test_sales_metrics_sync.py'
       - 'automation/feishu/quote_process_amount.py'
+      - 'automation/feishu/weekly_quote_review.py'
+      - 'automation/feishu/test_weekly_quote_review.py'
       - 'automation/sfdc/source_freshness_guard.py'
       - 'automation/sfdc/test_source_freshness_guard.py'
       - 'automation/feishu/test_quote_process_amount.py'
@@ -62,11 +66,12 @@ jobs:
         run: |
           python3 -m unittest discover -s automation/sfdc -p 'test_source_freshness_guard.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_progress_board.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_latest_payment_bridge.py' -v
       - name: Validate sync syntax
-        run: python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/quote_process_amount.py automation/feishu/project_progress_board.py automation/feishu/project_settlement.py automation/feishu/latest_payment_bridge.py
+        run: python3 -m py_compile automation/feishu/sales_metrics_sync.py automation/feishu/quote_process_amount.py automation/feishu/weekly_quote_review.py automation/feishu/project_progress_board.py automation/feishu/project_settlement.py automation/feishu/latest_payment_bridge.py
   sync:
     needs: tests
     if: ${{ github.event_name != 'pull_request' && needs.tests.result == 'success' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
