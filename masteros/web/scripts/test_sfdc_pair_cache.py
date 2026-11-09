@@ -127,6 +127,16 @@ class PrivateCacheTests(unittest.TestCase):
         self.assertEqual(warm.validate({"mode":"WARM","limit":3,"offset":4}),(3,4))
 
 
+    def test_one_off_product_structure_not_interned_when_it_adds_bytes(self):
+        single=bundle()
+        single["linkedQuotes"][0]["productName"]="One-off service"
+        self.assertTrue(cache.save(BUNDLE_REQ,single,now=1000))
+        with cache._connect() as cx:
+            template_count=cx.execute(
+                "SELECT COUNT(*) FROM product_line_templates").fetchone()[0]
+        self.assertEqual(template_count,0)
+        self.assertEqual(cache.stats(now=1100)["product_line_dictionary"]["logical_bytes_saved"],0)
+
     def test_shared_product_line_two_contacts_different_prices(self):
         """Same structural Product may never share customer rates or discounts."""
         req2={"resource":"opportunity","mode":"bundle","recordId":"006000000000000AAB"}
@@ -184,10 +194,25 @@ class PrivateCacheTests(unittest.TestCase):
         self.assertEqual(usage["reused_templates"],1)
 
     def test_tampered_shared_product_template_blocks_lookup(self):
+        import hashlib
         x=bundle()
         x["linkedQuotes"][0]["productName"]="RNA Project"
-        self.assertTrue(cache.save(BUNDLE_REQ,x,now=1000))
+        # Force a synthetically referenced template before corruption;
+        # a unique template would normally be optimized away.
+        compacted,templates=cache.compact(x)
+        raw=cache.compact_json(compacted)
+        key,_=cache.key_for(BUNDLE_REQ)
         with cache._connect() as cx:
+            for fingerprint,template in templates.items():
+                cx.execute("""INSERT INTO product_line_templates(
+                    template_sha256,content_json,last_seen_utc)
+                    VALUES(?,?,?)""",
+                    (fingerprint,cache.compact_json(template),1000))
+            cx.execute("""INSERT INTO entries(cache_key,kind,observed_utc,
+                expires_utc,schema_version,content_sha256,payload_json)
+                VALUES(?,?,?,?,?,?,?)""",
+                (key,"bundle",1000,2200,cache.VERSION,
+                 hashlib.sha256(raw.encode("utf-8")).hexdigest(),raw))
             cx.execute("UPDATE product_line_templates SET content_json='{}'")
         self.assertIsNone(cache.lookup(BUNDLE_REQ,now=1100))
 
@@ -206,7 +231,7 @@ class PrivateCacheTests(unittest.TestCase):
                  hashlib.sha256(raw.encode("utf-8")).hexdigest(),raw))
         migrated=cache.normalize_existing(now=1100)
         self.assertEqual(migrated["status"],"PASS")
-        self.assertEqual(migrated["migrated"],1)
+        self.assertEqual(migrated["migrated"],0)  # No duplicate structure, no byte savings.
         loaded=cache.lookup(req,now=1100)
         self.assertEqual(loaded["linkedQuotes"][0]["productName"],"Shared RNA")
         self.assertEqual(loaded["cache"]["age_seconds"],100)
@@ -223,10 +248,10 @@ class PrivateCacheTests(unittest.TestCase):
             q["productCount"]=2
             q["sourceProductEvidence"]=[
                 {"productKey":f"a0N000000000000A{i}A","productName":"Shared Process 1",
-                 "sourceProcessNames":"QC;Sequencing", "sourceQty":i+10,
+                 "sourceProcessNames":"QC;Sequencing;"+"A"*230, "sourceQty":i+10,
                  "observedProductTotalKrw":100000+i*1000},
                 {"productKey":f"a0N000000000000A{i}B","productName":"Shared Process 2",
-                 "sourceProcessNames":"Cloud;Data Release","sourceQty":i+10,
+                 "sourceProcessNames":"Cloud;Data Release;"+"B"*230,"sourceQty":i+10,
                  "observedProductTotalKrw":200000+i*1000},
             ]
         req2={"resource":"opportunity","mode":"bundle","recordId":b["opportunity"]["id"]}
