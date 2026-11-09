@@ -28,18 +28,27 @@ class SortTests(unittest.TestCase):
                 s.run_cli("+view-set-sort",s.EXPECTED_BASE,"tbl","vew",s.EXPECTED)
 
     def test_sorted_records_verification(self):
-        rows=[{"fields":{"Menu Key":key,"표시순서":i}}
-              for i,key in enumerate(s.CURATED_ORDER,1)]
-        with mock.patch.object(s,"api",return_value={"items":rows,"has_more":False}):
+        view_rows=[{"fields":{"Menu Key":key}}
+                   for key in s.CURATED_ORDER]
+        full_rows=[{"fields":{"Menu Key":key,"표시순서":str(i)}}
+                   for i,key in enumerate(s.CURATED_ORDER,1)]
+        with mock.patch.object(s,"api",side_effect=[
+                {"items":list(reversed(view_rows)),"has_more":False},
+                {"items":full_rows,"has_more":False}]):
             self.assertTrue(s.verify_view_rows("token","root","view"))
-        with mock.patch.object(s,"api",return_value={"items":list(reversed(rows)),"has_more":False}):
-            self.assertTrue(s.verify_view_rows("token","root","view"))
-        bad_rows = list(rows)
-        bad_rows[0] = {"fields":{"Menu Key":s.CURATED_ORDER[0],"표시순서":99}}
-        with mock.patch.object(s,"api",return_value={"items":bad_rows,"has_more":False}), \
-             mock.patch.object(s.time,"sleep"):
+        bad_rows=list(full_rows)
+        bad_rows[0]={"fields":{"Menu Key":s.CURATED_ORDER[0],"표시순서":99}}
+        with mock.patch.object(s,"api",side_effect=[
+                {"items":view_rows,"has_more":False},
+                {"items":bad_rows,"has_more":False}]):
             with self.assertRaisesRegex(s.SafeError,"READBACK_MISMATCH"):
                 s.verify_view_rows("token","root","view")
+
+    def test_numeric_rank(self):
+        self.assertEqual(s.numeric_rank("12"),12)
+        self.assertEqual(s.numeric_rank(1.0),1)
+        self.assertEqual(s.numeric_rank({"value":"9"}),9)
+        self.assertIsNone(s.numeric_rank(None))
 
 
 if __name__=="__main__":

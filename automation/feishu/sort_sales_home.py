@@ -80,32 +80,57 @@ def verify_filtered_view(view, field_id):
         raise SafeError("PORTAL_SORT_FILTER_MISMATCH")
 
 
+def numeric_rank(value):
+    if isinstance(value, list) and len(value) == 1:
+        return numeric_rank(value[0])
+    if isinstance(value, dict):
+        return numeric_rank(value.get("value", value.get("text")))
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+        if number.is_integer() and 0 <= number <= 9999:
+            return int(number)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return None
+
+
 def verify_view_rows(token, table_path, view_id):
-    url = (table_path + "/records?page_size=100&view_id="
-           + urllib.parse.quote(view_id, safe=""))
-    last = None
-    for i in range(4):
-        data = api("GET", url, token, action="portal_sorted_records")
-        rows = data.get("items") or []
-        keys = [plain_field((r.get("fields") or {}).get("Menu Key")).strip()
-                for r in rows]
-        positions = [(r.get("fields") or {}).get(SORT_FIELD) for r in rows]
-        # Feishu v1 list(view_id=...) may return backend record order even when
-        # the native Base v3 grid has a saved sort. Verify membership and ranks
-        # here, and independently verify the persisted grid sort via v3 GET.
-        expected = {key: rank for rank, key in enumerate(CURATED_ORDER, 1)}
-        actual = dict(zip(keys, positions))
-        if (not data.get("has_more") and len(rows) == len(expected)
-                and len(set(keys)) == len(expected) and actual == expected):
-            print("PORTAL_SORT_RECORD_MEMBERSHIP_PASS rows=12 assignments=12"
-                  + " api_return_sorted=" + str(keys == list(CURATED_ORDER)))
-            return True
-        last = (len(rows), len(set(keys)), data.get("has_more"))
-        if i < 3:
-            time.sleep(2)
-    # Only metadata is logged, never customer records.
-    print("PORTAL_SORT_RECORD_ORDER_UNVERIFIED rows=%s unique=%s paged=%s" % last)
-    raise SafeError("PORTAL_SORT_RECORD_READBACK_MISMATCH")
+    """Check filter membership and rank assignment; v1 list order isn't native UI order."""
+    view_url = (table_path + "/records?page_size=100&view_id="
+                + urllib.parse.quote(view_id, safe=""))
+    filtered = api("GET", view_url, token, action="portal_sorted_records")
+    view_rows = filtered.get("items") or []
+    keys = [plain_field((r.get("fields") or {}).get("Menu Key")).strip()
+            for r in view_rows]
+    expected = {key: rank for rank, key in enumerate(CURATED_ORDER, 1)}
+    if (filtered.get("has_more") or len(keys) != len(expected)
+            or len(set(keys)) != len(expected) or set(keys) != set(expected)):
+        raise SafeError("PORTAL_SORT_FILTERED_MEMBERSHIP_MISMATCH")
+    # A view-scoped records query may omit hidden columns such as 표시순서.
+    # Read the source home table separately to validate persisted rank values.
+    all_data = api("GET", table_path + "/records?page_size=100",
+                   token, action="portal_home_record_ranks")
+    full_rows = all_data.get("items") or []
+    if all_data.get("has_more"):
+        raise SafeError("PORTAL_SORT_HOME_ROWS_PAGED")
+    positions = {}
+    for record in full_rows:
+        fields = record.get("fields") or {}
+        key = plain_field(fields.get("Menu Key")).strip()
+        if key in positions:
+            raise SafeError("PORTAL_SORT_DUPLICATE_MENU_KEY")
+        positions[key] = numeric_rank(fields.get(SORT_FIELD))
+    bad = [key for key, rank in expected.items() if positions.get(key) != rank]
+    if bad:
+        # Keys refer only to known dashboard route identifiers, never customer content.
+        print("PORTAL_SORT_RANK_MISMATCH keys=" + ",".join(bad)
+              + " ranks_found=" + str(sum(k in positions for k in expected)))
+        raise SafeError("PORTAL_SORT_RECORD_READBACK_MISMATCH")
+    print("PORTAL_SORT_RECORD_MEMBERSHIP_PASS rows=12 assignments=12"
+          " api_return_sorted=" + str(keys == list(CURATED_ORDER)))
+    return True
 
 
 def main():
