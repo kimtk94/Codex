@@ -44,22 +44,35 @@ def pages(token,endpoint):
         if not nxt or nxt==cursor:raise ValueError("INVALID_PAGINATION")
         cursor=nxt
     raise ValueError("PAGINATION_LIMIT")
+def api_phase(label,fn):
+    """Trace only the failing Bitable operation and numeric API code, no payload."""
+    try:
+        return fn()
+    except urllib.error.HTTPError as exc:
+        num="UNKNOWN"
+        try:
+            data=json.loads(exc.read(8192))
+            n=data.get("code")
+            if isinstance(n,int) and 0<=n<100000000:num=str(n)
+        except (ValueError,TypeError):
+            pass
+        raise ValueError("FEISHU_"+label+"_HTTP_"+str(exc.code)+"_CODE_"+num) from None
 def schema(token):
     root=path()
-    found=[v for v in pages(token,root+"/tables") if v.get("name")==TABLE]
+    found=[v for v in api_phase("TABLE_LIST",lambda:pages(token,root+"/tables")) if v.get("name")==TABLE]
     if len(found)>1:raise ValueError("DUPLICATE_TABLE")
     if not found:
-        call("POST",root+"/tables",token,{"table":{"name":TABLE,
+        api_phase("TABLE_CREATE",lambda:call("POST",root+"/tables",token,{"table":{"name":TABLE,
              "default_view_name":"SFDC Requests",
-             "fields":[{"field_name":name,"type":1} for name in FIELDS]}})
+             "fields":[{"field_name":name,"type":1} for name in FIELDS]}}))
         found=[v for v in pages(token,root+"/tables") if v.get("name")==TABLE]
     if len(found)!=1:raise ValueError("TABLE_NOT_CREATED")
     tid=found[0]["table_id"]
     fp=root+"/tables/"+tid+"/fields"
-    names={v.get("field_name"):v.get("type") for v in pages(token,fp)}
+    names={v.get("field_name"):v.get("type") for v in api_phase("FIELD_LIST",lambda:pages(token,fp))}
     for name in FIELDS:
         if name not in names:
-            call("POST",fp,token,{"field_name":name,"type":1})
+            api_phase("FIELD_CREATE",lambda:call("POST",fp,token,{"field_name":name,"type":1}))
     names={v.get("field_name"):v.get("type") for v in pages(token,fp)}
     if any(names.get(n)!=1 for n in FIELDS):raise ValueError("SCHEMA_UNEXPECTED")
     return tid
