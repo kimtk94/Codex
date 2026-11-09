@@ -14,6 +14,40 @@ class PortalTests(unittest.TestCase):
         self.assertIn("PAYMENT_FOLLOWUP",p.PINNED_KEYS)
         self.assertTrue(p.PINNED_KEYS.issubset(set(keys)))
 
+    def test_shortcut_exact_five_and_existing_twelve(self):
+        self.assertEqual(p.SHORTCUT_KEYS,(
+            "MONTHLY_TREND","WEEKLY_TREND","SIF_EVIDENCE",
+            "X_MY_PROJECTS","PAYMENT_FOLLOWUP"))
+        self.assertEqual(len(p.PINNED_KEYS),12)
+        cfg=p.shortcut_filter("fldMain")
+        self.assertEqual(cfg["conjunction"],"or")
+        self.assertEqual(len(cfg["conditions"]),5)
+        view={"view_name":p.SHORTCUT_VIEW,"view_type":"grid",
+              "property":{"filter_info":cfg}}
+        self.assertTrue(p.shortcut_filter_matches(view,"fldMain"))
+        self.assertFalse(p.shortcut_filter_matches(view,"other"))
+        view["property"]["filter_info"]["conditions"].append(
+            {"field_id":"fldMain","operator":"is",
+             "value":'["DASHBOARD"]'})
+        self.assertFalse(p.shortcut_filter_matches(view,"fldMain"))
+
+    def test_shortcut_filters_only_target_view(self):
+        from unittest.mock import call
+        proper={"view_name":p.SHORTCUT_VIEW,"view_type":"grid",
+                "property":{"filter_info":{}}}
+        with mock.patch.object(p,"list_views",return_value={p.SHORTCUT_VIEW:"vewShortcut"}), \
+             mock.patch.object(p,"get_fields",return_value=[
+                 {"field_name":"Menu Key","field_id":"fldMain","type":1}
+             ]), mock.patch.object(p,"api",return_value={}) as api, \
+             mock.patch("setup_sales_web.get_view",side_effect=[
+                 proper, {"view_name":p.SHORTCUT_VIEW,"view_type":"grid",
+                          "property":{"filter_info":p.shortcut_filter("fldMain")}}
+             ]):
+            self.assertEqual(p.ensure_shortcut_view("token","/tbl"),"vewShortcut")
+            self.assertEqual(api.call_count,1)
+            self.assertEqual(api.call_args.args[0],"PATCH")
+            self.assertIn("/views/vewShortcut",api.call_args.args[1])
+
     def test_menu_order_colors_and_stable_ids(self):
         self.assertEqual(len(p.CURATED_ORDER),12)
         self.assertEqual(len(set(p.CURATED_ORDER)),12)
