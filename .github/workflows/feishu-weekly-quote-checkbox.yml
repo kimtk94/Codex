@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/quote_checkbox_refresh.py'
+      - 'automation/feishu/quote_dashboard_preview.py'
+      - 'automation/feishu/shortcut_chart_dashboards.py'
       - 'automation/feishu/test_quote_checkbox_refresh.py'
       - 'automation/feishu/weekly_quote_review.py'
       - 'automation/feishu/quote_process_amount.py'
@@ -11,6 +13,8 @@ on:
     branches: [main]
     paths:
       - 'automation/feishu/quote_checkbox_refresh.py'
+      - 'automation/feishu/quote_dashboard_preview.py'
+      - 'automation/feishu/shortcut_chart_dashboards.py'
       - 'automation/feishu/weekly_quote_review.py'
       - '.github/workflows/feishu-weekly-quote-checkbox.yml'
   workflow_dispatch:
@@ -40,6 +44,7 @@ jobs:
       - name: Check manual exclusions, price evidence, and source-owned fields
         run: |
           python -m unittest discover -s automation/feishu -p 'test_quote_checkbox_refresh.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_quote_dashboard_preview.py' -v
           python -m unittest discover -s automation/feishu -p 'test_weekly_quote_review.py' -v
           python -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
           python -m py_compile automation/feishu/quote_checkbox_refresh.py
@@ -67,7 +72,25 @@ jobs:
       - name: Install verified Feishu and Google source clients
         run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Poll checkbox only, preserve user edits, reconcile validated KPI on changes
+        id: checkbox_scan
         run: python3 automation/feishu/quote_checkbox_refresh.py
+      - uses: actions/setup-node@v4
+        if: ${{ steps.checkbox_scan.outputs.quote_changed == 'true' }}
+        with:
+          node-version: '22'
+      - name: Install Feishu native chart CLI after a real checkbox change
+        if: ${{ steps.checkbox_scan.outputs.quote_changed == 'true' }}
+        run: npm install --global '@larksuite/cli@1.0.99'
+      - name: Configure ephemeral Feishu dashboard identity
+        if: ${{ steps.checkbox_scan.outputs.quote_changed == 'true' }}
+        run: |
+          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name quote-checkbox-preview --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
+          lark-cli profile use quote-checkbox-preview
+      - name: Refresh weekly chart and actual Quote preview after checkbox change
+        if: ${{ steps.checkbox_scan.outputs.quote_changed == 'true' }}
+        env:
+          FEISHU_PORTAL_MODE: apply
+        run: python3 automation/feishu/shortcut_chart_dashboards.py
       - name: Audit refresh scope
         if: always()
         run: |
