@@ -53,7 +53,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install Next.js dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
       - name: Check loopback access control and project data integrity
         run: node --test tests/css-projects-local.test.mjs
       - name: Build Next.js local dashboard (no deployment)
