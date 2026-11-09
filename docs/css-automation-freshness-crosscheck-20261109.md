@@ -87,3 +87,15 @@
 - [original source 재검증 #42537764294](https://github.com/kimtk94/Codex/actions/runs/42537764294): 2026-11-09 09:03 KST 원본 QQ IMAP INBOX/SENT 재조회 성공, 최근 **3일 gap=0**, 최근 **60일 gap=0**, 60일 이전 과거 backlog **34,552** 유지. 마지막 수집 `2026-11-09T00:01:15.188389Z`. 상태 `PASS_UID_ONLY`이며 MIME/body/첨부·전체 역사적 백필의 PASS는 아님.
 - Feishu 원본 4종 dated Sheets와 Google mirror 대조는 재검증에서 PASS. 최신 eTax dated 원천은 **2026-10-31**로 11월 eTax issuance/Payment 입금 증빙은 여전히 미인증. SFDC 실제 객체 Save/readback도 미검증.
 - 이 지표에서 **신규 9건은 수집 시각 이후 대기분**이었음. GitHub 스케줄 누락/지연 여부는 반복 모니터링하되, 0건 재검증만으로 cron 지연 원인이 확정되지는 않음. 60일 이전 34,552건은 역사적 별도 backfill로 관리.
+
+
+## 2026-11-09 09:24 KST: SFDC 3 Report source→generated view 실측 검증
+
+- [PR #649](https://github.com/kimtk94/Codex/pull/649) 병합 및 [GitHub Actions #42539946801](https://github.com/kimtk94/Codex/actions/runs/42539946801) main live read-only PASS.
+- **원천은 실제 Salesforce 객체 직접 조회가 아니라 QQ 메일 첨부를 검증해 보관한 3종 Report staging.** 원천 수신일은 2026-11-08 17:00 KST; 이번 검사에서는 각 stage 상태가 `PRESERVED_NO_NEW_REPORT`. 후속 SFDC 객체 저장이나 `NO_NEW_DATA`를 인증하지 않는다.
+- Staging Leads **515 unique/515 rows**, Opportunities **706 unique/706 rows**, Quotation **3,883 process rows / 838 unique Quote IDs**; 차이 3,045행은 동일 Quote의 공정 행으로, 오류 중복 Quote가 아니다.
+- 별도로 계산한 Quote→Opportunity 관계: `SFDC Verified Relations` **781개**, `SFDC Quote Link Review` **57개**. **56개는 Opportunity export scope 밖**, **1개는 Opportunity ID 누락** (후자는 `MULTIPLE_OR_ZERO_OPPORTUNITY_IDS` 이유도 함께 가지며 별개의 Quote 1건임). `MISSING_OPPORTUNITY_ID:1, OPPORTUNITY_NOT_IN_EXPORT:56`.
+- 독립 readback에서 **838/838 Quote IDs 커버, source ID missing=0, sink unexpected=0, relation value mismatch=0**. 판정 `PASS_STAGE_TO_GENERATED_ONLY`.
+- **SFDC 실제 객체 Save/readback, CRM Contact 연결, 본인 소유 관계, CDMS 동기화와 고객 발송은 인증되지 않았다.** 56개 out-of-export를 객체 삭제·부재라고 단정하거나 자동 생성해서는 안 된다.
+- `.github/workflows/css-sfdc-report-sink-parity.yml` cron KST **09:55, 13:55, 18:55**; 누락·연결값 오류·원천 ID 불완전 시 fail closed. Vercel 제외.
+- 다음 수용 검증: 본인 소유 Opportunity만 별도 집계한 후, 권한이 있는 SFDC 실제 객체 read-only 조회 경로를 확보해 Quote/Opportunity 18자리 실제 Salesforce ID와 report ID 매핑을 검증. Desktop Commander NGKR-SAL-TH는 본 검사 당시 **오프라인**, 직접 Save 인증 불가.
