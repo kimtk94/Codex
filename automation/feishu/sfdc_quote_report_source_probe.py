@@ -96,13 +96,16 @@ def main():
         found.append({"table_name":name,
                       "table_id":tid if name in (
                           "SFDC Quote Process Dictionary","SFDC Quote Product Templates",
-                          "SFDC Quote Report Lines") else "",
+                          "SFDC Quote Report Lines","SFDC Quote GB Project Classes",
+                          "SFDC Quote Reference Index") else "",
                       "readonly_column_ids":{
                           x.get("field_name"):x.get("field_id")
                           for x in fields
                           if name in ("SFDC Quote Report Lines",
                                        "SFDC Quote Process Dictionary",
-                                       "SFDC Quote Product Templates")
+                                       "SFDC Quote Product Templates",
+                                       "SFDC Quote GB Project Classes",
+                                       "SFDC Quote Reference Index")
                           and x.get("field_name") in (
                               "Line Key","Quote ID","Quote Record ID",
                               "Quote Product ID","Product Template Key","Process Keys","Process Count",
@@ -110,7 +113,12 @@ def main():
                               "Unit Price USD","Sales Price USD",
                               "Process Total USD","Sample Qty","Data Size",
                               "Active","Quote Created","Source Exported KST",
-                              "Source Row Hash","Source Status","Source Received KST")
+                              "Source Row Hash","Source Status","Source Received KST",
+                              "Class Key","Production Gb","Gb Status","Reference SHA256",
+                              "Opportunity External ID","Opportunity Name",
+                              "Account ID","Account Name","Contact ID","Contact Name",
+                              "Contact Email","Account Contact Status",
+                              "Products JSON","Product Count","Reference Status")
                       },
                       "field_count":len(fields),
                       "report_line_schema_complete":process_ready,
