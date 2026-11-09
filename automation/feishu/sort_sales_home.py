@@ -11,6 +11,7 @@ from qq_mail_ingest import SafeError, auth, get_fields, list_all, plain_field
 from sales_native_home import (
     EXPECTED_BASE, HOME, CURATED_VIEW, CURATED_ORDER, CURATED_DISPLAY,
     table_map, list_views, target_path, MENUS, presentation, PINNED_KEYS, ARCHIVE_DISPLAY,
+    SHORTCUT_VIEW, SHORTCUT_KEYS, shortcut_filter_matches,
 )
 from setup_sales_web import get_view
 
@@ -255,6 +256,20 @@ def main():
     print("PORTAL_SORT_CONFIG_PASS field=display_order ascending=true changed="
           + str(int(changed)))
     ensure_column_order(EXPECTED_BASE, table_id, view_id, fields,mode)
+    # Shortcut is separate from the existing 12-row curated view.
+    shortcut_id=views.get(SHORTCUT_VIEW)
+    key_field=field_by_name.get("Menu Key") or {}
+    if not shortcut_id or not key_field.get("field_id"):
+        raise SafeError("PORTAL_SHORTCUT_VIEW_OR_KEY_UNAVAILABLE")
+    if not shortcut_filter_matches(get_view(token,path,shortcut_id),key_field["field_id"]):
+        raise SafeError("PORTAL_SHORTCUT_FILTER_NOT_PERSISTED")
+    current_shortcut=run_cli("+view-get-sort",EXPECTED_BASE,table_id,shortcut_id)
+    if not sort_matches(current_shortcut,sort_field["field_id"]):
+        run_cli("+view-set-sort",EXPECTED_BASE,table_id,shortcut_id,EXPECTED)
+    if not sort_matches(run_cli("+view-get-sort",EXPECTED_BASE,table_id,shortcut_id),sort_field["field_id"]):
+        raise SafeError("PORTAL_SHORTCUT_SORT_READBACK_MISMATCH")
+    ensure_column_order(EXPECTED_BASE,table_id,shortcut_id,fields,mode)
+    print("PORTAL_SHORTCUT_VIEW_LAYOUT_PASS rows=5 sort=ascending columns=7")
     record_state = "PASS"
     try:
         verify_view_rows(token, path, view_id)
