@@ -11,6 +11,7 @@ FIELDS=["Request ID","Action","Source Oppo ID","Source Quote ID","Lead ID",
 "Price Checked","Run Mode","Status","New Oppo ID","New Quote ID",
 "New Contact ID","Error Code","Checked At"]
 # Keep the original A:V layout stable. All new columns are appended only.
+PRICE_VIEW="Quote Pricing"
 PRICE_INPUT_FIELDS=["Requested Product Unit KRW","Requested Cloud Unit KRW"]
 PRICE_RESULT_FIELDS=["Source Product Name","Sample Unit KRW","Product Unit KRW",
     "Product Qty","Product Net KRW","Cloud Unit KRW","Cloud Qty","Cloud Net KRW",
@@ -104,6 +105,14 @@ def schema(token):
     names={v.get("field_name"):v.get("type") for v in pages(token,fp)}
     if any(names.get(n)!=(2 if n in PRICE_NUMBER_FIELDS else 1) for n in FIELDS):
         raise ValueError("SCHEMA_UNEXPECTED")
+    vp=root+"/tables/"+tid+"/views"
+    views=[v for v in pages(token,vp) if v.get("view_name")==PRICE_VIEW]
+    if not views:
+        api_phase("PRICING_VIEW_CREATE",
+            lambda:call("POST",vp,token,{"view_name":PRICE_VIEW,"view_type":"grid"}))
+        views=[v for v in pages(token,vp) if v.get("view_name")==PRICE_VIEW]
+    if len(views)!=1 or views[0].get("view_type")!="grid" or not views[0].get("view_id"):
+        raise ValueError("PRICING_VIEW_READBACK_FAILED")
     return tid
 def plain(v):
     if v is None:return ""
@@ -235,7 +244,7 @@ def main():
     if mode not in ("bootstrap","pull","push"):raise SystemExit(2)
     try:
         token=auth();tid=schema(token)
-        if mode=="bootstrap":out={"mode":mode,"status":"PASS","table_id":tid}
+        if mode=="bootstrap":out={"mode":mode,"status":"PASS","table_id":tid,"fields":len(FIELDS),"currency_fields":len(PRICE_NUMBER_FIELDS),"pricing_view":PRICE_VIEW}
         else:
             s=google();ensure_mirror(s)
             out=pull(token,s,tid) if mode=="pull" else push(token,s,tid)
