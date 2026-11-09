@@ -110,7 +110,7 @@ def main():
                               "Unit Price USD","Sales Price USD",
                               "Process Total USD","Sample Qty","Data Size",
                               "Active","Quote Created","Source Exported KST",
-                              "Source Row Hash","Source Status")
+                              "Source Row Hash","Source Status","Source Received KST")
                       },
                       "field_count":len(fields),
                       "report_line_schema_complete":process_ready,
