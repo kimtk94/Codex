@@ -108,15 +108,21 @@ def _restore_line(record,kind,fetch):
     del record[REF]
 
 
-def expand(persisted,fetch):
+def expand(persisted,fetch,only_refs=None):
+    """Rehydrate all templates, or just one selected hash for byte accounting."""
     result=json.loads(compact_json(persisted))
+    def wanted(line):
+        return only_refs is None or line.get(REF) in only_refs
     if result.get("resource")=="quote":
-        _restore_line(result,"quote",fetch)
+        if wanted(result):
+            _restore_line(result,"quote",fetch)
     elif result.get("mode")=="bundle":
         for quote in result.get("linkedQuotes",[]):
-            _restore_line(quote,"quote",fetch)
+            if wanted(quote):
+                _restore_line(quote,"quote",fetch)
             for child in quote.get("sourceProductEvidence",[]):
-                _restore_line(child,"child",fetch)
+                if wanted(child):
+                    _restore_line(child,"child",fetch)
     return result
 
 
