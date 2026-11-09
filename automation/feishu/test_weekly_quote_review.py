@@ -137,6 +137,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(row["Opportunity"],"Project RNA")
         self.assertEqual(row["서비스·공정"],"Sequencing")
         self.assertEqual(row["참고 금액 K USD"],0.154)
+        self.assertEqual(row["참고 견적 USD"],"USD 154.00")
         self.assertEqual(row["금액 근거"],"SOURCE_QQ_PROCESS_OWNER_PARITY")
         self.assertEqual(row["Chart Window"],"RECENT_4_PLUS_CURRENT")
         self.assertEqual(q.chart_window_weeks(src,fixture.NOW),
@@ -149,6 +150,7 @@ class PolicyTests(unittest.TestCase):
         data=source()
         a=q.review_rows(data,now=NOW)[0]
         self.assertIsNone(a["참고 금액 K USD"])
+        self.assertEqual(a["참고 견적 USD"],"NO_VALUE")
         self.assertEqual(a["금액 근거"],"NO_VALUE")
         self.assertTrue(q.equal_source({**a,"참고 금액 K USD":None},a))
 
