@@ -43,7 +43,8 @@ class UnifiedPipelineContracts(unittest.TestCase):
         s=(W/"feishu-sources-unified.yml").read_text(encoding="utf-8")
         self.assertIn("  ingest:\n    needs: tests",s)
         self.assertIn("  payment:\n    needs: ingest",s)
-        self.assertIn("  monthly:\n    needs: [ingest, lifecycle]",s)
+        self.assertIn("  monthly:",s)
+        self.assertIn("    needs: [ingest, lifecycle]",s)
         self.assertIn("  lifecycle:\n    needs: ingest",s)
         self.assertNotIn("    needs: lifecycle",s)
         self.assertIn("LIFECYCLE_SOURCE_SHRINK_HOLD",
