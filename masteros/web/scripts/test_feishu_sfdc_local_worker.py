@@ -1,6 +1,7 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
-from feishu_sfdc_local_worker import validate,prepare_pair,process,HEAD
+from feishu_sfdc_local_worker import validate,prepare_pair,process,HEAD,json_run
 def row(**kw):
     d={k:"" for k in HEAD};d.update({"record_id":"rec_TEST","Action":"OPPO_QUOTE_PAIR",
     "Status":"NEW","Run Mode":"CHECK","Approval":"PREFLIGHT"})
@@ -28,6 +29,13 @@ def base(**kw):
     x.update(kw)
     return x
 class T(unittest.TestCase):
+ def test_windows_subprocess_handles_korean_utf8(self):
+    with patch("feishu_sfdc_local_worker.subprocess.run",
+      return_value=SimpleNamespace(stdout='{"status":"PREFLIGHT_PASS"}')) as run:
+      result=json_run("sfdc_action_executor.py",{"progressDescription":"신규 샘플 준비"})
+    self.assertEqual(result["status"],"PREFLIGHT_PASS")
+    self.assertEqual(run.call_args.kwargs["encoding"],"utf-8")
+    self.assertEqual(run.call_args.kwargs["env"]["PYTHONIOENCODING"],"utf-8")
  def test_new_request(self):
     self.assertTrue(validate(row()))
     self.assertFalse(validate(row(**{"Run Mode":"SAVE"})))
