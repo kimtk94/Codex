@@ -86,7 +86,7 @@ class PrivateCacheTests(unittest.TestCase):
 
     def test_invalid_json_checksum_fails_closed(self):
         cache.save(BUNDLE_REQ,bundle(),now=1000)
-        with sqlite3.connect(cache.CACHE_FILE) as cx:
+        with cache._connect() as cx:
             cx.execute("UPDATE entries SET payload_json='{}'")
         self.assertIsNone(cache.lookup(BUNDLE_REQ,now=1100))
 
