@@ -68,11 +68,11 @@ def report_coverage(fields):
     return {
         "quote_identifier":present("quotationid","quoteid","sfdcquotationid","salesforcerecordid"),
         "product_identifier":present("quotationproductid","quoteproductid","productid"),
-        "process_identifier":present("processid","sfdcprocessid","processname"),
+        "process_identifier":present("processid","sfdcprocessid","processname","processkey"),
         "unit_price":present("unitprice","단가"),
         "sample_quantity":present("samplequantity","samples","샘플수량"),
-        "currency":present("currency","통화"),
-        "source_updated_at":present("exportedat","lastmodified","수집시각","reporttime","원본시각"),
+        "currency":present("currency","통화","unitpriceusd"),
+        "source_updated_at":present("exportedat","sourceexportedkst","lastmodified","수집시각","reporttime","원본시각"),
     }
 
 
@@ -93,7 +93,11 @@ def main():
         coverage=report_coverage(fields)
         process_ready=all(coverage[k] for k in
             ("quote_identifier","product_identifier","process_identifier","unit_price","sample_quantity","currency"))
-        found.append({"table_name":name,"field_count":len(fields),
+        found.append({"table_name":name,
+                      "table_id":tid if name in (
+                          "SFDC Quote Process Dictionary","SFDC Quote Product Templates",
+                          "SFDC Quote Report Lines") else "",
+                      "field_count":len(fields),
                       "report_line_schema_complete":process_ready,
                       "report_field_coverage":coverage})
     quote_tables=[r for r in found if r["table_name"]=="Quotes"]
