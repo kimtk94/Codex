@@ -23,7 +23,7 @@ class SortTests(unittest.TestCase):
         self.assertFalse(s.group_matches(
             {"group_config":[{"field":"그룹","desc":True}]},"fldGroup"))
         self.assertFalse(s.group_matches({"group_config":[]},"fldGroup"))
-        self.assertEqual(len(s.MENUS),35)
+        self.assertEqual(len(s.MENUS),36)
 
     def test_shortcut_filter_and_layout_unchanged(self):
         self.assertEqual(s.SHORTCUT_VIEW,"바로가기")
