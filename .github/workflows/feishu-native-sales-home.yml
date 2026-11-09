@@ -5,11 +5,15 @@ on:
     paths:
       - 'automation/feishu/sales_native_home.py'
       - 'automation/feishu/test_sales_native_home.py'
+      - 'automation/feishu/sort_sales_home.py'
+      - 'automation/feishu/test_sort_sales_home.py'
       - '.github/workflows/feishu-native-sales-home.yml'
   pull_request:
     paths:
       - 'automation/feishu/sales_native_home.py'
       - 'automation/feishu/test_sales_native_home.py'
+      - 'automation/feishu/sort_sales_home.py'
+      - 'automation/feishu/test_sort_sales_home.py'
       - '.github/workflows/feishu-native-sales-home.yml'
   workflow_run:
     workflows: ['Feishu Sales SIF Invoice Weekly KPI']
@@ -42,7 +46,8 @@ jobs:
       - name: Native home offline tests
         run: |
           python3 -m unittest discover -s automation/feishu -p 'test_sales_native_home.py' -v
-          python3 -m py_compile automation/feishu/sales_native_home.py
+          python3 -m py_compile automation/feishu/sales_native_home.py automation/feishu/sort_sales_home.py
+          python3 -m unittest discover -s automation/feishu -p 'test_sort_sales_home.py' -v
   home:
     needs: test
     if: ${{ github.event_name != 'pull_request' && needs.test.result == 'success' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
@@ -61,3 +66,14 @@ jobs:
           python-version: '3.11'
       - name: Build Feishu native internal sales portal
         run: python3 automation/feishu/sales_native_home.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install official Lark CLI for saved view sorting
+        run: npm install --global '@larksuite/cli@1.0.99'
+      - name: Configure ephemeral Feishu app identity
+        run: |
+          printf '%s' "$FEISHU_APP_SECRET" | lark-cli profile add --name css-home-sort --app-id "$FEISHU_APP_ID" --brand feishu --app-secret-stdin
+          lark-cli profile use css-home-sort
+      - name: Save and read back actual Feishu view ordering
+        run: python3 automation/feishu/sort_sales_home.py
