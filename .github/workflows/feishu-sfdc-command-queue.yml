@@ -16,12 +16,15 @@ on:
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
       - 'automation/feishu/test_sfdc_command_queue.py'
       - 'automation/feishu/sfdc_price_smoke.py'
+      - 'automation/feishu/test_sfdc_price_smoke.py'
       - '.github/workflows/feishu-sfdc-command-queue.yml'
   pull_request:
     paths:
       - 'automation/feishu/sfdc_command_queue.py'
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
       - 'automation/feishu/test_sfdc_command_queue.py'
+      - 'automation/feishu/sfdc_price_smoke.py'
+      - 'automation/feishu/test_sfdc_price_smoke.py'
       - '.github/workflows/feishu-sfdc-command-queue.yml'
 permissions:
   contents: read
@@ -44,6 +47,7 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p test_sfdc_command_queue.py -v
           python3 -m py_compile automation/feishu/sfdc_command_queue.py
           python3 -m py_compile automation/feishu/sfdc_price_smoke.py
+          python3 -m unittest discover -s automation/feishu -p test_sfdc_price_smoke.py -v
   live:
     needs: offline
     if: github.event_name != 'pull_request' && (github.event_name == 'workflow_dispatch' || vars.FEISHU_SFDC_BRIDGE_ENABLED == 'true')
