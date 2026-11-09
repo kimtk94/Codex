@@ -16,7 +16,7 @@ class QuoteComboTests(unittest.TestCase):
         self.assertIn("이번 주",name)
         self.assertEqual(cfg["table_name"],"Weekly Quote KPI")
         self.assertEqual(cfg["series"],[
-            {"field_name":"Approved Quote Count","rollup":"SUM"},
+            {"field_name":"Included Quote Count","rollup":"SUM"},
             {"field_name":"Calculated Quote Value K USD","rollup":"SUM"},
         ])
         self.assertEqual(cfg["group_by"][0]["field_name"],"Chart Week Label")
