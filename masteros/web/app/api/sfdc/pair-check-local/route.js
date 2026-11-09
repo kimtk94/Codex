@@ -1,6 +1,6 @@
 import {spawn} from "node:child_process";
 import {join} from "node:path";
-import {authorizeCommand} from "../../../../../lib/sfdc-commands.mjs";
+import {authorizeCommand} from "../../../../lib/sfdc-commands.mjs";
 
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
