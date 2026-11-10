@@ -25,10 +25,10 @@ const tabs=[
   {id:"opportunity_create",name:"Opportunity 생성",caption:"기존 Oppo 참조 · 새 Progress Description"},
   {id:"quote_create",name:"Quote 생성",caption:"기존 제품만 · 가격 검증 우선"},
 ];
-function Field({label,value,onChange,required=true,type="text",step,placeholder}){
+function Field({label,value,onChange,required=true,type="text",step,placeholder,disabled=false}){
   return <label className={styles.field}><span>{label}</span>
     <input type={type} value={value??""} onChange={e=>onChange(type==="number"?Number(e.target.value):e.target.value)}
-      required={required} step={step} placeholder={placeholder||""}/></label>;
+      required={required} step={step} disabled={disabled} placeholder={placeholder||""}/></label>;
 }
 function Flag({label,state}){
   const p=String(state||"BLOCK");
@@ -481,7 +481,8 @@ export default function SfdcCommandCenter(){
             </div>
             <div className={styles.two}>
               <Field label="Oppo 샘플당 단가 (KRW, VAT 제외)" type="number"
-                value={form.unitPriceNetKrw||""} onChange={v=>update("unitPriceNetKrw",v)}
+                value={form.unitPriceNetKrw||""} disabled={loadingDetail}
+                onChange={v=>update("unitPriceNetKrw",v)}
                 placeholder="예: 250000"/>
               <Field label="Close Date" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
             </div>
