@@ -45,8 +45,7 @@ class BodyTests(unittest.TestCase):
         m.validate_request({"mode":"body","uid":UID,"key":KEY})
         for arg in [
             {"mode":"body","uid":"inbox:abc","key":KEY},
-            {"mode":"body","uid":UID,"key":"evil
-url"},
+            {"mode":"body","uid":UID,"key":"evil\nurl"},
             {"mode":"body","uid":UID,"key":KEY,"action":"SKIP_MAIL"},
         ]:
             with self.assertRaises(ValueError):
