@@ -172,6 +172,7 @@ class PreclassifiedLocalTests(unittest.TestCase):
                 ("QID-2026-11-09-000302","Opp-2026-11-09-300","Same Oppo",
                  "001000000000000AAB","Beta","003000000000000AAB","Kim","REFERENCE_ONLY")
             ])
+            cx.commit()
         with patch.object(idx,"status",return_value={"status":"PASS"}):
             rows=idx.search_opportunities("Same Oppo")["rows"]
             self.assertEqual(rows[0]["group_status"],"HOLD_AMBIGUOUS_PARENT")
