@@ -54,3 +54,28 @@
 .footer{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;font-size:11px;color:#8296a2;padding:18px 2px;border-top:1px solid #d9e5e9}
 @media(max-width:980px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.decisionBody label{min-width:240px}}
 @media(max-width:600px){.header{align-items:flex-start}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.tile strong{font-size:23px}.filters label{min-width:100%}.decisionBody label{min-width:100%}.tabs button{flex:1}}
+
+/* A review action must appear in the current viewport, not under a 680px table. */
+.modalBackdrop{position:fixed;inset:0;z-index:1400;display:flex;align-items:center;justify-content:center;background:rgba(9,26,41,.72);padding:16px;overscroll-behavior:contain}
+.modal{display:flex;flex-direction:column;position:relative;width:min(600px,100%);max-height:min(90dvh,850px);overflow:auto;background:#fff;border:1px solid #dae5ea;border-radius:18px;box-shadow:0 24px 70px #0714207a;color:#24495d;padding:0}
+.modalHead{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:19px 22px 15px;background:#f3f8fa;border-bottom:1px solid #e0e9ed}
+.modalHead h2{font-size:21px;line-height:1.3;margin:0;color:#21475b}
+.modalHead button{width:36px;height:36px;flex:none;display:grid;place-items:center;border:1px solid #cfdde4;border-radius:9px;background:#fff;color:#315c70;cursor:pointer}
+.mailSummary{display:flex;flex-direction:column;gap:7px;padding:18px 22px 15px;background:#fff;border-bottom:1px solid #edf2f4;overflow-wrap:anywhere}
+.mailSummary b{font-size:14px;line-height:1.5;color:#203f51}
+.mailSummary span{color:#386a82;font-size:13px}
+.mailSummary small{color:#6b8593;font-size:12px;line-height:1.5}
+.modalContents{display:flex;flex-direction:column;gap:16px;padding:21px 22px 22px}
+.modalContents label{display:flex;flex-direction:column;gap:7px;color:#536d79;font-size:12px;font-weight:750}
+.modalContents select,.modalContents input{width:100%;padding:12px 11px;border:1px solid #d2dfe5;border-radius:9px;color:#234456;background:#fff;font:inherit;font-size:14px}
+.modalContents input:focus,.modalContents select:focus{outline:3px solid #8ed0e0;outline-offset:1px}
+.modalContents h3{font-size:15px;line-height:1.65;margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.modalContents p{font-size:12px;line-height:1.6;color:#5a7685;margin:0}
+.modalHint{background:#eef5f8;border-radius:9px;padding:11px}
+.modalError{background:#fff1f0;color:#aa3939;border-radius:9px;font-size:12px;line-height:1.5;padding:10px 12px;margin:13px 22px 0}
+.modalButtons{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:6px}
+.modalButtons button{font:inherit;font-size:13px;font-weight:750;border:1px solid #cddce4;padding:11px 15px;background:#fff;border-radius:9px;color:#285c73;cursor:pointer}
+.modalButtons button:disabled{opacity:.47;cursor:not-allowed}
+.modalButtons .primary{background:#1c526c;border-color:#1c526c;color:#fff}
+.modalButtons button:focus-visible,.modalHead button:focus-visible{outline:3px solid #62bce1;outline-offset:2px}
+@media(max-width:600px){.modalBackdrop{align-items:flex-end;padding:0}.modal{width:100%;max-height:94dvh;border-radius:16px 16px 0 0}.modalHead{padding:15px}.mailSummary,.modalContents{padding:15px}.modalButtons button{flex:1}}
