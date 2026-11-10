@@ -79,3 +79,19 @@
 .modalButtons .primary{background:#1c526c;border-color:#1c526c;color:#fff}
 .modalButtons button:focus-visible,.modalHead button:focus-visible{outline:3px solid #62bce1;outline-offset:2px}
 @media(max-width:600px){.modalBackdrop{align-items:flex-end;padding:0}.modal{width:100%;max-height:94dvh;border-radius:16px 16px 0 0}.modalHead{padding:15px}.mailSummary,.modalContents{padding:15px}.modalButtons button{flex:1}}
+
+/* Read the actual cached body and keep triage actions in the same viewport. */
+.openableRow{cursor:pointer}
+.openableRow:focus-visible{outline:3px solid #3b95be;outline-offset:-3px;background:#eef7fa}
+.openableRow:hover td{background:#edf6f9}
+.viewerTools{position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:8px;justify-content:space-between;background:#eef5f9;border-bottom:1px solid #d3e4ec;padding:11px 20px;flex-wrap:wrap}
+.viewerTools button{padding:10px 12px;border:1px solid #c0d8e6;background:#fff;border-radius:9px;color:#23546b;font-size:12px;font-weight:750;cursor:pointer}
+.viewerTools button:nth-of-type(2){background:#1c526c;color:white;border-color:#1c526c}
+.viewerTools button:disabled{opacity:.5;cursor:not-allowed}
+.viewerTools span{color:#587d91;font-variant-numeric:tabular-nums;font-size:12px}
+.bodyViewer{display:flex;flex-direction:column;background:#f8fbfd;padding:12px 20px 16px;border-bottom:1px solid #e5eef2}
+.bodyTitle{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:12px;color:#234f66;margin-bottom:9px}
+.bodyTitle small{font-size:10px;color:#6e8898}
+.bodyText{width:100%;min-height:130px;max-height:min(38dvh,320px);margin:0;padding:15px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;border:1px solid #e0e9ed;border-radius:9px;background:#fff;color:#243d4b;font-size:12px;font-family:inherit;line-height:1.7;text-align:left}
+.bodyMessage{border:1px dashed #dae6ea;background:white;border-radius:9px;margin:0;padding:24px 14px;color:#6b8491;font-size:12px}
+@media(max-width:600px){.viewerTools{padding:10px;gap:5px}.viewerTools button{flex:1;min-width:72px}.viewerTools span{order:-1;width:100%;text-align:center}.bodyViewer{padding:10px}.bodyText{max-height:27dvh}}
