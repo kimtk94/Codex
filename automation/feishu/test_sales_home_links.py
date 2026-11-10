@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sales_home_links import (
-    TARGETS, url, plan, validate_current_link, link_url, require_success
+    TARGETS, url, plan, validate_current_link, link_url, require_success, extract_token
 )
 
 def record(key, href="", record_id=None):
@@ -66,6 +66,13 @@ class SalesHomeSafety(unittest.TestCase):
         p = plan([record("WEEKLY_TREND"), record("MONTHLY_TREND"), row])
         self.assertEqual(link_url(p["X_MY_PROJECTS"]["fields"]["바로가기"]),
                          url("blkzYT2OAVQssL3Y"))
+
+    def test_v3_token_at_top_level(self):
+        self.assertEqual(extract_token({"code": 0, "tenant_access_token": "example"}), "example")
+
+    def test_token_missing_fails_closed(self):
+        with self.assertRaisesRegex(RuntimeError, "FEISHU_TOKEN_UNAVAILABLE"):
+            extract_token({"code": 0, "data": {}})
 
     def test_error_code_fails_closed(self):
         with self.assertRaisesRegex(RuntimeError, "AUTH_API_ERROR_999"):
