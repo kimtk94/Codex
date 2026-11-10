@@ -198,6 +198,30 @@ export function calculateDraft(draft){
     items,netKrw:total,vatKrw:vat,grossKrw:total===null?null:total+vat,
     sourceRateVerified:false,crmSavePermitted:false,feishuWrite:false};
 }
+/** Product-scoped sample unit prices for Opportunity review, without
+ * treating multiple products or Amplicon Regions as additional specimens. */
+export function opportunityUnitPriceSummary(calculation){
+  if(!calculation?.ok||!Array.isArray(calculation.items)||!calculation.items.length)
+    return {ok:false,code:"OPPO_PRICE_NOT_VERIFIED",products:[]};
+  const products=calculation.items.map((item,i)=>{
+    if(!Number.isSafeInteger(item.netKrw)||!Number.isInteger(item.quantity)||
+       item.quantity<=0||item.netKrw%item.quantity!==0)
+      return null;
+    return {
+      id:item.id||String(i),samples:item.quantity,
+      unitPriceNetKrw:item.netKrw/item.quantity,
+      netKrw:item.netKrw,regionCount:item.regionCount||0,
+      perRegion:item.amplicon?.enabled===true,
+      serviceQuantity:item.serviceQuantity
+    };
+  });
+  if(products.some(x=>x===null))
+    return {ok:false,code:"OPPO_UNIT_RATE_NOT_VERIFIED",products:[]};
+  return {ok:true,products,singleProduct:products.length===1,
+    overallPerSampleNetKrw:products.length===1?products[0].unitPriceNetKrw:null,
+    totalNetKrw:calculation.netKrw};
+}
+
 // Versioned concise description template: source Progress Description is never copied.
 // Content is generated from current draft only; no unstated PO, receipt or status.
 export const DESCRIPTION_TEMPLATE_VERSION="OPPO_QUOTE_SHORT_V2";
