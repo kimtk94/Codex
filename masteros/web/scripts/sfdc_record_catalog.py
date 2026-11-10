@@ -26,6 +26,10 @@ def check(inp):
         if inp["resource"]!="opportunity" or not rec_id(inp.get("recordId"),"006"):
             stop("INVALID_BUNDLE_RECORD")
     elif not rec_id(inp.get("recordId"),OBJECTS[inp["resource"]][1]):stop("INVALID_RECORD_ID")
+    if "forceLive" in inp and not isinstance(inp["forceLive"],bool):
+        stop("LIVE_FLAG_INVALID")
+    if inp.get("forceLive") is True and inp["mode"]!="detail":
+        stop("LIVE_MODE_DETAIL_REQUIRED")
     return inp
 def fields(page):
     result={}
