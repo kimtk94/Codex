@@ -80,17 +80,17 @@ export function fromFeishuQuote(detail,now=new Date()){
   });
   const sourceProject=s(ref?.opportunityName);
   const serviceNames=[
-    ["mRNA-Seq",/mRNA[\\s-]*Seq|bulk[\\s-]*RNA[\\s-]*Seq/i],
-    ["WGS",/\\bWGS\\b|whole.genome/i],
-    ["WES",/\\bWES\\b|whole.exome/i],
-    ["small RNA-Seq",/small[\\s-]*RNA|miRNA[\\s-]*Seq/i],
-    ["16S",/\\b16S\\b/i],
-    ["DIA",/\\bDIA\\b|proteomic/i],
-    ["Olink",/\\bOlink\\b/i],
-    ["PMP",/\\bPMP\\b/i],
-    ["PML",/\\bPML\\b/i],
-    ["Iso-Seq",/Iso[\\s-]*Seq/i],
-    ["ATAC-Seq",/ATAC[\\s-]*Seq/i],
+    ["mRNA-Seq",/mRNA[\s-]*Seq|bulk[\s-]*RNA[\s-]*Seq/i],
+    ["WGS",/\bWGS\b|whole.genome/i],
+    ["WES",/\bWES\b|whole.exome/i],
+    ["small RNA-Seq",/small[\s-]*RNA|miRNA[\s-]*Seq/i],
+    ["16S",/\b16S\b/i],
+    ["DIA",/\bDIA\b|proteomic/i],
+    ["Olink",/\bOlink\b/i],
+    ["PMP",/\bPMP\b/i],
+    ["PML",/\bPML\b/i],
+    ["Iso-Seq",/Iso[\s-]*Seq/i],
+    ["ATAC-Seq",/ATAC[\s-]*Seq/i],
     ["Visium",/Visium/i],
     ["Xenium",/Xenium/i]
   ];
