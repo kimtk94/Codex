@@ -81,3 +81,13 @@
 .identitySummary>div span{font-size:13px;color:#224659}
 .identitySummary>div small{font-size:11px;color:#6c7e8c;overflow-wrap:anywhere}
 .identitySummary .hint{grid-column:1 / -1}
+
+.subsection{margin-top:25px;padding-top:22px;border-top:1px solid #dce9ef}
+.subsection h3{margin:0 0 10px;color:#20475d;font-size:16px;letter-spacing:-.02em}
+.subsection .accountOptions{margin-top:13px}
+.subsection .accountOptions .results{margin-bottom:14px}
+.subsection .grid{margin-top:12px}
+.subsection .draftProduct{margin-top:12px}
+.subsection .draftTextLabel textarea:focus{outline:2px solid #79b5d0;outline-offset:2px}
+.results button:focus-visible,.actions button:focus-visible{outline:2px solid #347fa4;outline-offset:3px}
+@media(max-width:650px){.subsection{margin-top:18px;padding-top:17px}}
