@@ -243,6 +243,80 @@ def search_reference(term="",limit=20):
             "salesforce_write":False,"feishu_writes":0,"local_only":True}
 
 
+
+def _opportunity_reference_rows():
+    """Read the already preclassified, source-checked references (not live CRM)."""
+    if status().get("status")!="PASS":
+        raise report.FeishuSourceError("PRECLASSIFIED_INDEX_NOT_READY")
+    with closing(_open()) as cx:
+        return cx.execute("""SELECT qid,opportunity_external,opportunity_name,
+            account_id,account_name,contact_id,contact_name,reference_status
+            FROM quote_reference ORDER BY qid DESC""").fetchall()
+
+
+def _group_opportunity_rows(rows):
+    groups={}
+    for qid,external,name,aid,account,cid,contact,reference_status in rows:
+        # The QQ Opportunity ID is an external reference, NOT a Salesforce 006 ID.
+        if not external or len(external)>100:
+            continue
+        if external not in groups:
+            groups[external]={"opportunity_external":external,
+                "opportunity_name":name,"account_name":account,
+                "contact_name":contact,"quote_count":0,"qids":[],
+                "source_only":True,"group_status":"PASS",
+                "_identities":set()}
+        group=groups[external]
+        group["quote_count"]+=1
+        group["qids"].append(qid)
+        group["_identities"].add((name,aid,account,cid,contact))
+        if reference_status!="REFERENCE_ONLY":
+            group["group_status"]="HOLD_REFERENCE_IDENTITY"
+    for group in groups.values():
+        if len(group.pop("_identities"))!=1:
+            group["group_status"]="HOLD_AMBIGUOUS_PARENT"
+    return groups
+
+
+def search_opportunities(term="",limit=25):
+    """Search real report-linked Oppo groups; never silently select a Quote."""
+    if not isinstance(term,str) or len(term)>80 or not isinstance(limit,int) or not 1<=limit<=30:
+        raise report.FeishuSourceError("OPPORTUNITY_SEARCH_INVALID")
+    groups=_group_opportunity_rows(_opportunity_reference_rows())
+    needle=term.strip().casefold()
+    matched=[group for group in groups.values() if
+        any(needle in str(v).casefold() for v in (
+            group["opportunity_external"],group["opportunity_name"],
+            group["account_name"],group["contact_name"],*group["qids"]))]
+    matched.sort(key=lambda group:group["qids"][0],reverse=True)
+    return {"status":"PASS","source":"FEISHU_PRECLASSIFIED_OPPORTUNITY_REFERENCES",
+            "rows":matched[:limit],"truncated":len(matched)>limit,
+            "source_only":True,"salesforce_write":False,
+            "feishu_writes":0,"local_only":True}
+
+
+def opportunity_quotes(external):
+    if (not isinstance(external,str) or len(external)<4 or len(external)>100
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*",external)):
+        raise report.FeishuSourceError("OPPORTUNITY_REFERENCE_INVALID")
+    groups=_group_opportunity_rows(_opportunity_reference_rows())
+    group=groups.get(external)
+    if not group:
+        raise report.FeishuSourceError("OPPORTUNITY_REFERENCE_NOT_FOUND")
+    if group["group_status"]!="PASS":
+        raise report.FeishuSourceError(group["group_status"])
+    if group["quote_count"]>50:
+        raise report.FeishuSourceError("TOO_MANY_LINKED_QUOTES")
+    return {"status":"PASS","source":"FEISHU_PRECLASSIFIED_OPPORTUNITY_REFERENCES",
+            "opportunity_external":external,
+            "opportunity_name":group["opportunity_name"],
+            "account_name":group["account_name"],
+            "contact_name":group["contact_name"],
+            "quotes":[{"qid":qid} for qid in group["qids"]],
+            "quote_count":group["quote_count"],
+            "source_only":True,"salesforce_write":False,
+            "feishu_writes":0,"local_only":True}
+
 def identity_candidates(term,limit=15):
     """Search preclassified local reference identities, not live Salesforce.
 
