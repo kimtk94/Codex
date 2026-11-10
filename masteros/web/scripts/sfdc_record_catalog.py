@@ -392,7 +392,7 @@ def main():
         request=check(json.loads(sys.stdin.buffer.read(3000).decode("utf-8")))
         from sfdc_pair_cache import key_for, lookup, save, live_meta
         identity=key_for(request)
-        cached=lookup(request) if identity and os.getenv("SFDC_PAIR_CACHE_ENABLED","1")=="1" else None
+        cached=lookup(request) if identity and os.getenv("SFDC_PAIR_CACHE_ENABLED","1")=="1" and not request.get("forceLive") else None
         if cached is not None:
             out=cached
         else:
