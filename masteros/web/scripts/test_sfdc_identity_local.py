@@ -55,7 +55,7 @@ class SearchTests(unittest.TestCase):
         late=NOW+dt.timedelta(days=5)
         self.assertEqual(read_identity_index("김",now=late,db=self.path)["freshness"],"STALE")
     def test_index_coverage_mismatch_blocks(self):
-        with sqlite3.connect(self.path) as cx:
+        with closing(sqlite3.connect(self.path)) as cx:
             cx.execute("UPDATE meta SET v='100' WHERE k='quote_count'")
             cx.commit()
         with self.assertRaisesRegex(ValueError,"COVERAGE_MISMATCH"):
