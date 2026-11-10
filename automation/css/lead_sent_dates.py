@@ -102,7 +102,10 @@ def build_rows(raw, historical, history_dir, staging, stage_dir, now,
         ])
     if len(ids)<450:
         raise RuntimeError("LEAD_SOURCE_UNEXPECTEDLY_SMALL")
-    out.sort(key=lambda x:(x[4],x[0]),reverse=True)
+    out.sort(key=lambda x:(
+        source.date_of(x[4]) or dt.datetime.min.replace(tzinfo=source.KST),
+        x[0]
+    ),reverse=True)
     return [HEAD]+out,counts,latest
 
 
