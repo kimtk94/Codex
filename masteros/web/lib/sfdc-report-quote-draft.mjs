@@ -79,8 +79,8 @@ export function fromFeishuQuote(detail,now=new Date()){
       referenceTotalUsd:s(entry.referenceTotalUsd)||p.referenceTotalUsd};
   });
   const account={id:s(ref?.accountId),name:s(ref?.accountName)};
-  const contact={id:s(ref?.contactId),name:s(ref?.contactName),
-    email:s(ref?.contactEmail)};
+  const contact={id:s(ref?.contactId),externalId:s(ref?.contactExternalId),
+    name:s(ref?.contactName),email:s(ref?.contactEmail)};
   return {ok:true,draft:{
     qid:detail.qid,sourceQuoteId:s(detail.sfdc_record_id),
     name:"",date:kstDate(now),products:identified,
