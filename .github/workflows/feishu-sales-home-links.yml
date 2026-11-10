@@ -1,0 +1,75 @@
+name: Feishu Sales Home Dashboard Links
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply three explicitly approved Feishu sales home link changes"
+        type: boolean
+        required: true
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "automation/feishu/sales_home_links.py"
+      - "automation/feishu/test_sales_home_links.py"
+      - ".github/workflows/feishu-sales-home-links.yml"
+  pull_request:
+    paths:
+      - "automation/feishu/sales_home_links.py"
+      - "automation/feishu/test_sales_home_links.py"
+      - ".github/workflows/feishu-sales-home-links.yml"
+permissions:
+  contents: read
+concurrency:
+  group: feishu-sales-home-links
+  cancel-in-progress: false
+jobs:
+  offline-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check syntax and safety tests (no credentials)
+        run: |
+          python3 -m py_compile automation/feishu/sales_home_links.py
+          python3 -m unittest discover -s automation/feishu -p test_sales_home_links.py -v
+  apply:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.apply == true)
+    needs: [offline-test]
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify target views and update whitelisted sales home links
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_SALES_HOME_APPLY: "1"
+        run: |
+          python3 automation/feishu/sales_home_links.py --apply
+          echo 'Only WEEKLY_TREND, MONTHLY_TREND, X_MY_PROJECTS modified if preflight passes; financial data untouched.' >> "$GITHUB_STEP_SUMMARY"
+  dry-run:
+    if: github.event_name == 'workflow_dispatch' && inputs.apply != true
+    needs: [offline-test]
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Audit links without writes
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: python3 automation/feishu/sales_home_links.py
