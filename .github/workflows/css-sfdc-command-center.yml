@@ -12,6 +12,13 @@ on:
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
+      - 'masteros/web/scripts/sfdc_identity_local.py'
+      - 'masteros/web/scripts/test_sfdc_identity_local.py'
+      - 'masteros/web/app/api/sfdc/identity-local/**'
+      - 'masteros/web/app/sales/commands/IdentityPicker.jsx'
+      - 'masteros/web/app/sales/commands/IdentityPicker.module.css'
+      - 'masteros/web/lib/sfdc-identity-picker.mjs'
+      - 'masteros/web/tests/sfdc-identity-picker.test.mjs'
       - 'masteros/web/scripts/sfdc_pair_readback.py'
       - 'masteros/web/scripts/test_sfdc_pair_readback.py'
       - 'masteros/web/scripts/sfdc_pair_web_preview.py'
@@ -71,6 +78,13 @@ on:
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
+      - 'masteros/web/scripts/sfdc_identity_local.py'
+      - 'masteros/web/scripts/test_sfdc_identity_local.py'
+      - 'masteros/web/app/api/sfdc/identity-local/**'
+      - 'masteros/web/app/sales/commands/IdentityPicker.jsx'
+      - 'masteros/web/app/sales/commands/IdentityPicker.module.css'
+      - 'masteros/web/lib/sfdc-identity-picker.mjs'
+      - 'masteros/web/tests/sfdc-identity-picker.test.mjs'
       - 'masteros/web/scripts/sfdc_pair_readback.py'
       - 'masteros/web/scripts/test_sfdc_pair_readback.py'
       - 'masteros/web/scripts/sfdc_pair_web_preview.py'
@@ -149,6 +163,8 @@ jobs:
       - name: Test existing-record selector without CRM access
         run: |
           python3 -m py_compile scripts/sfdc_record_catalog.py
+          python3 -m py_compile scripts/sfdc_identity_local.py
+          python3 -m unittest discover -s scripts -p test_sfdc_identity_local.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_record_catalog.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_pair_readback.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_pair_web_preview.py -v
@@ -172,7 +188,7 @@ jobs:
       - name: Test request validation, progress text and loopback security
         run: node --test tests/sfdc-commands.test.mjs tests/sfdc-oppo-unit-price.test.mjs
       - name: Test record picker and immutable Progress Description source
-        run: node --test tests/sfdc-record-picker.test.mjs
+        run: node --test tests/sfdc-record-picker.test.mjs tests/sfdc-identity-picker.test.mjs
       - name: Validate linked Quote price and Cloud quantity projection
         run: node --test tests/sfdc-paired-clone.test.mjs
       - name: Validate combined Opportunity Quote web pricing and readback
@@ -193,7 +209,7 @@ jobs:
         run: npm run build
       - name: Verify compiled UI and API routes
         run: |
-          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/commands','.next/server/app/api/sfdc/commands-local','.next/server/app/sales/commands/pair','.next/server/app/api/sfdc/pair-check-local','.next/server/app/api/sfdc/cache-local','.next/server/app/api/sfdc/report-local','.next/server/app/api/sfdc/feishu-report-local'])if(!fs.existsSync(p))process.exit(1)"
+          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/commands','.next/server/app/api/sfdc/commands-local','.next/server/app/sales/commands/pair','.next/server/app/api/sfdc/pair-check-local','.next/server/app/api/sfdc/cache-local','.next/server/app/api/sfdc/report-local','.next/server/app/api/sfdc/feishu-report-local','.next/server/app/api/sfdc/identity-local'])if(!fs.existsSync(p))process.exit(1)"
       - name: Ensure historical views stay hidden but preserved
         run: |
           node -e "const fs=require('fs');const p=fs.readFileSync('app/page.jsx','utf8');if(!p.includes('redirect(\"/sales/commands\")'))process.exit(1);if(!fs.existsSync('app/legacy/page.jsx'))process.exit(1);const q=fs.readFileSync('app/sales/commands/page.jsx','utf8');if(q.includes('href=\"/sales/oppo-quote\"'))process.exit(1);"
