@@ -3,6 +3,7 @@
  * Existing process quantities are NEVER project identity or new sample count.
  * Historical converted USD is NEVER a verified KRW/sample price.
  */
+import {inferAmpliconReference,ampliconRegionUnits} from "./sfdc-amplicon-regions.mjs";
 const s=v=>String(v??"").trim();
 const numeric=v=>/^\d+(?:\.\d+)?$/.test(s(v))?Number(v):null;
 const integer=v=>/^\d+$/.test(s(v))?Number(v):null;
@@ -17,10 +18,11 @@ export function kstDate(now=new Date()){
     timeZone:"Asia/Seoul",year:"numeric",month:"2-digit",day:"2-digit"
   }).format(now);
 }
-function signature(processes,gb){
+function signature(processes,gb,regions=[]){
   return JSON.stringify({
     processes:[...new Set(processes.map(x=>x.processId||x.name))].sort(),
-    productionGb:gb===null?"UNVERIFIED":gb
+    productionGb:gb===null?"UNVERIFIED":gb,
+    regions:[...regions].sort()
   });
 }
 export function fromFeishuQuote(detail,now=new Date()){
@@ -79,6 +81,10 @@ export function fromFeishuQuote(detail,now=new Date()){
       referenceTotalUsd:s(entry.referenceTotalUsd)||p.referenceTotalUsd};
   });
   const sourceProject=s(ref?.opportunityName);
+  // Classify the same physical specimen over multiple Amplicon Regions.
+  // "18-16Sv4v5-18-Archaeal16Sv4v5" + "36 K tags" is 18 specimens,
+  // 2 region services each, NOT 36 independent specimens.
+  const regionReference=inferAmpliconReference(sourceProject,detail.process_lines);
   const serviceNames=[
     ["mRNA-Seq",/\bmRNA\b|mRNA[\s-]*Seq|bulk[\s-]*RNA[\s-]*Seq/i],
     ["WGS",/\bWGS\b|whole.genome/i],
@@ -96,15 +102,31 @@ export function fromFeishuQuote(detail,now=new Date()){
   ];
   const service=(serviceNames.find(([,re])=>re.test(sourceProject))||[])[0]||"";
   // Service label is a reference-based editable suggestion, not a CRM fact.
-  const labeled=identified.map(p=>({...p,
-    serviceLabel:service||p.processes.find(x=>!/(?:QC|Library|Sequenc|Cloud)/i.test(x.name))?.name||p.processes[0]?.name||""
-  }));
+  const labeled=identified.map(p=>{
+    const useReference=identified.length===1&&regionReference.enabled;
+    const amplicon={
+      enabled:useReference,
+      regions:useReference?regionReference.regions.map(x=>({...x})):[],
+      referenceStatus:useReference?regionReference.status:"NOT_SELECTED",
+      referenceServiceUnits:useReference?regionReference.referenceServiceUnits:null
+    };
+    return {...p,
+      serviceLabel:useReference?"Amplicon-Seq":service||
+        p.processes.find(x=>!/(?:QC|Library|Sequenc|Cloud)/i.test(x.name))?.name||
+        p.processes[0]?.name||"",
+      amplicon,samples:useReference?regionReference.samples:p.samples,
+      projectKey:signature(p.processes,p.referenceProductionGb,
+        useReference?amplicon.regions.map(r=>r.code):[])
+    };
+  });
   const account={id:s(ref?.accountId),name:s(ref?.accountName)};
   const contact={id:s(ref?.contactId),externalId:s(ref?.contactExternalId),
     name:s(ref?.contactName),email:s(ref?.contactEmail)};
   return {ok:true,draft:{
     qid:detail.qid,sourceQuoteId:s(detail.sfdc_record_id),
-    name:"",date:kstDate(now),products:labeled,
+    // A selected existing Oppo/Quote is a near-clone by default.
+    // Users edit only differences, while the new object has NO source ID reuse.
+    name:sourceProject,date:kstDate(now),products:labeled,
     descriptionStatus:"Quote Draft",
     source:"FEISHU_REPORT_USD_CONVERTED_ONLY",
     sourceReceivedKst:s(detail.source_mail_received_kst),
@@ -114,7 +136,16 @@ export function fromFeishuQuote(detail,now=new Date()){
     originalOpportunityName:s(ref?.opportunityName),
     originalOpportunityExternalId:s(ref?.opportunityExternalId),
     referenceAccount:account,referenceContact:contact,
-    accountMode:"KEEP",account,contact,identitySelectedFromReference:Boolean(ref)
+    accountMode:"KEEP",account,contact,identitySelectedFromReference:Boolean(ref),
+    referenceDefaults:{
+      name:sourceProject,account:{...account},contact:{...contact},
+      products:labeled.map(p=>({
+        id:p.id,serviceLabel:p.serviceLabel,productionGb:p.productionGb,
+        samples:p.samples,sampleUnitKrw:p.sampleUnitKrw,
+        ampliconEnabled:p.amplicon.enabled,
+        regions:p.amplicon.regions.map(r=>({code:r.code,label:r.label,unitKrw:r.unitKrw||""}))
+      }))
+    }
   }};
 }
 export function calculateDraft(draft){
@@ -122,19 +153,47 @@ export function calculateDraft(draft){
     const qty=integer(p.samples),rate=integer(p.sampleUnitKrw);
     const qtyOk=Number.isSafeInteger(qty)&&qty>=1&&qty<=10000;
     const priceOk=Number.isSafeInteger(rate)&&rate>=0&&rate<=1000000000;
-    const net=qtyOk&&priceOk&&Number.isSafeInteger(qty*rate)?qty*rate:null;
+    const amp=p.amplicon?.enabled===true;
+    const selected=amp?(p.amplicon.regions||[]):[];
+    const serviceQty=amp?ampliconRegionUnits(p.samples,selected):qtyOk?qty:null;
+    const regionLines=amp?selected.map((r,i)=>{
+      const raw=s(r.unitKrw)===""?p.sampleUnitKrw:r.unitKrw;
+      const rPrice=integer(raw);
+      const good=Number.isSafeInteger(rPrice)&&rPrice>=0&&rPrice<=1000000000;
+      const amount=good&&qtyOk&&Number.isSafeInteger(qty*rPrice)?qty*rPrice:null;
+      return {code:s(r.code),label:s(r.label),index:i,
+        quantity:qtyOk?qty:null,unitKrw:good?rPrice:null,netKrw:amount,
+        originalQuoteProductId:p.id,referenceOnly:true};
+    }):[];
+    const net=amp?(
+      serviceQty!==null&&regionLines.every(x=>x.netKrw!==null)?
+        regionLines.reduce((n,x)=>n+x.netKrw,0):null
+    ):(qtyOk&&priceOk&&Number.isSafeInteger(qty*rate)?qty*rate:null);
+    const safeNet=net!==null&&Number.isSafeInteger(net)?net:null;
     const gb=s(p.productionGb)===""?null:gbValue(p.productionGb);
     const gbOk=s(p.productionGb)===""||gb!==null;
     return {...p,quantity:qtyOk?qty:null,unitKrw:priceOk?rate:null,
-      productionGbValue:gb,netKrw:net,ready:net!==null&&gbOk,
-      gbValid:gbOk,projectKey:signature(p.processes,gb)};
+      productionGbValue:gb,serviceQuantity:serviceQty,
+      regionCount:amp?selected.length:0,regionLines,
+      netKrw:safeNet,ready:safeNet!==null&&gbOk,gbValid:gbOk,
+      projectKey:signature(p.processes,gb,selected.map(x=>x.code))};
   });
   const allPriced=items.length>0&&items.every(x=>x.ready);
   const total=allPriced?items.reduce((n,x)=>n+x.netKrw,0):null;
   if(total!==null&&!Number.isSafeInteger(total))
     return {ok:false,code:"DRAFT_TOTAL_OVERFLOW",items};
   const vat=total===null?null:Math.round(total*.1);
-  return {ok:allPriced,
+  const quoteLineItems=items.flatMap(item=>item.amplicon?.enabled?item.regionLines.map(x=>({
+    kind:"AMPLICON_REGION",originalQuoteProductId:item.id,
+    regionCode:x.code,regionName:x.label,sampleQuantity:x.quantity,
+    unitPriceKrw:x.unitKrw,netKrw:x.netKrw,
+    originalProcessIds:item.processes.map(y=>y.processId)
+  })):[{
+    kind:"PRODUCT",originalQuoteProductId:item.id,
+    sampleQuantity:item.quantity,unitPriceKrw:item.unitKrw,netKrw:item.netKrw,
+    originalProcessIds:item.processes.map(y=>y.processId)
+  }]);
+  return {ok:allPriced,quoteLineItems,
     code:allPriced?"DRAFT_ESTIMATE_ONLY":"INPUT_SAMPLE_PRICE_OR_GB",
     items,netKrw:total,vatKrw:vat,grossKrw:total===null?null:total+vat,
     sourceRateVerified:false,crmSavePermitted:false,feishuWrite:false};
@@ -149,7 +208,11 @@ export function descriptionBasis(draft){
     date:s(draft.date),status:s(draft.descriptionStatus)||"Quote Draft",
     products:(draft.products||[]).map(p=>({
       service:s(p.serviceLabel),
-      gb:s(p.productionGb),samples:s(p.samples),unitKrw:s(p.sampleUnitKrw)
+      gb:s(p.productionGb),samples:s(p.samples),unitKrw:s(p.sampleUnitKrw),
+      regionMode:Boolean(p.amplicon?.enabled),
+      regions:(p.amplicon?.regions||[]).map(r=>({
+        code:s(r.code),label:s(r.label),unitKrw:s(r.unitKrw)
+      }))
     }))
   });
 }
@@ -167,6 +230,15 @@ export function draftDescription(draft,calc=calculateDraft(draft)){
     const service=s(source.serviceLabel)||"Service 확인";
     const gb=p.productionGbValue===null?"":p.productionGbValue+"Gb";
     const count=p.quantity===null?"수량 확인":p.quantity+" samples";
+    if(p.amplicon?.enabled){
+      const regions=p.regionLines.map(x=>x.label).join(" + ")||"Region 확인";
+      const rates=p.regionLines.map(x=>x.unitKrw);
+      const sameRate=rates.length>0&&rates.every(x=>x!==null&&x===rates[0]);
+      const rate=sameRate?money(rates[0])+"KRW/region":
+        p.regionLines.map(x=>x.label+" "+(x.unitKrw===null?"단가 확인":money(x.unitKrw)+"KRW")).join(" + ");
+      return [service,"("+regions+")",gb,count,"* "+p.regionCount+" regions","* "+rate]
+        .filter(Boolean).join(" ");
+    }
     const rate=p.unitKrw===null?"단가 확인":money(p.unitKrw)+"KRW";
     return [service,gb,count,"* "+rate].filter(Boolean).join(" ");
   });
@@ -186,7 +258,13 @@ export function descriptionReview(draft,text,manualBasis=null){
     if(label)required.push(label);
     if(p.productionGbValue!==null)required.push(String(p.productionGbValue)+"Gb");
     if(p.quantity!==null)required.push(String(p.quantity)+" samples");
-    if(p.unitKrw!==null)required.push(money(p.unitKrw)+"KRW");
+    if(p.amplicon?.enabled){
+      required.push(p.regionCount+" regions");
+      for(const r of p.regionLines){
+        required.push(r.label);
+        if(r.unitKrw!==null)required.push(money(r.unitKrw)+"KRW");
+      }
+    }else if(p.unitKrw!==null)required.push(money(p.unitKrw)+"KRW");
   }
   const missing=required.filter(fragment=>!s(text).includes(fragment));
   return {stale,complete:missing.length===0,missing};
@@ -226,6 +304,9 @@ export function draftPreflight(draft){
   }
   return {status:errors.length?"HOLD":"PREVIEW_READY",errors,pricing:calc,
     description:typeof description==="string"?description:"",
+    quoteLineItems:calc.quoteLineItems,
+    reusedSourceReference:true,
+    modifiedFields:draftChanges(draft),
     opportunityName:name,quotationName:name,
     sourceQuoteId:s(draft?.sourceQuoteId),sourceQid:s(draft?.qid),
     source:draft?.source,referenceOnly:true,
@@ -234,4 +315,34 @@ export function draftPreflight(draft){
       !errors.includes("REFERENCE_ACCOUNT_CONTACT_UNVERIFIED"),
     accountContactVerified:false,sourceUnitKrwVerified:false,
     crmSavePermitted:false,salesforceWrite:false,feishuWrite:false};
+}
+
+
+/** Compact source-vs-new draft delta. Source IDs are references, not new IDs.
+ * Editable defaults are copied once; on-screen changes only report edited fields.
+ */
+export function draftChanges(draft){
+  const ref=draft?.referenceDefaults;
+  if(!ref)return [];
+  const changes=[];
+  const changed=(field,oldValue,newValue)=>{
+    if(JSON.stringify(oldValue)!==JSON.stringify(newValue))
+      changes.push({field,before:oldValue,after:newValue});
+  };
+  changed("opportunityQuoteName",ref.name,draft.name);
+  changed("account",ref.account,draft.account);
+  changed("contact",ref.contact,draft.contact);
+  (draft.products||[]).forEach((p,i)=>{
+    const prev=ref.products?.[i];
+    if(!prev){changes.push({field:"product["+i+"]",before:null,after:p.id});return;}
+    const lead="product["+i+"].";
+    for(const key of ["serviceLabel","productionGb","samples","sampleUnitKrw"])
+      changed(lead+key,prev[key],p[key]);
+    changed(lead+"regionMode",prev.ampliconEnabled,Boolean(p.amplicon?.enabled));
+    changed(lead+"regions",prev.regions,
+      (p.amplicon?.regions||[]).map(r=>({
+        code:r.code,label:r.label,unitKrw:r.unitKrw||""
+      })));
+  });
+  return changes;
 }
