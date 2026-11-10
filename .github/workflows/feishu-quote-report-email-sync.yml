@@ -15,11 +15,15 @@ on:
     branches: [main]
     paths:
       - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/sfdc_quote_reference_preindex.py'
+      - 'automation/feishu/test_sfdc_quote_reference_preindex.py'
       - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - '.github/workflows/feishu-quote-report-email-sync.yml'
   pull_request:
     paths:
       - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/sfdc_quote_reference_preindex.py'
+      - 'automation/feishu/test_sfdc_quote_reference_preindex.py'
       - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - '.github/workflows/feishu-quote-report-email-sync.yml'
 permissions:
@@ -43,6 +47,7 @@ jobs:
         run: |
           python3 -m py_compile automation/feishu/sfdc_quote_report_bridge.py
           python3 -m unittest discover -s automation/feishu -p test_sfdc_quote_report_bridge.py -v
+          python3 -m unittest discover -s automation/feishu -p test_sfdc_quote_reference_preindex.py -v
   live:
     needs: offline
     if: github.event_name != 'pull_request'
@@ -69,10 +74,13 @@ jobs:
       - name: Sync latest source rows to existing user-owned Feishu tables
         if: github.event_name != 'workflow_dispatch' || inputs.mode == 'sync'
         run: python3 automation/feishu/sfdc_quote_report_bridge.py sync
+      - name: Preclassify Quote references and shared Product plus Gb project types
+        if: github.event_name != 'workflow_dispatch' || inputs.mode == 'sync'
+        run: python3 automation/feishu/sfdc_quote_reference_preindex.py sync
       - name: Report source and sink freshness separately
         if: always()
         run: |
           echo 'SOURCE=SFDC_EMAIL_QUOTATION_RAW;SINK=FEISHU_QUOTE_REPORT_LINES' >> "$GITHUB_STEP_SUMMARY"
           echo 'PRICE_CURRENCY=USD_CONVERTED_ONLY;KRW_SOURCE_RATE_UNVERIFIED' >> "$GITHUB_STEP_SUMMARY"
-          echo 'UNMAPPED_QUOTE_ID=HOLD;DETAIL_REPORT_RECEIPT_TIME_UNVERIFIED' >> "$GITHUB_STEP_SUMMARY"
+          echo 'UNMAPPED_QUOTE_ID=HOLD;DETAIL_REPORT_EXPORT_TIME_UNVERIFIED;RECEIPT_SEPARATE' >> "$GITHUB_STEP_SUMMARY"
           echo 'CRM_WRITES=0;VERCEL_DEPLOYMENT=0' >> "$GITHUB_STEP_SUMMARY"

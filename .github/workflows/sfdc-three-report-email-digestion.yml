@@ -16,6 +16,8 @@ on:
     paths:
       - 'automation/sfdc/three_report_email_ingest.py'
       - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/sfdc_quote_reference_preindex.py'
+      - 'automation/feishu/test_sfdc_quote_reference_preindex.py'
       - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'automation/sfdc/report_fallback_gate.py'
       - 'automation/sfdc/test_report_fallback_gate.py'
@@ -52,6 +54,8 @@ on:
       - 'automation/sfdc/test_three_report_verified_views.py'
       - 'automation/sfdc/three_report_email_ingest.py'
       - 'automation/feishu/sfdc_quote_report_bridge.py'
+      - 'automation/feishu/sfdc_quote_reference_preindex.py'
+      - 'automation/feishu/test_sfdc_quote_reference_preindex.py'
       - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'automation/sfdc/report_fallback_gate.py'
       - 'automation/sfdc/test_report_fallback_gate.py'
@@ -189,7 +193,7 @@ jobs:
     needs: validate-and-stage
     # Separate job so a broken Quote process mirror cannot write to or
     # silently mask the other Lead/Oppo/Quote dashboard steps.
-    if: ${{ always() && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging == true) && needs.validate-and-stage.result != 'cancelled' }}
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging == true) && needs.validate-and-stage.result == 'success' }}
     environment: TaehoonServer
     runs-on: ubuntu-latest
     timeout-minutes: 18
@@ -212,10 +216,13 @@ jobs:
         run: |
           python3 -m py_compile automation/feishu/sfdc_quote_report_bridge.py
           python3 -m unittest discover -s automation/feishu -p test_sfdc_quote_report_bridge.py -v
+          python3 -m unittest discover -s automation/feishu -p test_sfdc_quote_reference_preindex.py -v
       - name: Verify QQ attachment SHA256 and source mail Date, not Quote Created Date
         run: python3 automation/feishu/sfdc_quote_report_bridge.py audit
       - name: Mirror exact current Quotation details to user-owned Feishu Base
         run: python3 automation/feishu/sfdc_quote_report_bridge.py sync
+      - name: Preclassify Quote references and shared Product plus Gb project types
+        run: python3 automation/feishu/sfdc_quote_reference_preindex.py sync
       - name: Persist explicit semantic freshness in GitHub run summary
         if: always()
         run: |
