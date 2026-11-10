@@ -524,6 +524,12 @@ def run(request):
     if mode=="IDENTITY_SEARCH":
         import sfdc_feishu_preclassified_local as pre
         return pre.identity_candidates(request.get("query",""),request.get("limit",15))
+    if mode=="OPPORTUNITY_SEARCH":
+        import sfdc_feishu_preclassified_local as pre
+        return pre.search_opportunities(request.get("query",""),request.get("limit",25))
+    if mode=="OPPORTUNITY_QUOTES":
+        import sfdc_feishu_preclassified_local as pre
+        return pre.opportunity_quotes(request.get("opportunityExternal",""))
     if mode=="SEARCH":return search(request.get("query",""),request.get("limit",25))
     if mode=="DETAIL":return detail(request.get("id"))
     raise FeishuSourceError("FEISHU_READ_ONLY_MODE_REQUIRED")
