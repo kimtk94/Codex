@@ -35,6 +35,8 @@ on:
       - 'masteros/web/scripts/test_sfdc_pair_web_preview.py'
       - 'masteros/web/lib/sfdc-pair-workspace.mjs'
       - 'masteros/web/lib/sfdc-report-quote-draft.mjs'
+      - 'masteros/web/lib/sfdc-source-identity.mjs'
+      - 'masteros/web/tests/sfdc-source-identity.test.mjs'
       - 'masteros/web/tests/sfdc-report-quote-draft.test.mjs'
       - 'masteros/web/app/sales/commands/pair/ReportOppoDraft.jsx'
       - 'masteros/web/tests/sfdc-pair-workspace.test.mjs'
@@ -91,6 +93,8 @@ on:
       - 'masteros/web/scripts/test_sfdc_pair_web_preview.py'
       - 'masteros/web/lib/sfdc-pair-workspace.mjs'
       - 'masteros/web/lib/sfdc-report-quote-draft.mjs'
+      - 'masteros/web/lib/sfdc-source-identity.mjs'
+      - 'masteros/web/tests/sfdc-source-identity.test.mjs'
       - 'masteros/web/tests/sfdc-report-quote-draft.test.mjs'
       - 'masteros/web/app/sales/commands/pair/ReportOppoDraft.jsx'
       - 'masteros/web/tests/sfdc-pair-workspace.test.mjs'
@@ -179,6 +183,8 @@ jobs:
         run: node --test tests/sfdc-feishu-report-local.test.mjs
       - name: Test Gb Product Line identity and reference-only Oppo-Quote draft
         run: node --test tests/sfdc-report-quote-draft.test.mjs
+      - name: Verify live Salesforce Quote-Opportunity customer identity guard
+        run: node --test tests/sfdc-source-identity.test.mjs
       - name: Build local command center
         env:
           NEXT_TELEMETRY_DISABLED: '1'
