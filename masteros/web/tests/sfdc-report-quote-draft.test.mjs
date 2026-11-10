@@ -152,7 +152,7 @@ test("Description template stays deterministic and never imports old Progress De
   const description=draftDescription(draft);
   assert.equal(DESCRIPTION_TEMPLATE_VERSION,"OPPO_QUOTE_SHORT_V2");
   assert.equal(description,draftDescription({...draft}));
-  assert.match(description,/2026-11-10/);
+  assert.match(description,/^1110 Quote Draft /);
   assert.doesNotMatch(description,/Account\/Contact|Reference Quote/);
   assert.match(description,/6 Gb/);
   assert.match(description,/12 samples/);
