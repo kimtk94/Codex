@@ -1,0 +1,67 @@
+name: CSS Local Mail and Lead Console (No Hosting)
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'masteros/web/app/sales/mail/**'
+      - 'masteros/web/app/api/css/mail-local/**'
+      - 'masteros/web/lib/css-mail-local.mjs'
+      - 'masteros/web/scripts/css_mail_local.py'
+      - 'masteros/web/scripts/test_css_mail_local.py'
+      - 'masteros/web/tests/css-mail-local.test.mjs'
+      - 'masteros/web/scripts/start-css-local.ps1'
+      - 'masteros/web/app/sales/commands/page.jsx'
+      - 'masteros/web/app/sales/projects/page.jsx'
+      - 'masteros/web/LOCAL_CSS.md'
+      - '.github/workflows/css-local-mail-console.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'masteros/web/app/sales/mail/**'
+      - 'masteros/web/app/api/css/mail-local/**'
+      - 'masteros/web/lib/css-mail-local.mjs'
+      - 'masteros/web/scripts/css_mail_local.py'
+      - 'masteros/web/scripts/test_css_mail_local.py'
+      - 'masteros/web/tests/css-mail-local.test.mjs'
+      - 'masteros/web/scripts/start-css-local.ps1'
+      - 'masteros/web/app/sales/commands/page.jsx'
+      - 'masteros/web/app/sales/projects/page.jsx'
+      - 'masteros/web/LOCAL_CSS.md'
+      - '.github/workflows/css-local-mail-console.yml'
+permissions:
+  contents: read
+jobs:
+  offline-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: masteros/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify syntax and rule safety (no credentials)
+        run: |
+          python3 -m py_compile scripts/css_mail_local.py
+          python3 -m unittest discover -s scripts -p 'test_css_mail_local.py' -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install local-only Next.js dependencies
+        run: npm install --no-audit --no-fund
+      - name: Verify loopback access and request contracts
+        run: node --test tests/css-mail-local.test.mjs
+      - name: Compile local dashboard (no deploy)
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+      - name: Confirm local app and API routes built
+        run: |
+          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/mail','.next/server/app/api/css/mail-local']){if(!fs.existsSync(p)){console.error('MISSING '+p);process.exitCode=1}}"
+      - name: Confirm no external release
+        run: |
+          echo 'OFFLINE_ONLY;NO_GOOGLE_SECRETS;NO_EMAIL_SENT;NO_CRM_WRITE;NO_VERCEL_DEPLOY' >> "$GITHUB_STEP_SUMMARY"

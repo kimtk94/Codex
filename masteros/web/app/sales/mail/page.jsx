@@ -1,0 +1,284 @@
+"use client";
+
+import {useCallback,useEffect,useMemo,useState} from "react";
+import Link from "next/link";
+import styles from "./page.module.css";
+
+const MAIL_ACTIONS=[
+  {id:"SKIP_MAIL",label:"이 메일만 넘기기"},
+  {id:"SKIP_CC_TO",label:"특정 To 수신자 · 내가 CC인 메일 제외"},
+  {id:"SKIP_CC_SENDER",label:"이 발신자 · 내가 CC인 메일만 제외"}
+];
+const EVIDENCE={
+  SENT_AFTER_LEAD_CONFIRMED:"생성 후 발송 확인",
+  SENT_BEFORE_LEAD_ONLY:"Lead 생성 전만 발송",
+  NO_PERSONAL_OUTBOUND_EVIDENCE:"개인 발송 증거 없음",
+  LEAD_EMAIL_MISSING:"이메일 없음",
+  CREATED_DATE_UNVERIFIED:"생성일 미확인",
+};
+function time(value){
+  if(!value)return "미확인";
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime()))return value;
+  return new Intl.DateTimeFormat("ko-KR",{
+    timeZone:"Asia/Seoul",year:"numeric",month:"2-digit",day:"2-digit",
+    hour:"2-digit",minute:"2-digit",hour12:false
+  }).format(d);
+}
+function emails(value){
+  return [...new Set((String(value||"").match(/[\w.+%-]+@[\w.-]+\.[a-zA-Z]{2,}/g)||[])
+    .map(x=>x.toLowerCase()))];
+}
+function Tile({label,value,detail}){
+  return <div className={styles.tile}><span>{label}</span><strong>{value??"—"}</strong><small>{detail}</small></div>;
+}
+export default function LocalMailConsole(){
+  const [data,setData]=useState(null);
+  const [tab,setTab]=useState("mail");
+  const [busy,setBusy]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
+  const [q,setQ]=useState("");
+  const [priority,setPriority]=useState("ALL");
+  const [leadState,setLeadState]=useState("ALL");
+  const [roleFilter,setRoleFilter]=useState("ALL");
+  const [mailPage,setMailPage]=useState(0);
+  const [leadPage,setLeadPage]=useState(0);
+  const [selected,setSelected]=useState(null);
+  const [action,setAction]=useState("SKIP_MAIL");
+  const [target,setTarget]=useState("");
+  const [note,setNote]=useState("");
+  const pageSize=40;
+
+  const refresh=useCallback(async()=>{
+    setLoading(true);setError("");
+    try{
+      const r=await fetch("/api/css/mail-local",{
+        cache:"no-store",credentials:"omit",
+        headers:{"X-CSS-Local-Mail":"1"}
+      });
+      const body=await r.json();
+      if(!r.ok||!["PASS","STALE"].includes(body.status))throw Error(body.code||"SOURCE_UNAVAILABLE");
+      setData(body);
+    }catch(err){setData(null);setError(err?.message||"SOURCE_UNAVAILABLE");}
+    finally{setLoading(false)}
+  },[]);
+  useEffect(()=>{refresh()},[refresh]);
+
+  const messages=useMemo(()=>{
+    const needle=q.trim().toLowerCase();
+    return (data?.mail||[]).filter(r=>
+      (priority==="ALL"||r.priority===priority)&&
+      (roleFilter==="ALL"||r.role===roleFilter)&&
+      (!needle||[r.sender,r.subject,r.to,r.cc,r.project,r.key].some(x=>String(x||"").toLowerCase().includes(needle)))
+    );
+  },[data,q,priority,roleFilter]);
+  const leads=useMemo(()=>{
+    const needle=q.trim().toLowerCase();
+    return (data?.leads||[]).filter(r=>
+      (leadState==="ALL"||r.evidence===leadState)&&
+      (!needle||[r.id,r.institution,r.name,r.email,r.owner].some(x=>String(x||"").toLowerCase().includes(needle)))
+    );
+  },[data,q,leadState]);
+  const shownMail=messages.slice(mailPage*pageSize,(mailPage+1)*pageSize);
+  const shownLeads=leads.slice(leadPage*pageSize,(leadPage+1)*pageSize);
+  const options=selected?emails(selected.to).filter(x=>!emails(selected.cc).includes(x)||selected.role==="CC_ONLY"):[];
+  function selectMail(item){
+    setSelected(item);
+    setAction("SKIP_MAIL");
+    setTarget(emails(item.to)[0]||"");
+    setNote("");
+  }
+  async function write(payload,caption){
+    if(busy||loading)return;
+    if(!window.confirm(caption+"\n\n이 작업은 검토 대상/규칙표에 반영됩니다. 메일은 삭제되지 않습니다."))return;
+    setBusy(true);setError("");setNotice("");
+    try{
+      const response=await fetch("/api/css/mail-local",{
+        method:"POST",credentials:"omit",cache:"no-store",
+        headers:{"Content-Type":"application/json","X-CSS-Local-Mail":"1"},
+        body:JSON.stringify({mode:"decision",...payload})
+      });
+      const result=await response.json();
+      if(!response.ok||result.status!=="PASS")throw Error(result.code||"SAVE_FAILED");
+      setNotice("적용 완료: "+result.result+" · 기존 원본 메일과 SFDC는 변경하지 않았습니다.");
+      setSelected(null);setNote("");
+      await refresh();
+    }catch(err){setError("규칙 적용 실패: "+(err?.message||"UNKNOWN"))}
+    finally{setBusy(false)}
+  }
+  function submitSelected(){
+    if(!selected)return;
+    if(action!=="SKIP_MAIL"&&selected.role!=="CC_ONLY"){
+      setError("CC 전용 규칙은 내 주소가 To가 아닌 CC에만 있을 때 설정할 수 있습니다.");
+      return;
+    }
+    const label=MAIL_ACTIONS.find(x=>x.id===action)?.label||action;
+    write({
+      action,key:selected.key,uid:selected.uid,
+      sender:selected.sender,subject:selected.subject,to:selected.to,cc:selected.cc,
+      target:action==="SKIP_CC_TO"?target:"",note
+    },label+"\n"+selected.subject+(action==="SKIP_CC_TO"?"\n대상: "+target:""));
+  }
+  const statuses=data?.leadStates||{};
+  const pageButtons=(current,count,set)=>(
+    <div className={styles.pager}>
+      <button type="button" onClick={()=>set(Math.max(0,current-1))} disabled={current===0}>이전</button>
+      <span>{count?current*pageSize+1:0}–{Math.min(count,(current+1)*pageSize)} / {count}건</span>
+      <button type="button" onClick={()=>set(current+1)}
+        disabled={(current+1)*pageSize>=count}>다음</button>
+    </div>
+  );
+
+  return <main className={styles.wrap}>
+    <header className={styles.header}>
+      <div>
+        <p className={styles.eyebrow}>NOVOGENE · LOCAL CUSTOMER OPERATIONS</p>
+        <h1>메일 · Lead 검토</h1>
+        <p>미회신 검토와 CC 제외 규칙, 고객별 발송 이력을 한곳에서 관리합니다.</p>
+      </div>
+      <div className={styles.navigation}>
+        <Link href="/sales/commands">업무 실행</Link>
+        <Link href="/sales/projects">프로젝트</Link>
+        <button type="button" onClick={refresh} disabled={loading||busy}>{loading?"확인 중":"새로고침"}</button>
+      </div>
+    </header>
+
+    <section className={styles.health}>
+      <div className={styles.healthTop}>
+        <b data-state={data?.status||"SOURCE_UNAVAILABLE"}>
+          {data?.status==="PASS"?"데이터 최신":data?.status==="STALE"?"갱신 지연":"원천 연결 확인 필요"}
+        </b>
+        <span>QQ 검토: {time(data?.mailCheckedAt)} · Lead 발송: {time(data?.leadCheckedAt)}</span>
+      </div>
+      <p>발송 증거 없음은 미발송 확정이 아닙니다. 본문·첨부·BCC·통화·방문 여부는 별도 확인이 필요합니다.</p>
+      {error&&<p className={styles.error} role="alert">{error}</p>}
+      {notice&&<p className={styles.success} role="status">{notice}</p>}
+    </section>
+
+    <section className={styles.tiles}>
+      <Tile label="미회신 검토 후보" value={data?.mailCount}
+        detail={"원본 "+(data?.mailTotal??"—")+"건 · 정확한 회신 확정 아님"}/>
+      <Tile label="CC 자동 제외 규칙" value={data?.ruleCount} detail="발신자 / To 수신자별"/>
+      <Tile label="Lead 발송 확인" value={statuses.SENT_AFTER_LEAD_CONFIRMED??"—"} detail="Lead 생성 후 본인 QQ 발신"/>
+      <Tile label="발송 증거 없는 Lead" value={statuses.NO_PERSONAL_OUTBOUND_EVIDENCE??"—"} detail={"전체 "+(data?.leadCount??"—")+"개 Lead"}/>
+    </section>
+
+    <nav className={styles.tabs} aria-label="메일 검토 메뉴">
+      <button type="button" aria-pressed={tab==="mail"} onClick={()=>{setTab("mail");setQ("");setSelected(null)}}>미회신 검토</button>
+      <button type="button" aria-pressed={tab==="rules"} onClick={()=>{setTab("rules");setQ("");setSelected(null)}}>넘김 · CC 규칙</button>
+      <button type="button" aria-pressed={tab==="leads"} onClick={()=>{setTab("leads");setQ("");setSelected(null)}}>Lead 발송 이력</button>
+    </nav>
+
+    {tab==="mail"&&<section className={styles.panel}>
+      <div className={styles.panelHead}><div><h2>미회신 후보</h2>
+        <p>최신 고객 메일 기준 · 회신 확정이 아닌 검토 목록 · 한 건씩 넘기거나 CC 규칙 등록</p></div>
+        <strong>{messages.length}건</strong></div>
+      <div className={styles.filters}>
+        <label>발신자 · 제목 · 수신자 · 프로젝트
+          <input type="search" value={q} placeholder="메일 또는 프로젝트 검색"
+            onChange={e=>{setQ(e.target.value);setMailPage(0)}}/></label>
+        <label>우선순위<select value={priority} onChange={e=>{setPriority(e.target.value);setMailPage(0)}}>
+          <option value="ALL">전체</option>
+          {["P0","P1","P2","WATCH","OLD_REVIEW"].map(x=><option key={x} value={x}>{x}</option>)}
+        </select></label>
+        <label>수신 유형<select value={roleFilter} onChange={e=>{setRoleFilter(e.target.value);setMailPage(0)}}>
+          <option value="ALL">전체</option><option value="TO">내 To</option>
+          <option value="CC_ONLY">내 CC만</option>
+        </select></label>
+      </div>
+      <div className={styles.tableWrap}><table><thead><tr>
+        <th>우선</th><th>경과</th><th>수신일</th><th>발신자 / 제목</th><th>수신 위치</th><th>회신 증거</th><th>관리</th>
+      </tr></thead><tbody>{shownMail.map(r=><tr key={r.key}>
+        <td><span className={styles.chip} data-priority={r.priority}>{r.priority}</span></td>
+        <td>{r.days}일</td><td className={styles.nowrap}>{r.received}</td>
+        <td><b>{r.sender}</b><p className={styles.subject}>{r.subject}</p><small>{r.project||"프로젝트 미연결"}</small></td>
+        <td><span className={styles.chip}>{r.role}</span><small className={styles.block}>To: {r.to||"—"} · Cc: {r.cc||"—"}</small></td>
+        <td><small>{r.evidence}</small></td>
+        <td><button type="button" onClick={()=>selectMail(r)} disabled={busy}>검토</button></td>
+      </tr>)}</tbody></table>
+      {!shownMail.length&&<p className={styles.empty}>{error?"원본 연결 실패":"조건에 맞는 메일이 없습니다."}</p>}</div>
+      {pageButtons(mailPage,messages.length,setMailPage)}
+    </section>}
+
+    {tab==="mail"&&selected&&<section className={styles.decision} aria-label="메일 처리">
+      <div className={styles.panelHead}><div><h2>선택한 메일 처리</h2>
+        <p>{selected.sender} · {selected.subject}</p></div>
+        <button type="button" onClick={()=>setSelected(null)}>닫기</button></div>
+      <div className={styles.decisionBody}>
+        <label>처리 유형<select value={action} onChange={e=>setAction(e.target.value)}>
+          {MAIL_ACTIONS.map(a=><option key={a.id} value={a.id} disabled={a.id!=="SKIP_MAIL"&&selected.role!=="CC_ONLY"}>{a.label}</option>)}
+        </select></label>
+        {action==="SKIP_CC_TO"&&<label>제외할 To 주소
+          <select value={target} onChange={e=>setTarget(e.target.value)}>
+            {options.map(x=><option key={x} value={x}>{x}</option>)}
+          </select>
+        </label>}
+        <label>검토 메모 (선택)<input value={note} maxLength={300}
+          onChange={e=>setNote(e.target.value)} placeholder="넘기는 이유"/></label>
+        <button className={styles.primary} type="button" disabled={busy||loading||data?.mailSourceStatus!=="FRESH"||(action==="SKIP_CC_TO"&&!target)}
+          onClick={submitSelected}>{busy?"적용 중":"확인 후 적용"}</button>
+      </div>
+      <p className={styles.footnote}>개별 넘기기는 정확한 메일 한 건에만 적용됩니다. CC 규칙은 내가 직접 To로 받은 메일에는 적용되지 않습니다.</p>
+    </section>}
+
+    {tab==="rules"&&<section className={styles.panel}>
+      <div className={styles.panelHead}><div><h2>활성 CC 제외 규칙</h2>
+        <p>언제든 규칙 해제 가능 · 해제 후 다음 검토에서 다시 표시</p></div>
+        <strong>{data?.ruleCount??0}건</strong></div>
+      <div className={styles.tableWrap}><table><thead><tr>
+        <th>범위</th><th>정확한 이메일 주소</th><th>적용 조건</th><th>관리</th>
+      </tr></thead><tbody>{(data?.rules||[]).map(r=><tr key={r.type+":"+r.address}>
+        <td>{r.type==="TO_ADDRESS"?"To 수신자":"발신자"}</td><td>{r.address}</td>
+        <td>내가 CC로 받은 메일만</td><td><button type="button" disabled={busy}
+          onClick={()=>write({action:"RESTORE_RULE",target:r.type,sender:r.address},"CC 제외 규칙 해제: "+r.address)}>규칙 해제</button></td>
+      </tr>)}</tbody></table>
+      {!data?.rules?.length&&<p className={styles.empty}>등록된 CC 자동 제외 규칙이 없습니다.</p>}</div>
+      <div className={styles.panelHead}><div><h2>개별 넘긴 메일</h2><p>한 건씩 복구 가능</p></div><strong>{data?.mailSkipCount??0}건</strong></div>
+      <div className={styles.tableWrap}><table><thead><tr><th>발신자</th><th>제목</th><th>원본 UID</th><th>관리</th></tr></thead>
+        <tbody>{(data?.skippedMails||[]).map(r=><tr key={r.key}>
+          <td>{r.sender}</td><td>{r.subject}</td><td>{r.uid}</td>
+          <td><button type="button" disabled={busy}
+            onClick={()=>write({action:"RESTORE_MAIL",key:r.key},"개별 넘김 취소: "+r.subject)}>복구</button></td>
+        </tr>)}</tbody></table>
+        {!data?.skippedMails?.length&&<p className={styles.empty}>개별 넘기기 기록이 없습니다.</p>}
+      </div>
+    </section>}
+
+    {tab==="leads"&&<section className={styles.panel}>
+      <div className={styles.panelHead}><div><h2>Lead 발송 여부 및 날짜</h2>
+        <p>정확한 Lead 이메일 주소 기준 · 본인이 보낸 QQ 메일의 첫/최근 발송 시점</p></div>
+        <strong>{leads.length} / {data?.leadCount??0}건</strong></div>
+      <div className={styles.filters}>
+        <label>이름 · 기관 · 이메일 · Lead ID
+          <input type="search" value={q} placeholder="고객 또는 기관 검색"
+            onChange={e=>{setQ(e.target.value);setLeadPage(0)}}/></label>
+        <label>개인 발송 증거
+          <select value={leadState} onChange={e=>{setLeadState(e.target.value);setLeadPage(0)}}>
+            <option value="ALL">전체</option>
+            {Object.keys(statuses).map(x=><option key={x} value={x}>{EVIDENCE[x]||x} ({statuses[x]})</option>)}
+          </select></label>
+      </div>
+      <div className={styles.tableWrap}><table><thead><tr>
+        <th>Lead / 기관</th><th>Lead 이메일</th><th>생성일</th><th>발송 판정</th>
+        <th>생성 후 발송</th><th>최초 발송</th><th>최근 발송</th><th>To / CC</th>
+      </tr></thead><tbody>{shownLeads.map(r=><tr key={r.id}>
+        <td><b>{r.name||"이름 미확인"}</b><small className={styles.block}>{r.institution}</small>
+          <small className={styles.block}>{r.id}</small></td>
+        <td>{r.email||"—"}</td><td className={styles.nowrap}>{r.created}</td>
+        <td><span className={styles.chip}>{EVIDENCE[r.evidence]||r.evidence}</span></td>
+        <td>{r.afterCount||"0"}건</td><td className={styles.nowrap}>{time(r.firstAfter||r.firstEver)}</td>
+        <td className={styles.nowrap}>{time(r.lastAfter||r.lastEver)}</td>
+        <td>{r.toCount||0} / {r.ccCount||0}</td>
+      </tr>)}</tbody></table>
+      {!shownLeads.length&&<p className={styles.empty}>일치하는 Lead가 없습니다.</p>}</div>
+      {pageButtons(leadPage,leads.length,setLeadPage)}
+    </section>}
+
+    <footer className={styles.footer}>
+      <span>로컬 전용 · 원본 QQ 메일 삭제 없음 · SFDC 저장 없음</span>
+      <span>데이터 원본: 기존 Google Sheets 미회신 판정 및 Lead 발송 감사</span>
+    </footer>
+  </main>;
+}

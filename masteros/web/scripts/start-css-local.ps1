@@ -45,6 +45,8 @@ $env:SFDC_LOCAL_CONTACT_LOOKUP_ENABLED = "1"
 $env:SFDC_LOCAL_FULL_AUDIT_ENABLED = "1"
 $env:SFDC_LOCAL_REVIEW_ENABLED = "1"
 $env:CSS_LOCAL_PYTHON = "python"
+$env:CSS_LOCAL_MAIL_ENABLED = "1"
+$env:CSS_LOCAL_MAIL_OWNER = "taehoon.kim@novogene.com"
 $env:NEXT_TELEMETRY_DISABLED = "1"
 $logDir = Join-Path $env:USERPROFILE '.sfdc_desktop'
 if (-not (Test-Path $logDir)) {
