@@ -183,10 +183,10 @@ export default function SfdcCommandCenter(){
       if(!draft.ok)throw Error(draft.code);
       if(draft.quote.opportunityId!==selectedRecord.id)throw Error("WRONG_PARENT_OPPORTUNITY");
       setPairedQuote(draft.quote);setPairStatus("PASS");
-      setForms(prev=>({...prev,[tab]:{
-        ...draft.form,closeDate:form.closeDate,
-        progressDescription:""
-      }}));
+      const populated={...draft.form,closeDate:form.closeDate};
+      try{populated.progressDescription=freshProgress(populated)}
+      catch{populated.progressDescription=""}
+      setForms(prev=>({...prev,[tab]:populated}));
       setResult(null);
     }catch(e){
       setPairedQuote(null);setPairStatus("BLOCK");
