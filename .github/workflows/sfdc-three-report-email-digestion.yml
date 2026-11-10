@@ -193,7 +193,7 @@ jobs:
     needs: validate-and-stage
     # Separate job so a broken Quote process mirror cannot write to or
     # silently mask the other Lead/Oppo/Quote dashboard steps.
-    if: ${{ always() && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging == true) && needs.validate-and-stage.result != 'cancelled' }}
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.apply_staging == true) && needs.validate-and-stage.result == 'success' }}
     environment: TaehoonServer
     runs-on: ubuntu-latest
     timeout-minutes: 18
