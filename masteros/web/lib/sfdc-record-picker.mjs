@@ -12,6 +12,10 @@ export function validRecordPickerRequest(x){
       !new RegExp("^"+prefix+"[a-zA-Z0-9]{12}(?:[a-zA-Z0-9]{3})?$").test(x.recordId))
       return {ok:false,code:"RECORD_ID_INVALID"};
   }
+  if(x.forceLive!==undefined&&typeof x.forceLive!=="boolean")
+    return {ok:false,code:"LIVE_ONLY_FLAG_INVALID"};
+  if(x.forceLive===true&&x.mode!=="detail")
+    return {ok:false,code:"LIVE_ONLY_DETAIL_REQUIRED"};
   return {ok:true};
 }
 export function recordToDraft(resource,record,existing) {
