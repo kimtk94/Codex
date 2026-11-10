@@ -88,6 +88,40 @@ class PreclassifiedLocalTests(unittest.TestCase):
         with self.assertRaisesRegex(base.FeishuSourceError,"SOURCE_TIME_MISMATCH"):
             idx._verified_refs(rows,classes,self.base)
 
+    def test_identity_picker_preserves_same_name_different_institutions(self):
+        cx=sqlite3.connect(str(idx.DB))
+        try:
+            cx.execute("""CREATE TABLE quote_reference(
+                qid TEXT,account_id TEXT,account_name TEXT,contact_id TEXT,
+                contact_external_id TEXT,contact_name TEXT,contact_email TEXT,
+                identity_status TEXT)""")
+            cx.executemany("INSERT INTO quote_reference VALUES(?,?,?,?,?,?,?,?)",[
+                ("QID-2026-11-09-000101","001000000000000AA0","Alpha Univ",
+                 "003000000000000AA0","","Kim Min","one@invalid.test","VERIFIED"),
+                ("QID-2026-11-09-000102","001000000000000AA1","Beta Univ",
+                 "003000000000000AA1","","Kim Min","two@invalid.test","VERIFIED"),
+                ("QID-2026-11-09-000103","001000000000000AA1","Beta Univ",
+                 "003000000000000AA1","","Kim Min","two@invalid.test","VERIFIED"),
+            ])
+            cx.commit()
+        finally:cx.close()
+        with patch.object(idx,"status",return_value={"status":"PASS"}):
+            result=idx.identity_candidates("Kim Min")
+        self.assertEqual(result["status"],"PASS")
+        self.assertEqual(len(result["rows"]),2)
+        self.assertEqual({x["account_name"] for x in result["rows"]},
+                         {"Alpha Univ","Beta Univ"})
+        self.assertTrue(all(x["crm_contact_verified"] for x in result["rows"]))
+        self.assertFalse(result["salesforce_write"])
+
+    def test_identity_picker_requires_bounded_nonempty_query(self):
+        with patch.object(idx,"status",return_value={"status":"PASS"}):
+            for term in ("","   ","a"*81):
+                with self.assertRaisesRegex(base.FeishuSourceError,"IDENTITY_QUERY_INVALID"):
+                    idx.identity_candidates(term)
+            with self.assertRaisesRegex(base.FeishuSourceError,"IDENTITY_QUERY_INVALID"):
+                idx.identity_candidates("Kim",limit=300)
+
     def test_missing_sqlite_returns_block(self):
         self.assertEqual(idx.status()["status"],"BLOCK")
 
