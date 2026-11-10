@@ -117,6 +117,21 @@ export function calculateDraft(draft){
     items,netKrw:total,vatKrw:vat,grossKrw:total===null?null:total+vat,
     sourceRateVerified:false,crmSavePermitted:false,feishuWrite:false};
 }
+// Versioned concise description template: source Progress Description is never copied.
+// Content is generated from current draft only; no unstated PO, receipt or status.
+export const DESCRIPTION_TEMPLATE_VERSION="OPPO_QUOTE_V1";
+export function descriptionBasis(draft){
+  if(!draft)return "";
+  return JSON.stringify({
+    template:DESCRIPTION_TEMPLATE_VERSION,
+    sourceQid:s(draft.qid),date:s(draft.date),
+    account:s(draft.account?.name),contact:s(draft.contact?.name),
+    products:(draft.products||[]).map(p=>({
+      processes:(p.processes||[]).map(x=>s(x.name)),
+      gb:s(p.productionGb),samples:s(p.samples),unitKrw:s(p.sampleUnitKrw)
+    }))
+  });
+}
 export function draftDescription(draft,calc=calculateDraft(draft)){
   if(!draft||!/^\d{4}-\d{2}-\d{2}$/.test(s(draft.date)))return "";
   const lines=calc.items.map((p,i)=>{
@@ -134,6 +149,24 @@ export function draftDescription(draft,calc=calculateDraft(draft)){
     ...(identityLine?[identityLine]:[]),...lines,
     "기존 Quote는 참고값. 신규 고객/Contact·가격·Cloud는 저장 전 별도 확인."].join("\n");
 }
+// Manual edits are immutable until the operator explicitly regenerates
+// them. Preflight must not silently accept locked text after draft changes.
+export function descriptionReview(draft,text,manualBasis=null){
+  const basis=descriptionBasis(draft);
+  const stale=manualBasis!==null&&manualBasis!==basis;
+  const calc=calculateDraft(draft);
+  const required=[s(draft?.date)];
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(required[0]))
+    return {stale,complete:false,missing:["DATE"]};
+  for(const [i,p] of calc.items.entries()){
+    if(p.productionGbValue!==null)required.push(String(p.productionGbValue)+" Gb");
+    if(p.quantity!==null)required.push(String(p.quantity)+" samples");
+    if(p.unitKrw!==null)required.push(money(p.unitKrw)+" KRW/sample");
+  }
+  // The compact required facts remain visible when the rest is customized.
+  const missing=required.filter(fragment=>!s(text).includes(fragment));
+  return {stale,complete:missing.length===0,missing};
+}
 export function draftPreflight(draft){
   const calc=calculateDraft(draft);
   const name=s(draft?.name),date=s(draft?.date),description=draft?.description;
@@ -145,6 +178,11 @@ export function draftPreflight(draft){
   if(!calc.ok)errors.push(calc.code);
   if(typeof description!=="string"||description.length<10||description.length>3000)
     errors.push("DESCRIPTION_REQUIRED");
+  if(typeof description==="string"){
+    const review=descriptionReview(draft,description,draft?.descriptionManualBasis??null);
+    if(review.stale)errors.push("DESCRIPTION_LOCKED_STALE");
+    if(!review.complete)errors.push("DESCRIPTION_CURRENT_FACTS_MISSING");
+  }
   if(!s(draft?.sourceQuoteId))errors.push("REFERENCE_RECORD_ID_UNMAPPED");
   const mode=draft?.accountMode;
   if(!["KEEP","CHANGE"].includes(mode))errors.push("ACCOUNT_CONTACT_MODE_REQUIRED");
