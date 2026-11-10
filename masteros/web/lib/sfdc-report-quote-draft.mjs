@@ -78,12 +78,34 @@ export function fromFeishuQuote(detail,now=new Date()){
       gbCandidates:entry.gbStatus==="PASS"?[Number(entry.productionGb)]:p.gbCandidates,
       referenceTotalUsd:s(entry.referenceTotalUsd)||p.referenceTotalUsd};
   });
+  const sourceProject=s(ref?.opportunityName);
+  const serviceNames=[
+    ["mRNA-Seq",/mRNA[\\s-]*Seq|bulk[\\s-]*RNA[\\s-]*Seq/i],
+    ["WGS",/\\bWGS\\b|whole.genome/i],
+    ["WES",/\\bWES\\b|whole.exome/i],
+    ["small RNA-Seq",/small[\\s-]*RNA|miRNA[\\s-]*Seq/i],
+    ["16S",/\\b16S\\b/i],
+    ["DIA",/\\bDIA\\b|proteomic/i],
+    ["Olink",/\\bOlink\\b/i],
+    ["PMP",/\\bPMP\\b/i],
+    ["PML",/\\bPML\\b/i],
+    ["Iso-Seq",/Iso[\\s-]*Seq/i],
+    ["ATAC-Seq",/ATAC[\\s-]*Seq/i],
+    ["Visium",/Visium/i],
+    ["Xenium",/Xenium/i]
+  ];
+  const service=(serviceNames.find(([,re])=>re.test(sourceProject))||[])[0]||"";
+  // Service label is a reference-based editable suggestion, not a CRM fact.
+  const labeled=identified.map(p=>({...p,
+    serviceLabel:service||p.processes.find(x=>!/(?:QC|Library|Sequenc|Cloud)/i.test(x.name))?.name||p.processes[0]?.name||""
+  }));
   const account={id:s(ref?.accountId),name:s(ref?.accountName)};
   const contact={id:s(ref?.contactId),externalId:s(ref?.contactExternalId),
     name:s(ref?.contactName),email:s(ref?.contactEmail)};
   return {ok:true,draft:{
     qid:detail.qid,sourceQuoteId:s(detail.sfdc_record_id),
-    name:"",date:kstDate(now),products:identified,
+    name:"",date:kstDate(now),products:labeled,
+    descriptionStatus:"Quote Draft",
     source:"FEISHU_REPORT_USD_CONVERTED_ONLY",
     sourceReceivedKst:s(detail.source_mail_received_kst),
     quoteRecordUnmapped:!s(detail.sfdc_record_id),
@@ -119,51 +141,53 @@ export function calculateDraft(draft){
 }
 // Versioned concise description template: source Progress Description is never copied.
 // Content is generated from current draft only; no unstated PO, receipt or status.
-export const DESCRIPTION_TEMPLATE_VERSION="OPPO_QUOTE_V1";
+export const DESCRIPTION_TEMPLATE_VERSION="OPPO_QUOTE_SHORT_V2";
 export function descriptionBasis(draft){
   if(!draft)return "";
   return JSON.stringify({
     template:DESCRIPTION_TEMPLATE_VERSION,
-    sourceQid:s(draft.qid),date:s(draft.date),
-    account:s(draft.account?.name),contact:s(draft.contact?.name),
+    date:s(draft.date),status:s(draft.descriptionStatus)||"Quote Draft",
     products:(draft.products||[]).map(p=>({
-      processes:(p.processes||[]).map(x=>s(x.name)),
+      service:s(p.serviceLabel),
       gb:s(p.productionGb),samples:s(p.samples),unitKrw:s(p.sampleUnitKrw)
     }))
   });
 }
+// The actual Salesforce Progress Description convention is concise, e.g.
+// "0407 Quote Issued mRNA-Seq 12 samples * 250,000KRW".
+// "Quote Issued" must only appear after actual issuance evidence; new
+// reference-based drafts ALWAYS start at Quote Draft.
 export function draftDescription(draft,calc=calculateDraft(draft)){
   if(!draft||!/^\d{4}-\d{2}-\d{2}$/.test(s(draft.date)))return "";
+  const mmdd=s(draft.date).slice(5,7)+s(draft.date).slice(8,10);
+  const status=s(draft.descriptionStatus)||"Quote Draft";
+  if(!["Quote Draft","Prospective","Quote Issued"].includes(status))return "";
   const lines=calc.items.map((p,i)=>{
-    const names=[...new Set(p.processes.map(r=>r.name))].slice(0,2);
-    const title=names.join(" + ")||"Product "+(i+1);
-    const gb=p.productionGbValue===null?"Gb 확인 필요":p.productionGbValue+" Gb";
-    const count=p.quantity===null?"샘플 수 확인":p.quantity+" samples";
-    const unit=p.unitKrw===null?"단가 확인":money(p.unitKrw)+" KRW/sample";
-    const amount=p.netKrw===null?"금액 미확정":money(p.netKrw)+" KRW (VAT 별도)";
-    return (i+1)+". "+title+" | "+gb+" | "+count+" | "+unit+" | "+amount;
+    const source=draft.products[i];
+    const service=s(source.serviceLabel)||"Service 확인";
+    const gb=p.productionGbValue===null?"":p.productionGbValue+"Gb";
+    const count=p.quantity===null?"수량 확인":p.quantity+" samples";
+    const rate=p.unitKrw===null?"단가 확인":money(p.unitKrw)+"KRW";
+    return [service,gb,count,"* "+rate].filter(Boolean).join(" ");
   });
-  const identityLine=(draft.account?.name&&draft.contact?.name)?
-    "Account/Contact: "+s(draft.account.name)+" / "+s(draft.contact.name):"";
-  return [s(draft.date),"Reference Quote: "+draft.qid,
-    ...(identityLine?[identityLine]:[]),...lines,
-    "기존 Quote는 참고값. 신규 고객/Contact·가격·Cloud는 저장 전 별도 확인."].join("\n");
+  return [mmdd,status,lines.join(" / ")].filter(Boolean).join(" ");
 }
-// Manual edits are immutable until the operator explicitly regenerates
-// them. Preflight must not silently accept locked text after draft changes.
 export function descriptionReview(draft,text,manualBasis=null){
   const basis=descriptionBasis(draft);
   const stale=manualBasis!==null&&manualBasis!==basis;
   const calc=calculateDraft(draft);
-  const required=[s(draft?.date)];
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(required[0]))
+  const date=s(draft?.date);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))
     return {stale,complete:false,missing:["DATE"]};
+  const required=[date.slice(5,7)+date.slice(8,10),
+    s(draft.descriptionStatus)||"Quote Draft"];
   for(const [i,p] of calc.items.entries()){
-    if(p.productionGbValue!==null)required.push(String(p.productionGbValue)+" Gb");
+    const label=s(draft.products[i].serviceLabel);
+    if(label)required.push(label);
+    if(p.productionGbValue!==null)required.push(String(p.productionGbValue)+"Gb");
     if(p.quantity!==null)required.push(String(p.quantity)+" samples");
-    if(p.unitKrw!==null)required.push(money(p.unitKrw)+" KRW/sample");
+    if(p.unitKrw!==null)required.push(money(p.unitKrw)+"KRW");
   }
-  // The compact required facts remain visible when the rest is customized.
   const missing=required.filter(fragment=>!s(text).includes(fragment));
   return {stale,complete:missing.length===0,missing};
 }
@@ -178,6 +202,8 @@ export function draftPreflight(draft){
   if(!calc.ok)errors.push(calc.code);
   if(typeof description!=="string"||description.length<10||description.length>3000)
     errors.push("DESCRIPTION_REQUIRED");
+  if(s(draft?.descriptionStatus)==="Quote Issued"&&!draft?.quoteIssuedEvidenceVerified)
+    errors.push("QUOTE_ISSUED_EVIDENCE_REQUIRED");
   if(typeof description==="string"){
     const review=descriptionReview(draft,description,draft?.descriptionManualBasis??null);
     if(review.stale)errors.push("DESCRIPTION_LOCKED_STALE");
