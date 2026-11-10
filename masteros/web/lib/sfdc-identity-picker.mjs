@@ -9,7 +9,8 @@ export function normalizeIdentityRows(rows){
   for(const raw of rows.slice(0,25)){
     if(!raw||typeof raw!=="object")continue;
     const row={
-      source_qid:clean(raw.source_qid),account_id:clean(raw.account_id),
+      source_qid:clean(raw.source_qid),source_quote_id:clean(raw.source_quote_id),
+      account_id:clean(raw.account_id),
       account_name:clean(raw.account_name),contact_id:clean(raw.contact_id),
       contact_external_id:clean(raw.contact_external_id),
       contact_name:clean(raw.contact_name),contact_email:clean(raw.contact_email),
@@ -44,7 +45,7 @@ export function selectIdentityPair(row){
     account:{id:clean(row.account_id),name:accountName},
     contact:{id:clean(row.contact_id),externalId:clean(row.contact_external_id),
       name:contactName,email:clean(row.contact_email)},
-    sourceQid:clean(row.source_qid),
+    sourceQid:clean(row.source_qid),sourceQuoteId:clean(row.source_quote_id),
     sourceVerifiedIds:id(row.account_id,"001")&&id(row.contact_id,"003")
   };
 }
