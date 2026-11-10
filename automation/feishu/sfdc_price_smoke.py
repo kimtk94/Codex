@@ -55,6 +55,18 @@ def verify(token,tid):
         raise SmokeError("SMOKE_PRICE_INCONSISTENT")
     if plain(f.get("Price Status"))!="SOURCE_VERIFIED_PROJECTION":
         raise SmokeError("SMOKE_PRICE_SOURCE_UNVERIFIED")
+    try:
+        items=json.loads(plain(f.get("Product Price Items JSON")))
+    except (TypeError,ValueError):
+        raise SmokeError("SMOKE_PRODUCT_PRICE_DETAIL_UNVERIFIED")
+    if not isinstance(items,list) or len(items)!=1:
+        raise SmokeError("SMOKE_PRODUCT_PRICE_DETAIL_UNVERIFIED")
+    item=items[0]
+    if not isinstance(item,dict) or item.get("product")!=plain(f.get("Source Product Name")) or (
+            item.get("unit_krw")!=n["Product Unit KRW"] or
+            item.get("qty")!=n["Product Qty"] or
+            item.get("net_krw")!=n["Product Net KRW"]):
+        raise SmokeError("SMOKE_PRODUCT_PRICE_DETAIL_UNVERIFIED")
     rows=mirror(google())
     found=[r+[""]*(len(HEAD)-len(r)) for r in rows.values() if
       len(r)>HEAD.index("Request ID") and r[HEAD.index("Request ID")]==KEY]
@@ -62,7 +74,8 @@ def verify(token,tid):
     row=found[0]
     for k in ("Status","Sample Unit KRW","Product Unit KRW","Product Qty",
       "Product Net KRW","Cloud Unit KRW","Cloud Qty","Cloud Net KRW",
-      "Quote Net KRW","VAT KRW","Quote Gross KRW","Price Status"):
+      "Quote Net KRW","VAT KRW","Quote Gross KRW","Price Status",
+      "Source Product Name","Product Price Items JSON"):
         if plain(f.get(k))!=str(row[HEAD.index(k)]):
             raise SmokeError("SMOKE_FEISHU_MIRROR_MISMATCH")
     return {"status":"PASS","mode":"smoke_verify","count":1,

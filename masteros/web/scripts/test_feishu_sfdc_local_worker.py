@@ -89,4 +89,36 @@ class T(unittest.TestCase):
     self.assertEqual(p["code"],"SOURCE_QUOTE_RECONCILIATION_FAILED")
  def test_no_new_request(self):
     self.assertFalse(validate(row(Approval="")))
+ def test_two_forms_preflight_reference_only_without_save(self):
+    responses=[SOURCE,{"status":"PREFLIGHT_PASS","save_clicked":False},
+        {"status":"PREFLIGHT_PASS","save_clicked":False,"product_added":False}]
+    with patch("feishu_sfdc_local_worker.json_run",side_effect=responses) as runner:
+      result=process(base())
+    self.assertEqual(result["status"],"PREFLIGHT_PASS")
+    self.assertIn("REFERENCE_QUOTE_FORM_ONLY_NO_SAVE",result["code"])
+    self.assertEqual(result["price_fields"]["Quote Net KRW"],2350000)
+    self.assertEqual(runner.call_count,3)
+    self.assertEqual(runner.call_args_list[1].args[1]["action"],"opportunity_create")
+    self.assertEqual(runner.call_args_list[2].args[1]["action"],"quote_create")
+    self.assertEqual(runner.call_args_list[2].args[1]["mode"],"check")
+    self.assertEqual(runner.call_args_list[2].args[1]["opportunityId"],base()["Source Oppo ID"])
+ def test_quote_reference_form_failure_blocks(self):
+    responses=[SOURCE,{"status":"PREFLIGHT_PASS","save_clicked":False},
+        {"status":"BLOCK","code":"QUOTE_CATALOG_AMBIGUOUS","save_clicked":False}]
+    with patch("feishu_sfdc_local_worker.json_run",side_effect=responses):
+      result=process(base())
+    self.assertEqual(result["status"],"PREFLIGHT_BLOCK")
+    self.assertEqual(result["code"],"QUOTE_CATALOG_AMBIGUOUS")
+ def test_even_a_rogue_save_clicked_flag_blocks_preflight(self):
+    responses=[SOURCE,{"status":"PREFLIGHT_PASS","save_clicked":False},
+        {"status":"PREFLIGHT_PASS","save_clicked":True,"product_added":False}]
+    with patch("feishu_sfdc_local_worker.json_run",side_effect=responses):
+      result=process(base())
+    self.assertEqual(result["status"],"PREFLIGHT_BLOCK")
+    self.assertEqual(result["code"],"QUOTE_REFERENCE_NO_SAVE_PREFLIGHT_FAILED")
+ def test_pair_save_does_not_even_call_ui(self):
+    with patch("feishu_sfdc_local_worker.json_run",return_value=SOURCE) as runner:
+      result=process(base(**{"Run Mode":"SAVE"}))
+    self.assertEqual(result["status"],"BLOCK")
+    self.assertEqual(runner.call_count,1)
 if __name__=="__main__":unittest.main()

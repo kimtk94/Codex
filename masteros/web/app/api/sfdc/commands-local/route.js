@@ -67,6 +67,10 @@ export async function POST(request){
   }catch{return reply({status:"BLOCK",code:"INVALID_JSON"},400);}
   const valid=validateRequest(input);
   if(!valid.ok)return reply({status:"BLOCK",code:valid.code},400);
+  // An isolated local TEST server must never save Lead/Oppo/Quote records,
+  // even if a previously built UI still displays the legacy Save control.
+  if(input.mode==="save" && process.env.SFDC_LOCAL_READONLY==="1")
+    return reply({status:"BLOCK",code:"LOCAL_TEST_READ_ONLY"},403);
   inProgress=true;
   try{
     const result=await executePython(input);

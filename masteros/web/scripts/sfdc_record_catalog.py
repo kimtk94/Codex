@@ -7,6 +7,7 @@ Details use record IDs only and return explicitly verified fields.
 from __future__ import annotations
 import json
 import re
+import os
 import sys
 from datetime import date, timedelta
 
@@ -158,6 +159,42 @@ def source_quote_product(page,quote_id,product_id,net_price):
         "priceIsEstimateForChangedQuantity":True,
     })
     return result
+
+def read_multi_product_evidence(page, quote_id, product_ids):
+    """Read each Quote Product record, but DO NOT infer process-level prices.
+
+    A product detail Total Price may include shared process/Cloud costs.
+    Until the Quote's original process-price matrix has an explicit and unique
+    mapping to every child Product, the result is EVIDENCE_ONLY.
+    """
+    if not isinstance(product_ids,list) or not 2<=len(product_ids)<=12 or len(set(product_ids))!=len(product_ids):
+        raise ValueError("SOURCE_PRODUCT_LINKS_NOT_UNIQUE")
+    details=[]
+    for pid in product_ids:
+        if not rec_id(pid,"a0N"):
+            raise ValueError("SOURCE_PRODUCT_LINK_INVALID")
+        child=source_quote_product(page,quote_id,pid,0)
+        parent=find_href(hyperlinks(page),"a0P") or {}
+        if parent.get("id") != quote_id:
+            raise ValueError("SOURCE_PRODUCT_PARENT_UNVERIFIED")
+        if not (child.get("productName") and isinstance(child.get("samples"),int)
+                and child.get("samples")>0
+                and isinstance(child.get("dataSize"),(int,float))
+                and child.get("dataSize")>0
+                and isinstance(child.get("sourceLineNetKrw"),int)
+                and child.get("sourceLineNetKrw")>0):
+            raise ValueError("SOURCE_PRODUCT_FIELDS_INCOMPLETE")
+        details.append({
+            "productKey":pid,
+            "productName":child["productName"],
+            "sourceQty":child["samples"],
+            "dataGbPerSample":child["dataSize"],
+            "observedProductTotalKrw":child["sourceLineNetKrw"],
+            "sourceProcessNames":child.get("processNames",""),
+            "evidenceStatus":"PRODUCT_DETAIL_ONLY_NO_PROCESS_PRICE_MAPPING",
+        })
+    return details
+
 
 def parse_process_price_rows(rows,source_samples,gb_per_sample,expected_net):
     """Validate per-process sample fees and 100-Gb Cloud blocks against Quote net."""
@@ -316,6 +353,19 @@ def read_item(page,resource,record_id):
             product_detail=find_href(prod_links,"a0N") or {}
             if product_detail:out["quotationProductId"]=product_detail.get("id","")
             out["productCount"]=int(re.search(r"Quotation Products\s*\((\d+)\)",page.locator("body").inner_text()).group(1)) if re.search(r"Quotation Products\s*\((\d+)\)",page.locator("body").inner_text()) else None
+            if isinstance(out.get("productCount"),int) and out["productCount"]>1:
+                ids=[]
+                for item in prod_links:
+                    found=re.search(r"/lightning/r/(?:[A-Za-z_]+/)?(a0N[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)/view",item.get("href",""))
+                    if found and found.group(1) not in ids:ids.append(found.group(1))
+                out["pricingStatus"]="MULTI_PRODUCT_PROCESS_BREAKDOWN_UNVERIFIED"
+                out["multiSourceDetailStatus"]="PRODUCT_LINKS_UNVERIFIED"
+                if len(ids)==out["productCount"]:
+                    try:
+                        out["sourceProductEvidence"]=read_multi_product_evidence(page,record_id,ids)
+                        out["multiSourceDetailStatus"]="PRODUCT_DETAILS_READ_ONLY_NO_PROCESS_PRICE_MAPPING"
+                    except Exception as exc:
+                        out["multiSourceDetailStatus"]=str(exc) if isinstance(exc,ValueError) and re.fullmatch(r"[A-Z0-9_]{5,90}",str(exc)) else "SOURCE_PRODUCT_UI_UNAVAILABLE"
         out["productConfigurationStatus"]="PARTIAL_REVIEW_REQUIRED"
         if out.get("productCount")==1 and out.get("quotationProductId"):
             product_fields=source_quote_product(
@@ -336,15 +386,30 @@ def read_item(page,resource,record_id):
 def main():
     try:
         request=check(json.loads(sys.stdin.buffer.read(3000).decode("utf-8")))
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as pw:
-            browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=10000)
-            page=browser.contexts[0].new_page()
-            try:
-                if request["mode"]=="list":out=list_items(page,request["resource"],request.get("query",""))
-                elif request["mode"]=="bundle":out=linked_oppo_quote_bundle(page,request["recordId"])
-                else:out=read_item(page,request["resource"],request["recordId"])
-            finally:page.close()
+        from sfdc_pair_cache import key_for, lookup, save, live_meta
+        identity=key_for(request)
+        cached=lookup(request) if identity and os.getenv("SFDC_PAIR_CACHE_ENABLED","1")=="1" else None
+        if cached is not None:
+            out=cached
+        else:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as pw:
+                browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=10000)
+                page=browser.contexts[0].new_page()
+                try:
+                    if request["mode"]=="list":out=list_items(page,request["resource"],request.get("query",""))
+                    elif request["mode"]=="bundle":out=linked_oppo_quote_bundle(page,request["recordId"])
+                    else:out=read_item(page,request["resource"],request["recordId"])
+                finally:page.close()
+            if identity and out.get("status")=="PASS":
+                # Write only once after a successful authenticated UI fetch. Cache
+                # failures must never turn a good live read into a source failure.
+                try:
+                    if os.getenv("SFDC_PAIR_CACHE_ENABLED","1")=="1":
+                        save(request,out)
+                    out["cache"]=live_meta(identity[1])
+                except (OSError,ValueError):
+                    pass
     except Exception as exc:
         out={"status":"BLOCK","code":str(exc) if isinstance(exc,ValueError) and re.fullmatch("[A-Z_]{4,60}",str(exc)) else "SFDC_UI_"+type(exc).__name__}
     print(json.dumps(out,ensure_ascii=False,separators=(",",":")))

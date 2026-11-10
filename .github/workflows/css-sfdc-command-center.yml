@@ -12,6 +12,34 @@ on:
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
+      - 'masteros/web/scripts/sfdc_pair_readback.py'
+      - 'masteros/web/scripts/test_sfdc_pair_readback.py'
+      - 'masteros/web/scripts/sfdc_pair_web_preview.py'
+      - 'masteros/web/scripts/sfdc_pair_cache.py'
+      - 'masteros/web/scripts/sfdc_product_line_registry.py'
+      - 'masteros/web/scripts/sfdc_quote_report_index.py'
+      - 'masteros/web/scripts/sfdc_feishu_report_local.py'
+      - 'masteros/web/scripts/sfdc_feishu_preclassified_local.py'
+      - 'masteros/web/scripts/test_sfdc_feishu_preclassified_local.py'
+      - 'masteros/web/scripts/test_sfdc_feishu_report_local.py'
+      - 'masteros/web/app/api/sfdc/feishu-report-local/**'
+      - 'masteros/web/tests/sfdc-feishu-report-local.test.mjs'
+      - 'masteros/web/scripts/sfdc_quote_report_sheet.py'
+      - 'masteros/web/scripts/test_sfdc_quote_report_sheet.py'
+      - 'masteros/web/app/api/sfdc/report-local/**'
+      - 'masteros/web/tests/sfdc-quote-report-route.test.mjs'
+      - 'masteros/web/scripts/sfdc_pair_cache_warm.py'
+      - 'masteros/web/scripts/test_sfdc_pair_cache.py'
+      - 'masteros/web/app/api/sfdc/cache-local/**'
+      - 'masteros/web/tests/sfdc-pair-cache-route.test.mjs'
+      - 'masteros/web/scripts/test_sfdc_pair_web_preview.py'
+      - 'masteros/web/lib/sfdc-pair-workspace.mjs'
+      - 'masteros/web/lib/sfdc-report-quote-draft.mjs'
+      - 'masteros/web/tests/sfdc-report-quote-draft.test.mjs'
+      - 'masteros/web/app/sales/commands/pair/ReportOppoDraft.jsx'
+      - 'masteros/web/tests/sfdc-pair-workspace.test.mjs'
+      - 'masteros/web/app/api/sfdc/pair-check-local/**'
+      - 'masteros/web/app/sales/commands/pair/**'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
       - 'masteros/web/tests/sfdc-paired-clone.test.mjs'
       - 'masteros/web/scripts/test_sfdc_single_service_cloud.py'
@@ -40,6 +68,34 @@ on:
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
+      - 'masteros/web/scripts/sfdc_pair_readback.py'
+      - 'masteros/web/scripts/test_sfdc_pair_readback.py'
+      - 'masteros/web/scripts/sfdc_pair_web_preview.py'
+      - 'masteros/web/scripts/sfdc_pair_cache.py'
+      - 'masteros/web/scripts/sfdc_product_line_registry.py'
+      - 'masteros/web/scripts/sfdc_quote_report_index.py'
+      - 'masteros/web/scripts/sfdc_feishu_report_local.py'
+      - 'masteros/web/scripts/sfdc_feishu_preclassified_local.py'
+      - 'masteros/web/scripts/test_sfdc_feishu_preclassified_local.py'
+      - 'masteros/web/scripts/test_sfdc_feishu_report_local.py'
+      - 'masteros/web/app/api/sfdc/feishu-report-local/**'
+      - 'masteros/web/tests/sfdc-feishu-report-local.test.mjs'
+      - 'masteros/web/scripts/sfdc_quote_report_sheet.py'
+      - 'masteros/web/scripts/test_sfdc_quote_report_sheet.py'
+      - 'masteros/web/app/api/sfdc/report-local/**'
+      - 'masteros/web/tests/sfdc-quote-report-route.test.mjs'
+      - 'masteros/web/scripts/sfdc_pair_cache_warm.py'
+      - 'masteros/web/scripts/test_sfdc_pair_cache.py'
+      - 'masteros/web/app/api/sfdc/cache-local/**'
+      - 'masteros/web/tests/sfdc-pair-cache-route.test.mjs'
+      - 'masteros/web/scripts/test_sfdc_pair_web_preview.py'
+      - 'masteros/web/lib/sfdc-pair-workspace.mjs'
+      - 'masteros/web/lib/sfdc-report-quote-draft.mjs'
+      - 'masteros/web/tests/sfdc-report-quote-draft.test.mjs'
+      - 'masteros/web/app/sales/commands/pair/ReportOppoDraft.jsx'
+      - 'masteros/web/tests/sfdc-pair-workspace.test.mjs'
+      - 'masteros/web/app/api/sfdc/pair-check-local/**'
+      - 'masteros/web/app/sales/commands/pair/**'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
       - 'masteros/web/tests/sfdc-paired-clone.test.mjs'
       - 'masteros/web/scripts/test_sfdc_single_service_cloud.py'
@@ -88,6 +144,14 @@ jobs:
         run: |
           python3 -m py_compile scripts/sfdc_record_catalog.py
           python3 -m unittest discover -s scripts -p test_sfdc_record_catalog.py -v
+          python3 -m unittest discover -s scripts -p test_sfdc_pair_readback.py -v
+          python3 -m unittest discover -s scripts -p test_sfdc_pair_web_preview.py -v
+          python3 -m py_compile scripts/sfdc_product_line_registry.py scripts/sfdc_pair_cache.py
+          python3 -m unittest discover -s scripts -p test_sfdc_pair_cache.py -v
+          python3 -m unittest discover -s scripts -p test_sfdc_quote_report_sheet.py -v
+          python3 -m py_compile scripts/sfdc_feishu_report_local.py
+          python3 -m unittest discover -s scripts -p test_sfdc_feishu_report_local.py -v
+          python3 -m unittest discover -s scripts -p test_sfdc_feishu_preclassified_local.py -v
       - name: Validate single-service per-process Cloud 100 Gb rules
         run: python3 -m unittest discover -s scripts -p test_sfdc_single_service_cloud.py -v
       - name: Unit-test live health classifier without Salesforce access
@@ -105,13 +169,23 @@ jobs:
         run: node --test tests/sfdc-record-picker.test.mjs
       - name: Validate linked Quote price and Cloud quantity projection
         run: node --test tests/sfdc-paired-clone.test.mjs
+      - name: Validate combined Opportunity Quote web pricing and readback
+        run: node --test tests/sfdc-pair-workspace.test.mjs
+      - name: Validate private cache endpoint scope and save rejection
+        run: node --test tests/sfdc-pair-cache-route.test.mjs
+      - name: Test fast Quote Report indexing endpoint and no Salesforce write paths
+        run: node --test tests/sfdc-quote-report-route.test.mjs
+      - name: Test Feishu direct-source route enforces local read-only access
+        run: node --test tests/sfdc-feishu-report-local.test.mjs
+      - name: Test Gb Product Line identity and reference-only Oppo-Quote draft
+        run: node --test tests/sfdc-report-quote-draft.test.mjs
       - name: Build local command center
         env:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build
       - name: Verify compiled UI and API routes
         run: |
-          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/commands','.next/server/app/api/sfdc/commands-local'])if(!fs.existsSync(p))process.exit(1)"
+          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/commands','.next/server/app/api/sfdc/commands-local','.next/server/app/sales/commands/pair','.next/server/app/api/sfdc/pair-check-local','.next/server/app/api/sfdc/cache-local','.next/server/app/api/sfdc/report-local','.next/server/app/api/sfdc/feishu-report-local'])if(!fs.existsSync(p))process.exit(1)"
       - name: Ensure historical views stay hidden but preserved
         run: |
           node -e "const fs=require('fs');const p=fs.readFileSync('app/page.jsx','utf8');if(!p.includes('redirect(\"/sales/commands\")'))process.exit(1);if(!fs.existsSync('app/legacy/page.jsx'))process.exit(1);const q=fs.readFileSync('app/sales/commands/page.jsx','utf8');if(q.includes('href=\"/sales/oppo-quote\"'))process.exit(1);"
