@@ -1,0 +1,27 @@
+name: Feishu Project Quote Join Schema Only
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "automation/feishu/project_quote_join_schema.py"
+      - ".github/workflows/feishu-project-quote-join-schema.yml"
+permissions:
+  contents: read
+jobs:
+  read-metadata:
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: List field metadata without reading customer records
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: python3 automation/feishu/project_quote_join_schema.py
