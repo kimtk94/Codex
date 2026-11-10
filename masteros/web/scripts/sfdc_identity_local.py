@@ -40,7 +40,7 @@ def read_identity_index(query,limit=25,now=None,db=None):
         term=query.strip().replace("\\","\\\\").replace("%","\\%").replace("_","\\_")
         pattern="%"+term+"%"
         records=cx.execute(
-            """SELECT qid,account_id,account_name,contact_id,contact_external_id,
+            """SELECT qid,quote_record_id,account_id,account_name,contact_id,contact_external_id,
                       contact_name,contact_email
                FROM quote_reference
                WHERE (account_name LIKE ? ESCAPE '\\'
@@ -52,12 +52,13 @@ def read_identity_index(query,limit=25,now=None,db=None):
     finally:
         cx.close()
     out=[];distinct=set()
-    for qid,aid,an,cid,external,cn,email in records:
+    for qid,quote_id,aid,an,cid,external,cn,email in records:
         key=(aid or "",an or "",cid or "",external or "",cn or "",email or "")
         if key in distinct:continue
         distinct.add(key)
         out.append({
-            "source_qid":qid,"account_id":aid or "","account_name":an,
+            "source_qid":qid,"source_quote_id":quote_id if re.fullmatch(r"a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?",quote_id or "") else "",
+            "account_id":aid or "","account_name":an,
             "contact_id":cid or "","contact_external_id":external or "",
             "contact_name":cn,"contact_email":email or "",
             "crm_account_verified":bool(ACCOUNT.fullmatch(aid or "")),
