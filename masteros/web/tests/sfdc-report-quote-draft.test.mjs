@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {isGbUnit,fromFeishuQuote,calculateDraft,draftDescription,draftPreflight}
+import {isGbUnit,fromFeishuQuote,calculateDraft,draftDescription,draftPreflight,descriptionBasis,descriptionReview,DESCRIPTION_TEMPLATE_VERSION}
   from "../lib/sfdc-report-quote-draft.mjs";
 
 const quote=(gb="6",processQuantity="12")=>({
@@ -138,4 +138,79 @@ test("No verified source ID gives HOLD but can be used as a reference",()=>{
   const r=draftPreflight({...draft,description:draftDescription(draft)});
   assert.equal(r.status,"HOLD");
   assert.ok(r.errors.includes("REFERENCE_RECORD_ID_UNMAPPED"));
+});
+
+test("Description template stays deterministic and never imports old Progress Description",()=>{
+  const original=quote();
+  original.progress_description="OLD CUSTOMER PROGRESS: PO received 2026-08-01";
+  original.oldDescription="Legacy text";
+  const draft=fromFeishuQuote(original,new Date("2026-11-09T15:03:00Z")).draft;
+  draft.account={name:"Synthetic School",id:"001000000000000AAA"};
+  draft.contact={name:"Synthetic PI",id:"003000000000000AAA"};
+  draft.products[0].samples="12";
+  draft.products[0].sampleUnitKrw="200000";
+  const description=draftDescription(draft);
+  assert.equal(DESCRIPTION_TEMPLATE_VERSION,"OPPO_QUOTE_V1");
+  assert.equal(description,draftDescription({...draft}));
+  assert.match(description,/2026-11-10/);
+  assert.match(description,/Account\/Contact: Synthetic School \/ Synthetic PI/);
+  assert.match(description,/6 Gb/);
+  assert.match(description,/12 samples/);
+  assert.match(description,/200,000 KRW\/sample/);
+  assert.doesNotMatch(description,/PO received|OLD CUSTOMER PROGRESS|Legacy text/);
+  assert.deepEqual(descriptionReview(draft,description),{
+    stale:false,complete:true,missing:[]
+  });
+});
+
+test("Manually locked Description is not overwritten and becomes HOLD when sample price changes",()=>{
+  const source=quote();
+  source.reference={
+    status:"PASS",accountId:"001000000000000AAA",accountName:"Synthetic School",
+    contactId:"003000000000000AAA",contactName:"Synthetic PI",products:[]
+  };
+  const draft=fromFeishuQuote(source).draft;
+  draft.name="Korea-Synthetic-Project";
+  draft.products[0].samples="8";
+  draft.products[0].sampleUnitKrw="85000";
+  const original=draftDescription(draft);
+  const manual=original+"\n수동 메모: 이번 분석은 연구실 요청에 따름.";
+  const lockedBasis=descriptionBasis(draft);
+  const first=draftPreflight({...draft,description:manual,descriptionManualBasis:lockedBasis});
+  assert.equal(first.status,"PREVIEW_READY");
+  const updated={...draft,products:draft.products.map(p=>({...p,sampleUnitKrw:"95000"}))};
+  const unchangedManual=manual;
+  assert.equal(unchangedManual,manual);
+  assert.equal(descriptionReview(updated,unchangedManual,lockedBasis).stale,true);
+  const next=draftPreflight({...updated,description:unchangedManual,
+    descriptionManualBasis:lockedBasis});
+  assert.equal(next.status,"HOLD");
+  assert.ok(next.errors.includes("DESCRIPTION_LOCKED_STALE"));
+  assert.ok(next.errors.includes("DESCRIPTION_CURRENT_FACTS_MISSING"));
+  const regenerated=draftDescription(updated);
+  const repaired=draftPreflight({...updated,description:regenerated,descriptionManualBasis:null});
+  assert.equal(repaired.status,"PREVIEW_READY");
+  assert.match(regenerated,/95,000 KRW\/sample/);
+});
+
+test("Manual description can be re-confirmed only if current dated Gb, quantity, and unit rate are present",()=>{
+  const source=quote();
+  source.reference={
+    status:"PASS",accountId:"001000000000000AAA",accountName:"Synthetic School",
+    contactId:"003000000000000AAA",contactName:"Synthetic PI",products:[]
+  };
+  const draft=fromFeishuQuote(source).draft;
+  draft.name="Korea-Synthetic-Project";
+  draft.products[0].samples="4";
+  draft.products[0].sampleUnitKrw="160000";
+  const basis=descriptionBasis(draft);
+  const incomplete="2026-11-10 · 4 samples · mRNA service";
+  const blocked=draftPreflight({...draft,description:incomplete,descriptionManualBasis:basis});
+  assert.ok(blocked.errors.includes("DESCRIPTION_CURRENT_FACTS_MISSING"));
+  const complete=draftDescription(draft)+"\nManual remark";
+  const review=descriptionReview(draft,complete,basis);
+  assert.equal(review.stale,false);
+  assert.equal(review.complete,true);
+  assert.equal(draftPreflight({...draft,description:complete,descriptionManualBasis:basis}).status,
+    "PREVIEW_READY");
 });
