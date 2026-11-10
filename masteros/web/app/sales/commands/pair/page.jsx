@@ -40,6 +40,7 @@ export default function PairedQuoteWeb(){
   const [reportBackend,setReportBackend]=useState("FEISHU");
   const reportEndpoint=reportBackend==="FEISHU"?"/api/sfdc/feishu-report-local":"/api/sfdc/report-local";
   const [reportStatus,setReportStatus]=useState(null);
+  const [referenceStatus,setReferenceStatus]=useState(null);
   const [reportRows,setReportRows]=useState([]);
   const [reportSelected,setReportSelected]=useState(null);
   const [reportBusy,setReportBusy]=useState("");
@@ -127,6 +128,18 @@ export default function PairedQuoteWeb(){
     }finally{setCacheBusy(false);}
   }
 
+  const getReferenceStatus=useCallback(async()=>{
+    try{
+      const data=await localRead("/api/sfdc/feishu-report-local",{mode:"REFERENCE_STATUS"});
+      setReferenceStatus(data);
+      return data;
+    }catch{
+      const fail={status:"BLOCK",code:"PRECLASSIFIED_INDEX_NOT_AVAILABLE"};
+      setReferenceStatus(fail);
+      return fail;
+    }
+  },[]);
+
   const getReportStatus=useCallback(async()=>{
     try{
       const response=await fetch(reportEndpoint,{
@@ -155,8 +168,9 @@ export default function PairedQuoteWeb(){
     if(reportStarted.current===reportBackend)return;
     reportStarted.current=reportBackend;
     getReportStatus();
+    if(reportBackend==="FEISHU")getReferenceStatus();else setReferenceStatus(null);
     searchReport("");
-  },[getReportStatus,searchReport,reportBackend]);
+  },[getReportStatus,getReferenceStatus,searchReport,reportBackend]);
 
   async function chooseReport(item){
     setReportBusy("DETAIL");setReportError("");setReportSelected(null);
@@ -178,6 +192,7 @@ export default function PairedQuoteWeb(){
       setReportStatus(data);
       setReportRows([]);
       await getReportStatus();
+      if(reportBackend==="FEISHU")await getReferenceStatus();
       await searchReport("");
     }catch(e){setReportError(e.message||"SHEET_SYNC_FAILED");
     }finally{setReportBusy("");}
@@ -246,6 +261,12 @@ export default function PairedQuoteWeb(){
         <div><small>Record ID 매핑</small><strong>{reportStatus?.linked_sfdc_record_count??"—"}건</strong></div>
         <div><small>매핑 대기</small><strong>{reportStatus?.unmapped_sfdc_record_count??"—"}건</strong></div>
       </div>
+      {reportBackend==="FEISHU"&&<div className={styles.statStrip} aria-label="Oppo Quote 사전 분류 상태">
+        <div><small>미리 색인한 Quote</small><strong>{referenceStatus?.status==="PASS"?referenceStatus.quote_count:"—"}건</strong></div>
+        <div><small>공통 프로젝트 유형 (공정+Gb)</small><strong>{referenceStatus?.status==="PASS"?referenceStatus.project_classes:"—"}개</strong></div>
+        <div><small>색인 준비</small><strong>{referenceStatus?.status==="PASS"?"PASS":"HOLD"}</strong></div>
+      </div>}
+      {reportBackend==="FEISHU"&&<p className={styles.hint}>사전 분류 색인: {referenceStatus?.index_freshness||referenceStatus?.code||"확인 전"} · 마지막 갱신 {kst(referenceStatus?.indexed_at_utc)} · 원본 행 해시 교차검증 {referenceStatus?.line_digest_crosschecked?"PASS":"미검증"}. Oppo–Quote 선택 시 전체 Report를 다시 분류하지 않습니다.</p>}
       <p className={styles.hint}>조회 경로: {reportBackend==="FEISHU"?"로그인된 Feishu → 검증된 로컬 검색 캐시":"Google Sheet Report 보조 캐시"} · Feishu 읽기 시각 {kst(reportStatus?.ingested_at_utc)} · QQ 메일 수신 시각 {reportStatus?.source_mail_received_kst||"미검증"} · Salesforce 공정 Report 생성 시각 별도 미확인 · KRW 단가 미검증</p>
       <div className={styles.nav}>
         <a href={FEISHU_REPORT_LINES} target="_blank" rel="noreferrer">Feishu 공정별 견적 {reportStatus?.process_rows??"—"}행</a>
