@@ -1,7 +1,7 @@
 "use client";
 
 import {useMemo,useState} from "react";
-import {fromFeishuQuote,calculateDraft,draftDescription,draftPreflight}
+import {fromFeishuQuote,calculateDraft,draftDescription,draftPreflight,descriptionBasis,descriptionReview}
   from "../../../../lib/sfdc-report-quote-draft.mjs";
 import styles from "./page.module.css";
 
@@ -22,6 +22,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
     return enabled&&result.ok?result.draft:null;
   });
   const [descriptionEdit,setDescriptionEdit]=useState(null);
+  const [descriptionEditBasis,setDescriptionEditBasis]=useState(null);
   const [preflight,setPreflight]=useState(null);
   const [notice,setNotice]=useState("");
   const [identityTerm,setIdentityTerm]=useState("");
@@ -31,6 +32,12 @@ export default function ReportOppoDraft({quote,enabled=true}){
   const amounts=useMemo(()=>draft?calculateDraft(draft):null,[draft]);
   const descriptionAuto=useMemo(()=>draft?draftDescription(draft,amounts):"",[draft,amounts]);
   const description=descriptionEdit===null?descriptionAuto:descriptionEdit;
+  const isManualDescription=descriptionEdit!==null;
+  const descriptionCheck=useMemo(()=>draft?descriptionReview(
+    draft,description,isManualDescription?descriptionEditBasis:null):null,
+    [draft,description,isManualDescription,descriptionEditBasis]);
+  const descriptionPayload=()=>({...draft,description,
+    descriptionManualBasis:isManualDescription?descriptionEditBasis:null});
 
   const edit=(key,value)=>{
     setDraft(old=>old?{...old,[key]:value}:old);
@@ -70,13 +77,13 @@ export default function ReportOppoDraft({quote,enabled=true}){
   }
   function check(){
     if(!draft)return;
-    setPreflight(draftPreflight({...draft,description}));
+    setPreflight(draftPreflight(descriptionPayload()));
   }
   async function copy(which){
     if(!draft)return;
     const data=which==="json"?
       JSON.stringify({
-        ...draftPreflight({...draft,description}),
+        ...draftPreflight(descriptionPayload()),
         account:draft.account,contact:draft.contact,
         products:amounts?.items.map(p=>({
           projectKey:p.projectKey,productionGb:p.productionGb,
@@ -214,16 +221,34 @@ export default function ReportOppoDraft({quote,enabled=true}){
     </div>
     <div className={styles.subsection}>
       <h3>04 · Description 및 저장 전 검증</h3>
-      <p className={styles.hint}>날짜·기관·공정·생산량·신규 수량·단가가 자동 반영됩니다. 기존 Progress Description 문구를 그대로 복제하지 않습니다.</p>
+      <p className={styles.hint}>Description 양식 V1 · 날짜·기관·공정·생산량(Gb)·샘플 수·KRW/샘플 단가가 필수입니다. 기존 Progress Description은 복사하지 않습니다.</p>
+      <p className={styles.hint}>자동 연동 상태에서는 입력값이 바뀌면 함께 갱신됩니다. 직접 수정하면 수동 잠금되어 문구를 덮어쓰지 않으며, 이후 가격·수량 등이 변경되면 검증에서 HOLD 처리합니다.</p>
+      <div className={styles.inlineHead}>
+        <b>현재 편집 상태</b>
+        <span className={styles.state} data-ok={!descriptionCheck?.stale&&descriptionCheck?.complete}>
+          {descriptionCheck?.stale?"수동 잠금 · 현재 입력값과 불일치":
+           isManualDescription?"수동 잠금 · 검증 필요":"자동 연동 · 양식 V1"}
+        </span>
+      </div>
       <label className={styles.draftTextLabel}>Opportunity Description 초안 (직접 수정)
         <textarea aria-label="새 Oppo Quote Description 편집" rows={7}
-          value={description} onChange={e=>{setDescriptionEdit(e.target.value);setPreflight(null);}}/>
+          value={description} onChange={e=>{
+            setDescriptionEdit(e.target.value);
+            setDescriptionEditBasis(descriptionBasis(draft));
+            setPreflight(null);
+          }}/>
       </label>
+      {descriptionCheck?.stale&&<p className={styles.warning} role="alert">
+        가격·수량·Gb·고객·날짜가 변경됐지만 수동 Description은 유지됐습니다. 내용 확인 후 직접 수정하거나 재생성해야 검증할 수 있습니다.
+      </p>}
+      {!descriptionCheck?.complete&&<p className={styles.warning} role="status">
+        현재 Description에 필수 값이 부족합니다. 날짜·Gb·샘플 수·단가 표기를 확인하세요.
+      </p>}
       <div className={styles.actions}>
         <button type="button" onClick={check}>초안 검증 (저장 없음)</button>
         <button type="button" className={styles.secondary} onClick={()=>{
-          setDescriptionEdit(null);setPreflight(null);
-        }}>Description 재생성</button>
+          setDescriptionEdit(null);setDescriptionEditBasis(null);setPreflight(null);
+        }}>현재 입력값으로 Description 재생성 (잠금 해제)</button>
         <button type="button" className={styles.secondary} onClick={()=>copy("desc")}>Description 복사</button>
         <button type="button" className={styles.secondary} onClick={()=>copy("json")}>초안 JSON 복사</button>
       </div>
