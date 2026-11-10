@@ -9,6 +9,7 @@ on:
       - 'masteros/web/scripts/css_mail_local.py'
       - 'masteros/web/scripts/test_css_mail_local.py'
       - 'masteros/web/tests/css-mail-local.test.mjs'
+      - 'masteros/web/tests/css-mail-dialog.test.mjs'
       - 'masteros/web/scripts/start-css-local.ps1'
       - 'masteros/web/app/sales/commands/page.jsx'
       - 'masteros/web/app/sales/projects/page.jsx'
@@ -23,6 +24,7 @@ on:
       - 'masteros/web/scripts/css_mail_local.py'
       - 'masteros/web/scripts/test_css_mail_local.py'
       - 'masteros/web/tests/css-mail-local.test.mjs'
+      - 'masteros/web/tests/css-mail-dialog.test.mjs'
       - 'masteros/web/scripts/start-css-local.ps1'
       - 'masteros/web/app/sales/commands/page.jsx'
       - 'masteros/web/app/sales/projects/page.jsx'
@@ -54,7 +56,7 @@ jobs:
       - name: Install local-only Next.js dependencies
         run: npm install --no-audit --no-fund
       - name: Verify loopback access and request contracts
-        run: node --test tests/css-mail-local.test.mjs
+        run: node --test tests/css-mail-local.test.mjs tests/css-mail-dialog.test.mjs
       - name: Compile local dashboard (no deploy)
         env:
           NEXT_TELEMETRY_DISABLED: '1'
