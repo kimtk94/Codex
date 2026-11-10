@@ -33,3 +33,27 @@ npm run build
 ```
 
 **Live operational proof** also needs a real Google auth read and independent source-to-sink row count and field parity, performed locally. Synthetic CI success alone is not data freshness certification.
+
+
+## Mail and Lead review (loopback-only)
+
+Open `http://127.0.0.1:3000/sales/mail` in the **same authorized Windows PC**.
+The existing `start-css-local.cmd` now enables this private interface.
+
+- **Unanswered review**: uses the existing `Novogene_All_Emails / Unanswered Reply Review 60D` source and its canonical IMAP keys, sorted/filterable by priority, sender, recipient role and project.
+- **Skip one mail**: after an explicit confirmation, append one `SKIP_MAIL` decision to the existing `Unanswered Reply Decisions` ledger; restore from the web UI.
+- **CC rules**: select a verified To-recipient or exact sender from an inbound email where the owner's address is in Cc but **not** in To. Rules are stored in the existing `Unanswered Reply Routing Rules` ledger and never affect mail directly addressed to the owner. Restore from the web UI.
+- **Lead sent history**: reads the existing `SFDC_Automation_Followup_2026 / Lead Sent Dates` table; searches by lead name, institution, email or ID. First and last sent dates, actual To/CC counts and source status are displayed.
+- No new Google Sheets workbook, no email sent, no remote hosting, no Salesforce write, no mail deletion. Only explicit review-ledger append/restore actions write to Google Sheets.
+- Google credentials remain server side in `%USERPROFILE%\\CSS_Automation\\credentials\\service_account.json` or an existing `GOOGLE_APPLICATION_CREDENTIALS` **path**. The service account needs write permission for the two QQ decision ledger tabs. Never put its JSON into client-side variables.
+- `CSS_LOCAL_MAIL_ENABLED=1` and `CSS_LOCAL_MAIL_OWNER=taehoon.kim@novogene.com` are set only by the local startup script. API access requires 127.0.0.1 host, a same-origin request and `X-CSS-Local-Mail: 1`.
+- If source metadata is stale, the web UI disables new review actions and shows source freshness explicitly.
+
+### Offline checks
+
+```powershell
+cd "$env:USERPROFILE\\Codex\\Codex-SFDC-Git\\masteros\\web"
+python -m unittest discover -s scripts -p test_css_mail_local.py -v
+node --test tests/css-mail-local.test.mjs
+npm run build
+```
