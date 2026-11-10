@@ -57,6 +57,15 @@ def pages(path, token, extra=None):
             raise RuntimeError("UNSAFE_PAGINATION")
         cursor = new_cursor
 
+def extract_token(response):
+    """Auth v3 returns tenant_access_token at the response top level."""
+    if not isinstance(response, dict) or response.get("code") != 0:
+        raise RuntimeError("AUTH_API_ERROR_" + str(response.get("code") if isinstance(response, dict) else "BAD_JSON"))
+    token = response.get("tenant_access_token") or (response.get("data") or {}).get("tenant_access_token")
+    if not isinstance(token, str) or not token.strip():
+        raise RuntimeError("FEISHU_TOKEN_UNAVAILABLE")
+    return token
+
 def link_url(value):
     if isinstance(value, dict):
         return str(value.get("link") or "")
@@ -118,13 +127,11 @@ def main():
     args = parser.parse_args()
     if args.apply and os.getenv("FEISHU_SALES_HOME_APPLY") != "1":
         raise RuntimeError("APPLY_FLAG_NOT_AUTHORIZED")
-    auth = require_success(request(
+    auth = request(
         "POST", "/open-apis/auth/v3/tenant_access_token/internal",
         body={"app_id": require("FEISHU_APP_ID"), "app_secret": require("FEISHU_APP_SECRET")}
-    ), "AUTH")
-    token = auth.get("tenant_access_token")
-    if not token:
-        raise RuntimeError("FEISHU_TOKEN_UNAVAILABLE")
+    )
+    token = extract_token(auth)
     path = API + "/tables/" + HOME_TABLE
     fields = {f.get("field_name") for f in pages(path + "/fields", token)}
     if not {"Menu Key", "바로가기", "화면"}.issubset(fields):
