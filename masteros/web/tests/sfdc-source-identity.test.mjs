@@ -89,14 +89,16 @@ test("Feishu 15-character Account and Salesforce 18-character Account reconcile"
     contactId:"003ABCDEFGHIJKL"};
   const r=reconcileQuoteSource(fx,qx,ox);
   assert.equal(r.status,"PASS",r.code);
-  assert.equal(r.account.id,qx.accountId);
+  assert.equal(r.account.id,ox.accountId);
+  assert.equal(sameSalesforceId(r.account.id,qx.accountId,"001"),true);
   const draft={sourceQuoteId:fx.sfdc_record_id,accountMode:"KEEP",
     referenceAccount:{id:fx.reference.accountId,name:"Old"},
     account:{id:fx.reference.accountId,name:"Old"},contact:{id:"",name:"Old"},
     products:[{samples:"48",productionGb:"12",sampleUnitKrw:"25000"}],
     referenceDefaults:{account:{id:fx.reference.accountId},contact:{id:""}}};
   const hydrated=applyVerifiedSource(draft,r);
-  assert.equal(hydrated.contact.id,qx.contactId);
+  assert.equal(hydrated.contact.id,ox.contactId);
+  assert.equal(sameSalesforceId(hydrated.contact.id,qx.contactId,"003"),true);
   assert.equal(hydrated.products[0].samples,"48");
   assert.equal(hydrated.products[0].sampleUnitKrw,"25000");
   assert.equal(hydrated.sourceOpportunityId,ox.id);
