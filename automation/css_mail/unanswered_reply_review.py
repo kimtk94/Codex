@@ -463,7 +463,8 @@ def main():
         audit.append([key, counts.get(key,0), "Counts from available canonical staging"])
     decision_rows = ensure_ledger(session, decisions.DECISIONS_TAB, decisions.DECISION_HEAD)
     routing_rows = ensure_ledger(session, decisions.RULES_TAB, decisions.RULE_HEAD)
-    queue_rows = read_rows(session, TAB)
+    queue_col_count = sheet_titles(session)[TAB]["gridProperties"].get("columnCount", 0)
+    queue_rows = read_rows(session, TAB, "X2000" if queue_col_count >= 24 else "S2000")
     if not queue_rows:
         queue_rows = [HEAD]
     new_mail, new_rules = decisions.plan(
