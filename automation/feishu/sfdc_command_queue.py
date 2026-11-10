@@ -16,7 +16,7 @@ PRICE_INPUT_FIELDS=["Requested Product Unit KRW","Requested Cloud Unit KRW"]
 PRICE_RESULT_FIELDS=["Source Product Name","Sample Unit KRW","Product Unit KRW",
     "Product Qty","Product Net KRW","Cloud Unit KRW","Cloud Qty","Cloud Net KRW",
     "Quote Net KRW","VAT KRW","Quote Gross KRW","Price Basis","Price Status",
-    "Product Price Detail"]
+    "Product Price Detail","Product Price Items JSON"]
 PRICE_NUMBER_FIELDS=frozenset([
     "Requested Product Unit KRW","Requested Cloud Unit KRW",
     "Sample Unit KRW","Product Unit KRW","Product Qty","Product Net KRW",

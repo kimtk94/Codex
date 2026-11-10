@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 from unittest.mock import patch,Mock
 from sfdc_price_smoke import KEY,NAME,SmokeError,seed,verify,cleanup
@@ -40,7 +41,10 @@ class FeishuPriceE2ETests(unittest.TestCase):
           "Cloud Qty":2,"Cloud Net KRW":70000,"Quote Net KRW":2350000,
           "VAT KRW":235000,"Quote Gross KRW":2585000}
         f={"Status":"PREFLIGHT_PASS","Request ID":KEY,
-          "Price Status":"SOURCE_VERIFIED_PROJECTION",**numbers}
+          "Price Status":"SOURCE_VERIFIED_PROJECTION",
+          "Source Product Name":"Example RNA Product",
+          "Product Price Items JSON":json.dumps([{"product":"Example RNA Product",
+              "unit_krw":190000,"qty":12,"net_krw":2280000}]),**numbers}
         values=[""]*len(HEAD);values[0]="recTEST"
         for k,v in f.items():values[HEAD.index(k)]=str(v)
         with patch("sfdc_price_smoke.locate",return_value=[{"fields":f}]):
@@ -51,5 +55,19 @@ class FeishuPriceE2ETests(unittest.TestCase):
         self.assertEqual(r["net_krw"],2350000)
         self.assertEqual(r["cloud_qty"],2)
         self.assertEqual(r["crm_writes"],0)
+    def test_verify_rejects_product_detail_mismatch(self):
+        nums={"Sample Unit KRW":190000,"Product Unit KRW":190000,"Product Qty":12,
+              "Product Net KRW":2280000,"Cloud Unit KRW":35000,"Cloud Qty":2,
+              "Cloud Net KRW":70000,"Quote Net KRW":2350000,"VAT KRW":235000,
+              "Quote Gross KRW":2585000}
+        fields={"Request ID":KEY,"Status":"PREFLIGHT_PASS",
+                "Price Status":"SOURCE_VERIFIED_PROJECTION",
+                "Source Product Name":"Example RNA Product",
+                "Product Price Items JSON":json.dumps([{"product":"Example RNA Product",
+                    "unit_krw":190000,"qty":11,"net_krw":2280000}]),**nums}
+        with patch("sfdc_price_smoke.locate",return_value=[{"fields":fields}]):
+            with self.assertRaisesRegex(SmokeError,"SMOKE_PRODUCT_PRICE_DETAIL_UNVERIFIED"):
+                verify("token","table")
+
 
 if __name__=="__main__":unittest.main()
