@@ -38,6 +38,9 @@ export default function PairedQuoteWeb(){
   const [referenceStatus,setReferenceStatus]=useState(null);
   const [query,setQuery]=useState("");
   const [rows,setRows]=useState([]);
+  const [selectionMode,setSelectionMode]=useState("QUOTE");
+  const [selectedOppo,setSelectedOppo]=useState(null);
+  const [quoteChoices,setQuoteChoices]=useState([]);
   const [selected,setSelected]=useState(null);
   const [working,setWorking]=useState("");
   const [error,setError]=useState("");
@@ -51,19 +54,19 @@ export default function PairedQuoteWeb(){
     referenceStatus?.quote_count===reportStatus?.quote_count&&
     referenceStatus?.source_mail_received_kst===reportStatus?.source_mail_received_kst;
 
-  const find=useCallback(async(text="")=>{
+  const find=useCallback(async(text="",mode=selectionMode)=>{
     const token=++seq.current;
     setLastSearch(text.trim());
-    setSelected(null);
+    setSelected(null);setSelectedOppo(null);setQuoteChoices([]);
     setWorking("SEARCH");
     setError("");
     try{
-      const data=await read({mode:"SEARCH",query:text.trim(),limit:25});
+      const data=await read({mode:mode==="OPPORTUNITY"?"OPPORTUNITY_SEARCH":"SEARCH",query:text.trim(),limit:25});
       if(token===seq.current)setRows(data.rows||[]);
     }catch(e){
       if(token===seq.current){setRows([]);setError(e.message||"SEARCH_FAILED");}
     }finally{if(token===seq.current)setWorking("");}
-  },[]);
+  },[selectionMode]);
 
   const initialize=useCallback(async()=>{
     setError("");
@@ -90,16 +93,57 @@ export default function PairedQuoteWeb(){
     initialize();
   },[initialize]);
 
-  async function select(row){
+  async function select(row,expectedExternal=""){
     if(!indexReady||working)return;
     const token=++seq.current;
     setWorking("DETAIL");setError("");setSelected(null);
     try{
       const detail=await read({mode:"DETAIL",id:row.qid});
+      const external=expectedExternal||selectedOppo?.opportunity_external||"";
+      if(external&&detail.reference?.opportunityExternalId!==external)
+        throw Error("SOURCE_OPPO_QUOTE_LINK_MISMATCH");
       if(token===seq.current)setSelected(detail);
     }catch(e){
       if(token===seq.current)setError(e.message||"DETAIL_UNAVAILABLE");
     }finally{if(token===seq.current)setWorking("");}
+  }
+  async function selectOppo(row){
+    if(!indexReady||working)return;
+    const token=++seq.current;
+    setWorking("OPPORTUNITY_QUOTES");setError("");
+    setSelected(null);setSelectedOppo(null);setQuoteChoices([]);
+    try{
+      if(row.group_status!=="PASS")throw Error(row.group_status||"OPPO_PARENT_HOLD");
+      const data=await read({mode:"OPPORTUNITY_QUOTES",
+        opportunityExternal:row.opportunity_external});
+      if(data.opportunity_external!==row.opportunity_external||
+         data.quote_count!==data.quotes?.length||!data.quotes.length)
+        throw Error("OPPO_QUOTE_LIST_MISMATCH");
+      if(token!==seq.current)return;
+      setSelectedOppo(row);
+      if(data.quotes.length===1){
+        // An unambiguous single linked Quote can fill the same draft immediately.
+        const detail=await read({mode:"DETAIL",id:data.quotes[0].qid});
+        if(detail.qid!==data.quotes[0].qid||
+           detail.reference?.opportunityExternalId!==row.opportunity_external)
+          throw Error("SOURCE_OPPO_QUOTE_LINK_MISMATCH");
+        if(token===seq.current)setSelected(detail);
+      }else{
+        // Preserve every linked Quote as an explicit choice.
+        setQuoteChoices(data.quotes);
+      }
+    }catch(e){
+      if(token===seq.current){
+        setSelectedOppo(null);setQuoteChoices([]);
+        setError(e.message||"OPPO_QUOTES_UNAVAILABLE");
+      }
+    }finally{if(token===seq.current)setWorking("");}
+  }
+  function changeSelectionMode(mode){
+    if(mode===selectionMode||working)return;
+    setSelectionMode(mode);setRows([]);setSelected(null);
+    setSelectedOppo(null);setQuoteChoices([]);setError("");
+    find(queryRef.current,mode);
   }
   async function refresh(){
     if(working)return;
@@ -113,7 +157,7 @@ export default function PairedQuoteWeb(){
       setReportStatus(source);setReferenceStatus(index);
       if(index.quote_count!==source.quote_count||
          index.line_digest_crosschecked!==true)throw Error("PRECLASSIFIED_INDEX_MISMATCH");
-      const search=await read({mode:"SEARCH",query:queryRef.current.trim(),limit:25});
+      const search=await read({mode:selectionMode==="OPPORTUNITY"?"OPPORTUNITY_SEARCH":"SEARCH",query:queryRef.current.trim(),limit:25});
       if(token===seq.current){
         setRows(search.rows||[]);
         setLastSearch(queryRef.current.trim());
@@ -125,8 +169,8 @@ export default function PairedQuoteWeb(){
     <header className={styles.header}>
       <div>
         <p className={styles.eyebrow}>NOVOGENE / FEISHU SALES WORKSPACE</p>
-        <h1>Opportunity → Quote 통합 검증</h1>
-        <p>기존 Oppo–Quote 참고 사례를 빠르게 불러와 새 견적을 작성합니다.</p>
+        <h1>Opportunity / Quote 기반 신규 견적</h1>
+        <p>기존 Oppo 또는 Quote를 선택해 전체 참조값을 불러오고, 달라진 필드만 수정합니다.</p>
       </div>
       <nav className={styles.nav} aria-label="화면 이동">
         <Link href="/sales/commands/pair/advanced">기존 Salesforce 고급 검증</Link>
@@ -141,8 +185,8 @@ export default function PairedQuoteWeb(){
       <div className={styles.panelHead}>
         <span className={styles.step}>00</span>
         <div>
-          <h2>사전 분류된 Quote 검색</h2>
-          <p>검색 때마다 3,905행을 다시 계산하지 않습니다. 공통 공정 구성과 생산량(Gb)으로 미리 묶인 프로젝트 유형을 재사용합니다.</p>
+          <h2>기존 Oppo 또는 Quote 선택</h2>
+          <p>같은 사전 분류 색인을 사용합니다. Oppo 선택 시 연결된 Quote를 확인하고, 여러 개면 해당 Quote를 직접 고릅니다.</p>
         </div>
         <StateTag value={indexReady?"INDEX_READY":working==="REFRESH"?"REFRESHING":"INDEX_HOLD"}/>
       </div>
@@ -158,12 +202,22 @@ export default function PairedQuoteWeb(){
         {" · "}원본 해시 교차 검증: {referenceStatus?.line_digest_crosschecked?"PASS":"HOLD"}
         {" · "}Salesforce Report 생성 시각: 미확인
       </p>
+      <div className={styles.actions} role="group" aria-label="원본 선택 유형">
+        <button type="button" aria-pressed={selectionMode==="OPPORTUNITY"}
+          onClick={()=>changeSelectionMode("OPPORTUNITY")} disabled={!!working}>
+          기존 Opportunity 선택
+        </button>
+        <button type="button" aria-pressed={selectionMode==="QUOTE"}
+          onClick={()=>changeSelectionMode("QUOTE")} disabled={!!working}>
+          기존 Quote 선택
+        </button>
+      </div>
       <form className={styles.search} onSubmit={e=>{e.preventDefault();find(queryRef.current);}}>
         <input value={query} onChange={e=>{queryRef.current=e.target.value;setQuery(e.target.value);}}
-          aria-label="기존 Quote 검색" maxLength={80}
+          aria-label={selectionMode==="QUOTE"?"기존 Quote 검색":"기존 Opportunity 검색"} maxLength={80}
           placeholder="고객 한글 이름 · 기관 · 프로젝트명 · QID"/>
         <button type="submit" disabled={!indexReady||!!working}>
-          {working==="SEARCH"?"검색 중":"기존 Quote 검색"}
+          {working==="SEARCH"?"검색 중":selectionMode==="QUOTE"?"기존 Quote 검색":"기존 Oppo 검색"}
         </button>
         <button type="button" disabled={!!working} onClick={refresh}>
           {working==="REFRESH"?"Feishu 재색인 중":"Feishu 사전 색인 갱신"}
@@ -173,24 +227,44 @@ export default function PairedQuoteWeb(){
       {lastSearch&&<p className={styles.hint} role="status">
         검색 기준: {lastSearch} · 결과 {rows.length}건
       </p>}
-      <div className={styles.results} aria-label="Quote Report 검색 결과">
-        {rows.map(row=><button type="button" key={row.qid}
-          data-selected={selected?.qid===row.qid} disabled={!indexReady||!!working}
-          onClick={()=>select(row)}>
+      <div className={styles.results} aria-label={selectionMode==="QUOTE"?"Quote Report 검색 결과":"Opportunity 검색 결과"}>
+        {rows.map(row=><button type="button"
+          key={selectionMode==="QUOTE"?row.qid:row.opportunity_external}
+          data-selected={selectionMode==="QUOTE"?selected?.qid===row.qid:
+            selectedOppo?.opportunity_external===row.opportunity_external}
+          disabled={!indexReady||!!working||(
+            selectionMode==="OPPORTUNITY"&&row.group_status!=="PASS")}
+          onClick={()=>selectionMode==="QUOTE"?select(row):selectOppo(row)}>
           <strong>{row.account_name||"기관 미확인"} · {row.contact_name||"고객 미확인"}</strong>
           <small>{row.opportunity_name||"프로젝트명 미확인"}</small>
-          <small>{row.qid} · Product {row.product_count}개</small>
+          <small>{selectionMode==="QUOTE"?
+            row.qid+" · Product "+row.product_count+"개":
+            row.opportunity_external+" · 연결된 Quote "+row.quote_count+"개"+
+            (row.group_status!=="PASS"?" · 관계 검증 HOLD":"")+
+            (row.identity_evidence!=="PASS"?" · 고객 ID 재검증":"")}</small>
         </button>)}
         {rows.length===0&&!working&&<p className={styles.hint}>
-          사전 분류된 Quote가 없거나 검색 결과가 없습니다.
+          선택 가능한 기존 {selectionMode==="QUOTE"?"Quote":"Oppo"}가 없거나 검색 결과가 없습니다.
         </p>}
       </div>
+      {selectedOppo&&quoteChoices.length>1&&
+        <div className={styles.results} aria-label="선택한 Opportunity의 Quote 선택">
+          <p className={styles.hint}>
+            {selectedOppo.opportunity_name}에 연결된 {quoteChoices.length}개 Quote 중
+            신규 견적의 기준으로 사용할 하나를 선택하세요.
+          </p>
+          {quoteChoices.map(item=><button type="button" key={item.qid}
+            disabled={!!working} onClick={()=>select(item,selectedOppo.opportunity_external)}>
+            <strong>{item.qid}</strong>
+            <small>기존 Quote의 공정·제품·생산량(Gb)·고객 정보를 초안으로 가져오기</small>
+          </button>)}
+        </div>}
     </section>
     {selected?<section className={styles.panel} aria-label="선택한 기존 Quote">
       <div className={styles.panelHead}>
         <span className={styles.step}>01</span>
         <div><h2>기존 Oppo–Quote 참고 구성</h2>
-          <p>{selected.reference?.opportunityName||selected.qid} · Product {selected.product_count}개. 기존 데이터는 복제 대상이 아닌 참고 근거입니다.</p></div>
+          <p>{selected.reference?.opportunityName||selected.qid} · Product {selected.product_count}개. 기존 구성으로 시작하며, 아래에서 변경된 필드만 수정합니다. 원본 ID는 재사용하지 않습니다.</p></div>
         <StateTag value={selected.reference?.preclassified?"REFERENCE_READY":"REFERENCE_HOLD"}/>
       </div>
       <ReportOppoDraft key={selected.qid} quote={selected}
