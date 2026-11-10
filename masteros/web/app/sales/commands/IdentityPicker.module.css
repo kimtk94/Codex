@@ -1,0 +1,18 @@
+.wrapper{border:1px solid #d4e1e8;border-radius:14px;padding:14px;background:#f9fcfd;display:grid;gap:13px}
+.selected{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.selected>div{min-width:0;border:1px solid #d9e6ec;background:#fff;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:5px;overflow-wrap:anywhere}
+.selected b{font-size:13px;color:#255a76}
+.selected small{font-size:11px;color:#5d7c8c}
+.searchGroup{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.searchGroup label{font-size:12px;color:#496779;display:flex;flex-direction:column;gap:6px;font-weight:750}
+.searchGroup input{width:100%;border:1px solid #c7dce6;padding:11px;border-radius:9px;background:#fff;color:#23495c;font:inherit}
+.searchGroup input:focus{outline:2px solid #5caac7}
+.results{grid-column:1/-1;display:flex;flex-direction:column;max-height:255px;overflow:auto;gap:5px;background:#eef5f8;border:1px solid #d6e4eb;border-radius:9px;padding:9px}
+.results>small{font-size:11px;color:#597d90;padding:3px}
+.results button{display:flex;flex-direction:column;gap:5px;text-align:left;border:1px solid #d0e1e9;background:white;border-radius:8px;padding:10px;cursor:pointer;color:#214f69;font:inherit}
+.results button:hover{border-color:#67a9c7;background:#f0f8fc}
+.results button strong{font-size:13px}
+.results button small{font-size:11px;color:#627f8e}
+.results p{font-size:12px;color:#657b88;margin:8px}
+.hint{font-size:11px;color:#738c9a;line-height:1.6;margin:0}
+@media(max-width:750px){.selected,.searchGroup{grid-template-columns:1fr}}

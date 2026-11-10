@@ -7,18 +7,9 @@ import styles from "./page.module.css";
 import SourceSalesforceEvidence from "./SourceSalesforceEvidence";
 import {applyVerifiedSource} from "../../../../lib/sfdc-source-identity.mjs";
 import {REGION_OPTIONS,regionByCode} from "../../../../lib/sfdc-amplicon-regions.mjs";
+import IdentityPicker from "../IdentityPicker";
 
 const money=value=>Number.isSafeInteger(value)?value.toLocaleString("ko-KR")+" KRW":"입력 필요";
-async function searchIdentities(query){
-  const r=await fetch("/api/sfdc/feishu-report-local",{
-    method:"POST",cache:"no-store",credentials:"omit",
-    headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
-    body:JSON.stringify({mode:"IDENTITY_SEARCH",query:query.trim(),limit:20})
-  });
-  const obj=await r.json();
-  if(!r.ok||obj.status!=="PASS")throw Error(obj.code||"IDENTITY_SOURCE_UNAVAILABLE");
-  return obj.rows||[];
-}
 export default function ReportOppoDraft({quote,enabled=true}){
   const [draft,setDraft]=useState(()=>{
     const result=fromFeishuQuote(quote);
@@ -28,10 +19,6 @@ export default function ReportOppoDraft({quote,enabled=true}){
   const [descriptionEditBasis,setDescriptionEditBasis]=useState(null);
   const [preflight,setPreflight]=useState(null);
   const [notice,setNotice]=useState("");
-  const [identityTerm,setIdentityTerm]=useState("");
-  const [identityRows,setIdentityRows]=useState([]);
-  const [identityLoading,setIdentityLoading]=useState(false);
-  const [chosenIdentity,setChosenIdentity]=useState(null);
   const [regionToAdd,setRegionToAdd]=useState({});
   const amounts=useMemo(()=>draft?calculateDraft(draft):null,[draft]);
   const oppUnits=useMemo(()=>opportunityUnitPriceSummary(amounts),[amounts]);
@@ -92,27 +79,24 @@ export default function ReportOppoDraft({quote,enabled=true}){
       account:mode==="KEEP"?{...old.referenceAccount}:{id:"",name:""},
       contact:mode==="KEEP"?{...old.referenceContact}:{id:"",externalId:"",name:"",email:""}
     }:old);
-    setIdentityTerm("");setIdentityRows([]);setChosenIdentity(null);setPreflight(null);
+    setPreflight(null);
   }
-  async function findIdentity(e){
-    e.preventDefault();
-    if(identityLoading||!identityTerm.trim())return;
-    setIdentityLoading(true);setNotice("");
-    try{
-      setIdentityRows(await searchIdentities(identityTerm));
-    }catch(err){setIdentityRows([]);setNotice(err.message||"고객 색인 조회 불가");
-    }finally{setIdentityLoading(false);}
-  }
-  function useIdentity(row){
-    setChosenIdentity(row);
-    setDraft(old=>old?{
-      ...old,
-      account:{id:row.account_id,name:row.account_name},
-      contact:{id:row.contact_id,externalId:row.contact_external_id,
-        name:row.contact_name,email:row.contact_email}
+  function chooseAccount(account){
+    if(!account?.name)return;
+    setDraft(old=>old?{...old,
+      account:{id:account.id||"",name:account.name},
+      contact:{id:"",externalId:"",name:"",email:""}
     }:old);
     setPreflight(null);
-    setNotice("Feishu 참고 Quote "+row.source_qid+"의 Account·Contact를 가져왔습니다. 기존 Salesforce 연결은 별도 검증이 필요합니다.");
+    setNotice("기관 선택 완료 · 같은 기관의 고객을 검색해 선택하세요.");
+  }
+  function chooseContact(pair){
+    if(!pair?.ok||!pair.account?.name||!pair.contact?.name)return;
+    setDraft(old=>old?{...old,
+      account:pair.account,contact:pair.contact
+    }:old);
+    setPreflight(null);
+    setNotice("고객 및 소속 기관을 함께 선택했습니다. Salesforce 현재 연결 상태는 저장 전 재검증이 필요합니다.");
   }
   function check(){
     if(!draft)return;
@@ -170,27 +154,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
             onChange={()=>changeMode("CHANGE")}/>
           Account·Contact 변경
         </label>
-        {draft.accountMode==="CHANGE"&&<>
-          <form className={styles.search} onSubmit={findIdentity}>
-            <input aria-label="Account Contact 참조 검색" value={identityTerm}
-              placeholder="한글 고객 이름 · 기관 · 이메일"
-              maxLength={80} onChange={e=>setIdentityTerm(e.target.value)}/>
-            <button disabled={identityLoading||!identityTerm.trim()} type="submit">
-              {identityLoading?"검색 중":"기존 Account·Contact 검색"}
-            </button>
-          </form>
-          <div className={styles.results} aria-label="Account Contact 검색 결과">
-            {identityRows.map((x,i)=><button key={x.source_qid+"-"+i} type="button"
-              data-selected={chosenIdentity?.source_qid===x.source_qid}
-              onClick={()=>useIdentity(x)}>
-              <strong>{x.account_name} · {x.contact_name}</strong>
-              <small>{x.contact_email||"이메일 미확인"}</small>
-              <small>{x.crm_account_verified?"Account ID 보유":"Account ID 미확인"}
-                {" / "}{x.crm_contact_verified?"Contact ID 보유":"Contact ID 미확인"} · 참고 {x.source_qid}</small>
-            </button>)}
-          </div>
-          <p className={styles.hint}>동명이인은 기관과 Contact를 함께 선택합니다. 해당 고객의 예전 견적 존재만으로 현재 CRM ID가 검증된 것은 아닙니다.</p>
-        </>}
+        {draft.accountMode==="CHANGE"&&<IdentityPicker
+          account={draft.account} contact={draft.contact}
+          onAccount={chooseAccount} onContact={chooseContact}/>}
         <div className={styles.identitySummary}>
           <div><b>Account</b><span>{draft.account?.name||"미선택"}</span>
             <small>{draft.account?.id||"SFDC Account ID 미확인"}</small></div>
@@ -198,16 +164,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
             <small>{draft.contact?.id||draft.contact?.externalId||"SFDC Contact ID 미확인"}</small>
             <small>{draft.contact?.email||""}</small></div>
         </div>
-        {draft.accountMode==="CHANGE"&&<div className={styles.grid}>
-          <label>변경 Account 이름
-            <input aria-label="변경 Account 이름" value={draft.account?.name||""}
-              onChange={e=>{edit("account",{id:"",name:e.target.value});setChosenIdentity(null);}}/>
-          </label>
-          <label>변경 Contact 이름
-            <input aria-label="변경 Contact 이름" value={draft.contact?.name||""}
-              onChange={e=>{edit("contact",{id:"",externalId:"",name:e.target.value,email:""});setChosenIdentity(null);}}/>
-          </label>
-        </div>}
+
       </fieldset>
     </div>
     <div className={styles.subsection}>

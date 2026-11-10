@@ -5,6 +5,8 @@ import Link from "next/link";
 import {alicloudUnits,freshProgress,validateRequest,opportunityPriceBreakdown} from "../../../lib/sfdc-commands.mjs";
 import {recordToDraft,recordSelectionSummary} from "../../../lib/sfdc-record-picker.mjs";
 import {buildPairDraft,derivePairPrice} from "../../../lib/sfdc-paired-clone.mjs";
+import {matchingIdentity} from "../../../lib/sfdc-identity-picker.mjs";
+import IdentityPicker from "./IdentityPicker";
 import styles from "./page.module.css";
 
 const common={confirmSave:false,noDuplicateConfirmed:false};
@@ -23,10 +25,10 @@ const tabs=[
   {id:"opportunity_create",name:"Opportunity 생성",caption:"기존 Oppo 참조 · 새 Progress Description"},
   {id:"quote_create",name:"Quote 생성",caption:"기존 제품만 · 가격 검증 우선"},
 ];
-function Field({label,value,onChange,required=true,type="text",step,placeholder}){
+function Field({label,value,onChange,required=true,type="text",step,placeholder,disabled=false}){
   return <label className={styles.field}><span>{label}</span>
     <input type={type} value={value??""} onChange={e=>onChange(type==="number"?Number(e.target.value):e.target.value)}
-      required={required} step={step} placeholder={placeholder||""}/></label>;
+      required={required} step={step} disabled={disabled} placeholder={placeholder||""}/></label>;
 }
 function Flag({label,state}){
   const p=String(state||"BLOCK");
@@ -54,11 +56,14 @@ export default function SfdcCommandCenter(){
   const [advanced,setAdvanced]=useState(false);
   const [pairedQuote,setPairedQuote]=useState(null);
   const [pairStatus,setPairStatus]=useState("NOT_CHECKED");
+  const [selectedIdentity,setSelectedIdentity]=useState(null);
+  const [unitPriceEdited,setUnitPriceEdited]=useState(false);
   const resource=tab==="lead_convert"?"lead":tab==="opportunity_create"?"opportunity":"quote";
   const form=forms[tab];
   const signature=useMemo(()=>JSON.stringify({tab,...form}),[tab,form]);
   const ready=signature===preflight && selectedRecord?.resource===resource;
   const update=(key,value)=>{
+    if(tab==="opportunity_create"&&key==="unitPriceNetKrw")setUnitPriceEdited(true);
     setForms(prev=>{
       const previous=prev[tab];
       const next={...previous,[key]:value};
@@ -107,7 +112,7 @@ export default function SfdcCommandCenter(){
     setCatalogueStatus("LOADING");
     setCatalogue(prev=>({...prev,[kind]:[]}));
     setSelectedRecord(null);
-    setOriginalDraft(null);
+    setOriginalDraft(null);setSelectedIdentity(null);setUnitPriceEdited(false);
     setPreflight("");setPairedQuote(null);setPairStatus("NOT_CHECKED");
     try{
       let data=null;
@@ -137,14 +142,127 @@ export default function SfdcCommandCenter(){
   },[]);
   useEffect(()=>{
     setQuery("");setSelectedRecord(null);setOriginalDraft(null);setAdvanced(false);
+    setSelectedIdentity(null);setUnitPriceEdited(false);
     setPairedQuote(null);setPairStatus("NOT_CHECKED");
     setResult(null);setPreflight("");
     browse(resource,"");
   },[resource,browse]);
+  function reflectNewCustomer(next){
+    setForms(prev=>{
+      const old=prev[tab],merged={...old,...next};
+      if(tab==="opportunity_create"){
+        let oldAuto="";
+        try{oldAuto=freshProgress(old)}catch{}
+        if(!old.progressDescription||old.progressDescription===oldAuto){
+          try{merged.progressDescription=freshProgress(merged)}
+          catch{merged.progressDescription=""}
+        }
+      }
+      return {...prev,[tab]:merged};
+    });
+    setResult(null);setPreflight("");setConfirmed(false);setDedup(false);
+  }
+  function selectAccount(account){
+    if(!account?.name)return;
+    setSelectedIdentity(null);
+    reflectNewCustomer({
+      accountId:account.id||"",accountName:account.name,
+      contactId:"",contactName:""
+    });
+  }
+  async function selectContact(pair){
+    if(!pair?.ok||!pair.account?.name||!pair.contact?.name||loadingDetail||busy)return;
+    if(tab==="quote_create"&&selectedRecord?.accountName&&
+       selectedRecord.accountName!==pair.account.name){
+      setResult({status:"BLOCK",code:"QUOTE_PARENT_ACCOUNT_MISMATCH"});
+      return;
+    }
+    setSelectedIdentity(null);
+    reflectNewCustomer({
+      accountId:pair.account.id,accountName:pair.account.name,
+      contactId:"",contactName:pair.contact.name
+    });
+    // Feishu's Contact IDs are often external references, not native 003 IDs.
+    // Resolve the precise source Quote through current authenticated Salesforce.
+    if(!/^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(pair.sourceQuoteId||"")){
+      setResult({status:"BLOCK",code:"NATIVE_QUOTE_CONTACT_VERIFICATION_REQUIRED"});
+      return;
+    }
+    setLoadingDetail(true);setResult({status:"CHECKING",code:"CONTACT_SFDC_READBACK"});
+    try{
+      const response=await fetch("/api/sfdc/records-local",{
+        method:"POST",cache:"no-store",credentials:"omit",
+        headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+        body:JSON.stringify({resource:"quote",mode:"detail",
+          recordId:pair.sourceQuoteId,forceLive:true})
+      });
+      const live=await response.json();
+      if(!response.ok||live.status!=="PASS"||live.id!==pair.sourceQuoteId||
+         live.accountId!==pair.account.id||live.accountName!==pair.account.name||
+         live.contactName!==pair.contact.name||
+         !/^003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(live.contactId||""))
+        throw Error("CONTACT_ACCOUNT_LIVE_MATCH_REQUIRED");
+      setSelectedIdentity({
+        account:{id:live.accountId,name:live.accountName},
+        contact:{id:live.contactId,name:live.contactName,
+          email:pair.contact.email},
+        source:"SFDC_QUOTE_LIVE_VERIFIED"
+      });
+      reflectNewCustomer({
+        accountId:live.accountId,accountName:live.accountName,
+        contactId:live.contactId,contactName:live.contactName
+      });
+      setResult({status:"PASS",code:"CONTACT_ACCOUNT_SFDC_VERIFIED"});
+    }catch(error){
+      setSelectedIdentity(null);
+      setResult({status:"BLOCK",code:error?.message||"CONTACT_SFDC_SOURCE_UNAVAILABLE"});
+    }finally{setLoadingDetail(false)}
+  }
+  async function hydrateLinkedQuote(recordId,base,{preserveEdit=false}={}){
+    setPairStatus("LOADING");
+    try{
+      const response=await fetch("/api/sfdc/records-local",{
+        method:"POST",cache:"no-store",credentials:"omit",
+        headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+        body:JSON.stringify({resource:"opportunity",mode:"bundle",recordId})
+      });
+      const bundle=await response.json();
+      if(!response.ok||bundle.status!=="PASS")throw Error(bundle.code||"QUOTE_LINK_UNAVAILABLE");
+      const checked=buildPairDraft(bundle,base);
+      if(!checked.ok)throw Error(checked.code);
+      if(checked.quote.opportunityId!==recordId)throw Error("WRONG_PARENT_OPPORTUNITY");
+      const sampleRate=preserveEdit&&unitPriceEdited?base.unitPriceNetKrw:checked.form.unitPriceNetKrw;
+      const populated={...base,
+        // Existing validated quote process rates take precedence until user overrides.
+        unitPriceNetKrw:sampleRate,
+        cloudUnits:checked.form.cloudUnits,
+        cloudUnitNetKrw:checked.form.cloudUnitNetKrw,
+        sourceQuoteId:checked.form.sourceQuoteId,
+        referenceAmea:base.referenceAmea||checked.form.referenceAmea,
+      };
+      const totals=opportunityPriceBreakdown(populated);
+      populated.amountKrw=totals.ok?totals.netKrw:0;
+      let oldAuto="";
+      try{oldAuto=freshProgress(base)}catch{}
+      if(!base.progressDescription||base.progressDescription===oldAuto){
+        try{populated.progressDescription=freshProgress(populated)}
+        catch{populated.progressDescription=""}
+      }
+      setPairedQuote(checked.quote);setPairStatus("PASS");
+      setForms(prev=>({...prev,opportunity_create:populated}));
+      setResult(null);
+      return true;
+    }catch(error){
+      setPairedQuote(null);setPairStatus("BLOCK");
+      setResult({status:"BLOCK",code:error?.message||"SOURCE_PRICE_UNVERIFIED"});
+      return false;
+    }
+  }
   async function chooseRecord(id){
     if(loadingDetail||busy)return;
     setLoadingDetail(true);setResult(null);setPreflight("");
     setPairedQuote(null);setPairStatus("NOT_CHECKED");
+    setSelectedIdentity(null);setUnitPriceEdited(false);
     try{
       const response=await fetch("/api/sfdc/records-local",{
         method:"POST",headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
@@ -158,9 +276,17 @@ export default function SfdcCommandCenter(){
       setForms(prev=>({...prev,[tab]:next}));
       setSelectedRecord(item);
       setOriginalDraft(next);
+      if(resource==="opportunity"&&next.accountId&&next.contactId){
+        setSelectedIdentity({
+          account:{id:next.accountId,name:next.accountName},
+          contact:{id:next.contactId,name:next.contactName,email:""},
+          source:"SFDC_OPPORTUNITY_SOURCE"
+        });
+      }
       setDedup(false);setConfirmed(false);
+      if(resource==="opportunity")await hydrateLinkedQuote(id,next);
     }catch(e){
-      setSelectedRecord(null);setOriginalDraft(null);
+      setSelectedRecord(null);setOriginalDraft(null);setSelectedIdentity(null);
       setResult({status:"BLOCK",code:e?.message||"DETAIL_UNAVAILABLE"});
     }finally{setLoadingDetail(false);}
   }
@@ -170,28 +296,9 @@ export default function SfdcCommandCenter(){
   },[pairedQuote,form.samples,form.dataSize,tab]);
   async function loadLinkedQuote(){
     if(tab!=="opportunity_create"||!selectedRecord?.id||busy||loadingDetail)return;
-    setLoadingDetail(true);setPreflight("");setPairStatus("LOADING");
-    try{
-      const r=await fetch("/api/sfdc/records-local",{
-        method:"POST",cache:"no-store",credentials:"omit",
-        headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
-        body:JSON.stringify({resource:"opportunity",mode:"bundle",recordId:selectedRecord.id})
-      });
-      const bundle=await r.json();
-      if(!r.ok||bundle.status!=="PASS")throw Error(bundle.code||"QUOTE_LINK_UNAVAILABLE");
-      const draft=buildPairDraft(bundle,form);
-      if(!draft.ok)throw Error(draft.code);
-      if(draft.quote.opportunityId!==selectedRecord.id)throw Error("WRONG_PARENT_OPPORTUNITY");
-      setPairedQuote(draft.quote);setPairStatus("PASS");
-      const populated={...draft.form,closeDate:form.closeDate};
-      try{populated.progressDescription=freshProgress(populated)}
-      catch{populated.progressDescription=""}
-      setForms(prev=>({...prev,[tab]:populated}));
-      setResult(null);
-    }catch(e){
-      setPairedQuote(null);setPairStatus("BLOCK");
-      setResult({status:"BLOCK",code:e?.message||"SOURCE_PRICE_UNVERIFIED"});
-    }finally{setLoadingDetail(false);}
+    setLoadingDetail(true);setPreflight("");
+    try{await hydrateLinkedQuote(selectedRecord.id,form,{preserveEdit:true});}
+    finally{setLoadingDetail(false)}
   }
   const changedFields=useMemo(()=>{
     if(!originalDraft)return [];
@@ -209,6 +316,16 @@ export default function SfdcCommandCenter(){
     const sourceKey=resource==="lead"?"leadId":resource==="opportunity"?"referenceOpportunityId":"sourceQuoteId";
     if(form[sourceKey]!==selectedRecord.id){
       setResult({status:"BLOCK",code:"SOURCE_ID_CHANGED"});return;
+    }
+    if(tab==="opportunity_create"){
+      const matched=matchingIdentity(form,selectedIdentity);
+      if(!matched.ok){setResult({status:"BLOCK",code:matched.code});return;}
+    }
+    if(tab==="quote_create"&&selectedIdentity){
+      if(selectedRecord?.accountName!==form.accountName ||
+         selectedRecord?.contactName!==form.contactName){
+        setResult({status:"BLOCK",code:"QUOTE_PARENT_CUSTOMER_MISMATCH"});return;
+      }
     }
     const req={...form,action:tab,mode,confirmSave:mode==="save"&&confirmed,
       noDuplicateConfirmed:mode==="save"&&dedup};
@@ -329,7 +446,9 @@ export default function SfdcCommandCenter(){
                 disabled={!selectedRecord||loadingDetail||busy}>
                 기존 Oppo → Quote 공정·단가 불러오기
               </button>
-              <small>{pairStatus==="PASS"?"견적 공정 검증 PASS":pairStatus==="BLOCK"?"연결 Quote 검증 차단":""}</small>
+              <small>{pairStatus==="LOADING"?"연결 Quote 단가 자동 조회 중":
+                pairStatus==="PASS"?"연결 Quote의 검증된 KRW 단가 자동 입력 완료 · 필요 시 아래에서 수정":
+                pairStatus==="BLOCK"?"원본 Quote KRW 단가 미확인 · 임의 단가 입력 금지":"Oppo 선택 후 단가 자동 조회"}</small>
               {pairedQuote&&pairProjection?.ok&&<div className={styles.selectedInfo}>
                 <strong>시료당 {pairProjection.unitPriceNetKrw.toLocaleString()} KRW</strong>
                 <span>Cloud 100 Gb당 1개 · {pairProjection.cloudUnits}개 × {pairProjection.cloudUnitNetKrw.toLocaleString()} KRW</span>
@@ -347,8 +466,13 @@ export default function SfdcCommandCenter(){
               <Field label="Account ID (001)" value={form.accountId} onChange={v=>update("accountId",v)}/>
               <Field label="Contact ID (003)" value={form.contactId} onChange={v=>update("contactId",v)}/>
             </div>}
-            <Field label="기관 이름" value={form.accountName} onChange={v=>update("accountName",v)}/>
-            <Field label="고객 이름" value={form.contactName} onChange={v=>update("contactName",v)}/>
+            <IdentityPicker
+              account={{id:form.accountId,name:form.accountName}}
+              contact={{id:form.contactId,name:form.contactName}}
+              onAccount={selectAccount} onContact={selectContact}
+              disabled={loadingDetail||busy}/>
+            <p className={styles.hint}>기관·고객은 이름을 직접 쓰지 않고 검색 결과에서 선택합니다.
+              고객 검색 결과에는 기관명이 반드시 같이 나옵니다. 동명이인 기관을 확인하세요.</p>
             <Field label="Opportunity 이름" value={form.opportunityName} onChange={v=>update("opportunityName",v)}/>
             <Field label="서비스" value={form.service} onChange={v=>update("service",v)}/>
             <div className={styles.two}>
@@ -357,7 +481,8 @@ export default function SfdcCommandCenter(){
             </div>
             <div className={styles.two}>
               <Field label="Oppo 샘플당 단가 (KRW, VAT 제외)" type="number"
-                value={form.unitPriceNetKrw||""} onChange={v=>update("unitPriceNetKrw",v)}
+                value={form.unitPriceNetKrw||""} disabled={loadingDetail}
+                onChange={v=>update("unitPriceNetKrw",v)}
                 placeholder="예: 250000"/>
               <Field label="Close Date" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
             </div>
@@ -388,8 +513,13 @@ export default function SfdcCommandCenter(){
             <Field label="대상 Opportunity ID (006)" value={form.opportunityId} onChange={v=>update("opportunityId",v)}/>
             <p className={styles.hint}>기존 Quote에서 고객·연결 Oppo·제품을 불러왔습니다. 수정할 항목만 변경하세요.</p>
             <Field label="Quote 이름 (Oppo와 동일)" value={form.quoteName} onChange={v=>update("quoteName",v)}/>
-            <Field label="기관 이름" value={form.accountName} onChange={v=>update("accountName",v)}/>
-            <Field label="Contact 이름" value={form.contactName} onChange={v=>update("contactName",v)}/>
+            <IdentityPicker
+              account={{id:selectedIdentity?.account?.id,name:form.accountName}}
+              contact={{id:selectedIdentity?.contact?.id,name:form.contactName}}
+              onAccount={selectAccount} onContact={selectContact}
+              disabled={loadingDetail||busy}/>
+            <p className={styles.hint}>Quote는 원래 연결된 Opportunity의 기관·고객과 같아야 합니다.
+              다른 기관의 고객을 선택하면 저장 검증이 차단됩니다.</p>
             <Field label="기존 제품 카테고리" value={form.productCategory} onChange={v=>update("productCategory",v)}/>
             <Field label="기존 제품명 (정확히)" value={form.productName} onChange={v=>update("productName",v)}/>
             <Field label="공정명 (쉼표로 구분)" value={form.processNames} onChange={v=>update("processNames",v)} placeholder="NovaSeq Reagent Kit (500 Cycles), Data quality control, AliCloud"/>
