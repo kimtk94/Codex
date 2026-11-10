@@ -33,6 +33,7 @@ class SearchTests(unittest.TestCase):
               ("QID-2","001000000000000AAA","연세대학교","003000000000000AAA","","김지훈","a@x.test"),
               ("QID-1","001000000000000AAC","","003000000000000AAC","","김지훈","c@x.test")
             ])
+            cx.commit()
     def tearDown(self):self.tmp.cleanup()
 
     def test_names_always_have_institution_and_distinct_homonyms(self):
@@ -55,6 +56,7 @@ class SearchTests(unittest.TestCase):
     def test_index_coverage_mismatch_blocks(self):
         with sqlite3.connect(self.path) as cx:
             cx.execute("UPDATE meta SET v='100' WHERE k='quote_count'")
+            cx.commit()
         with self.assertRaisesRegex(ValueError,"COVERAGE_MISMATCH"):
             read_identity_index("김",now=NOW,db=self.path)
     def test_invalid_query_blocks(self):
