@@ -1,5 +1,6 @@
 """Fail-closed tests of the Feishu preclassified local Quote reference cache."""
 import hashlib,json,sqlite3,tempfile,unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 import sfdc_feishu_preclassified_local as idx
@@ -123,7 +124,7 @@ class PreclassifiedLocalTests(unittest.TestCase):
                 idx.identity_candidates("Kim",limit=300)
 
     def test_opportunity_picker_reuses_exact_linked_quotes_and_never_merges_by_name(self):
-        with sqlite3.connect(str(idx.DB)) as cx:
+        with closing(sqlite3.connect(str(idx.DB))) as cx:
             cx.execute("""CREATE TABLE quote_reference (
                 qid TEXT, opportunity_external TEXT, opportunity_name TEXT,
                 account_id TEXT, account_name TEXT, contact_id TEXT,
@@ -139,6 +140,7 @@ class PreclassifiedLocalTests(unittest.TestCase):
                  "001000000000000AAB","Beta University","003000000000000AAB",
                  "Kim","REFERENCE_ONLY")
             ])
+            cx.commit()
         with patch.object(idx,"status",return_value={"status":"PASS"}):
             picked=idx.search_opportunities("Korea-Test-mRNA")
             self.assertEqual(len(picked["rows"]),2)
@@ -159,7 +161,7 @@ class PreclassifiedLocalTests(unittest.TestCase):
                 idx.opportunity_quotes("006=1 OR 1=1")
 
     def test_opportunity_reference_identity_conflict_blocks_automatic_quote_choice(self):
-        with sqlite3.connect(str(idx.DB)) as cx:
+        with closing(sqlite3.connect(str(idx.DB))) as cx:
             cx.execute("""CREATE TABLE quote_reference (
                 qid TEXT, opportunity_external TEXT, opportunity_name TEXT,
                 account_id TEXT, account_name TEXT, contact_id TEXT,
