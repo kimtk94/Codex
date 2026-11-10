@@ -179,6 +179,8 @@ def snapshot(queue, dec, rules, audit, leads, owner, now=None):
         "mailCount":len(visible),"mailTotal":len(keyed),"skipped":skipped,
         "rules":[{"type":kind,"address":addr} for kind,addr in sorted(routing)],
         "ruleCount":len(routing),"mailSkipCount":len(excluded),
+        "skippedMails":[{"key":cell(r,2),"uid":cell(r,3),"sender":cell(r,4),
+                          "subject":cell(r,5)} for r in dec[1:] if cell(r,0).upper() in ("TRUE","YES","1") and cell(r,1)=="SKIP_MAIL"],
         "leadCount":len(lead_list),"leadStates":status_counts,
         "mail":visible,"leads":lead_list,
     }
@@ -276,6 +278,15 @@ def apply_action(session,body,owner):
         update_cell(session,QQ,RULES,"A"+str(matches[0]),"FALSE")
         return {"status":"PASS","result":"RULE_RESTORED"}
     key=body["key"]
+    if action=="RESTORE_MAIL":
+        matches=[i for i,r in enumerate(dec[1:],2) if cell(r,2)==key
+                 and cell(r,1)=="SKIP_MAIL" and cell(r,0).upper() in ("TRUE","YES","1")]
+        if len(matches)!=1:raise ValueError("MAIL_SKIP_NOT_UNIQUELY_ACTIVE")
+        fresh=fetch(session,QQ,DECISIONS,"A"+str(matches[0])+":C"+str(matches[0]))
+        if len(fresh)!=1 or cell(fresh[0],2)!=key or cell(fresh[0],1)!="SKIP_MAIL" or cell(fresh[0],0).upper() not in ("TRUE","YES","1"):
+            raise ValueError("MAIL_DECISION_CHANGED")
+        update_cell(session,QQ,DECISIONS,"A"+str(matches[0]),"FALSE")
+        return {"status":"PASS","result":"MAIL_RESTORED"}
     originals=[row for row in queue[1:] if cell(row,14)==key]
     if len(originals)!=1:
         raise ValueError("MAIL_NO_LONGER_IN_REVIEW_QUEUE")
@@ -286,15 +297,6 @@ def apply_action(session,body,owner):
     # Recheck exact live row before applying a reviewer action.
     if len(queue[1:])>1900:
         raise ValueError("REVIEW_QUEUE_TOO_LARGE")
-    if action=="RESTORE_MAIL":
-        matches=[i for i,r in enumerate(dec[1:],2) if cell(r,2)==key
-                 and cell(r,1)=="SKIP_MAIL" and cell(r,0).upper() in ("TRUE","YES","1")]
-        if len(matches)!=1:raise ValueError("MAIL_SKIP_NOT_UNIQUELY_ACTIVE")
-        fresh=fetch(session,QQ,DECISIONS,"A"+str(matches[0])+":C"+str(matches[0]))
-        if len(fresh)!=1 or cell(fresh[0],2)!=key or cell(fresh[0],1)!="SKIP_MAIL" or cell(fresh[0],0).upper() not in ("TRUE","YES","1"):
-            raise ValueError("MAIL_DECISION_CHANGED")
-        update_cell(session,QQ,DECISIONS,"A"+str(matches[0]),"FALSE")
-        return {"status":"PASS","result":"MAIL_RESTORED"}
     note=body.get("note","")[:300]
     stamp=now.isoformat()
     if action=="SKIP_MAIL":
