@@ -5,6 +5,7 @@ import pathlib
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 import sys
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent))
 from sfdc_identity_local import read_identity_index
@@ -15,7 +16,7 @@ class SearchTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.path=pathlib.Path(self.tmp.name)/"safe.db"
-        with sqlite3.connect(self.path) as cx:
+        with closing(sqlite3.connect(self.path)) as cx:
             cx.executescript("""
               CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
               CREATE TABLE quote_reference(
