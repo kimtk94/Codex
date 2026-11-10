@@ -75,3 +75,21 @@ test("Feishu source query/ID arguments are bounded",async()=>{
   }
  });
 });
+
+test("Oppo/Quote reference selection is read-only and validates bounded IDs",async()=>{
+ await enabled(async()=>{
+  for(const body of [
+   {mode:"OPPORTUNITY_SEARCH",query:"a".repeat(81),limit:25},
+   {mode:"OPPORTUNITY_SEARCH",query:"mRNA",limit:31},
+   {mode:"OPPORTUNITY_QUOTES",opportunityExternal:""},
+   {mode:"OPPORTUNITY_QUOTES",opportunityExternal:"006' OR 1=1"}
+  ]){
+   const r=await POST(make("POST",body));
+   assert.equal(r.status,400);
+  }
+  for(const mode of ["SAVE","UPSERT","CREATE_OPPORTUNITY","CREATE_QUOTE"]){
+   const r=await POST(make("POST",{mode}));
+   assert.equal(r.status,400);
+  }
+ });
+});
