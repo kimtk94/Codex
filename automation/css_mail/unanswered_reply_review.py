@@ -342,7 +342,7 @@ def append_ledger(session, name, header, entries):
         raise RuntimeError("REVIEW_LEDGER_APPEND_READBACK_FAILED")
 
 
-def publish_review(session, records):
+def publish_review(session, records, expected_queue):
     current = sheet_titles(session)
     head = HEAD + decisions.APPEND_HEAD
     if TAB not in current:
@@ -359,6 +359,8 @@ def publish_review(session, records):
     before = read_rows(session, TAB)
     if before and list(before[0]) not in (HEAD, head):
         raise RuntimeError("REVIEW_QUEUE_HEADER_CHANGED")
+    if before != expected_queue:
+        raise RuntimeError("REVIEWER_EDIT_CHANGED_DURING_SYNC")
     # Decisions were already durably committed. All input rows are consumed.
     # Future updates rebuild the 60-day list; manual history stays in ledgers.
     data = [head] + records
@@ -486,8 +488,10 @@ def main():
     ])
     for k,v in sorted(review_stats.items()):
         audit.append([k,v,"Manual decisions and CC-only routing"])
-    publish_review(session, visible)
+    publish_review(session, visible, queue_rows)
     publish(session, AUDIT, AUDIT_HEAD, audit)
+    guide_rows = decisions.guide()
+    publish(session, "Unanswered Reply Guide", guide_rows[0], guide_rows[1:])
     print("CSS_UNANSWERED_REPLY_REVIEW_PASS " + json.dumps({
         "candidate_rows":len(results), "visible":len(visible), "new_skip":len(new_mail), "new_cc_rules":len(new_rules), "exact_replies":counts["EXACT_REPLY_EVIDENCE"],
         "possible_reply":counts["POSSIBLE_SUBJECT_MATCH"],
