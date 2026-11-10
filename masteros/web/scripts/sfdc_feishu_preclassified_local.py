@@ -10,6 +10,7 @@ import datetime as dt
 import hashlib,json,os,re,sqlite3,time
 from pathlib import Path
 from collections import Counter
+from contextlib import closing
 import sfdc_feishu_report_local as report
 
 REFERENCE_TABLES={
@@ -182,7 +183,7 @@ def status():
         base=report.status()
         if base.get("status")!="PASS":
             raise report.FeishuSourceError("PREINDEX_BASE_NOT_READY")
-        with _open() as cx:
+        with closing(_open()) as cx:
             meta=dict(cx.execute("SELECT k,v FROM meta").fetchall())
             if (meta["base_source_received"]!=base["source_mail_received_kst"] or
                 not meta.get("base_source_line_digest") or
@@ -204,7 +205,7 @@ def status():
 
 def get_reference(qid):
     if status().get("status")!="PASS":return None
-    with _open() as cx:
+    with closing(_open()) as cx:
         row=cx.execute("""SELECT quote_record_id,opportunity_external,opportunity_name,
             account_id,account_name,contact_id,contact_external_id,
             contact_name,contact_email,identity_status,products_json,reference_status
@@ -228,7 +229,7 @@ def search_reference(term="",limit=20):
     if status().get("status")!="PASS":
         raise report.FeishuSourceError("PRECLASSIFIED_INDEX_NOT_READY")
     like="%"+term+"%"
-    with _open() as cx:
+    with closing(_open()) as cx:
         items=cx.execute("""SELECT qid,account_name,contact_name,opportunity_name,
             account_id,contact_id,contact_external_id,reference_status
             FROM quote_reference WHERE qid LIKE ? OR account_name LIKE ? OR
@@ -256,7 +257,7 @@ def identity_candidates(term,limit=15):
         raise report.FeishuSourceError("PRECLASSIFIED_INDEX_NOT_READY")
     needle=term.strip().replace("\\","\\\\").replace("%","\\%").replace("_","\\_")
     match="%"+needle+"%"
-    with _open() as cx:
+    with closing(_open()) as cx:
         records=cx.execute("""SELECT qid,account_id,account_name,
               contact_id,contact_external_id,contact_name,contact_email,
               identity_status
