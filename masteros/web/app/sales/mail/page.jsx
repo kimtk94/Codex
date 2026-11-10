@@ -50,6 +50,8 @@ export default function LocalMailConsole(){
   const [target,setTarget]=useState("");
   const [note,setNote]=useState("");
   const [confirming,setConfirming]=useState(null);
+  const [bodyInfo,setBodyInfo]=useState({status:"NOT_REQUESTED",text:""});
+  const bodyCache=useRef(new Map());
   const dialogRef=useRef(null);
   const pageSize=40;
 
@@ -128,6 +130,9 @@ export default function LocalMailConsole(){
   },[data,q,leadState]);
   const shownMail=messages.slice(mailPage*pageSize,(mailPage+1)*pageSize);
   const shownLeads=leads.slice(leadPage*pageSize,(leadPage+1)*pageSize);
+  const selectedIndex=selected?messages.findIndex(x=>x.key===selected.key):-1;
+  const canPrevious=selectedIndex>0;
+  const canNext=selectedIndex>=0&&selectedIndex<messages.length-1;
   const options=selected?emails(selected.to).filter(x=>!emails(selected.cc).includes(x)||selected.role==="CC_ONLY"):[];
   function selectMail(item){
     setSelected(item);
@@ -142,9 +147,65 @@ export default function LocalMailConsole(){
     setError("");
     setConfirming({payload,caption});
   }
+  useEffect(()=>{
+    if(!selected?.key||!selected?.uid){
+      setBodyInfo({status:"NOT_REQUESTED",text:""});
+      return;
+    }
+    const cacheKey=selected.key+"|"+selected.uid;
+    if(bodyCache.current.has(cacheKey)){
+      setBodyInfo(bodyCache.current.get(cacheKey));
+      return;
+    }
+    const controller=new AbortController();
+    setBodyInfo({status:"LOADING",text:""});
+    (async()=>{
+      try{
+        const query=new URLSearchParams({uid:selected.uid,key:selected.key});
+        const response=await fetch("/api/css/mail-body-local?"+query,{
+          credentials:"omit",cache:"no-store",signal:controller.signal,
+          headers:{"X-CSS-Local-Mail":"1"}
+        });
+        const result=await response.json();
+        if(!response.ok||result.status!=="PASS"||result.uid!==selected.uid)
+          throw Error(result.code||"BODY_SOURCE_UNAVAILABLE");
+        const info={status:result.bodyStatus||"BODY_UNAVAILABLE",text:result.body||""};
+        bodyCache.current.set(cacheKey,info);
+        if(bodyCache.current.size>15)bodyCache.current.delete(bodyCache.current.keys().next().value);
+        if(!controller.signal.aborted)setBodyInfo(info);
+      }catch(error){
+        if(!controller.signal.aborted)setBodyInfo({status:"ERROR",text:error.message||"BODY_SOURCE_UNAVAILABLE"});
+      }
+    })();
+    return ()=>controller.abort();
+  },[selected?.key,selected?.uid]);
+
+  function navigateMail(delta){
+    if(busy||confirming||selectedIndex<0)return;
+    const next=messages[selectedIndex+delta];
+    if(next)selectMail(next);
+  }
+  function requestReview(kind){
+    if(!selected||busy)return;
+    if(kind!=="SKIP_MAIL"&&selected.role!=="CC_ONLY"){
+      setError("CC 규칙은 내 주소가 CC에만 있는 메일에 적용할 수 있습니다.");
+      return;
+    }
+    const which=MAIL_ACTIONS.find(x=>x.id===kind)?.label||kind;
+    write({
+      action:kind,key:selected.key,uid:selected.uid,sender:selected.sender,
+      subject:selected.subject,to:selected.to,cc:selected.cc,
+      target:kind==="SKIP_CC_TO"?target:"",note
+    },which+"\\n"+selected.subject+(kind==="SKIP_CC_TO"?"\\n대상: "+target:""));
+  }
+  function nextAfterSaved(key){
+    const index=messages.findIndex(x=>x.key===key);
+    return index>=0?messages[index+1]||null:null;
+  }
   async function confirmWrite(){
     if(busy||loading||!confirming)return;
     const {payload}=confirming;
+    const nextMail=payload.key?nextAfterSaved(payload.key):null;
     if(data?.mailSourceStatus!=="FRESH"){
       setError("메일 원본 갱신이 지연되었습니다. 새로고침 후 다시 검토하세요.");
       return;
@@ -159,7 +220,9 @@ export default function LocalMailConsole(){
       const result=await response.json();
       if(!response.ok||result.status!=="PASS")throw Error(result.code||"SAVE_FAILED");
       setNotice("적용 완료: "+result.result+" · 기존 원본 메일과 SFDC는 변경하지 않았습니다.");
-      setSelected(null);setNote("");setConfirming(null);
+      setConfirming(null);
+      if(nextMail)selectMail(nextMail);
+      else{setSelected(null);setNote("");}
       await refresh();
     }catch(err){
       setError("규칙 적용 실패: "+(err?.message||"UNKNOWN"));
@@ -167,16 +230,7 @@ export default function LocalMailConsole(){
   }
   function submitSelected(){
     if(!selected)return;
-    if(action!=="SKIP_MAIL"&&selected.role!=="CC_ONLY"){
-      setError("CC 전용 규칙은 내 주소가 To가 아닌 CC에만 있을 때 설정할 수 있습니다.");
-      return;
-    }
-    const label=MAIL_ACTIONS.find(x=>x.id===action)?.label||action;
-    write({
-      action,key:selected.key,uid:selected.uid,
-      sender:selected.sender,subject:selected.subject,to:selected.to,cc:selected.cc,
-      target:action==="SKIP_CC_TO"?target:"",note
-    },label+"\n"+selected.subject+(action==="SKIP_CC_TO"?"\n대상: "+target:""));
+    requestReview(action);
   }
   const statuses=data?.leadStates||{};
   const pageButtons=(current,count,set)=>(
@@ -247,13 +301,17 @@ export default function LocalMailConsole(){
       </div>
       <div className={styles.tableWrap}><table><thead><tr>
         <th>우선</th><th>경과</th><th>수신일</th><th>발신자 / 제목</th><th>수신 위치</th><th>회신 증거</th><th>관리</th>
-      </tr></thead><tbody>{shownMail.map(r=><tr key={r.key}>
+      </tr></thead><tbody>{shownMail.map(r=><tr key={r.key} tabIndex={0} role="button"
+        aria-label={"메일 내용 및 처리 열기: "+r.subject}
+        className={styles.openableRow}
+        onClick={()=>selectMail(r)}
+        onKeyDown={e=>{if(e.target===e.currentTarget&&(e.key==="Enter"||e.key===" ")){e.preventDefault();selectMail(r)}}}>
         <td><span className={styles.chip} data-priority={r.priority}>{r.priority}</span></td>
         <td>{r.days}일</td><td className={styles.nowrap}>{r.received}</td>
         <td><b>{r.sender}</b><p className={styles.subject}>{r.subject}</p><small>{r.project||"프로젝트 미연결"}</small></td>
         <td><span className={styles.chip}>{r.role}</span><small className={styles.block}>To: {r.to||"—"} · Cc: {r.cc||"—"}</small></td>
         <td><small>{r.evidence}</small></td>
-        <td><button type="button" onClick={()=>selectMail(r)} disabled={busy}>검토</button></td>
+        <td><button type="button" onClick={e=>{e.stopPropagation();selectMail(r)}} disabled={busy}>본문 · 처리</button></td>
       </tr>)}</tbody></table>
       {!shownMail.length&&<p className={styles.empty}>{error?"원본 연결 실패":"조건에 맞는 메일이 없습니다."}</p>}</div>
       {pageButtons(mailPage,messages.length,setMailPage)}
@@ -275,6 +333,21 @@ export default function LocalMailConsole(){
           <small>To: {selected.to||"—"} · Cc: {selected.cc||"—"}</small>
           <small>수신 유형: {selected.role} · {selected.received}</small>
         </div>}
+        {selected&&<div className={styles.viewerTools}>
+          <button type="button" onClick={()=>navigateMail(-1)} disabled={!canPrevious||busy||!!confirming}>← 이전</button>
+          <span>{selectedIndex>=0?selectedIndex+1:"—"} / {messages.length}</span>
+          <button type="button" onClick={()=>requestReview("SKIP_MAIL")}
+            disabled={busy||!!confirming||data?.mailSourceStatus!=="FRESH"}>이 메일 스킵</button>
+          <button type="button" onClick={()=>navigateMail(1)} disabled={!canNext||busy||!!confirming}>다음 →</button>
+        </div>}
+        {selected&&<div className={styles.bodyViewer}>
+          <div className={styles.bodyTitle}><b>원본 메일 본문</b>
+            <small>{bodyInfo.status==="LOADING"?"불러오는 중":bodyInfo.status}</small></div>
+          {bodyInfo.status==="LOADING"?<p className={styles.bodyMessage}>기존 QQ 메일 캐시에서 원본을 조회하고 있습니다.</p>:
+           bodyInfo.status==="ERROR"?<p className={styles.modalError}>본문 조회 실패: {bodyInfo.text}</p>:
+           bodyInfo.text?<pre data-testid="mail-body-text" className={styles.bodyText}>{bodyInfo.text}</pre>:
+           <p className={styles.bodyMessage}>저장된 텍스트 본문이 없습니다. 원본 첨부파일 또는 메일을 확인하세요.</p>}
+        </div>}
         {error&&<p role="alert" className={styles.modalError}>{error}</p>}
         {confirming?<div className={styles.modalContents}>
           <h3>{confirming.caption}</h3>
@@ -287,7 +360,7 @@ export default function LocalMailConsole(){
               disabled={busy||loading||data?.mailSourceStatus!=="FRESH"}
               onClick={confirmWrite}>{busy?"저장 중…":"확인하고 저장"}</button>
           </div>
-        </div>:selected?<div className={styles.modalContents}>
+        </div>:selected?<div className={styles.modalContents} data-testid="review-action-area">
           <label>처리 유형
             <select value={action} onChange={e=>setAction(e.target.value)}>
               {MAIL_ACTIONS.map(a=><option key={a.id} value={a.id}
@@ -310,7 +383,7 @@ export default function LocalMailConsole(){
             메일 검토 자료가 최신 상태가 아니어서 저장을 차단했습니다. 먼저 새로고침하세요.
           </p>}
           <div className={styles.modalButtons}>
-            <button type="button" onClick={closeDialog}>취소</button>
+            <button type="button" onClick={closeDialog}>닫기</button>
             <button className={styles.primary} type="button"
               disabled={busy||loading||data?.mailSourceStatus!=="FRESH"||(action==="SKIP_CC_TO"&&!target)}
               onClick={submitSelected}>다음 · 적용 내용 확인</button>
