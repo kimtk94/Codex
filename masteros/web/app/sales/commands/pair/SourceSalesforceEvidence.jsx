@@ -10,7 +10,7 @@ async function readLive(resource,recordId){
   const response=await fetch("/api/sfdc/records-local",{
     method:"POST",credentials:"omit",cache:"no-store",
     headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
-    body:JSON.stringify({mode:"detail",resource,recordId})
+    body:JSON.stringify({mode:"detail",resource,recordId,forceLive:true})
   });
   const result=await response.json();
   if(!response.ok||result.status!=="PASS")throw Error(result.code||"SFDC_UI_UNAVAILABLE");
