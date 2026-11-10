@@ -1,0 +1,79 @@
+name: Feishu Quote First Project Operations
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Create/update derived Quote-first active & completed project tables"
+        type: boolean
+        default: false
+        required: true
+  schedule:
+    - cron: "40 */2 * * *"
+  push:
+    branches: [main]
+    paths:
+      - "automation/feishu/project_quote_operating_sync.py"
+      - "automation/feishu/test_project_quote_operating_sync.py"
+      - ".github/workflows/feishu-project-quote-operations.yml"
+  pull_request:
+    paths:
+      - "automation/feishu/project_quote_operating_sync.py"
+      - "automation/feishu/test_project_quote_operating_sync.py"
+      - ".github/workflows/feishu-project-quote-operations.yml"
+permissions:
+  contents: read
+concurrency:
+  group: feishu-project-quote-operations
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Syntax and offline safety tests
+        run: |
+          python3 -m py_compile automation/feishu/project_quote_operating_sync.py
+          python3 -m unittest discover -s automation/feishu -p 'test_project_quote_operating_sync.py' -v
+  sync:
+    if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true)
+    needs: validate
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Synchronize two derived Quote-first Feishu operation tables
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_PROJECT_OPS_APPLY: "1"
+        run: |
+          python3 automation/feishu/project_quote_operating_sync.py --apply
+          echo 'Only derived project tables are written; project source, SFDC report and Revenue unchanged. Quote amount remains unverified.' >> "$GITHUB_STEP_SUMMARY"
+  dry-run:
+    if: github.event_name == 'workflow_dispatch' && inputs.apply != true
+    needs: validate
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Read only source audit
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: python3 automation/feishu/project_quote_operating_sync.py
