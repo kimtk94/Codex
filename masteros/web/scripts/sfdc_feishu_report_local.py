@@ -8,6 +8,7 @@ A private SQLite index accelerates local search. It is a *cache*, not truth.
 from __future__ import annotations
 
 import base64
+import hashlib
 import datetime as dt
 from decimal import Decimal, InvalidOperation
 import gzip
@@ -304,6 +305,11 @@ def refresh():
     summary=_validate(lines,process,product)
     summary["physical_feishu_rows"]=len(raw_lines)
     summary["historical_retained_rows"]=len(superseded)
+    # Fingerprint only once per Feishu refresh, never in hot search/detail paths.
+    # A mail re-import may change values without changing row count or date.
+    ordered=sorted((r["Line Key"],r["Source Row Hash"]) for r in lines)
+    summary["source_line_digest"]=hashlib.sha256(json.dumps(
+        ordered,ensure_ascii=False,separators=(",",":")).encode("utf-8")).hexdigest()
     DB_DIR.mkdir(parents=True,exist_ok=True)
     if os.name!="nt":os.chmod(DB_DIR,0o700)
     staged=DB_DIR/"feishu_quote_report_stage_PRIVATE.sqlite3"
@@ -394,6 +400,7 @@ def status():
                 "latest_quote_created":meta.get("latest_quote_created",""),
                 "ingested_at_utc":meta["feishu_synced_at_utc"],
                 "feishu_revision":meta["feishu_revision"],
+                "source_line_digest":meta.get("source_line_digest",""),
                 "currency":"USD_CONVERTED_ONLY",
                 "krw_rate_verified":False,"salesforce_write":False,
                 "feishu_writes":0,"local_only":True}
