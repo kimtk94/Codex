@@ -5,16 +5,16 @@ on:
     paths:
       - 'automation/css_mail/unanswered_reply_review.py'
       - 'automation/css_mail/unanswered_review_decisions.py'
-      - 'automation/css_mail/test_unanswered_review_decisions.py'
-      - 'automation/css_mail/unanswered_review_decisions.py'
-      - 'automation/css_mail/test_unanswered_review_decisions.py'
       - 'automation/css_mail/test_unanswered_reply_review.py'
+      - 'automation/css_mail/test_unanswered_review_decisions.py'
       - '.github/workflows/css-unanswered-reply-review.yml'
   push:
     branches: [main]
     paths:
       - 'automation/css_mail/unanswered_reply_review.py'
+      - 'automation/css_mail/unanswered_review_decisions.py'
       - 'automation/css_mail/test_unanswered_reply_review.py'
+      - 'automation/css_mail/test_unanswered_review_decisions.py'
       - '.github/workflows/css-unanswered-reply-review.yml'
   workflow_dispatch:
   workflow_run:
