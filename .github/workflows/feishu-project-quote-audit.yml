@@ -1,0 +1,34 @@
+name: Feishu Project Quote & Amount Readonly Audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "automation/feishu/project_quote_finance_audit.py"
+      - ".github/workflows/feishu-project-quote-audit.yml"
+permissions:
+  contents: read
+concurrency:
+  group: feishu-project-quote-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Static syntax validation
+        run: python3 -m py_compile automation/feishu/project_quote_finance_audit.py
+      - name: Audit Feishu project/quote/price schema (read only)
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: |
+          python3 automation/feishu/project_quote_finance_audit.py
+          echo 'Aggregate/schema-only source verification; no record values or customer identifiers emitted; no writes.' >> "$GITHUB_STEP_SUMMARY"
