@@ -265,13 +265,13 @@ def _group_opportunity_rows(rows):
                 "opportunity_name":name,"account_name":account,
                 "contact_name":contact,"quote_count":0,"qids":[],
                 "source_only":True,"group_status":"PASS",
-                "_identities":set()}
+                "_identities":set(),"identity_evidence":"PASS"}
         group=groups[external]
         group["quote_count"]+=1
         group["qids"].append(qid)
         group["_identities"].add((name,aid,account,cid,contact))
         if reference_status!="REFERENCE_ONLY":
-            group["group_status"]="HOLD_REFERENCE_IDENTITY"
+            group["identity_evidence"]="HOLD_SOURCE_IDENTITY"
     for group in groups.values():
         if len(group.pop("_identities"))!=1:
             group["group_status"]="HOLD_AMBIGUOUS_PARENT"
