@@ -170,18 +170,53 @@ export default function SfdcCommandCenter(){
       contactId:"",contactName:""
     });
   }
-  function selectContact(pair){
-    if(!pair?.ok||!pair.account?.name||!pair.contact?.name)return;
+  async function selectContact(pair){
+    if(!pair?.ok||!pair.account?.name||!pair.contact?.name||loadingDetail||busy)return;
     if(tab==="quote_create"&&selectedRecord?.accountName&&
        selectedRecord.accountName!==pair.account.name){
       setResult({status:"BLOCK",code:"QUOTE_PARENT_ACCOUNT_MISMATCH"});
       return;
     }
-    setSelectedIdentity({...pair,source:"FEISHU_QUOTE_LINKED_REFERENCE"});
+    setSelectedIdentity(null);
     reflectNewCustomer({
       accountId:pair.account.id,accountName:pair.account.name,
-      contactId:pair.contact.id,contactName:pair.contact.name
+      contactId:"",contactName:pair.contact.name
     });
+    // Feishu's Contact IDs are often external references, not native 003 IDs.
+    // Resolve the precise source Quote through current authenticated Salesforce.
+    if(!/^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(pair.sourceQuoteId||"")){
+      setResult({status:"BLOCK",code:"NATIVE_QUOTE_CONTACT_VERIFICATION_REQUIRED"});
+      return;
+    }
+    setLoadingDetail(true);setResult({status:"CHECKING",code:"CONTACT_SFDC_READBACK"});
+    try{
+      const response=await fetch("/api/sfdc/records-local",{
+        method:"POST",cache:"no-store",credentials:"omit",
+        headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+        body:JSON.stringify({resource:"quote",mode:"detail",
+          recordId:pair.sourceQuoteId,forceLive:true})
+      });
+      const live=await response.json();
+      if(!response.ok||live.status!=="PASS"||live.id!==pair.sourceQuoteId||
+         live.accountId!==pair.account.id||live.accountName!==pair.account.name||
+         live.contactName!==pair.contact.name||
+         !/^003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(live.contactId||""))
+        throw Error("CONTACT_ACCOUNT_LIVE_MATCH_REQUIRED");
+      setSelectedIdentity({
+        account:{id:live.accountId,name:live.accountName},
+        contact:{id:live.contactId,name:live.contactName,
+          email:pair.contact.email},
+        source:"SFDC_QUOTE_LIVE_VERIFIED"
+      });
+      reflectNewCustomer({
+        accountId:live.accountId,accountName:live.accountName,
+        contactId:live.contactId,contactName:live.contactName
+      });
+      setResult({status:"PASS",code:"CONTACT_ACCOUNT_SFDC_VERIFIED"});
+    }catch(error){
+      setSelectedIdentity(null);
+      setResult({status:"BLOCK",code:error?.message||"CONTACT_SFDC_SOURCE_UNAVAILABLE"});
+    }finally{setLoadingDetail(false)}
   }
   async function hydrateLinkedQuote(recordId,base,{preserveEdit=false}={}){
     setPairStatus("LOADING");
