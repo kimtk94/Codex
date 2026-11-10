@@ -175,7 +175,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
             onChange={e=>edit("date",e.target.value)}/>
         </label>
       </div>
-      <p className={styles.hint}>기존 공정 수량은 프로젝트 구분에 사용하지 않습니다. 생산량(Gb)과 공정 구성만 참조하고 샘플 수·단가는 새로 입력합니다.</p>
+      <p className={styles.hint}>기존 수량은 참고하지 않습니다. 서비스명·생산량(Gb)을 확인하고 신규 수량·단가를 입력합니다.</p>
       {draft.products.map((p,i)=>{
         const item=amounts?.items[i];
         return <div className={styles.draftProduct} key={p.id}>
@@ -188,6 +188,10 @@ export default function ReportOppoDraft({quote,enabled=true}){
             {" · "}기존 생산량 {p.gbCandidates.length?p.gbCandidates.join(" / ")+" Gb":"미확인"}
           </p>
           <div className={styles.grid}>
+            <label>서비스명 (기존 견적 참고 · 수정 가능)
+              <input aria-label={"Product "+(i+1)+" 서비스명"} value={p.serviceLabel||""}
+                placeholder="예: mRNA-Seq" onChange={e=>editProduct(i,"serviceLabel",e.target.value)}/>
+            </label>
             <label>생산량 (Gb)
               <input aria-label={"Product "+(i+1)+" 생산량 Gb"} inputMode="decimal"
                 value={p.productionGb} placeholder="예: 6"
@@ -220,17 +224,17 @@ export default function ReportOppoDraft({quote,enabled=true}){
       </div>
     </div>
     <div className={styles.subsection}>
-      <h3>04 · Description 및 저장 전 검증</h3>
-      <p className={styles.hint}>Description 양식 V1 · 날짜·기관·공정·생산량(Gb)·샘플 수·KRW/샘플 단가가 필수입니다. 기존 Progress Description은 복사하지 않습니다.</p>
-      <p className={styles.hint}>자동 연동 상태에서는 입력값이 바뀌면 함께 갱신됩니다. 직접 수정하면 수동 잠금되어 문구를 덮어쓰지 않으며, 이후 가격·수량 등이 변경되면 검증에서 HOLD 처리합니다.</p>
+      <h3>04 · Progress Description 및 저장 전 검증</h3>
+      <p className={styles.hint}>실제 Opportunity에서 쓰던 짧은 양식: 0407 Quote Issued mRNA-Seq 12 samples * 250,000KRW. 새 초안은 발송 전이므로 Quote Draft로 표시합니다.</p>
+      <p className={styles.hint}>MMDD · 상태 · 서비스 · Gb(해당 시) · 수량 · 단가만 표시합니다. 직접 수정하면 문구를 잠그며, 이후 값이 바뀌면 재검증이 필요합니다.</p>
       <div className={styles.inlineHead}>
         <b>현재 편집 상태</b>
         <span className={styles.state} data-ok={!descriptionCheck?.stale&&descriptionCheck?.complete}>
           {descriptionCheck?.stale?"수동 잠금 · 현재 입력값과 불일치":
-           isManualDescription?"수동 잠금 · 검증 필요":"자동 연동 · 양식 V1"}
+           isManualDescription?"수동 잠금 · 검증 필요":"자동 연동 · 기존 한 줄 양식"}
         </span>
       </div>
-      <label className={styles.draftTextLabel}>Opportunity Description 초안 (직접 수정)
+      <label className={styles.draftTextLabel}>Opportunity Progress Description (직접 수정 가능)
         <textarea aria-label="새 Oppo Quote Description 편집" rows={7}
           value={description} onChange={e=>{
             setDescriptionEdit(e.target.value);
