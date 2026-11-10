@@ -80,7 +80,7 @@ export function fromFeishuQuote(detail,now=new Date()){
   });
   const sourceProject=s(ref?.opportunityName);
   const serviceNames=[
-    ["mRNA-Seq",/mRNA[\s-]*Seq|bulk[\s-]*RNA[\s-]*Seq/i],
+    ["mRNA-Seq",/\bmRNA\b|mRNA[\s-]*Seq|bulk[\s-]*RNA[\s-]*Seq/i],
     ["WGS",/\bWGS\b|whole.genome/i],
     ["WES",/\bWES\b|whole.exome/i],
     ["small RNA-Seq",/small[\s-]*RNA|miRNA[\s-]*Seq/i],
