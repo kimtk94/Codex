@@ -149,6 +149,7 @@ export default function PairedQuoteWeb(){
     if(working)return;
     const token=++seq.current;
     setWorking("REFRESH");setError("");setSelected(null);
+    setSelectedOppo(null);setQuoteChoices([]);setRows([]);
     try{
       const result=await read({mode:"REFRESH"});
       if(result.preclassified_ready!==true)throw Error("PRECLASSIFIED_REFRESH_NOT_READY");
