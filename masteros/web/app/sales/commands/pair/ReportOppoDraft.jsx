@@ -1,9 +1,10 @@
 "use client";
 
 import {useMemo,useState} from "react";
-import {fromFeishuQuote,calculateDraft,draftDescription,draftPreflight,descriptionBasis,descriptionReview}
+import {fromFeishuQuote,calculateDraft,draftDescription,draftPreflight,descriptionBasis,descriptionReview,draftChanges}
   from "../../../../lib/sfdc-report-quote-draft.mjs";
 import styles from "./page.module.css";
+import {REGION_OPTIONS,regionByCode} from "../../../../lib/sfdc-amplicon-regions.mjs";
 
 const money=value=>Number.isSafeInteger(value)?value.toLocaleString("ko-KR")+" KRW":"입력 필요";
 async function searchIdentities(query){
@@ -29,7 +30,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
   const [identityRows,setIdentityRows]=useState([]);
   const [identityLoading,setIdentityLoading]=useState(false);
   const [chosenIdentity,setChosenIdentity]=useState(null);
+  const [regionToAdd,setRegionToAdd]=useState({});
   const amounts=useMemo(()=>draft?calculateDraft(draft):null,[draft]);
+  const changes=useMemo(()=>draft?draftChanges(draft):[],[draft]);
   const descriptionAuto=useMemo(()=>draft?draftDescription(draft,amounts):"",[draft,amounts]);
   const description=descriptionEdit===null?descriptionAuto:descriptionEdit;
   const isManualDescription=descriptionEdit!==null;
@@ -47,6 +50,33 @@ export default function ReportOppoDraft({quote,enabled=true}){
     setDraft(old=>old?{...old,products:old.products.map((p,n)=>n===i?{...p,[key]:value}:p)}:old);
     setPreflight(null);
   };
+
+  function updateAmplicon(i,fn){
+    setDraft(old=>old?{...old,
+      products:old.products.map((p,n)=>n===i?
+        {...p,amplicon:fn(p.amplicon||{
+          enabled:false,regions:[],referenceStatus:"USER_SELECTED"
+        })}:p)
+    }:old);
+    setPreflight(null);
+  }
+  function addRegion(i,code){
+    const candidate=regionByCode(code);
+    if(!candidate)return;
+    updateAmplicon(i,old=>{
+      if(old.regions.some(x=>x.code===candidate.code))return old;
+      return {...old,enabled:true,regions:[...old.regions,candidate]};
+    });
+    setRegionToAdd(old=>({...old,[i]:""}));
+  }
+  function removeRegion(i,code){
+    updateAmplicon(i,old=>({...old,
+      regions:old.regions.filter(x=>x.code!==code)}));
+  }
+  function editRegionPrice(i,code,value){
+    updateAmplicon(i,old=>({...old,
+      regions:old.regions.map(x=>x.code===code?{...x,unitKrw:value}:x)}));
+  }
   function changeMode(mode){
     setDraft(old=>old?{
       ...old,accountMode:mode,
@@ -89,8 +119,13 @@ export default function ReportOppoDraft({quote,enabled=true}){
           projectKey:p.projectKey,productionGb:p.productionGb,
           samples:p.samples,sampleUnitKrw:p.sampleUnitKrw,
           priceReferenceUsd:p.referenceTotalUsd,
+          sourceQuoteProductId:p.id,
+          ampliconRegions:p.amplicon?.enabled?p.regionLines:[],
+          effectiveServiceQuantity:p.serviceQuantity,
           processIds:p.processes.map(x=>x.processId)
-        }))
+        })),
+        editedFields:changes,
+        sourceRecordIsReferenceOnly:true
       },null,2):description;
     try{
       await navigator.clipboard.writeText(data);
@@ -106,7 +141,10 @@ export default function ReportOppoDraft({quote,enabled=true}){
       <div><span>참고 Opportunity</span><strong>{draft.originalOpportunityName||"기존 프로젝트명 미확인"}</strong></div>
       <div><span>공통 템플릿</span><strong>{draft.products.length} Product</strong></div>
       <div><span>사전 분류</span><strong>{draft.referenceIndexStatus}</strong></div>
+      <div><span>원본 대비 변경</span><strong>{changes.length}개 항목</strong></div>
     </div>
+    <p className={styles.hint}>기존 Opportunity/Quote의 가능한 값을 먼저 채웁니다. 바꾸는 필드만 수정하세요.
+      계정·Contact·Region·공정은 원본을 참고하며, 검증된 KRW 단가가 없는 경우에만 금액 확인이 필요합니다.</p>
     <div className={styles.subsection}>
       <h3>02 · Account / Contact 처리 방식</h3>
       <p className={styles.hint}>두 모드 모두 참조만 불러옵니다. 기존 Salesforce 레코드 변경·생성은 하지 않습니다.</p>
@@ -175,7 +213,8 @@ export default function ReportOppoDraft({quote,enabled=true}){
             onChange={e=>edit("date",e.target.value)}/>
         </label>
       </div>
-      <p className={styles.hint}>기존 수량은 참고하지 않습니다. 서비스명·생산량(Gb)을 확인하고 신규 수량·단가를 입력합니다.</p>
+      <p className={styles.hint}>기존 서비스·Product·Region 값이 확인되면 그대로 가져옵니다.
+        변경된 부분만 수정하고, 기존 공정별 수량을 생물학적 샘플 수로 오해하지 않습니다.</p>
       {draft.products.map((p,i)=>{
         const item=amounts?.items[i];
         return <div className={styles.draftProduct} key={p.id}>
@@ -202,18 +241,67 @@ export default function ReportOppoDraft({quote,enabled=true}){
                 value={p.samples} placeholder="예: 12"
                 onChange={e=>editProduct(i,"samples",e.target.value)}/>
             </label>
-            <label>샘플당 단가 (KRW)
+            <label>{p.amplicon?.enabled?"공통 Region당 단가 (KRW/샘플/Region)":"샘플당 단가 (KRW)"}
               <input aria-label={"Product "+(i+1)+" 샘플당 KRW 단가"} inputMode="numeric"
                 value={p.sampleUnitKrw} placeholder="예: 90000"
                 onChange={e=>editProduct(i,"sampleUnitKrw",e.target.value)}/>
             </label>
           </div>
+          {(p.amplicon?.enabled||/amplicon|16s|18s|archaeal|its[12]/i.test(
+              p.serviceLabel+" "+draft.originalOpportunityName))&&
+            <fieldset className={styles.accountOptions} aria-label={"Product "+(i+1)+" Amplicon Region 설정"}>
+              <legend>Amplicon Region · 동일 샘플에 Region별 서비스 적용</legend>
+              <label className={styles.modeOption}>
+                <input aria-label={"Product "+(i+1)+" Amplicon Region 활성화"}
+                  type="checkbox" checked={Boolean(p.amplicon?.enabled)}
+                  onChange={e=>updateAmplicon(i,old=>({...old,enabled:e.target.checked}))}/>
+                Region별 견적 사용
+              </label>
+              {p.amplicon?.enabled&&<>
+                <p className={styles.hint}>원본 Region 근거: {p.amplicon.referenceStatus}.
+                  {" "}생물학적 샘플 {p.samples||"미확인"}개 ×
+                  {" "}{p.amplicon.regions.length} Region =
+                  {" "}{item?.serviceQuantity??"확인 필요"} 서비스 건.
+                  같은 샘플을 별도 Region으로 분석하며 샘플 수는 중복 증가하지 않습니다.</p>
+                <div className={styles.grid}>
+                  <label>Region 추가
+                    <select aria-label={"Product "+(i+1)+" Region 선택"}
+                      value={regionToAdd[i]||""}
+                      onChange={e=>{
+                        setRegionToAdd(old=>({...old,[i]:e.target.value}));
+                        addRegion(i,e.target.value);
+                      }}>
+                      <option value="">선택해 추가</option>
+                      {REGION_OPTIONS.filter(r=>!p.amplicon.regions.some(
+                        x=>x.code===r.code)).map(r=>
+                          <option key={r.code} value={r.code}>{r.label}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {p.amplicon.regions.map((r,j)=><div key={r.code}
+                  className={styles.inlineHead}>
+                  <b>Region {j+1}. {r.label}</b>
+                  <label>Region별 단가 (KRW/샘플 · 비우면 공통 단가)
+                    <input aria-label={"Product "+(i+1)+" "+r.label+" Region 단가"}
+                      inputMode="numeric" value={r.unitKrw||""}
+                      placeholder="공통 단가 적용"
+                      onChange={e=>editRegionPrice(i,r.code,e.target.value)}/>
+                  </label>
+                  <button className={styles.secondary} type="button"
+                    onClick={()=>removeRegion(i,r.code)}>이 Region 제외</button>
+                </div>)}
+              </>}
+            </fieldset>}
           <p className={styles.hint}>기존 공정 단가(환산 USD):
             {" "}{p.processes.map(x=>x.name+" "+(x.sourceUnitUsd||"—")+
               " USD/"+(x.dataUnit||"단위 미확인")).join(" · ")}
           </p>
           <div className={styles.totals}>
             <div><span>신규 Product 공급가액 · VAT 제외</span><strong>{money(item?.netKrw)}</strong></div>
+            {p.amplicon?.enabled&&<div>
+              <span>Region 서비스 횟수 · 생물학적 샘플과 별도</span>
+              <strong>{item?.serviceQuantity??"확인 필요"}건</strong>
+            </div>}
           </div>
         </div>;
       })}
@@ -225,6 +313,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
     </div>
     <div className={styles.subsection}>
       <h3>04 · Progress Description 및 저장 전 검증</h3>
+      {changes.length>0&&<p className={styles.hint}>원본 대비 변경 항목 {changes.length}개:
+        {" "}{changes.slice(0,12).map(x=>x.field).join(", ")}
+        {changes.length>12?" 외 "+(changes.length-12)+"개":""}</p>}
       <p className={styles.hint}>실제 Opportunity에서 쓰던 짧은 양식: 0407 Quote Issued mRNA-Seq 12 samples * 250,000KRW. 새 초안은 발송 전이므로 Quote Draft로 표시합니다.</p>
       <p className={styles.hint}>MMDD · 상태 · 서비스 · Gb(해당 시) · 수량 · 단가만 표시합니다. 직접 수정하면 문구를 잠그며, 이후 값이 바뀌면 재검증이 필요합니다.</p>
       <div className={styles.inlineHead}>
