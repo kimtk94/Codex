@@ -26,6 +26,10 @@ def check(inp):
         if inp["resource"]!="opportunity" or not rec_id(inp.get("recordId"),"006"):
             stop("INVALID_BUNDLE_RECORD")
     elif not rec_id(inp.get("recordId"),OBJECTS[inp["resource"]][1]):stop("INVALID_RECORD_ID")
+    if "forceLive" in inp and not isinstance(inp["forceLive"],bool):
+        stop("LIVE_FLAG_INVALID")
+    if inp.get("forceLive") is True and inp["mode"]!="detail":
+        stop("LIVE_MODE_DETAIL_REQUIRED")
     return inp
 def fields(page):
     result={}
@@ -388,7 +392,7 @@ def main():
         request=check(json.loads(sys.stdin.buffer.read(3000).decode("utf-8")))
         from sfdc_pair_cache import key_for, lookup, save, live_meta
         identity=key_for(request)
-        cached=lookup(request) if identity and os.getenv("SFDC_PAIR_CACHE_ENABLED","1")=="1" else None
+        cached=lookup(request) if identity and os.getenv("SFDC_PAIR_CACHE_ENABLED","1")=="1" and not request.get("forceLive") else None
         if cached is not None:
             out=cached
         else:

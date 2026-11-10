@@ -9,6 +9,12 @@ class CatalogValidationTests(unittest.TestCase):
             check({"mode":"list","resource":"lead","query":"x"*101})
         with self.assertRaisesRegex(ValueError,"INVALID_OPERATION"):
             check({"mode":"list","resource":"user","query":""})
+    def test_force_live_requires_read_only_detail(self):
+        self.assertTrue(check({"mode":"detail","resource":"quote","recordId":"a0P000000000000AAA","forceLive":True})["forceLive"])
+        with self.assertRaisesRegex(ValueError,"LIVE_MODE_DETAIL_REQUIRED"):
+            check({"mode":"bundle","resource":"opportunity","recordId":"006000000000000AAA","forceLive":True})
+        with self.assertRaisesRegex(ValueError,"LIVE_FLAG_INVALID"):
+            check({"mode":"detail","resource":"quote","recordId":"a0P000000000000AAA","forceLive":"yes"})
     def test_ids(self):
         self.assertTrue(rec_id("006000000000000AAA","006"))
         self.assertFalse(rec_id("00Q000000000000AAA","006"))

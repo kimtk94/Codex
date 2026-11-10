@@ -13,6 +13,11 @@ test("picker accepts only bounded list search or correct record IDs",()=>{
  assert.equal(validRecordPickerRequest({mode:"detail",resource:"quote",recordId:"https://evil/"}).ok,false);
  assert.equal(validRecordPickerRequest({mode:"list",resource:"lead",query:"x".repeat(101)}).ok,false);
 });
+test("forceLive bypass is allowed only for bounded read-only detail requests",()=>{
+  assert.equal(validRecordPickerRequest({mode:"detail",resource:"quote",recordId:id.quote,forceLive:true}).ok,true);
+  assert.equal(validRecordPickerRequest({mode:"bundle",resource:"opportunity",recordId:id.opportunity,forceLive:true}).ok,false);
+  assert.equal(validRecordPickerRequest({mode:"detail",resource:"quote",recordId:id.quote,forceLive:"true"}).ok,false);
+});
 test("Lead load pre-populates existing fields, keeps source id",()=>{
  const item={status:"PASS",resource:"lead",id:id.lead,name:"김태훈",
   koreanName:"김태훈",accountName:"학교",englishName:"KimTaeHoon"};

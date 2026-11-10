@@ -4,6 +4,8 @@ import {useMemo,useState} from "react";
 import {fromFeishuQuote,calculateDraft,draftDescription,draftPreflight,descriptionBasis,descriptionReview,draftChanges}
   from "../../../../lib/sfdc-report-quote-draft.mjs";
 import styles from "./page.module.css";
+import SourceSalesforceEvidence from "./SourceSalesforceEvidence";
+import {applyVerifiedSource} from "../../../../lib/sfdc-source-identity.mjs";
 import {REGION_OPTIONS,regionByCode} from "../../../../lib/sfdc-amplicon-regions.mjs";
 
 const money=value=>Number.isSafeInteger(value)?value.toLocaleString("ko-KR")+" KRW":"입력 필요";
@@ -41,6 +43,12 @@ export default function ReportOppoDraft({quote,enabled=true}){
     [draft,description,isManualDescription,descriptionEditBasis]);
   const descriptionPayload=()=>({...draft,description,
     descriptionManualBasis:isManualDescription?descriptionEditBasis:null});
+
+  const onSourceVerified=(result)=>{
+    setDraft(current=>applyVerifiedSource(current,result));
+    setPreflight(null);
+    setNotice("Salesforce 원본 고객 ID 대조 완료 · 가격과 저장은 별도 검증 필요");
+  };
 
   const edit=(key,value)=>{
     setDraft(old=>old?{...old,[key]:value}:old);
@@ -136,6 +144,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
     사전 분류된 Feishu Quote 참조가 완전하지 않아 초안을 생성할 수 없습니다.
   </p>;
   return <div aria-label="Oppo Quote 참고 초안 편집">
+    <SourceSalesforceEvidence quote={quote} onVerified={onSourceVerified}/>
     <div className={styles.sourceGrid}>
       <div><span>참고 Quote</span><strong>{draft.qid}</strong></div>
       <div><span>참고 Opportunity</span><strong>{draft.originalOpportunityName||"기존 프로젝트명 미확인"}</strong></div>
