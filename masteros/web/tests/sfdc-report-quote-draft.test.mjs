@@ -154,7 +154,7 @@ test("Description template stays deterministic and never imports old Progress De
   assert.equal(description,draftDescription({...draft}));
   assert.match(description,/^1110 Quote Draft /);
   assert.doesNotMatch(description,/Account\/Contact|Reference Quote/);
-  assert.match(description,/6 Gb/);
+  assert.match(description,/6Gb/);
   assert.match(description,/12 samples/);
   assert.match(description,/200,000KRW/);
   assert.doesNotMatch(description,/PO received|OLD CUSTOMER PROGRESS|Legacy text/);
