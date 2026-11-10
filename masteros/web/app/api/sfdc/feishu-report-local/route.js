@@ -77,12 +77,17 @@ export async function POST(request){
     if(raw.length>500)throw Error("INVALID_LENGTH");
     body=JSON.parse(raw);
     if(!body||typeof body!=="object"||Array.isArray(body))throw Error("INVALID_BODY");
-    if(!["REFRESH","REFRESH_REFERENCES","REFERENCE_STATUS","SEARCH","DETAIL"].includes(body.mode))
+    if(!["REFRESH","REFRESH_REFERENCES","REFERENCE_STATUS","SEARCH","DETAIL","IDENTITY_SEARCH"].includes(body.mode))
       return reply({status:"BLOCK",code:"FEISHU_READ_ONLY_MODE_REQUIRED"},400);
     if(body.mode==="SEARCH"&&
        (typeof body.query!=="string"||body.query.length>80||
         !Number.isInteger(body.limit)||body.limit<1||body.limit>30))
       return reply({status:"BLOCK",code:"FEISHU_SEARCH_INVALID"},400);
+    if(body.mode==="IDENTITY_SEARCH"&&
+       (typeof body.query!=="string"||body.query.trim().length<1||
+        body.query.length>80||!Number.isInteger(body.limit)||
+        body.limit<1||body.limit>25))
+      return reply({status:"BLOCK",code:"IDENTITY_QUERY_INVALID"},400);
     if(body.mode==="DETAIL"&&
        (typeof body.id!=="string"||
         !/^(QID-[0-9-]{8,50}|a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)$/.test(body.id)))
