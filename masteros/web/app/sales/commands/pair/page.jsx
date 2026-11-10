@@ -43,6 +43,8 @@ export default function PairedQuoteWeb(){
   const [error,setError]=useState("");
   const mounted=useRef(false);
   const seq=useRef(0);
+  const queryRef=useRef("");
+  const [lastSearch,setLastSearch]=useState("");
   const indexReady=reportStatus?.status==="PASS"&&
     referenceStatus?.status==="PASS"&&
     referenceStatus?.line_digest_crosschecked===true&&
@@ -51,6 +53,8 @@ export default function PairedQuoteWeb(){
 
   const find=useCallback(async(text="")=>{
     const token=++seq.current;
+    setLastSearch(text.trim());
+    setSelected(null);
     setWorking("SEARCH");
     setError("");
     try{
@@ -73,7 +77,8 @@ export default function PairedQuoteWeb(){
          index.line_digest_crosschecked!==true||
          index.source_mail_received_kst!==source.source_mail_received_kst)
         throw Error("PRECLASSIFIED_INDEX_MISMATCH");
-      await find("");
+      // Initial empty-list load must never replace a user-entered search.
+      if(!queryRef.current.trim())await find("");
     }catch(e){
       setError(e.message||"FEISHU_PREINDEX_UNAVAILABLE");
     }
@@ -108,8 +113,11 @@ export default function PairedQuoteWeb(){
       setReportStatus(source);setReferenceStatus(index);
       if(index.quote_count!==source.quote_count||
          index.line_digest_crosschecked!==true)throw Error("PRECLASSIFIED_INDEX_MISMATCH");
-      const search=await read({mode:"SEARCH",query:"",limit:25});
-      if(token===seq.current)setRows(search.rows||[]);
+      const search=await read({mode:"SEARCH",query:queryRef.current.trim(),limit:25});
+      if(token===seq.current){
+        setRows(search.rows||[]);
+        setLastSearch(queryRef.current.trim());
+      }
     }catch(e){if(token===seq.current)setError(e.message||"SOURCE_REFRESH_FAILED");
     }finally{if(token===seq.current)setWorking("");}
   }
@@ -150,8 +158,8 @@ export default function PairedQuoteWeb(){
         {" · "}원본 해시 교차 검증: {referenceStatus?.line_digest_crosschecked?"PASS":"HOLD"}
         {" · "}Salesforce Report 생성 시각: 미확인
       </p>
-      <form className={styles.search} onSubmit={e=>{e.preventDefault();find(query);}}>
-        <input value={query} onChange={e=>setQuery(e.target.value)}
+      <form className={styles.search} onSubmit={e=>{e.preventDefault();find(queryRef.current);}}>
+        <input value={query} onChange={e=>{queryRef.current=e.target.value;setQuery(e.target.value);}}
           aria-label="기존 Quote 검색" maxLength={80}
           placeholder="고객 한글 이름 · 기관 · 프로젝트명 · QID"/>
         <button type="submit" disabled={!indexReady||!!working}>
@@ -162,6 +170,9 @@ export default function PairedQuoteWeb(){
         </button>
       </form>
       {error&&<p className={styles.warning} role="alert">{error}</p>}
+      {lastSearch&&<p className={styles.hint} role="status">
+        검색 기준: {lastSearch} · 결과 {rows.length}건
+      </p>}
       <div className={styles.results} aria-label="Quote Report 검색 결과">
         {rows.map(row=><button type="button" key={row.qid}
           data-selected={selected?.qid===row.qid} disabled={!indexReady||!!working}
