@@ -152,6 +152,7 @@ def refresh():
                 for qid,(r,_) in rows.items()))
             meta={
                "base_source_received":base["source_mail_received_kst"],
+               "base_source_line_digest":base.get("source_line_digest",""),
                "base_quote_count":str(base["quote_count"]),
                "base_product_count":str(base["product_count"]),
                "quote_count":str(len(rows)),
@@ -184,6 +185,8 @@ def status():
         with _open() as cx:
             meta=dict(cx.execute("SELECT k,v FROM meta").fetchall())
             if (meta["base_source_received"]!=base["source_mail_received_kst"] or
+                not meta.get("base_source_line_digest") or
+                meta["base_source_line_digest"]!=base.get("source_line_digest") or
                 int(meta["base_quote_count"])!=base["quote_count"] or
                 int(meta["base_product_count"])!=base["product_count"]):
                 raise report.FeishuSourceError("PREINDEX_STALE_RELATIVE_TO_SOURCE")
@@ -193,6 +196,7 @@ def status():
                 "source_mail_received_kst":meta["base_source_received"],
                 "indexed_at_utc":meta["index_refreshed_utc"],
                 "index_freshness":"MATCHES_LOCAL_FEISHU_REPORT_SNAPSHOT",
+                "line_digest_crosschecked":True,
                 "salesforce_write":False,"feishu_writes":0,"local_only":True}
     except (OSError,sqlite3.DatabaseError,KeyError,ValueError,report.FeishuSourceError):
         return {"status":"BLOCK","code":"PRECLASSIFIED_INDEX_INTEGRITY_OR_FRESHNESS",
