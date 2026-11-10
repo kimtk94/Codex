@@ -58,6 +58,20 @@ def local_validator(x):
                 and x.get("progressDescription") and isinstance(x.get("samples"),int) and x["samples"]>0
                 and isinstance(x.get("amountKrw"),int) and x["amountKrw"]>=0):
             raise ValueError("OPPO_VALUES_INVALID")
+        # A unit-rate field is not assumed to exist in Salesforce Opportunity.
+        # Save verified total to Amount and human-readable unit rate to Progress
+        # Description; independently verify both before touching the UI.
+        if "unitPriceNetKrw" in x:
+            unit=x["unitPriceNetKrw"]
+            units=x.get("cloudUnits",0)
+            cloud=x.get("cloudUnitNetKrw",0)
+            if not (type(unit) is int and 0<unit<=1000000000 and
+                    type(units) is int and 0<=units<=100000 and
+                    type(cloud) is int and 0<=cloud<=1000000000 and
+                    x["samples"]*unit+units*cloud==x["amountKrw"]):
+                raise ValueError("OPPO_SAMPLE_UNIT_TOTAL_MISMATCH")
+            if (format(unit,",")+"KRW/sample") not in x["progressDescription"]:
+                raise ValueError("OPPO_DESCRIPTION_PRICE_STALE")
     if x["action"]=="quote_create":
         if not (ID("006",x.get("opportunityId")) and ID("a0P",x.get("sourceQuoteId"))):
             raise ValueError("QUOTE_IDS_INVALID")
