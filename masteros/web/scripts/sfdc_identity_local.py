@@ -47,7 +47,8 @@ def read_identity_index(query,limit=25,now=None,db=None):
                       OR contact_name LIKE ? ESCAPE '\\'
                       OR contact_email LIKE ? ESCAPE '\\')
                  AND TRIM(account_name)!='' AND TRIM(contact_name)!=''
-               ORDER BY qid DESC LIMIT 450""",
+               ORDER BY CASE WHEN quote_record_id LIKE 'a0P%' THEN 0 ELSE 1 END,
+                        qid DESC LIMIT 450""",
             (pattern,pattern,pattern)).fetchall()
     finally:
         cx.close()
