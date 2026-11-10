@@ -47,6 +47,21 @@ test("Feishu endpoint cannot mutate any source records",async()=>{
  });
 });
 
+test("Account Contact indexed search rejects empty, oversized and unbounded selectors",async()=>{
+ await enabled(async()=>{
+  for(const body of [
+   {mode:"IDENTITY_SEARCH",query:"",limit:20},
+   {mode:"IDENTITY_SEARCH",query:"    ",limit:20},
+   {mode:"IDENTITY_SEARCH",query:"a".repeat(81),limit:20},
+   {mode:"IDENTITY_SEARCH",query:"Kim",limit:500}
+  ]){
+   const r=await POST(make("POST",body));
+   assert.equal(r.status,400);
+   assert.equal((await r.json()).code,"IDENTITY_QUERY_INVALID");
+  }
+ });
+});
+
 test("Feishu source query/ID arguments are bounded",async()=>{
  await enabled(async()=>{
   for(const v of [
