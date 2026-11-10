@@ -1,6 +1,7 @@
 import test from "node:test";
+import {inferAmpliconReference,ampliconRegionUnits,regionByCode} from "../lib/sfdc-amplicon-regions.mjs";
 import assert from "node:assert/strict";
-import {isGbUnit,fromFeishuQuote,calculateDraft,draftDescription,draftPreflight,descriptionBasis,descriptionReview,DESCRIPTION_TEMPLATE_VERSION}
+import {isGbUnit,fromFeishuQuote,calculateDraft,draftDescription,draftPreflight,descriptionBasis,descriptionReview,DESCRIPTION_TEMPLATE_VERSION,draftChanges}
   from "../lib/sfdc-report-quote-draft.mjs";
 
 const quote=(gb="6",processQuantity="12")=>({
@@ -261,4 +262,134 @@ test("Issued state cannot pass preflight without actual issued evidence",()=>{
   const preflight=draftPreflight({...draft,description:draftDescription(draft)});
   assert.equal(preflight.status,"HOLD");
   assert.ok(preflight.errors.includes("QUOTE_ISSUED_EVIDENCE_REQUIRED"));
+});
+
+
+const jungAmplicon=()=>({
+  status:"PASS",qid:"QID-2026-09-04-396506",
+  sfdc_record_id:"a0P000000000000AAA",
+  currency:"USD_CONVERTED_ONLY",krw_rate_verified:false,
+  source_mail_received_kst:"2026-11-09 17:00:23 KST",
+  reference:{
+    status:"PASS",
+    opportunityName:"Korea-Yonsei Univ.-18-16Sv4v5-18-Archaeal16Sv4v5-WOBI-JeongJinGyeong",
+    accountId:"001000000000000AAA",accountName:"Synthetic Reference Institute",
+    contactId:"003000000000000AAA",contactName:"Synthetic Scientist",
+    products:[]
+  },
+  process_lines:[
+    {quotation_product_id:"QD-738646",process_id:"Process-2020-04-29-00039",
+     process_name:"Library preparation",data_unit:"K tags",
+     sample_quantity:"36",data_size:"100",unit_price_usd:"0",
+     product_total_usd_converted:"0.98"},
+    {quotation_product_id:"QD-738646",process_id:"Process-2020-04-29-00031",
+     process_name:"Sequencing by data amount",data_unit:"K tags",
+     sample_quantity:"36",data_size:"100",unit_price_usd:"40",
+     product_total_usd_converted:"0.98"},
+    {quotation_product_id:"QD-738646",process_id:"Process-2020-04-29-00032",
+     process_name:"Analysis by sample",data_unit:"K tags",
+     sample_quantity:"36",data_size:"100",unit_price_usd:"0",
+     product_total_usd_converted:"0.98"},
+    {quotation_product_id:"QD-738646",process_id:"Process-2020-04-29-00034",
+     process_name:"Data release",data_unit:"G raw data",
+     sample_quantity:"1",data_size:"1",unit_price_usd:"23.33",
+     product_total_usd_converted:"0.98"}
+  ]
+});
+
+test("Actual Jeong Jin-gyeong 18 samples x 2 regions = 36 region services",()=>{
+  const source=jungAmplicon();
+  const verified=inferAmpliconReference(source.reference.opportunityName,source.process_lines);
+  assert.equal(verified.status,"REGION_SERVICE_UNITS_MATCHED");
+  assert.equal(verified.samples,"18");
+  assert.deepEqual(verified.regions.map(x=>x.label),
+    ["16S V4-V5","Archaeal 16S V4-V5"]);
+  assert.equal(ampliconRegionUnits(verified.samples,verified.regions),36);
+  const extracted=fromFeishuQuote(source,new Date("2026-11-09T16:00:00Z"));
+  assert.equal(extracted.ok,true);
+  const draft=extracted.draft;
+  assert.equal(draft.name,source.reference.opportunityName); // near-copy
+  assert.equal(draft.account.name,"Synthetic Reference Institute");
+  assert.equal(draft.contact.name,"Synthetic Scientist");
+  assert.equal(draft.products.length,1);
+  assert.equal(draft.products[0].samples,"18");
+  assert.equal(draft.products[0].amplicon.enabled,true);
+  assert.equal(draft.products[0].amplicon.regions.length,2);
+  assert.equal(draft.products[0].sampleUnitKrw,""); // historical USD != KRW
+  assert.deepEqual(draftChanges(draft),[]);
+  const pending=calculateDraft(draft);
+  assert.equal(pending.ok,false);
+  assert.equal(pending.items[0].serviceQuantity,36);
+  assert.equal(pending.quoteLineItems.length,2);
+  assert.equal(pending.quoteLineItems[0].sampleQuantity,18);
+  assert.equal(pending.quoteLineItems[1].sampleQuantity,18);
+  assert.equal(pending.quoteLineItems[0].originalQuoteProductId,"QD-738646");
+});
+
+test("Region selection duplicates service, not biological sample, with editable equal price",()=>{
+  const baseline=fromFeishuQuote(jungAmplicon()).draft;
+  const p=baseline.products[0];
+  const changed={...baseline,products:[{...p,sampleUnitKrw:"60000"}]};
+  const result=calculateDraft(changed);
+  assert.equal(result.ok,true);
+  assert.equal(result.items[0].quantity,18);
+  assert.equal(result.items[0].serviceQuantity,36);
+  assert.equal(result.items[0].netKrw,2160000);
+  assert.equal(result.netKrw,2160000);
+  assert.equal(result.vatKrw,216000);
+  assert.equal(result.grossKrw,2376000);
+  assert.deepEqual(result.quoteLineItems.map(x=>x.netKrw),[1080000,1080000]);
+  assert.equal(result.quoteLineItems.length,2);
+  assert.equal(draftChanges(changed).length,1);
+  const description=draftDescription(changed);
+  assert.match(description,/^1110 Quote Draft /);
+  assert.match(description,/Amplicon-Seq/);
+  assert.match(description,/16S V4-V5/);
+  assert.match(description,/Archaeal 16S V4-V5/);
+  assert.match(description,/18 samples \* 2 regions \* 60,000KRW\/region/);
+  assert.doesNotMatch(description,/36 samples/);
+  assert.equal(draftPreflight({...changed,description}).status,"PREVIEW_READY");
+});
+
+test("Region-specific rates are separately calculable with 18 same specimens",()=>{
+  const baseline=fromFeishuQuote(jungAmplicon(),new Date("2026-11-09T16:00:00Z")).draft;
+  const p=baseline.products[0];
+  const rates=p.amplicon.regions.map((r,i)=>({...r,unitKrw:i===0?"70000":"50000"}));
+  const changed={...baseline,products:[{...p,
+    amplicon:{...p.amplicon,regions:rates}
+  }]};
+  const result=calculateDraft(changed);
+  assert.equal(result.ok,true);
+  assert.equal(result.items[0].serviceQuantity,36);
+  assert.deepEqual(result.quoteLineItems.map(x=>x.netKrw),[1260000,900000]);
+  assert.equal(result.netKrw,2160000);
+  const desc=draftDescription(changed);
+  assert.match(desc,/16S V4-V5 70,000KRW/);
+  assert.match(desc,/Archaeal 16S V4-V5 50,000KRW/);
+  assert.equal(draftPreflight({...changed,description:desc}).status,"PREVIEW_READY");
+});
+
+test("Removing a Region reduces service count but never changes original sample count",()=>{
+  const baseline=fromFeishuQuote(jungAmplicon()).draft;
+  const p=baseline.products[0];
+  const edited={...p,sampleUnitKrw:"60000",
+    amplicon:{...p.amplicon,regions:p.amplicon.regions.slice(0,1)}};
+  const copy={...baseline,products:[edited]};
+  const calc=calculateDraft(copy);
+  assert.equal(calc.items[0].quantity,18);
+  assert.equal(calc.items[0].regionCount,1);
+  assert.equal(calc.items[0].serviceQuantity,18);
+  assert.equal(calc.netKrw,1080000);
+  assert.equal(calc.quoteLineItems.length,1);
+  assert.ok(draftChanges(copy).some(x=>x.field.endsWith(".regions")));
+  const extra=regionByCode("ITS1");
+  assert.equal(extra.label,"ITS1");
+  assert.equal(ampliconRegionUnits("18",[...edited.amplicon.regions,extra]),36);
+});
+
+test("Different sample counts across Regions must not be merged as same specimens",()=>{
+  const name="Korea-Synthetic-18-16Sv4v5-12-Archaeal16Sv4v5";
+  const data=inferAmpliconReference(name,[{data_unit:"K tags",sample_quantity:"30"}]);
+  assert.equal(data.enabled,false);
+  assert.equal(data.status,"MIXED_SAMPLE_COUNTS");
 });
