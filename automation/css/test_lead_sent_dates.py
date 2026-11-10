@@ -71,6 +71,14 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(row[8],0)
         self.assertEqual(row[11],1)
 
+    def test_recent_leads_sort_before_old_dates_regardless_of_format(self):
+        copy=[list(x) for x in RAW]
+        copy[1][2]="9/9/2026"
+        copy[2][2]="11/10/2026"
+        with patch.object(source,"parse_messages",return_value=({},NOW)):
+            matrix,_,_=timeline.build_rows(copy,[],[],[],[],NOW)
+        self.assertEqual(matrix[1][0],"Lead-1")
+
     def test_duplicate_lead_id_fails_closed(self):
         copy=[list(x) for x in RAW]
         copy[2][0]="Lead-0"
