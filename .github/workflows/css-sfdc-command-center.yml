@@ -54,6 +54,7 @@ on:
       - 'masteros/web/app/api/sfdc/commands-local/**'
       - 'masteros/web/app/sales/commands/**'
       - 'masteros/web/tests/sfdc-commands.test.mjs'
+      - 'masteros/web/tests/sfdc-oppo-unit-price.test.mjs'
       - 'masteros/web/scripts/start-css-local.ps1'
       - 'masteros/web/app/sales/projects/page.jsx'
       - 'masteros/web/app/page.jsx'
@@ -112,6 +113,7 @@ on:
       - 'masteros/web/app/api/sfdc/commands-local/**'
       - 'masteros/web/app/sales/commands/**'
       - 'masteros/web/tests/sfdc-commands.test.mjs'
+      - 'masteros/web/tests/sfdc-oppo-unit-price.test.mjs'
       - 'masteros/web/scripts/start-css-local.ps1'
       - 'masteros/web/app/sales/projects/page.jsx'
       - 'masteros/web/app/page.jsx'
@@ -168,7 +170,7 @@ jobs:
       - name: Install local Next.js dependencies
         run: npm install --no-audit --no-fund
       - name: Test request validation, progress text and loopback security
-        run: node --test tests/sfdc-commands.test.mjs
+        run: node --test tests/sfdc-commands.test.mjs tests/sfdc-oppo-unit-price.test.mjs
       - name: Test record picker and immutable Progress Description source
         run: node --test tests/sfdc-record-picker.test.mjs
       - name: Validate linked Quote price and Cloud quantity projection

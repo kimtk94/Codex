@@ -2,6 +2,22 @@ const validId = (v,prefix)=>typeof v==="string" &&
   new RegExp("^"+prefix+"[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$").test(v);
 const clean=(x,n=180)=>typeof x==="string"&&x.trim()===x&&x.length>0&&x.length<=n;
 export const ACTIONS=["lead_convert","opportunity_create","quote_create"];
+/** Separate biological sample unit price from optional AliCloud price (VAT excluded). */
+export function opportunityPriceBreakdown({samples,unitPriceNetKrw,cloudUnits=0,cloudUnitNetKrw=0}) {
+  if(!Number.isInteger(samples)||samples<1||samples>500||
+     !Number.isSafeInteger(unitPriceNetKrw)||unitPriceNetKrw<=0||
+     !Number.isInteger(cloudUnits)||cloudUnits<0||cloudUnits>100000||
+     !Number.isSafeInteger(cloudUnitNetKrw)||cloudUnitNetKrw<0)
+    return {ok:false,code:"OPPO_UNIT_PRICE_REQUIRED"};
+  const sampleTotalKrw=samples*unitPriceNetKrw;
+  const cloudTotalKrw=cloudUnits*cloudUnitNetKrw;
+  const netKrw=sampleTotalKrw+cloudTotalKrw;
+  if(!Number.isSafeInteger(netKrw)||netKrw>1_000_000_000_000)
+    return {ok:false,code:"OPPO_AMOUNT_OUT_OF_RANGE"};
+  return {ok:true,unitPriceNetKrw,samples,sampleTotalKrw,cloudUnits,
+    cloudUnitNetKrw,cloudTotalKrw,netKrw,vatKrw:Math.round(netKrw/10),
+    grossKrw:netKrw+Math.round(netKrw/10)};
+}
 export function validateRequest(x) {
   if(!x||typeof x!=="object"||Array.isArray(x)||!ACTIONS.includes(x.action)||
      !["check","save"].includes(x.mode))return {ok:false,code:"ACTION_INVALID"};
@@ -15,6 +31,15 @@ export function validateRequest(x) {
     return {ok:true};
   }
   if(x.action==="opportunity_create"){
+    if(Object.prototype.hasOwnProperty.call(x,"unitPriceNetKrw")){
+      const pricing=opportunityPriceBreakdown(x);
+      if(!pricing.ok)return {ok:false,code:pricing.code};
+      if(pricing.netKrw!==x.amountKrw)
+        return {ok:false,code:"OPPO_UNIT_PRICE_TOTAL_MISMATCH"};
+      if(!String(x.progressDescription||"").includes(
+        x.unitPriceNetKrw.toLocaleString("en-US")+"KRW/sample"))
+        return {ok:false,code:"OPPO_DESCRIPTION_UNIT_PRICE_STALE"};
+    }
     if(!validId(x.referenceOpportunityId,"006")||
        !validId(x.accountId,"001")||!validId(x.contactId,"003")||
        !clean(x.opportunityName,230)||!clean(x.accountName,180)||
@@ -47,13 +72,20 @@ export function authorizeCommand({enabled,method,host,origin,fetchSite,header,co
     return {ok:false,code:"REQUEST_REJECTED",status:403};
   return {ok:true,status:200};
 }
-export function freshProgress({accountName,contactName,service,samples,dataSize,unit,referenceAmea}){
+export function freshProgress({accountName,contactName,service,samples,dataSize,unit,referenceAmea,unitPriceNetKrw,cloudUnits=0,cloudUnitNetKrw=0}){
   if(!clean(accountName,180)||!clean(contactName,140)||!clean(service,160)||
      !Number.isInteger(samples)||samples<1||samples>500||
      !Number.isFinite(dataSize)||dataSize<=0)throw Error("PROGRESS_INPUT_INVALID");
+  const priced=unitPriceNetKrw===undefined||unitPriceNetKrw===null?
+    null:opportunityPriceBreakdown({samples,unitPriceNetKrw,cloudUnits,cloudUnitNetKrw});
+  if(priced&&!priced.ok)throw Error("PROGRESS_PRICE_UNVERIFIED");
   return [
     "New request — "+accountName+" / "+contactName,
     "Service: "+service+"; "+samples+" samples; "+dataSize+" "+(unit||"Gb")+" per sample.",
+    priced ? "Unit price: "+unitPriceNetKrw.toLocaleString("en-US")+"KRW/sample (VAT excluded); "+
+      "sample subtotal: "+priced.sampleTotalKrw.toLocaleString("en-US")+" KRW; "+
+      "AliCloud: "+priced.cloudUnits+" × "+cloudUnitNetKrw.toLocaleString("en-US")+" KRW; "+
+      "total: "+priced.netKrw.toLocaleString("en-US")+" KRW (VAT excluded)." : "",
     referenceAmea ? "Reference "+referenceAmea+" (product/specifications only)." : "",
     "Opportunity/Quote preparation in progress. PO, sample receipt and payment not confirmed."
   ].filter(Boolean).join("\n");

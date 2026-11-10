@@ -5,11 +5,14 @@ on:
     paths:
       - 'masteros/web/app/sales/mail/**'
       - 'masteros/web/app/api/css/mail-local/**'
+      - 'masteros/web/app/api/css/mail-body-local/**'
       - 'masteros/web/lib/css-mail-local.mjs'
       - 'masteros/web/scripts/css_mail_local.py'
       - 'masteros/web/scripts/test_css_mail_local.py'
+      - 'masteros/web/scripts/test_css_mail_body_local.py'
       - 'masteros/web/tests/css-mail-local.test.mjs'
       - 'masteros/web/tests/css-mail-dialog.test.mjs'
+      - 'masteros/web/tests/css-mail-body-viewer.test.mjs'
       - 'masteros/web/scripts/start-css-local.ps1'
       - 'masteros/web/app/sales/commands/page.jsx'
       - 'masteros/web/app/sales/projects/page.jsx'
@@ -20,11 +23,14 @@ on:
     paths:
       - 'masteros/web/app/sales/mail/**'
       - 'masteros/web/app/api/css/mail-local/**'
+      - 'masteros/web/app/api/css/mail-body-local/**'
       - 'masteros/web/lib/css-mail-local.mjs'
       - 'masteros/web/scripts/css_mail_local.py'
       - 'masteros/web/scripts/test_css_mail_local.py'
+      - 'masteros/web/scripts/test_css_mail_body_local.py'
       - 'masteros/web/tests/css-mail-local.test.mjs'
       - 'masteros/web/tests/css-mail-dialog.test.mjs'
+      - 'masteros/web/tests/css-mail-body-viewer.test.mjs'
       - 'masteros/web/scripts/start-css-local.ps1'
       - 'masteros/web/app/sales/commands/page.jsx'
       - 'masteros/web/app/sales/projects/page.jsx'
@@ -50,20 +56,21 @@ jobs:
         run: |
           python3 -m py_compile scripts/css_mail_local.py
           python3 -m unittest discover -s scripts -p 'test_css_mail_local.py' -v
+          python3 -m unittest discover -s scripts -p 'test_css_mail_body_local.py' -v
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Install local-only Next.js dependencies
         run: npm install --no-audit --no-fund
       - name: Verify loopback access and request contracts
-        run: node --test tests/css-mail-local.test.mjs tests/css-mail-dialog.test.mjs
+        run: node --test tests/css-mail-local.test.mjs tests/css-mail-dialog.test.mjs tests/css-mail-body-viewer.test.mjs
       - name: Compile local dashboard (no deploy)
         env:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build
       - name: Confirm local app and API routes built
         run: |
-          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/mail','.next/server/app/api/css/mail-local']){if(!fs.existsSync(p)){console.error('MISSING '+p);process.exitCode=1}}"
+          node -e "const fs=require('fs');for(const p of ['.next/server/app/sales/mail','.next/server/app/api/css/mail-local','.next/server/app/api/css/mail-body-local']){if(!fs.existsSync(p)){console.error('MISSING '+p);process.exitCode=1}}"
       - name: Confirm no external release
         run: |
           echo 'OFFLINE_ONLY;NO_GOOGLE_SECRETS;NO_EMAIL_SENT;NO_CRM_WRITE;NO_VERCEL_DEPLOY' >> "$GITHUB_STEP_SUMMARY"

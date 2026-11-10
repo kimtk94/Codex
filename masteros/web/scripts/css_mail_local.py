@@ -31,6 +31,7 @@ EDIT_HEAD = ["Receipt Role","Action (Edit)","Rule Target Address (Edit)",
     "Reviewer Note (Edit)","Action State"]
 EMAIL = re.compile(r"^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$")
 KEY = re.compile(r"^[A-Za-z0-9_./|:-]{3,150}$")
+BODY_UID = re.compile(r"^inbox:[0-9]{1,14}$",re.I)
 ACTIONS = {"SKIP_MAIL","SKIP_CC_TO","SKIP_CC_SENDER",
            "RESTORE_MAIL","RESTORE_RULE"}
 
@@ -193,6 +194,12 @@ def validate_request(body):
     if mode=="snapshot":
         if set(body)!={"mode"}:raise ValueError("READ_REQUEST_INVALID")
         return
+    if mode=="body":
+        if set(body)!={"mode","key","uid"} or not isinstance(body["key"],str) or not isinstance(body["uid"],str):
+            raise ValueError("MAIL_BODY_REQUEST_INVALID")
+        if not KEY.fullmatch(body["key"]) or not BODY_UID.fullmatch(body["uid"]):
+            raise ValueError("MAIL_BODY_UID_INVALID")
+        return
     if mode!="decision" or body.get("action") not in ACTIONS:
         raise ValueError("ACTION_NOT_SUPPORTED")
     for field in ("key","uid","sender","subject","to","cc","target","note"):
@@ -332,6 +339,40 @@ def apply_action(session,body,owner):
     return {"status":"PASS","result":"CC_RULE_CREATED"}
 
 
+def read_mail_body(session, key, uid):
+    """Return exactly one already-cached MIME text body for a visible queue UID.
+
+    Never fetch arbitrary archived email by UID: the current 60D queue's
+    canonical key/UID pair must match before reading the private raw cache.
+    """
+    if not KEY.fullmatch(key) or not BODY_UID.fullmatch(uid):
+        raise ValueError("MAIL_BODY_ID_INVALID")
+    rows=fetch(session,QQ,QUEUE,"K1:O2000")
+    if not rows or cell(rows[0],0)!="Mail UID" or cell(rows[0],4)!="Canonical Ingest Key":
+        raise ValueError("MAIL_BODY_QUEUE_SCHEMA")
+    linked=[r for r in rows[1:] if cell(r,4)==key]
+    if len(linked)!=1 or cell(linked[0],0).casefold()!=uid.casefold():
+        raise ValueError("MAIL_BODY_QUEUE_UID_CHANGED")
+    ids=fetch(session,SFDC,"CSS Mail Inbox Raw","A1:A10000")
+    if not ids or cell(ids[0],0)!="Mail UID":
+        raise ValueError("MAIL_BODY_SOURCE_SCHEMA")
+    found=[i for i,r in enumerate(ids[1:],2) if cell(r,0).casefold()==uid.casefold()]
+    if not found:
+        return {"status":"PASS","uid":uid,"body":"","bodyStatus":"NOT_CACHED"}
+    if len(found)!=1:
+        raise ValueError("MAIL_BODY_DUPLICATE_UID")
+    at=found[0]
+    source=fetch(session,SFDC,"CSS Mail Inbox Raw",f"A{at}:V{at}")
+    if len(source)!=1 or cell(source[0],0).casefold()!=uid.casefold():
+        raise ValueError("MAIL_BODY_SOURCE_ROW_CHANGED")
+    body=cell(source[0],9)
+    classification=cell(source[0],21)
+    if len(body)>150000:
+        return {"status":"PASS","uid":uid,"body":"","bodyStatus":"BODY_TOO_LARGE"}
+    return {"status":"PASS","uid":uid,"body":body,
+            "bodyStatus":classification if body else "BODY_NOT_AVAILABLE"}
+
+
 def main():
     raw=sys.stdin.read(1600)
     body=json.loads(raw)
@@ -341,6 +382,9 @@ def main():
     if body["mode"]=="snapshot":
         data=snapshot(*load(session),owner)
         print(json.dumps(data,ensure_ascii=False,separators=(",",":")))
+    elif body["mode"]=="body":
+        result=read_mail_body(session,body["key"],body["uid"])
+        print(json.dumps(result,ensure_ascii=False,separators=(",",":")))
     else:
         result=apply_action(session,body,owner)
         print(json.dumps(result,ensure_ascii=False,separators=(",",":")))
