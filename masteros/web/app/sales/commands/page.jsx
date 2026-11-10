@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import Link from "next/link";
-import {alicloudUnits,freshProgress,validateRequest} from "../../../lib/sfdc-commands.mjs";
+import {alicloudUnits,freshProgress,validateRequest,opportunityPriceBreakdown} from "../../../lib/sfdc-commands.mjs";
 import {recordToDraft,recordSelectionSummary} from "../../../lib/sfdc-record-picker.mjs";
 import {buildPairDraft,derivePairPrice} from "../../../lib/sfdc-paired-clone.mjs";
 import styles from "./page.module.css";
@@ -12,7 +12,8 @@ const initial={
   lead_convert:{leadId:"",accountName:"",koreanName:"",englishName:""},
   opportunity_create:{referenceOpportunityId:"",accountId:"",contactId:"",
     accountName:"",contactName:"",opportunityName:"",samples:1,
-    amountKrw:0,closeDate:"",progressDescription:"",service:"",dataSize:1,unit:"Gb",referenceAmea:""},
+    amountKrw:0,unitPriceNetKrw:0,cloudUnits:0,cloudUnitNetKrw:0,
+    closeDate:"",progressDescription:"",service:"",dataSize:1,unit:"Gb",referenceAmea:""},
   quote_create:{opportunityId:"",sourceQuoteId:"",quoteName:"",
     accountName:"",contactName:"",productCategory:"",productName:"",
     samples:1,dataSize:1,unit:"Gb",processNames:""},
@@ -59,10 +60,30 @@ export default function SfdcCommandCenter(){
   const ready=signature===preflight && selectedRecord?.resource===resource;
   const update=(key,value)=>{
     setForms(prev=>{
-      const next={...prev[tab],[key]:value};
-      if(tab==="opportunity_create"&&pairedQuote&&["samples","dataSize"].includes(key)){
-        const price=derivePairPrice(pairedQuote,next.samples,next.dataSize);
-        next.amountKrw=price.ok?price.netKrw:0;
+      const previous=prev[tab];
+      const next={...previous,[key]:value};
+      if(tab==="opportunity_create"){
+        const relevant=["samples","dataSize","unitPriceNetKrw","service","accountName",
+          "contactName","referenceAmea","unit"];
+        if(["samples","dataSize"].includes(key)){
+          if(Number.isInteger(next.samples)&&next.samples>0&&Number.isFinite(next.dataSize)&&next.dataSize>0)
+            next.cloudUnits=next.unit==="Gb"?Math.ceil(next.samples*next.dataSize/100):0;
+          if(pairedQuote){
+            const quoted=derivePairPrice(pairedQuote,next.samples,next.dataSize);
+            if(quoted.ok){next.cloudUnits=quoted.cloudUnits;next.cloudUnitNetKrw=quoted.cloudUnitNetKrw;}
+          }
+        }
+        if(["samples","dataSize","unitPriceNetKrw"].includes(key)){
+          const price=opportunityPriceBreakdown(next);
+          next.amountKrw=price.ok?price.netKrw:0;
+        }
+        if(relevant.includes(key)){
+          let originalGenerated="";
+          try{originalGenerated=freshProgress(previous)}catch{}
+          if(!previous.progressDescription || previous.progressDescription===originalGenerated){
+            try{next.progressDescription=freshProgress(next)}catch{next.progressDescription="";}
+          }
+        }
       }
       return {...prev,[tab]:next};
     });
@@ -162,7 +183,10 @@ export default function SfdcCommandCenter(){
       if(!draft.ok)throw Error(draft.code);
       if(draft.quote.opportunityId!==selectedRecord.id)throw Error("WRONG_PARENT_OPPORTUNITY");
       setPairedQuote(draft.quote);setPairStatus("PASS");
-      setForms(prev=>({...prev,[tab]:{...draft.form,closeDate:form.closeDate}}));
+      setForms(prev=>({...prev,[tab]:{
+        ...draft.form,closeDate:form.closeDate,
+        progressDescription:""
+      }}));
       setResult(null);
     }catch(e){
       setPairedQuote(null);setPairStatus("BLOCK");
@@ -189,8 +213,9 @@ export default function SfdcCommandCenter(){
     const req={...form,action:tab,mode,confirmSave:mode==="save"&&confirmed,
       noDuplicateConfirmed:mode==="save"&&dedup};
     if(tab==="opportunity_create"&&pairedQuote&&
-       (!pairProjection?.ok||form.amountKrw!==pairProjection.netKrw)){
-      setResult({status:"BLOCK",code:"CLOUD_PRICE_MISMATCH"});return;
+       (!pairProjection?.ok||form.cloudUnits!==pairProjection.cloudUnits||
+        form.cloudUnitNetKrw!==pairProjection.cloudUnitNetKrw)){
+      setResult({status:"BLOCK",code:"SOURCE_CLOUD_PRICE_MISMATCH"});return;
     }
     if(mode==="save"&&!ready){
       setResult({status:"BLOCK",code:"PREFLIGHT_REQUIRED"});return;
@@ -216,11 +241,14 @@ export default function SfdcCommandCenter(){
       const description=freshProgress({
         accountName:form.accountName,contactName:form.contactName,
         service:form.service,samples:form.samples,dataSize:form.dataSize,
-        unit:form.unit,referenceAmea:form.referenceAmea
+        unit:form.unit,referenceAmea:form.referenceAmea,
+        unitPriceNetKrw:form.unitPriceNetKrw,
+        cloudUnits:form.cloudUnits,cloudUnitNetKrw:form.cloudUnitNetKrw
       });
       update("progressDescription",description);
     }catch{setResult({status:"BLOCK",code:"PROGRESS_FIELDS_INCOMPLETE"});}
   }
+  const currentOppoPricing=tab==="opportunity_create"?opportunityPriceBreakdown(form):null;
   const totalGb=tab==="opportunity_create"&&form.unit==="Gb"?
     form.samples*form.dataSize:null;
   return <main className={styles.wrap}>
@@ -328,13 +356,31 @@ export default function SfdcCommandCenter(){
               <Field label="시료당 데이터량" type="number" step="any" value={form.dataSize} onChange={v=>update("dataSize",v)}/>
             </div>
             <div className={styles.two}>
-              <Field label="금액 (KRW, VAT 제외)" type="number" value={form.amountKrw} onChange={v=>update("amountKrw",v)}/>
+              <Field label="Oppo 샘플당 단가 (KRW, VAT 제외)" type="number"
+                value={form.unitPriceNetKrw||""} onChange={v=>update("unitPriceNetKrw",v)}
+                placeholder="예: 250000"/>
               <Field label="Close Date" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
             </div>
+            <div className={styles.selectedInfo} data-testid="oppo-unit-price-summary">
+              <strong>샘플당 단가: {currentOppoPricing?.ok?
+                currentOppoPricing.unitPriceNetKrw.toLocaleString("ko-KR")+" KRW":"미확인"}</strong>
+              <span>시료 {form.samples}개 × 단가 = {currentOppoPricing?.ok?
+                currentOppoPricing.sampleTotalKrw.toLocaleString("ko-KR")+" KRW":"계산 대기"}</span>
+              <span>AliCloud {form.cloudUnits||0}개 × {(form.cloudUnitNetKrw||0).toLocaleString("ko-KR")} KRW
+                {" · "}클라우드 합계 {currentOppoPricing?.ok?
+                currentOppoPricing.cloudTotalKrw.toLocaleString("ko-KR")+" KRW":"계산 대기"}</span>
+              <strong>Oppo 총 공급가액 (VAT 제외): {currentOppoPricing?.ok?
+                currentOppoPricing.netKrw.toLocaleString("ko-KR")+" KRW":"단가 입력 필요"}</strong>
+              <span>VAT 10%: {currentOppoPricing?.ok?
+                currentOppoPricing.vatKrw.toLocaleString("ko-KR")+" KRW":"—"}</span>
+              {pairedQuote&&pairProjection?.ok&&form.unitPriceNetKrw!==pairProjection.unitPriceNetKrw&&
+                <p>기존 Quote와 단가가 달라졌습니다. Opportunity 금액과 Description은 새 단가를 사용하지만 Quote 공정 단가는 별도 검증이 필요합니다.</p>}
+            </div>
             <Field label="참고 AMEA (선택)" required={false} value={form.referenceAmea} onChange={v=>update("referenceAmea",v)}/>
-            {totalGb>0&&<p className={styles.hint}>AliCloud: {alicloudUnits(totalGb)}개 (100 Gb당 1개)</p>}
+            {totalGb>0&&<p className={styles.hint}>AliCloud 필요 수량: {alicloudUnits(totalGb)}개 (100 Gb당 1개). 단가는 연결된 Quote에서 확인된 경우에만 합산합니다.</p>}
             <div className={styles.field}><span>Progress Description · 신규 작성</span>
               <textarea rows={5} value={form.progressDescription} onChange={e=>update("progressDescription",e.target.value)} />
+              <small>저장되는 SFDC Opportunity Progress Description에 샘플당 단가·수량·VAT 제외 합계가 포함됩니다.</small>
               <button className={styles.subtle} type="button" onClick={regenerate}>현재 입력값으로 새로 작성</button>
             </div>
           </>}
