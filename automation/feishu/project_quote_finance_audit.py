@@ -56,15 +56,79 @@ def summarize(schema, records):
             "lifecycle_fields":[{"name":k,**v} for k,v in stats.items() if STAGE_RE.search(k) and k not in ("Source Key",)],
             "all_field_count":len(schema)}
 
+def match_audit(items):
+    from decimal import Decimal, InvalidOperation
+    board=items["PROJECT_BOARD"]
+    indexes=items["QUOTE_INDEX"]
+    lines=items["QUOTE_LINES"]
+    by_name=collections.defaultdict(set)
+    status=collections.Counter()
+    for rec in indexes:
+        f=rec.get("fields") or {}
+        name=textval(f.get("Opportunity Name"))
+        quote=textval(f.get("Quote ID"))
+        if name and quote:by_name[name].add(quote)
+        status[textval(f.get("Reference Status")) or "(empty)"]+=1
+    amounts=collections.defaultdict(list)
+    active=collections.Counter()
+    source=collections.Counter()
+    numeric_rows=0
+    for rec in lines:
+        f=rec.get("fields") or {}
+        qid=textval(f.get("Quote ID"))
+        amount=textval(f.get("Process Total USD"))
+        active_val=textval(f.get("Active")).lower()
+        active[active_val or "(empty)"]+=1
+        source[textval(f.get("Source Status")) or "(empty)"]+=1
+        try:
+            money=Decimal(amount.replace(",","").replace("$",""))
+            if money.is_finite() and money>=0 and qid:
+                numeric_rows+=1
+                amounts[qid].append(money)
+        except InvalidOperation:
+            pass
+    matched=0; unmatched=0; ambiguous=0; with_numeric=0
+    exact_verified=0; verified_numeric=0
+    for row in board:
+        f=row.get("fields") or {}
+        name=textval(f.get("Quote Full Name"))
+        ids=by_name.get(name,set())
+        verified=textval(f.get("Quote Match State"))=="SFDC_EXACT_VERIFIED"
+        if verified:exact_verified+=1
+        if len(ids)==1:
+            matched+=1
+            if next(iter(ids)) in amounts:
+                with_numeric+=1
+                if verified:verified_numeric+=1
+        elif len(ids)>1:
+            ambiguous+=1
+        else: unmatched+=1
+    return {
+        "board_rows":len(board),
+        "unique_joined_quote_id":matched,
+        "no_quote_id":unmatched,
+        "ambiguous_quote_id":ambiguous,
+        "with_numeric_process_total_usd":with_numeric,
+        "sfdc_exact_verified":exact_verified,
+        "sfdc_exact_verified_with_amount":verified_numeric,
+        "numeric_quote_lines":numeric_rows,
+        "quote_index_reference_status_counts":dict(status),
+        "quote_line_active_status_counts":dict(active),
+        "quote_line_source_status_counts":dict(source),
+        "source_writes":0,
+    }
+
 def main():
     response=request("POST","/open-apis/auth/v3/tenant_access_token/internal",
                      body={"app_id":require("FEISHU_APP_ID"),"app_secret":require("FEISHU_APP_SECRET")})
     token=extract_token(response)
     results={}
+    originals={}
     for label,table_id in TABLES.items():
         path=API+"/tables/"+table_id
         schema=list(pages(path+"/fields",token))
         records=list(pages(path+"/records",token))
+        originals[label]=records
         data=summarize(schema,records)
         data["name_collisions"]={n:collisions(records,n) for n in
             ("Quote Full Name","Quote Name","Quotation Name","Quotation No","Source Key")
@@ -78,6 +142,7 @@ def main():
                    "progress":profile(sub,[{"field_name":"Progress %","type":2},
                                           {"field_name":"Current Stage","type":1}])}
         results[label]=data
+    results["FINANCIAL_JOIN"] = match_audit(originals)
     print("PROJECT_QUOTE_READONLY_AUDIT "+json.dumps(results,ensure_ascii=False,sort_keys=True))
     print("SOURCE_WRITES=0 SOURCE_VALUES_LOGGED=0")
 
