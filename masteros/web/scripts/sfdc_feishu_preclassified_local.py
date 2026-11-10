@@ -240,3 +240,50 @@ def search_reference(term="",limit=20):
                 "contact_id":x[5],"contact_external_id":x[6],
                 "identity_status":x[7]} for x in items],
             "salesforce_write":False,"feishu_writes":0,"local_only":True}
+
+
+def identity_candidates(term,limit=15):
+    """Search preclassified local reference identities, not live Salesforce.
+
+    Each suggestion retains its source Quote, Account and Contact together.
+    Same-name contacts at different institutions are never merged; IDs
+    are reference evidence only, not confirmation of current CRM linkage.
+    """
+    if (not isinstance(term,str) or not 1<=len(term.strip())<=80 or
+        not isinstance(limit,int) or not 1<=limit<=25):
+        raise report.FeishuSourceError("IDENTITY_QUERY_INVALID")
+    if status().get("status")!="PASS":
+        raise report.FeishuSourceError("PRECLASSIFIED_INDEX_NOT_READY")
+    needle=term.strip().replace("\\","\\\\").replace("%","\\%").replace("_","\\_")
+    match="%"+needle+"%"
+    with _open() as cx:
+        records=cx.execute("""SELECT qid,account_id,account_name,
+              contact_id,contact_external_id,contact_name,contact_email,
+              identity_status
+              FROM quote_reference
+              WHERE (contact_name LIKE ? ESCAPE '\\'
+                 OR account_name LIKE ? ESCAPE '\\'
+                 OR contact_email LIKE ? ESCAPE '\\'
+                 OR contact_external_id LIKE ? ESCAPE '\\')
+              AND account_name!='' AND contact_name!=''
+              ORDER BY qid DESC LIMIT 250""",
+              (match,match,match,match)).fetchall()
+    distinct=set()
+    candidates=[]
+    for r in records:
+        # Retain institution in key even for homonymous Contacts without 003 IDs.
+        identity=(r[1],r[2],r[3],r[4],r[5],r[6])
+        if identity in distinct:continue
+        distinct.add(identity)
+        candidates.append({
+            "source_qid":r[0],"account_id":r[1],"account_name":r[2],
+            "contact_id":r[3],"contact_external_id":r[4],
+            "contact_name":r[5],"contact_email":r[6],
+            "identity_status":r[7],
+            "crm_contact_verified":bool(CONTACT.fullmatch(r[3] or "")),
+            "crm_account_verified":bool(ACCOUNT.fullmatch(r[1] or ""))
+        })
+        if len(candidates)>=limit:break
+    return {"status":"PASS","source":"FEISHU_PRECLASSIFIED_QUOTE_REFERENCES",
+        "rows":candidates,"source_only":True,"salesforce_write":False,
+        "feishu_writes":0,"local_only":True}
