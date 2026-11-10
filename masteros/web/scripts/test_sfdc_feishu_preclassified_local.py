@@ -122,6 +122,60 @@ class PreclassifiedLocalTests(unittest.TestCase):
             with self.assertRaisesRegex(base.FeishuSourceError,"IDENTITY_QUERY_INVALID"):
                 idx.identity_candidates("Kim",limit=300)
 
+    def test_opportunity_picker_reuses_exact_linked_quotes_and_never_merges_by_name(self):
+        with sqlite3.connect(str(idx.DB)) as cx:
+            cx.execute("""CREATE TABLE quote_reference (
+                qid TEXT, opportunity_external TEXT, opportunity_name TEXT,
+                account_id TEXT, account_name TEXT, contact_id TEXT,
+                contact_name TEXT, reference_status TEXT)""")
+            cx.executemany("INSERT INTO quote_reference VALUES(?,?,?,?,?,?,?,?)",[
+                ("QID-2026-11-09-000101","Opp-2026-11-09-101","Korea-Test-mRNA",
+                 "001000000000000AAA","Alpha University","003000000000000AAA",
+                 "Kim","REFERENCE_ONLY"),
+                ("QID-2026-11-09-000102","Opp-2026-11-09-101","Korea-Test-mRNA",
+                 "001000000000000AAA","Alpha University","003000000000000AAA",
+                 "Kim","HOLD"),
+                ("QID-2026-11-09-000103","Opp-2026-11-09-102","Korea-Test-mRNA",
+                 "001000000000000AAB","Beta University","003000000000000AAB",
+                 "Kim","REFERENCE_ONLY")
+            ])
+        with patch.object(idx,"status",return_value={"status":"PASS"}):
+            picked=idx.search_opportunities("Korea-Test-mRNA")
+            self.assertEqual(len(picked["rows"]),2)
+            first=next(x for x in picked["rows"]
+                if x["opportunity_external"]=="Opp-2026-11-09-101")
+            self.assertEqual(first["quote_count"],2)
+            self.assertEqual(first["group_status"],"PASS")
+            self.assertEqual(first["identity_evidence"],"HOLD_SOURCE_IDENTITY")
+            choices=idx.opportunity_quotes("Opp-2026-11-09-101")
+            self.assertEqual([x["qid"] for x in choices["quotes"]],
+                ["QID-2026-11-09-000102","QID-2026-11-09-000101"])
+            self.assertEqual(choices["source_only"],True)
+            self.assertEqual(choices["salesforce_write"],False)
+            self.assertEqual(idx.search_opportunities("Beta University")["rows"][0]["quote_count"],1)
+            with self.assertRaisesRegex(base.FeishuSourceError,"NOT_FOUND"):
+                idx.opportunity_quotes("Opp-2026-11-09-999")
+            with self.assertRaisesRegex(base.FeishuSourceError,"INVALID"):
+                idx.opportunity_quotes("006=1 OR 1=1")
+
+    def test_opportunity_reference_identity_conflict_blocks_automatic_quote_choice(self):
+        with sqlite3.connect(str(idx.DB)) as cx:
+            cx.execute("""CREATE TABLE quote_reference (
+                qid TEXT, opportunity_external TEXT, opportunity_name TEXT,
+                account_id TEXT, account_name TEXT, contact_id TEXT,
+                contact_name TEXT, reference_status TEXT)""")
+            cx.executemany("INSERT INTO quote_reference VALUES(?,?,?,?,?,?,?,?)",[
+                ("QID-2026-11-09-000301","Opp-2026-11-09-300","Same Oppo",
+                 "001000000000000AAA","Alpha","003000000000000AAA","Kim","REFERENCE_ONLY"),
+                ("QID-2026-11-09-000302","Opp-2026-11-09-300","Same Oppo",
+                 "001000000000000AAB","Beta","003000000000000AAB","Kim","REFERENCE_ONLY")
+            ])
+        with patch.object(idx,"status",return_value={"status":"PASS"}):
+            rows=idx.search_opportunities("Same Oppo")["rows"]
+            self.assertEqual(rows[0]["group_status"],"HOLD_AMBIGUOUS_PARENT")
+            with self.assertRaisesRegex(base.FeishuSourceError,"HOLD_AMBIGUOUS_PARENT"):
+                idx.opportunity_quotes(rows[0]["opportunity_external"])
+
     def test_missing_sqlite_returns_block(self):
         self.assertEqual(idx.status()["status"],"BLOCK")
 
