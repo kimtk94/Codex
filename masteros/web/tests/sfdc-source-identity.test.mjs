@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {reconcileQuoteSource,applyVerifiedSource} from "../lib/sfdc-source-identity.mjs";
+import {reconcileQuoteSource,applyVerifiedSource,canonicalSalesforceId,sameSalesforceId} from "../lib/sfdc-source-identity.mjs";
 
 const f={status:"PASS",sfdc_record_id:"a0PABCDEFGHIJKL",
   reference:{accountId:"001ABCDEFGHIJKL",contactExternalId:"Contact-2026-001",
@@ -69,4 +69,45 @@ test("CHANGE mode never overwrites customer selection",()=>{
     referenceAccount:{id:f.reference.accountId},account:{id:"OTHER"},
     contact:{id:"OTHER"},products:[]};
   assert.equal(applyVerifiedSource(d,r),d);
+});
+
+test("Salesforce 15 and checksum-verified 18 character IDs are the same record",()=>{
+  const a15="001ABCDEFGHIJKL";
+  const a18="001ABCDEFGHIJKLY55";
+  assert.equal(canonicalSalesforceId(a18,"001"),a15);
+  assert.equal(sameSalesforceId(a15,a18,"001"),true);
+  assert.equal(sameSalesforceId(a15,a18.slice(0,15)+"XXX","001"),false);
+  assert.equal(sameSalesforceId(a15,a15.toLowerCase(),"001"),false);
+  assert.equal(sameSalesforceId(a15,"001ABCDEFGHIJKM","001"),false);
+});
+
+test("Feishu 15-character Account and Salesforce 18-character Account reconcile",()=>{
+  const fx={...f,reference:{...f.reference,accountId:"001ABCDEFGHIJKL"}};
+  const qx={...q,id:"a0PABCDEFGHIJKL255",opportunityId:"006ABCDEFGHIJKLY55",
+    accountId:"001ABCDEFGHIJKLY55",contactId:"003ABCDEFGHIJKLY55"};
+  const ox={...o,id:"006ABCDEFGHIJKL",accountId:"001ABCDEFGHIJKL",
+    contactId:"003ABCDEFGHIJKL"};
+  const r=reconcileQuoteSource(fx,qx,ox);
+  assert.equal(r.status,"PASS",r.code);
+  assert.equal(r.account.id,ox.accountId);
+  assert.equal(sameSalesforceId(r.account.id,qx.accountId,"001"),true);
+  const draft={sourceQuoteId:fx.sfdc_record_id,accountMode:"KEEP",
+    referenceAccount:{id:fx.reference.accountId,name:"Old"},
+    account:{id:fx.reference.accountId,name:"Old"},contact:{id:"",name:"Old"},
+    products:[{samples:"48",productionGb:"12",sampleUnitKrw:"25000"}],
+    referenceDefaults:{account:{id:fx.reference.accountId},contact:{id:""}}};
+  const hydrated=applyVerifiedSource(draft,r);
+  assert.equal(hydrated.contact.id,ox.contactId);
+  assert.equal(sameSalesforceId(hydrated.contact.id,qx.contactId,"003"),true);
+  assert.equal(hydrated.products[0].samples,"48");
+  assert.equal(hydrated.products[0].sampleUnitKrw,"25000");
+  assert.equal(hydrated.sourceOpportunityId,ox.id);
+  assert.equal(hydrated.crmSavePermitted,undefined);
+});
+
+test("Invalid Salesforce 18-character checksum never authorizes source inheritance",()=>{
+  const bad={...q,id:"a0PABCDEFGHIJKLZZZ"};
+  const result=reconcileQuoteSource(f,bad,o);
+  assert.equal(result.status,"HOLD");
+  assert.equal(result.canSave,false);
 });
