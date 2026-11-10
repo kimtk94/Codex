@@ -1,0 +1,79 @@
+name: CSS Unanswered Reply Review 60D
+
+on:
+  pull_request:
+    paths:
+      - 'automation/css_mail/unanswered_reply_review.py'
+      - 'automation/css_mail/test_unanswered_reply_review.py'
+      - '.github/workflows/css-unanswered-reply-review.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css_mail/unanswered_reply_review.py'
+      - 'automation/css_mail/test_unanswered_reply_review.py'
+      - '.github/workflows/css-unanswered-reply-review.yml'
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['CSS QQ Mail Read-only Probe']
+    types: [completed]
+  schedule:
+    # Independent fallback checks: 09:20 and 16:20 KST.
+    - cron: '20 0,7 * * 1-5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: css-unanswered-reply-review-60d
+  cancel-in-progress: false
+
+jobs:
+  offline-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate syntax and evidence regression (no secrets)
+        run: |
+          python3 -m py_compile automation/css_mail/unanswered_reply_review.py
+          python3 -m unittest discover -s automation/css_mail -p 'test_unanswered_reply_review.py' -v
+
+  update-review:
+    needs: offline-test
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 18
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_SHEET_ID: 1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Sheets reader
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Publish separate 60-day review and source evidence counts
+        run: python3 automation/css_mail/unanswered_reply_review.py
+      - name: Job summary
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+        run: |
+          {
+            echo "## CSS Unanswered Reply Review"
+            echo "- Result: $RESULT"
+            echo "- Target: Novogene_All_Emails / Unanswered Reply Review 60D"
+            echo "- Audit: Unanswered Reply Audit"
+            echo "- Coverage: staging metadata only; not proof of mailbox-complete replies."
+            echo "- No email is sent. Legacy review/exclusion decisions are untouched."
+          } >> "$GITHUB_STEP_SUMMARY"
