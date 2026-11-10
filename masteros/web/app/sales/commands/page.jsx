@@ -230,6 +230,7 @@ export default function SfdcCommandCenter(){
       <div className={styles.navigation}>
         <Link href="/sales/commands/pair">Oppo → Quote 통합 검증</Link>
         <Link href="/sales/projects">프로젝트</Link>
+        <Link href="/sales/mail">메일 · Lead</Link>
         <button type="button" onClick={loadHealth} disabled={healthBusy}>{healthBusy?"점검 중":"Health Check"}</button>
       </div>
     </header>
