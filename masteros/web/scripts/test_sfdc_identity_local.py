@@ -20,18 +20,18 @@ class SearchTests(unittest.TestCase):
             cx.executescript("""
               CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
               CREATE TABLE quote_reference(
-                qid TEXT,account_id TEXT,account_name TEXT,contact_id TEXT,
+                qid TEXT,quote_record_id TEXT,account_id TEXT,account_name TEXT,contact_id TEXT,
                 contact_external_id TEXT,contact_name TEXT,contact_email TEXT);
             """)
             cx.executemany("INSERT INTO meta VALUES(?,?)",[
               ("quote_count","4"),
               ("index_refreshed_utc","2026-11-10T09:30:00+00:00")
             ])
-            cx.executemany("INSERT INTO quote_reference VALUES(?,?,?,?,?,?,?)",[
-              ("QID-4","001000000000000AAA","연세대학교","003000000000000AAA","","김지훈","a@x.test"),
-              ("QID-3","001000000000000AAB","의료원","003000000000000AAB","","김지훈","b@x.test"),
-              ("QID-2","001000000000000AAA","연세대학교","003000000000000AAA","","김지훈","a@x.test"),
-              ("QID-1","001000000000000AAC","","003000000000000AAC","","김지훈","c@x.test")
+            cx.executemany("INSERT INTO quote_reference VALUES(?,?,?,?,?,?,?,?)",[
+              ("QID-4","a0P000000000000AAA","001000000000000AAA","연세대학교","003000000000000AAA","","김지훈","a@x.test"),
+              ("QID-3","a0P000000000000AAB","001000000000000AAB","의료원","003000000000000AAB","","김지훈","b@x.test"),
+              ("QID-2","a0P000000000000AAA","001000000000000AAA","연세대학교","003000000000000AAA","","김지훈","a@x.test"),
+              ("QID-1","","001000000000000AAC","","003000000000000AAC","","김지훈","c@x.test")
             ])
             cx.commit()
     def tearDown(self):self.tmp.cleanup()
@@ -43,6 +43,7 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(len(result["rows"]),2)
         self.assertEqual({r["account_name"] for r in result["rows"]},{"연세대학교","의료원"})
         self.assertTrue(all(r["crm_contact_verified"] for r in result["rows"]))
+        self.assertTrue(all(r["source_quote_id"].startswith("a0P") for r in result["rows"]))
     def test_institution_query_finds_attached_contact(self):
         result=read_identity_index("연세",now=NOW,db=self.path)
         self.assertEqual(len(result["rows"]),1)
