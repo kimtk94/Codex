@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback,useEffect,useMemo,useState} from "react";
+import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import Link from "next/link";
 import styles from "./page.module.css";
 
@@ -49,7 +49,52 @@ export default function LocalMailConsole(){
   const [action,setAction]=useState("SKIP_MAIL");
   const [target,setTarget]=useState("");
   const [note,setNote]=useState("");
+  const [confirming,setConfirming]=useState(null);
+  const dialogRef=useRef(null);
   const pageSize=40;
+
+  const closeDialog=useCallback(()=>{
+    if(busy)return;
+    setSelected(null);
+    setConfirming(null);
+    setError("");
+  },[busy]);
+  useEffect(()=>{
+    if(!selected&&!confirming)return;
+    const previous=document.activeElement;
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    const id=window.requestAnimationFrame(()=>{
+      dialogRef.current?.querySelector("button,select,input")?.focus();
+    });
+    const onKeyDown=(event)=>{
+      if(event.key==="Escape"){
+        event.preventDefault();
+        closeDialog();
+      }
+      if(event.key==="Tab"&&dialogRef.current){
+        const elements=[...dialogRef.current.querySelectorAll(
+          'button:not([disabled]),input:not([disabled]),select:not([disabled])'
+        )].filter(el=>el.getClientRects().length);
+        if(!elements.length)return;
+        const first=elements[0],last=elements[elements.length-1];
+        if(event.shiftKey&&document.activeElement===first){
+          event.preventDefault();
+          last.focus();
+        }else if(!event.shiftKey&&document.activeElement===last){
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown",onKeyDown);
+    return ()=>{
+      document.removeEventListener("keydown",onKeyDown);
+      window.cancelAnimationFrame(id);
+      document.body.style.overflow=previousOverflow;
+      if(previous?.isConnected&&typeof previous.focus==="function")previous.focus();
+    };
+  },[Boolean(selected),Boolean(confirming),closeDialog]);
 
   const refresh=useCallback(async()=>{
     setLoading(true);setError("");
@@ -86,13 +131,24 @@ export default function LocalMailConsole(){
   const options=selected?emails(selected.to).filter(x=>!emails(selected.cc).includes(x)||selected.role==="CC_ONLY"):[];
   function selectMail(item){
     setSelected(item);
+    setConfirming(null);
+    setError("");
     setAction("SKIP_MAIL");
     setTarget(emails(item.to)[0]||"");
     setNote("");
   }
-  async function write(payload,caption){
+  function write(payload,caption){
     if(busy||loading)return;
-    if(!window.confirm(caption+"\n\n이 작업은 검토 대상/규칙표에 반영됩니다. 메일은 삭제되지 않습니다."))return;
+    setError("");
+    setConfirming({payload,caption});
+  }
+  async function confirmWrite(){
+    if(busy||loading||!confirming)return;
+    const {payload}=confirming;
+    if(data?.mailSourceStatus!=="FRESH"){
+      setError("메일 원본 갱신이 지연되었습니다. 새로고침 후 다시 검토하세요.");
+      return;
+    }
     setBusy(true);setError("");setNotice("");
     try{
       const response=await fetch("/api/css/mail-local",{
@@ -103,10 +159,11 @@ export default function LocalMailConsole(){
       const result=await response.json();
       if(!response.ok||result.status!=="PASS")throw Error(result.code||"SAVE_FAILED");
       setNotice("적용 완료: "+result.result+" · 기존 원본 메일과 SFDC는 변경하지 않았습니다.");
-      setSelected(null);setNote("");
+      setSelected(null);setNote("");setConfirming(null);
       await refresh();
-    }catch(err){setError("규칙 적용 실패: "+(err?.message||"UNKNOWN"))}
-    finally{setBusy(false)}
+    }catch(err){
+      setError("규칙 적용 실패: "+(err?.message||"UNKNOWN"));
+    }finally{setBusy(false)}
   }
   function submitSelected(){
     if(!selected)return;
@@ -166,9 +223,9 @@ export default function LocalMailConsole(){
     </section>
 
     <nav className={styles.tabs} aria-label="메일 검토 메뉴">
-      <button type="button" aria-pressed={tab==="mail"} onClick={()=>{setTab("mail");setQ("");setSelected(null)}}>미회신 검토</button>
-      <button type="button" aria-pressed={tab==="rules"} onClick={()=>{setTab("rules");setQ("");setSelected(null)}}>넘김 · CC 규칙</button>
-      <button type="button" aria-pressed={tab==="leads"} onClick={()=>{setTab("leads");setQ("");setSelected(null)}}>Lead 발송 이력</button>
+      <button type="button" aria-pressed={tab==="mail"} onClick={()=>{setTab("mail");setQ("");setSelected(null);setConfirming(null)}}>미회신 검토</button>
+      <button type="button" aria-pressed={tab==="rules"} onClick={()=>{setTab("rules");setQ("");setSelected(null);setConfirming(null)}}>넘김 · CC 규칙</button>
+      <button type="button" aria-pressed={tab==="leads"} onClick={()=>{setTab("leads");setQ("");setSelected(null);setConfirming(null)}}>Lead 발송 이력</button>
     </nav>
 
     {tab==="mail"&&<section className={styles.panel}>
@@ -202,26 +259,65 @@ export default function LocalMailConsole(){
       {pageButtons(mailPage,messages.length,setMailPage)}
     </section>}
 
-    {tab==="mail"&&selected&&<section className={styles.decision} aria-label="메일 처리">
-      <div className={styles.panelHead}><div><h2>선택한 메일 처리</h2>
-        <p>{selected.sender} · {selected.subject}</p></div>
-        <button type="button" onClick={()=>setSelected(null)}>닫기</button></div>
-      <div className={styles.decisionBody}>
-        <label>처리 유형<select value={action} onChange={e=>setAction(e.target.value)}>
-          {MAIL_ACTIONS.map(a=><option key={a.id} value={a.id} disabled={a.id!=="SKIP_MAIL"&&selected.role!=="CC_ONLY"}>{a.label}</option>)}
-        </select></label>
-        {action==="SKIP_CC_TO"&&<label>제외할 To 주소
-          <select value={target} onChange={e=>setTarget(e.target.value)}>
-            {options.map(x=><option key={x} value={x}>{x}</option>)}
-          </select>
-        </label>}
-        <label>검토 메모 (선택)<input value={note} maxLength={300}
-          onChange={e=>setNote(e.target.value)} placeholder="넘기는 이유"/></label>
-        <button className={styles.primary} type="button" disabled={busy||loading||data?.mailSourceStatus!=="FRESH"||(action==="SKIP_CC_TO"&&!target)}
-          onClick={submitSelected}>{busy?"적용 중":"확인 후 적용"}</button>
-      </div>
-      <p className={styles.footnote}>개별 넘기기는 정확한 메일 한 건에만 적용됩니다. CC 규칙은 내가 직접 To로 받은 메일에는 적용되지 않습니다.</p>
-    </section>}
+    {(selected||confirming)&&<div className={styles.modalBackdrop}
+      onMouseDown={event=>{if(event.target===event.currentTarget)closeDialog()}}>
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="mail-review-dialog-title"
+        className={styles.modal} data-testid="mail-review-dialog">
+        <header className={styles.modalHead}>
+          <div><p className={styles.eyebrow}>MAIL REVIEW · LOCAL ONLY</p>
+            <h2 id="mail-review-dialog-title">{confirming?"처리 내용 최종 확인":"선택한 메일 처리"}</h2>
+          </div>
+          <button type="button" onClick={closeDialog} disabled={busy} aria-label="메일 처리 창 닫기">✕</button>
+        </header>
+        {selected&&<div className={styles.mailSummary}>
+          <b>{selected.subject}</b>
+          <span>{selected.sender}</span>
+          <small>To: {selected.to||"—"} · Cc: {selected.cc||"—"}</small>
+          <small>수신 유형: {selected.role} · {selected.received}</small>
+        </div>}
+        {error&&<p role="alert" className={styles.modalError}>{error}</p>}
+        {confirming?<div className={styles.modalContents}>
+          <h3>{confirming.caption}</h3>
+          <p>이메일을 보내거나 삭제하지 않으며, 검토 규칙표에만 기록합니다.</p>
+          <div className={styles.modalButtons}>
+            <button type="button" onClick={()=>{setConfirming(null);setError("")}} disabled={busy}>
+              {selected?"이전으로":"취소"}
+            </button>
+            <button type="button" className={styles.primary} data-testid="confirm-review-action"
+              disabled={busy||loading||data?.mailSourceStatus!=="FRESH"}
+              onClick={confirmWrite}>{busy?"저장 중…":"확인하고 저장"}</button>
+          </div>
+        </div>:selected?<div className={styles.modalContents}>
+          <label>처리 유형
+            <select value={action} onChange={e=>setAction(e.target.value)}>
+              {MAIL_ACTIONS.map(a=><option key={a.id} value={a.id}
+                disabled={a.id!=="SKIP_MAIL"&&selected.role!=="CC_ONLY"}>{a.label}</option>)}
+            </select>
+          </label>
+          {action==="SKIP_CC_TO"&&<label>제외할 To 주소
+            <select value={target} onChange={e=>setTarget(e.target.value)}>
+              {options.map(x=><option key={x} value={x}>{x}</option>)}
+            </select>
+          </label>}
+          <label>검토 메모 (선택)
+            <input value={note} maxLength={300} onChange={e=>setNote(e.target.value)}
+              placeholder="넘기는 이유"/>
+          </label>
+          {selected.role!=="CC_ONLY"&&<p className={styles.modalHint}>
+            직접 To로 받은 메일은 개별 넘기기만 가능합니다. CC 제외 규칙은 적용되지 않습니다.
+          </p>}
+          {data?.mailSourceStatus!=="FRESH"&&<p className={styles.modalError}>
+            메일 검토 자료가 최신 상태가 아니어서 저장을 차단했습니다. 먼저 새로고침하세요.
+          </p>}
+          <div className={styles.modalButtons}>
+            <button type="button" onClick={closeDialog}>취소</button>
+            <button className={styles.primary} type="button"
+              disabled={busy||loading||data?.mailSourceStatus!=="FRESH"||(action==="SKIP_CC_TO"&&!target)}
+              onClick={submitSelected}>다음 · 적용 내용 확인</button>
+          </div>
+        </div>:null}
+      </section>
+    </div>}
 
     {tab==="rules"&&<section className={styles.panel}>
       <div className={styles.panelHead}><div><h2>활성 CC 제외 규칙</h2>
