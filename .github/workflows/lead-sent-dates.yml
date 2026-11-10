@@ -1,0 +1,79 @@
+name: Lead Personal Sent Dates (SFDC + QQ)
+on:
+  pull_request:
+    paths:
+      - 'automation/css/lead_sent_dates.py'
+      - 'automation/css/test_lead_sent_dates.py'
+      - '.github/workflows/lead-sent-dates.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/css/lead_sent_dates.py'
+      - 'automation/css/test_lead_sent_dates.py'
+      - '.github/workflows/lead-sent-dates.yml'
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['SFDC Three Report Mail Digestion']
+    types: [completed]
+  schedule:
+    - cron: '45 8 * * 1-5' # 17:45 KST weekdays
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lead-personal-sent-dates-full
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install minimal Google client
+        run: python -m pip install 'google-api-python-client>=2.0,<3' 'google-auth>=2.20,<3'
+      - name: Check offline Lead date reconciliation
+        run: |
+          python -m py_compile automation/css/lead_sent_dates.py
+          python -m unittest discover -s automation/css -p 'test_lead_sent_dates.py' -v
+
+  report:
+    needs: test
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    env:
+      NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      SFDC_SHEET_ID: 1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI
+      CSS_SHEET_ID: 1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'google-api-python-client>=2.0,<3' 'google-auth>=2.20,<3'
+      - name: Write verified all-Lead first and last personal sent dates
+        run: python automation/css/lead_sent_dates.py
+      - name: Operational summary
+        if: always()
+        env:
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          {
+            echo '## Lead Personal Sent Dates'
+            echo "- Status: $JOB_RESULT"
+            echo '- Source: fresh SFDC Lead Report + QQ All Emails / CSS Git Ingest.'
+            echo '- Destination: SFDC_Automation_Followup_2026 / Lead Sent Dates.'
+            echo '- Only exact authorized personal From counts; TO and CC separately.'
+            echo '- NO_PERSONAL_OUTBOUND_EVIDENCE is not proof that no communication occurred.'
+            echo '- No email or CRM writes.'
+          } >> "$GITHUB_STEP_SUMMARY"

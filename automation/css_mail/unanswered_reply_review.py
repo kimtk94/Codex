@@ -15,6 +15,7 @@ from collections import Counter, defaultdict
 import incremental_sync as src
 import canonical_mail_reader as canonical
 from unanswered_auto import addresses, norm_subject, truth, when, table
+import unanswered_review_decisions as decisions
 
 TAB = "Unanswered Reply Review 60D"
 AUDIT = "Unanswered Reply Audit"
@@ -288,8 +289,102 @@ def url_for(tab, region):
 
 
 def sheet_titles(session):
-    meta = src.api(session, "GET", src.endpoint() + "?fields=sheets.properties(title,gridProperties)")
+    meta = src.api(session, "GET", src.endpoint() + "?fields=sheets.properties(sheetId,title,gridProperties)")
     return {v["properties"]["title"]:v["properties"] for v in meta.get("sheets", [])}
+
+
+def read_rows(session, name, end="X2000"):
+    return src.api(session, "GET", url_for(name, "A1:" + end)).get("values", [])
+
+
+def ensure_ledger(session, name, header):
+    found = sheet_titles(session)
+    if name not in found:
+        src.api(session, "POST", src.endpoint(":batchUpdate"), json={"requests":[
+            {"addSheet":{"properties":{"title":name,"gridProperties":{
+                "rowCount":2000,"columnCount":max(12,len(header)),
+                "frozenRowCount":1
+            }}}}
+        ]})
+    rows = read_rows(session, name, "H2000")
+    if not rows:
+        src.api(session, "PUT", url_for(name, "A1") + "?valueInputOption=RAW",
+                json={"values":[header]})
+        return [header]
+    if list(rows[0]) != header:
+        raise RuntimeError("MANUAL_LEDGER_SCHEMA_CHANGED_" + name)
+    return rows
+
+
+def append_ledger(session, name, header, entries):
+    if not entries:
+        return
+    latest = read_rows(session, name, "H2000")
+    if not latest or list(latest[0]) != header:
+        raise RuntimeError("MANUAL_LEDGER_CHANGED_" + name)
+    # Fail closed if another run has already appended the same identity.
+    key_idx = 2
+    keys = {(str(r[1]).strip().upper(), str(r[key_idx]).strip().casefold())
+            for r in latest[1:] if len(r)>key_idx}
+    for item in entries:
+        k = (str(item[1]).strip().upper(), str(item[2]).strip().casefold())
+        if k in keys:
+            raise RuntimeError("CONCURRENT_REVIEW_LEDGER_APPEND")
+        keys.add(k)
+    src.api(session, "POST", url_for(name, "A1:H2000") +
+            ":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+            json={"values":entries})
+    verify = read_rows(session, name, "H2000")
+    after = {(str(r[1]).strip().upper(), str(r[2]).strip().casefold())
+             for r in verify[1:] if len(r)>2}
+    if any((str(item[1]).strip().upper(), str(item[2]).strip().casefold())
+           not in after for item in entries):
+        raise RuntimeError("REVIEW_LEDGER_APPEND_READBACK_FAILED")
+
+
+def publish_review(session, records, expected_queue):
+    current = sheet_titles(session)
+    head = HEAD + decisions.APPEND_HEAD
+    if TAB not in current:
+        raise RuntimeError("GENERATED_REVIEW_TAB_MISSING")
+    props = current[TAB]
+    if props["gridProperties"]["rowCount"] < len(records)+1:
+        raise RuntimeError("REVIEW_QUEUE_TOO_MANY_ROWS")
+    if props["gridProperties"].get("columnCount",0) < len(head):
+        src.api(session,"POST",src.endpoint(":batchUpdate"),json={"requests":[
+            {"updateSheetProperties":{"properties":{
+                "sheetId":props["sheetId"],"gridProperties":{"columnCount":len(head)}
+            },"fields":"gridProperties.columnCount"}}
+        ]})
+    before = read_rows(session, TAB)
+    if before and list(before[0]) not in (HEAD, head):
+        raise RuntimeError("REVIEW_QUEUE_HEADER_CHANGED")
+    if before != expected_queue:
+        raise RuntimeError("REVIEWER_EDIT_CHANGED_DURING_SYNC")
+    # Decisions were already durably committed. All input rows are consumed.
+    # Future updates rebuild the 60-day list; manual history stays in ledgers.
+    data = [head] + records
+    src.api(session,"PUT",url_for(TAB,"A1")+"?valueInputOption=RAW",
+            json={"values":data})
+    readback = read_rows(session, TAB, "X" + str(len(data)))
+    if len(readback)!=len(data) or readback[0]!=head or any(
+        str(r[14]) != str(data[i][14]) for i,r in enumerate(readback[1:],start=1)
+    ):
+        raise RuntimeError("REVIEW_QUEUE_READBACK_MISMATCH")
+    if len(data)<2000:
+        src.api(session,"POST",url_for(TAB,"A"+str(len(data)+1)+":X2000")+
+                ":clear",json={})
+    # Only U is editable action selection. T is read-only receipt role.
+    src.api(session,"POST",src.endpoint(":batchUpdate"),json={"requests":[
+        {"setDataValidation":{"range":{"sheetId":props["sheetId"],
+           "startRowIndex":1,"endRowIndex":2000,
+           "startColumnIndex":20,"endColumnIndex":21},
+         "rule":{"condition":{"type":"ONE_OF_LIST","values":[
+            {"userEnteredValue":"SKIP_MAIL"},
+            {"userEnteredValue":"SKIP_CC_TO"},
+            {"userEnteredValue":"SKIP_CC_SENDER"}]},
+          "showCustomUi":True,"strict":True}}}
+    ]})
 
 
 def publish(session, title, header, records):
@@ -368,10 +463,37 @@ def main():
                 "POSSIBLE_SUBJECT_MATCH","EXCLUDED_MESSAGES","ROWS_WRITTEN",
                 "TRUNCATED","SOURCE_LAST_FETCH_UTC","SOURCE_LAST_FETCH_AGE_HOURS"):
         audit.append([key, counts.get(key,0), "Counts from available canonical staging"])
-    publish(session, TAB, HEAD, results)
+    decision_rows = ensure_ledger(session, decisions.DECISIONS_TAB, decisions.DECISION_HEAD)
+    routing_rows = ensure_ledger(session, decisions.RULES_TAB, decisions.RULE_HEAD)
+    queue_col_count = sheet_titles(session)[TAB]["gridProperties"].get("columnCount", 0)
+    queue_rows = read_rows(session, TAB, "X2000" if queue_col_count >= 24 else "S2000")
+    if not queue_rows:
+        queue_rows = [HEAD]
+    new_mail, new_rules = decisions.plan(
+        queue_rows, results, decision_rows, routing_rows, own
+    )
+    append_ledger(session, decisions.DECISIONS_TAB, decisions.DECISION_HEAD, new_mail)
+    append_ledger(session, decisions.RULES_TAB, decisions.RULE_HEAD, new_rules)
+    combined_mail = decision_rows + new_mail
+    combined_rules = routing_rows + new_rules
+    visible, review_stats = decisions.filtered_queue(
+        results, combined_mail, combined_rules, own
+    )
+    if not results and queue_rows and len(queue_rows)>1:
+        raise RuntimeError("EMPTY_SOURCE_REVIEW_WOULD_CLEAR_QUEUE")
+    audit.extend([
+        ["SKIP_MAIL_NEW",len(new_mail),"Explicit manual per-message action"],
+        ["SKIP_CC_RULE_NEW",len(new_rules),"Exact address, CC-only"],
+        ["VISIBLE_AFTER_REVIEW",len(visible),"Manual skips and active rules applied"],
+    ])
+    for k,v in sorted(review_stats.items()):
+        audit.append([k,v,"Manual decisions and CC-only routing"])
+    publish_review(session, visible, queue_rows)
     publish(session, AUDIT, AUDIT_HEAD, audit)
+    guide_rows = decisions.guide()
+    publish(session, "Unanswered Reply Guide", guide_rows[0], guide_rows[1:])
     print("CSS_UNANSWERED_REPLY_REVIEW_PASS " + json.dumps({
-        "candidate_rows":len(results), "exact_replies":counts["EXACT_REPLY_EVIDENCE"],
+        "candidate_rows":len(results), "visible":len(visible), "new_skip":len(new_mail), "new_cc_rules":len(new_rules), "exact_replies":counts["EXACT_REPLY_EVIDENCE"],
         "possible_reply":counts["POSSIBLE_SUBJECT_MATCH"],
         "source_age_h":last_fetch, "truncated":counts["TRUNCATED"],
         "coverage":"STAGING_METADATA_PARTIAL_HISTORY"
