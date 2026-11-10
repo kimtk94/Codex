@@ -521,6 +521,9 @@ def run(request):
     if mode=="REFERENCE_STATUS":
         import sfdc_feishu_preclassified_local as pre
         return pre.status()
+    if mode=="IDENTITY_SEARCH":
+        import sfdc_feishu_preclassified_local as pre
+        return pre.identity_candidates(request.get("query",""),request.get("limit",15))
     if mode=="SEARCH":return search(request.get("query",""),request.get("limit",25))
     if mode=="DETAIL":return detail(request.get("id"))
     raise FeishuSourceError("FEISHU_READ_ONLY_MODE_REQUIRED")
