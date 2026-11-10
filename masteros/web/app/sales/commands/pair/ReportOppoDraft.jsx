@@ -1,7 +1,7 @@
 "use client";
 
 import {useMemo,useState} from "react";
-import {fromFeishuQuote,calculateDraft,draftDescription,draftPreflight,descriptionBasis,descriptionReview,draftChanges}
+import {fromFeishuQuote,calculateDraft,opportunityUnitPriceSummary,draftDescription,draftPreflight,descriptionBasis,descriptionReview,draftChanges}
   from "../../../../lib/sfdc-report-quote-draft.mjs";
 import styles from "./page.module.css";
 import SourceSalesforceEvidence from "./SourceSalesforceEvidence";
@@ -34,6 +34,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
   const [chosenIdentity,setChosenIdentity]=useState(null);
   const [regionToAdd,setRegionToAdd]=useState({});
   const amounts=useMemo(()=>draft?calculateDraft(draft):null,[draft]);
+  const oppUnits=useMemo(()=>opportunityUnitPriceSummary(amounts),[amounts]);
   const changes=useMemo(()=>draft?draftChanges(draft):[],[draft]);
   const descriptionAuto=useMemo(()=>draft?draftDescription(draft,amounts):"",[draft,amounts]);
   const description=descriptionEdit===null?descriptionAuto:descriptionEdit;
@@ -306,6 +307,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
               " USD/"+(x.dataUnit||"단위 미확인")).join(" · ")}
           </p>
           <div className={styles.totals}>
+            <div><span>Oppo 샘플당 단가 · VAT 제외</span>
+              <strong>{money(oppUnits.ok?oppUnits.products[i]?.unitPriceNetKrw:null)}</strong></div>
+            {p.amplicon?.enabled&&<p className={styles.hint}>위 단가는 Region별 서비스를 모두 합친 생물학적 샘플 1개 기준 금액입니다. Region별 개별 단가와 구분합니다.</p>}
             <div><span>신규 Product 공급가액 · VAT 제외</span><strong>{money(item?.netKrw)}</strong></div>
             {p.amplicon?.enabled&&<div>
               <span>Region 서비스 횟수 · 생물학적 샘플과 별도</span>
@@ -314,7 +318,11 @@ export default function ReportOppoDraft({quote,enabled=true}){
           </div>
         </div>;
       })}
-      <div className={styles.totals}>
+      <div className={styles.totals} data-testid="oppo-price-summary">
+        <div><span>Opportunity 샘플당 단가 · VAT 제외</span>
+          <strong>{oppUnits.ok&&oppUnits.singleProduct?
+            money(oppUnits.overallPerSampleNetKrw):
+            oppUnits.ok?"제품별 단가 별도 표시":"단가 확인 필요"}</strong></div>
         <div><span>공급가액 합계 · VAT 제외</span><strong>{money(amounts?.netKrw)}</strong></div>
         <div><span>VAT 10%</span><strong>{money(amounts?.vatKrw)}</strong></div>
         <div className={styles.grand}><span>VAT 포함 예상액</span><strong>{money(amounts?.grossKrw)}</strong></div>
