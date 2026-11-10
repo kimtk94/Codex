@@ -22,7 +22,7 @@ test("review action requires explicit second confirmation without a blocking nat
 });
 test("dialog can close with Escape, has keyboard focus, and does not silently send",()=>{
   assert.match(page,/event\.key==="Escape"/);
-  assert.match(page,/modalRef\.current\?\.querySelector/);
+  assert.match(page,/dialogRef\.current\?\.querySelector/);
   assert.match(page,/document\.body\.style\.overflow="hidden"/);
   assert.match(page,/메일을 보내거나 삭제하지 않으며/);
 });
