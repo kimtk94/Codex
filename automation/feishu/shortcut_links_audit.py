@@ -14,7 +14,7 @@ from sales_native_home import (
     EXPECTED_BASE, BASE_URL, HOME, SHORTCUT_KEYS, MENUS,
     CHART_SHORTCUT_ENV, GRAPH_LINK_LABELS, PROJECT_OPS_DASHBOARD_ID,
     EXTERNAL_SHORTCUT_KEYS, table_map, list_views, target_path, valid_menu_url,
-    hyperlink,
+    hyperlink, weekly_editable_grid_url,
 )
 from shortcut_chart_dashboards import (
     CHARTS, expected_components, verify_components,
@@ -86,7 +86,7 @@ def target_routes(token,root,tables):
     return result
 
 
-def verify_persisted_shortcuts(records,targets):
+def verify_persisted_shortcuts(records,targets,editor_target=None):
     indexed={}
     for rec in records:
         fields=rec.get("fields") or {}
@@ -114,6 +114,13 @@ def verify_persisted_shortcuts(records,targets):
                           (parsed.get("view") or [None])[0])):
             raise SafeError("SHORTCUT_LINK_READBACK_MISMATCH_"+key)
         outcomes[key]=(expected,kind)
+    if editor_target is not None:
+        if not editor_target or "WEEKLY_TREND" not in indexed:
+            raise SafeError("WEEKLY_EDITOR_TARGET_NOT_VERIFIED")
+        edit=hyperlink(indexed["WEEKLY_TREND"].get("바로 편집"))
+        if edit!=("✎ Weekly Quote 편집 · 합산 제외",editor_target):
+            raise SafeError("WEEKLY_EDITOR_CLICKABLE_LINK_MISMATCH")
+        print("WEEKLY_EDITOR_LINK_VERIFIED "+editor_target,flush=True)
     return outcomes
 
 
@@ -127,7 +134,10 @@ def main():
         raise SafeError("SHORTCUT_HOME_TABLE_MISSING")
     targets=target_routes(token,root,tables)
     records=list_all(target_path(root,tid)+"/records",token,"shortcut_real_readback")
-    verified=verify_persisted_shortcuts(records,targets)
+    edit_target=weekly_editable_grid_url(token,root,tables)
+    if not edit_target:
+        raise SafeError("WEEKLY_EDITOR_VIEW_MISSING")
+    verified=verify_persisted_shortcuts(records,targets,edit_target)
     for key,(url,kind) in verified.items():
         print("SHORTCUT_LINK_VERIFIED "+key+" "+kind+" "+url,flush=True)
     print("SHORTCUT_LINK_AUDIT_PASS checked="+str(len(verified))+
