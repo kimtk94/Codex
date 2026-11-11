@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - 'masteros/web/lib/sfdc-commands.mjs'
+      - 'masteros/web/lib/sfdc-new-opportunity-defaults.mjs'
+      - 'masteros/web/lib/sfdc-quote-process-review.mjs'
+      - 'masteros/web/tests/css-lead-oppo-quote-workflow.test.mjs'
       - 'masteros/web/scripts/sfdc_action_executor.py'
       - 'masteros/web/scripts/feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
@@ -72,6 +75,9 @@ on:
   pull_request:
     paths:
       - 'masteros/web/lib/sfdc-commands.mjs'
+      - 'masteros/web/lib/sfdc-new-opportunity-defaults.mjs'
+      - 'masteros/web/lib/sfdc-quote-process-review.mjs'
+      - 'masteros/web/tests/css-lead-oppo-quote-workflow.test.mjs'
       - 'masteros/web/scripts/sfdc_action_executor.py'
       - 'masteros/web/scripts/feishu_sfdc_local_worker.py'
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
@@ -186,7 +192,7 @@ jobs:
       - name: Install local Next.js dependencies
         run: npm install --no-audit --no-fund
       - name: Test request validation, progress text and loopback security
-        run: node --test tests/sfdc-commands.test.mjs tests/sfdc-oppo-unit-price.test.mjs
+        run: node --test tests/sfdc-commands.test.mjs tests/sfdc-oppo-unit-price.test.mjs tests/css-lead-oppo-quote-workflow.test.mjs
       - name: Test record picker and immutable Progress Description source
         run: node --test tests/sfdc-record-picker.test.mjs tests/sfdc-identity-picker.test.mjs
       - name: Validate linked Quote price and Cloud quantity projection
