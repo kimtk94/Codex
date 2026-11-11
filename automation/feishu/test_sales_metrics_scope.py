@@ -23,7 +23,8 @@ class ScopeWriteTests(unittest.TestCase):
         paths={key:"/t/"+key for key in m.SCHEMAS}
         with self.base("quote"), \
              mock.patch.object(m,"sheet_sources",return_value={}), \
-             mock.patch.object(m,"prepare_data",return_value=output()), \
+             mock.patch.object(m,"prepare_data",side_effect=AssertionError("Monthly Revenue must not block Quote")) as monthly_gate, \
+             mock.patch.object(m,"monthly_rows",side_effect=AssertionError("Unexpected Monthly computation")) as monthly_rows, \
              mock.patch.object(m,"auth",return_value=("token","/root")), \
              mock.patch.object(m,"ensure_tables",return_value=paths), \
              mock.patch.object(m,"setup_views"), \
@@ -36,6 +37,8 @@ class ScopeWriteTests(unittest.TestCase):
              mock.patch.object(m,"sync_table",return_value=(0,0,1)) as sink:
             m.main()
         qr.assert_called_once()
+        monthly_gate.assert_not_called()
+        monthly_rows.assert_not_called()
         board.assert_not_called()
         self.assertEqual(sink.call_count,1)
         self.assertEqual(sink.call_args.args[1],paths["Weekly Quote KPI"])
