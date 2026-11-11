@@ -126,7 +126,8 @@ class PortalTests(unittest.TestCase):
         self.assertEqual(result,base)
         self.assertEqual(views.call_count,1)
         with mock.patch.object(p,"list_views",return_value={
-            "그래프 연동 · 최근 5주 검토":"vewRecent5"}):
+            "그래프 연동 · 최근 5주 검토":"vewRecent5"}), \
+             mock.patch.object(p,"api",return_value={"items":[{"record_id":"recMock"}]}):
             rows=p.source_rows("token","root",{
                 "Weekly Quote Review":"tblReview1234"},None)
         weekly=next(r for r in rows if r["Menu Key"]=="WEEKLY_TREND")
