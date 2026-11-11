@@ -25,6 +25,26 @@ class TestMonthlyRevenueLayout(unittest.TestCase):
             s.apply("blkMonthly","apply")
             self.assertEqual(len([x for x in fn.call_args_list
                                   if x.args[0]=="+dashboard-block-update"]),6)
+    def test_feishu_auto_normalized_safe_vertical_order(self):
+        positions={
+            s.CHART:{"x":0,"y":0,"w":12,"h":12},
+            s.MONTHLY_LIST_NAME:{"x":0,"y":13,"w":12,"h":16},
+            s.NOTE:{"x":0,"y":30,"w":12,"h":6},
+        }
+        with mock.patch.object(s,"cli",side_effect=[payload(
+            {n:{"x":i*4,"y":0,"w":4,"h":7}
+             for i,n in enumerate(s.ORDER)})]+[{}]*6+[payload(positions)]):
+            s.apply("blkMonthly","apply")
+        normalized=s.inspect(payload(positions))
+        self.assertTrue(s.visual_order_correct(normalized))
+    def test_invalid_overlapping_auto_positions_fail(self):
+        wrong={n:dict(p) for n,p in s.POSITIONS.items()}
+        wrong[s.MONTHLY_LIST_NAME]["y"]=0
+        self.assertFalse(s.visual_order_correct(s.inspect(payload(wrong))))
+        wrong={n:dict(p) for n,p in s.POSITIONS.items()}
+        wrong[s.MONTHLY_LIST_NAME]["w"]=9
+        self.assertFalse(s.visual_order_correct(s.inspect(payload(wrong))))
+
     def test_wrong_ranking_type_blocks(self):
         data=payload()
         data["items"][1]["type"]="text"
