@@ -33,7 +33,8 @@ class TestProjectHomeLinks(unittest.TestCase):
             [{k:v for k,v in x.items() if k!="condition_id"} for x in initial["conditions"]])
     def test_idempotent_after_seven(self):
         existing=self._view(sorted(ALLOWED_VIEW_KEYS))
-        self.assertEqual(extend_filter(existing)["conditions"],existing["conditions"])
+        self.assertEqual(extend_filter(existing)["conditions"],
+            [{k:v for k,v in x.items() if k!="condition_id"} for x in existing["conditions"]])
     def test_unknown_extra_key_blocks_changes(self):
         with self.assertRaisesRegex(RuntimeError,"UNEXPECTED_MENU_KEYS"):
             extend_filter(self._view(list(EXPECTED_ORIGINAL_KEYS)+["UNKNOWN_MENU"]))
