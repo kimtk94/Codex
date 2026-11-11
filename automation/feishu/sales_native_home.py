@@ -133,6 +133,7 @@ COLOR_KEY_MAP={
 }
 MENU_EXTRA_FIELDS={
     "바로가기":{"field_name":"바로가기","type":15},
+    "바로 편집":{"field_name":"바로 편집","type":15},
     "표시순서":{"field_name":"표시순서","type":2},
     "메뉴 구분":{"field_name":"메뉴 구분","type":3,
                "property":{"options":[{"name":n,"color":c} for n,c in MENU_COLORS]}},
@@ -211,6 +212,17 @@ def table_map(token, root):
     return byname
 
 
+def weekly_editable_grid_url(token,root,tables):
+    """Use the existing editable source view, never the read-only dashboard widget."""
+    tid=tables.get("Weekly Quote Review")
+    if not tid:
+        return ""
+    path=target_path(root,tid)
+    view=list_views(token,path).get("그래프 연동 · 최근 5주 검토")
+    if not view or not view.startswith("vew") or not tid.startswith("tbl"):
+        return ""
+    return BASE_URL+"?table="+urllib.parse.quote(tid,safe="")+"&view="+urllib.parse.quote(view,safe="")
+
 def source_rows(token,root,tables,now):
     output = []
     cached = {}
@@ -260,6 +272,12 @@ def source_rows(token,root,tables,now):
         item["바로가기"]={"text":GRAPH_LINK_LABELS.get(item["Menu Key"],"열기"),"link":url} if (
             valid_menu_url(item["Menu Key"],url)
         ) else None
+        if item["Menu Key"]=="WEEKLY_TREND":
+            link=weekly_editable_grid_url(token,root,tables)
+            if link:
+                item["바로 편집"]={"text":"✎ Weekly Quote 편집 · 합산 제외","link":link}
+            elif os.environ.get("FEISHU_PORTAL_MODE")=="apply":
+                raise SafeError("WEEKLY_EDITOR_VIEW_NOT_AVAILABLE")
     for state,count in sorted(status.items()):
         print("PORTAL_ROUTE_"+state+"="+str(count))
     return output
@@ -320,7 +338,7 @@ def hyperlink(value):
 def same(original,expected):
     for name,expected_value in expected.items():
         observed=original.get(name)
-        if name=="바로가기":
+        if name in ("바로가기","바로 편집"):
             if hyperlink(observed)!=hyperlink(expected_value):
                 return False
         elif as_display(observed)!=str(expected_value).strip():

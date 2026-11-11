@@ -117,6 +117,27 @@ class PortalTests(unittest.TestCase):
         self.assertFalse(p.valid_menu_url("MONTHLY_TREND",p.BASE_URL+"?table=blkInvalid&view=v"))
         self.assertEqual(len(p.SHORTCUT_KEYS),7)
 
+    def test_editable_weekly_quote_link_is_distinct_from_dashboard(self):
+        base=p.BASE_URL+"?table=tblReview1234&view=vewRecent5"
+        with mock.patch.object(p,"list_views",return_value={
+            "그래프 연동 · 최근 5주 검토":"vewRecent5"}) as views:
+            result=p.weekly_editable_grid_url("token","root",{
+                "Weekly Quote Review":"tblReview1234"})
+        self.assertEqual(result,base)
+        self.assertEqual(views.call_count,1)
+        with mock.patch.object(p,"list_views",return_value={
+            "그래프 연동 · 최근 5주 검토":"vewRecent5"}), \
+             mock.patch.object(p,"api",return_value={"items":[{"record_id":"recMock"}]}):
+            rows=p.source_rows("token","root",{
+                "Weekly Quote Review":"tblReview1234"},None)
+        weekly=next(r for r in rows if r["Menu Key"]=="WEEKLY_TREND")
+        self.assertEqual(weekly["바로 편집"]["link"],base)
+        self.assertEqual(weekly["바로 편집"]["text"],"✎ Weekly Quote 편집 · 합산 제외")
+        self.assertTrue(p.same({"바로 편집":weekly["바로 편집"]},
+                               {"바로 편집":weekly["바로 편집"]}))
+        self.assertFalse(p.same({"바로 편집":None},
+                                {"바로 편집":weekly["바로 편집"]}))
+
     def test_link_and_empty_source(self):
         tables={"QQ Mail Intake":"tblMAIL","Contacts":"tblCUSTOMER"}
         with mock.patch.object(p,"list_views",side_effect=[
@@ -148,6 +169,7 @@ class PortalTests(unittest.TestCase):
 
     def test_link_readback_and_schema(self):
         self.assertEqual(p.MENU_EXTRA_FIELDS["바로가기"]["type"],15)
+        self.assertEqual(p.MENU_EXTRA_FIELDS["바로 편집"]["type"],15)
         link={"text":"열기","link":"https://ocnz4cb25scn.feishu.cn/base/x?table=y&view=z"}
         self.assertTrue(p.same({"바로가기":link},{"바로가기":link}))
         self.assertTrue(p.same({"바로가기":None},{"바로가기":None}))

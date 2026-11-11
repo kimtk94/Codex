@@ -34,6 +34,7 @@ class SortTests(unittest.TestCase):
         self.assertEqual(len(s.PINNED_KEYS),13)
         self.assertEqual(s.CURATED_COLUMNS[1],"메뉴 구분")
         self.assertEqual(s.CURATED_COLUMNS[3],"바로가기")
+        self.assertEqual(s.CURATED_COLUMNS[4],"바로 편집")
 
     def test_view_columns(self):
         fields=[{"field_id":"f"+str(i),"field_name":name}
@@ -70,6 +71,9 @@ class SortTests(unittest.TestCase):
                 "화면":label,
                 "메뉴 구분":color,
                 "표시":s.CURATED_DISPLAY if key in s.PINNED_KEYS else s.ARCHIVE_DISPLAY,
+                "바로 편집":{"text":"✎ Weekly Quote 편집 · 합산 제외",
+                              "link":"https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblReview1234&view=vewRecent5"}
+                                  if key=="WEEKLY_TREND" else None,
                 "바로가기 URL":(
                     "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkChartABC123"
                     if key in s.CHART_SHORTCUT_ENV or key=="X_MY_PROJECTS"
