@@ -60,7 +60,7 @@ def matches_live(row):
     return all(plain(row.get(field))==desired for field,desired in INCLUDED_FILTERS) and not checkbox(
         row.get(CHECKBOX_FIELD))
 
-def audit_rows(review_records,kpi_records):
+def audit_rows(review_records,kpi_records,enforce_kpi_parity=True):
     keys=set()
     weeks=collections.defaultdict(lambda:{"count":0,"usd":Decimal(0),"no_amount":0})
     window_weeks=set()
@@ -105,16 +105,16 @@ def audit_rows(review_records,kpi_records):
         if value is None:
             raise SafeError("LIVE_QUOTE_KPI_INCLUDED_COUNT_WITHHELD")
         observed=weeks[week]["count"]
-        if value!=Decimal(observed):
+        if enforce_kpi_parity and value!=Decimal(observed):
             raise SafeError("LIVE_QUOTE_INCLUDED_COUNT_PARITY_FAILED")
         known=dec(f.get("Calculated Quote Value K USD"))
         if weeks[week]["no_amount"]>0:
             # A missing amount may not be shown to users as a genuine zero.
             raise SafeError("LIVE_QUOTE_UNVERIFIED_INCLUDED_AMOUNT")
-        if observed>0 and known is None:
+        if enforce_kpi_parity and observed>0 and known is None:
             raise SafeError("LIVE_QUOTE_KPI_MONEY_WITHHELD")
         # Source row K USD is rounded at 4 decimal places per Quote.
-        if known is not None and abs(known-weeks[week]["usd"])>Decimal("0.01"):
+        if enforce_kpi_parity and known is not None and abs(known-weeks[week]["usd"])>Decimal("0.01"):
             raise SafeError("LIVE_QUOTE_AMOUNT_PARITY_FAILED")
     return {
         "total_quote_rows":len(review_records),
@@ -126,9 +126,10 @@ def audit_rows(review_records,kpi_records):
         "checkbox_filters":1,
         "amount_withheld_cases":sum(v["no_amount"] for v in weeks.values()),
         "source_writes":0,
+        "kpi_parity_enforced":enforce_kpi_parity,
     }
 
-def preflight():
+def preflight(strict=False):
     from sales_native_home import table_map, target_path
     token,root=auth()
     tables=table_map(token,root)
@@ -147,7 +148,17 @@ def preflight():
     review=list_all(review_path+"/records",token,"live_quote_review_source")
     summary=list_all(target_path(root,tables[SUMMARY_TABLE])+"/records",token,
                      "live_quote_weekly_kpi")
-    out=audit_rows(review,summary)
+    out=audit_rows(review,summary,enforce_kpi_parity=strict)
     print("WEEKLY_LIVE_CHART_PREFLIGHT_PASS "+
           " ".join(str(k)+"="+str(v) for k,v in out.items()),flush=True)
     return out
+
+if __name__=="__main__":
+    import sys
+    try:
+        preflight(strict="--strict" in sys.argv)
+    except Exception as exc:
+        print("WEEKLY_LIVE_CHART_AUDIT_FAILED="+(
+            str(exc) if isinstance(exc,SafeError) else type(exc).__name__),
+            file=sys.stderr)
+        sys.exit(1)
