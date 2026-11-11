@@ -23,7 +23,13 @@ class SignalScarcityAndIntradayTests(unittest.TestCase):
         self.assertEqual(report["full_26bar_sessions"],1)
         self.assertEqual(report["first_15m_open_match_count"],1)
         self.assertAlmostEqual(report["max_abs_first_open_vs_daily_pct"],0.)
+        self.assertEqual(report["first_open_disagreement_gt_10bps"],0)
         self.assertFalse(report["promotion_allowed"])
+        shifted=daily.copy()
+        shifted["open_qld"]=100.2
+        _,_,flagged=coverage(bar,"QLD",shifted)
+        self.assertEqual(flagged["first_open_disagreement_gt_10bps"],1)
+        self.assertEqual(flagged["largest_open_disagreement_dates"],["2026-10-01"])
         b=bar.drop(index=2)
         _,partial,r=coverage(b,"QLD",daily)
         self.assertEqual(r["incomplete_sessions"],1)
