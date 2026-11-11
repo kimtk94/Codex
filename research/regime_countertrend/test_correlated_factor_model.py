@@ -50,6 +50,16 @@ class CorrelatedFactorV2Tests(unittest.TestCase):
         self.assertEqual(report["status"],"HOLD_EXPLORATORY_GROUPED_MODEL")
         self.assertEqual(set(report["evaluated_folds"]),{2022,2023,2024,2025,2026})
         self.assertEqual(len(pred),39)
+        self.assertTrue(report["group_membership_identical_across_folds"])
+        self.assertEqual(report["group_membership_compared_fold_count"],5)
+        self.assertEqual(len(report["cost_sensitivity"]),9)
+        group_cost=[x for x in report["cost_sensitivity"]
+                    if x["model"]=="GROUPED_PCA_RIDGE"]
+        self.assertEqual([x["selected"] for x in group_cost],[26,26,26])
+        self.assertGreater(group_cost[0]["mean_net_per_opportunity"],
+                           group_cost[1]["mean_net_per_opportunity"])
+        self.assertGreater(group_cost[1]["mean_net_per_opportunity"],
+                           group_cost[2]["mean_net_per_opportunity"])
         self.assertTrue(all(folds[folds.status=="FITTED"].factor_groups>=2))
         self.assertTrue((pred.group_prob.between(0,1)).all())
         self.assertTrue((pred.raw_prob.between(0,1)).all())
