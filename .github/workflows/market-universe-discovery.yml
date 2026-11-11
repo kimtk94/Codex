@@ -1,0 +1,31 @@
+name: Kalman US Crypto Universe Discovery
+on:
+  pull_request:
+    paths:
+      - 'research/market_tool_lab/universe_discovery.py'
+      - 'research/market_tool_lab/sp100_snapshot_20260901.csv'
+      - '.github/workflows/market-universe-discovery.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read public market roster only
+        run: python3 research/market_tool_lab/universe_discovery.py
+      - name: Store metadata for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-research-universe-discovery
+          path: artifacts/market-tool-lab/universe/
+          if-no-files-found: warn
+          retention-days: 14
