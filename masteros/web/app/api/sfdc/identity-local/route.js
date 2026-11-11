@@ -29,7 +29,8 @@ function worker(input){
         if(value.status!=="PASS"||value.local_only!==true||
           value.salesforce_write!==false||!Array.isArray(value.rows)||
           value.rows.length>25||!["FRESH","STALE"].includes(value.freshness)||
-          value.rows.some(x=>typeof x.account_name!=="string"||!x.account_name.trim()||
+          value.rows.some(x=>(input.accountId&&x.account_id!==input.accountId)||
+            typeof x.account_name!=="string"||!x.account_name.trim()||
             typeof x.contact_name!=="string"||!x.contact_name.trim()))
           throw Error("IDENTITY_UNVERIFIED");
         resolve(value);
@@ -55,7 +56,11 @@ export async function POST(request){
     if(raw.length>300)throw Error("INVALID_LENGTH");
     input=JSON.parse(raw);
     if(!input||Array.isArray(input)||typeof input!=="object"||
-       Object.keys(input).length!==2||Object.keys(input).some(k=>!["query","limit"].includes(k))||
+       Object.keys(input).length<2||Object.keys(input).length>3||
+       Object.keys(input).some(k=>!["query","limit","accountId"].includes(k))||
+       (input.accountId!==undefined&&
+         (typeof input.accountId!=="string"||
+          (input.accountId&&!/^001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(input.accountId))))||
        typeof input.query!=="string"||!input.query.trim()||input.query.length>80||
        !Number.isInteger(input.limit)||input.limit<1||input.limit>25)
       throw Error("INVALID_QUERY");

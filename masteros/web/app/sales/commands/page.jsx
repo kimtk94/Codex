@@ -7,6 +7,8 @@ import {recordToDraft,recordSelectionSummary} from "../../../lib/sfdc-record-pic
 import {buildPairDraft,derivePairPrice} from "../../../lib/sfdc-paired-clone.mjs";
 import {matchingIdentity} from "../../../lib/sfdc-identity-picker.mjs";
 import IdentityPicker from "./IdentityPicker";
+import {kstOneCalendarMonthLater,EXPECTED_SAMPLE_STAGE} from "../../../lib/sfdc-new-opportunity-defaults.mjs";
+import {verifiedQuoteProcessBreakdown} from "../../../lib/sfdc-quote-process-review.mjs";
 import styles from "./page.module.css";
 
 const common={confirmSave:false,noDuplicateConfirmed:false};
@@ -22,7 +24,7 @@ const initial={
 };
 const tabs=[
   {id:"lead_convert",name:"Lead Convert",caption:"기존 Account → Contact · Oppo 생성 안 함"},
-  {id:"opportunity_create",name:"Opportunity 생성",caption:"기존 Oppo 참조 · 새 Progress Description"},
+  {id:"opportunity_create",name:"Oppo + Quote 함께 생성",caption:"기존 Oppo·Quote 기준 · 006 → a0P 연속 생성"},
   {id:"quote_create",name:"Quote 생성",caption:"기존 제품만 · 가격 검증 우선"},
 ];
 function Field({label,value,onChange,required=true,type="text",step,placeholder,disabled=false}){
@@ -37,7 +39,11 @@ function Flag({label,state}){
 }
 export default function SfdcCommandCenter(){
   const [tab,setTab]=useState("lead_convert");
-  const [forms,setForms]=useState(()=>structuredClone(initial));
+  const [forms,setForms]=useState(()=>{
+    const forms=structuredClone(initial);
+    forms.opportunity_create.closeDate=kstOneCalendarMonthLater();
+    return forms;
+  });
   const [health,setHealth]=useState(null);
   const [healthBusy,setHealthBusy]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -45,6 +51,8 @@ export default function SfdcCommandCenter(){
   const [preflight,setPreflight]=useState("");
   const [confirmed,setConfirmed]=useState(false);
   const [dedup,setDedup]=useState(false);
+  const [priceConfirmed,setPriceConfirmed]=useState(false);
+  const [packConfirmed,setPackConfirmed]=useState(false);
   const [catalogue,setCatalogue]=useState({lead:[],opportunity:[],quote:[]});
   const [query,setQuery]=useState("");
   const [catalogueStatus,setCatalogueStatus]=useState("NOT_CHECKED");
@@ -161,9 +169,14 @@ export default function SfdcCommandCenter(){
       return {...prev,[tab]:merged};
     });
     setResult(null);setPreflight("");setConfirmed(false);setDedup(false);
+    setPriceConfirmed(false);setPackConfirmed(false);
   }
   function selectAccount(account){
-    if(!account?.name)return;
+    if(!account?.name){
+      setSelectedIdentity(null);
+      reflectNewCustomer({accountId:"",accountName:"",contactId:"",contactName:""});
+      return;
+    }
     setSelectedIdentity(null);
     reflectNewCustomer({
       accountId:account.id||"",accountName:account.name,
@@ -233,6 +246,10 @@ export default function SfdcCommandCenter(){
       if(checked.quote.opportunityId!==recordId)throw Error("WRONG_PARENT_OPPORTUNITY");
       const sampleRate=preserveEdit&&unitPriceEdited?base.unitPriceNetKrw:checked.form.unitPriceNetKrw;
       const populated={...base,
+        ...Object.fromEntries(["sourceQuoteNetKrw","sourceQuoteSamples","sourceDataSizeGb",
+          "sourceCloudUnits","productName","productCategory","processNames",
+          "sampleStage","packPolicy","packQuantity","cooperativeTS"].map(k=>[k,checked.form[k]])),
+        quoteName:base.opportunityName||checked.form.opportunityName,
         // Existing validated quote process rates take precedence until user overrides.
         unitPriceNetKrw:sampleRate,
         cloudUnits:checked.form.cloudUnits,
@@ -273,6 +290,11 @@ export default function SfdcCommandCenter(){
       if(!response.ok||item.status!=="PASS"||item.id!==id)throw Error(item.code||"DETAIL_UNAVAILABLE");
       const next=recordToDraft(resource,item,initial[tab]);
       if(!next)throw Error("RECORD_MISMATCH");
+      if(resource==="opportunity"){
+        // This is a NEW Opportunity; do not reuse historical Close Date.
+        next.closeDate=kstOneCalendarMonthLater();
+        next.sampleStage=EXPECTED_SAMPLE_STAGE;
+      }
       setForms(prev=>({...prev,[tab]:next}));
       setSelectedRecord(item);
       setOriginalDraft(next);
@@ -307,6 +329,7 @@ export default function SfdcCommandCenter(){
   },[form,originalDraft]);
   function switchTab(next){
     setTab(next);setResult(null);setPreflight("");setConfirmed(false);setDedup(false);
+    setPriceConfirmed(false);setPackConfirmed(false);
   }
   async function run(mode){
     if(busy||catalogueBusy||loadingDetail)return;
@@ -327,8 +350,23 @@ export default function SfdcCommandCenter(){
         setResult({status:"BLOCK",code:"QUOTE_PARENT_CUSTOMER_MISMATCH"});return;
       }
     }
-    const req={...form,action:tab,mode,confirmSave:mode==="save"&&confirmed,
-      noDuplicateConfirmed:mode==="save"&&dedup};
+    const isPaired=tab==="opportunity_create";
+    if(isPaired&&!pairedQuote){
+      setResult({status:"BLOCK",code:"LINKED_SOURCE_QUOTE_REQUIRED"});return;
+    }
+    const req={...form,action:isPaired?"oppo_quote_pair":tab,mode,
+      confirmSave:mode==="save"&&confirmed,
+      noDuplicateConfirmed:mode==="save"&&dedup,
+      ...(isPaired?{
+        quoteName:form.opportunityName,
+        packQuantity:form.samples,
+        packPolicy:"SAME_SAMPLES",cooperativeTS:"Yoo Ji In",
+        sampleStage:EXPECTED_SAMPLE_STAGE,
+        priceConfirmed:mode==="save"&&priceConfirmed,
+        packConfirmed:mode==="save"&&packConfirmed,
+        processPriceReviewed:mode==="save"&&priceConfirmed&&
+          processReview?.ok&&!processReview.manualOverride
+      }:{})};
     if(tab==="opportunity_create"&&pairedQuote&&
        (!pairProjection?.ok||form.cloudUnits!==pairProjection.cloudUnits||
         form.cloudUnitNetKrw!==pairProjection.cloudUnitNetKrw)){
@@ -366,6 +404,9 @@ export default function SfdcCommandCenter(){
     }catch{setResult({status:"BLOCK",code:"PROGRESS_FIELDS_INCOMPLETE"});}
   }
   const currentOppoPricing=tab==="opportunity_create"?opportunityPriceBreakdown(form):null;
+  const processReview=useMemo(()=>tab==="opportunity_create"&&pairedQuote?
+    verifiedQuoteProcessBreakdown(pairedQuote,form.samples,form.dataSize,
+      form.unitPriceNetKrw):null,[tab,pairedQuote,form.samples,form.dataSize,form.unitPriceNetKrw]);
   const totalGb=tab==="opportunity_create"&&form.unit==="Gb"?
     form.samples*form.dataSize:null;
   return <main className={styles.wrap}>
@@ -441,7 +482,7 @@ export default function SfdcCommandCenter(){
           </>}
           {tab==="opportunity_create"&&<>
             <div className={styles.field}>
-              <span>연결된 기존 Quote 기준 가격</span>
+              <span>연결된 기존 Quote 기준 가격 · Oppo + Quote 연속 생성</span>
               <button type="button" className={styles.subtle} onClick={loadLinkedQuote}
                 disabled={!selectedRecord||loadingDetail||busy}>
                 기존 Oppo → Quote 공정·단가 불러오기
@@ -484,8 +525,30 @@ export default function SfdcCommandCenter(){
                 value={form.unitPriceNetKrw||""} disabled={loadingDetail}
                 onChange={v=>update("unitPriceNetKrw",v)}
                 placeholder="예: 250000"/>
-              <Field label="Close Date" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
+              <Field label="Close Date · 오늘부터 한 달 뒤" type="date"
+                value={form.closeDate} onChange={v=>update("closeDate",v)}/>
             </div>
+            <p className={styles.hint}>신규 Oppo 기본 단계: Prospective · 샘플 입고 예정
+              (실제 입고·QC·PO 확인 전). Close Date는 한국시간 오늘부터 한 달 뒤로 기본 설정됩니다.</p>
+            {processReview?.ok&&<div className={styles.selectedInfo} data-testid="oppo-process-breakdown">
+              <strong>기존 Quote 검증 공정별 단가 · 공급가액 (VAT 제외)</strong>
+              {processReview.items.map((part,i)=><div key={i}>
+                <span>{part.name}{part.packNo?" · 원본 Pack "+part.packNo:""}</span>
+                <span>{part.quantity} × {part.unitPriceKrw.toLocaleString("ko-KR")} KRW
+                {" = "}{part.projectedNetKrw.toLocaleString("ko-KR")} KRW</span>
+              </div>)}
+              <span>Pack 검토: 생물학적 샘플 {processReview.pack.biologicalSamples}개
+                {" → "}Pack 수량 {processReview.pack.quantity}개
+                {" · "}Coop TS: Yoo Ji In</span>
+              {processReview.pack.sourcePackAmbiguous&&
+                <p>원본 공정의 Pack No가 서로 다릅니다. 실제 Pack 구성 확인이 필요합니다.</p>}
+              {processReview.manualOverride&&
+                <p>샘플당 단가를 직접 변경했습니다. 위 공정별 가격은 원본 단가이므로
+                  변경 금액을 공정에 배분하고 Quote에 적용하기 전 검토가 필요합니다.</p>}
+            </div>}
+            {pairedQuote&&!processReview?.ok&&
+              <p className={styles.hint}>공정별 가격 검증 불가:
+                {processReview?.code||"SOURCE_PROCESS_PRICE_UNVERIFIED"}</p>}
             <div className={styles.selectedInfo} data-testid="oppo-unit-price-summary">
               <strong>샘플당 단가: {currentOppoPricing?.ok?
                 currentOppoPricing.unitPriceNetKrw.toLocaleString("ko-KR")+" KRW":"미확인"}</strong>
@@ -540,16 +603,34 @@ export default function SfdcCommandCenter(){
           </span>
           <label className={styles.checkbox}><input type="checkbox" checked={dedup} onChange={e=>setDedup(e.target.checked)}/>
             중복 생성 여부 확인</label>
+          {tab==="opportunity_create"&&<>
+            <label className={styles.checkbox}><input type="checkbox" checked={priceConfirmed}
+              disabled={!processReview?.ok||processReview.manualOverride}
+              onChange={e=>setPriceConfirmed(e.target.checked)}/>
+              기존 Quote 공정 구성·샘플당 KRW 단가 확인</label>
+            <label className={styles.checkbox}><input type="checkbox" checked={packConfirmed}
+              disabled={!processReview?.ok}
+              onChange={e=>setPackConfirmed(e.target.checked)}/>
+              Pack 수량 = 샘플 수 확인 · Coop TS Yoo Ji In</label>
+            {processReview?.manualOverride&&<p className={styles.hint}>
+              변경된 샘플당 단가의 공정별 KRW 배분 검증 전에는 동시 저장할 수 없습니다.</p>}
+          </>}
           <label className={styles.checkbox}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
             실제 Salesforce 저장 승인</label>
           <button className={styles.save} type="button"
-            disabled={busy||catalogueBusy||loadingDetail||!ready||!dedup||!confirmed}
-            onClick={()=>run("save")}>2. 실제 실행</button>
-          <p className={styles.hint}>검증 실패 시 저장하지 않습니다. Quote는 제품 포함 저장 후 재조회합니다.</p>
+            disabled={busy||catalogueBusy||loadingDetail||!ready||!dedup||!confirmed||
+              (tab==="opportunity_create"&&(!priceConfirmed||!packConfirmed||
+                !processReview?.ok||processReview.manualOverride))}
+            onClick={()=>run("save")}>2. {tab==="opportunity_create"?"Oppo + Quote 연속 생성":"실제 실행"}</button>
+          <p className={styles.hint}>Oppo → Quote를 하나의 명령으로 순차 생성합니다.
+            Salesforce는 원자적 트랜잭션이 아니므로 실패 시 생성된 Oppo ID를 남기고 Quote를 HOLD 처리합니다.
+            실제 Quote 제품·Pack·가격은 저장 후 재확인 필수입니다.</p>
           {result&&<section className={styles.result} aria-live="polite">
             <strong data-status={result.status}>{result.status}</strong>
             <p>{result.code||result.detail||""}</p>
             {result.record_id&&<a target="_blank" rel="noreferrer" href={result.url}>생성 레코드 확인</a>}
+            {result.opportunity_id&&<p>생성 Oppo: {result.opportunity_id}</p>}
+            {result.quotation_id&&<p>생성 Quote: {result.quotation_id}</p>}
             <div className={styles.small}>Save: {result.save_clicked?"SUBMITTED":"NOT SUBMITTED"}</div>
           </section>}
         </aside>

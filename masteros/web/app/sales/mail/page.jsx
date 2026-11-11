@@ -43,6 +43,7 @@ export default function LocalMailConsole(){
   const [q,setQ]=useState("");
   const [priority,setPriority]=useState("ALL");
   const [leadState,setLeadState]=useState("ALL");
+  const [descriptionFilter,setDescriptionFilter]=useState("ALL");
   const [leadGroup,setLeadGroup]=useState("ALL");
   const [roleFilter,setRoleFilter]=useState("ALL");
   const [mailPage,setMailPage]=useState(0);
@@ -128,9 +129,10 @@ export default function LocalMailConsole(){
     const needle=q.trim().toLowerCase();
     return (data?.leads||[]).filter(r=>
       leadGroupMatches(r,leadGroup,leadState)&&
+      (descriptionFilter==="ALL"||r.descriptionClass===descriptionFilter)&&
       (!needle||[r.id,r.institution,r.name,r.email,r.owner].some(x=>String(x||"").toLowerCase().includes(needle)))
     );
-  },[data,q,leadState,leadGroup]);
+  },[data,q,leadState,leadGroup,descriptionFilter]);
   function selectLeadGroup(next){
     setLeadGroup(next);setLeadState("ALL");setLeadPage(0);
   }
@@ -245,6 +247,8 @@ export default function LocalMailConsole(){
     requestReview(action);
   }
   const statuses=data?.leadStates||{};
+  const descriptionStates=data?.leadDescriptions||{};
+  const descriptionReady=data?.leadDescriptionSourceStatus==="VERIFIED";
   const pageButtons=(current,count,set)=>(
     <div className={styles.pager}>
       <button type="button" onClick={()=>set(Math.max(0,current-1))} disabled={current===0}>이전</button>
@@ -452,6 +456,23 @@ export default function LocalMailConsole(){
           <b> 생성 전만 발송 {leadSummary.sentBeforeOnly}건</b></span>
         <span>원본: {data?.leadSourceStatus||"미확인"} · 기준시각 {time(data?.leadCheckedAt)}</span>
       </div>
+      <div className={styles.leadGroups} aria-label="Lead Description 구분">
+        {[
+          {id:"ALL",label:"Description 전체",count:data?.leadCount??0},
+          {id:"DESCRIPTION_PRESENT",label:"Description 있음 · 내용 검토",count:descriptionStates.DESCRIPTION_PRESENT??0},
+          {id:"DESCRIPTION_EMPTY",label:"Description 없음 · 공통 메일",count:descriptionStates.DESCRIPTION_EMPTY??0},
+          {id:"DESCRIPTION_REVIEW_REQUIRED",label:"Description 확인 필요",count:
+            (descriptionStates.DESCRIPTION_REVIEW_REQUIRED??0)+(descriptionReady?0:
+              (data?.leadCount??0))}
+        ].map(item=><button type="button" key={item.id}
+          data-testid={"lead-description-"+item.id}
+          aria-pressed={descriptionFilter===item.id}
+          disabled={item.id!=="ALL"&&!descriptionReady}
+          onClick={()=>{setDescriptionFilter(item.id);setLeadPage(0)}}>
+          <span>{item.label}</span><strong>{data?item.count.toLocaleString("ko-KR"):"—"}</strong>
+        </button>)}
+      </div>
+      {!descriptionReady&&<p className={styles.leadCaution}>원본 Lead Description을 검증하지 못했습니다. 확인 전에는 공통 메일 대상으로 분류하지 않습니다.</p>}
       <div className={styles.filters}>
         <label>이름 · 기관 · 이메일 · Lead ID
           <input type="search" value={q} placeholder="고객 또는 기관 검색"
@@ -463,20 +484,31 @@ export default function LocalMailConsole(){
           </select></label>
       </div>
       <div className={styles.tableWrap}><table><thead><tr>
-        <th>Lead / 기관</th><th>Lead 이메일</th><th>생성일</th><th>발송 판정</th>
-        <th>생성 후 발송</th><th>최초 발송</th><th>최근 발송</th><th>To / CC</th>
+        <th>Lead / 기관</th><th>Lead 이메일</th><th>Lead 생성일</th><th>Description / 메일 방식</th><th>발송 판정</th>
+        <th>생성 후 발송 횟수</th><th>첫 발송일</th><th>최근 발송일</th><th>To / CC</th>
       </tr></thead><tbody>{shownLeads.map(r=><tr key={r.id}>
         <td><b>{r.name||"이름 미확인"}</b><small className={styles.block}>{r.institution}</small>
           <small className={styles.block}>{r.id}</small></td>
-        <td>{r.email||"—"}</td><td className={styles.nowrap}>{r.created}</td>
+        <td>{r.email||"—"}</td><td className={styles.nowrap}>{r.created||"생성일 미확인"}</td>
+        <td>
+          {r.descriptionClass==="DESCRIPTION_PRESENT"?<>
+            <b>내용 검토 후 개별 메일</b>
+            <details className={styles.leadDescription} data-testid="lead-description-text">
+              <summary>Lead Description 열기</summary>
+              <pre>{r.description}</pre>
+            </details>
+          </>:r.descriptionClass==="DESCRIPTION_EMPTY"?
+            <span>공통 메일 후보 · Description 없음</span>:
+            <span>내용 확인 필요 · 발송 방식 미결정</span>}
+        </td>
         <td><span className={styles.chip}>{EVIDENCE[r.evidence]||r.evidence}</span>
           {leadOutboundGroup(r)==="NO_EVIDENCE"&&
             <small className={styles.block}>미발송 확정 아님 · 후속 확인 후보</small>}
           {leadOutboundGroup(r)==="REVIEW"&&
             <small className={styles.block}>증거 또는 날짜 검증 필요</small>}
         </td>
-        <td>{r.afterCount||"0"}건</td><td className={styles.nowrap}>{time(r.firstAfter||r.firstEver)}</td>
-        <td className={styles.nowrap}>{time(r.lastAfter||r.lastEver)}</td>
+        <td>{r.afterCount||"0"}건</td><td className={styles.nowrap}>{time(r.firstEver)}</td>
+        <td className={styles.nowrap}>{time(r.lastEver)}</td>
         <td>{r.toCount||0} / {r.ccCount||0}</td>
       </tr>)}</tbody></table>
       {!shownLeads.length&&<p className={styles.empty}>

@@ -43,10 +43,33 @@ def strict_date(x):
     try:dt.date.fromisoformat(x);return True
     except (ValueError,TypeError):return False
 def local_validator(x):
-    if x.get("action") not in ("lead_convert","opportunity_create","quote_create") or x.get("mode") not in ("check","save"):
+    if x.get("action") not in ("lead_convert","opportunity_create","quote_create","oppo_quote_pair") or x.get("mode") not in ("check","save"):
         raise ValueError("INVALID_ACTION")
     if x["mode"]=="save" and (x.get("confirmSave") is not True or x.get("noDuplicateConfirmed") is not True):
         raise ValueError("EXPLICIT_CONFIRMATION_REQUIRED")
+    if x["action"]=="oppo_quote_pair":
+        required=("referenceOpportunityId","sourceQuoteId","accountId","contactId")
+        if not (ID("006",x.get(required[0])) and ID("a0P",x.get(required[1]))
+                and ID("001",x.get(required[2])) and ID("003",x.get(required[3]))):
+            raise ValueError("PAIRED_ID_REQUIRED")
+        if not (x.get("opportunityName")==x.get("quoteName")
+                and x.get("packPolicy")=="SAME_SAMPLES"
+                and x.get("packQuantity")==x.get("samples")
+                and x.get("cooperativeTS")=="Yoo Ji In"
+                and x.get("sampleStage")=="SAMPLES_EXPECTED_NOT_RECEIVED"
+                and strict_date(x.get("closeDate"))
+                and x.get("processNames") and x.get("productName")
+                and x.get("productCategory") and x.get("progressDescription")
+                and isinstance(x.get("samples"),int) and x["samples"]>0
+                and isinstance(x.get("unitPriceNetKrw"),int) and x["unitPriceNetKrw"]>0
+                and isinstance(x.get("cloudUnits"),int) and x["cloudUnits"]>=0
+                and isinstance(x.get("cloudUnitNetKrw"),int) and x["cloudUnitNetKrw"]>=0
+                and x.get("amountKrw")==x["samples"]*x["unitPriceNetKrw"]+
+                    x["cloudUnits"]*x["cloudUnitNetKrw"]):
+            raise ValueError("PAIRED_VALUES_INVALID")
+        if x["mode"]=="save" and not all(x.get(k) is True for k in
+                ("priceConfirmed","packConfirmed","processPriceReviewed")):
+            raise ValueError("PAIRED_EXPLICIT_REVIEW_REQUIRED")
     if x["action"]=="lead_convert":
         if not ID("00Q",x.get("leadId")) or not all(x.get(k) for k in ("accountName","koreanName","englishName")):
             raise ValueError("LEAD_INPUT_INVALID")
@@ -320,6 +343,63 @@ def save_quote_and_products(page,x,r):
         r["product_error_type"]=type(exc).__name__
     return r
 
+def paired_opportunity_and_quote(page,x):
+    """One explicit operation in sequence. SFDC is NOT transactional:
+    return a partial status and the created IDs if the second step fails.
+    Never claim price/Pack verified from a mere Quote Product count.
+    """
+    from sfdc_record_catalog import read_item
+    source=read_item(page,"quote",x["sourceQuoteId"])
+    if (source.get("id")!=x["sourceQuoteId"] or
+            source.get("pricingStatus")!="VERIFIED_PROCESS_LINES" or
+            source.get("sourceVatRateVerified10Pct") is not True or
+            source.get("unitPriceNetKrw")!=x["unitPriceNetKrw"] or
+            source.get("cloudUnitNetKrw")!=x["cloudUnitNetKrw"] or
+            source.get("sourceCloudUnits")!=x["sourceCloudUnits"] or
+            source.get("totalPriceKrw")!=x["sourceQuoteNetKrw"] or
+            source.get("samples")!=x["sourceQuoteSamples"] or
+            source.get("dataSize")!=x["sourceDataSizeGb"]):
+        return block("PAIRED_LIVE_SOURCE_PRICE_UNVERIFIED",save_clicked=False)
+    # A manually changed aggregate cannot safely be distributed to
+    # SFDC Quote process lines by the existing product wizard.
+    verify_catalog(page,x)
+    opp_input={**x,"action":"opportunity_create"}
+    quote_input={**x,"action":"quote_create","opportunityId":x["referenceOpportunityId"]}
+    local_validator(opp_input)
+    local_validator(quote_input)
+    if x["mode"]=="check":
+        candidate=opportunity_create(page,{**opp_input,"mode":"check"})
+        if candidate.get("status")!="PREFLIGHT_PASS":
+            return block("PAIRED_OPPO_PREFLIGHT_FAILED",save_clicked=False)
+        return {"status":"PREFLIGHT_PASS","action":"oppo_quote_pair",
+                "source_processes_verified":True,"oppo_form_verified":True,
+                "pack_quantity":x["packQuantity"],"pack_ui_verified":False,
+                "quote_parent_will_be_new":True,
+                "save_clicked":False}
+    opp=opportunity_create(page,{**opp_input,"mode":"save"})
+    if opp.get("status")!="PASS" or not ID("006",opp.get("record_id")):
+        return {"status":"PARTIAL_OPPO_SAVE_READBACK_REQUIRED","action":"oppo_quote_pair",
+                "opportunity_result":opp,"quote_save_clicked":False}
+    quote_id=None
+    try:
+        quote=quote_create(page,{**quote_input,"mode":"save",
+                                  "opportunityId":opp["record_id"],
+                                  "quoteName":x["opportunityName"]})
+        quote_id=quote.get("record_id")
+        return {
+            "status":"PARTIAL_BOTH_CREATED_PRICE_PACK_REVIEW_REQUIRED"
+                if ID("a0P",quote_id) else "PARTIAL_OPPO_CREATED_QUOTE_READBACK_REQUIRED",
+            "action":"oppo_quote_pair","opportunity_id":opp["record_id"],
+            "quotation_id":quote_id or "","quote_result":quote,
+            "pack_quantity":x["packQuantity"],
+            "price_verified":False,"pack_ui_verified":False
+        }
+    except Exception as exc:
+        return {"status":"PARTIAL_OPPO_CREATED_QUOTE_BLOCKED",
+                "opportunity_id":opp["record_id"],"quotation_id":quote_id or "",
+                "quote_error_type":type(exc).__name__,"price_verified":False}
+
+
 def main():
     try:
         x=json.loads(sys.stdin.buffer.read(14000).decode("utf-8"))
@@ -328,7 +408,8 @@ def main():
             browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=9000)
             page=browser.contexts[0].new_page()
             try:
-                if x["action"]=="lead_convert":result=lead_convert(page,x)
+                if x["action"]=="oppo_quote_pair":result=paired_opportunity_and_quote(page,x)
+                elif x["action"]=="lead_convert":result=lead_convert(page,x)
                 elif x["action"]=="opportunity_create":result=opportunity_create(page,x)
                 else:result=quote_create(page,x)
             finally:

@@ -112,7 +112,38 @@ def parsed_time(value):
         return None
 
 
-def snapshot(queue, dec, rules, audit, leads, owner, now=None):
+def lead_descriptions(raw, leads):
+    """Full Lead Description from current SFDC Leads Raw, joined by exact native ID
+    and email. Never use the partial 557-row historical sent audit to infer blank
+    Description for all 972 Leads.
+    """
+    if (not raw or len(raw[0])!=23 or raw[0][12]!="Description" or
+        raw[0][14]!="Email" or raw[0][22]!="SFDC Lead ID"):
+        raise ValueError("SFDC_LEAD_DESCRIPTION_SCHEMA_MISMATCH")
+    found={}
+    for row in raw[1:]:
+        rid=cell(row,22)
+        if not rid:continue
+        if rid in found:raise ValueError("SFDC_LEAD_DESCRIPTION_DUPLICATE_ID")
+        found[rid]=(cell(row,14).lower(),cell(row,12))
+    expected={cell(row,0):cell(row,3).lower() for row in leads[1:] if cell(row,0)}
+    if set(expected)!=set(found):
+        raise ValueError("SFDC_LEAD_DESCRIPTION_ID_COVERAGE_MISMATCH")
+    output={}
+    for rid,email in expected.items():
+        source_email,description=found[rid]
+        if email!=source_email:
+            raise ValueError("SFDC_LEAD_DESCRIPTION_EMAIL_LINK_MISMATCH")
+        if len(description)>12000:
+            output[rid]={"descriptionClass":"DESCRIPTION_REVIEW_REQUIRED",
+                         "description":"","descriptionLength":len(description)}
+        else:
+            output[rid]={"descriptionClass":"DESCRIPTION_PRESENT" if description.strip() else "DESCRIPTION_EMPTY",
+                         "description":description,"descriptionLength":len(description)}
+    return output
+
+
+def snapshot(queue, dec, rules, audit, leads, owner, now=None, raw_leads=None):
     expected_headers(queue,dec,rules,leads)
     now=now or dt.datetime.now(UTC)
     excluded=active_decisions(dec)
@@ -143,6 +174,8 @@ def snapshot(queue, dec, rules, audit, leads, owner, now=None):
             "to":cell(row,12),"cc":cell(row,13),"role":role(row,owner),
             "queueActionPending":cell(row,20),
         })
+    lead_desc=lead_descriptions(raw_leads,leads) if raw_leads is not None else {}
+    desc_counts={"DESCRIPTION_PRESENT":0,"DESCRIPTION_EMPTY":0,"DESCRIPTION_REVIEW_REQUIRED":0}
     leads_by_id=set()
     lead_list=[]
     status_counts={}
@@ -155,8 +188,13 @@ def snapshot(queue, dec, rules, audit, leads, owner, now=None):
         leads_by_id.add(key)
         state=cell(row,7)
         status_counts[state]=status_counts.get(state,0)+1
+        desc=lead_desc.get(key,{"descriptionClass":"DESCRIPTION_UNVERIFIED","description":"","descriptionLength":0})
+        if desc["descriptionClass"] in desc_counts:desc_counts[desc["descriptionClass"]]+=1
         lead_list.append({
             "id":key,"institution":cell(row,1),"name":cell(row,2),
+            "descriptionClass":desc["descriptionClass"],
+            "description":desc["description"],
+            "descriptionLength":desc["descriptionLength"],
             "email":cell(row,3),"created":cell(row,4),"leadStatus":cell(row,5),
             "owner":cell(row,6),"evidence":state,"afterCount":cell(row,8),
             "firstAfter":cell(row,9),"lastAfter":cell(row,10),
@@ -183,6 +221,8 @@ def snapshot(queue, dec, rules, audit, leads, owner, now=None):
         "skippedMails":[{"key":cell(r,2),"uid":cell(r,3),"sender":cell(r,4),
                           "subject":cell(r,5)} for r in dec[1:] if cell(r,0).upper() in ("TRUE","YES","1") and cell(r,1)=="SKIP_MAIL"],
         "leadCount":len(lead_list),"leadStates":status_counts,
+        "leadDescriptions":desc_counts,
+        "leadDescriptionSourceStatus":"VERIFIED" if len(lead_desc)==len(lead_list) else "UNVERIFIED",
         "mail":visible,"leads":lead_list,
     }
 
@@ -380,7 +420,8 @@ def main():
     owner=owner_email()
     session=sheet_session()
     if body["mode"]=="snapshot":
-        data=snapshot(*load(session),owner)
+        data=snapshot(*load(session),owner,
+                      raw_leads=fetch(session,SFDC,"SFDC Email Leads Raw","A1:W1600"))
         print(json.dumps(data,ensure_ascii=False,separators=(",",":")))
     elif body["mode"]=="body":
         result=read_mail_body(session,body["key"],body["uid"])

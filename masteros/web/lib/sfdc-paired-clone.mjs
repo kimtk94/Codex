@@ -1,3 +1,4 @@
+import {kstOneCalendarMonthLater,EXPECTED_SAMPLE_STAGE} from "./sfdc-new-opportunity-defaults.mjs";
 /** One quoted service: per-sample processes + optional stepwise AliCloud. */
 const id=(v,prefix)=>typeof v==="string"&&
  new RegExp("^"+prefix+"[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$").test(v);
@@ -69,6 +70,10 @@ export function buildPairDraft(bundle,defaults){
     sourceCloudUnits:price.sourceCloudUnits,cloudUnits:price.cloudUnits,
     productName:quote.productName,productCategory:quote.productCategory,
     processNames:quote.processNames,progressDescription:"",
+    quoteName:opp.name,closeDate:kstOneCalendarMonthLater(),
+    sampleStage:EXPECTED_SAMPLE_STAGE,
+    packPolicy:"SAME_SAMPLES",packQuantity:quote.samples,packConfirmed:false,
+    cooperativeTS:"Yoo Ji In",
     referenceAmea:quote.quotationNumber||"",priceConfirmed:false};
   return {ok:true,form,quote,opportunity:opp,pricing:price};
 }
@@ -76,7 +81,7 @@ export function validatePairPayload(x){
   if(!x||x.action!=="oppo_quote_pair"||!["check","save"].includes(x.mode))
     return {ok:false,code:"ACTION_INVALID"};
   if(x.mode==="save"&&
-     (x.confirmSave!==true||x.noDuplicateConfirmed!==true||x.priceConfirmed!==true))
+     (x.confirmSave!==true||x.noDuplicateConfirmed!==true||x.priceConfirmed!==true||x.packConfirmed!==true))
     return {ok:false,code:"EXPLICIT_APPROVAL_REQUIRED"};
   if(!id(x.referenceOpportunityId,"006")||!id(x.sourceQuoteId,"a0P")||
      !id(x.accountId,"001")||!id(x.contactId,"003")||
@@ -99,6 +104,10 @@ export function validatePairPayload(x){
      !Number.isInteger(x.sourceCloudUnits)||!Number.isInteger(x.cloudUnits)||
      x.cloudUnits!==cloudUnits(x.samples,x.dataSize)||
      x.sourceCloudUnits!==cloudUnits(x.sourceQuoteSamples,x.sourceDataSizeGb)||
+     x.quoteName!==x.opportunityName||
+     x.packPolicy!=="SAME_SAMPLES"||x.packQuantity!==x.samples||
+     x.cooperativeTS!=="Yoo Ji In"||
+     x.sampleStage!==EXPECTED_SAMPLE_STAGE||
      !/^\d{4}-\d{2}-\d{2}$/.test(x.closeDate))
     return {ok:false,code:"PAIR_FIELDS_INVALID"};
   return {ok:true};
