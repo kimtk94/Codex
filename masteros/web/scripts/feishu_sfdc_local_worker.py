@@ -144,11 +144,33 @@ def prepare_pair(x):
         return {"status":"PREFLIGHT_BLOCK","code":"PAIR_REQUEST_INVALID"}
     bundle=json_run("sfdc_record_catalog.py",{
         "resource":"opportunity","mode":"bundle","recordId":oppid})
-    if bundle.get("status")!="PASS" or bundle.get("selectionStatus")!="EXACT_ONE" or len(bundle.get("linkedQuotes") or [])!=1:
-        return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_QUOTE_NOT_UNIQUE"}
-    original=bundle["opportunity"];quote=bundle["linkedQuotes"][0]
-    if quote.get("id")!=quoteid or quote.get("opportunityId")!=oppid:
-        return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PAIR_MISMATCH"}
+    if bundle.get("status")!="PASS" or not isinstance(bundle.get("opportunity"),dict):
+        return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_OPPORTUNITY_UNVERIFIED"}
+    original=bundle["opportunity"]
+    if original.get("id")!=oppid:
+        return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_OPPORTUNITY_ID_MISMATCH"}
+    # The list-view discovery can return another Quote attached to the SAME
+    # Opportunity. Never substitute that Quote for the user's explicit a0P ID.
+    linked=bundle.get("linkedQuotes") or []
+    matches=[q for q in linked if isinstance(q,dict) and
+             q.get("id")==quoteid and q.get("opportunityId")==oppid]
+    if len(matches)>1:
+        return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_QUOTE_DUPLICATE_REFERENCE"}
+    if len(matches)==1:
+        quote=matches[0]
+    else:
+        # Exact live SFDC Quote read, not list search or an inferred relationship.
+        quote=json_run("sfdc_record_catalog.py",{
+            "resource":"quote","mode":"detail","recordId":quoteid,"forceLive":True})
+        if quote.get("status")!="PASS":
+            return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_SELECTED_QUOTE_READ_UNAVAILABLE"}
+        if quote.get("id")!=quoteid or quote.get("opportunityId")!=oppid:
+            return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PAIR_MISMATCH"}
+        for field in ("accountId","contactId"):
+            if not original.get(field) or not quote.get(field):
+                return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_QUOTE_CUSTOMER_LINK_UNVERIFIED"}
+            if original[field]!=quote[field]:
+                return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_QUOTE_CUSTOMER_MISMATCH"}
     multi=isinstance(quote.get("productCount"),int) and quote["productCount"]>1
     status="VERIFIED_MULTI_PRODUCT_LINES" if multi else "VERIFIED_PROCESS_LINES"
     if quote.get("pricingStatus")!=status or quote.get("sourceVatRateVerified10Pct") is not True:
