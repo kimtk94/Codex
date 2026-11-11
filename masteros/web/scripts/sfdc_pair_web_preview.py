@@ -99,6 +99,17 @@ def run(req):
             "save_permitted": False,
         }
     prepared = prepare_pair(x)
+    if mode == "CHECK_SAVE_READINESS" and prepared.get("status") != "READY":
+        return {
+            "status": "HOLD",
+            "code": prepared.get("code") or "SOURCE_PRICE_UNVERIFIED",
+            "pricing": prepared.get("price_fields") or {},
+            "readiness": {"source_price": "HOLD", "source_pack": "NOT_CHECKED",
+                          "reference_forms": "NOT_CHECKED",
+                          "quote_writer": "UNVERIFIED",
+                          "new_quote_readback": "NOT_TESTED"},
+            "salesforce_write": False, "save_permitted": False,
+        }
     if prepared.get("status") not in ("READY", "PRICE_ONLY"):
         return _blocked(prepared.get("code") or "SOURCE_PRICE_UNVERIFIED")
     pricing = prepared.get("price_fields") or {}
