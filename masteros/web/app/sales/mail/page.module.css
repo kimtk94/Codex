@@ -95,3 +95,16 @@
 .bodyText{width:100%;min-height:130px;max-height:min(38dvh,320px);margin:0;padding:15px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;border:1px solid #e0e9ed;border-radius:9px;background:#fff;color:#243d4b;font-size:12px;font-family:inherit;line-height:1.7;text-align:left}
 .bodyMessage{border:1px dashed #dae6ea;background:white;border-radius:9px;margin:0;padding:24px 14px;color:#6b8491;font-size:12px}
 @media(max-width:600px){.viewerTools{padding:10px;gap:5px}.viewerTools button{flex:1;min-width:72px}.viewerTools span{order:-1;width:100%;text-align:center}.bodyViewer{padding:10px}.bodyText{max-height:27dvh}}
+
+/* Lead sent-evidence groups: primary controls rather than a buried filter. */
+.leadGroups{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:15px 0 12px}
+.leadGroups button{min-width:0;display:flex;justify-content:space-between;align-items:center;gap:9px;padding:13px 12px;background:#f7fafc;border:1px solid #d8e5eb;border-radius:11px;color:#2c556b;cursor:pointer;font:inherit;text-align:left}
+.leadGroups button[aria-pressed="true"]{background:#e8f3f8;border:2px solid #316e8d;padding:12px 11px}
+.leadGroups button:focus-visible{outline:3px solid #63badf;outline-offset:2px}
+.leadGroups span{font-weight:750;font-size:12px;line-height:1.4}
+.leadGroups strong{font-size:19px;font-variant-numeric:tabular-nums}
+.leadBreakdown{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 14px;color:#547587;font-size:12px;padding:0 2px 14px;line-height:1.7}
+.leadBreakdown b{color:#1b526b;font-weight:750}
+.leadCaution{margin:8px 0 2px;font-size:12px;line-height:1.7;color:#647f8c}
+@media(max-width:800px){.leadGroups{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:470px){.leadGroups{gap:7px}.leadGroups button{padding:10px 8px}.leadGroups button[aria-pressed="true"]{padding:9px 7px}.leadGroups strong{font-size:17px}}
