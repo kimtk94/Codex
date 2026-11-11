@@ -6,6 +6,7 @@ Details use record IDs only and return explicitly verified fields.
 """
 from __future__ import annotations
 import json
+import math
 import re
 import os
 import sys
@@ -251,19 +252,159 @@ def parse_process_price_rows(rows,source_samples,gb_per_sample,expected_net):
       "sourceProcessNetKrw":expected_net,
       "pricingMethod":"SUM_PROCESS_QTY_TIMES_UNIT_PRICE"}
 
+def _source_modal_money(value):
+    """Strict whole-KRW parser. SFDC formats writable prices as 160,000.00."""
+    value=str(value or "").strip().replace(",","")
+    if not re.fullmatch(r"(?:0|[1-9]\d*)(?:\.0{1,2})?",value):
+        raise ValueError("PROCESS_MODAL_NUMBER_INVALID")
+    amount=int(float(value))
+    if not 0<=amount<=1000000000:
+        raise ValueError("PROCESS_MODAL_PRICE_RANGE")
+    return amount
+
+
+def _source_modal_qty(value):
+    return _source_modal_money(value)
+
+
+def parse_modal_process_price_rows(matrix,source_samples,gb_per_sample,expected_net):
+    """Pure parser for original Quote Add/Edit price matrix (never a price guess).
+
+    Source rows carry 13 cells. The actual price is the *Unit Price* input,
+    not the reference-only *Standard Price*. The table's Total must equal
+    Salesforce Quote's existing VAT-excluded total.
+    """
+    from math import ceil
+    if not isinstance(matrix,dict):
+        raise ValueError("SOURCE_MODAL_MATRIX_MISSING")
+    expected_headers=["","","Pack No.","Process Name","Process Type",
+       "Sample Number","Data Size","Data Unit","Unit Price","Standard Price",
+       "Note","",""]
+    headers=matrix.get("headers")
+    if not isinstance(headers,list) or headers!=expected_headers:
+        raise ValueError("SOURCE_MODAL_HEADERS_CHANGED")
+    rows=matrix.get("rows")
+    if not isinstance(rows,list) or not 1<=len(rows)<=25:
+        raise ValueError("SOURCE_MODAL_PROCESS_ROWS_MISSING")
+    def cell(row,index):
+        if not isinstance(row,list) or len(row)!=len(expected_headers):
+            raise ValueError("SOURCE_MODAL_PROCESS_ROW_SHAPE")
+        v=row[index]
+        if not isinstance(v,dict) or not isinstance(v.get("text"),str):
+            raise ValueError("SOURCE_MODAL_PROCESS_CELL_INVALID")
+        return v
+    parsed=[]
+    for row in rows:
+        category=cell(row,3)["text"].strip()
+        process=cell(row,4)["text"].strip()
+        pack=cell(row,2)["text"].strip()
+        unit=cell(row,7)["text"].strip()
+        if not category or not process or not unit:
+            raise ValueError("SOURCE_MODAL_PROCESS_IDENTITY_MISSING")
+        cloud=bool(re.search(r"(?i)(?:ali\s*)?cloud",category+" "+process))
+        if not cloud and not pack:
+            raise ValueError("SOURCE_SAMPLE_PACK_MISSING")
+        qty=_source_modal_qty(cell(row,5).get("value"))
+        price=_source_modal_money(cell(row,8).get("value"))
+        size_raw=cell(row,6).get("value")
+        if not isinstance(size_raw,str):
+            raise ValueError("SOURCE_PROCESS_DATA_SIZE_MISSING")
+        try:
+            size=float(size_raw.replace(",",""))
+        except ValueError as exc:
+            raise ValueError("SOURCE_PROCESS_DATA_SIZE_INVALID") from exc
+        if not math.isfinite(size) or size<=0:
+            raise ValueError("SOURCE_PROCESS_DATA_SIZE_INVALID")
+        expected_qty=ceil(source_samples*gb_per_sample/100) if cloud else source_samples
+        if qty!=expected_qty:
+            raise ValueError("SOURCE_PROCESS_QUANTITY_MISMATCH")
+        if not cloud and abs(size-gb_per_sample)>1e-6:
+            raise ValueError("SOURCE_PROCESS_GB_MISMATCH")
+        # Standard Price is informational; never infer the customer's Quote rate from it.
+        standard=_source_modal_money(cell(row,9)["text"])
+        parsed.append({
+            "packNo":pack,"processType":category,"processName":process,
+            "sourceQty":qty,"dataSize":size,"dataUnit":unit,
+            "unitPriceKrw":price,"standardPriceKrw":standard,
+            "sourceNetKrw":qty*price,"isCloud":cloud})
+    clouds=[x for x in parsed if x["isCloud"]]
+    noncloud=[x for x in parsed if not x["isCloud"]]
+    if len(clouds)!=1 or not noncloud:
+        raise ValueError("SOURCE_CLOUD_OR_SERVICE_NOT_UNIQUE")
+    if len({x["packNo"] for x in noncloud})!=1:
+        raise ValueError("SOURCE_SAME_SAMPLE_PACK_CONFLICT")
+    total=matrix.get("total")
+    if (_source_modal_money(total)!=expected_net or
+        sum(x["sourceNetKrw"] for x in parsed)!=expected_net):
+        raise ValueError("SOURCE_MODAL_QUOTE_NET_MISMATCH")
+    return {
+        "pricingStatus":"VERIFIED_PROCESS_LINES",
+        "processPriceLines":parsed,
+        "sampleUnitNetKrw":sum(x["unitPriceKrw"] for x in noncloud),
+        "cloudUnitNetKrw":clouds[0]["unitPriceKrw"],
+        "sourceCloudUnits":clouds[0]["sourceQty"],
+        "cloudLinePresent":True,
+        "sourceProcessNetKrw":expected_net,
+        "pricingMethod":"READ_ONLY_SFDC_ADD_EDIT_UNIT_PRICE_MATRIX",
+        "sourceSamplePackNo":next(iter({x["packNo"] for x in noncloud})),
+        "sourcePackVerified":True}
+
+
 def quote_price_breakdown(page,quote_id,source_samples,gb_per_sample,expected_net):
-    """Get process rows from Quote Detail, NOT Add/Edit (which modifies the source)."""
-    page.goto(BASE+"/lightning/r/Quotation__c/"+quote_id+"/view",
-              wait_until="domcontentloaded",timeout=28000)
-    page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=5500)
-    table=page.locator("table").filter(has_text="Process Name").filter(has_text="Unit Price")
-    table.first.wait_for(state="visible",timeout=14000)
-    if table.count()!=1:
-        raise ValueError("PROCESS_TABLE_NOT_UNIQUE")
-    rows=table.locator("tr").evaluate_all(
-        """es=>es.map(tr=>[...tr.querySelectorAll(':scope>th,:scope>td')]
-        .map(c=>c.innerText.trim().replace(/\\s+/g,' ')))""")
-    return parse_process_price_rows(rows,source_samples,gb_per_sample,expected_net)
+    """Read the original Salesforce Add/Edit matrix but never modify/save it.
+
+    In current Salesforce the Quote Detail page has only a Total summary;
+    Pack, Data Size and true customer Unit Price exist in the Add/Edit dialog.
+    We read values of its inputs and discard the dialog by navigating away.
+    """
+    url=BASE+"/lightning/r/Quotation__c/"+quote_id+"/view"
+    page.goto(url,wait_until="domcontentloaded",timeout=28000)
+    try:
+        page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=6500)
+        add=page.get_by_text("Add/Edit",exact=True)
+        if add.count()!=1:
+            raise ValueError("SOURCE_ADD_EDIT_NOT_UNIQUE")
+        add.click(timeout=6500)
+        dialog=page.get_by_role("dialog").last
+        dialog.wait_for(state="visible",timeout=18000)
+        table=dialog.locator("table").filter(has_text="Pack No.").filter(has_text="Unit Price")
+        table.first.wait_for(state="visible",timeout=20000)
+        if table.count()!=1:
+            raise ValueError("SOURCE_PROCESS_MATRIX_NOT_UNIQUE")
+        # Salesforce asynchronously populates the product process rows after
+        # the modal table header is visible. Do not treat a header-only view
+        # as an empty Quote: wait for at least one priced process row.
+        for _ in range(50):
+            if (table.locator("tr").count()>1 and
+                    table.locator("tr").nth(1).locator("input[type=text]").count()>=3):
+                break
+            page.wait_for_timeout(300)
+        else:
+            raise ValueError("SOURCE_PROCESS_MATRIX_NOT_LOADED")
+        matrix=table.evaluate(
+            """node=>[...node.querySelectorAll('tr')].map(tr=>
+              [...tr.querySelectorAll('th,td')].map(cell=>({
+                text:(cell.innerText||'').trim().replace(/\\s+/g,' '),
+                value:cell.querySelector('input[type=text]')?.value??null
+              })))""")
+        if len(matrix)<2:
+            raise ValueError("SOURCE_PROCESS_MATRIX_EMPTY")
+        summary=dialog.locator("table").filter(has_text="Sales Price").filter(has_text="List Price")
+        if summary.count()!=1:
+            raise ValueError("SOURCE_TOTAL_SUMMARY_NOT_UNIQUE")
+        totals=summary.evaluate(
+            """node=>[...node.querySelectorAll('tr')].map(tr=>
+              [...tr.querySelectorAll('th,td')].map(c=>
+                (c.innerText||'').trim().replace(/\\s+/g,' ')))""")
+        if len(totals)!=2 or totals[0]!=["Total","Sales Price","List Price"] or len(totals[1])!=3:
+            raise ValueError("SOURCE_TOTAL_SUMMARY_CHANGED")
+        return parse_modal_process_price_rows({
+            "headers":[c["text"] for c in matrix[0]],
+            "rows":matrix[1:],"total":totals[1][0]},
+            source_samples,gb_per_sample,expected_net)
+    finally:
+        # Page navigation discards any unsaved editing dialog. No Save click.
+        page.goto(url,wait_until="domcontentloaded",timeout=28000)
 
 
 def linked_oppo_quote_bundle(page,oppo_id):
@@ -376,7 +517,7 @@ def read_item(page,resource,record_id):
             product_fields=source_quote_product(
                 page,record_id,out["quotationProductId"],original_amount)
             out.update(product_fields)
-            if out.get("unitPriceNetKrw") and out.get("grandTotalKrw"):
+            if original_amount>0 and isinstance(out.get("grandTotalKrw"),int) and out["grandTotalKrw"]>0:
                 out["sourceVatRateVerified10Pct"]=(
                     out["grandTotalKrw"]*10==original_amount*11)
             if out.get("samples") and out.get("dataSize") and out.get("sourceVatRateVerified10Pct"):
@@ -386,6 +527,8 @@ def read_item(page,resource,record_id):
                 except Exception as exc:
                     out["pricingStatus"]="PROCESS_BREAKDOWN_UNVERIFIED"
                     out["processBreakdownErrorType"]=type(exc).__name__
+                    if isinstance(exc,ValueError) and re.fullmatch(r"[A-Z0-9_]{5,100}",str(exc)):
+                        out["processBreakdownErrorCode"]=str(exc)
     return out
 
 def main():

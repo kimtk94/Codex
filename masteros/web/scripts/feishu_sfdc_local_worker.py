@@ -106,9 +106,10 @@ def pack_evidence(quote, new_samples, new_gb, expected_prices):
         name=str(raw.get("processName") or "").strip()
         qty=raw.get("sourceQty");rate=raw.get("unitPriceKrw")
         net=raw.get("sourceNetKrw");is_cloud=raw.get("isCloud")
-        if (not pack or not name or not isinstance(qty,int) or qty<=0 or
+        if (not name or not isinstance(qty,int) or qty<=0 or
             not isinstance(rate,int) or rate<0 or not isinstance(net,int) or
-            net!=qty*rate or not isinstance(is_cloud,bool)):
+            net!=qty*rate or not isinstance(is_cloud,bool) or
+            (not is_cloud and not pack)):
             return {**out,"code":"SOURCE_PACK_OR_PROCESS_LINE_MISSING"}
         projected=math.ceil(new_samples*new_gb/100) if is_cloud else new_samples
         parsed.append({"packNo":pack,"processName":name,"sourceQty":qty,
