@@ -91,7 +91,7 @@ test("UI has single save, visible included Quote processes and no confirmed samp
  assert.match(main,/Pack 수량/);
  assert.match(draft,/report-process-inclusions-/);
  assert.match(draft,/신규 Opportunity Close Date/);
- assert.match(lead,/lead-description-DESCRIPTION_PRESENT/);
+ assert.match(lead,/Description 있음 · 내용 검토/);
  assert.match(lead,/Lead 생성일/);
  assert.match(lead,/최근 발송일/);
 });
