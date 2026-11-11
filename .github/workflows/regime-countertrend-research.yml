@@ -54,6 +54,8 @@ jobs:
           python -m research.regime_countertrend.advanced_failure_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/advanced
           python -m research.regime_countertrend.bb_regime_stability --trades results/regime_countertrend/advanced/trade_features.csv --out results/regime_countertrend/stability
           python -m research.regime_countertrend.stock_relative --data-dir research/regime_countertrend/data/stock_history --out results/regime_countertrend/cross_symbol
+      - name: Public QLD QQQ temporal validation after 2026-09-04 (fail closed)
+        run: python -m research.regime_countertrend.fresh_oos --out results/regime_countertrend/fresh_oos
       - name: Strict real broker evidence gate
         run: python -m research.regime_countertrend.execution_source_gate_runner
       - uses: actions/upload-artifact@v4
