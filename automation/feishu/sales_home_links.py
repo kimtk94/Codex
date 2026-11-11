@@ -26,6 +26,12 @@ TARGETS = {
     "MONTHLY_TREND": ("blk6h2KPqrSzEAlG", None),
     "X_MY_PROJECTS": ("blkzYT2OAVQssL3Y", "07 · 프로젝트 운영 대시보드"),
 }
+LINK_LABELS = {
+    "WEEKLY_TREND": "Novogene · Weekly Quote 그래프",
+    "MONTHLY_TREND": "Novogene · 월별 Revenue 그래프",
+    "X_MY_PROJECTS": "Novogene 프로젝트 운영 대시보드",
+}
+EXPECTED_STATUS="DASHBOARD_PRESENT"
 API = "/open-apis/bitable/v1/apps/" + BASE
 
 def url(block):
@@ -75,6 +81,11 @@ def link_url(value):
         return ""
     raise RuntimeError("UNRECOGNIZED_EXISTING_LINK")
 
+def link_text(value):
+    if isinstance(value,list) and len(value)==1:
+        return link_text(value[0])
+    return value.get("text") if isinstance(value,dict) else ""
+
 def validate_current_link(value):
     existing = link_url(value).strip()
     if not existing:
@@ -97,11 +108,16 @@ def plan(records):
         if not row.get("record_id"):
             raise RuntimeError("MISSING_RECORD_ID")
         validate_current_link(f.get("바로가기"))
+        validate_current_link(f.get("바로가기 URL") and {"text":"url","link":f["바로가기 URL"]})
         block, label = TARGETS[key]
         desired = url(block)
         update = {}
-        if link_url(f.get("바로가기")) != desired:
-            update["바로가기"] = {"text": "열기", "link": desired}
+        if link_url(f.get("바로가기")) != desired or link_text(f.get("바로가기")) != LINK_LABELS[key]:
+            update["바로가기"] = {"text": LINK_LABELS[key], "link": desired}
+        if f.get("바로가기 URL") != desired:
+            update["바로가기 URL"] = desired
+        if f.get("데이터 상태") != EXPECTED_STATUS:
+            update["데이터 상태"] = EXPECTED_STATUS
         if label is not None and f.get("화면") != label:
             update["화면"] = label
         by_key[key] = {"id": row["record_id"], "fields": update}
@@ -134,13 +150,15 @@ def main():
     token = extract_token(auth)
     path = API + "/tables/" + HOME_TABLE
     fields = {f.get("field_name") for f in pages(path + "/fields", token)}
-    if not {"Menu Key", "바로가기", "화면"}.issubset(fields):
+    if not {"Menu Key", "바로가기", "바로가기 URL", "데이터 상태", "화면"}.issubset(fields):
         raise RuntimeError("HOME_FIELDS_MISSING")
     verify_views(token)
     data = list(pages(path + "/records", token, {"view_id": HOME_VIEW}))
     changes = plan(data)
     pending = sum(bool(item["fields"]) for item in changes.values())
     print(f"HOME_LINK_AUDIT keys={len(changes)} pending={pending} mode={'APPLY' if args.apply else 'DRY_RUN'}", flush=True)
+    for key in TARGETS:
+        print("HOME_LINK_CHECK "+key+" needs="+",".join(sorted(changes[key]["fields"])),flush=True)
     if not args.apply:
         return
     # Preflight all three rows before first write; never update any unrelated row.
@@ -156,7 +174,8 @@ def main():
         actual = (latest.get("record") or {}).get("fields") or {}
         for field, expected in item["fields"].items():
             if field == "바로가기":
-                if link_url(actual.get(field)) != expected["link"]:
+                if (link_url(actual.get(field)) != expected["link"]
+                        or link_text(actual.get(field)) != expected["text"]):
                     raise RuntimeError("LINK_READBACK_FAILED_" + key)
             elif actual.get(field) != expected:
                 raise RuntimeError("LABEL_READBACK_FAILED_" + key)
