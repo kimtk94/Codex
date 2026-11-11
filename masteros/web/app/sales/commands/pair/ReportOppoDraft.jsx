@@ -82,9 +82,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
     setPreflight(null);
   }
   function chooseAccount(account){
-    if(!account?.name)return;
+    if(!account)return;
     setDraft(old=>old?{...old,
-      account:{id:account.id||"",name:account.name},
+      account:{id:account.id||"",name:account.name||""},
       contact:{id:"",externalId:"",name:"",email:""}
     }:old);
     setPreflight(null);
@@ -92,6 +92,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
   }
   function chooseContact(pair){
     if(!pair?.ok||!pair.account?.name||!pair.contact?.name)return;
+    if(draft?.account?.id&&pair.account.id!==draft.account.id){
+      setNotice("CONTACT_NOT_IN_SELECTED_ACCOUNT");return;
+    }
     setDraft(old=>old?{...old,
       account:pair.account,contact:pair.contact
     }:old);
