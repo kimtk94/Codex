@@ -38,7 +38,7 @@ def validate_input(req):
     if not isinstance(req, dict) or isinstance(req, list):
         raise ValueError("INVALID_REQUEST")
     mode = req.get("mode")
-    if mode not in ("CHECK_PRICE", "CHECK_FORMS", "CHECK_READBACK"):
+    if mode not in ("CHECK_PRICE", "CHECK_FORMS", "CHECK_READBACK", "CHECK_SAVE_READINESS"):
         raise ValueError("READ_ONLY_MODE_REQUIRED")
     if req.get("runMode") not in (None, "CHECK"):
         raise ValueError("SAVE_NOT_SUPPORTED")
@@ -102,6 +102,34 @@ def run(req):
     if prepared.get("status") not in ("READY", "PRICE_ONLY"):
         return _blocked(prepared.get("code") or "SOURCE_PRICE_UNVERIFIED")
     pricing = prepared.get("price_fields") or {}
+    if mode == "CHECK_SAVE_READINESS":
+        # A single save click would create an orphan Opportunity if the Quote
+        # writer cannot set Pack, each process rate and Cloud blocks before
+        # committing. Never send a SAVE to either Salesforce command.
+        pack = prepared.get("sourcePackEvidence") or {}
+        if pack.get("state") != "PASS":
+            return {
+                "status": "HOLD", "code": pack.get("code") or "SOURCE_PACK_UNVERIFIED",
+                "pricing": pricing, "pack": pack,
+                "readiness": {"source_price": "PASS", "source_pack": "HOLD",
+                              "quote_writer": "UNVERIFIED",
+                              "new_quote_readback": "NOT_TESTED"},
+                "salesforce_write": False, "save_permitted": False,
+            }
+        # Validate the reference forms without saving either record.
+        forms = process(x)
+        is_valid = forms.get("status") == "PREFLIGHT_PASS"
+        return {
+            "status": "HOLD",
+            "code": "QUOTE_PACK_RATE_CLOUD_WRITE_AND_READBACK_NOT_VERIFIED"
+                    if is_valid else "REFERENCE_FORM_PREFLIGHT_UNVERIFIED",
+            "pricing": pricing, "pack": pack,
+            "readiness": {"source_price": "PASS", "source_pack": "PASS",
+                          "reference_forms": "PASS" if is_valid else "HOLD",
+                          "quote_writer": "UNVERIFIED",
+                          "new_quote_readback": "NOT_TESTED"},
+            "salesforce_write": False, "save_permitted": False,
+        }
     if mode == "CHECK_PRICE":
         return {
             "status": "PREVIEW_READY" if prepared["status"] == "READY" else "HOLD",
