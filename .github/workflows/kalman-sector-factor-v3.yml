@@ -1,0 +1,56 @@
+name: Kalman Multi-Symbol Industry Factor V3 Research
+on:
+  push:
+    branches:
+      - research/regime-countertrend-ci-20261102
+    paths:
+      - 'research/regime_countertrend/**'
+      - '.github/workflows/kalman-sector-factor-v3.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit-sector-factor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install reproducible analysis stack
+        run: python -m pip install numpy pandas scipy scikit-learn pyarrow
+      - name: Verify full 20-feature coverage and industry grouping contract
+        run: |
+          python -m unittest research.regime_countertrend.test_feature_coverage_v3 research.regime_countertrend.test_sector_hierarchy_v3 -v
+      - name: Audit all 20 correlated and residual factor inputs
+        run: python -m research.regime_countertrend.feature_coverage_v3 --out results/regime_countertrend/cfm_v3_coverage
+      - name: Fetch 14 stocks and 10 ETFs from public prices
+        run: python -m research.regime_countertrend.sector_price_sources_v3 --out results/regime_countertrend/universe_v3_prices
+      - name: Fit market-industry-stock hierarchical model (research only)
+        shell: bash
+        run: |
+          if [ -f results/regime_countertrend/universe_v3_prices/QQQ.csv ]; then
+            python -m research.regime_countertrend.sector_hierarchy_v3 --out results/regime_countertrend/sector_v3
+          else
+            mkdir -p results/regime_countertrend/sector_v3
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          Path('results/regime_countertrend/sector_v3/status.json').write_text(json.dumps({
+              "status":"HOLD_NO_VERIFIED_QQQ_BENCHMARK",
+              "promotion_allowed":False,
+              "note":"The asset-level source_inventory.json contains actual per-symbol failures."
+          },indent=2))
+          print("HOLD_NO_VERIFIED_QQQ_BENCHMARK")
+          PY
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kalman-sector-factor-v3-research
+          path: |
+            results/regime_countertrend/cfm_v3_coverage/
+            results/regime_countertrend/universe_v3_prices/
+            results/regime_countertrend/sector_v3/
+          retention-days: 30
