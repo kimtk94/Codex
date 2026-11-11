@@ -19,7 +19,7 @@ export function previewCandidate(bundle){
 }
 
 export function pairWebRequest(form,mode){
-  if(!["CHECK_PRICE","CHECK_FORMS","CHECK_READBACK","CHECK_SAVE_READINESS"].includes(mode))
+  if(!["CHECK_PRICE","CHECK_FORMS","CHECK_READBACK","CHECK_SAVE_READINESS","CHECK_WRITE_CONTROLS"].includes(mode))
     return {ok:false,code:"READ_ONLY_MODE_REQUIRED"};
   if(!id(form?.sourceOpportunityId,"006")||!id(form?.sourceQuoteId,"a0P")||
      !Number.isInteger(form.samples)||form.samples<1||form.samples>500||
