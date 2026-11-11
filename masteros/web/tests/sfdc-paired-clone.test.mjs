@@ -65,6 +65,7 @@ test("Paired save requires source IDs, correct Cloud and explicit approvals",()=
   ...b.form,action:"oppo_quote_pair",mode:"save",samples:12,
   amountKrw:2350000,cloudUnits:2,closeDate:"2026-11-30",
   opportunityName:"Korea-Example-12-mRNA-12Gb",
+  quoteName:"Korea-Example-12-mRNA-12Gb",packQuantity:12,
   progressDescription:"New quotation requested for 12 samples; PO not confirmed.",
   confirmSave:true,noDuplicateConfirmed:true,priceConfirmed:true,packConfirmed:true,
  };
