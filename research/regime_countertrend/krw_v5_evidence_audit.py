@@ -74,14 +74,27 @@ def metrics(v4,mask,model,cohort,group_by=None):
     rows=[]
     for c,field in RETURNS.items():
         values=part[field].to_numpy(float)
+        positive=values[values>0]
+        negative=values[values<0]
+        average_win=float(positive.mean()) if len(positive) else None
+        average_loss=float(negative.mean()) if len(negative) else None
+        breakeven=(abs(average_loss)/(average_win+abs(average_loss))
+                   if average_win is not None and average_loss is not None else None)
+        profit_factor=(float(positive.sum()/abs(negative.sum()))
+                       if len(positive) and len(negative) else None)
         rows.append({
             "cohort":cohort,"model":model,"currency_scenario":c,
             "opportunities":n,"trades":len(part),
             "win_rate":float((values>0).mean()) if len(part) else None,
             "mean_per_selected":float(values.mean()) if len(part) else None,
             "mean_per_opportunity":float(values.sum()/n) if n else None,
-            "negative_trades":int((values<0).sum()),
-            "worst_trade":float(values.min()) if len(part) else None
+            "negative_trades":int(len(negative)),
+            "worst_trade":float(values.min()) if len(part) else None,
+            "average_winner":average_win,"average_loser":average_loss,
+            "break_even_win_rate_at_sample_payoff":breakeven,
+            "payoff_ratio":float(average_win/abs(average_loss))
+                if average_win is not None and average_loss is not None else None,
+            "profit_factor":profit_factor
         })
     return rows
 
