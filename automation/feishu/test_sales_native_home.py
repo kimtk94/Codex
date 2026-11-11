@@ -117,6 +117,20 @@ class PortalTests(unittest.TestCase):
         self.assertFalse(p.valid_menu_url("MONTHLY_TREND",p.BASE_URL+"?table=blkInvalid&view=v"))
         self.assertEqual(len(p.SHORTCUT_KEYS),7)
 
+    def test_monthly_revenue_source_link_resolves_real_base_table(self):
+        live=p.BASE_URL+"?table=tblRevenueMonthly123"
+        self.assertEqual(p.monthly_revenue_grid_url("token","root",{
+            "Monthly Tax Invoice":"tblRevenueMonthly123"}),live)
+        self.assertEqual(p.monthly_revenue_grid_url("token","root",{}),"")
+        with mock.patch.object(p,"list_views",return_value={"All":"vewAll"}), \
+             mock.patch.object(p,"api",return_value={"items":[{"record_id":"r"}]}):
+            rows=p.source_rows("token","root",{
+                "Monthly Tax Invoice":"tblRevenueMonthly123"},None)
+        monthly=next(x for x in rows if x["Menu Key"]=="MONTHLY_TREND")
+        self.assertEqual(monthly["바로 편집"],
+                         {"text":"월별 Revenue 상세 리스트 보기","link":live})
+        self.assertNotIn("Monthly Tax Invoice", monthly["바로가기 URL"])
+
     def test_editable_weekly_quote_link_is_distinct_from_dashboard(self):
         base=p.BASE_URL+"?table=tblReview1234&view=vewRecent5"
         with mock.patch.object(p,"list_views",return_value={
