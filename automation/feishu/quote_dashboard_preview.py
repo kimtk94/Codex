@@ -45,42 +45,42 @@ def extract(records):
     return rows
 
 def render(rows,link):
+    """Operational summary, NOT a fake editable markdown grid.
+
+    A real edit/popup route now exists in 00 영업 홈 > 바로가기 > 바로 편집.
+    Avoid raw pseudo-checkboxes and markdown links that Feishu renders inert.
+    """
     if not link.startswith("https://ocnz4cb25scn.feishu.cn/base/") or "&view=vew" not in link:
         raise SafeError("QUOTE_PREVIEW_INVALID_EDITABLE_LINK")
-    labels=[
-        "## 실제 Quote 목록 · 최근 완료 4주 + 진행 중 1주",
-        "**아래는 실제 Feishu Quote Review 레코드의 읽기 전용 미리보기입니다.**",
-        "**체크하려면 [견적 목록 열기 · 합산 제외 체크박스 편집]("+link+")로 이동하세요.**",
-        "체크 상태는 ☑ 제외 / ☐ 미체크. Inactive는 미체크여도 합산에서 제외됩니다.",
-        "합산 판단을 위해 기관·서비스·샘플 수·금액 근거·Active 상태를 확인하세요.",
-        "견적금액은 참고용 예상금액이며 실제 Revenue가 아닙니다. 증빙 없는 금액은 - 입니다.",
-    ]
-    grouped=collections.defaultdict(list)
-    for row in rows:
-        grouped[row[0]].append(row[3])
-    for week in sorted(grouped,reverse=True):
-        weekrows=grouped[week]
-        included=sum(val(f,"합산 상태")=="INCLUDED" for f in weekrows)
-        manual=sum(checkbox(f.get("합산 제외")) for f in weekrows)
-        labels.extend(["",f"### {week} 시작 · 승인 {len(weekrows)}건 · 합산 {included}건 · 체크 제외 {manual}건",
-                       "| 제외 | Quote / 기관 | 서비스·공정 / 샘플수 | 상태 / 참고금액 |",
-                       "|:---:|---|---|---|"])
-        for f in weekrows:
-            marker="☑" if checkbox(f.get("합산 제외")) else "☐"
-            title=val(f,"Quote Name",58)
-            account=val(f,"기관",32)
-            service=val(f,"서비스·공정",64)
-            qty=val(f,"샘플수(공정별)",30)
-            active=val(f,"SFDC IsActive",20)
-            status=val(f,"합산 상태",20)
-            amount=val(f,"참고 견적 USD",23)
-            labels.append(f"| {marker} | {title} / {account} | {service} / {qty} | Active={active}, {status} / USD {amount} |")
     if len(rows)>MAX_ENTRIES:
         raise SafeError("QUOTE_PREVIEW_TOO_MANY_RECORDS_REFUSE_SILENT_TRUNCATION")
-    out="\n".join(labels)
-    if len(out)>MAX_TEXT:
+    headings=[
+        "## 실제 Quote 검토 · 편집 방법",
+        "**이 대시보드의 텍스트 요약은 읽기 전용입니다. 체크박스나 셀을 여기서 수정할 수 없습니다.**",
+        "**수정하려면:** 00 영업 홈 → 바로가기 → WEEKLY_TREND 행 → 파란색 '✎ Weekly Quote 편집 · 합산 제외' 클릭",
+        "해당 버튼은 실제 Feishu 'Weekly Quote Review'의 최근 5주 그리드를 엽니다.",
+        "그리드에서 '합산 제외' 체크박스를 수정하거나 Quote Name 셀 오른쪽의 아이콘으로 상세 팝업을 열어 수정할 수 있습니다.",
+        "Active 확인 없는 Quote는 체크를 해제해도 합산되지 않습니다. 금액은 예상 견적이며 실제 Revenue가 아닙니다.",
+        "",
+        "### 최근 5주 원본 건수 (읽기 전용 요약)",
+    ]
+    grouped=collections.defaultdict(list)
+    for week,_,_,fields in rows:
+        grouped[week].append(fields)
+    for week in sorted(grouped,reverse=True):
+        group=grouped[week]
+        included=sum(val(f,"합산 상태")=="INCLUDED" for f in group)
+        excluded=sum(checkbox(f.get("합산 제외")) for f in group)
+        headings.append(
+            "- "+week+" 시작: 승인 "+str(len(group))+"건 / 합산 "+str(included)+
+            "건 / 체크 제외 "+str(excluded)+"건"
+        )
+    headings.append("")
+    headings.append("편집 후 반영 여부는 Weekly Quote KPI의 다음 원천 동기화 결과로 확인합니다.")
+    result=chr(10).join(headings)
+    if len(result)>MAX_TEXT:
         raise SafeError("QUOTE_PREVIEW_TEXT_LIMIT_EXCEEDED")
-    return out
+    return result
 
 def read_preview():
     token,root=auth()

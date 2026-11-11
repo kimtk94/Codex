@@ -18,8 +18,8 @@ NOTE_NAME=WEEKLY[4]
 ORDER=(CHART_NAME,BLOCK_NAME,NOTE_NAME)
 POSITIONS={
     CHART_NAME:{"x":0,"y":0,"w":12,"h":10},
-    BLOCK_NAME:{"x":0,"y":11,"w":12,"h":24},
-    NOTE_NAME:{"x":0,"y":36,"w":12,"h":7},
+    BLOCK_NAME:{"x":0,"y":11,"w":12,"h":8},
+    NOTE_NAME:{"x":0,"y":20,"w":12,"h":7},
 }
 
 def inspect(rows):
@@ -71,7 +71,7 @@ def apply_layout(dashboard_id,mode="apply"):
                        "--dashboard-id",dashboard_id))
     pending=sum(not equal_pos(before[n][1],POSITIONS[n]) for n in ORDER)
     print("WEEKLY_LAYOUT_PREFLIGHT widgets=3 pending="+str(pending)+
-          " desired=GRAPH_TABLE_NOTES mode="+mode,flush=True)
+          " desired=GRAPH_EDIT_SUMMARY_NOTES mode="+mode,flush=True)
     if mode=="plan" or pending==0:
         return pending
     if mode!="apply":
@@ -86,7 +86,7 @@ def apply_layout(dashboard_id,mode="apply"):
     if any(after[name][0]!=before[name][0] or not equal_pos(after[name][1],POSITIONS[name])
            for name in ORDER):
         raise RuntimeError("WEEKLY_LAYOUT_READBACK_MISMATCH")
-    print("WEEKLY_QUOTE_GRAPH_TABLE_BELOW_PASS graph_y=0 table_y=11 note_y=36",flush=True)
+    print("WEEKLY_QUOTE_GRAPH_EDIT_GUIDE_BELOW_PASS graph_y=0 guide_y=11 note_y=20",flush=True)
     return pending
 
 def main():
