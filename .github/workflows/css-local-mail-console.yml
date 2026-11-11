@@ -15,6 +15,8 @@ on:
       - 'masteros/web/tests/css-mail-body-viewer.test.mjs'
       - 'masteros/web/lib/css-lead-outbound-groups.mjs'
       - 'masteros/web/tests/css-lead-outbound-groups.test.mjs'
+      - 'masteros/web/scripts/test_css_lead_description.py'
+      - 'masteros/web/tests/css-lead-description-pack.test.mjs'
       - 'masteros/web/scripts/start-css-local.ps1'
       - 'masteros/web/app/sales/commands/page.jsx'
       - 'masteros/web/app/sales/projects/page.jsx'
@@ -35,6 +37,8 @@ on:
       - 'masteros/web/tests/css-mail-body-viewer.test.mjs'
       - 'masteros/web/lib/css-lead-outbound-groups.mjs'
       - 'masteros/web/tests/css-lead-outbound-groups.test.mjs'
+      - 'masteros/web/scripts/test_css_lead_description.py'
+      - 'masteros/web/tests/css-lead-description-pack.test.mjs'
       - 'masteros/web/scripts/start-css-local.ps1'
       - 'masteros/web/app/sales/commands/page.jsx'
       - 'masteros/web/app/sales/projects/page.jsx'
@@ -61,13 +65,14 @@ jobs:
           python3 -m py_compile scripts/css_mail_local.py
           python3 -m unittest discover -s scripts -p 'test_css_mail_local.py' -v
           python3 -m unittest discover -s scripts -p 'test_css_mail_body_local.py' -v
+          python3 -m unittest discover -s scripts -p 'test_css_lead_description.py' -v
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Install local-only Next.js dependencies
         run: npm install --no-audit --no-fund
       - name: Verify loopback access and request contracts
-        run: node --test tests/css-mail-local.test.mjs tests/css-mail-dialog.test.mjs tests/css-mail-body-viewer.test.mjs tests/css-lead-outbound-groups.test.mjs
+        run: node --test tests/css-mail-local.test.mjs tests/css-mail-dialog.test.mjs tests/css-mail-body-viewer.test.mjs tests/css-lead-outbound-groups.test.mjs tests/css-lead-description-pack.test.mjs
       - name: Compile local dashboard (no deploy)
         env:
           NEXT_TELEMETRY_DISABLED: '1'
