@@ -1,0 +1,45 @@
+name: Feishu App-Owner Grant Individual Editor
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/feishu_app_owner_editor_grant.py'
+      - 'automation/feishu/test_feishu_app_owner_editor_grant.py'
+      - '.github/workflows/feishu-app-owner-grant-editor.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/feishu_app_owner_editor_grant.py'
+      - 'automation/feishu/test_feishu_app_owner_editor_grant.py'
+      - '.github/workflows/feishu-app-owner-grant-editor.yml'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate exact recipient and readback safety
+        run: |
+          python3 -m unittest discover -s automation/feishu -p 'test_feishu_app_owner_editor_grant.py' -v
+  grant:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Grant only one user edit access to app-owned Bitable
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+          FEISHU_EDITOR_EMAIL: taehoon.kim@novogene.com
+          FEISHU_SHARE_APPLY: '1'
+        run: python3 automation/feishu/feishu_app_owner_editor_grant.py
