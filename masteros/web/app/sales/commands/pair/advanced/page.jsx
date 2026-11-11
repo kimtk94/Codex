@@ -418,7 +418,33 @@ export default function PairedQuoteWeb(){
           disabled={!source.ok||!source.pricingReady||Boolean(busy)}>
           {busy==="CHECK_FORMS"?"입력 폼 확인 중":"Opportunity + Quote 폼 검증 (No Save)"}
         </button>
+        <button type="button" className={styles.secondary}
+          data-testid="pair-save-readiness-check" onClick={()=>run("CHECK_SAVE_READINESS")}
+          disabled={!source.ok||!source.pricingReady||Boolean(busy)}>
+          {busy==="CHECK_SAVE_READINESS"?"Pack·가격·저장 준비 검증 중":"Oppo + Quote 통합 생성 준비 점검 (저장 없음)"}
+        </button>
       </div>
+      {result?.readiness&&<div className={styles.output} data-testid="pair-create-readiness" role="status">
+        <div className={styles.inlineHead}><strong>통합 생성 준비 상태</strong><Status value={result.status}/></div>
+        <p className={styles.warning}>{result.code||"QUOTE_WRITE_UNVERIFIED"}</p>
+        <div className={styles.totals}>
+          <div><span>원본 Quote 공정 단가</span><strong>{result.readiness.source_price||"HOLD"}</strong></div>
+          <div><span>원본 Pack 배정</span><strong>{result.readiness.source_pack||"HOLD"}</strong></div>
+          <div><span>참고 입력 폼</span><strong>{result.readiness.reference_forms||"NOT_CHECKED"}</strong></div>
+          <div><span>새 Quote의 공정·단가·Pack 저장</span><strong>{result.readiness.quote_writer||"UNVERIFIED"}</strong></div>
+          <div><span>신규 Oppo·Quote 독립 재조회</span><strong>{result.readiness.new_quote_readback||"NOT_TESTED"}</strong></div>
+        </div>
+        {result.pack?.process_lines?.length>0&&<div className={styles.tableScroll}>
+          <table><thead><tr><th>원본 Pack</th><th>공정</th><th>KRW/단위</th><th>신규 수량</th><th>예상 합계</th></tr></thead>
+            <tbody>{result.pack.process_lines.map((line,i)=><tr key={i}>
+              <td>{line.packNo}</td><td>{line.processName}</td>
+              <td>{money(line.unitPriceKrw)}</td><td>{line.quantity}</td>
+              <td>{money(line.projectedNetKrw)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>}
+        <p className={styles.hint}>이 점검은 Salesforce를 수정하지 않습니다. 새 Quote의 Pack·공정별 단가·AliCloud 수량을 검증하여 저장하고, 생성 후 독립 재조회할 수 있기 전에는 Oppo만 선행 생성하지 않습니다.</p>
+      </div>}
       {result&&<section className={styles.output} aria-live="polite">
         <div className={styles.inlineHead}><strong>검증 결과 · {result.code||""}</strong><Status value={result.status}/></div>
         {result.cache&&<p className={styles.hint}>계산 근거: {result.cache.state} · 마지막 Salesforce 확인 {kst(result.cache.checked_at_utc)}. 원본 수정 여부는 별도 실시간 재조회가 필요합니다.</p>}
