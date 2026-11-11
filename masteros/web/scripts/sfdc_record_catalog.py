@@ -360,11 +360,23 @@ def quote_price_breakdown(page,quote_id,source_samples,gb_per_sample,expected_ne
     url=BASE+"/lightning/r/Quotation__c/"+quote_id+"/view"
     page.goto(url,wait_until="domcontentloaded",timeout=28000)
     try:
-        page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=6500)
-        add=page.get_by_text("Add/Edit",exact=True)
+        tab=page.get_by_role("tab",name="Quotation Detail",exact=True)
+        tab.wait_for(state="visible",timeout=13000)
+        tab.click(timeout=9500)
+        # Wait for Lightning re-render, but do not click a disabled edit control.
+        # An actual Quote can show Add/Edit visibly yet disabled; Playwright
+        # click then raises TimeoutError and incorrectly suggests retryable load.
+        add=page.get_by_role("button",name="Add/Edit",exact=True)
+        add.first.wait_for(state="visible",timeout=14000)
         if add.count()!=1:
             raise ValueError("SOURCE_ADD_EDIT_NOT_UNIQUE")
-        add.click(timeout=6500)
+        for _ in range(10):
+            if add.is_enabled():
+                break
+            page.wait_for_timeout(400)
+        else:
+            raise ValueError("SOURCE_ADD_EDIT_DISABLED")
+        add.click(timeout=9500)
         dialog=page.get_by_role("dialog").last
         dialog.wait_for(state="visible",timeout=18000)
         table=dialog.locator("table").filter(has_text="Pack No.").filter(has_text="Unit Price")
