@@ -51,6 +51,18 @@ class SearchTests(unittest.TestCase):
     def test_escaped_wildcards_not_wide_database_scan(self):
         self.assertEqual(read_identity_index("%",now=NOW,db=self.path)["rows"],[])
         self.assertEqual(read_identity_index("_",now=NOW,db=self.path)["rows"],[])
+    def test_selected_account_excludes_same_name_contact_from_other_institutions(self):
+        scoped=read_identity_index("김지훈",now=NOW,db=self.path,
+                                   account_id="001000000000000AAA")
+        self.assertEqual(len(scoped["rows"]),1)
+        self.assertEqual(scoped["rows"][0]["account_name"],"연세대학교")
+        self.assertEqual(scoped["account_filter"],"001000000000000AAA")
+        other=read_identity_index("김지훈",now=NOW,db=self.path,
+                                  account_id="001000000000000AAB")
+        self.assertEqual(len(other["rows"]),1)
+        self.assertEqual(other["rows"][0]["account_name"],"의료원")
+        with self.assertRaisesRegex(ValueError,"ACCOUNT_FILTER_INVALID"):
+            read_identity_index("김지훈",now=NOW,db=self.path,account_id="001bad")
     def test_stale_flag_is_not_fabricated_fresh(self):
         late=NOW+dt.timedelta(days=5)
         self.assertEqual(read_identity_index("김",now=late,db=self.path)["freshness"],"STALE")
