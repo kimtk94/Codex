@@ -52,9 +52,13 @@ def detail_daily(prices,symbol):
     o=d.open.astype(float);h=d.high.astype(float)
     l=d.low.astype(float);c=d.close.astype(float)
     v=d.volume.astype(float)
-    if ((h<d[["open","low","close"]].max(axis=1))|
-        (l>d[["open","high","close"]].min(axis=1))).any():
-        raise ValueError("invalid stock OHLC")
+    # Adjusted OHLC can disagree at floating-point ULP precision, e.g.
+    # INTC 2017-04-13 adjusted low vs close by 7e-15 USD. Ignore only ULP-scale
+    # arithmetic noise; still reject materially inconsistent source prices.
+    eps=1e-9*np.maximum(1.0,c)
+    if ((h+eps<d[["open","low","close"]].max(axis=1))|
+        (l-eps>d[["open","high","close"]].min(axis=1))).any():
+        raise ValueError("materially invalid stock OHLC")
     high5=h.rolling(5,min_periods=5).max()
     low5=l.rolling(5,min_periods=5).min()
     high20=h.rolling(20,min_periods=20).max()
