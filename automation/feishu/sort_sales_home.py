@@ -20,7 +20,7 @@ SORT_FIELD = "표시순서"
 EXPECTED = {"sort_config": [{"field": SORT_FIELD, "desc": False}]}
 # Index column remains first; category is the earliest movable column.
 CURATED_COLUMNS=(
-    "Menu Key", "메뉴 구분", "화면", "바로가기",
+    "Menu Key", "메뉴 구분", "화면", "바로가기", "바로 편집",
     "데이터 상태", "업무 내용", "갱신 시각",
 )
 COLUMNS_PAYLOAD={"visible_fields":list(CURATED_COLUMNS)}
@@ -174,8 +174,8 @@ def ensure_column_order(base, table_id, view_id, fields,mode):
     all_names={f.get("field_name") for f in fields}
     if not set(CURATED_COLUMNS).issubset(all_names):
         raise SafeError("PORTAL_COLUMNS_REQUIRED_FIELD_MISSING")
-    link=next(f for f in fields if f.get("field_name")=="바로가기")
-    if link.get("type")!=15:
+    links=[f for f in fields if f.get("field_name") in ("바로가기","바로 편집")]
+    if len(links)!=2 or any(f.get("type")!=15 for f in links):
         raise SafeError("PORTAL_COLUMNS_HYPERLINK_TYPE_MISMATCH")
     before=run_cli("+view-get-visible-fields",base,table_id,view_id)
     already=matches_columns(before,fields)
@@ -187,8 +187,8 @@ def ensure_column_order(base, table_id, view_id, fields,mode):
     after=run_cli("+view-get-visible-fields",base,table_id,view_id)
     if not matches_columns(after,fields):
         raise SafeError("PORTAL_COLUMNS_READBACK_MISMATCH")
-    print("PORTAL_COLUMNS_PASS second=category fourth=direct_link "
-          "visible=7 changed="+str(int(not already)))
+    print("PORTAL_COLUMNS_PASS second=category fourth=chart_link fifth=edit_link "
+          "visible=8 changed="+str(int(not already)))
 
 
 def verify_filtered_view(view, field_id):
@@ -280,6 +280,16 @@ def verify_view_rows(token, table_path, view_id):
             issues.append(key)
         elif (link or None)!=expected_link:
             issues.append(key)
+        if key=="WEEKLY_TREND":
+            edit_link=fields.get("바로 편집")
+            if isinstance(edit_link,list) and len(edit_link)==1:
+                edit_link=edit_link[0]
+            if (not isinstance(edit_link,dict)
+                    or edit_link.get("text")!="✎ Weekly Quote 편집 · 합산 제외"
+                    or not isinstance(edit_link.get("link"),str)
+                    or "?table=tbl" not in edit_link["link"]
+                    or "&view=vew" not in edit_link["link"]):
+                issues.append(key)
     if issues:
         # Only menu route keys, never customer data, enter the audit log.
         print("PORTAL_SORT_SOURCE_DIFFERENCES=" + ",".join(issues))
@@ -345,7 +355,7 @@ def main():
     if not sort_matches(run_cli("+view-get-sort",EXPECTED_BASE,table_id,shortcut_id),sort_field["field_id"]):
         raise SafeError("PORTAL_SHORTCUT_SORT_READBACK_MISMATCH")
     ensure_column_order(EXPECTED_BASE,table_id,shortcut_id,fields,mode)
-    print("PORTAL_SHORTCUT_VIEW_LAYOUT_PASS rows=7 sort=ascending columns=7")
+    print("PORTAL_SHORTCUT_VIEW_LAYOUT_PASS rows=7 sort=ascending columns=8")
     ensure_full_view_layout(token,path,EXPECTED_BASE,table_id,views,fields,mode)
     record_state = "PASS"
     try:
