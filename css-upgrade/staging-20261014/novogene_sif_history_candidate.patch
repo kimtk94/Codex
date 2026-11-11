@@ -1,0 +1,217 @@
+--- a/Novogene_Mail_CSS_DashBoard.py
++++ b/Novogene_Mail_CSS_DashBoard.py
+@@ -91,8 +91,9 @@
+ CUSTOMER_360_SHEET_NAME = "CSS Customer 360"
+ MANUAL_ISSUE_SHEET_NAME = "CSS Manual Issues"
+ SAMPLE_INTAKE_SHEET_NAME = "CSS Contract-SIF Tracker"
+ SAMPLE_INTAKE_SKIPPED_SHEET_NAME = "CSS Contract-SIF Skipped"
++SAMPLE_INTAKE_SKIP_HISTORY_SHEET_NAME = "CSS Contract-SIF Skip History"
+ RULES_SLA_SHEET_NAME = "CSS Rules & SLA"
+ SYSTEM_HEALTH_SHEET_NAME = "CSS System Health"
+ 
+ # K USD 환산은 VAT 포함 원화 금액에서 VAT를 제거한 공급가액 기준입니다.
+@@ -492,8 +493,15 @@
+ 
+ SAMPLE_INTAKE_ALLOWED_INPUT_COLUMNS = set(
+     SAMPLE_INTAKE_COLUMNS
+ ) | set(SAMPLE_INTAKE_LEGACY_COLUMNS)
++
++SAMPLE_INTAKE_SKIP_HISTORY_COLUMNS = [
++    "record_id", "is_active", "Contract No.", "AMEA No.", "Institution",
++    "Customer Name", "skip_reason", "Prepayment", "skipped_at",
++    "restored_at", "reference_date", "age_days", "workflow_status",
++    "tracker_visibility", "history_note",
++]
+ 
+ SAMPLE_INTAKE_SKIPPED_COLUMNS = [
+     SAMPLE_INTAKE_RESTORE_COLUMN,
+     "skipped_at",
+@@ -19156,8 +19164,103 @@
+ 
+     return active.reset_index(drop=True), skipped
+ 
+ 
++def collect_active_prepayment_project_ids(conn):
++    """Read active Prepayment decisions from durable SQLite, not the 30-day view.
++
++    If the visible Skipped tab is empty because of retention, its underlying
++    Prepayment decisions must still suppress false SIF reminders until the
++    project's real production stage advances beyond SIF.
++    """
++    project_ids = set()
++    for info in load_active_contract_sif_skips(conn).values():
++        snapshot = info.get("snapshot") or {}
++        if not isinstance(snapshot, dict):
++            continue
++        is_prepayment = (
++            normalize_text(info.get("skip_reason", "")).startswith("prepayment")
++            or checkbox_is_checked(snapshot.get(SAMPLE_INTAKE_PREPAYMENT_COLUMN, ""))
++        )
++        if not is_prepayment:
++            continue
++        project_id = canonical_sif_project_id(
++            snapshot.get("project_id", "") or snapshot.get("AMEA No.", "")
++        )
++        if project_id:
++            project_ids.add(project_id)
++    return project_ids
++
++
++def build_contract_sif_skip_history(conn, now=None):
++    """Persistent read-only archive of *all* contract SIF skip records.
++
++    This output MUST NOT be fed into sync_contract_sif_skip_actions_from_frames;
++    only the existing Skipped tab has a restore checkbox. Keep legacy
++    retention behavior in the live Tracker completely unchanged.
++    """
++    now = now or datetime.now(KST)
++    if now.tzinfo is None:
++        now = now.replace(tzinfo=KST)
++    rows = conn.execute(
++        """SELECT record_id, is_active, skip_reason, skipped_at,
++                  restored_at, snapshot_json FROM contract_sif_skips
++           ORDER BY skipped_at DESC, record_id"""
++    ).fetchall()
++    result = []
++    for record_id, is_active, reason, skipped_at, restored_at, raw in rows:
++        try:
++            snapshot = json.loads(raw) if raw else {}
++            if not isinstance(snapshot, dict):
++                snapshot = {}
++        except (TypeError, ValueError):
++            snapshot = {}
++        reference = clean_text(snapshot.get("Date", "")) or clean_text(
++            snapshot.get("contract_created_at", "")
++        )
++        parsed = pd.to_datetime(reference, errors="coerce")
++        age = ""
++        if not pd.isna(parsed):
++            try:
++                if getattr(parsed, "tzinfo", None) is None:
++                    parsed = parsed.tz_localize(KST)
++                else:
++                    parsed = parsed.tz_convert(KST)
++                age = max(0, (now.date() - parsed.date()).days)
++            except (TypeError, ValueError):
++                age = ""
++        workflow = clean_text(snapshot.get("workflow_status", ""))
++        reason_text = clean_text(reason)
++        is_prepayment = (
++            reason_text.lower().startswith("prepayment")
++            or checkbox_is_checked(snapshot.get(SAMPLE_INTAKE_PREPAYMENT_COLUMN, ""))
++        )
++        if workflow in SAMPLE_INTAKE_TERMINAL_STATUSES:
++            visibility = "승인 완료 - Tracker 표시 제외"
++        elif isinstance(age, int) and age > SAMPLE_INTAKE_RETENTION_DAYS:
++            visibility = "30일 초과 - Tracker 표시 제외"
++        else:
++            visibility = "Tracker 후보 (현재 단계 재검증 필요)"
++        result.append({
++            "record_id": clean_text(record_id),
++            "is_active": bool(is_active),
++            "Contract No.": clean_text(snapshot.get("Contract No.", "")),
++            "AMEA No.": clean_text(snapshot.get("AMEA No.", "") or snapshot.get("project_id", "")),
++            "Institution": clean_text(snapshot.get("Institution", "")),
++            "Customer Name": clean_text(snapshot.get("Customer Name", "")),
++            "skip_reason": reason_text,
++            "Prepayment": bool(is_prepayment),
++            "skipped_at": clean_text(skipped_at),
++            "restored_at": clean_text(restored_at),
++            "reference_date": reference,
++            "age_days": age,
++            "workflow_status": workflow,
++            "tracker_visibility": visibility,
++            "history_note": "조회 전용 / 복원은 별도 승인 및 원본 상태 재검증 필요",
++        })
++    return pd.DataFrame(result, columns=SAMPLE_INTAKE_SKIP_HISTORY_COLUMNS)
++
++
+ def parse_contract_sif_project_labels(project_name, project_id=""):
+     """Project Name에서 기관/고객명/AMEA를 운영 화면용으로 추출합니다.
+ 
+     규칙:
+@@ -20448,8 +20551,11 @@
+         },
+         SAMPLE_INTAKE_SKIPPED_SHEET_NAME: {
+             "rows": 1000, "cols": len(SAMPLE_INTAKE_SKIPPED_COLUMNS)
+         },
++        SAMPLE_INTAKE_SKIP_HISTORY_SHEET_NAME: {
++            "rows": 1000, "cols": len(SAMPLE_INTAKE_SKIP_HISTORY_COLUMNS)
++        },
+         RULES_SLA_SHEET_NAME: {
+             "rows": 200, "cols": len(RULES_SLA_COLUMNS)
+         },
+         SYSTEM_HEALTH_SHEET_NAME: {
+@@ -20490,8 +20596,9 @@
+     customer_360_ws = worksheets[CUSTOMER_360_SHEET_NAME]
+     manual_issue_ws = worksheets[MANUAL_ISSUE_SHEET_NAME]
+     sample_intake_ws = worksheets[SAMPLE_INTAKE_SHEET_NAME]
+     sample_intake_skipped_ws = worksheets[SAMPLE_INTAKE_SKIPPED_SHEET_NAME]
++    sample_intake_skip_history_ws = worksheets[SAMPLE_INTAKE_SKIP_HISTORY_SHEET_NAME]
+     rules_sla_ws = worksheets[RULES_SLA_SHEET_NAME]
+     system_health_ws = worksheets[SYSTEM_HEALTH_SHEET_NAME]
+     run_timer.mark("authentication_and_sheet_discovery")
+ 
+@@ -21120,26 +21227,17 @@
+             df_sample_intake_all,
+         )
+         counts["contract_sif_active_count"] = len(df_sample_intake)
+         counts["contract_sif_skipped_count"] = len(df_sample_intake_skipped)
++        df_sample_intake_skip_history = build_contract_sif_skip_history(conn)
++        counts["contract_sif_skip_history_count"] = len(df_sample_intake_skip_history)
+         counts["contract_sif_retention_days"] = SAMPLE_INTAKE_RETENTION_DAYS
+ 
+         # Prepayment은 SIF 제출이 필요 없는 프로젝트이므로 SIF 요청 상태를
+         # Project Active follow-up으로 다시 생성하지 않습니다.
+-        prepayment_project_ids = set()
+-        if not df_sample_intake_skipped.empty:
+-            for row in iter_dataframe_records(df_sample_intake_skipped):
+-                prepayment_flag = checkbox_is_checked(
+-                    row.get(SAMPLE_INTAKE_PREPAYMENT_COLUMN, "")
+-                )
+-                prepayment_reason = normalize_text(
+-                    row.get(SAMPLE_INTAKE_SKIP_REASON_COLUMN, "")
+-                ).startswith("prepayment")
+-                project_id = canonical_sif_project_id(
+-                    row.get("project_id", "") or row.get("AMEA No.", "")
+-                )
+-                if project_id and (prepayment_flag or prepayment_reason):
+-                    prepayment_project_ids.add(project_id)
++        # The 30-day Skipped display can be empty even when active Prepayment
++        # decisions remain in SQLite. Never infer durable state from that view.
++        prepayment_project_ids = collect_active_prepayment_project_ids(conn)
+ 
+         if prepayment_project_ids and not df_dashboard.empty:
+             # Overview에도 Prepayment를 일반 Skip과 구분되는 지속형 Skip으로
+             # 등록합니다. 신규 메일로 풀리지 않고 SIF 단계가 끝날 때 자동 해제됩니다.
+@@ -21441,8 +21539,15 @@
+             conn,
+             sample_intake_skipped_ws,
+             df_sample_intake_skipped,
+             value_input_option="USER_ENTERED",
++        )
++        # Read-only historical display. No restore checkbox and no history-to-DB sync.
++        sheet_writes["sample_intake_skip_history"] = overwrite_dataframe_if_changed(
++            conn,
++            sample_intake_skip_history_ws,
++            df_sample_intake_skip_history,
++            value_input_option="RAW",
+         )
+         sheet_writes["manual_issues"] = bool(manual_issue_sheet_created)
+         sheet_writes["rules_sla"] = bool(rules_sla_sheet_created)
+         counts["sheet_writes_performed"] = sum(bool(value) for value in sheet_writes.values())
+@@ -21638,8 +21743,14 @@
+                         sample_intake_skipped_ws,
+                         df_sample_intake_skipped,
+                         "contract-sif-skipped-v1",
+                     ),
++                    (
++                        "Contract-SIF Skip History",
++                        sample_intake_skip_history_ws,
++                        df_sample_intake_skip_history,
++                        "contract-sif-skip-history-v1",
++                    ),
+                     ("Rules & SLA", rules_sla_ws, df_rules_sla, "rules-sla-v1"),
+                 ]
+             ],
+         ])

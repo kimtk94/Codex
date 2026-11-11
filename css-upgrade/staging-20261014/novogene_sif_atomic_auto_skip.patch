@@ -1,0 +1,68 @@
+--- a/Novogene_Mail_CSS_DashBoard.py
++++ b/Novogene_Mail_CSS_DashBoard.py
+@@ -10534,17 +10534,32 @@
+     created = 0
+     for project_id in sorted(active_ids):
+         row = dashboard_rows[project_id]
+         existed = project_id in existing_ids
+-        _upsert_overview_snooze(
+-            conn,
+-            project_id,
+-            "skip_prepayment",
+-            "",
+-            overview_mail_marker(row),
+-            now_text,
+-        )
+-        if not existed:
++        # Conditional UPSERT is the final protection against a newer manual
++        # Hold/Skip arriving after the initial SELECT and before this write.
++        # Avoid updating timestamps on identical runs (new mail may change
++        # the baseline marker; it never releases a Prepayment snooze).
++        cursor = conn.execute(
++            """
++            INSERT INTO overview_project_snoozes (
++                project_id, mode, hold_until, baseline_mail_marker,
++                created_at, updated_at
++            ) VALUES (?, 'skip_prepayment', '', ?, ?, ?)
++            ON CONFLICT(project_id) DO UPDATE SET
++                hold_until=excluded.hold_until,
++                baseline_mail_marker=excluded.baseline_mail_marker,
++                updated_at=excluded.updated_at
++            WHERE overview_project_snoozes.mode='skip_prepayment'
++              AND (
++                COALESCE(overview_project_snoozes.baseline_mail_marker, '')
++                    <> excluded.baseline_mail_marker
++                OR COALESCE(overview_project_snoozes.hold_until, '') <> ''
++              )
++            """,
++            (project_id, overview_mail_marker(row), now_text, now_text),
++        )
++        if not existed and cursor.rowcount:
+             created += 1
+ 
+     stale_ids = existing_ids - active_ids
+     released = 0
+@@ -10554,13 +10569,22 @@
+             "WHERE project_id=? AND mode='skip_prepayment'",
+             (project_id,),
+         ).rowcount
+ 
++    # Re-read the final state: another manual state might have arrived after
++    # selection, and attempted automated UPSERT must not count as an override.
++    active_auto_ids = {
++        clean_text(row[0]).upper()
++        for row in conn.execute(
++            "SELECT project_id FROM overview_project_snoozes "
++            "WHERE mode='skip_prepayment'"
++        ).fetchall()
++    } & active_ids
+     conn.commit()
+     return {
+         "overview_prepayment_skip_created": created,
+         "overview_prepayment_skip_released": released,
+-        "overview_prepayment_skip_active": len(active_ids),
++        "overview_prepayment_skip_active": len(active_auto_ids),
+     }
+ 
+ 
+ def _queue_overview_prepayment_request(conn, project_id, now_text):

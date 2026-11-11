@@ -1,0 +1,99 @@
+name: Novogene CSS Live Import Safety Gate
+
+on:
+  push:
+    branches:
+      - 'audit/novogene-css-sif-staging-20261014'
+    paths:
+      - '.github/workflows/novogene-css-live-import-gate.yml'
+      - 'css-upgrade/staging-20261014/canary_isolation_gate.py'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate SSH credentials
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+          SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SERVER_SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_USER" ] || [ -z "$SSH_KEY" ] || [ -z "$SSH_KNOWN_HOSTS" ]; then
+            echo "::error::SSH configuration missing"; exit 1
+          fi
+          install -m 700 -d "$HOME/.ssh"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          raw=os.environ["SSH_KEY"].strip().replace("\\n","\n").replace("\r\n","\n").replace("\r","\n")
+          if not raw.startswith(("-----BEGIN OPENSSH PRIVATE KEY-----","-----BEGIN RSA PRIVATE KEY-----","-----BEGIN EC PRIVATE KEY-----")):
+              raise SystemExit("SSH_KEY_FORMAT_INVALID")
+          (Path.home()/'.ssh/server_key').write_text(raw+"\n")
+          PY
+          chmod 600 "$HOME/.ssh/server_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -P "" -f "$HOME/.ssh/server_key" > /dev/null 2>&1 || exit 1
+      - name: Validate import risks on live server sources without executing them
+        env:
+          SSH_HOST: ${{ secrets.SERVER_SSH_HOST }}
+          SSH_USER: ${{ secrets.SERVER_SSH_USER }}
+        run: |
+          SCRIPT="/tmp/css-canary-import-guard-${GITHUB_RUN_ID}.py"
+          trap 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" "$SSH_USER@$SSH_HOST" "rm -f $SCRIPT" >/dev/null 2>&1 || true' EXIT
+          scp -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            css-upgrade/staging-20261014/canary_isolation_gate.py "$SSH_USER@$SSH_HOST:$SCRIPT"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=12 \
+            -o IdentitiesOnly=yes -i "$HOME/.ssh/server_key" \
+            "$SSH_USER@$SSH_HOST" "ISOLATION_GUARD='$SCRIPT' python3 -" <<'PY'
+          import ast
+          import hashlib
+          import importlib.util
+          import os
+          import sys
+          from pathlib import Path
+          path=Path(os.environ['ISOLATION_GUARD'])
+          spec=importlib.util.spec_from_file_location('css_isolation_check',str(path))
+          module=importlib.util.module_from_spec(spec)
+          sys.modules[spec.name]=module
+          spec.loader.exec_module(module)
+          source=Path('/home/taehoon/services/novogene-css/app/Novogene_Mail_CSS_DashBoard_server.py')
+          original=source.read_bytes()
+          expected='a7c395be330bc1128f8164cdac1d75a7c27fd35398e46ff5589271ebf0bae840'
+          if hashlib.sha256(original).hexdigest()!=expected:
+              raise SystemExit('IMPORT_GUARD_SOURCE_SHA_CHANGED')
+          risks=set(module.audit_import_time_calls(original.decode('utf-8')))
+          if 'subprocess.run' not in risks:
+              raise SystemExit('IMPORT_GUARD_DID_NOT_DETECT_PIP')
+          try:
+              module.refuse_unsafe_import(original.decode('utf-8'))
+              raise SystemExit('CSS_IMPORT_UNEXPECTEDLY_PERMITTED')
+          except module.IsolationViolation:
+              print('LIVE_CSS_IMPORT_BLOCKED_PASS')
+          collector=source.parent/'Novogene_Mail_Collector_server.py'
+          if not collector.is_file():
+              collector=source.parent/'Novogene_Mail_Collector.py'
+          if not collector.is_file():
+              raise SystemExit('COLLECTOR_NOT_FOUND')
+          collector_risks=set(module.audit_import_time_calls(collector.read_text(errors='replace')))
+          if not {'sqlite3.connect','gspread.authorize'}.issubset(collector_risks):
+              raise SystemExit('IMPORT_GUARD_DID_NOT_DETECT_COLLECTOR_EFFECTS')
+          try:
+              module.refuse_unsafe_import(collector.read_text(errors='replace'))
+              raise SystemExit('COLLECTOR_IMPORT_UNEXPECTEDLY_PERMITTED')
+          except module.IsolationViolation:
+              print('LIVE_COLLECTOR_IMPORT_BLOCKED_PASS')
+          try:
+              module.run_full_main()
+              raise SystemExit('MAIN_UNEXPECTEDLY_PERMITTED')
+          except module.IsolationViolation:
+              print('FULL_MAIN_FAIL_CLOSED_PASS')
+          print('PRODUCTION_PYTHON_FILES_READ_ONLY_PASS')
+          PY

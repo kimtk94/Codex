@@ -1,0 +1,74 @@
+--- a/Novogene_Mail_CSS_DashBoard.py
++++ b/Novogene_Mail_CSS_DashBoard.py
+@@ -21241,10 +21241,14 @@
+         counts["contract_sif_skipped_count"] = len(df_sample_intake_skipped)
+         df_sample_intake_skip_history = build_contract_sif_skip_history(conn)
+         counts["contract_sif_skip_history_count"] = len(df_sample_intake_skip_history)
+         counts["contract_sif_retention_days"] = SAMPLE_INTAKE_RETENTION_DAYS
+ 
++        # Keep portfolio and action views separate: action suppression must not
++        # remove customers/projects from Dashboard, Customer 360 or Summary.
++        df_dashboard_portfolio = df_dashboard.copy()
++
+         # Prepayment은 SIF 제출이 필요 없는 프로젝트이므로 SIF 요청 상태를
+         # Project Active follow-up으로 다시 생성하지 않습니다.
+         # The 30-day Skipped display can be empty even when active Prepayment
+         # decisions remain in SQLite. Never infer durable state from that view.
+         prepayment_project_ids = collect_active_prepayment_project_ids(conn)
+@@ -21299,10 +21303,20 @@
+                         prepayment_mask,
+                         "project_id",
+                     ].astype(str).str.upper()
+                 )
+             )
++            # Display the project in the portfolio, but mark this SIF request as
++            # informational (no user action). Preserve the raw stage/timeline.
++            df_dashboard_portfolio.loc[prepayment_mask, "attention"] = "No"
++            df_dashboard_portfolio.loc[prepayment_mask, "attention_reason"] = (
++                "Prepayment - SIF 제출 불필요 (조치 제외)"
++            )
++            df_dashboard_portfolio.loc[
++                prepayment_mask, "latest_action_required"
++            ] = "No"
++
+             df_dashboard = df_dashboard.loc[~prepayment_mask].copy()
+         else:
+             counts["prepayment_project_followup_excluded"] = 0
+             counts["prepayment_project_followup_project_ids"] = []
+             prepayment_overview_counts = sync_overview_prepayment_snoozes(
+@@ -21377,11 +21391,11 @@
+         counts["action_rows_archived_this_run"] = action_rows_archived
+         counts["review_rows_archived_this_run"] = review_rows_archived
+         counts["action_archive_count"] = len(df_action_archive)
+         counts["review_archive_count"] = len(df_review_archive)
+         df_customer_360 = build_customer_360_output(
+-            df_dashboard,
++            df_dashboard_portfolio,
+             df_invoice_list,
+         )
+         counts["action_center_open_count"] = int(
+             df_action_center["status"].isin(["미검토", "검토 중", "보류"]).sum()
+         ) if not df_action_center.empty else 0
+@@ -21418,17 +21432,21 @@
+             df_manual_issues["status"].isin(["활성", "보류"]).sum()
+         ) if not df_manual_issues.empty else 0
+         df_checkpoints = build_checkpoint_df()
+         df_summary = build_summary_df(
+             df_ledger,
+-            df_dashboard,
++            df_dashboard_portfolio,
+             df_project_exclusions,
+             df_invoice_list,
+             new_total,
+             counts,
+             spreadsheet.url,
+         )
++        # Action Center and Review Queue were built from action-only rows.
++        # From this point onward use the complete portfolio for sheet output,
++        # dashboard formatting, operational validation, and Overview links.
++        df_dashboard = df_dashboard_portfolio
+         run_timer.mark("reconciliation_and_output_build")
+ 
+         sheet_writes = {}
+         sheet_writes["timeline"] = overwrite_dataframe_if_changed(
+             conn, timeline_ws, df_timeline, typed=False
