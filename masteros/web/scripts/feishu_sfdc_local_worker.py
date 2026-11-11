@@ -222,7 +222,8 @@ def prepare_pair(x):
     return {"status":"READY","code":"PRICING_VALIDATED","opportunity":opp,"quotation":quote_req,
        "expectedNet":net,"expectedCloudUnits":cloud_count,
        "expectedGross":prices["Quote Gross KRW"],"price_fields":prices,
-       "sourceCache":bundle.get("cache",{"state":"UNKNOWN"})}
+       "sourceCache":bundle.get("cache",{"state":"UNKNOWN"}),
+       "sourcePackEvidence":pack_evidence(quote,n,size,prices)}
 
 def process(x):
     if x.get("Action")=="LEAD_CONVERT":

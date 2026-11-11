@@ -57,7 +57,22 @@ class T(unittest.TestCase):
     self.assertEqual(p["price_fields"]["Product Net KRW"],2280000)
     self.assertEqual(p["price_fields"]["Cloud Net KRW"],70000)
     self.assertEqual(p["price_fields"]["Quote Net KRW"],2350000)
+    self.assertIn("sourcePackEvidence",p)
     self.assertNotIn("source progress",p["opportunity"]["progressDescription"].lower())
+ def test_single_product_ready_propagates_verified_pack_and_price_lines(self):
+    from copy import deepcopy
+    source=deepcopy(SOURCE)
+    for row in source["linkedQuotes"][0]["processPriceLines"]:
+      row["packNo"]="" if row["isCloud"] else "Package1"
+      row["processType"]="Data release" if row["isCloud"] else "Library preparation"
+    with patch("feishu_sfdc_local_worker.json_run",return_value=source):
+      prepared=prepare_pair(base())
+    self.assertEqual(prepared["status"],"READY")
+    self.assertEqual(prepared["sourcePackEvidence"]["state"],"PASS")
+    self.assertEqual(prepared["sourcePackEvidence"]["sample_pack_count"],1)
+    self.assertEqual(len(prepared["sourcePackEvidence"]["process_lines"]),2)
+    self.assertEqual(sum(item["projectedNetKrw"] for item in prepared["sourcePackEvidence"]["process_lines"]),2350000)
+
  def test_data_size_change_blocked(self):
     with patch("feishu_sfdc_local_worker.json_run",return_value=SOURCE):
       p=prepare_pair(base(**{"Data Size Gb":"15"}))
