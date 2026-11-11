@@ -21,6 +21,12 @@ SYMBOLS=("QLD","QQQ")
 FIRST="2026-09-15"
 THROUGH="2026-11-11"
 TARGET="2026-11-10"
+# Frozen OHLC snapshot from CI #43002769959; signals only source drift.
+# A drift is not proof the newer version is wrong, but blocks unreviewed replay.
+REFERENCE_PRICE_SHA={
+    "QLD":"afa0a26becfd99251b3fba82895ad475b8c5ff9fc92207670d39310356123306",
+    "QQQ":"350935c4d7245d77d172d84077b2fc7493f91146e23b38fc1cb41010376b9e66"
+}
 NY="America/New_York"
 
 def download(symbol):
@@ -148,7 +154,12 @@ def main():
                 res["raw_sha256"]=digest
                 res["second_raw_sha256"]=second_digest
                 res["repeatability"]=repeat
+                res["reference_normalized_sha256"]=REFERENCE_PRICE_SHA[symbol]
+                res["matches_frozen_prior_run"]=(
+                    repeat.get("normalized_quote_sha256_1")==REFERENCE_PRICE_SHA[symbol])
                 res["last_bar_ts_utc"]=str(bars.ts_utc.max())
+                if not res["matches_frozen_prior_run"]:
+                    res["status"]="HOLD_CROSS_RUN_PRICE_REVISION"
                 bars.to_csv(root/f"{symbol}_15m_rth.csv",index=False)
                 days.to_csv(root/f"{symbol}_sessions.csv",index=False)
                 if repeat["status"]!="CONSISTENT_WITHIN_1BP":
