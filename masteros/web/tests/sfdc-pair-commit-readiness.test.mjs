@@ -24,7 +24,7 @@ test("local UI renders actionable Pack and final Quote readiness, no fake save",
   assert.match(page,/data-testid="pair-create-readiness"/);
   assert.match(page,/새 Quote의 공정·단가·Pack 저장/);
   assert.match(page,/result\.pack\.process_lines\.map/);
-  assert.match(page,/저장하지 않습니다/);
+  assert.match(page,/Salesforce를 수정하지 않습니다/);
   assert.match(route,/"CHECK_SAVE_READINESS"/);
   assert.match(worker,/QUOTE_PACK_RATE_CLOUD_WRITE_AND_READBACK_NOT_VERIFIED/);
   assert.match(worker,/"salesforce_write": False, "save_permitted": False/);
