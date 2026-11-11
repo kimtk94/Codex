@@ -16,6 +16,9 @@ on:
       - "automation/feishu/test_project_quote_operating_sync.py"
       - "automation/feishu/project_quote_home_links.py"
       - "automation/feishu/test_project_quote_home_links.py"
+      - "automation/feishu/project_quote_historic_reference_sync.py"
+      - "automation/feishu/test_project_quote_historic_reference_sync.py"
+      - "automation/feishu/project_quote_qid_money_audit.py"
       - ".github/workflows/feishu-project-quote-operations.yml"
   pull_request:
     paths:
@@ -23,6 +26,9 @@ on:
       - "automation/feishu/test_project_quote_operating_sync.py"
       - "automation/feishu/project_quote_home_links.py"
       - "automation/feishu/test_project_quote_home_links.py"
+      - "automation/feishu/project_quote_historic_reference_sync.py"
+      - "automation/feishu/test_project_quote_historic_reference_sync.py"
+      - "automation/feishu/project_quote_qid_money_audit.py"
       - ".github/workflows/feishu-project-quote-operations.yml"
 permissions:
   contents: read
@@ -40,17 +46,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install Google read-only auth for money tests
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Syntax and offline safety tests
         run: |
-          python3 -m py_compile automation/feishu/project_quote_operating_sync.py automation/feishu/project_quote_home_links.py
+          python3 -m py_compile automation/feishu/project_quote_operating_sync.py automation/feishu/project_quote_home_links.py automation/feishu/project_quote_historic_reference_sync.py
           python3 -m unittest discover -s automation/feishu -p 'test_project_quote_operating_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_quote_home_links.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_project_quote_historic_reference_sync.py' -v
   sync:
     if: github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true)
     needs: validate
     environment: TaehoonServer
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,15 +67,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install Google Sheets read-only transport
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
       - name: Synchronize two derived Quote-first Feishu operation tables
         env:
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_PROJECT_OPS_APPLY: "1"
+          FEISHU_HISTORIC_QUOTE_APPLY: "1"
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
         run: |
           python3 automation/feishu/project_quote_operating_sync.py --apply
+          python3 automation/feishu/project_quote_historic_reference_sync.py --apply
           python3 automation/feishu/project_quote_home_links.py
-          echo 'Only derived project tables are written; project source, SFDC report and Revenue unchanged. Quote amount remains unverified.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Only derived project tables are written. Historical reference USD is separately dated and cannot be used as current Quote price or Revenue. Source data unchanged.' >> "$GITHUB_STEP_SUMMARY"
   dry-run:
     if: github.event_name == 'workflow_dispatch' && inputs.apply != true
     needs: validate
