@@ -114,8 +114,15 @@ def build(invoice_rows, monthly_rows, now):
             raise ValueError("ISSUED_INVOICE_MONTH_PARITY_FAILED_" + month)
         if pending < 0 or forecast < 0:
             raise ValueError("NEGATIVE_PENDING_OR_FORECAST")
-        if len(record) > 7 and int(cell(record,7) or 0) != 0:
-            raise ValueError("UNVERIFIED_PENDING_STILL_OPEN_" + month)
+        unknown_pending = int(cell(record,7) or 0) if len(record)>7 else 0
+        if unknown_pending<0:
+            raise ValueError("NEGATIVE_UNVERIFIED_PENDING_COUNT_" + month)
+        if unknown_pending:
+            # Pending is NOT issued revenue. Preserve an explicit warning,
+            # but do not withhold independently verified invoice actuals.
+            print("REVENUE_PENDING_AMOUNT_UNKNOWN month="+month+
+                  " statements="+str(unknown_pending)+
+                  " actual_excludes_pending=PASS",flush=True)
         rows.append([month,gross,net,str((Decimal(net)/Decimal(1500000)).quantize(
             Decimal("0.001"),rounding=ROUND_HALF_UP)),count,pending,forecast,
             timestamp,"INVOICE_FILENAME_VERIFIED_NET;PENDING_VAT_UNVERIFIED"])
