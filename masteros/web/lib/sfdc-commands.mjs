@@ -1,3 +1,4 @@
+import {expectedSampleStatement} from "./sfdc-new-opportunity-defaults.mjs";
 const validId = (v,prefix)=>typeof v==="string" &&
   new RegExp("^"+prefix+"[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$").test(v);
 const clean=(x,n=180)=>typeof x==="string"&&x.trim()===x&&x.length>0&&x.length<=n;
@@ -87,7 +88,7 @@ export function freshProgress({accountName,contactName,service,samples,dataSize,
       "AliCloud: "+priced.cloudUnits+" × "+cloudUnitNetKrw.toLocaleString("en-US")+" KRW; "+
       "total: "+priced.netKrw.toLocaleString("en-US")+" KRW (VAT excluded)." : "",
     referenceAmea ? "Reference "+referenceAmea+" (product/specifications only)." : "",
-    "Opportunity/Quote preparation in progress. PO, sample receipt and payment not confirmed."
+    "Opportunity and Quote being prepared; "+expectedSampleStatement()+" Payment not confirmed."
   ].filter(Boolean).join("\n");
 }
 export function alicloudUnits(totalGb){
