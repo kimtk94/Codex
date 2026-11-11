@@ -25,7 +25,7 @@ TARGET="2026-11-10"
 # A drift is not proof the newer version is wrong, but blocks unreviewed replay.
 REFERENCE_PRICE_SHA={
     "QLD":"afa0a26becfd99251b3fba82895ad475b8c5ff9fc92207670d39310356123306",
-    "QQQ":"350935c4d7245d77d172d84077b2fc7493f91146e23b38fc1cb41010376b9e66"
+    "QQQ":"350935c4d7245d7dd172d84077b2fc7493f91146e23b38fc1cb41010376b9e66"
 }
 NY="America/New_York"
 
