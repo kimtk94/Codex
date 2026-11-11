@@ -212,6 +212,13 @@ def table_map(token, root):
     return byname
 
 
+def monthly_revenue_grid_url(token,root,tables):
+    """Actual Feishu monthly source table, not inert dashboard markdown."""
+    tid=tables.get("Monthly Tax Invoice")
+    if not tid or not re.fullmatch(r"tbl[A-Za-z0-9]+",tid):
+        return ""
+    return BASE_URL+"?table="+urllib.parse.quote(tid,safe="")
+
 def weekly_editable_grid_url(token,root,tables):
     """Use the existing editable source view, never the read-only dashboard widget."""
     tid=tables.get("Weekly Quote Review")
@@ -272,6 +279,12 @@ def source_rows(token,root,tables,now):
         item["바로가기"]={"text":GRAPH_LINK_LABELS.get(item["Menu Key"],"열기"),"link":url} if (
             valid_menu_url(item["Menu Key"],url)
         ) else None
+        if item["Menu Key"]=="MONTHLY_TREND":
+            link=monthly_revenue_grid_url(token,root,tables)
+            if link:
+                item["바로 편집"]={"text":"월별 Revenue 상세 리스트 보기","link":link}
+            elif os.environ.get("FEISHU_PORTAL_MODE")=="apply":
+                raise SafeError("MONTHLY_REVENUE_GRID_NOT_AVAILABLE")
         if item["Menu Key"]=="WEEKLY_TREND":
             link=weekly_editable_grid_url(token,root,tables)
             if link:
