@@ -28,6 +28,33 @@ class TestWeeklyQuoteLayout(unittest.TestCase):
             updates=[x for x in cli.call_args_list if x.args[0]=="+dashboard-block-update"]
             self.assertEqual(len(updates),6)
             self.assertEqual(cli.call_count,8)
+    def test_feishu_normalized_layout_is_idempotent(self):
+        normalized={
+            s.CHART_NAME:{"x":0,"y":0,"w":12,"h":12},
+            s.BLOCK_NAME:{"x":0,"y":12,"w":12,"h":9},
+            s.NOTE_NAME:{"x":0,"y":21,"w":12,"h":7},
+        }
+        with mock.patch.object(s,"cli",return_value=sample(normalized)) as cli:
+            self.assertEqual(s.apply_layout("blkDemo","apply"),0)
+        cli.assert_called_once()
+        self.assertTrue(s.visual_order_correct(s.inspect(sample(normalized))))
+
+    def test_normalized_readback_after_reposition(self):
+        original={k:{"x":i*4,"y":0,"w":4,"h":8}
+                  for i,k in enumerate(s.ORDER)}
+        normalized={
+            s.CHART_NAME:{"x":0,"y":0,"w":12,"h":12},
+            s.BLOCK_NAME:{"x":0,"y":12,"w":12,"h":9},
+            s.NOTE_NAME:{"x":0,"y":21,"w":12,"h":7},
+        }
+        with mock.patch.object(s,"cli",side_effect=[sample(original)]+
+                                [{"ok":True}]*6+[sample(normalized)]):
+            self.assertEqual(s.apply_layout("blkDemo","apply"),3)
+
+    def test_overlapping_feishu_normalized_layout_fails_closed(self):
+        positions={k:dict(v) for k,v in s.POSITIONS.items()}
+        positions[s.BLOCK_NAME]["y"]=5
+        self.assertFalse(s.visual_order_correct(s.inspect(sample(positions))))
     def test_duplicate_or_extra_blocks_refused(self):
         rows=sample()["items"]
         with self.assertRaisesRegex(RuntimeError,"DUPLICATE"):

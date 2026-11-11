@@ -60,6 +60,21 @@ def valid_layout(positions=POSITIONS):
 def equal_pos(current,goal):
     return valid_pos(current) and all(current[k]==goal[k] for k in ("x","y","w","h"))
 
+def visual_order_correct(rows):
+    """Allow Feishu's normalized y coordinates only if visually ordered."""
+    try:
+        items=[rows[name][1] for name in ORDER]
+        if not all(valid_pos(p) for p in items):
+            return False
+        if any(p["x"]!=0 or p["w"]!=12 or p["y"]<0 or p["h"]<1
+               for p in items):
+            return False
+        return all(items[i]["y"]+items[i]["h"]<=items[i+1]["y"]
+                   for i in range(len(items)-1))
+    except (KeyError,IndexError,TypeError):
+        return False
+
+
 def move(dashboard_id,block_id,position):
     cli("+dashboard-block-update","--base-token",BASE,
         "--dashboard-id",dashboard_id,"--block-id",block_id,
@@ -70,10 +85,15 @@ def apply_layout(dashboard_id,mode="apply"):
     before=inspect(cli("+dashboard-block-list","--base-token",BASE,
                        "--dashboard-id",dashboard_id))
     pending=sum(not equal_pos(before[n][1],POSITIONS[n]) for n in ORDER)
+    already_safe=visual_order_correct(before)
     print("WEEKLY_LAYOUT_PREFLIGHT widgets=3 pending="+str(pending)+
+          " already_safe="+str(already_safe)+
           " desired=GRAPH_EDIT_SUMMARY_NOTES mode="+mode,flush=True)
-    if mode=="plan" or pending==0:
-        return pending
+    if mode=="plan" or pending==0 or already_safe:
+        if mode=="apply" and already_safe:
+            print("WEEKLY_QUOTE_GRAPH_EDIT_GUIDE_BELOW_PASS"+
+                  " layout=FEISHU_NORMALIZED_ALREADY_SAFE writes=0",flush=True)
+        return 0 if already_safe else pending
     if mode!="apply":
         raise RuntimeError("WEEKLY_LAYOUT_UNSUPPORTED_MODE")
     # Park at non-overlapping temporary positions to avoid automatic tile shuffles.
@@ -83,10 +103,15 @@ def apply_layout(dashboard_id,mode="apply"):
         move(dashboard_id,before[name][0],POSITIONS[name])
     after=inspect(cli("+dashboard-block-list","--base-token",BASE,
                       "--dashboard-id",dashboard_id))
-    if any(after[name][0]!=before[name][0] or not equal_pos(after[name][1],POSITIONS[name])
-           for name in ORDER):
-        raise RuntimeError("WEEKLY_LAYOUT_READBACK_MISMATCH")
-    print("WEEKLY_QUOTE_GRAPH_EDIT_GUIDE_BELOW_PASS graph_y=0 guide_y=11 note_y=20",flush=True)
+    if any(after[name][0]!=before[name][0] for name in ORDER):
+        raise RuntimeError("WEEKLY_LAYOUT_BLOCK_ID_CHANGED")
+    exact=all(equal_pos(after[name][1],POSITIONS[name]) for name in ORDER)
+    print("WEEKLY_LAYOUT_READBACK="+json.dumps({
+        name:after[name][1] for name in ORDER},ensure_ascii=False),flush=True)
+    if not exact and not visual_order_correct(after):
+        raise RuntimeError("WEEKLY_LAYOUT_READBACK_UNSAFE_ORDER_OR_OVERLAP")
+    print("WEEKLY_QUOTE_GRAPH_EDIT_GUIDE_BELOW_PASS layout="+
+          ("EXACT" if exact else "FEISHU_AUTO_NORMALIZED_SAFE"),flush=True)
     return pending
 
 def main():
