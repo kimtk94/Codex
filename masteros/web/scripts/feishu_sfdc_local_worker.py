@@ -8,6 +8,7 @@ and Quote total readback can be verified. No partial/Oppo-only pair creation.
 import datetime as dt
 import json
 import math
+import calendar
 import os
 import pathlib
 import subprocess
@@ -79,6 +80,58 @@ def quantity(x):
         return n if math.isfinite(n) and 0<n<=100000 else None
     except (ValueError,TypeError):return None
 
+def close_next_month_kst(now=None):
+    """Exactly one KST calendar month, preserving day or clamping month end."""
+    today=(now or dt.datetime.now(KST)).astimezone(KST).date()
+    year=today.year+(1 if today.month==12 else 0)
+    month=1 if today.month==12 else today.month+1
+    day=min(today.day,calendar.monthrange(year,month)[1])
+    return dt.date(year,month,day).isoformat()
+
+def pack_evidence(quote, new_samples, new_gb, expected_prices):
+    """Source Quote Pack/price reconciliation; does not prove new UI writability."""
+    out={"state":"BLOCK","code":"SOURCE_PACK_UNVERIFIED",
+         "process_lines":[],"sample_pack_count":0,"source_quote_net":None}
+    if (not isinstance(quote,dict) or
+        quote.get("pricingStatus")!="VERIFIED_PROCESS_LINES" or
+        not isinstance(quote.get("processPriceLines"),list)):
+        return out
+    rows=quote["processPriceLines"]
+    if not 1<=len(rows)<=25 or not isinstance(new_samples,int) or new_samples<=0:
+        return out
+    parsed=[]
+    for raw in rows:
+        if not isinstance(raw,dict):return out
+        pack=str(raw.get("packNo") or "").strip()
+        name=str(raw.get("processName") or "").strip()
+        qty=raw.get("sourceQty");rate=raw.get("unitPriceKrw")
+        net=raw.get("sourceNetKrw");is_cloud=raw.get("isCloud")
+        if (not pack or not name or not isinstance(qty,int) or qty<=0 or
+            not isinstance(rate,int) or rate<0 or not isinstance(net,int) or
+            net!=qty*rate or not isinstance(is_cloud,bool)):
+            return {**out,"code":"SOURCE_PACK_OR_PROCESS_LINE_MISSING"}
+        projected=math.ceil(new_samples*new_gb/100) if is_cloud else new_samples
+        parsed.append({"packNo":pack,"processName":name,"sourceQty":qty,
+           "unitPriceKrw":rate,"quantity":projected,
+           "projectedNetKrw":rate*projected,"isCloud":is_cloud})
+    source_samples=quote.get("samples");source_gb=quote.get("dataSize")
+    if not isinstance(source_samples,int) or not isinstance(source_gb,(int,float)):
+        return {**out,"code":"SOURCE_SAMPLE_SIZE_UNVERIFIED"}
+    if any(row["sourceQty"]!=(math.ceil(source_samples*source_gb/100)
+                 if row["isCloud"] else source_samples) for row in parsed):
+        return {**out,"code":"SOURCE_PROCESS_QTY_MISMATCH"}
+    distinct={row["packNo"] for row in parsed if not row["isCloud"]}
+    if len(distinct)!=1:
+        return {**out,"code":"SAME_SAMPLE_MULTIPLE_PACKS_REVIEW_REQUIRED",
+                "sample_pack_count":len(distinct)}
+    if sum(x["projectedNetKrw"] for x in parsed)!=expected_prices.get("Quote Net KRW"):
+        return {**out,"code":"PROJECTED_PRICE_LINES_MISMATCH"}
+    if sum(x["unitPriceKrw"] for x in parsed if not x["isCloud"])!=expected_prices.get("Sample Unit KRW"):
+        return {**out,"code":"SAMPLE_UNIT_PROCESS_RECONCILIATION_FAILED"}
+    return {"state":"PASS","code":"SOURCE_PACK_AND_PROCESS_RECONCILED",
+        "process_lines":parsed,"sample_pack_count":1,
+        "source_quote_net":quote.get("totalPriceKrw")}
+
 def prepare_pair(x):
     oppid=x.get("Source Oppo ID","")
     quoteid=x.get("Source Quote ID","")
@@ -119,7 +172,7 @@ def prepare_pair(x):
     # Reference only: source progress is NEVER copied.
     progress=("New request: "+name+"; "+str(n)+" samples; "+str(size)+
        " Gb/sample. Source Quote reviewed for unit pricing. PO and sample receipt not confirmed.")
-    close=(dt.datetime.now(KST).date()+dt.timedelta(days=30)).isoformat()
+    close=close_next_month_kst()
     opp={"action":"opportunity_create","mode":"check",
        "referenceOpportunityId":oppid,"accountId":original["accountId"],
        "contactId":original["contactId"],"accountName":original["accountName"],
@@ -133,7 +186,8 @@ def prepare_pair(x):
         return {"status":"PRICE_ONLY","code":"MULTI_PRODUCT_QUOTE_FORM_NOT_VERIFIED",
                 "price_fields":prices,"expectedNet":net,
                 "expectedCloudUnits":cloud_count,
-                "sourceCache":bundle.get("cache",{"state":"UNKNOWN"})}
+                "sourceCache":bundle.get("cache",{"state":"UNKNOWN"}),
+       "sourcePackEvidence":pack_evidence(quote,n,size,prices)}
     if not quote.get("productCategory") or not quote.get("processNames"):
         return {"status":"PREFLIGHT_BLOCK","code":"SOURCE_PRODUCT_CATALOG_UNVERIFIED"}
     quote_req={"action":"quote_create","mode":"check","sourceQuoteId":quoteid,
