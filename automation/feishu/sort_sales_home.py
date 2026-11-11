@@ -280,6 +280,16 @@ def verify_view_rows(token, table_path, view_id):
             issues.append(key)
         elif (link or None)!=expected_link:
             issues.append(key)
+        if key=="MONTHLY_TREND":
+            edit_link=fields.get("바로 편집")
+            if isinstance(edit_link,list) and len(edit_link)==1:
+                edit_link=edit_link[0]
+            if (not isinstance(edit_link,dict)
+                    or edit_link.get("text")!="월별 Revenue 상세 리스트 보기"
+                    or not isinstance(edit_link.get("link"),str)
+                    or "?table=tbl" not in edit_link["link"]
+                    or "&view=" in edit_link["link"]):
+                issues.append(key)
         if key=="WEEKLY_TREND":
             edit_link=fields.get("바로 편집")
             if isinstance(edit_link,list) and len(edit_link)==1:

@@ -71,9 +71,13 @@ class SortTests(unittest.TestCase):
                 "화면":label,
                 "메뉴 구분":color,
                 "표시":s.CURATED_DISPLAY if key in s.PINNED_KEYS else s.ARCHIVE_DISPLAY,
-                "바로 편집":{"text":"✎ Weekly Quote 편집 · 합산 제외",
-                              "link":"https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblReview1234&view=vewRecent5"}
-                                  if key=="WEEKLY_TREND" else None,
+                "바로 편집":(
+                    {"text":"✎ Weekly Quote 편집 · 합산 제외",
+                     "link":"https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblReview1234&view=vewRecent5"}
+                     if key=="WEEKLY_TREND" else
+                    {"text":"월별 Revenue 상세 리스트 보기",
+                     "link":"https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblMonthly123"}
+                     if key=="MONTHLY_TREND" else None),
                 "바로가기 URL":(
                     "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkChartABC123"
                     if key in s.CHART_SHORTCUT_ENV or key=="X_MY_PROJECTS"
