@@ -1,8 +1,8 @@
 # QLD/QQQ 신규 데이터 및 Regime 신호 부족 감사 — 2026-11-11
 
-**평가 상태:** `FRESH_PRICE_DATA_PASS`, `ORIGINAL_ENTRY_SIGNAL_N=0`, `INTRADAY_PRICE_COVERAGE_PASS_WITH_QQQ_OPEN_WARNING`, `LIVE_EXECUTION_HOLD`.
+**평가 상태:** `FRESH_PRICE_DATA_PASS`, `ORIGINAL_ENTRY_SIGNAL_N=0`, `15M_BARS_COMPLETE_BUT_FIRST_OPEN_QC_WARNING`, `LIVE_EXECUTION_HOLD`.
 
-**CI:** [Kalman Regime Countertrend Research #43002216434](https://github.com/kimtk94/Codex/actions/runs/43002216434) · 57/57 tests PASS.
+**CI:** [Kalman Regime Countertrend Research #43002769959](https://github.com/kimtk94/Codex/actions/runs/43002769959) · 58/58 tests PASS.
 
 ## 재현 가능한 공개 가격 데이터
 
@@ -28,8 +28,10 @@
 - 수집 구간: 2026-09-15 ~ 2026-11-10 (UTC+NY 거래일 기준).
 - QLD: 1,066 bars / 41 session, 각 세션 26 bars 모두 완비 (41/41).
 - QQQ: 1,066 bars / 41 session, 각 세션 26 bars 모두 완비 (41/41).
-- 정규장 첫 15분 시가와 일봉 시가 비교에서 QLD 최대 차이 **3.86bp**.
-- QQQ 최대 차이 **17.55bp**, 이상 날짜 **2026-11-10 한 건** (>10bp QC 경고). 원인은 확정되지 않음.
+- 최신 CI 기준 첫 15분 시가와 일봉 시가 차이는 QLD 최대 **14.62bp (2026-09-30)**, QQQ 최대 **27.30bp (2026-11-05)**. 각각 10bp 초과 날짜가 1건으로 QC 경고.
+- 같은 CI 안에서 2회 연속 Yahoo 15분봉을 재조회해 확인한 OHLC 1,067행은 양쪽 종목 모두 정확히 일치 (1bp 초과 변화 0행). API 전체 응답 SHA는 메타데이터 때문에 달라질 수 있어 OHLC만 별도로 해시.
+- 앞선 CI 반복 실행에서는 시가 불일치가 큰 날짜/크기가 다르게 관측되었음. **동일 실행 내 재현성 확인만으로 서로 다른 실행 시점의 데이터 변경 가능성을 배제할 수 없음.** 별도 시점 원천/실거래 체결가 교차검증 전까지 시가 차이가 10bp를 초과하는 날짜는 실행 시뮬레이션 HOLD.
+- 시장 첫 15분 시가는 브로커 실제 체결가가 아님. 원본 일봉의 공식 시가와 시장데이터 집계 정의가 다를 수 있으며 차이의 원인은 미확정.
 - 15분봉 2개 종목 총 2,132개 시장 가격 봉을 확보했으나 브로커 체결 사실이나 실제 슬리피지의 증거는 아님.
 - 증분 시장데이터 중 2026-09-08 ~ 09-14 구간은 이번 15분봉에 포함되지 않음.
 - Yahoo 15m API는 기간 제한이 있는 회전형 원천이므로 실행 Artifact와 해시로 검증 가능한 스냅샷 보관.
