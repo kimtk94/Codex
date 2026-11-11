@@ -58,6 +58,15 @@ class KRWDetailV5Tests(unittest.TestCase):
         later=fx.copy()
         later.loc[later.date==d,"usdkrw_close"]=1900
         np.testing.assert_allclose(result,fx_asof_signal([d],later),rtol=1e-12)
+    def test_adjusted_price_ulp_roundoff_allowed_but_real_violation_fails(self):
+        asset=self.asset.copy()
+        asset.loc[19,"low"]=asset.loc[19,"close"]+1e-14
+        asset.loc[19,"high"]=max(asset.loc[19,"high"],asset.loc[19,"close"])
+        result=detail_daily(asset,"QLD")
+        self.assertEqual(len(result),len(asset))
+        asset.loc[19,"low"]=asset.loc[19,"close"]+0.01
+        with self.assertRaises(ValueError):
+            detail_daily(asset,"QLD")
     def test_low_liquidity_missing_invalid_is_not_zero_filled(self):
         altered=self.asset.copy()
         altered.loc[19,"volume"]=0
