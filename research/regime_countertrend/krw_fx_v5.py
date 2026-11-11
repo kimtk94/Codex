@@ -185,6 +185,9 @@ def main():
     a=p.parse_args()
     out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
     status={"research_only":True,"quote_direction":"KRW per USD",
+            "primary_reporting_currency":"KRW",
+            "secondary_reporting_currency":"USD",
+            "actual_broker_cash_policy":"UNKNOWN_NEEDS_ACCOUNT_CASH_LEDGER",
             "currency_scenarios":["USD","KRW_MARK","KRW_CONVERT_10BPS_SIDE",
                                    "KRW_CONVERT_25BPS_SIDE"],
             "actual_broker_fx_conversions_verified":False,"promotion_allowed":False}
