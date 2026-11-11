@@ -1,7 +1,7 @@
 import unittest
 import pandas as pd
 from research.regime_countertrend.signal_scarcity import diagnose
-from research.regime_countertrend.fresh_intraday import coverage
+from research.regime_countertrend.fresh_intraday import coverage, compare_repeated_prices
 
 class SignalScarcityAndIntradayTests(unittest.TestCase):
     def test_research_boundary_and_pending_horizon(self):
@@ -34,6 +34,17 @@ class SignalScarcityAndIntradayTests(unittest.TestCase):
         _,partial,r=coverage(b,"QLD",daily)
         self.assertEqual(r["incomplete_sessions"],1)
         self.assertFalse(partial.full_26_regular_bars.iloc[0])
+    def test_repeated_15m_detects_revision(self):
+        t=pd.date_range("2026-10-01T13:30:00Z",periods=26,freq="15min")
+        a=pd.DataFrame({"ts_utc":t.astype(str),"open":[100.]*26,
+                "high":[101.]*26,"low":[99.]*26,"close":[100.]*26})
+        self.assertEqual(compare_repeated_prices(a,a.copy())["status"],"CONSISTENT_WITHIN_1BP")
+        revised=a.copy()
+        revised.loc[0,"open"]=100.25
+        self.assertEqual(compare_repeated_prices(a,revised)["price_bar_changes_gt_10bp"],1)
+        self.assertEqual(compare_repeated_prices(a,revised)["status"],"HOLD_REVISED_INTRADAY_PRICES")
+        revised.loc[0,"ts_utc"]="2026-10-09T13:30:00+00:00"
+        self.assertEqual(compare_repeated_prices(a,revised)["status"],"HOLD_TIMESTAMP_SET_CHANGED")
     def test_intraday_duplicate_and_ohlc_rejected(self):
         t=pd.date_range("2026-10-01T13:30:00Z",periods=26,freq="15min")
         b=pd.DataFrame({"ts_utc":t.astype(str),"date_ny":["2026-10-01"]*26,
