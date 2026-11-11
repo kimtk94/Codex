@@ -2,6 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import Link from "next/link";
+import {leadOutboundGroup,leadOutboundSummary,leadGroupMatches} from "../../../lib/css-lead-outbound-groups.mjs";
 import styles from "./page.module.css";
 
 const MAIL_ACTIONS=[
@@ -42,6 +43,7 @@ export default function LocalMailConsole(){
   const [q,setQ]=useState("");
   const [priority,setPriority]=useState("ALL");
   const [leadState,setLeadState]=useState("ALL");
+  const [leadGroup,setLeadGroup]=useState("ALL");
   const [roleFilter,setRoleFilter]=useState("ALL");
   const [mailPage,setMailPage]=useState(0);
   const [leadPage,setLeadPage]=useState(0);
@@ -121,13 +123,23 @@ export default function LocalMailConsole(){
       (!needle||[r.sender,r.subject,r.to,r.cc,r.project,r.key].some(x=>String(x||"").toLowerCase().includes(needle)))
     );
   },[data,q,priority,roleFilter]);
+  const leadSummary=useMemo(()=>leadOutboundSummary(data?.leads||[]),[data]);
   const leads=useMemo(()=>{
     const needle=q.trim().toLowerCase();
     return (data?.leads||[]).filter(r=>
-      (leadState==="ALL"||r.evidence===leadState)&&
+      leadGroupMatches(r,leadGroup,leadState)&&
       (!needle||[r.id,r.institution,r.name,r.email,r.owner].some(x=>String(x||"").toLowerCase().includes(needle)))
     );
-  },[data,q,leadState]);
+  },[data,q,leadState,leadGroup]);
+  function selectLeadGroup(next){
+    setLeadGroup(next);setLeadState("ALL");setLeadPage(0);
+  }
+  function selectLeadDetail(next){
+    setLeadState(next);setLeadPage(0);
+    setLeadGroup(next==="ALL"?"ALL":
+      next==="SENT_AFTER_LEAD_CONFIRMED"||next==="SENT_BEFORE_LEAD_ONLY"?"SENT":
+      next==="NO_PERSONAL_OUTBOUND_EVIDENCE"?"NO_EVIDENCE":"REVIEW");
+  }
   const shownMail=messages.slice(mailPage*pageSize,(mailPage+1)*pageSize);
   const shownLeads=leads.slice(leadPage*pageSize,(leadPage+1)*pageSize);
   const selectedIndex=selected?messages.findIndex(x=>x.key===selected.key):-1;
@@ -272,8 +284,10 @@ export default function LocalMailConsole(){
       <Tile label="미회신 검토 후보" value={data?.mailCount}
         detail={"원본 "+(data?.mailTotal??"—")+"건 · 정확한 회신 확정 아님"}/>
       <Tile label="CC 자동 제외 규칙" value={data?.ruleCount} detail="발신자 / To 수신자별"/>
-      <Tile label="Lead 발송 확인" value={statuses.SENT_AFTER_LEAD_CONFIRMED??"—"} detail="Lead 생성 후 본인 QQ 발신"/>
-      <Tile label="발송 증거 없는 Lead" value={statuses.NO_PERSONAL_OUTBOUND_EVIDENCE??"—"} detail={"전체 "+(data?.leadCount??"—")+"개 Lead"}/>
+      <Tile label="내 메일 발송 이력 있음" value={data?leadSummary.sent:"—"}
+        detail={data?("Lead 생성 후 "+leadSummary.sentAfter+" · 생성 전만 "+leadSummary.sentBeforeOnly):"조회 대기"}/>
+      <Tile label="내 발송 증거 없는 Lead" value={data?leadSummary.noEvidence:"—"}
+        detail={data?("검토 대상 · 전체 "+leadSummary.all+"건 중"):"조회 대기"}/>
     </section>
 
     <nav className={styles.tabs} aria-label="메일 검토 메뉴">
@@ -416,15 +430,34 @@ export default function LocalMailConsole(){
     </section>}
 
     {tab==="leads"&&<section className={styles.panel}>
-      <div className={styles.panelHead}><div><h2>Lead 발송 여부 및 날짜</h2>
-        <p>정확한 Lead 이메일 주소 기준 · 본인이 보낸 QQ 메일의 첫/최근 발송 시점</p></div>
-        <strong>{leads.length} / {data?.leadCount??0}건</strong></div>
+      <div className={styles.panelHead}><div><h2>Lead · 내 메일 발송 여부</h2>
+        <p>Lead 이메일 주소와 본인 QQ 발신 이력을 대조합니다. 생성 전 발송도 별도로 구분합니다.</p></div>
+        <strong>{leads.length} / {leadSummary.all}건</strong></div>
+      <div className={styles.leadGroups} aria-label="Lead 발송 이력 그룹">
+        {[
+          {id:"ALL",label:"전체 Lead",count:leadSummary.all},
+          {id:"SENT",label:"내 발송 이력 있음",count:leadSummary.sent},
+          {id:"NO_EVIDENCE",label:"내 발송 증거 없음",count:leadSummary.noEvidence},
+          {id:"REVIEW",label:"확인 필요",count:leadSummary.review}
+        ].map(item=><button type="button" key={item.id}
+          data-testid={"lead-group-"+item.id}
+          aria-pressed={leadGroup===item.id}
+          onClick={()=>selectLeadGroup(item.id)}>
+          <span>{item.label}</span><strong>{data?item.count.toLocaleString("ko-KR"):"—"}</strong>
+        </button>)}
+      </div>
+      <div className={styles.leadBreakdown}>
+        <span>발송 이력 있음 {leadSummary.sent}건 중
+          <b> 생성 후 발송 {leadSummary.sentAfter}건</b> ·
+          <b> 생성 전만 발송 {leadSummary.sentBeforeOnly}건</b></span>
+        <span>원본: {data?.leadSourceStatus||"미확인"} · 기준시각 {time(data?.leadCheckedAt)}</span>
+      </div>
       <div className={styles.filters}>
         <label>이름 · 기관 · 이메일 · Lead ID
           <input type="search" value={q} placeholder="고객 또는 기관 검색"
             onChange={e=>{setQ(e.target.value);setLeadPage(0)}}/></label>
-        <label>개인 발송 증거
-          <select value={leadState} onChange={e=>{setLeadState(e.target.value);setLeadPage(0)}}>
+        <label>발송 세부 유형
+          <select value={leadState} onChange={e=>selectLeadDetail(e.target.value)}>
             <option value="ALL">전체</option>
             {Object.keys(statuses).map(x=><option key={x} value={x}>{EVIDENCE[x]||x} ({statuses[x]})</option>)}
           </select></label>
@@ -436,12 +469,21 @@ export default function LocalMailConsole(){
         <td><b>{r.name||"이름 미확인"}</b><small className={styles.block}>{r.institution}</small>
           <small className={styles.block}>{r.id}</small></td>
         <td>{r.email||"—"}</td><td className={styles.nowrap}>{r.created}</td>
-        <td><span className={styles.chip}>{EVIDENCE[r.evidence]||r.evidence}</span></td>
+        <td><span className={styles.chip}>{EVIDENCE[r.evidence]||r.evidence}</span>
+          {leadOutboundGroup(r)==="NO_EVIDENCE"&&
+            <small className={styles.block}>미발송 확정 아님 · 후속 확인 후보</small>}
+          {leadOutboundGroup(r)==="REVIEW"&&
+            <small className={styles.block}>증거 또는 날짜 검증 필요</small>}
+        </td>
         <td>{r.afterCount||"0"}건</td><td className={styles.nowrap}>{time(r.firstAfter||r.firstEver)}</td>
         <td className={styles.nowrap}>{time(r.lastAfter||r.lastEver)}</td>
         <td>{r.toCount||0} / {r.ccCount||0}</td>
       </tr>)}</tbody></table>
-      {!shownLeads.length&&<p className={styles.empty}>일치하는 Lead가 없습니다.</p>}</div>
+      {!shownLeads.length&&<p className={styles.empty}>
+        {data?"선택한 발송 분류에 해당하는 Lead가 없습니다.":"Lead 원본을 불러오지 못했습니다."}
+      </p>}</div>
+      <p className={styles.leadCaution}>‘내 발송 증거 없음’은 QQ 수집 범위에서 내 계정의 발신 메일이 확인되지 않았다는 뜻입니다.
+        다른 계정·BCC·과거 미수집 메일이나 전화·방문 활동까지 포함한 미접촉 확정은 아닙니다.</p>
       {pageButtons(leadPage,leads.length,setLeadPage)}
     </section>}
 
