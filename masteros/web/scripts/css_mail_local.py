@@ -409,10 +409,10 @@ def main():
     owner=owner_email()
     session=sheet_session()
     if body["mode"]=="snapshot":
-        data=snapshot(*load(session),owner,
-            raw_descriptions=raw_lead_descriptions(
-                fetch(session,SFDC,LEAD_RAW,"A1:W1600"),
-                fetch(session,SFDC,LEADS,"A1:U1600")) )
+        sheets=load(session)
+        raw=fetch(session,SFDC,LEAD_RAW,"A1:W1600")
+        descriptions=raw_lead_descriptions(raw,sheets[4])
+        data=snapshot(*sheets,owner,raw_descriptions=descriptions)
         print(json.dumps(data,ensure_ascii=False,separators=(",",":")))
     elif body["mode"]=="body":
         result=read_mail_body(session,body["key"],body["uid"])
