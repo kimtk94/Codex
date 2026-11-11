@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/sales_metrics_sync.py'
+      - 'automation/feishu/approval_mail_weekly_bridge.py'
+      - 'automation/feishu/test_approval_mail_weekly_bridge.py'
       - 'automation/feishu/project_progress_board.py'
       - 'automation/feishu/project_settlement.py'
       - 'automation/feishu/latest_payment_bridge.py'
@@ -25,6 +27,11 @@ on:
         type: choice
         options: [plan, apply]
         default: plan
+      scope:
+        description: 'Select KPI domain; Quote does not call Monthly Revenue authority'
+        type: choice
+        options: [all, quote, operations]
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -45,6 +52,7 @@ jobs:
         run: |
           python3 -m unittest discover -s automation/sfdc -p 'test_source_freshness_guard.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_quote_process_amount.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_approval_mail_weekly_bridge.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_review_layout.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_sales_metrics_sync.py' -v
@@ -64,6 +72,7 @@ jobs:
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
       FEISHU_METRIC_MODE: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'apply' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'plan') }}
+      FEISHU_METRIC_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'all' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
