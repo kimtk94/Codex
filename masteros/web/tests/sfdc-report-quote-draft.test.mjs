@@ -327,7 +327,7 @@ test("Actual Jeong Jin-gyeong 18 samples x 2 regions = 36 region services",()=>{
 });
 
 test("Region selection duplicates service, not biological sample, with editable equal price",()=>{
-  const baseline=fromFeishuQuote(jungAmplicon()).draft;
+  const baseline=fromFeishuQuote(jungAmplicon(),new Date("2026-11-09T15:01:00Z")).draft;
   const p=baseline.products[0];
   const changed={...baseline,products:[{...p,sampleUnitKrw:"60000"}]};
   const result=calculateDraft(changed);
