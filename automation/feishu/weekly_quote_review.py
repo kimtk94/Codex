@@ -31,6 +31,7 @@ SCHEMA=[
     ("Chart Window",1), ("기관",1), ("Opportunity",1),
     ("서비스·공정",1), ("샘플수(공정별)",1),
     ("참고 금액 K USD",2), ("참고 견적 USD",1), ("금액 근거",1),
+    ("실시간 집계용 건수",2),
     (CHECKBOX,7),
     ("합산 상태",1),
     ("제외 이유",1),
@@ -226,6 +227,10 @@ def review_rows(source,overrides=None,now=None):
             "Active Evidence Source":evidence_source or "NO_VALUE",
             "Active Evidence KST":evidence_when,
             "Chart Window":("RECENT_4_PLUS_CURRENT" if week in shown_weeks else "HISTORY"),
+            # Feishu native chart sums this 1 per immutable approved Quote;
+            # Active + manual exclusion gates are applied by chart filters,
+            # without waiting for GitHub Actions after a checkbox edit.
+            "실시간 집계용 건수":1,
             **detail,
             "참고 금액 K USD":round(float(amount)/1000,4) if amount is not None else None,
             "참고 견적 USD":format_quote_usd(amount),

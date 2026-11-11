@@ -735,6 +735,7 @@ def table_path(root,table_id):
 
 # Source Base numeric display format governs chart labels. Keep raw numbers.
 COUNT_FIELD_FORMATS={
+    "Weekly Quote Review":{"실시간 집계용 건수"},
     "Weekly Quote KPI":{
         "Approved Quote Count","Included Quote Count","Excluded Quote Count",
         "Active Unverified Quote Count","Created In Week Count",
@@ -805,7 +806,8 @@ def ensure_tables(token,root):
                     name==QUOTE_REVIEW_TABLE and field_name in
                     {"Active Evidence Source","Active Evidence KST",
                      "Chart Window","기관","Opportunity","서비스·공정",
-                     "샘플수(공정별)","참고 금액 K USD","참고 견적 USD","금액 근거"}) or (
+                     "샘플수(공정별)","참고 금액 K USD","참고 견적 USD","금액 근거",
+                     "실시간 집계용 건수"}) or (
                     name=="Weekly Quote KPI" and field_name in
                     {"Chart Week Label","Chart Window","Verified Quote Value M KRW FX",
                      "Included Quote Count","Excluded Quote Count",

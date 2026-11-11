@@ -30,6 +30,7 @@ class PolicyTests(unittest.TestCase):
         by_id={r["SFDC Record ID"]:r for r in rows}
         self.assertEqual(len(rows),3)
         self.assertEqual(by_id[A]["합산 상태"],q.INCLUDED)
+        self.assertTrue(all(row["실시간 집계용 건수"]==1 for row in rows))
         self.assertEqual(by_id[B]["제외 이유"],"NOT_ACTIVE")
         self.assertEqual(by_id[C]["제외 이유"],"ACTIVE_NOT_VERIFIED")
         approved,include=q.membership(rows)
@@ -137,6 +138,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(row["Opportunity"],"Project RNA")
         self.assertEqual(row["서비스·공정"],"Sequencing")
         self.assertEqual(row["참고 금액 K USD"],0.154)
+        self.assertEqual(row["실시간 집계용 건수"],1)
         self.assertEqual(row["참고 견적 USD"],"USD 154.00")
         self.assertEqual(row["금액 근거"],"SOURCE_QQ_PROCESS_OWNER_PARITY")
         self.assertEqual(row["Chart Window"],"RECENT_4_PLUS_CURRENT")
