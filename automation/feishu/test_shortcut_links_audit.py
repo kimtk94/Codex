@@ -28,6 +28,19 @@ class LinkAuditTests(unittest.TestCase):
         for key,(url,kind) in output.items():
             self.assertEqual(LINKS[key],(url,kind))
 
+    def test_weekly_native_grid_edit_link_is_real_and_clickable(self):
+        editor=BASE_URL+"?table=tbl4mcccUgVHpUvO&view=vewNmLWcUF"
+        source=records()
+        target=next(row["fields"] for row in source
+                    if row["fields"]["Menu Key"]=="WEEKLY_TREND")
+        target["바로 편집"]={"text":"✎ Weekly Quote 편집 · 합산 제외",
+                              "link":editor}
+        output=a.verify_persisted_shortcuts(source,LINKS,editor)
+        self.assertIn("WEEKLY_TREND",output)
+        target["바로 편집"]["link"]=BASE_URL+"?table=tblWrong"
+        with self.assertRaisesRegex(a.SafeError,"WEEKLY_EDITOR_CLICKABLE_LINK_MISMATCH"):
+            a.verify_persisted_shortcuts(source,LINKS,editor)
+
     def test_missing_or_fake_link_rejected(self):
         rows=records()
         rows[0]["fields"]["바로가기"]=None
