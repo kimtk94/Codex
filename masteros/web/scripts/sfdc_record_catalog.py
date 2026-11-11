@@ -381,12 +381,12 @@ def quote_price_breakdown(page,quote_id,source_samples,gb_per_sample,expected_ne
             page.wait_for_timeout(300)
         else:
             raise ValueError("SOURCE_PROCESS_MATRIX_NOT_LOADED")
-        matrix=table.locator("tr").evaluate_all(
-            """trs=>trs.map(tr=>[...tr.querySelectorAll(':scope > th,:scope > td')]
-               .map(cell=>({
-                 text:(cell.innerText||'').trim().replace(/\\s+/g,' '),
-                 value:cell.querySelector('input[type=text]')?.value??null
-               })))""")
+        matrix=table.evaluate(
+            """node=>[...node.querySelectorAll('tr')].map(tr=>
+              [...tr.querySelectorAll('th,td')].map(cell=>({
+                text:(cell.innerText||'').trim().replace(/\\s+/g,' '),
+                value:cell.querySelector('input[type=text]')?.value??null
+              })))""")
         if len(matrix)<2:
             raise ValueError("SOURCE_PROCESS_MATRIX_EMPTY")
         summary=dialog.locator("table").filter(has_text="Sales Price").filter(has_text="List Price")
