@@ -29,7 +29,8 @@ class SortTests(unittest.TestCase):
         self.assertEqual(s.SHORTCUT_VIEW,"바로가기")
         self.assertEqual(set(s.SHORTCUT_KEYS),{
             "MONTHLY_TREND","WEEKLY_TREND","SIF_EVIDENCE",
-            "X_MY_PROJECTS","PAYMENT_FOLLOWUP"})
+            "X_MY_PROJECTS","PAYMENT_FOLLOWUP",
+            "PROJECT_ACTIVE_QUOTE","PROJECT_BILLING_QUOTE"})
         self.assertEqual(len(s.PINNED_KEYS),13)
         self.assertEqual(s.CURATED_COLUMNS[1],"메뉴 구분")
         self.assertEqual(s.CURATED_COLUMNS[3],"바로가기")
@@ -71,12 +72,17 @@ class SortTests(unittest.TestCase):
                 "표시":s.CURATED_DISPLAY if key in s.PINNED_KEYS else s.ARCHIVE_DISPLAY,
                 "바로가기 URL":(
                     "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkChartABC123"
-                    if key in s.CHART_SHORTCUT_ENV
+                    if key in s.CHART_SHORTCUT_ENV or key=="X_MY_PROJECTS"
                     else "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblX&view=vewY"),
-                "바로가기":{"text":"열기","link":(
+                "바로가기":{"text":s.GRAPH_LINK_LABELS.get(key,"열기"),"link":(
                     "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkChartABC123"
-                    if key in s.CHART_SHORTCUT_ENV
+                    if key in s.CHART_SHORTCUT_ENV or key=="X_MY_PROJECTS"
                     else "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblX&view=vewY")},
+            }})
+        for key,tid in (("PROJECT_ACTIVE_QUOTE","tblActiveABC123"),("PROJECT_BILLING_QUOTE","tblBillingABC123")):
+            records.append({"fields":{
+                "Menu Key":key,
+                "바로가기":{"text":"열기","link":"https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table="+tid}
             }})
         with mock.patch.object(s,"list_all",return_value=list(reversed(records))):
             self.assertTrue(s.verify_view_rows("token","root","view"))
