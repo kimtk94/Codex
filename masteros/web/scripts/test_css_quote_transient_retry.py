@@ -69,8 +69,7 @@ class QuoteLiveRetryTests(unittest.TestCase):
             tab if role=="tab" else edit)
         edit.count.return_value=1
         edit.is_enabled.return_value=True
-        from playwright.sync_api import TimeoutError as PwTimeout
-        edit.click.side_effect=PwTimeout("blocked_by_ui")
+        edit.click.side_effect=TimeoutError("blocked_by_ui")
         with self.assertRaisesRegex(ValueError,"SOURCE_ADD_EDIT_NOT_INTERACTABLE"):
             quote_price_breakdown(page,"a0P000000000000AAA",8,6,100000)
         edit.click.assert_called_once_with(trial=True,timeout=6500)
