@@ -21,6 +21,8 @@ on:
     paths:
       - "automation/feishu/project_quote_operating_sync.py"
       - "automation/feishu/test_project_quote_operating_sync.py"
+      - "automation/feishu/project_quote_home_links.py"
+      - "automation/feishu/test_project_quote_home_links.py"
       - ".github/workflows/feishu-project-quote-operations.yml"
 permissions:
   contents: read
@@ -40,7 +42,7 @@ jobs:
           python-version: "3.11"
       - name: Syntax and offline safety tests
         run: |
-          python3 -m py_compile automation/feishu/project_quote_operating_sync.py
+          python3 -m py_compile automation/feishu/project_quote_operating_sync.py automation/feishu/project_quote_home_links.py
           python3 -m unittest discover -s automation/feishu -p 'test_project_quote_operating_sync.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_project_quote_home_links.py' -v
   sync:
