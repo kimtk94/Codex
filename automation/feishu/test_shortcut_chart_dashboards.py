@@ -18,18 +18,24 @@ class ChartShortcutTests(unittest.TestCase):
             self.assertEqual(components[0][1],kind)
             self.assertEqual(components[0][2]["table_name"],source)
             self.assertEqual(components[1][1],"text")
+            if kind=="line":
+                self.assertEqual(components[2][0],s.MONTHLY_LIST_NAME)
+                self.assertEqual(components[2][1],"ranking")
+                self.assertEqual(components[2][2]["table_name"],"Monthly Tax Invoice")
+                self.assertEqual(components[2][2]["series"][0]["field_name"],"Net Revenue M KRW")
 
     def test_missing_widgets_created_then_verified(self):
         name,kind,config=s.expected_components(
             s.CHARTS[0][3],s.CHARTS[0][4],"line","Monthly Tax Invoice")[0]
         after={"items":[{"name":name,"type":kind,"block_id":"cht123"},
-                        {"name":"월별 Revenue 표시 기준","type":"text","block_id":"cht456"}]}
+                        {"name":"월별 Revenue 표시 기준","type":"text","block_id":"cht456"},
+                        {"name":s.MONTHLY_LIST_NAME,"type":"ranking","block_id":"cht789"}]}
         with mock.patch.object(s,"cli",side_effect=[
             {"items":[]},{"ok":True},{"ok":True},after]) as cli:
             count=s.verify_components("blkNew",s.expected_components(
                 s.CHARTS[0][3],s.CHARTS[0][4],"line","Monthly Tax Invoice"),True)
-        self.assertEqual(count,2)
-        self.assertEqual(cli.call_count,4)
+        self.assertEqual(count,3)
+        self.assertEqual(cli.call_count,5)
 
     def test_existing_chart_avoids_writes(self):
         comp=s.expected_components(
