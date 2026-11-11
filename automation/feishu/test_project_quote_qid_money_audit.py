@@ -11,7 +11,7 @@ from project_quote_qid_money_audit import (
 
 AMEA="AMEA2026000123"
 NAME="Korea-Institution-Project-mRNA"
-QID="QID-2026-11-10-XXXX"
+QID="QID-2026-11-10-292701"
 RECORD="a0P123456789012"
 
 def board(status="SFDC_EXACT_VERIFIED",name=NAME):
@@ -44,7 +44,7 @@ class TestMoneyCrosswalk(unittest.TestCase):
         self.assertEqual(state,"PORTFOLIO_NOT_ACTIVE_APPROVED")
     def test_conflicting_qid_rejected(self):
         row=portfolio()
-        other=dict(row,**{"Quote QID":"QID-2026-11-10-YYYY"})
+        other=dict(row,**{"Quote QID":"QID-2026-11-10-292702"})
         hit,state=quote_reference(board(),[row,other])
         self.assertEqual(state,"PORTFOLIO_AMBIGUOUS_QID_OR_RECORD")
     def test_export_sfid_mismatch(self):
