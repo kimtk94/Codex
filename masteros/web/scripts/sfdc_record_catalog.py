@@ -407,6 +407,33 @@ def quote_price_breakdown(page,quote_id,source_samples,gb_per_sample,expected_ne
         page.goto(url,wait_until="domcontentloaded",timeout=28000)
 
 
+
+def retryable_modal_price_read_error(exc):
+    """Only Salesforce transient load/rerender failures may be retried.
+    Never retry source price arithmetic, pack, ID or schema mismatches.
+    """
+    return (type(exc).__name__=="TimeoutError" or
+        isinstance(exc,ValueError) and str(exc) in {
+           "SOURCE_PROCESS_MATRIX_EMPTY",
+           "SOURCE_PROCESS_MATRIX_NOT_LOADED",
+           "SOURCE_TOTAL_SUMMARY_CHANGED",
+           "SOURCE_EDIT_MODAL_OPEN_TIMEOUT",
+        })
+
+
+def quote_price_breakdown_with_retry(page,quote_id,source_samples,gb_per_sample,expected_net):
+    for attempt in range(2):
+        try:
+            return quote_price_breakdown(
+                page,quote_id,source_samples,gb_per_sample,expected_net)
+        except Exception as exc:
+            if attempt!=0 or not retryable_modal_price_read_error(exc):
+                raise
+            # Both attempts are read-only, with Add/Edit canceled by navigation.
+            page.wait_for_timeout(800)
+    raise ValueError("SOURCE_PRICE_RETRY_EXHAUSTED")
+
+
 def linked_oppo_quote_bundle(page,oppo_id):
     """Resolve Quote by exact parent ID; never select a different customer's quote."""
     opp=read_item(page,"opportunity",oppo_id)
@@ -522,7 +549,7 @@ def read_item(page,resource,record_id):
                     out["grandTotalKrw"]*10==original_amount*11)
             if out.get("samples") and out.get("dataSize") and out.get("sourceVatRateVerified10Pct"):
                 try:
-                    out.update(quote_price_breakdown(
+                    out.update(quote_price_breakdown_with_retry(
                         page,record_id,out["samples"],out["dataSize"],original_amount))
                 except Exception as exc:
                     out["pricingStatus"]="PROCESS_BREAKDOWN_UNVERIFIED"
