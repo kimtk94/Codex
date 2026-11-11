@@ -21,7 +21,7 @@ def read_identity_index(query,limit=25,now=None,db=None,account_id=""):
     ):
         raise ValueError("IDENTITY_QUERY_INVALID")
     if not isinstance(account_id,str) or (account_id and not ACCOUNT.fullmatch(account_id)):
-        raise ValueError("IDENTITY_ACCOUNT_INVALID")
+        raise ValueError("ACCOUNT_FILTER_INVALID")
     path=db or DB
     if not path.is_file():
         raise ValueError("IDENTITY_INDEX_NOT_AVAILABLE")
