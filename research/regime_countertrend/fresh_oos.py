@@ -127,7 +127,7 @@ def evaluate_oos(history,merged):
     # No signals at or before the known research boundary count as fresh.
     new=candidate[candidate.date>ANCHOR][["date","event"]]
     if new.empty:
-        return pd.DataFrame(),pd.DataFrame(),{"status":"INSUFFICIENT_FRESH_SIGNALS","n_signals":0}
+        return pd.DataFrame(),pd.DataFrame(),{"status":"INSUFFICIENT_FRESH_SIGNALS","n_signals":0,"promotion_allowed":False,"note":"No eligible original UP_DIP or DOWN_RALLY signals in the new 46-session window; cannot evaluate rule returns."}
     scored=build_events(merged,new)
     scored["fresh_after_boundary"]=True
     rows=[]
