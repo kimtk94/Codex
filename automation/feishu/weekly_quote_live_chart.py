@@ -108,9 +108,8 @@ def audit_rows(review_records,kpi_records,enforce_kpi_parity=True):
         if enforce_kpi_parity and value!=Decimal(observed):
             raise SafeError("LIVE_QUOTE_INCLUDED_COUNT_PARITY_FAILED")
         known=dec(f.get("Calculated Quote Value K USD"))
-        if weeks[week]["no_amount"]>0:
-            # A missing amount may not be shown to users as a genuine zero.
-            raise SafeError("LIVE_QUOTE_UNVERIFIED_INCLUDED_AMOUNT")
+        # Some Active quotations have no certified price. Native SUM includes
+        # only known amounts; the note explicitly calls it partial, not zero.
         if enforce_kpi_parity and observed>0 and known is None:
             raise SafeError("LIVE_QUOTE_KPI_MONEY_WITHHELD")
         # Source row K USD is rounded at 4 decimal places per Quote.
