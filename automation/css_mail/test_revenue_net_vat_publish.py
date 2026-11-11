@@ -73,6 +73,20 @@ class VatEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"NOT_IN_LIFECYCLE"):
             build(records,ledger,NOW)
 
+    def test_unknown_open_statement_does_not_block_verified_tax_invoice(self):
+        inv=[["invoice_number"],invoice("209126001012",1622500)]
+        row=month(1622500,1,pending=0,forecast=0)
+        row[6]="1"   # one open Statement, unverified amount
+        row[7]="1"   # unknown must never become issued Revenue
+        ledger=[["Month","Actual Invoice KRW","Pending Verified KRW",
+                 "Forecast KRW","Combined KRW (verified + estimate)",
+                 "Invoice Count","Open Statement Count","Pending Amount Unknown"],row]
+        out=build(inv,ledger,NOW)[1]
+        self.assertEqual((out[1],out[2],out[4],out[5]),(1622500,1475000,1,0))
+        row[7]="-1"
+        with self.assertRaisesRegex(ValueError,"NEGATIVE_UNVERIFIED_PENDING_COUNT"):
+            build(inv,ledger,NOW)
+
     def test_vat_rounded_per_invoice(self):
         self.assertEqual(net_won(4438500),4035000)
         self.assertEqual(net_won(11),10)
