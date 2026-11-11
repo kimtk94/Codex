@@ -215,8 +215,25 @@ def verify_catalog(page,x):
     # Never click Done/Save on source Quote. Navigation discards this preview.
     return True
 
+def verify_existing_source_quote(page,x):
+    """CHECK only: read the already-attached Product and Pack, no add (+) click.
+
+    This verifies source evidence, not a new Quotation writer.
+    """
+    from sfdc_record_catalog import read_item
+    from sfdc_source_quote_reference import verify_source_reference
+    source=read_item(page,"quote",x["sourceQuoteId"])
+    return verify_source_reference(source,x)
+
+
 def quote_create(page,x):
-    verify_catalog(page,x)
+    if x["mode"]=="check":
+        # Source Product (+) can be disabled after the Product is already added.
+        # Never attempt to add a duplicate Product while probing a new header.
+        verify_existing_source_quote(page,x)
+    else:
+        # Retain stronger legacy path for any explicitly approved Save attempt.
+        verify_catalog(page,x)
     page.goto(BASE+"/lightning/r/Opportunity/"+x["opportunityId"]+"/view",wait_until="domcontentloaded",timeout=29000)
     page.get_by_role("tab",name="Related",exact=True).click(timeout=6000)
     # The second New button belongs to the Quotation related list in verified UI.
@@ -241,8 +258,10 @@ def quote_create(page,x):
     picklist(page,"Bank Account Information","Korea JPMorgan KRW")
     picklist(page,"Sample Submission Address","Korea Sample Receiving Address")
     r={"action":"quote_create","status":"PREFLIGHT_PASS","save_clicked":False,
-       "product_catalog_verified":True,"product_added":False,
-       "parent_id":x["opportunityId"]}
+       "product_catalog_verified":x["mode"]=="save",
+       "source_reference_verified":x["mode"]=="check",
+       "new_quote_process_writer":"UNVERIFIED" if x["mode"]=="check" else "NOT_ASSESSED",
+       "product_added":False,"parent_id":x["opportunityId"]}
     if x["mode"]=="check":return r
     # No Quote header is saved unless live quote product workflow is independently
     # verified for this exact product: avoids orphan headers or mispriced quotations.
