@@ -5,6 +5,7 @@ Never replace the existing Project Dashboard shortcut. Only modify the two
 new whitelisted Menu Key rows. Existing project data is untouched.
 """
 import os
+import json
 import urllib.parse
 from sales_home_links import API, HOME_TABLE, HOME_VIEW, pages, request, require, require_success, extract_token, link_url, url
 from project_quote_operating_sync import TABLES, all_tables
@@ -14,6 +15,14 @@ KEYS={
     "PROJECT_BILLING_QUOTE":("billing","09 · 완료·결제 관리 (Quote)")
 }
 FIELDS={"Menu Key","메뉴 구분","화면","바로가기","데이터 상태"}
+# Current '바로가기' view is a whitelist of these five original menu keys.
+EXPECTED_ORIGINAL_KEYS=frozenset({
+    "MONTHLY_TREND","WEEKLY_TREND","SIF_EVIDENCE",
+    "X_MY_PROJECTS","PAYMENT_FOLLOWUP",
+})
+ALLOWED_VIEW_KEYS=EXPECTED_ORIGINAL_KEYS|frozenset(KEYS)
+MENU_FIELD_ID="fldSmYxBAd"
+
 
 def desired_rows(ids):
     result={}
@@ -35,6 +44,54 @@ def matches(existing,desired):
             if link_url(current)!=val["link"]:return False
         elif current!=val:return False
     return True
+
+def filter_keys(info):
+    """Strictly parse shortcut view's Menu Key OR-conditions, fail closed."""
+    if not isinstance(info,dict) or info.get("conjunction")!="or":
+        raise RuntimeError("UNEXPECTED_SHORTCUT_FILTER_CONJUNCTION")
+    conditions=info.get("conditions")
+    if not isinstance(conditions,list):
+        raise RuntimeError("UNEXPECTED_SHORTCUT_FILTER")
+    keys=[]
+    for row in conditions:
+        if (not isinstance(row,dict) or row.get("field_id")!=MENU_FIELD_ID
+                or row.get("operator")!="is"):
+            raise RuntimeError("UNEXPECTED_SHORTCUT_FILTER_CONDITION")
+        try:
+            payload=json.loads(row.get("value") or "")
+        except (TypeError,ValueError):
+            raise RuntimeError("SHORTCUT_FILTER_BAD_JSON") from None
+        if not isinstance(payload,list) or len(payload)!=1 or not isinstance(payload[0],str):
+            raise RuntimeError("SHORTCUT_FILTER_BAD_VALUE")
+        keys.append(payload[0])
+    if len(set(keys))!=len(keys) or not EXPECTED_ORIGINAL_KEYS.issubset(keys) or not set(keys).issubset(ALLOWED_VIEW_KEYS):
+        raise RuntimeError("SHORTCUT_FILTER_UNEXPECTED_MENU_KEYS")
+    return frozenset(keys)
+
+def extend_filter(info):
+    """Keep all original conditions and append only the two new project keys."""
+    current=filter_keys(info)
+    copied=[{"field_id":r["field_id"],"operator":r["operator"],"value":r["value"]}
+            for r in info["conditions"]]
+    for key in sorted(frozenset(KEYS)-current):
+        copied.append({"field_id":MENU_FIELD_ID,"operator":"is",
+                       "value":json.dumps([key],ensure_ascii=False)})
+    return {"conjunction":"or","conditions":copied}
+
+def repair_shortcut_view(token,home):
+    path=home+"/views/"+HOME_VIEW
+    view=require_success(request("GET",path,token=token),"READ_SHORTCUT_VIEW").get("view") or {}
+    info=(view.get("property") or {}).get("filter_info")
+    prior=filter_keys(info)
+    if prior!=ALLOWED_VIEW_KEYS:
+        next_filter=extend_filter(info)
+        require_success(request("PATCH",path,token=token,
+            body={"property":{"filter_info":next_filter}}),"PATCH_SHORTCUT_FILTER")
+        print("SHORTCUT_FILTER_UPDATED added="+str(len(ALLOWED_VIEW_KEYS-prior)),flush=True)
+    after=require_success(request("GET",path,token=token),"READ_SHORTCUT_VIEW_AGAIN").get("view") or {}
+    if filter_keys((after.get("property") or {}).get("filter_info")) != ALLOWED_VIEW_KEYS:
+        raise RuntimeError("SHORTCUT_FILTER_READBACK_MISMATCH")
+    print("SHORTCUT_FILTER_VERIFIED keys="+str(len(ALLOWED_VIEW_KEYS)),flush=True)
 
 def main():
     if os.getenv("FEISHU_PROJECT_OPS_APPLY")!="1":
@@ -76,9 +133,12 @@ def main():
             readback[key]=row.get("fields") or {}
     if set(readback)!=set(desired) or not all(matches(readback[k],v) for k,v in desired.items()):
         raise RuntimeError("HOME_LINK_READBACK_FAILED")
+    repair_shortcut_view(token,home)
     visible={(r.get("fields") or {}).get("Menu Key") for r in
              pages(home+"/records",token,{"view_id":HOME_VIEW})}
     count=sum(k in visible for k in KEYS)
+    if count!=len(KEYS):
+        raise RuntimeError("SHORTCUT_VIEW_TARGETS_NOT_VISIBLE")
     print("PROJECT_HOME_QUICKLINK_SYNC_PASS created="+str(created)+
          " updated="+str(updated)+" visible_in_shortcuts_view="+str(count)+
          " verified_destinations=2",flush=True)
