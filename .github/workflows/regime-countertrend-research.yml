@@ -84,6 +84,32 @@ jobs:
         run: python -m research.regime_countertrend.peer_macro_v4 --out results/regime_countertrend/peer_macro_v4
       - name: Stress ETF macro and separate peer vs symbol overlays (SHADOW only)
         run: python -m research.regime_countertrend.peer_macro_stress_v4 --out results/regime_countertrend/peer_macro_v4/stress
+      - name: Convert the same US stock proxy trades into KRW with historical FX
+        run: python -m research.regime_countertrend.krw_fx_v5 --out results/regime_countertrend/krw_fx_v5
+      - name: Verify FX source and causal conversion coverage before KRW model
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('results/regime_countertrend/krw_fx_v5/status.json').read_text())
+          if d.get('status')!='KRW_BACKTEST_RESEARCH_ONLY' or d.get('events',0)<100:
+              raise SystemExit("FX_KRW_EVIDENCE_HOLD: "+json.dumps(d,ensure_ascii=False))
+          print('KRW_FX_GATE_PASS',d['events'])
+          PY
+      - name: Evaluate regime x price location x volume details in KRW V5
+        run: python -m research.regime_countertrend.krw_detail_regime_v5 --out results/regime_countertrend/krw_detail_v5
+      - name: Check complete CFM V5 KRW model evidence (SHADOW only)
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('results/regime_countertrend/krw_detail_v5/decision.json').read_text())
+          if r.get('status')!='HOLD_KRW_DETAIL_MODEL_UNPROVEN' or r.get('evaluated_opportunities',0)<100:
+              raise SystemExit('KRW_DETAIL_INVALID_OR_INSUFFICIENT '+json.dumps(r))
+          if r.get('live_promotion_allowed') is not False:
+              raise SystemExit('KRW_DETAIL_UNSAFE_LIVE_PROMOTION')
+          print('KRW_DETAIL_V5_EVIDENCE_OK_RESEARCH_ONLY',r['evaluated_opportunities'])
+          PY
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
