@@ -141,12 +141,14 @@ MENU_EXTRA_FIELDS={
 def presentation(key,title,source_index):
     if key in PINNED_KEYS:
         rank=CURATED_ORDER.index(key)+1
+        if key=="X_MY_PROJECTS":
+            title="프로젝트 운영 대시보드"
         return rank, f"{rank:02d} · {title}", COLOR_KEY_MAP[key]
     return 100+source_index, title, "관리용"
 CURATED_VIEW="업무용 메뉴"
 CURATED_DISPLAY="주요"
 ARCHIVE_DISPLAY="관리용"
-# Existing filtered views and source records remain; shortcut stays five keys.
+# Existing filtered views and source records remain; shortcut stays seven keys.
 SHORTCUT_VIEW="바로가기"
 FULL_VIEW="전체 메뉴"  # all records; separate from five shortcuts and curated views.
 # Actual graph dashboards use Feishu block IDs (blk...), not table/view grids.
@@ -154,6 +156,14 @@ CHART_SHORTCUT_ENV={
     "MONTHLY_TREND":"FEISHU_SHORTCUT_MONTHLY_DASHBOARD_ID",
     "WEEKLY_TREND":"FEISHU_SHORTCUT_WEEKLY_DASHBOARD_ID",
 }
+# Stable, already verified Feishu native dashboard links, never generic '열기'.
+GRAPH_LINK_LABELS={
+    "MONTHLY_TREND":"Novogene · 월별 Revenue 그래프",
+    "WEEKLY_TREND":"Novogene · Weekly Quote 그래프",
+    "X_MY_PROJECTS":"Novogene 프로젝트 운영 대시보드",
+}
+PROJECT_OPS_DASHBOARD_ID="blkzYT2OAVQssL3Y"
+EXTERNAL_SHORTCUT_KEYS=("PROJECT_ACTIVE_QUOTE","PROJECT_BILLING_QUOTE")
 
 def chart_shortcut_url(key,environ=None):
     environ=os.environ if environ is None else environ
@@ -168,8 +178,11 @@ def chart_shortcut_url(key,environ=None):
 def valid_menu_url(key,url):
     if not isinstance(url,str) or not url.startswith(BASE_URL+"?table="):
         return False
-    if key in CHART_SHORTCUT_ENV:
+    if key in CHART_SHORTCUT_ENV or key=="X_MY_PROJECTS":
         return bool(re.fullmatch(r"blk[A-Za-z0-9]{6,}",
+                                 url[len(BASE_URL+"?table="):]))
+    if key in EXTERNAL_SHORTCUT_KEYS:
+        return bool(re.fullmatch(r"tbl[A-Za-z0-9]{6,}",
                                  url[len(BASE_URL+"?table="):]))
     return "&view=" in url and "?table=tbl" in url
 
@@ -179,6 +192,7 @@ SHORTCUT_KEYS=(
     "SIF_EVIDENCE",
     "X_MY_PROJECTS",
     "PAYMENT_FOLLOWUP",
+    *EXTERNAL_SHORTCUT_KEYS,
 )
 
 
@@ -209,6 +223,10 @@ def source_rows(token,root,tables,now):
             # Never silently substitute a data-table link for a chart dashboard.
             url=chart_shortcut_url(key) or ""
             state="DASHBOARD_PRESENT" if url else "DASHBOARD_NOT_VERIFIED"
+        elif key=="X_MY_PROJECTS":
+            # This user-facing menu was replaced by the verified project dashboard.
+            url=BASE_URL+"?table="+PROJECT_OPS_DASHBOARD_ID
+            state="DASHBOARD_PRESENT"
         else:
             tid = tables.get(table_name)
             if tid:
@@ -239,7 +257,7 @@ def source_rows(token,root,tables,now):
         })
     for item in output:
         url=item["바로가기 URL"]
-        item["바로가기"]={"text":"열기","link":url} if (
+        item["바로가기"]={"text":GRAPH_LINK_LABELS.get(item["Menu Key"],"열기"),"link":url} if (
             valid_menu_url(item["Menu Key"],url)
         ) else None
     for state,count in sorted(status.items()):
@@ -388,9 +406,9 @@ def ensure_curated_view(token,path):
 
 
 def shortcut_filter(field_id):
-    if len(SHORTCUT_KEYS) != 5 or len(set(SHORTCUT_KEYS)) != 5:
+    if len(SHORTCUT_KEYS) != 7 or len(set(SHORTCUT_KEYS)) != 7:
         raise SafeError("PORTAL_SHORTCUT_DUPLICATE_OR_MISSING_KEYS")
-    if not set(SHORTCUT_KEYS).issubset(PINNED_KEYS):
+    if not (set(SHORTCUT_KEYS)-set(EXTERNAL_SHORTCUT_KEYS)).issubset(PINNED_KEYS):
         raise SafeError("PORTAL_SHORTCUT_NOT_CURATED")
     return {
         "conjunction":"or",
@@ -426,7 +444,7 @@ def shortcut_filter_matches(view, field_id):
 
 
 def ensure_shortcut_view(token,path):
-    """Filter only the existing default Shortcut view to five exact Menu Keys."""
+    """Keep all seven verified shortcut routes, including two Quote project lists."""
     from setup_sales_web import get_view
     views=list_views(token,path)
     view_id=views.get(SHORTCUT_VIEW)
@@ -448,8 +466,8 @@ def ensure_shortcut_view(token,path):
             action="portal_shortcut_filter")
     if not shortcut_filter_matches(get_view(token,path,view_id),fid):
         raise SafeError("PORTAL_SHORTCUT_FILTER_READBACK_MISMATCH")
-    print("PORTAL_SHORTCUT_FILTER_PASS shown=5 hidden_from_shortcut="
-          +str(len(MENUS)-5)+" unchanged_curated="+str(len(CURATED_ORDER))+" changed="+str(int(changed)))
+    print("PORTAL_SHORTCUT_FILTER_PASS shown=7 hidden_from_shortcut="
+          +str(len(MENUS)+len(EXTERNAL_SHORTCUT_KEYS)-len(SHORTCUT_KEYS))+" unchanged_curated="+str(len(CURATED_ORDER))+" changed="+str(int(changed)))
     return view_id
 
 

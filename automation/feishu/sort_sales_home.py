@@ -12,7 +12,7 @@ from sales_native_home import (
     EXPECTED_BASE, HOME, CURATED_VIEW, CURATED_ORDER, CURATED_DISPLAY,
     table_map, list_views, target_path, MENUS, presentation, PINNED_KEYS, ARCHIVE_DISPLAY,
     SHORTCUT_VIEW, SHORTCUT_KEYS, shortcut_filter_matches, FULL_VIEW,
-    CHART_SHORTCUT_ENV, valid_menu_url,
+    CHART_SHORTCUT_ENV, GRAPH_LINK_LABELS, EXTERNAL_SHORTCUT_KEYS, valid_menu_url, hyperlink,
 )
 from setup_sales_web import get_view
 
@@ -24,7 +24,7 @@ CURATED_COLUMNS=(
     "데이터 상태", "업무 내용", "갱신 시각",
 )
 COLUMNS_PAYLOAD={"visible_fields":list(CURATED_COLUMNS)}
-# View policies: five shortcuts = exact filter, no group, priority sort;
+# View policies: seven shortcuts = exact filter, no group, priority sort;
 # twelve curated = major filter, no group, priority sort;
 # full list = no filter, business-area grouping, priority sort within group.
 FULL_GROUP_FIELD="그룹"
@@ -250,9 +250,15 @@ def verify_view_rows(token, table_path, view_id):
         if not key or key in indexed:
             raise SafeError("PORTAL_SORT_DUPLICATE_OR_EMPTY_KEY")
         indexed[key] = fields
-    if set(indexed) != set(expected) or len(records) != len(expected):
+    expected_keys=set(expected)|set(EXTERNAL_SHORTCUT_KEYS)
+    if set(indexed) != expected_keys or len(records) != len(expected_keys):
         raise SafeError("PORTAL_SORT_SOURCE_MEMBERSHIP_MISMATCH")
     issues = []
+    for key in EXTERNAL_SHORTCUT_KEYS:
+        external=hyperlink(indexed[key].get("바로가기"))
+        if (not external or external[0]!="열기"
+                or not valid_menu_url(key,external[1])):
+            issues.append(key)
     for key, rule in expected.items():
         fields = indexed[key]
         got = {
@@ -267,7 +273,7 @@ def verify_view_rows(token, table_path, view_id):
         link=fields.get("바로가기")
         if isinstance(link,list) and len(link)==1:
             link=link[0]
-        expected_link={"text":"열기","link":raw_url} if raw_url else None
+        expected_link={"text":GRAPH_LINK_LABELS.get(key,"열기"),"link":raw_url} if raw_url else None
         if raw_url and not valid_menu_url(key,raw_url):
             issues.append(key)
         if key in CHART_SHORTCUT_ENV and not raw_url:
@@ -278,7 +284,7 @@ def verify_view_rows(token, table_path, view_id):
         # Only menu route keys, never customer data, enter the audit log.
         print("PORTAL_SORT_SOURCE_DIFFERENCES=" + ",".join(issues))
         raise SafeError("PORTAL_SORT_RECORD_READBACK_MISMATCH")
-    print("PORTAL_SORT_SOURCE_PASS total=" + str(len(expected))
+    print("PORTAL_SORT_SOURCE_PASS total=" + str(len(expected_keys))
           + " curated=" + str(len(PINNED_KEYS))
           + " managed=" + str(len(expected) - len(PINNED_KEYS))
           + " priorities=01_to_"+str(len(CURATED_ORDER))+" colors=verified")
@@ -339,7 +345,7 @@ def main():
     if not sort_matches(run_cli("+view-get-sort",EXPECTED_BASE,table_id,shortcut_id),sort_field["field_id"]):
         raise SafeError("PORTAL_SHORTCUT_SORT_READBACK_MISMATCH")
     ensure_column_order(EXPECTED_BASE,table_id,shortcut_id,fields,mode)
-    print("PORTAL_SHORTCUT_VIEW_LAYOUT_PASS rows=5 sort=ascending columns=7")
+    print("PORTAL_SHORTCUT_VIEW_LAYOUT_PASS rows=7 sort=ascending columns=7")
     ensure_full_view_layout(token,path,EXPECTED_BASE,table_id,views,fields,mode)
     record_state = "PASS"
     try:

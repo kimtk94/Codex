@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strict Feishu Sales Home '바로가기' five-link audit.
+"""Strict Feishu Sales Home '바로가기' seven-link audit.
 
 Verify every persisted URL, clickable hyperlink, target table/view or native
 dashboard and widget type. No invoice, Quote, Payment or customer source writes.
@@ -12,13 +12,15 @@ import urllib.parse
 from qq_mail_ingest import SafeError, auth, list_all, plain_field
 from sales_native_home import (
     EXPECTED_BASE, BASE_URL, HOME, SHORTCUT_KEYS, MENUS,
-    CHART_SHORTCUT_ENV, table_map, list_views, target_path, valid_menu_url,
+    CHART_SHORTCUT_ENV, GRAPH_LINK_LABELS, PROJECT_OPS_DASHBOARD_ID,
+    EXTERNAL_SHORTCUT_KEYS, table_map, list_views, target_path, valid_menu_url,
     hyperlink,
 )
 from shortcut_chart_dashboards import (
     CHARTS, expected_components, verify_components,
 )
 from native_dashboard_cli import cli, find_named
+from project_quote_operating_sync import TABLES as PROJECT_OPS_TABLES
 
 
 def exact_url(url, expected_table, expected_view=None):
@@ -52,6 +54,20 @@ def target_routes(token,root,tables):
             components=expected_components(chart,note,kind,source)
             verify_components(dashboard_id,components,False)
             result[key]=(BASE_URL+"?table="+dashboard_id,"DASHBOARD_VERIFIED")
+        elif key=="X_MY_PROJECTS":
+            match=find_named(dashboard_list,"Novogene 프로젝트 운영 대시보드")
+            if match!=PROJECT_OPS_DASHBOARD_ID:
+                raise SafeError("SHORTCUT_PROJECT_DASHBOARD_ID_MISMATCH")
+            result[key]=(BASE_URL+"?table="+match,"DASHBOARD_VERIFIED")
+        elif key in EXTERNAL_SHORTCUT_KEYS:
+            kind="active" if key=="PROJECT_ACTIVE_QUOTE" else "billing"
+            table_name=PROJECT_OPS_TABLES[kind][0]
+            tid=tables.get(table_name)
+            if not tid or not tid.startswith("tbl"):
+                raise SafeError("SHORTCUT_PROJECT_TABLE_MISSING_"+key)
+            rows=list_all(target_path(root,tid)+"/records",token,"shortcut_project_records")
+            if not rows:raise SafeError("SHORTCUT_PROJECT_TABLE_EMPTY_"+key)
+            result[key]=(BASE_URL+"?table="+tid,"PROJECT_TABLE_VERIFIED")
         else:
             entry=definition.get(key)
             if not entry:
@@ -89,7 +105,10 @@ def verify_persisted_shortcuts(records,targets):
         raw=plain_field(fields.get("바로가기 URL")).strip()
         click=hyperlink(fields.get("바로가기"))
         parsed=urllib.parse.parse_qs(urllib.parse.urlsplit(expected).query)
-        if not (raw==expected and click==("열기",expected) and
+        if key in EXTERNAL_SHORTCUT_KEYS:
+            raw=raw or (click[1] if click else "")
+        label=GRAPH_LINK_LABELS.get(key,"열기")
+        if not (raw==expected and click==(label,expected) and
                 valid_menu_url(key,raw) and
                 exact_url(raw,parsed["table"][0],
                           (parsed.get("view") or [None])[0])):
