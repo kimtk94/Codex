@@ -15,6 +15,14 @@ from setup_sales_web import list_views
 from sales_native_home import HOME, table_map, target_path
 from quote_dashboard_preview import BLOCK_NAME,read_preview
 
+MONTHLY_LIST_NAME = "월별 Revenue 금액 리스트 · M KRW (VAT 제외)"
+MONTHLY_LIST_CONFIG = {
+    "table_name": "Monthly Tax Invoice",
+    "group_by": [{"field_name": "Month", "mode": "integrated",
+                  "sort": {"type": "group", "order": "desc"}}],
+    "series": [{"field_name": "Net Revenue M KRW", "rollup": "SUM"}],
+}
+
 CHARTS = (
     ("MONTHLY_TREND","FEISHU_SHORTCUT_MONTHLY_DASHBOARD_ID",
      "Novogene · 월별 Revenue 그래프",
@@ -66,6 +74,10 @@ def expected_components(chart_name,note_name,kind,source,detail_url=None,preview
             +note_config["text"]
         )
     components=((chart_name,kind,chart_config),(note_name,"text",note_config))
+    if kind=="line" and source=="Monthly Tax Invoice":
+        # Native ranking block: real, source-backed months. Its rows are
+        # interactive and avoid the inert markdown table problem.
+        components+=(MONTHLY_LIST_NAME,"ranking",MONTHLY_LIST_CONFIG),
     if kind=="combo" and preview is not None:
         components+=(BLOCK_NAME,"text",{"text":preview}),
     return components
