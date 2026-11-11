@@ -281,12 +281,14 @@ def main():
         get(s,DST,"Feishu Project TAT Forecast","A1:Q2000"),
         get(s,SRC,"CSS Tax Invoice Extract","A1:L10000"),
         get(s,DST,"BI Project Month Control","A1:K2000"),
-        get(s,SRC,"CSS Git Ingest","F1:Q10000"),
+        get(s,SRC,"CSS Git Ingest","F:Q"),
         get(s,SRC,"CSS Statement Amount Extract","A1:K2000")
     ]
     for data,expected in zip(sources,["exclude","Snapshot KST","invoice_number","Sub-Project Number","received_at","statement_key"]):
         if not data or not data[0] or data[0][0]!=expected:
             raise RuntimeError("Unexpected lifecycle source header: "+expected)
+    # The CSS Git Ingest already exceeds 10,000 rows. A bounded F1:Q10000
+    # range falsely reports SOURCE_STALE even when newer QQ mail was synced.
     # Gate the full chain on source freshness. Never regenerate revenue with
     # a stale Feishu snapshot while recording a fresh PASS heartbeat.
     now_utc=dt.datetime.now(dt.timezone.utc)
