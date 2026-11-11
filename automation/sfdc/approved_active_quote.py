@@ -74,7 +74,12 @@ def weekly_verified(approvals,quotes):
             unresolved+=1
             continue
         quote=matching[0]
-        if active_value(cell(quote,qactive)) is not True:continue
+        active=active_value(cell(quote,qactive))
+        # UNKNOWN is not proven inactive: never certify the week complete.
+        if active is None:
+            unresolved+=1
+            continue
+        if active is False:continue
         price=amount(cell(quote,qamount))
         currency=cell(quote,qcurrency).upper()
         if price is None or currency not in ("KRW","USD"):
