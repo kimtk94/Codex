@@ -108,3 +108,12 @@
 .leadCaution{margin:8px 0 2px;font-size:12px;line-height:1.7;color:#647f8c}
 @media(max-width:800px){.leadGroups{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:470px){.leadGroups{gap:7px}.leadGroups button{padding:10px 8px}.leadGroups button[aria-pressed="true"]{padding:9px 7px}.leadGroups strong{font-size:17px}}
+
+/* Show verified Lead inquiry text inline. No mail send is triggered. */
+.leadDescription{margin-top:7px;max-width:320px}
+.leadDescription summary{cursor:pointer;color:#216885;font-weight:750;font-size:11px}
+.leadDescription[open]{position:relative;z-index:1}
+.leadDescription pre{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;
+  max-height:280px;overflow:auto;border:1px solid #d7e8ef;background:#f6fafc;
+  border-radius:9px;padding:12px;font:inherit;font-size:12px;line-height:1.65;
+  color:#274756;min-width:210px;margin:8px 0 0}
