@@ -31,7 +31,7 @@ class ChartShortcutTests(unittest.TestCase):
                         {"name":"월별 Revenue 표시 기준","type":"text","block_id":"cht456"},
                         {"name":s.MONTHLY_LIST_NAME,"type":"ranking","block_id":"cht789"}]}
         with mock.patch.object(s,"cli",side_effect=[
-            {"items":[]},{"ok":True},{"ok":True},after]) as cli:
+            {"items":[]},{"ok":True},{"ok":True},{"ok":True},after]) as cli:
             count=s.verify_components("blkNew",s.expected_components(
                 s.CHARTS[0][3],s.CHARTS[0][4],"line","Monthly Tax Invoice"),True)
         self.assertEqual(count,3)
