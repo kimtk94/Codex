@@ -5,7 +5,8 @@ import pandas as pd
 from research.regime_countertrend.failure_diagnostics import run as proxy_signals
 from research.regime_countertrend.robust_walkforward import build_events
 from research.regime_countertrend.correlated_factor_model import (
-    FEATURES, feature_frame, correlation_groups, CorrelatedFactors, apply_models
+    FEATURES, feature_frame, correlation_groups, CorrelatedFactors, apply_models,
+    train_frozen_research_model, predict_frozen_model
 )
 
 SOURCE=Path("research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv")
@@ -41,6 +42,29 @@ class CorrelatedFactorV2Tests(unittest.TestCase):
         self.assertEqual(a.groups,b.groups)
         import numpy as np
         np.testing.assert_allclose(a.transform(train.tail(7)),b.transform(train.tail(7)),rtol=1e-12)
+    def test_frozen_2024_model_reproduces_2025_fold(self):
+        import joblib
+        from numpy.testing import assert_allclose
+        raw,_=proxy_signals(self.prices)
+        events=build_events(self.prices,raw[["date","event"]])
+        _,previous,_,_=apply_models(self.prices,events)
+        package,manifest=train_frozen_research_model(
+            self.prices,events,OUT/"frozen_2024")
+        self.assertEqual(manifest["training_events"],52)
+        self.assertEqual(manifest["train_last_exit"],"2024-11-05")
+        self.assertFalse(manifest["promotion_allowed"])
+        disk=joblib.load(OUT/"frozen_2024"/"cfm_v2_frozen_2024.joblib")
+        self.assertEqual(disk["origin"],"RESEARCH_ONLY")
+        incoming=events[events.year==2025][["date","event"]]
+        scored=predict_frozen_model(package,incoming,self.prices)
+        reference=previous[previous.year==2025].sort_values("date")
+        actual=scored.sort_values("date")
+        assert_allclose(actual.probability.to_numpy(),
+                        reference.group_prob.to_numpy(),atol=1e-12)
+        self.assertEqual(len(scored),8)
+        self.assertTrue((scored.status=="RESEARCH_SCORE_NOT_TRADE").all())
+        with self.assertRaises(ValueError):
+            predict_frozen_model(package,events[events.year==2024][["date","event"]],self.prices)
     def test_real_proxy_annual_walkforward_and_artifacts(self):
         event_raw,_=proxy_signals(self.prices)
         events=build_events(self.prices,event_raw[["date","event"]])
