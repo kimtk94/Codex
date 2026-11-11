@@ -23,7 +23,7 @@ class TestWeeklyQuoteLayout(unittest.TestCase):
             self.assertEqual(cli.call_count,1)
     def test_stacked_layout_write_and_readback(self):
         old={k:{"x":i*4,"y":0,"w":4,"h":8} for i,k in enumerate(s.ORDER)}
-        with mock.patch.object(s,"cli",side_effect=[sample(old),sample()]) as cli:
+        with mock.patch.object(s,"cli",side_effect=[sample(old)]+[{"ok":True}]*6+[sample()]) as cli:
             self.assertEqual(s.apply_layout("blkDemo"),3)
             updates=[x for x in cli.call_args_list if x.args[0]=="+dashboard-block-update"]
             self.assertEqual(len(updates),6)
