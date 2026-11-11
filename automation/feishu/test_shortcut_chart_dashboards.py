@@ -11,7 +11,7 @@ class ChartShortcutTests(unittest.TestCase):
         by_key={key:(kind,source) for key,_,_,_,_,kind,source in s.CHARTS}
         self.assertEqual(by_key,{
             "MONTHLY_TREND":("line","Monthly Tax Invoice"),
-            "WEEKLY_TREND":("combo","Weekly Quote KPI"),
+            "WEEKLY_TREND":("combo","Weekly Quote Review"),
         })
         for _,_,_,chart,note,kind,source in s.CHARTS:
             components=s.expected_components(chart,note,kind,source)
@@ -39,7 +39,7 @@ class ChartShortcutTests(unittest.TestCase):
 
     def test_existing_chart_avoids_writes(self):
         comp=s.expected_components(
-            s.CHARTS[1][3],s.CHARTS[1][4],"combo","Weekly Quote KPI")
+            s.CHARTS[1][3],s.CHARTS[1][4],"combo","Weekly Quote Review")
         existing={"items":[{"name":name,"type":kind,"block_id":"cht"+str(i)}
                           for i,(name,kind,_) in enumerate(comp)]}
         with mock.patch.object(s,"cli",return_value=existing) as cli:
