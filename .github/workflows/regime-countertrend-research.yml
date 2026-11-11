@@ -110,6 +110,21 @@ jobs:
               raise SystemExit('KRW_DETAIL_UNSAFE_LIVE_PROMOTION')
           print('KRW_DETAIL_V5_EVIDENCE_OK_RESEARCH_ONLY',r['evaluated_opportunities'])
           PY
+      - name: Audit matched USD and KRW win rates by year sector and regime
+        run: python -m research.regime_countertrend.krw_v5_evidence_audit --out results/regime_countertrend/krw_v5_audit
+      - name: Enforce FX date alignment and KRW attribution integrity
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('results/regime_countertrend/krw_v5_audit/decision.json').read_text())
+          if data.get('opportunities')!=1595 or data.get('fx_mark_contribution_identity_valid') is not True:
+              raise SystemExit('KRW_FX_RECONCILIATION_BLOCK')
+          if data.get('promotion_allowed') is not False:
+              raise SystemExit('UNSAFE_AUTO_LIVE_PROMOTION')
+          print('KRW_V5_FX_CAUSAL_ACCOUNTING_PASS',data['opportunities'],
+                data['usd_win_krw_loss'],data['usd_loss_krw_win'])
+          PY
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
