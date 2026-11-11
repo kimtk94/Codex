@@ -516,6 +516,8 @@ def read_item(page,resource,record_id):
                 except Exception as exc:
                     out["pricingStatus"]="PROCESS_BREAKDOWN_UNVERIFIED"
                     out["processBreakdownErrorType"]=type(exc).__name__
+                    if isinstance(exc,ValueError) and re.fullmatch(r"[A-Z0-9_]{5,100}",str(exc)):
+                        out["processBreakdownErrorCode"]=str(exc)
     return out
 
 def main():
