@@ -72,7 +72,19 @@ class MonthlyRevenueEvidenceTests(unittest.TestCase):
     def test_mismatched_authoritative_gross_is_rejected(self):
         data=source()
         data["BI Revenue Lifecycle Monthly"][1]["Actual Invoice KRW"]="₩38,261,301"
-        with self.assertRaisesRegex(RevenueEvidenceError,"LIFECYCLE"):
+        with self.assertRaisesRegex(RevenueEvidenceError,"LIFECYCLE_GROSS_COUNT_MISMATCH month=2026-11 issued_gross_krw=38261300 lifecycle_gross_krw=38261301 issued_invoice_count=4 lifecycle_invoice_count=4"):
+            evidence_rows(data)
+
+    def test_missing_lifecycle_month_diagnostics(self):
+        data=source()
+        data["BI Revenue Lifecycle Monthly"]=[row for row in data["BI Revenue Lifecycle Monthly"] if row["Month"]!="2026-11"]
+        with self.assertRaisesRegex(RevenueEvidenceError,"month=2026-11 reason=MISSING_LIFECYCLE_MONTH"):
+            evidence_rows(data)
+
+    def test_invoice_count_mismatch_diagnostics(self):
+        data=source()
+        data["BI Revenue Lifecycle Monthly"][1]["Invoice Count"]="5"
+        with self.assertRaisesRegex(RevenueEvidenceError,"month=2026-11.*issued_invoice_count=4 lifecycle_invoice_count=5"):
             evidence_rows(data)
 
     def test_outdated_or_non_authoritative_legacy_not_accepted(self):

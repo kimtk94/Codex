@@ -97,9 +97,18 @@ def evidence_rows(source,fx=D("1500")):
             raise RevenueEvidenceError("CANONICAL_NET_NOT_VERIFIED")
         snapshot=verified_at(cell(row,"Verified At KST"))
         other=grossrows.get(month)
-        if other is None or (money(cell(other,"Actual Invoice KRW"),"GROSS")!=gross or
-                             money(cell(other,"Invoice Count"),"COUNT")!=count):
-            raise RevenueEvidenceError("CANONICAL_LIFECYCLE_GROSS_COUNT_MISMATCH")
+        if other is None:
+            raise RevenueEvidenceError("CANONICAL_LIFECYCLE_GROSS_COUNT_MISMATCH month="+month+" reason=MISSING_LIFECYCLE_MONTH")
+        lifecycle_gross=money(cell(other,"Actual Invoice KRW"),"GROSS")
+        lifecycle_count=money(cell(other,"Invoice Count"),"COUNT")
+        if lifecycle_gross!=gross or lifecycle_count!=count:
+            raise RevenueEvidenceError(
+                "CANONICAL_LIFECYCLE_GROSS_COUNT_MISMATCH month="+month+
+                " issued_gross_krw="+str(gross)+
+                " lifecycle_gross_krw="+str(lifecycle_gross)+
+                " issued_invoice_count="+str(count)+
+                " lifecycle_invoice_count="+str(lifecycle_count)
+            )
         for role,basis,status,expected,amount in [
                 ("CANONICAL_ISSUED_NET","VAT_EXCLUDED","MATCHED_TO_INVOICE_SOURCE",
                  "BI Revenue Net VAT Monthly",net),
