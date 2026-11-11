@@ -196,7 +196,9 @@ def annual_krw_detail_models(prices,features,events,fx,macro,details,eval_identi
         train=e[(e.year<year)&(e.exit_date<cutoff)].copy()
         test=e[e.year==year].copy()
         if test.empty:continue
-        if not _eligible(train,MIN_GLOBAL,MIN_CLASSES):
+        if not _eligible(train,MIN_GLOBAL,MIN_CLASSES) or (
+            min(int(train.krw_target.sum()),
+                int((1-train.krw_target).sum()))<MIN_CLASSES):
             stats.append({"year":year,"status":"HOLD_KRW_TRAINING_INSUFFICIENT",
                           "n_train":len(train),"n_test":len(test)})
             continue
