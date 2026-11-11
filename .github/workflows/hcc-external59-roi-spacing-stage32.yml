@@ -1,0 +1,56 @@
+name: HCC External59 ROI Size and MRI Spacing Sensitivity (Stage32)
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_external59_roi_spacing_sensitivity.py"
+      - "research/hcc/HCC_EXTERNAL_OPENSWISSHCC_V2_59_INDEX_PATIENT_GLCM_NATIVE3MM_FROZEN_20261101.csv"
+      - ".github/workflows/hcc-external59-roi-spacing-stage32.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-stage32-roi-spacing
+  cancel-in-progress: false
+
+jobs:
+  independent-source-59-roi-spacing:
+    name: Patient-locked 59/59 ROI volume and MRI acquisition spacing with bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Immutable original 59 patient / 24-condition source contract
+        run: python3 research/hcc/ci/mri_external_openswisshcc_v2_59_immutable_result_guard.py
+      - name: Statistical midrank, bootstrap-percentile and constant-input offline tests
+        run: python3 research/hcc/ci/mri_external59_roi_spacing_sensitivity.py --self-test
+      - name: Original source physical ROI, in-plane area and anisotropy analysis
+        run: |
+          python3 research/hcc/ci/mri_external59_roi_spacing_sensitivity.py \
+            --out-dir artifacts/hcc_stage32_external59
+      - name: Assert original source n=59, post hoc only, 0 biological tests and all 4 associations
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("artifacts/hcc_stage32_external59/roi_spacing_59_associations.json")
+          j=json.loads(p.read_text())
+          assert j["source_patients"]==59 and j["original_6_condition_rows_not_independent"]==354
+          assert j["claim_ceiling"]=="S0" and j["MRI_RNA_tests"]==0
+          assert j["analysis_declaration"]=="POST_HOC_EXPLORATORY_AFTER_PRIMARY_59_COHORT_RESULTS"
+          assert len(j["associations"])==4
+          assert sum(r["independent_n"] for r in j["roi_physical_volume_quartiles"])==59
+          print("HCC_STAGE32_SOURCE_LOCKED_STATISTICS_CONTRACT_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage32-external59-roi-spacing-bootstrap-4k-results
+          path: artifacts/hcc_stage32_external59/*
+          if-no-files-found: warn
+          retention-days: 90

@@ -1,0 +1,135 @@
+name: HCC Stage43 Remaining 12 Original DICOM PV NIfTI Full3D Source Audit
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage43_remaining12_source_fullstack.py"
+      - ".github/workflows/hcc-stage43-remaining12-full3d-source.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hcc-stage43-original-full3d-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-source-fullstack-remaining12:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        patient:
+          - TCGA-BC-A10Y
+          - TCGA-BC-A5W4
+          - TCGA-DD-A4NF
+          - TCGA-DD-A4NH
+          - TCGA-DD-A4NJ
+          - TCGA-G3-A25T
+          - TCGA-G3-A3CJ
+          - TCGA-G3-A7M7
+          - TCGA-G3-AAV1
+          - TCGA-G3-AAV2
+          - TCGA-G3-AAV3
+          - TCGA-G3-AAV7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pinned native PV and DICOM full-resolution readers
+        run: python3 -m pip install "numpy==2.2.6" "nibabel==5.3.2" "pydicom==3.0.1"
+      - name: Run original full stack orientation numeric test and frozen remaining 12 validation
+        run: |
+          python3 research/hcc/ci/hcc_stage41_fullstack_math.py
+          python3 research/hcc/ci/mri14_stage43_remaining12_source_fullstack.py --offline-test
+      - name: Download frozen successful Stage42 all-12 case source pixel priority
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage42-12-original-MRI-DICOM-pixel-candidates-aggregate
+          run-id: 41435720562
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/stage42_frozen
+      - name: Verify Stage42 frozen source-only unique candidate review and clinical S0
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,csv
+          p=Path("artifacts/stage42_frozen")
+          j=json.loads((p/"stage42_12patient_original_source_candidate_summary.json").read_text())
+          with (p/"stage42_12patient_source_priority.csv").open() as f:
+              cases=list(csv.DictReader(f))
+          assert len(cases)==12 and len({x["patient_id"] for x in cases})==12
+          assert j["stage42_patient_shards_completed"]==12
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED" and j["MRI_RNA_biological_tests"]==0
+          assert j["overall_full3D_source_provenance_verified_n"]==2
+          print("HCC_STAGE43_FROZEN_STAGE42_TWELVE_CASE_SOURCE_ONLY_PASS")
+          PY
+      - name: Read ALL original DICOM slices of exactly one strong source candidate and compare native PV full3D pixels plus LPS/RAS coordinates
+        run: |
+          python3 research/hcc/ci/mri14_stage43_remaining12_source_fullstack.py \
+            --patient "${{ matrix.patient }}" \
+            --stage42-csv artifacts/stage42_frozen/stage42_12patient_source_priority.csv \
+            --out-dir artifacts/hcc_stage43_patient
+      - name: Validate source fullstack result and never promote MRI-RNA clinical patient status
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          p=Path("artifacts/hcc_stage43_patient/stage43_source_case_gate.json")
+          j=json.loads(p.read_text())
+          assert j["clinically_eligible"]=="NOT_ASSESSED"
+          assert j["MRI_before_HCC_treatment"]=="NOT_ASSESSED"
+          assert j["sampled_RNA_same_MRI_index_lesion"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biology_tests"]==0 and j["claim_ceiling"]=="S0"
+          if j["source_3d_stack_validated"]:
+              assert j["original_DICOM_slices_fullres_compared"]>0
+              assert j["minimum_original_DICOM_PV_fullres_Pearson"]>.9999
+              assert j["maximum_source_LPS_to_NIfTI_RAS_error_mm"]<2
+          print("HCC_STAGE43_ORIGINAL_SOURCE_FULL3D_CASE_CLAIM_GUARD_PASS",j["patient_id"])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage43-original-fullstack-${{ matrix.patient }}
+          path: artifacts/hcc_stage43_patient/*
+          retention-days: 90
+          if-no-files-found: warn
+  aggregate14-source-provenance-no-clinical-GO:
+    needs: original-source-fullstack-remaining12
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hcc-stage43-original-fullstack-*
+          path: artifacts/stage43_original_source_shards
+      - name: Integrate 12 patient full3D source results and 2 previously verified cases
+        run: |
+          python3 research/hcc/ci/mri14_stage43_remaining12_source_fullstack.py \
+            --aggregate --shard-root artifacts/stage43_original_source_shards \
+            --out-dir artifacts/hcc_stage43_original_source_aggregate
+      - name: Fail closed if clinical eligibility, source-authoritative therapy and RNA origin evidence unsupported
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("artifacts/hcc_stage43_original_source_aggregate/stage43_complete_original_DICOM_source_14patient_summary.json")
+          j=json.loads(p.read_text())
+          assert j["stage43_remaining_case_jobs"]==12 and j["stage41_earlier_source_full3d_n"]==2
+          assert j["all14_full3d_source_technical_pass_n"]==2+j["stage43_full3d_source_technical_pass_n"]
+          assert j["stage43_source_technical_HOLD_n"]+j["stage43_full3d_source_technical_pass_n"]==12
+          assert j["clinically_eligible"]=="NOT_ASSESSED" and j["MRI_RNA_biological_tests"]==0
+          assert j["claim_ceiling"]=="S0"
+          print("HCC_STAGE43_ALL14_SOURCE_3D_PROVENANCE_NO_FALSE_CLINICAL_CLAIMS_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage43-all14-original-PV-DICOM-3d-source-provenance
+          path: artifacts/hcc_stage43_original_source_aggregate/*
+          retention-days: 90
+          if-no-files-found: error

@@ -1,0 +1,132 @@
+name: HCC IBSI-1 CT Configuration A Independent Validation
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_ibsi1_ct_config_a_benchmark.py"
+      - "research/hcc/ci/mri_ibsi1_ct_a_frozen_result_qc.py"
+      - "research/hcc/HCC_IBSI1_CT_CONFIG_A_OFFICIAL_BENCHMARK_20261031.json"
+      - "research/hcc/HCC_VERIFICATION_LEDGER.csv"
+      - ".github/workflows/hcc-ibsi-ct-config-a.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: hcc-ibsi-ct-a-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-aggregation-regressions:
+    name: Official reference registry and distinct GLCM aggregations
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4"
+      - name: Validate synthetic GLCM and REVIEW-vs-PASS guards
+        run: python research/hcc/ci/mri_ibsi1_ct_config_a_benchmark.py --mode offline-test
+      - name: Independently guard frozen official 5+4 CT-A original observations and clinical claim ceiling
+        run: python research/hcc/ci/mri_ibsi1_ct_a_frozen_result_qc.py
+
+  ct-a-independent:
+    name: CT A official 2D avg and 2.5D direction-merged independent math
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6"
+      - name: Download pinned official noncommercial CT reference without redistribution
+        run: |
+          mkdir -p artifacts
+          git clone --filter=blob:none https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+          git -C artifacts/ibsi_original_repo fetch --depth=1 origin 6da96021bc91faf4c0cb7fd7fa56a4225d2064a8
+          git -C artifacts/ibsi_original_repo checkout --detach 6da96021bc91faf4c0cb7fd7fa56a4225d2064a8
+      - name: Validate original hash, HU range, ROI counts, independent five IBSI references
+        run: python research/hcc/ci/mri_ibsi1_ct_config_a_benchmark.py --mode independent --out-dir artifacts/hcc_ibsi_ct_a_independent
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-ibsi-ct-a-independent
+          path: artifacts/hcc_ibsi_ct_a_independent/
+          if-no-files-found: warn
+          retention-days: 30
+
+  ct-a-pyradiomics:
+    name: CT A PyRadiomics 3.1.0 native 2.5D comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - run: python -m pip install "numpy==1.26.4" "pyradiomics==3.1.0" "nibabel>=5.2,<6"
+      - name: Download exact pinned official CT source without redistribution
+        run: |
+          mkdir -p artifacts
+          git clone --filter=blob:none https://github.com/theibsi/data_sets.git artifacts/ibsi_original_repo
+          git -C artifacts/ibsi_original_repo fetch --depth=1 origin 6da96021bc91faf4c0cb7fd7fa56a4225d2064a8
+          git -C artifacts/ibsi_original_repo checkout --detach 6da96021bc91faf4c0cb7fd7fa56a4225d2064a8
+      - name: Extract reference-aware features with forced axial 2D, no resampling
+        run: python research/hcc/ci/mri_ibsi1_ct_config_a_benchmark.py --mode pyradiomics --out-dir artifacts/hcc_ibsi_ct_a_pyradiomics
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-ibsi-ct-a-pyradiomics
+          path: artifacts/hcc_ibsi_ct_a_pyradiomics/
+          if-no-files-found: warn
+          retention-days: 30
+
+  ct-a-integration:
+    name: Independent/PyRadiomics source-locked fail-closed scientific review
+    needs: [offline-aggregation-regressions, ct-a-independent, ct-a-pyradiomics]
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-ibsi-ct-a-independent
+          path: artifacts/hcc_ibsi_ct_a_independent
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-ibsi-ct-a-pyradiomics
+          path: artifacts/hcc_ibsi_ct_a_pyradiomics
+      - name: Cross-check distinct aggregation semantics, source, and original ROI
+        run: python research/hcc/ci/mri_ibsi1_ct_config_a_benchmark.py --mode join --out-dir artifacts/hcc_ibsi_ct_a_joint
+      - name: Show reviewer verdict, never promote HCC patient-level eligibility
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=json.loads(Path('artifacts/hcc_ibsi_ct_a_joint/ct_a.json').read_text())
+          content=['## IBSI-1 Phase II CT Configuration A', '',
+             f"- Verdict: **{d['status']}**",
+             f"- Independent IBSI references: {d['independent_reference_comparisons']}",
+             f"- PyRadiomics reference comparisons: {d['pyradiomics_reference_comparisons']}",
+             f"- Same resegmented ROI voxels: {d['same_resegmented_intensity_ROI_voxel_count']}",
+             f"- 2.5D Contrast cross-tool difference: {d['GLCM_2_5D_cross_implementation_abs_diff']}",
+             "- IBSI1 CT B-E: **NOT EXECUTED**",
+             "- IBSI2 filters: **NOT EXECUTED**",
+             "- HCC-18: **PARTIAL**; HCC-20: **PENDING**; claim ceiling: **S0**."]
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf8') as f:
+              f.write('\n'.join(content)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-ibsi-ct-a-integrated-review
+          path: artifacts/hcc_ibsi_ct_a_joint/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,81 @@
+name: HCC External OpenSwissHCC v2 One HCC Venous Image Mask Radiomics Pilot
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_external_openswisshcc_v2_image_mask_pilot.py"
+      - ".github/workflows/hcc-openswisshcc-v2-one-venous-image-pilot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-swiss-external-one-image-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic:
+    name: Lock independent image versus mask phase and one-subject S0 contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+      - run: python research/hcc/ci/mri_external_openswisshcc_v2_image_mask_pilot.py --offline-test
+
+  actual-paired-source:
+    name: Fetch only 2 remote NIfTI ZIP members and run 6 original HCC radiomics settings
+    needs: synthetic
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Install source-locked PyRadiomics 3.1.0 and imaging readers
+        run: |
+          python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6" requests
+          python -m pip install --only-binary=pyradiomics "pyradiomics==3.1.0"
+      - name: Read one HCC venous source image and exact expert mask without entire 5GB download
+        run: |
+          python research/hcc/ci/mri_external_openswisshcc_v2_image_mask_pilot.py \
+            --out-dir artifacts/hcc_openswiss_original_venous
+      - name: Confirm single-case original source feasibility NOT external replication and 0/12 biology
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          from pathlib import Path
+          p=Path("artifacts/hcc_openswiss_original_venous")
+          j=json.loads((p/"openswiss_v2_single_subject_venous_pilot_summary.json").read_text())
+          with (p/"openswiss_v2_one_HCC_subject_venous_2x3_feature_pilot.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          assert len(rows)==6 and len({(r["grid"],r["binWidth"]) for r in rows})==6
+          assert j["n_independent_source_subjects"]==1
+          assert j["n_raw_source_MRI_archives_entirely_downloaded"]==0
+          assert j["n_expert_mask_image_geometries_verified"]==1
+          assert j["clinical_qualified_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_12_tests"]=="NOT_EXECUTED"
+          assert j["claim_ceiling"]=="S0" and not j["external_replication_confirmed"]
+          assert all(r["source_qualified_external_replication"]=="NO_SINGLE_CASE_PILOT" for r in rows)
+          lines=["## OpenSwissHCC v2 — original HCC lesion + venous MRI feasibility pilot","",
+              "- Original Swiss v2 case sub-003 / HCC lesion L1, one source venous image and one expert mask.",
+              "- Source compressed NIfTI members fetched by bounded HTTP ZIP ranges; no 5GB imaging ZIP downloaded.",
+              f"- Original image and mask SHA256 recorded; NIfTI native image-mask geometry verified; fixed ROI voxels **{rows[0]['expert_mask_nonzero_voxels']}**.",
+              f"- Six PyRadiomics settings on one source only; 3mm/bw25 GLCM contrast signed change vs native/bw25: **{j['glcm_contrast_signed_pct_3mm25_vs_native25']}%**.",
+              "- Technical feasibility only; n=1 cannot establish replication of the 14-patient LiverHccSeg results.",
+              "- No MRI-RNA or clinical approval, claim ceiling S0."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:f.write("\n".join(lines)+"\n")
+          print("HCC_OPENSWISSHCC_V2_ONE_EXACT_IMAGE_MASK_PILOT_BOUNDED_RANGE_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-openswiss-v2-one-subject-original-venous-2x3-pyradiomics-pilot
+          path: artifacts/hcc_openswiss_original_venous/*
+          retention-days: 90
+          if-no-files-found: warn
