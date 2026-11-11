@@ -84,9 +84,9 @@ def correlation_groups(daily,threshold=CORR_THRESHOLD):
     if not 0<threshold<1:raise ValueError("invalid correlation threshold")
     if len(daily)<100:raise ValueError("insufficient daily observations")
     corr=daily[list(FEATURES)].corr().abs().fillna(0)
-    distance=(1-corr).clip(0,1)
-    np.fill_diagonal(distance.values,0)
-    hier=linkage(squareform(distance.values,checks=False),method="average")
+    distance=(1-corr).clip(0,1).to_numpy(copy=True)
+    np.fill_diagonal(distance,0)
+    hier=linkage(squareform(distance,checks=False),method="average")
     assignment=fcluster(hier,t=1-threshold,criterion="distance")
     groups=[[name for name,k in zip(FEATURES,assignment) if k==cluster]
             for cluster in sorted(set(assignment))]
