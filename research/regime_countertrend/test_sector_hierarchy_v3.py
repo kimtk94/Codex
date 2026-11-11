@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import pandas as pd
 from research.regime_countertrend.sector_price_sources_v3 import (
-    manifest_load,parse_chart
+    manifest_load,parse_chart,apply_ticker_trade_eligibility
 )
 from research.regime_countertrend.sector_hierarchy_v3 import (
     make_pair,stock_proxy,stock_correlation_report,run_hierarchy
@@ -27,6 +27,15 @@ class SectorHierarchyTests(unittest.TestCase):
         self.assertEqual(set(software),{"MSFT","PLTR","ORCL","CRM"})
         self.assertEqual(sum(a["asset_class"]=="ETF" for a in self.manifest["universe"]),10)
         self.assertEqual(sum(a["asset_class"]=="CRYPTO" for a in self.manifest["universe"]),4)
+    def test_ionq_spac_predecessor_excluded(self):
+        ionq=next(a for a in self.manifest["universe"] if a["symbol"]=="IONQ")
+        self.assertEqual(ionq["equity_ticker_first_trade"],"2021-10-01")
+        dates=pd.bdate_range("2021-01-04",periods=380).strftime("%Y-%m-%d")
+        data=pd.DataFrame({"date":dates,"close":[10.]*len(dates)})
+        valid,removed=apply_ticker_trade_eligibility(data,ionq)
+        self.assertGreater(removed,50)
+        self.assertTrue((valid.date>="2021-10-01").all())
+        self.assertFalse((valid.date<"2021-10-01").any())
     def test_adj_close_ohlc_basis(self):
         periods=pd.bdate_range("2023-01-01",periods=140)
         raw={"chart":{"result":[
