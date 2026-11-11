@@ -56,6 +56,28 @@ jobs:
           python -m research.regime_countertrend.stock_relative --data-dir research/regime_countertrend/data/stock_history --out results/regime_countertrend/cross_symbol
       - name: Group highly correlated columns into CFM-V2 factors and score walk-forward
         run: python -m research.regime_countertrend.correlated_factor_model --out results/regime_countertrend/cfm_v2
+      - name: Audit full 20 of 20 grouped factor inputs
+        run: python -m research.regime_countertrend.feature_coverage_v3 --out results/regime_countertrend/cfm_v3_coverage
+      - name: Collect previously agreed 14 stocks and 10 ETFs (public price only)
+        run: python -m research.regime_countertrend.sector_price_sources_v3 --out results/regime_countertrend/universe_v3_prices
+      - name: Evaluate market industry and individual stock hierarchy
+        shell: bash
+        run: |
+          if [ -f results/regime_countertrend/universe_v3_prices/QQQ.csv ]; then
+            python -m research.regime_countertrend.sector_hierarchy_v3 --out results/regime_countertrend/sector_v3
+          else
+            mkdir -p results/regime_countertrend/sector_v3
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          Path('results/regime_countertrend/sector_v3/status.json').write_text(json.dumps({
+              "status":"HOLD_NO_VERIFIED_QQQ_BENCHMARK",
+              "promotion_allowed":False,
+              "note":"No benchmark prices were collected; refer to per-symbol source_inventory.json."
+          },indent=2))
+          print("HOLD_NO_VERIFIED_QQQ_BENCHMARK")
+          PY
+          fi
       - name: Public QLD QQQ temporal validation after 2026-09-04 (fail closed)
         run: python -m research.regime_countertrend.fresh_oos --out results/regime_countertrend/fresh_oos
       - name: Explain fresh signals by locked regime conditions
