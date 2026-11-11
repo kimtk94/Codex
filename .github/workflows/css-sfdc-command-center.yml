@@ -56,6 +56,8 @@ on:
       - 'masteros/web/scripts/test_sfdc_single_service_cloud.py'
       - 'masteros/web/scripts/test_sfdc_record_catalog.py'
       - 'masteros/web/scripts/test_sfdc_quote_modal_pack.py'
+      - 'masteros/web/scripts/sfdc_quote_edit_probe.py'
+      - 'masteros/web/scripts/test_sfdc_quote_edit_probe.py'
       - 'masteros/web/lib/sfdc-record-picker.mjs'
       - 'masteros/web/app/api/sfdc/records-local/**'
       - 'masteros/web/tests/sfdc-record-picker.test.mjs'
@@ -128,6 +130,8 @@ on:
       - 'masteros/web/scripts/test_sfdc_single_service_cloud.py'
       - 'masteros/web/scripts/test_sfdc_record_catalog.py'
       - 'masteros/web/scripts/test_sfdc_quote_modal_pack.py'
+      - 'masteros/web/scripts/sfdc_quote_edit_probe.py'
+      - 'masteros/web/scripts/test_sfdc_quote_edit_probe.py'
       - 'masteros/web/lib/sfdc-record-picker.mjs'
       - 'masteros/web/app/api/sfdc/records-local/**'
       - 'masteros/web/tests/sfdc-record-picker.test.mjs'
@@ -182,6 +186,7 @@ jobs:
           python3 -m unittest discover -s scripts -p test_sfdc_pair_readback.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_pair_web_preview.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_pair_commit_readiness.py -v
+          python3 -m unittest discover -s scripts -p test_sfdc_quote_edit_probe.py -v
           python3 -m py_compile scripts/sfdc_product_line_registry.py scripts/sfdc_pair_cache.py
           python3 -m unittest discover -s scripts -p test_sfdc_pair_cache.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_quote_report_sheet.py -v
