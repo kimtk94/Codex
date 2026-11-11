@@ -19,8 +19,9 @@ MONTHLY_LIST_NAME = "월별 Revenue 금액 리스트 · M KRW (VAT 제외)"
 MONTHLY_LIST_CONFIG = {
     "table_name": "Monthly Tax Invoice",
     "group_by": [{"field_name": "Month", "mode": "integrated",
-                  "sort": {"type": "group", "order": "desc"}}],
+                  "sort": {"type": "value", "order": "desc"}}],
     "series": [{"field_name": "Net Revenue M KRW", "rollup": "SUM"}],
+    "limit_size": 24,
 }
 
 CHARTS = (
