@@ -1098,6 +1098,10 @@ def main():
         projects=project_rows(sources)
         output={"Project SIF Monitor":projects,
                 "Project Progress Board":prepare_project_board(sources,projects)}
+    elif scope=="quote":
+        # The 17:00 Salesforce Quote report is independent of Revenue.
+        # Never call monthly_rows/Revenue canonical authority in Quote-only mode.
+        output={"Weekly Quote KPI":weekly_rows(sources)}
     else:
         output=prepare_data(sources)
     print("METRIC_SCOPE="+scope+" source_integrity=VERIFIED",flush=True)
