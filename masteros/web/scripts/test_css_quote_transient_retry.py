@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 from sfdc_record_catalog import (
-    quote_price_breakdown_with_retry, retryable_modal_price_read_error
+    quote_price_breakdown, quote_price_breakdown_with_retry, retryable_modal_price_read_error
 )
 
 class QuoteLiveRetryTests(unittest.TestCase):
@@ -24,6 +24,43 @@ class QuoteLiveRetryTests(unittest.TestCase):
                         quote_price_breakdown_with_retry(page,"a0P000000000000AAA",12,5,1955000)
                 reader.assert_called_once()
                 page.wait_for_timeout.assert_not_called()
+    def test_disabled_source_add_edit_never_clicked_or_retried(self):
+        page=Mock()
+        tab=Mock(); edit=Mock()
+        def control(role,**kwargs):
+            if role=="tab":return tab
+            if role=="button":return edit
+            raise AssertionError("UNKNOWN_ROLE")
+        page.get_by_role.side_effect=control
+        edit.count.return_value=1
+        edit.is_enabled.return_value=False
+        with self.assertRaisesRegex(ValueError,"SOURCE_ADD_EDIT_DISABLED"):
+            quote_price_breakdown(page,"a0P000000000000AAA",8,6,100000)
+        tab.wait_for.assert_called_once_with(state="visible",timeout=13000)
+        edit.first.wait_for.assert_called_once_with(state="visible",timeout=14000)
+        edit.click.assert_not_called()
+        self.assertEqual(page.goto.call_count,2)  # navigate back; discard
+        self.assertEqual(page.wait_for_timeout.call_count,10)
+        with patch("sfdc_record_catalog.quote_price_breakdown",
+                   side_effect=ValueError("SOURCE_ADD_EDIT_DISABLED")) as reader:
+            with self.assertRaisesRegex(ValueError,"SOURCE_ADD_EDIT_DISABLED"):
+                quote_price_breakdown_with_retry(page,"a0P000000000000AAA",8,6,100000)
+            reader.assert_called_once()
+        self.assertFalse(retryable_modal_price_read_error(ValueError("SOURCE_ADD_EDIT_DISABLED")))
+
+    def test_enabled_source_button_still_requires_real_modal(self):
+        page=Mock()
+        tab=Mock(); edit=Mock(); dialog=Mock()
+        page.get_by_role.side_effect=lambda role,**kwargs: (
+            tab if role=="tab" else edit if role=="button" else dialog)
+        edit.count.return_value=1
+        edit.is_enabled.return_value=True
+        dialog.last.locator.return_value.filter.return_value.first.wait_for.side_effect=ValueError("SOURCE_PROCESS_MATRIX_NOT_LOADED")
+        with self.assertRaisesRegex(ValueError,"SOURCE_PROCESS_MATRIX_NOT_LOADED"):
+            quote_price_breakdown(page,"a0P000000000000AAA",8,6,100000)
+        edit.click.assert_called_once_with(timeout=9500)
+        self.assertEqual(page.goto.call_count,2)
+
     def test_repeated_timeouts_hold(self):
         page=Mock()
         with patch("sfdc_record_catalog.quote_price_breakdown",
