@@ -1,0 +1,53 @@
+{
+  "analysis_date": "2026-11-11",
+  "status": "HOLD_CROSS_RUN_INTRADAY_OHLC_REVISION",
+  "provenance": "TWO_SEPARATELY_FETCHED_GITHUB_ACTIONS_PRICE_ARTIFACTS",
+  "run_A": {
+    "id": 43002769959,
+    "artifact_id": 13846572524
+  },
+  "run_B": {
+    "id": 43002991697,
+    "artifact_id": 13846403471
+  },
+  "date_window": "2026-09-15/2026-11-10",
+  "matching_timestamp_count_each_symbol": 1066,
+  "same_run_repeatability": "Two back-to-back fetches within each run had exactly matching OHLC.",
+  "across_run": {
+    "QLD": {
+      "ohlc_bars_changed_gt_1bp": 40,
+      "ohlc_bars_changed_gt_10bp": 5,
+      "max_ohlc_diff_bps": 25.4055,
+      "open_unequal": 46,
+      "high_unequal": 0,
+      "low_unequal": 0,
+      "close_unequal": 0,
+      "volume_unequal": 126,
+      "max_diff_bar_utc": "2026-10-19T14:45:00+00:00",
+      "reference_ohlc_sha": "afa0a26becfd99251b3fba82895ad475b8c5ff9fc92207670d39310356123306",
+      "alternate_ohlc_sha": "0446fb3a25228044bd371a6ac342cd05dc843171075a087fc5397b2d3fbc7424"
+    },
+    "QQQ": {
+      "ohlc_bars_changed_gt_1bp": 69,
+      "ohlc_bars_changed_gt_10bp": 4,
+      "max_ohlc_diff_bps": 28.1096,
+      "open_unequal": 171,
+      "high_unequal": 1,
+      "low_unequal": 3,
+      "close_unequal": 23,
+      "volume_unequal": 389,
+      "max_diff_bar_utc": "2026-11-05T14:30:00+00:00",
+      "reference_ohlc_sha": "350935c4d724b18afd7e16a94ef2e250c8de6e954fff8a5e639ec9",
+      "alternate_ohlc_sha": "cf57033a228efa6b0b0cd2e1bd102d993a65d8d1fc703db850967b448c724561"
+    }
+  },
+  "warning": "Normalized OHLC SHA includes all 1067 fetched bars, while cross-run OHLC comparison above is 1066 RTH bars only. RTH OHLC drift is independently confirmed in row-level join.",
+  "valid_inference": "Public 15m data changes between independently fetched snapshots despite complete 41-session grids.",
+  "invalid_inference": "Cannot assign this to one broker or to true realized slippage; official exchange open vs public-provider bar open may use different conventions.",
+  "restrictions": [
+    "No live strategy promotion",
+    "No broker price or fill claims",
+    "Do not tune thresholds on the new zero-signal interval",
+    "Reject any 15m replay without pinned and cross-provider verified source"
+  ]
+}
