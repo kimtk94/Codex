@@ -8,7 +8,7 @@ def sample(pos=None):
     return {"items":[{"name":name,"type":"combo" if i==0 else "text",
                       "block_id":"cht"+str(i)+"98765",
                       "position":(pos or s.POSITIONS)[name]}
-                     for i,name in enumerate(s.ORDER)]
+                     for i,name in enumerate(s.ORDER)]}
 
 class TestWeeklyQuoteLayout(unittest.TestCase):
     def test_graph_then_table_then_notes_full_width(self):
