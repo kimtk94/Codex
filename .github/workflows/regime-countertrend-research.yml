@@ -82,6 +82,8 @@ jobs:
         run: python -m research.regime_countertrend.sector_ablation_v3 --out results/regime_countertrend/sector_v3/ablation
       - name: Discover time-pure residual peers and ETF macro regime PCA V4
         run: python -m research.regime_countertrend.peer_macro_v4 --out results/regime_countertrend/peer_macro_v4
+      - name: Stress ETF macro and separate peer vs symbol overlays (SHADOW only)
+        run: python -m research.regime_countertrend.peer_macro_stress_v4 --out results/regime_countertrend/peer_macro_v4/stress
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
