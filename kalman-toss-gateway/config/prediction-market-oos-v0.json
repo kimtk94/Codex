@@ -1,0 +1,34 @@
+{
+  "version": "prediction-market-oos-v0.1.0",
+  "hypothesis_id": "PMOOS-INFLATION-UP-QQQ-7B-V1",
+  "frozen_at_utc": "2026-10-07T12:55:00Z",
+  "discovery": {
+    "source_release": "data-2026-09-13",
+    "source_sha256": "13c76e8868589a46a60cd1b6eda80c2094fc36b32f51fc6435fa4ba9c6fb8086",
+    "data_end_utc": "2026-09-13T11:50:00Z",
+    "discovery_mean_signed_return": 0.004093
+  },
+  "hypothesis": {
+    "shock_threshold": 0.15,
+    "dominant_channel": "INFLATION_UPSIDE",
+    "symbol": "QQQ",
+    "horizon_bars": 7,
+    "expected_direction": "DOWNSIDE",
+    "max_entry_lag_minutes": 90
+  },
+  "confirmatory_gate": {
+    "n_min": 20,
+    "unique_dates_min": 8,
+    "hit_rate_min": 0.55,
+    "positive_date_rate_min": 0.60,
+    "mean_signed_return_gt": 0.0,
+    "cluster_bootstrap_ci_low_gt": 0.0,
+    "cluster_signflip_p_max": 0.10
+  },
+  "safety": {
+    "research_only": true,
+    "auto_promote": false,
+    "r51_mutation_allowed": false,
+    "trade_execution_allowed": false
+  }
+}

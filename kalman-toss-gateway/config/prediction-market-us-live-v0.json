@@ -1,0 +1,64 @@
+{
+  "version": "prediction-market-us-live-v0.1.0",
+  "source": {
+    "provider": "Polymarket US",
+    "gateway_base": "https://gateway.polymarket.us",
+    "search_queries": [
+      "cpi",
+      "inflation",
+      "pce"
+    ],
+    "category": "macro",
+    "request_spacing_seconds": 0.25,
+    "timeout_seconds": 30
+  },
+  "collection": {
+    "only_themes": [
+      "INFLATION"
+    ],
+    "only_channels": [
+      "INFLATION_UPSIDE",
+      "INFLATION_DOWNSIDE"
+    ],
+    "require_two_sided_book": true,
+    "canonical_bucket_minutes": 10,
+    "gap_segment_minutes": 30
+  },
+  "paths": {
+    "root": "/home/taehoon/kalman-data/prediction-market/us-live-v0",
+    "sqlite": "/home/taehoon/kalman-data/prediction-market/us-live-v0/raw_snapshots.sqlite3",
+    "canonical": "/home/taehoon/kalman-data/prediction-market/us-live-v0/prediction_us_live_v0.parquet",
+    "status": "/home/taehoon/kalman-data/prediction-market/us-live-v0/status.json",
+    "oos_dir": "/home/taehoon/kalman-data/prediction-market/us-live-v0/oos",
+    "event_ledger_sqlite": "/home/taehoon/kalman-data/prediction-market/us-live-v0/oos_event_ledger.sqlite3",
+    "event_ledger_parquet": "/home/taehoon/kalman-data/prediction-market/us-live-v0/oos_event_ledger.parquet"
+  },
+  "oos": {
+    "enabled": true,
+    "spec": "/home/taehoon/Codex-PREDICTION-MARKET-20261007/kalman-toss-gateway/config/prediction-market-oos-v0.json",
+    "asset": "/home/taehoon/kalman-data/market/1h/QQQ_1h_2017plus.parquet",
+    "bootstrap_iterations": 2000
+  },
+  "safety": {
+    "read_only": true,
+    "public_api_only": true,
+    "allow_auth": false,
+    "allow_order_submission": false,
+    "allow_geo_bypass": false,
+    "research_only": true,
+    "auto_promote": false,
+    "r51_mutation_allowed": false,
+    "trade_execution_allowed": false
+  },
+  "health_gate": {
+    "enabled": true,
+    "min_discovered_markets": 8,
+    "min_stored_to_discovered_ratio": 0.9,
+    "max_request_failure_rate": 0.05,
+    "max_midpoint_vs_current_abs": 0.02,
+    "recent_baseline_cycles": 10,
+    "recent_baseline_min_cycles": 5,
+    "min_stored_vs_recent_median_ratio": 0.75,
+    "fail_closed": true
+  }
+}
