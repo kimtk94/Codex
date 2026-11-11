@@ -86,7 +86,7 @@ test("Description is concise, dated, reference-based, and does not copy old Prog
   draft.products[0].sampleUnitKrw="150000";
   draft.name="Korea-Example-mRNA";
   const description=draftDescription(draft);
-  assert.match(description,/^1110 Quote Draft /);
+  assert.match(description,new RegExp("^"+baseline.date.slice(5,7)+baseline.date.slice(8,10)+" Quote Draft "));
   assert.match(description,/6Gb/);
   assert.match(description,/5 samples/);
   assert.match(description,/150,000KRW/);
