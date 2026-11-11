@@ -1,0 +1,18 @@
+name: Sales Dashboard Adapter Tests
+on:
+  pull_request:
+    paths:
+      - 'dashboard-prototypes/sales-command/**'
+      - '.github/workflows/sales-dashboard-adapter-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  adapter-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run isolated unit tests (no credentials required)
+        run: python3 -m unittest discover -s dashboard-prototypes/sales-command -p "test_*.py" -v
+      - name: Compile adapter
+        run: python3 -m py_compile dashboard-prototypes/sales-command/aggregate_adapter.py
