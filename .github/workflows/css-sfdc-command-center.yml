@@ -49,6 +49,7 @@ on:
       - 'masteros/web/app/sales/commands/pair/ReportOppoDraft.jsx'
       - 'masteros/web/tests/sfdc-pair-workspace.test.mjs'
       - 'masteros/web/tests/sfdc-pair-commit-readiness.test.mjs'
+      - 'masteros/web/tests/sfdc-quote-edit-probe.test.mjs'
       - 'masteros/web/app/api/sfdc/pair-check-local/**'
       - 'masteros/web/app/sales/commands/pair/**'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
@@ -123,6 +124,7 @@ on:
       - 'masteros/web/app/sales/commands/pair/ReportOppoDraft.jsx'
       - 'masteros/web/tests/sfdc-pair-workspace.test.mjs'
       - 'masteros/web/tests/sfdc-pair-commit-readiness.test.mjs'
+      - 'masteros/web/tests/sfdc-quote-edit-probe.test.mjs'
       - 'masteros/web/app/api/sfdc/pair-check-local/**'
       - 'masteros/web/app/sales/commands/pair/**'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
@@ -211,7 +213,7 @@ jobs:
       - name: Validate linked Quote price and Cloud quantity projection
         run: node --test tests/sfdc-paired-clone.test.mjs
       - name: Validate combined Opportunity Quote web pricing and readback
-        run: node --test tests/sfdc-pair-workspace.test.mjs tests/sfdc-pair-commit-readiness.test.mjs
+        run: node --test tests/sfdc-pair-workspace.test.mjs tests/sfdc-pair-commit-readiness.test.mjs tests/sfdc-quote-edit-probe.test.mjs
       - name: Validate private cache endpoint scope and save rejection
         run: node --test tests/sfdc-pair-cache-route.test.mjs
       - name: Test fast Quote Report indexing endpoint and no Salesforce write paths
