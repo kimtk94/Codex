@@ -21,6 +21,7 @@ DECISIONS = "Unanswered Reply Decisions"
 RULES = "Unanswered Reply Routing Rules"
 AUDIT = "Unanswered Reply Audit"
 LEADS = "Lead Sent Dates"
+LEAD_RAW = "SFDC Email Leads Raw"
 KST = dt.timezone(dt.timedelta(hours=9))
 UTC = dt.timezone.utc
 MAIL_DECISION_HEAD = ["Active (Edit)","Decision","Canonical Ingest Key",
@@ -112,7 +113,27 @@ def parsed_time(value):
         return None
 
 
-def snapshot(queue, dec, rules, audit, leads, owner, now=None):
+def raw_lead_descriptions(raw,leads):
+    """Join the original Salesforce Report by exact SFDC Lead ID.
+    Absent rows are not silently classified as empty descriptions.
+    """
+    if not raw or len(raw[0])!=23 or raw[0][12]!="Description" or raw[0][22]!="SFDC Lead ID":
+        raise ValueError("LEAD_RAW_DESCRIPTION_SCHEMA")
+    index={}
+    for row in raw[1:]:
+        key=cell(row,22)
+        if not key:continue
+        if key in index:raise ValueError("LEAD_RAW_DUPLICATE_ID")
+        index[key]=cell(row,12).strip()
+    ids={cell(row,0) for row in leads[1:] if cell(row,0)}
+    if ids!=set(index):
+        raise ValueError("LEAD_DESCRIPTION_ID_PARITY")
+    if any(len(v)>5000 for v in index.values()):
+        raise ValueError("LEAD_DESCRIPTION_TOO_LONG")
+    return index
+
+
+def snapshot(queue, dec, rules, audit, leads, owner, now=None, raw_descriptions=None):
     expected_headers(queue,dec,rules,leads)
     now=now or dt.datetime.now(UTC)
     excluded=active_decisions(dec)
@@ -146,6 +167,7 @@ def snapshot(queue, dec, rules, audit, leads, owner, now=None):
     leads_by_id=set()
     lead_list=[]
     status_counts={}
+    description_counts={"HAS_DESCRIPTION":0,"NO_DESCRIPTION":0,"UNKNOWN":0}
     for row in leads[1:]:
         key=cell(row,0)
         if not key:
@@ -155,6 +177,10 @@ def snapshot(queue, dec, rules, audit, leads, owner, now=None):
         leads_by_id.add(key)
         state=cell(row,7)
         status_counts[state]=status_counts.get(state,0)+1
+        description=raw_descriptions.get(key) if raw_descriptions is not None else None
+        description_state=("UNKNOWN" if description is None else
+            "HAS_DESCRIPTION" if description else "NO_DESCRIPTION")
+        description_counts[description_state]+=1
         lead_list.append({
             "id":key,"institution":cell(row,1),"name":cell(row,2),
             "email":cell(row,3),"created":cell(row,4),"leadStatus":cell(row,5),
@@ -163,6 +189,8 @@ def snapshot(queue, dec, rules, audit, leads, owner, now=None):
             "everCount":cell(row,11),"firstEver":cell(row,12),
             "lastEver":cell(row,13),"toCount":cell(row,14),
             "ccCount":cell(row,15),"recommendation":cell(row,19),
+            "descriptionStatus":description_state,
+            "description":description if description is not None else "",
         })
     metrics={cell(row,0):cell(row,1) for row in audit[1:] if cell(row,0)}
     check=parsed_time(metrics.get("Snapshot UTC"))
@@ -183,6 +211,7 @@ def snapshot(queue, dec, rules, audit, leads, owner, now=None):
         "skippedMails":[{"key":cell(r,2),"uid":cell(r,3),"sender":cell(r,4),
                           "subject":cell(r,5)} for r in dec[1:] if cell(r,0).upper() in ("TRUE","YES","1") and cell(r,1)=="SKIP_MAIL"],
         "leadCount":len(lead_list),"leadStates":status_counts,
+        "leadDescriptionStates":description_counts,
         "mail":visible,"leads":lead_list,
     }
 
@@ -380,7 +409,10 @@ def main():
     owner=owner_email()
     session=sheet_session()
     if body["mode"]=="snapshot":
-        data=snapshot(*load(session),owner)
+        data=snapshot(*load(session),owner,
+            raw_descriptions=raw_lead_descriptions(
+                fetch(session,SFDC,LEAD_RAW,"A1:W1600"),
+                fetch(session,SFDC,LEADS,"A1:U1600")) )
         print(json.dumps(data,ensure_ascii=False,separators=(",",":")))
     elif body["mode"]=="body":
         result=read_mail_body(session,body["key"],body["uid"])
