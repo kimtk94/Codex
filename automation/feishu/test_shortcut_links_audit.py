@@ -45,7 +45,7 @@ class LinkAuditTests(unittest.TestCase):
         monthly=BASE_URL+"?table=tblMonthlyTaxInvoice1234"
         rows=records()
         row=next(x["fields"] for x in rows if x["fields"]["Menu Key"]=="MONTHLY_TREND")
-        row["바로 편집"]={"text":"월별 Revenue 상세 리스트 보기","link":monthly}
+        row["바로 편집"]={"text":"Invoice 원장 검토 · 매출 확정 아님","link":monthly}
         self.assertEqual(a.verify_persisted_shortcuts(rows,LINKS,monthly_target=monthly),LINKS)
         row["바로 편집"]["link"]=BASE_URL+"?table=tblWrong"
         with self.assertRaisesRegex(a.SafeError,"MONTHLY_REVENUE_LIST_LINK_MISMATCH"):

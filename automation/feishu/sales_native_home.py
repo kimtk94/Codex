@@ -219,6 +219,17 @@ def monthly_revenue_grid_url(token,root,tables):
         return ""
     return BASE_URL+"?table="+urllib.parse.quote(tid,safe="")
 
+def invoice_review_ledger_url(token,root,tables):
+    """A genuine invoice-level review grid, not confirmed Revenue."""
+    tid=tables.get("X Invoice Ledger")
+    if not tid or not re.fullmatch(r"tbl[A-Za-z0-9]{6,}",tid):
+        return ""
+    sample=api("GET",target_path(root,tid)+"/records?page_size=1",
+               token,action="portal_invoice_ledger_available")
+    if not sample.get("items"):
+        return ""
+    return BASE_URL+"?table="+urllib.parse.quote(tid,safe="")
+
 def weekly_editable_grid_url(token,root,tables):
     """Use the existing editable source view, never the read-only dashboard widget."""
     tid=tables.get("Weekly Quote Review")
@@ -280,11 +291,14 @@ def source_rows(token,root,tables,now):
             valid_menu_url(item["Menu Key"],url)
         ) else None
         if item["Menu Key"]=="MONTHLY_TREND":
-            link=monthly_revenue_grid_url(token,root,tables)
+            # Monthly Tax Invoice has only monthly totals. The existing
+            # X Invoice Ledger lists individual records but does not prove
+            # Revenue-recognition coverage; label it as review-only.
+            link=invoice_review_ledger_url(token,root,tables)
             if link:
-                item["바로 편집"]={"text":"월별 Revenue 상세 리스트 보기","link":link}
+                item["바로 편집"]={"text":"Invoice 원장 검토 · 매출 확정 아님","link":link}
             elif os.environ.get("FEISHU_PORTAL_MODE")=="apply":
-                raise SafeError("MONTHLY_REVENUE_GRID_NOT_AVAILABLE")
+                raise SafeError("INVOICE_REVIEW_GRID_NOT_AVAILABLE")
         if item["Menu Key"]=="WEEKLY_TREND":
             link=weekly_editable_grid_url(token,root,tables)
             if link:

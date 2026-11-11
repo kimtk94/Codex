@@ -75,7 +75,7 @@ class SortTests(unittest.TestCase):
                     {"text":"✎ Weekly Quote 편집 · 합산 제외",
                      "link":"https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblReview1234&view=vewRecent5"}
                      if key=="WEEKLY_TREND" else
-                    {"text":"월별 Revenue 상세 리스트 보기",
+                    {"text":"Invoice 원장 검토 · 매출 확정 아님",
                      "link":"https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblMonthly123"}
                      if key=="MONTHLY_TREND" else None),
                 "바로가기 URL":(

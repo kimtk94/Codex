@@ -14,7 +14,7 @@ from sales_native_home import (
     EXPECTED_BASE, BASE_URL, HOME, SHORTCUT_KEYS, MENUS,
     CHART_SHORTCUT_ENV, GRAPH_LINK_LABELS, PROJECT_OPS_DASHBOARD_ID,
     EXTERNAL_SHORTCUT_KEYS, table_map, list_views, target_path, valid_menu_url,
-    hyperlink, weekly_editable_grid_url, monthly_revenue_grid_url,
+    hyperlink, weekly_editable_grid_url, invoice_review_ledger_url,
 )
 from shortcut_chart_dashboards import (
     CHARTS, expected_components, verify_components,
@@ -118,7 +118,7 @@ def verify_persisted_shortcuts(records,targets,editor_target=None,monthly_target
         if not monthly_target or "MONTHLY_TREND" not in indexed:
             raise SafeError("MONTHLY_REVENUE_LIST_NOT_VERIFIED")
         link=hyperlink(indexed["MONTHLY_TREND"].get("바로 편집"))
-        if link!=("월별 Revenue 상세 리스트 보기",monthly_target):
+        if link!=("Invoice 원장 검토 · 매출 확정 아님",monthly_target):
             raise SafeError("MONTHLY_REVENUE_LIST_LINK_MISMATCH")
         print("MONTHLY_REVENUE_LIST_LINK_VERIFIED "+monthly_target,flush=True)
     if editor_target is not None:
@@ -144,8 +144,8 @@ def main():
     edit_target=weekly_editable_grid_url(token,root,tables)
     if not edit_target:
         raise SafeError("WEEKLY_EDITOR_VIEW_MISSING")
-    monthly=monthly_revenue_grid_url(token,root,tables)
-    if not monthly:raise SafeError("MONTHLY_REVENUE_SOURCE_TABLE_MISSING")
+    monthly=invoice_review_ledger_url(token,root,tables)
+    if not monthly:raise SafeError("INVOICE_REVIEW_SOURCE_TABLE_MISSING")
     verified=verify_persisted_shortcuts(records,targets,edit_target,monthly)
     for key,(url,kind) in verified.items():
         print("SHORTCUT_LINK_VERIFIED "+key+" "+kind+" "+url,flush=True)

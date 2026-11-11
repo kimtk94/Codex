@@ -285,7 +285,7 @@ def verify_view_rows(token, table_path, view_id):
             if isinstance(edit_link,list) and len(edit_link)==1:
                 edit_link=edit_link[0]
             if (not isinstance(edit_link,dict)
-                    or edit_link.get("text")!="월별 Revenue 상세 리스트 보기"
+                    or edit_link.get("text")!="Invoice 원장 검토 · 매출 확정 아님"
                     or not isinstance(edit_link.get("link"),str)
                     or "?table=tbl" not in edit_link["link"]
                     or "&view=" in edit_link["link"]):
