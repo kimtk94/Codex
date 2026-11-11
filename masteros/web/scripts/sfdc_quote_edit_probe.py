@@ -81,12 +81,24 @@ def probe_source_edit_controls(page, quote_id, expected_pack, samples, gb):
     evidence=None
     page.goto(url,wait_until="domcontentloaded",timeout=28000)
     try:
-        page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=8500)
-        button=page.get_by_text("Add/Edit",exact=True)
-        if button.count()!=1:raise ValueError("SOURCE_ADD_EDIT_AMBIGUOUS")
-        button.click(timeout=8000)
-        dialog=page.get_by_role("dialog").last
-        dialog.wait_for(state="visible",timeout=19000)
+        from playwright.sync_api import TimeoutError as PwTimeout
+        for attempt in range(3):
+            page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=12000)
+            page.wait_for_timeout(900)
+            button=page.get_by_text("Add/Edit",exact=True)
+            if button.count()!=1:
+                raise ValueError("SOURCE_ADD_EDIT_AMBIGUOUS")
+            try:
+                button.click(timeout=12500)
+                dialog=page.get_by_role("dialog").last
+                dialog.wait_for(state="visible",timeout=15000)
+                break
+            except PwTimeout:
+                if attempt==2:
+                    raise ValueError("SOURCE_EDIT_MODAL_OPEN_TIMEOUT")
+                # Salesforce sometimes rerenders the button over a modal/backdrop.
+                # Safe retry is navigation/reload only, never a Save/Pack click.
+                page.goto(url,wait_until="domcontentloaded",timeout=28000)
         table=dialog.locator("table").filter(has_text="Pack No.").filter(has_text="Unit Price")
         table.first.wait_for(state="visible",timeout=18000)
         for _ in range(50):
