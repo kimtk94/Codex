@@ -7,6 +7,8 @@ import {recordToDraft,recordSelectionSummary} from "../../../lib/sfdc-record-pic
 import {buildPairDraft,derivePairPrice} from "../../../lib/sfdc-paired-clone.mjs";
 import {matchingIdentity} from "../../../lib/sfdc-identity-picker.mjs";
 import IdentityPicker from "./IdentityPicker";
+import {kstOneCalendarMonthLater,EXPECTED_SAMPLE_STAGE} from "../../../lib/sfdc-new-opportunity-defaults.mjs";
+import {verifiedQuoteProcessBreakdown} from "../../../lib/sfdc-quote-process-review.mjs";
 import styles from "./page.module.css";
 
 const common={confirmSave:false,noDuplicateConfirmed:false};
@@ -37,7 +39,11 @@ function Flag({label,state}){
 }
 export default function SfdcCommandCenter(){
   const [tab,setTab]=useState("lead_convert");
-  const [forms,setForms]=useState(()=>structuredClone(initial));
+  const [forms,setForms]=useState(()=>{
+    const forms=structuredClone(initial);
+    forms.opportunity_create.closeDate=kstOneCalendarMonthLater();
+    return forms;
+  });
   const [health,setHealth]=useState(null);
   const [healthBusy,setHealthBusy]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -163,7 +169,11 @@ export default function SfdcCommandCenter(){
     setResult(null);setPreflight("");setConfirmed(false);setDedup(false);
   }
   function selectAccount(account){
-    if(!account?.name)return;
+    if(!account?.name){
+      setSelectedIdentity(null);
+      reflectNewCustomer({accountId:"",accountName:"",contactId:"",contactName:""});
+      return;
+    }
     setSelectedIdentity(null);
     reflectNewCustomer({
       accountId:account.id||"",accountName:account.name,
@@ -273,6 +283,11 @@ export default function SfdcCommandCenter(){
       if(!response.ok||item.status!=="PASS"||item.id!==id)throw Error(item.code||"DETAIL_UNAVAILABLE");
       const next=recordToDraft(resource,item,initial[tab]);
       if(!next)throw Error("RECORD_MISMATCH");
+      if(resource==="opportunity"){
+        // This is a NEW Opportunity; do not reuse historical Close Date.
+        next.closeDate=kstOneCalendarMonthLater();
+        next.sampleStage=EXPECTED_SAMPLE_STAGE;
+      }
       setForms(prev=>({...prev,[tab]:next}));
       setSelectedRecord(item);
       setOriginalDraft(next);
@@ -366,6 +381,9 @@ export default function SfdcCommandCenter(){
     }catch{setResult({status:"BLOCK",code:"PROGRESS_FIELDS_INCOMPLETE"});}
   }
   const currentOppoPricing=tab==="opportunity_create"?opportunityPriceBreakdown(form):null;
+  const processReview=useMemo(()=>tab==="opportunity_create"&&pairedQuote?
+    verifiedQuoteProcessBreakdown(pairedQuote,form.samples,form.dataSize,
+      form.unitPriceNetKrw):null,[tab,pairedQuote,form.samples,form.dataSize,form.unitPriceNetKrw]);
   const totalGb=tab==="opportunity_create"&&form.unit==="Gb"?
     form.samples*form.dataSize:null;
   return <main className={styles.wrap}>
@@ -484,8 +502,30 @@ export default function SfdcCommandCenter(){
                 value={form.unitPriceNetKrw||""} disabled={loadingDetail}
                 onChange={v=>update("unitPriceNetKrw",v)}
                 placeholder="예: 250000"/>
-              <Field label="Close Date" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
+              <Field label="Close Date · 오늘부터 한 달 뒤" type="date"
+                value={form.closeDate} onChange={v=>update("closeDate",v)}/>
             </div>
+            <p className={styles.hint}>신규 Oppo 기본 단계: Prospective · 샘플 입고 예정
+              (실제 입고·QC·PO 확인 전). Close Date는 한국시간 오늘부터 한 달 뒤로 기본 설정됩니다.</p>
+            {processReview?.ok&&<div className={styles.selectedInfo} data-testid="oppo-process-breakdown">
+              <strong>기존 Quote 검증 공정별 단가 · 공급가액 (VAT 제외)</strong>
+              {processReview.items.map((part,i)=><div key={i}>
+                <span>{part.name}{part.packNo?" · 원본 Pack "+part.packNo:""}</span>
+                <span>{part.quantity} × {part.unitPriceKrw.toLocaleString("ko-KR")} KRW
+                {" = "}{part.projectedNetKrw.toLocaleString("ko-KR")} KRW</span>
+              </div>)}
+              <span>Pack 검토: 생물학적 샘플 {processReview.pack.biologicalSamples}개
+                {" → "}Pack 수량 {processReview.pack.quantity}개
+                {" · "}Coop TS: Yoo Ji In</span>
+              {processReview.pack.sourcePackAmbiguous&&
+                <p>원본 공정의 Pack No가 서로 다릅니다. 실제 Pack 구성 확인이 필요합니다.</p>}
+              {processReview.manualOverride&&
+                <p>샘플당 단가를 직접 변경했습니다. 위 공정별 가격은 원본 단가이므로
+                  변경 금액을 공정에 배분하고 Quote에 적용하기 전 검토가 필요합니다.</p>}
+            </div>}
+            {pairedQuote&&!processReview?.ok&&
+              <p className={styles.hint}>공정별 가격 검증 불가:
+                {processReview?.code||"SOURCE_PROCESS_PRICE_UNVERIFIED"}</p>}
             <div className={styles.selectedInfo} data-testid="oppo-unit-price-summary">
               <strong>샘플당 단가: {currentOppoPricing?.ok?
                 currentOppoPricing.unitPriceNetKrw.toLocaleString("ko-KR")+" KRW":"미확인"}</strong>
