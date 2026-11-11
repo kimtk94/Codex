@@ -603,16 +603,34 @@ export default function SfdcCommandCenter(){
           </span>
           <label className={styles.checkbox}><input type="checkbox" checked={dedup} onChange={e=>setDedup(e.target.checked)}/>
             중복 생성 여부 확인</label>
+          {tab==="opportunity_create"&&<>
+            <label className={styles.checkbox}><input type="checkbox" checked={priceConfirmed}
+              disabled={!processReview?.ok||processReview.manualOverride}
+              onChange={e=>setPriceConfirmed(e.target.checked)}/>
+              기존 Quote 공정 구성·샘플당 KRW 단가 확인</label>
+            <label className={styles.checkbox}><input type="checkbox" checked={packConfirmed}
+              disabled={!processReview?.ok}
+              onChange={e=>setPackConfirmed(e.target.checked)}/>
+              Pack 수량 = 샘플 수 확인 · Coop TS Yoo Ji In</label>
+            {processReview?.manualOverride&&<p className={styles.hint}>
+              변경된 샘플당 단가의 공정별 KRW 배분 검증 전에는 동시 저장할 수 없습니다.</p>}
+          </>}
           <label className={styles.checkbox}><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>
             실제 Salesforce 저장 승인</label>
           <button className={styles.save} type="button"
-            disabled={busy||catalogueBusy||loadingDetail||!ready||!dedup||!confirmed}
-            onClick={()=>run("save")}>2. 실제 실행</button>
-          <p className={styles.hint}>검증 실패 시 저장하지 않습니다. Quote는 제품 포함 저장 후 재조회합니다.</p>
+            disabled={busy||catalogueBusy||loadingDetail||!ready||!dedup||!confirmed||
+              (tab==="opportunity_create"&&(!priceConfirmed||!packConfirmed||
+                !processReview?.ok||processReview.manualOverride))}
+            onClick={()=>run("save")}>2. {tab==="opportunity_create"?"Oppo + Quote 연속 생성":"실제 실행"}</button>
+          <p className={styles.hint}>Oppo → Quote를 하나의 명령으로 순차 생성합니다.
+            Salesforce는 원자적 트랜잭션이 아니므로 실패 시 생성된 Oppo ID를 남기고 Quote를 HOLD 처리합니다.
+            실제 Quote 제품·Pack·가격은 저장 후 재확인 필수입니다.</p>
           {result&&<section className={styles.result} aria-live="polite">
             <strong data-status={result.status}>{result.status}</strong>
             <p>{result.code||result.detail||""}</p>
             {result.record_id&&<a target="_blank" rel="noreferrer" href={result.url}>생성 레코드 확인</a>}
+            {result.opportunity_id&&<p>생성 Oppo: {result.opportunity_id}</p>}
+            {result.quotation_id&&<p>생성 Quote: {result.quotation_id}</p>}
             <div className={styles.small}>Save: {result.save_clicked?"SUBMITTED":"NOT SUBMITTED"}</div>
           </section>}
         </aside>
