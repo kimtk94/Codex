@@ -58,8 +58,25 @@ class QuoteLiveRetryTests(unittest.TestCase):
         dialog.last.locator.return_value.filter.return_value.first.wait_for.side_effect=ValueError("SOURCE_PROCESS_MATRIX_NOT_LOADED")
         with self.assertRaisesRegex(ValueError,"SOURCE_PROCESS_MATRIX_NOT_UNIQUE"):
             quote_price_breakdown(page,"a0P000000000000AAA",8,6,100000)
-        edit.click.assert_called_once_with(timeout=9500)
+        self.assertEqual(edit.click.call_count,2)
+        edit.click.assert_any_call(trial=True,timeout=6500)
+        edit.click.assert_any_call(timeout=9500)
         self.assertEqual(page.goto.call_count,2)
+
+    def test_unactionable_add_edit_holds_without_real_click(self):
+        page=Mock();tab=Mock();edit=Mock()
+        page.get_by_role.side_effect=lambda role,**kwargs: (
+            tab if role=="tab" else edit)
+        edit.count.return_value=1
+        edit.is_enabled.return_value=True
+        from playwright.sync_api import TimeoutError as PwTimeout
+        edit.click.side_effect=PwTimeout("blocked_by_ui")
+        with self.assertRaisesRegex(ValueError,"SOURCE_ADD_EDIT_NOT_INTERACTABLE"):
+            quote_price_breakdown(page,"a0P000000000000AAA",8,6,100000)
+        edit.click.assert_called_once_with(trial=True,timeout=6500)
+        self.assertEqual(page.goto.call_count,2)
+        self.assertFalse(retryable_modal_price_read_error(
+            ValueError("SOURCE_ADD_EDIT_NOT_INTERACTABLE")))
 
     def test_repeated_timeouts_hold(self):
         page=Mock()
