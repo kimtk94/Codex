@@ -256,6 +256,24 @@ def grouped_report(pred):
         loss_rate=("win",lambda x:float((x==0).mean())))
     return industry,asset
 
+def feature_value_coverage(history):
+    """Per-stock, per-indicator source/finite/constant audit, no forward fills."""
+    rows=[]
+    if history.empty:
+        return pd.DataFrame(columns=["symbol","feature","rows","available_rows","missing_rows","nonfinite_rows","distinct_values","status"])
+    for symbol,g in history.groupby("symbol"):
+        for col in FEATURES:
+            v=pd.to_numeric(g[col],errors="coerce")
+            finite=np.isfinite(v.to_numpy(dtype=float))
+            count=int(finite.sum())
+            unique=int(v[finite].nunique()) if count else 0
+            rows.append({"symbol":symbol,"feature":col,"rows":len(g),
+                "available_rows":count,"missing_rows":int(v.isna().sum()),
+                "nonfinite_rows":int((~finite & v.notna().to_numpy()).sum()),
+                "distinct_values":unique,
+                "status":"VALID" if count>=120 and unique>=2 else "HOLD_INSUFFICIENT_OR_CONSTANT"})
+    return pd.DataFrame(rows)
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--source-dir",default="results/regime_countertrend/universe_v3_prices")
@@ -265,9 +283,14 @@ def main():
     root=Path(a.out);root.mkdir(parents=True,exist_ok=True)
     manifest=manifest_load(a.manifest)
     prices,daily,events,failed=panel_from_sources(manifest,a.source_dir)
+    feature_audit=feature_value_coverage(daily)
+    feature_audit.to_csv(root/"per_symbol_20_feature_coverage.csv",index=False)
     source_inventory={"status":"COVERAGE_ONLY" if not prices else "PARTIAL_OR_FULL",
        "stock_data_available":len(prices),"stock_target_expected":14,
        "per_symbol_holds":failed,
+       "feature_status_counts":feature_audit.status.value_counts().to_dict(),
+       "all_20_feature_rows_per_available_stock":bool(
+           len(feature_audit)==20*len(prices)),
        "events_count":len(events),"feature_values_finite":not daily.empty and
            bool(np.isfinite(daily[list(FEATURES)].dropna().to_numpy()).all()),
        "promotion_allowed":False}
