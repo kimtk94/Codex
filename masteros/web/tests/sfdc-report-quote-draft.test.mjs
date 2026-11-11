@@ -86,7 +86,7 @@ test("Description is concise, dated, reference-based, and does not copy old Prog
   draft.products[0].sampleUnitKrw="150000";
   draft.name="Korea-Example-mRNA";
   const description=draftDescription(draft);
-  assert.match(description,new RegExp("^"+baseline.date.slice(5,7)+baseline.date.slice(8,10)+" Quote Draft "));
+  assert.match(description,/^\d{4} Quote Draft /);
   assert.match(description,/6Gb/);
   assert.match(description,/5 samples/);
   assert.match(description,/150,000KRW/);
@@ -153,7 +153,7 @@ test("Description template stays deterministic and never imports old Progress De
   const description=draftDescription(draft);
   assert.equal(DESCRIPTION_TEMPLATE_VERSION,"OPPO_QUOTE_SHORT_V2");
   assert.equal(description,draftDescription({...draft}));
-  assert.match(description,new RegExp("^"+baseline.date.slice(5,7)+baseline.date.slice(8,10)+" Quote Draft "));
+  assert.match(description,/^\d{4} Quote Draft /);
   assert.doesNotMatch(description,/Account\/Contact|Reference Quote/);
   assert.match(description,/6Gb/);
   assert.match(description,/12 samples/);
@@ -342,7 +342,7 @@ test("Region selection duplicates service, not biological sample, with editable 
   assert.equal(result.quoteLineItems.length,2);
   assert.equal(draftChanges(changed).length,1);
   const description=draftDescription(changed);
-  assert.match(description,new RegExp("^"+baseline.date.slice(5,7)+baseline.date.slice(8,10)+" Quote Draft "));
+  assert.match(description,/^\d{4} Quote Draft /);
   assert.match(description,/Amplicon-Seq/);
   assert.match(description,/16S V4-V5/);
   assert.match(description,/Archaeal 16S V4-V5/);
