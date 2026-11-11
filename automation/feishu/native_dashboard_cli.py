@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.parse
 from zoneinfo import ZoneInfo
 from weekly_quote_live_chart import config as live_quote_config, preflight as live_quote_preflight
@@ -259,12 +260,29 @@ def delete_dashboard_block(dashboard_id,block_id):
 
 
 def cli(*args):
-    process=subprocess.run(["lark-cli","base",*args,"--as","bot","--format","json"],
-                           text=True,capture_output=True,timeout=70)
-    if process.returncode:
-        # Error-only, aggressively redacted. Never log requests, config, users,
-        # OAuth tokens, or app secrets. Reveals API code/diagnostic category.
+    """Bounded Feishu rate-limit retry; all other errors fail closed."""
+    for attempt in range(6):
+        process=subprocess.run(["lark-cli","base",*args,"--as","bot","--format","json"],
+                               text=True,capture_output=True,timeout=70)
+        if process.returncode==0:
+            output=process.stdout.strip()
+            if not output:raise RuntimeError("FEISHU_CLI_EMPTY_"+str(args[0]))
+            try:return json.loads(output)
+            except json.JSONDecodeError:
+                start=output.find("{")
+                if start>=0:
+                    try:return json.loads(output[start:])
+                    except json.JSONDecodeError:pass
+                raise RuntimeError("FEISHU_CLI_UNEXPECTED_FORMAT_"+str(args[0]))
         raw=(process.stderr or process.stdout or "").strip()
+        # Feishu code 800004135 = method rate limit. Do not retry any other
+        # backend failure (permission, invalid source field, unsupported API).
+        if "800004135" in raw and attempt<5:
+            delay=(2,4,8,16,28)[attempt]
+            print("FEISHU_CLI_RATE_LIMIT_RETRY op="+str(args[0])+
+                  " attempt="+str(attempt+1)+" backoff_s="+str(delay),flush=True)
+            time.sleep(delay)
+            continue
         compact=re.sub(r"https?://[^\s]+","[URL]",raw)
         compact=re.sub(r"(?i)(?:bearer|token|secret|authorization)\s*[:=]\s*[^\s,}]+",
                        "[REDACTED]",compact)
@@ -273,16 +291,8 @@ def cli(*args):
         print("FEISHU_CLI_BACKEND_ERROR op="+str(args[0])+
               " code="+str(process.returncode)+" diagnostic="+compact,flush=True)
         raise RuntimeError("FEISHU_CLI_COMMAND_FAILED_"+str(args[0]))
-    output=process.stdout.strip()
-    if not output:raise RuntimeError("FEISHU_CLI_EMPTY_"+str(args[0]))
-    try:return json.loads(output)
-    except json.JSONDecodeError:
-        # Some CLI versions add a status line. Read a trailing JSON object.
-        start=output.find("{")
-        if start>=0:
-            try:return json.loads(output[start:])
-            except json.JSONDecodeError:pass
-        raise RuntimeError("FEISHU_CLI_UNEXPECTED_FORMAT_"+str(args[0]))
+    raise RuntimeError("FEISHU_CLI_RETRY_EXHAUSTED_"+str(args[0]))
+
 
 def collect(node):
     if isinstance(node,list):
