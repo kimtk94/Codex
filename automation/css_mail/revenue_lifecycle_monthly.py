@@ -165,6 +165,7 @@ def reconcile_pending(statement_rows, invoice_rows, lifecycle_rows, monthly_rows
         source[key]=record
 
     lifecycle={}
+    expected={}
     for row in lifecycle_rows[1:]:
         x=cell(row,0).upper()
         js=[j.strip().upper() for j in cell(row,20).split("|") if j.strip()]
@@ -172,38 +173,55 @@ def reconcile_pending(statement_rows, invoice_rows, lifecycle_rows, monthly_rows
         keys=[j+"-"+x for j in js]
         if len(set(keys))!=len(keys):
             raise RuntimeError("DUPLICATE_PROJECT_STATEMENT "+x)
-        missing=[k for k in keys if k not in source]
-        if missing:
-            raise RuntimeError("OPEN_STATEMENT_HAS_NO_VERIFIED_SOURCE "+",".join(missing))
         if any(k in issued or k in lifecycle for k in keys):
             raise RuntimeError("ISSUED_OR_DUPLICATE_PENDING "+x)
-        total=sum(source[k][0] for k in keys)
-        try: recorded=int(float(cell(row,22)))
-        except ValueError: raise RuntimeError("LIFECYCLE_PENDING_AMOUNT_MISSING "+x)
-        if total!=recorded or cell(row,23)!="AMOUNT_VERIFIED "+str(len(keys))+"/"+str(len(keys)):
+        known=[k for k in keys if k in source]
+        missing=[k for k in keys if k not in source]
+        # An open Statement with unverified amount is a real unresolved
+        # Pending item, NOT a 0-KRW actual and NOT a reason to discard
+        # independently verified issued invoices.
+        label="AMOUNT_VERIFIED "+str(len(known))+"/"+str(len(keys))
+        if cell(row,23)!=label:
+            raise RuntimeError("OPEN_STATEMENT_VERIFICATION_STATE_MISMATCH "+x)
+        amount=sum(source[k][0] for k in known)
+        raw=cell(row,22).strip()
+        if not raw and amount==0:
+            recorded=0
+        else:
+            try:recorded=int(float(raw))
+            except ValueError:raise RuntimeError("LIFECYCLE_PENDING_AMOUNT_MISSING "+x)
+        if recorded!=amount:
             raise RuntimeError("LIFECYCLE_PENDING_SOURCE_AMOUNT_MISMATCH "+x)
-        latest=max(source[k][2] for k in keys)
-        if cell(row,21)!=latest:
-            raise RuntimeError("LIFECYCLE_STATEMENT_NOTICE_DATE_MISMATCH "+x)
-        months={source[k][1] for k in keys}
-        if len(months)!=1:
-            raise RuntimeError("MULTI_MONTH_PROJECT_PENDING_NEEDS_PER_J_MONTH_ALLOCATION "+x)
-        for k in keys:lifecycle[k]=source[k]
+        notice=cell(row,21)
+        month=month_of(notice) or cell(row,12)
+        if not re.fullmatch(r"\d{4}-(?:0[1-9]|1[0-2])",month):
+            raise RuntimeError("OPEN_STATEMENT_MONTH_UNVERIFIED "+x)
+        if known:
+            months={source[k][1] for k in known}
+            if len(months)!=1 or month not in months:
+                raise RuntimeError("MULTI_MONTH_PROJECT_PENDING_NEEDS_PER_J_MONTH_ALLOCATION "+x)
+            if not missing and notice!=max(source[k][2] for k in known):
+                raise RuntimeError("LIFECYCLE_STATEMENT_NOTICE_DATE_MISMATCH "+x)
+        slot=expected.setdefault(month,[0,0,0])
+        slot[0]+=amount
+        slot[1]+=len(keys)
+        slot[2]+=len(missing)
+        for k in known:lifecycle[k]=source[k]
     if set(source)!=set(lifecycle):
         raise RuntimeError("SOURCE_STATEMENT_MISSING_FROM_LIFECYCLE "+
                            ",".join(sorted(set(source)-set(lifecycle))[:10]))
 
-    expected={}
-    for amount,month,_ in source.values():
-        slot=expected.setdefault(month,[0,0])
-        slot[0]+=amount
-        slot[1]+=1
     published={cell(r,0):r for r in monthly_rows[1:]}
     for month in set(expected)|set(published):
-        amount,n=expected.get(month,[0,0])
+        amount,open_count,unknown=expected.get(month,[0,0,0])
         actual=published.get(month,[])
-        if int(cell(actual,2) or 0)!=amount or int(cell(actual,6) or 0)!=n or int(cell(actual,7) or 0)!=0:
+        if (int(cell(actual,2) or 0)!=amount or
+                int(cell(actual,6) or 0)!=open_count or
+                int(cell(actual,7) or 0)!=unknown):
             raise RuntimeError("MONTHLY_PENDING_SOURCE_MISMATCH "+month)
+    print("PENDING_RECONCILED verified="+str(len(source))+
+          " unverified_open="+str(sum(x[2] for x in expected.values()))+
+          " basis=STATEMENT_NOT_ACTUAL",flush=True)
     return len(source),sum(v[0] for v in source.values())
 
 
