@@ -88,7 +88,7 @@ export function freshProgress({accountName,contactName,service,samples,dataSize,
       "total: "+priced.netKrw.toLocaleString("en-US")+" KRW (VAT excluded)." : "",
     referenceAmea ? "Reference "+referenceAmea+" (product/specifications only)." : "",
     "Samples expected shortly (Sample Expected / Awaiting Sample Arrival); not yet received. "+
-    "Opportunity and Quote are being prepared together; PO, receipt, QC and payment are unconfirmed."
+    "Opportunity and Quote are being prepared together; PO, receipt, QC and payment are not confirmed."
   ].filter(Boolean).join("\n");
 }
 export function alicloudUnits(totalGb){
