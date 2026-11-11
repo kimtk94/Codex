@@ -4,6 +4,7 @@ import datetime as dt
 import unittest
 from zoneinfo import ZoneInfo
 import three_report_quote_value_audit as m
+from approved_active_quote import weekly_verified
 
 QID="QID-2026-11-01-12345"
 SF="a0P"+"A"*12
@@ -174,6 +175,36 @@ class QuoteValueTests(unittest.TestCase):
         self.assertIsNone(m.single_qid("prefix"+QID))
         self.assertIsNone(m.money("2e4"))
         self.assertIsNone(m.strict_active("Pending"))
+    def test_unknown_active_does_not_certify_zero_revenue(self):
+        approvals=[["approved_at_kst","salesforce_record_id","quotation_id"],
+                   ["2026-11-06 09:00:00","a0P"+"A"*12,QID]]
+        head=["SFDC Quotation ID","Quotation ID","IsActive","Grand Total","Currency"]
+        quote=[SF,QID,"", "1000","KRW"]
+        amounts,status=weekly_verified(approvals,[head,quote])
+        self.assertEqual(amounts,{})
+        self.assertNotEqual(status,"VERIFIED")
+        inactive=quote.copy();inactive[2]="false"
+        amounts,status=weekly_verified(approvals,[head,inactive])
+        self.assertEqual(status,"VERIFIED")
+        self.assertEqual(amounts,{})
+        active=quote.copy();active[2]="true"
+        amounts,status=weekly_verified(approvals,[head,active])
+        self.assertEqual(status,"VERIFIED")
+        self.assertEqual(sum(v[0] for v in amounts.values()),1)
+
+    def test_opportunity_shaped_source_cannot_replace_quotation_export(self):
+        with self.assertRaisesRegex(ValueError,"SCHEMA"):
+            m.rows([["Opportunity Name","Account Name","Close Date","Stage"],
+                    ["Example","University","2026-11-12","New"]],
+                   m.REQUIRED["SFDC Email Quotation Raw"])
+
+    def test_mixed_active_product_rows_are_quarantined(self):
+        data=fixture()
+        data["SFDC Email Quotation Raw"][2][1]=""
+        summary=m.analyze(data,now=NOW)
+        self.assertEqual(summary["quote_index"]["valid_qids"],0)
+        self.assertIn("QUOTE_PRODUCT_ROW_INCONSISTENCIES",summary["blockers"])
+
     def test_report_row_key_and_schema_validation(self):
         with self.assertRaisesRegex(ValueError,"SCHEMA"):
             m.rows([["Quotation ID"],["QID"]],m.REQUIRED["SFDC Email Quotation Raw"])
