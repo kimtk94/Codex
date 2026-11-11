@@ -1,0 +1,101 @@
+name: Kalman QLD Integrated Regime Research (Read Only)
+
+on:
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - 'research/kalman_integrated_regime/**'
+      - '.github/workflows/kalman-qld-integrated-regime.yml'
+  pull_request:
+    paths:
+      - 'research/kalman_integrated_regime/**'
+      - '.github/workflows/kalman-qld-integrated-regime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated research dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'scikit-learn>=1.4,<2' 'pyarrow>=17' 'exchange-calendars>=4.7'
+      - name: Run leak, fill, cost and holding-period contracts
+        run: python -m unittest research.kalman_integrated_regime.test_run -v
+      - name: Syntax validation
+        run: python -m compileall -q research/kalman_integrated_regime
+
+  historical-research:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    needs: offline-contracts
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install data reader and Drive dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'scikit-learn>=1.4,<2' 'pyarrow>=17' 'exchange-calendars>=4.7' google-auth google-api-python-client
+      - name: Download only three specified private research sources
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python - <<'PY'
+          import base64, io, json, os
+          from pathlib import Path
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaIoBaseDownload
+          raw = os.environ.get('CKD_DRIVE_SA_JSON', '').strip()
+          if not raw:
+              b64 = os.environ.get('GDRIVE_SA_JSON_B64', '').strip()
+              if not b64:
+                  raise RuntimeError('MISSING_DRIVE_AUTH')
+              raw = base64.b64decode(b64, validate=True).decode()
+          creds = service_account.Credentials.from_service_account_info(
+              json.loads(raw), scopes=['https://www.googleapis.com/auth/drive.readonly'])
+          api = build('drive', 'v3', credentials=creds, cache_discovery=False)
+          outputs = {
+              '1AHPws_x_q_TALFlZUoeSSTM3ChYaSa6R': 'daily.csv',
+              '1DyggclzDQ91Eew-QifEffSDGOVl7VOaq': 'qld_15m.parquet',
+              '1aUhvIAsE2x2-LuKv5nSxmDGX0Uo4mqYd': 'market.zip',
+          }
+          dst = Path(os.environ['RUNNER_TEMP']) / 'qld_regime'
+          dst.mkdir(parents=True, exist_ok=True)
+          for file_id, file_name in outputs.items():
+              buf = io.BytesIO()
+              request = api.files().get_media(fileId=file_id, supportsAllDrives=True)
+              downloader = MediaIoBaseDownload(buf, request, chunksize=4*1024*1024)
+              done = False
+              while not done:
+                  _, done = downloader.next_chunk()
+              content = buf.getvalue()
+              if not content:
+                  raise RuntimeError('EMPTY_DRIVE_FILE_' + file_name)
+              (dst/file_name).write_bytes(content)
+              print('DRIVE_READ_OK', file_name, len(content))
+          PY
+      - name: Evaluate 2025 and 2026 walk-forward, never execute trades
+        run: |
+          python research/kalman_integrated_regime/run.py \
+            --daily "$RUNNER_TEMP/qld_regime/daily.csv" \
+            --intraday "$RUNNER_TEMP/qld_regime/qld_15m.parquet" \
+            --market-zip "$RUNNER_TEMP/qld_regime/market.zip" \
+            --out "$RUNNER_TEMP/qld_regime/outputs"
+      - name: Publish aggregate summary including HOLD evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qld-integrated-regime-aggregate-only
+          path: ${{ runner.temp }}/qld_regime/outputs/summary.json
+          retention-days: 30
+          if-no-files-found: warn
