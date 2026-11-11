@@ -1,0 +1,100 @@
+name: Macro Event V1 Validation
+
+on:
+  push:
+    branches:
+      - feature/macro-event-v1-20260916
+    paths:
+      - "kalman-toss-gateway/research/macro_event/**"
+      - "kalman-toss-gateway/config/macro-event-v1-spec.json"
+      - "kalman-toss-gateway/config/model-v4-macro-event-spec.json"
+      - "kalman-toss-gateway/scripts/colab_macro_v4.py"
+      - "kalman-toss-gateway/tests/test_macro_event_v1.py"
+      - "kalman-toss-gateway/tests/test_fred_alfred_macro_collector.py"
+      - "notebooks/Kalman_Macro_Event_V4_20260916.ipynb"
+      - ".github/workflows/macro-event-v1.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "kalman-toss-gateway/research/macro_event/**"
+      - "kalman-toss-gateway/config/macro-event-v1-spec.json"
+      - "kalman-toss-gateway/config/model-v4-macro-event-spec.json"
+      - "kalman-toss-gateway/scripts/colab_macro_v4.py"
+      - "kalman-toss-gateway/tests/test_macro_event_v1.py"
+      - "kalman-toss-gateway/tests/test_fred_alfred_macro_collector.py"
+      - "notebooks/Kalman_Macro_Event_V4_20260916.ipynb"
+      - ".github/workflows/macro-event-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kalman-toss-gateway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pandas numpy scikit-learn pyarrow requests
+
+      - name: Compile Macro Event V1
+        run: |
+          python -m py_compile research/macro_event/collect_fred_alfred.py
+          python -m py_compile research/macro_event/build_macro_event_features.py
+          python -m py_compile research/macro_event/merge_macro_v4.py
+          python -m py_compile research/macro_event/compare_v3_v4.py
+          python -m py_compile research/macro_event/run_macro_v4.py
+          python -m py_compile scripts/colab_macro_v4.py
+
+      - name: Run PIT leakage and calendar normalization tests
+        run: |
+          pytest -q tests/test_macro_event_v1.py tests/test_fred_alfred_macro_collector.py
+
+      - name: Validate pinned Colab notebook
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("../notebooks/Kalman_Macro_Event_V4_20260916.ipynb")
+          nb = json.loads(p.read_text(encoding="utf-8"))
+          code = "\n".join(
+              "".join(cell.get("source", []))
+              for cell in nb.get("cells", [])
+              if cell.get("cell_type") == "code"
+          )
+          compile(code, str(p), "exec")
+          assert "d185749573e155fe729d33dc81e31fbb30c8e6e6" in code
+          print("MACRO_V4_COLAB=PASS")
+          PY
+
+      - name: Research-only safety audit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          paths = [
+              Path("research/macro_event/collect_fred_alfred.py"),
+              Path("research/macro_event/build_macro_event_features.py"),
+              Path("research/macro_event/merge_macro_v4.py"),
+              Path("research/macro_event/compare_v3_v4.py"),
+              Path("research/macro_event/run_macro_v4.py"),
+              Path("scripts/colab_macro_v4.py"),
+          ]
+          text = "\n".join(p.read_text(encoding="utf-8") for p in paths)
+          assert "place_order" not in text
+          assert "production_writes" not in text
+          print("MACRO_EVENT_RESEARCH_SAFETY=PASS")
+          PY
