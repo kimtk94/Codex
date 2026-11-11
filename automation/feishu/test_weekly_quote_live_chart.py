@@ -90,7 +90,9 @@ class LiveQuoteTests(unittest.TestCase):
         row=next(x for x in rows if x["fields"]["Week Start"]==WEEKS[-1]
                  and x["fields"]["합산 제외"] is False)
         row["fields"][q.AMOUNT_FIELD]=None
-        kpis[-1]["fields"]["Calculated Quote Value K USD"]=None
+        # Another Quote retains a proven price; the missing one is not zero.
+        rows.append(review(WEEKS[-1],9999,amount=2.5))
+        kpis[-1]["fields"]["Included Quote Count"]=2
         result=q.audit_rows(rows,kpis,True)
         self.assertEqual(result["amount_withheld_cases"],1)
 
