@@ -163,15 +163,19 @@ export default function SfdcCommandCenter(){
     setResult(null);setPreflight("");setConfirmed(false);setDedup(false);
   }
   function selectAccount(account){
-    if(!account?.name)return;
+    if(!account)return;
     setSelectedIdentity(null);
     reflectNewCustomer({
-      accountId:account.id||"",accountName:account.name,
+      accountId:account.id||"",accountName:account.name||"",
       contactId:"",contactName:""
     });
   }
   async function selectContact(pair){
     if(!pair?.ok||!pair.account?.name||!pair.contact?.name||loadingDetail||busy)return;
+    if(forms[tab]?.accountId&&forms[tab]?.accountId!==pair.account.id){
+      setResult({status:"BLOCK",code:"CONTACT_NOT_IN_SELECTED_ACCOUNT"});
+      return;
+    }
     if(tab==="quote_create"&&selectedRecord?.accountName&&
        selectedRecord.accountName!==pair.account.name){
       setResult({status:"BLOCK",code:"QUOTE_PARENT_ACCOUNT_MISMATCH"});
