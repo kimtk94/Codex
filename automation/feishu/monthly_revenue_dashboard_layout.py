@@ -26,10 +26,12 @@ def inspect(payload):
     out={}
     for r in collect(payload):
         name=r.get("name")
-        if name not in ORDER:raise RuntimeError("MONTHLY_LAYOUT_UNEXPECTED_BLOCK")
         key=r.get("block_id") or r.get("id")
-        if not isinstance(key,str) or not key.startswith(("cht","blk")) or name in out:
-            raise RuntimeError("MONTHLY_LAYOUT_INVALID_BLOCK_ID")
+        # The CLI collection includes envelope objects; inspect only blocks.
+        if not isinstance(key,str) or not key.startswith(("cht","blk")):
+            continue
+        if name not in ORDER:raise RuntimeError("MONTHLY_LAYOUT_UNEXPECTED_BLOCK")
+        if name in out:raise RuntimeError("MONTHLY_LAYOUT_DUPLICATE_BLOCK")
         out[name]=(key,r.get("type"),r.get("position"))
     if set(out)!=set(ORDER):
         raise RuntimeError("MONTHLY_LAYOUT_REQUIRED_COMPONENT_MISSING")
