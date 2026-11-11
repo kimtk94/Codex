@@ -63,7 +63,7 @@ def append_result(session,row):
     # An append HTTP 200 is not proof the intended request was durably stored.
     # Require one exact, non-header result row and independently read it back.
     destination=str(updates.get('updatedRange',''))
-    m=re.fullmatch(r"'SFDC Feishu Results'!A([0-9]+):K\\1",destination)
+    m=re.fullmatch(r"'SFDC Feishu Results'!A([0-9]+):K\1",destination)
     if not m or int(m.group(1))<2:
         raise RuntimeError('RESULT_APPEND_RANGE_UNVERIFIED')
     index=int(m.group(1))
