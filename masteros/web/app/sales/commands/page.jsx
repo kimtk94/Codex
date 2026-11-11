@@ -24,7 +24,7 @@ const initial={
 };
 const tabs=[
   {id:"lead_convert",name:"Lead Convert",caption:"기존 Account → Contact · Oppo 생성 안 함"},
-  {id:"opportunity_create",name:"Opportunity 생성",caption:"기존 Oppo 참조 · 새 Progress Description"},
+  {id:"opportunity_create",name:"Oppo + Quote 함께 생성",caption:"기존 Oppo·Quote 기준 · 006 → a0P 연속 생성"},
   {id:"quote_create",name:"Quote 생성",caption:"기존 제품만 · 가격 검증 우선"},
 ];
 function Field({label,value,onChange,required=true,type="text",step,placeholder,disabled=false}){
@@ -51,6 +51,8 @@ export default function SfdcCommandCenter(){
   const [preflight,setPreflight]=useState("");
   const [confirmed,setConfirmed]=useState(false);
   const [dedup,setDedup]=useState(false);
+  const [priceConfirmed,setPriceConfirmed]=useState(false);
+  const [packConfirmed,setPackConfirmed]=useState(false);
   const [catalogue,setCatalogue]=useState({lead:[],opportunity:[],quote:[]});
   const [query,setQuery]=useState("");
   const [catalogueStatus,setCatalogueStatus]=useState("NOT_CHECKED");
@@ -167,6 +169,7 @@ export default function SfdcCommandCenter(){
       return {...prev,[tab]:merged};
     });
     setResult(null);setPreflight("");setConfirmed(false);setDedup(false);
+    setPriceConfirmed(false);setPackConfirmed(false);
   }
   function selectAccount(account){
     if(!account?.name){
@@ -243,6 +246,10 @@ export default function SfdcCommandCenter(){
       if(checked.quote.opportunityId!==recordId)throw Error("WRONG_PARENT_OPPORTUNITY");
       const sampleRate=preserveEdit&&unitPriceEdited?base.unitPriceNetKrw:checked.form.unitPriceNetKrw;
       const populated={...base,
+        ...Object.fromEntries(["sourceQuoteNetKrw","sourceQuoteSamples","sourceDataSizeGb",
+          "sourceCloudUnits","productName","productCategory","processNames",
+          "sampleStage","packPolicy","packQuantity","cooperativeTS"].map(k=>[k,checked.form[k]])),
+        quoteName:base.opportunityName||checked.form.opportunityName,
         // Existing validated quote process rates take precedence until user overrides.
         unitPriceNetKrw:sampleRate,
         cloudUnits:checked.form.cloudUnits,
@@ -322,6 +329,7 @@ export default function SfdcCommandCenter(){
   },[form,originalDraft]);
   function switchTab(next){
     setTab(next);setResult(null);setPreflight("");setConfirmed(false);setDedup(false);
+    setPriceConfirmed(false);setPackConfirmed(false);
   }
   async function run(mode){
     if(busy||catalogueBusy||loadingDetail)return;
@@ -342,8 +350,23 @@ export default function SfdcCommandCenter(){
         setResult({status:"BLOCK",code:"QUOTE_PARENT_CUSTOMER_MISMATCH"});return;
       }
     }
-    const req={...form,action:tab,mode,confirmSave:mode==="save"&&confirmed,
-      noDuplicateConfirmed:mode==="save"&&dedup};
+    const isPaired=tab==="opportunity_create";
+    if(isPaired&&!pairedQuote){
+      setResult({status:"BLOCK",code:"LINKED_SOURCE_QUOTE_REQUIRED"});return;
+    }
+    const req={...form,action:isPaired?"oppo_quote_pair":tab,mode,
+      confirmSave:mode==="save"&&confirmed,
+      noDuplicateConfirmed:mode==="save"&&dedup,
+      ...(isPaired?{
+        quoteName:form.opportunityName,
+        packQuantity:form.samples,
+        packPolicy:"SAME_SAMPLES",cooperativeTS:"Yoo Ji In",
+        sampleStage:EXPECTED_SAMPLE_STAGE,
+        priceConfirmed:mode==="save"&&priceConfirmed,
+        packConfirmed:mode==="save"&&packConfirmed,
+        processPriceReviewed:mode==="save"&&priceConfirmed&&
+          processReview?.ok&&!processReview.manualOverride
+      }:{})};
     if(tab==="opportunity_create"&&pairedQuote&&
        (!pairProjection?.ok||form.cloudUnits!==pairProjection.cloudUnits||
         form.cloudUnitNetKrw!==pairProjection.cloudUnitNetKrw)){
@@ -459,7 +482,7 @@ export default function SfdcCommandCenter(){
           </>}
           {tab==="opportunity_create"&&<>
             <div className={styles.field}>
-              <span>연결된 기존 Quote 기준 가격</span>
+              <span>연결된 기존 Quote 기준 가격 · Oppo + Quote 연속 생성</span>
               <button type="button" className={styles.subtle} onClick={loadLinkedQuote}
                 disabled={!selectedRecord||loadingDetail||busy}>
                 기존 Oppo → Quote 공정·단가 불러오기
