@@ -240,6 +240,64 @@ def apply_models(prices,events,first_year=FIRST_EVAL_YEAR):
              "No dynamic portfolio MDD, position overlap, liquidity or verified slippage"]}
     return folds,predictions,factor_rows,meta
 
+def train_frozen_research_model(prices,events,out,cutoff="2025-01-01"):
+    """Save a historical, non-LIVE, 2024-cutoff factor model for replay only."""
+    import hashlib
+    import joblib
+    folder=Path(out);folder.mkdir(parents=True,exist_ok=True)
+    daily=feature_frame(prices)
+    prior=daily[daily.date_ny<cutoff].dropna().copy()
+    data=events.merge(daily,left_on="date",right_on="date_ny",validate="one_to_one")
+    train=data[(data.date<cutoff)&(data.exit_date<cutoff)].copy()
+    if len(train)<MIN_TRAIN_EVENTS or train.year.nunique()<3:
+        raise ValueError("insufficient frozen-model events")
+    if train[list(FEATURES)].isna().any().any():
+        raise ValueError("missing frozen training features")
+    y=(train.net_20bp>0).astype(int)
+    if min(int(y.sum()),int((1-y).sum()))<MIN_CLASSES:
+        raise ValueError("insufficient frozen-model positive/negative labels")
+    factors=CorrelatedFactors().fit(prior)
+    model=LogisticRegression(C=REGULARIZATION_C,max_iter=1500).fit(
+        add_event_context(factors.transform(train),train),y)
+    package={"type":"CFM_V2_GROUP_PCA_RIDGE","origin":"RESEARCH_ONLY",
+      "trained_before":cutoff,"raw_features":list(FEATURES),
+      "threshold":PREDICTION_THRESHOLD,"factors":factors,"classifier":model}
+    path=folder/"cfm_v2_frozen_2024.joblib"
+    joblib.dump(package,path,compress=3)
+    manifest={"status":"RESEARCH_SHADOW_MODEL_NOT_LIVE",
+      "trained_before":cutoff,"training_events":len(train),
+      "train_last_signal":str(train.date.max()),
+      "train_last_exit":str(train.exit_date.max()),
+      "factor_groups":factors.groups,
+      "singletons_excluded":factors.excluded,
+      "ridge_C":REGULARIZATION_C,"threshold":PREDICTION_THRESHOLD,
+      "model_filename":path.name,
+      "model_sha256":hashlib.sha256(path.read_bytes()).hexdigest(),
+      "promotion_allowed":False,
+      "security":"Only load this joblib file from trusted, checksum-verified CI artifacts; never unpickle unknown sources.",
+      "notes":"Model trained through 2024 on synthetic QLD trades; not broker-executable and no fresh independent performance claim."}
+    (folder/"frozen_manifest.json").write_text(json.dumps(manifest,indent=2))
+    return package,manifest
+
+def predict_frozen_model(package,events,prices):
+    """For already-existing candidate signals only; never manufactures entries."""
+    if package.get("origin")!="RESEARCH_ONLY":
+        raise ValueError("not a research model package")
+    if len(events)==0:
+        return pd.DataFrame(columns=["date","event","probability","would_select","status"])
+    if (events.date<package["trained_before"]).any():
+        raise ValueError("requested scores include training-period events")
+    daily=feature_frame(prices)
+    frame=events.merge(daily,left_on="date",right_on="date_ny",
+                      how="left",validate="one_to_one")
+    if frame[list(FEATURES)].isna().any().any():
+        raise ValueError("missing scoring columns")
+    x=add_event_context(package["factors"].transform(frame),frame)
+    p=package["classifier"].predict_proba(x)[:,1]
+    return pd.DataFrame({"date":frame.date,"event":frame.event,
+        "probability":p,"would_select":p>=package["threshold"],
+        "status":"RESEARCH_SCORE_NOT_TRADE"})
+
 def main():
     a=argparse.ArgumentParser()
     a.add_argument("--prices",default="research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv")
@@ -254,6 +312,11 @@ def main():
     pred.to_csv(out/"signal_probabilities.csv",index=False)
     blocks.to_csv(out/"feature_groups_by_training_fold.csv",index=False)
     (out/"decision.json").write_text(json.dumps(meta,indent=2,ensure_ascii=False))
+    package,manifest=train_frozen_research_model(prices,gap_events,out/"frozen_2024")
+    test_period=gap_events[gap_events.year>=2025][["date","event"]]
+    scores=predict_frozen_model(package,test_period,prices)
+    scores.to_csv(out/"frozen_2024"/"revisited_2025_2026_scores.csv",index=False)
+    print("CFM_V2_FROZEN",json.dumps(manifest,ensure_ascii=False))
     print("CFM_V2_MODEL",json.dumps(meta,ensure_ascii=False))
     print("CFM_V2_GROUPS",blocks[blocks.trained_before_year==2025].to_json(orient="records"))
     print("CFM_V2_ANNUAL",folds[folds.status=="FITTED"].to_json(orient="records"))
