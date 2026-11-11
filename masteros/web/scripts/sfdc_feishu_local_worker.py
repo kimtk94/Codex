@@ -48,9 +48,12 @@ def get_rows(session,tab,rng):
     return response.json().get('values',[])
 
 
+def result_append_url():
+    return url_for(RESULTS,'A:K')+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'
+
 def append_result(session,row):
     if len(row)!=len(RHEAD):raise RuntimeError('RESULT_ROW_SIZE')
-    url=url_for(RESULTS,'A:K')+'?valueInputOption=RAW&insertDataOption=INSERT_ROWS'
+    url=result_append_url()
     response=session.post(url,json={'majorDimension':'ROWS','values':[row]},timeout=36)
     response.raise_for_status()
     data=response.json()
