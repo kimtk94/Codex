@@ -5,11 +5,11 @@ import styles from "./IdentityPicker.module.css";
 import {dedupeAccounts,normalizeIdentityRows,selectIdentityPair}
   from "../../../lib/sfdc-identity-picker.mjs";
 
-async function findIdentities(query,signal){
+async function findIdentities(query,signal,accountId=""){
   const response=await fetch("/api/sfdc/identity-local",{
     method:"POST",cache:"no-store",credentials:"omit",signal,
     headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
-    body:JSON.stringify({query,limit:25})
+    body:JSON.stringify({query,limit:25,...(accountId?{accountId}:{})})
   });
   const value=await response.json();
   if(!response.ok||value.status!=="PASS"||!Array.isArray(value.rows))
@@ -27,23 +27,26 @@ export default function IdentityPicker({account,contact,onAccount,onContact,disa
   const [open,setOpen]=useState("");
   useEffect(()=>{
     const query=(open==="account"?accountQuery:contactQuery).trim();
-    if(!open||query.length<1||disabled)return;
+    const lockedAccount=open==="contact"?account?.id||"":"";
+    if(!open||(!query&&!lockedAccount)||disabled)return;
     const ctl=new AbortController();
     const timer=setTimeout(async()=>{
       const setStatus=open==="account"?setAccountStatus:setContactStatus;
       const setRows=open==="account"?setAccountRows:setContactRows;
       setStatus("LOADING");
       try{
-        const result=await findIdentities(query,ctl.signal);
+        const result=await findIdentities(query,ctl.signal,lockedAccount);
         setRows(result.rows);
         setStatus(result.freshness==="FRESH"?"PASS":"STALE");
       }
       catch(err){if(!ctl.signal.aborted){setRows([]);setStatus(err.message||"SOURCE_UNAVAILABLE");}}
     },320);
     return ()=>{clearTimeout(timer);ctl.abort()};
-  },[open,accountQuery,contactQuery,disabled]);
+  },[open,accountQuery,contactQuery,disabled,account?.id]);
   const accounts=useMemo(()=>dedupeAccounts(accountRows),[accountRows]);
-  const matchedContacts=useMemo(()=>contactRows.filter(r=>r.account_name&&r.contact_name),[contactRows]);
+  const matchedContacts=useMemo(()=>contactRows.filter(r=>
+    r.account_name&&r.contact_name&&
+    (!account?.id||r.account_id===account.id)),[contactRows,account?.id]);
   const changeAccount=(row)=>{
     if(disabled)return;
     onAccount({id:row.account_id,name:row.account_name,
@@ -53,7 +56,7 @@ export default function IdentityPicker({account,contact,onAccount,onContact,disa
   const changeContact=(row)=>{
     if(disabled)return;
     const selected=selectIdentityPair(row);
-    if(!selected.ok)return;
+    if(!selected.ok || (account?.id&&selected.account.id!==account.id))return;
     onContact(selected);
     setOpen("");setContactQuery("");setContactRows([]);
   };
@@ -65,6 +68,10 @@ export default function IdentityPicker({account,contact,onAccount,onContact,disa
         <b>{contact?.name||"고객 미선택"} · {account?.name||"기관 미선택"}</b>
         <small>{contact?.id||"SFDC Contact ID 미확인"} · {contact?.email||"이메일 미확인"}</small></div>
     </div>
+    {account?.id&&<button type="button" className={styles.accountReset}
+      disabled={disabled} onClick={()=>{onAccount({id:"",name:""});setOpen("");setContactRows([]);setContactQuery("");}}>
+      기관 선택 해제 · 전체 기관 고객 검색
+    </button>}
     <div className={styles.searchGroup}>
       <label>기관 이름 검색 후 선택
         <input aria-label="기관 검색" value={accountQuery} disabled={disabled}
@@ -84,10 +91,12 @@ export default function IdentityPicker({account,contact,onAccount,onContact,disa
       <label>고객 이름 검색 후 선택
         <input aria-label="고객 검색" value={contactQuery} disabled={disabled}
           placeholder="예: 김지훈 · 이름 검색 시 기관명 반드시 표시"
+          onFocus={()=>{if(account?.id)setOpen("contact")}}
           onChange={e=>{setContactQuery(e.target.value);setOpen("contact");setContactRows([])}}/>
       </label>
-      {open==="contact"&&contactQuery.trim()&&<div className={styles.results} aria-label="기관명 포함 고객 검색 결과">
-        <small>고객 검색 결과 · 이름과 기관은 반드시 함께 표시</small>
+      {open==="contact"&&(contactQuery.trim()||account?.id)&&<div className={styles.results} aria-label="기관명 포함 고객 검색 결과">
+        <small>{account?.id?"선택 기관의 고객만 표시 · "+account.name:
+          "모든 기관의 고객 검색 · 결과마다 기관명 표시"}</small>
         {matchedContacts.map(row=><button key={[
           row.account_id,row.account_name,row.contact_id,row.contact_name,row.contact_email
         ].join("|")} type="button" onClick={()=>changeContact(row)} disabled={disabled||contactStatus!=="PASS"}>
@@ -101,7 +110,7 @@ export default function IdentityPicker({account,contact,onAccount,onContact,disa
         {contactStatus!=="PASS"&&<p>{contactStatus==="LOADING"?"검색 중":contactStatus}</p>}
       </div>}
     </div>
-    <p className={styles.hint}>고객을 선택하면 연결된 기관도 함께 선택됩니다. 동명이인은 기관명으로 구별하세요.
+    <p className={styles.hint}>기관을 지정한 경우 해당 Account ID에 연결된 고객만 조회·선택할 수 있습니다. 미지정 시 여러 기관이 검색됩니다. 고객을 선택하면 연결된 기관도 함께 선택됩니다. 동명이인은 기관명으로 구별하세요.
       과거 Quote의 Account·Contact는 참고값이며, 실제 CRM 관계는 저장 전에 재검증해야 합니다.</p>
   </div>;
 }
