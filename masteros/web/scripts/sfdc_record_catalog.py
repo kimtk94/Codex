@@ -376,7 +376,14 @@ def quote_price_breakdown(page,quote_id,source_samples,gb_per_sample,expected_ne
             page.wait_for_timeout(400)
         else:
             raise ValueError("SOURCE_ADD_EDIT_DISABLED")
-        add.click(timeout=9500)
+        # Enabled does not imply pointer-actionable in a Lightning rerender.
+        # Playwright trial click performs actionability checks without clicking.
+        from playwright.sync_api import TimeoutError as PwTimeout
+        try:
+            add.click(trial=True,timeout=6500)
+            add.click(timeout=9500)
+        except PwTimeout as exc:
+            raise ValueError("SOURCE_ADD_EDIT_NOT_INTERACTABLE") from exc
         dialog=page.get_by_role("dialog").last
         dialog.wait_for(state="visible",timeout=18000)
         table=dialog.locator("table").filter(has_text="Pack No.").filter(has_text="Unit Price")
