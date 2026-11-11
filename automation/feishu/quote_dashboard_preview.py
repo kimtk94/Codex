@@ -77,7 +77,7 @@ def render(rows,link):
         )
     headings.append("")
     headings.append("편집 후 반영 여부는 Weekly Quote KPI의 다음 원천 동기화 결과로 확인합니다.")
-    result="\\n".join(headings)
+    result=chr(10).join(headings)
     if len(result)>MAX_TEXT:
         raise SafeError("QUOTE_PREVIEW_TEXT_LIMIT_EXCEEDED")
     return result
