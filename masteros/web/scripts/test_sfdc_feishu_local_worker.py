@@ -1,5 +1,6 @@
 import unittest
-from sfdc_feishu_local_worker import (price_pair, validate_queue_row, process_row, result_append_url, QHEAD, RHEAD)
+from unittest import mock
+from sfdc_feishu_local_worker import (price_pair, validate_queue_row, process_row, result_append_url, append_result, QHEAD, RHEAD)
 
 ROW=['rec123456789','SFDC-20261109-A001','a'*64,'oppo_quote_pair','PREFLIGHT',
      '006000000000000AAA','a0P000000000000AAA','Korea-New-12-mRNA','Example Univ.',
@@ -15,6 +16,45 @@ class Tests(unittest.TestCase):
  def test_append_endpoint(self):
     self.assertIn(':append?',result_append_url())
     self.assertIn('valueInputOption=RAW',result_append_url())
+ def test_append_result_verified_readback(self):
+    row=['rec123456789','SFDC-20261109-A001','a'*64,'PREFLIGHT_PASS',
+         'CLOUD_UNITS_2','2350000','235000','','','2026-11-11T11:03:00Z','PREFLIGHT']
+    session=mock.Mock()
+    session.post.return_value.json.return_value={
+      'updates':{'updatedRows':1,'updatedRange':"'SFDC Feishu Results'!A2:K2"}}
+    session.get.return_value.json.return_value={'values':[row]}
+    append_result(session,row)
+    self.assertIn(':append?',session.post.call_args.args[0])
+    self.assertIn('A2:K2',session.get.call_args.args[0])
+ def test_append_result_missing_range_or_wrong_sheet_blocks(self):
+    row=['rec123456789','SFDC-20261109-A001','a'*64,'BLOCK',
+         'PREFLIGHT_PROOF_MISSING','','','','','2026-11-11T11:03:00Z','PREFLIGHT']
+    for updated in ('',"'Other Sheet'!A2:K2",
+                    "'SFDC Feishu Results'!A1:K1",
+                    "'SFDC Feishu Results'!A2:K3"):
+      session=mock.Mock()
+      session.post.return_value.json.return_value={
+        'updates':{'updatedRows':1,'updatedRange':updated}}
+      with self.assertRaisesRegex(RuntimeError,'RESULT_APPEND_RANGE_UNVERIFIED'):
+        append_result(session,row)
+      session.get.assert_not_called()
+ def test_append_result_content_mismatch_blocks(self):
+    row=['rec123456789','SFDC-20261109-A001','a'*64,'PREFLIGHT_PASS',
+         'CLOUD_UNITS_2','2350000','235000','','','2026-11-11T11:03:00Z','PREFLIGHT']
+    session=mock.Mock()
+    session.post.return_value.json.return_value={
+      'updates':{'updatedRows':1,'updatedRange':"'SFDC Feishu Results'!A5:K5"}}
+    other=row.copy();other[2]='b'*64
+    session.get.return_value.json.return_value={'values':[other]}
+    with self.assertRaisesRegex(RuntimeError,'RESULT_APPEND_READBACK_MISMATCH'):
+      append_result(session,row)
+ def test_append_result_short_write_blocks(self):
+    session=mock.Mock()
+    session.post.return_value.json.return_value={
+      'updates':{'updatedRows':0,'updatedRange':"'SFDC Feishu Results'!A2:K2"}}
+    with self.assertRaisesRegex(RuntimeError,'RESULT_WRITE_SHORT'):
+      append_result(session,['']*len(RHEAD))
+    session.get.assert_not_called()
  def test_calc(self):
     self.assertEqual(price_pair(BUNDLE,ROW),(2350000,235000,2))
  def test_source_no_cloud(self):
