@@ -174,7 +174,7 @@ export default function PairedQuoteWeb(){
         <p>기존 Oppo 또는 Quote를 선택해 전체 참조값을 불러오고, 달라진 필드만 수정합니다.</p>
       </div>
       <nav className={styles.nav} aria-label="화면 이동">
-        <Link href="/sales/commands/pair/advanced">기존 Salesforce 고급 검증</Link>
+        <Link href="/sales/commands/pair/advanced">Oppo + Quote 통합 생성 준비 점검</Link>
         <a href={BASE} rel="noreferrer" target="_blank">Feishu Quote Report</a>
       </nav>
     </header>
