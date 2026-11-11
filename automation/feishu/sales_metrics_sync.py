@@ -22,6 +22,7 @@ from project_progress_board import prepare_project_board
 from project_settlement import EVIDENCE_FIELDS, finalize, counts
 from latest_payment_bridge import build_payment_evidence
 from quote_process_amount import weekly_calculations
+from approval_mail_weekly_bridge import supplement as reconcile_mail_approvals
 from weekly_quote_review import (
     TABLE as QUOTE_REVIEW_TABLE, SCHEMA as QUOTE_REVIEW_SCHEMA,
     VIEW_SPECS as QUOTE_REVIEW_VIEWS, INCLUDED as REVIEW_INCLUDED,
@@ -103,6 +104,9 @@ REQUIRED = {
     "Quotation Approval List": ("week_start", "salesforce_record_id", "quotation_id"),
     "Quote Approval Dedup": ("Approval KST", "SFDC Record ID", "Quotation Name",
                              "Quote Status", "Approved AND Active"),
+    "Quotation Approval Auto": ("approval_mail_at_kst","quotation_id","quotation_name",
+                                "salesforce_record_id","approval_evidence",
+                                "review_status","ingest_key"),
     "SFDC Quote Export": ("Salesforce Record ID", "IsActive", "Exclude Tax After Discount USD",
                            "CurrencyIsoCode", "Opportunity ID", "Exported At KST"),
     "SFDC Email Opportunities Raw": ("Opportunity ID", "Opportunity Owner"),
@@ -207,6 +211,7 @@ def sheet_sources():
         (UNIFIED_SHEET,"Revenue Source Authority",250),
         (UNIFIED_SHEET,"SFDC Weekly Overview",1500),
         (UNIFIED_SHEET,"Quote Approval Dedup",1600),
+        (CSS_SHEET,"Quotation Approval Auto",1000),
         (UNIFIED_SHEET,"SFDC Quote Export",2600),
         (UNIFIED_SHEET,"SFDC Email Opportunities Raw",950),
         (UNIFIED_SHEET,"SFDC Email Quotation Raw",4500),
@@ -1094,6 +1099,11 @@ def main():
     if scope not in ("all","quote","operations"):
         raise SafeError("INVALID_METRIC_SCOPE")
     sources=sheet_sources()  # Fetch all required source evidence before writing.
+    if scope in ("all","quote"):
+        # Never mutate the canonical Sheet. Exact recent approval mail rows
+        # are reconciled in memory with authenticated QQ Report + owner proof.
+        effective,_=reconcile_mail_approvals(sources)
+        sources["Quote Approval Dedup"]=effective
     if scope=="operations":
         projects=project_rows(sources)
         output={"Project SIF Monitor":projects,
