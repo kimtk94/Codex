@@ -11,6 +11,7 @@ on:
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
+      - 'masteros/web/scripts/test_css_explicit_quote_selection.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
       - 'masteros/web/scripts/sfdc_identity_local.py'
       - 'masteros/web/scripts/test_sfdc_identity_local.py'
@@ -86,6 +87,7 @@ on:
       - 'masteros/web/scripts/sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_sfdc_quote_price_fields.py'
       - 'masteros/web/scripts/test_feishu_sfdc_local_worker.py'
+      - 'masteros/web/scripts/test_css_explicit_quote_selection.py'
       - 'masteros/web/scripts/sfdc_record_catalog.py'
       - 'masteros/web/scripts/sfdc_identity_local.py'
       - 'masteros/web/scripts/test_sfdc_identity_local.py'
@@ -177,6 +179,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/feishu_sfdc_local_worker.py
           python3 -m unittest discover -s scripts -p test_feishu_sfdc_local_worker.py -v
+          python3 -m unittest discover -s scripts -p test_css_explicit_quote_selection.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_quote_price_fields.py -v
       - name: Test existing-record selector without CRM access
         run: |
