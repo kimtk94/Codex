@@ -83,7 +83,12 @@ export default function ReportOppoDraft({quote,enabled=true}){
     setPreflight(null);
   }
   function chooseAccount(account){
-    if(!account?.name)return;
+    if(!account?.name){
+      setDraft(old=>old?{...old,account:{id:"",name:""},
+        contact:{id:"",externalId:"",name:"",email:""}}:old);
+      setPreflight(null);
+      return;
+    }
     setDraft(old=>old?{...old,
       account:{id:account.id||"",name:account.name},
       contact:{id:"",externalId:"",name:"",email:""}
