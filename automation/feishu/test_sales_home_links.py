@@ -6,7 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sales_home_links import (
-    TARGETS, url, plan, validate_current_link, link_url, require_success, extract_token
+    TARGETS, LINK_LABELS, EXPECTED_STATUS, url, plan, validate_current_link,
+    link_url, require_success, extract_token
 )
 
 def record(key, href="", record_id=None):
@@ -15,6 +16,7 @@ def record(key, href="", record_id=None):
         "fields": {
             "Menu Key": key,
             "바로가기": {"text": "열기", "link": href} if href else None,
+            "바로가기 URL": href,
             "화면": "07 · 내 X 하위 프로젝트" if key == "X_MY_PROJECTS" else "Other",
             "데이터 상태": "DASHBOARD_NOT_VERIFIED",
         },
@@ -25,23 +27,37 @@ class SalesHomeSafety(unittest.TestCase):
         self.assertEqual(url("blkzYT2OAVQssL3Y"),
             "https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=blkzYT2OAVQssL3Y")
 
-    def test_three_exact_keys_only_and_no_status_write(self):
+    def test_three_exact_keys_only_with_verified_dashboard_status(self):
         records = [record(k) for k in TARGETS] + [record("SIF_EVIDENCE")]
         changes = plan(records)
         self.assertEqual(set(changes), set(TARGETS))
-        self.assertTrue(all("데이터 상태" not in item["fields"] for item in changes.values()))
+        self.assertTrue(all(item["fields"]["데이터 상태"]==EXPECTED_STATUS for item in changes.values()))
         self.assertEqual(changes["X_MY_PROJECTS"]["fields"]["화면"],
                          "07 · 프로젝트 운영 대시보드")
-        self.assertEqual(changes["WEEKLY_TREND"]["fields"]["바로가기"]["text"], "열기")
+        self.assertEqual(changes["WEEKLY_TREND"]["fields"]["바로가기"]["text"], LINK_LABELS["WEEKLY_TREND"])
 
     def test_second_run_idempotent(self):
         rows = []
         for key, (block, label) in TARGETS.items():
             row = record(key, url(block))
+            row["fields"]["바로가기"] = {"text": LINK_LABELS[key], "link": url(block)}
+            row["fields"]["데이터 상태"] = EXPECTED_STATUS
             if label is not None:
                 row["fields"]["화면"] = label
             rows.append(row)
         self.assertTrue(all(not r["fields"] for r in plan(rows).values()))
+
+    def test_title_link_corrects_only_text_when_url_matches(self):
+        rows=[]
+        for key,(block,label) in TARGETS.items():
+            x=record(key,url(block))
+            x["fields"]["데이터 상태"]=EXPECTED_STATUS
+            if label is not None:x["fields"]["화면"]=label
+            rows.append(x)
+        changes=plan(rows)
+        self.assertTrue(all(set(change["fields"])=={"바로가기"} for change in changes.values()))
+        self.assertEqual(changes["MONTHLY_TREND"]["fields"]["바로가기"]["text"],
+                         LINK_LABELS["MONTHLY_TREND"])
 
     def test_missing_key_blocks_all_writes(self):
         with self.assertRaisesRegex(RuntimeError, "MISSING_HOME_MENU_KEY"):
