@@ -14,16 +14,21 @@ class QuoteComboTests(unittest.TestCase):
         self.assertEqual(name,QUOTE_CHART_NAME)
         self.assertIn("계산 K USD",name)
         self.assertIn("이번 주",name)
-        self.assertEqual(cfg["table_name"],"Weekly Quote KPI")
+        self.assertEqual(cfg["table_name"],"Weekly Quote Review")
         self.assertEqual(cfg["series"],[
-            {"field_name":"Included Quote Count","rollup":"SUM"},
-            {"field_name":"Calculated Quote Value K USD","rollup":"SUM"},
+            {"field_name":"실시간 집계용 건수","rollup":"SUM"},
+            {"field_name":"참고 금액 K USD","rollup":"SUM"},
         ])
-        self.assertEqual(cfg["group_by"][0]["field_name"],"Chart Week Label")
+        self.assertEqual(cfg["group_by"][0]["field_name"],"Week Start")
         self.assertEqual(cfg["group_by"][0]["sort"],{"type":"group","order":"asc"})
         self.assertEqual(cfg["filter"]["conditions"],[
             {"field_name":"Chart Window","operator":"is",
-             "value":"RECENT_4_PLUS_CURRENT"}])
+             "value":"RECENT_4_PLUS_CURRENT"},
+            {"field_name":"Quote Status","operator":"is","value":"ACTIVE"},
+            {"field_name":"Approved AND Active","operator":"is","value":"YES"},
+            {"field_name":"SFDC IsActive","operator":"is","value":"1"},
+            {"field_name":"합산 제외","operator":"is","value":False},
+        ])
         self.assertNotIn(name,LEGACY_REDUNDANT_QUOTE_WIDGETS)
         self.assertEqual(len([x for x in BLOCKS if x[0]=="Quote 계산 기준" and x[1]=="text"]),1)
 
