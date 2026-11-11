@@ -265,11 +265,11 @@ def cli(*args):
         # Error-only, aggressively redacted. Never log requests, config, users,
         # OAuth tokens, or app secrets. Reveals API code/diagnostic category.
         raw=(process.stderr or process.stdout or "").strip()
-        compact=re.sub(r"https?://[^\\s]+","[URL]",raw)
-        compact=re.sub(r"(?i)(?:bearer|token|secret|authorization)\\s*[:=]\\s*[^\\s,}]+",
+        compact=re.sub(r"https?://[^\s]+","[URL]",raw)
+        compact=re.sub(r"(?i)(?:bearer|token|secret|authorization)\s*[:=]\s*[^\s,}]+",
                        "[REDACTED]",compact)
-        compact=re.sub(r"[A-Za-z0-9_\\-]{21,}","[ID]",compact)
-        compact=compact[-350:].replace("\\n"," ")
+        compact=re.sub(r"[A-Za-z0-9_\-]{21,}","[ID]",compact)
+        compact=compact[-350:].replace("\n"," ")
         print("FEISHU_CLI_BACKEND_ERROR op="+str(args[0])+
               " code="+str(process.returncode)+" diagnostic="+compact,flush=True)
         raise RuntimeError("FEISHU_CLI_COMMAND_FAILED_"+str(args[0]))
