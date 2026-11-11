@@ -1,0 +1,59 @@
+name: Feishu Quote AMEA QID Monetary Crosswalk Audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "automation/feishu/project_quote_qid_money_audit.py"
+      - "automation/feishu/test_project_quote_qid_money_audit.py"
+      - ".github/workflows/feishu-project-quote-qid-money-audit.yml"
+  pull_request:
+    paths:
+      - "automation/feishu/project_quote_qid_money_audit.py"
+      - "automation/feishu/test_project_quote_qid_money_audit.py"
+      - ".github/workflows/feishu-project-quote-qid-money-audit.yml"
+permissions:
+  contents: read
+concurrency:
+  group: feishu-quote-qid-money-crosswalk
+  cancel-in-progress: false
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install read-only Google client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Check quote identity and currency evidence safety
+        run: |
+          python3 -m py_compile automation/feishu/project_quote_qid_money_audit.py
+          python3 -m unittest discover -s automation/feishu -p 'test_project_quote_qid_money_audit.py' -v
+  audit:
+    needs: offline
+    if: github.event_name != 'pull_request'
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install read-only Google client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Audit exact project to historical Quote ID and source amount
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: |
+          python3 automation/feishu/project_quote_qid_money_audit.py
+          echo 'Read-only: Quote identity and price diagnostics. No verified final Quote amounts or revenue writes.' >> "$GITHUB_STEP_SUMMARY"
