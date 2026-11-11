@@ -229,7 +229,8 @@ def parse_process_price_rows(rows,source_samples,gb_per_sample,expected_net):
                 raise ValueError("SOURCE_CLOUD_QTY_INCORRECT")
         elif qty!=source_samples:
             raise ValueError("NONCLOUD_NON_SAMPLE_QUANTITY")
-        parsed.append({"processType":str(cells[2]).strip(),
+        parsed.append({"packNo":str(cells[1]).strip(),
+          "processType":str(cells[2]).strip(),
           "processName":str(cells[3]).strip(),"sourceQty":qty,
           "dataSize":size,"dataUnit":str(cells[6]).strip(),
           "unitPriceKrw":rate,"sourceNetKrw":total,"isCloud":cloud})
