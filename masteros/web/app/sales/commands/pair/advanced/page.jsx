@@ -423,6 +423,11 @@ export default function PairedQuoteWeb(){
           disabled={!source.ok||Boolean(busy)}>
           {busy==="CHECK_SAVE_READINESS"?"Pack·가격·저장 준비 검증 중":"Oppo + Quote 통합 생성 준비 점검 (저장 없음)"}
         </button>
+        <button type="button" className={styles.secondary}
+          data-testid="source-quote-edit-probe" onClick={()=>run("CHECK_WRITE_CONTROLS")}
+          disabled={!source.ok||Boolean(busy)}>
+          {busy==="CHECK_WRITE_CONTROLS"?"원본 공정 입력 필드 검증 중":"공정별 단가·AliCloud 입력 필드 실검증 (저장 없이 Cancel)"}
+        </button>
       </div>
       {result?.readiness&&<div className={styles.output} data-testid="pair-create-readiness" role="status">
         <div className={styles.inlineHead}><strong>통합 생성 준비 상태</strong><Status value={result.status}/></div>
@@ -430,6 +435,8 @@ export default function PairedQuoteWeb(){
         <div className={styles.totals}>
           <div><span>원본 Quote 공정 단가</span><strong>{result.readiness.source_price||"HOLD"}</strong></div>
           <div><span>원본 Pack 배정</span><strong>{result.readiness.source_pack||"HOLD"}</strong></div>
+          <div><span>원본 Quote 공정 입력 필드 및 Cancel</span>
+            <strong>{result.readiness.source_edit_controls||"NOT_TESTED"}</strong></div>
           <div><span>참고 입력 폼</span><strong>{result.readiness.reference_forms||"NOT_CHECKED"}</strong></div>
           <div><span>새 Quote의 공정·단가·Pack 저장</span><strong>{result.readiness.quote_writer||"UNVERIFIED"}</strong></div>
           <div><span>신규 Oppo·Quote 독립 재조회</span><strong>{result.readiness.new_quote_readback||"NOT_TESTED"}</strong></div>
@@ -443,7 +450,15 @@ export default function PairedQuoteWeb(){
             </tr>)}</tbody>
           </table>
         </div>}
-        <p className={styles.hint}>이 점검은 Salesforce를 수정하지 않습니다. 새 Quote의 Pack·공정별 단가·AliCloud 수량을 검증하여 저장하고, 생성 후 독립 재조회할 수 있기 전에는 Oppo만 선행 생성하지 않습니다.</p>
+        {result.sourceControls&&<div data-testid="source-edit-probe-details">
+          <p className={styles.hint}>원본 Quote 단가 입력·AliCloud 수량 입력·Cancel 후 원본 재조회:
+            {Object.entries(result.sourceControls.checks||{}).map(([key,val])=>
+              <span key={key}> {key}={val};</span>)}
+          </p>
+          <p className={styles.warning}>이 결과는 기존 원본 Quote의 입력 필드 확인입니다.
+            신규 Quote 생성이나 저장 성공을 의미하지 않습니다.</p>
+        </div>}
+                <p className={styles.hint}>이 점검은 Salesforce를 수정하지 않습니다. 새 Quote의 Pack·공정별 단가·AliCloud 수량을 검증하여 저장하고, 생성 후 독립 재조회할 수 있기 전에는 Oppo만 선행 생성하지 않습니다.</p>
       </div>}
       {result&&<section className={styles.output} aria-live="polite">
         <div className={styles.inlineHead}><strong>검증 결과 · {result.code||""}</strong><Status value={result.status}/></div>
