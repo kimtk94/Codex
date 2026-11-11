@@ -392,9 +392,10 @@ def quote_price_breakdown(page,quote_id,source_samples,gb_per_sample,expected_ne
         summary=dialog.locator("table").filter(has_text="Sales Price").filter(has_text="List Price")
         if summary.count()!=1:
             raise ValueError("SOURCE_TOTAL_SUMMARY_NOT_UNIQUE")
-        totals=summary.locator("tr").evaluate_all(
-            """trs=>trs.map(tr=>[...tr.querySelectorAll('th,td')]
-               .map(c=>(c.innerText||'').trim().replace(/\\s+/g,' ')))""")
+        totals=summary.evaluate(
+            """node=>[...node.querySelectorAll('tr')].map(tr=>
+              [...tr.querySelectorAll('th,td')].map(c=>
+                (c.innerText||'').trim().replace(/\\s+/g,' ')))""")
         if len(totals)!=2 or totals[0]!=["Total","Sales Price","List Price"] or len(totals[1])!=3:
             raise ValueError("SOURCE_TOTAL_SUMMARY_CHANGED")
         return parse_modal_process_price_rows({
