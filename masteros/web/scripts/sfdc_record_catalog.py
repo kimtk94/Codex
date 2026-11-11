@@ -371,6 +371,16 @@ def quote_price_breakdown(page,quote_id,source_samples,gb_per_sample,expected_ne
         table.first.wait_for(state="visible",timeout=20000)
         if table.count()!=1:
             raise ValueError("SOURCE_PROCESS_MATRIX_NOT_UNIQUE")
+        # Salesforce asynchronously populates the product process rows after
+        # the modal table header is visible. Do not treat a header-only view
+        # as an empty Quote: wait for at least one priced process row.
+        for _ in range(50):
+            if (table.locator("tr").count()>1 and
+                    table.locator("tr").nth(1).locator("input[type=text]").count()>=3):
+                break
+            page.wait_for_timeout(300)
+        else:
+            raise ValueError("SOURCE_PROCESS_MATRIX_NOT_LOADED")
         matrix=table.locator("tr").evaluate_all(
             """trs=>trs.map(tr=>[...tr.querySelectorAll(':scope > th,:scope > td')]
                .map(cell=>({
