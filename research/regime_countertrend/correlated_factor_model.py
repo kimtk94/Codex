@@ -194,7 +194,35 @@ def apply_models(prices,events,first_year=FIRST_EVAL_YEAR):
             "sum_returns_not_portfolio":float(g.selected_net_sum.sum()),
             "mean_net_per_opportunity":float(g.selected_net_sum.sum()/n),
             "mean_brier_across_folds":float(g.prob_brier.mean())})
+    # Group definitions are discovered independently inside each prior-year fold.
+    # Stable membership is structural evidence only, not a profitability claim.
+    signatures={}
+    for year,g in factor_rows.groupby("trained_before_year"):
+        signatures[int(year)]=tuple(
+            tuple(cols.split("|")) for cols in g.sort_values("block")["columns"])
+    signature_list=list(signatures.values())
+    same_groups=bool(signature_list) and all(
+        x==signature_list[0] for x in signature_list[1:])
+    # Cost robustness uses exactly the previously generated selected predictions;
+    # do not retrain labels or thresholds when costs change.
+    cost_rows=[]
+    if not predictions.empty:
+        observed=predictions.merge(
+            events[["date","net_40bp","net_80bp"]],
+            on="date",how="left",validate="one_to_one")
+        for model,mask in (
+            ("BASELINE",np.ones(len(observed),dtype=bool)),
+            ("GROUPED_PCA_RIDGE",observed.group_selected.to_numpy(dtype=bool)),
+            ("RAW_COLUMN_RIDGE",observed.raw_selected.to_numpy(dtype=bool))):
+            for cost,field in (("20bp","net_20bp"),("40bp","net_40bp"),("80bp","net_80bp")):
+                cost_rows.append({"model":model,"cost":cost,
+                   "selected":int(mask.sum()),"opportunities":len(observed),
+                   "mean_net_per_opportunity":float(observed.loc[mask,field].sum()/len(observed))})
     meta={"status":"HOLD_EXPLORATORY_GROUPED_MODEL",
+          "group_membership_identical_across_folds":same_groups,
+          "group_membership_compared_fold_count":len(signatures),
+          "group_membership_by_fold":{str(k):[list(x) for x in v] for k,v in signatures.items()},
+          "cost_sensitivity":cost_rows,
           "feature_engineering":"training-only absolute Pearson agglomeration + PCA(1) each non-singleton block",
           "corr_threshold":CORR_THRESHOLD,
           "raw_column_count":len(FEATURES),
