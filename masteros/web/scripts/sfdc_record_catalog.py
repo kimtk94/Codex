@@ -506,7 +506,7 @@ def read_item(page,resource,record_id):
             product_fields=source_quote_product(
                 page,record_id,out["quotationProductId"],original_amount)
             out.update(product_fields)
-            if out.get("unitPriceNetKrw") and out.get("grandTotalKrw"):
+            if original_amount>0 and isinstance(out.get("grandTotalKrw"),int) and out["grandTotalKrw"]>0:
                 out["sourceVatRateVerified10Pct"]=(
                     out["grandTotalKrw"]*10==original_amount*11)
             if out.get("samples") and out.get("dataSize") and out.get("sourceVatRateVerified10Pct"):
