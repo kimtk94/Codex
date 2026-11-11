@@ -12,7 +12,10 @@ test("Close Date defaults one KST calendar month forward, including month ends",
   assert.equal(closeDateOneMonthFromKst(new Date("2026-11-10T15:30:00Z")),"2026-12-11");
 });
 const base={
- pricingStatus:"VERIFIED_PROCESS_LINES",samples:12,dataSize:6,
+ pricingStatus:"VERIFIED_PROCESS_LINES",productCount:1,
+ sourceVatRateVerified10Pct:true,cloudLinePresent:true,
+ sampleUnitNetKrw:120000,cloudUnitNetKrw:30000,
+ sourceCloudUnits:1,totalPriceKrw:1470000,samples:12,dataSize:6,
  processPriceLines:[
   {packNo:"P1",processName:"QC",isCloud:false,sourceQty:12,unitPriceKrw:20000},
   {packNo:"P1",processName:"Library",isCloud:false,sourceQty:12,unitPriceKrw:100000},
@@ -35,6 +38,18 @@ test("Missing/mismatched Pack and missing process-price proofs are review, not a
     (p,i)=>i===0?{...p,packNo:"P3"}:p)},12,6).packStatus,"REVIEW_SAME_SAMPLE_MULTIPLE_PACKS");
   assert.equal(quoteProcessReview({...base,pricingStatus:"PROCESS_BREAKDOWN_UNVERIFIED"},12,6).ok,false);
 });
+test("Quote process review rejects source line, price and cloud mismatches",()=>{
+ const badLine={...base,processPriceLines:base.processPriceLines.map(
+   (p,i)=>i===0?{...p,sourceNetKrw:99999}:p)};
+ assert.equal(quoteProcessReview(badLine,12,6).ok,false);
+ const badUnit={...base,processPriceLines:base.processPriceLines.map(
+   (p,i)=>i===1?{...p,unitPriceKrw:90000}:p)};
+ assert.equal(quoteProcessReview(badUnit,12,6).code,"PROCESS_PRICE_PARITY_MISMATCH");
+ const badGross={...base,totalPriceKrw:1471000};
+ assert.equal(quoteProcessReview(badGross,12,6).ok,false);
+ assert.equal(quoteProcessReview({...base,sourceCloudUnits:2},12,6).ok,false);
+});
+
 test("Lead description and combined Oppo Quote UI retain safety boundaries",()=>{
   const mail=readFileSync(new URL("../app/sales/mail/page.jsx",import.meta.url),"utf8");
   const opp=readFileSync(new URL("../app/sales/commands/page.jsx",import.meta.url),"utf8");
