@@ -92,7 +92,11 @@ def coverage(df,symbol,daily):
         "first_day":start_day,"last_day":last_day,
         "last_complete_close_available":last_day>=TARGET,
         "first_15m_open_match_count":len(opens),
+        "first_open_disagreement_gt_10bps":int((opens.abs()>0.001).sum()),
         "max_abs_first_open_vs_daily_pct":float(opens.abs().max()*100) if len(opens) else None,
+        "largest_open_disagreement_dates":summary.loc[
+            summary.first_bar_open_vs_daily.abs()>0.001,
+            "date_ny"].tolist(),
         "price_source":"Yahoo Finance 15m chart, rolling limited history",
         "actual_broker_fills_attested":False,"promotion_allowed":False}
     return rth,summary,result
@@ -122,8 +126,12 @@ def main():
                 res={"symbol":symbol,"status":"HOLD_INTRADAY_SOURCE_OR_QC",
                      "error":type(exc).__name__,"detail":str(exc)[:250]}
             report["symbols"].append(res)
-        report["status"]="PRICE_BARS_AVAILABLE_NOT_FILLS" if all(
-            x["status"]=="PRICE_ONLY_NOT_EXECUTABLE" for x in report["symbols"]) else "HOLD_INCOMPLETE_15M"
+        if not all(x["status"]=="PRICE_ONLY_NOT_EXECUTABLE" for x in report["symbols"]):
+            report["status"]="HOLD_INCOMPLETE_15M"
+        elif any(x["first_open_disagreement_gt_10bps"]>0 for x in report["symbols"]):
+            report["status"]="PRICE_ONLY_QC_OPEN_MISMATCH_NOT_FILLS"
+        else:
+            report["status"]="PRICE_BARS_AVAILABLE_NOT_FILLS"
     (root/"provenance.json").write_text(json.dumps(report,indent=2,ensure_ascii=False))
     print("FRESH_INTRADAY",json.dumps(report,ensure_ascii=False))
 if __name__=="__main__":main()
