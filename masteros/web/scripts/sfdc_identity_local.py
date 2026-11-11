@@ -72,6 +72,7 @@ def read_identity_index(query,limit=25,now=None,db=None,account_id=""):
     return {
         "status":"PASS","rows":out,"source":"PRIVATE_FEISHU_QUOTE_REFERENCE_INDEX",
         "freshness":state,"indexed_at_utc":indexed.isoformat(),
+        "account_filter":account_id,
         "quote_count":expected,"salesforce_write":False,"local_only":True
     }
 
