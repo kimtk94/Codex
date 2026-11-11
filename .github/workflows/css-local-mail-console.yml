@@ -8,6 +8,7 @@ on:
       - 'masteros/web/app/api/css/mail-body-local/**'
       - 'masteros/web/lib/css-mail-local.mjs'
       - 'masteros/web/scripts/css_mail_local.py'
+      - 'masteros/web/scripts/test_css_lead_description_local.py'
       - 'masteros/web/scripts/test_css_mail_local.py'
       - 'masteros/web/scripts/test_css_mail_body_local.py'
       - 'masteros/web/tests/css-mail-local.test.mjs'
@@ -28,6 +29,7 @@ on:
       - 'masteros/web/app/api/css/mail-body-local/**'
       - 'masteros/web/lib/css-mail-local.mjs'
       - 'masteros/web/scripts/css_mail_local.py'
+      - 'masteros/web/scripts/test_css_lead_description_local.py'
       - 'masteros/web/scripts/test_css_mail_local.py'
       - 'masteros/web/scripts/test_css_mail_body_local.py'
       - 'masteros/web/tests/css-mail-local.test.mjs'
@@ -60,6 +62,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/css_mail_local.py
           python3 -m unittest discover -s scripts -p 'test_css_mail_local.py' -v
+          python3 -m unittest discover -s scripts -p 'test_css_lead_description_local.py' -v
           python3 -m unittest discover -s scripts -p 'test_css_mail_body_local.py' -v
       - uses: actions/setup-node@v4
         with:
