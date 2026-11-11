@@ -57,8 +57,20 @@ def append_result(session,row):
     response=session.post(url,json={'majorDimension':'ROWS','values':[row]},timeout=36)
     response.raise_for_status()
     data=response.json()
-    if int(data.get('updates',{}).get('updatedRows',0))!=1:
+    updates=data.get('updates',{})
+    if int(updates.get('updatedRows',0))!=1:
         raise RuntimeError('RESULT_WRITE_SHORT')
+    # An append HTTP 200 is not proof the intended request was durably stored.
+    # Require one exact, non-header result row and independently read it back.
+    destination=str(updates.get('updatedRange',''))
+    m=re.fullmatch(r"'SFDC Feishu Results'!A([0-9]+):K\1",destination)
+    if not m or int(m.group(1))<2:
+        raise RuntimeError('RESULT_APPEND_RANGE_UNVERIFIED')
+    index=int(m.group(1))
+    verified=get_rows(session,RESULTS,'A'+str(index)+':K'+str(index))
+    if len(verified)!=1 or [str(v).strip() for v in
+            (verified[0]+['']*(len(row)-len(verified[0])))]!=[str(v).strip() for v in row]:
+        raise RuntimeError('RESULT_APPEND_READBACK_MISMATCH')
 
 
 def validate_queue_row(row):
