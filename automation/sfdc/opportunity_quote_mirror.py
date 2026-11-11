@@ -7,6 +7,7 @@ import os
 import sys
 import urllib.parse
 from followup_stage1 import auth, call, SOURCE_ID, OUTPUT_ID
+from quote_schema_gate import missing_quotation_columns
 
 SFDC_AUTO_ID = os.getenv("SFDC_AUTO_SHEET_ID", "11Kb6V-y5BYqHdbxZ_X3ZmOxsIFEk683yqELVjafcCac")
 KST = dt.timezone(dt.timedelta(hours=9))
@@ -91,6 +92,15 @@ def main():
                               "NO" if "Last Modified Date" in missing else "YES",
                               "PASS" if not missing else "FAIL",", ".join(missing),
                               "HOLD - report export not verified","SFDC_Auto snapshot"])
+        if tab=="Quotation":
+            # The SFDC_Auto "Quotation" source can contain Opportunity-shaped
+            # rows, with no Quotation IDs. Preserve the previous snapshot and
+            # prevent downstream promotion of mislabeled data.
+            missing=missing_quotation_columns(rows[0])
+            if missing:
+                summary[tab]={"status":"invalid_source_schema_preserved",
+                              "missing_required_groups":missing}
+                continue
         replace_tab(session,tab,rows)
         summary[tab]={"status":"ok","records":max(0,len(rows)-1),"snapshot_changed":changed}
     # Keep the raw opportunity mirror hidden; the enriched visible Opportunity is
