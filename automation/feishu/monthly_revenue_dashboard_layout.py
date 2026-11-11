@@ -59,6 +59,23 @@ def validate(positions=POSITIONS):
 def same(a,b):
     return isinstance(a,dict) and all(a.get(k)==b[k] for k in ("x","y","w","h"))
 
+def visual_order_correct(rows):
+    """Accept Feishu auto-normalized positions only when layout is genuinely safe."""
+    try:
+        positions=[rows[n][2] for n in ORDER]
+        if not all(isinstance(p,dict) and all(
+              isinstance(p[k],int) and not isinstance(p[k],bool)
+              for k in ("x","y","w","h")) for p in positions):
+            return False
+        if any(p["x"]!=0 or p["w"]!=12 or p["h"]<1 or p["y"]<0
+               for p in positions):
+            return False
+        return all(positions[i]["y"]+positions[i]["h"]<=positions[i+1]["y"]
+                   for i in range(len(positions)-1))
+    except (KeyError,TypeError):
+        return False
+
+
 def move(did,bid,pos):
     cli("+dashboard-block-update","--base-token",BASE,"--dashboard-id",did,
         "--block-id",bid,"--position",json.dumps(pos,separators=(",",":")))
@@ -75,9 +92,15 @@ def apply(did,mode):
     for n in ORDER:
         move(did,before[n][0],POSITIONS[n])
     after=inspect(cli("+dashboard-block-list","--base-token",BASE,"--dashboard-id",did))
-    if any(after[n][0]!=before[n][0] or not same(after[n][2],POSITIONS[n]) for n in ORDER):
-        raise RuntimeError("MONTHLY_LAYOUT_READBACK_MISMATCH")
-    print("MONTHLY_REVENUE_NATIVE_LIST_BELOW_CHART_PASS months_source=Monthly_Tax_Invoice",flush=True)
+    if any(after[n][0]!=before[n][0] for n in ORDER):
+        raise RuntimeError("MONTHLY_LAYOUT_BLOCK_ID_CHANGED")
+    exact=all(same(after[n][2],POSITIONS[n]) for n in ORDER)
+    print("MONTHLY_LAYOUT_READBACK="+json.dumps({
+        name:after[name][2] for name in ORDER},ensure_ascii=False),flush=True)
+    if not exact and not visual_order_correct(after):
+        raise RuntimeError("MONTHLY_LAYOUT_READBACK_UNSAFE_ORDER_OR_OVERLAP")
+    print("MONTHLY_REVENUE_NATIVE_LIST_BELOW_CHART_PASS months_source=Monthly_Tax_Invoice"
+          +" layout="+("EXACT" if exact else "FEISHU_AUTO_NORMALIZED_SAFE"),flush=True)
 
 def main():
     if os.getenv("FEISHU_BASE_APP_TOKEN")!=BASE:
