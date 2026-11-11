@@ -24,8 +24,8 @@ const initial={
 };
 const tabs=[
   {id:"lead_convert",name:"Lead Convert",caption:"기존 Account → Contact · Oppo 생성 안 함"},
-  {id:"opportunity_create",name:"Opportunity 생성",caption:"기존 Oppo 참조 · 새 Progress Description"},
-  {id:"quote_create",name:"Quote 생성",caption:"기존 제품만 · 가격 검증 우선"},
+  {id:"opportunity_create",name:"Oppo + Quote 통합 준비",caption:"기관·Contact·단가·Pack 검증 후 함께 생성"},
+  {id:"quote_create",name:"기존 Quote 단독 점검",caption:"레거시 수동 처리 · 통합 생성과 별개"},
 ];
 function Field({label,value,onChange,required=true,type="text",step,placeholder,disabled=false}){
   return <label className={styles.field}><span>{label}</span>
@@ -341,6 +341,9 @@ export default function SfdcCommandCenter(){
         form.cloudUnitNetKrw!==pairProjection.cloudUnitNetKrw)){
       setResult({status:"BLOCK",code:"SOURCE_CLOUD_PRICE_MISMATCH"});return;
     }
+    if(mode==="save"&&tab==="opportunity_create"){
+      setResult({status:"BLOCK",code:"OPPO_ONLY_SAVE_BLOCKED_USE_PAIRED_FLOW"});return;
+    }
     if(mode==="save"&&!ready){
       setResult({status:"BLOCK",code:"PREFLIGHT_REQUIRED"});return;
     }
@@ -382,7 +385,7 @@ export default function SfdcCommandCenter(){
       <div><p className={styles.eyebrow}>SALES AUTOMATION</p>
         <h1>업무 실행</h1><p>입력 → 검증 → 실행 → 결과 확인</p></div>
       <div className={styles.navigation}>
-        <Link href="/sales/commands/pair">Oppo → Quote 통합 검증</Link>
+        <Link href="/sales/commands/pair">Oppo + Quote 통합 작성</Link>
         <Link href="/sales/projects">프로젝트</Link>
         <Link href="/sales/mail">메일 · Lead</Link>
         <button type="button" onClick={loadHealth} disabled={healthBusy}>{healthBusy?"점검 중":"Health Check"}</button>
@@ -467,7 +470,12 @@ export default function SfdcCommandCenter(){
               </div>}
               {pairedQuote&&!pairProjection?.ok&&<p className={styles.hint}>{pairProjection?.code||"PRICE_NOT_VERIFIED"}</p>}
             </div>
-            <p className={styles.hint}>기존 Oppo를 선택한 뒤 바꿀 값만 수정하세요. Progress Description은 원본에서 복제하지 않습니다.</p>
+            <p className={styles.hint}>기존 Oppo를 선택한 뒤 바꿀 값만 수정하세요.
+              Opportunity 단독 저장은 불완전한 견적 생성을 막기 위해 차단합니다.
+              Quote 공정·Pack·실제 KRW 가격을 확인한 뒤 통합 흐름에서 한 번에 처리해야 합니다.</p>
+            <Link className={styles.pairedLink} href="/sales/commands/pair">
+              통합 Oppo–Quote 작성 화면 열기
+            </Link>
             <button type="button" className={styles.subtle} onClick={()=>setAdvanced(x=>!x)}>
               {advanced?"고급 ID 편집 숨기기":"Account·Contact ID 편집"}
             </button>
