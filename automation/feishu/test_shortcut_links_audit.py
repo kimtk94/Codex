@@ -41,6 +41,16 @@ class LinkAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(a.SafeError,"WEEKLY_EDITOR_CLICKABLE_LINK_MISMATCH"):
             a.verify_persisted_shortcuts(source,LINKS,editor)
 
+    def test_monthly_revenue_table_is_actual_link(self):
+        monthly=BASE_URL+"?table=tblMonthlyTaxInvoice1234"
+        rows=records()
+        row=next(x["fields"] for x in rows if x["fields"]["Menu Key"]=="MONTHLY_TREND")
+        row["바로 편집"]={"text":"월별 Revenue 상세 리스트 보기","link":monthly}
+        self.assertEqual(a.verify_persisted_shortcuts(rows,LINKS,monthly_target=monthly),LINKS)
+        row["바로 편집"]["link"]=BASE_URL+"?table=tblWrong"
+        with self.assertRaisesRegex(a.SafeError,"MONTHLY_REVENUE_LIST_LINK_MISMATCH"):
+            a.verify_persisted_shortcuts(rows,LINKS,monthly_target=monthly)
+
     def test_missing_or_fake_link_rejected(self):
         rows=records()
         rows[0]["fields"]["바로가기"]=None
