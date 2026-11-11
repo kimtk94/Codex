@@ -37,14 +37,15 @@ class PortalTests(unittest.TestCase):
             self.assertEqual(api.call_args.args[0],"PATCH")
             self.assertEqual(api.call_args.kwargs["data"]["property"]["filter_info"]["conditions"],[])
 
-    def test_shortcut_exact_five_and_existing_twelve(self):
+    def test_shortcut_exact_seven_and_existing_twelve(self):
         self.assertEqual(p.SHORTCUT_KEYS,(
             "MONTHLY_TREND","WEEKLY_TREND","SIF_EVIDENCE",
-            "X_MY_PROJECTS","PAYMENT_FOLLOWUP"))
+            "X_MY_PROJECTS","PAYMENT_FOLLOWUP",
+            "PROJECT_ACTIVE_QUOTE","PROJECT_BILLING_QUOTE"))
         self.assertEqual(len(p.PINNED_KEYS),13)
         cfg=p.shortcut_filter("fldMain")
         self.assertEqual(cfg["conjunction"],"or")
-        self.assertEqual(len(cfg["conditions"]),5)
+        self.assertEqual(len(cfg["conditions"]),7)
         view={"view_name":p.SHORTCUT_VIEW,"view_type":"grid",
               "property":{"filter_info":cfg}}
         self.assertTrue(p.shortcut_filter_matches(view,"fldMain"))
@@ -102,11 +103,19 @@ class PortalTests(unittest.TestCase):
             self.assertEqual(row["바로가기 URL"],p.BASE_URL+"?table="+dash_id)
             self.assertEqual(row["데이터 상태"],"DASHBOARD_PRESENT")
             self.assertEqual(row["바로가기"]["link"],row["바로가기 URL"])
+            self.assertEqual(row["바로가기"]["text"],p.GRAPH_LINK_LABELS[key])
             self.assertTrue(p.valid_menu_url(key,row["바로가기 URL"]))
             self.assertFalse(p.valid_menu_url(key,p.BASE_URL+"?table=tblGrid&view=vewGrid"))
+        project=by_key["X_MY_PROJECTS"]
+        self.assertEqual(project["바로가기"]["text"],p.GRAPH_LINK_LABELS["X_MY_PROJECTS"])
+        self.assertEqual(project["바로가기 URL"],p.BASE_URL+"?table="+p.PROJECT_OPS_DASHBOARD_ID)
+        self.assertEqual(project["화면"],"07 · 프로젝트 운영 대시보드")
+        for key,tid in (("PROJECT_ACTIVE_QUOTE","tblActive123"),("PROJECT_BILLING_QUOTE","tblBilling123")):
+            self.assertTrue(p.valid_menu_url(key,p.BASE_URL+"?table="+tid))
+            self.assertFalse(p.valid_menu_url(key,p.BASE_URL+"?table="+tid+"&view=vewWrong"))
         self.assertIsNone(p.chart_shortcut_url("MONTHLY_TREND",{}))
         self.assertFalse(p.valid_menu_url("MONTHLY_TREND",p.BASE_URL+"?table=blkInvalid&view=v"))
-        self.assertEqual(len(p.SHORTCUT_KEYS),5)
+        self.assertEqual(len(p.SHORTCUT_KEYS),7)
 
     def test_link_and_empty_source(self):
         tables={"QQ Mail Intake":"tblMAIL","Contacts":"tblCUSTOMER"}
