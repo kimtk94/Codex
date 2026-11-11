@@ -93,6 +93,18 @@ def fetch_symbol(symbol,from_date=FROM_DATE,until=THROUGH_EXCLUSIVE):
             time.sleep(.35)
     return None,{"status":"SOURCE_UNAVAILABLE","provider_attempts":errors}
 
+def apply_ticker_trade_eligibility(frame,asset):
+    """Strip predecessor/SPAC history before any features/labels are computed."""
+    eligibility=asset.get("equity_ticker_first_trade")
+    if not eligibility or frame is None:
+        return frame,0
+    filtered=frame.loc[frame.date>=eligibility].copy().reset_index(drop=True)
+    if len(filtered)<120:
+        raise ValueError(f"{asset['symbol']}: insufficient listed ticker history after {eligibility}")
+    if not (filtered.date>=eligibility).all():
+        raise ValueError("pre-listing data remains")
+    return filtered,len(frame)-len(filtered)
+
 def run_collection(manifest,output):
     folder=Path(output);folder.mkdir(parents=True,exist_ok=True)
     targets=[r for r in manifest["universe"] if r["asset_class"]!="CRYPTO"]
@@ -101,6 +113,11 @@ def run_collection(manifest,output):
         symbol=asset["symbol"]
         frame,meta=fetch_symbol(symbol)
         if frame is not None:
+            frame,prelisting_removed=apply_ticker_trade_eligibility(frame,asset)
+            meta["removed_pre_listing_rows"]=prelisting_removed
+            meta["equity_ticker_first_trade"]=asset.get("equity_ticker_first_trade")
+            meta["rows_after_eligibility"]=len(frame)
+            meta["first_eligible_date"]=str(frame.date.min())
             if frame.date.max()<EXPECTED_LATEST:
                 meta["status"]="STALE_SOURCE"
             elif len(frame[frame.date<"2025-01-01"])<100:
