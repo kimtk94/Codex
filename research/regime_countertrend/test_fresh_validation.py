@@ -1,7 +1,7 @@
 import unittest
 import pandas as pd
 from research.regime_countertrend.signal_scarcity import diagnose
-from research.regime_countertrend.fresh_intraday import coverage, compare_repeated_prices
+from research.regime_countertrend.fresh_intraday import coverage, compare_repeated_prices, REFERENCE_PRICE_SHA
 
 class SignalScarcityAndIntradayTests(unittest.TestCase):
     def test_research_boundary_and_pending_horizon(self):
@@ -34,6 +34,11 @@ class SignalScarcityAndIntradayTests(unittest.TestCase):
         _,partial,r=coverage(b,"QLD",daily)
         self.assertEqual(r["incomplete_sessions"],1)
         self.assertFalse(partial.full_26_regular_bars.iloc[0])
+    def test_pinned_reference_checksums(self):
+        self.assertEqual(REFERENCE_PRICE_SHA["QLD"],
+            "afa0a26becfd99251b3fba82895ad475b8c5ff9fc92207670d39310356123306")
+        self.assertEqual(REFERENCE_PRICE_SHA["QQQ"],
+            "350935c4d7245d7dd172d84077b2fc7493f91146e23b38fc1cb41010376b9e66")
     def test_repeated_15m_detects_revision(self):
         t=pd.date_range("2026-10-01T13:30:00Z",periods=26,freq="15min")
         a=pd.DataFrame({"ts_utc":t.astype(str),"open":[100.]*26,
