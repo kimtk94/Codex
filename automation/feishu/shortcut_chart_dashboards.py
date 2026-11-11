@@ -10,6 +10,7 @@ import os
 import sys
 
 from native_dashboard_cli import BASE, BLOCKS, cli, collect, find_named, ident
+from weekly_quote_live_chart import preflight as live_quote_preflight
 from qq_mail_ingest import auth, list_all, SafeError
 from setup_sales_web import list_views
 from sales_native_home import HOME, table_map, target_path
@@ -32,7 +33,7 @@ CHARTS = (
     ("WEEKLY_TREND","FEISHU_SHORTCUT_WEEKLY_DASHBOARD_ID",
      "Novogene · Weekly Quote 그래프",
      "KOREA · Weekly Quote · 완료 4주 + 이번 주 (Count + 계산 K USD)",
-     "Quote 계산 기준","combo","Weekly Quote KPI"),
+     "Quote 계산 기준","combo","Weekly Quote Review"),
 )
 
 
@@ -64,13 +65,13 @@ def expected_components(chart_name,note_name,kind,source,detail_url=None,preview
             or not chart_config.get("group_by")
             or not chart_config.get("series")):
         raise RuntimeError("CHART_SHORTCUT_REFERENCE_SOURCE_MISMATCH")
-    if kind=="combo" and source=="Weekly Quote KPI" and detail_url:
+    if kind=="combo" and source=="Weekly Quote Review" and detail_url:
         note_config=dict(note_config)
         note_config["text"]=(
             "### [실제 Quote 목록 보기 · 최근 5주 / 합산 제외 체크]("+detail_url+")\n"
             "**결정할 때 필요한 기관·서비스·공정별 샘플수·참고금액·Active 증빙을 같은 목록에서 확인하세요.**\n"
-            "체크한 Quote는 계속 목록에 남고, 최대 15분 주기 GitHub Actions가 "
-            "반영 여부를 확인해 집계와 차트를 갱신합니다. 예약 실행은 지연될 수 있습니다.\n"
+            "체크한 Quote는 목록에 남고, 그래프에서는 바로 제외됩니다. "
+            "그래프는 편집형 Quote 원본을 직접 조회하며 GitHub Actions 재실행이 필요하지 않습니다. Feishu 캐시 지연 시 새로고침하세요.\n"
             "수동 체크를 해제하면 다시 포함되며, Inactive는 체크를 해제해도 합산되지 않습니다.\n\n"
             +note_config["text"]
         )
@@ -166,6 +167,8 @@ def main():
     mode=os.environ.get("FEISHU_PORTAL_MODE","plan")
     if mode not in ("plan","apply"):
         raise RuntimeError("CHART_SHORTCUT_UNSUPPORTED_MODE")
+    if mode=="apply":
+        live_quote_preflight()  # Source validation before any chart updates.
     dashboards=cli("+dashboard-list","--base-token",BASE)
     ids={}
     for key,env_key,title,chart_name,note_name,kind,source in CHARTS:
