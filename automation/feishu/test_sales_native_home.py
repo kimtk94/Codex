@@ -119,7 +119,8 @@ class PortalTests(unittest.TestCase):
 
     def test_real_invoice_ledger_link_is_not_monthly_summary(self):
         target=p.BASE_URL+"?table=tblInvoiceLedger1234"
-        with mock.patch.object(p,"api",return_value={"items":[{"record_id":"rec"}]}):
+        with mock.patch.object(p,"api",return_value={"items":[{"record_id":"rec"}]}), \
+             mock.patch.object(p,"list_views",return_value={"All":"vewAll"}):
             self.assertEqual(p.invoice_review_ledger_url("token","root",
                 {"X Invoice Ledger":"tblInvoiceLedger1234"}),target)
             self.assertEqual(p.invoice_review_ledger_url("token","root",{}),"")
