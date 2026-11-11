@@ -1,8 +1,9 @@
+import {validatePairPayload} from "./sfdc-paired-clone.mjs";
 import {expectedSampleStatement} from "./sfdc-new-opportunity-defaults.mjs";
 const validId = (v,prefix)=>typeof v==="string" &&
   new RegExp("^"+prefix+"[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$").test(v);
 const clean=(x,n=180)=>typeof x==="string"&&x.trim()===x&&x.length>0&&x.length<=n;
-export const ACTIONS=["lead_convert","opportunity_create","quote_create"];
+export const ACTIONS=["lead_convert","opportunity_create","quote_create","oppo_quote_pair"];
 /** Separate biological sample unit price from optional AliCloud price (VAT excluded). */
 export function opportunityPriceBreakdown({samples,unitPriceNetKrw,cloudUnits=0,cloudUnitNetKrw=0}) {
   if(!Number.isInteger(samples)||samples<1||samples>500||
@@ -24,6 +25,19 @@ export function validateRequest(x) {
      !["check","save"].includes(x.mode))return {ok:false,code:"ACTION_INVALID"};
   if(x.mode==="save"&&(x.confirmSave!==true||x.noDuplicateConfirmed!==true))
     return {ok:false,code:"SAVE_CONFIRM_REQUIRED"};
+  if(x.action==="oppo_quote_pair"){
+    const pair=validatePairPayload(x);
+    if(!pair.ok)return pair;
+    const price=opportunityPriceBreakdown(x);
+    if(!price.ok||price.netKrw!==x.amountKrw)
+      return {ok:false,code:"PAIRED_PRICE_TOTAL_MISMATCH"};
+    if(!String(x.progressDescription||"").includes(
+      x.unitPriceNetKrw.toLocaleString("en-US")+"KRW/sample"))
+      return {ok:false,code:"PAIRED_DESCRIPTION_PRICE_STALE"};
+    if(x.mode==="save"&&!x.processPriceReviewed)
+      return {ok:false,code:"PAIRED_PROCESS_PRICE_CONFIRM_REQUIRED"};
+    return {ok:true};
+  }
   if(x.action==="lead_convert"){
     if(!validId(x.leadId,"00Q")||!clean(x.accountName,150)||
        !clean(x.koreanName,100)||!clean(x.englishName,100)||
