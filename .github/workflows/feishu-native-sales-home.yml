@@ -7,6 +7,8 @@ on:
       - 'automation/feishu/test_sales_native_home.py'
       - 'automation/feishu/sort_sales_home.py'
       - 'automation/feishu/shortcut_chart_dashboards.py'
+      - 'automation/feishu/weekly_quote_live_chart.py'
+      - 'automation/feishu/test_weekly_quote_live_chart.py'
       - 'automation/feishu/weekly_quote_dashboard_layout.py'
       - 'automation/feishu/test_weekly_quote_dashboard_layout.py'
       - 'automation/feishu/monthly_revenue_dashboard_layout.py'
@@ -68,6 +70,7 @@ jobs:
           python3 -m unittest discover -s automation/feishu -p 'test_sales_native_home.py' -v
           python3 -m py_compile automation/feishu/sales_native_home.py automation/feishu/sort_sales_home.py automation/feishu/shortcut_chart_dashboards.py
           python3 -m unittest discover -s automation/feishu -p 'test_shortcut_chart_dashboards.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_live_chart.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_dashboard_layout.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_monthly_revenue_dashboard_layout.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_quote_dashboard_preview.py' -v

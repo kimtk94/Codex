@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/native_dashboard_cli.py'
+      - 'automation/feishu/weekly_quote_live_chart.py'
+      - 'automation/feishu/test_weekly_quote_live_chart.py'
       - 'automation/feishu/test_native_quote_combo.py'
       - 'automation/feishu/test_native_source_status.py'
       - 'automation/feishu/test_native_dashboard_layout.py'
@@ -51,6 +53,7 @@ jobs:
         run: |
           python3 -m py_compile automation/feishu/native_dashboard_cli.py
           python3 -m unittest discover -s automation/feishu -p 'test_native_quote_combo.py' -v
+          python3 -m unittest discover -s automation/feishu -p 'test_weekly_quote_live_chart.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_source_status.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_native_dashboard_layout.py' -v
           python3 -m unittest discover -s automation/feishu -p 'test_quote_chart_label_sync.py' -v

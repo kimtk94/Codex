@@ -76,7 +76,8 @@ def render(rows,link):
             "건 / 체크 제외 "+str(excluded)+"건"
         )
     headings.append("")
-    headings.append("편집 후 반영 여부는 Weekly Quote KPI의 다음 원천 동기화 결과로 확인합니다.")
+    headings.append("그래프는 원본 Quote Review의 합산 제외 체크를 직접 반영합니다. "
+                    "반면 이 읽기 전용 설명과 Weekly Quote KPI 집계표는 다음 데이터 동기화 시 갱신됩니다.")
     result=chr(10).join(headings)
     if len(result)>MAX_TEXT:
         raise SafeError("QUOTE_PREVIEW_TEXT_LIMIT_EXCEEDED")
