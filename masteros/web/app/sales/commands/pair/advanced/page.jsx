@@ -420,7 +420,7 @@ export default function PairedQuoteWeb(){
         </button>
         <button type="button" className={styles.secondary}
           data-testid="pair-save-readiness-check" onClick={()=>run("CHECK_SAVE_READINESS")}
-          disabled={!source.ok||!source.pricingReady||Boolean(busy)}>
+          disabled={!source.ok||Boolean(busy)}>
           {busy==="CHECK_SAVE_READINESS"?"Pack·가격·저장 준비 검증 중":"Oppo + Quote 통합 생성 준비 점검 (저장 없음)"}
         </button>
       </div>
