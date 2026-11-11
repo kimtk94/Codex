@@ -4,6 +4,7 @@
  * Historical converted USD is NEVER a verified KRW/sample price.
  */
 import {inferAmpliconReference,ampliconRegionUnits} from "./sfdc-amplicon-regions.mjs";
+import {closeDateOneMonthFromKst} from "./css-close-date.mjs";
 const s=v=>String(v??"").trim();
 const numeric=v=>/^\d+(?:\.\d+)?$/.test(s(v))?Number(v):null;
 const integer=v=>/^\d+$/.test(s(v))?Number(v):null;
@@ -126,7 +127,7 @@ export function fromFeishuQuote(detail,now=new Date()){
     qid:detail.qid,sourceQuoteId:s(detail.sfdc_record_id),
     // A selected existing Oppo/Quote is a near-clone by default.
     // Users edit only differences, while the new object has NO source ID reuse.
-    name:sourceProject,date:kstDate(now),products:labeled,
+    name:sourceProject,date:kstDate(now),closeDate:closeDateOneMonthFromKst(now),products:labeled,
     descriptionStatus:"Quote Draft",
     source:"FEISHU_REPORT_USD_CONVERTED_ONLY",
     sourceReceivedKst:s(detail.source_mail_received_kst),

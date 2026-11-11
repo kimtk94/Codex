@@ -15,11 +15,13 @@ DB=Path.home()/".sfdc_desktop"/"sfdc_feishu_quote_preclassified_PRIVATE.sqlite3"
 ACCOUNT=re.compile(r"^001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
 CONTACT=re.compile(r"^003[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
 
-def read_identity_index(query,limit=25,now=None,db=None):
-    if not isinstance(query,str) or not 1<=len(query.strip())<=80 or (
+def read_identity_index(query,limit=25,now=None,db=None,account_id=""):
+    if not isinstance(query,str) or (not query.strip() and not account_id) or len(query)>80 or (
         not isinstance(limit,int) or isinstance(limit,bool) or not 1<=limit<=25
     ):
         raise ValueError("IDENTITY_QUERY_INVALID")
+    if not isinstance(account_id,str) or (account_id and not ACCOUNT.fullmatch(account_id)):
+        raise ValueError("ACCOUNT_FILTER_INVALID")
     path=db or DB
     if not path.is_file():
         raise ValueError("IDENTITY_INDEX_NOT_AVAILABLE")
@@ -47,9 +49,10 @@ def read_identity_index(query,limit=25,now=None,db=None):
                       OR contact_name LIKE ? ESCAPE '\\'
                       OR contact_email LIKE ? ESCAPE '\\')
                  AND TRIM(account_name)!='' AND TRIM(contact_name)!=''
+                 AND (?='' OR account_id=?)
                ORDER BY CASE WHEN quote_record_id LIKE 'a0P%' THEN 0 ELSE 1 END,
                         qid DESC LIMIT 450""",
-            (pattern,pattern,pattern)).fetchall()
+            (pattern,pattern,pattern,account_id,account_id)).fetchall()
     finally:
         cx.close()
     out=[];distinct=set()
@@ -69,14 +72,16 @@ def read_identity_index(query,limit=25,now=None,db=None):
     return {
         "status":"PASS","rows":out,"source":"PRIVATE_FEISHU_QUOTE_REFERENCE_INDEX",
         "freshness":state,"indexed_at_utc":indexed.isoformat(),
+        "account_filter":account_id,
         "quote_count":expected,"salesforce_write":False,"local_only":True
     }
 
 def main():
     request=json.loads(sys.stdin.read(420))
-    if not isinstance(request,dict) or set(request)!={"query","limit"}:
+    if (not isinstance(request,dict) or set(request)-{"query","limit","accountId"} or
+        not {"query","limit"}.issubset(request)):
         raise ValueError("IDENTITY_FIELDS_INVALID")
-    payload=read_identity_index(request["query"],request["limit"])
+    payload=read_identity_index(request["query"],request["limit"],account_id=request.get("accountId",""))
     print(json.dumps(payload,ensure_ascii=False,separators=(",",":")))
 
 if __name__=="__main__":

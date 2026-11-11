@@ -61,3 +61,8 @@
 .selectedInfo p{margin:3px 0 0;font-size:11px;color:#657b73}
 .noRecords{grid-column:1/-1;padding:8px 4px;color:#72838b;font-size:12px}
 @media(max-width:690px){.recordList{grid-template-columns:1fr}.picker{padding:15px}}
+
+.tableWrap{overflow:auto;max-width:100%;border:1px solid #dce9ed;border-radius:9px;margin-top:7px}
+.tableWrap table{border-collapse:collapse;min-width:520px;width:100%;font-size:11px;background:white}
+.tableWrap th,.tableWrap td{padding:9px;border-bottom:1px solid #e5eef2;text-align:left;white-space:normal}
+.tableWrap th{background:#f3f9fb;color:#467184}

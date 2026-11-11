@@ -44,6 +44,8 @@ export default function LocalMailConsole(){
   const [priority,setPriority]=useState("ALL");
   const [leadState,setLeadState]=useState("ALL");
   const [leadGroup,setLeadGroup]=useState("ALL");
+  const [descriptionFilter,setDescriptionFilter]=useState("ALL");
+  const [expandedLead,setExpandedLead]=useState("");
   const [roleFilter,setRoleFilter]=useState("ALL");
   const [mailPage,setMailPage]=useState(0);
   const [leadPage,setLeadPage]=useState(0);
@@ -128,9 +130,10 @@ export default function LocalMailConsole(){
     const needle=q.trim().toLowerCase();
     return (data?.leads||[]).filter(r=>
       leadGroupMatches(r,leadGroup,leadState)&&
+      (descriptionFilter==="ALL"||r.descriptionStatus===descriptionFilter)&&
       (!needle||[r.id,r.institution,r.name,r.email,r.owner].some(x=>String(x||"").toLowerCase().includes(needle)))
     );
-  },[data,q,leadState,leadGroup]);
+  },[data,q,leadState,leadGroup,descriptionFilter]);
   function selectLeadGroup(next){
     setLeadGroup(next);setLeadState("ALL");setLeadPage(0);
   }
@@ -245,6 +248,7 @@ export default function LocalMailConsole(){
     requestReview(action);
   }
   const statuses=data?.leadStates||{};
+  const descriptionStates=data?.leadDescriptionStates||{};
   const pageButtons=(current,count,set)=>(
     <div className={styles.pager}>
       <button type="button" onClick={()=>set(Math.max(0,current-1))} disabled={current===0}>이전</button>
@@ -447,6 +451,24 @@ export default function LocalMailConsole(){
         </button>)}
       </div>
       <div className={styles.leadBreakdown}>
+        <span>Lead Description: <b>있음 {descriptionStates.HAS_DESCRIPTION??"—"}건</b> ·
+          <b> 없음 {descriptionStates.NO_DESCRIPTION??"—"}건</b> ·
+          <b> 확인 필요 {descriptionStates.UNKNOWN??"—"}건</b></span>
+      </div>
+      <div className={styles.leadDescriptionGroups} aria-label="Lead Description 유무 필터">
+        {[
+          {id:"ALL",label:"전체 Description"},
+          {id:"HAS_DESCRIPTION",label:"Description 있음 · 내용 검토"},
+          {id:"NO_DESCRIPTION",label:"Description 없음 · 공통 메일 초안"},
+          {id:"UNKNOWN",label:"Description 확인 필요"}
+        ].map(x=><button type="button" key={x.id}
+          data-testid={"lead-description-"+x.id}
+          aria-pressed={descriptionFilter===x.id}
+          onClick={()=>{setDescriptionFilter(x.id);setLeadPage(0);setExpandedLead("");}}>
+          {x.label} ({x.id==="ALL"?leadSummary.all:descriptionStates[x.id]??"—"})
+        </button>)}
+      </div>
+      <div className={styles.leadBreakdown}>
         <span>발송 이력 있음 {leadSummary.sent}건 중
           <b> 생성 후 발송 {leadSummary.sentAfter}건</b> ·
           <b> 생성 전만 발송 {leadSummary.sentBeforeOnly}건</b></span>
@@ -463,25 +485,42 @@ export default function LocalMailConsole(){
           </select></label>
       </div>
       <div className={styles.tableWrap}><table><thead><tr>
-        <th>Lead / 기관</th><th>Lead 이메일</th><th>생성일</th><th>발송 판정</th>
-        <th>생성 후 발송</th><th>최초 발송</th><th>최근 발송</th><th>To / CC</th>
+        <th>Lead / 기관</th><th>Lead 이메일</th><th>Lead 생성일</th><th>Description</th><th>발송 판정</th>
+        <th>생성 후 발송</th><th>내 최초 발송일</th><th>내 최근 발송일</th>
+        <th>생성 후 최초 발송일</th><th>To / CC</th>
       </tr></thead><tbody>{shownLeads.map(r=><tr key={r.id}>
         <td><b>{r.name||"이름 미확인"}</b><small className={styles.block}>{r.institution}</small>
           <small className={styles.block}>{r.id}</small></td>
-        <td>{r.email||"—"}</td><td className={styles.nowrap}>{r.created}</td>
+        <td>{r.email||"—"}</td><td className={styles.nowrap}>{r.created||"미확인"}</td>
+        <td>
+          {r.descriptionStatus==="HAS_DESCRIPTION"?<>
+            <button type="button" data-testid={"lead-description-open-"+r.id}
+              aria-expanded={expandedLead===r.id}
+              onClick={()=>setExpandedLead(prev=>prev===r.id?"":r.id)}>있음 · {expandedLead===r.id?"닫기":"내용 검토"}</button>
+            {expandedLead===r.id&&<pre className={styles.leadDescriptionText}>{r.description}</pre>}
+          </>:r.descriptionStatus==="NO_DESCRIPTION"?
+            <span className={styles.chip}>없음 · 공통 메일</span>:
+            <span className={styles.chip}>원본 확인 필요</span>}
+        </td>
         <td><span className={styles.chip}>{EVIDENCE[r.evidence]||r.evidence}</span>
           {leadOutboundGroup(r)==="NO_EVIDENCE"&&
             <small className={styles.block}>미발송 확정 아님 · 후속 확인 후보</small>}
           {leadOutboundGroup(r)==="REVIEW"&&
             <small className={styles.block}>증거 또는 날짜 검증 필요</small>}
         </td>
-        <td>{r.afterCount||"0"}건</td><td className={styles.nowrap}>{time(r.firstAfter||r.firstEver)}</td>
-        <td className={styles.nowrap}>{time(r.lastAfter||r.lastEver)}</td>
+        <td>{r.afterCount||"0"}건</td>
+        <td className={styles.nowrap}>{r.firstEver||"발송 기록 없음"}</td>
+        <td className={styles.nowrap}>{r.lastEver||"발송 기록 없음"}</td>
+        <td className={styles.nowrap}>{r.firstAfter||"생성 후 기록 없음"}</td>
         <td>{r.toCount||0} / {r.ccCount||0}</td>
       </tr>)}</tbody></table>
       {!shownLeads.length&&<p className={styles.empty}>
         {data?"선택한 발송 분류에 해당하는 Lead가 없습니다.":"Lead 원본을 불러오지 못했습니다."}
       </p>}</div>
+      <p className={styles.leadCaution}>
+        Description 있음 → 해당 내용을 검토해 고객별 초안을 작성합니다.
+        Description 없음 → 공통 메일 초안 대상입니다. 발송은 자동으로 실행하지 않으며 발송 전 개별 승인해야 합니다.
+      </p>
       <p className={styles.leadCaution}>‘내 발송 증거 없음’은 QQ 수집 범위에서 내 계정의 발신 메일이 확인되지 않았다는 뜻입니다.
         다른 계정·BCC·과거 미수집 메일이나 전화·방문 활동까지 포함한 미접촉 확정은 아닙니다.</p>
       {pageButtons(leadPage,leads.length,setLeadPage)}

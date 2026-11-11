@@ -7,6 +7,8 @@ import {recordToDraft,recordSelectionSummary} from "../../../lib/sfdc-record-pic
 import {buildPairDraft,derivePairPrice} from "../../../lib/sfdc-paired-clone.mjs";
 import {matchingIdentity} from "../../../lib/sfdc-identity-picker.mjs";
 import IdentityPicker from "./IdentityPicker";
+import {closeDateOneMonthFromKst} from "../../../lib/css-close-date.mjs";
+import {quoteProcessReview} from "../../../lib/css-quote-process-review.mjs";
 import styles from "./page.module.css";
 
 const common={confirmSave:false,noDuplicateConfirmed:false};
@@ -15,15 +17,15 @@ const initial={
   opportunity_create:{referenceOpportunityId:"",accountId:"",contactId:"",
     accountName:"",contactName:"",opportunityName:"",samples:1,
     amountKrw:0,unitPriceNetKrw:0,cloudUnits:0,cloudUnitNetKrw:0,
-    closeDate:"",progressDescription:"",service:"",dataSize:1,unit:"Gb",referenceAmea:""},
+    closeDate:closeDateOneMonthFromKst(),progressDescription:"",service:"",dataSize:1,unit:"Gb",referenceAmea:""},
   quote_create:{opportunityId:"",sourceQuoteId:"",quoteName:"",
     accountName:"",contactName:"",productCategory:"",productName:"",
     samples:1,dataSize:1,unit:"Gb",processNames:""},
 };
 const tabs=[
   {id:"lead_convert",name:"Lead Convert",caption:"기존 Account → Contact · Oppo 생성 안 함"},
-  {id:"opportunity_create",name:"Opportunity 생성",caption:"기존 Oppo 참조 · 새 Progress Description"},
-  {id:"quote_create",name:"Quote 생성",caption:"기존 제품만 · 가격 검증 우선"},
+  {id:"opportunity_create",name:"Oppo + Quote 통합 준비",caption:"기관·Contact·단가·Pack 검증 후 함께 생성"},
+  {id:"quote_create",name:"기존 Quote 단독 점검",caption:"레거시 수동 처리 · 통합 생성과 별개"},
 ];
 function Field({label,value,onChange,required=true,type="text",step,placeholder,disabled=false}){
   return <label className={styles.field}><span>{label}</span>
@@ -163,15 +165,19 @@ export default function SfdcCommandCenter(){
     setResult(null);setPreflight("");setConfirmed(false);setDedup(false);
   }
   function selectAccount(account){
-    if(!account?.name)return;
+    if(!account)return;
     setSelectedIdentity(null);
     reflectNewCustomer({
-      accountId:account.id||"",accountName:account.name,
+      accountId:account.id||"",accountName:account.name||"",
       contactId:"",contactName:""
     });
   }
   async function selectContact(pair){
     if(!pair?.ok||!pair.account?.name||!pair.contact?.name||loadingDetail||busy)return;
+    if(forms[tab]?.accountId&&forms[tab]?.accountId!==pair.account.id){
+      setResult({status:"BLOCK",code:"CONTACT_NOT_IN_SELECTED_ACCOUNT"});
+      return;
+    }
     if(tab==="quote_create"&&selectedRecord?.accountName&&
        selectedRecord.accountName!==pair.account.name){
       setResult({status:"BLOCK",code:"QUOTE_PARENT_ACCOUNT_MISMATCH"});
@@ -272,6 +278,7 @@ export default function SfdcCommandCenter(){
       const item=await response.json();
       if(!response.ok||item.status!=="PASS"||item.id!==id)throw Error(item.code||"DETAIL_UNAVAILABLE");
       const next=recordToDraft(resource,item,initial[tab]);
+      if(resource==="opportunity"&&next)next.closeDate=closeDateOneMonthFromKst();
       if(!next)throw Error("RECORD_MISMATCH");
       setForms(prev=>({...prev,[tab]:next}));
       setSelectedRecord(item);
@@ -334,6 +341,9 @@ export default function SfdcCommandCenter(){
         form.cloudUnitNetKrw!==pairProjection.cloudUnitNetKrw)){
       setResult({status:"BLOCK",code:"SOURCE_CLOUD_PRICE_MISMATCH"});return;
     }
+    if(mode==="save"&&tab==="opportunity_create"){
+      setResult({status:"BLOCK",code:"OPPO_ONLY_SAVE_BLOCKED_USE_PAIRED_FLOW"});return;
+    }
     if(mode==="save"&&!ready){
       setResult({status:"BLOCK",code:"PREFLIGHT_REQUIRED"});return;
     }
@@ -366,6 +376,8 @@ export default function SfdcCommandCenter(){
     }catch{setResult({status:"BLOCK",code:"PROGRESS_FIELDS_INCOMPLETE"});}
   }
   const currentOppoPricing=tab==="opportunity_create"?opportunityPriceBreakdown(form):null;
+  const processReview=useMemo(()=>pairedQuote?quoteProcessReview(pairedQuote,form.samples,form.dataSize):null,
+    [pairedQuote,form.samples,form.dataSize]);
   const totalGb=tab==="opportunity_create"&&form.unit==="Gb"?
     form.samples*form.dataSize:null;
   return <main className={styles.wrap}>
@@ -373,7 +385,7 @@ export default function SfdcCommandCenter(){
       <div><p className={styles.eyebrow}>SALES AUTOMATION</p>
         <h1>업무 실행</h1><p>입력 → 검증 → 실행 → 결과 확인</p></div>
       <div className={styles.navigation}>
-        <Link href="/sales/commands/pair">Oppo → Quote 통합 검증</Link>
+        <Link href="/sales/commands/pair">Oppo + Quote 통합 작성</Link>
         <Link href="/sales/projects">프로젝트</Link>
         <Link href="/sales/mail">메일 · Lead</Link>
         <button type="button" onClick={loadHealth} disabled={healthBusy}>{healthBusy?"점검 중":"Health Check"}</button>
@@ -458,7 +470,12 @@ export default function SfdcCommandCenter(){
               </div>}
               {pairedQuote&&!pairProjection?.ok&&<p className={styles.hint}>{pairProjection?.code||"PRICE_NOT_VERIFIED"}</p>}
             </div>
-            <p className={styles.hint}>기존 Oppo를 선택한 뒤 바꿀 값만 수정하세요. Progress Description은 원본에서 복제하지 않습니다.</p>
+            <p className={styles.hint}>기존 Oppo를 선택한 뒤 바꿀 값만 수정하세요.
+              Opportunity 단독 저장은 불완전한 견적 생성을 막기 위해 차단합니다.
+              Quote 공정·Pack·실제 KRW 가격을 확인한 뒤 통합 흐름에서 한 번에 처리해야 합니다.</p>
+            <Link className={styles.pairedLink} href="/sales/commands/pair">
+              통합 Oppo–Quote 작성 화면 열기
+            </Link>
             <button type="button" className={styles.subtle} onClick={()=>setAdvanced(x=>!x)}>
               {advanced?"고급 ID 편집 숨기기":"Account·Contact ID 편집"}
             </button>
@@ -484,8 +501,11 @@ export default function SfdcCommandCenter(){
                 value={form.unitPriceNetKrw||""} disabled={loadingDetail}
                 onChange={v=>update("unitPriceNetKrw",v)}
                 placeholder="예: 250000"/>
-              <Field label="Close Date" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
+              <Field label="Close Date · 오늘부터 1개월 후 (KST)" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
             </div>
+            <p className={styles.hint}>신규 Oppo와 Quote는 같은 이름으로 한 번에 준비합니다.
+              Close Date 기본값은 오늘 기준 한 달 후이며 필요하면 수정할 수 있습니다.
+              현재 단계는 Sample Expected(입고 예정)이며 실제 입고 완료가 아닙니다.</p>
             <div className={styles.selectedInfo} data-testid="oppo-unit-price-summary">
               <strong>샘플당 단가: {currentOppoPricing?.ok?
                 currentOppoPricing.unitPriceNetKrw.toLocaleString("ko-KR")+" KRW":"미확인"}</strong>
@@ -500,6 +520,26 @@ export default function SfdcCommandCenter(){
                 currentOppoPricing.vatKrw.toLocaleString("ko-KR")+" KRW":"—"}</span>
               {pairedQuote&&pairProjection?.ok&&form.unitPriceNetKrw!==pairProjection.unitPriceNetKrw&&
                 <p>기존 Quote와 단가가 달라졌습니다. Opportunity 금액과 Description은 새 단가를 사용하지만 Quote 공정 단가는 별도 검증이 필요합니다.</p>}
+            </div>
+            <div className={styles.selectedInfo} data-testid="oppo-quote-process-lines">
+              <strong>연결된 기존 Quote · 공정별 단가 및 Pack 검증</strong>
+              {processReview?.lines?.length?<div className={styles.tableWrap}>
+                <table><thead><tr>
+                  <th>Pack</th><th>포함 공정</th><th>단가 (KRW)</th><th>새 수량</th><th>공급가액 (KRW)</th>
+                </tr></thead><tbody>{processReview.lines.map((line,i)=><tr key={i}>
+                  <td>{line.packNo||"검토 필요"}</td>
+                  <td>{line.name}{line.isCloud?" · AliCloud (100 Gb당 1개)":""}</td>
+                  <td>{line.unitKrw.toLocaleString("ko-KR")}</td>
+                  <td>{line.quantity}</td>
+                  <td>{line.netKrw.toLocaleString("ko-KR")}</td>
+                </tr>)}</tbody></table>
+              </div>:<p>검증된 원본 Quote 공정 단가가 없습니다. 임의의 공정 단가는 생성하지 않습니다.</p>}
+              <p>Pack 검증: {processReview?.packStatus||"NOT_CHECKED"}
+                {processReview?.packStatus!=="PASS"?" · 원본 Pack과 동일 샘플 수 배정 확인 필요":""}</p>
+              {processReview?.netKrw!==undefined&&<p>공정별 공급가액 합계:
+                {processReview.netKrw.toLocaleString("ko-KR")} KRW (VAT 제외)</p>}
+              {pairedQuote&&form.unitPriceNetKrw!==pairProjection?.unitPriceNetKrw&&
+                <p>수동으로 바꾼 단가를 어떤 공정에 배분할지 검증 전입니다. Quote 최종 금액은 미확정입니다.</p>}
             </div>
             <Field label="참고 AMEA (선택)" required={false} value={form.referenceAmea} onChange={v=>update("referenceAmea",v)}/>
             {totalGb>0&&<p className={styles.hint}>AliCloud 필요 수량: {alicloudUnits(totalGb)}개 (100 Gb당 1개). 단가는 연결된 Quote에서 확인된 경우에만 합산합니다.</p>}

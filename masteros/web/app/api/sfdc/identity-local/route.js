@@ -55,8 +55,9 @@ export async function POST(request){
     if(raw.length>300)throw Error("INVALID_LENGTH");
     input=JSON.parse(raw);
     if(!input||Array.isArray(input)||typeof input!=="object"||
-       Object.keys(input).length!==2||Object.keys(input).some(k=>!["query","limit"].includes(k))||
-       typeof input.query!=="string"||!input.query.trim()||input.query.length>80||
+       Object.keys(input).length<2||Object.keys(input).length>3||Object.keys(input).some(k=>!["query","limit","accountId"].includes(k))||
+       typeof input.query!=="string"||(!input.query.trim()&&!input.accountId)||input.query.length>80||
+       (input.accountId!==undefined&&!/^001[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(input.accountId))||
        !Number.isInteger(input.limit)||input.limit<1||input.limit>25)
       throw Error("INVALID_QUERY");
   }catch{return reply({status:"BLOCK",code:"IDENTITY_QUERY_INVALID"},400)}
