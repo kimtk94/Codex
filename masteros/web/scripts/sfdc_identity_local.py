@@ -77,8 +77,8 @@ def read_identity_index(query,limit=25,now=None,db=None,account_id=""):
 
 def main():
     request=json.loads(sys.stdin.read(420))
-    if not isinstance(request,dict) or set(request)-{"query","limit","accountId"} or
-        not {"query","limit"}.issubset(request):
+    if (not isinstance(request,dict) or set(request)-{"query","limit","accountId"} or
+        not {"query","limit"}.issubset(request)):
         raise ValueError("IDENTITY_FIELDS_INVALID")
     payload=read_identity_index(request["query"],request["limit"],account_id=request.get("accountId",""))
     print(json.dumps(payload,ensure_ascii=False,separators=(",",":")))
