@@ -178,7 +178,9 @@
       "role": "target",
       "broad_sector": "TECH",
       "model_eligible": true,
-      "industry_pool": "ENTERPRISE_SOFTWARE_CLOUD"
+      "industry_pool": "ENTERPRISE_SOFTWARE_CLOUD",
+      "equity_ticker_first_trade": "2020-09-30",
+      "eligibility_source": "https://investors.palantir.com/news-details/2020/Palantir-to-Commence-Trading-on-NYSE-on-September-30-2020/"
     },
     {
       "symbol": "IONQ",
@@ -187,7 +189,9 @@
       "role": "target",
       "broad_sector": "TECH",
       "model_eligible": true,
-      "industry_pool": "QUANTUM_COMPUTING"
+      "industry_pool": "QUANTUM_COMPUTING",
+      "equity_ticker_first_trade": "2021-10-01",
+      "eligibility_source": "https://www.ionq.com/news/october-01-2021-ionq-listed-on-nyse"
     },
     {
       "symbol": "ORCL",
@@ -276,6 +280,7 @@
     "train_test": "Expanding walk-forward, sector and symbol groups trained only on earlier dates",
     "feature_coverage": "20/20 features pass through grouped PCA blocks with low-correlated residual full-rank group",
     "status_if_insufficient": "HOLD_INSUFFICIENT_DATA",
-    "live_promotion": false
+    "live_promotion": false,
+    "corporate_action_eligibility": "Remove pre-first-trading data before indicator warmup and proxy signal generation; SPAC predecessor history is not same-tradable ticker."
   }
 }
