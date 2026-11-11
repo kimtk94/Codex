@@ -78,6 +78,8 @@ jobs:
           print("HOLD_NO_VERIFIED_QQQ_BENCHMARK")
           PY
           fi
+      - name: Audit industry and stock overlay versus market-only factor model
+        run: python -m research.regime_countertrend.sector_ablation_v3 --out results/regime_countertrend/sector_v3/ablation
       - name: Public QLD QQQ temporal validation after 2026-09-04 (fail closed)
         run: python -m research.regime_countertrend.fresh_oos --out results/regime_countertrend/fresh_oos
       - name: Explain fresh signals by locked regime conditions
