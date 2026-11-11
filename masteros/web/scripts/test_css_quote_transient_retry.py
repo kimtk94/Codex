@@ -56,7 +56,7 @@ class QuoteLiveRetryTests(unittest.TestCase):
         edit.count.return_value=1
         edit.is_enabled.return_value=True
         dialog.last.locator.return_value.filter.return_value.first.wait_for.side_effect=ValueError("SOURCE_PROCESS_MATRIX_NOT_LOADED")
-        with self.assertRaisesRegex(ValueError,"SOURCE_PROCESS_MATRIX_NOT_LOADED"):
+        with self.assertRaisesRegex(ValueError,"SOURCE_PROCESS_MATRIX_NOT_UNIQUE"):
             quote_price_breakdown(page,"a0P000000000000AAA",8,6,100000)
         edit.click.assert_called_once_with(timeout=9500)
         self.assertEqual(page.goto.call_count,2)
