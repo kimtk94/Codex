@@ -267,7 +267,7 @@ export function draftDescription(draft,calc=calculateDraft(draft)){
     const rate=p.unitKrw===null?"단가 확인":money(p.unitKrw)+"KRW";
     return [service,gb,count,"* "+rate].filter(Boolean).join(" ");
   });
-  return [mmdd,status,lines.join(" / "),"Samples expected soon; sample receipt, QC and PO are not confirmed."].filter(Boolean).join(" ");
+  return [mmdd,status,lines.join(" / ")].filter(Boolean).join(" ");
 }
 export function descriptionReview(draft,text,manualBasis=null){
   const basis=descriptionBasis(draft);
