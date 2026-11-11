@@ -8,6 +8,7 @@ import SourceSalesforceEvidence from "./SourceSalesforceEvidence";
 import {applyVerifiedSource} from "../../../../lib/sfdc-source-identity.mjs";
 import {REGION_OPTIONS,regionByCode} from "../../../../lib/sfdc-amplicon-regions.mjs";
 import IdentityPicker from "../IdentityPicker";
+import {reportProcessComposition} from "../../../../lib/sfdc-quote-process-review.mjs";
 
 const money=value=>Number.isSafeInteger(value)?value.toLocaleString("ko-KR")+" KRW":"입력 필요";
 export default function ReportOppoDraft({quote,enabled=true}){
@@ -179,7 +180,13 @@ export default function ReportOppoDraft({quote,enabled=true}){
           <input aria-label="새 견적 날짜" type="date" value={draft.date}
             onChange={e=>edit("date",e.target.value)}/>
         </label>
+        <label>Opportunity Close Date · 오늘부터 한 달 뒤
+          <input aria-label="신규 Opportunity Close Date" type="date"
+            value={draft.closeDate||""} onChange={e=>edit("closeDate",e.target.value)}/>
+        </label>
       </div>
+      <p className={styles.hint}>샘플이 곧 입고될 예정이며 아직 입고·QC·PO는 확인되지 않았습니다.
+        Opportunity/Quote는 동일 이름, Coop TS Yoo Ji In, Pack 수량은 샘플 수 기준으로 검토합니다.</p>
       <p className={styles.hint}>기존 서비스·Product·Region 값이 확인되면 그대로 가져옵니다.
         변경된 부분만 수정하고, 기존 공정별 수량을 생물학적 샘플 수로 오해하지 않습니다.</p>
       {draft.products.map((p,i)=>{
@@ -259,10 +266,23 @@ export default function ReportOppoDraft({quote,enabled=true}){
                 </div>)}
               </>}
             </fieldset>}
-          <p className={styles.hint}>기존 공정 단가(환산 USD):
-            {" "}{p.processes.map(x=>x.name+" "+(x.sourceUnitUsd||"—")+
-              " USD/"+(x.dataUnit||"단위 미확인")).join(" · ")}
-          </p>
+          <div className={styles.output} data-testid={"report-process-inclusions-"+i}>
+            <strong>기존 Quote Report 포함 공정 · 샘플당 금액 구성</strong>
+            <p className={styles.hint}>참고 USD는 환산값입니다. 검증된 KRW 공정 단가가
+              아니므로 신규 KRW 단가로 자동 대체하지 않습니다.</p>
+            <div className={styles.tableScroll}><table><thead><tr>
+              <th>포함 공정</th><th>원본 단위</th><th>참고 USD 단가</th><th>신규 수량 기준</th>
+            </tr></thead><tbody>{reportProcessComposition(p).rows.map((row,j)=><tr key={j}>
+              <td>{row.name}</td><td>{row.dataUnit||"미확인"}</td>
+              <td>{row.sourceUnitUsd||"확인 필요"}</td>
+              <td>{row.quantityBasis==="100_GB"?"100 Gb당 1":
+                row.quantityBasis==="DATA_SIZE"?"Gb 기준":"샘플/Pack 확인"}</td>
+            </tr>)}</tbody></table></div>
+            <p className={styles.hint}>Pack 계획: 생물학적 샘플
+              {" "}{p.samples||"미확인"}개 → Pack 수량
+              {" "}{reportProcessComposition(p).pack.quantity??"확인 필요"}개.
+              원본 Pack No./Product 공정 할당 재확인 필요.</p>
+          </div>
           <div className={styles.totals}>
             <div><span>Oppo 샘플당 단가 · VAT 제외</span>
               <strong>{money(oppUnits.ok?oppUnits.products[i]?.unitPriceNetKrw:null)}</strong></div>
@@ -333,6 +353,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
         </p>}
         <p className={styles.hint}>
           이름: Opportunity = Quote · Account/Contact {draft.accountMode==="KEEP"?"기존 유지":"변경"}
+          {" · "}Close Date {draft.closeDate} · 샘플 입고 예정 · Pack 동일 샘플 수
           {" · "}기존 단가는 USD 참고값 · 실제 Salesforce Account/Contact 상태·KRW 가격 미검증
           {" · "}CRM 저장 금지
         </p>
