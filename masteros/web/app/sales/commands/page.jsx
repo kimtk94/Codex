@@ -7,6 +7,8 @@ import {recordToDraft,recordSelectionSummary} from "../../../lib/sfdc-record-pic
 import {buildPairDraft,derivePairPrice} from "../../../lib/sfdc-paired-clone.mjs";
 import {matchingIdentity} from "../../../lib/sfdc-identity-picker.mjs";
 import IdentityPicker from "./IdentityPicker";
+import {closeDateOneMonthFromKst} from "../../../lib/css-close-date.mjs";
+import {quoteProcessReview} from "../../../lib/css-quote-process-review.mjs";
 import styles from "./page.module.css";
 
 const common={confirmSave:false,noDuplicateConfirmed:false};
@@ -15,7 +17,7 @@ const initial={
   opportunity_create:{referenceOpportunityId:"",accountId:"",contactId:"",
     accountName:"",contactName:"",opportunityName:"",samples:1,
     amountKrw:0,unitPriceNetKrw:0,cloudUnits:0,cloudUnitNetKrw:0,
-    closeDate:"",progressDescription:"",service:"",dataSize:1,unit:"Gb",referenceAmea:""},
+    closeDate:closeDateOneMonthFromKst(),progressDescription:"",service:"",dataSize:1,unit:"Gb",referenceAmea:""},
   quote_create:{opportunityId:"",sourceQuoteId:"",quoteName:"",
     accountName:"",contactName:"",productCategory:"",productName:"",
     samples:1,dataSize:1,unit:"Gb",processNames:""},
@@ -276,6 +278,7 @@ export default function SfdcCommandCenter(){
       const item=await response.json();
       if(!response.ok||item.status!=="PASS"||item.id!==id)throw Error(item.code||"DETAIL_UNAVAILABLE");
       const next=recordToDraft(resource,item,initial[tab]);
+      if(resource==="opportunity"&&next)next.closeDate=closeDateOneMonthFromKst();
       if(!next)throw Error("RECORD_MISMATCH");
       setForms(prev=>({...prev,[tab]:next}));
       setSelectedRecord(item);
@@ -370,6 +373,8 @@ export default function SfdcCommandCenter(){
     }catch{setResult({status:"BLOCK",code:"PROGRESS_FIELDS_INCOMPLETE"});}
   }
   const currentOppoPricing=tab==="opportunity_create"?opportunityPriceBreakdown(form):null;
+  const processReview=useMemo(()=>pairedQuote?quoteProcessReview(pairedQuote,form.samples,form.dataSize):null,
+    [pairedQuote,form.samples,form.dataSize]);
   const totalGb=tab==="opportunity_create"&&form.unit==="Gb"?
     form.samples*form.dataSize:null;
   return <main className={styles.wrap}>
@@ -488,8 +493,11 @@ export default function SfdcCommandCenter(){
                 value={form.unitPriceNetKrw||""} disabled={loadingDetail}
                 onChange={v=>update("unitPriceNetKrw",v)}
                 placeholder="예: 250000"/>
-              <Field label="Close Date" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
+              <Field label="Close Date · 오늘부터 1개월 후 (KST)" type="date" value={form.closeDate} onChange={v=>update("closeDate",v)}/>
             </div>
+            <p className={styles.hint}>신규 Oppo와 Quote는 같은 이름으로 한 번에 준비합니다.
+              Close Date 기본값은 오늘 기준 한 달 후이며 필요하면 수정할 수 있습니다.
+              현재 단계는 Sample Expected(입고 예정)이며 실제 입고 완료가 아닙니다.</p>
             <div className={styles.selectedInfo} data-testid="oppo-unit-price-summary">
               <strong>샘플당 단가: {currentOppoPricing?.ok?
                 currentOppoPricing.unitPriceNetKrw.toLocaleString("ko-KR")+" KRW":"미확인"}</strong>
@@ -504,6 +512,26 @@ export default function SfdcCommandCenter(){
                 currentOppoPricing.vatKrw.toLocaleString("ko-KR")+" KRW":"—"}</span>
               {pairedQuote&&pairProjection?.ok&&form.unitPriceNetKrw!==pairProjection.unitPriceNetKrw&&
                 <p>기존 Quote와 단가가 달라졌습니다. Opportunity 금액과 Description은 새 단가를 사용하지만 Quote 공정 단가는 별도 검증이 필요합니다.</p>}
+            </div>
+            <div className={styles.selectedInfo} data-testid="oppo-quote-process-lines">
+              <strong>연결된 기존 Quote · 공정별 단가 및 Pack 검증</strong>
+              {processReview?.lines?.length?<div className={styles.tableWrap}>
+                <table><thead><tr>
+                  <th>Pack</th><th>포함 공정</th><th>단가 (KRW)</th><th>새 수량</th><th>공급가액 (KRW)</th>
+                </tr></thead><tbody>{processReview.lines.map((line,i)=><tr key={i}>
+                  <td>{line.packNo||"검토 필요"}</td>
+                  <td>{line.name}{line.isCloud?" · AliCloud (100 Gb당 1개)":""}</td>
+                  <td>{line.unitKrw.toLocaleString("ko-KR")}</td>
+                  <td>{line.quantity}</td>
+                  <td>{line.netKrw.toLocaleString("ko-KR")}</td>
+                </tr>)}</tbody></table>
+              </div>:<p>검증된 원본 Quote 공정 단가가 없습니다. 임의의 공정 단가는 생성하지 않습니다.</p>}
+              <p>Pack 검증: {processReview?.packStatus||"NOT_CHECKED"}
+                {processReview?.packStatus!=="PASS"?" · 원본 Pack과 동일 샘플 수 배정 확인 필요":""}</p>
+              {processReview?.netKrw!==undefined&&<p>공정별 공급가액 합계:
+                {processReview.netKrw.toLocaleString("ko-KR")} KRW (VAT 제외)</p>}
+              {pairedQuote&&form.unitPriceNetKrw!==pairProjection?.unitPriceNetKrw&&
+                <p>수동으로 바꾼 단가를 어떤 공정에 배분할지 검증 전입니다. Quote 최종 금액은 미확정입니다.</p>}
             </div>
             <Field label="참고 AMEA (선택)" required={false} value={form.referenceAmea} onChange={v=>update("referenceAmea",v)}/>
             {totalGb>0&&<p className={styles.hint}>AliCloud 필요 수량: {alicloudUnits(totalGb)}개 (100 Gb당 1개). 단가는 연결된 Quote에서 확인된 경우에만 합산합니다.</p>}
