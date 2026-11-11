@@ -230,7 +230,7 @@ test("Actual short one-line SFDC style with mRNA service and optional Gb",()=>{
   draft.products[0].sampleUnitKrw="250000";
   assert.equal(draft.products[0].serviceLabel,"mRNA-Seq");
   assert.equal(draftDescription(draft),
-    "1110 Quote Draft mRNA-Seq 6Gb 12 samples * 250,000KRW");
+    "1110 Quote Draft mRNA-Seq 6Gb 12 samples * 250,000KRW Samples expected soon; sample receipt, QC and PO are not confirmed.");
   assert.equal(draftPreflight({...draft,description:draftDescription(draft)}).status,
     "PREVIEW_READY");
   assert.doesNotMatch(draftDescription(draft),/Issued|VAT|Reference Quote|Account/);
@@ -244,7 +244,7 @@ test("Report without a Gb-unit process must not insert an unsupported Gb",()=>{
   draft.products[0].samples="4";
   draft.products[0].sampleUnitKrw="180000";
   assert.equal(draftDescription(draft),
-    "1110 Quote Draft WGS 4 samples * 180,000KRW");
+    "1110 Quote Draft WGS 4 samples * 180,000KRW Samples expected soon; sample receipt, QC and PO are not confirmed.");
 });
 
 test("Issued state cannot pass preflight without actual issued evidence",()=>{
