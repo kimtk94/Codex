@@ -1,0 +1,25 @@
+name: Feishu Sales Home View Filter Audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - automation/feishu/feishu_sales_home_view_audit.py
+      - .github/workflows/feishu-sales-home-view-audit.yml
+permissions:
+  contents: read
+jobs:
+  audit:
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Audit only view metadata and menu keys
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: python3 automation/feishu/feishu_sales_home_view_audit.py
