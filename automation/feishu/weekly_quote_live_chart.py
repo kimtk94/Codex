@@ -42,6 +42,8 @@ def config():
     }
 
 def plain(x):
+    if isinstance(x,(int,float,Decimal)) and not isinstance(x,bool):
+        return str(x)
     return plain_field(x).strip() if x is not None else ""
 
 def dec(x):
