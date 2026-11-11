@@ -135,9 +135,30 @@ def verify_components(dashboard_id,expected,allow_create):
     after=cli("+dashboard-block-list","--base-token",BASE,
               "--dashboard-id",dashboard_id)
     final=blocks_by_name(after)
-    for name,kind,_ in expected:
+    for name,kind,config in expected:
         if name not in final or final[name].get("type")!=kind:
             raise RuntimeError("CHART_SHORTCUT_WIDGET_READBACK_MISMATCH")
+        # The current Weekly Quote panel already embeds the editable Grid URL
+        # in the chart's note (no extra duplicate widget required). Verify the
+        # persisted native widget content, not merely the widget name/type.
+        if kind=="text" and isinstance(config,dict) and (
+                "실제 Quote 목록 보기" in config.get("text","")):
+            expected_text=config["text"]
+            expected_url=expected_text.split("](",1)[-1].split(")",1)[0]
+            block_id=final[name].get("block_id") or final[name].get("id")
+            snapshot=cli("+dashboard-block-get","--base-token",BASE,
+                         "--dashboard-id",dashboard_id,"--block-id",block_id)
+            fields=[node.get("data_config") for node in collect(snapshot)
+                    if isinstance(node.get("data_config"),(dict,str))]
+            def stored_text(obj):
+                if isinstance(obj,str):
+                    try:obj=json.loads(obj)
+                    except json.JSONDecodeError:return ""
+                return str(obj.get("text","")) if isinstance(obj,dict) else ""
+            if not expected_url or not any(
+                    expected_url in stored_text(item) for item in fields):
+                raise RuntimeError("CHART_SHORTCUT_EDITABLE_LINK_READBACK_FAILED")
+            print("CHART_SHORTCUT_EDITABLE_LIST_LINK_READBACK_PASS",flush=True)
     return created
 
 

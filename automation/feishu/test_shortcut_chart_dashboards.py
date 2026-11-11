@@ -48,6 +48,33 @@ class ChartShortcutTests(unittest.TestCase):
             updates=[c for c in cli.call_args_list if c.args[0]=="+dashboard-block-update"]
             self.assertEqual(len(updates),2)
 
+    def test_existing_weekly_editor_link_readback_passes_without_duplicate_widget(self):
+        url="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblReview&view=vewFive"
+        components=s.expected_components(
+            s.CHARTS[1][3],s.CHARTS[1][4],"combo","Weekly Quote Review",url)
+        self.assertEqual(len(components),2)
+        existing={"items":[{"name":name,"type":kind,"block_id":"cht"+str(i)}
+                           for i,(name,kind,_) in enumerate(components)]}
+        stored={"block":{"name":components[1][0],"type":"text",
+                         "data_config":components[1][2]}}
+        with mock.patch.object(s,"cli",side_effect=[
+                existing,{"ok":True},{"ok":True},existing,stored]) as cli:
+            self.assertEqual(s.verify_components("blkWeek",components,True),0)
+        self.assertEqual(cli.call_count,5)
+
+    def test_existing_weekly_editor_link_wrong_readback_blocks(self):
+        url="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblReview&view=vewFive"
+        components=s.expected_components(
+            s.CHARTS[1][3],s.CHARTS[1][4],"combo","Weekly Quote Review",url)
+        existing={"items":[{"name":name,"type":kind,"block_id":"cht"+str(i)}
+                           for i,(name,kind,_) in enumerate(components)]}
+        stored={"block":{"name":components[1][0],"type":"text",
+                         "data_config":{"text":"No editor link"}}}
+        with mock.patch.object(s,"cli",side_effect=[
+                existing,{"ok":True},{"ok":True},existing,stored]):
+            with self.assertRaisesRegex(RuntimeError,"EDITABLE_LINK_READBACK_FAILED"):
+                s.verify_components("blkWeek",components,True)
+
     def test_identity_and_types_fail_closed(self):
         with mock.patch.object(s,"cli",return_value={"items":[
             {"name":s.CHARTS[0][3],"type":"table","block_id":"cht001"}]}):
