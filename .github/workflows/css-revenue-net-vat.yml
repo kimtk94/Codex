@@ -29,7 +29,7 @@ jobs:
         working-directory: automation/css_mail
         run: |
           python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-          python -m unittest -v test_revenue_net_vat_publish test_revenue_lifecycle_monthly
+          python -m unittest -v test_project_lifecycle_chain test_revenue_net_vat_publish test_revenue_lifecycle_monthly
   publish:
     needs: verify
     if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
@@ -47,9 +47,12 @@ jobs:
           python-version: '3.12'
       - name: Install private Sheets client
         run: python -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      # Source must be rebuilt from the latest original invoice notices first.
-      # Otherwise a November invoice newly received on 11/06 conflicts with
-      # a lifecycle snapshot built on 11/05, and net Revenue remains frozen.
+      # Refresh project-level issued J/X identities before recomputing
+      # monthly Invoice/Pending: a newly issued invoice must not remain
+      # an open Statement in a stale project snapshot. Source freshness
+      # guard in this script fails closed if QQ/Feishu is not current.
+      - name: Refresh project lifecycle from current QQ invoices and statements
+        run: python automation/css_mail/project_lifecycle_refresh.py
       - name: Reconcile current issued Invoice lifecycle from original CSS receipts
         run: python automation/css_mail/revenue_lifecycle_monthly.py
       - name: Publish only VAT-excluded derived Revenue tab after source parity
