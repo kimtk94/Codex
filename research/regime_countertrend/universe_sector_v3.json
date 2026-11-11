@@ -1,0 +1,281 @@
+{
+  "version": "kalman-sector-hierarchy-v3-20261111",
+  "research_only": true,
+  "live_trading_changes": false,
+  "source": "Previously agreed October 30 cross-asset watchlist plus four follow-up US comparators ORCL INTC CRM AMAT.",
+  "methodology": "Industry labels are manual research cohorts, not canonical point-in-time GICS classifications. Verify historical classification and membership before inferential release.",
+  "stock_target_count": 10,
+  "stock_auxiliary_count": 4,
+  "us_etf_count": 10,
+  "crypto_count": 4,
+  "universe": [
+    {
+      "symbol": "QQQ",
+      "asset_class": "ETF",
+      "industry": "NASDAQ_BENCHMARK",
+      "role": "market_benchmark",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "QLD",
+      "asset_class": "ETF",
+      "industry": "NASDAQ_LEVERAGED_2X",
+      "role": "leveraged_context",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "SPY",
+      "asset_class": "ETF",
+      "industry": "BROAD_US_EQUITY",
+      "role": "market_context",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "SMH",
+      "asset_class": "ETF",
+      "industry": "SEMICONDUCTOR_INDEX",
+      "role": "sector_context",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "IWM",
+      "asset_class": "ETF",
+      "industry": "US_SMALL_CAP",
+      "role": "market_context",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "TQQQ",
+      "asset_class": "ETF",
+      "industry": "NASDAQ_LEVERAGED_3X",
+      "role": "leveraged_context",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "SQQQ",
+      "asset_class": "ETF",
+      "industry": "NASDAQ_INVERSE_3X",
+      "role": "inverse_context",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "TLT",
+      "asset_class": "ETF",
+      "industry": "US_DURATION",
+      "role": "macro_context",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "HYG",
+      "asset_class": "ETF",
+      "industry": "US_HIGH_YIELD",
+      "role": "macro_context",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "GLD",
+      "asset_class": "ETF",
+      "industry": "GOLD",
+      "role": "macro_context",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "NVDA",
+      "asset_class": "STOCK",
+      "industry": "SEMICONDUCTORS",
+      "role": "target",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "SEMICONDUCTORS"
+    },
+    {
+      "symbol": "TSLA",
+      "asset_class": "STOCK",
+      "industry": "AUTOMOTIVE_EV",
+      "role": "target",
+      "broad_sector": "CONSUMER",
+      "model_eligible": true,
+      "industry_pool": "AUTOMOTIVE_EV"
+    },
+    {
+      "symbol": "AMD",
+      "asset_class": "STOCK",
+      "industry": "SEMICONDUCTORS",
+      "role": "target",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "SEMICONDUCTORS"
+    },
+    {
+      "symbol": "AAPL",
+      "asset_class": "STOCK",
+      "industry": "TECH_HARDWARE",
+      "role": "target",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "TECH_HARDWARE"
+    },
+    {
+      "symbol": "MSFT",
+      "asset_class": "STOCK",
+      "industry": "ENTERPRISE_SOFTWARE_CLOUD",
+      "role": "target",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "ENTERPRISE_SOFTWARE_CLOUD"
+    },
+    {
+      "symbol": "AMZN",
+      "asset_class": "STOCK",
+      "industry": "ECOMMERCE_CLOUD",
+      "role": "target",
+      "broad_sector": "CONSUMER",
+      "model_eligible": true,
+      "industry_pool": "ECOMMERCE_CLOUD"
+    },
+    {
+      "symbol": "META",
+      "asset_class": "STOCK",
+      "industry": "DIGITAL_ADVERTISING",
+      "role": "target",
+      "broad_sector": "COMMUNICATION",
+      "model_eligible": true,
+      "industry_pool": "DIGITAL_ADVERTISING"
+    },
+    {
+      "symbol": "MU",
+      "asset_class": "STOCK",
+      "industry": "SEMICONDUCTORS",
+      "role": "target",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "SEMICONDUCTORS"
+    },
+    {
+      "symbol": "PLTR",
+      "asset_class": "STOCK",
+      "industry": "ENTERPRISE_SOFTWARE_CLOUD",
+      "role": "target",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "ENTERPRISE_SOFTWARE_CLOUD"
+    },
+    {
+      "symbol": "IONQ",
+      "asset_class": "STOCK",
+      "industry": "QUANTUM_COMPUTING",
+      "role": "target",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "QUANTUM_COMPUTING"
+    },
+    {
+      "symbol": "ORCL",
+      "asset_class": "STOCK",
+      "industry": "ENTERPRISE_SOFTWARE_CLOUD",
+      "role": "auxiliary_comparison",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "ENTERPRISE_SOFTWARE_CLOUD"
+    },
+    {
+      "symbol": "INTC",
+      "asset_class": "STOCK",
+      "industry": "SEMICONDUCTORS",
+      "role": "auxiliary_comparison",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "SEMICONDUCTORS"
+    },
+    {
+      "symbol": "CRM",
+      "asset_class": "STOCK",
+      "industry": "ENTERPRISE_SOFTWARE_CLOUD",
+      "role": "auxiliary_comparison",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "ENTERPRISE_SOFTWARE_CLOUD"
+    },
+    {
+      "symbol": "AMAT",
+      "asset_class": "STOCK",
+      "industry": "SEMICONDUCTORS",
+      "role": "auxiliary_comparison",
+      "broad_sector": "TECH",
+      "model_eligible": true,
+      "industry_pool": "SEMICONDUCTORS"
+    },
+    {
+      "symbol": "KRW-BTC",
+      "asset_class": "CRYPTO",
+      "industry": "BTC",
+      "role": "separate_crypto_pipeline",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "KRW-ETH",
+      "asset_class": "CRYPTO",
+      "industry": "ETH",
+      "role": "separate_crypto_pipeline",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "KRW-XRP",
+      "asset_class": "CRYPTO",
+      "industry": "XRP",
+      "role": "separate_crypto_pipeline",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    },
+    {
+      "symbol": "KRW-SOL",
+      "asset_class": "CRYPTO",
+      "industry": "SOL",
+      "role": "separate_crypto_pipeline",
+      "broad_sector": null,
+      "model_eligible": false,
+      "industry_pool": null
+    }
+  ],
+  "model_rules": {
+    "price_data": "Public Yahoo daily OHLCV, verified date coverage and adjusted-price basis; report source failure by symbol",
+    "risk_layers": [
+      "market_QQQ",
+      "industry_group_if_2plus_and_sufficient_training",
+      "stock_specific_if_sufficient_training"
+    ],
+    "no_industry_pool_for_singleton": true,
+    "funds_are_not_pooled_with_equities": true,
+    "inverse_or_leveraged_etfs_not_train_as_stock_targets": true,
+    "crypto_is_separate_currency_and_exchange_context": true,
+    "train_test": "Expanding walk-forward, sector and symbol groups trained only on earlier dates",
+    "feature_coverage": "20/20 features pass through grouped PCA blocks with low-correlated residual full-rank group",
+    "status_if_insufficient": "HOLD_INSUFFICIENT_DATA",
+    "live_promotion": false
+  }
+}
