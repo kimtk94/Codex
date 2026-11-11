@@ -80,6 +80,36 @@ jobs:
           fi
       - name: Audit industry and stock overlay versus market-only factor model
         run: python -m research.regime_countertrend.sector_ablation_v3 --out results/regime_countertrend/sector_v3/ablation
+      - name: Hard gate all model features and all public US market symbols
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          root=Path("results/regime_countertrend")
+          source=json.loads((root/"universe_v3_prices/source_inventory.json").read_text())
+          sector=json.loads((root/"sector_v3/status.json").read_text())
+          feature=json.loads((root/"cfm_v3_coverage/feature_coverage.json").read_text())
+          rows=pd.read_csv(root/"sector_v3/per_symbol_20_feature_coverage.csv")
+          failures=[]
+          if source.get("status")!="PASS" or source.get("stock_success")!=14 or source.get("etf_success")!=10:
+              failures.append("US_SYMBOL_SOURCE_NOT_COMPLETE")
+          if len(rows)!=280 or set(rows.status)!={"VALID"} or rows.symbol.nunique()!=14 or rows.feature.nunique()!=20:
+              failures.append("PER_SYMBOL_FEATURE_COVERAGE_NOT_FULL")
+          if feature.get("model_input_coverage")!=20 or feature.get("omitted_features"):
+              failures.append("PCA_20_FEATURE_ACCOUNTABILITY_FAILED")
+          if sector.get("indicator_features_used")!=20 or sector.get("evaluated_events",0)<100:
+              failures.append("SECTOR_HIERARCHY_EVALUATION_INSUFFICIENT")
+          if sector.get("promotion_allowed") is not False:
+              failures.append("UNSAFE_LIVE_PROMOTION_FLAG")
+          print(json.dumps({"status":"PASS_SOURCE_AND_FEATURES" if not failures else "BLOCK",
+              "stock_symbols":source.get("stock_success"),"etfs":source.get("etf_success"),
+              "feature_rows":len(rows),"evaluated":sector.get("evaluated_events",0),
+              "reasons":failures}))
+          if failures:
+              raise SystemExit("SOURCE_OR_FEATURE_GATE_BLOCK: "+",".join(failures))
+          PY
       - name: Public QLD QQQ temporal validation after 2026-09-04 (fail closed)
         run: python -m research.regime_countertrend.fresh_oos --out results/regime_countertrend/fresh_oos
       - name: Explain fresh signals by locked regime conditions
