@@ -74,6 +74,14 @@ def expected_components(chart_name,note_name,kind,source,detail_url=None,preview
             "수동 체크를 해제하면 다시 포함되며, Inactive는 체크를 해제해도 합산되지 않습니다.\n\n"
             +note_config["text"]
         )
+    if kind=="line" and source=="Monthly Tax Invoice":
+        note_config=dict(note_config)
+        note_config["text"]=(
+            "Invoice 개별 원장: 00 영업 홈 → 월별 Revenue 행 → "
+            "'Invoice 원장 검토 · 매출 확정 아님'. "
+            "개별 원장은 검토용이며 월별 Revenue 확정 금액과의 원천 대조 전에는 "
+            "매출에 직접 합산하지 마십시오.\\n\\n"
+            +note_config["text"])
     components=((chart_name,kind,chart_config),(note_name,"text",note_config))
     if kind=="line" and source=="Monthly Tax Invoice":
         # Native ranking block: real, source-backed months. Its rows are
