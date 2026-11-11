@@ -10,6 +10,7 @@ import sys
 
 from feishu_sfdc_local_worker import prepare_pair, process
 from sfdc_pair_readback import read_live_saved_pair
+from sfdc_quote_edit_probe import probe_source_edit_controls
 
 MAX_INPUT = 5000
 ID_RE = {
@@ -38,7 +39,7 @@ def validate_input(req):
     if not isinstance(req, dict) or isinstance(req, list):
         raise ValueError("INVALID_REQUEST")
     mode = req.get("mode")
-    if mode not in ("CHECK_PRICE", "CHECK_FORMS", "CHECK_READBACK", "CHECK_SAVE_READINESS"):
+    if mode not in ("CHECK_PRICE", "CHECK_FORMS", "CHECK_READBACK", "CHECK_SAVE_READINESS", "CHECK_WRITE_CONTROLS"):
         raise ValueError("READ_ONLY_MODE_REQUIRED")
     if req.get("runMode") not in (None, "CHECK"):
         raise ValueError("SAVE_NOT_SUPPORTED")
@@ -81,6 +82,18 @@ def validate_input(req):
     }
 
 
+def run_source_control_probe(source_quote_id, pack, gb):
+    """Short-lived read-only UI source probe, independently cancelled/read back."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser=pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=10000)
+        page=browser.contexts[0].new_page()
+        try:
+            return probe_source_edit_controls(page,source_quote_id,pack,None,gb)
+        finally:
+            page.close()
+
+
 def run(req):
     try:
         parsed = validate_input(req)
@@ -99,6 +112,47 @@ def run(req):
             "save_permitted": False,
         }
     prepared = prepare_pair(x)
+    if mode == "CHECK_WRITE_CONTROLS":
+        if prepared.get("status")!="READY":
+            return {"status":"HOLD",
+              "code":prepared.get("code") or "SOURCE_PRICE_UNVERIFIED",
+              "readiness":{"source_price":"HOLD","source_pack":"NOT_CHECKED",
+                           "source_edit_controls":"NOT_CHECKED",
+                           "quote_writer":"UNVERIFIED","new_quote_readback":"NOT_TESTED"},
+              "salesforce_write":False,"save_permitted":False}
+        pack=prepared.get("sourcePackEvidence") or {}
+        if pack.get("state")!="PASS":
+            return {"status":"HOLD","code":pack.get("code") or "SOURCE_PACK_UNVERIFIED",
+              "pack":pack,"pricing":prepared.get("price_fields") or {},
+              "readiness":{"source_price":"PASS","source_pack":"HOLD",
+                           "source_edit_controls":"NOT_CHECKED",
+                           "quote_writer":"UNVERIFIED","new_quote_readback":"NOT_TESTED"},
+              "salesforce_write":False,"save_permitted":False}
+        try:
+            result=run_source_control_probe(
+                x["Source Quote ID"],pack,float(x["Data Size Gb"]))
+        except Exception as exc:
+            code=str(exc) if isinstance(exc,ValueError) and re.fullmatch(r"[A-Z0-9_]{5,100}",str(exc)) else "SOURCE_EDIT_PROBE_UI_UNAVAILABLE"
+            return {"status":"HOLD","code":code,
+              "pack":pack,"pricing":prepared.get("price_fields") or {},
+              "readiness":{"source_price":"PASS","source_pack":"PASS",
+                           "source_edit_controls":"HOLD",
+                           "quote_writer":"UNVERIFIED","new_quote_readback":"NOT_TESTED"},
+              "salesforce_write":False,"save_permitted":False}
+        checked=result.get("checks") or {}
+        controls_ok=(result.get("status")=="PASS" and
+            all(checked.get(k)=="PASS" for k in (
+              "source_price_matrix","source_unit_price_controls",
+              "source_cloud_qty_control","source_cancel","source_original_unchanged")))
+        return {"status":"HOLD","code":
+            "SOURCE_EDIT_PROBE_PASS_NEW_QUOTE_WRITER_NOT_VERIFIED" if controls_ok
+            else "SOURCE_EDIT_PROBE_EVIDENCE_INCOMPLETE",
+            "pack":pack,"pricing":prepared.get("price_fields") or {},
+            "sourceControls":result,
+            "readiness":{"source_price":"PASS","source_pack":"PASS",
+                         "source_edit_controls":"PASS" if controls_ok else "HOLD",
+                         "quote_writer":"UNVERIFIED","new_quote_readback":"NOT_TESTED"},
+            "salesforce_write":False,"save_permitted":False}
     if mode == "CHECK_SAVE_READINESS" and prepared.get("status") != "READY":
         return {
             "status": "HOLD",

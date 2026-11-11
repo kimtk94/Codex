@@ -60,7 +60,7 @@ export async function POST(request){
     if(raw.length>5000)throw Error("REQUEST_TOO_LARGE");
     input=JSON.parse(raw);
     if(!input||typeof input!=="object"||Array.isArray(input)||
-       !["CHECK_PRICE","CHECK_FORMS","CHECK_READBACK","CHECK_SAVE_READINESS"].includes(input.mode)||
+       !["CHECK_PRICE","CHECK_FORMS","CHECK_READBACK","CHECK_SAVE_READINESS","CHECK_WRITE_CONTROLS"].includes(input.mode)||
        (input.runMode && input.runMode!=="CHECK"))
       return respond({status:"BLOCK",code:"READ_ONLY_MODE_REQUIRED"},400);
   }catch{return respond({status:"BLOCK",code:"INVALID_JSON"},400);}

@@ -49,6 +49,7 @@ on:
       - 'masteros/web/app/sales/commands/pair/ReportOppoDraft.jsx'
       - 'masteros/web/tests/sfdc-pair-workspace.test.mjs'
       - 'masteros/web/tests/sfdc-pair-commit-readiness.test.mjs'
+      - 'masteros/web/tests/sfdc-quote-edit-probe.test.mjs'
       - 'masteros/web/app/api/sfdc/pair-check-local/**'
       - 'masteros/web/app/sales/commands/pair/**'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
@@ -56,6 +57,8 @@ on:
       - 'masteros/web/scripts/test_sfdc_single_service_cloud.py'
       - 'masteros/web/scripts/test_sfdc_record_catalog.py'
       - 'masteros/web/scripts/test_sfdc_quote_modal_pack.py'
+      - 'masteros/web/scripts/sfdc_quote_edit_probe.py'
+      - 'masteros/web/scripts/test_sfdc_quote_edit_probe.py'
       - 'masteros/web/lib/sfdc-record-picker.mjs'
       - 'masteros/web/app/api/sfdc/records-local/**'
       - 'masteros/web/tests/sfdc-record-picker.test.mjs'
@@ -121,6 +124,7 @@ on:
       - 'masteros/web/app/sales/commands/pair/ReportOppoDraft.jsx'
       - 'masteros/web/tests/sfdc-pair-workspace.test.mjs'
       - 'masteros/web/tests/sfdc-pair-commit-readiness.test.mjs'
+      - 'masteros/web/tests/sfdc-quote-edit-probe.test.mjs'
       - 'masteros/web/app/api/sfdc/pair-check-local/**'
       - 'masteros/web/app/sales/commands/pair/**'
       - 'masteros/web/lib/sfdc-paired-clone.mjs'
@@ -128,6 +132,8 @@ on:
       - 'masteros/web/scripts/test_sfdc_single_service_cloud.py'
       - 'masteros/web/scripts/test_sfdc_record_catalog.py'
       - 'masteros/web/scripts/test_sfdc_quote_modal_pack.py'
+      - 'masteros/web/scripts/sfdc_quote_edit_probe.py'
+      - 'masteros/web/scripts/test_sfdc_quote_edit_probe.py'
       - 'masteros/web/lib/sfdc-record-picker.mjs'
       - 'masteros/web/app/api/sfdc/records-local/**'
       - 'masteros/web/tests/sfdc-record-picker.test.mjs'
@@ -182,6 +188,7 @@ jobs:
           python3 -m unittest discover -s scripts -p test_sfdc_pair_readback.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_pair_web_preview.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_pair_commit_readiness.py -v
+          python3 -m unittest discover -s scripts -p test_sfdc_quote_edit_probe.py -v
           python3 -m py_compile scripts/sfdc_product_line_registry.py scripts/sfdc_pair_cache.py
           python3 -m unittest discover -s scripts -p test_sfdc_pair_cache.py -v
           python3 -m unittest discover -s scripts -p test_sfdc_quote_report_sheet.py -v
@@ -206,7 +213,7 @@ jobs:
       - name: Validate linked Quote price and Cloud quantity projection
         run: node --test tests/sfdc-paired-clone.test.mjs
       - name: Validate combined Opportunity Quote web pricing and readback
-        run: node --test tests/sfdc-pair-workspace.test.mjs tests/sfdc-pair-commit-readiness.test.mjs
+        run: node --test tests/sfdc-pair-workspace.test.mjs tests/sfdc-pair-commit-readiness.test.mjs tests/sfdc-quote-edit-probe.test.mjs
       - name: Validate private cache endpoint scope and save rejection
         run: node --test tests/sfdc-pair-cache-route.test.mjs
       - name: Test fast Quote Report indexing endpoint and no Salesforce write paths

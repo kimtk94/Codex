@@ -112,7 +112,8 @@ def pack_evidence(quote, new_samples, new_gb, expected_prices):
             (not is_cloud and not pack)):
             return {**out,"code":"SOURCE_PACK_OR_PROCESS_LINE_MISSING"}
         projected=math.ceil(new_samples*new_gb/100) if is_cloud else new_samples
-        parsed.append({"packNo":pack,"processName":name,"sourceQty":qty,
+        parsed.append({"packNo":pack,"processType":str(raw.get("processType") or ""),
+           "processName":name,"sourceQty":qty,
            "unitPriceKrw":rate,"quantity":projected,
            "projectedNetKrw":rate*projected,"isCloud":is_cloud})
     source_samples=quote.get("samples");source_gb=quote.get("dataSize")
