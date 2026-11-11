@@ -1,7 +1,7 @@
 """Offline reconciliation: Actual + verified open Statements + unmatched Forecast."""
 import datetime as dt
 import unittest
-from revenue_lifecycle_monthly import compute
+from revenue_lifecycle_monthly import compute,reconcile_pending
 
 def invoice(number,amount):
     return [number,str(amount),"AMEA2026092127","H209SC260910566","SQ",
@@ -73,6 +73,35 @@ class RevenueLifecycleTests(unittest.TestCase):
         self.assertEqual(nov[5],6)
         self.assertEqual((nov[2],nov[3]),(0,0))
         self.assertEqual(nov[4],47196050)
+
+    def test_unverified_j_remains_unknown_without_blocking_issued_actual(self):
+        x="X209SC26086342-Z01"
+        life=project(x,"ISSUED + STATEMENT PENDING",open_j="J004",
+                     pending="",verified="AMOUNT_VERIFIED 0/1")
+        life[12]="2026-11"
+        life[21]="2026-11-11T11:30:21+08:00"
+        monthly=compute([["invoice_number"]],[["Project / Sub-project"],life],
+                        dt.datetime(2026,11,11,tzinfo=dt.timezone.utc))
+        november=next(row for row in monthly[1:] if row[0]=="2026-11")
+        self.assertEqual((november[2],november[6],november[7]),(0,1,1))
+        statements=[["statement_key","","","","","","","","validation_status","",""]]
+        reconciled=reconcile_pending(statements,[["invoice_number"]],
+                                     [["Project / Sub-project"],life],monthly)
+        self.assertEqual(reconciled,(0,0))
+
+    def test_unverified_j_requires_explicit_unknown_count(self):
+        x="X209SC26086342-Z01"
+        life=project(x,"STATEMENT READY - INVOICE PENDING",open_j="J004",
+                     pending="",verified="AMOUNT_VERIFIED 0/1")
+        life[12]="2026-11"
+        life[21]="2026-11-11T11:30:21+08:00"
+        monthly=compute([["invoice_number"]],[["Project / Sub-project"],life],
+                        dt.datetime(2026,11,11,tzinfo=dt.timezone.utc))
+        monthly[1][7]=0
+        statements=[["statement_key","","","","","","","","validation_status","",""]]
+        with self.assertRaisesRegex(RuntimeError,"MONTHLY_PENDING_SOURCE_MISMATCH"):
+            reconcile_pending(statements,[["invoice_number"]],
+                              [["Project / Sub-project"],life],monthly)
 
     def test_invoice_number_conflict_fails_closed(self):
         inv=[["invoice_number"],invoice("209126000989",1320000),invoice("209126000989",1320000)]
