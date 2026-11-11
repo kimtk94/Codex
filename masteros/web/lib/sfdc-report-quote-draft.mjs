@@ -1,3 +1,4 @@
+import {kstOneCalendarMonthLater,EXPECTED_SAMPLE_STAGE,expectedSampleStatement} from "./sfdc-new-opportunity-defaults.mjs";
 /** Read-only Feishu reference Quote -> editable proposed Oppo/Quote.
  * Project identity: process composition + verified data size in Gb.
  * Existing process quantities are NEVER project identity or new sample count.
@@ -126,7 +127,9 @@ export function fromFeishuQuote(detail,now=new Date()){
     qid:detail.qid,sourceQuoteId:s(detail.sfdc_record_id),
     // A selected existing Oppo/Quote is a near-clone by default.
     // Users edit only differences, while the new object has NO source ID reuse.
-    name:sourceProject,date:kstDate(now),products:labeled,
+    name:sourceProject,date:kstDate(now),closeDate:kstOneCalendarMonthLater(now),
+    sampleStage:EXPECTED_SAMPLE_STAGE,packPolicy:"SAME_SAMPLES",
+    cooperativeTS:"Yoo Ji In",products:labeled,
     descriptionStatus:"Quote Draft",
     source:"FEISHU_REPORT_USD_CONVERTED_ONLY",
     sourceReceivedKst:s(detail.source_mail_received_kst),
@@ -229,7 +232,9 @@ export function descriptionBasis(draft){
   if(!draft)return "";
   return JSON.stringify({
     template:DESCRIPTION_TEMPLATE_VERSION,
-    date:s(draft.date),status:s(draft.descriptionStatus)||"Quote Draft",
+    date:s(draft.date),closeDate:s(draft.closeDate),
+    sampleStage:s(draft.sampleStage),packPolicy:s(draft.packPolicy),
+    status:s(draft.descriptionStatus)||"Quote Draft",
     products:(draft.products||[]).map(p=>({
       service:s(p.serviceLabel),
       gb:s(p.productionGb),samples:s(p.samples),unitKrw:s(p.sampleUnitKrw),
@@ -266,7 +271,7 @@ export function draftDescription(draft,calc=calculateDraft(draft)){
     const rate=p.unitKrw===null?"단가 확인":money(p.unitKrw)+"KRW";
     return [service,gb,count,"* "+rate].filter(Boolean).join(" ");
   });
-  return [mmdd,status,lines.join(" / ")].filter(Boolean).join(" ");
+  return [mmdd,status,lines.join(" / "),expectedSampleStatement()].filter(Boolean).join(" ");
 }
 export function descriptionReview(draft,text,manualBasis=null){
   const basis=descriptionBasis(draft);
@@ -276,7 +281,7 @@ export function descriptionReview(draft,text,manualBasis=null){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date))
     return {stale,complete:false,missing:["DATE"]};
   const required=[date.slice(5,7)+date.slice(8,10),
-    s(draft.descriptionStatus)||"Quote Draft"];
+    s(draft.descriptionStatus)||"Quote Draft",expectedSampleStatement()];
   for(const [i,p] of calc.items.entries()){
     const label=s(draft.products[i].serviceLabel);
     if(label)required.push(label);
@@ -301,6 +306,13 @@ export function draftPreflight(draft){
     errors.push("OPPO_QUOTE_NAME_REQUIRED");
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+"T00:00:00Z")))
     errors.push("QUOTE_DATE_INVALID");
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s(draft?.closeDate))||
+     !Number.isFinite(Date.parse(s(draft?.closeDate)+"T00:00:00Z")))
+    errors.push("OPPO_CLOSE_DATE_REQUIRED");
+  if(draft?.sampleStage!==EXPECTED_SAMPLE_STAGE||
+     draft?.packPolicy!=="SAME_SAMPLES"||
+     draft?.cooperativeTS!=="Yoo Ji In")
+    errors.push("SAMPLE_EXPECTED_PACK_TS_REQUIRED");
   if(!calc.ok)errors.push(calc.code);
   if(typeof description!=="string"||description.length<10||description.length>3000)
     errors.push("DESCRIPTION_REQUIRED");
@@ -331,7 +343,9 @@ export function draftPreflight(draft){
     quoteLineItems:calc.quoteLineItems,
     reusedSourceReference:true,
     modifiedFields:draftChanges(draft),
-    opportunityName:name,quotationName:name,
+    opportunityName:name,quotationName:name,closeDate:s(draft?.closeDate),
+    sampleStage:s(draft?.sampleStage),packPolicy:s(draft?.packPolicy),
+    coopTs:s(draft?.cooperativeTS),
     sourceQuoteId:s(draft?.sourceQuoteId),sourceQid:s(draft?.qid),
     source:draft?.source,referenceOnly:true,
     accountContactMode:mode,
