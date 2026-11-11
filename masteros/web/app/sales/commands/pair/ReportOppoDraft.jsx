@@ -182,7 +182,14 @@ export default function ReportOppoDraft({quote,enabled=true}){
           <input aria-label="새 견적 날짜" type="date" value={draft.date}
             onChange={e=>edit("date",e.target.value)}/>
         </label>
+        <label>Opportunity Close Date · 오늘부터 한 달 뒤 (KST)
+          <input aria-label="새 Opportunity Close Date" type="date" value={draft.closeDate||""}
+            onChange={e=>edit("closeDate",e.target.value)}/>
+        </label>
       </div>
+      <p className={styles.hint}>Opportunity와 Quote를 동일한 이름·기관·고객·Product 구성으로 한 번에 준비합니다.
+        현재 단계는 Sample Expected(곧 샘플 입고 예정)이며, 실제 Sample Received·QC·PO는 확인되지 않았습니다.
+        원본 Quote Report의 USD 환산 공정 단가는 KRW 확정 단가가 아닙니다. Pack 번호와 실제 SFDC 가격을 검증하기 전에는 저장하지 않습니다.</p>
       <p className={styles.hint}>기존 서비스·Product·Region 값이 확인되면 그대로 가져옵니다.
         변경된 부분만 수정하고, 기존 공정별 수량을 생물학적 샘플 수로 오해하지 않습니다.</p>
       {draft.products.map((p,i)=>{
