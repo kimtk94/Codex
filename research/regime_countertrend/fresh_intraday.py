@@ -101,6 +101,31 @@ def coverage(df,symbol,daily):
         "actual_broker_fills_attested":False,"promotion_allowed":False}
     return rth,summary,result
 
+def compare_repeated_prices(first,second):
+    """Compare the *actual OHLC arrays*, not raw API metadata hashes."""
+    keys=("ts_utc","open","high","low","close")
+    a=first[list(keys)].copy().sort_values("ts_utc").reset_index(drop=True)
+    b=second[list(keys)].copy().sort_values("ts_utc").reset_index(drop=True)
+    if len(a)!=len(b) or not a.ts_utc.equals(b.ts_utc):
+        return {"status":"HOLD_TIMESTAMP_SET_CHANGED","first_rows":len(a),
+                "second_rows":len(b)}
+    denom=a[["open","high","low","close"]].to_numpy(dtype=float)
+    nums=b[["open","high","low","close"]].to_numpy(dtype=float)
+    if not np.isfinite(denom).all() or not np.isfinite(nums).all() or (denom<=0).any():
+        return {"status":"HOLD_INVALID_COMPARISON_PRICES"}
+    delta=np.abs(nums/denom-1)*10000
+    by_bar=delta.max(axis=1)
+    worst=int(np.argmax(by_bar)) if len(by_bar) else None
+    max_bp=float(by_bar.max()) if len(by_bar) else 0.
+    changed_1bp=int((by_bar>1).sum())
+    return {"status":"CONSISTENT_WITHIN_1BP" if changed_1bp==0 else "HOLD_REVISED_INTRADAY_PRICES",
+        "rows":len(a),"price_bar_changes_gt_1bp":changed_1bp,
+        "price_bar_changes_gt_10bp":int((by_bar>10).sum()),
+        "maximum_ohlc_difference_bps":max_bp,
+        "worst_bar_timestamp_utc":str(a.ts_utc.iloc[worst]) if worst is not None else None,
+        "normalized_quote_sha256_1":hashlib.sha256(a.to_csv(index=False).encode()).hexdigest(),
+        "normalized_quote_sha256_2":hashlib.sha256(b.to_csv(index=False).encode()).hexdigest()}
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--daily",default="results/regime_countertrend/fresh_oos/paired_public_daily_prices.csv")
@@ -117,17 +142,24 @@ def main():
         for symbol in SYMBOLS:
             try:
                 d,digest=download(symbol)
+                repeated,second_digest=download(symbol)
+                repeat=compare_repeated_prices(d,repeated)
                 bars,days,res=coverage(d,symbol,daily)
                 res["raw_sha256"]=digest
+                res["second_raw_sha256"]=second_digest
+                res["repeatability"]=repeat
                 res["last_bar_ts_utc"]=str(bars.ts_utc.max())
                 bars.to_csv(root/f"{symbol}_15m_rth.csv",index=False)
                 days.to_csv(root/f"{symbol}_sessions.csv",index=False)
+                if repeat["status"]!="CONSISTENT_WITHIN_1BP":
+                    res["status"]="HOLD_REVISED_INTRADAY_PRICES"
+                    repeated.to_csv(root/f"{symbol}_15m_repeat_raw.csv",index=False)
             except Exception as exc:
                 res={"symbol":symbol,"status":"HOLD_INTRADAY_SOURCE_OR_QC",
                      "error":type(exc).__name__,"detail":str(exc)[:250]}
             report["symbols"].append(res)
         if not all(x["status"]=="PRICE_ONLY_NOT_EXECUTABLE" for x in report["symbols"]):
-            report["status"]="HOLD_INCOMPLETE_15M"
+            report["status"]="HOLD_INTRADAY_SOURCE_INCONSISTENT"
         elif any(x["first_open_disagreement_gt_10bps"]>0 for x in report["symbols"]):
             report["status"]="PRICE_ONLY_QC_OPEN_MISMATCH_NOT_FILLS"
         else:
