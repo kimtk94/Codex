@@ -37,7 +37,7 @@
       "close_unequal": 23,
       "volume_unequal": 389,
       "max_diff_bar_utc": "2026-11-05T14:30:00+00:00",
-      "reference_ohlc_sha": "350935c4d7245d77d172d84077b2fc7493f91146e23b38fc1cb41010376b9e66",
+      "reference_ohlc_sha": "350935c4d7245d7dd172d84077b2fc7493f91146e23b38fc1cb41010376b9e66",
       "alternate_ohlc_sha": "cf57033a228efa6b0b0cd2e1bd102d993a65d8d1fc703db850967b448c724561"
     }
   },
