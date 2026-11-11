@@ -138,14 +138,19 @@ def probe_source_edit_controls(page, quote_id, expected_pack, samples, gb):
                "unpack_button":dialog.get_by_text("UnPack",exact=True).count(),
                "cancel_button":dialog.get_by_role("button",name="Cancel",exact=True).count()}
         evidence=audit_controls_snapshot(lines,observed,[c["text"] for c in cells[0]],flags)
-        # Dry-run without changing source values. UI may normalize e.g. 160,000.00 to
-        # 160000.00, so compare whole KRW and quantity numerically after Tab.
+        # Lightning numeric input's fill() can APPEND instead of clearing:
+        # '160,000.00' -> '160,000,160,000.00' and Cloud '1.00' -> '11.00'.
+        # Explicit select-all/delete/type/Tab, then compare numeric values.
+        # Never Save; Cancel + fresh live readback must still pass.
         first_noncloud=next(i for i,x in enumerate(parsed["processPriceLines"],start=1) if not x["isCloud"])
         cloud=next(i for i,x in enumerate(parsed["processPriceLines"],start=1) if x["isCloud"])
         for row_idx,col in ((first_noncloud,8),(cloud,5)):
             control=rowloc.nth(row_idx).locator("th,td").nth(col).locator('input[type="text"]')
             before=_source_modal_money(control.input_value())
-            control.fill(str(before))
+            control.click(timeout=6000)
+            control.press("ControlOrMeta+A")
+            control.press("Backspace")
+            control.type(str(before),delay=25)
             control.press("Tab")
             if _source_modal_money(control.input_value())!=before:
                 raise ValueError("SOURCE_NOOP_EDIT_READBACK_MISMATCH")
