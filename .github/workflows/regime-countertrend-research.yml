@@ -56,6 +56,10 @@ jobs:
           python -m research.regime_countertrend.stock_relative --data-dir research/regime_countertrend/data/stock_history --out results/regime_countertrend/cross_symbol
       - name: Public QLD QQQ temporal validation after 2026-09-04 (fail closed)
         run: python -m research.regime_countertrend.fresh_oos --out results/regime_countertrend/fresh_oos
+      - name: Explain fresh signals by locked regime conditions
+        run: python -m research.regime_countertrend.signal_scarcity --out results/regime_countertrend/signal_scarcity
+      - name: Check QLD QQQ first-15m market bar coverage (not brokerage fills)
+        run: python -m research.regime_countertrend.fresh_intraday --out results/regime_countertrend/fresh_15m
       - name: Strict real broker evidence gate
         run: python -m research.regime_countertrend.execution_source_gate_runner
       - uses: actions/upload-artifact@v4
