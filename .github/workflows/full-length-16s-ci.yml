@@ -54,6 +54,19 @@ jobs:
                   observed.add(pair)
               print(f"PASS: {p.name} ({len(nb['cells'])} cells)")
           assert observed == required, f"Missing variants: {required - observed}"
+          for p in notebooks:
+              nb = json.loads(p.read_text(encoding="utf-8"))
+              cells = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+              setup = cells[1]
+              input_cell = cells[5]
+              assert "pageSize=1000,pageToken=token" in setup, f"{p.name}: invalid Drive API pagination"
+              assert "page_size=" not in setup and "page_token=" not in setup
+              assert "FASTQ_SCRIPT" in setup
+              assert "--scenario" in input_cell and "--zip" in input_cell and "--directory" in input_cell
+              assert "RUN_NEW_DADA2 = True" in cells[0], f"{p.name}: FASTQ inference must be enabled"
+              assert "INSTALL_QIIME = True" in cells[0], f"{p.name}: QIIME install missing"
+              assert "FORWARD_PRIMER_5TO3" in cells[0]
+          print("PASS: all three notebooks use FASTQ-only input and corrected Drive API")
           PY
       - name: Test exclusion scenarios
         run: python -m pytest -q full_length_16s/tests
