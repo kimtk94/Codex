@@ -33,16 +33,23 @@ jobs:
           python - <<'PY'
           import json, ast
           from pathlib import Path
-          p = Path("full_length_16s/notebooks/KIST_FullLength16S_Colab.ipynb")
-          nb = json.loads(p.read_text(encoding="utf-8"))
-          assert nb["nbformat"] == 4
-          assert nb["cells"]
-          for index, cell in enumerate(nb["cells"]):
-              if cell["cell_type"] != "code":
-                  continue
-              code = "".join(cell["source"])
-              ast.parse(code, filename=f"notebook:cell-{index}")
-          print(f"PASS: {len(nb['cells'])} notebook cells")
+          notebooks = sorted(Path("full_length_16s/notebooks").glob("*.ipynb"))
+          assert len(notebooks) == 4, f"Expected 3 standalone variants plus the original notebook, got {len(notebooks)}"
+          required = {"all", "no_controls", "no_controls_no_three"}
+          observed = set()
+          for p in notebooks:
+              nb = json.loads(p.read_text(encoding="utf-8"))
+              assert nb["nbformat"] == 4 and nb["cells"]
+              code_cells = ["".join(cell["source"]) for cell in nb["cells"] if cell["cell_type"] == "code"]
+              for index, code in enumerate(code_cells):
+                  ast.parse(code, filename=f"{p.name}:cell-{index}")
+              if p.name.startswith("KIST_16S_"):
+                  config = code_cells[0]
+                  variant = next((x for x in required if f'RUN_SCENARIO = "{x}"' in config), None)
+                  assert variant is not None, f"Missing RUN_SCENARIO in {p.name}"
+                  observed.add(variant)
+              print(f"PASS: {p.name} ({len(nb['cells'])} cells)")
+          assert observed == required, f"Missing variants: {required - observed}"
           PY
       - name: Test exclusion scenarios
         run: python -m pytest -q full_length_16s/tests
