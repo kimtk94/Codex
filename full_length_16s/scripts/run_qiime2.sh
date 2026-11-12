@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Requires an activated QIIME 2 2026.7 environment. Deliberately no 'set -e'.
+# Requires an activated QIIME 2 2026.10 environment. Deliberately no 'set -e'.
 MANIFEST="$1"
 OUT="$2"
 FRONT="$3"
@@ -9,10 +9,15 @@ if [ -z "$MANIFEST" ] || [ -z "$OUT" ]; then
   echo "Usage: bash run_qiime2.sh manifest.tsv output_dir verified_forward_primer [silva_classifier.qza] [reverse_primer_5to3]" >&2
   exit 2
 fi
-if [ -z "$FRONT" ] || [ "$FRONT" = "VERIFY_PRIMER" ]; then
-  echo "BLOCK: Confirm the amplification forward primer. Do not guess it." >&2
+if [ -z "$FRONT" ] || [ -z "$ADAPTER" ]; then
+  echo "BLOCK: both 27F and 1492R primers are required for this project." >&2
   exit 2
 fi
+if [ "$FRONT" != "AGRGTTYGATYMTGGCTCAG" ] || [ "$ADAPTER" != "GYTACCTTGTTACGACTT" ]; then
+  echo "BLOCK: primer sequences differ from the provided KIST primer sheet." >&2
+  exit 2
+fi
+echo "Primer orientation: both 27F and 1492R supplied 5'-3' exactly as in lab sheet; no reverse complement."
 if ! command -v qiime >/dev/null 2>&1; then
   echo "BLOCK: Activate a QIIME 2 conda environment first." >&2
   exit 2
@@ -31,23 +36,15 @@ if [ ! -f "$OUT/demux.qza" ]; then
     --input-format SingleEndFastqManifestPhred33V2 || exit $?
 fi
 if [ ! -f "$OUT/table.qza" ]; then
-  if [ -n "$ADAPTER" ]; then
-    run qiime dada2 denoise-ccs --i-demultiplexed-seqs "$OUT/demux.qza" \
-      --p-front "$FRONT" --p-adapter "$ADAPTER" --p-max-ee 2 \
-      --p-trunc-len 0 --p-min-len 1000 --p-max-len 1600 \
-      --p-chimera-method consensus --p-min-fold-parent-over-abundance 3.5 \
-      --p-n-threads 2 --o-table "$OUT/table.qza" \
-      --o-representative-sequences "$OUT/rep-seqs.qza" \
-      --o-denoising-stats "$OUT/stats.qza" || exit $?
-  else
-    run qiime dada2 denoise-ccs --i-demultiplexed-seqs "$OUT/demux.qza" \
-      --p-front "$FRONT" --p-max-ee 2 \
-      --p-trunc-len 0 --p-min-len 1000 --p-max-len 1600 \
-      --p-chimera-method consensus --p-min-fold-parent-over-abundance 3.5 \
-      --p-n-threads 2 --o-table "$OUT/table.qza" \
-      --o-representative-sequences "$OUT/rep-seqs.qza" \
-      --o-denoising-stats "$OUT/stats.qza" || exit $?
-  fi
+  run qiime dada2 denoise-ccs --i-demultiplexed-seqs "$OUT/demux.qza" \
+    --p-front "$FRONT" --p-adapter "$ADAPTER" \
+    --p-max-mismatch 2 --p-max-ee 2 --p-trunc-len 0 \
+    --p-min-len 1000 --p-max-len 1600 --p-n-reads-learn 100000 \
+    --p-chimera-method consensus --p-min-fold-parent-over-abundance 3.5 \
+    --p-n-threads 2 --o-table "$OUT/table.qza" \
+    --o-representative-sequences "$OUT/rep-seqs.qza" \
+    --o-denoising-stats "$OUT/stats.qza" \
+    --o-base-transition-stats "$OUT/base-transition-stats.qza" || exit $?
 fi
 mkdir -p "$OUT/table_export" "$OUT/stats_export" || exit $?
 run qiime tools export --input-path "$OUT/table.qza" --output-path "$OUT/table_export" || exit $?
