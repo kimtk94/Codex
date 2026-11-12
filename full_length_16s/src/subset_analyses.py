@@ -91,9 +91,10 @@ def run_variants(feature_table, taxonomy, metadata_path, excluded_path, output_d
         if man is not None:
             man.loc[man["sample-id"].isin(keep)].to_csv(current / "manifest.tsv", sep="\t", index=False)
         stats = {"scenario": scenario, "status": "PASS", "n_samples": len(keep),
-                 "n_excluded": int(len(set(sample_columns) & excluded)),
-                 "controls_excluded": int(len(set(sample_columns) & excluded & controls)),
-                 "specified_three_excluded": int(len(set(sample_columns) & excluded & (excluded_three or set()))),
+                 "n_excluded": int(len(set(metadata["sample-id"]) & excluded)),
+                 "controls_excluded": int(len(set(metadata["sample-id"]) & excluded & controls)),
+                 "specified_three_excluded": int(len(set(metadata["sample-id"]) & excluded & (excluded_three or set()))),
+                 "excluded_present_in_input_table": int(len(set(sample_columns) & excluded)),
                  "reads_after_ASV": int(sample_table.sum().sum()),
                  "reads_baseline": base_reads,
                  "asvs_present": len(sample_table),
