@@ -1,0 +1,50 @@
+name: Full-Length 16S Pipeline CI
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "full_length_16s/**"
+      - ".github/workflows/full-length-16s-ci.yml"
+  pull_request:
+    paths:
+      - "full_length_16s/**"
+      - ".github/workflows/full-length-16s-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  unit-test:
+    name: Sample filters and report smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check -r full_length_16s/requirements.txt pytest
+      - name: Validate code compiles
+        run: python -m compileall -q full_length_16s/src
+      - name: Validate notebook JSON and Python cells
+        run: |
+          python - <<'PY'
+          import json, ast
+          from pathlib import Path
+          p = Path("full_length_16s/notebooks/KIST_FullLength16S_Colab.ipynb")
+          nb = json.loads(p.read_text(encoding="utf-8"))
+          assert nb["nbformat"] == 4
+          assert nb["cells"]
+          for index, cell in enumerate(nb["cells"]):
+              if cell["cell_type"] != "code":
+                  continue
+              code = "".join(cell["source"])
+              ast.parse(code, filename=f"notebook:cell-{index}")
+          print(f"PASS: {len(nb['cells'])} notebook cells")
+          PY
+      - name: Test exclusion scenarios
+        run: python -m pytest -q full_length_16s/tests
+      - name: Validate shell syntax
+        run: bash -n full_length_16s/scripts/run_qiime2.sh
