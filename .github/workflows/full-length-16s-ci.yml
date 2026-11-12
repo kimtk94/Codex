@@ -112,8 +112,9 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           s=Path("full_length_16s/scripts/run_qiime2.sh").read_text()
-          for flag in ("--p-front", "--p-adapter", "--o-base-transition-stats", "--p-n-reads-learn 100000"):
+          for flag in ("--p-front", "--p-adapter", "--o-base-transition-stats", "--p-n-reads-learn 100000", "--p-n-bases-learn 100000000"):
               assert flag in s, f"Missing QIIME2 CCS option {flag}"
+          assert 'LEARN_OPT[@]' in s, "DADA2 learning argument not passed"
           assert 'AGRGTTYGATYMTGGCTCAG' in s
           assert 'GYTACCTTGTTACGACTT' in s
           print("PASS: lab primers and QIIME 2 2026.10 required outputs")
