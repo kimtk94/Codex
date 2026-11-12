@@ -62,7 +62,21 @@ jobs:
               assert "pageSize=1000,pageToken=token" in setup, f"{p.name}: invalid Drive API pagination"
               assert "page_size=" not in setup and "page_token=" not in setup
               assert "FASTQ_SCRIPT" in setup
-              assert "--scenario" in input_cell and "--zip" in input_cell and "--directory" in input_cell
+              assert "--scenario" in input_cell and "--directory" in input_cell
+              assert "--zip" not in input_cell, f"{p.name}: should read extracted Drive files, not source ZIP"
+              assert "_withprimer.fastq.gz" in cells[4] and "01.RawData" in cells[4], f"{p.name}: wrong raw FASTQ selection"
+              assert "00.CleanData" in cells[4], f"{p.name}: missing processed-read exclusion"
+              assert "yaml_file.write_text(response.text" in cells[6], f"{p.name}: QIIME YAML must download locally"
+              assert 'micromamba),"create"' in cells[6], f"{p.name}: QIIME installer not configured"
+              source_id, extracted_id, suffix = ({
+                "P92":("1rPpGDmZHDcjNAm0UmjP1kZl5VdGB9478",
+                       "1tJHfddKf3jlYD-xGJSc7MB_uq9bW8Yyi","F003"),
+                "P18":("1v1FeZMkTKMTmx07sJEZfrY-tzPgVup-0",
+                       "1w8tuBjXfrUkGBNHY7kUp80LxusRlfIEq","F004")
+              })[p.name.split("_")[1]]
+              assert f'DRIVE_EXISTING_ZIP_ID = "{source_id}"' in cells[0]
+              assert f'DRIVE_FASTQ_FOLDER_ID = "{extracted_id}"' in cells[0]
+              assert suffix in cells[4]
               assert "RUN_NEW_DADA2 = True" in cells[0], f"{p.name}: FASTQ inference must be enabled"
               assert "INSTALL_QIIME = True" in cells[0], f"{p.name}: QIIME install missing"
               assert "FORWARD_PRIMER_5TO3" in cells[0]
