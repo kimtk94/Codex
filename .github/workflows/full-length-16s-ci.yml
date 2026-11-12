@@ -66,9 +66,22 @@ jobs:
               assert "RUN_NEW_DADA2 = True" in cells[0], f"{p.name}: FASTQ inference must be enabled"
               assert "INSTALL_QIIME = True" in cells[0], f"{p.name}: QIIME install missing"
               assert "FORWARD_PRIMER_5TO3" in cells[0]
+              assert 'FORWARD_PRIMER_5TO3 = "AGRGTTYGATYMTGGCTCAG"' in cells[0], f"{p.name}: incorrect 27F"
+              assert 'REVERSE_PRIMER_5TO3 = "GYTACCTTGTTACGACTT"' in cells[0], f"{p.name}: incorrect 1492R"
+              assert 'REVERSE_PRIMER_5TO3' in cells[6], f"{p.name}: missing reverse primer in DADA2
           print("PASS: all three notebooks use FASTQ-only input and corrected Drive API")
           PY
       - name: Test exclusion scenarios
         run: python -m pytest -q full_length_16s/tests
-      - name: Validate shell syntax
-        run: bash -n full_length_16s/scripts/run_qiime2.sh
+      - name: Validate 27F/1492R runner and shell syntax
+        run: |
+          bash -n full_length_16s/scripts/run_qiime2.sh
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("full_length_16s/scripts/run_qiime2.sh").read_text()
+          for flag in ("--p-front", "--p-adapter", "--o-base-transition-stats", "--p-n-reads-learn 100000"):
+              assert flag in s, f"Missing QIIME2 CCS option {flag}"
+          assert 'AGRGTTYGATYMTGGCTCAG' in s
+          assert 'GYTACCTTGTTACGACTT' in s
+          print("PASS: lab primers and QIIME 2 2026.10 required outputs")
+          PY
