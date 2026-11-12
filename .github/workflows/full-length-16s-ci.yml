@@ -57,6 +57,10 @@ jobs:
           for p in notebooks:
               nb = json.loads(p.read_text(encoding="utf-8"))
               cells = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+              pair = next(((project,variant) for project,variant in required
+                           if f'PROJECT = "{project}"' in cells[0] and
+                           f'RUN_SCENARIO = "{variant}"' in cells[0]), None)
+              assert pair is not None, f"Unknown project/scenario in {p.name}"
               setup = cells[1]
               input_cell = cells[5]
               assert "pageSize=1000,pageToken=token" in setup, f"{p.name}: invalid Drive API pagination"
@@ -67,9 +71,8 @@ jobs:
               assert "_withprimer.fastq.gz" in cells[4] and "01.RawData" in cells[4], f"{p.name}: wrong raw FASTQ selection"
               assert "00.CleanData" in cells[4], f"{p.name}: missing processed-read exclusion"
               assert "yaml_file.write_text(response.text" in cells[6], f"{p.name}: QIIME YAML must download locally"
-              if p.name.startswith("KIST_P18_"):
-                  assert '"channels:" not in response.text' in cells[6], f"{p.name}: QIIME YAML requires channels"
-                  assert '"name:" not in response.text' not in cells[6], f"{p.name}: QIIME YAML might have no name"
+              assert '"channels:" not in response.text' in cells[6], f"{p.name}: official QIIME YAML must validate channels"
+              assert '"name:" not in response.text' not in cells[6], f"{p.name}: official QIIME YAML might omit name"
               assert 'micromamba),"create"' in cells[6], f"{p.name}: QIIME installer not configured"
               source_id, extracted_id, suffix = ({
                 "P92":("1rPpGDmZHDcjNAm0UmjP1kZl5VdGB9478",
