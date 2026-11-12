@@ -35,6 +35,13 @@ if [ ! -f "$OUT/demux.qza" ]; then
     --input-path "$MANIFEST" --output-path "$OUT/demux.qza" \
     --input-format SingleEndFastqManifestPhred33V2 || exit $?
 fi
+# Runtime-controlled DADA2 threads. Default 2 preserves existing F003 87/F004 16 behavior.
+DADA2_THREADS="${DADA2_THREADS:-2}"
+if ! [[ "$DADA2_THREADS" =~ ^[0-9]+$ ]] || [ "$DADA2_THREADS" -lt 1 ]; then
+  echo "BLOCK: DADA2_THREADS must be a positive integer, got: $DADA2_THREADS" >&2
+  exit 2
+fi
+echo "DADA2 parallel threads: $DADA2_THREADS (available CPUs: $(nproc))"
 if [ ! -f "$OUT/table.qza" ]; then
   # QIIME 2 2026.10 replaced --p-n-reads-learn with --p-n-bases-learn.
   # Introspect the installed plugin to avoid failing after long environment setup.
@@ -53,7 +60,7 @@ if [ ! -f "$OUT/table.qza" ]; then
     --p-max-mismatch 2 --p-max-ee 2 --p-trunc-len 0 \
     --p-min-len 1000 --p-max-len 1600 "${LEARN_OPT[@]}" \
     --p-chimera-method consensus --p-min-fold-parent-over-abundance 3.5 \
-    --p-n-threads 2 --o-table "$OUT/table.qza" \
+    --p-n-threads "$DADA2_THREADS" --o-table "$OUT/table.qza" \
     --o-representative-sequences "$OUT/rep-seqs.qza" \
     --o-denoising-stats "$OUT/stats.qza" \
     --o-base-transition-stats "$OUT/base-transition-stats.qza" || exit $?
