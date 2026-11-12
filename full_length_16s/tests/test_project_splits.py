@@ -75,9 +75,9 @@ def test_split_boundaries_and_controls(tmp_path):
 def test_independent_scenarios(tmp_path):
     metadata, meta_path, feature_path = _fixture(tmp_path)
     plans = [
-        ("P92","all",92),("P92","no_controls",90),
+        ("P92","no_controls",90),
         ("P92","no_controls_no_three",87),
-        ("P18","all",18),("P18","no_controls",16),
+        ("P18","no_controls",16),
     ]
     for proj, scenario, expected in plans:
         result = run(feature_path,meta_path,proj,scenario,tmp_path/f"{proj}-{scenario}")
@@ -85,6 +85,9 @@ def test_independent_scenarios(tmp_path):
         output = tmp_path/f"{proj}-{scenario}"/"reports"/scenario
         assert (output/"report.html").exists()
         assert (output/"excluded_samples.tsv").exists()
+        asv_table = pd.read_csv(tmp_path/f"{proj}-{scenario}"/"project_input"/"feature-table.tsv", sep="\t")
+        assert not any("PC__" in col or "NC__" in col for col in asv_table.columns)
+        assert asv_table.shape[1] == expected + 1
     exclusions = pd.read_csv(tmp_path/"P92-no_controls_no_three"/"reports"/"no_controls_no_three"/"excluded_samples.tsv",sep="\t")
     assert len(exclusions) == 5
     assert set(exclusions["novogene-id"]) == set(THREE_EXCLUDED_FKDN)|{"FKDN260619103-1A","FKDN260619104-1A"}
@@ -102,7 +105,7 @@ def test_missing_reads_rejected_not_filled_zero(tmp_path):
     metadata, meta_path, feature_path = _fixture(tmp_path)
     features = pd.read_csv(feature_path,sep="\t")
     features.drop(columns=[metadata.loc[0,"sample-id"]]).to_csv(feature_path,sep="\t",index=False)
-    with pytest.raises(ValueError,match="missing 1/92"):
+    with pytest.raises(ValueError,match="missing 1/90"):
         prepare(feature_path,meta_path,"P92",tmp_path/"p92")
 
 
@@ -125,3 +128,20 @@ def test_misapplied_3sample_to_p18_rejected(tmp_path):
     _,meta_path,feature_path = _fixture(tmp_path)
     with pytest.raises(ValueError,match="not a valid scenario"):
         run(feature_path,meta_path,"P18","no_controls_no_three",tmp_path/"invalid")
+
+
+def test_prohibit_controls_in_all_project_analysis(tmp_path):
+    _,meta_path,feature_path = _fixture(tmp_path)
+    for project in ("P92", "P18"):
+        with pytest.raises(ValueError,match="not a valid scenario"):
+            run(feature_path,meta_path,project,"all",tmp_path/("invalid_"+project))
+
+
+def test_filtered_input_without_controls_succeeds(tmp_path):
+    metadata, meta_path, feature_path = _fixture(tmp_path)
+    frame = pd.read_csv(feature_path,sep="\t")
+    controls = metadata.loc[metadata["control"].isin(["PC","NC"]),"sample-id"]
+    frame = frame.drop(columns=controls.tolist())
+    frame.to_csv(feature_path,sep="\t",index=False)
+    assert run(feature_path,meta_path,"P92","no_controls",tmp_path/"filtered_P92")["actual_samples"]==90
+    assert run(feature_path,meta_path,"P18","no_controls",tmp_path/"filtered_P18")["actual_samples"]==16
