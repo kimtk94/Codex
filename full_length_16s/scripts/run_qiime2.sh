@@ -36,10 +36,22 @@ if [ ! -f "$OUT/demux.qza" ]; then
     --input-format SingleEndFastqManifestPhred33V2 || exit $?
 fi
 if [ ! -f "$OUT/table.qza" ]; then
+  # QIIME 2 2026.10 replaced --p-n-reads-learn with --p-n-bases-learn.
+  # Introspect the installed plugin to avoid failing after long environment setup.
+  DADA2_HELP=$(qiime dada2 denoise-ccs --help 2>&1)
+  if echo "$DADA2_HELP" | grep -q -- '--p-n-bases-learn'; then
+    LEARN_OPT=(--p-n-bases-learn 100000000)
+  elif echo "$DADA2_HELP" | grep -q -- '--p-n-reads-learn'; then
+    LEARN_OPT=(--p-n-reads-learn 100000)
+  else
+    echo "BLOCK: installed QIIME 2 does not expose a recognized DADA2 error-model learning parameter" >&2
+    exit 2
+  fi
+  echo "DADA2 learning option: ${LEARN_OPT[*]}"
   run qiime dada2 denoise-ccs --i-demultiplexed-seqs "$OUT/demux.qza" \
     --p-front "$FRONT" --p-adapter "$ADAPTER" \
     --p-max-mismatch 2 --p-max-ee 2 --p-trunc-len 0 \
-    --p-min-len 1000 --p-max-len 1600 --p-n-reads-learn 100000 \
+    --p-min-len 1000 --p-max-len 1600 "${LEARN_OPT[@]}" \
     --p-chimera-method consensus --p-min-fold-parent-over-abundance 3.5 \
     --p-n-threads 2 --o-table "$OUT/table.qza" \
     --o-representative-sequences "$OUT/rep-seqs.qza" \
