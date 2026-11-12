@@ -97,6 +97,10 @@ jobs:
               assert "SILVA taxonomic assignment: NOT RUN" in cells[8]
               print(f"PASS: {pair} denoising and ASV export work without SILVA DB")
               assert "RUN_NEW_DADA2 = True" in cells[0], f"{p.name}: FASTQ inference must be enabled"
+              if pair == ("P92","no_controls"):
+                  assert "DADA2_MAX_THREADS = 8" in cells[0], "90-sample Colab must request eight-way CPU parallelism"
+                  assert 'env["DADA2_THREADS"]' in cells[6], "90-sample Colab must pass CPU thread override"
+                  assert 'os.sched_getaffinity' in cells[6], "90-sample Colab must use actual available cores"
               assert "INSTALL_QIIME = True" in cells[0], f"{p.name}: QIIME install missing"
               assert "FORWARD_PRIMER_5TO3" in cells[0]
               assert 'FORWARD_PRIMER_5TO3 = "AGRGTTYGATYMTGGCTCAG"' in cells[0], f"{p.name}: incorrect 27F"
@@ -115,6 +119,8 @@ jobs:
           for flag in ("--p-front", "--p-adapter", "--o-base-transition-stats", "--p-n-reads-learn 100000", "--p-n-bases-learn 100000000"):
               assert flag in s, f"Missing QIIME2 CCS option {flag}"
           assert 'LEARN_OPT[@]' in s, "DADA2 learning argument not passed"
+          assert 'DADA2_THREADS="${DADA2_THREADS:-2}"' in s
+          assert '--p-n-threads "$DADA2_THREADS"' in s
           assert 'AGRGTTYGATYMTGGCTCAG' in s
           assert 'GYTACCTTGTTACGACTT' in s
           print("PASS: lab primers and QIIME 2 2026.10 required outputs")
