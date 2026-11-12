@@ -68,7 +68,7 @@ jobs:
               assert "FORWARD_PRIMER_5TO3" in cells[0]
               assert 'FORWARD_PRIMER_5TO3 = "AGRGTTYGATYMTGGCTCAG"' in cells[0], f"{p.name}: incorrect 27F"
               assert 'REVERSE_PRIMER_5TO3 = "GYTACCTTGTTACGACTT"' in cells[0], f"{p.name}: incorrect 1492R"
-              assert 'REVERSE_PRIMER_5TO3' in cells[6], f"{p.name}: missing reverse primer in DADA2
+              assert 'REVERSE_PRIMER_5TO3' in cells[6], f"{p.name}: missing reverse primer in DADA2"
           print("PASS: all three notebooks use FASTQ-only input and corrected Drive API")
           PY
       - name: Test exclusion scenarios
