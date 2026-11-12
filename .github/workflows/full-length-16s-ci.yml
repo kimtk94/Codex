@@ -80,15 +80,19 @@ jobs:
               assert f'DRIVE_EXISTING_ZIP_ID = "{source_id}"' in cells[0]
               assert f'DRIVE_FASTQ_FOLDER_ID = "{extracted_id}"' in cells[0]
               assert suffix in cells[4]
-              if p.name.startswith("KIST_P18_"):
-                  assert 'SKIP_TAXONOMY = True' in cells[0]
-                  assert 'DRIVE_REPORT_FOLDER_ID = "16zdCZ601apI7SC4e57Hwq8UfrnAaUHK0"' in cells[0]
-                  assert "if not SKIP_TAXONOMY:" in cells[6]
-                  assert 'CLASSIFIER=""' in cells[6]
-                  assert '"rep-seqs.qza"' in cells[8] and '"stats.qza"' in cells[8]
-                  assert '"dna-sequences.fasta"' in cells[8]
-                  assert "SILVA taxonomic assignment: NOT RUN" in cells[8]
-                  print("PASS: P18 ASV generation and Drive export do not require a taxonomy DB")
+              expected_results_folder = {
+                  ("P92","no_controls"): "1lRWH_xxawuIVtxliDQ0xtnT5n8XL19D0",
+                  ("P92","no_controls_no_three"): "1EDqcq7oluv-KaW5fp_aLj20V5ZsZZ55y",
+                  ("P18","no_controls"): "16zdCZ601apI7SC4e57Hwq8UfrnAaUHK0"
+              }[pair]
+              assert 'SKIP_TAXONOMY = True' in cells[0], f"{p.name}: taxonomy must be deferred"
+              assert f'DRIVE_REPORT_FOLDER_ID = "{expected_results_folder}"' in cells[0]
+              assert "if not SKIP_TAXONOMY:" in cells[6]
+              assert 'CLASSIFIER=""' in cells[6]
+              assert '"rep-seqs.qza"' in cells[8] and '"stats.qza"' in cells[8]
+              assert '"dna-sequences.fasta"' in cells[8]
+              assert "SILVA taxonomic assignment: NOT RUN" in cells[8]
+              print(f"PASS: {pair} denoising and ASV export work without SILVA DB")
               assert "RUN_NEW_DADA2 = True" in cells[0], f"{p.name}: FASTQ inference must be enabled"
               assert "INSTALL_QIIME = True" in cells[0], f"{p.name}: QIIME install missing"
               assert "FORWARD_PRIMER_5TO3" in cells[0]
