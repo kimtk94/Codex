@@ -78,3 +78,17 @@ References: https://amplicon-docs.qiime2.org/en/2026.7/references/plugins/dada2/
 For a **fresh DADA2 analysis**, the three Colab notebooks now enumerate only the sample-specific primer-containing FASTQs under their assigned project's `01.RawData` folder recursively, excluding all `00.CleanData` entries. Each notebook checks that its project folder has all **92/18** raw source FASTQs, then downloads only **90/87/16** approved reads. All four controls are dropped before denoising; the three flagged P92 samples are dropped only in the 87-sample variant.
 
 Raw source ZIPs remain unchanged and available in Drive. The separate extraction folders retain original tree structure for audit. Notebook's earlier QIIME 2 micromamba `-f` bug (Markdown link passed instead of YAML file) has been fixed: it now downloads and validates official QIIME 2 environment YAML locally before creating the conda environment.
+
+## F004 Phase 1: database-free DADA2 + ASV analysis
+
+User direction (Nov 13): run the lower-18/F004 project first, exclude PC/NC (16 analyzed), and defer SILVA taxonomy assignment until a verified reference database is available.
+
+**Raw preflight completed on actual F004 FASTQs:** 16 biological samples, 392,229 total reads, 579,024,573 total raw bases; 99.71% reads between 1,000 and 1,600 bp; per-sample read counts 16,500–29,770 (median 24,340). 27F 5-prime heuristic match rate around 60% (read orientation and mismatch may explain fraction; not the same as DADA2 retention). These are raw QC results **not DADA2-denoised ASV results**.
+
+QC report and machine-readable files: https://drive.google.com/drive/folders/16zdCZ601apI7SC4e57Hwq8UfrnAaUHK0 .
+
+Runnable Colab (updated in Drive): https://colab.research.google.com/drive/14fZQxvgMEuy1e6IN5ITeBS3yNcKj71_5 . This notebook sets `SKIP_TAXONOMY=True` and does not download/use any SILVA classifier. It exports DADA2 `table.qza`, `rep-seqs.qza`, `stats.qza`, representative FASTA, feature-table TSV and the ASV alpha/beta-diversity report into a timestamped subfolder of the F004 PreDB results folder. `demux.qza` and source FASTQs stay out of that result upload to avoid large duplicate data.
+
+The official QIIME 2 2026.10 Linux environment YAML at https://raw.githubusercontent.com/qiime2/distributions/refs/heads/dev/2026.10/qiime2/released/rachis-qiime2-linux-64-conda.yml was checked by HTTP response (200; ~14KB). Importantly, it has `channels:` and `dependencies:`, but **does not have `name:`**. The Colab install guard now validates channels/dependencies rather than requiring an absent name property.
+
+**Scientific execution status**: Real raw-read QC PASS, GitHub Actions static/synthetic regression PASS, but **actual Colab DADA2 processing and persisted ASV results are pending execution in a Colab runtime**; do not describe this as scientific analysis PASS before `table.qza` and denoising-statistics files exist in Drive.
