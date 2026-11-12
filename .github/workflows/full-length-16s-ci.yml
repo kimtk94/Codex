@@ -34,8 +34,8 @@ jobs:
           import json, ast
           from pathlib import Path
           notebooks = sorted(Path("full_length_16s/notebooks").glob("*.ipynb"))
-          assert len(notebooks) >= 9, f"Expected 5 P92/P18 notebooks plus legacy notebooks, got {len(notebooks)}"
-          required = {("P92","all"),("P92","no_controls"),("P92","no_controls_no_three"),("P18","all"),("P18","no_controls")}
+          assert len(notebooks) == 3, f"Only three PC/NC-free Colab notebooks may remain, found {len(notebooks)}"
+          required = {("P92","no_controls"),("P92","no_controls_no_three"),("P18","no_controls")}
           observed = set()
           for p in notebooks:
               nb = json.loads(p.read_text(encoding="utf-8"))
@@ -49,7 +49,7 @@ jobs:
                                if f'PROJECT = "{project}"' in config and
                                f'RUN_SCENARIO = "{variant}"' in config), None)
                   assert pair is not None, f"Unrecognized project/scenario in {p.name}"
-                  expected_count = {'P92':{'all':92,'no_controls':90,'no_controls_no_three':87}, 'P18':{'all':18,'no_controls':16}}[pair[0]][pair[1]]
+                  expected_count = {'P92':{'no_controls':90,'no_controls_no_three':87}, 'P18':{'no_controls':16}}[pair[0]][pair[1]]
                   assert f'EXPECTED_SAMPLES = {expected_count}' in config, f'{p.name}: wrong expected count'
                   observed.add(pair)
               print(f"PASS: {p.name} ({len(nb['cells'])} cells)")
