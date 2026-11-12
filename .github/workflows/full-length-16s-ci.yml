@@ -67,6 +67,9 @@ jobs:
               assert "_withprimer.fastq.gz" in cells[4] and "01.RawData" in cells[4], f"{p.name}: wrong raw FASTQ selection"
               assert "00.CleanData" in cells[4], f"{p.name}: missing processed-read exclusion"
               assert "yaml_file.write_text(response.text" in cells[6], f"{p.name}: QIIME YAML must download locally"
+              if p.name.startswith("KIST_P18_"):
+                  assert '"channels:" not in response.text' in cells[6], f"{p.name}: QIIME YAML requires channels"
+                  assert '"name:" not in response.text' not in cells[6], f"{p.name}: QIIME YAML might have no name"
               assert 'micromamba),"create"' in cells[6], f"{p.name}: QIIME installer not configured"
               source_id, extracted_id, suffix = ({
                 "P92":("1rPpGDmZHDcjNAm0UmjP1kZl5VdGB9478",
