@@ -67,3 +67,14 @@ Reference: https://amplicon-docs.qiime2.org/en/2026.7/references/plugins/dada2/
 The primer strings retain the supplied IUPAC ambiguous bases. **The reverse primer is entered in its supplied 5'-3' orientation, not reverse-complemented.** The user-supplied 1492R begins `GYTAC`, whereas some publications describe an `RGYTAC` variant; do not silently add `R`. Check primer-matching retention and DADA2 denoising stats on actual FASTQs. The runner uses a 1000–1600 bp post-primer length window, `maxEE=2`, `max_mismatch=2`, `n_reads_learn=100000` for smaller P18 read sets and creates the required 2026-era base-transition-stats artifact. The actual HiFi dataset has not yet been processed.
 
 References: https://amplicon-docs.qiime2.org/en/2026.7/references/plugins/dada2/ ; https://forum.qiime2.org/t/dada2-denoise-ccs-plugin-error-return-code-1/29320
+
+## Original archive assignment (confirmed 2026-11-13)
+
+**F003 = upper 92 records = P92** and **F004 = lower 18 records = P18**. This is a strict mapping and must never be reversed.
+
+- F003 ZIP: `Result_X209SC26096091-Z01-F003_16S.zip`, Drive ID `1rPpGDmZHDcjNAm0UmjP1kZl5VdGB9478`, 2,170,188,809 bytes. Decompressed 494 files, including 92 primer-containing raw FASTQs (`01.RawData/*/*_withprimer.fastq.gz`) and 92 cleaned FASTQs (`00.CleanData/*/*.fastq.gz`). Drive extraction folder: https://drive.google.com/drive/folders/1tJHfddKf3jlYD-xGJSc7MB_uq9bW8Yyi .
+- F004 ZIP: `Result_X209SC26096091-Z01-F004_16S.zip`, Drive ID `1v1FeZMkTKMTmx07sJEZfrY-tzPgVup-0`, 423,220,458 bytes. Decompressed 198 files, including 18 primer-containing raw FASTQs and 18 cleaned FASTQs. Drive extraction folder: https://drive.google.com/drive/folders/1w8tuBjXfrUkGBNHY7kUp80LxusRlfIEq .
+
+For a **fresh DADA2 analysis**, the three Colab notebooks now enumerate only the sample-specific primer-containing FASTQs under their assigned project's `01.RawData` folder recursively, excluding all `00.CleanData` entries. Each notebook checks that its project folder has all **92/18** raw source FASTQs, then downloads only **90/87/16** approved reads. All four controls are dropped before denoising; the three flagged P92 samples are dropped only in the 87-sample variant.
+
+Raw source ZIPs remain unchanged and available in Drive. The separate extraction folders retain original tree structure for audit. Notebook's earlier QIIME 2 micromamba `-f` bug (Markdown link passed instead of YAML file) has been fixed: it now downloads and validates official QIIME 2 environment YAML locally before creating the conda environment.
