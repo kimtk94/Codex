@@ -2,7 +2,7 @@
 
 ## Final analysis protocol — PC and NC excluded from every analysis
 
-The sample information spreadsheet under the designated KIST Drive folder lists **110 entries**, but these represent **two distinct projects** in Excel row order:
+The provided Nov 12 KIST workbook was rechecked: **110 rows**, **all 110 report names**, and **106 biological group labels** (four control rows have blank group). The older Google Drive workbook appears to lack these filled report labels, so `full16s.samples` applies the validated KIST mapping when blank. These 110 rows represent **two distinct projects**, by their original Excel order:
 
 | Project | Original Excel rows | Original samples | Excluded controls | Analysis preset | Final sample count |
 | --- | --- | ---: | --- | --- | ---: |
@@ -35,15 +35,24 @@ Analysis results:
 
 ## Execution and safeguards
 
-- Existing uploaded files: metadata Excel and Novogene result ZIP (~2.17 GB). Vendor ZIP contents and raw FASTQs are not yet fully inspected. A new DADA2 inference requires sample-specific HiFi FASTQs, verified primer sequences and a matching QIIME 2 / SILVA classifier.
-- Each notebook retrieves processing code from this GitHub branch and validates the exact 92/18 workbook split, then creates a strictly PC/NC-free analysis metadata table.
-- When FASTQ is available, only included samples are downloaded and passed into the **independent, per-notebook DADA2-CCS manifest**.
-- When using an existing ASV table from the ZIP, each notebook first subsets the ASV table to the included project-specific samples, then independently recalculates observed ASVs, Shannon, Bray–Curtis and PCoA. This post hoc reanalysis is **not** a fresh denoising run.
+- The user confirmed that **FASTQ is the only sequencing input**. No precomputed ASV table is assumed. The original ZIP (~2.17 GB) is used only if it actually contains FASTQ; otherwise sample FASTQs must be placed in Drive/raw_fastq. The notebook never requires the user to decompress/re-upload the ZIP. A fresh DADA2 inference requires verified 5' amplification primer sequence. A compatible SILVA classifier QZA is needed for optional taxonomy.
+- Each notebook retrieves processing code from this GitHub branch and validates the exact 92/18 workbook split, then creates a strictly PC/NC-free analysis metadata table. The Google Drive API uses **pageSize/pageToken** (not page_size/page_token), correcting the reported TypeError.
+- When FASTQ is available, only included samples are downloaded or extracted from ZIP and passed into the **independent, per-notebook DADA2-CCS manifest**. All 90/87/16 FASTQ inputs must be present or the notebook fails; synthetic CI tests cover ZIP scanning, extraction and missing sample rejection.
+- This workflow now defaults to FASTQ-only ASV inference. If someone later supplies a previously computed ASV table, `project_splits.py` can still subset and report it, but that is a separate optional reanalysis mode.
 - The analysis refuses to mark PASS if even one expected sample is missing, project membership is wrong, PC/NC appear in the included table, or the excluded three cannot be found in P92.
 - Generated reports include ASV table, metadata, exclusion audit, diversity, figures and a run manifest; these are saved to timestamped Drive subfolders.
 
-Source code: src/full16s.py, src/subset_analyses.py, src/project_splits.py, scripts/run_qiime2.sh.
+Source code: src/full16s.py, src/subset_analyses.py, src/project_splits.py, **src/fastq_inputs.py**, scripts/run_qiime2.sh.
 
 GitHub Actions: .github/workflows/full-length-16s-ci.yml validates the three Colab configurations, sample-exclusion logic and synthetic smoke tests. Actual scientific processing is executed from Colab, *not* via GitHub Actions.
 
 **Privacy:** FASTQ, vendor archive and patient/sample-level real outputs stay in Drive, never in a public GitHub repository.
+
+## Known outstanding prerequisites for full scientific execution
+
+1. Inspect the vendor ZIP / add individual FASTQs to Drive/raw_fastq. **The raw_fastq Drive folder was empty at last inspection.** If the ZIP does not contain FASTQ the pipeline stops.
+2. Enter the real amplification forward primer sequence (5'-3') in each notebook's FORWARD_PRIMER_5TO3. This is required by QIIME 2 dada2 denoise-ccs and is not supplied in the Excel.
+3. For taxonomy, add a compatible SILVA feature-classifier `.qza` to Drive/references. No classifier was verified in the Drive folder.
+4. Run all three Colabs to produce actual ASV tables and reports. Passing GitHub Actions tests is not evidence that raw analysis has executed.
+
+Reference: https://amplicon-docs.qiime2.org/en/2026.7/references/plugins/dada2/
