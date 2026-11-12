@@ -45,6 +45,25 @@ def infer_group(name):
     return "UNSPECIFIED", "NA"
 
 
+def report_labels(name, fid):
+    """Fallback mapping verified against the Nov 12 KIST spreadsheet upload."""
+    match = re.fullmatch(r"(KCT|K902|K905)_W([1-3])_(\d{2})", name)
+    if match:
+        prefix = {"KCT": "CT", "K902": "M902", "K905": "M905"}[match.group(1)]
+        return f"{prefix}.W{match.group(2)}.{match.group(3)}", f"{prefix}.W{match.group(2)}"
+    match = re.fullmatch(r"(KUW|KUD|KCR|KDR)_(\d{2})", name)
+    if match:
+        prefix, group = {
+            "KUW": ("Blank.W", "Blank.W"), "KUD": ("Blank.D", "Blank.D"),
+            "KCR": ("CT", "Control"), "KDR": ("TR", "Drought")
+        }[match.group(1)]
+        return f"{prefix}.{match.group(2)}", group
+    if name in {"PC", "NC"}:
+        tail = "Motion" if fid in {"FKDN260619103-1A", "FKDN260619104-1A"} else "Drought"
+        return f"{name}.{tail}", ""
+    return name, ""
+
+
 def samples(xlsx, output):
     import openpyxl
     wb = openpyxl.load_workbook(xlsx, read_only=True, data_only=True)
@@ -63,11 +82,25 @@ def samples(xlsx, output):
                     continue
                 seen.add(value)
                 cohort, week = infer_group(name)
+                inferred_report, inferred_group = report_labels(name, value)
+                excel_report = arr[i+1] if i+1 < len(arr) else ""
+                excel_group = arr[i+2] if i+2 < len(arr) else ""
+                # Preserve the uploaded workbook naming scheme even when the
+                # older Drive copy has not yet been updated.
+                report_name = excel_report or inferred_report
+                group_name = excel_group or inferred_group
+                if excel_report and excel_report != inferred_report:
+                    raise ValueError(f"Unexpected report name for {value}: {excel_report} != {inferred_report}")
+                if excel_group and excel_group != inferred_group:
+                    raise ValueError(f"Unexpected analysis group for {value}: {excel_group} != {inferred_group}")
                 pairs.append({"sample-id": name + "__" + value, "sample-name": name,
-                              "novogene-id": value, "cohort": cohort, "week": week,
+                              "novogene-id": value, "report-name": report_name,
+                              "group-name": group_name, "cohort": cohort, "week": week,
                               "control": name.upper() if name.upper() in ("PC", "NC") else "NONE"})
     if not pairs:
         raise ValueError("No Novogene FKDN sample IDs discovered in workbook")
+    if len(pairs) != 110:
+        raise ValueError(f"Expected 110 KIST sample entries, found {len(pairs)}")
     write_tsv(output, pairs, list(pairs[0]))
     print(json.dumps({"samples": len(pairs), "unique_novogene_ids": len(seen),
                       "controls": sum(x["control"] != "NONE" for x in pairs),
@@ -255,8 +288,9 @@ def report(feature_table, taxonomy, metadata, output_dir):
             coords = np.column_stack((coords, np.zeros(len(common))))
         pd.DataFrame({"sample-id": common, "PC1": coords[:, 0], "PC2": coords[:, 1]}).to_csv(out/"pcoa.csv", index=False)
         plt.figure(figsize=(8, 6))
-        for cohort in sorted(meta.loc[common, "cohort"].fillna("NA").unique()):
-            ids = np.flatnonzero(meta.loc[common, "cohort"].fillna("NA").to_numpy() == cohort)
+        groups = meta.loc[common, "group-name"].fillna("NA") if "group-name" in meta else meta.loc[common, "cohort"].fillna("NA")
+        for cohort in sorted(groups.unique()):
+            ids = np.flatnonzero(groups.to_numpy() == cohort)
             plt.scatter(coords[ids, 0], coords[ids, 1], label=cohort, s=28)
         plt.legend()
         plt.xlabel("PCoA 1")
