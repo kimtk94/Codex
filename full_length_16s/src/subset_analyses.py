@@ -34,7 +34,7 @@ def load_three(path: Path | None, metadata: pd.DataFrame):
     return set(values), "READY"
 
 
-def run_variants(feature_table, taxonomy, metadata_path, excluded_path, output_dir, manifest=None):
+def run_variants(feature_table, taxonomy, metadata_path, excluded_path, output_dir, manifest=None, selected=None):
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     metadata = pd.read_csv(metadata_path, sep="\t", dtype=str).fillna("")
@@ -57,7 +57,9 @@ def run_variants(feature_table, taxonomy, metadata_path, excluded_path, output_d
     man = pd.read_csv(manifest, sep="\t", dtype=str) if manifest else None
     if man is not None and (set(sample_columns) - set(man["sample-id"])):
         raise ValueError("Manifest lacks ASV table sample IDs")
-    for scenario in VARIANTS:
+    if selected is not None and selected not in VARIANTS:
+        raise ValueError(f"Unknown scenario: {selected}")
+    for scenario in ((selected,) if selected else VARIANTS):
         use_three = scenario in ("no_three", "no_controls_no_three")
         if use_three and excluded_three is None:
             outputs.append({"scenario": scenario, "status": "BLOCKED",
@@ -111,9 +113,10 @@ def main():
     p.add_argument("--taxonomy", default=None)
     p.add_argument("--exclude-three", default=None)
     p.add_argument("--manifest", default=None)
+    p.add_argument("--scenario", choices=VARIANTS, default=None, help="Run only one named subset; useful for independent Colab notebooks")
     p.add_argument("--output-dir", required=True)
     a = p.parse_args()
-    run_variants(a.feature_table, a.taxonomy, a.metadata, a.exclude_three, a.output_dir, a.manifest)
+    run_variants(a.feature_table, a.taxonomy, a.metadata, a.exclude_three, a.output_dir, a.manifest, a.scenario)
 
 
 if __name__ == "__main__":
