@@ -23,14 +23,14 @@ PROJECTS = {
         "first": ("KCT_W1_01", "FKDN260619013-1A"),
         "last": ("NC", "FKDN260619104-1A"),
         "controls": {"PC": "FKDN260619103-1A", "NC": "FKDN260619104-1A"},
-        "allowed_scenarios": ("all", "no_controls", "no_controls_no_three"),
+        "allowed_scenarios": ("no_controls", "no_controls_no_three"),
     },
     "P18": {
         "start": 92, "stop": 110, "n": 18,
         "first": ("KUW_01", "FKDN260618712-1A"),
         "last": ("NC", "FKDN260618729-1A"),
         "controls": {"PC": "FKDN260618728-1A", "NC": "FKDN260618729-1A"},
-        "allowed_scenarios": ("all", "no_controls"),
+        "allowed_scenarios": ("no_controls",),
     },
 }
 
@@ -84,8 +84,14 @@ def save_metadata(metadata_path, project, output):
     return scoped
 
 
-def _normalize_columns(full_table: pd.DataFrame, scoped: pd.DataFrame, other: pd.DataFrame, project: str):
-    own_ids = set(scoped["sample-id"])
+def _normalize_columns(full_table: pd.DataFrame, scoped: pd.DataFrame, other: pd.DataFrame, project: str, scenario: str = "no_controls"):
+    # Never use PC/NC in the analysis. P92 can also exclude exactly three flagged samples.
+    expected = scoped.loc[~scoped["control"].str.upper().isin(["PC","NC"])].copy()
+    if scenario == "no_controls_no_three":
+        if project != "P92":
+            raise ValueError("The 3-sample exclusion applies only to P92")
+        expected = expected.loc[~expected["novogene-id"].isin(THREE_EXCLUDED_FKDN)]
+    own_ids = set(expected["sample-id"])
     others = set(other["sample-id"])
     own_names = set(scoped["sample-name"])
     other_names = set(other["sample-name"])
@@ -115,15 +121,17 @@ def _normalize_columns(full_table: pd.DataFrame, scoped: pd.DataFrame, other: pd
     selected.rename(columns=selection, inplace=True)
     missing = sorted(own_ids - set(selected.columns))
     if missing:
-        raise ValueError(f"{project}: ASV table missing {len(missing)}/{len(scoped)} required samples "
-                         f"(including controls): {missing[:8]}. The report is BLOCKED rather "
+        raise ValueError(f"{project}: ASV table missing {len(missing)}/{len(expected)} required samples "
+                         f"(PC/NC are not required): {missing[:8]}. The report is BLOCKED rather "
                          "than incorrectly treating absent samples as zeros.")
-    return selected.loc[:,scoped["sample-id"].tolist()]
+    return selected.loc[:,expected["sample-id"].tolist()]
 
 
-def prepare(feature_table, metadata_path, project, output_dir):
+def prepare(feature_table, metadata_path, project, output_dir, scenario="no_controls"):
     if project not in PROJECTS:
         raise ValueError(f"Unknown project {project}")
+    if scenario not in PROJECTS[project]["allowed_scenarios"]:
+        raise ValueError(f"{scenario} is not valid for {project}: PC/NC must be excluded")
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     project_map = validate_and_split(metadata_path)
@@ -131,7 +139,7 @@ def prepare(feature_table, metadata_path, project, output_dir):
     scoped.to_csv(out / "metadata.tsv", sep="\t", index=False)
     full_table = load_feature_table(feature_table)
     other_id = "P18" if project == "P92" else "P92"
-    selected = _normalize_columns(full_table, scoped, project_map[other_id], project)
+    selected = _normalize_columns(full_table, scoped, project_map[other_id], project, scenario)
     selected.index.name = "#OTU ID"
     selected.to_csv(out / "feature-table.tsv", sep="\t")
     x3 = scoped.loc[scoped["novogene-id"].isin(THREE_EXCLUDED_FKDN), ["sample-id", "sample-name", "novogene-id"]]
@@ -153,18 +161,23 @@ def run(feature_table, metadata_path, project, scenario, output_dir, taxonomy=No
     if scenario not in PROJECTS[project]["allowed_scenarios"]:
         raise ValueError(f"{scenario} is not a valid scenario for {project}")
     out = Path(output_dir)
-    inputs = prepare(feature_table, metadata_path, project, out/"project_input")
+    inputs = prepare(feature_table, metadata_path, project, out/"project_input", scenario=scenario)
     outputs = run_variants(inputs["table"], taxonomy, inputs["metadata"], inputs["exclude"],
                            out/"reports", selected=scenario)
     result = outputs[0]
-    expected = {"P92":{"all":92,"no_controls":90,"no_controls_no_three":87},
-                "P18":{"all":18,"no_controls":16}}[project][scenario]
+    expected = {"P92":{"no_controls":90,"no_controls_no_three":87},
+                "P18":{"no_controls":16}}[project][scenario]
     if result["status"] != "PASS" or result["n_samples"] != expected:
         raise ValueError(f"{project}/{scenario}: expected {expected} samples; actual: {result}")
+    included_sample_ids = set(pd.read_csv(inputs["table"], sep="\t").columns[1:])
+    control_ids = set(validate_and_split(metadata_path)[project].loc[
+        lambda df: df["control"].isin(["PC","NC"]), "sample-id"])
+    if included_sample_ids & control_ids:
+        raise ValueError("Safety violation: PC/NC included in final ASV analysis")
     manifest = {"project":project, "scenario":scenario, "expected_samples":expected,
                 "actual_samples":result["n_samples"], "controls":inputs["controls"],
                 "excluded_three_fkdn":list(THREE_EXCLUDED_FKDN) if scenario=="no_controls_no_three" else [],
-                "run_type":"shared_ASV_table_then_subset_diversity",
+                "run_type":"project_scoped_ASV_table_without_PC_NC_then_subset_diversity",
                 "status":"PASS"}
     (out/"project_run.json").write_text(json.dumps(manifest,indent=2),encoding="utf-8")
     print(json.dumps(manifest,indent=2))
