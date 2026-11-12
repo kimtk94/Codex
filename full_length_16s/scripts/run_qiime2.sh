@@ -50,6 +50,17 @@ mkdir -p "$OUT/table_export" "$OUT/stats_export" || exit $?
 run qiime tools export --input-path "$OUT/table.qza" --output-path "$OUT/table_export" || exit $?
 run biom convert -i "$OUT/table_export/feature-table.biom" -o "$OUT/feature-table.tsv" --to-tsv || exit $?
 run qiime tools export --input-path "$OUT/stats.qza" --output-path "$OUT/stats_export" || exit $?
+mkdir -p "$OUT/rep_seqs_export" || exit $?
+run qiime tools export --input-path "$OUT/rep-seqs.qza" --output-path "$OUT/rep_seqs_export" || exit $?
+if [ ! -f "$OUT/rep_seqs_export/dna-sequences.fasta" ]; then
+  echo "BLOCK: representative ASV FASTA missing after export" >&2
+  exit 2
+fi
+# A DB-free run is complete when these three evidence artifacts exist.
+if [ ! -f "$OUT/table.qza" ] || [ ! -f "$OUT/rep-seqs.qza" ] || [ ! -f "$OUT/stats.qza" ]; then
+  echo "BLOCK: essential DADA2 artifacts are missing" >&2
+  exit 2
+fi
 if [ -n "$CLASSIFIER" ]; then
   if [ ! -f "$CLASSIFIER" ]; then echo "Missing classifier: $CLASSIFIER" >&2; exit 2; fi
   if [ ! -f "$OUT/taxonomy.qza" ]; then
