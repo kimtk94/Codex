@@ -56,3 +56,14 @@ GitHub Actions: .github/workflows/full-length-16s-ci.yml validates the three Col
 4. Run all three Colabs to produce actual ASV tables and reports. Passing GitHub Actions tests is not evidence that raw analysis has executed.
 
 Reference: https://amplicon-docs.qiime2.org/en/2026.7/references/plugins/dada2/
+
+## Verified primer pair (provided 2026-11-12)
+
+| Primer | 5'-3' sequence | QIIME 2 denoise-ccs option |
+|---|---|---|
+| 27F | `AGRGTTYGATYMTGGCTCAG` | `--p-front` |
+| 1492R | `GYTACCTTGTTACGACTT` | `--p-adapter` |
+
+The primer strings retain the supplied IUPAC ambiguous bases. **The reverse primer is entered in its supplied 5'-3' orientation, not reverse-complemented.** The user-supplied 1492R begins `GYTAC`, whereas some publications describe an `RGYTAC` variant; do not silently add `R`. Check primer-matching retention and DADA2 denoising stats on actual FASTQs. The runner uses a 1000–1600 bp post-primer length window, `maxEE=2`, `max_mismatch=2`, `n_reads_learn=100000` for smaller P18 read sets and creates the required 2026-era base-transition-stats artifact. The actual HiFi dataset has not yet been processed.
+
+References: https://amplicon-docs.qiime2.org/en/2026.7/references/plugins/dada2/ ; https://forum.qiime2.org/t/dada2-denoise-ccs-plugin-error-return-code-1/29320
