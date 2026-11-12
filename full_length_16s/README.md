@@ -1,55 +1,49 @@
-# KIST Full-Length 16S (PacBio Revio HiFi)
+# KIST PacBio HiFi full-length 16S (P92 / P18)
 
-## Scope and files
+## Final analysis protocol — PC and NC excluded from every analysis
 
-- Contract: H209SC26096091; 20K reads per sample Revio full-length 16S.
-- Drive project folder: https://drive.google.com/drive/folders/1070GDz6WnKV23Ygzgs08idwO1p4-xYm5
-- Existing metadata workbook has 110 rows, including PC twice and NC twice.
-- Vendor result archive is about 2.17 GB; it is NOT yet verified to contain raw FASTQ.
-- The unique sample identifier joins the sample name with the Novogene FKDN identifier; this is necessary for duplicated PC and NC labels.
+The sample information spreadsheet under the designated KIST Drive folder lists **110 entries**, but these represent **two distinct projects** in Excel row order:
 
-## Four requested scenarios
+| Project | Original Excel rows | Original samples | Excluded controls | Analysis preset | Final sample count |
+| --- | --- | ---: | --- | --- | ---: |
+| P92 | 1–92 | 92 | PC FKDN260619103-1A; NC FKDN260619104-1A | no_controls | **90** |
+| P92 | 1–92 | 92 | same PC/NC plus three samples below | no_controls_no_three | **87** |
+| P18 | 93–110 | 18 | PC FKDN260618728-1A; NC FKDN260618729-1A | no_controls | **16** |
 
-Scenario | Keep PC/NC? | Keep three explicitly excluded samples?
---- | --- | ---
-all | Yes | Yes
-no_controls | No | Yes
-no_three | Yes | No
-no_controls_no_three | No | No
+**Never pool P92 and P18 into one ASV inference or diversity comparison. Never include any PC/NC read in the DADA2 FASTQ manifest or the final ASV matrix.** The 110-sample Excel is used only for validating original ordering and correct per-project sample IDs.
 
-The exact three excluded sample names are configurable in the notebook EXCLUDE_THREE_SAMPLE_IDS. They MUST match a single full sample ID, or a unique sample name, in the validated workbook. If no names have been provided the third and fourth analyses are visibly BLOCKED, never guessed or silently declared PASS.
+P92 three-sample exclusion, all verified from the original Excel:
 
-For each scenario we create:
-- Subset-specific ASV count table and sample metadata.
-- List of all explicitly excluded sample IDs and exclusion reason.
-- Alpha diversity: observed ASVs and Shannon.
-- Beta diversity: Bray-Curtis matrix and PCoA scatter.
-- Genus abundance bar chart if taxonomy is present.
-- HTML report and per-variant CSV outputs.
-- Overall status and comparison CSV / JSON.
+- K905_W1_10 — FKDN260619042-1A
+- KCT_W3_10 — FKDN260619082-1A
+- K902_W3_02 — FKDN260619084-1A
 
-These four scenarios are computed from a common ASV table, with alpha/beta diversity recomputed independently. They are NOT equivalent to independently repeating DADA2 inference four times. If FASTQ is available, the tool can additionally export sample-filtered manifests to support separate denoising sensitivity analyses.
+These three are **not** part of P18. P18 therefore has only the 16-sample variant.
 
-## Files
+## Canonical Colab notebooks
 
-- notebooks/KIST_FullLength16S_Colab.ipynb: authenticated Drive notebook
-- src/full16s.py: sample mapping, file inventory, FASTQ manifest, diversity report.
-- src/subset_analyses.py: four sample filtering analyses with validation.
-- scripts/run_qiime2.sh: QIIME 2 DADA2 denoise-ccs from HiFi single-end FASTQ.
-- tests/test_scenarios.py: synthetic scenario tests.
-- .github/workflows/full-length-16s-ci.yml: GitHub Actions validation.
+1. [P92 90 samples](https://colab.research.google.com/drive/1Tr3vVKXVIqLr8KrO8hOyAPQs2H7fdGi9)
+2. [P92 87 samples](https://colab.research.google.com/drive/14wp4oQNly1KI846Q5arWI1xqUvcdN7UC)
+3. [P18 16 samples](https://colab.research.google.com/drive/14fZQxvgMEuy1e6IN5ITeBS3yNcKj71_5)
 
-## Workflow
+Canonical Drive notebooks folder:
+https://drive.google.com/drive/folders/1DcXmr6w-Jgb2tmcVsBqaOzB2y05zzb8Q
 
-1. Open Colab from Drive/notebooks and allow Drive access.
-2. Run setup and sample mapping (expected 110 rows; four PC/NC controls).
-3. Enter exactly three excluded sample IDs in EXCLUDE_THREE_SAMPLE_IDS.
-4. For the vendor archive, set DOWNLOAD_VENDOR_ZIP=True to inspect its contents.
-5. For raw analysis upload HiFi FASTQs to Drive/raw_fastq, set DOWNLOAD_RAW_FASTQ and configure true primer sequences and a compatible SILVA reference classifier.
-6. Run QIIME 2 2026.10 where resources permit, or use a compatible existing feature table. Generate the four reports and upload to analysis_outputs.
+Analysis results:
+- P92: https://drive.google.com/drive/folders/1ftL6PEvdc7QAUmW6oAr762cfRglCFp4i
+- P18: https://drive.google.com/drive/folders/1hk_I7nHxIDOO_yoDMQ515d3qxcdXynn1
 
-No raw FASTQs or vendor result ZIP are checked into GitHub. GitHub stores code and synthetic test fixtures only. Drive holds source data and reports.
+## Execution and safeguards
 
-Scientific references:
-- QIIME 2 2026.10 official installation: https://library.qiime2.org/quickstart/qiime2
-- DADA2 PacBio CCS denoising: https://amplicon-docs.qiime2.org/en/stable/references/plugins/dada2/
+- Existing uploaded files: metadata Excel and Novogene result ZIP (~2.17 GB). Vendor ZIP contents and raw FASTQs are not yet fully inspected. A new DADA2 inference requires sample-specific HiFi FASTQs, verified primer sequences and a matching QIIME 2 / SILVA classifier.
+- Each notebook retrieves processing code from this GitHub branch and validates the exact 92/18 workbook split, then creates a strictly PC/NC-free analysis metadata table.
+- When FASTQ is available, only included samples are downloaded and passed into the **independent, per-notebook DADA2-CCS manifest**.
+- When using an existing ASV table from the ZIP, each notebook first subsets the ASV table to the included project-specific samples, then independently recalculates observed ASVs, Shannon, Bray–Curtis and PCoA. This post hoc reanalysis is **not** a fresh denoising run.
+- The analysis refuses to mark PASS if even one expected sample is missing, project membership is wrong, PC/NC appear in the included table, or the excluded three cannot be found in P92.
+- Generated reports include ASV table, metadata, exclusion audit, diversity, figures and a run manifest; these are saved to timestamped Drive subfolders.
+
+Source code: src/full16s.py, src/subset_analyses.py, src/project_splits.py, scripts/run_qiime2.sh.
+
+GitHub Actions: .github/workflows/full-length-16s-ci.yml validates the three Colab configurations, sample-exclusion logic and synthetic smoke tests. Actual scientific processing is executed from Colab, *not* via GitHub Actions.
+
+**Privacy:** FASTQ, vendor archive and patient/sample-level real outputs stay in Drive, never in a public GitHub repository.
