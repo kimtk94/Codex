@@ -34,8 +34,8 @@ jobs:
           import json, ast
           from pathlib import Path
           notebooks = sorted(Path("full_length_16s/notebooks").glob("*.ipynb"))
-          assert len(notebooks) == 4, f"Expected 3 standalone variants plus the original notebook, got {len(notebooks)}"
-          required = {"all", "no_controls", "no_controls_no_three"}
+          assert len(notebooks) >= 9, f"Expected 5 P92/P18 notebooks plus legacy notebooks, got {len(notebooks)}"
+          required = {("P92","all"),("P92","no_controls"),("P92","no_controls_no_three"),("P18","all"),("P18","no_controls")}
           observed = set()
           for p in notebooks:
               nb = json.loads(p.read_text(encoding="utf-8"))
@@ -43,11 +43,14 @@ jobs:
               code_cells = ["".join(cell["source"]) for cell in nb["cells"] if cell["cell_type"] == "code"]
               for index, code in enumerate(code_cells):
                   ast.parse(code, filename=f"{p.name}:cell-{index}")
-              if p.name.startswith("KIST_16S_"):
+              if p.name.startswith(("KIST_P92_", "KIST_P18_")):
                   config = code_cells[0]
-                  variant = next((x for x in required if f'RUN_SCENARIO = "{x}"' in config), None)
-                  assert variant is not None, f"Missing RUN_SCENARIO in {p.name}"
-                  observed.add(variant)
+                  pair = next(((project,variant) for project,variant in required
+                               if f'PROJECT = "{project}"' in config and
+                               f'RUN_SCENARIO = "{variant}"' in config), None)
+                  assert pair is not None, f"Unrecognized project/scenario in {p.name}"
+                  assert f'EXPECTED_SAMPLES = {{"P92":{{"all":92,"no_controls":90,"no_controls_no_three":87}},"P18":{{"all":18,"no_controls":16}}}}[pair[0]][pair[1]]' in config
+                  observed.add(pair)
               print(f"PASS: {p.name} ({len(nb['cells'])} cells)")
           assert observed == required, f"Missing variants: {required - observed}"
           PY
