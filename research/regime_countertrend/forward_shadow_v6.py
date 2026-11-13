@@ -104,10 +104,18 @@ def fetch_fresh_fx(expected_last):
             values=parse_fx_chart(raw)
             anchor=values[values.date==FROZEN]
             if len(anchor)!=1:raise ValueError("missing 2026-11-10 FX baseline")
+            fx_anchor=float(anchor.usdkrw_close.iloc[0])
+            anchor_diff_bps=(fx_anchor/1334.0-1)*10000
+            if abs(anchor_diff_bps)>5:
+                raise ValueError(f"USDKRW frozen quote revised by {anchor_diff_bps:.2f}bp")
+            if str(values.date.max())>str(expected_last) or str(values.date.max())<str(
+                    expected_last-timedelta(days=5)):
+                raise ValueError("FX source stale or includes future dated close")
             # FX is quoted KRW per USD, not USD per KRW.
             return values,{"status":"SOURCE_PASS","provider":host,
                 "raw_sha256":hashlib.sha256(raw).hexdigest(),
-                "anchor_2026_11_10":float(anchor.usdkrw_close.iloc[0]),
+                "anchor_2026_11_10":fx_anchor,
+                "anchor_revision_bps":anchor_diff_bps,
                 "latest":str(values.date.max())}
         except Exception as exc:
             errors.append({"provider":host,"error":type(exc).__name__,
