@@ -133,14 +133,21 @@ jobs:
           import json
           from pathlib import Path
           d=json.loads(Path("results/regime_countertrend/krw_cash_v6/decision.json").read_text())
-          if len(d.get("reports",[]))!=4 or d.get("promotion_allowed") is not False:
-              raise SystemExit("INVALID_CASH_POLICY_COMPARISON")
+          reports=d.get("reports",[])
+          combinations={(r.get("model"),r.get("cash_policy"),
+                         r.get("spread_per_conversion_leg_bps")) for r in reports}
+          if (len(reports)!=12 or len(combinations)!=12 or
+              {r.get("spread_per_conversion_leg_bps") for r in reports}!={0,10,25} or
+              d.get("promotion_allowed") is not False):
+              raise SystemExit("INVALID_12_SCENARIO_CASH_POLICY_COMPARISON")
+          if any("excess_vs_passive_usd_cash_pp" not in r for r in reports):
+              raise SystemExit("MISSING_PASSIVE_FX_CASH_BASELINE")
           if d.get("broker_evidence_status") not in (
               "HOLD_BROKER_LEDGER_NOT_CONNECTED",
               "HOLD_BROKER_LEDGER_MISSING_OR_INVALID",
               "HOLD_BROKER_FILES_PRESENT_NOT_RECONCILED"):
               raise SystemExit("BROKER_EVIDENCE_GATE_INVALID")
-          print("CASH_V6_4_SCENARIOS_PASS_RESEARCH_ONLY",d["broker_evidence_status"])
+          print("CASH_V6_12_SCENARIOS_AND_PASSIVE_FX_BASELINE_PASS_RESEARCH_ONLY",d["broker_evidence_status"])
           PY
       - name: Check retrospectively adjusted market/FX vintage and frozen selections
         run: python -m research.regime_countertrend.vintage_audit_v6 --out results/regime_countertrend/vintage_v6
