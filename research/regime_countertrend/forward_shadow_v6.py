@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
+import exchange_calendars as xcals
 
 from .sector_price_sources_v3 import (
     manifest_load,fetch_symbol,apply_ticker_trade_eligibility
@@ -34,8 +35,13 @@ def most_recent_completed_ny_session(now_utc=None):
     now=(now_utc or datetime.now(timezone.utc)).astimezone(
         ZoneInfo("America/New_York"))
     day=now.date() if (now.hour>=17) else now.date()-timedelta(days=1)
-    while day.weekday()>4:day-=timedelta(days=1)
-    return day
+    # NYSE, not generic Mon–Fri: Veterans Day is open, Thanksgiving is closed.
+    cal=xcals.get_calendar("XNYS")
+    sessions=cal.sessions_in_range(
+        pd.Timestamp(day-timedelta(days=14)),pd.Timestamp(day))
+    if len(sessions)==0:
+        raise ValueError("no completed NYSE session within two weeks")
+    return sessions[-1].date()
 
 def frozen_anchor_audit(frame,anchor,expected_last):
     if frame.date.duplicated().any():raise ValueError("duplicate provider market dates")
@@ -45,8 +51,9 @@ def frozen_anchor_audit(frame,anchor,expected_last):
     if not np.isfinite(bps):raise ValueError("invalid source anchor")
     if frame.date.max()>str(expected_last):
         raise ValueError("data includes not-yet-completed market date")
-    if str(frame.date.max())<str(expected_last-timedelta(days=5)):
-        raise ValueError("market data stale more than 5 calendar days")
+    if str(frame.date.max())!=str(expected_last):
+        raise ValueError("SOURCE_LAG: missing actual last completed NYSE session "+
+                         str(expected_last)+" (latest="+str(frame.date.max())+")")
     return {"anchor_delta_bps":float(bps),"anchor_match_within_5bp":bool(abs(bps)<=5),
         "new_sessions_after_frozen":int((frame.date>FROZEN).sum()),
         "latest_session":str(frame.date.max()),
