@@ -31,6 +31,19 @@ class ForwardShadowV6Tests(unittest.TestCase):
         self.assertEqual(str(most_recent_completed_ny_session(
             datetime(2026,11,15,18,0,tzinfo=timezone.utc))),"2026-11-13")
 
+    def test_nyse_holidays_are_not_mistaken_for_completed_days(self):
+        # Thanksgiving 2026 is closed; prior trading session is 11/25.
+        self.assertEqual(str(most_recent_completed_ny_session(
+            datetime(2026,11,27,1,0,tzinfo=timezone.utc))),"2026-11-25")
+        # On Veterans Day, NYSE actually trades.
+        self.assertEqual(str(most_recent_completed_ny_session(
+            datetime(2026,11,12,1,0,tzinfo=timezone.utc))),"2026-11-11")
+
+    def test_missing_latest_trading_session_cannot_claim_no_signals(self):
+        a=pd.DataFrame({"date":["2026-11-10","2026-11-11"],
+                        "close":[100.,101.]})
+        with self.assertRaisesRegex(ValueError,"SOURCE_LAG"):
+            frozen_anchor_audit(a,100.,pd.Timestamp("2026-11-12").date())
     def test_frozen_anchor_price_revision_is_explicit_hold(self):
         a=pd.DataFrame({"date":["2026-11-10","2026-11-11","2026-11-12"],
                         "close":[100.,101.,102.]})
