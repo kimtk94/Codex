@@ -188,6 +188,23 @@ jobs:
           if report["status"].startswith("HOLD"):
               print("::warning title=Prospective CFM still HOLD::No validated forward alpha; check source revisions and full outcomes.")
           PY
+      - name: Compare same-window USD retained cash models with passive KRW ETF benchmarks
+        run: python -m research.regime_countertrend.krw_passive_benchmarks_v6 --cash-dir results/regime_countertrend/krw_cash_v6
+      - name: Require risk benchmark and currency parity evaluation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          base=Path("results/regime_countertrend/krw_cash_v6")
+          report=json.loads((base/"passive_etf_decision.json").read_text())
+          df=pd.read_csv(base/"passive_etf_comparisons.csv")
+          if len(df)!=7 or set(["SPY","QQQ","IWM","SMH","GLD"]) - set(df.symbol):
+              raise SystemExit("PASSIVE_BENCHMARK_MISSING")
+          if report.get("promotion_allowed") is not False:
+              raise SystemExit("PASSIVE_BENCHMARK_UNSAFE_LIVE_FLAG")
+          print("KRW_PASSIVE_BENCHMARKS_PASS_RESEARCH_ONLY",df[["symbol","buy_hold_krw_return_pct"]].to_json(orient="records"))
+          PY
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
