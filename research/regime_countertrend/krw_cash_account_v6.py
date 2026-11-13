@@ -190,7 +190,17 @@ def simulate_cash(trades,prices,fx,model,policy,spread_bps=FX_SPREAD_BPS,
         raise ValueError("open positions beyond final synthetic exit; source incomplete")
     peak=np.maximum.accumulate(np.r_[initial_krw,equity_curve.equity_krw.to_numpy()])
     drawdown=equity_curve.equity_krw.to_numpy()/peak[1:]-1
+    # Passive USD cash is a necessary control: KRW gains may simply be FX
+    # exposure on idle USD balances, unrelated to stock selection alpha.
+    first_rate=float(equity_curve.fx_rate.iloc[0])
+    final_rate=float(equity_curve.fx_rate.iloc[-1])
+    fx_cash_only_pct=((final_rate/(first_rate*(1+spread)))-1)*100
+    realized_strategy_pct=(float(equity_curve.equity_krw.iloc[-1])/initial_krw-1)*100
     summary={"model":model,"cash_policy":policy,"initial_krw":initial_krw,
+        "passive_usd_cash_krw_return_pct":float(fx_cash_only_pct),
+        "passive_krw_cash_return_pct":0.,
+        "excess_vs_passive_usd_cash_pp":float(realized_strategy_pct-fx_cash_only_pct),
+        "valuation_rate_initial":first_rate,"valuation_rate_final":final_rate,
         "last_krw_mark_equity":float(equity_curve.equity_krw.iloc[-1]),
         "initial_to_final_krw_return_pct":float(
             (equity_curve.equity_krw.iloc[-1]/initial_krw-1)*100),
@@ -227,11 +237,16 @@ def main():
     results=[]
     for model in MODELS:
         for policy in POLICIES:
-            curve,actions,summary=simulate_cash(trades,prices,fx,model,policy)
-            tag=f"{model}__{policy}"
-            curve.to_csv(out/f"{tag}_equity.csv",index=False)
-            actions.to_csv(out/f"{tag}_synthetic_transactions.csv",index=False)
-            results.append(summary)
+            for spread in (0,10,25):
+                curve,actions,summary=simulate_cash(trades,prices,fx,
+                     model,policy,spread_bps=spread)
+                tag=f"{model}__{policy}__{spread}bps"
+                # Store curves/actions at the reference 10bp scenario, summary
+                # table for all 0/10/25bp alternatives. Keeps artifact lean.
+                if spread==10:
+                    curve.to_csv(out/f"{tag}_equity.csv",index=False)
+                    actions.to_csv(out/f"{tag}_synthetic_transactions.csv",index=False)
+                results.append(summary)
     pd.DataFrame(results).to_csv(out/"policy_comparison.csv",index=False)
     decision={"status":"HOLD_PORTFOLIO_PROXY_NOT_ACTUAL_CASH",
         "portfolio_scenarios":len(results),"account_initial_krw_assumed":INITIAL_KRW,
@@ -243,6 +258,8 @@ def main():
           "FX uses previous-dated Yahoo daily close, not actual bank execution",
           "No actual brokerage statements or cash/FX ledger reconciled",
           "Price series adjustments, dividends, taxes and exchange fees may differ",
+          "Source-vintage drift can change past trades and all reported return values",
+          "Passive USD cash and passive KRW cash baselines separate currency exposure from stock selection",
           "This is portfolio proxy for policy sensitivity, not validated CAGR or account MDD"]}
     (out/"decision.json").write_text(json.dumps(decision,indent=2,ensure_ascii=False))
     print("KRW_CASH_V6",json.dumps({
