@@ -125,3 +125,25 @@ jobs:
           assert 'GYTACCTTGTTACGACTT' in s
           print("PASS: lab primers and QIIME 2 2026.10 required outputs")
           PY
+
+      - name: Verify Windows local DADA2 PSOCK pipeline
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          code=Path("full_length_16s/windows/run_f003_90_dada2.R").read_text(encoding="utf-8")
+          for needle in (
+              "nrow(manifest)==90L",
+              "parallel::makePSOCKcluster(workers)",
+              "primer.rev=dada2::rc(reverse)",
+              "filterAndTrim(",
+              "multithread=FALSE",
+              "errorEstimationFunction=PacBioErrfun",
+              "dada(dereps,err=err,multithread=threads",
+              "removeBimeraDenovo(seqtab,method=\"consensus\"",
+              "feature-table.tsv",
+              "ASV_sequences.fasta",
+              "manifest[\\\"sample-id\\\"]",
+          ):
+              assert needle in code, f"Missing Windows DADA2 contract: {needle}"
+          print("PASS: Windows F003 90 local DADA2 script has PC/NC exclusion, PSOCK, checkpoints and ASV output")
+          PY
