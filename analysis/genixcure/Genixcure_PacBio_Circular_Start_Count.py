@@ -17,9 +17,11 @@ import hashlib
 import heapq
 import json
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
+import time
 import zlib
 from pathlib import Path
 
@@ -69,14 +71,30 @@ def normalize(seq, strand, anchor):
     return out, 'normalized'
 
 
-def atomic_copy(src, dst):
+def atomic_copy(src, dst, attempts=5):
+    """Copy with retry for transient Colab Drive/FUSE errors.
+
+    A .done.json checkpoint is always committed last. Stale .partial files are
+    staging artifacts and can be replaced safely when this function is retried.
+    """
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     staged = Path(str(dst) + '.partial')
-    shutil.copyfile(src, staged)
-    if staged.stat().st_size != Path(src).stat().st_size:
-        raise IOError('Incomplete Drive copy ' + str(dst))
-    os.replace(staged, dst)
+    expected = Path(src).stat().st_size
+    for attempt in range(1, attempts + 1):
+        try:
+            if staged.exists():
+                staged.unlink()
+            shutil.copyfile(src, staged)
+            if staged.stat().st_size != expected:
+                raise IOError(f'Incomplete Drive copy {dst}: expected {expected} bytes, found {staged.stat().st_size}')
+            os.replace(staged, dst)
+            return
+        except OSError as exc:
+            print(f'[DRIVE COPY RETRY {attempt}/{attempts}] {dst.name}: {exc}', flush=True)
+            if attempt == attempts:
+                raise
+            time.sleep(min(2 ** attempt, 15))
 
 
 def load_mapping_chunks(mapping_dir):
@@ -86,6 +104,7 @@ def load_mapping_chunks(mapping_dir):
     result = []
     last_end = None
     expected_params = None
+    print(f'[INPUT] Scanning mapping checkpoint metadata: {len(chunks)} chunks (no read sequence SHA256)', flush=True)
     for i, f in enumerate(chunks):
         if f.name != f'chunk_{i:05d}.done.json':
             raise ValueError('Mapping chunks not continuous: ' + f.name)
@@ -101,12 +120,14 @@ def load_mapping_chunks(mapping_dir):
             raise ValueError('Missing or damaged per-read mapping file: ' + str(path))
         result.append((m, path))
         last_end = m['end']
+        if (i+1) % 50 == 0 or i+1 == len(chunks):
+            print(f'[INPUT] metadata checked {i+1}/{len(chunks)}', flush=True)
     if result[-1][0].get('exhausted') is not True:
         raise RuntimeError('Full BAM mapping must reach EOF before normalization')
     return result, expected_params
 
 
-def validate_existing(out, idx, manifest):
+def validate_existing(out, idx, manifest, *, verify_digest=True):
     dest = out / 'chunks' / f'chunk_{idx:05d}.normalized.csv.gz'
     done = out / 'chunks' / f'chunk_{idx:05d}.normalized.done.json'
     if not done.is_file():
@@ -114,9 +135,38 @@ def validate_existing(out, idx, manifest):
     m = json.loads(done.read_text())
     if m['chunk_id'] != idx or m['params_sha256'] != manifest:
         raise ValueError('Normalization checkpoint parameter mismatch; use new OUT folder')
-    if not dest.is_file() or dest.stat().st_size != m['csv_size'] or digest_file(dest) != m['csv_sha256']:
-        raise ValueError('Corrupt normalization checkpoint: ' + str(done))
+    if not dest.is_file() or dest.stat().st_size != m['csv_size']:
+        raise ValueError('Missing or corrupt normalization checkpoint: ' + str(done))
+    if verify_digest and digest_file(dest) != m['csv_sha256']:
+        raise ValueError('SHA256 mismatch for normalization checkpoint: ' + str(done))
     return m
+
+
+def completed_prefix(out, expected):
+    """Find the contiguous committed checkpoint prefix by names, without reading GB of prior results."""
+    folder = out / 'chunks'
+    folder.mkdir(parents=True, exist_ok=True)
+    pattern = re.compile(r'^chunk_(\d{5})\.normalized\.done\.json$')
+    completed = sorted(int(m.group(1)) for f in folder.glob('*.normalized.done.json')
+                       if (m := pattern.match(f.name)))
+    if completed != list(range(len(completed))):
+        raise RuntimeError('Noncontiguous normalized checkpoints; inspect before resuming')
+    if len(completed) > expected:
+        raise RuntimeError('More completed normalized checkpoints than mapping chunks')
+    return len(completed)
+
+
+def write_normalization_progress(out, stage, completed, total, **extra):
+    """Persist status for Colab and external Drive progress checks; checkpoint is committed separately."""
+    info = {'stage': stage, 'chunks_committed': completed, 'chunks_total': total,
+            'percent': round(100 * completed / max(1, total), 2),
+            'next_chunk_id': completed if completed < total else None,
+            'updated_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), **extra}
+    with tempfile.TemporaryDirectory(prefix='gxc_progress_') as tmp:
+        src = Path(tmp) / 'normalization_progress.json'
+        src.write_text(json.dumps(info, ensure_ascii=False, indent=2))
+        atomic_copy(src, out / src.name)
+    return info
 
 
 def run_normalize(args, anchor, manifest, chunks):
@@ -129,14 +179,26 @@ def run_normalize(args, anchor, manifest, chunks):
     (args.out / 'chunks').mkdir(parents=True, exist_ok=True)
     summary = collections.Counter()
     done_count = 0
+    existing = completed_prefix(args.out, len(chunks))
+    tail_start = max(0, existing - args.verify_last)
+    print(f'[RESUME] {existing}/{len(chunks)} chunks already committed '
+          f'({100*existing/len(chunks):.2f}%). SHA256 check: latest {existing-tail_start} ONLY; '
+          f'older {tail_start} skipped without opening CSV.', flush=True)
+    for idx in range(tail_start, existing):
+        print(f'[VERIFY] checking chunk_{idx:05d} SHA256...', flush=True)
+        validate_existing(args.out, idx, manifest, verify_digest=True)
+        print(f'[VERIFY] chunk_{idx:05d} SHA256 PASS', flush=True)
+    write_normalization_progress(args.out, 'NORMALIZING', existing, len(chunks),
+                                 verification='latest_%d_only' % args.verify_last)
+    start_time = time.monotonic()
     with pysam.AlignmentFile(str(args.bam), 'rb', check_sq=False) as stream:
         for idx, (map_marker, map_path) in enumerate(chunks):
-            prior = validate_existing(args.out, idx, manifest)
-            if prior:
-                summary.update(prior['metrics'])
+            if idx < existing:
                 continue
             if args.max_chunks and done_count >= args.max_chunks:
                 break
+            print(f'[START] chunk_{idx:05d} ({idx}/{len(chunks)}, '
+                  f'{100*idx/len(chunks):.2f}%)', flush=True)
             stream.seek(int(map_marker['start']))
             c = collections.Counter()
             local = {}  # raw exact normalized sequence -> [count, full_span_count]
@@ -193,13 +255,14 @@ def run_normalize(args, anchor, manifest, chunks):
                     for seq, (count, full_count) in local.items():
                         writer.writerow([seq, count, full_count, len(seq)])
                 target = args.out / 'chunks' / f'chunk_{idx:05d}.normalized.csv.gz'
+                local_sha = digest_file(f)
                 atomic_copy(f, target)
                 if c['mapped_reads'] - c['normalized_reads']:
                     atomic_copy(uns, unresolved_path)
                 marker = {
                     'chunk_id': idx, 'params_sha256': manifest,
                     'csv_name': target.name, 'csv_size': target.stat().st_size,
-                    'csv_sha256': digest_file(target), 'metrics': dict(c),
+                    'csv_sha256': local_sha, 'metrics': dict(c),
                     'distinct_sequence_within_chunk': len(local),
                     'anchor_first_31bp': anchor,
                 }
@@ -208,7 +271,17 @@ def run_normalize(args, anchor, manifest, chunks):
                 atomic_copy(mpath, args.out / 'chunks' / f'chunk_{idx:05d}.normalized.done.json')
             summary.update(c)
             done_count += 1
-            print(f'[chunk {idx:05d}] mapped={c["mapped_reads"]}, normalized={c["normalized_reads"]}, full-span={c["normalized_full_span_reads"]}', flush=True)
+            committed = idx + 1
+            write_normalization_progress(args.out, 'NORMALIZING' if committed < len(chunks) else 'NORMALIZED_ALL_CHUNKS',
+                                         committed, len(chunks), last_completed_chunk=idx)
+            speed = (time.monotonic() - start_time) / max(1, done_count)
+            print(f'[DONE] chunk_{idx:05d}  {committed}/{len(chunks)} ({100*committed/len(chunks):.2f}%) '
+                  f'new={done_count}; remaining={len(chunks)-committed}; '
+                  f'mapped={c["mapped_reads"]}, normalized={c["normalized_reads"]}, '
+                  f'full-span={c["normalized_full_span_reads"]}; '
+                  f'ETA~{(len(chunks)-committed)*speed/60:.1f} min', flush=True)
+    if existing + done_count == len(chunks):
+        print('[NORMALIZATION] All chunks completed. Start aggregate stage next.', flush=True)
     return summary
 
 
@@ -216,12 +289,20 @@ def run_aggregate(args, anchor, manifest, chunks):
     expected = len(chunks)
     summary = collections.Counter()
     normalized_files = []
+    existing = completed_prefix(args.out, expected)
+    if existing != expected:
+        raise RuntimeError(f'Normalized chunks incomplete: {existing}/{expected}; rerun normalize')
+    print(f'[AGGREGATE] Reading {expected} checkpoint manifests; '
+          f'full SHA256 check for latest {min(args.verify_last,expected)} only.', flush=True)
     for i in range(expected):
-        marker = validate_existing(args.out, i, manifest)
+        marker = validate_existing(args.out, i, manifest,
+                                   verify_digest=i >= max(0, expected-args.verify_last))
         if marker is None:
             raise RuntimeError(f'Normalized chunk {i} missing; rerun normalize stage')
         summary.update(marker['metrics'])
         normalized_files.append(args.out / 'chunks' / marker['csv_name'])
+    write_normalization_progress(args.out, 'AGGREGATING', expected, expected,
+                                 aggregate_chunks_complete=0, aggregate_total_chunks=expected)
     if summary['input_reads'] != args.expected_reads or summary['normalized_reads'] + summary['unmapped_reads'] + sum(summary[k] for k in ('anchor_absent', 'anchor_ambiguous_multicopy', 'empty_sequence', 'unrecognized_strand')) != args.expected_reads:
         raise RuntimeError('Count conservation failed')
     scratch = args.scratch
@@ -253,8 +334,11 @@ def run_aggregate(args, anchor, manifest, chunks):
             if batch:
                 db.executemany(query, batch)
         db.commit()
-        if i % 25 == 0:
-            print(f'[group] accumulated {i+1}/{expected} normalized chunks', flush=True)
+        if (i+1) % 5 == 0 or i+1 == expected:
+            print(f'[AGGREGATING] {i+1}/{expected} chunks ({100*(i+1)/expected:.2f}%)', flush=True)
+            write_normalization_progress(args.out, 'AGGREGATING', expected, expected,
+                                         aggregate_chunks_complete=i+1, aggregate_total_chunks=expected,
+                                         aggregate_percent=round(100*(i+1)/expected, 2))
     total, full, distinct = db.execute('SELECT SUM(total), SUM(full_count), COUNT(*) FROM grouped').fetchone()
     if total != summary['normalized_reads'] or full != summary['normalized_full_span_reads']:
         raise RuntimeError('Aggregated normalized count conservation failed')
@@ -315,6 +399,10 @@ def run_aggregate(args, anchor, manifest, chunks):
     staged.write_text(json.dumps(report, ensure_ascii=False, indent=2))
     atomic_copy(staged, p)
     db.close()
+    write_normalization_progress(args.out, 'COMPLETE', expected, expected,
+                                 normalized_mapped_reads=total,
+                                 distinct_circular_normalized_sequences=distinct,
+                                 count_table=report['count_table'])
     print(json.dumps({k: report[k] for k in ('status', 'all_bam_reads', 'all_mapped_reads', 'normalized_mapped_reads', 'normalized_full_span_reads', 'distinct_circular_normalized_sequences', 'unresolved_mapped_reads')}, indent=2), flush=True)
     return report
 
@@ -345,9 +433,12 @@ def main(argv=None):
     p.add_argument('--stage', choices=('normalize', 'aggregate', 'all'), default='all')
     p.add_argument('--mapping-chunk-reads', type=int, default=10000)
     p.add_argument('--max-chunks', type=int, default=0)
+    p.add_argument('--verify-last', type=int, default=3, help='SHA256-check only newest N completed normalized chunks (default 3)')
     p.add_argument('--expected-reads', type=int, default=5140518)
     p.add_argument('--self-test', action='store_true')
     a = p.parse_args(argv)
+    if a.verify_last < 1:
+        p.error('--verify-last must be >= 1')
     if a.self_test:
         self_test()
         return
