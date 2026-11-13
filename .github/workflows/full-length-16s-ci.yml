@@ -142,7 +142,7 @@ jobs:
               "removeBimeraDenovo(seqtab,method=\"consensus\"",
               "feature-table.tsv",
               "ASV_sequences.fasta",
-              "manifest[\\\"sample-id\\\"]",
+              'manifest[["sample-id"]]',
           ):
               assert needle in code, f"Missing Windows DADA2 contract: {needle}"
           print("PASS: Windows F003 90 local DADA2 script has PC/NC exclusion, PSOCK, checkpoints and ASV output")
