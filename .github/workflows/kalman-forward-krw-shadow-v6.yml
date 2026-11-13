@@ -1,0 +1,58 @@
+name: Kalman V6 Forward KRW SHADOW
+on:
+  push:
+    branches:
+      - research/regime-countertrend-ci-20261102
+    paths:
+      - 'research/regime_countertrend/forward_shadow_v6.py'
+      - 'research/regime_countertrend/test_forward_shadow_v6.py'
+      - 'research/regime_countertrend/frozen_market_anchor_v6.json'
+      - '.github/workflows/kalman-forward-krw-shadow-v6.yml'
+  workflow_dispatch:
+  schedule:
+    # 08:00 KST Tue-Sat == 23:00 UTC Mon-Fri; after NY trading close.
+    # GitHub schedules run ONLY from the default branch once merged.
+    - cron: '0 23 * * 1-5'
+permissions:
+  contents: read
+jobs:
+  forward-krw-shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install source and leakage validation requirements
+        run: python -m pip install numpy pandas scipy scikit-learn pyarrow
+      - name: Verify NY completed session, price revision, and no premature 4-day outcome
+        run: python -m unittest research.regime_countertrend.test_forward_shadow_v6 -v
+      - name: Download post-freeze prices for 14 stocks, 10 ETFs, and USDKRW
+        run: python -m research.regime_countertrend.forward_shadow_v6 --out results/regime_countertrend/forward_v6
+      - name: Publish explicit forward-data and model maturity status
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("results/regime_countertrend/forward_v6/decision.json").read_text())
+          print("FORWARD_V6_STATUS",json.dumps(r,ensure_ascii=False))
+          if r.get("promotion_allowed") is not False:
+              raise SystemExit("PROHIBITED_LIVE_PROMOTION")
+          if r.get("complete_us_sources") != 24:
+              raise SystemExit("FORWARD_SOURCE_UNAVAILABLE_OR_REVISED")
+          if r.get("status") not in (
+              "HOLD_NO_NEW_SIGNALS",
+              "HOLD_PENDING_OUTCOME",
+              "HOLD_INSUFFICIENT_NEW_EVIDENCE",
+              "HOLD_FUTURE_MODEL_AND_EXECUTION_NOT_VERIFIED"):
+              raise SystemExit("FORWARD_SOURCE_OR_FX_HOLD: "+str(r.get("status")))
+          print("FORWARD_V6_SOURCE_PASS_RESEARCH_REMAINS_HOLD",
+                r["new_proxy_events"],r["formal_completed_events"])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kalman-v6-frozen-forward-market-krw
+          path: results/regime_countertrend/forward_v6/
+          retention-days: 90
