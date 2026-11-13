@@ -1,0 +1,86 @@
+{
+  "audit_date": "2026-11-02",
+  "source": "Neon public.v_live_trade_ledger / public.trade_execution and public.managed_position_mirror",
+  "provenance": "READ_ONLY_MIRROR_NOT_BROKER_RECONCILED",
+  "verdict": "HOLD_METADATA_NET_RETURN_INCONSISTENT",
+  "live_execution_mirror": {
+    "FILLED": 98,
+    "SUBMITTED": 22,
+    "last_created": "2026-10-16T18:45:09.611Z"
+  },
+  "closed_positions": 51,
+  "price_pairs_complete": 51,
+  "gross_price_returns_assume_long": {
+    "negative": 33,
+    "positive_or_zero": 18,
+    "mean_pct": -0.438,
+    "min_pct": -6.282,
+    "max_pct": 5.024
+  },
+  "metadata_net_return": {
+    "available": 47,
+    "negative": 26,
+    "mean_pct_of_available": 14.524,
+    "max_pct": 198.697
+  },
+  "reconciliation_issues": {
+    "missing_net_return": 4,
+    "missing_entry_or_exit_order_link": 4,
+    "net_return_exceeds_gross_price_return_by_more_than_1bp": 6,
+    "gross_vs_metadata_net_abs_difference_above_1pct": 6,
+    "price_loss_but_positive_metadata_net": 5
+  },
+  "exit_reason_price_loss_counts": [
+    {
+      "reason": "PROFIT_TO_LOSS_FLIP",
+      "count": 18,
+      "price_down": 17,
+      "mean_gross_pct": -0.828
+    },
+    {
+      "reason": "MAX_HOLD_4_BUCKETS",
+      "count": 17,
+      "price_down": 5,
+      "mean_gross_pct": 0.869
+    },
+    {
+      "reason": "STOP_LOSS_3PCT",
+      "count": 6,
+      "price_down": 6,
+      "mean_gross_pct": -4.514
+    },
+    {
+      "reason": "FRIDAY_FLAT",
+      "count": 5,
+      "price_down": 4,
+      "mean_gross_pct": 0.05
+    },
+    {
+      "reason": "LEGACY_UNSAFE_WINDOW_CARRY",
+      "count": 2,
+      "price_down": 1,
+      "mean_gross_pct": -0.611
+    },
+    {
+      "reason": "MODEL_ROTATION",
+      "count": 2,
+      "price_down": 0,
+      "mean_gross_pct": 0.759
+    },
+    {
+      "reason": "MISSING",
+      "count": 1,
+      "price_down": 0,
+      "mean_gross_pct": 4.307
+    }
+  ],
+  "data_cutoff": "2026-10-16T18:45:11.493Z",
+  "constraints": [
+    "Mirrored position state is not an independent live broker attestation.",
+    "Position returns infer long direction from entry/exit prices and omit real broker fee reconciliation.",
+    "Metadata net_return differs from independent price calculation. No portfolio-level PnL should be computed from it.",
+    "Drive execution folder is SHADOW, 279 fills; cannot be mixed with LIVE mirror.",
+    "No verified QLD 15-minute bar plus matching fill timestamps, so entry/exits remain unvalidated.",
+    "Research-only: no LIVE changes or automatic strategy promotion."
+  ]
+}

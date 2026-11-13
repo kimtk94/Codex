@@ -1,0 +1,250 @@
+name: Kalman Regime Countertrend Research
+on:
+  push:
+    branches: [main, research/regime-countertrend-ci-20261102]
+    paths:
+      - 'research/regime_countertrend/**'
+      - '.github/workflows/regime-countertrend-research.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/regime_countertrend/**'
+      - '.github/workflows/regime-countertrend-research.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy pandas scipy pyarrow scikit-learn exchange-calendars
+      - name: Unit and leakage tests
+        run: python -m unittest discover -s research/regime_countertrend -p 'test_*.py' -v
+      - name: Validate pinned historical source
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+          path=Path("research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv")
+          if not path.is_file():
+              raise SystemExit("DATA_MISSING: cannot claim CI success without verified snapshot")
+          df=pd.read_csv(path)
+          required={"date_ny","open_qld","high_qld","low_qld","close_qld","close_qqq","volume_qld"}
+          if not required.issubset(df.columns) or len(df)!=2432:
+              raise SystemExit("DATA_INVALID: schema or row count differs from frozen baseline")
+          if df.date_ny.iloc[0]!="2017-01-03" or df.date_ny.iloc[-1]!="2026-09-04":
+              raise SystemExit("DATA_INVALID: unexpected historical coverage")
+          if df.date_ny.duplicated().any():
+              raise SystemExit("DATA_INVALID: duplicate dates")
+          print("DATA_OK 2432 rows, historical cutoff 2026-09-04 (NOT LIVE)")
+          PY
+      - name: Compute full research artifact
+        shell: bash
+        run: |
+          python -m research.regime_countertrend.analyze --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend
+          python -m research.regime_countertrend.failure_diagnostics --csv research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --out results/regime_countertrend/failures
+          python -m research.regime_countertrend.failure_stats --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/stats
+          python -m research.regime_countertrend.gate_audit --csv results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/gate
+          python -m research.regime_countertrend.multifactor_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/multifactor
+          python -m research.regime_countertrend.advanced_failure_audit --prices research/regime_countertrend/data/QLD_QQQ_daily_alignment.csv --trades results/regime_countertrend/failures/trades.csv --out results/regime_countertrend/advanced
+          python -m research.regime_countertrend.bb_regime_stability --trades results/regime_countertrend/advanced/trade_features.csv --out results/regime_countertrend/stability
+          python -m research.regime_countertrend.stock_relative --data-dir research/regime_countertrend/data/stock_history --out results/regime_countertrend/cross_symbol
+      - name: Group highly correlated columns into CFM-V2 factors and score walk-forward
+        run: python -m research.regime_countertrend.correlated_factor_model --out results/regime_countertrend/cfm_v2
+      - name: Audit full 20 of 20 grouped factor inputs
+        run: python -m research.regime_countertrend.feature_coverage_v3 --out results/regime_countertrend/cfm_v3_coverage
+      - name: Collect previously agreed 14 stocks and 10 ETFs (public price only)
+        run: python -m research.regime_countertrend.sector_price_sources_v3 --out results/regime_countertrend/universe_v3_prices
+      - name: Evaluate market industry and individual stock hierarchy
+        shell: bash
+        run: |
+          if [ -f results/regime_countertrend/universe_v3_prices/QQQ.csv ]; then
+            python -m research.regime_countertrend.sector_hierarchy_v3 --out results/regime_countertrend/sector_v3
+          else
+            mkdir -p results/regime_countertrend/sector_v3
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          Path('results/regime_countertrend/sector_v3/status.json').write_text(json.dumps({
+              "status":"HOLD_NO_VERIFIED_QQQ_BENCHMARK",
+              "promotion_allowed":False,
+              "note":"No benchmark prices were collected; refer to per-symbol source_inventory.json."
+          },indent=2))
+          print("HOLD_NO_VERIFIED_QQQ_BENCHMARK")
+          PY
+          fi
+      - name: Audit industry and stock overlay versus market-only factor model
+        run: python -m research.regime_countertrend.sector_ablation_v3 --out results/regime_countertrend/sector_v3/ablation
+      - name: Discover time-pure residual peers and ETF macro regime PCA V4
+        run: python -m research.regime_countertrend.peer_macro_v4 --out results/regime_countertrend/peer_macro_v4
+      - name: Stress ETF macro and separate peer vs symbol overlays (SHADOW only)
+        run: python -m research.regime_countertrend.peer_macro_stress_v4 --out results/regime_countertrend/peer_macro_v4/stress
+      - name: Convert the same US stock proxy trades into KRW with historical FX
+        run: python -m research.regime_countertrend.krw_fx_v5 --out results/regime_countertrend/krw_fx_v5
+      - name: Verify FX source and causal conversion coverage before KRW model
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('results/regime_countertrend/krw_fx_v5/status.json').read_text())
+          if d.get('status')!='KRW_BACKTEST_RESEARCH_ONLY' or d.get('events',0)<100:
+              raise SystemExit("FX_KRW_EVIDENCE_HOLD: "+json.dumps(d,ensure_ascii=False))
+          print('KRW_FX_GATE_PASS',d['events'])
+          PY
+      - name: Evaluate regime x price location x volume details in KRW V5
+        run: python -m research.regime_countertrend.krw_detail_regime_v5 --out results/regime_countertrend/krw_detail_v5
+      - name: Check complete CFM V5 KRW model evidence (SHADOW only)
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('results/regime_countertrend/krw_detail_v5/decision.json').read_text())
+          if r.get('status')!='HOLD_KRW_DETAIL_MODEL_UNPROVEN' or r.get('evaluated_opportunities',0)<100:
+              raise SystemExit('KRW_DETAIL_INVALID_OR_INSUFFICIENT '+json.dumps(r))
+          if r.get('live_promotion_allowed') is not False:
+              raise SystemExit('KRW_DETAIL_UNSAFE_LIVE_PROMOTION')
+          print('KRW_DETAIL_V5_EVIDENCE_OK_RESEARCH_ONLY',r['evaluated_opportunities'])
+          PY
+      - name: Audit matched USD and KRW win rates by year sector and regime
+        run: python -m research.regime_countertrend.krw_v5_evidence_audit --out results/regime_countertrend/krw_v5_audit
+      - name: Enforce FX date alignment and KRW attribution integrity
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('results/regime_countertrend/krw_v5_audit/decision.json').read_text())
+          if data.get('opportunities')!=1595 or data.get('fx_mark_contribution_identity_valid') is not True:
+              raise SystemExit('KRW_FX_RECONCILIATION_BLOCK')
+          if data.get('promotion_allowed') is not False:
+              raise SystemExit('UNSAFE_AUTO_LIVE_PROMOTION')
+          print('KRW_V5_FX_CAUSAL_ACCOUNTING_PASS',data['opportunities'],
+                data['usd_win_krw_loss'],data['usd_loss_krw_win'])
+          PY
+      - name: Simulate KRW cash ledger with USD retention and bounded concurrent positions
+        run: python -m research.regime_countertrend.krw_cash_account_v6 --out results/regime_countertrend/krw_cash_v6
+      - name: Block brokerage PnL claims without verified broker cash and FX ledger
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("results/regime_countertrend/krw_cash_v6/decision.json").read_text())
+          reports=d.get("reports",[])
+          combinations={(r.get("model"),r.get("cash_policy"),
+                         r.get("spread_per_conversion_leg_bps")) for r in reports}
+          if (len(reports)!=12 or len(combinations)!=12 or
+              {r.get("spread_per_conversion_leg_bps") for r in reports}!={0,10,25} or
+              d.get("promotion_allowed") is not False):
+              raise SystemExit("INVALID_12_SCENARIO_CASH_POLICY_COMPARISON")
+          if any("excess_vs_passive_usd_cash_pp" not in r for r in reports):
+              raise SystemExit("MISSING_PASSIVE_FX_CASH_BASELINE")
+          if d.get("broker_evidence_status") not in (
+              "HOLD_BROKER_LEDGER_NOT_CONNECTED",
+              "HOLD_BROKER_LEDGER_MISSING_OR_INVALID",
+              "HOLD_BROKER_FILES_PRESENT_NOT_RECONCILED"):
+              raise SystemExit("BROKER_EVIDENCE_GATE_INVALID")
+          print("CASH_V6_12_SCENARIOS_AND_PASSIVE_FX_BASELINE_PASS_RESEARCH_ONLY",d["broker_evidence_status"])
+          PY
+      - name: Check retrospectively adjusted market/FX vintage and frozen selections
+        run: python -m research.regime_countertrend.vintage_audit_v6 --out results/regime_countertrend/vintage_v6
+      - name: Report historical source-vintage divergence separately from code-test PASS
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=json.loads(Path('results/regime_countertrend/vintage_v6/decision.json').read_text())
+          if d.get('promotion_allowed') is not False:
+              raise SystemExit('UNSAFE_RESEARCH_LIVE_PROMOTION')
+          state=d['status']
+          print('CFM_V6_SOURCE_VINTAGE',state,
+                'symbols',d['affected_equity_or_etf_symbols'],
+                'FX_bp',d['fx_2026_11_10_revision_bps'])
+          if state!='PASS_FROZEN_VINTAGE':
+              print('::warning title=CFM-V6 source vintage HOLD::Historical adjusted prices or USDKRW diverged from locked snapshot; do not reuse old performance claims.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Kalman source vintage audit\\n\\n')
+              f.write('Status: '+state+'\\n\\n')
+              f.write('Affected assets: '+', '.join(d['affected_equity_or_etf_symbols'])+'\\n\\n')
+              f.write('FX baseline revision (bps): '+str(d['fx_2026_11_10_revision_bps'])+'\\n')
+          PY
+      - name: Observe post-freeze 24-stock ETF and FX sessions without refitting model
+        run: python -m research.regime_countertrend.forward_shadow_v6 --out results/regime_countertrend/forward_v6
+      - name: Separate prospective source status from strategy alpha
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("results/regime_countertrend/forward_v6/decision.json").read_text())
+          if report.get("promotion_allowed") is not False or report.get("no_model_training_on_new_window") is not True:
+              raise SystemExit("UNSAFE_FORWARD_DATA_USAGE")
+          print("FORWARD_V6_EVIDENCE",report["status"],
+                "sources",report["complete_us_sources"],
+                "new_signals",report["new_proxy_events"],
+                "completed",report["formal_completed_events"])
+          if report["status"].startswith("HOLD"):
+              print("::warning title=Prospective CFM still HOLD::No validated forward alpha; check source revisions and full outcomes.")
+          PY
+      - name: Compare same-window USD retained cash models with passive KRW ETF benchmarks
+        run: python -m research.regime_countertrend.krw_passive_benchmarks_v6 --cash-dir results/regime_countertrend/krw_cash_v6
+      - name: Require risk benchmark and currency parity evaluation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          base=Path("results/regime_countertrend/krw_cash_v6")
+          report=json.loads((base/"passive_etf_decision.json").read_text())
+          df=pd.read_csv(base/"passive_etf_comparisons.csv")
+          if len(df)!=7 or set(["SPY","QQQ","IWM","SMH","GLD"]) - set(df.symbol):
+              raise SystemExit("PASSIVE_BENCHMARK_MISSING")
+          if report.get("promotion_allowed") is not False:
+              raise SystemExit("PASSIVE_BENCHMARK_UNSAFE_LIVE_FLAG")
+          print("KRW_PASSIVE_BENCHMARKS_PASS_RESEARCH_ONLY",df[["symbol","buy_hold_krw_return_pct"]].to_json(orient="records"))
+          PY
+      - name: Hard gate all model features and all public US market symbols
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          root=Path("results/regime_countertrend")
+          source=json.loads((root/"universe_v3_prices/source_inventory.json").read_text())
+          sector=json.loads((root/"sector_v3/status.json").read_text())
+          feature=json.loads((root/"cfm_v3_coverage/feature_coverage.json").read_text())
+          rows=pd.read_csv(root/"sector_v3/per_symbol_20_feature_coverage.csv")
+          failures=[]
+          if source.get("status")!="PASS" or source.get("stock_success")!=14 or source.get("etf_success")!=10:
+              failures.append("US_SYMBOL_SOURCE_NOT_COMPLETE")
+          if len(rows)!=280 or set(rows.status)!={"VALID"} or rows.symbol.nunique()!=14 or rows.feature.nunique()!=20:
+              failures.append("PER_SYMBOL_FEATURE_COVERAGE_NOT_FULL")
+          if feature.get("model_input_coverage")!=20 or feature.get("omitted_features"):
+              failures.append("PCA_20_FEATURE_ACCOUNTABILITY_FAILED")
+          if sector.get("indicator_features_used")!=20 or sector.get("evaluated_events",0)<100:
+              failures.append("SECTOR_HIERARCHY_EVALUATION_INSUFFICIENT")
+          if sector.get("promotion_allowed") is not False:
+              failures.append("UNSAFE_LIVE_PROMOTION_FLAG")
+          print(json.dumps({"status":"PASS_SOURCE_AND_FEATURES" if not failures else "BLOCK",
+              "stock_symbols":source.get("stock_success"),"etfs":source.get("etf_success"),
+              "feature_rows":len(rows),"evaluated":sector.get("evaluated_events",0),
+              "reasons":failures}))
+          if failures:
+              raise SystemExit("SOURCE_OR_FEATURE_GATE_BLOCK: "+",".join(failures))
+          PY
+      - name: Public QLD QQQ temporal validation after 2026-09-04 (fail closed)
+        run: python -m research.regime_countertrend.fresh_oos --out results/regime_countertrend/fresh_oos
+      - name: Explain fresh signals by locked regime conditions
+        run: python -m research.regime_countertrend.signal_scarcity --out results/regime_countertrend/signal_scarcity
+      - name: Check QLD QQQ first-15m market bar coverage (not brokerage fills)
+        run: python -m research.regime_countertrend.fresh_intraday --out results/regime_countertrend/fresh_15m
+      - name: Strict real broker evidence gate
+        run: python -m research.regime_countertrend.execution_source_gate_runner
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: regime-countertrend-results
+          path: results/regime_countertrend/
