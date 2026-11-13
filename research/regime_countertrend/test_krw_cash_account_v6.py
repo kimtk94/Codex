@@ -53,6 +53,25 @@ class KRWCashAccountV6Tests(unittest.TestCase):
                                   b.equity_krw.iloc[-1],places=2)
         self.assertTrue((events.action=="BUY_USD").any())
 
+    def test_passive_usd_benchmark_separates_cash_fx_from_stock_selection(self):
+        trades,prices,fx=self.sample()
+        out=[]
+        for cost in (0,10,25):
+            _,_,summary=simulate_cash(trades,prices,fx,"V4_ETF_MARKET",
+                                      "USD_RETAIN",spread_bps=cost)
+            out.append(summary)
+            self.assertEqual(summary["passive_krw_cash_return_pct"],0)
+            self.assertAlmostEqual(
+                summary["initial_to_final_krw_return_pct"]-
+                summary["passive_usd_cash_krw_return_pct"],
+                summary["excess_vs_passive_usd_cash_pp"],places=9)
+        self.assertGreater(out[0]["initial_to_final_krw_return_pct"],
+                           out[1]["initial_to_final_krw_return_pct"])
+        self.assertGreater(out[1]["initial_to_final_krw_return_pct"],
+                           out[2]["initial_to_final_krw_return_pct"])
+        self.assertAlmostEqual(out[0]["passive_usd_cash_krw_return_pct"],
+            (out[0]["valuation_rate_final"]/out[0]["valuation_rate_initial"]-1)*100,
+            places=9)
     def test_position_cap_and_deterministic_order(self):
         trades,prices,fx=self.sample()
         extra=trades.iloc[[0]].copy()
