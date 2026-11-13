@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install source and leakage validation requirements
-        run: python -m pip install numpy pandas scipy scikit-learn pyarrow
+        run: python -m pip install numpy pandas scipy scikit-learn pyarrow exchange-calendars
       - name: Verify NY completed session, price revision, and no premature 4-day outcome
         run: python -m unittest research.regime_countertrend.test_forward_shadow_v6 -v
       - name: Download post-freeze prices for 14 stocks, 10 ETFs, and USDKRW
