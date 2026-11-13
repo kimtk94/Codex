@@ -1,0 +1,39 @@
+{
+  "purpose": "Preserve exact, differing Yahoo-adjusted-price and USD/KRW model source vintages after 90-day GitHub artifact expiry",
+  "generated_date": "2026-11-13",
+  "drive_folder": "https://drive.google.com/drive/folders/1R2pJb0E-HttK6rF_aL9JuKpkOCxpwxqO",
+  "immutable_archives": [
+    {
+      "name": "first historical source vintage",
+      "github_run": 43016951545,
+      "github_artifact_id": 13853700605,
+      "drive_file_id": "1quLbcEhoAKeh3J-iMT-9fxussLdTEcfI",
+      "drive_url": "https://drive.google.com/file/d/1quLbcEhoAKeh3J-iMT-9fxussLdTEcfI/view?usp=drivesdk",
+      "size_bytes": 3973616,
+      "scope": "2026-11-11 CFM-V5 frozen results and raw stock/ETF price history"
+    },
+    {
+      "name": "second revised source vintage",
+      "github_run": 43431702223,
+      "github_artifact_id": 14042226647,
+      "drive_file_id": "1Jxji-q3F3QVLjrsKKUNBYnt6vgjSt1fw",
+      "drive_url": "https://drive.google.com/file/d/1Jxji-q3F3QVLjrsKKUNBYnt6vgjSt1fw/view?usp=drivesdk",
+      "size_bytes": 4193285,
+      "scope": "2026-11-13 CFM-V6 source vintage audit and prospective forward HOLD"
+    }
+  ],
+  "known_incompatibilities": {
+    "adjusted_close_gt_5bps": [
+      "AAPL",
+      "HYG",
+      "TLT"
+    ],
+    "old_usdkrw_2026_11_10": 1334,
+    "revised_usdkrw_2026_11_10": 1341.9100341796875,
+    "first_v4_selected": 495,
+    "second_v4_selected": 498,
+    "vintage_status": "HOLD_REVISED_RETROSPECTIVE_DATA"
+  },
+  "reproducibility_boundary": "No raw broker fills or account balances in these archives. Do not merge different price/FX vintages or claim independently validated trading alpha.",
+  "promotion_allowed": false
+}
