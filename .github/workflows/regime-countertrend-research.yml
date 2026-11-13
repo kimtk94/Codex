@@ -125,6 +125,23 @@ jobs:
           print('KRW_V5_FX_CAUSAL_ACCOUNTING_PASS',data['opportunities'],
                 data['usd_win_krw_loss'],data['usd_loss_krw_win'])
           PY
+      - name: Simulate KRW cash ledger with USD retention and bounded concurrent positions
+        run: python -m research.regime_countertrend.krw_cash_account_v6 --out results/regime_countertrend/krw_cash_v6
+      - name: Block brokerage PnL claims without verified broker cash and FX ledger
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("results/regime_countertrend/krw_cash_v6/decision.json").read_text())
+          if len(d.get("reports",[]))!=4 or d.get("promotion_allowed") is not False:
+              raise SystemExit("INVALID_CASH_POLICY_COMPARISON")
+          if d.get("broker_evidence_status") not in (
+              "HOLD_BROKER_LEDGER_NOT_CONNECTED",
+              "HOLD_BROKER_LEDGER_MISSING_OR_INVALID",
+              "HOLD_BROKER_FILES_PRESENT_NOT_RECONCILED"):
+              raise SystemExit("BROKER_EVIDENCE_GATE_INVALID")
+          print("CASH_V6_4_SCENARIOS_PASS_RESEARCH_ONLY",d["broker_evidence_status"])
+          PY
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
