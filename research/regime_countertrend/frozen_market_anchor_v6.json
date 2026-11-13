@@ -34,5 +34,7 @@
     "price_basis": "Yahoo retrospectively adjusted close; may be revised after initial recording"
   },
   "max_allowed_anchor_revision_bps": 5,
-  "no_live_promotion": true
+  "no_live_promotion": true,
+  "frozen_fx_usdkrw_2026_11_10": 1334,
+  "fx_anchor_max_allowed_revision_bps": 5
 }
