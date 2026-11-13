@@ -150,5 +150,19 @@
   },
   "fx_baseline_2026_11_10_krw_per_usd": 1334,
   "revision_hold_threshold_bps": 5,
-  "live_promotion_allowed": false
+  "live_promotion_allowed": false,
+  "frozen_selected_signal_sha256": {
+    "V4_ETF_MARKET": {
+      "selected": 495,
+      "sha256": "1689d62dfc52a09bb7570a3a9aff9cc21f2c3d3c2066488f7422f1515f696c3a"
+    },
+    "V5_KRW_REGIME_BASE": {
+      "selected": 537,
+      "sha256": "043a9837065ffa9216b5ca799db3ab5ced2ca2386079196c75bc88c8ad1b378c"
+    },
+    "ALL_EVALUABLE_PROXY_EVENTS": {
+      "events": 1595,
+      "sha256": "8ec8b24b72b9e2cd83a632a10af1f7948d2a438306ee39b5769c09b79c399bd8"
+    }
+  }
 }
