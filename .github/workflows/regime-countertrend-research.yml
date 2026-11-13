@@ -164,6 +164,23 @@ jobs:
               f.write('Affected assets: '+', '.join(d['affected_equity_or_etf_symbols'])+'\\n\\n')
               f.write('FX baseline revision (bps): '+str(d['fx_2026_11_10_revision_bps'])+'\\n')
           PY
+      - name: Observe post-freeze 24-stock ETF and FX sessions without refitting model
+        run: python -m research.regime_countertrend.forward_shadow_v6 --out results/regime_countertrend/forward_v6
+      - name: Separate prospective source status from strategy alpha
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("results/regime_countertrend/forward_v6/decision.json").read_text())
+          if report.get("promotion_allowed") is not False or report.get("no_model_training_on_new_window") is not True:
+              raise SystemExit("UNSAFE_FORWARD_DATA_USAGE")
+          print("FORWARD_V6_EVIDENCE",report["status"],
+                "sources",report["complete_us_sources"],
+                "new_signals",report["new_proxy_events"],
+                "completed",report["formal_completed_events"])
+          if report["status"].startswith("HOLD"):
+              print("::warning title=Prospective CFM still HOLD::No validated forward alpha; check source revisions and full outcomes.")
+          PY
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
