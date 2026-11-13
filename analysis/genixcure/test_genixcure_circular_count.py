@@ -96,3 +96,43 @@ def test():
 
 if __name__ == '__main__':
     test()
+
+
+def test_latest_three_only():
+    """Old checkpoints are skipped on resume; newest three are SHA-verified."""
+    import hashlib
+    with tempfile.TemporaryDirectory() as folder:
+        out = Path(folder)
+        path = out / 'chunks'
+        path.mkdir()
+        manifest = 'identical_params_hash'
+        for i in range(6):
+            file = path / f'chunk_{i:05d}.normalized.csv.gz'
+            file.write_bytes(b'fake gzip checkpoint bytes - ' + str(i).encode())
+            marker = {'chunk_id': i, 'params_sha256': manifest,
+                      'csv_name': file.name, 'csv_size': file.stat().st_size,
+                      'csv_sha256': hashlib.sha256(file.read_bytes()).hexdigest()}
+            (path / f'chunk_{i:05d}.normalized.done.json').write_text(json.dumps(marker))
+        assert gxc.completed_prefix(out, 8) == 6
+        # Corrupt old payload but keep its size; newest-three policy does not reopen it.
+        old = path / 'chunk_00000.normalized.csv.gz'
+        old.write_bytes(b'fake gzip checkpoint bytes - X')
+        assert old.stat().st_size == len(b'fake gzip checkpoint bytes - 0')
+        for idx in range(3, 6):
+            assert gxc.validate_existing(out, idx, manifest, verify_digest=True)
+        assert gxc.validate_existing(out, 0, manifest, verify_digest=False)
+        try:
+            gxc.validate_existing(out, 0, manifest, verify_digest=True)
+            raise AssertionError('Full SHA256 check failed to catch simulated old corruption')
+        except ValueError as exc:
+            assert 'SHA256 mismatch' in str(exc)
+        # Incomplete staged file does not count toward the committed prefix.
+        (path / 'chunk_00006.normalized.csv.gz.partial').write_bytes(b'')
+        assert gxc.completed_prefix(out, 8) == 6
+        status = gxc.write_normalization_progress(out, 'NORMALIZING', 6, 8)
+        assert status['next_chunk_id'] == 6 and status['percent'] == 75.0
+        print('PASS: newest-three digest verification, prefix resume, progress checkpoint')
+
+
+if __name__ == '__main__':
+    test_latest_three_only()
