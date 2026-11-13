@@ -142,6 +142,28 @@ jobs:
               raise SystemExit("BROKER_EVIDENCE_GATE_INVALID")
           print("CASH_V6_4_SCENARIOS_PASS_RESEARCH_ONLY",d["broker_evidence_status"])
           PY
+      - name: Check retrospectively adjusted market/FX vintage and frozen selections
+        run: python -m research.regime_countertrend.vintage_audit_v6 --out results/regime_countertrend/vintage_v6
+      - name: Report historical source-vintage divergence separately from code-test PASS
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          d=json.loads(Path('results/regime_countertrend/vintage_v6/decision.json').read_text())
+          if d.get('promotion_allowed') is not False:
+              raise SystemExit('UNSAFE_RESEARCH_LIVE_PROMOTION')
+          state=d['status']
+          print('CFM_V6_SOURCE_VINTAGE',state,
+                'symbols',d['affected_equity_or_etf_symbols'],
+                'FX_bp',d['fx_2026_11_10_revision_bps'])
+          if state!='PASS_FROZEN_VINTAGE':
+              print('::warning title=CFM-V6 source vintage HOLD::Historical adjusted prices or USDKRW diverged from locked snapshot; do not reuse old performance claims.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Kalman source vintage audit\\n\\n')
+              f.write('Status: '+state+'\\n\\n')
+              f.write('Affected assets: '+', '.join(d['affected_equity_or_etf_symbols'])+'\\n\\n')
+              f.write('FX baseline revision (bps): '+str(d['fx_2026_11_10_revision_bps'])+'\\n')
+          PY
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
