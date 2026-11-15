@@ -205,6 +205,30 @@ jobs:
               raise SystemExit("PASSIVE_BENCHMARK_UNSAFE_LIVE_FLAG")
           print("KRW_PASSIVE_BENCHMARKS_PASS_RESEARCH_ONLY",df[["symbol","buy_hold_krw_return_pct"]].to_json(orient="records"))
           PY
+      - name: Freeze V7 20-tech 10-macro 4-FX KRW model for next observed NYSE session
+        run: python -m research.regime_countertrend.freeze_krw_model_v7 --out results/regime_countertrend/frozen_v7
+      - name: Verify portable model and prohibit prospective lookahead
+        run: |
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path("results/regime_countertrend/frozen_v7")
+          file=root/"cfm_v7_frozen_krw_model.json"
+          meta=json.loads((root/"freeze_validation.json").read_text())
+          model=json.loads(file.read_text())
+          if (meta.get("model_json_not_committed_until_verified") is not True or
+              model.get("prospective_starts")!="2026-11-16" or
+              model.get("max_training_exit_date")>"2026-11-10" or
+              model.get("training_event_count",0)<500 or
+              model.get("promotion_allowed") is not False):
+              raise SystemExit("CFM_V7_FREEZE_SECURITY_OR_LEAKAGE_GATE_BLOCK")
+          from research.regime_countertrend.freeze_krw_model_v7 import validate_frozen_integrity
+          validate_frozen_integrity(model)
+          digest=hashlib.sha256(file.read_bytes()).hexdigest()
+          if digest!=meta["json_model_sha256"]:
+              raise SystemExit("FROZEN_JSON_CHECKSUM_MISMATCH")
+          print("CFM_V7_FROZEN_RESEARCH_ONLY",meta)
+          PY
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
