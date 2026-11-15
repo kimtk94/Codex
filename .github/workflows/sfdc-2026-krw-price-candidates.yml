@@ -1,0 +1,69 @@
+name: SFDC 2026 KRW Process Price Candidates (read-only)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '25 12 * * *'  # 21:25 KST after QQ SFDC ingestion
+  push:
+    branches: [main]
+    paths:
+      - 'automation/sfdc/quote_2026_krw_price_reuse.py'
+      - 'automation/sfdc/test_quote_2026_krw_price_reuse.py'
+      - '.github/workflows/sfdc-2026-krw-price-candidates.yml'
+  pull_request:
+    paths:
+      - 'automation/sfdc/quote_2026_krw_price_reuse.py'
+      - 'automation/sfdc/test_quote_2026_krw_price_reuse.py'
+      - '.github/workflows/sfdc-2026-krw-price-candidates.yml'
+permissions:
+  contents: read
+concurrency:
+  group: sfdc-2026-krw-price-candidates-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test 2026 KRW only, same-customer priority, no CRM writes
+        run: |
+          python3 -m unittest discover -s automation/sfdc -p 'test_quote_2026_krw_price_reuse.py' -v
+          python3 -m py_compile automation/sfdc/quote_2026_krw_price_reuse.py
+  private-source-availability:
+    needs: synthetic
+    if: github.event_name != 'pull_request'
+    environment: TaehoonServer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only source verifier
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify source hashes and explicitly HOLD without 2026 KRW unit prices
+        run: |
+          python3 automation/sfdc/quote_2026_krw_price_reuse.py --audit-live --out /tmp/sfdc-2026-krw-source-status.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          r=json.loads(Path('/tmp/sfdc-2026-krw-source-status.json').read_text())
+          assert r['source_integrity']=='PASS_HASH_VERIFIED', 'SOURCE_UNAVAILABLE_OR_TAMPERED'
+          assert r['crm_writes']==0, 'UNEXPECTED_CRM_WRITE'
+          assert r['price_status'].startswith('HOLD_'), 'PRICE_GATE_MUST_NOT_AUTOPROMOTE'
+          assert r['verified_krw_price_rows']==0, 'PRICE_GATE_UNEXPECTED_DATA'
+          print('SFDC_2026_PRICE_SOURCE_AUDIT=PASS PRICE_REUSE=HOLD_NO_APPROVED_KRW_SOURCE NO_SAVE=TRUE')
+          PY
+      - name: Delete temporary source availability summary
+        if: always()
+        run: rm -f /tmp/sfdc-2026-krw-source-status.json
