@@ -58,7 +58,7 @@ class KRWProspectiveFreezeV7Tests(unittest.TestCase):
         f,model,models=self.valid_fixture()
         st,pt,sm,pm,sf,pf=models
         X=f.iloc[:12]
-        tech=(pt.transform(np.clip(st.transform(X[FEATURES]),-8,8))/
+        tech=(pt.transform(np.clip(st.transform(X[list(FEATURES)]),-8,8))/
               np.sqrt(np.maximum(pt.explained_variance_,1e-12)))
         context=np.column_stack([
             (X.event=="DOWN_RALLY").astype(float).to_numpy(),
