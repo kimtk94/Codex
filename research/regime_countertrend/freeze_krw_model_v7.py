@@ -125,8 +125,11 @@ def freeze_model(manifest,stock_prices,tech_history,signal_events,
     if signal_events.empty:raise ValueError("no training event labels")
     if set(stock_prices)!={a["symbol"] for a in manifest["universe"] if a["model_eligible"]}:
         raise ValueError("not all 14 target stocks loaded")
-    if fx.date.max()<LAST_TRAIN_SESSION or macro_etf.date.max()<LAST_TRAIN_SESSION:
-        raise ValueError("missing frozen macro or FX last date")
+    if fx.date.max()!=LAST_TRAIN_SESSION or macro_etf.date.max()!=LAST_TRAIN_SESSION:
+        raise ValueError("data past or earlier than frozen source date")
+    for symbol,data in stock_prices.items():
+        if str(data.date.max())!=LAST_TRAIN_SESSION:
+            raise ValueError(f"{symbol}: unexpected last frozen stock session")
     if (signal_events.date>LAST_TRAIN_SESSION).any():
         raise ValueError("training inputs from beyond freeze")
     events=signal_events.loc[(signal_events.exit_date<=LAST_TRAIN_SESSION)].copy()
@@ -230,7 +233,29 @@ def main():
     if holds or len(stocks)!=14:raise ValueError("not all stock prices available")
     fx=pd.read_csv(args.fx)
     macro=macro_history({s:market[s] for s in MACRO_ETFS})
-    model,report=freeze_model(manifest,stocks,history,events,macro,fx)
+    fx_anchor=fx.loc[fx.date==LAST_TRAIN_SESSION,"usdkrw_close"]
+    if len(fx_anchor)!=1:raise ValueError("missing frozen USDKRW anchor")
+    vintages={}
+    for ticker,source in market.items():
+        ticker_anchor=source.loc[source.date==LAST_TRAIN_SESSION,"close"]
+        if len(ticker_anchor)!=1:raise ValueError("missing freeze anchor "+ticker)
+        checkpoints={}
+        for date in ("2019-12-31","2022-12-30","2024-12-31",LAST_TRAIN_SESSION):
+            v=source.loc[source.date==date,"close"]
+            if len(v)==1:checkpoints[date]=float(v.iloc[0])
+        vintages[ticker]={"last_close_usd":float(ticker_anchor.iloc[0]),
+            "historical_checkpoints":checkpoints,
+            "source_csv_sha256":hashlib.sha256(
+                (Path(args.source_dir)/f"{ticker}.csv").read_bytes()).hexdigest()}
+    source_hashes={"source_vintage_name":"NEW_FROZEN_NOV_15_NOT_V5_NOV_11",
+        "last_observed_price_date":LAST_TRAIN_SESSION,
+        "anchors":vintages,
+        "usdkrw_last_close":float(fx_anchor.iloc[0]),
+        "fx_csv_sha256":hashlib.sha256(Path(args.fx).read_bytes()).hexdigest()}
+    model,report=freeze_model(manifest,stocks,history,events,macro,fx,
+                              source_hashes=source_hashes)
+    if len(model["source_price_provenance"]["anchors"])!=24:
+        raise ValueError("frozen model is missing asset provenance")
     model_json=json.dumps(model,sort_keys=True,separators=(",",":"),allow_nan=False)
     (root/"cfm_v7_frozen_krw_model.json").write_text(model_json+"\n")
     sha=hashlib.sha256((model_json+"\n").encode()).hexdigest()
