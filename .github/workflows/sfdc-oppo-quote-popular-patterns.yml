@@ -1,0 +1,71 @@
+name: SFDC Oppo-Quote Popular Patterns (read-only)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 12 * * *'  # 21:15 KST; after QQ SFDC report digestion
+  push:
+    branches: [main]
+    paths:
+      - 'automation/sfdc/oppo_quote_popular_patterns.py'
+      - 'automation/sfdc/test_oppo_quote_popular_patterns.py'
+      - '.github/workflows/sfdc-oppo-quote-popular-patterns.yml'
+  pull_request:
+    paths:
+      - 'automation/sfdc/oppo_quote_popular_patterns.py'
+      - 'automation/sfdc/test_oppo_quote_popular_patterns.py'
+      - '.github/workflows/sfdc-oppo-quote-popular-patterns.yml'
+permissions:
+  contents: read
+concurrency:
+  group: sfdc-oppo-quote-popular-patterns-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify no-Save rule and synthetic common-template extraction
+        run: |
+          python3 -m unittest discover -s automation/sfdc -p 'test_oppo_quote_popular_patterns.py' -v
+          python3 -m py_compile automation/sfdc/oppo_quote_popular_patterns.py
+  audited-private-source:
+    needs: synthetic
+    if: github.event_name != 'pull_request'
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Google client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify QQ SHA256 and learn common patterns without CRM write
+        run: |
+          python3 automation/sfdc/oppo_quote_popular_patterns.py --out /tmp/sfdc-oppo-quote-aggregate.json --quiet
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          result=json.loads(Path('/tmp/sfdc-oppo-quote-aggregate.json').read_text())
+          assert result['status']=='PASS'
+          assert result['policy']['crm_writes']==0
+          assert result['policy']['customer_rows_exported']==0
+          assert result['source']['evidence']['quotation']['hash_verified']
+          assert result['source']['evidence']['opportunities']['hash_verified']
+          # Logs deliberately omit customer records, Quote IDs, rates and metrics.
+          print('SFDC_POPULAR_PATTERN_AUDIT=PASS NO_SAVE=TRUE SOURCE_HASHES=PASS')
+          PY
+      - name: Discard private aggregate from ephemeral runner
+        if: always()
+        run: rm -f /tmp/sfdc-oppo-quote-aggregate.json
