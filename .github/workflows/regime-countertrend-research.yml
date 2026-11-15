@@ -254,6 +254,51 @@ jobs:
           print("MONTE_CARLO_RESEARCH_PASS_12000_PATHS_11_ASSETS",len(r),
                 "STILL_HOLD_NOT_PROSPECTIVE_OR_BROKER",d["status"])
           PY
+      - name: Fetch pinned Monte Carlo source from previous successful run
+        uses: actions/download-artifact@v4
+        with:
+          name: regime-countertrend-results
+          repository: kimtk94/Codex
+          run-id: 43708796790
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: results/regime_countertrend/monte_carlo_pinned_inputs
+      - name: Prove 10 original KRW FX source hashes and regenerate risk distribution
+        env:
+          KALMAN_MONTE_CARLO_SOURCE_RUN_ID: '43708796790'
+        run: |
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          ref=json.loads(Path('research/regime_countertrend/monte_carlo_pinned_vintage_v7.json').read_text())
+          folder=Path('results/regime_countertrend/monte_carlo_pinned_inputs/krw_cash_v6')
+          for name,check in ref['sha256'].items():
+              p=folder/name
+              if not p.exists() or hashlib.sha256(p.read_bytes()).hexdigest()!=check:
+                  raise SystemExit('PINNED_SOURCE_HASH_DRIFT:'+name)
+          print('MC_PINNED_SOURCE_10_CHECKSUMS_PASS')
+          PY
+          python -m research.regime_countertrend.krw_monte_carlo_v7 --cash-dir results/regime_countertrend/monte_carlo_pinned_inputs/krw_cash_v6 --out results/regime_countertrend/monte_carlo_v7_pinned --simulations 2000 --seed 20261115
+          python - <<'PY'
+          import json,pandas as pd
+          from pathlib import Path
+          ref=json.loads(Path('research/regime_countertrend/monte_carlo_pinned_vintage_v7.json').read_text())
+          root=Path('results/regime_countertrend/monte_carlo_v7_pinned')
+          d=json.loads((root/'decision.json').read_text())
+          rows=pd.read_csv(root/'block_monte_carlo_krw_risk.csv')
+          if len(rows)!=66 or d['input_sha256']!=ref['sha256'] or d['promotion_allowed'] is not False:
+              raise SystemExit('PINNED_MC_IDENTITY_OR_SAFETY_INVALID')
+          select=rows[(rows.horizon_trading_days==252)&(rows.mean_block_trading_days==20)]
+          for name,expected in [('V4_ETF_MARKET__USD_RETAIN',ref['baseline_mc_252d_20block']['V4_ETF_MARKET__USD_RETAIN']),
+                               ('V5_KRW_REGIME_BASE__USD_RETAIN',ref['baseline_mc_252d_20block']['V5_KRW_REGIME_BASE__USD_RETAIN'])]:
+              row=select.loc[select.asset==name]
+              if len(row)!=1:raise SystemExit('PINNED_MC_STRATEGY_MISSING:'+name)
+              for field,value in expected.items():
+                  if abs(float(row.iloc[0][field])-value)>1e-12:
+                      raise SystemExit('PINNED_MC_DISTRIBUTION_MISMATCH:'+name+':'+field)
+          print('MC_PINNED_REPLAY_EXACT_PASS_12000_PATHS_STILL_RESEARCH_HOLD')
+          PY
+      - name: Remove duplicated pinned historical input from final artifact
+        run: rm -rf results/regime_countertrend/monte_carlo_pinned_inputs
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
