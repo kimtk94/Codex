@@ -31,7 +31,7 @@ def canonical_unit(value):
 def _decimal(value):
     if isinstance(value, bool):
         return None
-    s = str(value or "").strip().replace(",", "")
+    s = str("" if value is None else value).strip().replace(",", "")
     if not s:
         return None
     try:
@@ -191,7 +191,7 @@ def audit_existing_report():
     native_cols = {"Unit Price KRW", "Process Unit Price KRW"}
     available = sorted(native_cols.intersection(headers))
     return {"source_integrity": "PASS_HASH_VERIFIED",
-            "price_status": "HOLD_NO_NATIVE_KRW_PROCESS_SOURCE",
+            "price_status": "HOLD_KRW_PRICE_SOURCE_NOT_APPROVED" if available else "HOLD_NO_NATIVE_KRW_PROCESS_SOURCE",
             "source": "SFDC_EMAIL_QUOTATION_RAW",
             "year": YEAR, "source_process_rows": len(rows),
             "year_process_rows": len(year_rows),
