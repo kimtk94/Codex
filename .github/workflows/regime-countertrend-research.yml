@@ -297,6 +297,41 @@ jobs:
                       raise SystemExit('PINNED_MC_DISTRIBUTION_MISMATCH:'+name+':'+field)
           print('MC_PINNED_REPLAY_EXACT_PASS_12000_PATHS_STILL_RESEARCH_HOLD')
           PY
+      - name: Condition KRW 11-asset Monte Carlo on past-observable QQQ regimes
+        run: |
+          python - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          r=json.loads(Path('research/regime_countertrend/monte_carlo_pinned_vintage_v7.json').read_text())
+          q=Path('results/regime_countertrend/monte_carlo_pinned_inputs/universe_v3_prices/QQQ.csv')
+          if not q.is_file() or hashlib.sha256(q.read_bytes()).hexdigest()!=r['qqq_daily_price_sha256']:
+              raise SystemExit('REGIME_MC_FROZEN_QQQ_SOURCE_MISMATCH')
+          print('REGIME_MC_QQQ_SHA256_PASS',r['qqq_daily_price_sha256'])
+          PY
+          python -m research.regime_countertrend.krw_regime_monte_carlo_v8 --cash-dir results/regime_countertrend/monte_carlo_pinned_inputs/krw_cash_v6 --qqq results/regime_countertrend/monte_carlo_pinned_inputs/universe_v3_prices/QQQ.csv --out results/regime_countertrend/regime_mc_v8 --simulations 2000 --seed 20261115
+      - name: Require conditional stress sample diversity, full correlation and no promotion
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          root=Path('results/regime_countertrend/regime_mc_v8')
+          r=json.loads((root/'decision.json').read_text())
+          d=pd.read_csv(root/'regime_conditional_krw_monte_carlo.csv')
+          coverage=pd.read_csv(root/'regime_coverage_and_year_concentration.csv')
+          frozen=json.loads(Path('research/regime_countertrend/monte_carlo_pinned_vintage_v7.json').read_text())
+          if r.get('promotion_allowed') is not False or r.get('qqq_close_source_sha256')!=frozen['qqq_daily_price_sha256']:
+              raise SystemExit('REGIME_MC_SOURCE_OR_LIVE_GATE_INVALID')
+          if (len(coverage)!=6 or set(coverage.scenario)!=set(frozen['conditional_regime_monte_carlo_v8']['conditioned_scenarios'])
+              or d.requested_mean_block.nunique()!=3 or not d.p_terminal_loss.between(0,1).all()
+              or not d.p_max_drawdown_below_minus_20pct.between(0,1).all()):
+              raise SystemExit('REGIME_MC_CONDITIONAL_COVERAGE_INVALID')
+          if (d.source_runs<8).any() or not d.conditional_full_path_in_requested_state.all():
+              raise SystemExit('REGIME_MC_STATE_LEAKAGE_OR_UNDERPOWERED')
+          if any(row['largest_year_fraction']>.75 and row['risk_status']!='HOLD_SINGLE_YEAR_CONCENTRATION' for row in r['coverage']):
+              raise SystemExit('REGIME_MC_YEAR_CONCENTRATION_NOT_DISCLOSED')
+          print('REGIME_MC_RISK_SCREEN_PASS_BUT_ALPHA_HOLD',len(d),r['scenario_hold_count'])
+          PY
       - name: Remove duplicated pinned historical input from final artifact
         run: rm -rf results/regime_countertrend/monte_carlo_pinned_inputs
       - name: Hard gate all model features and all public US market symbols
