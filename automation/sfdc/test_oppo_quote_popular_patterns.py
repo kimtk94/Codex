@@ -3,7 +3,7 @@ from collections import Counter
 import hashlib
 import json
 import unittest
-from oppo_quote_popular_patterns import build_report, normalize_matrix, verify_mail_audit, EXPECTED_OPP, EXPECTED_QUOTE
+from oppo_quote_popular_patterns import build_report, normalize_matrix, verify_mail_audit, EXPECTED_OPP, EXPECTED_QUOTE, service_hint
 
 
 class PatternLearningTests(unittest.TestCase):
@@ -52,6 +52,40 @@ class PatternLearningTests(unittest.TestCase):
         self.assertEqual(reasons["MULTI_PRODUCT_MANUAL_REVIEW"], 1)
         self.assertEqual(reasons["OPPORTUNITY_OUTSIDE_REPORT_SCOPE"], 1)
         self.assertEqual(reasons["PROCESS_TEMPLATE_INCONSISTENT"], 1)
+
+    def test_service_hint_no_customer_string_in_output(self):
+        self.assertEqual(service_hint("Korea-4-mRNASeq-PE150-Yonsei"), "RNA")
+        self.assertEqual(service_hint("Korea-scRNASeq-10x-PE150"), "Single-cell / Spatial")
+        self.assertEqual(service_hint("Korea-16S-Amplicon"), "Microbiome / Amplicon")
+        self.assertEqual(service_hint("Korea-Olink-DeepDIA"), "Proteomics")
+        self.assertEqual(service_hint("Korea-PacBio Revio-HiFi"), "Long-read")
+        self.assertEqual(service_hint("Korea-unknown-test-client"), "Other / unspecified")
+        self.assertEqual(service_hint("Korea-WGS-Proteomics"), "Mixed / unclear")
+
+    def test_service_pattern_requires_sufficient_history(self):
+        opps, lines = self.setup_rows(12)
+        for opp in opps:
+            opp["Opportunity Name"] = "Korea-12-mRNASeq-PE150"
+        result = build_report(opps, lines)
+        families = {r["service_label"]: r for r in result["service_profiles"]}
+        self.assertEqual(families["RNA"]["all_quotes"], 12)
+        self.assertEqual(families["RNA"]["eligible_quotes"], 12)
+        self.assertTrue(families["RNA"]["common_processes"][0]["suggestible_from_history"])
+        self.assertEqual(families["RNA"]["sequencing_units_observed"]["G raw data"], 12)
+        self.assertFalse(result["policy"]["service_classification_is_authoritative"])
+        self.assertNotIn("Korea-12-mRNASeq", json.dumps(result))
+
+    def test_custom_process_label_never_promoted(self):
+        opps, lines = self.setup_rows(12)
+        for line in lines[:4]:
+            line["Quotation Process Name"] = "CustomerPrivateProject,Sequencing by data amount,Analysis by sample,Data release"
+            if line["Quote Process Name"] == "Library preparation":
+                line["Quote Process Name"] = "CustomerPrivateProject"
+        result = build_report(opps, lines)
+        self.assertEqual(result["coverage"]["eligible_quotes"], 11)
+        self.assertEqual(result["coverage"]["exclude_reasons"]["UNRECOGNIZED_PROCESS_NAME"], 1)
+        self.assertNotIn("CustomerPrivateProject", json.dumps(result))
+
 
     def test_sha256_audit_rejects_tamper(self):
         opps, lines = self.setup_rows(1)
