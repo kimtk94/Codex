@@ -48,14 +48,18 @@
       "DOWN_HIGH_VOL"
     ],
     "mean_blocks": [
+      3,
       5,
-      20,
-      60
+      10
     ],
-    "horizon_days": 252,
     "simulations_each": 2000,
     "hold_rules": "<80 historical days, <8 independent runs, or single-year concentration >75%: disclose HOLD and never claim validated forward probability",
     "resampling": "one shared index for all 11 KRW strategy/ETF/USD-KRW paths; truncate at regime boundaries",
-    "live_promotion_allowed": false
+    "live_promotion_allowed": false,
+    "horizons_days": [
+      5,
+      20
+    ],
+    "horizon_safety": "Reject 252-day perpetual Regime extrapolation; conditional paths 5 and 20 sessions; annual risk remains the unconditional historical joint block bootstrap"
   }
 }
