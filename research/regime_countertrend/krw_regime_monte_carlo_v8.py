@@ -210,7 +210,10 @@ def conditional_stress(daily,first,names,states,conditions=SCENARIOS,
                     "sampling_method":"STATIONARY_BLOCK_TRUNCATED_AT_REGIME_BOUNDARY",
                     "conditional_full_path_in_requested_state":True,
                     **record})
-    return pd.DataFrame(results),pd.DataFrame(history),{
+    results_frame=pd.DataFrame(results) if results else pd.DataFrame(
+        columns=["scenario","asset","requested_mean_block","p_terminal_loss",
+                 "p_max_drawdown_below_minus_20pct"])
+    return results_frame,pd.DataFrame(history),{
         "held_scenarios":held,"conditioned":len(history)-len(held),
         "reported":len(results)}
 
@@ -265,15 +268,19 @@ def run_regime_mc(cash_dir,qqq_file,out,
         (output_stats.asset.isin(["V4_ETF_MARKET__USD_RETAIN",
                                   "V5_KRW_REGIME_BASE__USD_RETAIN",
                                   "QQQ"]))]
+    if headline.empty:
+        risk_headline=[]
+    else:
+        risk_headline=json.loads(headline[["scenario","asset",
+            "p_terminal_loss","p_max_drawdown_below_minus_20pct",
+            "p_underperform_QQQ","median_total_return_pct",
+            "p05_total_return_pct"]].to_json(orient="records"))
     print("CFM_V8_REGIME_MC",json.dumps({
         "status":evidence["status"],
         "qqq_sha256":qqq_sha,
         "sample_days_by_regime":coverage[["scenario","sample_days",
                  "largest_year_fraction","risk_status"]].to_dict("records"),
-        "one_year_block20":json.loads(headline[["scenario","asset",
-            "p_terminal_loss","p_max_drawdown_below_minus_20pct",
-            "p_underperform_QQQ","median_total_return_pct",
-            "p05_total_return_pct"]].to_json(orient="records")),
+        "one_year_block20":risk_headline,
         "promotion_allowed":False},ensure_ascii=False))
     return output_stats,coverage,evidence
 
