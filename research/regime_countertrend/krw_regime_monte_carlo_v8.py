@@ -20,8 +20,9 @@ from .krw_monte_carlo_v7 import (
 )
 
 SCENARIOS=("UP","DOWN","SIDE","HIGH_VOL","LOW_VOL","DOWN_HIGH_VOL")
-MEAN_BLOCKS=(5,20,60)
-HORIZON=252
+MEAN_BLOCKS=(3,5,10)
+HORIZONS=(5,20)
+HORIZON=20
 SIMULATIONS=2000
 BATCH=125
 VOL_TRAIN_END="2021-12-31"
@@ -149,8 +150,8 @@ def conditional_stress(daily,first,names,states,conditions=SCENARIOS,
         raise ValueError("invalid one-time initial FX friction")
     for name in ("QQQ","SPY","USD_CASH_ONLY"):
         if name not in names:raise ValueError("missing matched KRW risk benchmark "+name)
-    if horizon<10 or n_simulations<1 or batch<1:
-        raise ValueError("invalid risk geometry")
+    if horizon<5 or horizon>20 or n_simulations<1 or batch<1:
+        raise ValueError("Regime persistence stress only allows 5-20 trading days")
     rng=np.random.default_rng(seed)
     history=[];results=[];held=[]
     for scenario in conditions:
@@ -160,9 +161,11 @@ def conditional_stress(daily,first,names,states,conditions=SCENARIOS,
         years=states.loc[mask,"date"].str.slice(0,4).value_counts()
         majority=float(years.max()/count) if count else 1.
         sufficient=(count>=MIN_ELIGIBLE_DAYS and runs>=MIN_DISTINCT_RUNS)
-        tag="HOLD_INSUFFICIENT_REGIME_HISTORY" if not sufficient else (
+        duration_supported=horizon<=max_run
+        tag="HOLD_UNOBSERVED_CONTINUOUS_STATE_DURATION" if not duration_supported else (
+            "HOLD_INSUFFICIENT_REGIME_HISTORY" if not sufficient else (
             "HOLD_SINGLE_YEAR_CONCENTRATION" if majority>MAX_SINGLE_YEAR_SHARE else
-            "CONDITIONAL_RISK_DESCRIPTIVE_ONLY")
+            "CONDITIONAL_RISK_DESCRIPTIVE_ONLY"))
         coverage={"scenario":scenario,"sample_days":count,
             "share_of_historical_days":float(count/len(states)),
             "independent_contiguous_runs":runs,"longest_run_days":max_run,
@@ -171,7 +174,7 @@ def conditional_stress(daily,first,names,states,conditions=SCENARIOS,
             "year_counts":years.sort_index().astype(int).to_dict(),
             "risk_status":tag,"promotion_allowed":False}
         history.append(coverage)
-        if not sufficient:
+        if not sufficient or not duration_supported:
             held.append(scenario)
             continue
         for block in lengths:
@@ -192,8 +195,13 @@ def conditional_stress(daily,first,names,states,conditions=SCENARIOS,
                 ends.append(wealth[:,-1,:]-1)
                 eff.append((n,diag["average_realized_block_sessions"]))
                 forced.append((n,diag["forced_boundary_restart_fraction"]))
-            stats=_outcome_statistics(
-                np.concatenate(ends),np.concatenate(minima),names,first)
+            terminal=np.concatenate(ends)
+            drawdown=np.concatenate(minima)
+            stats=_outcome_statistics(terminal,drawdown,names,first)
+            for j,item in enumerate(stats):
+                item["p_terminal_loss_5pct_or_worse"]=float((terminal[:,j]<=-.05).mean())
+                item["p_mdd_below_minus_5pct"]=float((drawdown[:,j]<=-.05).mean())
+                item["p_mdd_below_minus_10pct"]=float((drawdown[:,j]<=-.10).mean())
             total=sum(n for n,_ in eff)
             average_block=float(sum(n*v for n,v in eff)/total)
             forced_share=float(sum(n*v for n,v in forced)/total)
@@ -228,8 +236,17 @@ def run_regime_mc(cash_dir,qqq_file,out,
     equity,names,daily,first,exposures,policy=load_joint_equity(source)
     states,cutoffs=previous_close_regimes(
         pd.read_csv(price_path),equity.date.iloc[1:].astype(str))
-    output_stats,coverage,meta=conditional_stress(
-        daily,first,names,states,n_simulations=simulations,seed=seed)
+    by_horizon=[]
+    coverage=None
+    for horizon in HORIZONS:
+        stress,examined,meta=conditional_stress(
+            daily,first,names,states,n_simulations=simulations,
+            horizon=horizon,seed=seed+int(horizon))
+        by_horizon.append(stress)
+        if coverage is None:coverage=examined
+        elif not coverage.scenario.equals(examined.scenario):
+            raise ValueError("conditional Regime scenarios shifted across time windows")
+    output_stats=pd.concat(by_horizon,ignore_index=True)
     states.to_csv(output/"dated_prior_close_regime_labels.csv",index=False)
     coverage.to_csv(output/"regime_coverage_and_year_concentration.csv",index=False)
     output_stats.to_csv(output/"regime_conditional_krw_monte_carlo.csv",index=False)
@@ -251,11 +268,14 @@ def run_regime_mc(cash_dir,qqq_file,out,
         "scenario_hold_count":len(meta["held_scenarios"]),
         "held_scenarios":meta["held_scenarios"],
         "simulations_per_scenario_block":simulations,
-        "horizon_days":HORIZON,"requested_blocks":list(MEAN_BLOCKS),
+        "horizons_days":list(HORIZONS),"requested_blocks":list(MEAN_BLOCKS),
+        "market_regime_transitions_replayed":False,
+        "regime_persistence_horizon_cap_days":max(HORIZONS),
+        "regime_one_year_persistence_is_invalid":True,
         "rng_seed":seed,
         "pre_period_regime_thresholds":cutoffs,
         "coverage":coverage.to_dict("records"),
-        "status_explanation":"Risk conditional on 2022–2026 synthetic cash curves; no trades rerun. Persistent-state scenarios intentionally suppress regime transitions.",
+        "status_explanation":"HOLD: 5/20-day state-persistence stress from 2022–26 synthetic cash curves, not a 252-day constant Regime. Trade fills not rerun and stochastic Regime transitions not modeled.",
         "no_actual_broker_reconciliation":True,
         "not_independent_alpha_evidence":True,
         "potential_history_concentration":True,
@@ -264,7 +284,8 @@ def run_regime_mc(cash_dir,qqq_file,out,
     (output/"decision.json").write_text(
         json.dumps(evidence,indent=2,ensure_ascii=False))
     headline=output_stats[
-        (output_stats.requested_mean_block==20)&
+        (output_stats.horizon_days==20)&
+        (output_stats.requested_mean_block==5)&
         (output_stats.asset.isin(["V4_ETF_MARKET__USD_RETAIN",
                                   "V5_KRW_REGIME_BASE__USD_RETAIN",
                                   "QQQ"]))]
@@ -272,7 +293,8 @@ def run_regime_mc(cash_dir,qqq_file,out,
         risk_headline=[]
     else:
         risk_headline=json.loads(headline[["scenario","asset",
-            "p_terminal_loss","p_max_drawdown_below_minus_20pct",
+            "p_terminal_loss","p_mdd_below_minus_5pct",
+            "p_mdd_below_minus_10pct",
             "p_underperform_QQQ","median_total_return_pct",
             "p05_total_return_pct"]].to_json(orient="records"))
     print("CFM_V8_REGIME_MC",json.dumps({
@@ -280,7 +302,7 @@ def run_regime_mc(cash_dir,qqq_file,out,
         "qqq_sha256":qqq_sha,
         "sample_days_by_regime":coverage[["scenario","sample_days",
                  "largest_year_fraction","risk_status"]].to_dict("records"),
-        "one_year_block20":risk_headline,
+        "twenty_session_block5":risk_headline,
         "promotion_allowed":False},ensure_ascii=False))
     return output_stats,coverage,evidence
 
