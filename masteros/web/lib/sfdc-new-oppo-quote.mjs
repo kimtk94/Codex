@@ -9,7 +9,7 @@ export const PATTERNS=Object.freeze({
  OTHER:{label:"기타/복합 서비스",processes:[],review:"정식 Product 및 프로세스 직접 확인"}
 });
 export const UNITS=Object.freeze(["Gb","M reads","Lane","K tags","Cell","sample"]);
-export const DEFAULT_INPUT=Object.freeze({institution:"",contact:"",identityMode:"KEEP",service:"RNA",samples:"",production:"",basis:"PER_SAMPLE",unit:"Gb",referenceQuote:"",desiredName:"",cloud:"UNKNOWN",status:"SAMPLES_EXPECTED",sampleType:""});
+export const DEFAULT_INPUT=Object.freeze({institution:"",contact:"",identityMode:"KEEP",service:"",samples:"",production:"",basis:"PER_SAMPLE",unit:"Gb",referenceQuote:"",desiredName:"",cloud:"UNKNOWN",status:"SAMPLES_EXPECTED",sampleType:""});
 export function nextMonth(date){
  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date)))throw Error("INVALID_DATE");
  const [y,m,d]=date.split("-").map(Number);
