@@ -51,12 +51,12 @@ class RegimeConditionedKRWMonteCarloV8Tests(unittest.TestCase):
         np.testing.assert_array_equal(sampled[:,:,0],sampled[:,:,1])
 
     def test_fully_conditioned_down_scenario_is_a_risk_stress_not_oos(self):
-        # 450 days in repeated 15d UP / DOWN / SIDE contiguous blocks,
-        # 10 independent DOWN runs; all years are historical descriptive.
-        n=450
+        # 750 days in repeated 25d UP / DOWN / SIDE contiguous blocks.
+        # A 20-session risk horizon must have a historically observed run.
+        n=750
         days=pd.bdate_range("2022-01-03",periods=n).strftime("%Y-%m-%d")
-        trend=np.tile(np.repeat(["UP","DOWN","SIDE"],15),10)
-        vol=np.tile(np.repeat([False,True,False],15),10)
+        trend=np.tile(np.repeat(["UP","DOWN","SIDE"],25),10)
+        vol=np.tile(np.repeat([False,True,False],25),10)
         states=pd.DataFrame({"date":days,
             "prior_trend":trend,"prior_high_vol":vol,
             "prior_down_high_vol":(trend=="DOWN")&vol})
