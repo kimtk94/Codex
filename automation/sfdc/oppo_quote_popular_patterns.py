@@ -32,6 +32,39 @@ QID_RX = re.compile(r"^QID-[\d-]{8,50}$")
 OPP_RX = re.compile(r"^Opp-[\d-]{8,50}$")
 
 
+
+# Public logs may only show controlled labels, never untrusted process free text.
+KNOWN_PROCESSES = frozenset({
+    "Analysis by sample", "Data release", "Sequencing by data amount",
+    "Library preparation", "Extraction and sample QC", "Library QC",
+    "Sequencing by sample", "Database searching", "Sample QC", "Extraction",
+    "Sequencing by lane", "Peptide", "Amplification", "Analysis by data amount",
+    "Customized analysis by sample", "Sample collection", "Purification",
+    "Primer synthesis",
+})
+SERVICE_HINTS = (
+    ("Single-cell / Spatial", r"sc[\s_-]?rna|single[\s_-]?cell|\b10x\b|visium|xenium|stereo[\s_-]?seq|spatial"),
+    ("Proteomics", r"deep[\s_-]?dia|\bdia\b|proteom|olink|protein|\btmt\b|phospho"),
+    ("Long-read", r"nanopore|pacbio|revio|hifi|iso[\s_-]?seq|long[\s_-]?read"),
+    ("WGS", r"\bwgs\b|whole[\s_-]?genome"),
+    ("WES", r"\bwes\b|whole[\s_-]?exome|\bexome\b"),
+    ("RNA", r"\bmrna\b|rna[\s_-]?seq|transcriptom|small[\s_-]?rna|\bmirna\b"),
+    ("Microbiome / Amplicon", r"\b16s\b|\bits\b|amplicon|metagenom|microbiom|microbial"),
+    ("Platform sequencing", r"novaseq|hiseq|miseq|\bpe150\b|\bpe250\b|\bpmp\b"),
+)
+
+def service_hint(name):
+    """Only a low-confidence text signal, never an authorized SFDC Product ID."""
+    value = str(name or "").lower()
+    found = [label for label, rx in SERVICE_HINTS if re.search(rx, value)]
+    specialized = [label for label in found if label != "Platform sequencing"]
+    if len(specialized) == 1:
+        return specialized[0]
+    if len(specialized) > 1:
+        return "Mixed / unclear"
+    return "Platform sequencing" if found else "Other / unspecified"
+
+
 def normalize_matrix(matrix, expected):
     if not matrix:
         raise ValueError("EMPTY_SOURCE")
@@ -96,6 +129,10 @@ def build_report(opps, lines, min_support=10, min_share=0.01, evidence=None):
     multiple_opp_qids = Counter()
     total_active = 0
     mode_distribution = Counter()
+    service_total = Counter()
+    service_eligible = Counter()
+    service_patterns = defaultdict(Counter)
+    service_units = defaultdict(Counter)
     samples = []
     for qid, rows in quotes.items():
         def uniq(col):
@@ -105,6 +142,10 @@ def build_report(opps, lines, min_support=10, min_share=0.01, evidence=None):
         active = uniq("Active")
         product_distribution[len(product_ids)] += 1
         all_quote_products += len(product_ids)
+        mapped_opp = opportunity_map.get(next(iter(opp_ids))) if len(opp_ids) == 1 else None
+        label = (mapped_opp or {}).get("Opportunity Name") or rows[0].get("Opportunity Name: Opportunity Name", "")
+        family = service_hint(label)
+        service_total[family] += 1
         if active == {"1"}:
             total_active += 1
         if len(opp_ids) == 1 and next(iter(opp_ids)) in opportunity_map:
@@ -138,6 +179,9 @@ def build_report(opps, lines, min_support=10, min_share=0.01, evidence=None):
         template = next(iter(templates))
         ordered = tuple(p.strip() for p in template.split(",") if p.strip())
         observed = [str(r.get("Quote Process Name", "")).strip() for r in rows]
+        if not set(ordered).issubset(KNOWN_PROCESSES):
+            reasons["UNRECOGNIZED_PROCESS_NAME"] += 1
+            continue
         if not (3 <= len(ordered) <= 12) or Counter(observed) != Counter(ordered):
             reasons["PROCESS_TEMPLATE_INCONSISTENT"] += 1
             continue
@@ -145,11 +189,16 @@ def build_report(opps, lines, min_support=10, min_share=0.01, evidence=None):
         # is never used to auto-populate process quantity or unit price.
         signature = tuple(sorted(ordered))
         eligible_signatures[signature] += 1
+        service_eligible[family] += 1
+        service_patterns[family][signature] += 1
         for p in observed:
             process_rows[p] += 1
         for r in rows:
             if r.get("Quote Process Name") in {"Sequencing by data amount", "Sequencing by lane", "Sequencing by sample"}:
                 mode_distribution[r["Quote Process Name"]] += 1
+                unit = str(r.get("Data Unit") or "").strip()
+                unit = unit if unit in {"G raw data", "G", "Gb", "M raw reads", "Lane", "K tags", "K Reads", "K Clean Reads", "Cell", "NA"} else "Other / missing"
+                service_units[family][unit] += 1
                 if r.get("Data Unit") in {"G raw data", "G", "Gb"}:
                     val = str(r.get("Data Size", "")).strip().replace(",", "")
                     try:
@@ -166,6 +215,19 @@ def build_report(opps, lines, min_support=10, min_share=0.01, evidence=None):
         common.append({"processes": list(signature), "quotes": n,
                        "share_of_eligible_pct": round(n / eligible * 100, 1)})
     promoted = sum(t["quotes"] for t in common)
+    service_profiles = []
+    for family, count in service_total.most_common():
+        family_eligible = service_eligible[family]
+        patterns = [{"processes": list(signature), "quotes": n,
+                     "share_of_family_eligible_pct": round(100 * n / family_eligible, 1) if family_eligible else 0,
+                     "suggestible_from_history": family not in {"Other / unspecified", "Mixed / unclear"}
+                         and n >= 10 and n / family_eligible >= 0.10}
+                    for signature, n in service_patterns[family].most_common(5)]
+        service_profiles.append({"service_label": family, "classification": "NAME_HEURISTIC_NOT_PRODUCT_ID",
+                                 "all_quotes": count, "eligible_quotes": family_eligible,
+                                 "eligible_pct": round(100 * family_eligible / count, 1),
+                                 "common_processes": patterns,
+                                 "sequencing_units_observed": dict(service_units[family].most_common())})
     return {
         "status": "PASS" if eligible else "BLOCK_NO_ELIGIBLE_TEMPLATES",
         "purpose": "READ_ONLY_POPULAR_PATTERNS_FOR_NO_SAVE_DRAFTS",
@@ -180,6 +242,7 @@ def build_report(opps, lines, min_support=10, min_share=0.01, evidence=None):
                      "unpromoted_quotes": len(quotes) - promoted,
                      "exclude_reasons": dict(sorted(reasons.items()))},
         "patterns": common,
+        "service_profiles": service_profiles,
         "process_row_counts_eligible": dict(process_rows.most_common()),
         "sequencing_modes_eligible": dict(mode_distribution.most_common()),
         "sequencing_gb_observed_median_not_default": median(samples) if samples else None,
@@ -187,6 +250,8 @@ def build_report(opps, lines, min_support=10, min_share=0.01, evidence=None):
                    "price_defaulting": False, "quantity_defaulting": False,
                    "contact_requires_live_003_001_recheck": True,
                    "manual_review_for_multi_product": True,
+                   "service_classification_is_authoritative": False,
+                   "service_templates_are_observations_not_required_steps": True,
                    "opportunity_and_quote_same_base_name_for_new_draft": True,
                    "description_must_be_newly_authored": True}
     }
