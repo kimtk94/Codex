@@ -162,8 +162,8 @@ def conditional_stress(daily,first,names,states,conditions=SCENARIOS,
         majority=float(years.max()/count) if count else 1.
         sufficient=(count>=MIN_ELIGIBLE_DAYS and runs>=MIN_DISTINCT_RUNS)
         duration_supported=horizon<=max_run
-        tag="HOLD_UNOBSERVED_CONTINUOUS_STATE_DURATION" if not duration_supported else (
-            "HOLD_INSUFFICIENT_REGIME_HISTORY" if not sufficient else (
+        tag="HOLD_INSUFFICIENT_REGIME_HISTORY" if not sufficient else (
+            "HOLD_UNOBSERVED_CONTINUOUS_STATE_DURATION" if not duration_supported else (
             "HOLD_SINGLE_YEAR_CONCENTRATION" if majority>MAX_SINGLE_YEAR_SHARE else
             "CONDITIONAL_RISK_DESCRIPTIVE_ONLY"))
         coverage={"scenario":scenario,"sample_days":count,
