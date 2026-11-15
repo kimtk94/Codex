@@ -55,6 +55,7 @@ class PatternLearningTests(unittest.TestCase):
 
     def test_service_hint_no_customer_string_in_output(self):
         self.assertEqual(service_hint("Korea-4-mRNASeq-PE150-Yonsei"), "RNA")
+        self.assertEqual(service_hint("Korea-scRNASeq-10x-PE150"), "Single-cell / Spatial")
         self.assertEqual(service_hint("Korea-16S-Amplicon"), "Microbiome / Amplicon")
         self.assertEqual(service_hint("Korea-Olink-DeepDIA"), "Proteomics")
         self.assertEqual(service_hint("Korea-PacBio Revio-HiFi"), "Long-read")
