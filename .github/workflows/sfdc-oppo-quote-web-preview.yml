@@ -49,7 +49,7 @@ jobs:
         run: npm run build
       - name: Check production output route exists
         run: |
-          node -e "const fs=require('fs'); if (!fs.existsSync('.next/server/app/sales/oppo-quote')) { throw new Error('Oppo-Quote compiled route missing') }"
+          node -e "const fs=require('fs'); if (!fs.existsSync('.next/server/app/sales/oppo-quote')) { throw new Error('Oppo-Quote compiled route missing') } if (!fs.existsSync('.next/server/app/sales/oppo-quote/new')) { throw new Error('General Oppo-Quote intake compiled route missing') }"
       - name: Install isolated synthetic-browser test tooling
         run: npm install --no-save --no-audit --no-fund playwright@1.56.1
       - name: Install Chromium for synthetic-browser smoke test

@@ -96,7 +96,21 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await page.getByRole("button",{name:"검토용 명령서 생성"}).click();
     assert.match(await page.locator("pre").innerText(), /PENDING_AUTHENTICATED_CONTACT_RECHECK/);
     assert.equal(await page.getByRole("button",{name:"Salesforce 일괄 생성 · 연결 전"}).isDisabled(),true);
-    assert.equal(nonReadRequests.length, 0, "Local Contact import and preview must not send POST/PUT/PATCH/DELETE requests");
+    // General service intake stays browser-local and cannot perform CRM writes.
+    const general = await page.goto(base + "/sales/oppo-quote/new", {waitUntil:"networkidle"});
+    assert.equal(general.status(), 200);
+    assert.equal(await page.getByRole("heading",{name:"신규 Oppo + Quote"}).count(),1);
+    await page.locator("#new-account").fill("합성대학교");
+    await page.locator("#new-contact").fill("김민수");
+    await page.locator("#new-service").selectOption("RNA");
+    await page.locator("#new-samples").fill("48");
+    await page.locator("#new-production").fill("6");
+    await page.locator("#new-cloud").selectOption("YES");
+    await page.getByRole("button",{name:"검토용 요청서 확인"}).click();
+    assert.match(await page.locator("pre").innerText(), /HOLD_SFDC_ID_PRODUCT_PRICE_APPROVAL/);
+    assert.match(await page.locator("pre").innerText(), /"alicloudQuantity": 3/);
+    assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
+    assert.equal(nonReadRequests.length,0,"General intake must not POST/PUT/PATCH/DELETE");
   } finally {
     if (page) await page.close();
     if (browser) await browser.close();

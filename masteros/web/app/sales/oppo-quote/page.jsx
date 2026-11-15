@@ -141,7 +141,7 @@ export default function OppoQuoteCommandPage() {
               <h1>Opportunity + Quotation</h1>
               <p className={styles.subhead}>서비스 조건을 입력하고 검증 가능한 생성 명령서를 준비합니다. 실제 CRM 검색·저장은 아직 활성화되지 않았습니다.</p>
             </div>
-            <div className={styles.statusPill}>검토용 초안 · No Save</div>
+            <Link href="/sales/oppo-quote/new" className={styles.statusPill}>일반 서비스 신규 Oppo + Quote</Link>
           </div>
         </header>
 
