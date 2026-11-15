@@ -323,9 +323,14 @@ jobs:
           if r.get('promotion_allowed') is not False or r.get('qqq_close_source_sha256')!=frozen['qqq_daily_price_sha256']:
               raise SystemExit('REGIME_MC_SOURCE_OR_LIVE_GATE_INVALID')
           if (len(coverage)!=6 or set(coverage.scenario)!=set(frozen['conditional_regime_monte_carlo_v8']['conditioned_scenarios'])
-              or d.requested_mean_block.nunique()!=3 or not d.p_terminal_loss.between(0,1).all()
-              or not d.p_max_drawdown_below_minus_20pct.between(0,1).all()):
+              or len(d)!=396 or set(d.horizon_days)!={5,20}
+              or set(d.requested_mean_block)!={3,5,10}
+              or not d.p_terminal_loss.between(0,1).all()
+              or not d.p_mdd_below_minus_5pct.between(0,1).all()
+              or not d.p_mdd_below_minus_10pct.between(0,1).all()):
               raise SystemExit('REGIME_MC_CONDITIONAL_COVERAGE_INVALID')
+          if r.get('regime_one_year_persistence_is_invalid') is not True or r.get('horizons_days')!=[5,20]:
+              raise SystemExit('REGIME_MC_UNREALISTIC_252D_STATE_ASSUMPTION')
           if (d.source_runs<8).any() or not d.conditional_full_path_in_requested_state.all():
               raise SystemExit('REGIME_MC_STATE_LEAKAGE_OR_UNDERPOWERED')
           if any(row['largest_year_fraction']>.75 and row['risk_status']!='HOLD_SINGLE_YEAR_CONCENTRATION' for row in r['coverage']):
