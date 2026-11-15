@@ -7,7 +7,9 @@ The historical period and parameter choices have been repeatedly viewed.
 No model retraining, no live trades, no real broker FX statements.
 """
 import argparse
+import hashlib
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -193,7 +195,21 @@ def simulate_joint_blocks(daily,first,fields,lengths=BLOCK_LENGTHS,
 
 def run_mc(root,output,n_simulations=SIMULATIONS,seed=RNG_SEED):
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
-    equity,fields,daily,first,exposures,policies=load_joint_equity(root)
+    source_root=Path(root)
+    equity,fields,daily,first,exposures,policies=load_joint_equity(source_root)
+    required=[
+        f"{model}__{policy}__10bps_equity.csv"
+        for model in MODELS for policy in POLICIES
+    ] + [
+        f"passive_{sym}_equity_krw.csv" for sym in ETF_BENCHMARKS
+    ] + ["policy_comparison.csv"]
+    input_sha256={name:hashlib.sha256(
+        (source_root/name).read_bytes()).hexdigest() for name in required}
+    (output/"input_sha256.json").write_text(
+        json.dumps(input_sha256,indent=2,sort_keys=True))
+    vintage_file=source_root.parent/"vintage_v6"/"decision.json"
+    vintage_status=(json.loads(vintage_file.read_text()).get("status")
+                    if vintage_file.exists() else "SOURCE_VINTAGE_NOT_ATTESTED")
     output_stats=simulate_joint_blocks(daily,first,fields,
         n_simulations=n_simulations,seed=seed)
     output_stats.to_csv(output/"block_monte_carlo_krw_risk.csv",index=False)
@@ -214,6 +230,11 @@ def run_mc(root,output,n_simulations=SIMULATIONS,seed=RNG_SEED):
        "historical_source":"V6 synthetic daily equity curves/actual 10bp FX-spread scenario",
        "starts":str(equity.date.iloc[0]),"ends":str(equity.date.iloc[-1]),
        "historical_daily_changes":len(daily),
+       "historical_source_vintage_status":vintage_status,
+       "source_immutable_artifact_run":os.environ.get(
+           "KALMAN_MONTE_CARLO_SOURCE_RUN_ID","UNSPECIFIED_LOCAL_SOURCE"),
+       "input_sha256":input_sha256,
+       "input_files_count":len(input_sha256),
        "joint_curves":list(fields),
        "simulation_paths_per_horizon_and_block":n_simulations,
        "horizons_trading_days":[252,len(daily)],
@@ -229,6 +250,8 @@ def run_mc(root,output,n_simulations=SIMULATIONS,seed=RNG_SEED):
        "live_broker_reconciliation":False,
        "independent_holdout_available":False,
        "v7_frozen_forward_model_performance_available":False,
+       "risk_gate":"HOLD_NO_PROSPECTIVE_PROFITABILITY_EVIDENCE",
+       "selection_bias":"V4/V5 researched on the same historical source; Monte Carlo does not remove model-selection bias",
        "promotion_allowed":False}
     (output/"decision.json").write_text(json.dumps(result,indent=2,ensure_ascii=False))
     summary=output_stats[
@@ -238,12 +261,15 @@ def run_mc(root,output,n_simulations=SIMULATIONS,seed=RNG_SEED):
           "V4_ETF_MARKET__USD_RETAIN",
           "V5_KRW_REGIME_BASE__USD_RETAIN",
           "QQQ","SPY","USD_CASH_ONLY"]))]
+    important=[
+        "asset","p_terminal_loss","p_max_drawdown_below_minus_20pct",
+        "median_total_return_pct","p05_total_return_pct","p_underperform_QQQ"
+    ]
     print("CFM_V7_KRW_MONTE_CARLO",json.dumps({
        "status":result["status"],
-       "one_year_block20_summary":summary[[
-           "asset","p_terminal_loss","p_max_drawdown_below_minus_20pct",
-           "median_total_return_pct","p05_total_return_pct","p_underperform_QQQ"
-       ]].where(pd.notna(summary),None).to_dict(orient="records"),
+       "input_files_count":len(input_sha256),
+       "source_vintage":vintage_status,
+       "one_year_block20_summary":json.loads(summary[important].to_json(orient="records")),
        "promotion_allowed":False},ensure_ascii=False))
     return output_stats,result
 
