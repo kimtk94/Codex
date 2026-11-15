@@ -55,3 +55,49 @@
 ## 다음 통합 경계
 - 자동 학습 결과를 Oppo–Quote 웹의 기본 템플릿으로 연결하려면 **실제 SFDC 001/003/006/a0P ID를 인증 브라우저에서 재검증하는 입력 게이트**가 별도로 필요하다.
 - 이 문서는 **공통 구조 학습**이며 제품별 승인 가격·완전한 Salesforce 실시간 필드 학습·Description 원문 학습을 완료했다는 의미가 아니다.
+
+
+## 2차: 서비스군별 일반 패턴 (2026-11-15, 별도 실측)
+
+- 전수 대상: **854개 Quote / 3,949개 Quote process rows**, 712개 Opportunity.
+- 자동 추천 가능한 **구조적 적격 Quote는 567개 (66.4%)**. 이 수치는 Product 1개, Active, 동일 Account ID, 연결 Opportunity 존재 및 Process 일치까지 통과한 수이며, 최종 가격·고객 관계·현재 Salesforce 로그인 재검증까지 통과한 건수가 아니다.
+- 예외(상호 배타적 우선순위): Opportunity ID 누락 1, Report 범위 밖 56, Inactive 63, 2+ Products 60, Account ID 불일치 44, 공정 명세/행 불일치 63. 총 287건으로 구분하며 자동 추천에서 제외한다.
+- Opportunity 이름 기반 키워드 분류는 **검토용 임시 라벨**이다. Product ID가 가리키는 정식 SFDC 서비스 코드가 아니다. 미분류와 복수 서비스 신호는 자동 서비스 제안을 하지 않는다.
+- 서비스군별 `common_processes` / `sequencing_units_observed`는 매일 GitHub Actions 실행 시 private JSON으로 집계한다. **서비스별 10개 이상 & 그 서비스 적격 Quote의 10% 이상**인 공정 조합에만 `suggestible_from_history=true`를 부여한다. 이 값이 true여도 실제 CRM 저장이나 가격 확정을 허용하지 않는다.
+
+### 서비스군의 대표 공정 (역사적 참고, 자동 필수 공정 아님)
+
+| 서비스 분류 | 일반적인 Product 내부 프로세스 | 주의할 점 |
+|---|---|---|
+| RNA/mRNA | Library preparation + Sequencing by data amount + Analysis by sample + Data release | 추출/QC를 수행했는지에 따라 별도 공정 |
+| 16S/Amplicon | Library preparation + Sequencing by data amount + Analysis by sample + Data release | Amplification, Primer synthesis, K tags 단위는 해당 서비스 자료로 검증 |
+| Platform/PMP | Sequencing by data amount + Analysis by sample + Data release 또는 Library QC 포함 | Lane/Gb/M reads는 서로 대체하지 않음 |
+| Proteomics/DIA | Extraction + Peptide + Sequencing by sample + Database searching + Analysis by sample + Data release | Library/Gb 기반 NGS 템플릿을 그대로 사용하지 않음 |
+| Long-read | Library preparation + Sequencing by data amount + Analysis by sample + Data release | Gb/Cell/Read 등 실행 단위별 별도 확인 |
+| Single-cell/Spatial | 서비스별 별도 Product ID와 Process 필수 | 이름 분류만으로 미리 견적을 생성하지 않음 |
+
+### 실무 작성용 필드 재사용 정책
+
+| 필드 | 재사용 규칙 | 검증 근거 |
+|---|---|---|
+| Account / Contact | 사용자가 **유지** 또는 **수정** 선택. 실제 001 Account / 003 Contact 관계의 live readback 통과 필수 | 이름 문자열과 CP ID만으로 자동 연결 금지 |
+| Opportunity / Quotation Name | 신규 작성에서는 **동일한 기본 이름**, 날짜 접미사 붙이지 않음. 원본 이력의 명칭 차이는 임의 수정 금지 | 명시된 작성 업무 규칙, 기존 Report에서 이름 동일성은 미검증 |
+| Product / Process | 기존 Quote Product ID에 속한 공정 명세를 **하나의 Product**로 복사. 공정별 가격·수량·Data Unit은 분리 | QID → QD → Process 원본 구조 |
+| Production Data Size | Gb, Lane, M reads, K tags 등 단위별 검증. 과거 Sample Quantity/Process Quantity는 재사용 기본값으로 확정 금지 | 25열 Quote Report의 Data Unit/Data Size |
+| Unit Price / Sales Price | 원본 Quote 가격은 참고값만 제시. Process별 가격을 합산하기 전에 currency, discount, unit/quantity, quote-level total을 검증 | 과거 USD converted = 현재 승인 KRW 가격 아님 |
+| Pack | 동일 샘플 집합은 사용자 규칙으로 합칠 수 있으나 Product/Process별 실제 포장 요구 확인 | 과거 행만으로 자동 결정 금지 |
+| Alicloud | 생산 데이터량 100 Gb당 1개, 올림 적용 | 명시된 별도 작성 정책 |
+| Tax | KRW 신규 견적 VAT 10%; Quote 매출 / 실제 Revenue / 세금계산서 VAT 포함 여부는 별도로 검증 | 명시된 업무 규칙 |
+| Close Date | 신규 Opportunity 생성 시 기준일 +1개월 | 명시된 업무 규칙, 과거 Closed Won의 날짜 복제 금지 |
+| Progress Description | 기존 원문 복제 불가. 이번 Account, Contact, 서비스, 샘플 수 및 **실제 확인된 단계**로 새로 작성 | 현재 25열 Report는 Description 원문을 제공하지 않음 |
+| SFDC Save | 기본 NO-SAVE; 차이점 미리보기와 Contact/Product/가격 검증 후 **건별 승인** | 실제 CRM write는 별도 명시 승인 필요 |
+
+### UI 연결을 위한 상태 기계
+
+`SOURCE_VERIFIED → HISTORICAL_REFERENCE_FOUND → SERVICE_CLASSIFIED → ACCOUNT_CONTACT_CHECKED → PRODUCT_PROCESS_CHECKED → PRICE_PACK_DATA_CHECKED → DRAFT_READY (NO_SAVE) → USER_APPROVED → SAVE`
+
+- 1개라도 검증 불가능하면 해당 단계는 `HOLD`이며 다음 단계로 자동 진행하지 않는다.
+- 동일 Opportunity에 연결된 여러 QID가 존재하면 Active/수정일/상태/소유자를 구분해 목록으로 보여주되 임의로 하나만 선택하지 않는다.
+- 선택한 Oppo 또는 Quote 값을 기본으로 불러온 후 수정된 **차이점만** 새 Draft에 반영한다.
+- 기존 Progress Description, Quote 발행, PO 수령, 샘플 접수 사실은 검증 없이 추정하거나 복제하지 않는다.
+- **주의:** 본 PR은 서비스군 집계와 학습 품질 기준을 추가할 뿐 위 UI 또는 Salesforce Save를 배포하지 않는다.
