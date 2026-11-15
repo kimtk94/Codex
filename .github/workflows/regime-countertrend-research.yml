@@ -229,6 +229,31 @@ jobs:
               raise SystemExit("FROZEN_JSON_CHECKSUM_MISMATCH")
           print("CFM_V7_FROZEN_RESEARCH_ONLY",meta)
           PY
+      - name: Monte Carlo stress 5 20 60 day market and FX block dependence in KRW
+        run: python -m research.regime_countertrend.krw_monte_carlo_v7 --simulations 2000 --out results/regime_countertrend/monte_carlo_v7
+      - name: Audit Monte Carlo paths and keep strategy alpha HOLD
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          f=Path("results/regime_countertrend/monte_carlo_v7")
+          d=json.loads((f/"decision.json").read_text())
+          r=pd.read_csv(f/"block_monte_carlo_krw_risk.csv")
+          if (len(r)!=66 or d.get("promotion_allowed") is not False or
+              d.get("simulation_paths_per_horizon_and_block")!=2000):
+              raise SystemExit("MONTE_CARLO_COVERAGE_OR_LIVE_SAFETY_FAIL")
+          if set(r.horizon_trading_days)!={252,int(d["historical_daily_changes"])}:
+              raise SystemExit("MONTE_CARLO_HORIZONS_INCOMPLETE")
+          if set(r.mean_block_trading_days)!={5,20,60}:
+              raise SystemExit("MONTE_CARLO_BLOCK_LENGTHS_INCOMPLETE")
+          if r.p_terminal_loss.isna().any() or not r.p_terminal_loss.between(0,1).all():
+              raise SystemExit("MONTE_CARLO_INVALID_LOSS_PROBABILITY")
+          if r.p_max_drawdown_below_minus_20pct.isna().any():
+              raise SystemExit("MONTE_CARLO_MDD_PROBABILITY_INVALID")
+          print("MONTE_CARLO_RESEARCH_PASS_12000_PATHS_11_ASSETS",len(r),
+                "STILL_HOLD_NOT_PROSPECTIVE_OR_BROKER",d["status"])
+          PY
       - name: Hard gate all model features and all public US market symbols
         shell: bash
         run: |
