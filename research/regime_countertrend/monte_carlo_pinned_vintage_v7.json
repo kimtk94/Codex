@@ -33,5 +33,29 @@
       "p_underperform_QQQ": 0.7065
     }
   },
-  "promotion_allowed": false
+  "promotion_allowed": false,
+  "qqq_daily_price_sha256": "e733e2ac3c1d6388573333cc51ea5003e1cd45e1609db1d1e47d9af5ad0c31f6",
+  "conditional_regime_monte_carlo_v8": {
+    "regime_from": "QQQ lagged 60-session close return >=+8% UP, <=-8% DOWN, otherwise SIDE",
+    "high_vol": "previous close 20-session daily realized volatility above 75th percentile fitted on source through 2021-12-31",
+    "days": "portfolio daily return dates 2022-01-06 through 2026-11-04",
+    "conditioned_scenarios": [
+      "UP",
+      "DOWN",
+      "SIDE",
+      "HIGH_VOL",
+      "LOW_VOL",
+      "DOWN_HIGH_VOL"
+    ],
+    "mean_blocks": [
+      5,
+      20,
+      60
+    ],
+    "horizon_days": 252,
+    "simulations_each": 2000,
+    "hold_rules": "<80 historical days, <8 independent runs, or single-year concentration >75%: disclose HOLD and never claim validated forward probability",
+    "resampling": "one shared index for all 11 KRW strategy/ETF/USD-KRW paths; truncate at regime boundaries",
+    "live_promotion_allowed": false
+  }
 }
