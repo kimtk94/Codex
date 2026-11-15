@@ -70,7 +70,7 @@ class RegimeConditionedKRWMonteCarloV8Tests(unittest.TestCase):
         risk,coverage,meta=conditional_stress(
             daily,np.ones(len(names)),names,states,
             conditions=("UP","DOWN","SIDE","DOWN_HIGH_VOL"),
-            lengths=(5,20),n_simulations=200,horizon=60,batch=32,seed=9)
+            lengths=(5,20),n_simulations=200,horizon=20,batch=32,seed=9)
         self.assertEqual(meta["held_scenarios"],[])
         self.assertEqual(len(risk),4*2*len(names))
         self.assertEqual(set(coverage.scenario),{"UP","DOWN","SIDE","DOWN_HIGH_VOL"})
@@ -84,6 +84,17 @@ class RegimeConditionedKRWMonteCarloV8Tests(unittest.TestCase):
         self.assertTrue((risk.effective_mean_block<=risk.requested_mean_block*1.5).all())
         self.assertTrue((risk.conditional_full_path_in_requested_state).all())
 
+    def test_unobserved_year_long_fixed_regime_is_rejected(self):
+        n=260
+        states=pd.DataFrame({"date":pd.bdate_range("2022-01-03",
+            periods=n).strftime("%Y-%m-%d"),
+            "prior_trend":["DOWN"]*n,"prior_high_vol":[True]*n,
+            "prior_down_high_vol":[True]*n})
+        names=["V4_ETF_MARKET__USD_RETAIN","QQQ","SPY","USD_CASH_ONLY"]
+        with self.assertRaisesRegex(ValueError,"5-20 trading days"):
+            conditional_stress(np.zeros((n,4)),np.ones(4),names,
+                states,conditions=("DOWN",),horizon=252,n_simulations=100)
+
     def test_underpowered_regime_is_explicitly_held(self):
         n=300
         states=pd.DataFrame({"date":pd.bdate_range("2022-01-03",periods=n).strftime("%Y-%m-%d"),
@@ -93,7 +104,7 @@ class RegimeConditionedKRWMonteCarloV8Tests(unittest.TestCase):
         names=["V4_ETF_MARKET__USD_RETAIN","QQQ","SPY","USD_CASH_ONLY"]
         out,coverage,decision=conditional_stress(np.zeros((n,4)),
            np.ones(4),names,states,conditions=("UP","DOWN"),
-           lengths=(5,),n_simulations=100,horizon=30)
+           lengths=(5,),n_simulations=100,horizon=20)
         self.assertIn("DOWN",decision["held_scenarios"])
         self.assertEqual(coverage.loc[coverage.scenario=="DOWN",
                "risk_status"].iloc[0],"HOLD_INSUFFICIENT_REGIME_HISTORY")
