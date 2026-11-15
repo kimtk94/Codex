@@ -97,8 +97,9 @@ class RegimeConditionedKRWMonteCarloV8Tests(unittest.TestCase):
         self.assertIn("DOWN",decision["held_scenarios"])
         self.assertEqual(coverage.loc[coverage.scenario=="DOWN",
                "risk_status"].iloc[0],"HOLD_INSUFFICIENT_REGIME_HISTORY")
-        self.assertNotIn("DOWN",set(out.scenario))
-        self.assertFalse(out.p_terminal_loss.isna().any())
+        self.assertTrue(out.empty)
+        self.assertEqual(set(decision["held_scenarios"]),{"UP","DOWN"})
+        self.assertEqual(decision["reported"],0)
 
 if __name__=="__main__":
     unittest.main()
