@@ -58,6 +58,9 @@ def service_hint(name):
     value = str(name or "").lower()
     found = [label for label, rx in SERVICE_HINTS if re.search(rx, value)]
     specialized = [label for label in found if label != "Platform sequencing"]
+    # scRNA-seq contains the RNA-seq token: spatial/single-cell wins this known overlap.
+    if "Single-cell / Spatial" in specialized and "RNA" in specialized:
+        specialized.remove("RNA")
     if len(specialized) == 1:
         return specialized[0]
     if len(specialized) > 1:
