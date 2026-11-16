@@ -21,6 +21,8 @@ MAX_PROJECTS = 1500
 # The Feishu mirror is on a frequent schedule; a 36-hour green window is unsafe.
 SOURCE_MIRROR_MAX_AGE_HOURS = 12
 MAIL_MIRROR_MAX_AGE_HOURS = 24
+# Report subscription is daily. Allow a 72-hour weekend/holiday buffer.
+QUOTE_HEADER_MAX_AGE_HOURS = 72
 COMPLETION_RE = re.compile(r"final\s*report|statement\s*(?:ready|confirm)|completed|finished|deliver(?:ed|y)", re.I)
 # Finance transition must come from current Feishu state, not an older CSS email.
 FEISHU_FINANCE_STAGE = re.compile(
@@ -303,10 +305,13 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
     # Quote identity missing/ambiguous is a REVIEW queue; does not erase physical stage.
     sync_age = (now - source_at).total_seconds()/3600 if source_at else None
     mail_age = (now - mail_at).total_seconds()/3600 if mail_at else None
+    quote_age = (now - quote_latest_at).total_seconds()/3600 if quote_latest_at else None
+    quote_current = quote_age is not None and -0.2 <= quote_age <= QUOTE_HEADER_MAX_AGE_HOURS
     source_fresh = sync_age is not None and -0.2 <= sync_age <= SOURCE_MIRROR_MAX_AGE_HOURS
     mail_fresh = mail_age is not None and -0.2 <= mail_age <= MAIL_MIRROR_MAX_AGE_HOURS
     status = ("STALE" if not (source_fresh and mail_fresh) else
               "PARTIAL_MIRROR" if mail_state != "WINDOW_CAUGHT_UP" else
+              "STALE_QUOTE_HEADER" if not quote_current else
               "PASS_MIRROR_ONLY")
     return {
         "status": status, "scope": "GOOGLE_MIRRORS_NOT_ORIGINAL_FEISHU_QQ_SFDC",
@@ -317,6 +322,9 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
         "source_freshness_limit_hours": SOURCE_MIRROR_MAX_AGE_HOURS,
         "mail_freshness_limit_hours": MAIL_MIRROR_MAX_AGE_HOURS,
         "quote_mirror_latest_at": iso(quote_latest_at),
+        "quote_header_age_hours": round(quote_age, 1) if quote_age is not None else None,
+        "quote_header_freshness_limit_hours": QUOTE_HEADER_MAX_AGE_HOURS,
+        "quote_header_status": "CURRENT_HEADER_MIRROR" if quote_current else "STALE_OR_MISSING_HEADER",
         "sif_mirror_latest_at": iso(latest(sifs, "updated_at")),
         "payment_mirror_latest_at": iso(latest(pays, "Last verified KST")),
         "original_feishu_verified": False, "original_qq_verified": False,
@@ -394,7 +402,9 @@ def main():
             "status", "scope", "source_synced_at", "mail_synced_at",
             "source_age_hours", "mail_age_hours", "source_freshness_limit_hours",
             "mail_freshness_limit_hours", "mail_window_state",
-            "quote_mirror_latest_at", "sif_mirror_latest_at",
+            "quote_mirror_latest_at", "quote_header_age_hours",
+            "quote_header_freshness_limit_hours", "quote_header_status",
+            "sif_mirror_latest_at",
             "payment_mirror_latest_at", "original_feishu_verified",
             "original_qq_verified", "sfdc_live_verified",
             "payment_receipt_verified", "counts", "stage_counts", "error_type")}
