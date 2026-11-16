@@ -67,6 +67,34 @@ class WaveSelectionTests(unittest.TestCase):
         self.assertFalse(done.intersection({x["quote_id"] for x in r["selected"]}))
         self.assertEqual(r["crm_writes"], 0)
 
+    def test_final_94_sources_from_333_unique_and_239_previous_attempts(self):
+        # Mirrors the permitted *aggregate* scope, not real QIDs or prices.
+        rows=[ref(month,month*1000+i)
+              for month in range(1,11)
+              for i in range(33 if month<10 else 36)]
+        self.assertEqual(len(rows),333)
+        # 240 prior manifest rows represented 239 distinct source QIDs;
+        # a held Quote had been retried and must not shrink the missing set.
+        unique_attempts=rows[:239]
+        attempt_rows=[*unique_attempts,unique_attempts[-1]]
+        batches=[attempt_rows[i:i+40] for i in range(0,len(attempt_rows),40)]
+        verified={x["quote_id"] for x in unique_attempts[:236]}
+        result=select_unattempted_2026(rows,batches,verified,
+                                        per_month=6,total_limit=94)
+        self.assertEqual(result["eligible_unique"],333)
+        self.assertEqual(result["attempted_rows"],240)
+        self.assertEqual(result["attempted_unique"],239)
+        self.assertEqual(result["duplicate_attempt_rows"],1)
+        self.assertEqual(result["verified_among_attempted"],236)
+        self.assertEqual(result["held_among_attempted"],3)
+        self.assertEqual(result["remaining_before"],94)
+        self.assertEqual(result["selected_count"],94)
+        self.assertEqual(len({r["quote_id"] for r in result["selected"]}),94)
+        self.assertFalse(set(x["quote_id"] for x in result["selected"]) & set(x["quote_id"] for x in unique_attempts))
+        self.assertEqual(sum(result["selected_by_month"].values()),94)
+        self.assertIs(result["price_auto_apply"],False)
+        self.assertEqual(result["crm_writes"],0)
+
     def test_requested_batch_bound_and_source_exhaustion_are_explicit(self):
         rows = [ref(2, 100+i) for i in range(3)]
         r = select_unattempted_2026(rows, [], set(), per_month=10, total_limit=100)
