@@ -10,7 +10,7 @@ One trigger executes up to six **strictly offline/synthetic** validation stages 
 5. `automation/ops/test_css_freshness_policy.py` (offline 9-domain/18-crosscheck freshness contract; not a live data probe).
 6. `automation/progress/test_gate_evaluator.py` (evidence policy).
 
-The runner uses a hard-coded command allowlist, `subprocess.run` with no shell, removed GitHub API credentials for child processes and a 240-second timeout per stage. The workflow has a 25-minute timeout. A failure stops dependent stages, allows at most three total attempts, and then blocks the queue until reset or new code. There is no `set -e` in the runner.
+The runner uses a hard-coded command allowlist, `subprocess.run` with no shell, a **minimal environment allowlist** (no inherited GitHub tokens, QQ credentials, Feishu secrets, Google service accounts or arbitrary external environment variables), and a 240-second timeout per stage. Test stdout/stderr is captured but **never persisted** in the checkpoint, public issue, CI summary, or artifact. Failures are recorded only as fixed `OFFLINE_SUITE_NONZERO_EXIT`, `OFFLINE_SUITE_TIMED_OUT` or `OFFLINE_SUITE_FAILED_UNCLASSIFIED` codes. The separately permission-scoped GitHub failure inspection job is the only component that classifies historic CI failure logs, without retaining raw text. The workflow has a 25-minute timeout. A failure stops dependent stages, allows at most three total attempts, and then blocks the queue until reset or new code. There is no `set -e` in the runner.
 
 ## How to run
 
