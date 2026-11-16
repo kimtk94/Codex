@@ -15,6 +15,7 @@
 .health[data-health="SOURCE_UNAVAILABLE"]{background:#fde9e9;color:#ad3636}
 .sourceTimes{display:flex;gap:9px 20px;flex-wrap:wrap;color:#617581;font-size:11px;margin-top:13px}
 .source p{font-size:11px;line-height:1.65;color:#6c7e87;margin:10px 0 0}
+.source .sourceWarning{color:#986016;background:#fff7ea;border-left:3px solid #deb979;padding:7px 9px;margin-top:12px}
 .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:19px}
 .metric{text-align:left;padding:17px 18px;display:flex;flex-direction:column;gap:6px;cursor:pointer;color:#546c79}
 .metric[data-active="true"]{border-color:#5b9db4;box-shadow:0 0 0 1px #8cbacc55}
