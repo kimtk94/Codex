@@ -39,7 +39,7 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
         const pathname = new URL(request.url()).pathname;
         // An authenticated localhost readback uses POST as transport, but is
         // not a Salesforce mutation and must be separately audited.
-        if(pathname === "/api/sfdc/krw-contact-local")
+        if(pathname === "/api/sfdc/krw-contact-local" || pathname === "/api/sfdc/krw-price-local")
           localReadRequests.push({method:request.method(),url:pathname});
         else nonReadRequests.push({method:request.method(),url:pathname});
       }
@@ -169,6 +169,30 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
        product_name:"Synthetic RNA",process_name:"Sequencing by data amount"
       }]
     };
+    // Private localhost price-import mock: 260 independent conditions exercise
+    // every page without exposing a customer's local source file to CI.
+    const manyPrices={...localPrices,records:Array.from({length:260},(_,i)=>({
+      ...localPrices.records[0],
+      process_id:"Process-2026-01-01-"+String(i+1).padStart(5,"0"),
+      process_name:"Synthetic process "+String(i+1)
+    }))};
+    await page.route("**/api/sfdc/krw-price-local",async route=>{
+      assert.deepEqual(route.request().postDataJSON(),{mode:"READ_LOCAL_PRIVATE_2026_KRW"});
+      await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({
+        status:"PASS",local_only:true,salesforce_write:false,
+        evidence:manyPrices,verified_process_rows:260,verified_quote_count:1
+      })});
+    });
+    await page.locator("#krw-private-price-load").click();
+    await page.getByText(/260개 2026 KRW 공정 단가 검증 완료/).waitFor();
+    const bigHistory=page.locator("summary").filter({hasText:"2026 KRW Product별 가격 이력 전체표"});
+    await bigHistory.click();
+    assert.equal(await page.locator("details tbody tr").count(),100);
+    await page.getByRole("button",{name:"다음 가격 조건"}).click();
+    assert.equal(await page.locator("details tbody tr").count(),100);
+    await page.getByRole("button",{name:"다음 가격 조건"}).click();
+    assert.equal(await page.locator("details tbody tr").count(),60);
+    // Private JSON import remains supported and resets the temporary pages.
     await page.locator("#krw-local-file").setInputFiles({name:"synthetic-krw.json",
        mimeType:"application/json",buffer:Buffer.from(JSON.stringify(localPrices))});
     await page.locator("#krw-product").selectOption("e".repeat(64));
@@ -184,7 +208,7 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await page.getByRole("button",{name:"비교 견적으로 선택"}).click();
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK/);
     assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
-    assert.equal(localReadRequests.length,1,"Exactly one localhost read-only Contact lookup");
+    assert.equal(localReadRequests.length,2,"One native Contact and one local price readback only");
     assert.equal(nonReadRequests.length,0,"General intake must not perform CRM writes or other POST/PUT/PATCH/DELETE");
   } finally {
     if (page) await page.close();
