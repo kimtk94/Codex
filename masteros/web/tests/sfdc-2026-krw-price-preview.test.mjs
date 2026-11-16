@@ -61,7 +61,7 @@ test("all user-provided evidence remains unverified even if source flag present"
 test("reject bad schema, future/stale input and invalid price figures",()=>{
  assert.throws(()=>parseKrwEvidence("notjson",when),/INVALID_JSON/);
  assert.throws(()=>parseKrwEvidence(JSON.stringify({records:[]}),when),/INVALID_EVIDENCE_SCHEMA/);
- assert.throws(()=>parseKrwEvidence(evidence(),"2026-11-18"),/STALE_OR_FUTURE_LOCAL_EVIDENCE/);
+ assert.throws(()=>parseKrwEvidence(evidence(),Date.parse("2026-11-18T10:00:00Z")),/STALE_OR_FUTURE_LOCAL_EVIDENCE/);
  assert.equal(verifyPriceLine({...base,unit_price_krw:"12USD"}),"KRW_UNIT_PRICE_MISSING");
  assert.equal(verifyPriceLine({...base,unit_price_krw:"0"}),"PASS");
  assert.equal(verifyPriceLine({...base,vat_basis:"VAT_INCLUDED"}),"VAT_BASIS_UNVERIFIED");
