@@ -11,6 +11,7 @@ import css_modern_project_freshness as monitor
 def example(status="PASS_MIRROR_ONLY"):
     return {
         "status": status,
+        "mail_window_state": "WINDOW_CAUGHT_UP",
         "source_count": 111,
         "sink_count": 111,
         "source_sink_mismatch_count": 0,
@@ -87,6 +88,84 @@ class RetiredServerMigrationTests(unittest.TestCase):
             self.assertEqual(0, exit_code)
             self.assertNotIn("PRIVATE_CUSTOMER_NAME", capture.getvalue())
             self.assertNotIn("PRIVATE_API_TOKEN", capture.getvalue())
+
+    def test_actual_main_reader_partial_window_can_never_be_mirror_pass(self):
+        # Older production inspect() reports PASS_MIRROR_ONLY on partial
+        # backfill; the monitoring guard must independently downgrade it.
+        for window in ("WINDOW_PARTIAL", "PARTIAL", "WINDOW_PENDING"):
+            raw = example()
+            raw["mail_window_state"] = window
+            with self.subTest(window=window):
+                assessed = monitor.summarize(raw)
+                self.assertEqual("PARTIAL_MIRROR", assessed["status"])
+                self.assertEqual(window, assessed["mail_window_state"])
+
+    def test_missing_or_unknown_mail_window_fails_closed(self):
+        missing = example()
+        del missing["mail_window_state"]
+        with self.assertRaisesRegex(ValueError, "MAIL_WINDOW_NOT_VERIFIED"):
+            monitor.summarize(missing)
+        unknown = example()
+        unknown["mail_window_state"] = "EXTERNAL_ORIGINAL_VERIFIED"
+        with self.assertRaisesRegex(ValueError, "MAIL_WINDOW_NOT_VERIFIED"):
+            monitor.summarize(unknown)
+
+    def test_reader_compatibility_independent_of_unmerged_ui_pr(self):
+        import datetime as dt
+        from types import SimpleNamespace
+        class FakeResponse:
+            def __init__(self, row):
+                self.row = row
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"values": [self.row]}
+        class FakeSession:
+            def __init__(self, row):
+                self.row = row
+                self.calls = []
+            def get(self, url, timeout):
+                self.calls.append((url, timeout))
+                return FakeResponse(self.row)
+        report = example()
+        del report["mail_window_state"]
+        session = FakeSession(["2026-11-16 16:20:07 KST", "WINDOW_PARTIAL"])
+        def parsed(value):
+            if value == "2026-11-16 16:20:07 KST":
+                return dt.datetime.fromisoformat("2026-11-16T16:20:07+09:00")
+            return None
+        mod = SimpleNamespace(SRC="SYNTHETIC_BOOK", session=lambda:session,
+                              when=parsed)
+        filled = monitor.attach_verified_mail_window(mod, report)
+        self.assertEqual("WINDOW_PARTIAL", filled["mail_window_state"])
+        self.assertEqual("PARTIAL_MIRROR", monitor.summarize(filled)["status"])
+        self.assertEqual(1, len(session.calls))
+        self.assertIn("A2:B2", session.calls[0][0])
+        self.assertNotIn("PRIVATE_CUSTOMER_NAME", str(filled.get("mail_window_state")))
+        # Once the new UI reader has been merged, no redundant read.
+        session.calls.clear()
+        no_repeat = monitor.attach_verified_mail_window(mod, example())
+        self.assertEqual("WINDOW_CAUGHT_UP", no_repeat["mail_window_state"])
+        self.assertEqual(0, len(session.calls))
+
+    def test_mail_window_concurrent_snapshot_change_fails_closed(self):
+        import datetime as dt
+        from types import SimpleNamespace
+        class Response:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"values": [["2026-11-16 16:21:08 KST", "WINDOW_CAUGHT_UP"]]}
+        class Client:
+            def get(self, url, timeout):
+                return Response()
+        raw = example()
+        del raw["mail_window_state"]
+        mod = SimpleNamespace(
+            SRC="SYNTHETIC_BOOK",session=lambda:Client(),
+            when=lambda s: dt.datetime.fromisoformat("2026-11-16T16:21:08+09:00"))
+        with self.assertRaisesRegex(ValueError,"MAIL_WINDOW_READ_RACE"):
+            monitor.attach_verified_mail_window(mod,raw)
 
     def test_read_failure_is_fail_closed_without_error_details(self):
         from contextlib import redirect_stdout
