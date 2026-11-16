@@ -114,6 +114,51 @@ def same_rows(source, mirror):
     return all(normalize(a) == normalize(b) for a, b in zip(source, mirror))
 
 
+def projection_drift_counts(source_grid, mirror_grid):
+    """Aggregate content differences without exposing any row/column identity.
+
+    No source data, customer values, cell positions, samples, or hashes are
+    included in the returned evidence. Empty trailing cells remain equivalent.
+    """
+    rows = max(len(source_grid), len(mirror_grid))
+    different_rows = 0
+    different_columns = set()
+    different_cells = 0
+    source_only_cells = 0
+    mirror_only_cells = 0
+    changed_nonempty_cells = 0
+    for r in range(rows):
+        original = source_grid[r] if r < len(source_grid) else []
+        copied = mirror_grid[r] if r < len(mirror_grid) else []
+        row_diff = False
+        for col in range(max(len(original), len(copied))):
+            left = clean(original[col]) if col < len(original) else ""
+            right = clean(copied[col]) if col < len(copied) else ""
+            if left == right:
+                continue
+            row_diff = True
+            different_cells += 1
+            different_columns.add(col)
+            if left and not right:
+                source_only_cells += 1
+            elif right and not left:
+                mirror_only_cells += 1
+            else:
+                changed_nonempty_cells += 1
+        if row_diff:
+            different_rows += 1
+    return {
+        "content_different_row_count": different_rows,
+        "content_different_cell_count": different_cells,
+        "content_different_column_count": len(different_columns),
+        "source_nonempty_mirror_empty_cell_count": source_only_cells,
+        "mirror_nonempty_source_empty_cell_count": mirror_only_cells,
+        "changed_nonempty_cell_count": changed_nonempty_cells,
+        "missing_mirror_row_count": max(0, len(source_grid) - len(mirror_grid)),
+        "unexpected_mirror_row_count": max(0, len(mirror_grid) - len(source_grid)),
+    }
+
+
 def compare_feishu_projection(source, mirror_meta, mirror_grid):
     """The Feishu original is independently fetched, including all projected rows."""
     identity_ok = (source.get("sheet_id") == mirror_meta.get("id") and
@@ -121,7 +166,9 @@ def compare_feishu_projection(source, mirror_meta, mirror_grid):
     count_ok = (isinstance(mirror_meta.get("rows"), int)
                 and source.get("row_count") == mirror_meta["rows"])
     schema_ok = source.get("schema") == mirror_meta.get("schema")
-    content_ok = same_rows(source.get("projected_grid") or [], mirror_grid)
+    original_grid = source.get("projected_grid") or []
+    content_ok = same_rows(original_grid, mirror_grid)
+    aggregate_drift = projection_drift_counts(original_grid, mirror_grid)
     parity = identity_ok and count_ok and schema_ok and content_ok
     return {
         "source_date": source.get("source_date"),
@@ -131,6 +178,7 @@ def compare_feishu_projection(source, mirror_meta, mirror_grid):
         "row_count_parity": count_ok,
         "schema_parity": schema_ok,
         "content_parity": content_ok,
+        **aggregate_drift,
         "status": "PASS_SNAPSHOT_PROJECTION_ONLY" if parity else "SINK_LAG",
         "invoice_issue_dates_certified": False,
         "bank_payments_certified": False,
