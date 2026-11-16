@@ -147,7 +147,7 @@ def classify_projection_drift(source_grid, mirror_grid):
         # Do not drop meaningful text or infer that values differing by units
         # are numerically equal. Only ASCII grouping commas are ignored.
         normalized = unicodedata.normalize("NFKC", value).strip()
-        if not re.fullmatch(r"[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?", normalized):
+        if not re.fullmatch(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", normalized):
             return None
         try:
             return decimal.Decimal(normalized.replace(",", ""))
