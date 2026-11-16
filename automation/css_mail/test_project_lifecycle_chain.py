@@ -91,6 +91,69 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(reconciled,(1,1881000))
 
 
+    def test_qq_only_pending_to_verified_issued_invoice_keeps_project(self):
+        # Regression for actual Nov 16 blocker: 111 previous vs 110 Feishu.
+        # The source-only J001 is now exactly issued; never delete its X row.
+        data=fixtures()
+        data[1]=[data[1][0]]  # Feishu did not provide this subproject
+        data[4].append(notice(J1))
+        data[5].append([J1,X,"J001",632500,"KRW",
+                        "2026-10-28T10:00:00+08:00","40005","1776302013",
+                        "AMOUNT_VERIFIED","2026-10-28",notice(J1)[4]])
+        data[2].append(inv(J1,"209126000989",632500))
+        rows=build(*data)
+        self.assertEqual(2,len(rows))
+        row=rows[1]
+        self.assertEqual(X,row[0])
+        self.assertEqual("NOT_IN_FEISHU_SOURCE",row[5])
+        self.assertEqual(1,row[14])
+        self.assertEqual(632500,row[15])
+        self.assertEqual("ISSUED (BALANCE UNVERIFIED) [QQ_ONLY]",row[16])
+        self.assertEqual("",row[20])  # Original J001 is no longer Pending.
+        self.assertIn(row[22],("",0))  # Do not double count issued as Pending.
+        self.assertEqual("NO_OPEN_STATEMENT",row[23])
+        self.assertFalse(row[3])  # Never invent a customer from email.
+        from revenue_lifecycle_monthly import compute,reconcile_pending
+        import datetime as dt
+        revenue=compute(data[2],rows,dt.datetime(2026,10,30,tzinfo=dt.timezone.utc))
+        month=next(r for r in revenue[1:] if r[0]=="2026-10")
+        self.assertEqual(632500,month[1])
+        self.assertEqual(0,month[2])
+        self.assertEqual(1,month[5])
+        headers=["statement_key","project_x","statement_no","amount_krw",
+                 "currency","notice_at","imap_uid","uidvalidity",
+                 "validation_status","verified_at_utc","subject"]
+        self.assertEqual((0,0),reconcile_pending([headers]+data[5][1:],
+                                                    data[2],rows,revenue))
+
+    def test_qq_only_issued_invoice_without_open_notice_is_still_retained(self):
+        data=fixtures()
+        data[1]=[data[1][0]]
+        data[2].append(inv(J1,"209126000990",632500))
+        rows=build(*data)
+        self.assertEqual(2,len(rows))
+        row=rows[1]
+        self.assertEqual("NOT_IN_FEISHU_SOURCE",row[5])
+        self.assertEqual(1,row[14])
+        self.assertEqual(632500,row[15])
+        self.assertEqual("",row[20])
+        self.assertEqual("NO_OPEN_STATEMENT",row[23])
+
+    def test_qq_only_partially_invoiced_does_not_erase_other_pending_j(self):
+        data=fixtures()
+        data[1]=[data[1][0]]
+        data[2].append(inv(J1,"209126000991",632500))
+        data[4].extend([notice(J1),notice(J2)])
+        data[5].append([J2,X,"J002",220000,"KRW",
+                        "2026-10-28T10:00:00+08:00","40006","1776302013",
+                        "AMOUNT_VERIFIED","2026-10-28",notice(J2)[4]])
+        row=build(*data)[1]
+        self.assertEqual("ISSUED + STATEMENT PENDING [QQ_ONLY]",row[16])
+        self.assertEqual(632500,row[15])
+        self.assertEqual("J002",row[20])
+        self.assertEqual(220000,row[22])
+        self.assertEqual("AMOUNT_VERIFIED 1/1",row[23])
+
     def test_unverified_orphan_does_not_generate_pending_amount(self):
         data=fixtures()
         orphan=notice("J001-X209SC26106973-Z01")
