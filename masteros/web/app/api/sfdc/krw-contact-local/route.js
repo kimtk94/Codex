@@ -36,9 +36,9 @@ function runReadOnlyWorker(input){
     const data=JSON.parse(out);
     if(!data||data.local_only!==true||data.salesforce_write!==false||
        !["PASS","BLOCK"].includes(data.status)||
-       !Array.isArray(data.candidates)||data.candidates.length>10||
-       !Number.isInteger(data.unresolved_matches)||
-       data.unresolved_matches<0)
+       (data.status==="PASS"&&(!Array.isArray(data.candidates)||data.candidates.length>10||
+          !Number.isInteger(data.unresolved_matches)||data.unresolved_matches!==0))||
+       (data.status==="BLOCK"&&(typeof data.code!=="string"||data.code.length>100)))
       throw Error("WORKER_RESULT_INVALID");
     resolve(data);
    }catch{reject(Error("SOURCE_RESPONSE_INVALID"))}
