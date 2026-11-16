@@ -145,6 +145,49 @@ class AutonomousNextTests(unittest.TestCase):
         self.assertEqual("TEST_CHAIN_PASS", self.s["overall"])
         self.assertEqual(6, exe.call_count)
 
+    def test_pause_during_checkpoint_save_prevents_suite_launch_and_refunds_attempt(self):
+        class PauseDuringFirstSave(FakeCheckpoint):
+            def save(self, state):
+                super().save(state)
+                if len(self.snapshots) == 1:
+                    self.paused_flag = True
+
+        store = PauseDuringFirstSave()
+        with patch.object(runner, "execute_suite",
+                          side_effect=AssertionError("must not launch after pause")):
+            result = runner.run(self.p, self.s, max_steps=6,
+                                checkpoint=store, root=runner.ROOT, dry_run=False)
+        self.assertEqual("PAUSED_BY_OPERATOR", result["overall"])
+        self.assertEqual({}, result["tasks"])
+        self.assertEqual({}, store.snapshots[-1]["tasks"])
+        store.paused_flag = False
+        with patch.object(runner, "execute_suite", return_value=(True, "")) as execute:
+            runner.run(self.p, self.s, max_steps=6,
+                       checkpoint=store, root=runner.ROOT, dry_run=False)
+        self.assertEqual("TEST_CHAIN_PASS", self.s["overall"])
+        self.assertEqual(6, execute.call_count)
+        self.assertEqual(1, self.s["tasks"]["policy-guard"]["attempts"])
+
+    def test_pause_during_retry_preserves_existing_failed_attempt_count(self):
+        class PauseDuringFirstSave(FakeCheckpoint):
+            def save(self, state):
+                super().save(state)
+                if len(self.snapshots) == 1:
+                    self.paused_flag = True
+
+        self.s["tasks"]["policy-guard"] = {
+            "status": "FAILED", "attempts": 2,
+            "suite": "policy", "failure_code": "OFFLINE_SUITE_NONZERO_EXIT",
+        }
+        store = PauseDuringFirstSave()
+        with patch.object(runner, "execute_suite",
+                          side_effect=AssertionError("pause prevents retry")):
+            runner.run(self.p, self.s, max_steps=6, checkpoint=store,
+                       root=runner.ROOT, dry_run=False)
+        self.assertEqual(2, self.s["tasks"]["policy-guard"]["attempts"])
+        self.assertEqual("FAILED", self.s["tasks"]["policy-guard"]["status"])
+        self.assertEqual("PAUSED_BY_OPERATOR", self.s["overall"])
+
     def test_operator_pause_checkbox_fail_closed_if_missing(self):
         cp = object.__new__(runner.IssueCheckpoint)
         body = "Notes\n" + runner.START + "\n{}\n" + runner.END
