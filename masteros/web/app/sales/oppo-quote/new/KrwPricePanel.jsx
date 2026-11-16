@@ -12,6 +12,8 @@ const suffix=(x)=>x?.slice(-6)||"—";
 const priceText=(s)=>Number(s).toLocaleString("ko-KR",{maximumFractionDigits:4});
 export default function KrwPricePanel({intake,customerSelection=null}){
  const [source,setSource]=useState(null);
+ const [localLoading,setLocalLoading]=useState(false);
+ const [historyPage,setHistoryPage]=useState(0);
  const [notice,setNotice]=useState("");
  const [accountId,setAccountId]=useState("");
  const [contactId,setContactId]=useState("");
@@ -46,21 +48,49 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  const found=useMemo(()=>rankKrwPrices(source,query),[source,query]);
  const selected=choice?candidateSelection(intake,choice):null;
  const portfolio=useMemo(()=>summarizeKrwProductPrices(source),[source]);
+ const historySize=100;
+ const historyPages=Math.max(1,Math.ceil(portfolio.group_count/historySize));
+ const currentHistoryPage=Math.min(historyPage,historyPages-1);
  const upload=async event=>{
   const file=event.currentTarget.files?.[0];
   event.currentTarget.value="";
-  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setNotice("");
+  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);setNotice("");
   if(!file)return;
   if(file.size>2*1024*1024||!file.name.toLowerCase().endsWith(".json")){
    setNotice("JSON 형식, 2MB 이하 파일만 사용할 수 있습니다.");return;
   }
   try{
    const checked=parseKrwEvidence(await file.text());
-   setSource(checked);
+   setSource(checked);setHistoryPage(0);
    setNotice(checked.records.length?
     "파일 형식 확인. 2026 KRW 후보 "+checked.records.length+"행 · 제외 "+checked.excluded_count+"행. 원본 SFDC 재확인 전에는 가격 적용 불가.":
     "2026년 승인된 원본 KRW 단가 행이 없어 가격 검색을 보류합니다.");
   }catch(err){setNotice("자료 검증 실패: "+(err instanceof Error?err.message:"INVALID_EVIDENCE")); }
+ };
+ const loadPrivatePriceIndex=async()=>{
+  if(localLoading)return;
+  setLocalLoading(true);
+  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);
+  setNotice("PC에 보관된 2026 KRW 가격 인덱스 확인 중...");
+  try{
+   const response=await fetch("/api/sfdc/krw-price-local",{
+    method:"POST",cache:"no-store",credentials:"omit",
+    headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+    body:JSON.stringify({mode:"READ_LOCAL_PRIVATE_2026_KRW"})
+   });
+   const data=await response.json();
+   if(!response.ok||data?.status!=="PASS"||data.local_only!==true||
+      data.salesforce_write!==false||!data.evidence)throw Error(data?.code||"LOCAL_PRICE_SOURCE_UNAVAILABLE");
+   const checked=parseKrwEvidence(JSON.stringify(data.evidence));
+   if(checked.excluded_count>0||checked.records.length!==data.verified_process_rows)
+    throw Error("LOCAL_PRICE_SOURCE_RECHECK_FAILED");
+   setSource(checked);
+   setNotice("PC 원본 가격 파일 "+data.verified_quote_count+"건 Quote / "+
+    checked.records.length+"개 2026 KRW 공정 단가 검증 완료. 신규 견적에 자동 적용되지는 않습니다.");
+  }catch(e){
+   setSource(null);setNotice("로컬 원본 가격 확인 보류: "+(e?.message||"SOURCE_UNAVAILABLE")+
+      ". 기존 JSON 직접 불러오기는 사용할 수 있습니다.");
+  }finally{setLocalLoading(false);}
  };
  const copy=async()=>{
   if(!selected)return;
@@ -80,6 +110,13 @@ export default function KrwPricePanel({intake,customerSelection=null}){
    현재 QQ Report에는 원본 KRW 공정 단가가 없습니다. 인증된 2026년 KRW 가격 자료가 있을 때만 이 브라우저에서
    비교할 수 있습니다. 업로드한 자료는 서버로 전송하지 않으며, 파일 자체만으로 SFDC 인증이 증명되지는 않습니다.
   </span></div>
+  <div className={styles.field}>
+   <button type="button" id="krw-private-price-load" className={styles.secondary}
+     disabled={localLoading} onClick={loadPrivatePriceIndex}>
+    {localLoading?"로컬 KRW 원본 확인 중":"PC에 저장된 검증 KRW 가격 자동 불러오기"}
+   </button>
+   <small>이 PC의 승인된 2026년 KRW 공정 가격만 로컬 서버에서 읽습니다. 파일을 GitHub로 업로드하거나 Salesforce에 저장하지 않습니다. 원본이 오래됐거나 불일치하면 차단합니다.</small>
+  </div>
   <div className={styles.field}>
    <label htmlFor="krw-local-file">2026 승인 KRW Quote Process 자료 (로컬 JSON)</label>
    <input id="krw-local-file" type="file" accept=".json,application/json" onChange={upload}/>
@@ -134,7 +171,7 @@ export default function KrwPricePanel({intake,customerSelection=null}){
    <div style={{marginTop:12,maxHeight:400,overflow:"auto"}}>
     <table style={{borderCollapse:"collapse",width:"100%",minWidth:900,fontSize:11,textAlign:"left"}}>
      <thead><tr>{["Product","Process","Data Unit","Data Size","견적 수","고객 기관","샘플 수","최저 KRW","중앙 KRW","최고 KRW"].map(t=><th key={t} style={{position:"sticky",top:0,background:"#162c40",borderBottom:"1px solid #49667d",padding:8,color:"#d0e6f6"}}>{t}</th>)}</tr></thead>
-     <tbody>{portfolio.groups.slice(0,250).map((g,i)=><tr key={g.product_signature+"-"+g.process_id+"-"+g.data_unit+"-"+g.data_size+"-"+i}>
+     <tbody>{portfolio.groups.slice(currentHistoryPage*historySize,(currentHistoryPage+1)*historySize).map((g,i)=><tr key={g.product_signature+"-"+g.process_id+"-"+g.data_unit+"-"+g.data_size+"-"+i}>
       <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.product_name}</td>
       <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.process_name}</td>
       <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.data_unit==="NA"?"미기재":g.data_unit}</td>
@@ -147,6 +184,15 @@ export default function KrwPricePanel({intake,customerSelection=null}){
       <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{priceText(g.unit_price_max_krw)}</td>
      </tr>)}</tbody>
     </table>
+   </div>
+   <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginTop:12}}>
+    <button type="button" className={styles.secondary}
+     disabled={currentHistoryPage===0}
+     onClick={()=>setHistoryPage(n=>Math.max(0,n-1))}>이전 가격 조건</button>
+    <span style={{fontSize:12}}>전체 {portfolio.group_count}개 조건 · {currentHistoryPage+1} / {historyPages} 페이지 (페이지당 {historySize}개)</span>
+    <button type="button" className={styles.secondary}
+     disabled={currentHistoryPage>=historyPages-1}
+     onClick={()=>setHistoryPage(n=>Math.min(historyPages-1,n+1))}>다음 가격 조건</button>
    </div>
    <div className={styles.footnote}>원본 2026 KRW 견적의 공정별 관측 단가입니다. Product 공정 구성·생산량·샘플 수가 다르면 다른 가격일 수 있으며, 0원 공정은 패키지 포함 가능성이 있습니다. 신규 견적 적용은 건별 재승인 필수입니다.</div>
   </details>}
