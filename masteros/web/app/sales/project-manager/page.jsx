@@ -10,6 +10,7 @@ const labels={
 const healthLabels={
   PASS_MIRROR_ONLY:"Google 미러 기준 조회 · 원본 미검증",
   PARTIAL_MIRROR:"메일 수집 일부 미완료 · 원본 미검증",
+  STALE_QUOTE_HEADER:"SFDC Quote 헤더 오래됨 · 견적 연결 재검증 필요",
   STALE:"데이터 갱신 지연",SOURCE_UNAVAILABLE:"원천 접근 불가"
 };
 const feishu="https://ocnz4cb25scn.feishu.cn/base/IpMkbUD0vaFqtYs93a3csXtdn1b?table=tblTZe5tkRUeOHM8";
@@ -110,7 +111,10 @@ export default function ProjectManager(){
           {typeof data?.source_age_hours==="number"&&" · "+data.source_age_hours+"시간 전"}
           {" · 기준 "+(data?.source_freshness_limit_hours??12)+"시간"}
         </span>
-        <span>Quote 목록 {when(data?.quote_mirror_latest_at)}</span>
+        <span>Quote 목록 {when(data?.quote_mirror_latest_at)}
+          {typeof data?.quote_header_age_hours==="number"&&" · "+data.quote_header_age_hours+"시간 경과"}
+          {" · 기준 "+(data?.quote_header_freshness_limit_hours??72)+"시간"}
+        </span>
         <span>CSS SIF 기록 {when(data?.sif_mirror_latest_at)}</span>
         <span>Payment 미러 {when(data?.payment_mirror_latest_at)}</span>
         <span>메일 미러 {when(data?.mail_synced_at)}
@@ -122,7 +126,10 @@ export default function ProjectManager(){
       <p>{error?"조회 실패: "+error:
         "Google Sheets 미러 간 상태를 보여줍니다. QQ·Feishu·SFDC 원본 직접 검증은 별개이며, Quote 명칭이나 결제 증빙이 확인되지 않은 건은 확정하지 않습니다."}</p>
       <p className={styles.sourceWarning}>Quote·SIF 표기 시각은 각 자료의 <strong>마지막 기록 발생 시각</strong>이며, 원본 최신 동기화 증거가 아닙니다.
-        신규 건이 없어서 기록이 오래된 경우와 수집이 중단된 경우는 별도 원본 확인 전까지 구분할 수 없습니다.</p>
+        신규 건이 없어서 기록이 오래된 경우와 수집이 중단된 경우는 별도 원본 확인 전까지 구분할 수 없습니다.
+        {data?.quote_header_status==="STALE_OR_MISSING_HEADER"&&
+          <strong> · SFDC Quote Header Export가 최신성 기준을 넘었습니다. Quote 부재/금액은 확정할 수 없습니다.</strong>}
+        </p>
     </section>
 
     <section className={styles.metrics} aria-label="프로젝트 관리 요약">
