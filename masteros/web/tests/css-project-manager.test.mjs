@@ -26,3 +26,20 @@ test("reject false paid status and mismatched counts",()=>{
 test("accept incomplete mail window explicitly",()=>{
   assert.equal(validateProjectManager({...payload,status:"PARTIAL_MIRROR"}).status,"PARTIAL_MIRROR");
 });
+
+test("candidate remains separate from verified Quote identity",()=>{
+  assert.throws(()=>validateProjectManager({
+    ...payload,
+    project_rows:[{...row,quote_name:"unsafe",quote_candidate_name:"unverified",
+      quote_candidate_state:"UNVERIFIED_APPROVAL_DEDUP",quote_candidate_count:1}]
+  }));
+  const candidate={...row,quote_candidate_name:"unverified",
+    quote_candidate_state:"UNVERIFIED_APPROVAL_DEDUP",quote_candidate_count:1};
+  assert.equal(validateProjectManager({...payload,project_rows:[candidate]}).project_rows[0].quote_name,"");
+});
+test("previous CSS completion cannot falsely move current project to Payment",()=>{
+  assert.throws(()=>validateProjectManager({
+    ...payload,counts:{total:1,active:0,payment:1,archive:0},
+    project_rows:[{...row,bucket:"PAYMENT",legacy_completion_conflict:true}]
+  }));
+});
