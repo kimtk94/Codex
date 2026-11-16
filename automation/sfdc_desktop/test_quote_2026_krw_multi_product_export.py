@@ -2,7 +2,7 @@
 import unittest
 from decimal import Decimal
 from quote_2026_krw_multi_product_export import (
-    row_key,verify_multiset,product_fingerprint,normalize_size,normalize_qty,
+    row_key,verify_multiset,verify_product_partitions,product_fingerprint,normalize_size,normalize_qty,
     extract_multi,
 )
 
@@ -46,6 +46,24 @@ class MultiProductKrwTests(unittest.TestCase):
         missing[0]["quotation_product_id"]=""
         with self.assertRaisesRegex(ValueError,"SOURCE_QUOTE_PRODUCT_ID_UNVERIFIED"):
             verify_multiset(missing,self.actual)
+
+    def test_exact_qq_qd_partition_to_article_mapping(self):
+        self.assertTrue(verify_product_partitions(
+            self.rows,[self.actual[:1],self.actual[1:]]))
+        # Salesforce articles can render in a different order from the QQ report.
+        self.assertTrue(verify_product_partitions(
+            self.rows,[self.actual[1:],self.actual[:1]]))
+
+    def test_aggregate_match_does_not_allow_product_process_mixing(self):
+        shifted=[[self.actual[0],self.actual[2]],[self.actual[1]]]
+        # The Quote-wide process multiset still passes; Product ownership differs.
+        self.assertTrue(verify_multiset(self.rows,[r for group in shifted for r in group]))
+        with self.assertRaisesRegex(ValueError,"SOURCE_PRODUCT_PARTITION_MISMATCH"):
+            verify_product_partitions(self.rows,shifted)
+        with self.assertRaisesRegex(ValueError,"SOURCE_PRODUCT_PARTITION_MISMATCH"):
+            verify_product_partitions(self.rows,[self.actual])
+        with self.assertRaisesRegex(ValueError,"EMPTY_PRODUCT_ARTICLE"):
+            verify_product_partitions(self.rows,[[],self.actual])
 
     def test_different_article_codes_create_different_product_signatures(self):
         rows=[dict(process_id="Process-2020-04-29-00011",process_type="NovaSeq X Plus (PE150)",
