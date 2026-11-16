@@ -17,6 +17,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from reconcile_priority import with_mirror_evidence
+
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "automation" / "ops" / "css_freshness_policy.json"
 EXPECTED_REPO = "kimtk94/Codex"
@@ -199,6 +201,7 @@ def summary(report):
         f"- CI domains checked: **{report['domain_count']}/9**",
         f"- GitHub metadata unavailable: **{report['unavailable_workflow_count']}**",
         "- Business source/sink freshness: **NOT VERIFIED**",
+        f"- Revenue mirror receipt: **{report.get('revenue_mirror_evidence', 'NOT_COLLECTED')}**",
         "- This ranks read-only investigation tasks; it does not dispatch workflows or change SFDC/Feishu.",
     ]
     if item:
@@ -219,9 +222,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=Path("autonomous-next-triage/priority.json"))
     ap.add_argument("--policy", type=Path, default=POLICY_PATH)
+    ap.add_argument("--revenue-evidence-file", type=Path, default=None)
     args = ap.parse_args()
     report = build_priority(load_policy(args.policy), token=os.getenv("GITHUB_TOKEN"),
                             repo=os.getenv("GITHUB_REPOSITORY", EXPECTED_REPO))
+    report = with_mirror_evidence(report, receipt_path=args.revenue_evidence_file)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     text = summary(report)
