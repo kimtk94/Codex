@@ -168,8 +168,7 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
     mail_at, mail_state = when(mail[1][0]), clean(mail[1][1])
     if mail_state not in ("WINDOW_CAUGHT_UP", "WINDOW_PARTIAL", "PARTIAL", "WINDOW_PENDING"):
         raise ValueError("MAIL_SCOPE_UNKNOWN")
-    indexes = (defaultdict(list), defaultdict(list), defaultdict(list))
-    quote_index, sif_index, pay_index = (factory() for factory in indexes)
+    quote_index, sif_index, pay_index = defaultdict(list), defaultdict(list), defaultdict(list)
     for record in quotes:
         if (record["Approved AMEA ID"] and record["Quote Name"]
             and record["Approval Match"].upper() == "APPROVED"
