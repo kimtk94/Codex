@@ -141,7 +141,8 @@ def summarize_probe(raw: dict, *, observed_at=None):
     age = (now - at).total_seconds() / 3600
     if age > MAX_AGE_HOURS:
         return {"signal": "SOURCE_AUDIT_STALE", "qq_signal": "NOT_VERIFIED",
-                "feishu_signal": "NOT_VERIFIED"}
+                "feishu_signal": "NOT_VERIFIED",
+                "business_source_sink_verification": "NOT_VERIFIED"}
     mail, feishu = raw.get("qq_mail"), raw.get("feishu_sheets")
     if not isinstance(mail, dict) or not isinstance(feishu, dict):
         raise ValueError("PROBE_SOURCE_BLOCKS_MISSING")
@@ -171,7 +172,8 @@ def summarize_probe(raw: dict, *, observed_at=None):
         if feishu["mirror_projection_status"] == "SINK_LAG":
             f_signal = "PROJECTION_SINK_LAG"
     return {"signal": "SOURCE_AUDIT_SCOPED", "qq_signal": qq_signal,
-            "feishu_signal": f_signal}
+            "feishu_signal": f_signal,
+            "business_source_sink_verification": "NOT_VERIFIED"}
 
 
 def original_probe_receipt(*, token=None, fetch_json=github_json, fetch_zip=github_zip,
