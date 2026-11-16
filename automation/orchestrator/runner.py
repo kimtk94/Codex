@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PLAN_PATH = Path(__file__).with_name("sales_plan.json")
 START = "<!-- AUTONEXT_STATE_BEGIN -->"
 END = "<!-- AUTONEXT_STATE_END -->"
+PAUSE_CHECKBOX = "- [x] PAUSE_AUTONEXT"
+RUN_CHECKBOX = "- [ ] PAUSE_AUTONEXT"
 RETRY_LIMIT = 3
 RESET_AFTER_HOURS = 24
 SUITES = {
@@ -119,9 +121,19 @@ class IssueCheckpoint:
         raw = self.body.split(START, 1)[1].split(END, 1)[0].strip()
         return json.loads(raw) if raw else None
 
+    def paused(self) -> bool:
+        """Re-check operator pause control before starting each task."""
+        self.load()
+        if self.body.count(PAUSE_CHECKBOX) == 1 and RUN_CHECKBOX not in self.body:
+            return True
+        if self.body.count(RUN_CHECKBOX) == 1 and PAUSE_CHECKBOX not in self.body:
+            return False
+        raise ValueError("Missing or ambiguous PAUSE_AUTONEXT checkbox")
+
     def save(self, state: dict) -> None:
-        if self.body is None:
-            raise ValueError("Call load before save")
+        # Refresh human notes and pause toggle before each write. A checkpoint
+        # update must never overwrite notes edited since the previous stage.
+        self.load()
         left, tail = self.body.split(START, 1)
         _, right = tail.split(END, 1)
         new_body = (left + START + "\n" + json.dumps(state, ensure_ascii=False,
@@ -176,7 +188,8 @@ def report(plan: dict, state: dict, output_dir: Path) -> str:
         f"- Next / blocked stage: {pending[0] if pending else 'none'}",
         f"- Run evidence: {state['run_url'] or 'local dry-run'}",
         "- Business-source freshness / sink reconciliation: **NOT VERIFIED**",
-        "- SFDC Save, customer mail, PR auto-merge: **DISABLED**", "",
+        "- SFDC Save, customer mail, PR auto-merge: **DISABLED**",
+        "- Pause control: check PAUSE_AUTONEXT in issue #794 (effective before next stage)", "",
         "| Stage | Result | Attempts |", "|---|---|---:|",
     ]
     for task in plan["tasks"]:
@@ -199,7 +212,11 @@ def run(plan: dict, state: dict, *, max_steps: int,
         state["overall"] = "DRY_RUN_NO_EXECUTION"
         return state
     processed = 0
+    paused = False
     while processed < max_steps:
+        if checkpoint and checkpoint.paused():
+            paused = True
+            break
         task = next_task(plan, state)
         if task is None:
             break
@@ -227,7 +244,9 @@ def run(plan: dict, state: dict, *, max_steps: int,
 
     passed_count = sum(state["tasks"].get(x["id"], {}).get("status") == "PASS"
                        for x in plan["tasks"])
-    if passed_count == len(plan["tasks"]):
+    if paused:
+        state["overall"] = "PAUSED_BY_OPERATOR"
+    elif passed_count == len(plan["tasks"]):
         state["overall"] = "TEST_CHAIN_PASS"
     elif any(x.get("status") == "FAILED" for x in state["tasks"].values()):
         state["overall"] = "BLOCKED" if next_task(plan, state) is None else "FAILED_RETRYABLE"
