@@ -247,6 +247,7 @@ def main() -> int:
     ap.add_argument("--issue-number", type=int, default=0)
     ap.add_argument("--reset", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--offline-run", action="store_true", help="Execute offline suites without GitHub issue I/O")
     args = ap.parse_args()
     plan = json.loads(args.plan.read_text(encoding="utf-8"))
     validate_plan(plan)
@@ -256,7 +257,9 @@ def main() -> int:
                if os.environ.get("GITHUB_RUN_ID") else "")
     checkpoint = None
     previous = None
-    if not args.dry_run:
+    if args.dry_run and args.offline_run:
+        ap.error("--dry-run and --offline-run cannot be combined")
+    if not args.dry_run and not args.offline_run:
         checkpoint = IssueCheckpoint(repo, args.issue_number, os.getenv("GITHUB_TOKEN", ""))
         previous = checkpoint.load()
     state = (previous if not args.reset and reusable(previous, plan, sha)
