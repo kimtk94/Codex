@@ -55,3 +55,18 @@ python automation/sfdc_desktop/quote_2026_krw_browser_export.py --manifest "$env
 - Strict limitations: 2026 only, **no USD FX conversion**, comparison-only historic rates, no automatic process price application, no Salesforce writes; local JSON never enters GitHub or GitHub Actions.
 - The QQ report audit's lack of a native KRW unit-price column is a **property of that QQ report**, not evidence that authenticated Salesforce Quote Details lack native KRW prices. The two source statuses must remain distinct.
 - Remaining future coverage: approved Quote data before 2026-10-19 was not demonstrated complete by this approval-mail shortlist, and 8 held Quotes require separate manual review or a validated multi-Product strategy. This audit does **not** claim that all 2026 Quotes were processed.
+
+## 2026-11-16 follow-up: 8 held quote reinspection and multi-Product readback
+
+Read-only Salesforce Quotation Detail reinspection established:
+- **4 multi-Product Quotes** each show exactly two independent Product articles. Each Quote's per-Product line subtotals sum to its displayed KRW net total and the grand total is 110% of net. A new desktop extractor `automation/sfdc_desktop/quote_2026_krw_multi_product_export.py` verifies the **exact source QQ process multiset** (Process ID, name, sample quantity, Data Size/Unit) and per-article Product code, before indexing the rates separately by Product fingerprint.
+- The four multi-Product Quotes passed all source, 001/003, 2026 approval, Active, process/total/VAT checks; **33 new original-KRW process rows** added to the local private price corpus.
+- Private corpus **46 Quotes, 197 Process rows, 36 exact Product fingerprints, 152 price-history comparison condition groups**, verified on localhost 3002 with HTTP 200, 0 CRM writes, No Save.
+- **1 inactive Quote** remains excluded (Salesforce Active=False).
+- **1 date discrepancy** remains held: the QQ report source Created Date differs from the date encoded in the QID by one day. The Quote amounts are coherent, but the expected source identity needs a separate explicit policy; no silent correction.
+- **2 anomalies remain held**: one 10x Quote displays net/grand 0; one cloud-only Quote displays net 0 yet grand 770,000 KRW. Neither is safe to reuse for standalone approved unit pricing, even if a Salesforce page shows Active=True.
+- The QQ 25-column mail report remains USD-priced; historical original-KRW values come exclusively from authenticated Salesforce Quote Detail.
+- `/sales/oppo-quote/new` can now accept an explicit **local opportunity-linked Contact readback file**, require user selection of the exact Korean-name and institution Contact, and pass native 001 Account/003 Contact IDs to the KRW comparator. The local evidence is **not** equivalent to a live Salesforce server recheck. Account/Contact edits invalidate the selection.
+- All prices continue to be comparison-only. No implicit price inheritance; Salesforce Save remains disabled.
+
+**Private file boundary:** Neither local manifests nor price files with customer identifiers/amounts are committed to GitHub or Actions.
