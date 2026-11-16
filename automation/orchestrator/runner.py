@@ -78,10 +78,106 @@ def fresh_state(plan: dict, sha: str, run_url: str) -> dict:
     }
 
 
-def reusable(state: dict | None, plan: dict, sha: str, current: dt.datetime | None = None) -> bool:
-    if not isinstance(state, dict) or state.get("fingerprint") != fingerprint(plan):
+
+def checkpoint_shape_valid(state: dict, plan: dict) -> bool:
+    """Treat issue checkpoint as untrusted, non-attested progress metadata.
+
+    Syntax/dependency checks prevent accidental or forged malformed PASS states
+    from being accepted. This is not a cryptographic proof that a test ran:
+    GitHub Actions run receipts remain the independent execution evidence.
+    """
+    required = {"schema_version", "profile", "fingerprint", "head_sha",
+                "started_at", "updated_at", "run_url", "tasks", "overall", "policy"}
+    locked_policy = {"sfdc_save": False, "email_send": False, "pr_merge": False,
+                     "live_source_verified": False}
+    if (not isinstance(state, dict) or set(state) != required
+            or state.get("schema_version") != 1
+            or state.get("profile") != "sales"
+            or state.get("fingerprint") != fingerprint(plan)
+            or state.get("policy") != locked_policy
+            or not isinstance(state.get("head_sha"), str)
+            or not isinstance(state.get("run_url"), str)):
         return False
-    if state.get("head_sha") != sha or state.get("profile") != "sales":
+    if state.get("overall") not in {
+        "PENDING", "RUNNING", "PARTIAL", "FAILED_RETRYABLE",
+        "BLOCKED", "PAUSED_BY_OPERATOR", "TEST_CHAIN_PASS",
+        "BLOCKED_INFRASTRUCTURE", "DRY_RUN_NO_EXECUTION",
+    }:
+        return False
+
+    def aware_time(value):
+        if not isinstance(value, str):
+            return None
+        try:
+            obj = dt.datetime.fromisoformat(value)
+            return obj if obj.utcoffset() is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    start = aware_time(state["started_at"])
+    update = aware_time(state["updated_at"])
+    if start is None or update is None or update < start:
+        return False
+    stages = state.get("tasks")
+    if not isinstance(stages, dict) or len(stages) > len(plan["tasks"]):
+        return False
+    allowed_ids = {task["id"] for task in plan["tasks"]}
+    if any(key not in allowed_ids for key in stages):
+        return False
+    incomplete = False
+    running_count = 0
+    for task in plan["tasks"]:
+        entry = stages.get(task["id"])
+        if entry is None:
+            incomplete = True
+            continue
+        if incomplete or not isinstance(entry, dict):
+            return False
+        kind = entry.get("status")
+        valid_keys = {"status", "attempts", "suite", "started_at", "finished_at",
+                      "failure_code"}
+        if (set(entry) - valid_keys or kind not in ("RUNNING", "PASS", "FAILED")
+                or entry.get("suite") != task["suite"]
+                or type(entry.get("attempts")) is not int
+                or not 1 <= entry["attempts"] <= RETRY_LIMIT
+                or aware_time(entry.get("started_at")) is None
+                or any(stages.get(dep, {}).get("status") != "PASS"
+                       for dep in task["depends_on"])):
+            return False
+        if kind == "RUNNING":
+            running_count += 1
+            if "finished_at" in entry or "failure_code" in entry:
+                return False
+        else:
+            finished = aware_time(entry.get("finished_at"))
+            if finished is None or finished < aware_time(entry["started_at"]):
+                return False
+            if kind == "FAILED" and entry.get("failure_code") not in {
+                "OFFLINE_SUITE_NONZERO_EXIT", "OFFLINE_SUITE_TIMED_OUT",
+                "OFFLINE_SUITE_FAILED_UNCLASSIFIED",
+            }:
+                return False
+            if kind == "PASS" and "failure_code" in entry:
+                return False
+        if kind != "PASS":
+            incomplete = True
+    if running_count > 1:
+        return False
+    if state["overall"] == "RUNNING" and running_count != 1:
+        return False
+    if state["overall"] == "TEST_CHAIN_PASS" and (
+            len(stages) != len(plan["tasks"])
+            or any(x["status"] != "PASS" for x in stages.values())):
+        return False
+    if state["overall"] == "PENDING" and stages:
+        return False
+    return True
+
+
+def reusable(state: dict | None, plan: dict, sha: str, current: dt.datetime | None = None) -> bool:
+    if not checkpoint_shape_valid(state, plan):
+        return False
+    if state.get("head_sha") != sha:
         return False
     try:
         started = dt.datetime.fromisoformat(state["started_at"])
@@ -307,6 +403,9 @@ def main() -> int:
     if not args.dry_run and not args.offline_run:
         checkpoint = IssueCheckpoint(repo, args.issue_number, os.getenv("GITHUB_TOKEN", ""))
         previous = checkpoint.load()
+        if (not args.reset and previous not in (None, {})
+                and not checkpoint_shape_valid(previous, plan)):
+            raise ValueError("CHECKPOINT_CORRUPT_EXPLICIT_RESET_REQUIRED")
     state = (previous if not args.reset and reusable(previous, plan, sha)
              else fresh_state(plan, sha, run_url))
     state["run_url"] = run_url
