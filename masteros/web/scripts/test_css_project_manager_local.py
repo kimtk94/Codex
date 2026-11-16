@@ -154,6 +154,19 @@ class ProjectManagerTests(unittest.TestCase):
         self.assertGreater(stale_mail["mail_age_hours"],24)
         self.assertEqual(run()["status"],"PASS_MIRROR_ONLY")
 
+    def test_quote_snapshot_date_gap_does_not_make_up_quote(self):
+        src=[SRC[0]+["Data Timestamp / Source"],
+             SRC[1]+["Feishu 2026-11-14 19:45:05"],
+             SRC[2]+["Feishu 2026-11-14 19:45:05"]]
+        old_quotes=[QUOTES[0], QUOTES[1][:-1]+["2026-10-24 18:00:08 KST"]]
+        r=run(lifecycle=src,quotes=old_quotes)
+        verified,unlinked=r["project_rows"]
+        self.assertFalse(verified["quote_source_time_gap"])
+        self.assertTrue(unlinked["quote_source_time_gap"])
+        self.assertEqual(unlinked["quote_name"],"")
+        self.assertIn("QUOTE_SNAPSHOT_PRECEDES_PROJECT_SOURCE",unlinked["review_reasons"])
+        self.assertEqual(r["counts"]["quote_source_time_gap"],1)
+
     def test_stage_group_uses_feishu_operations_vocabulary(self):
         self.assertEqual(stage_group("Waiting for Settlement"),"정산/완료")
         self.assertEqual(stage_group("Waiting PO/payment"),"계약/SIF")
