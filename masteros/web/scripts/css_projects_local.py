@@ -60,7 +60,7 @@ def inspect(source,sink,manifest,mail,now=None,legacy_emails=None):
     # Legacy project dashboard is an independent older feed. Its event
     # watermark MUST NOT be replaced by the WEB_EXPORT creation timestamp.
     legacy_dates=[when(cell(r,0)) for r in (legacy_emails or [])[1:]]
-    legacy_dates=[t for t in legacy_dates if t is not None]
+    legacy_dates=[t for t in legacy_dates if t is not None and t<=now+dt.timedelta(minutes=10)]
     legacy_at=max(legacy_dates,default=None)
     legacy_age_days=(round((now-legacy_at).total_seconds()/86400,1)
                      if legacy_at else None)
@@ -113,7 +113,7 @@ def google_fetch():
     try:
         legacy=read(DST,"CSS Project Dashboard","AB1:AB1200")
     except Exception:
-        legacy=[]
+        legacy=None
     return inspect(read(SRC,"BI Project Lifecycle Overview","A1:Q1500"),
                    read(DST,"WEB_EXPORT_V4","A1:P1500"),
                    read(SRC,"Feishu Source Manifest","A1:G20"),
