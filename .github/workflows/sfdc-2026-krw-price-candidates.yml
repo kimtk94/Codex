@@ -10,6 +10,8 @@ on:
       - 'automation/sfdc/test_quote_2026_krw_price_reuse.py'
       - 'automation/sfdc/quote_2026_historical_coverage.py'
       - 'automation/sfdc/test_quote_2026_historical_coverage.py'
+      - 'automation/sfdc/quote_2026_historical_batch_selection.py'
+      - 'automation/sfdc/test_quote_2026_historical_batch_selection.py'
       - 'automation/sfdc_desktop/quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/quote_2026_krw_multi_product_export.py'
@@ -25,6 +27,8 @@ on:
       - 'automation/sfdc/test_quote_2026_krw_price_reuse.py'
       - 'automation/sfdc/quote_2026_historical_coverage.py'
       - 'automation/sfdc/test_quote_2026_historical_coverage.py'
+      - 'automation/sfdc/quote_2026_historical_batch_selection.py'
+      - 'automation/sfdc/test_quote_2026_historical_batch_selection.py'
       - 'automation/sfdc_desktop/quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/quote_2026_krw_multi_product_export.py'
@@ -56,6 +60,8 @@ jobs:
           python3 -m py_compile automation/sfdc/quote_2026_krw_price_reuse.py
           python3 -m unittest discover -s automation/sfdc -p 'test_quote_2026_historical_coverage.py' -v
           python3 -m py_compile automation/sfdc/quote_2026_historical_coverage.py
+          python3 -m unittest discover -s automation/sfdc -p 'test_quote_2026_historical_batch_selection.py' -v
+          python3 -m py_compile automation/sfdc/quote_2026_historical_batch_selection.py
       - name: Check local Salesforce browser exporter with synthetic evidence only
         run: |
           python3 -m pip install 'playwright>=1.56,<2'
