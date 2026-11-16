@@ -116,12 +116,13 @@ def measure(source, *, month, checked_at=None, max_age_hours=MAX_SNAPSHOT_AGE_HO
 
 
 def mirror_source():
-    # Client is created only in the live read-only job, never in PR unit tests.
-    from google.oauth2 import service_account
-    from google.auth.transport.requests import AuthorizedSession
+    # Missing credentials must be classified before importing optional Google
+    # clients, so offline PR tests work without network/package setup.
     raw = os.getenv("CKD_DRIVE_SA_JSON", "").strip()
     if not raw:
         raise RuntimeError("MIRROR_READ_CREDENTIALS_UNAVAILABLE")
+    from google.oauth2 import service_account
+    from google.auth.transport.requests import AuthorizedSession
     credentials = service_account.Credentials.from_service_account_info(
         json.loads(raw), scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
     session = AuthorizedSession(credentials)
