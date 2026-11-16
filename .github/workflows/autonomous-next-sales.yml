@@ -78,6 +78,37 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  revenue-mirror-evidence:
+    name: Read 3-way Monthly Revenue Sheet mirror without business writes
+    needs: unit-and-plan
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    environment: TaehoonServer
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Sheets client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Compare 3 canonical revenue mirror tabs and flag aged snapshot
+        run: python3 automation/orchestrator/revenue_snapshot_preflight.py --out autonomous-next-triage/monthly-revenue-mirror.json
+      - name: Archive sanitized mirror-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-revenue-mirror
+          path: autonomous-next-triage/monthly-revenue-mirror.json
+          retention-days: 21
+          if-no-files-found: warn
+
   pr-integration:
     name: Execute all six approved offline suites without GitHub writes
     if: github.event_name == 'pull_request'
