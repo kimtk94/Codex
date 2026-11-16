@@ -219,6 +219,11 @@ def fetch_values(client, book, name, bounds):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--summary-only", action="store_true",
+                        help="CI-safe counts and evidence flags only; no customer fields")
+    args = parser.parse_args()
     try:
         client = session()
         bundle = [
@@ -236,6 +241,13 @@ def main():
             "project_rows": [], "counts": {}, "original_feishu_verified": False,
             "payment_receipt_verified": False,
         }
+    if args.summary_only:
+        payload = {k: payload.get(k) for k in (
+            "status", "scope", "source_synced_at", "mail_synced_at",
+            "mail_window_state", "quote_mirror_latest_at", "sif_mirror_latest_at",
+            "payment_mirror_latest_at", "original_feishu_verified",
+            "original_qq_verified", "sfdc_live_verified",
+            "payment_receipt_verified", "counts", "stage_counts", "error_type")}
     print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
 
