@@ -1,5 +1,5 @@
 "use client";
-import {useMemo,useState} from "react";
+import {useEffect,useMemo,useState} from "react";
 import styles from "../page.module.css";
 import {parseKrwEvidence,rankKrwPrices,candidateSelection,summarizeKrwProductPrices} from "../../../../lib/sfdc-2026-krw-price-preview.mjs";
 
@@ -46,6 +46,12 @@ export default function KrwPricePanel({intake,customerSelection=null}){
   production_basis:intake.input.basis
  }),[effectiveAccountId,effectiveContactId,product,process,effectiveUnit,intake.input.production,intake.input.samples,intake.input.basis]);
  const found=useMemo(()=>rankKrwPrices(source,query),[source,query]);
+ // Stale historical prices must never survive a change of the customer, service,
+ // process, depth, production basis or quantity that selected the reference.
+ useEffect(()=>{
+  setChoice(null);
+ },[effectiveAccountId,effectiveContactId,product,process,effectiveUnit,
+    intake.input.production,intake.input.samples,intake.input.basis]);
  const selected=choice?candidateSelection(intake,choice):null;
  const portfolio=useMemo(()=>summarizeKrwProductPrices(source),[source]);
  const historySize=100;
