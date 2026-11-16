@@ -1,9 +1,12 @@
 /** Project-management snapshot validation. Read-only; original source never certified here. */
 export function validateProjectManager(payload) {
-  const states = new Set(["PASS_MIRROR_ONLY","PARTIAL_MIRROR","STALE"]);
+  const states = new Set(["PASS_MIRROR_ONLY","PARTIAL_MIRROR","STALE","STALE_QUOTE_HEADER"]);
   if (!payload || !states.has(payload.status) || !Array.isArray(payload.project_rows) ||
       payload.project_rows.length < 1 || payload.project_rows.length > 1500)
     throw new Error("INVALID_PROJECT_MANAGER_SNAPSHOT");
+  if (payload.status === "STALE_QUOTE_HEADER" &&
+      payload.quote_header_status !== "STALE_OR_MISSING_HEADER")
+    throw new Error("MISLEADING_QUOTE_HEADER_HEALTH");
   const ids = new Set();
   for (const row of payload.project_rows) {
     if (!row || !row.project_id || typeof row.project_id !== "string" ||
