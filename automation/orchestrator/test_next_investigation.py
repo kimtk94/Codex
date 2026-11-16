@@ -44,15 +44,15 @@ class BoundedFailedJobInspectionTests(unittest.TestCase):
             seen.append(("log", job_id))
             return ("MONTHLY_CANONICAL_FAILED:MONTHLY_AUTHORITY_FAIL_CLOSED:"
                     "CANONICAL_LIFECYCLE_GROSS_COUNT_MISMATCH "
-                    "issued_gross_krw=76277300 lifecycle_gross_krw=76538550")
+                    "issued_gross_krw=1111111 lifecycle_gross_krw=2222222")
         r = next_one.investigate(doc, fetch_jobs=fjob, fetch_log=flog, token="test")
         self.assertEqual("FAILED_JOB_DIAGNOSTIC_FOUND", r["state"])
         self.assertEqual("REVENUE_ISSUED_VS_LIFECYCLE_MISMATCH", r["diagnostic_code"])
         self.assertEqual([("jobs", 43169186939), ("log", 22)], seen)
         self.assertEqual("NOT_VERIFIED", r["business_source_sink_verification"])
         self.assertFalse(r["auto_retry_runs"])
-        self.assertNotIn("76277300", json.dumps(r))
-        self.assertNotIn("76538550", json.dumps(r))
+        self.assertNotIn("1111111", json.dumps(r))
+        self.assertNotIn("2222222", json.dumps(r))
 
     def test_revenue_historical_failure_can_inspect_logs_without_claiming_originals(self):
         doc = fake_queue(overridden={
