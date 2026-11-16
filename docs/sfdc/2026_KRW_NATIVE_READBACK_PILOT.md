@@ -88,3 +88,21 @@ Read-only Salesforce Quotation Detail reinspection established:
 - Operator must explicitly select institution+Contact for homonyms; IDs are carried to historical KRW *comparison only*. No live price auto-application, no new Quote save.
 - The existing private local JSON Contact import remains available as a fallback. A zero-result 30-Contact search does **not** mean the customer is absent from Salesforce.
 - GitHub Actions run synthetic tests and Next.js browser No-Save checks only; no SFDC credentials, private index, or customer price data are uploaded.
+
+## 2026-11-16 full-year historical expansion pilot: 85 verified Quote references
+
+- Discovered the distinct **Quotation Approvals** source (2026 Jan–Oct) containing **390 separately approved 2026 Quotes**. This is distinct from the recent 50-Quote approval dedup source.
+- Crosschecked all 390 QIDs and original Salesforce record IDs against the 2026-11-16 17:00 KST QQ Quotation Report: **333 single-Product, active, consistent-date candidates**; **23 multi-Product** requiring separate article-to-process validation; **26 inactive** (excluded), **8 created-date discrepancies** (HOLD). These are eligibility counts, *not* prices.
+- Built private per-category source manifests on the authorized desktop. Sampled four eligible single-Product Quotes per month (Jan–Oct), 40 in total. Authenticated Salesforce browser pass: **39/40 Quotes and 177 original-KRW Process rate rows**, one Quote held because source net/VAT total did not match.
+- Reconciled **all 177 lines** against the QQ original Process-ID + Name + Sample Quantity + Data Unit + Data Size multiset; 39/39 Source Quotes passed, zero row rejections. Merged into the previously verified 46-Quote corpus.
+- Private local price corpus now: **85 distinct 2026 Quotes, 374 native KRW Process lines, 55 exact Product fingerprints, 250 unique product/process/unit/depth conditions** across Jan–Nov. No USD FX conversions or CRM writes. Existing 46-Quote file was retained as a private backup.
+- **Remaining early-year single-Product candidates**: 333 minus 40 attempted = 293 not yet attempted; one of the 40 was held. All 23 older multi-Product candidates need separate authenticated original-article verification. Existing separate recent exceptions remain held: one inactive, two anomalous totals, one created-date discrepancy.
+- The recent held Quote with a 2026-11-03 QID has a QQ 2026-11-04 Created Date and AMEA identifier of 2026-11-04; Salesforce view confirms active KRW but does not expose unambiguous creation timestamp in the inspected Details view. Keep it HOLD rather than silently correcting its date.
+
+### Workflow and web improvement
+
+- `automation/sfdc/quote_2026_historical_coverage.py` and synthetic tests enable GitHub Actions to **read the approval source, verify the QQ snapshot SHA256, and report only aggregate eligible/held counts**. CI never sees original KRW process prices or customer IDs.
+- New `POST /api/sfdc/krw-price-local` requires independent `SFDC_KRW_PRICE_LOCAL_READ_ENABLED=1`, same-origin 127.0.0.1, a fixed private `%LOCALAPPDATA%` filename, no symlinks, 2MB cap, source age <=24h, and 100% valid source row checks. It is read-only and separate from any SFDC Save/command gate.
+- New UI control loads the approved original-KRW file from the authorized PC without manual JSON selection, but retains manual file import as a fallback. All 2026 KRW prices remain **comparison only**.
+- Historical price table now paginates **100 condition rows/page**, instead of silently clipping at the first 250 as the dataset grows. Chromium tests use synthetic 260-condition data to verify all three pages and zero SFDC mutation requests.
+- Local authenticated Salesforce Contact selection remains limited to the **30 confirmed native 001/003/006 relationships**, requires explicit institution selection, and does not imply that other Salesforce Contacts are absent.
