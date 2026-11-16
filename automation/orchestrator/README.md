@@ -69,6 +69,14 @@ This is narrow evidence of:
 
 Main-branch next-review automatically waits for both Revenue mirror and the authenticated source-probe receipt, then combines them with nine-domain CI signals. Missing receipts cause read-only investigation, never write execution. PR validation excludes all authentication and uses synthetic tests only.
 
+## Execute one safe investigation automatically (read-only)
+
+A new `next-investigation` GitHub Actions job reads the same-run `autonomous-next-readonly-priority` receipt. On main only, it performs **at most one** selected `INSPECT_FAILURE_LOGS_READ_ONLY` investigation: it retrieves the failed run's GitHub jobs and inspects **at most three failed job logs** using the ephemeral Actions read-only token. The special recommendation `COMPARE_FAILED_REVENUE_CI_WITH_RECENT_MIRROR_AND_ORIGINALS` permits the **failed CI log portion only**, not a comparison against the actual QQ originals.
+
+Only fixed known diagnostic codes, validated GitHub run URLs, and counts are written to the `autonomous-next-next-investigation` artifact; raw log text, invoice amounts, customer identifiers, email addresses and credentials are never persisted. All unknown failures remain `FAILED_JOB_UNCLASSIFIED`, and missing log access remains `FAILED_JOB_LOG_UNAVAILABLE`. The GitHub bearer token is removed on redirects to archive/log storage; log downloads are capped at 2 MB.
+
+This implementation is **not** an autonomous code-editing agent. It does not schedule other workflows, retry failed jobs, bypass source/sink gates, push commits, merge PRs or touch customer systems. If the selected action is not a supported log audit, the job returns `NOT_APPLICABLE` without fetching any logs. It is disabled for PR events; PR unit tests use only mock logs.
+
 ## Next iteration — requires separate approval
 
 Link approved read-only source/sink freshness probes and enforce separate `PASS`, `NO_NEW_DATA`, `STALE`, `SOURCE_UNAVAILABLE`, `SINK_LAG` and `BLOCK` results with original timestamps and reconciliation counts. A code-fix agent or API-based AI planner, if later connected, must be restricted to PRs and CI, and must not turn `TEST_CHAIN_PASS` into an operational acceptance claim. SFDC Save, customer email send, deployment, revenue writes and PR auto-merge remain approval-gated.
