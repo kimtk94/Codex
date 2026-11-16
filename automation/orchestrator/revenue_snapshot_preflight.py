@@ -11,6 +11,7 @@ are written to stdout or the CI artifact.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import json
 import os
@@ -123,8 +124,12 @@ def mirror_source():
         raise RuntimeError("MIRROR_READ_CREDENTIALS_UNAVAILABLE")
     from google.oauth2 import service_account
     from google.auth.transport.requests import AuthorizedSession
+    try:
+        key_info = json.loads(raw)
+    except (ValueError, TypeError):
+        key_info = json.loads(base64.b64decode(raw))
     credentials = service_account.Credentials.from_service_account_info(
-        json.loads(raw), scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+        key_info, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
     session = AuthorizedSession(credentials)
     result = {}
     for title, max_rows in TABS.items():
