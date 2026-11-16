@@ -28,7 +28,7 @@ python3 -m unittest discover -s automation/orchestrator -p 'test_*.py' -v
 python3 automation/orchestrator/runner.py --dry-run --max-steps 5 --out /tmp/autonext-plan
 ```
 
-The dry-run never calls GitHub or any external system. Real execution requires the workflow's `GITHUB_TOKEN` (`issues:write`) and existing issue #794; there is no need to store a PAT or OpenAI API key.
+The dry-run never calls GitHub or any external system. PR CI also uses `--offline-run` to execute all five pre-approved offline suites **without** GitHub issue reads/writes; this is distinct from the mocked unit tests. Production checkpointed execution requires the workflow's `GITHUB_TOKEN` (`issues:write`) and existing issue #794; there is no need to store a PAT or OpenAI API key.
 
 ## Next iteration — requires separate approval
 
