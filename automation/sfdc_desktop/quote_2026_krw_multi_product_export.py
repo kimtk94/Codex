@@ -6,7 +6,7 @@ line totals and quote VAT totals before indexing each Product independently.
 Never publish customer data/prices to GitHub, logs or Action artifacts.
 """
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -70,6 +70,49 @@ def verify_multiset(expected, actual):
         raise ValueError("SOURCE_PROCESS_MULTISET_MISMATCH")
     return True
 
+
+
+def verify_product_partitions(expected, actual_product_rows):
+    """Verify QD product boundaries, not just the all-Quote process multiset.
+
+    Salesforce renders Product articles with product codes, whereas the QQ
+    report records opaque QD product IDs. A bijection of Product-level
+    process multisets is required; a match in aggregate alone is insufficient.
+    """
+    if not isinstance(expected, list) or not expected:
+        raise ValueError("SOURCE_PRODUCT_PARTITIONS_MISSING")
+    if not isinstance(actual_product_rows, list) or not actual_product_rows:
+        raise ValueError("PRODUCT_ARTICLES_MISSING")
+    source = defaultdict(Counter)
+    for r in expected:
+        qd = str(r.get("quotation_product_id") or "")
+        pid = str(r.get("process_id") or "")
+        if not re.fullmatch(r"QD-[0-9]{3,}", qd) or not PROCESS_RX.fullmatch(pid):
+            raise ValueError("SOURCE_PRODUCT_PARTITION_ID_UNVERIFIED")
+        key = (row_key(r.get("process_name"), r.get("sample_quantity"),
+                       r.get("data_size"), r.get("data_unit")), pid)
+        source[qd][key] += 1
+    def partition_signature(rows):
+        """Canonical identity of a process multiset, preserving duplicates."""
+        return tuple(sorted((key, count) for key, count in rows.items()))
+    actual = []
+    for rows in actual_product_rows:
+        if not isinstance(rows, list) or not rows:
+            raise ValueError("EMPTY_PRODUCT_ARTICLE")
+        counter = Counter()
+        for r in rows:
+            pid = str(r.get("process_id") or "")
+            if not PROCESS_RX.fullmatch(pid):
+                raise ValueError("ARTICLE_PROCESS_ID_UNVERIFIED")
+            key = (row_key(r.get("process_name"), r.get("sample_quantity"),
+                           r.get("data_size"), r.get("data_unit")), pid)
+            counter[key] += 1
+        actual.append(partition_signature(counter))
+    expected_signatures = Counter(partition_signature(x) for x in source.values())
+    actual_signatures = Counter(actual)
+    if actual_signatures != expected_signatures:
+        raise ValueError("SOURCE_PRODUCT_PARTITION_MISMATCH")
+    return True
 
 def product_fingerprint(product_code, rows):
     if not re.fullmatch(r"[A-Z]{2,8}[0-9]{4,}", product_code) or not rows:
@@ -169,6 +212,7 @@ def extract_multi(page, reference):
         product_groups.append((pname,pcode,rows))
         all_rows.extend(rows)
     verify_multiset(expected,all_rows)
+    verify_product_partitions(expected,[rows for _,_,rows in product_groups])
     if sum(Decimal(x["line_total_krw"]) for x in all_rows)!=subtotal:
         raise ValueError("QUOTE_PROCESS_SUM_MISMATCH")
     output=[]
