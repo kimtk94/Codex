@@ -31,6 +31,16 @@ python3 automation/orchestrator/runner.py --dry-run --max-steps 6 --out /tmp/aut
 
 The dry-run never calls GitHub or any external system. PR CI also uses `--offline-run` to execute all six pre-approved offline suites **without** GitHub issue reads/writes; this is distinct from the mocked unit tests. Production checkpointed execution requires the workflow's `GITHUB_TOKEN` (`issues:write`) and existing issue #794; there is no need to store a PAT or OpenAI API key.
 
+## Automatic selection of next investigation (read-only)
+
+The `next-review` GitHub Actions job now polls the **nine existing main-branch GitHub workflow histories** (GitHub Actions read permission only). It creates a sanitized `autonomous-next-readonly-priority` artifact and prints the top candidate in the run summary. No Salesforce, Feishu, QQ, OpenAI API, web deployment, customer amounts, or mail credentials are used.
+
+**Priority order by evidence state:** latest CI failure → GitHub run API unavailable → unknown conclusion → no main-branch run → cancelled/skipped → in progress → CI success without source verification. Ties follow the nine-domain operations policy order. A pending latest run never inherits a previous successful status. Missing or blocked GitHub run visibility is reported as `CI_API_UNAVAILABLE`, **not** as `NO_NEW_DATA` or `PASS`.
+
+The queue recommends `INSPECT_FAILURE_LOGS_READ_ONLY`, `CHECK_WORKFLOW_TRIGGER_AND_BRANCH`, or `COLLECT_ORIGINAL_SOURCE_AND_SINK_READBACK`; no arbitrary workflow dispatches, code edits, writes, or PR merges occur. Even with nine successful CI runs, **business_source_sink_verification is always NOT_VERIFIED** until separate authenticated original-source and sink-readback audits are implemented.
+
+Run locally: `python3 automation/orchestrator/priority.py --out /tmp/autonext-priority.json`. GitHub Actions supplies a read-only ephemeral `GITHUB_TOKEN`. Without API access, results fail closed to an unavailable state.
+
 ## Next iteration — requires separate approval
 
 Link approved read-only source/sink freshness probes and enforce separate `PASS`, `NO_NEW_DATA`, `STALE`, `SOURCE_UNAVAILABLE`, `SINK_LAG` and `BLOCK` results with original timestamps and reconciliation counts. A code-fix agent or API-based AI planner, if later connected, must be restricted to PRs and CI, and must not turn `TEST_CHAIN_PASS` into an operational acceptance claim. SFDC Save, customer email send, deployment, revenue writes and PR auto-merge remain approval-gated.
