@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from quote_2026_krw_totals_guard import require_original_krw_totals
 
 SFDC="https://novogene.lightning.force.com"
 ID_RX=re.compile(r"^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
@@ -55,8 +56,10 @@ def extract(page,reference):
     contact=native_lookup(hrefs,"Contact")
     quoted=money_after(info,"Total Price")
     total_with_tax=money_after(info,"Grand Total")
-    if quoted<=0 or abs(quoted*Decimal("1.10")-total_with_tax)>Decimal("0.05"):
-        raise ValueError("QUOTE_VAT_TOTAL_MISMATCH")
+    require_original_krw_totals(next_field(lines,"Currency"),
+                                next_field(lines,"Active"),
+                                quoted,total_with_tax,
+                                next_field(lines,"GST/VAT (%)"))
     page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=10000)
     table=page.locator("table").filter(has_text="Process Name").first
     table.wait_for(timeout=12000)

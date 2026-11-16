@@ -12,6 +12,7 @@ from decimal import Decimal
 from pathlib import Path
 import hashlib, json, re
 from playwright.sync_api import sync_playwright
+from quote_2026_krw_totals_guard import require_original_krw_totals
 from quote_2026_krw_browser_export import (
     SFDC, ID_RX, QID_RX, PROCESS_RX, amount, next_field,
     money_after, native_lookup,
@@ -167,8 +168,10 @@ def extract_multi(page, reference):
     contact=native_lookup(hrefs,"Contact")
     subtotal=money_after(details,"Total Price")
     grand=money_after(details,"Grand Total")
-    if subtotal<=0 or abs(grand-subtotal*Decimal("1.10"))>Decimal("0.05"):
-        raise ValueError("QUOTE_VAT_TOTAL_MISMATCH")
+    require_original_krw_totals(next_field(lines,"Currency"),
+                                next_field(lines,"Active"),
+                                subtotal,grand,
+                                next_field(lines,"GST/VAT (%)"))
     page.get_by_role("tab",name="Quotation Detail",exact=True).click(timeout=10000)
     page.wait_for_function("""n=>document.querySelectorAll('article.slds-card').length>=n""",
                            arg=len(expected_products),timeout=15000)
