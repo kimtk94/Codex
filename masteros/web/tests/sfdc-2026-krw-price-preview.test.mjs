@@ -66,3 +66,16 @@ test("reject bad schema, future/stale input and invalid price figures",()=>{
  assert.equal(verifyPriceLine({...base,unit_price_krw:"0"}),"PASS");
  assert.equal(verifyPriceLine({...base,vat_basis:"VAT_INCLUDED"}),"VAT_BASIS_UNVERIFIED");
 });
+
+test("2026 zero-data-size per-sample QC lines preserve NA rather than invent Gb",()=>{
+ const row={...base,data_unit:"NA",data_size:"",process_name:"Extraction and sample QC",unit_price_krw:"35000"};
+ assert.equal(verifyPriceLine(row),"PASS");
+ const src=parseKrwEvidence(evidence([row]),when);
+ const q={product_signature:product,process_id:process,data_unit:"NA",data_size:"",sample_quantity:20,production_basis:"PER_SAMPLE"};
+ const found=rankKrwPrices(src,q);
+ assert.equal(found.candidates.length,1);
+ assert.equal(found.candidates[0].size_match,false);
+ assert.equal(found.candidates[0].data_size,"");
+ assert.equal(found.candidates[0].comparison_only,true);
+ assert.equal(verifyPriceLine({...row,data_unit:"Gb"}),"DATA_SIZE_MISSING");
+});
