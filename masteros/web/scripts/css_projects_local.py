@@ -101,6 +101,17 @@ def session():
         info=json.loads(path.read_text(encoding="utf8"))
     return AuthorizedSession(Credentials.from_service_account_info(info,
                 scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]))
+def legacy_event_range(meta):
+    """Use real grid bounds, not a guessed oversized A1 rectangle."""
+    matches=[s.get("properties",{}) for s in meta.get("sheets",[])
+             if s.get("properties",{}).get("title")=="CSS Project Dashboard"]
+    if len(matches)!=1:raise ValueError("LEGACY_DASHBOARD_TAB_NOT_FOUND")
+    rows=matches[0].get("gridProperties",{}).get("rowCount")
+    if type(rows) is not int or not 2<=rows<=100000:
+        raise ValueError("INVALID_LEGACY_GRID_SIZE")
+    return "AB1:AB"+str(min(rows,1500))
+
+
 def google_fetch():
     client=session()
     def read(book,name,area):
@@ -111,7 +122,11 @@ def google_fetch():
     # The legacy dashboard is diagnostic only. A broken legacy tab must not
     # prevent checking the independently refreshed V4 project mirror.
     try:
-        legacy=read(DST,"CSS Project Dashboard","AB1:AB1200")
+        meta_url="https://sheets.googleapis.com/v4/spreadsheets/"+DST
+        response=client.get(meta_url,params={
+            "fields":"sheets(properties(title,gridProperties(rowCount)))"},timeout=28)
+        response.raise_for_status()
+        legacy=read(DST,"CSS Project Dashboard",legacy_event_range(response.json()))
     except Exception:
         legacy=None
     return inspect(read(SRC,"BI Project Lifecycle Overview","A1:Q1500"),
