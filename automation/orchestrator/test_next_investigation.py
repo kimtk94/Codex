@@ -11,8 +11,11 @@ import priority
 
 
 def fake_queue(failed_domain="payment_revenue", overridden=None):
+    policy_doc = priority.load_policy()
+    failed_workflow = next(d["workflow"] for d in policy_doc["domains"]
+                           if d["id"] == failed_domain)
     def fetch(url, token):
-        state = "failure" if failed_domain in url else "success"
+        state = "failure" if failed_workflow in url else "success"
         return {"workflow_runs": [
             {"id": 43169186939 if state == "failure" else 100,
              "head_branch": "main", "event": "workflow_dispatch",
@@ -50,6 +53,18 @@ class BoundedFailedJobInspectionTests(unittest.TestCase):
         self.assertFalse(r["auto_retry_runs"])
         self.assertNotIn("76277300", json.dumps(r))
         self.assertNotIn("76538550", json.dumps(r))
+
+    def test_revenue_historical_failure_can_inspect_logs_without_claiming_originals(self):
+        doc = fake_queue(overridden={
+            "next_safe_action": "COMPARE_FAILED_REVENUE_CI_WITH_RECENT_MIRROR_AND_ORIGINALS"
+        })
+        result = next_one.investigate(
+            doc,
+            fetch_jobs=lambda *a: jobs({"id": 1, "conclusion": "failure"}),
+            fetch_log=lambda *a: "CANONICAL_LIFECYCLE_GROSS_COUNT_MISMATCH",
+        )
+        self.assertEqual("FAILED_JOB_DIAGNOSTIC_FOUND", result["state"])
+        self.assertEqual("NOT_VERIFIED", result["business_source_sink_verification"])
 
     def test_not_selected_log_action_never_fetches(self):
         doc = fake_queue(overridden={"next_safe_action": "RESTORE_QQ_ORIGINAL_PROBE"})
