@@ -32,4 +32,13 @@ python automation/sfdc_desktop/quote_2026_krw_browser_export.py --manifest "$env
 ## CI and remaining work
 - GitHub Actions run synthetic-only tests of the quote exporter, price selector, source integrity and browser No-Save path.
 - GitHub Actions **cannot access the user's logged-in desktop Chrome**; live readback runs locally. Automatic daily parsing of all 2026 Quotes requires a verified private approval manifest and safe rate-limited desktop execution.
-- The pilot confirms one native 2026 Quote; it is **not proof that all 2026 quotes have been extracted**. Expand by verified active + approved records, and crosscheck every Source Quote's Product/process lines before aggregating prices.
+- The first pilot confirmed one native 2026 Quote. The extended readback below verifies 20; this is **not proof that all 2026 quotes have been extracted**. Expand by verified active + approved records, and crosscheck every Source Quote's Product/process lines before aggregating prices.
+
+## 2026-11-16 expanded local audit: 20 verified Quotes
+- Current QQ Quotation snapshot: received **2026-11-16 17:00:07 KST**; audit status `STAGED_NOT_PROMOTED`; 3,963 process rows and 857 distinct Quote IDs. This report still has USD-converted rate columns, not the original KRW field.
+- Screening of the latest approval events: 23 cases considered; 3 excluded before native price export because inactive, multi-Product or inconsistent created date. **20** authenticated, active, approval-evidence-matched 2026 Quotes passed original KRW readback, yielding **78 Process price rows across 16 exact Product fingerprints**.
+- Salesforce `Quotation Detail` itself supplied the original KRW Unit Price, Process quantities, price totals and native 001/003 links. Every accepted Quote also satisfied process-sum and VAT checks. **CRM writes: zero**.
+- Private merged file on the authorized PC: `%LOCALAPPDATA%\\SFDC_KRW_Price\\2026_krw_process_prices_verified_local.json`. **Never publish this file in GitHub or Actions artifacts.**
+- Browser-local price picker accepts all 78 rows, including Process lines with blank Data Unit/Size (`NA`), with 0 rejected.
+- Product/process historical table groups by exact Product fingerprint + Process ID + Data Unit + Data Size, showing distinct Quote count, institution count, sample-count range, and min/median/max native KRW Process rates. 0-KRW bundled lines are shown explicitly.
+- The **20 Quotes are a recent approved subset**, not the entire 2026 Quote population. Extending this to earlier 2026 approved Quotes requires an incrementally verified private approval manifest and authenticated desktop reads. The current QQ audit's mere SHA presence is not independently rehashed as part of this desktop batch; source line identity is cross-checked against the live Salesforce record before inclusion.
