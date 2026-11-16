@@ -29,7 +29,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: autonomous-next-sales-main-checkpoint
+  # PR validation must not queue behind or displace the main checkpoint run.
+  # Main schedule/manual/push share one serialized operator checkpoint.
+  # Each PR gets an isolated test queue with no business credentials.
+  group: ${{ github.event_name == 'pull_request' && format('autonomous-next-sales-pr-{0}', github.event.pull_request.number) || 'autonomous-next-sales-main-checkpoint' }}
   cancel-in-progress: false
 
 jobs:
