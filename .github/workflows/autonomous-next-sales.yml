@@ -49,9 +49,38 @@ jobs:
       - name: Prove dry-run cannot write or mark source freshness verified
         run: python3 automation/orchestrator/runner.py --dry-run --max-steps 6 --out /tmp/autonext-plan
 
+  original-probe-evidence:
+    name: Fetch scoped original QQ/Feishu probe receipt from prior read-only audit
+    needs: unit-and-plan
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read latest original QQ UID / Feishu projection sanitized artifact
+        run: python3 automation/orchestrator/original_source_evidence.py
+      - name: Archive validated scoped probe status only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-original-source-evidence
+          path: autonomous-next-triage/original-source-probes.json
+          retention-days: 14
+          if-no-files-found: warn
+
   next-review:
     name: Rank next safe investigation from CI and optional Revenue mirror evidence
-    needs: [unit-and-plan, revenue-mirror-evidence]
+    needs: [unit-and-plan, revenue-mirror-evidence, original-probe-evidence]
     if: ${{ always() && needs.unit-and-plan.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 8
@@ -74,12 +103,19 @@ jobs:
         with:
           name: autonomous-next-revenue-mirror
           path: autonomous-next-triage
+      - name: Fetch scoped original QQ/Feishu read-only status, if present
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: autonomous-next-original-source-evidence
+          path: autonomous-next-triage
       - name: Rank next safe investigation from nine workflows and mirror status
         run: |
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             python3 automation/orchestrator/priority.py --out autonomous-next-triage/priority.json
           else
-            python3 automation/orchestrator/priority.py --out autonomous-next-triage/priority.json --revenue-evidence-file autonomous-next-triage/monthly-revenue-mirror.json
+            python3 automation/orchestrator/priority.py --out autonomous-next-triage/priority.json --revenue-evidence-file autonomous-next-triage/monthly-revenue-mirror.json --original-evidence-file autonomous-next-triage/original-source-probes.json
           fi
       - name: Keep sanitized next-review queue
         if: always()
