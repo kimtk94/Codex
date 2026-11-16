@@ -15,11 +15,11 @@ The runner uses a hard-coded command allowlist, `subprocess.run` with no shell, 
 
 After the PR is reviewed and merged, navigate to **Actions → Autonomous Next - Sales Verification (No Save) → Run workflow**. Choose `max_steps` (1–10, default 5); `reset=true` restarts the chain. The workflow also schedules itself daily at 21:45 KST and executes when relevant files are pushed to main.
 
-- [Checkpoint issue #794](https://github.com/kimtk94/Codex/issues/794): mutable state. Do not delete the `AUTONEXT_STATE` markers. Write human notes outside them.
+- [Checkpoint issue #794](https://github.com/kimtk94/Codex/issues/794): mutable state and operator pause control. **Check `PAUSE_AUTONEXT` to stop before the next stage; uncheck it to resume at the next scheduled/manual run.** A currently running test will finish first (up to 240 seconds). Leave exactly one pause checkbox and do not delete the `AUTONEXT_STATE` markers. Write human notes outside the markers; the runner reloads the latest issue body before each state write so intervening notes are preserved.
 - Workflow run summary: completed/remaining stages and next blocked stage.
 - `autonomous-next-sales-receipt` artifact: `state.json` and `summary.md`, retained for 30 days.
 
-The checkpoint is reused only if the plan fingerprint and commit SHA match and it is less than 24 hours old. Otherwise a fresh synthetic verification cycle begins. **Issue and artifact records are test evidence, not acceptance of source-to-sink data freshness.**
+If the pause checkbox is missing or ambiguous, operation fails closed instead of running more tests. Pause does not bypass prior failures, and `reset=true` does not override the checkbox. The checkpoint is reused only if the plan fingerprint and commit SHA match and it is less than 24 hours old. Otherwise a fresh synthetic verification cycle begins. **Issue and artifact records are test evidence, not acceptance of source-to-sink data freshness.**
 
 ## Test locally
 
