@@ -1,0 +1,3 @@
+READ_ONLY_AUDIT 2026-11-16
+Target: legacy CSS Project Dashboard producer and writer callsite inventory.
+No source import or execution, no production edits, no customer data disclosure.
