@@ -10,7 +10,7 @@ const TIER_LABEL={
 };
 const suffix=(x)=>x?.slice(-6)||"—";
 const priceText=(s)=>Number(s).toLocaleString("ko-KR",{maximumFractionDigits:4});
-export default function KrwPricePanel({intake}){
+export default function KrwPricePanel({intake,customerSelection=null}){
  const [source,setSource]=useState(null);
  const [notice,setNotice]=useState("");
  const [accountId,setAccountId]=useState("");
@@ -19,6 +19,9 @@ export default function KrwPricePanel({intake}){
  const [process,setProcess]=useState("");
  const [selectedUnit,setSelectedUnit]=useState("");
  const [choice,setChoice]=useState(null);
+ const customerLinked=customerSelection?.ok===true&&customerSelection?.requires_server_identity_recheck===true;
+ const effectiveAccountId=customerLinked?customerSelection.account_id:accountId;
+ const effectiveContactId=customerLinked?customerSelection.contact_id:contactId;
  const products=useMemo(()=>{
   const map=new Map();
   for(const r of source?.records||[])if(!map.has(r.product_signature))map.set(r.product_signature,r.product_name||"Product process fingerprint");
@@ -34,12 +37,12 @@ export default function KrwPricePanel({intake}){
   .map(r=>r.data_unit))],[source,product,process]);
  const effectiveUnit=availableUnits.length===1?availableUnits[0]:selectedUnit;
  const query=useMemo(()=>({
-  account_id:accountId,contact_id:contactId,product_signature:product,process_id:process,
+  account_id:effectiveAccountId,contact_id:effectiveContactId,product_signature:product,process_id:process,
   data_unit:effectiveUnit,
   data_size:effectiveUnit==="NA"?"":intake.input.production,
   sample_quantity:Number(intake.input.samples),
   production_basis:intake.input.basis
- }),[accountId,contactId,product,process,effectiveUnit,intake.input.production,intake.input.samples,intake.input.basis]);
+ }),[effectiveAccountId,effectiveContactId,product,process,effectiveUnit,intake.input.production,intake.input.samples,intake.input.basis]);
  const found=useMemo(()=>rankKrwPrices(source,query),[source,query]);
  const selected=choice?candidateSelection(intake,choice):null;
  const portfolio=useMemo(()=>summarizeKrwProductPrices(source),[source]);
@@ -85,13 +88,14 @@ export default function KrwPricePanel({intake}){
   <div className={styles.two}>
    <div className={styles.field}>
     <label htmlFor="krw-account-id">SFDC Account ID · 001</label>
-    <input id="krw-account-id" value={accountId} placeholder="인증 SFDC에서 확인한 001 ID" onChange={e=>{setAccountId(e.target.value.trim());setChoice(null);}}/>
+    <input id="krw-account-id" value={effectiveAccountId} disabled={customerLinked} placeholder="인증 SFDC에서 확인한 001 ID" onChange={e=>{setAccountId(e.target.value.trim());setChoice(null);}}/>
    </div>
    <div className={styles.field}>
     <label htmlFor="krw-contact-id">SFDC Contact ID · 003</label>
-    <input id="krw-contact-id" value={contactId} placeholder="인증 SFDC에서 확인한 003 ID" onChange={e=>{setContactId(e.target.value.trim());setChoice(null);}}/>
+    <input id="krw-contact-id" value={effectiveContactId} disabled={customerLinked} placeholder="인증 SFDC에서 확인한 003 ID" onChange={e=>{setContactId(e.target.value.trim());setChoice(null);}}/>
    </div>
   </div>
+  {customerLinked&&<div className={styles.footnote}>입력한 한글 이름의 기존 Contact를 선택해 Account·Contact ID가 연결됐습니다. 현재 로컬 증거 기준이며 신규 Quote 적용 전 실시간 Salesforce 확인이 필요합니다.</div>}
   <div className={styles.two}>
    <div className={styles.field}>
     <label htmlFor="krw-product">Quote Product 공정 구조</label>
