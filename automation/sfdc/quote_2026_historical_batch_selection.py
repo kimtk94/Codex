@@ -29,7 +29,7 @@ def _date_and_qid(row):
 
 
 def select_unattempted_2026(eligible_rows, attempted_batches, verified_quote_ids,
-                            per_month=6):
+                            per_month=6, total_limit=None):
     """Select per-month unattempted single-Product approved references.
 
     Attempted means *ever sent to the browser*, including retryable HOLDS, not
@@ -44,6 +44,9 @@ def select_unattempted_2026(eligible_rows, attempted_batches, verified_quote_ids
         raise ValueError("VERIFIED_SET_INVALID")
     if isinstance(per_month, bool) or not isinstance(per_month, int) or not 1 <= per_month <= 10:
         raise ValueError("PER_MONTH_INVALID")
+    if total_limit is not None and (isinstance(total_limit, bool) or
+                                    not isinstance(total_limit, int) or not 1 <= total_limit <= 250):
+        raise ValueError("TOTAL_LIMIT_INVALID")
     eligible = {}
     for row in eligible_rows:
         qid, day = _date_and_qid(row)
@@ -70,10 +73,28 @@ def select_unattempted_2026(eligible_rows, attempted_batches, verified_quote_ids
         if qid in covered or qid in verified_quote_ids:
             continue
         by_month[row["created_date"][:7]].append(row)
+    monthly = {month: sorted(rows, key=lambda x: (x["created_date"], x["quote_id"]))
+               for month, rows in sorted(by_month.items())}
     selected = []
-    for month in sorted(by_month):
-        selected.extend(sorted(by_month[month],
-                               key=lambda x: (x["created_date"], x["quote_id"]))[:per_month])
+    # Phase 1: ordinary monthly quota. A depleted month never invents rows.
+    for month, rows in monthly.items():
+        for row in rows[:per_month]:
+            if total_limit is not None and len(selected) >= total_limit:
+                break
+            selected.append(row)
+    # Phase 2: when a date range is exhausted (e.g., Jan none, Feb four),
+    # refill the target from *new* eligible rows in remaining months, balanced
+    # round-robin rather than taking an entire backlog from the final month.
+    if total_limit is not None and len(selected) < total_limit:
+        max_size = max(map(len, monthly.values()), default=0)
+        for i in range(per_month, max_size):
+            for month, rows in monthly.items():
+                if len(selected) >= total_limit:
+                    break
+                if i < len(rows):
+                    selected.append(rows[i])
+            if len(selected) >= total_limit:
+                break
     identities = [x["quote_id"] for x in selected]
     if len(identities) != len(set(identities)) or set(identities).intersection(covered):
         raise ValueError("DUPLICATE_OR_RETRIED_SELECTION")
@@ -87,6 +108,8 @@ def select_unattempted_2026(eligible_rows, attempted_batches, verified_quote_ids
         "verified_among_attempted": len(confirmed),
         "held_among_attempted": len(covered-confirmed),
         "remaining_before": len(eligible)-len(covered.union(verified_quote_ids.intersection(eligible))),
+        "requested_total": total_limit,
+        "eligible_unattempted_months": dict(sorted((m, len(rs)) for m, rs in monthly.items())),
         "selected_count": len(selected),
         "selected_by_month": dict(sorted(Counter(x["created_date"][:7] for x in selected).items())),
         "crm_writes": 0,
