@@ -167,6 +167,7 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None):
         "outstanding_state": outstanding or "UNKNOWN",
         "receipt_state": RECEIPT_NOT_PROVED,
         "sif_state": sif_state, "prepayment": prepayment,
+        "sif_record_count": len(sif_entries),
         "po_state": po_state, "next_action": next_action,
         "bucket": classification, "needs_review": is_review,
         "review_reasons": reasons,
@@ -244,6 +245,11 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
             "review": sum(p["needs_review"] for p in result),
             "quote_linked": sum(bool(p["quote_name"]) for p in result),
             "unpaid_yes": sum(p["outstanding_state"].upper() == "YES" for p in result),
+            "sif_source_linked": sum(p["sif_record_count"] > 0 for p in result),
+            "sif_submitted_mirror": sum(p["sif_state"] == "제출 확인" for p in result),
+            "sif_prepayment_exception": sum(p["sif_state"] == "Prepayment 예외" for p in result),
+            "po_report_statement_inferred": sum(p["po_state"] == "Report/Statement 근거로 제출 간주"
+                                                 for p in result),
             "archive": 0,
             "quote_review_candidates": sum(p["quote_candidate_state"] == "UNVERIFIED_APPROVAL_DEDUP"
                                            for p in result),
