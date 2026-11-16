@@ -22,7 +22,9 @@ const when=value=>{
     hour:"2-digit",minute:"2-digit",hour12:false,
   }).format(t)+" KST";
 };
-function Progress({value}){
+function Progress({value,flagged}) {
+  if(flagged)return <div className={styles.staleProgress}><strong>현재 진행률 미검증</strong>
+    <small>과거 CSS {value}% · 현재 공정과 불일치</small></div>;
   if(typeof value!=="number")return <span className={styles.dim}>미확인</span>;
   return <div className={styles.progress} title="CSS 과거 미러 진행률 · Feishu 실시간값 아님">
     <span><i style={{width:Math.max(0,Math.min(100,value))+"%"}}/></span>
@@ -130,6 +132,7 @@ export default function ProjectManager(){
       견적 승인내역 검토 후보 <strong>{kpi.quote_review_candidates??"—"}건</strong>
       · Quote 근거 미발견 <strong>{kpi.quote_not_found??"—"}건</strong>
       · 과거 완료/현재 공정 충돌 <strong>{kpi.legacy_stage_conflicts??"—"}건</strong>
+      · CSS 100%/현재 미완료 충돌 <strong>{kpi.legacy_progress_100_conflicts??"—"}건</strong>
       (모두 자동 확정 제외)
     </p>
 
@@ -139,6 +142,13 @@ export default function ProjectManager(){
       · Prepayment 예외 <strong>{kpi.sif_prepayment_exception??"—"}건</strong>
       · Final Report/Statement 기반 PO 제출 간주 <strong>{kpi.po_report_statement_inferred??"—"}건</strong>
       (원본 증빙의 최신성 미검증)
+    </p>
+    <p className={styles.auditHint}>
+      X 인보이스 흔적 연결 <strong>{kpi.invoice_x_project_links??"—"}개 프로젝트</strong>
+      (그중 X 직접대응 <strong>{kpi.invoice_x_exact_project_links??"—"}개</strong>)
+      · AMEA 인보이스 근거 <strong>{kpi.invoice_owner_amea_links??"—"}개</strong>
+      · Quote 미연결/인보이스 근거 <strong>{kpi.invoice_without_verified_quote??"—"}개</strong>
+      · 입금 완료 자동 확정 0개
     </p>
     <section className={styles.main}>
       <div className={styles.sectionHeader}>
@@ -171,6 +181,8 @@ export default function ProjectManager(){
             <option value="QUOTE_CANDIDATE_UNVERIFIED">Quote 승인후보</option>
             <option value="QUOTE_NOT_FOUND">Quote 미검색</option>
             <option value="LEGACY_COMPLETION_CONFLICT">이전 완료 ↔ 최신 공정 충돌</option>
+            <option value="CSS_PROGRESS_100_STAGE_MISMATCH">과거 진행률 100% 충돌</option>
+            <option value="INVOICE_WITHOUT_VERIFIED_QUOTE">인보이스 존재/Quote 미연결</option>
             <option value="FEISHU_STAGE_UNVERIFIED">Feishu 공정 검토</option>
             <option value="SIF_DUPLICATE_SOURCE">SIF 중복</option>
           </select>
@@ -189,7 +201,7 @@ export default function ProjectManager(){
         <table><thead><tr>
           <th>Quote Name / 프로젝트 ID</th><th>기관 · 고객</th>
           <th>공정</th><th>진행률</th><th>시료</th><th>SIF</th>
-          <th>PO</th><th>예상 완료</th><th>다음 조치</th><th>상세</th>
+          <th>PO</th><th>Invoice 근거</th><th>예상 완료</th><th>다음 조치</th><th>상세</th>
         </tr></thead><tbody>
         {filtered.map(r=><tr key={r.project_id} data-bucket={r.bucket}>
           <td className={styles.quoteCell}>
@@ -199,16 +211,20 @@ export default function ProjectManager(){
               <em>{r.quote_match_state==="MULTIPLE_QUOTE_REVIEW"?"다중 Quote 확인 필요":"원본 Quote 미연결"}</em>}
             {r.quote_candidate_name&&<small className={styles.candidate}>승인내역 후보(미검증): {r.quote_candidate_name}</small>}
             {r.legacy_completion_conflict&&<small className={styles.conflict}>과거 완료 ↔ 최신 공정 충돌</small>}
+            {r.owner_invoice_record_count>0&&!r.quote_name&&
+              <small className={styles.candidate}>인보이스 근거 있음 · Quote 연결 미검증</small>}
           </td>
           <td><span>{r.institution||"기관 미확인"}</span>
             <small>{r.contact||"Contact 미연결"}</small></td>
           <td><span className={styles.stage}>{r.stage_group}</span>
             <small>{r.stage}</small></td>
-          <td><Progress value={r.progress_percent}/></td>
+          <td><Progress value={r.progress_percent} flagged={r.progress_conflict}/></td>
           <td>{r.sample_count||"—"}</td>
           <td><span className={r.sif_state==="제출 확인"?styles.confirmed:styles.dim}>
             {r.sif_state}</span></td>
           <td><small>{r.po_state}</small></td>
+          <td><small>{r.invoice_exact_x_count>0?"X 정확 대응 미러":r.invoice_notice_count>0?"X 알림 후보":r.owner_invoice_record_count>0?"AMEA 소유자 증빙 후보":"추가 증빙 없음"}</small>
+            <small className={styles.dim}>결제 미검증</small></td>
           <td>{r.expected_completion||"—"}</td>
           <td className={styles.actionCell}>{r.next_action}</td>
           <td><button className={styles.detailButton} type="button"
@@ -241,9 +257,13 @@ export default function ProjectManager(){
         <div><span>시료 / SIF</span><strong>{focus.sample_count||"미확인"} · {focus.sif_state}</strong>
           <p>{focus.prepayment?"Prepayment: SIF 미제출만으로 팔로업 금지":"SIF 원문 제출 증거 기준"}</p></div>
         <div><span>PO / Invoice</span><strong>{focus.po_state}</strong>
-          <p>Invoice 건수 {focus.invoice_count||"—"} · 금액은 검증 전 표시하지 않음</p></div>
+          <p>CSS Invoice 건수 {focus.invoice_count||"—"} · X 기반 알림 {focus.invoice_notice_count??0}건
+            (직접 대응 미러 {focus.invoice_exact_x_count??0}건)
+            · AMEA 소유자 증빙 후보 {focus.owner_invoice_record_count??0}건</p>
+          <p>인보이스 흔적과 입금 확인은 별개입니다. 금액은 검증 전 표시하지 않습니다.</p></div>
         <div><span>Payment</span><strong>{focus.outstanding_state==="YES"?"미수금 표기 있음":"미수금 원문 확인 필요"}</strong>
-          <p>{focus.receipt_state}; 미수금 NO ≠ 입금 증명</p></div>
+          <p>{focus.receipt_state}; 미수금 NO ≠ 입금 증명</p>
+          {focus.progress_conflict&&<p className={styles.conflict}>과거 진행률 100%지만 Feishu 현재 단계는 {focus.stage}. 현재 완료로 간주하지 않음</p>}</div>
         <div><span>권장 다음 조치</span><strong>{focus.next_action}</strong>
           <p>자동 발송·수정·SFDC Save를 수행하지 않습니다.</p></div>
       </div>
