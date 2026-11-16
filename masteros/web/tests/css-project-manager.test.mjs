@@ -43,3 +43,21 @@ test("previous CSS completion cannot falsely move current project to Payment",()
     project_rows:[{...row,bucket:"PAYMENT",legacy_completion_conflict:true}]
   }));
 });
+
+test("historical CSS 100 percent cannot render as current completed",()=>{
+  assert.throws(()=>validateProjectManager({
+    ...payload,
+    project_rows:[{...row,progress_percent:100,progress_conflict:true,
+      progress_display_percent:100}]
+  }),/FALSE_CURRENT_COMPLETION_PROGRESS/);
+  const correct={...row,progress_percent:100,progress_conflict:true,
+    progress_display_percent:null};
+  assert.equal(validateProjectManager({...payload,project_rows:[correct]}).project_rows[0].bucket,"ACTIVE");
+});
+test("invoice evidence may exist but receipt remains unverified",()=>{
+  const withInvoice={...row,invoice_evidence_state:"EXACT_X_INVOICE_MIRROR",
+    invoice_notice_count:2,invoice_exact_x_count:1};
+  assert.equal(validateProjectManager({...payload,project_rows:[withInvoice]}).project_rows[0].receipt_state,"결제 증빙 미확인");
+  assert.throws(()=>validateProjectManager({...payload,project_rows:[
+    {...withInvoice,receipt_state:"PAID"}]}));
+});
