@@ -1,6 +1,6 @@
 import datetime as dt
 import unittest
-from css_projects_local import inspect, KST, HEAD, MARK
+from css_projects_local import inspect, KST, HEAD, MARK, legacy_event_range
 NOW=dt.datetime(2026,11,9,12,0,tzinfo=KST)
 SRCH=["Project / Sub-project","AMEA","Institution","Customer","Service",
 "Feishu Status (latest)","CSS Stage (legacy)","CSS Progress %",
@@ -65,6 +65,18 @@ class Tests(unittest.TestCase):
   def test_legacy_source_unavailable_is_not_same_as_no_event(self):
     self.assertEqual("NOT_CHECKED",run()["legacy_project_health"])
     self.assertEqual("LEGACY_NO_VALID_EVENT",run(legacy_emails=[])["legacy_project_health"])
+
+  def test_legacy_sheet_read_respects_grid_rows_and_rejects_missing_tab(self):
+    metadata={"sheets":[{"properties":{"title":"CSS Project Dashboard",
+                    "gridProperties":{"rowCount":414}}}]}
+    self.assertEqual("AB1:AB414",legacy_event_range(metadata))
+    metadata["sheets"][0]["properties"]["gridProperties"]["rowCount"]=2000
+    self.assertEqual("AB1:AB1500",legacy_event_range(metadata))
+    metadata["sheets"][0]["properties"]["gridProperties"]["rowCount"]=0
+    with self.assertRaisesRegex(ValueError,"GRID_SIZE"):
+      legacy_event_range(metadata)
+    with self.assertRaisesRegex(ValueError,"TAB_NOT_FOUND"):
+      legacy_event_range({"sheets":[]})
 
   def test_mismatch(self):
     v=SINKROW.copy();v[4]="Wrong Status"
