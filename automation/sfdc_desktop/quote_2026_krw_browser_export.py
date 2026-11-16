@@ -10,6 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 from quote_2026_krw_totals_guard import require_original_krw_totals
+from quote_2026_createddate_kst_guard import verify_createddate_utc_kst
 
 SFDC="https://novogene.lightning.force.com"
 ID_RX=re.compile(r"^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
@@ -43,8 +44,30 @@ def extract(page,reference):
     process_ids=reference.get("process_ids") or {}
     if not process_ids or any(not PROCESS_RX.fullmatch(v) for v in process_ids.values()):
         raise ValueError("PROCESS_ID_MAP_MISSING")
+    resolution=reference.get("source_date_resolution")
+    if resolution:
+        if resolution!="NATIVE_UTC_TO_ASIA_SEOUL_EXACT":
+            raise ValueError("DATE_RESOLUTION_UNVERIFIED")
+        # The saved reference is not sufficient: we also re-read the LIVE native
+        # CreatedDate using authenticated Salesforce UI API after navigation.
+        verify_createddate_utc_kst(
+            qid,reference["created_date"],reference.get("qq_created_date_kst"),
+            reference.get("native_created_at_utc"))
     page.goto(SFDC+"/lightning/r/Quotation__c/"+rid+"/view",wait_until="domcontentloaded",timeout=30000)
     page.wait_for_function("qid=>document.title.includes(qid)",arg=qid,timeout=18000)
+    if resolution:
+        result=page.evaluate("""async (rid)=>{
+          const res=await fetch('/services/data/v62.0/ui-api/records/'+rid
+             +'?fields=Quotation__c.CreatedDate',
+             {method:'GET',credentials:'same-origin'});
+          if(!res.ok)return null;
+          const obj=await res.json();
+          return obj?.fields?.CreatedDate?.value??null;
+        }""",rid)
+        if not result or result!=reference.get("native_created_at_utc"):
+            raise ValueError("LIVE_SFDC_CREATED_DATE_EVIDENCE_CHANGED")
+        verify_createddate_utc_kst(
+            qid,reference["created_date"],reference["qq_created_date_kst"],result)
     page.get_by_role("tab",name="Details",exact=True).click(timeout=10000)
     info=page.locator("body").inner_text(timeout=15000)
     lines=[s.strip() for s in info.splitlines() if s.strip()]
@@ -100,7 +123,11 @@ def extract(page,reference):
             product_signature=signature,unit_price_krw=r["unit_price_krw"],
             data_unit=r["data_unit"],data_size=r["data_size"],
             sample_quantity=r["sample_quantity"],process_name=r["process_name"],
-            product_name=product_name.strip()[:100]))
+            product_name=product_name.strip()[:100],
+            **({"source_date_resolution":"NATIVE_UTC_TO_ASIA_SEOUL_EXACT",
+                "native_created_at_utc":reference["native_created_at_utc"],
+                "qq_created_date_kst":reference["qq_created_date_kst"]}
+               if resolution else {})))
     return records
 def main():
     parser=argparse.ArgumentParser()
