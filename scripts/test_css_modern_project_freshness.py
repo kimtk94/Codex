@@ -140,7 +140,7 @@ class RetiredServerMigrationTests(unittest.TestCase):
         self.assertEqual("WINDOW_PARTIAL", filled["mail_window_state"])
         self.assertEqual("PARTIAL_MIRROR", monitor.summarize(filled)["status"])
         self.assertEqual(1, len(session.calls))
-        self.assertIn("A2:B2", session.calls[0][0])
+        self.assertIn("A2%3AB2", session.calls[0][0])
         self.assertNotIn("PRIVATE_CUSTOMER_NAME", str(filled.get("mail_window_state")))
         # Once the new UI reader has been merged, no redundant read.
         session.calls.clear()
