@@ -108,6 +108,38 @@ class JoinEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_receipt(receipt(checked_at=future))
 
+    def test_receipt_expiry_is_different_from_aged_underlying_snapshot(self):
+        old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=7)).isoformat()
+        data = receipt("MIRROR_3WAY_PARITY_RECENT", checked_at=old)
+        result = apply(data)
+        self.assertEqual("MIRROR_RECEIPT_STALE", result["revenue_mirror_evidence"])
+        self.assertEqual("payment_revenue", result["next_review"]["domain"])
+        self.assertEqual("REFRESH_EXPIRED_REVENUE_MIRROR_RECEIPT_READONLY",
+                         result["next_review"]["next_safe_action"])
+        self.assertEqual("NOT_VERIFIED", result["business_source_sink_verification"])
+        # A fresh file with an aged three-way snapshot is a separate condition.
+        aged = apply(receipt("MIRROR_3WAY_PARITY_AGED"))
+        self.assertEqual("MIRROR_3WAY_PARITY_AGED", aged["revenue_mirror_evidence"])
+
+    def test_wrong_calendar_month_cannot_masquerade_as_current_receipt(self):
+        previous_month = "2026-10"
+        rejected = apply(receipt("MIRROR_3WAY_PARITY_RECENT", month=previous_month))
+        self.assertEqual("MIRROR_RECEIPT_INVALID", rejected["revenue_mirror_evidence"])
+        self.assertEqual("REVIEW_INVALID_REVENUE_MIRROR_RECEIPT",
+                         rejected["next_review"]["next_safe_action"])
+
+    def test_timestamp_is_timezone_aware_and_future_fails_closed(self):
+        data = receipt("MIRROR_3WAY_PARITY_RECENT", checked_at="2026-11-16T12:00:00")
+        with self.assertRaises(ValueError):
+            validate_receipt(data)
+        now = dt.datetime.now(dt.timezone.utc)
+        checked = (now - dt.timedelta(hours=2)).isoformat()
+        self.assertEqual("MIRROR_3WAY_PARITY_RECENT",
+                         validate_receipt(receipt("MIRROR_3WAY_PARITY_RECENT",
+                                                 checked_at=checked), observed_at=now))
+        with self.assertRaises(ValueError):
+            validate_receipt(receipt(), observed_at=now.replace(tzinfo=None))
+
     def test_private_fields_are_never_copied_to_priority_artifact(self):
         report = apply(receipt(customer="sensitive", gross_krw=9999999,
                                invoice_id="confidential-ID"))
