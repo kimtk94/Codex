@@ -12,6 +12,12 @@ export function validateProjectManager(payload) {
       throw new Error("INVALID_PROJECT_MANAGER_ROW");
     if (row.quote_match_state !== "APPROVED_AMEA_MIRROR" && row.quote_name)
       throw new Error("UNVERIFIED_QUOTE_NAME");
+    if (row.quote_candidate_name &&
+        (row.quote_name || row.quote_candidate_state !== "UNVERIFIED_APPROVAL_DEDUP" ||
+         row.quote_candidate_count !== 1))
+      throw new Error("UNVERIFIED_CANDIDATE_PROMOTED");
+    if (row.legacy_completion_conflict === true && row.bucket === "PAYMENT")
+      throw new Error("STALE_CSS_FINANCE_TRANSITION");
     if (row.receipt_state !== "결제 증빙 미확인")
       throw new Error("FALSE_PAYMENT_CERTIFICATION");
     ids.add(row.project_id);
