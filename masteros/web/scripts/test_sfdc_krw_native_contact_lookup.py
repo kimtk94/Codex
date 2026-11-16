@@ -8,7 +8,7 @@ from sfdc_krw_native_contact_lookup import (
 NOW=dt.datetime(2026,11,16,13,0,tzinfo=dt.timezone.utc)
 def contact(c="003000000000AAA",a="001000000000AAA",name="김지훈"):
     return {
-      "korean_name":name,"institution_name":"합성대학교",
+      "korean_name":name,"institution_name":"합성대학교","account_name":"합성대학교",
       "account_id":a,"contact_id":c,
       "linked_opportunity_ids":["006000000000AAA"],
       "source_qid":"QID-2026-11-16-414586",
