@@ -17,6 +17,11 @@ def plan():
 class FakeCheckpoint:
     def __init__(self):
         self.snapshots = []
+        self.paused_flag = False
+        self.pause_after = None
+
+    def paused(self):
+        return self.paused_flag or (self.pause_after is not None and len(self.snapshots) >= self.pause_after)
 
     def save(self, state):
         self.snapshots.append(copy.deepcopy(state))
@@ -101,15 +106,55 @@ class AutonomousNextTests(unittest.TestCase):
 
     def test_issue_body_preserves_user_notes(self):
         cp = object.__new__(runner.IssueCheckpoint)
-        cp.body = "Manual notes\n" + runner.START + "\n{}\n" + runner.END + "\nKeep this"
+        cp.body = "Old notes\n" + runner.START + "\n{}\n" + runner.END
         records = []
-        cp.request = lambda method, payload=None: records.append((method, payload)) or {}
+        live_body = "Manual notes updated later\n" + runner.RUN_CHECKBOX + "\n" + runner.START + "\n{}\n" + runner.END + "\nKeep this"
+        def request(method, payload=None):
+            if method == "GET":
+                return {"body": live_body}
+            records.append((method, payload))
+            return {}
+        cp.request = request
         cp.save(self.s)
         body = records[0][1]["body"]
-        self.assertIn("Manual notes", body)
+        self.assertIn("Manual notes updated later", body)
         self.assertIn("Keep this", body)
         self.assertEqual(self.s["head_sha"], json.loads(
             body.split(runner.START)[1].split(runner.END)[0])["head_sha"])
+
+    def test_operator_pause_before_first_stage(self):
+        store = FakeCheckpoint()
+        store.paused_flag = True
+        with patch.object(runner, "execute_suite", side_effect=AssertionError("paused")):
+            result = runner.run(self.p, self.s, max_steps=5,
+                                checkpoint=store, root=runner.ROOT, dry_run=False)
+        self.assertEqual("PAUSED_BY_OPERATOR", result["overall"])
+        self.assertEqual(0, len(result["tasks"]))
+
+    def test_pause_between_stages_and_resume_safely(self):
+        store = FakeCheckpoint()
+        store.pause_after = 2
+        with patch.object(runner, "execute_suite", return_value=(True, "")) as exe:
+            runner.run(self.p, self.s, max_steps=5,
+                       checkpoint=store, root=runner.ROOT, dry_run=False)
+            self.assertEqual("PAUSED_BY_OPERATOR", self.s["overall"])
+            self.assertEqual(1, exe.call_count)
+            store.pause_after = None
+            runner.run(self.p, self.s, max_steps=5,
+                       checkpoint=store, root=runner.ROOT, dry_run=False)
+        self.assertEqual("TEST_CHAIN_PASS", self.s["overall"])
+        self.assertEqual(5, exe.call_count)
+
+    def test_operator_pause_checkbox_fail_closed_if_missing(self):
+        cp = object.__new__(runner.IssueCheckpoint)
+        body = "Notes\\n" + runner.START + "\\n{}\\n" + runner.END
+        cp.request = lambda method, payload=None: {"body": body}
+        with self.assertRaises(ValueError):
+            cp.paused()
+        body = runner.PAUSE_CHECKBOX + "\\n" + runner.START + "\\n{}\\n" + runner.END
+        self.assertTrue(cp.paused())
+        body = runner.RUN_CHECKBOX + "\\n" + runner.START + "\\n{}\\n" + runner.END
+        self.assertFalse(cp.paused())
 
     def test_receipt_is_explicitly_synthetic_only(self):
         with tempfile.TemporaryDirectory() as tmp:
