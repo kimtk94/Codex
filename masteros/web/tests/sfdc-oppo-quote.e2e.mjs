@@ -109,6 +109,32 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await page.getByRole("button",{name:"검토용 요청서 확인"}).click();
     assert.match(await page.locator("pre").innerText(), /HOLD_SFDC_ID_PRODUCT_PRICE_APPROVAL/);
     assert.match(await page.locator("pre").innerText(), /"alicloudQuantity": 3/);
+    // Local 2026-KRW-only price evidence fixture (synthetic), 0 server writes.
+    assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/KRW 공정별 가격 비교/);
+    const localPrices={
+      version:"sfdc-2026-krw-process-prices-v1",
+      source:"SFDC_AUTHENTICATED_READ_ONLY_KRW_PROCESS_LINES",
+      generated_at:new Date().toISOString(),salesforce_write_performed:false,
+      records:[{
+       source_kind:"VERIFIED_SFDC_KRW_PROCESS_PRICE",source_verified:true,
+       created_date:"2026-10-01",quote_id:"QID-2026-10-01-123456",
+       active:true,approval_status:"APPROVED",currency:"KRW",was_usd_converted:false,
+       vat_basis:"VAT_EXCLUDED",account_id:"001000000000AAA",contact_id:"003000000000AAA",
+       process_id:"Process-2026-01-01-00001",product_signature:"e".repeat(64),
+       unit_price_krw:"300000",data_unit:"G raw data",data_size:"6",sample_quantity:48,
+       product_name:"Synthetic RNA",process_name:"Sequencing by data amount"
+      }]
+    };
+    await page.locator("#krw-local-file").setInputFiles({name:"synthetic-krw.json",
+       mimeType:"application/json",buffer:Buffer.from(JSON.stringify(localPrices))});
+    await page.locator("#krw-product").selectOption("e".repeat(64));
+    await page.locator("#krw-process").selectOption("Process-2026-01-01-00001");
+    await page.locator("#krw-account-id").fill("001000000000AAA");
+    await page.locator("#krw-contact-id").fill("003000000000AAA");
+    assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/300,000 KRW/);
+    assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/재검증 필요/);
+    await page.getByRole("button",{name:"비교 견적으로 선택"}).click();
+    assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK/);
     assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
     assert.equal(nonReadRequests.length,0,"General intake must not POST/PUT/PATCH/DELETE");
   } finally {
