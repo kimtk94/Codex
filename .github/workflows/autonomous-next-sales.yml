@@ -1,0 +1,86 @@
+name: Autonomous Next - Sales Verification (No Save)
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_steps:
+        description: 'Maximum consecutive verification stages (1-10)'
+        required: false
+        type: number
+        default: 5
+      reset:
+        description: 'Reset existing test checkpoint (does not modify SFDC/Feishu)'
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: '45 12 * * *' # 21:45 Asia/Seoul; after existing SFDC report audits
+  push:
+    branches: [main]
+    paths:
+      - 'automation/orchestrator/**'
+      - '.github/workflows/autonomous-next-sales.yml'
+  pull_request:
+    paths:
+      - 'automation/orchestrator/**'
+      - '.github/workflows/autonomous-next-sales.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autonomous-next-sales-main-checkpoint
+  cancel-in-progress: false
+
+jobs:
+  unit-and-plan:
+    name: Validate runner and safe plan without network
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test progression, retry limits, and denied operations
+        run: python3 -m unittest discover -s automation/orchestrator -p 'test_*.py' -v
+      - name: Prove dry-run cannot write or mark source freshness verified
+        run: python3 automation/orchestrator/runner.py --dry-run --max-steps 5 --out /tmp/autonext-plan
+
+  auto-next:
+    name: Run up to five synthetic/offline stages and checkpoint to issue
+    if: github.event_name != 'pull_request'
+    needs: unit-and-plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      MAX_STEPS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_steps || 5 }}
+      RESET_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.reset || false }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute approved offline suites, save checkpoints and stop on failure
+        run: |
+          if [ "$RESET_REQUESTED" = "true" ]; then
+            python3 automation/orchestrator/runner.py --issue-number 794 --max-steps "$MAX_STEPS" --reset --out autonomous-next-results
+          else
+            python3 automation/orchestrator/runner.py --issue-number 794 --max-steps "$MAX_STEPS" --out autonomous-next-results
+          fi
+      - name: Preserve the exact state and execution summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-sales-receipt
+          path: autonomous-next-results/
+          retention-days: 30
+          if-no-files-found: warn
