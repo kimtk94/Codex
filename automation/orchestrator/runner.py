@@ -237,6 +237,20 @@ def run(plan: dict, state: dict, *, max_steps: int,
         state["updated_at"] = now()
         if checkpoint:
             checkpoint.save(state)
+            # The operator may have paused the issue between the first check
+            # and this RUNNING checkpoint write. Recheck immediately before
+            # launching the suite, and do not consume an attempt if no subprocess
+            # was started. The inevitable pause-vs-launch race is then confined
+            # to the final read/exec boundary.
+            if checkpoint.paused():
+                if before:
+                    state["tasks"][task_id] = before
+                else:
+                    del state["tasks"][task_id]
+                paused = True
+                state["updated_at"] = now()
+                checkpoint.save(state)
+                break
         passed, diagnostic = execute_suite(task["suite"], root=root)
         entry["status"] = "PASS" if passed else "FAILED"
         entry["finished_at"] = now()
