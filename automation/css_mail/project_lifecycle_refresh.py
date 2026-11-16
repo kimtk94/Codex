@@ -38,7 +38,8 @@ def latest_source_timestamp(rows):
 def present(r,i):
     return r[i] if i<len(r) else ""
 
-def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_rows):
+def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_rows,
+          previous_rows=None):
     """Build a single project-stage and billing view from live validated inputs.
 
     Invoice keys are invoice numbers; Statement keys are J-number + exact X
@@ -242,11 +243,23 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
     # rather than dropping it and blocking all unrelated issued Invoice Revenue.
     # Do not invent Feishu status, forecast, customer, or relationship evidence.
     feishu_x={str(row[0]).strip().upper() for row in out[1:]}
-    # Feishu may not yet list an X that was previously QQ-only Pending.
-    # When its exact J is later invoiced, the Pending J disappears but the
-    # *invoice-backed project identity must remain*. Otherwise 111 -> 110
-    # wrongly blocks every unrelated lifecycle/Revenue refresh.
-    for x in sorted(set(statement_notices)|set(invoices)):
+    # A broad invoice-only join would pull historical and unrelated X records
+    # into the live project registry. Retain *only* already tracked QQ-only X
+    # when its verified original invoice clears the last Pending J.
+    prior_qq_only=set()
+    for r in (previous_rows or [])[1:]:
+        x=str(present(r,0)).strip().upper()
+        if (re.fullmatch(r"X\\d+SC\\d+-Z\\d+",x)
+                and str(present(r,5))=="NOT_IN_FEISHU_SOURCE"
+                and "[QQ_ONLY]" in str(present(r,16))):
+            prior_qq_only.add(x)
+    # Independently verified unissued Statement J may still create a new
+    # source-only Pending X, as before. All *new* invoice-only X remain out
+    # of the project table until the Feishu source or a prior QQ-only row
+    # independently supports the project identity. Their Invoice amounts
+    # remain available to the separate invoice-based Actual ledger.
+    candidates=set(statement_notices)|(set(invoices)&prior_qq_only)
+    for x in sorted(candidates):
         if x in feishu_x:continue
         notices=statement_notices.get(x,{})
         inv=invoices.get(x,{})
@@ -257,8 +270,9 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
             record=statement_amounts.get(j+"-"+x)
             if record and record[1]==notices[j]:
                 verified.append(record[0])
-        if not verified and not inv:
-            # An unverified, unissued orphan is NOT a project or receivable.
+        if not verified and (not inv or x not in prior_qq_only):
+            # No verified *open* Statement or prior documented QQ-only row.
+            # Never bulk-add other customers' or historical invoiced X rows.
             continue
         am_set=source_amea_by_x.get(x,set())
         amea=next(iter(am_set)) if len(am_set)==1 else ""
@@ -314,10 +328,10 @@ def main():
     latest_qq=latest_source_timestamp(sources[4][1:])
     if not latest_qq or (now_utc-latest_qq).total_seconds()/3600>float(__import__("os").getenv("QQ_SOURCE_MAX_AGE_HOURS","6")):
         raise RuntimeError("QQ_SOURCE_STALE: stop project/revenue refresh")
-    result=build(*sources)
     previous=get(s,DST,TAB,"A1:X1000")
     if not previous or previous[0] not in (HEAD,HEAD[:22],HEAD[:20]):
         raise RuntimeError("Lifecycle output header changed; refusing update")
+    result=build(*sources,previous_rows=previous)
     if len(previous)>len(result):
         raise RuntimeError("LIFECYCLE_SOURCE_SHRINK_HOLD previous="+str(len(previous)-1)+" current="+str(len(result)-1)+" missing="+str(len(previous)-len(result)))
     put(s,DST,TAB,"A1",result,"RAW")
