@@ -77,6 +77,10 @@ Only fixed known diagnostic codes, validated GitHub run URLs, and counts are wri
 
 This implementation is **not** an autonomous code-editing agent. It does not schedule other workflows, retry failed jobs, bypass source/sink gates, push commits, merge PRs or touch customer systems. If the selected action is not a supported log audit, the job returns `NOT_APPLICABLE` without fetching any logs. It is disabled for PR events; PR unit tests use only mock logs.
 
+## Protected scheduling: main checkpoint vs PR checks
+
+The GitHub Actions workflow now isolates concurrency by event type: all `main` schedule/manual/push executions share **one serialized checkpoint group**, while each pull request uses its **own PR-specific CI group**. A burst of PR pushes must not occupy or replace the queued main scheduled checkpoint. The PR jobs have no business secrets or issue write access. Additional offline tests protect these event gates and the same-run read-only investigation artifact transfer.
+
 ## Checkpoint integrity and interrupted-run recovery
 
 Issue #794 is an operator-controlled checkpoint, **not** cryptographic proof that a test ran. On resume, the runner now validates the state schema, locked protection policy, plan fingerprint, step order, dependency PASS order, suite identity, timestamps and bounded attempt counters. A malformed nonempty checkpoint fails closed with `CHECKPOINT_CORRUPT_EXPLICIT_RESET_REQUIRED` instead of accepting a misleading PASS or silently overwriting the operator's state. An empty `{}` checkpoint remains a valid initial state.
