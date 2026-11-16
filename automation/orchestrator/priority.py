@@ -56,12 +56,16 @@ def load_policy(path=POLICY_PATH):
     if len(policy.get("domains", [])) != 9:
         raise ValueError("Expected nine policy domains")
     seen = set()
+    seen_workflows = set()
     for domain in policy["domains"]:
         name = domain.get("workflow", "")
         domain_id = domain.get("id")
-        if not isinstance(domain_id, str) or domain_id in seen or not NAME_PATTERN.fullmatch(name):
+        if (not isinstance(domain_id, str) or domain_id in seen
+                or not isinstance(name, str) or name in seen_workflows
+                or not NAME_PATTERN.fullmatch(name)):
             raise ValueError("Invalid duplicate domain or workflow name")
         seen.add(domain_id)
+        seen_workflows.add(name)
     if len(seen) != 9:
         raise ValueError("Duplicate domain")
     return policy
