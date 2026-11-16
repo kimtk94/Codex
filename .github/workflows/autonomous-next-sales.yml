@@ -50,9 +50,9 @@ jobs:
         run: python3 automation/orchestrator/runner.py --dry-run --max-steps 6 --out /tmp/autonext-plan
 
   next-review:
-    name: Rank next safe investigation from real GitHub Actions history
-    needs: unit-and-plan
-    if: needs.unit-and-plan.result == 'success'
+    name: Rank next safe investigation from CI and optional Revenue mirror evidence
+    needs: [unit-and-plan, revenue-mirror-evidence]
+    if: ${{ always() && needs.unit-and-plan.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     permissions:
@@ -67,8 +67,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Read nine main-branch workflow histories without business credentials
-        run: python3 automation/orchestrator/priority.py --out autonomous-next-triage/priority.json
+      - name: Fetch sanitized mirror receipt from earlier job, if present
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: autonomous-next-revenue-mirror
+          path: autonomous-next-triage
+      - name: Rank next safe investigation from nine workflows and mirror status
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            python3 automation/orchestrator/priority.py --out autonomous-next-triage/priority.json
+          else
+            python3 automation/orchestrator/priority.py --out autonomous-next-triage/priority.json --revenue-evidence-file autonomous-next-triage/monthly-revenue-mirror.json
+          fi
       - name: Keep sanitized next-review queue
         if: always()
         uses: actions/upload-artifact@v4
