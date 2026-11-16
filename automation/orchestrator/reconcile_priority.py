@@ -12,6 +12,9 @@ import json
 from pathlib import Path
 import re
 
+MAX_RECEIPT_AGE_HOURS = 6  # evidence-file lifespan; separate from mirror snapshot age
+KST = dt.timezone(dt.timedelta(hours=9))
+
 STATES = {
     "MIRROR_3WAY_PARITY_AGED",
     "MIRROR_3WAY_PARITY_RECENT",
@@ -28,11 +31,13 @@ ACTIONS = {
         115, "RESTORE_REVENUE_MIRROR_READONLY_EVIDENCE"),
     "MIRROR_RECEIPT_INVALID": (
         125, "REVIEW_INVALID_REVENUE_MIRROR_RECEIPT"),
+    "MIRROR_RECEIPT_STALE": (
+        130, "REFRESH_EXPIRED_REVENUE_MIRROR_RECEIPT_READONLY"),
 }
 MONTH = re.compile(r"^20\d{2}-(?:0[1-9]|1[0-2])$")
 
 
-def validate_receipt(data: dict) -> str:
+def validate_receipt(data: dict, *, observed_at: dt.datetime | None = None) -> str:
     if not isinstance(data, dict) or data.get("schema_version") != 1:
         raise ValueError("MIRROR_RECEIPT_SCHEMA")
     if (data.get("source_scope") != "GOOGLE_SHEETS_MIRROR_ONLY"
@@ -54,13 +59,24 @@ def validate_receipt(data: dict) -> str:
     if timestamp.utcoffset() is None:
         raise ValueError("MIRROR_RECEIPT_NAIVE_TIMESTAMP")
     # A receipt can be from the current run but not from a future timestamp.
-    if timestamp > dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10):
+    now = observed_at or dt.datetime.now(dt.timezone.utc)
+    if now.utcoffset() is None:
+        raise ValueError("MIRROR_OBSERVATION_TIMEZONE_REQUIRED")
+    if timestamp > now + dt.timedelta(minutes=10):
         raise ValueError("MIRROR_RECEIPT_FUTURE_TIMESTAMP")
+    # This workflow always audits its local current calendar month. Prevent
+    # a recent receipt about an older month from counting as a fresh audit.
+    if data["month"] != timestamp.astimezone(KST).strftime("%Y-%m"):
+        raise ValueError("MIRROR_RECEIPT_WRONG_CALENDAR_MONTH")
     if state.startswith("MIRROR_3WAY_PARITY_"):
         if (data.get("source_tabs_checked") != 3 or data.get("three_way_aggregate_parity") is not True
                 or data.get("snapshot_age_state") != (
                     "AGED_RECHECK" if state.endswith("_AGED") else "WITHIN_REVIEW_THRESHOLD")):
             raise ValueError("MIRROR_PARITY_CLAIM_UNSUPPORTED")
+    # Do not confuse receipt creation freshness with the independent 48-hour
+    # snapshot clock. An expired receipt cannot attest to today's mirror read.
+    if now - timestamp > dt.timedelta(hours=MAX_RECEIPT_AGE_HOURS):
+        return "MIRROR_RECEIPT_STALE"
     return state
 
 
