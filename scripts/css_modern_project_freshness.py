@@ -12,6 +12,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "masteros" / "web" / "scripts" / "css_projects_local.py"
@@ -21,6 +22,7 @@ COUNTS = ("source_count", "sink_count", "source_sink_mismatch_count",
           "missing_project_count", "unexpected_project_count")
 TIMES = ("checked_at", "source_synced_at", "sink_generated_at",
          "mail_mirror_updated_at", "source_manifest_date")
+MAIL_WINDOWS = frozenset(("WINDOW_CAUGHT_UP", "WINDOW_PARTIAL", "PARTIAL", "WINDOW_PENDING"))
 SAFE_MESSAGE = {
     "PASS_MIRROR_ONLY": "SCOPED_GOOGLE_MIRROR_PARITY_NOT_ORIGINAL_PROOF",
     "PARTIAL_MIRROR": "MAIL_WINDOW_INCOMPLETE_MIRROR_ONLY",
@@ -43,6 +45,14 @@ def summarize(report):
     state = report.get("status")
     if state not in VALID:
         raise ValueError("UNKNOWN_MIRROR_STATUS")
+    # main's older local reader reports PASS_MIRROR_ONLY even if the
+    # bounded mail backfill is PARTIAL. Do not depend on merging PR #806
+    # first: this guard independently requires and evaluates the window.
+    window = report.get("mail_window_state")
+    if state != "SOURCE_UNAVAILABLE" and window not in MAIL_WINDOWS:
+        raise ValueError("MAIL_WINDOW_NOT_VERIFIED")
+    if state == "PASS_MIRROR_ONLY" and window != "WINDOW_CAUGHT_UP":
+        state = "PARTIAL_MIRROR"
     if (report.get("original_feishu_verified") is True
             or report.get("original_qq_verified") is True
             or report.get("sfdc_save_verified") is True
@@ -68,11 +78,40 @@ def summarize(report):
         "sfdc_object_readback_verified": False,
         "business_source_sink_verification": "NOT_VERIFIED",
         "read_only": True,
+        "mail_window_state": window if window in MAIL_WINDOWS else "NOT_VERIFIED",
     }
     result.update(counts)
     for key in TIMES:
         value = report.get(key)
         result[key] = value[:50] if isinstance(value, str) else None
+    return result
+
+
+def attach_verified_mail_window(module, report):
+    """Recover the backfill window omitted by the unmerged legacy reader.
+
+    Re-read only A2:B2, and require the same timestamp used by the first
+    mirror evaluation. A concurrent row change is not a verified snapshot.
+    When PR #806 is eventually merged, use its existing window field.
+    """
+    if not isinstance(report, dict) or report.get("status") == "SOURCE_UNAVAILABLE":
+        return report
+    if "mail_window_state" in report:
+        return report
+    client = module.session()  # Existing Google Sheets readonly scope.
+    area = quote("'CSS Mail Backfill Status'!A2:B2", safe="!'")
+    url = ("https://sheets.googleapis.com/v4/spreadsheets/" + module.SRC
+           + "/values/" + area)
+    response = client.get(url, timeout=28)
+    response.raise_for_status()
+    rows = response.json().get("values", [])
+    if len(rows) != 1 or len(rows[0]) < 2:
+        raise ValueError("MAIL_WINDOW_ROW_MISSING")
+    when = module.when(rows[0][0])
+    if when is None or when.isoformat() != report.get("mail_mirror_updated_at"):
+        raise ValueError("MAIL_WINDOW_READ_RACE")
+    result = dict(report)
+    result["mail_window_state"] = rows[0][1]
     return result
 
 
@@ -85,7 +124,7 @@ def read_modern_mirror():
     spec = importlib.util.spec_from_file_location("css_projects_local", MODULE)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.google_fetch()
+    return attach_verified_mail_window(module, module.google_fetch())
 
 
 def main():
