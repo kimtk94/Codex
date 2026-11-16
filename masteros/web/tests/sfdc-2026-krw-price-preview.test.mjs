@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {canonicalPriceUnit,verifyPriceLine,parseKrwEvidence,rankKrwPrices,candidateSelection} from "../lib/sfdc-2026-krw-price-preview.mjs";
+import {canonicalPriceUnit,verifyPriceLine,parseKrwEvidence,rankKrwPrices,candidateSelection,summarizeKrwProductPrices} from "../lib/sfdc-2026-krw-price-preview.mjs";
 const aid="001000000000AAA",otherAid="001000000000AAB",cid="003000000000AAA",otherCid="003000000000AAB";
 const product="e".repeat(64),process="Process-2026-01-01-00001";
 const base={source_kind:"VERIFIED_SFDC_KRW_PROCESS_PRICE",source_verified:true,
@@ -78,4 +78,31 @@ test("2026 zero-data-size per-sample QC lines preserve NA rather than invent Gb"
  assert.equal(found.candidates[0].data_size,"");
  assert.equal(found.candidates[0].comparison_only,true);
  assert.equal(verifyPriceLine({...row,data_unit:"Gb"}),"DATA_SIZE_MISSING");
+});
+
+test("product/process KRW portfolio separates exact unit and data size conditions",()=>{
+ const rows=[base,
+  {...base,quote_id:"QID-2026-10-02-123457",account_id:otherAid,contact_id:otherCid,unit_price_krw:"350000"},
+  {...base,quote_id:"QID-2026-10-03-123458",process_id:"Process-2026-01-01-00002",data_unit:"NA",data_size:"",unit_price_krw:"0"}];
+ const src=parseKrwEvidence(evidence(rows),when);
+ const portfolio=summarizeKrwProductPrices(src);
+ assert.equal(portfolio.quote_count,3);
+ assert.equal(portfolio.product_count,1);
+ assert.equal(portfolio.process_line_count,3);
+ assert.equal(portfolio.group_count,2);
+ const gb=portfolio.groups.find(g=>g.data_unit==="Gb");
+ assert.equal(gb.quote_count,2);
+ assert.equal(gb.account_count,2);
+ assert.equal(gb.unit_price_min_krw,300000);
+ assert.equal(gb.unit_price_median_krw,325000);
+ assert.equal(gb.unit_price_max_krw,350000);
+ assert.equal(gb.sample_min,20);
+ const na=portfolio.groups.find(g=>g.data_unit==="NA");
+ assert.equal(na.unit_price_min_krw,0);
+ assert.equal(na.data_size,"");
+ assert.equal(portfolio.price_auto_apply,false);
+ assert.equal(portfolio.crm_writes,0);
+ const empty=summarizeKrwProductPrices(null);
+ assert.equal(empty.group_count,0);
+ assert.equal(empty.process_line_count,0);
 });

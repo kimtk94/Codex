@@ -133,6 +133,11 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await page.locator("#krw-contact-id").fill("003000000000AAA");
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/300,000 KRW/);
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/재검증 필요/);
+    const history=page.locator("summary").filter({hasText:"2026 KRW Product별 가격 이력 전체표"});
+    assert.equal(await history.count(),1);
+    await history.click();
+    assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/최저 KRW/);
+    assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/중앙 KRW/);
     await page.getByRole("button",{name:"비교 견적으로 선택"}).click();
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK/);
     assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
