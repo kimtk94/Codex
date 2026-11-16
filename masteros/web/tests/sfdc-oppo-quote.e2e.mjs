@@ -102,6 +102,23 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     assert.equal(await page.getByRole("heading",{name:"신규 Oppo + Quote"}).count(),1);
     await page.locator("#new-account").fill("합성대학교");
     await page.locator("#new-contact").fill("김민수");
+    const localContactEvidence={
+      version:"sfdc-oppo-contact-readback-v1",
+      source:"SFDC_LIGHTNING_READ_ONLY",
+      scope:"OPPORTUNITY_LINKED_CONTACTS",
+      salesforce_write_performed:false,query:"김민수",
+      generated_at:new Date().toISOString(),unresolved_matches:0,
+      candidates:[{korean_name:"김민수",institution_name:"합성대학교",
+        contact_id:"003000000000AAA",account_id:"001000000000AAA",
+        email:"synthetic-customer@example.org",linked_opportunity_ids:["006000000000AAA"]}]
+    };
+    await page.locator("#new-contact-readback").setInputFiles({name:"synthetic-contact.json",
+      mimeType:"application/json",buffer:Buffer.from(JSON.stringify(localContactEvidence))});
+    await page.locator("#new-contact-select").selectOption("003000000000AAA");
+    assert.equal(await page.locator("#krw-account-id").inputValue(),"001000000000AAA");
+    assert.equal(await page.locator("#krw-contact-id").inputValue(),"003000000000AAA");
+    assert.equal(await page.locator("#krw-account-id").isDisabled(),true);
+    assert.equal(await page.locator("#krw-contact-id").isDisabled(),true);
     await page.locator("#new-service").selectOption("RNA");
     await page.locator("#new-samples").fill("48");
     await page.locator("#new-production").fill("6");
@@ -129,8 +146,7 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
        mimeType:"application/json",buffer:Buffer.from(JSON.stringify(localPrices))});
     await page.locator("#krw-product").selectOption("e".repeat(64));
     await page.locator("#krw-process").selectOption("Process-2026-01-01-00001");
-    await page.locator("#krw-account-id").fill("001000000000AAA");
-    await page.locator("#krw-contact-id").fill("003000000000AAA");
+    assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/동일 Account \+ Contact/);
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/300,000 KRW/);
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/재검증 필요/);
     const history=page.locator("summary").filter({hasText:"2026 KRW Product별 가격 이력 전체표"});
