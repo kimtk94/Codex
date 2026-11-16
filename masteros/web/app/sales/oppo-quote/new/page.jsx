@@ -3,6 +3,8 @@ import {useMemo,useState} from "react";
 import KrwPricePanel from "./KrwPricePanel";
 import {inspectLocalContactEvidence} from "../../../../lib/sfdc-local-contact-evidence.mjs";
 import {selectExistingContact} from "../../../../lib/sfdc-contact-first-command.mjs";
+import {validKrwNativeContactQuery,validateLiveKrwContactSearch}
+ from "../../../../lib/sfdc-krw-native-contact-lookup.mjs";
 import Link from "next/link";
 import styles from "../page.module.css";
 import {PATTERNS,UNITS,DEFAULT_INPUT,createIntake} from "../../../../lib/sfdc-new-oppo-quote.mjs";
@@ -13,12 +15,38 @@ export default function NewQuote(){
  const [contactEvidence,setContactEvidence]=useState(null);
  const [contactSelection,setContactSelection]=useState(null);
  const [contactNotice,setContactNotice]=useState("");
+ const [liveContactBusy,setLiveContactBusy]=useState(false);
  const today=kstDate();const result=useMemo(()=>createIntake(input,today),[input,today]);
  const update=(k,v)=>{
   setInput(s=>({...s,[k]:v}));setShow(false);setNotice("");
   if(k==="contact"||k==="institution"||(k==="identityMode"&&v==="CHANGE")){
    setContactEvidence(null);setContactSelection(null);setContactNotice("");
   }
+ };
+ const searchLiveContact=async()=>{
+  if(liveContactBusy)return;
+  const checked=validKrwNativeContactQuery({query:input.contact,limit:10});
+  setContactSelection(null);setContactEvidence(null);
+  if(!checked.ok){setContactNotice("SFDC 조회 보류: "+checked.code);return;}
+  setLiveContactBusy(true);setContactNotice("로그인된 Salesforce에서 고객·Account·Opportunity 연결 재확인 중...");
+  try{
+   const response=await fetch("/api/sfdc/krw-contact-local",{
+    method:"POST",cache:"no-store",credentials:"omit",
+    headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+    body:JSON.stringify(checked.request)
+   });
+   const data=await response.json();
+   if(!response.ok||data.status!=="PASS")throw Error(data.code||"LIVE_SOURCE_UNAVAILABLE");
+   const confirmed=validateLiveKrwContactSearch(data,input.contact);
+   if(!confirmed.ok)throw Error(confirmed.code);
+   setContactEvidence(confirmed);
+   setContactNotice(confirmed.candidates.length?
+    "2026 KRW 검증 Quote에 연결된 고객 "+confirmed.candidates.length+"개 확인 · 기관과 Contact를 선택하세요.":
+    "검증된 2026 Quote 고객 색인에 일치하는 고객이 없습니다. Salesforce 전체 고객 조회 결과는 아닙니다.");
+  }catch(error){
+   setContactEvidence(null);setContactSelection(null);
+   setContactNotice("실시간 SFDC 조회 보류: "+(error?.message||"SOURCE_UNAVAILABLE")+". 로컬 JSON 확인은 계속 사용할 수 있습니다.");
+  }finally{setLiveContactBusy(false);}
  };
  const loadContactFile=async event=>{
   const f=event.currentTarget.files?.[0];event.currentTarget.value="";
@@ -42,7 +70,9 @@ export default function NewQuote(){
   setContactSelection(selected);
   setInput(prev=>({...prev,institution:selected.institution_name,
    contact:selected.korean_name,identityMode:"KEEP"}));
-  setContactNotice("선택한 기존 Account·Contact를 KRW 가격 비교에 연결했습니다. SFDC 저장·가격 적용 전에는 원본을 다시 확인해야 합니다.");
+  setContactNotice(contactEvidence?.status==="LIVE_QUOTE_LINKS_RECHECKED"?
+  "Salesforce에서 재확인한 고객을 KRW 가격 비교에 연결했습니다. 신규 가격 적용과 CRM 저장은 금지 상태입니다.":
+  "로컬 파일의 기존 고객을 KRW 가격 비교에 연결했습니다. 신규 Quote 적용 전에는 Salesforce 재확인이 필요합니다.");
  };
  const field=(id,label,value,onChange,placeholder="")=><div className={styles.field}><label htmlFor={id}>{label}</label><input id={id} value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)}/></div>;
  const copy=async()=>{if(result.missing.length)return;try{await navigator.clipboard.writeText(JSON.stringify(result,null,2));setNotice("검토용 JSON을 복사했습니다. Salesforce에는 전송하지 않았습니다.");}catch{setShow(true);setNotice("복사 실패: 아래 JSON을 직접 확인하세요.");}};
@@ -50,7 +80,7 @@ export default function NewQuote(){
   <header className={styles.header}><div className={styles.breadcrumb}><Link href="/sales/oppo-quote">기존 PMP 시범 화면</Link><span>/</span><strong>신규 Oppo·Quote 요청</strong></div>
    <div className={styles.headerBottom}><div><p className={styles.eyebrow}>SFDC · HISTORICAL REFERENCE</p><h1>신규 Oppo + Quote</h1><p className={styles.subhead}>과거 854개 Quote의 공통 공정 구조만 참고합니다. 가격·Product·Contact ID는 추정하지 않습니다.</p></div><div className={styles.statusPill}>No Save · 검토용</div></div>
   </header>
-  <div className={styles.banner} role="status"><span className={styles.bannerIcon}>!</span><span>SFDC 인증 고객 조회·실제 저장은 미연결입니다. 이 화면의 요청 정보는 브라우저 내부에서만 처리합니다. 참고 Quote 번호를 적어도 실제 Quote를 자동 복제하지 않습니다.</span></div>
+  <div className={styles.banner} role="status"><span className={styles.bannerIcon}>!</span><span>로그인된 Salesforce의 검증된 기존 Quote 고객을 읽기 전용으로 조회할 수 있습니다. Salesforce 저장은 미연결이며 입력한 요청 정보는 브라우저 내부에서만 처리합니다. 참고 Quote 번호를 적어도 실제 Quote를 자동 복제하지 않습니다.</span></div>
   <div className={styles.grid}>
    <section className={styles.panel}>
     <div className={styles.panelHeader}><span className={styles.stepNo}>01</span><div><h2>신규 견적 정보</h2><p>바뀐 사항만 입력 · 실제 고객 정보는 SFDC 확인 필요</p></div></div>
@@ -58,6 +88,14 @@ export default function NewQuote(){
      <div className={styles.two}>
       {field("new-account","기관 / Account",input.institution,v=>update("institution",v),"예: 제주대학교")}
       {field("new-contact","고객 한글 이름",input.contact,v=>update("contact",v),"예: 이태백")}
+     </div>
+     <div className={styles.field}>
+      <label htmlFor="new-contact-live">검증된 기존 고객 · Salesforce 읽기 전용 조회</label>
+      <button id="new-contact-live" className={styles.secondary} type="button"
+        disabled={liveContactBusy} onClick={searchLiveContact}>
+        {liveContactBusy?"기존 고객 관계 검증 중":"인증된 Salesforce 고객 직접 확인"}
+      </button>
+      <small>파일 업로드 없이 기존 검증된 2026 KRW Quote 고객만 검색합니다. 로그인된 Salesforce에서 Account(001)·Contact(003)·Opportunity(006) 관계를 다시 확인합니다. 전체 CRM 검색이 아니며, 결과가 없어도 고객 부재를 뜻하지 않습니다.</small>
      </div>
      <div className={styles.field}>
       <label htmlFor="new-contact-readback">기존 SFDC Contact 조회 결과 (로컬 JSON · 선택)</label>
@@ -71,7 +109,7 @@ export default function NewQuote(){
         </option>)}
       </select>}
       {contactNotice&&<small role="status">{contactNotice}</small>}
-      {contactSelection?.ok&&<small>선택된 Account 001 / Contact 003 · 동일 고객 단가 우선 조회 연결 · Salesforce 직접 재확인 필요</small>}
+      {contactSelection?.ok&&<small>선택된 Account 001 / Contact 003 · 동일 고객 단가 우선 조회 연결 · {contactEvidence?.status==="LIVE_QUOTE_LINKS_RECHECKED"?"원본 조회 완료, 신규 Quote 재승인 필요":"신규 Quote 적용 전 원본 재확인 필요"}</small>}
      </div>
      <div className={styles.field}><label htmlFor="new-identity">Account/Contact 관리</label><select id="new-identity" value={input.identityMode} onChange={e=>update("identityMode",e.target.value)}><option value="KEEP">기존 Account/Contact 유지</option><option value="CHANGE">Account/Contact 변경</option></select><small>실제 001/003 관계는 로그인된 Salesforce에서 재검증해야 합니다.</small></div>
      <div className={styles.two}><div className={styles.field}><label htmlFor="new-service">서비스</label><select id="new-service" value={input.service} onChange={e=>update("service",e.target.value)}><option value="">서비스 선택</option>{Object.entries(PATTERNS).map(([id,p])=><option key={id} value={id}>{p.label}</option>)}</select></div>
