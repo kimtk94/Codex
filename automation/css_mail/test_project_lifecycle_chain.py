@@ -177,6 +177,33 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(2,len(current))  # header + one Feishu project
         self.assertEqual(X,current[1][0])
 
+    def test_real_scale_110_feishu_plus_85_invoice_x_keeps_111_project_rows(self):
+        data=fixtures()
+        feishu_header=data[1][0]
+        row_template=data[1][1]
+        data[1]=[feishu_header]
+        for n in range(110):
+            row=list(row_template)
+            row[1]=f"X209SC2608{n:04d}-Z01"
+            row[2]=f"H209SC2608{n:04d}"
+            data[1].append(row)
+        for n in range(85):
+            x=f"X209SC2609{n:04d}-Z01"
+            data[2].append(inv("J001-"+x,f"209126{n:06d}",100000+n))
+        prior_x="X209SC26090000-Z01"
+        rows=build(*data,previous_rows=prior_source_only(x=prior_x))
+        self.assertEqual(111,len(rows)-1)
+        qq_only=[r for r in rows[1:] if r[5]=="NOT_IN_FEISHU_SOURCE"]
+        self.assertEqual(1,len(qq_only))
+        self.assertEqual(prior_x,qq_only[0][0])
+        self.assertEqual(1,qq_only[0][14])
+        self.assertEqual(100000,qq_only[0][15])
+        self.assertEqual("",qq_only[0][20])
+        self.assertEqual("NO_OPEN_STATEMENT",qq_only[0][23])
+        self.assertEqual(111,len({r[0] for r in rows[1:]}))
+        self.assertEqual(110,len([r for r in rows[1:]
+                                  if r[5]!="NOT_IN_FEISHU_SOURCE"]))
+
     def test_prior_qq_only_without_verified_invoice_remains_source_hold(self):
         data=fixtures()
         data[1]=[data[1][0]]
