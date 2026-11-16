@@ -7,6 +7,18 @@ class NeverNavigate:
     def goto(self,*args,**kwargs):
         raise AssertionError("CRM_NAVIGATION_MUST_NOT_HAPPEN")
 
+class CreatedDateChangedPage:
+    def __init__(self):
+        self.navigation_calls=0
+    def goto(self,*args,**kwargs):
+        self.navigation_calls+=1
+    def wait_for_function(self,*args,**kwargs):
+        return None
+    def evaluate(self,*args,**kwargs):
+        # Live Salesforce original is no longer the manifest's timestamp.
+        return "2026-08-18T23:55:20.000Z"
+
+
 class SfdcKrwReadbackTests(unittest.TestCase):
     def test_krw_amount_and_no_usd_or_negative(self):
         self.assertEqual(amount("4,275,000.00"),Decimal("4275000.00"))
@@ -42,6 +54,29 @@ class SfdcKrwReadbackTests(unittest.TestCase):
         valid={**base,"approval_evidence":"APPROVED_TEXT","process_ids":{}}
         with self.assertRaisesRegex(ValueError,"PROCESS_ID_MAP_MISSING"):
             extract(NeverNavigate(),valid)
+
+    def test_native_date_exception_must_recheck_live_salesforce_createddate(self):
+        reference={
+          "quote_id":"QID-2026-08-18-123456",
+          "record_id":"a0P000000000AAA",
+          "created_date":"2026-08-18",
+          "amea_id":"AMEA2026081801",
+          "approval_evidence":"APPROVED_TEXT",
+          "process_ids":{"Library preparation":"Process-2020-04-29-00039"},
+          "source_date_resolution":"NATIVE_UTC_TO_ASIA_SEOUL_EXACT",
+          "native_created_at_utc":"2026-08-18T23:55:19.000Z",
+          "qq_created_date_kst":"2026-08-19",
+        }
+        p=CreatedDateChangedPage()
+        with self.assertRaisesRegex(ValueError,"LIVE_SFDC_CREATED_DATE_EVIDENCE_CHANGED"):
+            extract(p,reference)
+        self.assertEqual(p.navigation_calls,1)
+        missing={**reference,"native_created_at_utc":None}
+        with self.assertRaisesRegex(ValueError,"NATIVE_UTC_TIMESTAMP_MISSING_OR_INVALID"):
+            extract(NeverNavigate(),missing)
+        invented={**reference,"source_date_resolution":"ADD_ONE_DAY_UNVERIFIED"}
+        with self.assertRaisesRegex(ValueError,"DATE_RESOLUTION_UNVERIFIED"):
+            extract(NeverNavigate(),invented)
 
     def test_next_field_does_not_guess_values(self):
         self.assertEqual(next_field(["Currency","KRW","Active","True"],"Currency"),"KRW")
