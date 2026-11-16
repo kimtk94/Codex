@@ -106,7 +106,10 @@ export default function ProjectManager(){
         <span>SFDC Save 없음 · 원본 수정 없음 · 결제 완료 자동 판단 없음</span>
       </div>
       <div className={styles.sourceTimes}>
-        <span>Feishu 미러 수집 {when(data?.source_synced_at)}</span>
+        <span>Feishu 미러 수집 {when(data?.source_synced_at)}
+          {typeof data?.source_age_hours==="number"&&" · "+data.source_age_hours+"시간 전"}
+          {" · 기준 "+(data?.source_freshness_limit_hours??12)+"시간"}
+        </span>
         <span>Quote 목록 {when(data?.quote_mirror_latest_at)}</span>
         <span>CSS SIF 기록 {when(data?.sif_mirror_latest_at)}</span>
         <span>Payment 미러 {when(data?.payment_mirror_latest_at)}</span>
