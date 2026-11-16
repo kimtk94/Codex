@@ -19,7 +19,10 @@ from priority import load_policy
 
 MAX_LOG_BYTES = 2_000_000
 MAX_JOBS = 3
-NEXT_ACTION = "INSPECT_FAILURE_LOGS_READ_ONLY"
+ALLOWED_INSPECTION_ACTIONS = frozenset({
+    "INSPECT_FAILURE_LOGS_READ_ONLY",
+    "COMPARE_FAILED_REVENUE_CI_WITH_RECENT_MIRROR_AND_ORIGINALS",
+})
 DIAGNOSTICS = (
     ("CANONICAL_LIFECYCLE_GROSS_COUNT_MISMATCH", "REVENUE_ISSUED_VS_LIFECYCLE_MISMATCH"),
     ("CANONICAL_AUTHORITY_PARITY_MISMATCH", "REVENUE_AUTHORITY_PARITY_MISMATCH"),
@@ -98,7 +101,7 @@ def selected(prioritization):
     if match != selected:
         raise ValueError("PRIORITY_SELECTION_DRIFT")
     # Non-log actions remain recommendations; they are NOT executed here.
-    if selected.get("next_safe_action") != NEXT_ACTION:
+    if selected.get("next_safe_action") not in ALLOWED_INSPECTION_ACTIONS:
         return None
     if selected.get("signal") != "CI_FAILED":
         raise ValueError("NON_FAILED_RUN_CANNOT_BE_INSPECTED")
