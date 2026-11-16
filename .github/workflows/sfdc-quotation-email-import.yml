@@ -6,6 +6,10 @@ on:
       - 'automation/feishu/sfdc_quote_report_bridge.py'
       - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'automation/sfdc/test_quotation_email_ingest.py'
+      - 'automation/sfdc/quote_header_source_health.py'
+      - 'automation/sfdc/test_quote_header_source_health.py'
+      - 'automation/sfdc/quote_header_source_health.py'
+      - 'automation/sfdc/test_quote_header_source_health.py'
       - '.github/workflows/sfdc-quotation-email-import.yml'
   workflow_dispatch:
   schedule:
@@ -36,7 +40,9 @@ jobs:
       - name: Install parser dependencies
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3' 'openpyxl>=3.1,<4'
       - name: Test attachment parser, rejection diagnostics and action output
-        run: python3 automation/sfdc/test_quotation_email_ingest.py
+        run: |
+          python3 automation/sfdc/test_quotation_email_ingest.py
+          python3 automation/sfdc/test_quote_header_source_health.py
   import:
     needs: offline
     outputs:
@@ -59,11 +65,18 @@ jobs:
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3' 'openpyxl>=3.1,<4'
       - name: Syntax check
         run: python3 -m py_compile automation/sfdc/quotation_email_ingest.py
-      - name: Test EUC-KR Quotation export parser
-        run: python3 automation/sfdc/test_quotation_email_ingest.py
+      - name: Test EUC-KR Quotation export parser and header freshness gate
+        run: |
+          python3 automation/sfdc/test_quotation_email_ingest.py
+          python3 automation/sfdc/test_quote_header_source_health.py
       - name: Read subscription email and import valid quotation attachment
         id: quote_import
         run: python3 automation/sfdc/quotation_email_ingest.py
+      - name: Independently verify Quote HEADER export currency and age
+        # Always inspect the stored Quote header even when IMAP had no new valid report.
+        # The process report sync cannot refresh this source. Do not report green
+        # when the header has stopped updating or old rows survived replacement.
+        run: python3 automation/sfdc/quote_header_source_health.py
       - name: Reconcile approved Quote IDs, Active amounts, weekly totals and master
         if: steps.quote_import.outputs.imported == 'true'
         run: python3 automation/css_mail/sfdc_quote_validation.py
