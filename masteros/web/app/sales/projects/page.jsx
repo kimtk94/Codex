@@ -14,7 +14,8 @@ const timeKst=value=>{
   }).format(date)+" KST";
 };
 const descriptions={
-  PASS_MIRROR_ONLY:"데이터 검증 PASS",
+  PASS_MIRROR_ONLY:"Google 미러 간 일치 (원본 미검증)",
+  PARTIAL_MIRROR:"메일 수집 범위 일부 미완료",
   SINK_LAG:"데이터 불일치",
   STALE:"동기화 지연",
   SOURCE_UNAVAILABLE:"원천 접근 불가",
@@ -80,12 +81,26 @@ export default function CssProjectsLocal(){
         <span>최종 수집: {timeKst(data?.source_synced_at)}</span>
         <span>최종 반영: {timeKst(data?.sink_generated_at)}</span>
         <span>재조회: {timeKst(data?.checked_at)}</span>
+        <span>기존 CSS 프로젝트 메일 기록: {timeKst(data?.legacy_project_latest_email_at)}</span>
       </div>
       <p className={styles.caution}>
         {error?"조회 실패: "+error:
-        status==="SINK_LAG"?"원천과 내보내기 결과가 일치하지 않습니다. 운영에 사용하기 전에 동기화가 필요합니다.":
-        status==="STALE"?"원천이나 결과 갱신이 지연됐습니다. 최신화 후 확인하세요.":
-        "프로젝트 상태는 최종 검증 시각을 기준으로 표시합니다."}
+        status==="SINK_LAG"?"Google 원천 미러와 V4 내보내기 결과가 일치하지 않습니다. 운영에 사용하기 전에 동기화가 필요합니다.":
+        status==="STALE"?"Google 미러 또는 V4 내보내기 갱신이 지연됐습니다.":
+        status==="PARTIAL_MIRROR"?"메일 백필이 일부 완료되지 않았습니다. 프로젝트 데이터의 완전성을 보장하지 않습니다.":
+        "Google Sheet 미러 간 일치만 확인했습니다. 원본 QQ·Feishu와 SFDC 최신성은 별도 검증이 필요합니다."}
+      </p>
+      {data?.legacy_project_health==="LEGACY_STALE"&&<p className={styles.caution}>
+        주의: 기존 CSS Project Dashboard 기록이 {data.legacy_project_age_days}일 전에서 멈춰 있습니다.
+        최근 V4 내보내기 생성 시각과 실제 레거시 프로젝트 메일 최신성은 다릅니다.
+      </p>}
+      {data?.legacy_project_health==="LEGACY_NO_VALID_EVENT"&&<p className={styles.caution}>
+        기존 CSS Project Dashboard의 최종 이벤트 시각을 확인할 수 없습니다.
+      </p>}
+      <p className={styles.caution}>
+        메일 수집 범위: {data?.mail_window_state||"미확인"} (일부 수집 범위 내 상태).
+        원본 Feishu 확인: {data?.original_feishu_verified?"확인":"미검증"};
+        원본 QQ 확인: {data?.original_qq_verified?"확인":"미검증"}.
       </p>
     </section>
 
