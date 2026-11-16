@@ -119,3 +119,52 @@ export function candidateSelection(intake,candidate){
   requested_service:intake?.input?.service||"UNVERIFIED"
  };
 }
+
+
+/** Group locally reviewed 2026 KRW prices by exact Product, Process, Unit and Data Size.
+ * These are historical ranges, never a default or an approval for the new Quote.
+ * Include 0-unit-price bundled steps without calling them free.
+ */
+export function summarizeKrwProductPrices(evidence) {
+ const rows=Array.isArray(evidence?.records)?evidence.records:[];
+ const groups=new Map(),quotes=new Set(),products=new Set();
+ for(const r of rows) {
+  const price=Number(r.unit_price_krw);
+  if(!Number.isFinite(price)||price<0)continue;
+  const key=JSON.stringify([r.product_signature,r.process_id,r.data_unit,r.data_size]);
+  let group=groups.get(key);
+  if(!group){
+   group={product_signature:r.product_signature,product_name:r.product_name||"Product",
+    process_id:r.process_id,process_name:r.process_name||"Process",
+    data_unit:r.data_unit,data_size:r.data_size,prices:[],quotes:new Set(),
+    accounts:new Set(),sample_quantities:[]};
+   groups.set(key,group);
+  }
+  group.prices.push(price);
+  group.quotes.add(r.quote_id);
+  group.accounts.add(r.account_id);
+  group.sample_quantities.push(r.sample_quantity);
+  quotes.add(r.quote_id);
+  products.add(r.product_signature);
+ }
+ const summary=[...groups.values()].map(g=>{
+  const p=g.prices.sort((a,b)=>a-b);
+  const n=p.length,mid=Math.floor(n/2);
+  return {
+   product_signature:g.product_signature,product_name:g.product_name,
+   process_id:g.process_id,process_name:g.process_name,
+   data_unit:g.data_unit,data_size:g.data_size,
+   quote_count:g.quotes.size,account_count:g.accounts.size,
+   unit_price_min_krw:p[0],unit_price_median_krw:n%2?p[mid]:(p[mid-1]+p[mid])/2,
+   unit_price_max_krw:p[n-1],sample_min:Math.min(...g.sample_quantities),
+   sample_max:Math.max(...g.sample_quantities),historical_reference_only:true
+  };
+ });
+ summary.sort((a,b)=>a.product_name.localeCompare(b.product_name)
+  ||a.process_name.localeCompare(b.process_name)
+  ||a.data_unit.localeCompare(b.data_unit)
+  ||String(a.data_size).localeCompare(String(b.data_size))
+  ||a.product_signature.localeCompare(b.product_signature));
+ return {product_count:products.size,quote_count:quotes.size,process_line_count:rows.length,
+  group_count:summary.length,groups:summary,price_auto_apply:false,crm_writes:0};
+}
