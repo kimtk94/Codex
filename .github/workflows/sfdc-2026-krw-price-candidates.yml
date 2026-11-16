@@ -13,6 +13,8 @@ on:
       - 'automation/sfdc/quote_2026_historical_batch_selection.py'
       - 'automation/sfdc/test_quote_2026_historical_batch_selection.py'
       - 'automation/sfdc_desktop/quote_2026_krw_browser_export.py'
+      - 'automation/sfdc_desktop/quote_2026_createddate_kst_guard.py'
+      - 'automation/sfdc_desktop/test_quote_2026_createddate_kst_guard.py'
       - 'automation/sfdc_desktop/quote_2026_krw_totals_guard.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_totals_guard.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_browser_export.py'
@@ -32,6 +34,8 @@ on:
       - 'automation/sfdc/quote_2026_historical_batch_selection.py'
       - 'automation/sfdc/test_quote_2026_historical_batch_selection.py'
       - 'automation/sfdc_desktop/quote_2026_krw_browser_export.py'
+      - 'automation/sfdc_desktop/quote_2026_createddate_kst_guard.py'
+      - 'automation/sfdc_desktop/test_quote_2026_createddate_kst_guard.py'
       - 'automation/sfdc_desktop/quote_2026_krw_totals_guard.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_totals_guard.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_browser_export.py'
@@ -70,9 +74,10 @@ jobs:
         run: |
           python3 -m pip install 'playwright>=1.56,<2'
           python3 -m unittest discover -s automation/sfdc_desktop -p 'test_quote_2026_krw_totals_guard.py' -v
+          python3 -m unittest discover -s automation/sfdc_desktop -p 'test_quote_2026_createddate_kst_guard.py' -v
           python3 -m unittest discover -s automation/sfdc_desktop -p 'test_quote_2026_krw_browser_export.py' -v
           python3 -m unittest discover -s automation/sfdc_desktop -p 'test_quote_2026_krw_multi_product_export.py' -v
-          python3 -m py_compile automation/sfdc_desktop/quote_2026_krw_browser_export.py automation/sfdc_desktop/quote_2026_krw_multi_product_export.py automation/sfdc_desktop/quote_2026_krw_totals_guard.py
+          python3 -m py_compile automation/sfdc_desktop/quote_2026_krw_browser_export.py automation/sfdc_desktop/quote_2026_krw_multi_product_export.py automation/sfdc_desktop/quote_2026_krw_totals_guard.py automation/sfdc_desktop/quote_2026_createddate_kst_guard.py
       - name: Test native Contact 001/003/006 local lookup with no Salesforce access
         run: |
           python3 -m unittest discover -s masteros/web/scripts -p 'test_sfdc_krw_native_contact_lookup.py' -v
