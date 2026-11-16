@@ -172,6 +172,8 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None,
         next_action = "과거 진행률 100% ≠ 현재 공정 완료 · 공정 확인"
     elif owner_invoice_record_count and not quote_name:
         next_action = "인보이스 흔적 존재 · Quote/Owner/입금 원문 확인"
+    elif quote_time_gap and not quote_name:
+        next_action = "Quote Export 시점 미대응 · 최신 승인 Report 갱신 후 연결 확인"
     elif candidate_names and not quote_name:
         next_action = "Quote 승인·Active·원문 링크 확인 · " + next_action
     if stage_group(stage) == "공정 미확인" and not completed:
