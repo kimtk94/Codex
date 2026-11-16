@@ -104,6 +104,77 @@ class AutonomousNextTests(unittest.TestCase):
         date = dt.datetime.fromisoformat(self.s["started_at"]) + dt.timedelta(hours=25)
         self.assertFalse(runner.reusable(self.s, self.p, "abc", current=date))
 
+    def test_checkpoint_requires_locked_policy_and_no_unknown_statuses(self):
+        self.assertTrue(runner.checkpoint_shape_valid(self.s, self.p))
+        for changes in (
+            {"policy": {"sfdc_save": True, "email_send": False,
+                        "pr_merge": False, "live_source_verified": False}},
+            {"policy": {"sfdc_save": False}},
+            {"overall": "USER_CLAIMED_LIVE_SOURCE_PASS"},
+            {"unexpected_private_data": "do not serialize"},
+            {"updated_at": "not-a-time"},
+        ):
+            with self.subTest(changes=changes):
+                corrupted = copy.deepcopy(self.s)
+                corrupted.update(changes)
+                self.assertFalse(runner.checkpoint_shape_valid(corrupted, self.p))
+                self.assertFalse(runner.reusable(corrupted, self.p, "abc"))
+
+    def test_checkpoint_rejects_forged_pass_without_executed_metadata(self):
+        injected = copy.deepcopy(self.s)
+        injected["tasks"]["policy-guard"] = {
+            "status": "PASS", "attempts": 1, "suite": "policy"}
+        injected["overall"] = "TEST_CHAIN_PASS"
+        self.assertFalse(runner.checkpoint_shape_valid(injected, self.p))
+        injected = copy.deepcopy(self.s)
+        injected["overall"] = "TEST_CHAIN_PASS"
+        self.assertFalse(runner.checkpoint_shape_valid(injected, self.p))
+
+    def test_checkpoint_rejects_out_of_order_pass_and_excess_retries(self):
+        bad = copy.deepcopy(self.s)
+        bad["overall"] = "PARTIAL"
+        now = runner.now()
+        bad["tasks"]["sfdc-oppo-quote"] = {
+            "status": "PASS", "attempts": 1, "suite": "sfdc_patterns",
+            "started_at": now, "finished_at": now}
+        self.assertFalse(runner.checkpoint_shape_valid(bad, self.p))
+        bad["tasks"].pop("sfdc-oppo-quote")
+        bad["tasks"]["policy-guard"] = {
+            "status": "FAILED", "attempts": 999, "suite": "policy",
+            "started_at": now, "finished_at": now,
+            "failure_code": "OFFLINE_SUITE_NONZERO_EXIT"}
+        self.assertFalse(runner.checkpoint_shape_valid(bad, self.p))
+        bad["tasks"]["policy-guard"]["attempts"] = 1
+        bad["tasks"]["policy-guard"]["failure_excerpt"] = "PRIVATE_DATA"
+        self.assertFalse(runner.checkpoint_shape_valid(bad, self.p))
+
+    def test_interrupted_running_checkpoint_can_resume_as_unverified_attempt(self):
+        interrupted = copy.deepcopy(self.s)
+        interrupted["overall"] = "RUNNING"
+        interrupted["tasks"]["policy-guard"] = {
+            "status": "RUNNING", "attempts": 1, "suite": "policy",
+            "started_at": runner.now()}
+        self.assertTrue(runner.checkpoint_shape_valid(interrupted, self.p))
+        self.assertTrue(runner.reusable(interrupted, self.p, "abc"))
+        with patch.object(runner, "execute_suite", return_value=(True, "")) as call:
+            runner.run(self.p, interrupted, max_steps=6,
+                       checkpoint=None, root=runner.ROOT, dry_run=False)
+        self.assertEqual(6, call.call_count)
+        self.assertEqual("TEST_CHAIN_PASS", interrupted["overall"])
+        self.assertEqual(2, interrupted["tasks"]["policy-guard"]["attempts"])
+        self.assertTrue(runner.checkpoint_shape_valid(interrupted, self.p))
+
+    def test_finished_checkpoint_remains_resumable_and_requires_no_rerun(self):
+        with patch.object(runner, "execute_suite", return_value=(True, "")):
+            runner.run(self.p, self.s, max_steps=6,
+                       checkpoint=None, root=runner.ROOT, dry_run=False)
+        self.assertTrue(runner.reusable(self.s, self.p, "abc"))
+        with patch.object(runner, "execute_suite",
+                          side_effect=AssertionError("already completed")):
+            runner.run(self.p, self.s, max_steps=6,
+                       checkpoint=None, root=runner.ROOT, dry_run=False)
+        self.assertEqual("TEST_CHAIN_PASS", self.s["overall"])
+
     def test_issue_body_preserves_user_notes(self):
         cp = object.__new__(runner.IssueCheckpoint)
         cp.body = "Old notes\n" + runner.START + "\n{}\n" + runner.END
