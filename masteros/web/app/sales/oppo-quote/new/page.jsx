@@ -1,5 +1,6 @@
 "use client";
 import {useMemo,useState} from "react";
+import KrwPricePanel from "./KrwPricePanel";
 import Link from "next/link";
 import styles from "../page.module.css";
 import {PATTERNS,UNITS,DEFAULT_INPUT,createIntake} from "../../../../lib/sfdc-new-oppo-quote.mjs";
@@ -65,6 +66,7 @@ export default function NewQuote(){
     </section>
    </aside>
   </div>
+  <div style={{marginTop:18}}><KrwPricePanel intake={result}/></div>
   {show&&<section className={styles.output}><div className={styles.outputTop}><div><h2>검토용 JSON</h2><p>고객 정보가 포함됩니다. 공개 저장소에 올리지 마세요.</p></div></div><pre>{JSON.stringify(result,null,2)}</pre></section>}
   <footer className={styles.footer}>SFDC 신규 생성 초안 · Salesforce write 0건 · 실제 가격 자동 설정 0건</footer>
  </div></main>;
