@@ -20,7 +20,7 @@ After the PR is reviewed and merged, navigate to **Actions → Autonomous Next -
 - Workflow run summary: completed/remaining stages and next blocked stage.
 - `autonomous-next-sales-receipt` artifact: `state.json` and `summary.md`, retained for 30 days.
 
-If the pause checkbox is missing or ambiguous, operation fails closed instead of running more tests. Pause does not bypass prior failures, and `reset=true` does not override the checkbox. The checkpoint is reused only if the plan fingerprint and commit SHA match and it is less than 24 hours old. Otherwise a fresh synthetic verification cycle begins. **Issue and artifact records are test evidence, not acceptance of source-to-sink data freshness.**
+If the pause checkbox is missing or ambiguous, operation fails closed instead of running more tests. The runner checks pause once more **after saving a RUNNING checkpoint and immediately before launching the next test**. If paused at that point, the test is not launched and the unused attempt is restored; the final record is PAUSED_BY_OPERATOR. This cannot make a GitHub Issue toggle atomic with subprocess launch: a toggle in the tiny interval after the final check may take effect only at the following stage. The checkbox pauses **checkpointed test stages**, not separate read-only evidence jobs. Pause does not bypass prior failures, and `reset=true` does not override the checkbox. The checkpoint is reused only if the plan fingerprint and commit SHA match and it is less than 24 hours old. Otherwise a fresh synthetic verification cycle begins. **Issue and artifact records are test evidence, not acceptance of source-to-sink data freshness.**
 
 ## Test locally
 
