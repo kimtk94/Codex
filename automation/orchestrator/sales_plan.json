@@ -13,25 +13,41 @@
       "id": "sfdc-oppo-quote",
       "title": "Common Oppo/Quote pattern extraction (synthetic)",
       "suite": "sfdc_patterns",
-      "depends_on": ["policy-guard"]
+      "depends_on": [
+        "policy-guard"
+      ]
     },
     {
       "id": "sfdc-krw-price",
       "title": "2026 KRW-only price reuse rules (synthetic)",
       "suite": "sfdc_krw",
-      "depends_on": ["sfdc-oppo-quote"]
+      "depends_on": [
+        "sfdc-oppo-quote"
+      ]
     },
     {
       "id": "feishu-offline",
       "title": "Feishu connector offline regressions",
       "suite": "feishu_offline",
-      "depends_on": ["sfdc-krw-price"]
+      "depends_on": [
+        "sfdc-krw-price"
+      ]
+    },
+    {
+      "id": "freshness-contract",
+      "title": "Nine-domain source/sink freshness classification (offline contract)",
+      "suite": "freshness_policy",
+      "depends_on": [
+        "feishu-offline"
+      ]
     },
     {
       "id": "evidence-integrity",
       "title": "Evidence acceptance gate regression",
       "suite": "progress_evidence",
-      "depends_on": ["feishu-offline"]
+      "depends_on": [
+        "freshness-contract"
+      ]
     }
   ]
 }
