@@ -163,6 +163,57 @@ class AutonomousNextTests(unittest.TestCase):
             self.assertIn("Remaining stages: **6**", summary)
             self.assertTrue((Path(tmp) / "state.json").exists())
 
+    def test_failed_suite_never_leaks_stdout_stderr_or_credentials(self):
+        private = "CONFIDENTIAL_CUSTOMER_MAIL_AND_INVOICE_010203"
+        class Failed:
+            returncode = 2
+            stdout = private
+            stderr = private + " MISSING_PRIVATE_SECRET"
+        with patch.dict(runner.os.environ, {
+            "GITHUB_TOKEN": private, "QQ_PASSWORD": private,
+            "FEISHU_APP_ID": private, "CKD_DRIVE_SA_JSON": private,
+            "GCP_SERVICE_ACCOUNT_JSON": private, "API_TOKEN": private,
+            "OPENAI_API_KEY": private,
+        }):
+            with patch.object(runner.subprocess, "run", return_value=Failed()) as mock_run:
+                ok, diagnostic = runner.execute_suite("policy")
+        self.assertFalse(ok)
+        self.assertEqual("OFFLINE_SUITE_NONZERO_EXIT", diagnostic)
+        _, kwargs = mock_run.call_args
+        self.assertTrue(kwargs["capture_output"])
+        self.assertNotIn("shell", kwargs)
+        self.assertNotIn("QQ_PASSWORD", kwargs["env"])
+        self.assertNotIn("CKD_DRIVE_SA_JSON", kwargs["env"])
+        self.assertNotIn("GCP_SERVICE_ACCOUNT_JSON", kwargs["env"])
+        self.assertNotIn("GITHUB_TOKEN", kwargs["env"])
+        self.assertNotIn("API_TOKEN", kwargs["env"])
+        self.assertEqual("", kwargs["env"]["FEISHU_APP_ID"])
+        self.assertNotIn(private, str(kwargs["env"]))
+        self.assertNotIn(private, diagnostic)
+
+    def test_failed_checkpoint_writes_only_sanitized_failure_code(self):
+        private = "PRIVATE_INVOICE_CONTACT_010203"
+        store = FakeCheckpoint()
+        with patch.object(runner, "execute_suite", return_value=(False, private)):
+            result = runner.run(self.p, self.s, max_steps=6,
+                                checkpoint=store, root=runner.ROOT, dry_run=False)
+        self.assertEqual("FAILED_RETRYABLE", result["overall"])
+        entry = result["tasks"]["policy-guard"]
+        self.assertEqual("OFFLINE_SUITE_FAILED_UNCLASSIFIED", entry["failure_code"])
+        self.assertNotIn("failure_excerpt", entry)
+        self.assertNotIn(private, json.dumps(result))
+        self.assertTrue(all(private not in json.dumps(snapshot) for snapshot in store.snapshots))
+        with tempfile.TemporaryDirectory() as temp:
+            runner.report(self.p, result, Path(temp))
+            self.assertNotIn(private, (Path(temp) / "state.json").read_text())
+
+    def test_timeout_is_code_only(self):
+        with patch.object(runner.subprocess, "run",
+                          side_effect=runner.subprocess.TimeoutExpired(cmd=["python3"], timeout=3)):
+            ok, code = runner.execute_suite("policy", timeout=3)
+        self.assertFalse(ok)
+        self.assertEqual("OFFLINE_SUITE_TIMED_OUT", code)
+
     def test_execute_suite_has_no_shell_or_live_credentials(self):
         class Result:
             returncode = 0
