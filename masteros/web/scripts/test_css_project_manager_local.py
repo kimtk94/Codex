@@ -144,6 +144,16 @@ class ProjectManagerTests(unittest.TestCase):
         self.assertIn("CSS_PROGRESS_100_STAGE_MISMATCH",result["review_reasons"])
         self.assertEqual(run()["counts"]["legacy_progress_100_conflicts"],0)
 
+    def test_freshness_passes_only_with_recent_source_and_mail(self):
+        stale_source=run(manifest=[MANIFEST[0],["Online-Project",
+                             "2026-11-16T03:00:00+09:00"]])
+        self.assertEqual(stale_source["status"],"STALE")
+        self.assertGreater(stale_source["source_age_hours"],12)
+        stale_mail=run(mail=[MAIL[0],["2026-11-15 12:00:00 KST","WINDOW_CAUGHT_UP"]])
+        self.assertEqual(stale_mail["status"],"STALE")
+        self.assertGreater(stale_mail["mail_age_hours"],24)
+        self.assertEqual(run()["status"],"PASS_MIRROR_ONLY")
+
     def test_stage_group_uses_feishu_operations_vocabulary(self):
         self.assertEqual(stage_group("Waiting for Settlement"),"정산/완료")
         self.assertEqual(stage_group("Waiting PO/payment"),"계약/SIF")
