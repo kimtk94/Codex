@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 
 from reconcile_priority import with_mirror_evidence
+from original_source_evidence import annotate_priority
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "automation" / "ops" / "css_freshness_policy.json"
@@ -201,6 +202,7 @@ def summary(report):
         f"- CI domains checked: **{report['domain_count']}/9**",
         f"- GitHub metadata unavailable: **{report['unavailable_workflow_count']}**",
         "- Business source/sink freshness: **NOT VERIFIED**",
+        f"- Original QQ/Feishu scoped probe: **{report.get('authenticated_probe_signal', 'NOT_COLLECTED_PR')}**",
         f"- Revenue mirror receipt: **{report.get('revenue_mirror_evidence', 'NOT_COLLECTED')}**",
         "- This ranks read-only investigation tasks; it does not dispatch workflows or change SFDC/Feishu.",
     ]
@@ -223,10 +225,23 @@ def main():
     ap.add_argument("--out", type=Path, default=Path("autonomous-next-triage/priority.json"))
     ap.add_argument("--policy", type=Path, default=POLICY_PATH)
     ap.add_argument("--revenue-evidence-file", type=Path, default=None)
+    ap.add_argument("--original-evidence-file", type=Path, default=None)
     args = ap.parse_args()
     report = build_priority(load_policy(args.policy), token=os.getenv("GITHUB_TOKEN"),
                             repo=os.getenv("GITHUB_REPOSITORY", EXPECTED_REPO))
     report = with_mirror_evidence(report, receipt_path=args.revenue_evidence_file)
+    if args.original_evidence_file is None:
+        report["authenticated_probe_signal"] = "SOURCE_AUDIT_NOT_COLLECTED_PR"
+    else:
+        try:
+            receipt = json.loads(args.original_evidence_file.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            receipt = {"signal": "SOURCE_AUDIT_ARTIFACT_MISSING",
+                       "business_source_sink_verification": "NOT_VERIFIED"}
+        except (OSError, ValueError, TypeError):
+            receipt = {"signal": "SOURCE_AUDIT_INVALID",
+                       "business_source_sink_verification": "NOT_VERIFIED"}
+        report = annotate_priority(report, receipt)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     text = summary(report)
