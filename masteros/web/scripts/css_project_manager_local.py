@@ -18,6 +18,9 @@ from css_projects_local import KST, session, when
 SOURCE_BOOK = "1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD4PqnI"
 CSS_BOOK = "1753nq7_zX-6ae7srmJryHrFECEG5L9Mjf7JvjrbFxVY"
 MAX_PROJECTS = 1500
+# The Feishu mirror is on a frequent schedule; a 36-hour green window is unsafe.
+SOURCE_MIRROR_MAX_AGE_HOURS = 12
+MAIL_MIRROR_MAX_AGE_HOURS = 24
 COMPLETION_RE = re.compile(r"final\s*report|statement\s*(?:ready|confirm)|completed|finished|deliver(?:ed|y)", re.I)
 # Finance transition must come from current Feishu state, not an older CSS email.
 FEISHU_FINANCE_STAGE = re.compile(
@@ -282,14 +285,19 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
     # Quote identity missing/ambiguous is a REVIEW queue; does not erase physical stage.
     sync_age = (now - source_at).total_seconds()/3600 if source_at else None
     mail_age = (now - mail_at).total_seconds()/3600 if mail_at else None
-    recent = all(t is not None and -0.2 <= t <= 36 for t in (sync_age, mail_age))
-    status = ("STALE" if not recent else
+    source_fresh = sync_age is not None and -0.2 <= sync_age <= SOURCE_MIRROR_MAX_AGE_HOURS
+    mail_fresh = mail_age is not None and -0.2 <= mail_age <= MAIL_MIRROR_MAX_AGE_HOURS
+    status = ("STALE" if not (source_fresh and mail_fresh) else
               "PARTIAL_MIRROR" if mail_state != "WINDOW_CAUGHT_UP" else
               "PASS_MIRROR_ONLY")
     return {
         "status": status, "scope": "GOOGLE_MIRRORS_NOT_ORIGINAL_FEISHU_QQ_SFDC",
         "checked_at": now.isoformat(), "source_synced_at": iso(source_at),
         "mail_synced_at": iso(mail_at), "mail_window_state": mail_state,
+        "source_age_hours": round(sync_age, 1) if sync_age is not None else None,
+        "mail_age_hours": round(mail_age, 1) if mail_age is not None else None,
+        "source_freshness_limit_hours": SOURCE_MIRROR_MAX_AGE_HOURS,
+        "mail_freshness_limit_hours": MAIL_MIRROR_MAX_AGE_HOURS,
         "quote_mirror_latest_at": iso(latest(quotes, "Source Timestamp")),
         "sif_mirror_latest_at": iso(latest(sifs, "updated_at")),
         "payment_mirror_latest_at": iso(latest(pays, "Last verified KST")),
@@ -365,7 +373,9 @@ def main():
     if args.summary_only:
         payload = {k: payload.get(k) for k in (
             "status", "scope", "source_synced_at", "mail_synced_at",
-            "mail_window_state", "quote_mirror_latest_at", "sif_mirror_latest_at",
+            "source_age_hours", "mail_age_hours", "source_freshness_limit_hours",
+            "mail_freshness_limit_hours", "mail_window_state",
+            "quote_mirror_latest_at", "sif_mirror_latest_at",
             "payment_mirror_latest_at", "original_feishu_verified",
             "original_qq_verified", "sfdc_live_verified",
             "payment_receipt_verified", "counts", "stage_counts", "error_type")}
