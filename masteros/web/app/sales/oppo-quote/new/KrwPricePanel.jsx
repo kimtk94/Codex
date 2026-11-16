@@ -50,8 +50,7 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  // process, depth, production basis or quantity that selected the reference.
  useEffect(()=>{
   setChoice(null);
- },[effectiveAccountId,effectiveContactId,product,process,effectiveUnit,
-    intake.input.production,intake.input.samples,intake.input.basis]);
+ },[effectiveAccountId,effectiveContactId,product,process,effectiveUnit,intake.input]);
  const selected=choice?candidateSelection(intake,choice):null;
  const portfolio=useMemo(()=>summarizeKrwProductPrices(source),[source]);
  const historySize=100;
