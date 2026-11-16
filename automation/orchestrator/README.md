@@ -1,19 +1,20 @@
 # Autonomous Next — sales verification MVP
 
-One trigger executes up to five **strictly offline/synthetic** validation stages in order and records a durable checkpoint. This replaces repeated chat "다음" prompts *for these five tests only*. It does **not** run an LLM, repair code, write to Salesforce, update Feishu, send emails, merge PRs or certify that live sources are current.
+One trigger executes up to six **strictly offline/synthetic** validation stages in order and records a durable checkpoint. This replaces repeated chat "다음" prompts *for these five tests only*. It does **not** run an LLM, repair code, write to Salesforce, update Feishu, send emails, merge PRs or certify that live sources are current.
 
 ## Existing validation suites used
 1. `automation_policy` protected-action tests.
 2. `automation/sfdc/test_oppo_quote_popular_patterns.py` (synthetic).
 3. `automation/sfdc/test_quote_2026_krw_price_reuse.py` (synthetic; KRW 2026).
 4. `integrations/feishu/test_*.py` (offline; credentials blank).
-5. `automation/progress/test_gate_evaluator.py` (evidence policy).
+5. `automation/ops/test_css_freshness_policy.py` (offline 9-domain/18-crosscheck freshness contract; not a live data probe).
+6. `automation/progress/test_gate_evaluator.py` (evidence policy).
 
 The runner uses a hard-coded command allowlist, `subprocess.run` with no shell, removed GitHub API credentials for child processes and a 240-second timeout per stage. The workflow has a 25-minute timeout. A failure stops dependent stages, allows at most three total attempts, and then blocks the queue until reset or new code. There is no `set -e` in the runner.
 
 ## How to run
 
-After the PR is reviewed and merged, navigate to **Actions → Autonomous Next - Sales Verification (No Save) → Run workflow**. Choose `max_steps` (1–10, default 5); `reset=true` restarts the chain. The workflow also schedules itself daily at 21:45 KST and executes when relevant files are pushed to main.
+After the PR is reviewed and merged, navigate to **Actions → Autonomous Next - Sales Verification (No Save) → Run workflow**. Choose `max_steps` (1–10, default 6); `reset=true` restarts the chain. The workflow also schedules itself daily at 21:45 KST and executes when relevant files are pushed to main.
 
 - [Checkpoint issue #794](https://github.com/kimtk94/Codex/issues/794): mutable state and operator pause control. **Check `PAUSE_AUTONEXT` to stop before the next stage; uncheck it to resume at the next scheduled/manual run.** A currently running test will finish first (up to 240 seconds). Leave exactly one pause checkbox and do not delete the `AUTONEXT_STATE` markers. Write human notes outside the markers; the runner reloads the latest issue body before each state write so intervening notes are preserved.
 - Workflow run summary: completed/remaining stages and next blocked stage.
@@ -25,10 +26,10 @@ If the pause checkbox is missing or ambiguous, operation fails closed instead of
 
 ```bash
 python3 -m unittest discover -s automation/orchestrator -p 'test_*.py' -v
-python3 automation/orchestrator/runner.py --dry-run --max-steps 5 --out /tmp/autonext-plan
+python3 automation/orchestrator/runner.py --dry-run --max-steps 6 --out /tmp/autonext-plan
 ```
 
-The dry-run never calls GitHub or any external system. PR CI also uses `--offline-run` to execute all five pre-approved offline suites **without** GitHub issue reads/writes; this is distinct from the mocked unit tests. Production checkpointed execution requires the workflow's `GITHUB_TOKEN` (`issues:write`) and existing issue #794; there is no need to store a PAT or OpenAI API key.
+The dry-run never calls GitHub or any external system. PR CI also uses `--offline-run` to execute all six pre-approved offline suites **without** GitHub issue reads/writes; this is distinct from the mocked unit tests. Production checkpointed execution requires the workflow's `GITHUB_TOKEN` (`issues:write`) and existing issue #794; there is no need to store a PAT or OpenAI API key.
 
 ## Next iteration — requires separate approval
 
