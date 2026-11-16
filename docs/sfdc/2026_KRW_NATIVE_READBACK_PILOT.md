@@ -42,3 +42,16 @@ python automation/sfdc_desktop/quote_2026_krw_browser_export.py --manifest "$env
 - Browser-local price picker accepts all 78 rows, including Process lines with blank Data Unit/Size (`NA`), with 0 rejected.
 - Product/process historical table groups by exact Product fingerprint + Process ID + Data Unit + Data Size, showing distinct Quote count, institution count, sample-count range, and min/median/max native KRW Process rates. 0-KRW bundled lines are shown explicitly.
 - The **20 Quotes are a recent approved subset**, not the entire 2026 Quote population. Extending this to earlier 2026 approved Quotes requires an incrementally verified private approval manifest and authenticated desktop reads. The current QQ audit's mere SHA presence is not independently rehashed as part of this desktop batch; source line identity is cross-checked against the live Salesforce record before inclusion.
+
+## 2026-11-16 expanded read-only audit (42 Quotes)
+
+- QQ approval evidence audit: 50 approved-text Quote records checked. Existing 20 verified, 30 additional candidates.
+- Preflight exclusions: 6 Quotes (4 multi-Product, 1 inactive, 1 source-created-date mismatch). These stay in HOLD; multi-Product quotes need a separate validated Product-aware parser.
+- Of 24 single-Product candidates read through authenticated Salesforce, **22 passed**, **2 held** on a mismatch between the displayed VAT-inclusive total and computed total. Prices from both held Quotes were excluded.
+- **Final private corpus: 42 verified 2026 Quotes, 164 native KRW Process Unit Price rows, 28 distinct Product fingerprints**.
+- Product/Process/Unit/Data Size aggregation yields **119 comparison condition rows**; a condition row is not a distinct customer or new price approval.
+- The private local corpus was merged after each batch's verified Quote IDs were confirmed to be disjoint and every row passed original-KRW/Active/approved/001/003/Process/2026 checks. A backup of the earlier 20-Quote corpus was retained.
+- Authenticated local URL: `http://127.0.0.1:3002/sales/oppo-quote/new` on NGKR-SAL-TH. Local browser verified HTTP 200, 164/164 rows imported, 28 Product choices, 42 Quotes, 119 price history groups, 0 mutation requests and Salesforce Save disabled.
+- Strict limitations: 2026 only, **no USD FX conversion**, comparison-only historic rates, no automatic process price application, no Salesforce writes; local JSON never enters GitHub or GitHub Actions.
+- The QQ report audit's lack of a native KRW unit-price column is a **property of that QQ report**, not evidence that authenticated Salesforce Quote Details lack native KRW prices. The two source statuses must remain distinct.
+- Remaining future coverage: approved Quote data before 2026-10-19 was not demonstrated complete by this approval-mail shortlist, and 8 held Quotes require separate manual review or a validated multi-Product strategy. This audit does **not** claim that all 2026 Quotes were processed.
