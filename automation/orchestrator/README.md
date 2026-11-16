@@ -77,6 +77,12 @@ Only fixed known diagnostic codes, validated GitHub run URLs, and counts are wri
 
 This implementation is **not** an autonomous code-editing agent. It does not schedule other workflows, retry failed jobs, bypass source/sink gates, push commits, merge PRs or touch customer systems. If the selected action is not a supported log audit, the job returns `NOT_APPLICABLE` without fetching any logs. It is disabled for PR events; PR unit tests use only mock logs.
 
+## Checkpoint integrity and interrupted-run recovery
+
+Issue #794 is an operator-controlled checkpoint, **not** cryptographic proof that a test ran. On resume, the runner now validates the state schema, locked protection policy, plan fingerprint, step order, dependency PASS order, suite identity, timestamps and bounded attempt counters. A malformed nonempty checkpoint fails closed with `CHECKPOINT_CORRUPT_EXPLICIT_RESET_REQUIRED` instead of accepting a misleading PASS or silently overwriting the operator's state. An empty `{}` checkpoint remains a valid initial state.
+
+The saved `RUNNING` state is also recognized as an **incomplete attempt**, not proof of success. On a subsequent run it can be re-executed within the same three-attempt limit. Recovered execution still validates the exact plan and SHA, and records only sanitized fixed diagnostic codes. The existing `PAUSE_AUTONEXT` control remains effective before launching each subsequent test.
+
 ## Next iteration — requires separate approval
 
 Link approved read-only source/sink freshness probes and enforce separate `PASS`, `NO_NEW_DATA`, `STALE`, `SOURCE_UNAVAILABLE`, `SINK_LAG` and `BLOCK` results with original timestamps and reconciliation counts. A code-fix agent or API-based AI planner, if later connected, must be restricted to PRs and CI, and must not turn `TEST_CHAIN_PASS` into an operational acceptance claim. SFDC Save, customer email send, deployment, revenue writes and PR auto-merge remain approval-gated.
