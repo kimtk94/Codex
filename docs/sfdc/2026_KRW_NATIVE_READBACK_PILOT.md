@@ -70,3 +70,21 @@ Read-only Salesforce Quotation Detail reinspection established:
 - All prices continue to be comparison-only. No implicit price inheritance; Salesforce Save remains disabled.
 
 **Private file boundary:** Neither local manifests nor price files with customer identifiers/amounts are committed to GitHub or Actions.
+
+## 2026-11-16 authenticated Contact-to-KRW comparison bridge
+
+- Legacy Feishu quote-contact index inspected locally: 844 quote references, native 003 Contact IDs **0** (last refreshed 2026-11-10). It is not sufficient for same-customer original-KRW price reuse.
+- QQ report contains 584 QID-2026 references with Contact/Account names, external `Opp-*` (not native 006), external `CP*` Contact IDs (not native 003), and 15-character Account IDs. Compare native Account IDs using the first 15 characters, without substituting external identifiers.
+- Of 46 validated original-KRW Quotes, 43 had a unique Korean name, source email and Account match; 3 held for ambiguous Korean name. These represent 31 distinct Contact IDs and 21 institutions.
+- Authenticated Salesforce Quote QID/AMEA, Active, KRW, native 001 Account/003 Contact/006 Opportunity, and live Contact Account/email were rechecked. **30/31 distinct Contacts passed**; one remained held on Account relation verification.
+- Private file: `%LOCALAPPDATA%\SFDC_KRW_Price\native_contact_verified_private.json`; never commit or send to GitHub Actions.
+
+### Independent live read-only localhost endpoint
+
+- `POST /api/sfdc/krw-contact-local` requires `SFDC_KRW_CONTACT_READONLY_ENABLED=1`, same-origin 127.0.0.1, `X-SFDC-Command: 1`, Korean name and maximum 10 results.
+- **Never set `SFDC_LOCAL_COMMAND_ENABLED=1`** just for customer lookup; that is a separate setting that can enable other CRM command endpoints.
+- Searches only the **30 validated 2026 KRW Quote-linked Contacts**, not all Salesforce Contacts. Reopens the already-authenticated local Chrome to recheck Quote/Contact/Account/Opportunity and email on every search, using a new read-only browser tab.
+- Index older than 24 hours, uncertain names, multiple unresolved matches, changed native links or invalid Origin all fail closed. No data is fabricated from stale Feishu/QQ contact IDs.
+- Operator must explicitly select institution+Contact for homonyms; IDs are carried to historical KRW *comparison only*. No live price auto-application, no new Quote save.
+- The existing private local JSON Contact import remains available as a fallback. A zero-result 30-Contact search does **not** mean the customer is absent from Salesforce.
+- GitHub Actions run synthetic tests and Next.js browser No-Save checks only; no SFDC credentials, private index, or customer price data are uploaded.

@@ -12,6 +12,10 @@ on:
       - 'automation/sfdc_desktop/test_quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/quote_2026_krw_multi_product_export.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_multi_product_export.py'
+      - 'masteros/web/scripts/sfdc_krw_native_contact_lookup.py'
+      - 'masteros/web/scripts/test_sfdc_krw_native_contact_lookup.py'
+      - 'masteros/web/lib/sfdc-krw-native-contact-lookup.mjs'
+      - 'masteros/web/app/api/sfdc/krw-contact-local/route.js'
       - '.github/workflows/sfdc-2026-krw-price-candidates.yml'
   pull_request:
     paths:
@@ -21,6 +25,10 @@ on:
       - 'automation/sfdc_desktop/test_quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/quote_2026_krw_multi_product_export.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_multi_product_export.py'
+      - 'masteros/web/scripts/sfdc_krw_native_contact_lookup.py'
+      - 'masteros/web/scripts/test_sfdc_krw_native_contact_lookup.py'
+      - 'masteros/web/lib/sfdc-krw-native-contact-lookup.mjs'
+      - 'masteros/web/app/api/sfdc/krw-contact-local/route.js'
       - '.github/workflows/sfdc-2026-krw-price-candidates.yml'
 permissions:
   contents: read
@@ -48,6 +56,10 @@ jobs:
           python3 -m unittest discover -s automation/sfdc_desktop -p 'test_quote_2026_krw_browser_export.py' -v
           python3 -m unittest discover -s automation/sfdc_desktop -p 'test_quote_2026_krw_multi_product_export.py' -v
           python3 -m py_compile automation/sfdc_desktop/quote_2026_krw_browser_export.py automation/sfdc_desktop/quote_2026_krw_multi_product_export.py
+      - name: Test native Contact 001/003/006 local lookup with no Salesforce access
+        run: |
+          python3 -m unittest discover -s masteros/web/scripts -p 'test_sfdc_krw_native_contact_lookup.py' -v
+          python3 -m py_compile masteros/web/scripts/sfdc_krw_native_contact_lookup.py
   private-source-availability:
     needs: synthetic
     if: github.event_name != 'pull_request'
@@ -76,7 +88,7 @@ jobs:
           assert r['crm_writes']==0, 'UNEXPECTED_CRM_WRITE'
           assert r['price_status'].startswith('HOLD_'), 'PRICE_GATE_MUST_NOT_AUTOPROMOTE'
           assert r['verified_krw_price_rows']==0, 'PRICE_GATE_UNEXPECTED_DATA'
-          print('SFDC_2026_PRICE_SOURCE_AUDIT=PASS PRICE_REUSE=HOLD_NO_APPROVED_KRW_SOURCE NO_SAVE=TRUE')
+          print('SFDC_QQ_REPORT_SOURCE_AUDIT=PASS QQ_NATIVE_KRW_PRICE_FIELD=ABSENT PRIVATE_DESKTOP_KRW_INDEX=SEPARATE NO_SAVE=TRUE')
           PY
       - name: Delete temporary source availability summary
         if: always()

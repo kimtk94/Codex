@@ -33,10 +33,15 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await waitForServer();
     browser = await chromium.launch({ headless:true });
     page = await browser.newPage();
-    const nonReadRequests = [];
+    const nonReadRequests = [], localReadRequests = [];
     page.on("request", request => {
       if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
-        nonReadRequests.push({ method: request.method(), url: new URL(request.url()).pathname });
+        const pathname = new URL(request.url()).pathname;
+        // An authenticated localhost readback uses POST as transport, but is
+        // not a Salesforce mutation and must be separately audited.
+        if(pathname === "/api/sfdc/krw-contact-local")
+          localReadRequests.push({method:request.method(),url:pathname});
+        else nonReadRequests.push({method:request.method(),url:pathname});
       }
     });
     const response = await page.goto(base + "/sales/oppo-quote", { waitUntil:"networkidle" });
@@ -102,6 +107,28 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     assert.equal(await page.getByRole("heading",{name:"신규 Oppo + Quote"}).count(),1);
     await page.locator("#new-account").fill("합성대학교");
     await page.locator("#new-contact").fill("김민수");
+    await page.route("**/api/sfdc/krw-contact-local",async route=>{
+      const incoming=route.request().postDataJSON();
+      assert.deepEqual(incoming,{query:"김민수",limit:10});
+      await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({
+        status:"PASS",local_only:true,salesforce_write:false,
+        unresolved_matches:0,coverage:"VERIFIED_2026_KRW_QUOTE_CONTACTS_ONLY",
+        candidates:[{
+          korean_name:"김민수",institution_name:"합성대학교",
+          account_id:"001000000000AAA",contact_id:"003000000000AAA",
+          email:"synthetic-customer@example.org",
+          linked_opportunity_ids:["006000000000AAA"],
+          source_qid:"QID-2026-11-16-414586"
+        }]
+      })});
+    });
+    await page.locator("#new-contact-live").waitFor({state:"visible",timeout:10000});
+    await page.locator("#new-contact-live").click();
+    await page.locator("#new-contact-select").waitFor();
+    await page.locator("#new-contact-select").selectOption("003000000000AAA");
+    assert.equal(await page.locator("#krw-account-id").inputValue(),"001000000000AAA");
+    assert.equal(await page.locator("#krw-contact-id").inputValue(),"003000000000AAA");
+    assert.match(await page.locator("body").innerText(),/원본 조회 완료, 신규 Quote 재승인 필요/);
     const localContactEvidence={
       version:"sfdc-oppo-contact-readback-v1",
       source:"SFDC_LIGHTNING_READ_ONLY",
@@ -157,7 +184,8 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await page.getByRole("button",{name:"비교 견적으로 선택"}).click();
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK/);
     assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
-    assert.equal(nonReadRequests.length,0,"General intake must not POST/PUT/PATCH/DELETE");
+    assert.equal(localReadRequests.length,1,"Exactly one localhost read-only Contact lookup");
+    assert.equal(nonReadRequests.length,0,"General intake must not perform CRM writes or other POST/PUT/PATCH/DELETE");
   } finally {
     if (page) await page.close();
     if (browser) await browser.close();
