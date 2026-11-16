@@ -1,0 +1,23 @@
+name: Genixcure PacBio Circular Count Export CI
+on:
+  push:
+    paths:
+      - 'analysis/genixcure/export_pacbio_circular_count_table.py'
+      - 'analysis/genixcure/test_pacbio_circular_count_export.py'
+      - '.github/workflows/genixcure-pacbio-circular-count-export-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pacbio-circular-count-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile PacBio circular count exporter
+        run: python -m py_compile analysis/genixcure/export_pacbio_circular_count_table.py analysis/genixcure/test_pacbio_circular_count_export.py
+      - name: Verify PacBio circular export and count conservation with synthetic data
+        run: python analysis/genixcure/test_pacbio_circular_count_export.py
