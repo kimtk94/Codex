@@ -23,7 +23,7 @@ COMPLETION_RE = re.compile(r"final\s*report|statement\s*(?:ready|confirm)|comple
 FEISHU_FINANCE_STAGE = re.compile(
     r"^(?:waiting\s+for\s+settlement|settled|project\s+completed|completed)$", re.I)
 RECEIPT_NOT_PROVED = "결제 증빙 미확인"
-STAGE_ORDER = ("계약/SIF", "샘플/QC", "라이브러리", "시퀀싱", "데이터/리포트", "공정 미확인")
+STAGE_ORDER = ("계약/SIF", "샘플/QC", "라이브러리", "시퀀싱", "데이터/리포트", "정산/완료", "공정 미확인")
 
 
 def clean(value):
@@ -54,15 +54,17 @@ def yes(value):
 
 def stage_group(stage):
     text = clean(stage).lower()
-    if re.search(r"data ready|download|final report|statement|report ready|deliv", text):
+    if FEISHU_FINANCE_STAGE.fullmatch(text):
+        return "정산/완료"
+    if re.search(r"data ready|download|final report|statement|report ready|deliv|data qc|bi analysis|demultiplex|bi form", text):
         return "데이터/리포트"
-    if re.search(r"sequenc|nova\s*seq|production", text):
+    if re.search(r"sequenc|nova\s*seq|production|add-seq", text):
         return "시퀀싱"
     if re.search(r"library|\blib\b", text):
         return "라이브러리"
-    if re.search(r"sample|receiv|\bqc\b|quality control", text):
+    if re.search(r"sample|receiv|\bqc\b|quality control|extraction|resend", text):
         return "샘플/QC"
-    if re.search(r"contract|\bsif\b|\bpo\b", text):
+    if re.search(r"contract|\bsif\b|\bpo\b|waiting po|project start|awaiting feedback", text):
         return "계약/SIF"
     return "공정 미확인"
 
@@ -75,7 +77,8 @@ def progress_value(raw):
     return round(value, 1) if 0 <= value <= 100 else None
 
 
-def create_project(row, quotes, sifs, payments, quote_candidates=None):
+def create_project(row, quotes, sifs, payments, quote_candidates=None,
+                   invoice_by_x=None, invoice_owner_by_amea=None, x_base_unique=None):
     project_id = clean(row.get("Project / Sub-project"))
     amea = clean(row.get("AMEA")).upper()
     if not project_id:
@@ -106,6 +109,9 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None):
     legacy_completed = bool(COMPLETION_RE.search(legacy_stage))
     legacy_conflict = legacy_completed and not completed
     classification = "PAYMENT" if completed else "ACTIVE"
+    raw_progress = progress_value(row.get("CSS Progress %"))
+    progress_conflict = raw_progress == 100 and not completed
+    # A 100% historical CSS progress figure is not current Feishu completion.
     # Feishu payment status is an X-level mirror, not an independently verified receipt.
     payment_rows = payments.get(project_id, [])
     if not payment_rows:
@@ -116,6 +122,23 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None):
     outstanding = (payment_rows[0].get("Payment outstanding", "") if len(payment_rows) == 1
                    else "UNKNOWN")
     invoice_count = clean(row.get("Invoice Count")) or "0"
+    invoice_base = re.sub(r"-Z\d+$", "", project_id, flags=re.I).upper()
+    x_invoices = ((invoice_by_x or {}).get(invoice_base, [])
+                  if invoice_base in (x_base_unique or set()) else [])
+    exact_x_invoice_count = sum(
+        x.get("Link Status", "").upper() == "EXACT_X_FEISHU_PROJECT"
+        for x in x_invoices)
+    invoice_notice_count = len(x_invoices)
+    owner_invoices = (invoice_owner_by_amea or {}).get(amea, [])
+    owner_invoice_record_count = len(owner_invoices)
+    if exact_x_invoice_count:
+        invoice_evidence_state = "EXACT_X_INVOICE_MIRROR"
+    elif invoice_notice_count:
+        invoice_evidence_state = "X_SUBJECT_INVOICE_NOTICE"
+    elif owner_invoice_record_count:
+        invoice_evidence_state = "AMEA_OWNER_INVOICE_REVIEW"
+    else:
+        invoice_evidence_state = "NO_EXTRA_INVOICE_EVIDENCE"
     report_statement = bool(re.search(r"final\s*report|statement", legacy_stage, re.I))
     po_state = "Report/Statement 근거로 제출 간주" if report_statement else "PO 원문 미확인"
     if classification == "PAYMENT":
@@ -131,6 +154,10 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None):
         next_action = "계약·SIF·프로젝트 원문 연결 검토"
     if legacy_conflict:
         next_action = "과거 CSS 완료 vs 현재 Feishu 상태 충돌 · 현재 공정 확인"
+    elif progress_conflict:
+        next_action = "과거 진행률 100% ≠ 현재 공정 완료 · 공정 확인"
+    elif owner_invoice_record_count and not quote_name:
+        next_action = "인보이스 흔적 존재 · Quote/Owner/입금 원문 확인"
     elif candidate_names and not quote_name:
         next_action = "Quote 승인·Active·원문 링크 확인 · " + next_action
     if stage_group(stage) == "공정 미확인" and not completed:
@@ -140,6 +167,10 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None):
         reasons.append("QUOTE_CANDIDATE_UNVERIFIED" if candidate_names else "QUOTE_NOT_FOUND")
     if legacy_conflict:
         reasons.append("LEGACY_COMPLETION_CONFLICT")
+    if progress_conflict:
+        reasons.append("CSS_PROGRESS_100_STAGE_MISMATCH")
+    if owner_invoice_record_count and not quote_name:
+        reasons.append("INVOICE_WITHOUT_VERIFIED_QUOTE")
     if len(sif_entries) > 1:
         reasons.append("SIF_DUPLICATE_SOURCE")
     if stage.lower() in {"", "abnormal", "미확인", "unknown", "not_in_feishu_source"}:
@@ -159,11 +190,17 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None):
         "contact": clean(row.get("Customer")) or clean(sif.get("Customer Name")),
         "service": clean(row.get("Service")), "stage": stage,
         "legacy_stage": legacy_stage, "stage_group": stage_group(stage),
-        "progress_percent": progress_value(row.get("CSS Progress %")),
-        "progress_source": "CSS_LEGACY_MIRROR" if progress_value(row.get("CSS Progress %")) is not None else "NOT_VERIFIED",
+        "progress_percent": raw_progress,
+        "progress_conflict": progress_conflict,
+        "progress_display_percent": None if progress_conflict else raw_progress,
+        "progress_source": "CSS_LEGACY_MIRROR" if raw_progress is not None else "NOT_VERIFIED",
         "sample_count": clean(row.get("Sample Count")),
         "expected_completion": clean(row.get("Feishu Expected Completion")),
         "invoice_count": invoice_count,
+        "invoice_notice_count": invoice_notice_count,
+        "invoice_exact_x_count": exact_x_invoice_count,
+        "owner_invoice_record_count": owner_invoice_record_count,
+        "invoice_evidence_state": invoice_evidence_state,
         "outstanding_state": outstanding or "UNKNOWN",
         "receipt_state": RECEIPT_NOT_PROVED,
         "sif_state": sif_state, "prepayment": prepayment,
@@ -178,7 +215,7 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None):
 
 
 def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None,
-             approval_rows=None):
+             approval_rows=None, invoice_match_rows=None, owner_invoice_rows=None):
     now = now or dt.datetime.now(KST)
     if now.tzinfo is None:
         raise ValueError("AWARE_CLOCK_REQUIRED")
@@ -191,6 +228,12 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
     approvals = (table(approval_rows, ["AMEA Quotation ID", "Quotation Name",
                                       "Approved AND Active", "Link Verification"], "APPROVAL_DEDUP")
                  if approval_rows is not None else [])
+    invoice_matches = (
+        table(invoice_match_rows, ["Feishu X ID", "Link Status", "Verified Paid KRW"],
+              "INVOICE_MATCH") if invoice_match_rows is not None else [])
+    owner_invoices = (
+        table(owner_invoice_rows, ["AMEA Project", "Owner Decision", "Paid Decision"],
+              "OWNER_INVOICE") if owner_invoice_rows is not None else [])
     manifests = table(manifest, ["Source", "Synced At KST"], "MANIFEST")
     if not 1 <= len(projects) <= MAX_PROJECTS or len({p["Project / Sub-project"] for p in projects}) != len(projects):
         raise ValueError("PROJECT_COUNT_OR_DUPLICATES")
@@ -204,7 +247,19 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
     if mail_state not in ("WINDOW_CAUGHT_UP", "WINDOW_PARTIAL", "PARTIAL", "WINDOW_PENDING"):
         raise ValueError("MAIL_SCOPE_UNKNOWN")
     quote_index, sif_index, pay_index = defaultdict(list), defaultdict(list), defaultdict(list)
-    candidate_index = defaultdict(list)
+    candidate_index, invoice_index, owner_index = (
+        defaultdict(list), defaultdict(list), defaultdict(list))
+    bases = Counter(re.sub(r"-Z\d+$", "", p["Project / Sub-project"], flags=re.I).upper()
+                    for p in projects)
+    unique_bases = {k for k, v in bases.items() if v == 1}
+    for record in invoice_matches:
+        key = record.get("Feishu X ID", "").upper()
+        if key and record.get("Link Status", "") in {
+                "EXACT_X_FEISHU_PROJECT", "INVOICE_SUBJECT_X_H_ONLY"}:
+            invoice_index[key].append(record)
+    for record in owner_invoices:
+        if record.get("AMEA Project"):
+            owner_index[record["AMEA Project"].upper()].append(record)
     for record in approvals:
         if record["AMEA Quotation ID"] and record["Quotation Name"]:
             # Approval text and a guessed Quote name are only review evidence.
@@ -221,7 +276,8 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
     for record in pays:
         if record["Project ID"]:
             pay_index[record["Project ID"]].append(record)
-    result = [create_project(row, quote_index, sif_index, pay_index, candidate_index)
+    result = [create_project(row, quote_index, sif_index, pay_index, candidate_index,
+                             invoice_index, owner_index, unique_bases)
               for row in projects]
     # Quote identity missing/ambiguous is a REVIEW queue; does not erase physical stage.
     sync_age = (now - source_at).total_seconds()/3600 if source_at else None
@@ -256,6 +312,12 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
             "quote_not_found": sum(p["quote_match_state"] == "QUOTE_UNLINKED"
                                    and not p["quote_candidate_count"] for p in result),
             "legacy_stage_conflicts": sum(p["legacy_completion_conflict"] for p in result),
+            "legacy_progress_100_conflicts": sum(p["progress_conflict"] for p in result),
+            "invoice_x_project_links": sum(p["invoice_notice_count"] > 0 for p in result),
+            "invoice_x_exact_project_links": sum(p["invoice_exact_x_count"] > 0 for p in result),
+            "invoice_owner_amea_links": sum(p["owner_invoice_record_count"] > 0 for p in result),
+            "invoice_without_verified_quote": sum(p["owner_invoice_record_count"] > 0
+                                                  and not p["quote_name"] for p in result),
             "finance_handoff_mirror": sum(p["completion_source"] == "FEISHU_STAGE_MIRROR"
                                          for p in result),
         },
@@ -289,7 +351,11 @@ def main():
             fetch_values(client, SOURCE_BOOK, "CSS Mail Backfill Status", "A1:L5"),
         ]
         approvals = fetch_values(client, SOURCE_BOOK, "Quote Approval Dedup", "A1:Q650")
-        payload = assemble(*bundle, approval_rows=approvals)
+        invoice_matches = fetch_values(client, SOURCE_BOOK, "Payment Invoice Match Detail", "A1:L1000")
+        owner_invoices = fetch_values(client, SOURCE_BOOK, "CSS Invoice Owner Payment Evidence", "A1:S100")
+        payload = assemble(*bundle, approval_rows=approvals,
+                           invoice_match_rows=invoice_matches,
+                           owner_invoice_rows=owner_invoices)
     except Exception as exc:
         payload = {
             "status": "SOURCE_UNAVAILABLE", "error_type": type(exc).__name__,
