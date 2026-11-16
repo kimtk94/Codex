@@ -80,7 +80,7 @@ def _valid_reference(row):
         return "PROCESS_DATA_UNIT_UNVERIFIED"
     if _decimal(row.get("unit_price_krw")) is None:
         return "PROCESS_KRW_PRICE_MISSING"
-    if _decimal(row.get("data_size")) is None:
+    if canonical_unit(row.get("data_unit")) != "NA" and _decimal(row.get("data_size")) is None:
         return "DATA_SIZE_MISSING"
     if not isinstance(row.get("sample_quantity"), int) or not (1 <= row["sample_quantity"] <= 1000000):
         return "SAMPLE_QUANTITY_MISSING"
@@ -108,7 +108,7 @@ def choose_price_references(request, records, limit=10):
     if not PROCESS_RX.fullmatch(req_process) or not re.fullmatch(r"[A-Za-z0-9:_-]{8,128}", req_product):
         return {"status": "HOLD_PRODUCT_PROCESS_UNVERIFIED", "candidates": [],
                 "rejections": {}, "price_auto_apply": False, "crm_writes": 0}
-    if req_unit not in ALLOWED_UNITS or req_size is None or not isinstance(req_qty, int) or req_qty < 1:
+    if req_unit not in ALLOWED_UNITS or (req_size is None and req_unit != "NA") or not isinstance(req_qty, int) or req_qty < 1:
         return {"status": "HOLD_PRODUCTION_UNIT_OR_QTY", "candidates": [],
                 "rejections": {}, "price_auto_apply": False, "crm_writes": 0}
     counts = Counter()
@@ -135,7 +135,7 @@ def choose_price_references(request, records, limit=10):
         else:
             tier = "OTHER_CUSTOMER_SAME_PRODUCT_PROCESS"
             rank = 2
-        size_match = _decimal(row["data_size"]) == req_size
+        size_match = req_size is not None and _decimal(row["data_size"]) == req_size
         qty_match = row["sample_quantity"] == req_qty
         comparison_only = tier != "SAME_ACCOUNT_CONTACT" or not (size_match and qty_match)
         candidates.append({
