@@ -39,7 +39,9 @@ def run(**kw):
     return assemble(kw.get("lifecycle",SRC),kw.get("quotes",QUOTES),
                     kw.get("sifs",SIF),kw.get("pays",PAY),
                     kw.get("manifest",MANIFEST),kw.get("mail",MAIL),now=NOW,
-                    approval_rows=kw.get("approval_rows"))
+                    approval_rows=kw.get("approval_rows"),
+                    invoice_match_rows=kw.get("invoice_match_rows"),
+                    owner_invoice_rows=kw.get("owner_invoice_rows"))
 
 
 class ProjectManagerTests(unittest.TestCase):
@@ -130,6 +132,58 @@ class ProjectManagerTests(unittest.TestCase):
         self.assertEqual(result["quote_name"],"Korea-A-mRNA-AMEA2026011111")
         self.assertEqual(result["quote_candidate_name"],"")
         self.assertEqual(result["quote_match_state"],"APPROVED_AMEA_MIRROR")
+
+    def test_legacy_100_percent_does_not_show_current_completed(self):
+        project=SRC[1].copy()
+        project[7]="100"
+        result=run(lifecycle=[SRC[0],project])["project_rows"][0]
+        self.assertEqual(result["progress_percent"],100)
+        self.assertTrue(result["progress_conflict"])
+        self.assertIsNone(result["progress_display_percent"])
+        self.assertEqual(result["bucket"],"ACTIVE")
+        self.assertIn("CSS_PROGRESS_100_STAGE_MISMATCH",result["review_reasons"])
+        self.assertEqual(run()["counts"]["legacy_progress_100_conflicts"],0)
+
+    def test_stage_group_uses_feishu_operations_vocabulary(self):
+        self.assertEqual(stage_group("Waiting for Settlement"),"정산/완료")
+        self.assertEqual(stage_group("Waiting PO/payment"),"계약/SIF")
+        self.assertEqual(stage_group("Add-seq"),"시퀀싱")
+        self.assertEqual(stage_group("Lib prep"),"라이브러리")
+        self.assertEqual(stage_group("Resending Sample"),"샘플/QC")
+        self.assertEqual(stage_group("BI Analysis"),"데이터/리포트")
+        self.assertEqual(stage_group("NOT_IN_FEISHU_SOURCE"),"공정 미확인")
+
+    def test_exact_x_invoice_evidence_never_certifies_paid(self):
+        header=["Feishu X ID","Link Status","Verified Paid KRW"]
+        invoice_rows=[header,
+            ["X209SC26011111","EXACT_X_FEISHU_PROJECT","UNKNOWN"],
+            ["X209SC26011111","INVOICE_SUBJECT_X_H_ONLY","UNKNOWN"]]
+        result=run(invoice_match_rows=invoice_rows)["project_rows"][0]
+        self.assertEqual(result["invoice_notice_count"],2)
+        self.assertEqual(result["invoice_exact_x_count"],1)
+        self.assertEqual(result["invoice_evidence_state"],"EXACT_X_INVOICE_MIRROR")
+        self.assertEqual(result["receipt_state"],"결제 증빙 미확인")
+        self.assertFalse(run(invoice_match_rows=invoice_rows)["payment_receipt_verified"])
+
+    def test_amea_owner_invoice_is_review_not_quote_or_paid(self):
+        owner=[["AMEA Project","Owner Decision","Paid Decision"],
+               ["AMEA2026022222","NOT_VERIFIED","NOT_VERIFIED"]]
+        result=run(owner_invoice_rows=owner)["project_rows"][1]
+        self.assertEqual(result["quote_name"],"")
+        self.assertEqual(result["owner_invoice_record_count"],1)
+        self.assertEqual(result["invoice_evidence_state"],"AMEA_OWNER_INVOICE_REVIEW")
+        self.assertIn("INVOICE_WITHOUT_VERIFIED_QUOTE",result["review_reasons"])
+        self.assertEqual(result["receipt_state"],"결제 증빙 미확인")
+
+    def test_colliding_x_base_does_not_share_invoice_across_subprojects(self):
+        header=["Feishu X ID","Link Status","Verified Paid KRW"]
+        inv=[header,["X209SC26011111","EXACT_X_FEISHU_PROJECT","UNKNOWN"]]
+        clone=SRC[1].copy()
+        clone[0]="X209SC26011111-Z02"
+        clone[1]="AMEA2026011112"
+        r=run(lifecycle=SRC+[clone],invoice_match_rows=inv)["project_rows"]
+        self.assertEqual(r[0]["invoice_notice_count"],0)
+        self.assertEqual(r[2]["invoice_notice_count"],0)
 
     def test_stage_progress_and_sif_evidence(self):
         self.assertEqual(stage_group("Library QC"),"라이브러리")
