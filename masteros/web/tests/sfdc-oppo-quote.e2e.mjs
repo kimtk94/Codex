@@ -207,6 +207,11 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/중앙 KRW/);
     await page.getByRole("button",{name:"비교 견적으로 선택"}).click();
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK/);
+    // A changed customer request must invalidate the previously selected historical price.
+    await page.locator("#new-contact").fill("이태백");
+    await page.getByText("선택한 가격 참고 견적 (적용 전 재검증)").waitFor({state:"detached"});
+    assert.doesNotMatch(await page.getByLabel("2026 KRW 가격 비교").innerText(),
+      /COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK/);
     assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
     assert.equal(localReadRequests.length,2,"One native Contact and one local price readback only");
     assert.equal(nonReadRequests.length,0,"General intake must not perform CRM writes or other POST/PUT/PATCH/DELETE");
