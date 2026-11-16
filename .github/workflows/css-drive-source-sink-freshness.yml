@@ -1,12 +1,7 @@
 name: CSS Drive Source-Sink Freshness (Read Only)
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'scripts/css_drive_source_sink_guard.py'
-      - 'scripts/test_css_drive_source_sink_guard.py'
-      - '.github/workflows/css-drive-source-sink-freshness.yml'
+  # No push trigger: legacy read-only manual diagnostic is archived.
   # Legacy WEB_EXPORT belongs to the retired CSS server.
   # Keep this historic read-only comparison manually runnable, but do NOT
   # schedule guaranteed failures against a retired source.
