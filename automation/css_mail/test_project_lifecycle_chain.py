@@ -42,6 +42,16 @@ def fixtures(status="Waiting for Settlement"):
     amounts=[["statement_key"]]
     return [css,fe,invoice,ctrl,mail,amounts]
 
+def prior_source_only(x=X, billing="STATEMENT READY - INVOICE PENDING [QQ_ONLY]"):
+    previous=[""]*24
+    previous[0]=x
+    previous[5]="NOT_IN_FEISHU_SOURCE"
+    previous[16]=billing
+    previous[20]="J001" if "PENDING" in billing else ""
+    previous[23]="AMOUNT_VERIFIED 1/1" if previous[20] else "NO_OPEN_STATEMENT"
+    return [["Project / Sub-project"]]+[previous]
+
+
 class LifecycleTests(unittest.TestCase):
     def test_partial_billing_j001_issued_j002_pending(self):
         data=fixtures()
@@ -101,7 +111,7 @@ class LifecycleTests(unittest.TestCase):
                         "2026-10-28T10:00:00+08:00","40005","1776302013",
                         "AMOUNT_VERIFIED","2026-10-28",notice(J1)[4]])
         data[2].append(inv(J1,"209126000989",632500))
-        rows=build(*data)
+        rows=build(*data,previous_rows=prior_source_only())
         self.assertEqual(2,len(rows))
         row=rows[1]
         self.assertEqual(X,row[0])
@@ -130,7 +140,8 @@ class LifecycleTests(unittest.TestCase):
         data=fixtures()
         data[1]=[data[1][0]]
         data[2].append(inv(J1,"209126000990",632500))
-        rows=build(*data)
+        rows=build(*data,previous_rows=prior_source_only(
+            billing="ISSUED (BALANCE UNVERIFIED) [QQ_ONLY]"))
         self.assertEqual(2,len(rows))
         row=rows[1]
         self.assertEqual("NOT_IN_FEISHU_SOURCE",row[5])
@@ -153,6 +164,43 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual("J002",row[20])
         self.assertEqual(220000,row[22])
         self.assertEqual("AMOUNT_VERIFIED 1/1",row[23])
+
+    def test_new_invoiced_only_X_must_not_bulk_expand_lifecycle(self):
+        data=fixtures()
+        # 84 synthetic historical invoice-only X records are absent from
+        # both Feishu and the previous source-only lifecycle. Reject all
+        # rather than silently converting every Invoice into a project row.
+        for n in range(84):
+            x=f"X209SC2609{n:04d}-Z01"
+            data[2].append(inv("J001-"+x,f"209126{n:06d}",500000+n))
+        current=build(*data,previous_rows=[["Project / Sub-project"]])
+        self.assertEqual(2,len(current))  # header + one Feishu project
+        self.assertEqual(X,current[1][0])
+
+    def test_prior_qq_only_without_verified_invoice_remains_source_hold(self):
+        data=fixtures()
+        data[1]=[data[1][0]]
+        data[2].append(inv(J1,"209126000991",632500))
+        # A previous row with a different, non-Qq-only state is not authority
+        # for manufacturing a source-only project.
+        invalid=prior_source_only()
+        invalid[1][5]="COMPLETED"
+        with self.assertRaisesRegex(RuntimeError,"Empty lifecycle"):
+            build(*data,previous_rows=invalid)
+        # Without any earlier lifecycle lineage, no new invoice-only X.
+        with self.assertRaisesRegex(RuntimeError,"Empty lifecycle"):
+            build(*data)
+
+    def test_still_retains_qq_only_issued_on_next_refresh(self):
+        data=fixtures()
+        data[1]=[data[1][0]]
+        data[2].append(inv(J1,"209126000994",632500))
+        previous=prior_source_only()
+        first=build(*data,previous_rows=previous)
+        second=build(*data,previous_rows=first)
+        self.assertEqual(first[1][:18],second[1][:18])
+        self.assertEqual("ISSUED (BALANCE UNVERIFIED) [QQ_ONLY]",second[1][16])
+        self.assertEqual("",second[1][20])
 
     def test_unverified_orphan_does_not_generate_pending_amount(self):
         data=fixtures()
