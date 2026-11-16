@@ -249,6 +249,10 @@ def main():
             "original_qq_verified", "sfdc_live_verified",
             "payment_receipt_verified", "counts", "stage_counts", "error_type")}
     print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    # A scheduled check may not report green when a source is missing,
+    # old, or only partially collected. Customer rows remain suppressed.
+    if args.summary_only and payload.get("status") != "PASS_MIRROR_ONLY":
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
