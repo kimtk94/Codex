@@ -1,6 +1,8 @@
 "use client";
 import {useMemo,useState} from "react";
 import KrwPricePanel from "./KrwPricePanel";
+import {inspectLocalContactEvidence} from "../../../../lib/sfdc-local-contact-evidence.mjs";
+import {selectExistingContact} from "../../../../lib/sfdc-contact-first-command.mjs";
 import Link from "next/link";
 import styles from "../page.module.css";
 import {PATTERNS,UNITS,DEFAULT_INPUT,createIntake} from "../../../../lib/sfdc-new-oppo-quote.mjs";
@@ -8,8 +10,40 @@ const labels={institution:"기관",contact:"고객 한글 이름",service:"서�
 function kstDate(){const p=new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Seoul",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());const v=x=>p.find(a=>a.type===x).value;return v("year")+"-"+v("month")+"-"+v("day");}
 export default function NewQuote(){
  const [input,setInput]=useState({...DEFAULT_INPUT}),[notice,setNotice]=useState(""),[show,setShow]=useState(false);
+ const [contactEvidence,setContactEvidence]=useState(null);
+ const [contactSelection,setContactSelection]=useState(null);
+ const [contactNotice,setContactNotice]=useState("");
  const today=kstDate();const result=useMemo(()=>createIntake(input,today),[input,today]);
- const update=(k,v)=>{setInput(s=>({...s,[k]:v}));setShow(false);setNotice("");};
+ const update=(k,v)=>{
+  setInput(s=>({...s,[k]:v}));setShow(false);setNotice("");
+  if(k==="contact"||k==="institution"||(k==="identityMode"&&v==="CHANGE")){
+   setContactEvidence(null);setContactSelection(null);setContactNotice("");
+  }
+ };
+ const loadContactFile=async event=>{
+  const f=event.currentTarget.files?.[0];event.currentTarget.value="";
+  setContactSelection(null);setContactEvidence(null);setContactNotice("");
+  if(!f)return;
+  if(!f.name.toLowerCase().endsWith(".json")||f.size>256*1024){
+   setContactNotice("로컬 Contact JSON 파일 256KB 이하만 허용합니다.");return;
+  }
+  try{
+   const reviewed=inspectLocalContactEvidence(await f.text(),input.contact);
+   if(!reviewed.ok){setContactNotice("Contact 원본 검토 보류: "+reviewed.status);return;}
+   setContactEvidence(reviewed);
+   setContactNotice("기존 Opportunity 연결 Contact "+reviewed.candidates.length+"개 · 기관과 Contact를 명시적으로 선택하세요. 실시간 SFDC 재검증은 별도 필요합니다.");
+  }catch{setContactNotice("Contact 로컬 파일을 확인할 수 없습니다.");}
+ };
+ const chooseContact=id=>{
+  const candidate=contactEvidence?.candidates?.find(x=>x.contact_id===id);
+  const selected=candidate?selectExistingContact(input.contact,contactEvidence.candidates,
+    candidate.contact_id,candidate.account_id):{ok:false,status:"CONTACT_NOT_SELECTED"};
+  if(!selected.ok){setContactSelection(null);setContactNotice("선택 보류: "+selected.status);return;}
+  setContactSelection(selected);
+  setInput(prev=>({...prev,institution:selected.institution_name,
+   contact:selected.korean_name,identityMode:"KEEP"}));
+  setContactNotice("선택한 기존 Account·Contact를 KRW 가격 비교에 연결했습니다. SFDC 저장·가격 적용 전에는 원본을 다시 확인해야 합니다.");
+ };
  const field=(id,label,value,onChange,placeholder="")=><div className={styles.field}><label htmlFor={id}>{label}</label><input id={id} value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)}/></div>;
  const copy=async()=>{if(result.missing.length)return;try{await navigator.clipboard.writeText(JSON.stringify(result,null,2));setNotice("검토용 JSON을 복사했습니다. Salesforce에는 전송하지 않았습니다.");}catch{setShow(true);setNotice("복사 실패: 아래 JSON을 직접 확인하세요.");}};
  return <main className={styles.page}><div className={styles.container}>
@@ -24,6 +58,20 @@ export default function NewQuote(){
      <div className={styles.two}>
       {field("new-account","기관 / Account",input.institution,v=>update("institution",v),"예: 제주대학교")}
       {field("new-contact","고객 한글 이름",input.contact,v=>update("contact",v),"예: 이태백")}
+     </div>
+     <div className={styles.field}>
+      <label htmlFor="new-contact-readback">기존 SFDC Contact 조회 결과 (로컬 JSON · 선택)</label>
+      <input id="new-contact-readback" type="file" accept=".json,application/json" onChange={loadContactFile}/>
+      <small>현재 입력한 한글 이름과 정확히 일치하는, 기존 Opportunity 연결 Contact만 선택합니다. 이 파일은 서버로 전송하지 않습니다.</small>
+      {contactEvidence&&<select id="new-contact-select" value={contactSelection?.contact_id||""}
+        onChange={e=>chooseContact(e.target.value)}>
+        <option value="">기관·기존 Contact를 직접 선택</option>
+        {contactEvidence.candidates.map(c=><option key={c.contact_id} value={c.contact_id}>
+          {c.institution_name} · {c.korean_name} · {c.contact_id.slice(-6)}
+        </option>)}
+      </select>}
+      {contactNotice&&<small role="status">{contactNotice}</small>}
+      {contactSelection?.ok&&<small>선택된 Account 001 / Contact 003 · 동일 고객 단가 우선 조회 연결 · Salesforce 직접 재확인 필요</small>}
      </div>
      <div className={styles.field}><label htmlFor="new-identity">Account/Contact 관리</label><select id="new-identity" value={input.identityMode} onChange={e=>update("identityMode",e.target.value)}><option value="KEEP">기존 Account/Contact 유지</option><option value="CHANGE">Account/Contact 변경</option></select><small>실제 001/003 관계는 로그인된 Salesforce에서 재검증해야 합니다.</small></div>
      <div className={styles.two}><div className={styles.field}><label htmlFor="new-service">서비스</label><select id="new-service" value={input.service} onChange={e=>update("service",e.target.value)}><option value="">서비스 선택</option>{Object.entries(PATTERNS).map(([id,p])=><option key={id} value={id}>{p.label}</option>)}</select></div>
@@ -42,7 +90,7 @@ export default function NewQuote(){
      {field("new-reference","참고 기존 Oppo/Quote 이름·번호 (선택)",input.referenceQuote,v=>update("referenceQuote",v),"원본 조회 전에는 참고 표시만")}
      {field("new-name","신규 Oppo/Quote 공통 이름 (선택)",input.desiredName,v=>update("desiredName",v),"비우면 임시 이름 제안")}
      <div className={styles.rule}><strong>신규 생성 원칙</strong><span>Oppo = Quote 이름, Close Date +1개월, No Save</span></div>
-     <div className={styles.buttons}><button className={styles.primary} type="submit">검토용 요청서 확인</button><button type="button" className={styles.secondary} onClick={()=>{setInput({...DEFAULT_INPUT});setShow(false);setNotice("");}}>초기화</button></div>
+     <div className={styles.buttons}><button className={styles.primary} type="submit">검토용 요청서 확인</button><button type="button" className={styles.secondary} onClick={()=>{setInput({...DEFAULT_INPUT});setShow(false);setNotice("");setContactEvidence(null);setContactSelection(null);setContactNotice("");}}>초기화</button></div>
      {notice&&<div className={styles.notice} role="status">{notice}</div>}
     </form>
    </section>
@@ -66,7 +114,7 @@ export default function NewQuote(){
     </section>
    </aside>
   </div>
-  <div style={{marginTop:18}}><KrwPricePanel intake={result}/></div>
+  <div style={{marginTop:18}}><KrwPricePanel intake={result} customerSelection={contactSelection}/></div>
   {show&&<section className={styles.output}><div className={styles.outputTop}><div><h2>검토용 JSON</h2><p>고객 정보가 포함됩니다. 공개 저장소에 올리지 마세요.</p></div></div><pre>{JSON.stringify(result,null,2)}</pre></section>}
   <footer className={styles.footer}>SFDC 신규 생성 초안 · Salesforce write 0건 · 실제 가격 자동 설정 0건</footer>
  </div></main>;
