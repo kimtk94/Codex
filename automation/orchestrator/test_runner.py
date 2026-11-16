@@ -33,15 +33,15 @@ class AutonomousNextTests(unittest.TestCase):
         runner.validate_plan(self.p)
         self.s = runner.fresh_state(self.p, "abc", "https://github.com/kimtk94/Codex/actions/runs/123")
 
-    def test_all_five_tasks_progress_without_further_prompt(self):
+    def test_all_six_tasks_progress_without_further_prompt(self):
         store = FakeCheckpoint()
         with patch.object(runner, "execute_suite", return_value=(True, "synthetic pass")) as exe:
-            result = runner.run(self.p, self.s, max_steps=5,
+            result = runner.run(self.p, self.s, max_steps=6,
                                 checkpoint=store, root=runner.ROOT, dry_run=False)
         self.assertEqual("TEST_CHAIN_PASS", result["overall"])
-        self.assertEqual(5, exe.call_count)
+        self.assertEqual(6, exe.call_count)
         self.assertEqual(0, sum(x["status"] != "PASS" for x in result["tasks"].values()))
-        self.assertGreaterEqual(len(store.snapshots), 11)
+        self.assertGreaterEqual(len(store.snapshots), 13)
         self.assertFalse(result["policy"]["sfdc_save"])
         self.assertFalse(result["policy"]["live_source_verified"])
 
@@ -51,20 +51,20 @@ class AutonomousNextTests(unittest.TestCase):
                        checkpoint=None, root=runner.ROOT, dry_run=False)
             self.assertEqual("PARTIAL", self.s["overall"])
             self.assertEqual(2, exe.call_count)
-            runner.run(self.p, self.s, max_steps=3,
+            runner.run(self.p, self.s, max_steps=4,
                        checkpoint=None, root=runner.ROOT, dry_run=False)
         self.assertEqual("TEST_CHAIN_PASS", self.s["overall"])
-        self.assertEqual(5, exe.call_count)
+        self.assertEqual(6, exe.call_count)
 
     def test_fail_stops_queue_then_retry_can_resume(self):
         with patch.object(runner, "execute_suite", side_effect=[(True, ""), (False, "synthetic error"),
-                                                                 (True, ""), (True, ""), (True, ""), (True, "")]) as exe:
-            runner.run(self.p, self.s, max_steps=5,
+                                                                 (True, ""), (True, ""), (True, ""), (True, ""), (True, "")]) as exe:
+            runner.run(self.p, self.s, max_steps=6,
                        checkpoint=None, root=runner.ROOT, dry_run=False)
             self.assertEqual("FAILED_RETRYABLE", self.s["overall"])
             self.assertEqual(2, exe.call_count)
             self.assertEqual("sfdc-oppo-quote", runner.next_task(self.p, self.s)["id"])
-            runner.run(self.p, self.s, max_steps=5,
+            runner.run(self.p, self.s, max_steps=6,
                        checkpoint=None, root=runner.ROOT, dry_run=False)
         self.assertEqual("TEST_CHAIN_PASS", self.s["overall"])
         self.assertEqual(2, self.s["tasks"]["sfdc-oppo-quote"]["attempts"])
@@ -72,18 +72,18 @@ class AutonomousNextTests(unittest.TestCase):
     def test_three_failures_become_blocked_without_running_downstream(self):
         with patch.object(runner, "execute_suite", return_value=(False, "bad")) as exe:
             for _ in range(3):
-                runner.run(self.p, self.s, max_steps=5,
+                runner.run(self.p, self.s, max_steps=6,
                            checkpoint=None, root=runner.ROOT, dry_run=False)
             self.assertEqual("BLOCKED", self.s["overall"])
             self.assertIsNone(runner.next_task(self.p, self.s))
-            runner.run(self.p, self.s, max_steps=5,
+            runner.run(self.p, self.s, max_steps=6,
                        checkpoint=None, root=runner.ROOT, dry_run=False)
         self.assertEqual(3, exe.call_count)
         self.assertEqual(1, len(self.s["tasks"]))
 
     def test_dry_run_does_not_execute_or_claim_pass(self):
         with patch.object(runner, "execute_suite", side_effect=AssertionError("should not execute")):
-            runner.run(self.p, self.s, max_steps=5, checkpoint=None,
+            runner.run(self.p, self.s, max_steps=6, checkpoint=None,
                        root=runner.ROOT, dry_run=True)
         self.assertEqual("DRY_RUN_NO_EXECUTION", self.s["overall"])
         self.assertEqual({}, self.s["tasks"])
@@ -126,7 +126,7 @@ class AutonomousNextTests(unittest.TestCase):
         store = FakeCheckpoint()
         store.paused_flag = True
         with patch.object(runner, "execute_suite", side_effect=AssertionError("paused")):
-            result = runner.run(self.p, self.s, max_steps=5,
+            result = runner.run(self.p, self.s, max_steps=6,
                                 checkpoint=store, root=runner.ROOT, dry_run=False)
         self.assertEqual("PAUSED_BY_OPERATOR", result["overall"])
         self.assertEqual(0, len(result["tasks"]))
@@ -135,15 +135,15 @@ class AutonomousNextTests(unittest.TestCase):
         store = FakeCheckpoint()
         store.pause_after = 2
         with patch.object(runner, "execute_suite", return_value=(True, "")) as exe:
-            runner.run(self.p, self.s, max_steps=5,
+            runner.run(self.p, self.s, max_steps=6,
                        checkpoint=store, root=runner.ROOT, dry_run=False)
             self.assertEqual("PAUSED_BY_OPERATOR", self.s["overall"])
             self.assertEqual(1, exe.call_count)
             store.pause_after = None
-            runner.run(self.p, self.s, max_steps=5,
+            runner.run(self.p, self.s, max_steps=6,
                        checkpoint=store, root=runner.ROOT, dry_run=False)
         self.assertEqual("TEST_CHAIN_PASS", self.s["overall"])
-        self.assertEqual(5, exe.call_count)
+        self.assertEqual(6, exe.call_count)
 
     def test_operator_pause_checkbox_fail_closed_if_missing(self):
         cp = object.__new__(runner.IssueCheckpoint)
@@ -160,7 +160,7 @@ class AutonomousNextTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             summary = runner.report(self.p, self.s, Path(tmp))
             self.assertIn("NOT VERIFIED", summary)
-            self.assertIn("Remaining stages: **5**", summary)
+            self.assertIn("Remaining stages: **6**", summary)
             self.assertTrue((Path(tmp) / "state.json").exists())
 
     def test_execute_suite_has_no_shell_or_live_credentials(self):
