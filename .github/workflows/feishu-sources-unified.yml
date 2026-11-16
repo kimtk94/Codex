@@ -3,6 +3,8 @@ name: Feishu Sources Payment Online Monthly Unified
 on:
   pull_request:
     paths:
+      - 'automation/feishu/latest_source_sync.py'
+      - 'automation/feishu/test_latest_source_sync.py'
       - 'automation/feishu/project_status_sync.py'
       - 'automation/feishu/online_project_tat_forecast.py'
       - 'automation/feishu/payment_reconciliation_qc.py'
