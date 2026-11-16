@@ -154,6 +154,16 @@ class ProjectManagerTests(unittest.TestCase):
         self.assertGreater(stale_mail["mail_age_hours"],24)
         self.assertEqual(run()["status"],"PASS_MIRROR_ONLY")
 
+    def test_stale_quote_export_blocks_green_even_with_fresh_feishu_and_mail(self):
+        outdated=[QUOTES[0], QUOTES[1][:-1]+["2026-10-24 18:00:08 KST"]]
+        result=run(quotes=outdated)
+        self.assertEqual(result["status"],"STALE_QUOTE_HEADER")
+        self.assertEqual(result["quote_header_status"],"STALE_OR_MISSING_HEADER")
+        self.assertGreater(result["quote_header_age_hours"],72)
+        self.assertEqual(result["counts"]["quote_linked"],1)
+        self.assertEqual(result["source_age_hours"],1)
+        self.assertEqual(run()["status"],"PASS_MIRROR_ONLY")
+
     def test_quote_snapshot_date_gap_does_not_make_up_quote(self):
         src=[SRC[0]+["Data Timestamp / Source"],
              SRC[1]+["Feishu 2026-11-14 19:45:05"],
