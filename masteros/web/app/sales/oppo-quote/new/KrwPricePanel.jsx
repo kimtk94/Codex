@@ -17,6 +17,7 @@ export default function KrwPricePanel({intake}){
  const [contactId,setContactId]=useState("");
  const [product,setProduct]=useState("");
  const [process,setProcess]=useState("");
+ const [selectedUnit,setSelectedUnit]=useState("");
  const [choice,setChoice]=useState(null);
  const products=useMemo(()=>{
   const map=new Map();
@@ -28,19 +29,23 @@ export default function KrwPricePanel({intake}){
   for(const r of source?.records||[])if(r.product_signature===product&&!map.has(r.process_id))map.set(r.process_id,r.process_name||"Process");
   return Array.from(map.entries());
  },[source,product]);
+ const availableUnits=useMemo(()=>[...new Set((source?.records||[])
+  .filter(r=>r.product_signature===product&&r.process_id===process)
+  .map(r=>r.data_unit))],[source,product,process]);
+ const effectiveUnit=availableUnits.length===1?availableUnits[0]:selectedUnit;
  const query=useMemo(()=>({
   account_id:accountId,contact_id:contactId,product_signature:product,process_id:process,
-  data_unit:intake.input.unit,
-  data_size:intake.input.production,
+  data_unit:effectiveUnit,
+  data_size:effectiveUnit==="NA"?"":intake.input.production,
   sample_quantity:Number(intake.input.samples),
   production_basis:intake.input.basis
- }),[accountId,contactId,product,process,intake.input.unit,intake.input.production,intake.input.samples,intake.input.basis]);
+ }),[accountId,contactId,product,process,effectiveUnit,intake.input.production,intake.input.samples,intake.input.basis]);
  const found=useMemo(()=>rankKrwPrices(source,query),[source,query]);
  const selected=choice?candidateSelection(intake,choice):null;
  const upload=async event=>{
   const file=event.currentTarget.files?.[0];
   event.currentTarget.value="";
-  setSource(null);setProduct("");setProcess("");setChoice(null);setNotice("");
+  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setNotice("");
   if(!file)return;
   if(file.size>2*1024*1024||!file.name.toLowerCase().endsWith(".json")){
    setNotice("JSON 형식, 2MB 이하 파일만 사용할 수 있습니다.");return;
@@ -90,7 +95,7 @@ export default function KrwPricePanel({intake}){
    <div className={styles.field}>
     <label htmlFor="krw-product">Quote Product 공정 구조</label>
     <select id="krw-product" value={product} disabled={!products.length}
-      onChange={e=>{setProduct(e.target.value);setProcess("");setChoice(null);}}>
+      onChange={e=>{setProduct(e.target.value);setProcess("");setSelectedUnit("");setChoice(null);}}>
      <option value="">확인된 구조 선택</option>
      {products.map(([id,label])=><option key={id} value={id}>{label} · {suffix(id)}</option>)}
     </select>
@@ -98,11 +103,20 @@ export default function KrwPricePanel({intake}){
    <div className={styles.field}>
     <label htmlFor="krw-process">비교할 Process</label>
     <select id="krw-process" value={process} disabled={!processes.length}
-     onChange={e=>{setProcess(e.target.value);setChoice(null);}}>
+     onChange={e=>{setProcess(e.target.value);setSelectedUnit("");setChoice(null);}}>
      <option value="">공정 선택</option>
      {processes.map(([id,label])=><option key={id} value={id}>{label} · {suffix(id)}</option>)}
     </select>
    </div>
+  </div>
+  <div className={styles.field}>
+   <label htmlFor="krw-process-unit">선택한 Process의 과거 Data Unit (별도 확인)</label>
+   <select id="krw-process-unit" value={effectiveUnit} disabled={!availableUnits.length}
+    onChange={e=>{setSelectedUnit(e.target.value);setChoice(null);}}>
+    {availableUnits.length!==1&&<option value="">공정 단위를 선택하세요</option>}
+    {availableUnits.map(u=><option key={u} value={u}>{u==="NA"?"원본 단위 미기재 (생산량 비교 불가)":u}</option>)}
+   </select>
+   <small>QC·Data release처럼 Data Unit이 빈 공정은 임의로 Gb를 채우지 않습니다. 각 Process 단위를 따로 선택해야 합니다.</small>
   </div>
   <div className={styles.footnote}>
    이번 요청: {intake.input.samples||"—"} samples / {intake.input.production||"—"} {intake.input.unit} ({intake.input.basis==="PER_SAMPLE"?"샘플당":"프로젝트 전체"}).
@@ -121,7 +135,7 @@ export default function KrwPricePanel({intake}){
       <span style={{fontSize:12,color:"#9bcce4"}}>{priceText(item.unit_price_krw)} KRW / 공정 단가</span>
      </div>
      <div className={styles.footnote} style={{marginTop:7}}>
-      {item.quote_id} · {item.created_date} · 생산량 {item.data_size} {item.data_unit} · 샘플 {item.sample_quantity}개
+      {item.quote_id} · {item.created_date} · 생산량 {item.data_size||"원본 미기재"} {item.data_unit==="NA"?"(단위 미기재)":item.data_unit} · 샘플 {item.sample_quantity}개
      </div>
      <div className={styles.footnote} style={{marginTop:5}}>
       생산량 일치: {item.size_match?"예":"아니오/확인 필요"} · 샘플 수 일치: {item.quantity_match?"예":"아니오"}
@@ -135,6 +149,7 @@ export default function KrwPricePanel({intake}){
    <pre>{JSON.stringify(selected,null,2)}</pre>
    <button type="button" className={styles.secondary} onClick={copy}>참고 견적 JSON 복사</button>
   </div>}
+  <div className={styles.footnote}>0원 공정은 다른 공정에 가격이 묶여 있을 수 있습니다. 공정 단가만이 아닌 Product 전체 구성을 비교해야 합니다.</div>
   <div className={styles.footnote}>저장·가격 자동 적용·외부 전송: 모두 0건. 이 화면의 가격 선택은 CRM에 입력할 단가 확정이 아닌 검토 참고입니다.</div>
  </section>;
 }

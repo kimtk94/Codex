@@ -41,7 +41,7 @@ export function verifyPriceLine(row){
  if(typeof row.product_signature!=="string"||!PRODUCT.test(row.product_signature))return "PRODUCT_SIGNATURE_UNVERIFIED";
  if(!UNITS.has(canonicalPriceUnit(row.data_unit)))return "UNIT_UNVERIFIED";
  if(decimal(row.unit_price_krw)===null)return "KRW_UNIT_PRICE_MISSING";
- if(decimal(String(row.data_size??""))===null)return "DATA_SIZE_MISSING";
+ if(canonicalPriceUnit(row.data_unit)!=="NA"&&decimal(String(row.data_size??""))===null)return "DATA_SIZE_MISSING";
  if(!quantity(row.sample_quantity))return "SAMPLE_QUANTITY_MISSING";
  return "PASS";
 }
@@ -92,7 +92,7 @@ export function rankKrwPrices(evidence,query,limit=15){
   const tier=account&&contact&&a===account&&c===contact?"SAME_ACCOUNT_CONTACT":
       account&&a===account?"SAME_ACCOUNT_OTHER_CONTACT":"OTHER_CUSTOMER_SAME_PRODUCT_PROCESS";
   const tierOrder=tier==="SAME_ACCOUNT_CONTACT"?0:tier==="SAME_ACCOUNT_OTHER_CONTACT"?1:2;
-  const sizeMatch=exactBasis&&size!==null&&Number(r.data_size)===size;
+  const sizeMatch=exactBasis&&size!==null&&r.data_size!==""&&Number(r.data_size)===size;
   const quantityMatch=quantity(qty)&&qty===r.sample_quantity;
   chosen.push({...r,tier,size_match:sizeMatch,quantity_match:quantityMatch,
    comparison_only:true,source_recheck_required:true,price_auto_apply:false,
