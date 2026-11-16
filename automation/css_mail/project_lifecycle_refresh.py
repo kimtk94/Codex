@@ -54,6 +54,7 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
     invoices={}
     issued_statements={}
     global_invoice={}
+    verified_invoice_at={}
     for r in invoice_rows[1:]:
         number=str(present(r,0)).strip()
         status=str(present(r,10))
@@ -81,6 +82,7 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
         global_invoice[number]=(x,amount,statement)
         invoices.setdefault(x,{})[number]=amount
         issued_statements.setdefault(x,set()).add(statement)
+        verified_invoice_at[x]=max(verified_invoice_at.get(x,""),str(present(r,7)))
 
     # CSS Git Ingest header metadata is more recent than legacy CSS timeline.
     # Search original official notices only, never RE/FW or in-reply-to.
@@ -240,34 +242,48 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
     # rather than dropping it and blocking all unrelated issued Invoice Revenue.
     # Do not invent Feishu status, forecast, customer, or relationship evidence.
     feishu_x={str(row[0]).strip().upper() for row in out[1:]}
-    for x,notices in sorted(statement_notices.items()):
+    # Feishu may not yet list an X that was previously QQ-only Pending.
+    # When its exact J is later invoiced, the Pending J disappears but the
+    # *invoice-backed project identity must remain*. Otherwise 111 -> 110
+    # wrongly blocks every unrelated lifecycle/Revenue refresh.
+    for x in sorted(set(statement_notices)|set(invoices)):
         if x in feishu_x:continue
+        notices=statement_notices.get(x,{})
+        inv=invoices.get(x,{})
         issued=issued_statements.get(x,set())
         open_j=sorted(set(notices)-issued)
-        if not open_j:continue
         verified=[]
         for j in open_j:
             record=statement_amounts.get(j+"-"+x)
             if record and record[1]==notices[j]:
                 verified.append(record[0])
-        if not verified:
-            # Unverified/no-amount notices are not new finance evidence.
+        if not verified and not inv:
+            # An unverified, unissued orphan is NOT a project or receivable.
             continue
         am_set=source_amea_by_x.get(x,set())
         amea=next(iter(am_set)) if len(am_set)==1 else ""
-        last_notice=max(notices[j] for j in open_j)
-        inv=invoices.get(x,{})
-        billing=("ISSUED + STATEMENT PENDING [QQ_ONLY]" if inv
+        # For open J, preserve its exact notice date: the independent Pending
+        # reconciler checks that timestamp. For issued-only J use the timestamp
+        # from the validated original invoice extraction.
+        last_notice=(max(notices[j] for j in open_j)
+                     if open_j else verified_invoice_at.get(x,""))
+        billing=("ISSUED + STATEMENT PENDING [QQ_ONLY]" if inv and open_j
+                 else "ISSUED (BALANCE UNVERIFIED) [QQ_ONLY]" if inv
                  else "STATEMENT READY - INVOICE PENDING [QQ_ONLY]")
         out.append([
             x,amea,"","","","NOT_IN_FEISHU_SOURCE",
-            "Statement confirmation [QQ direct; no Feishu snapshot]",97,
+            ("Invoice issued [QQ verified; no Feishu snapshot]" if inv
+             else "Statement confirmation [QQ direct; no Feishu snapshot]"),
+            100 if inv else 97,
             last_notice,"","","","",
             "",len(inv),sum(inv.values()),billing,0,
-            "Verify missing Feishu subproject; retain original Statement evidence",
-            "Original CSS QQ Statement; Feishu subproject not found",
-            " | ".join(open_j),last_notice,sum(verified),
-            "AMOUNT_VERIFIED "+str(len(verified))+"/"+str(len(open_j))
+            ("Verify missing Feishu subproject; confirm balance and payment"
+             if inv else "Verify missing Feishu subproject; retain original Statement evidence"),
+            ("Original CSS QQ Invoice; Feishu subproject not found" if inv
+             else "Original CSS QQ Statement; Feishu subproject not found"),
+            " | ".join(open_j),last_notice,sum(verified) if verified else "",
+            ("AMOUNT_VERIFIED "+str(len(verified))+"/"+str(len(open_j))
+             if open_j else "NO_OPEN_STATEMENT")
         ])
         # The pending reconciliation remains strict: every source-verified J
         # must match exactly once; missing, changed or partial values still fail.
