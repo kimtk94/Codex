@@ -137,7 +137,8 @@ export default function ProjectManager(){
     </section>
     <p className={styles.auditHint}>
       견적 승인내역 검토 후보 <strong>{kpi.quote_review_candidates??"—"}건</strong>
-      · Quote 근거 미발견 <strong>{kpi.quote_not_found??"—"}건</strong>
+      · 현재 Quote 미러 미연결 <strong>{kpi.quote_not_found??"—"}건</strong>
+      · Quote Export보다 프로젝트 기록이 최신인 미연결 <strong>{kpi.quote_source_time_gap??"—"}건</strong>
       · 과거 완료/현재 공정 충돌 <strong>{kpi.legacy_stage_conflicts??"—"}건</strong>
       · CSS 100%/현재 미완료 충돌 <strong>{kpi.legacy_progress_100_conflicts??"—"}건</strong>
       (모두 자동 확정 제외)
@@ -186,7 +187,8 @@ export default function ProjectManager(){
           <select value={reviewReason} onChange={e=>setReviewReason(e.target.value)}>
             <option value="ALL">전체</option>
             <option value="QUOTE_CANDIDATE_UNVERIFIED">Quote 승인후보</option>
-            <option value="QUOTE_NOT_FOUND">Quote 미검색</option>
+            <option value="QUOTE_NOT_FOUND">Quote 현재 미러 미연결</option>
+            <option value="QUOTE_SNAPSHOT_PRECEDES_PROJECT_SOURCE">Quote 자료 시점 차이</option>
             <option value="LEGACY_COMPLETION_CONFLICT">이전 완료 ↔ 최신 공정 충돌</option>
             <option value="CSS_PROGRESS_100_STAGE_MISMATCH">과거 진행률 100% 충돌</option>
             <option value="INVOICE_WITHOUT_VERIFIED_QUOTE">인보이스 존재/Quote 미연결</option>
@@ -217,6 +219,7 @@ export default function ProjectManager(){
             {r.quote_match_state!=="APPROVED_AMEA_MIRROR"&&
               <em>{r.quote_match_state==="MULTIPLE_QUOTE_REVIEW"?"다중 Quote 확인 필요":"원본 Quote 미연결"}</em>}
             {r.quote_candidate_name&&<small className={styles.candidate}>승인내역 후보(미검증): {r.quote_candidate_name}</small>}
+            {r.quote_source_time_gap&&<small className={styles.candidate}>프로젝트 기록이 Quote Export보다 최신 · 재수집 필요</small>}
             {r.legacy_completion_conflict&&<small className={styles.conflict}>과거 완료 ↔ 최신 공정 충돌</small>}
             {r.owner_invoice_record_count>0&&!r.quote_name&&
               <small className={styles.candidate}>인보이스 근거 있음 · Quote 연결 미검증</small>}
@@ -260,7 +263,11 @@ export default function ProjectManager(){
         <div><span>견적 연결 상태</span><strong>{focus.quote_match_state}</strong>
           <p>{focus.quote_candidate_name
             ?"승인 문자 후보(미검증): "+focus.quote_candidate_name
-            :"원문이 확인되지 않으면 Quote 이름을 대입하지 않습니다."}</p></div>
+            :"원문이 확인되지 않으면 Quote 이름을 대입하지 않습니다."}</p>
+          {focus.quote_source_time_gap&&<p className={styles.conflict}>
+            현재 프로젝트 기록 {when(focus.project_source_event_at)}이 Quote Export 기록보다 최신입니다.
+            새로운 승인 Report를 가져오기 전에는 Quote가 없다고 판단하지 않습니다.
+          </p>}</div>
         <div><span>시료 / SIF</span><strong>{focus.sample_count||"미확인"} · {focus.sif_state}</strong>
           <p>{focus.prepayment?"Prepayment: SIF 미제출만으로 팔로업 금지":"SIF 원문 제출 증거 기준"}</p></div>
         <div><span>PO / Invoice</span><strong>{focus.po_state}</strong>
