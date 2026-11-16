@@ -184,6 +184,28 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     await page.getByRole("button",{name:"비교 견적으로 선택"}).click();
     assert.match(await page.getByLabel("2026 KRW 가격 비교").innerText(),/COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK/);
     assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
+    // More than 250 distinct historical price conditions must remain accessible:
+    // never silently drop conditions beyond the original hard-coded slice(0,250).
+    const largeHistory={...localPrices,records:Array.from({length:251},(_,i)=>({
+      ...localPrices.records[0],
+      process_id:"Process-2026-01-01-"+String(10000+i),
+      unit_price_krw:String(200000+i)
+    }))};
+    await page.locator("#krw-local-file").setInputFiles({
+      name:"synthetic-251-price-conditions.json",mimeType:"application/json",
+      buffer:Buffer.from(JSON.stringify(largeHistory))
+    });
+    const largeSummary=page.locator("summary").filter({hasText:"2026 KRW Product별 가격 이력 전체표"});
+    await largeSummary.click();
+    assert.match(await largeSummary.innerText(),/251개 조건/);
+    assert.equal(await page.locator("details tbody tr").count(),100);
+    assert.match(await page.locator("details [role=status]").innerText(),/100\/251개 표시/);
+    await page.getByRole("button",{name:"추가 100개 조건 표시"}).click();
+    assert.equal(await page.locator("details tbody tr").count(),200);
+    await page.getByRole("button",{name:"추가 51개 조건 표시"}).click();
+    assert.equal(await page.locator("details tbody tr").count(),251);
+    assert.equal(await page.getByRole("button",{name:/추가 \d+개 조건 표시/}).count(),0);
+
     assert.equal(localReadRequests.length,1,"Exactly one localhost read-only Contact lookup");
     assert.equal(nonReadRequests.length,0,"General intake must not perform CRM writes or other POST/PUT/PATCH/DELETE");
   } finally {
