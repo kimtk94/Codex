@@ -42,6 +42,7 @@ export default function ProjectManager(){
   const [search,setSearch]=useState("");
   const [selected,setSelected]=useState("");
   const [sort,setSort]=useState("ACTION");
+  const [reviewReason,setReviewReason]=useState("ALL");
   const load=useCallback(async()=>{
     setFetching(true);setError("");
     try{
@@ -63,6 +64,7 @@ export default function ProjectManager(){
     const result=rows.filter(r=>{
       const matchesTab=tab==="ALL"||(tab==="REVIEW"?r.needs_review:r.bucket===tab);
       if(!matchesTab||(stage!=="ALL"&&r.stage_group!==stage))return false;
+      if(reviewReason!=="ALL"&&!(r.review_reasons||[]).includes(reviewReason))return false;
       return !needle||[r.quote_name,r.amea,r.project_id,r.institution,r.contact,r.service]
         .some(v=>String(v||"").toLocaleLowerCase().includes(needle));
     });
@@ -74,7 +76,7 @@ export default function ProjectManager(){
         x.needs_review?1:x.bucket==="PAYMENT"?2:3);
       return urgency(a)-urgency(b)||(a.quote_name||a.project_id).localeCompare(b.quote_name||b.project_id,"ko");
     });
-  },[rows,tab,stage,search,sort]);
+  },[rows,tab,stage,search,sort,reviewReason]);
   const focus=rows.find(r=>r.project_id===selected);
   const stages=useMemo(()=>Object.entries(data?.stage_counts||{})
     .sort((a,b)=>b[1]-a[1]),[data]);
@@ -124,6 +126,12 @@ export default function ProjectManager(){
       <MiniMetric label="Quote 연결" value={kpi.quote_linked} sub={"전체 "+(kpi.total??"—")+"건 중"}
         active={tab==="ALL"} onClick={()=>setTab("ALL")}/>
     </section>
+    <p className={styles.auditHint}>
+      견적 승인내역 검토 후보 <strong>{kpi.quote_review_candidates??"—"}건</strong>
+      · Quote 근거 미발견 <strong>{kpi.quote_not_found??"—"}건</strong>
+      · 과거 완료/현재 공정 충돌 <strong>{kpi.legacy_stage_conflicts??"—"}건</strong>
+      (모두 자동 확정 제외)
+    </p>
 
     <section className={styles.main}>
       <div className={styles.sectionHeader}>
@@ -150,6 +158,16 @@ export default function ProjectManager(){
             )}
           </select>
         </label>
+        <label>검토 사유
+          <select value={reviewReason} onChange={e=>setReviewReason(e.target.value)}>
+            <option value="ALL">전체</option>
+            <option value="QUOTE_CANDIDATE_UNVERIFIED">Quote 승인후보</option>
+            <option value="QUOTE_NOT_FOUND">Quote 미검색</option>
+            <option value="LEGACY_COMPLETION_CONFLICT">이전 완료 ↔ 최신 공정 충돌</option>
+            <option value="FEISHU_STAGE_UNVERIFIED">Feishu 공정 검토</option>
+            <option value="SIF_DUPLICATE_SOURCE">SIF 중복</option>
+          </select>
+        </label>
         <label>정렬
           <select value={sort} onChange={e=>setSort(e.target.value)}>
             <option value="ACTION">미수·검토 우선</option>
@@ -172,6 +190,8 @@ export default function ProjectManager(){
             <small>{r.project_id} · {r.amea||"AMEA 미확인"}</small>
             {r.quote_match_state!=="APPROVED_AMEA_MIRROR"&&
               <em>{r.quote_match_state==="MULTIPLE_QUOTE_REVIEW"?"다중 Quote 확인 필요":"원본 Quote 미연결"}</em>}
+            {r.quote_candidate_name&&<small className={styles.candidate}>승인내역 후보(미검증): {r.quote_candidate_name}</small>}
+            {r.legacy_completion_conflict&&<small className={styles.conflict}>과거 완료 ↔ 최신 공정 충돌</small>}
           </td>
           <td><span>{r.institution||"기관 미확인"}</span>
             <small>{r.contact||"Contact 미연결"}</small></td>
@@ -205,9 +225,12 @@ export default function ProjectManager(){
       </div>
       <div className={styles.detailGrid}>
         <div><span>현재 공정 / CSS 이전 기록</span><strong>{focus.stage}</strong>
-          <p>{focus.legacy_stage||"이전 공정 미확인"}</p></div>
+          <p>{focus.legacy_stage||"이전 공정 미확인"}</p>
+          {focus.legacy_completion_conflict&&<p className={styles.conflict}>과거 완료 기록과 현재 공정 불일치: 완료로 자동 이동하지 않음</p>}</div>
         <div><span>견적 연결 상태</span><strong>{focus.quote_match_state}</strong>
-          <p>원문이 확인되지 않으면 Quote 이름을 대입하지 않습니다.</p></div>
+          <p>{focus.quote_candidate_name
+            ?"승인 문자 후보(미검증): "+focus.quote_candidate_name
+            :"원문이 확인되지 않으면 Quote 이름을 대입하지 않습니다."}</p></div>
         <div><span>시료 / SIF</span><strong>{focus.sample_count||"미확인"} · {focus.sif_state}</strong>
           <p>{focus.prepayment?"Prepayment: SIF 미제출만으로 팔로업 금지":"SIF 원문 제출 증거 기준"}</p></div>
         <div><span>PO / Invoice</span><strong>{focus.po_state}</strong>
