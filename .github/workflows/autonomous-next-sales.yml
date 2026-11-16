@@ -126,6 +126,40 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  next-investigation:
+    name: Inspect one selected failed GitHub job read-only (no raw log retention)
+    needs: next-review
+    if: github.event_name != 'pull_request' && needs.next-review.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Load bounded same-run next-review selection
+        uses: actions/download-artifact@v4
+        with:
+          name: autonomous-next-readonly-priority
+          path: autonomous-next-triage
+      - name: Inspect at most one allowed failed run and three failed job logs
+        run: python3 automation/orchestrator/next_investigation.py --priority autonomous-next-triage/priority.json --out autonomous-next-inspection/inspection.json
+      - name: Archive only sanitized diagnostic code and proof link
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-next-investigation
+          path: autonomous-next-inspection/inspection.json
+          retention-days: 14
+          if-no-files-found: warn
+
   revenue-mirror-evidence:
     name: Read 3-way Monthly Revenue Sheet mirror without business writes
     needs: unit-and-plan
