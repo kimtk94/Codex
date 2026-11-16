@@ -28,7 +28,7 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertIn("if: github.event_name != 'pull_request'", revenue)
         self.assertIn("environment: TaehoonServer", revenue)
         self.assertIn("contents: read", revenue)
-        self.assertIn("https", "https")  # safety of workflow assertions is independent of API access
+        self.assertIn("CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}", revenue)
         self.assertNotIn("contents: write", revenue)
         self.assertNotIn("issues: write", revenue)
 
