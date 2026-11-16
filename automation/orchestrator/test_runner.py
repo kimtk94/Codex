@@ -147,13 +147,13 @@ class AutonomousNextTests(unittest.TestCase):
 
     def test_operator_pause_checkbox_fail_closed_if_missing(self):
         cp = object.__new__(runner.IssueCheckpoint)
-        body = "Notes\\n" + runner.START + "\\n{}\\n" + runner.END
+        body = "Notes\n" + runner.START + "\n{}\n" + runner.END
         cp.request = lambda method, payload=None: {"body": body}
         with self.assertRaises(ValueError):
             cp.paused()
-        body = runner.PAUSE_CHECKBOX + "\\n" + runner.START + "\\n{}\\n" + runner.END
+        body = runner.PAUSE_CHECKBOX + "\n" + runner.START + "\n{}\n" + runner.END
         self.assertTrue(cp.paused())
-        body = runner.RUN_CHECKBOX + "\\n" + runner.START + "\\n{}\\n" + runner.END
+        body = runner.RUN_CHECKBOX + "\n" + runner.START + "\n{}\n" + runner.END
         self.assertFalse(cp.paused())
 
     def test_receipt_is_explicitly_synthetic_only(self):
