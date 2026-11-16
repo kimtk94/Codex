@@ -205,7 +205,7 @@ def summary(report):
         lines += [
             f"- Priority domain: **{item['domain']}**",
             f"- Latest CI signal: **{item['signal']}**",
-            f"- Safe next action: \`{item['next_safe_action']}\`",
+            f"- Safe next action: `{item['next_safe_action']}`",
             f"- Run evidence: {item['run_url'] or 'unavailable'}",
         ]
     lines += ["", "| Domain | CI signal | Suggested next action |",
