@@ -47,6 +47,36 @@ class WaveSelectionTests(unittest.TestCase):
         self.assertEqual(result["selected_by_month"],
                          {f"2026-{month:02d}": 6 for month in range(1, 11)})
 
+    def test_exhausted_early_months_refill_to_100_without_retries(self):
+        # January is fully attempted, February has only 4 remaining,
+        # the other 8 months have ample unattempted rows.
+        rows = [ref(1, i) for i in range(20)]
+        rows += [ref(2, 200+i) for i in range(4)]
+        rows += [ref(m, m*100+i) for m in range(3, 11) for i in range(30)]
+        done = {r["quote_id"] for r in rows[:20]}
+        batches = [rows[:10], rows[10:20]]
+        r = select_unattempted_2026(rows, batches, done, per_month=10, total_limit=100)
+        self.assertEqual(r["attempted_unique"], 20)
+        self.assertEqual(r["remaining_before"], 244)
+        self.assertEqual(r["requested_total"], 100)
+        self.assertEqual(r["selected_count"], 100)
+        self.assertEqual(r["selected_by_month"].get("2026-01", 0), 0)
+        self.assertEqual(r["selected_by_month"]["2026-02"], 4)
+        self.assertEqual(sum(r["selected_by_month"].values()), 100)
+        self.assertEqual(len({x["quote_id"] for x in r["selected"]}), 100)
+        self.assertFalse(done.intersection({x["quote_id"] for x in r["selected"]}))
+        self.assertEqual(r["crm_writes"], 0)
+
+    def test_requested_batch_bound_and_source_exhaustion_are_explicit(self):
+        rows = [ref(2, 100+i) for i in range(3)]
+        r = select_unattempted_2026(rows, [], set(), per_month=10, total_limit=100)
+        self.assertEqual(r["selected_count"], 3)
+        self.assertEqual(r["requested_total"], 100)
+        self.assertEqual(r["eligible_unattempted_months"], {"2026-02": 3})
+        for invalid in (0, -1, 251, True, 1.2, "100"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "TOTAL_LIMIT_INVALID"):
+                select_unattempted_2026(rows, [], set(), total_limit=invalid)
+
     def test_duplicate_eligible_qid_rejected_instead_of_silent_skip(self):
         q = ref(2, 100)
         with self.assertRaisesRegex(ValueError, "DUPLICATE_ELIGIBLE_QID"):
