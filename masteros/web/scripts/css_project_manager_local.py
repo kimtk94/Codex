@@ -72,6 +72,13 @@ def stage_group(stage):
     return "공정 미확인"
 
 
+def project_source_event_at(raw):
+    """Only a literal Feishu snapshot timestamp is comparable to Quote export."""
+    value = clean(raw)
+    match = re.search(r"\bFeishu\s+(20\d{2}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", value, re.I)
+    return when(match.group(1)) if match else None
+
+
 def progress_value(raw):
     try:
         value = float(clean(raw).rstrip("%"))
@@ -81,7 +88,8 @@ def progress_value(raw):
 
 
 def create_project(row, quotes, sifs, payments, quote_candidates=None,
-                   invoice_by_x=None, invoice_owner_by_amea=None, x_base_unique=None):
+                   invoice_by_x=None, invoice_owner_by_amea=None, x_base_unique=None,
+                   quote_snapshot_at=None):
     project_id = clean(row.get("Project / Sub-project"))
     amea = clean(row.get("AMEA")).upper()
     if not project_id:
@@ -91,6 +99,9 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None,
     candidate_names = sorted({x["Quotation Name"] for x in candidates
                               if clean(x.get("Quotation Name"))})
     names = sorted({q["Quote Name"] for q in matches})
+    source_event = project_source_event_at(row.get("Data Timestamp / Source", ""))
+    quote_time_gap = bool(not names and source_event and quote_snapshot_at
+                          and source_event > quote_snapshot_at)
     if len(names) == 1:
         quote_name, quote_state = names[0], "APPROVED_AMEA_MIRROR"
     elif len(names) > 1:
@@ -170,6 +181,8 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None,
         reasons.append("QUOTE_CANDIDATE_UNVERIFIED" if candidate_names else "QUOTE_NOT_FOUND")
     if legacy_conflict:
         reasons.append("LEGACY_COMPLETION_CONFLICT")
+    if quote_time_gap:
+        reasons.append("QUOTE_SNAPSHOT_PRECEDES_PROJECT_SOURCE")
     if progress_conflict:
         reasons.append("CSS_PROGRESS_100_STAGE_MISMATCH")
     if owner_invoice_record_count and not quote_name:
@@ -189,6 +202,8 @@ def create_project(row, quotes, sifs, payments, quote_candidates=None,
                                   else "MULTIPLE_CANDIDATES" if len(candidate_names) > 1 and not quote_name
                                   else "NONE"),
         "quote_candidate_count": len(candidate_names) if not quote_name else 0,
+        "quote_source_time_gap": quote_time_gap,
+        "project_source_event_at": iso(source_event),
         "institution": clean(row.get("Institution")) or clean(sif.get("Institution")),
         "contact": clean(row.get("Customer")) or clean(sif.get("Customer Name")),
         "service": clean(row.get("Service")), "stage": stage,
@@ -279,8 +294,9 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
     for record in pays:
         if record["Project ID"]:
             pay_index[record["Project ID"]].append(record)
+    quote_latest_at = latest(quotes, "Source Timestamp")
     result = [create_project(row, quote_index, sif_index, pay_index, candidate_index,
-                             invoice_index, owner_index, unique_bases)
+                             invoice_index, owner_index, unique_bases, quote_latest_at)
               for row in projects]
     # Quote identity missing/ambiguous is a REVIEW queue; does not erase physical stage.
     sync_age = (now - source_at).total_seconds()/3600 if source_at else None
@@ -298,7 +314,7 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
         "mail_age_hours": round(mail_age, 1) if mail_age is not None else None,
         "source_freshness_limit_hours": SOURCE_MIRROR_MAX_AGE_HOURS,
         "mail_freshness_limit_hours": MAIL_MIRROR_MAX_AGE_HOURS,
-        "quote_mirror_latest_at": iso(latest(quotes, "Source Timestamp")),
+        "quote_mirror_latest_at": iso(quote_latest_at),
         "sif_mirror_latest_at": iso(latest(sifs, "updated_at")),
         "payment_mirror_latest_at": iso(latest(pays, "Last verified KST")),
         "original_feishu_verified": False, "original_qq_verified": False,
@@ -319,6 +335,7 @@ def assemble(lifecycle, quote_rows, sif_rows, pay_rows, manifest, mail, now=None
                                            for p in result),
             "quote_not_found": sum(p["quote_match_state"] == "QUOTE_UNLINKED"
                                    and not p["quote_candidate_count"] for p in result),
+            "quote_source_time_gap": sum(p["quote_source_time_gap"] for p in result),
             "legacy_stage_conflicts": sum(p["legacy_completion_conflict"] for p in result),
             "legacy_progress_100_conflicts": sum(p["progress_conflict"] for p in result),
             "invoice_x_project_links": sum(p["invoice_notice_count"] > 0 for p in result),
@@ -351,7 +368,7 @@ def main():
     try:
         client = session()
         bundle = [
-            fetch_values(client, SOURCE_BOOK, "BI Project Lifecycle Overview", "A1:Q1500"),
+            fetch_values(client, SOURCE_BOOK, "BI Project Lifecycle Overview", "A1:X1500"),
             fetch_values(client, SOURCE_BOOK, "Quote Portfolio", "A1:P2500"),
             fetch_values(client, CSS_BOOK, "CSS Contract-SIF Tracker", "A1:AL1000"),
             fetch_values(client, SOURCE_BOOK, "Feishu Project Status", "A1:L2000"),
