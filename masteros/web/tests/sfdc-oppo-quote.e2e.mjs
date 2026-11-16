@@ -122,7 +122,8 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
         }]
       })});
     });
-    await page.getByRole("button",{name:"인증된 Salesforce 고객 직접 확인"}).click();
+    await page.locator("#new-contact-live").waitFor({state:"visible",timeout:10000});
+    await page.locator("#new-contact-live").click();
     await page.locator("#new-contact-select").waitFor();
     await page.locator("#new-contact-select").selectOption("003000000000AAA");
     assert.equal(await page.locator("#krw-account-id").inputValue(),"001000000000AAA");
