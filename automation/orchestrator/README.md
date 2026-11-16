@@ -57,6 +57,18 @@ Revenue mirror evidence states are `MIRROR_3WAY_PARITY_AGED`, `MIRROR_3WAY_PARIT
 
 This mechanism chooses **which audit to investigate next**, not which code to modify or which business records to write. No result can certify original QQ invoice coverage, Feishu Base delivery, or paid revenue. The next-review job only needs read access to GitHub Actions artifacts and GitHub workflow metadata; Salesforce, QQ, Feishu tokens are not available to this job.
 
+## Reuse authenticated QQ/Feishu source-probe evidence (no new business credentials)
+
+The new `original-probe-evidence` job reads the **latest main-branch** run of the already-scheduled `css-live-freshness-evidence.yml` and retrieves only its existing `css-authenticated-original-probes` JSON artifact. It uses an ephemeral GitHub read-only token; it does not connect to QQ/Feishu directly, and no private credentials, mail content, customer IDs or payment amounts are uploaded.
+
+The evidence parser enforces bounded artifact sizes, a 12-hour review window (not a source refresh cadence), canonical run identity, a limited status schema, exact scope markers and `domain_business_pass = false`. Cross-host artifact redirects drop the GitHub bearer token. Failure to retrieve a recent, verified artifact yields explicit `SOURCE_AUDIT_NOT_FOUND`, `SOURCE_AUDIT_STALE`, `SOURCE_AUDIT_ARTIFACT_MISSING`, `SOURCE_AUDIT_INVALID`, or `SOURCE_AUDIT_API_UNAVAILABLE` and **never** `NO_NEW_DATA` or business `PASS`.
+
+This is narrow evidence of:
+- Original QQ IMAP **UID set** vs local staging: recent 3-day, 60-day and historical missing UID signals. **Not MIME/body or Tax Invoice amount verification.**
+- Original Feishu **dated Sheets** vs Google projection consistency. **Not Feishu Base KPI write/readback, eTax issuance, SFDC Save or paid-invoice verification.**
+
+Main-branch next-review automatically waits for both Revenue mirror and the authenticated source-probe receipt, then combines them with nine-domain CI signals. Missing receipts cause read-only investigation, never write execution. PR validation excludes all authentication and uses synthetic tests only.
+
 ## Next iteration — requires separate approval
 
 Link approved read-only source/sink freshness probes and enforce separate `PASS`, `NO_NEW_DATA`, `STALE`, `SOURCE_UNAVAILABLE`, `SINK_LAG` and `BLOCK` results with original timestamps and reconciliation counts. A code-fix agent or API-based AI planner, if later connected, must be restricted to PRs and CI, and must not turn `TEST_CHAIN_PASS` into an operational acceptance claim. SFDC Save, customer email send, deployment, revenue writes and PR auto-merge remain approval-gated.
