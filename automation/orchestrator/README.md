@@ -1,6 +1,6 @@
 # Autonomous Next — sales verification MVP
 
-One trigger executes up to six **strictly offline/synthetic** validation stages in order and records a durable checkpoint. This replaces repeated chat "다음" prompts *for these five tests only*. It does **not** run an LLM, repair code, write to Salesforce, update Feishu, send emails, merge PRs or certify that live sources are current.
+One trigger executes up to six **strictly offline/synthetic** validation stages in order and records a durable checkpoint. This replaces repeated chat "다음" prompts *for these six tests only*. It does **not** run an LLM, repair code, write to Salesforce, update Feishu, send emails, merge PRs or certify that live sources are current.
 
 ## Existing validation suites used
 1. `automation_policy` protected-action tests.
@@ -48,6 +48,14 @@ The `revenue-mirror-evidence` job (main push, daily schedule or manual execution
 A 48-hour age is an **investigation threshold for the mirror timestamp**, not a source-system cadence. `MIRROR_3WAY_PARITY_AGED` means the internally reconciled snapshot is old, NOT that no new invoices exist and NOT a proven live-source failure. `MIRROR_3WAY_PARITY_RECENT` means only an internally consistent recent mirror. A mismatch, unavailable service account, missing month, or malformed timestamp fails closed with sanitized status `MIRROR_UNAVAILABLE_OR_MISMATCH`. The full amount and customer identifiers never enter the public CI artifact.
 
 Both outcomes keep `business_source_sink_verification = NOT_VERIFIED`: original QQ Tax Invoice messages, live Feishu Base readback and bank payments are **not** accessed by this job. Those require independent authenticated probes and an explicit parity review. No Feishu write token or Salesforce credentials are provided to the job.
+
+## Evidence-aware prioritization of the next read-only investigation
+
+The `next-review` job waits for the `revenue-mirror-evidence` job on main, retrieves its sanitized receipt from the **same workflow run**, and ranks the nine GitHub workflow signals alongside the separate Revenue mirror signal. PRs do not have access to private Sheets credentials or mirror artifacts. If the mirror job fails or does not upload an artifact, the recommendation becomes `MIRROR_RECEIPT_MISSING` (never `PASS` or `NO_NEW_DATA`).
+
+Revenue mirror evidence states are `MIRROR_3WAY_PARITY_AGED`, `MIRROR_3WAY_PARITY_RECENT`, `MIRROR_UNAVAILABLE_OR_MISMATCH`; malformed/untrusted artifacts become `MIRROR_RECEIPT_INVALID`. A historical Revenue CI failure is **retained as CI_FAILED**, even when a newer three-way mirror is internally consistent; the selected next action changes to comparing the old failure, newer mirror, and independently authenticated original/readback evidence. An aged or unavailable mirror is raised to the top for investigation.
+
+This mechanism chooses **which audit to investigate next**, not which code to modify or which business records to write. No result can certify original QQ invoice coverage, Feishu Base delivery, or paid revenue. The next-review job only needs read access to GitHub Actions artifacts and GitHub workflow metadata; Salesforce, QQ, Feishu tokens are not available to this job.
 
 ## Next iteration — requires separate approval
 
