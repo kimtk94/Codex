@@ -41,6 +41,14 @@ The queue recommends `INSPECT_FAILURE_LOGS_READ_ONLY`, `CHECK_WORKFLOW_TRIGGER_A
 
 Run locally: `python3 automation/orchestrator/priority.py --out /tmp/autonext-priority.json`. GitHub Actions supplies a read-only ephemeral `GITHUB_TOKEN`. Without API access, results fail closed to an unavailable state.
 
+## Monthly Revenue: read-only mirror parity and snapshot age
+
+The `revenue-mirror-evidence` job (main push, daily schedule or manual execution; **not PR**) uses an existing scoped Google Sheets service account to read only `BI Revenue Net VAT Monthly`, `BI Revenue Lifecycle Monthly`, and `Revenue Source Authority`. It invokes the existing `monthly_revenue_canonical.evidence_rows` 3-way consistency policy and separately checks all four monthly verification/snapshot timestamps.
+
+A 48-hour age is an **investigation threshold for the mirror timestamp**, not a source-system cadence. `MIRROR_3WAY_PARITY_AGED` means the internally reconciled snapshot is old, NOT that no new invoices exist and NOT a proven live-source failure. `MIRROR_3WAY_PARITY_RECENT` means only an internally consistent recent mirror. A mismatch, unavailable service account, missing month, or malformed timestamp fails closed with sanitized status `MIRROR_UNAVAILABLE_OR_MISMATCH`. The full amount and customer identifiers never enter the public CI artifact.
+
+Both outcomes keep `business_source_sink_verification = NOT_VERIFIED`: original QQ Tax Invoice messages, live Feishu Base readback and bank payments are **not** accessed by this job. Those require independent authenticated probes and an explicit parity review. No Feishu write token or Salesforce credentials are provided to the job.
+
 ## Next iteration — requires separate approval
 
 Link approved read-only source/sink freshness probes and enforce separate `PASS`, `NO_NEW_DATA`, `STALE`, `SOURCE_UNAVAILABLE`, `SINK_LAG` and `BLOCK` results with original timestamps and reconciliation counts. A code-fix agent or API-based AI planner, if later connected, must be restricted to PRs and CI, and must not turn `TEST_CHAIN_PASS` into an operational acceptance claim. SFDC Save, customer email send, deployment, revenue writes and PR auto-merge remain approval-gated.
