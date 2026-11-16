@@ -8,6 +8,8 @@ on:
     paths:
       - 'automation/sfdc/quote_2026_krw_price_reuse.py'
       - 'automation/sfdc/test_quote_2026_krw_price_reuse.py'
+      - 'automation/sfdc/quote_2026_historical_coverage.py'
+      - 'automation/sfdc/test_quote_2026_historical_coverage.py'
       - 'automation/sfdc_desktop/quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/quote_2026_krw_multi_product_export.py'
@@ -21,6 +23,8 @@ on:
     paths:
       - 'automation/sfdc/quote_2026_krw_price_reuse.py'
       - 'automation/sfdc/test_quote_2026_krw_price_reuse.py'
+      - 'automation/sfdc/quote_2026_historical_coverage.py'
+      - 'automation/sfdc/test_quote_2026_historical_coverage.py'
       - 'automation/sfdc_desktop/quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/test_quote_2026_krw_browser_export.py'
       - 'automation/sfdc_desktop/quote_2026_krw_multi_product_export.py'
@@ -50,6 +54,8 @@ jobs:
         run: |
           python3 -m unittest discover -s automation/sfdc -p 'test_quote_2026_krw_price_reuse.py' -v
           python3 -m py_compile automation/sfdc/quote_2026_krw_price_reuse.py
+          python3 -m unittest discover -s automation/sfdc -p 'test_quote_2026_historical_coverage.py' -v
+          python3 -m py_compile automation/sfdc/quote_2026_historical_coverage.py
       - name: Check local Salesforce browser exporter with synthetic evidence only
         run: |
           python3 -m pip install 'playwright>=1.56,<2'
@@ -90,6 +96,25 @@ jobs:
           assert r['verified_krw_price_rows']==0, 'PRICE_GATE_UNEXPECTED_DATA'
           print('SFDC_QQ_REPORT_SOURCE_AUDIT=PASS QQ_NATIVE_KRW_PRICE_FIELD=ABSENT PRIVATE_DESKTOP_KRW_INDEX=SEPARATE NO_SAVE=TRUE')
           PY
+      - name: Audit 2026 historical approvals against QQ report SHA256 (aggregate only)
+        run: |
+          python3 automation/sfdc/quote_2026_historical_coverage.py --audit-live --out /tmp/sfdc-2026-historical-source-coverage.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          r=json.loads(Path('/tmp/sfdc-2026-historical-source-coverage.json').read_text())
+          assert r['status']=='PASS'
+          assert r['source_integrity']=='PASS_HASH_VERIFIED'
+          assert r['approval_rows_2026']>0
+          assert r['crm_writes']==0 and r['price_auto_apply'] is False
+          assert r['native_krw_process_price_available_in_qq'] is False
+          print('SFDC_2026_APPROVAL_SOURCE_AUDIT=PASS APPROVALS',r['approval_rows_2026'],
+                'SINGLE_ELIGIBLE',r['eligibility_counts'].get('SINGLE_PRODUCT_ELIGIBLE',0),
+                'MULTI',r['eligibility_counts'].get('MULTI_PRODUCT',0),
+                'INACTIVE',r['eligibility_counts'].get('INACTIVE',0),
+                'DATE_HOLD',r['eligibility_counts'].get('CREATED_DATE_MISMATCH',0),
+                'QQ_NATIVE_KRW_PRICES=ABSENT CRM_WRITES=0')
+          PY
       - name: Delete temporary source availability summary
         if: always()
-        run: rm -f /tmp/sfdc-2026-krw-source-status.json
+        run: rm -f /tmp/sfdc-2026-krw-source-status.json /tmp/sfdc-2026-historical-source-coverage.json
