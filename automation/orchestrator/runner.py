@@ -159,10 +159,14 @@ def next_task(plan: dict, state: dict) -> dict | None:
 
 
 def execute_suite(suite: str, *, root: Path = ROOT, timeout: int = 240) -> tuple[bool, str]:
-    # No shell, no arbitrary user commands, no inherited GitHub API credential.
-    env = os.environ.copy()
-    for name in ("GITHUB_TOKEN", "GH_TOKEN", "OPENAI_API_KEY"):
-        env.pop(name, None)
+    # Fail closed: only audited commands, no shell, no inherited credentials.
+    # Never include captured stdout/stderr in the checkpoint, issue, or artifact.
+    if suite not in SUITES:
+        raise ValueError("OFFLINE_SUITE_NOT_ALLOWLISTED")
+    allowed_env = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP",
+                   "TZ", "CI", "PYTHONIOENCODING", "PYTHONUTF8")
+    env = {key: os.environ[key] for key in allowed_env if key in os.environ}
+    env["PYTHONNOUSERSITE"] = "1"
     env["FEISHU_APP_ID"] = ""
     env["FEISHU_APP_SECRET"] = ""
     try:
@@ -170,10 +174,12 @@ def execute_suite(suite: str, *, root: Path = ROOT, timeout: int = 240) -> tuple
             SUITES[suite], cwd=root, env=env, capture_output=True,
             text=True, timeout=timeout, check=False,
         )
-        detail = (proc.stdout + "\n" + proc.stderr)[-1800:]
-        return proc.returncode == 0, detail
+        # Do not expose untrusted test output or private values, even on failure.
+        if proc.returncode == 0:
+            return True, "OFFLINE_SUITE_EXIT_ZERO"
+        return False, "OFFLINE_SUITE_NONZERO_EXIT"
     except subprocess.TimeoutExpired:
-        return False, f"Timeout after {timeout}s"
+        return False, "OFFLINE_SUITE_TIMED_OUT"
 
 
 def report(plan: dict, state: dict, output_dir: Path) -> str:
@@ -231,11 +237,15 @@ def run(plan: dict, state: dict, *, max_steps: int,
         state["updated_at"] = now()
         if checkpoint:
             checkpoint.save(state)
-        passed, detail = execute_suite(task["suite"], root=root)
+        passed, diagnostic = execute_suite(task["suite"], root=root)
         entry["status"] = "PASS" if passed else "FAILED"
         entry["finished_at"] = now()
         if not passed:
-            entry["failure_excerpt"] = detail[-800:]
+            # This record is published in a GitHub issue. Never persist a
+            # subprocess excerpt: test output could include source data.
+            entry["failure_code"] = (diagnostic
+                if diagnostic in ("OFFLINE_SUITE_NONZERO_EXIT", "OFFLINE_SUITE_TIMED_OUT")
+                else "OFFLINE_SUITE_FAILED_UNCLASSIFIED")
         state["updated_at"] = now()
         processed += 1
         if checkpoint:
@@ -264,7 +274,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--plan", type=Path, default=PLAN_PATH)
     ap.add_argument("--out", type=Path, default=ROOT / "autonomous-next-results")
-    ap.add_argument("--max-steps", type=int, default=5)
+    ap.add_argument("--max-steps", type=int, default=6)
     ap.add_argument("--issue-number", type=int, default=0)
     ap.add_argument("--reset", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
