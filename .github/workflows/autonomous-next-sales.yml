@@ -49,6 +49,32 @@ jobs:
       - name: Prove dry-run cannot write or mark source freshness verified
         run: python3 automation/orchestrator/runner.py --dry-run --max-steps 5 --out /tmp/autonext-plan
 
+  pr-integration:
+    name: Execute all five approved offline suites without GitHub writes
+    if: github.event_name == 'pull_request'
+    needs: unit-and-plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run actual existing offline/synthetic tests in dependency order
+        run: python3 automation/orchestrator/runner.py --offline-run --max-steps 5 --out autonomous-next-results
+      - name: Archive actual stage results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-pr-integration
+          path: autonomous-next-results/
+          retention-days: 30
+          if-no-files-found: warn
+
   auto-next:
     name: Run up to five synthetic/offline stages and checkpoint to issue
     if: github.event_name != 'pull_request'
