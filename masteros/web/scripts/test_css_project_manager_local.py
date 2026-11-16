@@ -49,6 +49,9 @@ class ProjectManagerTests(unittest.TestCase):
         self.assertEqual(r["counts"]["active"],1)
         self.assertEqual(r["counts"]["payment"],1)
         self.assertEqual(r["counts"]["archive"],0)
+        self.assertEqual(r["counts"]["sif_source_linked"],1)
+        self.assertEqual(r["counts"]["sif_prepayment_exception"],1)
+        self.assertEqual(r["counts"]["po_report_statement_inferred"],1)
         a,b=r["project_rows"]
         self.assertEqual(a["quote_name"],"Korea-A-mRNA-AMEA2026011111")
         self.assertEqual(a["quote_match_state"],"APPROVED_AMEA_MIRROR")
