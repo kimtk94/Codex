@@ -8,8 +8,6 @@ on:
       - 'automation/sfdc/test_quotation_email_ingest.py'
       - 'automation/sfdc/quote_header_source_health.py'
       - 'automation/sfdc/test_quote_header_source_health.py'
-      - 'automation/sfdc/quote_header_source_health.py'
-      - 'automation/sfdc/test_quote_header_source_health.py'
       - '.github/workflows/sfdc-quotation-email-import.yml'
   workflow_dispatch:
   schedule:
@@ -22,6 +20,8 @@ on:
       - 'automation/feishu/sfdc_quote_report_bridge.py'
       - 'automation/feishu/test_sfdc_quote_report_bridge.py'
       - 'automation/sfdc/test_quotation_email_ingest.py'
+      - 'automation/sfdc/quote_header_source_health.py'
+      - 'automation/sfdc/test_quote_header_source_health.py'
       - '.github/workflows/sfdc-quotation-email-import.yml'
 permissions:
   contents: read
