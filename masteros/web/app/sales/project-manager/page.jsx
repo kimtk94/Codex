@@ -133,6 +133,13 @@ export default function ProjectManager(){
       (모두 자동 확정 제외)
     </p>
 
+    <p className={styles.auditHint}>
+      CSS SIF 연결 <strong>{kpi.sif_source_linked??"—"}건</strong>
+      · SIF 제출 근거 <strong>{kpi.sif_submitted_mirror??"—"}건</strong>
+      · Prepayment 예외 <strong>{kpi.sif_prepayment_exception??"—"}건</strong>
+      · Final Report/Statement 기반 PO 제출 간주 <strong>{kpi.po_report_statement_inferred??"—"}건</strong>
+      (원본 증빙의 최신성 미검증)
+    </p>
     <section className={styles.main}>
       <div className={styles.sectionHeader}>
         <div><h2>프로젝트 목록</h2>
