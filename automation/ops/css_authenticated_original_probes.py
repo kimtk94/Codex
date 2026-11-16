@@ -114,6 +114,84 @@ def same_rows(source, mirror):
     return all(normalize(a) == normalize(b) for a, b in zip(source, mirror))
 
 
+def classify_projection_drift(source_grid, mirror_grid):
+    """Only fixed labels and counts. Never emit values, headers or coordinates.
+
+    This diagnostic separates purely representational differences from
+    substantively different strings. A classification does NOT certify that
+    the source is correct or explain why it changed.
+    """
+    import collections
+    import decimal
+    import unicodedata
+
+    shape_counts = collections.Counter()
+    role_counts = collections.Counter()
+    header = source_grid[0] if source_grid else []
+
+    def role(col):
+        name = clean(header[col]).casefold() if col < len(header) else ""
+        if re.search(r"amount|balance|total|outstanding|price|fee|tax|paid|currency|krw|usd|金额|金額|余额|未收|应收", name):
+            return "FINANCIAL_FIELD"
+        if re.search(r"date|time|日期|时间", name):
+            return "DATE_TIME_FIELD"
+        if re.search(r"status|stage|state|状态|进度", name):
+            return "STATUS_FIELD"
+        if re.search(r"remark|note|comment|description|备注|说明", name):
+            return "NOTE_FIELD"
+        if re.search(r"number|record.?id|invoice|contract|project|编号|单号", name):
+            return "REFERENCE_FIELD"
+        return "OTHER_OR_UNCLASSIFIED_FIELD"
+
+    def as_number(value):
+        # Do not drop meaningful text or infer that values differing by units
+        # are numerically equal. Only ASCII grouping commas are ignored.
+        normalized = unicodedata.normalize("NFKC", value).strip()
+        if not re.fullmatch(r"[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?", normalized):
+            return None
+        try:
+            return decimal.Decimal(normalized.replace(",", ""))
+        except decimal.InvalidOperation:
+            return None
+
+    for row in range(max(len(source_grid), len(mirror_grid))):
+        source = source_grid[row] if row < len(source_grid) else []
+        mirror = mirror_grid[row] if row < len(mirror_grid) else []
+        for col in range(max(len(source), len(mirror))):
+            left = clean(source[col]) if col < len(source) else ""
+            right = clean(mirror[col]) if col < len(mirror) else ""
+            if left == right:
+                continue
+            role_counts[role(col)] += 1
+            if left and not right:
+                kind = "SOURCE_FILLED_MIRROR_EMPTY"
+            elif right and not left:
+                kind = "MIRROR_FILLED_SOURCE_EMPTY"
+            elif " ".join(left.split()) == " ".join(right.split()):
+                kind = "WHITESPACE_ONLY"
+            elif unicodedata.normalize("NFKC", left) == unicodedata.normalize("NFKC", right):
+                kind = "UNICODE_NORMALIZATION_ONLY"
+            elif (as_number(left) is not None and as_number(right) is not None
+                  and as_number(left) == as_number(right)):
+                kind = "NUMERIC_DISPLAY_ONLY"
+            else:
+                kind = "SUBSTANTIVE_NONEMPTY_CHANGE"
+            shape_counts[kind] += 1
+    return {
+        "drift_characteristics": {
+            name: shape_counts[name] for name in (
+                "SOURCE_FILLED_MIRROR_EMPTY", "MIRROR_FILLED_SOURCE_EMPTY",
+                "WHITESPACE_ONLY", "UNICODE_NORMALIZATION_ONLY",
+                "NUMERIC_DISPLAY_ONLY", "SUBSTANTIVE_NONEMPTY_CHANGE")
+        },
+        "drift_business_field_roles": {
+            name: role_counts[name] for name in (
+                "FINANCIAL_FIELD", "DATE_TIME_FIELD", "STATUS_FIELD",
+                "NOTE_FIELD", "REFERENCE_FIELD", "OTHER_OR_UNCLASSIFIED_FIELD")
+        },
+    }
+
+
 def projection_drift_counts(source_grid, mirror_grid):
     """Aggregate content differences without exposing any row/column identity.
 
@@ -169,6 +247,7 @@ def compare_feishu_projection(source, mirror_meta, mirror_grid):
     original_grid = source.get("projected_grid") or []
     content_ok = same_rows(original_grid, mirror_grid)
     aggregate_drift = projection_drift_counts(original_grid, mirror_grid)
+    drift_categories = classify_projection_drift(original_grid, mirror_grid)
     parity = identity_ok and count_ok and schema_ok and content_ok
     return {
         "source_date": source.get("source_date"),
@@ -179,6 +258,7 @@ def compare_feishu_projection(source, mirror_meta, mirror_grid):
         "schema_parity": schema_ok,
         "content_parity": content_ok,
         **aggregate_drift,
+        **drift_categories,
         "status": "PASS_SNAPSHOT_PROJECTION_ONLY" if parity else "SINK_LAG",
         "invoice_issue_dates_certified": False,
         "bank_payments_certified": False,
