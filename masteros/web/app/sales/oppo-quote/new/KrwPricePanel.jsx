@@ -1,7 +1,7 @@
 "use client";
 import {useMemo,useState} from "react";
 import styles from "../page.module.css";
-import {parseKrwEvidence,rankKrwPrices,candidateSelection} from "../../../../lib/sfdc-2026-krw-price-preview.mjs";
+import {parseKrwEvidence,rankKrwPrices,candidateSelection,summarizeKrwProductPrices} from "../../../../lib/sfdc-2026-krw-price-preview.mjs";
 
 const TIER_LABEL={
  SAME_ACCOUNT_CONTACT:"동일 Account + Contact",
@@ -42,6 +42,7 @@ export default function KrwPricePanel({intake}){
  }),[accountId,contactId,product,process,effectiveUnit,intake.input.production,intake.input.samples,intake.input.basis]);
  const found=useMemo(()=>rankKrwPrices(source,query),[source,query]);
  const selected=choice?candidateSelection(intake,choice):null;
+ const portfolio=useMemo(()=>summarizeKrwProductPrices(source),[source]);
  const upload=async event=>{
   const file=event.currentTarget.files?.[0];
   event.currentTarget.value="";
@@ -122,6 +123,29 @@ export default function KrwPricePanel({intake}){
    이번 요청: {intake.input.samples||"—"} samples / {intake.input.production||"—"} {intake.input.unit} ({intake.input.basis==="PER_SAMPLE"?"샘플당":"프로젝트 전체"}).
    생산량 단위가 다르면 비교하지 않습니다. 전체 생산량은 과거 샘플당 생산량과 같은 값으로 간주하지 않습니다.
   </div>
+  {source&&portfolio.group_count>0&&<details style={{marginTop:15,padding:14,border:"1px solid #38576d",borderRadius:12,background:"#0b192a"}}>
+   <summary style={{cursor:"pointer",fontWeight:700,fontSize:13,color:"#c9e7f8"}}>
+    2026 KRW Product별 가격 이력 전체표 · {portfolio.product_count}개 Product / {portfolio.quote_count}개 Quote / {portfolio.group_count}개 조건
+   </summary>
+   <div style={{marginTop:12,maxHeight:400,overflow:"auto"}}>
+    <table style={{borderCollapse:"collapse",width:"100%",minWidth:900,fontSize:11,textAlign:"left"}}>
+     <thead><tr>{["Product","Process","Data Unit","Data Size","견적 수","고객 기관","샘플 수","최저 KRW","중앙 KRW","최고 KRW"].map(t=><th key={t} style={{position:"sticky",top:0,background:"#162c40",borderBottom:"1px solid #49667d",padding:8,color:"#d0e6f6"}}>{t}</th>)}</tr></thead>
+     <tbody>{portfolio.groups.slice(0,250).map((g,i)=><tr key={g.product_signature+"-"+g.process_id+"-"+g.data_unit+"-"+g.data_size+"-"+i}>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.product_name}</td>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.process_name}</td>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.data_unit==="NA"?"미기재":g.data_unit}</td>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.data_size||"미기재"}</td>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.quote_count}</td>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.account_count}</td>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{g.sample_min===g.sample_max?g.sample_min:g.sample_min+"–"+g.sample_max}</td>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{priceText(g.unit_price_min_krw)}</td>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{priceText(g.unit_price_median_krw)}</td>
+      <td style={{padding:8,borderBottom:"1px solid #253b50"}}>{priceText(g.unit_price_max_krw)}</td>
+     </tr>)}</tbody>
+    </table>
+   </div>
+   <div className={styles.footnote}>원본 2026 KRW 견적의 공정별 관측 단가입니다. Product 공정 구성·생산량·샘플 수가 다르면 다른 가격일 수 있으며, 0원 공정은 패키지 포함 가능성이 있습니다. 신규 견적 적용은 건별 재승인 필수입니다.</div>
+  </details>}
   {notice&&<div className={styles.notice} role="status" aria-live="polite">{notice}</div>}
   <div className={styles.reviewState}><span className={styles.dot}/>
    {!source?"HOLD · 검증된 KRW 가격 파일 미연결":found.status==="LOCAL_REFERENCE_CANDIDATES_UNVERIFIED"?
