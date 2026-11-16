@@ -113,6 +113,10 @@ export default function ProjectManager(){
         <span>Quote 목록 {when(data?.quote_mirror_latest_at)}</span>
         <span>CSS SIF 기록 {when(data?.sif_mirror_latest_at)}</span>
         <span>Payment 미러 {when(data?.payment_mirror_latest_at)}</span>
+        <span>메일 미러 {when(data?.mail_synced_at)}
+          {typeof data?.mail_age_hours==="number"&&" · "+data.mail_age_hours+"시간 전"}
+          {" · 기준 "+(data?.mail_freshness_limit_hours??24)+"시간"}
+        </span>
         <span>조회 {when(data?.checked_at)}</span>
       </div>
       <p>{error?"조회 실패: "+error:
