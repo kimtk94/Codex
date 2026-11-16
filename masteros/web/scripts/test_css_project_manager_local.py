@@ -38,7 +38,8 @@ MAIL=[["Updated At KST","State"],["2026-11-16 15:15:00 KST","WINDOW_CAUGHT_UP"]]
 def run(**kw):
     return assemble(kw.get("lifecycle",SRC),kw.get("quotes",QUOTES),
                     kw.get("sifs",SIF),kw.get("pays",PAY),
-                    kw.get("manifest",MANIFEST),kw.get("mail",MAIL),now=NOW)
+                    kw.get("manifest",MANIFEST),kw.get("mail",MAIL),now=NOW,
+                    approval_rows=kw.get("approval_rows"))
 
 
 class ProjectManagerTests(unittest.TestCase):
@@ -84,6 +85,48 @@ class ProjectManagerTests(unittest.TestCase):
             run(lifecycle=SRC+[SRC[1]])
         with self.assertRaisesRegex(ValueError,"SCHEMA_QUOTE"):
             run(quotes=[["wrong"]])
+
+    def test_legacy_final_report_does_not_override_current_sequencing(self):
+        project=SRC[1].copy()
+        project[6]="Final Report & Statement Ready"
+        result=run(lifecycle=[SRC[0],project])["project_rows"][0]
+        self.assertEqual(result["bucket"],"ACTIVE")
+        self.assertTrue(result["legacy_completion_conflict"])
+        self.assertIn("LEGACY_COMPLETION_CONFLICT",result["review_reasons"])
+        self.assertIn("충돌",result["next_action"])
+        self.assertEqual(result["po_state"],"Report/Statement 근거로 제출 간주")
+
+    def test_finance_handoff_uses_current_feishu_only(self):
+        project=SRC[1].copy()
+        project[5]="Waiting for Settlement"
+        result=run(lifecycle=[SRC[0],project])["project_rows"][0]
+        self.assertEqual(result["bucket"],"PAYMENT")
+        self.assertEqual(result["completion_source"],"FEISHU_STAGE_MIRROR")
+        self.assertFalse(result["legacy_completion_conflict"])
+        project[5]="Waiting PO/payment"
+        self.assertEqual(run(lifecycle=[SRC[0],project])["project_rows"][0]["bucket"],"ACTIVE")
+
+    def test_unverified_approval_is_candidate_only(self):
+        approvals=[["AMEA Quotation ID","Quotation Name","Approved AND Active",
+                    "Link Verification"],
+                   ["AMEA2026022222","Example quote AMEA2026022222","UNVERIFIED",
+                    "LINK_NOT_AUTHENTICATED"]]
+        result=run(approval_rows=approvals)["project_rows"][1]
+        self.assertEqual(result["quote_name"],"")
+        self.assertEqual(result["quote_candidate_name"],"Example quote AMEA2026022222")
+        self.assertEqual(result["quote_candidate_state"],"UNVERIFIED_APPROVAL_DEDUP")
+        self.assertEqual(result["quote_match_state"],"QUOTE_UNLINKED")
+        self.assertIn("QUOTE_CANDIDATE_UNVERIFIED",result["review_reasons"])
+
+    def test_approval_candidate_never_replaces_verified_quote(self):
+        approvals=[["AMEA Quotation ID","Quotation Name","Approved AND Active",
+                    "Link Verification"],
+                   ["AMEA2026011111","Different candidate","UNVERIFIED",
+                    "LINK_NOT_AUTHENTICATED"]]
+        result=run(approval_rows=approvals)["project_rows"][0]
+        self.assertEqual(result["quote_name"],"Korea-A-mRNA-AMEA2026011111")
+        self.assertEqual(result["quote_candidate_name"],"")
+        self.assertEqual(result["quote_match_state"],"APPROVED_AMEA_MIRROR")
 
     def test_stage_progress_and_sif_evidence(self):
         self.assertEqual(stage_group("Library QC"),"라이브러리")
