@@ -23,6 +23,13 @@ test("reject false paid status and mismatched counts",()=>{
     {project_rows:[{...row,quote_name:"fabricated"}]}
   ])assert.throws(()=>validateProjectManager({...payload,...patch}));
 });
+test("stale Quote export remains queryable but cannot claim source health",()=>{
+  const stale={...payload,status:"STALE_QUOTE_HEADER",
+    quote_header_status:"STALE_OR_MISSING_HEADER",
+    quote_header_age_hours:500,quote_header_freshness_limit_hours:72};
+  assert.equal(validateProjectManager(stale).status,"STALE_QUOTE_HEADER");
+  assert.throws(()=>validateProjectManager({...stale,quote_header_status:"CURRENT_HEADER_MIRROR"}));
+});
 test("accept incomplete mail window explicitly",()=>{
   assert.equal(validateProjectManager({...payload,status:"PARTIAL_MIRROR"}).status,"PARTIAL_MIRROR");
 });
