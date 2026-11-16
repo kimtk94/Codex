@@ -11,7 +11,7 @@
 .source{padding:15px 18px;margin-bottom:18px}
 .sourceMain{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:#6b818a}
 .health{padding:6px 9px;border-radius:8px;font-size:12px;font-weight:750;background:#eaf4f6;color:#245a6a}
-.health[data-health="STALE"],.health[data-health="PARTIAL_MIRROR"]{background:#fff1dc;color:#96611c}
+ .health[data-health="STALE"],.health[data-health="PARTIAL_MIRROR"],.health[data-health="STALE_QUOTE_HEADER"]{background:#fff1dc;color:#96611c}
 .health[data-health="SOURCE_UNAVAILABLE"]{background:#fde9e9;color:#ad3636}
 .sourceTimes{display:flex;gap:9px 20px;flex-wrap:wrap;color:#617581;font-size:11px;margin-top:13px}
 .source p{font-size:11px;line-height:1.65;color:#6c7e87;margin:10px 0 0}
