@@ -33,6 +33,8 @@ SUITES = {
                  "-p", "test_quote_2026_krw_price_reuse.py", "-v"),
     "feishu_offline": ("python3", "-m", "unittest", "discover", "-s", "integrations/feishu",
                        "-p", "test_*.py", "-v"),
+    "freshness_policy": ("python3", "-m", "unittest", "discover", "-s", "automation/ops",
+                         "-p", "test_css_freshness_policy.py", "-v"),
     "progress_evidence": ("python3", "-m", "unittest", "discover", "-s", "automation/progress",
                           "-p", "test_gate_evaluator.py", "-v"),
 }
