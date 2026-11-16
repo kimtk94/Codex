@@ -107,6 +107,18 @@ class KrwReuseTests(unittest.TestCase):
         self.assertEqual(r["status"],"HOLD_PRODUCT_PROCESS_UNVERIFIED")
         self.assertEqual(r["candidates"],[])
 
+    def test_no_data_unit_price_can_be_compared_without_inventing_gb(self):
+        row=record(data_unit="NA",data_size="",unit_price_krw="35000")
+        from quote_2026_krw_price_reuse import _valid_reference
+        self.assertEqual(_valid_reference(row),"PASS")
+        req={**REQUEST,"data_unit":"NA","data_size":""}
+        result=choose_price_references(req,[row])
+        self.assertEqual(len(result["candidates"]),1)
+        self.assertTrue(result["candidates"][0]["comparison_only"])
+        self.assertFalse(result["candidates"][0]["size_match"])
+        self.assertEqual(result["candidates"][0]["data_size"],"")
+        self.assertEqual(_valid_reference({**row,"data_unit":"Gb"}),"DATA_SIZE_MISSING")
+
     def test_parse_quote_dates_for_2026_report_audit(self):
         self.assertEqual(_date_to_iso("11/12/2026"),"2026-11-12")
         self.assertEqual(_date_to_iso("1/1/2025"),"2025-01-01")
