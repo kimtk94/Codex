@@ -110,6 +110,8 @@ export default function ProjectManager(){
       </div>
       <p>{error?"조회 실패: "+error:
         "Google Sheets 미러 간 상태를 보여줍니다. QQ·Feishu·SFDC 원본 직접 검증은 별개이며, Quote 명칭이나 결제 증빙이 확인되지 않은 건은 확정하지 않습니다."}</p>
+      <p className={styles.sourceWarning}>Quote·SIF 표기 시각은 각 자료의 <strong>마지막 기록 발생 시각</strong>이며, 원본 최신 동기화 증거가 아닙니다.
+        신규 건이 없어서 기록이 오래된 경우와 수집이 중단된 경우는 별도 원본 확인 전까지 구분할 수 없습니다.</p>
     </section>
 
     <section className={styles.metrics} aria-label="프로젝트 관리 요약">
