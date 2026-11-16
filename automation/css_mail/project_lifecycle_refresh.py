@@ -249,7 +249,7 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
     prior_qq_only=set()
     for r in (previous_rows or [])[1:]:
         x=str(present(r,0)).strip().upper()
-        if (re.fullmatch(r"X\\d+SC\\d+-Z\\d+",x)
+        if (re.fullmatch(r"X\d+SC\d+-Z\d+",x)
                 and str(present(r,5))=="NOT_IN_FEISHU_SOURCE"
                 and "[QQ_ONLY]" in str(present(r,16))):
             prior_qq_only.add(x)
