@@ -8,9 +8,12 @@ export function historicalKrwReference(evidence,sourceQid,product) {
   catch{return {ok:false,code:"HISTORICAL_KRW_INDEX_UNAVAILABLE"}}
   const required=(product?.processes||[]).map(x=>x.processId).filter(Boolean);
   if(typeof sourceQid!=="string"||!/^QID-[0-9-]{8,50}$/.test(sourceQid)||
-      !required.length||new Set(required).size!==required.length||
-      !Number.isFinite(Number(product.productionGb))||Number(product.productionGb)<=0)
+      !required.length||new Set(required).size!==required.length)
     return {ok:false,code:"HISTORICAL_PRODUCT_NOT_IDENTIFIED"};
+  const gb=product.productionGb===""||product.productionGb==null?
+    null:Number(product.productionGb);
+  if(gb!==null&&(!Number.isFinite(gb)||gb<=0))
+    return {ok:false,code:"HISTORICAL_GB_INVALID"};
   const groups=new Map();
   for(const row of parsed.records) {
     if(row.quote_id!==sourceQid||!required.includes(row.process_id))continue;
@@ -21,7 +24,7 @@ export function historicalKrwReference(evidence,sourceQid,product) {
   const matches=[...groups.values()].filter(rows=>
     rows.length===required.length &&
     required.every(id=>rows.filter(r=>r.process_id===id).length===1) &&
-    rows.some(r=>r.data_unit==="Gb"&&Number(r.data_size)===Number(product.productionGb)));
+    (gb===null||rows.some(r=>r.data_unit==="Gb"&&Number(r.data_size)===gb)));
   if(matches.length!==1)return {ok:false,code:"HISTORICAL_EXACT_PROCESS_MATCH_UNAVAILABLE"};
   const rows=matches[0];
   const sampleUnitKrw=rows.filter(x=>!/ali\s*cloud|cloud storage|cloud service/i.test(x.process_name))
@@ -32,6 +35,7 @@ export function historicalKrwReference(evidence,sourceQid,product) {
     return {ok:false,code:"HISTORICAL_PRICE_AGGREGATION_UNVERIFIED"};
   return {ok:true,code:"HISTORICAL_2026_KRW_COMPARISON_ONLY",
     sourceQid,sourceProcessCount:rows.length,
+    sourceGbStatus:gb===null?"UNVERIFIED":"EXACT_SOURCE_GB_MATCH",
     candidateSampleUnitKrw:sampleUnitKrw,
     candidateCloudUnitKrw:cloudRows.length?Number(cloudRows[0].unit_price_krw):null,
     currency:"KRW",vatBasis:"VAT_EXCLUDED",year:2026,
