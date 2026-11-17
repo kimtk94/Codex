@@ -9,6 +9,7 @@ Run separately with PARITY_DOMAIN=project or revenue in GitHub Actions.
 import datetime as dt
 import os
 import sys
+import inspect
 from decimal import Decimal, InvalidOperation
 
 from qq_mail_ingest import SafeError, auth, list_all
@@ -53,6 +54,20 @@ def age_hours(now, value):
     return max(0.0, delta)
 
 
+def compute_lifecycle(source, previous):
+    """Match the lifecycle implementation's required prior-QQ-only context.
+
+    PR #802 adds previous_rows for an independently verified source-only X
+    that just transitioned from pending Statement to issued Invoice. Omitting
+    previous_rows would create a false 111->110 regression in an audit.
+    """
+    if "previous_rows" in inspect.signature(build).parameters:
+        print("PROJECT_LIFECYCLE_PREVIOUS_CONTEXT=APPLIED", flush=True)
+        return build(*source, previous_rows=previous)
+    print("PROJECT_LIFECYCLE_PREVIOUS_CONTEXT=NOT_SUPPORTED_BY_MAIN", flush=True)
+    return build(*source)
+
+
 def project_audit():
     session = sheets_session()  # Google readonly OAuth scope
     specs = [
@@ -78,8 +93,10 @@ def project_audit():
     print("PROJECT_QQ_SOURCE_AGE_HOURS=" + str(round(mail_age, 2)))
     if snapshot_age > max_feishu or mail_age > max_mail:
         raise SafeError("PROJECT_ORIGINAL_SOURCE_STALE")
-    expected = build(*source)
     sink = get(session, DST, TAB, "A1:X1000")
+    if not sink or sink[0] not in (HEAD, HEAD[:22], HEAD[:20]):
+        raise SafeError("PROJECT_SINK_HEADER_UNVERIFIED")
+    expected = compute_lifecycle(source, sink)
     stats = project_counts(expected, sink)
     for key, value in stats.items():
         print("PROJECT_PARITY_" + key + "=" + str(value))
