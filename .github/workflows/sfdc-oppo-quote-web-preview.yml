@@ -51,12 +51,15 @@ jobs:
           python3 -m py_compile ../../automation/sfdc_desktop/quote_custom_fee_guard.py
           python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_quote_fee_source_guard.py' -v
           python3 -m py_compile ../../automation/sfdc_desktop/quote_fee_source_guard.py
+          python3 -m unittest discover -s scripts -p 'test_sfdc_quote_fee_source.py' -v
+          python3 -m py_compile scripts/sfdc_quote_fee_source.py
       - name: Install isolated web dependencies
         run: npm install --no-audit --no-fund
       - name: Run unit, local readback privacy and no-Save checks
         run: |
           npm run test:sfdc
           node --test tests/sfdc-pair-auto-krw-request.test.mjs
+          node --test tests/sfdc-quote-fees.test.mjs
           python3 -m unittest discover -s scripts -p test_sfdc_parallel_ui_check.py -v
           python3 -m py_compile scripts/sfdc_parallel_ui_check.py
       - name: Compile Next.js draft workspace

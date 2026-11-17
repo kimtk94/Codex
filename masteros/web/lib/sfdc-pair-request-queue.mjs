@@ -4,6 +4,7 @@
  */
 import {createHash} from "node:crypto";
 import {draftPreflight} from "./sfdc-report-quote-draft.mjs";
+import {quoteFeeBreakdown} from "./sfdc-quote-fees.mjs";
 
 const ID=/^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
 const EMAIL=/^QID-[0-9-]{8,50}$/;
@@ -33,19 +34,30 @@ export function validatePairRequest(input){
        !Array.isArray(p.processes)||p.processes.length>100)
       return {ok:false,code:"REQUEST_PRODUCT_INVALID"};
   }
+  const fees=quoteFeeBreakdown(d);
+  if(!fees.ok)return {ok:false,code:fees.code};
   const review=draftPreflight(d);
   const customerPriceMatches=d.products.every(p=>p.priceEvidenceStatus==="LIVE_SFDC_KRW_VERIFIED"&&
       p.priceSourceQuoteId===d.sourceQuoteId&&
       Number(p.priceSourceUnitKrw)===Number(p.sampleUnitKrw)&&
       Number(p.priceSourceCloudUnitKrw)===Number(p.cloudUnitKrw));
-  const pending=review.status==="PREVIEW_READY"&&customerPriceMatches?
-    "PENDING_APPROVAL":"NEEDS_REVIEW";
+  const feeRequiresApproval=d.feeMode==="KEEP";
+  const pending=review.status==="PREVIEW_READY"&&customerPriceMatches&&
+    !feeRequiresApproval?"PENDING_APPROVAL":"NEEDS_REVIEW";
   const canonical={
     reference:{sourceQuoteId:d.sourceQuoteId,qid:d.qid,
       opportunityId:d.sourceOpportunityId||""},
     proposed:{name:d.name,date:d.date,closeDate:d.closeDate,
       description:d.description,accountMode:d.accountMode,
       account:d.account,contact:d.contact,
+      quoteFeeMode:d.feeMode||"EXCLUDE",
+      quoteFeeLines:fees.quoteFeeItems.map(f=>({
+        kind:f.kind,feeType:f.feeType,
+        sourceQuoteProductId:f.sourceQuoteProductId,
+        sourceProductName:f.sourceProductName,
+        netKrw:f.netKrw,referenceOnly:true,
+        needsNativeRecheck:true
+      })),
       products:d.products.map(p=>({
         id:p.id,serviceLabel:p.serviceLabel,productionGb:p.productionGb,
         samples:p.samples,sampleUnitKrw:p.sampleUnitKrw,
@@ -58,7 +70,9 @@ export function validatePairRequest(input){
     review:{preflightStatus:review.status,missing:review.errors,
       verifiedNativeRateForUnchangedAmount:customerPriceMatches,
       sourceKrwRateStatus:d.sourceKrwRateStatus||"UNVERIFIED",
-      priceChangeRequiresApproval:!customerPriceMatches}
+      priceChangeRequiresApproval:!customerPriceMatches,
+      feeRequiresSeparateApproval:feeRequiresApproval,
+      feeSourceRecheckRequired:feeRequiresApproval}
   };
   const requestId="OPPOQUOTE-"+createHash("sha256")
     .update(JSON.stringify(canonical)).digest("hex").slice(0,24);
