@@ -162,6 +162,51 @@ class SalesBaseCatalogTests(unittest.TestCase):
                 catalog.operational_table_metadata("tok", "/base",
                     tables(["Project Progress Board"]))
 
+    def test_operations_scope_is_independent_of_legacy_bootstrap_tables(self):
+        # Synthetic catalog intentionally lacks all six legacy bootstrap names.
+        entries = tables([name for name, _ in catalog.OPERATIONAL_SIGNATURES.values()])
+        def metadata(token, path):
+            item = entries[int(path.rsplit("tbl", 1)[1])]
+            markers = catalog.OPERATIONAL_SIGNATURES[
+                next(role for role, (name, _) in catalog.OPERATIONAL_SIGNATURES.items()
+                     if name == item["name"])][1]
+            return [{"field_name": marker} for marker in markers]
+        output = io.StringIO()
+        with mock.patch.dict("os.environ", {
+                "FEISHU_BASE_APP_TOKEN": EXPECTED_BASE,
+                "FEISHU_CATALOG_SCOPE": "operations",
+                "FEISHU_CATALOG_SCAN_FIELDS": "1"}), \
+             mock.patch.object(q, "auth", return_value=("tok", "/app")), \
+             mock.patch.object(q, "list_all", return_value=entries), \
+             mock.patch.object(q, "get_fields", side_effect=metadata), \
+             mock.patch.object(q, "api") as any_write, redirect_stdout(output):
+            catalog.main()
+            any_write.assert_not_called()
+        self.assertIn("SALES_BASE_OPERATIONAL_SCHEMA_PASS required_visible=10 checked_schema=6",
+                      output.getvalue())
+        self.assertIn("legacy_bootstrap_table_dependency=0", output.getvalue())
+        self.assertIn("current_source_sink_freshness=NOT_VERIFIED", output.getvalue())
+
+    def test_operations_scope_missing_live_table_fails_closed(self):
+        entries = tables(["Project Progress Board"])
+        markers = catalog.OPERATIONAL_SIGNATURES["PROJECT_PROGRESS"][1]
+        with mock.patch.dict("os.environ", {
+                "FEISHU_BASE_APP_TOKEN": EXPECTED_BASE,
+                "FEISHU_CATALOG_SCOPE": "operations"}), \
+             mock.patch.object(q, "auth", return_value=("tok", "/app")), \
+             mock.patch.object(q, "list_all", return_value=entries), \
+             mock.patch.object(q, "get_fields", return_value=[
+                 {"field_name": marker} for marker in markers]):
+            with self.assertRaisesRegex(q.SafeError, "OPERATIONAL_SCHEMA_NOT_READY"):
+                catalog.main()
+
+    def test_unrecognized_scope_blocks_before_auth(self):
+        with mock.patch.dict("os.environ", {"FEISHU_CATALOG_SCOPE": "invalid"}), \
+             mock.patch.object(q, "auth") as auth:
+            with self.assertRaisesRegex(q.SafeError, "CATALOG_INVALID_SCOPE"):
+                catalog.main()
+            auth.assert_not_called()
+
     def test_unavailable_catalog_source_never_passes(self):
         with mock.patch.dict("os.environ", {"FEISHU_BASE_APP_TOKEN": EXPECTED_BASE}), \
              mock.patch.object(q, "auth", return_value=("tok", "/app")), \
