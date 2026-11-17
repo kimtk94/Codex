@@ -25,6 +25,7 @@ const quantity=v=>Number.isInteger(v)&&v>0&&v<=1000000;
 const decimal=v=>typeof v==="string"&&MONEY.test(v)&&Number.isFinite(Number(v))?Number(v):null;
 export function canonicalPriceUnit(unit){
  if(unit==="G raw data"||unit==="Gb")return "Gb";
+ if(unit==="M reads"||unit==="M raw reads")return "M raw reads";
  return typeof unit==="string"?unit.trim():"";
 }
 export function verifyPriceLine(row){
@@ -75,32 +76,68 @@ export function parseKrwEvidence(text,now=Date.now()){
   crm_writes:0};
 }
 export function rankKrwPrices(evidence,query,limit=15){
- if(!evidence?.records?.length)return {status:"HOLD_NO_KRW_PRICE_EVIDENCE",candidates:[],crm_writes:0,price_auto_apply:false};
+ const no=(status)=>({status,candidates:[],count:0,exact_count:0,
+   crm_writes:0,price_auto_apply:false});
+ if(!evidence?.records?.length)return no("HOLD_NO_KRW_PRICE_EVIDENCE");
  const product=String(query?.product_signature||"");
  const process=String(query?.process_id||"");
  const unit=canonicalPriceUnit(query?.data_unit);
- if(!PRODUCT.test(product)||!P.test(process))return {status:"HOLD_PRODUCT_PROCESS_SELECTION",candidates:[],crm_writes:0,price_auto_apply:false};
- if(!UNITS.has(unit))return {status:"HOLD_DATA_UNIT_SELECTION",candidates:[],crm_writes:0,price_auto_apply:false};
+ if(!PRODUCT.test(product)||!P.test(process))
+   return no("HOLD_PRODUCT_PROCESS_SELECTION");
+ if(!UNITS.has(unit))return no("HOLD_DATA_UNIT_SELECTION");
+ // The historical process picker must not override the requested production
+ // unit. Original "NA"/"sample" operations have no Gb depth to equate.
+ const requested=canonicalPriceUnit(query?.requested_unit);
+ if(requested&&!UNITS.has(requested))
+   return no("HOLD_REQUESTED_PRODUCTION_UNIT");
+ if(requested&&unit!=="NA"&&unit!=="sample"&&requested!==unit)
+   return no("HOLD_REQUESTED_SOURCE_UNIT_MISMATCH");
  const account=validId(query?.account_id,A),contact=validId(query?.contact_id,C);
  const qty=query?.sample_quantity;
  const size=decimal(String(query?.data_size??""));
  const exactBasis=query?.production_basis==="PER_SAMPLE";
+ const excludedQid=typeof query?.exclude_quote_id==="string"&&Q.test(query.exclude_quote_id)?
+   query.exclude_quote_id:null;
  const chosen=[];
  for(const r of evidence.records){
-  if(r.product_signature!==product||r.process_id!==process||r.data_unit!==unit)continue;
+  if(r.quote_id===excludedQid||
+     r.product_signature!==product||r.process_id!==process||r.data_unit!==unit)
+    continue;
   const a=validId(r.account_id,A),c=validId(r.contact_id,C);
   const tier=account&&contact&&a===account&&c===contact?"SAME_ACCOUNT_CONTACT":
-      account&&a===account?"SAME_ACCOUNT_OTHER_CONTACT":"OTHER_CUSTOMER_SAME_PRODUCT_PROCESS";
-  const tierOrder=tier==="SAME_ACCOUNT_CONTACT"?0:tier==="SAME_ACCOUNT_OTHER_CONTACT"?1:2;
-  const sizeMatch=exactBasis&&size!==null&&r.data_size!==""&&Number(r.data_size)===size;
+      account&&a===account?"SAME_ACCOUNT_OTHER_CONTACT":
+      contact&&c===contact?"SAME_CONTACT_OTHER_ACCOUNT":
+      "OTHER_CUSTOMER_SAME_PRODUCT_PROCESS";
+  const tierOrder=tier==="SAME_ACCOUNT_CONTACT"?0:tier==="SAME_ACCOUNT_OTHER_CONTACT"?1:
+     tier==="SAME_CONTACT_OTHER_ACCOUNT"?2:3;
+  const sizeMatch=unit!=="NA"&&unit!=="sample"&&exactBasis&&
+    size!==null&&r.data_size!==""&&Number(r.data_size)===size;
   const quantityMatch=quantity(qty)&&qty===r.sample_quantity;
+  // A perfect historical quote is still ONLY an operator comparison, not an
+  // approved price for the new customer. Total Gb cannot be equated to Gb/sample.
+  const suitability=sizeMatch?"EXACT_PROCESS_AND_PRODUCTION":
+      unit==="NA"||unit==="sample"?"PROCESS_WITHOUT_COMPARABLE_DEPTH":
+      !exactBasis?"PRODUCTION_BASIS_NOT_COMPARABLE":
+      "SOURCE_PRODUCTION_SIZE_MISMATCH";
   chosen.push({...r,tier,size_match:sizeMatch,quantity_match:quantityMatch,
+   suitability,exact_production_match:sizeMatch,
    comparison_only:true,source_recheck_required:true,price_auto_apply:false,
-   _sort:[tierOrder,sizeMatch?0:1,quantityMatch?0:1,-Number(r.created_date.replaceAll("-",""))]});
+   _sort:[sizeMatch?0:1,tierOrder,quantityMatch?0:1,
+      -Number(r.created_date.replaceAll("-",""))]});
  }
- chosen.sort((a,b)=>{for(let i=0;i<a._sort.length;i++){if(a._sort[i]!==b._sort[i])return a._sort[i]-b._sort[i];}return a.quote_id.localeCompare(b.quote_id)});
- return {status:chosen.length?"LOCAL_REFERENCE_CANDIDATES_UNVERIFIED":"NO_MATCHING_2026_KRW_LINES",
-   candidates:chosen.slice(0,limit).map(({_sort,...r})=>r),count:chosen.length,
+ chosen.sort((a,b)=>{
+   for(let i=0;i<a._sort.length;i++)
+     if(a._sort[i]!==b._sort[i])return a._sort[i]-b._sort[i];
+   return a.quote_id.localeCompare(b.quote_id);
+ });
+ const exactCount=chosen.filter(x=>x.size_match).length;
+ return {status:chosen.length?
+      (exactCount?"LOCAL_REFERENCE_CANDIDATES_UNVERIFIED":
+        "LOCAL_CONDITION_MISMATCH_CANDIDATES_ONLY"):
+      "NO_MATCHING_2026_KRW_LINES",
+   candidates:chosen.slice(0,Math.max(1,Math.min(100,Number(limit)||15)))
+     .map(({_sort,...r})=>r),
+   count:chosen.length,exact_count:exactCount,
    source_recheck_required:true,price_auto_apply:false,crm_writes:0};
 }
 export function candidateSelection(intake,candidate){
@@ -113,6 +150,7 @@ export function candidateSelection(intake,candidate){
   historical_data_size:candidate.data_size,
   historical_sample_quantity:candidate.sample_quantity,
   reference_tier:candidate.tier,
+  source_production_match:candidate.suitability||"UNVERIFIED",
   created_date:candidate.created_date,
   state:"COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK",
   applied_to_new_quote:false,crm_writes:0,

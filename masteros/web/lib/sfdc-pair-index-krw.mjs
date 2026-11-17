@@ -27,17 +27,44 @@ export function historicalKrwReference(evidence,sourceQid,product) {
     (gb===null||rows.some(r=>r.data_unit==="Gb"&&Number(r.data_size)===gb)));
   if(matches.length!==1)return {ok:false,code:"HISTORICAL_EXACT_PROCESS_MATCH_UNAVAILABLE"};
   const rows=matches[0];
-  const sampleUnitKrw=rows.filter(x=>!/ali\s*cloud|cloud storage|cloud service/i.test(x.process_name))
-    .reduce((n,x)=>n+Number(x.unit_price_krw),0);
-  const cloudRows=rows.filter(x=>/ali\s*cloud|cloud storage|cloud service/i.test(x.process_name));
-  if(!Number.isSafeInteger(sampleUnitKrw)||sampleUnitKrw<0||cloudRows.length>1||
+  const isCloud=r=>/ali\s*cloud|cloud storage|cloud service/i.test(r.process_name);
+  const isRelease=r=>/^data release$/i.test(r.process_name.trim());
+  const cloudRows=rows.filter(isCloud);
+  const sampleRows=rows.filter(r=>!isCloud(r)&&!isRelease(r));
+  // Salesforce Process.Sample_Quantity is the number of *process operations*,
+  // not necessarily biological sample count. Paid Data release may have two
+  // operations per biological sample. Summing process Unit Prices is wrong.
+  if(!sampleRows.length||cloudRows.length>1||
+     !sampleRows.every(r=>Number.isInteger(r.sample_quantity)&&r.sample_quantity>0))
+    return {ok:false,code:"HISTORICAL_SAMPLE_BASIS_UNVERIFIED"};
+  const quantities=new Set(sampleRows.map(r=>r.sample_quantity));
+  if(quantities.size!==1)
+    return {ok:false,code:"HISTORICAL_MIXED_PROCESS_QUANTITIES"};
+  const sourceSamples=sampleRows[0].sample_quantity;
+  const gbRows=sampleRows.filter(r=>r.data_unit==="Gb");
+  if(gb!==null&&(!gbRows.length||gbRows.some(r=>Number(r.data_size)!==gb)))
+    return {ok:false,code:"HISTORICAL_EXACT_SOURCE_GB_NOT_FOUND"};
+  const productNetKrw=rows.filter(r=>!isCloud(r)).reduce((sum,r)=>
+    sum+Number(r.unit_price_krw)*r.sample_quantity,0);
+  // This is historical VAT-excluded Product net / observed biological samples,
+  // not a new Quote approval and not a per-process price rewrite.
+  const sampleUnitKrw=productNetKrw/sourceSamples;
+  const cloudUnitKrw=cloudRows.length?Number(cloudRows[0].unit_price_krw):null;
+  // A divided historical per-sample price can be fractional even if every
+  // original Salesforce Process Unit Price is a whole KRW amount.
+  // This editor accepts integer KRW; do not round or silently shift the net.
+  if(Number.isFinite(sampleUnitKrw)&&!Number.isInteger(sampleUnitKrw))
+    return {ok:false,code:"HISTORICAL_FRACTIONAL_SAMPLE_RATE_HOLD"};
+  if(!Number.isSafeInteger(productNetKrw)||productNetKrw<0||
+     !Number.isSafeInteger(sampleUnitKrw)||sampleUnitKrw<0||
+     (cloudUnitKrw!==null&&(!Number.isSafeInteger(cloudUnitKrw)||cloudUnitKrw<0))||
      !rows.every(x=>Number.isSafeInteger(Number(x.unit_price_krw))))
     return {ok:false,code:"HISTORICAL_PRICE_AGGREGATION_UNVERIFIED"};
   return {ok:true,code:"HISTORICAL_2026_KRW_COMPARISON_ONLY",
-    sourceQid,sourceProcessCount:rows.length,
+    sourceQid,sourceProcessCount:rows.length,sourceSamples,
+    sourceProductNetKrw:productNetKrw,
     sourceGbStatus:gb===null?"UNVERIFIED":"EXACT_SOURCE_GB_MATCH",
-    candidateSampleUnitKrw:sampleUnitKrw,
-    candidateCloudUnitKrw:cloudRows.length?Number(cloudRows[0].unit_price_krw):null,
+    candidateSampleUnitKrw:sampleUnitKrw,candidateCloudUnitKrw:cloudUnitKrw,
     currency:"KRW",vatBasis:"VAT_EXCLUDED",year:2026,
     pricesApprovedForNewQuote:false,sourceRecheckRequired:true};
 }
