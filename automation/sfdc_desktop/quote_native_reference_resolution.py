@@ -98,3 +98,29 @@ def resolve_reference_status(*, resolved_process_rows, expected_rows,
     result["original_process_rows_verified"] = len(keys)
     result["product_service_name_verified"] = True
     return result
+
+
+
+def resolve_2026_native_krw_product_signature(source_service_name, index_rows):
+    """Only match an exact native Product master service name to ONE 2026 signature.
+
+    Different products can have identical Process layouts. Matching Process
+    geometry, Gb, an approximate label, or converted USD is never accepted.
+    This resolves historical comparison identity ONLY, not rate approval.
+    """
+    if (not isinstance(source_service_name, str) or not source_service_name.strip()
+        or not isinstance(index_rows, list)):
+        return None
+    signatures = {
+        row.get("product_signature")
+        for row in index_rows if isinstance(row, dict)
+        and row.get("product_name") == source_service_name
+        and row.get("currency") == "KRW"
+        and row.get("was_usd_converted") is False
+        and row.get("approval_status") == "APPROVED"
+        and row.get("active") is True
+        and isinstance(row.get("created_date"), str)
+        and row["created_date"].startswith("2026-")
+        and isinstance(row.get("product_signature"), str)
+    }
+    return next(iter(signatures)) if len(signatures) == 1 else None
