@@ -5,6 +5,7 @@ Does NOT provision, rename, delete, or read customer records. A complete mail
 staging table alone does not make the business catalog ready for web views.
 """
 from collections import Counter
+import hashlib
 import os
 import sys
 import urllib.parse
@@ -14,6 +15,66 @@ from qq_mail_audit import EXPECTED_BUSINESS_TABLES
 from setup_sales_web import EXPECTED_BASE
 
 REQUIRED = frozenset(EXPECTED_BUSINESS_TABLES | {q.TABLE})
+
+# Immutable SHA-256 digests of Feishu *table IDs* observed in two distinct
+# SUCCESS 2026-11-05 native-web configuration runs:
+# https://github.com/kimtk94/Codex/actions/runs/42025405631
+# https://github.com/kimtk94/Codex/actions/runs/42060114237
+# The two runs had identical IDs for all seven roles and the expected Base.
+# Never log the actual table IDs or newly observed names.
+HISTORIC_TABLE_ID_SHA256 = {
+    "ACCOUNTS": "b34f2b96fa52211e999fd7cc0abe657c0f9e08859021099a0a260e30f2c968ca",
+    "CONTACTS": "2139515e64cfe6f0f89a846063cebd2b5d42ce28135c9c23955fa3e6bc2fc1d0",
+    "OPPORTUNITIES": "4831bdc6ffbfee91d0f4bac9cc21ccd77588cad16046d944827cb554d720266a",
+    "QUOTES": "d81d1c488cba871a1719b5a56963433112e2255e7a5500f67cc31aedb2f81ca6",
+    "PROJECTS": "3785d45535fcdcf3f563e56c4e350632e4b2c2af6a96d593da407fb01f2f1ffb",
+    "REVENUE": "ce51ab8fec45a0c2f7b01ff95c015c63d18d761941dee71b4a73e73a52a9c2b1",
+    "MAIL": "3794738f453c4faf3f047c7d020adb15b22a0f71955a8581e3b7ac6708233c96",
+}
+
+EXPECTED_ROLE_NAMES = {
+    "ACCOUNTS": "Accounts",
+    "CONTACTS": "Contacts",
+    "OPPORTUNITIES": "Opportunities",
+    "QUOTES": "Quotes",
+    "PROJECTS": "Projects",
+    "REVENUE": "Revenue",
+    "MAIL": q.TABLE,
+}
+
+
+def historic_table_identity(tables):
+    """Compare preserved historical IDs, not names; aggregate only.
+
+    NOT_VISIBLE can mean deletion, access filtering or an absent catalog
+    response. It is never treated as proof that an underlying table was deleted.
+    """
+    seen = {}
+    for item in tables:
+        table_id = item.get("table_id")
+        if not table_id:
+            raise q.SafeError("HISTORIC_CATALOG_TABLE_ID_MISSING")
+        fingerprint = hashlib.sha256(table_id.encode("utf-8")).hexdigest()
+        if fingerprint in seen:
+            raise q.SafeError("HISTORIC_CATALOG_DUPLICATE_TABLE_ID")
+        seen[fingerprint] = item.get("name")
+
+    result = {}
+    summary = Counter()
+    for role, fingerprint in HISTORIC_TABLE_ID_SHA256.items():
+        if fingerprint not in seen:
+            status = "NOT_VISIBLE"
+        elif seen[fingerprint] == EXPECTED_ROLE_NAMES[role]:
+            status = "PRESENT_SAME_NAME"
+        else:
+            status = "PRESENT_CHANGED_NAME"
+        result["HISTORIC_" + role + "_STATUS"] = status
+        summary[status] += 1
+
+    for status in ("PRESENT_SAME_NAME", "PRESENT_CHANGED_NAME", "NOT_VISIBLE"):
+        result["HISTORIC_" + status + "_COUNT"] = summary[status]
+    return result
+
 
 # Historical provisioning script defined these unique marker columns for
 # business tables. We count only candidate matches, never output names/IDs.
@@ -93,6 +154,8 @@ def main():
     summary = analyze(tables)
     for name, value in summary.items():
         print("SALES_BASE_CATALOG_" + name.upper() + "=" + str(value))
+    for name, value in historic_table_identity(tables).items():
+        print("SALES_BASE_CATALOG_" + name + "=" + str(value))
     if os.environ.get("FEISHU_CATALOG_SCAN_FIELDS", "0") == "1":
         for name, value in signature_counts(token, root, tables).items():
             print("SALES_BASE_CATALOG_" + name + "=" + str(value))
