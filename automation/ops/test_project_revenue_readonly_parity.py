@@ -146,7 +146,7 @@ class ReadonlyParityTests(unittest.TestCase):
         self.assertEqual(parity.billing_category("Something unexpected"), "UNKNOWN")
         self.assertEqual(parity.billing_category(""), "BLANK")
 
-    def test_date_shift_direction_bands_and_override_origin(self):
+    def test_date_shift_direction_bands_do_not_claim_month_control_origin(self):
         later = [""] * len(HEAD)
         earlier = [""] * len(HEAD)
         later[0], earlier[0] = "X_A", "X_B"
@@ -154,75 +154,74 @@ class ReadonlyParityTests(unittest.TestCase):
         old_later = list(later)
         old_earlier = list(earlier)
         old_later[11], old_earlier[11] = "2026-11-19", "2026-11-20"
-        controls = [["Sub-Project Number"]] + [["X_A", "", "", "", "", "", "2026-11-20"]]
         stats = parity.project_date_shift_triage(
-            [HEAD, later, earlier], [HEAD, old_later, old_earlier], controls)
+            [HEAD, later, earlier], [HEAD, old_later, old_earlier])
         self.assertEqual(stats["DATE_SHIFTS_TOTAL"], 2)
         self.assertEqual(stats["EXPECTED_LATER_1D"], 1)
         self.assertEqual(stats["EXPECTED_EARLIER_8_TO_30D"], 1)
-        self.assertEqual(stats["ORIGIN_MONTH_CONTROL"], 1)
-        self.assertEqual(stats["ORIGIN_FEISHU_FORECAST"], 1)
+        self.assertFalse(any(k.startswith("ORIGIN_") for k in stats))
         self.assertNotIn("X_A", str(stats))
-        self.assertNotIn("2026-11-20", str(stats))
 
     def test_forecast_date_col10_distinct_from_month_col11(self):
         row = forecast_row("X_PRIVATE", "2026-11-19")
         self.assertEqual(parity.parse_expected_day(row[10]).isoformat(), "2026-11-19")
         self.assertIsNone(parity.parse_expected_day(row[11]))
+        self.assertEqual(HEAD[11], "Feishu Expected Completion")
+        self.assertEqual(HEAD[12], "Expected Revenue Month")
 
-    def test_feishu_alignment_splits_saved_forecast_vs_control_override(self):
+    def test_recalculated_expected_date_matches_feishu_forecast_date(self):
         updated = [""] * len(HEAD)
         old = [""] * len(HEAD)
         updated[0] = old[0] = "X_PRIVATE"
         updated[11], old[11] = "2026-11-20", "2026-11-15"
-        controls = [["Sub-Project Number", "", "", "", "", "", "Expected Completion"]]
-        feishu = [["Snapshot KST"], forecast_row("X_PRIVATE", "2026-11-15")]
-        found = parity.project_control_vs_feishu_alignment(
-            [HEAD, updated], [HEAD, old], controls, feishu)
-        self.assertEqual(found["SINK_MATCHES_FEISHU_FORECAST"], 1)
-        self.assertEqual(found["CONTROL_HEADER_TYPE_EXPECTED_COMPLETION_FIELD"], 1)
+        feishu = [["Snapshot KST"], forecast_row("X_PRIVATE", "2026-11-20")]
+        found = parity.project_forecast_date_alignment(
+            [HEAD, updated], [HEAD, old], feishu)
+        self.assertEqual(found["SOURCE_FORECAST_MATCHES_RECALCULATED_DATE"], 1)
         self.assertNotIn("X_PRIVATE", str(found))
-        self.assertNotIn("2026-11-15", str(found))
+        self.assertNotIn("2026-11-20", str(found))
 
-    def test_feishu_alignment_reports_unmatched_dates_without_guessing(self):
+    def test_stored_forecast_match_does_not_false_classify_control(self):
+        updated = [""] * len(HEAD)
+        old = [""] * len(HEAD)
+        updated[0] = old[0] = "X_PRIVATE"
+        updated[11], old[11] = "2026-11-20", "2026-11-15"
+        feishu = [["Snapshot KST"], forecast_row("X_PRIVATE", "2026-11-15")]
+        found = parity.project_forecast_date_alignment(
+            [HEAD, updated], [HEAD, old], feishu)
+        self.assertEqual(found["STORED_DATE_MATCHES_FORECAST"], 1)
+
+    def test_forecast_date_differs_from_both_is_flagged(self):
         updated = [""] * len(HEAD)
         old = [""] * len(HEAD)
         updated[0] = old[0] = "X_PRIVATE"
         updated[11], old[11] = "2026-11-20", "2026-11-15"
         feishu = [["Snapshot KST"], forecast_row("X_PRIVATE", "2026-11-18")]
-        controls = [["Sub-Project Number", "", "", "", "", "", "Manual Override"]]
-        found = parity.project_control_vs_feishu_alignment(
-            [HEAD, updated], [HEAD, old], controls, feishu)
-        self.assertEqual(found["SINK_AND_CONTROL_BOTH_DIFFER_FROM_FEISHU"], 1)
-        self.assertEqual(found["CONTROL_HEADER_TYPE_MANUAL_OR_OVERRIDE"], 1)
+        found = parity.project_forecast_date_alignment(
+            [HEAD, updated], [HEAD, old], feishu)
+        self.assertEqual(found["SOURCE_AND_STORED_DIFFER_FROM_FORECAST"], 1)
 
-    def test_feishu_alignment_duplicate_x_or_missing_header_fails_closed(self):
+    def test_forecast_alignment_duplicate_x_or_wrong_schema_fails(self):
         updated = [""] * len(HEAD)
         updated[0] = "X_PRIVATE"
         updated[11] = "2026-11-20"
         old = list(updated)
         old[11] = "2026-11-15"
-        controls = [["Sub-Project Number", "", "", "", "", "", "Expected Completion"]]
         feishu = [["Snapshot KST"], ["", "X_PRIVATE"], ["", "X_PRIVATE"]]
         with self.assertRaisesRegex(SafeError, "FEISHU_DUPLICATE_SUBPROJECT"):
-            parity.project_control_vs_feishu_alignment(
-                [HEAD, updated], [HEAD, old], controls, feishu)
-        with self.assertRaisesRegex(SafeError, "CONTROL_DATE_HEADER_MISSING"):
-            parity.project_control_vs_feishu_alignment(
-                [HEAD, updated], [HEAD, old], [["Sub-Project Number"]], feishu)
+            parity.project_forecast_date_alignment([HEAD, updated], [HEAD, old], feishu)
+        with self.assertRaisesRegex(SafeError, "FEISHU_ALIGNMENT_FULL_SCHEMA_REQUIRED"):
+            parity.project_forecast_date_alignment([["Wrong"], updated], [HEAD, old], feishu)
 
-    def test_feishu_alignment_distinguishes_blank_and_bad_format(self):
+    def test_forecast_alignment_distinguishes_blank_and_invalid_date(self):
         current = [""] * len(HEAD)
         prior = [""] * len(HEAD)
         current[0] = prior[0] = "X_PRIVATE"
         current[11], prior[11] = "2026-11-20", "2026-11-15"
-        controls = [["Sub-Project Number", "", "", "", "", "", "Expected Completion"]]
         blank = [["Snapshot KST"], forecast_row("X_PRIVATE", "")]
         bad = [["Snapshot KST"], forecast_row("X_PRIVATE", "UNRECOGNIZED_DATE")]
-        a = parity.project_control_vs_feishu_alignment(
-            [HEAD, current], [HEAD, prior], controls, blank)
-        b = parity.project_control_vs_feishu_alignment(
-            [HEAD, current], [HEAD, prior], controls, bad)
+        a = parity.project_forecast_date_alignment([HEAD, current], [HEAD, prior], blank)
+        b = parity.project_forecast_date_alignment([HEAD, current], [HEAD, prior], bad)
         self.assertEqual(a["FEISHU_FORECAST_BLANK"], 1)
         self.assertEqual(b["FEISHU_FORECAST_UNPARSEABLE"], 1)
 
