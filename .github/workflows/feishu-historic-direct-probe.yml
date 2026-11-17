@@ -1,0 +1,42 @@
+name: Feishu Historical Table Direct Access Probe (Read Only)
+
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/sales_base_historic_direct_probe.py'
+      - 'automation/feishu/test_sales_base_historic_direct_probe.py'
+      - '.github/workflows/feishu-historic-direct-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify safe historic ID probes and codes
+        run: python3 -m unittest discover -s automation/feishu -p 'test_sales_base_historic_direct_probe.py' -v
+
+  probe:
+    needs: tests
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read only historical ID field metadata
+        run: python3 automation/feishu/sales_base_historic_direct_probe.py
