@@ -68,6 +68,7 @@ class QQIntakePlanTests(unittest.TestCase):
         ensure.assert_not_called()
         output = stream.getvalue()
         self.assertIn("CSS_MAIL_PLAN_PASS pending_new=1", output)
+        self.assertIn("CSS_MAIL_PLAN_STATUS=SINK_LAG", output)
         self.assertIn("no_business_writes=1", output)
         self.assertNotIn("synthetic@example.invalid", output)
         self.assertNotIn("CSS_MAIL_SYNC_PASS", output)
