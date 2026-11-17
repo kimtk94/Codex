@@ -69,6 +69,31 @@ class SalesBaseCatalogTests(unittest.TestCase):
         self.assertIn("SALES_BASE_CATALOG_REQUIRED_MISSING=6", stream.getvalue())
         self.assertIn("read_only=1", stream.getvalue())
 
+    def test_schema_fingerprint_matches_are_aggregate_only(self):
+        entries = tables(["A", "B"])
+        def fields(token, path):
+            if path.endswith("/tbl0"):
+                return [{"field_name": field} for field in catalog.SCHEMA_SIGNATURES["ACCOUNTS"]]
+            return [{"field_name": "Quote ID"}, {"field_name": "Unit"}]
+        with mock.patch.object(q, "get_fields", side_effect=fields), \
+             mock.patch.object(q, "api") as api:
+            result = catalog.signature_counts("token", "/base", entries)
+            api.assert_not_called()
+        self.assertEqual(result["SCHEMA_TABLES_SCANNED"], 2)
+        self.assertEqual(result["SCHEMA_ACCOUNTS_EXACT_CANDIDATES"], 1)
+        self.assertEqual(result["SCHEMA_QUOTES_PARTIAL_CANDIDATES"], 1)
+        self.assertNotIn("tbl0", str(result))
+        self.assertNotIn("A", list(result.values()))
+
+    def test_schema_scan_refuses_more_than_100_tables(self):
+        with self.assertRaisesRegex(q.SafeError, "CATALOG_SCHEMA_SCAN_TOO_LARGE"):
+            catalog.signature_counts("tok", "/base", tables(["x"] * 101))
+
+    def test_schema_scan_field_unavailable_fails_closed(self):
+        with mock.patch.object(q, "get_fields", side_effect=q.SafeError("SCHEMA_READ_FAILED")):
+            with self.assertRaisesRegex(q.SafeError, "SCHEMA_READ_FAILED"):
+                catalog.signature_counts("tok", "/base", tables(["x"]))
+
     def test_unavailable_catalog_source_never_passes(self):
         with mock.patch.dict("os.environ", {"FEISHU_BASE_APP_TOKEN": EXPECTED_BASE}), \
              mock.patch.object(q, "auth", return_value=("tok", "/app")), \
