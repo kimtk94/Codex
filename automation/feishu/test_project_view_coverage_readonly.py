@@ -85,6 +85,52 @@ class ProjectViewCoverageTests(unittest.TestCase):
         self.assertNotIn("CUSTOMER_SECRET", str(result))
         self.assertNotIn("PRIVATE", str(result))
 
+    def test_provider_matching_view_filter_proves_outside_condition_failure(self):
+        source = [rec(i) for i in range(150)]
+        for i, record in enumerate(source):
+            record["fields"]["Workflow Lane"] = "ACTIVE" if i < 40 else "COMPLETED"
+        index = audit.key_index(source)
+        actual = {"KEY" + str(i) for i in range(40)}
+        outside = set(index) - actual
+        view = {"property": {"filter_info": {"conjunction": "and", "conditions": [
+            {"field_id": "field-lane", "operator": "is", "value": '["ACTIVE"]'}]}}}
+        result = audit.safe_filter_comparison(
+            view, {"field-lane": "Workflow Lane"}, index, actual, outside)
+        self.assertEqual(result["SIMULATION"], "MATCHES_PROVIDER_VIEW")
+        self.assertEqual(result["FILTER_1_WORKFLOW_LANE_OUTSIDE_MATCH"], 0)
+        self.assertEqual(result["FILTER_1_WORKFLOW_LANE_OUTSIDE_FAIL"], 110)
+        self.assertNotIn("COMPLETED", str(result))
+
+    def test_view_filter_with_mismatch_must_not_claim_reason(self):
+        source = [rec(i) for i in range(150)]
+        for i, record in enumerate(source):
+            record["fields"]["Workflow Lane"] = "ACTIVE" if i < 40 else "OTHER"
+        index = audit.key_index(source)
+        actual = {"KEY" + str(i) for i in range(30)}
+        outside = set(index) - actual
+        view = {"property": {"filter_info": {"conjunction": "and", "conditions": [
+            {"field_id": "lane", "operator": "is", "value": '["ACTIVE"]'}]}}}
+        result = audit.safe_filter_comparison(
+            view, {"lane": "Workflow Lane"}, index, actual, outside)
+        self.assertEqual(result["SIMULATION"], "UNVERIFIED_MISMATCH")
+        self.assertEqual(result["PREDICTED_ONLY"], 10)
+        self.assertNotIn("FILTER_1_WORKFLOW_LANE_OUTSIDE_FAIL", result)
+
+    def test_unsupported_filter_value_fail_closed(self):
+        source = [rec(i) for i in range(150)]
+        index = audit.key_index(source)
+        view = {"property": {"filter_info": {"conjunction": "and", "conditions": [
+            {"field_id": "lane", "operator": "contains", "value": '["secret"]'}]}}}
+        result = audit.safe_filter_comparison(
+            view, {"lane": "Workflow Lane"}, index, set(), set(index))
+        self.assertEqual(result, {"SIMULATION": "UNSUPPORTED_FIELD_OR_OPERATOR"})
+
+    def test_receipt_and_lane_labels_never_confused_with_bank_verification(self):
+        self.assertEqual(audit.receipt_bucket("VERIFIED"), "VERIFIED_LABEL_ONLY")
+        self.assertEqual(audit.present_bucket(""), "MISSING")
+        self.assertEqual(audit.workflow_bucket("COMPLETED"), "COMPLETED_LIKE")
+        self.assertEqual(audit.workflow_bucket("PAID"), "ARCHIVED_OR_PAID_LIKE_UNVERIFIED")
+
     def test_get_only_retries_same_page_for_timeout(self):
         seen = []
         def get(method, path, token=None):
