@@ -6,7 +6,9 @@ import {fromFeishuQuote,calculateDraft,opportunityUnitPriceSummary,draftDescript
 import styles from "./page.module.css";
 import SourceSalesforceEvidence from "./SourceSalesforceEvidence";
 import {applyVerifiedSource} from "../../../../lib/sfdc-source-identity.mjs";
-import {prefillHistoricalKrw} from "../../../../lib/sfdc-pair-index-krw.mjs";
+import {prefillHistoricalKrw,listKrwOriginalProcessGroups} from "../../../../lib/sfdc-pair-index-krw.mjs";
+import {parseKrwEvidence} from "../../../../lib/sfdc-2026-krw-price-preview.mjs";
+import HistoricalKrwProcessBreakdown from "../../../../components/HistoricalKrwProcessBreakdown";
 import {attachVerifiedSourceFees} from "../../../../lib/sfdc-quote-fees.mjs";
 import {REGION_OPTIONS,regionByCode} from "../../../../lib/sfdc-amplicon-regions.mjs";
 import IdentityPicker from "../IdentityPicker";
@@ -24,6 +26,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
   const [requestBusy,setRequestBusy]=useState(false);
   const [creationRequest,setCreationRequest]=useState(null);
   const [historyStatus,setHistoryStatus]=useState("CHECKING");
+  const [originalSourceGroups,setOriginalSourceGroups]=useState([]);
   const [feeReadStatus,setFeeReadStatus]=useState("NOT_READ");
   // Native Quote Fee is read independently of Feishu/Account identity matching.
   // Both are read-only evidence, and neither permits a CRM Save.
@@ -64,9 +67,13 @@ export default function ReportOppoDraft({quote,enabled=true}){
         if(!response.ok||data.status!=="PASS"||!data.evidence)
           throw Error("KRW_INDEX_HOLD");
         if(!mounted)return;
+        const checked=parseKrwEvidence(JSON.stringify(data.evidence));
+        const groups=listKrwOriginalProcessGroups(checked);
+        setOriginalSourceGroups(groups.groups.filter(g=>g.quote_id===quote?.qid));
         setDraft(current=>current?prefillHistoricalKrw(current,data.evidence):current);
         setHistoryStatus("2026_KRW_REFERENCE_LOADED");
-      }catch{if(mounted)setHistoryStatus("2026_KRW_INDEX_UNAVAILABLE")}
+      }catch{if(mounted){setHistoryStatus("2026_KRW_INDEX_UNAVAILABLE");
+        setOriginalSourceGroups([]);}}
     })();
     return ()=>{mounted=false};
   },[quote?.qid]);
@@ -217,6 +224,16 @@ export default function ReportOppoDraft({quote,enabled=true}){
       QID·공정·Gb에 한해 참고 가격을 자동 불러옵니다.
       실제 Salesforce 단가로 다시 확인하기 전에는 저장이 불가합니다.
     </p>
+    {originalSourceGroups.length>0&&<details className={styles.subsection}
+      data-testid="pair-original-process-breakdown">
+      <summary>원본 Quote 공정별 KRW 단가·수량 상세 · {originalSourceGroups.length}개 Product
+        {" · "}HOLD {originalSourceGroups.filter(g=>g.review_status==="HOLD").length}개</summary>
+      <p className={styles.hint}>원본 Product별 Process 수량×Unit Price를 그대로 확인할 수 있습니다.
+        홀딩된 가격은 신규 견적 샘플당 금액으로 자동 입력되지 않습니다.
+        별도 Quotation Fee는 제외된 공정 합계입니다.</p>
+      {originalSourceGroups.map(group=><HistoricalKrwProcessBreakdown
+        key={group.key} group={group}/>)}
+    </details>}
     <div className={styles.sourceGrid}>
       <div><span>참고 Quote</span><strong>{draft.qid}</strong></div>
       <div><span>참고 Opportunity</span><strong>{draft.originalOpportunityName||"기존 프로젝트명 미확인"}</strong></div>
