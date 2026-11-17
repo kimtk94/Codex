@@ -4,6 +4,7 @@ import {verifiedSourcePrice,prefillVerifiedKrw} from "../lib/sfdc-pair-auto-krw.
 import {calculateDraft,draftDescription,opportunityUnitPriceSummary}
   from "../lib/sfdc-report-quote-draft.mjs";
 import {validatePairRequest} from "../lib/sfdc-pair-request-queue.mjs";
+import {historicalKrwReference,prefillHistoricalKrw} from "../lib/sfdc-pair-index-krw.mjs";
 
 const quoteId="a0P000000000001AAA",oppoId="006000000000001AAA";
 const ident={status:"PASS",sourceVerified:true,nativeQuoteId:quoteId};
@@ -80,4 +81,34 @@ test("paired creation request is locally queued pending approval, not Salesforce
  assert.equal(hr.ok,true);
  assert.equal(hr.status,"NEEDS_REVIEW");
  assert.equal(hr.savePermitted,false);
+});
+
+test("exact-QID 2026 KRW index prefills comparisons without granting Save",()=>{
+ const base=draft(),p=base.products[0];
+ const row={source_kind:"VERIFIED_SFDC_KRW_PROCESS_PRICE",
+   source_verified:true,created_date:"2026-11-01",quote_id:base.qid,
+   active:true,approval_status:"APPROVED",currency:"KRW",
+   was_usd_converted:false,vat_basis:"VAT_EXCLUDED",
+   account_id:"001000000000AAA",contact_id:"003000000000AAA",
+   process_id:"Process-2026-001",product_signature:"f".repeat(64),
+   unit_price_krw:"115000",data_unit:"G raw data",data_size:"6",
+   sample_quantity:9,process_name:"Sequencing by data amount"};
+ const index={version:"sfdc-2026-krw-process-prices-v1",
+   source:"SFDC_AUTHENTICATED_READ_ONLY_KRW_PROCESS_LINES",
+   generated_at:new Date().toISOString(),salesforce_write_performed:false,
+   records:[row]};
+ const candidate=historicalKrwReference(index,base.qid,p);
+ assert.equal(candidate.ok,true);
+ assert.equal(candidate.candidateSampleUnitKrw,115000);
+ assert.equal(candidate.pricesApprovedForNewQuote,false);
+ const populated=prefillHistoricalKrw(base,index);
+ assert.equal(populated.products[0].sampleUnitKrw,"115000");
+ assert.equal(populated.products[0].priceEvidenceStatus,"INDEX_2026_KRW_COMPARISON_ONLY");
+ populated.description=draftDescription(populated,calculateDraft(populated));
+ assert.equal(validatePairRequest({mode:"SUBMIT_FOR_APPROVAL",draft:populated}).status,"NEEDS_REVIEW");
+ const upgraded=prefillVerifiedKrw(populated,verifiedSourcePrice(source,ident));
+ assert.equal(upgraded.products[0].sampleUnitKrw,"100000");
+ assert.equal(upgraded.products[0].cloudUnitKrw,"30000");
+ assert.equal(upgraded.products[0].priceEvidenceStatus,"LIVE_SFDC_KRW_VERIFIED");
+ assert.equal(historicalKrwReference(index,"QID-2026-11-01-999999",p).ok,false);
 });
