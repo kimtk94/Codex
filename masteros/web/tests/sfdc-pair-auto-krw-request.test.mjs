@@ -101,6 +101,10 @@ test("exact-QID 2026 KRW index prefills comparisons without granting Save",()=>{
  assert.equal(candidate.ok,true);
  assert.equal(candidate.candidateSampleUnitKrw,115000);
  assert.equal(candidate.pricesApprovedForNewQuote,false);
+ const emptyGb={...p,productionGb:""};
+ const withoutGb=historicalKrwReference(index,base.qid,emptyGb);
+ assert.equal(withoutGb.ok,true);
+ assert.equal(withoutGb.sourceGbStatus,"UNVERIFIED");
  const populated=prefillHistoricalKrw(base,index);
  assert.equal(populated.products[0].sampleUnitKrw,"115000");
  assert.equal(populated.products[0].priceEvidenceStatus,"INDEX_2026_KRW_COMPARISON_ONLY");
@@ -110,5 +114,9 @@ test("exact-QID 2026 KRW index prefills comparisons without granting Save",()=>{
  assert.equal(upgraded.products[0].sampleUnitKrw,"100000");
  assert.equal(upgraded.products[0].cloudUnitKrw,"30000");
  assert.equal(upgraded.products[0].priceEvidenceStatus,"LIVE_SFDC_KRW_VERIFIED");
+ const missingGb={...base,products:[{...base.products[0],productionGb:""}]};
+ const autoSource=prefillVerifiedKrw(missingGb,verifiedSourcePrice(source,ident));
+ assert.equal(autoSource.products[0].productionGb,"6");
+ assert.equal(autoSource.products[0].sampleUnitKrw,"100000");
  assert.equal(historicalKrwReference(index,"QID-2026-11-01-999999",p).ok,false);
 });
