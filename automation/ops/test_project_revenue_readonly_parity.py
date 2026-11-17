@@ -8,6 +8,23 @@ from qq_mail_ingest import SafeError
 
 
 class ReadonlyParityTests(unittest.TestCase):
+    def test_issued_qq_only_lifecycle_receives_existing_prior_rows(self):
+        previous = [HEAD, ["X_EXISTING"]]
+        def build_with_context(*source, previous_rows=None):
+            if previous_rows is None:
+                raise AssertionError("Previous lifecycle record context dropped")
+            return [HEAD, ["X_EXISTING"]]
+        with mock.patch.object(parity, "build", build_with_context):
+            result = parity.compute_lifecycle([[]] * 6, previous)
+        self.assertEqual(parity.project_counts(result, previous)["SINK_ONLY"], 0)
+
+    def test_main_legacy_build_does_not_require_new_parameter(self):
+        def build_without_context(*source):
+            return [HEAD, ["X_EXISTING"]]
+        with mock.patch.object(parity, "build", build_without_context):
+            result = parity.compute_lifecycle([[]] * 6, [HEAD, ["X_EXISTING"]])
+        self.assertEqual(len(result), 2)
+
     def test_project_set_exact_match_and_order_independent(self):
         new = [HEAD, ["X1"], ["X2"]]
         old = [HEAD[:22], ["X2"], ["X1"]]
