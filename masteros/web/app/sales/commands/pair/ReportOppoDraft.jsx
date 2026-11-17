@@ -24,6 +24,33 @@ export default function ReportOppoDraft({quote,enabled=true}){
   const [requestBusy,setRequestBusy]=useState(false);
   const [creationRequest,setCreationRequest]=useState(null);
   const [historyStatus,setHistoryStatus]=useState("CHECKING");
+  const [feeReadStatus,setFeeReadStatus]=useState("NOT_READ");
+  // Native Quote Fee is read independently of Feishu/Account identity matching.
+  // Both are read-only evidence, and neither permits a CRM Save.
+  useEffect(()=>{
+    const sourceQuoteId=quote?.sfdc_record_id||"";
+    if(!/^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(sourceQuoteId)){
+      setFeeReadStatus("SOURCE_QUOTE_ID_MISSING");return;
+    }
+    let mounted=true;
+    setFeeReadStatus("READING");
+    (async()=>{
+      try{
+        const response=await fetch("/api/sfdc/quote-fees-local",{
+          method:"POST",cache:"no-store",credentials:"omit",
+          headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+          body:JSON.stringify({mode:"READ_SOURCE_QUOTE_FEES",sourceQuoteId})
+        });
+        const data=await response.json();
+        if(!response.ok||data.status!=="PASS")throw Error(data.code||"FEE_READ_HOLD");
+        if(!mounted)return;
+        setDraft(current=>current?.sourceQuoteId===sourceQuoteId?
+          attachVerifiedSourceFees(current,data):current);
+        setFeeReadStatus("PASS");
+      }catch{if(mounted)setFeeReadStatus("HOLD")}
+    })();
+    return ()=>{mounted=false};
+  },[quote?.sfdc_record_id]);
   useEffect(()=>{
     let mounted=true;
     (async()=>{
@@ -357,7 +384,8 @@ export default function ReportOppoDraft({quote,enabled=true}){
           샘플당 시퀀싱·라이브러리·QC 단가에는 합산하지 않습니다.
           기존 견적의 Fee는 기본적으로 새 견적에 복제하지 않습니다.</p>
         <p className={styles.hint} role="status">원본 조회:
-          {" "}{draft.feeEvidenceStatus||"NOT_READ"}
+          {" "}{feeReadStatus}
+          {" · "}{draft.feeEvidenceStatus||"NOT_READ"}
           {" · "}{draft.sourceFeeLines?.length||0}개 Fee</p>
         {(draft.sourceFeeLines||[]).map((fee,i)=>
           <div className={styles.totals} key={fee.key||i}>
