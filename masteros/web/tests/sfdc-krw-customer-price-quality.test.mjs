@@ -69,6 +69,15 @@ test("original source Gb must match each applicable sample process; release's da
  assert.equal(noGb.ok,true);
  assert.equal(noGb.sourceGbStatus,"UNVERIFIED");
 });
+test("fractional derived KRW per biological sample is HOLD, never rounded",()=>{
+ const rows=[line(0,1000,3,6),line(1,0,3,6),
+  line(2,0,3,6),line(3,500,4,1)];
+ const candidate=historicalKrwReference(source(rows),qid,productDraft(rows,"3","6"));
+ assert.equal(candidate.ok,false);
+ assert.equal(candidate.code,"HISTORICAL_FRACTIONAL_SAMPLE_RATE_HOLD");
+ const draft={qid,products:[productDraft(rows,"3","6")]};
+ assert.equal(prefillHistoricalKrw(draft,source(rows)).products[0].sampleUnitKrw,"");
+});
 test("separately billed AliCloud stays outside process unit rate",()=>{
  const rows=[line(0,3000000,2,200),line(1,0,2,200),
   line(2,0,2,200),line(3,150000,4,1),line(4,30000,4,200)];
