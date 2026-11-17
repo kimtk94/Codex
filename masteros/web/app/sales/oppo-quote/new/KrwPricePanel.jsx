@@ -6,6 +6,7 @@ import {parseKrwEvidence,rankKrwPrices,candidateSelection,summarizeKrwProductPri
 const TIER_LABEL={
  SAME_ACCOUNT_CONTACT:"동일 Account + Contact",
  SAME_ACCOUNT_OTHER_CONTACT:"동일 Account · 다른 Contact",
+ SAME_CONTACT_OTHER_ACCOUNT:"동일 Contact · 다른 Account (기관 재확인)",
  OTHER_CUSTOMER_SAME_PRODUCT_PROCESS:"다른 고객 · 동일 Product/Process"
 };
 const suffix=(x)=>x?.slice(-6)||"—";
@@ -40,11 +41,11 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  const effectiveUnit=availableUnits.length===1?availableUnits[0]:selectedUnit;
  const query=useMemo(()=>({
   account_id:effectiveAccountId,contact_id:effectiveContactId,product_signature:product,process_id:process,
-  data_unit:effectiveUnit,
+  data_unit:effectiveUnit,requested_unit:intake.input.unit,
   data_size:effectiveUnit==="NA"?"":intake.input.production,
   sample_quantity:Number(intake.input.samples),
   production_basis:intake.input.basis
- }),[effectiveAccountId,effectiveContactId,product,process,effectiveUnit,intake.input.production,intake.input.samples,intake.input.basis]);
+ }),[effectiveAccountId,effectiveContactId,product,process,effectiveUnit,intake.input.unit,intake.input.production,intake.input.samples,intake.input.basis]);
  const found=useMemo(()=>rankKrwPrices(source,query),[source,query]);
  // Stale historical prices must never survive a change of the customer, service,
  // process, depth, production basis or quantity that selected the reference.
@@ -97,6 +98,9 @@ export default function KrwPricePanel({intake,customerSelection=null}){
       ". 기존 JSON 직접 불러오기는 사용할 수 있습니다.");
   }finally{setLocalLoading(false);}
  };
+ // Local-only, read-only price evidence is loaded from the laptop automatically.
+ // Guarded API failure is a visible HOLD; neither CRM nor GitHub receives data.
+ useEffect(()=>{loadPrivatePriceIndex()},[]);
  const copy=async()=>{
   if(!selected)return;
   try{
@@ -204,7 +208,12 @@ export default function KrwPricePanel({intake,customerSelection=null}){
   {notice&&<div className={styles.notice} role="status" aria-live="polite">{notice}</div>}
   <div className={styles.reviewState}><span className={styles.dot}/>
    {!source?"HOLD · 검증된 KRW 가격 파일 미연결":found.status==="LOCAL_REFERENCE_CANDIDATES_UNVERIFIED"?
-    "비교 후보 "+found.count+"건 · 모두 재검증 필요":found.status}
+    "동일 생산량 후보 "+found.exact_count+"건 / 비교 전체 "+found.count+"건 · 신규 가격 승인 아님":
+    found.status==="LOCAL_CONDITION_MISMATCH_CANDIDATES_ONLY"?
+    "동일 생산량 일치 없음 · 조건 다른 과거 견적 "+found.count+"건 참고만 가능":
+    found.status==="HOLD_REQUESTED_SOURCE_UNIT_MISMATCH"?
+    "조회 단위와 요청 생산량 단위가 다릅니다. 가격 비교 중단":
+    found.status}
   </div>
   {found.candidates.length>0&&<div style={{display:"grid",gap:10,marginTop:15}}>
    {found.candidates.map((item,index)=><div key={item.quote_id+"-"+item.process_id+"-"+index}
@@ -214,10 +223,10 @@ export default function KrwPricePanel({intake,customerSelection=null}){
       <span style={{fontSize:12,color:"#9bcce4"}}>{priceText(item.unit_price_krw)} KRW / 공정 단가</span>
      </div>
      <div className={styles.footnote} style={{marginTop:7}}>
-      {item.quote_id} · {item.created_date} · 생산량 {item.data_size||"원본 미기재"} {item.data_unit==="NA"?"(단위 미기재)":item.data_unit} · 샘플 {item.sample_quantity}개
+      {item.quote_id} · {item.created_date} · 원본 생산량 {item.data_size||"원본 미기재"} {item.data_unit==="NA"?"(단위 미기재)":item.data_unit} · 공정 수량 {item.sample_quantity} (생물학적 샘플 수와 다를 수 있음)
      </div>
      <div className={styles.footnote} style={{marginTop:5}}>
-      생산량 일치: {item.size_match?"예":"아니오/확인 필요"} · 샘플 수 일치: {item.quantity_match?"예":"아니오"}
+      {item.exact_production_match?"동일 생산량·단위":"원본 생산량 또는 기준 불일치 · 참고만"} · 공정 수량 일치: {item.quantity_match?"예":"아니오"}
      </div>
      <button type="button" className={styles.secondary} onClick={()=>{setChoice(item);setNotice("참고 Quote를 선택했습니다. 단가 적용 전 원본·승인·고객 조건 재확인 필수입니다.");}}
       style={{marginTop:10}}>비교 견적으로 선택</button>
