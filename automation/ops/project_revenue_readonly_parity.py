@@ -310,9 +310,12 @@ def project_control_vs_feishu_alignment(source_rows, sink_rows, controls, feishu
             report["FEISHU_SUBPROJECT_NOT_FOUND"] += 1
             continue
         source_forecast = feishu[project][11] if len(feishu[project]) > 11 else ""
+        if not str(source_forecast if source_forecast is not None else "").strip():
+            report["FEISHU_FORECAST_BLANK"] += 1
+            continue
         forecast = parse_expected_day(source_forecast)
         if forecast is None:
-            report["FEISHU_FORECAST_DATE_UNAVAILABLE"] += 1
+            report["FEISHU_FORECAST_UNPARSEABLE"] += 1
             continue
         if forecast == parse_expected_day(stored):
             report["SINK_MATCHES_FEISHU_FORECAST"] += 1
