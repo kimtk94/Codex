@@ -21,7 +21,7 @@ from quote_native_process_guard import audit_native_process_bundle
 from quote_native_reference_resolution import (
     resolve_native_data_unit, resolve_product_service,
     resolve_reference_status, resolve_report_process_id,
-    resolve_2026_native_krw_product_signature,
+    resolve_2026_native_krw_signature_by_report_geometry,
 )
 
 PRIVATE = Path(os.environ.get("LOCALAPPDATA", "")) / "SFDC_KRW_Price"
@@ -239,8 +239,13 @@ def run():
                     "processRows": process_rows,
                 })
             signatures = [
-                resolve_2026_native_krw_product_signature(service, private_index["records"])
-                for service in services
+                resolve_2026_native_krw_signature_by_report_geometry(
+                    service,
+                    [line for line in expected
+                     if line.get("quotation_product_id") == product["name"]],
+                    private_index["records"],
+                )
+                for service, product in zip(services, products)
             ]
             resolution = resolve_reference_status(
                 resolved_process_rows=resolved_rows,
