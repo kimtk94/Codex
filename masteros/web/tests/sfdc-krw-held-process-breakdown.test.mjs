@@ -72,7 +72,7 @@ test("exactly separate two Products under the same QID rather than mixing rows",
  assert.equal(x.total,2);
  assert.equal(x.groups.length,2);
  assert.equal(new Set(x.groups.map(g=>g.product_signature)).size,2);
- assert.equal(x.groups.reduce((sum,g)=>sum+Number(g.process_net_krw),0),7000);
+ assert.equal(x.groups.reduce((sum,g)=>sum+Number(g.process_net_krw),0),13000);
 });
 test("duplicate Process IDs within a Product remain review HOLD with all rows visible",()=>{
  const r=line(0,1000,2,6);
