@@ -27,7 +27,7 @@ export function historicalKrwReference(evidence,sourceQid,product) {
     (gb===null||rows.some(r=>r.data_unit==="Gb"&&Number(r.data_size)===gb)));
   if(matches.length!==1)return {ok:false,code:"HISTORICAL_EXACT_PROCESS_MATCH_UNAVAILABLE"};
   const rows=matches[0];
-  const isCloud=r=>/ali\\s*cloud|cloud storage|cloud service/i.test(r.process_name);
+  const isCloud=r=>/ali\s*cloud|cloud storage|cloud service/i.test(r.process_name);
   const isRelease=r=>/^data release$/i.test(r.process_name.trim());
   const cloudRows=rows.filter(isCloud);
   const sampleRows=rows.filter(r=>!isCloud(r)&&!isRelease(r));
