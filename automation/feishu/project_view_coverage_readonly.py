@@ -28,6 +28,11 @@ FIELD_WHITELIST = {
     "Source Key": "SOURCE_KEY",
     "Quote Full Name": "QUOTE_NAME",
     "Payment State": "PAYMENT_STATE",
+    "Workflow Lane": "WORKFLOW_LANE",
+    "Payment Owner Scope": "PAYMENT_OWNER_SCOPE",
+    "Receipt Verification Status": "RECEIPT_VERIFICATION",
+    "Bank Receipt Reference": "BANK_RECEIPT_REFERENCE",
+    "Completion Evidence": "COMPLETION_EVIDENCE",
     "Current Stage": "CURRENT_STAGE",
     "Progress %": "PROGRESS",
     "Invoice Gross M KRW": "INVOICE_GROSS",
@@ -202,6 +207,38 @@ def quote_bucket(raw):
     return "OTHER_OR_UNVERIFIED"
 
 
+def workflow_bucket(raw):
+    v = value(raw).lower().strip()
+    if not v:
+        return "MISSING"
+    if re.search(r"archive|paid|receipt", v):
+        return "ARCHIVED_OR_PAID_LIKE_UNVERIFIED"
+    if re.search(r"bill|invoice|payment|outstanding|미수|결제", v):
+        return "BILLING_LIKE"
+    if re.search(r"complet|finish|완료|종료|done", v):
+        return "COMPLETED_LIKE"
+    if re.search(r"active|progress|ongoing|진행", v):
+        return "ACTIVE_LIKE"
+    if re.search(r"hold|review|pending|대기", v):
+        return "HOLD_OR_PENDING"
+    return "OTHER_LANE"
+
+
+def present_bucket(raw):
+    return "PRESENT_UNVERIFIED" if value(raw) else "MISSING"
+
+
+def receipt_bucket(raw):
+    v = value(raw).strip().upper()
+    if not v:
+        return "MISSING"
+    if v == "VERIFIED":
+        return "VERIFIED_LABEL_ONLY"
+    if "PENDING" in v or "REVIEW" in v:
+        return "REVIEW_OR_PENDING"
+    return "OTHER_NOT_BANK_VERIFIED"
+
+
 def classify(records):
     dimensions = {
         "PAYMENT": ("Payment State", payment_bucket),
@@ -210,6 +247,11 @@ def classify(records):
         "INVOICE_GROSS": ("Invoice Gross M KRW", quantity_bucket),
         "OUTSTANDING": ("Outstanding Balance M KRW", quantity_bucket),
         "QUOTE_MATCH": ("Quote Match State", quote_bucket),
+        "LANE": ("Workflow Lane", workflow_bucket),
+        "PAYMENT_OWNER": ("Payment Owner Scope", present_bucket),
+        "COMPLETION_EVIDENCE": ("Completion Evidence", present_bucket),
+        "RECEIPT_STATUS": ("Receipt Verification Status", receipt_bucket),
+        "BANK_REFERENCE": ("Bank Receipt Reference", present_bucket),
     }
     results = {}
     for name, (field, classifier) in dimensions.items():
@@ -221,7 +263,7 @@ def classify(records):
     return results
 
 
-def filter_metadata(view, field_names):
+def view_conditions(view):
     prop = view.get("property") or {}
     if isinstance(prop, str):
         try:
@@ -236,6 +278,54 @@ def filter_metadata(view, field_names):
     conditions = info.get("conditions") or []
     if not isinstance(conditions, list):
         raise RuntimeError("VIEW_CONDITIONS_INVALID")
+    return info, conditions
+
+
+def safe_filter_comparison(view, field_names, original_index, actual_view_keys, outside):
+    """Simulate exact equality filters and compare against provider membership.
+
+    If unsupported, report only a reason label and avoid exclusion claims.
+    Neither raw condition values nor source records are logged.
+    """
+    info, conditions = view_conditions(view)
+    if not conditions or str(info.get("conjunction") or "").lower() != "and":
+        return {"SIMULATION": "UNSUPPORTED_NO_AND_FILTERS"}
+    compiled = []
+    for condition in conditions:
+        field_name = field_names.get(condition.get("field_id"))
+        if field_name not in FIELD_WHITELIST or condition.get("operator") != "is":
+            return {"SIMULATION": "UNSUPPORTED_FIELD_OR_OPERATOR"}
+        options = condition.get("value")
+        if isinstance(options, str):
+            try:
+                options = json.loads(options)
+            except (ValueError, TypeError):
+                return {"SIMULATION": "UNSUPPORTED_VALUE_FORMAT"}
+        if not isinstance(options, list) or not options or not all(
+                isinstance(v, (str, int, float, bool)) for v in options):
+            return {"SIMULATION": "UNSUPPORTED_VALUE_FORMAT"}
+        compiled.append((field_name, {str(x).strip() for x in options}))
+    predicted = set()
+    for key, record in original_index.items():
+        fields = record.get("fields") or {}
+        if all(value(fields.get(field)).strip() in opts for field, opts in compiled):
+            predicted.add(key)
+    if predicted != actual_view_keys:
+        return {"SIMULATION": "UNVERIFIED_MISMATCH",
+                "PREDICTED_ONLY": len(predicted - actual_view_keys),
+                "ACTUAL_ONLY": len(actual_view_keys - predicted)}
+    result = {"SIMULATION": "MATCHES_PROVIDER_VIEW"}
+    for idx, (field, opts) in enumerate(compiled, 1):
+        matched = sum(value((original_index[key].get("fields") or {}).get(field)).strip() in opts
+                      for key in outside)
+        label = FIELD_WHITELIST[field]
+        result["FILTER_" + str(idx) + "_" + label + "_OUTSIDE_MATCH"] = matched
+        result["FILTER_" + str(idx) + "_" + label + "_OUTSIDE_FAIL"] = len(outside) - matched
+    return result
+
+
+def filter_metadata(view, field_names):
+    info, conditions = view_conditions(view)
     result = collections.Counter()
     result["FILTER_CONDITIONS"] = len(conditions)
     result["FILTER_PRESENT"] = 1 if conditions else 0
@@ -281,6 +371,9 @@ def audit(token, root):
         if not isinstance(view, dict) or view.get("view_id") != view_id:
             raise RuntimeError("PROJECT_VIEW_DETAIL_ID_MISMATCH")
         for name, count in filter_metadata(view, field_names).items():
+            print("PROJECT_VIEW_" + label + "_" + name + "=" + str(count))
+        for name, count in safe_filter_comparison(
+                view, field_names, original_index, view_keys[label], outside).items():
             print("PROJECT_VIEW_" + label + "_" + name + "=" + str(count))
     print("PROJECT_VIEW_COVERAGE_AUDIT_PASS read_only=1 record_writes=0 "
           "raw_customer_values_logged=0 paid_state_not_bank_verified=1")
