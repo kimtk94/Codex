@@ -5,6 +5,7 @@
  */
 import {inferAmpliconReference,ampliconRegionUnits} from "./sfdc-amplicon-regions.mjs";
 import {closeDateOneMonthFromKst} from "./css-close-date.mjs";
+import {quoteFeeBreakdown} from "./sfdc-quote-fees.mjs";
 const s=v=>String(v??"").trim();
 const numeric=v=>/^\d+(?:\.\d+)?$/.test(s(v))?Number(v):null;
 const integer=v=>/^\d+$/.test(s(v))?Number(v):null;
@@ -129,6 +130,7 @@ export function fromFeishuQuote(detail,now=new Date()){
     // Users edit only differences, while the new object has NO source ID reuse.
     name:sourceProject,date:kstDate(now),closeDate:closeDateOneMonthFromKst(now),products:labeled,
     descriptionStatus:"Quote Draft",
+    feeMode:"EXCLUDE",sourceFeeLines:[],feeEvidenceStatus:"NOT_READ",
     source:"FEISHU_REPORT_USD_CONVERTED_ONLY",
     sourceReceivedKst:s(detail.source_mail_received_kst),
     quoteRecordUnmapped:!s(detail.sfdc_record_id),
@@ -139,7 +141,7 @@ export function fromFeishuQuote(detail,now=new Date()){
     referenceAccount:account,referenceContact:contact,
     accountMode:"KEEP",account,contact,identitySelectedFromReference:Boolean(ref),
     referenceDefaults:{
-      name:sourceProject,account:{...account},contact:{...contact},
+      name:sourceProject,account:{...account},contact:{...contact},feeMode:"EXCLUDE",
       products:labeled.map(p=>({
         id:p.id,serviceLabel:p.serviceLabel,productionGb:p.productionGb,
         samples:p.samples,sampleUnitKrw:p.sampleUnitKrw,cloudUnitKrw:p.cloudUnitKrw,
@@ -187,8 +189,11 @@ export function calculateDraft(draft){
       netKrw:safeNet,ready:safeNet!==null&&gbOk,gbValid:gbOk,
       projectKey:signature(p.processes,gb,selected.map(x=>x.code))};
   });
-  const allPriced=items.length>0&&items.every(x=>x.ready);
-  const total=allPriced?items.reduce((n,x)=>n+x.netKrw,0):null;
+  const fees=quoteFeeBreakdown(draft);
+  const allPriced=items.length>0&&items.every(x=>x.ready)&&fees.ok;
+  const processNet=items.length>0&&items.every(x=>x.ready)?
+    items.reduce((n,x)=>n+x.netKrw,0):null;
+  const total=allPriced?processNet+fees.feeNetKrw:null;
   if(total!==null&&!Number.isSafeInteger(total))
     return {ok:false,code:"DRAFT_TOTAL_OVERFLOW",items};
   const vat=total===null?null:Math.round(total*.1);
@@ -211,9 +216,11 @@ export function calculateDraft(draft){
         netKrw:item.cloudNetKrw});
     return base;
   });
-  return {ok:allPriced,quoteLineItems,
-    code:allPriced?"DRAFT_ESTIMATE_ONLY":"INPUT_SAMPLE_PRICE_OR_GB",
-    items,netKrw:total,vatKrw:vat,grossKrw:total===null?null:total+vat,
+  return {ok:allPriced,quoteLineItems:[...quoteLineItems,...fees.quoteFeeItems],
+    code:allPriced?"DRAFT_ESTIMATE_ONLY":fees.ok?"INPUT_SAMPLE_PRICE_OR_GB":fees.code,
+    items,processNetKrw:processNet,feeNetKrw:fees.feeNetKrw,
+    feeIncluded:fees.included,feeSourceStatus:fees.code,
+    netKrw:total,vatKrw:vat,grossKrw:total===null?null:total+vat,
     sourceRateVerified:false,crmSavePermitted:false,feishuWrite:false};
 }
 /** Product-scoped sample unit prices for Opportunity review, without
@@ -253,6 +260,10 @@ export function descriptionBasis(draft){
   return JSON.stringify({
     template:DESCRIPTION_TEMPLATE_VERSION,
     date:s(draft.date),status:s(draft.descriptionStatus)||"Quote Draft",
+    feeMode:draft.feeMode||"EXCLUDE",
+    feeLines:draft.feeMode==="KEEP"?(draft.sourceFeeLines||[]).map(f=>({
+      feeType:f.feeType,feeKrw:f.feeKrw,productName:f.productName,
+      sourceQuoteProductId:f.sourceQuoteProductId})):[],
     products:(draft.products||[]).map(p=>({
       service:s(p.serviceLabel),
       gb:s(p.productionGb),samples:s(p.samples),unitKrw:s(p.sampleUnitKrw),
@@ -290,7 +301,10 @@ export function draftDescription(draft,calc=calculateDraft(draft)){
     const rate=p.unitKrw===null?"단가 확인":money(p.unitKrw)+"KRW";
     return [service,gb,count,"* "+rate].filter(Boolean).join(" ");
   });
-  return [mmdd,status,lines.join(" / ")].filter(Boolean).join(" ");
+  const fees=quoteFeeBreakdown(draft);
+  const feeSummary=fees.included&&fees.ok?
+    fees.quoteFeeItems.map(f=>f.feeType+" "+money(f.netKrw)+"KRW").join(" + "):"";
+  return [mmdd,status,lines.join(" / "),feeSummary].filter(Boolean).join(" / ");
 }
 export function descriptionReview(draft,text,manualBasis=null){
   const basis=descriptionBasis(draft);
@@ -314,6 +328,13 @@ export function descriptionReview(draft,text,manualBasis=null){
       }
     }else if(p.unitKrw!==null)required.push(money(p.unitKrw)+"KRW");
   }
+  if(draft?.feeMode==="KEEP"){
+    const fees=quoteFeeBreakdown(draft);
+    if(fees.ok)for(const fee of fees.quoteFeeItems){
+      required.push(fee.feeType);
+      required.push(money(fee.netKrw)+"KRW");
+    }
+  }
   const missing=required.filter(fragment=>!s(text).includes(fragment));
   return {stale,complete:missing.length===0,missing};
 }
@@ -326,6 +347,10 @@ export function draftPreflight(draft){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+"T00:00:00Z")))
     errors.push("QUOTE_DATE_INVALID");
   if(!calc.ok)errors.push(calc.code);
+  if(draft?.feeMode==="KEEP")
+    errors.push("QUOTE_FEE_SOURCE_REVALIDATION_REQUIRED");
+  else if(draft?.feeMode&&draft.feeMode!=="EXCLUDE")
+    errors.push("QUOTE_FEE_MODE_INVALID");
   if(typeof description!=="string"||description.length<10||description.length>3000)
     errors.push("DESCRIPTION_REQUIRED");
   if(s(draft?.descriptionStatus)==="Quote Issued"&&!draft?.quoteIssuedEvidenceVerified)
@@ -380,6 +405,7 @@ export function draftChanges(draft){
   changed("opportunityQuoteName",ref.name,draft.name);
   changed("account",ref.account,draft.account);
   changed("contact",ref.contact,draft.contact);
+  changed("quoteFeeMode",ref.feeMode||"EXCLUDE",draft.feeMode||"EXCLUDE");
   (draft.products||[]).forEach((p,i)=>{
     const prev=ref.products?.[i];
     if(!prev){changes.push({field:"product["+i+"]",before:null,after:p.id});return;}
