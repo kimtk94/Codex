@@ -33,6 +33,27 @@ class ReadonlyParityTests(unittest.TestCase):
             result = parity.compute_lifecycle([[]] * 6, [HEAD, ["X_EXISTING"]])
         self.assertEqual(len(result), 2)
 
+    def test_prewrite_review_never_certifies_sinks(self):
+        stats = {"SINK_ONLY": 0, "SOURCE_ONLY": 0}
+        content = {"STATUS_MISMATCHED_PROJECTS": 76, "FINANCE_MISMATCHED_PROJECTS": 7}
+        self.assertEqual(parity.decide_project_phase("prewrite_preview", stats, content),
+                         "REVIEW_REQUIRED")
+        with self.assertRaisesRegex(SafeError, "FIELD_PARITY_BLOCK"):
+            parity.decide_project_phase("strict_readback", stats, content)
+        self.assertEqual(parity.decide_project_phase(
+            "strict_readback", stats,
+            {"STATUS_MISMATCHED_PROJECTS": 0, "FINANCE_MISMATCHED_PROJECTS": 0}),
+            "STRICT_SOURCE_SINK_PASS")
+
+    def test_prewrite_review_never_ignores_project_id_loss(self):
+        content = {"STATUS_MISMATCHED_PROJECTS": 0, "FINANCE_MISMATCHED_PROJECTS": 0}
+        with self.assertRaisesRegex(SafeError, "PROJECT_ID_SET_NOT_SAFE"):
+            parity.decide_project_phase("prewrite_preview",
+                                        {"SINK_ONLY": 1, "SOURCE_ONLY": 0}, content)
+        with self.assertRaisesRegex(SafeError, "PROJECT_PARITY_PHASE_INVALID"):
+            parity.decide_project_phase("apply", {"SINK_ONLY": 0, "SOURCE_ONLY": 0},
+                                        content)
+
     def test_project_set_exact_match_and_order_independent(self):
         new = [HEAD, ["X1"], ["X2"]]
         old = [HEAD[:22], ["X2"], ["X1"]]
