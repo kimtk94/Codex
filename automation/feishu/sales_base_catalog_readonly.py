@@ -7,12 +7,52 @@ staging table alone does not make the business catalog ready for web views.
 from collections import Counter
 import os
 import sys
+import urllib.parse
 
 import qq_mail_ingest as q
 from qq_mail_audit import EXPECTED_BUSINESS_TABLES
 from setup_sales_web import EXPECTED_BASE
 
 REQUIRED = frozenset(EXPECTED_BUSINESS_TABLES | {q.TABLE})
+
+# Historical provisioning script defined these unique marker columns for
+# business tables. We count only candidate matches, never output names/IDs.
+SCHEMA_SIGNATURES = {
+    "ACCOUNTS": frozenset({"SFDC Account ID", "Account Name", "Institution"}),
+    "CONTACTS": frozenset({"SFDC Contact ID", "Contact Name KR", "Contact Name EN"}),
+    "OPPORTUNITIES": frozenset({"Opportunity ID", "Amount KRW Ex VAT", "Stage"}),
+    "QUOTES": frozenset({"Quote ID", "Unit", "Currency"}),
+    "PROJECTS": frozenset({"Project ID", "Expected Completion Month", "Forecast Basis"}),
+    "REVENUE": frozenset({"Invoice Number", "Revenue KRW Ex VAT", "Revenue Month"}),
+}
+
+
+def signature_counts(token, root, tables):
+    """Read-only metadata scan, bounded; never emit field values or table names."""
+    if len(tables) > 100:
+        raise q.SafeError("CATALOG_SCHEMA_SCAN_TOO_LARGE")
+    full = Counter()
+    partial = Counter()
+    scanned = 0
+    for table in tables:
+        if not table.get("table_id"):
+            raise q.SafeError("CATALOG_SCHEMA_TABLE_ID_MISSING")
+        path = root + "/tables/" + urllib.parse.quote(table["table_id"], safe="")
+        rows = q.get_fields(token, path)
+        fields = {row.get("field_name") for row in rows}
+        scanned += 1
+        for role, markers in SCHEMA_SIGNATURES.items():
+            hits = len(fields & markers)
+            if hits == len(markers):
+                full[role] += 1
+            elif hits >= 2:
+                partial[role] += 1
+    result = {"SCHEMA_TABLES_SCANNED": scanned}
+    for role in sorted(SCHEMA_SIGNATURES):
+        result["SCHEMA_" + role + "_EXACT_CANDIDATES"] = full[role]
+        result["SCHEMA_" + role + "_PARTIAL_CANDIDATES"] = partial[role]
+    return result
+
 
 
 def analyze(tables):
@@ -53,6 +93,9 @@ def main():
     summary = analyze(tables)
     for name, value in summary.items():
         print("SALES_BASE_CATALOG_" + name.upper() + "=" + str(value))
+    if os.environ.get("FEISHU_CATALOG_SCAN_FIELDS", "0") == "1":
+        for name, value in signature_counts(token, root, tables).items():
+            print("SALES_BASE_CATALOG_" + name + "=" + str(value))
     print("SALES_BASE_CATALOG_PROBE_FINISHED read_only=1 customer_values=0 writes=0")
     if summary["status"] != "PASS":
         raise q.SafeError("CATALOG_NOT_READY_" + summary["reason"])
