@@ -2,7 +2,7 @@
 import unittest
 from quote_native_reference_resolution import (
     resolve_report_process_id, resolve_native_data_unit, resolve_product_service,
-    resolve_reference_status,
+    resolve_reference_status, resolve_2026_native_krw_product_signature,
 )
 
 PID = "Process-2020-04-29-00039"
@@ -85,6 +85,41 @@ class NativeReferenceResolutionTests(unittest.TestCase):
              expected_rows=[row,row],verified_service_labels=["Synthetic Hi-C"],
              expected_product_count=1)
         self.assertEqual(r["status"], "HOLD_PROCESS_REFERENCE_ID_MISMATCH")
+
+
+    def test_exact_native_service_signature_resolves_only_unique_krw(self):
+        rows = [
+            {"product_name":"Synthetic Hi-C", "product_signature":"SRC-P1",
+             "currency":"KRW","was_usd_converted":False,
+             "approval_status":"APPROVED","active":True,"created_date":"2026-06-11"},
+            {"product_name":"Synthetic Hi-C", "product_signature":"SRC-P1",
+             "currency":"KRW","was_usd_converted":False,
+             "approval_status":"APPROVED","active":True,"created_date":"2026-08-11"},
+            {"product_name":"Synthetic WGS", "product_signature":"SRC-P2",
+             "currency":"KRW","was_usd_converted":False,
+             "approval_status":"APPROVED","active":True,"created_date":"2026-08-11"}
+        ]
+        self.assertEqual(resolve_2026_native_krw_product_signature("Synthetic Hi-C",rows),
+                         "SRC-P1")
+        self.assertIsNone(resolve_2026_native_krw_product_signature("Hi-C",rows))
+
+    def test_ambiguous_service_signatures_cannot_be_resolved_from_geometry(self):
+        rows = [
+            {"product_name":"Synthetic Hi-C", "product_signature":v,
+             "currency":"KRW","was_usd_converted":False,
+             "approval_status":"APPROVED","active":True,"created_date":"2026-08-11"}
+            for v in ("SRC-P1","SRC-P2")
+        ]
+        self.assertIsNone(resolve_2026_native_krw_product_signature("Synthetic Hi-C",rows))
+
+    def test_usd_converted_and_inactive_rate_cannot_supply_signature(self):
+        row={"product_name":"Synthetic Hi-C", "product_signature":"SRC-P1",
+             "currency":"USD","was_usd_converted":True,
+             "approval_status":"APPROVED","active":True,"created_date":"2026-08-11"}
+        self.assertIsNone(resolve_2026_native_krw_product_signature("Synthetic Hi-C",[row]))
+        row["currency"]="KRW";row["was_usd_converted"]=False;row["active"]=False
+        self.assertIsNone(resolve_2026_native_krw_product_signature("Synthetic Hi-C",[row]))
+
 
 
 if __name__ == "__main__":
