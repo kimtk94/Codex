@@ -208,10 +208,34 @@ def analyze(tables):
 
 
 def main():
+    scope = os.environ.get("FEISHU_CATALOG_SCOPE", "legacy").strip().lower()
+    if scope not in ("legacy", "operations"):
+        raise q.SafeError("CATALOG_INVALID_SCOPE")
     if os.environ.get("FEISHU_BASE_APP_TOKEN", "").strip() != EXPECTED_BASE:
         raise q.SafeError("CATALOG_WRONG_TARGET_BASE")
     token, root = q.auth()
     tables = q.list_all(root + "/tables", token, "catalog_list_tables")
+    if scope == "operations":
+        op = operational_table_metadata(token, root, tables)
+        for name, value in op.items():
+            print("SALES_BASE_CATALOG_" + name + "=" + str(value))
+        expected_schema_roles = {
+            role for role, (name, markers) in OPERATIONAL_SIGNATURES.items() if markers
+        }
+        good = (op["OPERATIONAL_VISIBLE_COUNT"] == op["OPERATIONAL_REQUIRED_TOTAL"]
+                and all(op["OPERATIONAL_" + role + "_STATUS"] == "SCHEMA_PASS"
+                        for role in expected_schema_roles))
+        print("SALES_BASE_OPERATIONAL_AUDIT_FINISHED read_only=1 "
+              "customer_values=0 records_read=0 writes=0 "
+              "legacy_bootstrap_table_dependency=0")
+        if not good:
+            raise q.SafeError("OPERATIONAL_SCHEMA_NOT_READY")
+        print("SALES_BASE_OPERATIONAL_SCHEMA_PASS "
+              "required_visible=" + str(op["OPERATIONAL_VISIBLE_COUNT"]) +
+              " checked_schema=" + str(op["OPERATIONAL_SCHEMA_PASS_COUNT"]) +
+              " current_source_sink_freshness=NOT_VERIFIED")
+        return
+
     summary = analyze(tables)
     for name, value in summary.items():
         print("SALES_BASE_CATALOG_" + name.upper() + "=" + str(value))
