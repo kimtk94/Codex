@@ -70,12 +70,27 @@ class NativeProcessGuardTests(unittest.TestCase):
         self.assertEqual(audit_native_process_bundle(s,m)["status"],
           "HOLD_UNEXPECTED_MISSING_PACK")
 
-    def test_missing_release_pack_permitted_only_for_zero_rate(self):
+    def test_paid_data_release_without_pack_passes_exact_native_totals(self):
+        s,m=fixture()
+        s["products"][0]["processRows"][-1]["unitPrice"]=100
+        s["products"][0]["processRows"][-1]["totalPrice"]=400
+        s["products"][0]["net"]=6400
+        s["quoteNet"]=6400
+        s["grandTotal"]=8140
+        r=audit_native_process_bundle(s,m)
+        self.assertEqual(r["status"],
+          "NATIVE_PROCESS_AND_REPORT_REFERENCES_VERIFIED")
+        self.assertEqual(r["unpacked_data_release_steps"],1)
+        self.assertEqual(r["positive_unpacked_data_release_steps"],1)
+        self.assertEqual(r["zero_price_steps"],0)
+        self.assertFalse(r["historical_index_auto_promote"])
+
+    def test_paid_data_release_without_pack_still_requires_correct_subtotal(self):
         s,m=fixture()
         s["products"][0]["processRows"][-1]["unitPrice"]=100
         s["products"][0]["processRows"][-1]["totalPrice"]=400
         self.assertEqual(audit_native_process_bundle(s,m)["status"],
-          "HOLD_UNEXPECTED_MISSING_PACK")
+          "HOLD_PRODUCT_SUM")
 
     def test_process_must_belong_to_same_product(self):
         s,m=fixture()
