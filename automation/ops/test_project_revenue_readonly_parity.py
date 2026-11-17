@@ -88,6 +88,56 @@ class ReadonlyParityTests(unittest.TestCase):
         self.assertEqual(summary["CSS_STAGE"], 0)
         self.assertNotIn("X_ABC", str(summary))
 
+    def test_date_triage_identifies_format_only_not_schedule_change(self):
+        self.assertEqual(parity.date_review_status("2026-11-17", "2026/11/17"), "FORMAT_ONLY")
+        self.assertEqual(parity.date_review_status("2026-11-17", "2026-11-18"),
+                         "DIFFERENT_CALENDAR_DAY")
+        self.assertEqual(parity.date_review_status("2026-11-17", ""), "SINK_BLANK")
+        self.assertEqual(parity.date_review_status("", "2026-11-17"), "SOURCE_BLANK")
+        self.assertEqual(parity.date_review_status("TBD", "2026-11-17"), "UNPARSEABLE")
+        self.assertEqual(parity.date_review_status("2026-11-17", "2026-11-17"), "RAW_EQUAL")
+
+    def test_date_serial_and_offset_are_calendar_day_normalized(self):
+        import datetime as dt
+        origin = dt.date(1899, 12, 30)
+        day = dt.date(2026, 11, 17)
+        serial = str((day - origin).days)
+        self.assertEqual(parity.date_review_status("2026-11-17", serial), "FORMAT_ONLY")
+        self.assertEqual(parity.date_review_status("2026-11-17",
+                                                   "2026-11-16T15:00:00Z"), "FORMAT_ONLY")
+        self.assertEqual(parity.date_review_status("2026-11-17",
+                                                   "2026-11-17 00:00:00"), "FORMAT_ONLY")
+
+    def test_date_unclear_formats_stay_unverified(self):
+        self.assertIsNone(parity.parse_expected_day("17/11/2026"))
+        self.assertIsNone(parity.parse_expected_day("2026-13-20"))
+        self.assertEqual(parity.date_review_status("2026-11-17", "17/11/2026"),
+                         "UNPARSEABLE")
+
+    def test_billing_transition_categorized_not_customer_exposed(self):
+        a = [""] * len(HEAD)
+        b = [""] * len(HEAD)
+        a[0] = b[0] = "X_DO_NOT_LOG"
+        a[11] = "2026-11-17"
+        b[11] = "2026/11/17"
+        a[16] = "ISSUED (BALANCE UNVERIFIED) [QQ_ONLY]"
+        b[16] = "STATEMENT READY - INVOICE PENDING [QQ_ONLY]"
+        a[14], b[14] = 1, 0
+        a[15], b[15] = 1000000, 0
+        a[22], b[22] = "", 1000000
+        dates, bills, fin = parity.project_semantic_triage([HEAD, a], [HEAD, b])
+        self.assertEqual(dates["FORMAT_ONLY"], 1)
+        self.assertEqual(bills["STATEMENT_PENDING_TO_ISSUED_UNVERIFIED"], 1)
+        self.assertEqual(fin["INVOICE_COUNT_UP"], 1)
+        self.assertEqual(fin["ISSUED_AMOUNT_UP"], 1)
+        self.assertEqual(fin["VERIFIED_PENDING_SOURCE_EMPTY"], 1)
+        self.assertNotIn("X_DO_NOT_LOG", str((dates, bills, fin)))
+        self.assertNotIn("1000000", str((dates, bills, fin)))
+
+    def test_unknown_billing_category_not_false_issued(self):
+        self.assertEqual(parity.billing_category("Something unexpected"), "UNKNOWN")
+        self.assertEqual(parity.billing_category(""), "BLANK")
+
     def test_project_old_partial_header_not_false_field_pass(self):
         with self.assertRaisesRegex(SafeError, "FULL_SCHEMA_REQUIRED"):
             parity.project_value_counts([HEAD, ["X1"]], [HEAD[:22], ["X1"]])
