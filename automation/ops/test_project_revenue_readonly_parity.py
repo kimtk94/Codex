@@ -74,6 +74,20 @@ class ReadonlyParityTests(unittest.TestCase):
         self.assertEqual(got["STATUS_MISMATCHED_PROJECTS"], 0)
         self.assertEqual(got["FINANCE_MISMATCHED_PROJECTS"], 0)
 
+    def test_project_field_counts_only_labels_and_counts(self):
+        row = [""] * len(HEAD)
+        row[0] = "X_ABC"
+        row[5] = "Sample Received"
+        row[15] = 1100000
+        sink = list(row)
+        sink[5] = "Sequencing"
+        sink[15] = 1000000
+        summary = parity.project_field_differences([HEAD, row], [HEAD, sink])
+        self.assertEqual(summary["FEISHU_STATUS"], 1)
+        self.assertEqual(summary["ISSUED_AMOUNT_KRW"], 1)
+        self.assertEqual(summary["CSS_STAGE"], 0)
+        self.assertNotIn("X_ABC", str(summary))
+
     def test_project_old_partial_header_not_false_field_pass(self):
         with self.assertRaisesRegex(SafeError, "FULL_SCHEMA_REQUIRED"):
             parity.project_value_counts([HEAD, ["X1"]], [HEAD[:22], ["X1"]])
