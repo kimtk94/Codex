@@ -5,6 +5,10 @@ import {calculateDraft,draftDescription,opportunityUnitPriceSummary}
   from "../lib/sfdc-report-quote-draft.mjs";
 import {validatePairRequest} from "../lib/sfdc-pair-request-queue.mjs";
 import {historicalKrwReference,prefillHistoricalKrw} from "../lib/sfdc-pair-index-krw.mjs";
+import {mkdtemp,readFile,readdir,rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {POST as submitPairRequest} from "../app/api/sfdc/pair-request-local/route.js";
 
 const quoteId="a0P000000000001AAA",oppoId="006000000000001AAA";
 const ident={status:"PASS",sourceVerified:true,nativeQuoteId:quoteId};
@@ -119,4 +123,50 @@ test("exact-QID 2026 KRW index prefills comparisons without granting Save",()=>{
  assert.equal(autoSource.products[0].productionGb,"6");
  assert.equal(autoSource.products[0].sampleUnitKrw,"100000");
  assert.equal(historicalKrwReference(index,"QID-2026-11-01-999999",p).ok,false);
+});
+
+test("local-only web generation request is durable and idempotent",async()=>{
+ const previous={home:process.env.LOCALAPPDATA,enabled:process.env.SFDC_LOCAL_COMMAND_ENABLED};
+ const home=await mkdtemp(join(tmpdir(),"sfdc-oppo-quote-test-"));
+ process.env.LOCALAPPDATA=home;
+ process.env.SFDC_LOCAL_COMMAND_ENABLED="1";
+ try{
+   const prepared=prefillVerifiedKrw(draft(),verifiedSourcePrice(source,ident));
+   prepared.description=draftDescription(prepared,calculateDraft(prepared));
+   const body=JSON.stringify({mode:"SUBMIT_FOR_APPROVAL",draft:prepared});
+   function request(){
+     return new Request("http://127.0.0.1:3199/api/sfdc/pair-request-local",{
+       method:"POST",
+       headers:{"Host":"127.0.0.1:3199","Origin":"http://127.0.0.1:3199",
+         "Content-Type":"application/json","X-SFDC-Command":"1","Sec-Fetch-Site":"same-origin"},
+       body
+     });
+   }
+   const first=await submitPairRequest(request());
+   const a=await first.json();
+   assert.equal(first.status,200);
+   assert.equal(a.status,"PENDING_APPROVAL");
+   assert.equal(a.created,true);
+   assert.equal(a.salesforceWrite,false);
+   assert.equal(a.savePermitted,false);
+   const dir=join(home,"SFDC_Oppo_Quote_Approval_Requests");
+   const files=await readdir(dir);
+   assert.equal(files.length,1);
+   const stored=JSON.parse(await readFile(join(dir,files[0]),"utf8"));
+   assert.equal(stored.state,"AWAITING_OPERATOR_APPROVAL");
+   assert.equal(stored.approved,false);
+   assert.equal(stored.requestedWrite,false);
+   const again=await submitPairRequest(request());
+   const b=await again.json();
+   assert.equal(b.alreadyQueued,true);
+   assert.equal(b.created,false);
+   assert.equal(b.requestId,a.requestId);
+   assert.equal((await readdir(dir)).length,1);
+ }finally{
+   if(previous.home===undefined)delete process.env.LOCALAPPDATA;
+   else process.env.LOCALAPPDATA=previous.home;
+   if(previous.enabled===undefined)delete process.env.SFDC_LOCAL_COMMAND_ENABLED;
+   else process.env.SFDC_LOCAL_COMMAND_ENABLED=previous.enabled;
+   await rm(home,{force:true,recursive:true});
+ }
 });
