@@ -17,6 +17,8 @@ on:
       - 'automation/sfdc_desktop/test_quote_native_process_guard.py'
       - 'automation/sfdc_desktop/quote_native_reference_resolution.py'
       - 'automation/sfdc_desktop/test_quote_native_reference_resolution.py'
+      - 'automation/sfdc_desktop/oppo_quote_save_preflight.py'
+      - 'automation/sfdc_desktop/test_oppo_quote_save_preflight.py'
       - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
   pull_request:
     paths:
@@ -33,6 +35,8 @@ on:
       - 'automation/sfdc_desktop/test_quote_native_process_guard.py'
       - 'automation/sfdc_desktop/quote_native_reference_resolution.py'
       - 'automation/sfdc_desktop/test_quote_native_reference_resolution.py'
+      - 'automation/sfdc_desktop/oppo_quote_save_preflight.py'
+      - 'automation/sfdc_desktop/test_oppo_quote_save_preflight.py'
       - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
   workflow_dispatch:
 permissions:
@@ -63,6 +67,8 @@ jobs:
           python3 -m py_compile ../../automation/sfdc_desktop/quote_native_process_guard.py
           python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_quote_native_reference_resolution.py' -v
           python3 -m py_compile ../../automation/sfdc_desktop/quote_native_reference_resolution.py scripts/sfdc_held_quote_process_reference_audit.py
+          python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_oppo_quote_save_preflight.py' -v
+          python3 -m py_compile ../../automation/sfdc_desktop/oppo_quote_save_preflight.py
           python3 -m unittest discover -s scripts -p 'test_sfdc_quote_fee_source.py' -v
           python3 -m py_compile scripts/sfdc_quote_fee_source.py
       - name: Install isolated web dependencies
