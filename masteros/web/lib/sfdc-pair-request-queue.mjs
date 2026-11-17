@@ -34,11 +34,12 @@ export function validatePairRequest(input){
       return {ok:false,code:"REQUEST_PRODUCT_INVALID"};
   }
   const review=draftPreflight(d);
-  const pending=review.status==="PREVIEW_READY"?"PENDING_APPROVAL":"NEEDS_REVIEW";
   const customerPriceMatches=d.products.every(p=>p.priceEvidenceStatus==="LIVE_SFDC_KRW_VERIFIED"&&
       p.priceSourceQuoteId===d.sourceQuoteId&&
       Number(p.priceSourceUnitKrw)===Number(p.sampleUnitKrw)&&
       Number(p.priceSourceCloudUnitKrw)===Number(p.cloudUnitKrw));
+  const pending=review.status==="PREVIEW_READY"&&customerPriceMatches?
+    "PENDING_APPROVAL":"NEEDS_REVIEW";
   const canonical={
     reference:{sourceQuoteId:d.sourceQuoteId,qid:d.qid,
       opportunityId:d.sourceOpportunityId||""},
