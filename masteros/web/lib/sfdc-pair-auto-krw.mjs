@@ -55,8 +55,8 @@ export function prefillVerifiedKrw(draft,evidence){
      draft.products.length!==1||draft.sourceQuoteId!==evidence.nativeQuoteId)
     return draft;
   const product=draft.products[0];
-  if(product.productionGb===""||
-     Number(product.productionGb)!==evidence.productionGb||
+  if((product.productionGb!==""&&product.productionGb!==undefined&&
+       Number(product.productionGb)!==evidence.productionGb)||
      !String(evidence.productName||"").trim())return draft;
   // Do not silently overwrite a price the operator has already edited.
   const wasManual=product.sampleUnitKrw!==""&&
@@ -64,6 +64,7 @@ export function prefillVerifiedKrw(draft,evidence){
         product.priceEvidenceStatus);
   if(wasManual)return {...draft,priceCandidate:evidence};
   const update={...product,
+    productionGb:product.productionGb||String(evidence.productionGb),
     samples:product.samples||String(evidence.samples),
     sampleUnitKrw:String(evidence.sampleUnitKrw),
     cloudUnitKrw:String(evidence.cloudUnitKrw),
@@ -75,7 +76,7 @@ export function prefillVerifiedKrw(draft,evidence){
   return {...draft,products,sourceKrwRateStatus:"VERIFIED",
     referenceDefaults:{...draft.referenceDefaults,
       products:draft.referenceDefaults?.products?.map((p,i)=>
-        i===0?{...p,samples:update.samples,
+        i===0?{...p,productionGb:update.productionGb,samples:update.samples,
                     sampleUnitKrw:update.sampleUnitKrw,
                     cloudUnitKrw:update.cloudUnitKrw}:p)}};
 }
