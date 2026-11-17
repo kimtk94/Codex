@@ -2,6 +2,8 @@
 import {useEffect,useMemo,useState} from "react";
 import styles from "../page.module.css";
 import {parseKrwEvidence,rankKrwPrices,candidateSelection,summarizeKrwProductPrices} from "../../../../lib/sfdc-2026-krw-price-preview.mjs";
+import {listKrwOriginalProcessGroups} from "../../../../lib/sfdc-pair-index-krw.mjs";
+import HistoricalKrwProcessBreakdown from "../../../../components/HistoricalKrwProcessBreakdown";
 
 const TIER_LABEL={
  SAME_ACCOUNT_CONTACT:"동일 Account + Contact",
@@ -15,6 +17,10 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  const [source,setSource]=useState(null);
  const [localLoading,setLocalLoading]=useState(false);
  const [historyPage,setHistoryPage]=useState(0);
+ const [processPage,setProcessPage]=useState(0);
+ const [processFilter,setProcessFilter]=useState("HOLD");
+ const [processSearch,setProcessSearch]=useState("");
+ const [openedProcessGroup,setOpenedProcessGroup]=useState("");
  const [notice,setNotice]=useState("");
  const [accountId,setAccountId]=useState("");
  const [contactId,setContactId]=useState("");
@@ -54,13 +60,24 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  },[effectiveAccountId,effectiveContactId,product,process,effectiveUnit,intake.input]);
  const selected=choice?candidateSelection(intake,choice):null;
  const portfolio=useMemo(()=>summarizeKrwProductPrices(source),[source]);
+ const originalProcessGroups=useMemo(()=>listKrwOriginalProcessGroups(source),[source]);
+ const displayProcessGroups=useMemo(()=>{
+  const query=processSearch.trim().toLocaleLowerCase();
+  return originalProcessGroups.groups.filter(g=>
+    (processFilter==="ALL"||g.review_status===processFilter)&&
+    (!query||(g.quote_id+" "+g.product_name+" "+g.lines.map(x=>x.process_name).join(" "))
+      .toLocaleLowerCase().includes(query)));
+ },[originalProcessGroups,processFilter,processSearch]);
+ const processPages=Math.max(1,Math.ceil(displayProcessGroups.length/20));
+ const visibleProcessPage=Math.min(processPage,processPages-1);
+ const currentOpenedGroup=displayProcessGroups.find(g=>g.key===openedProcessGroup)||null;
  const historySize=100;
  const historyPages=Math.max(1,Math.ceil(portfolio.group_count/historySize));
  const currentHistoryPage=Math.min(historyPage,historyPages-1);
  const upload=async event=>{
   const file=event.currentTarget.files?.[0];
   event.currentTarget.value="";
-  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);setNotice("");
+  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);setProcessPage(0);setOpenedProcessGroup("");setNotice("");
   if(!file)return;
   if(file.size>2*1024*1024||!file.name.toLowerCase().endsWith(".json")){
    setNotice("JSON 형식, 2MB 이하 파일만 사용할 수 있습니다.");return;
@@ -76,7 +93,7 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  const loadPrivatePriceIndex=async()=>{
   if(localLoading)return;
   setLocalLoading(true);
-  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);
+  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);setProcessPage(0);setOpenedProcessGroup("");
   setNotice("PC에 보관된 2026 KRW 가격 인덱스 확인 중...");
   try{
    const response=await fetch("/api/sfdc/krw-price-local",{
@@ -205,6 +222,69 @@ export default function KrwPricePanel({intake,customerSelection=null}){
    </div>
    <div className={styles.footnote}>원본 2026 KRW 견적의 공정별 관측 단가입니다. Product 공정 구성·생산량·샘플 수가 다르면 다른 가격일 수 있으며, 0원 공정은 패키지 포함 가능성이 있습니다. 신규 견적 적용은 건별 재승인 필수입니다.</div>
   </details>}
+  {source&&originalProcessGroups.total>0&&<details open
+    data-testid="original-process-groups" style={{marginTop:16,padding:14,border:"1px solid #38576d",borderRadius:12}}>
+    <summary style={{cursor:"pointer",fontSize:13,fontWeight:700}}>
+      원본 견적별 공정 내역 · {originalProcessGroups.total}개 Product /
+      HOLD {originalProcessGroups.heldCount}개 · 자동 단가 입력 없음
+    </summary>
+    <p className={styles.footnote}>보류된 Product도 원본 Process 수량×Unit Price와 합계까지 열람합니다.
+      샘플당 KRW 금액이 소수인 경우 반올림하지 않으며, 별도 배송·반송 Fee는 더하지 않습니다.</p>
+    <div className={styles.two}>
+     <div className={styles.field}>
+      <label htmlFor="original-krw-process-filter">원본 공정 검증 상태</label>
+      <select id="original-krw-process-filter" value={processFilter}
+       onChange={e=>{setProcessFilter(e.target.value);setProcessPage(0);setOpenedProcessGroup("");}}>
+       <option value="HOLD">자동 단가 산출 보류</option>
+       <option value="COMPARISON_ONLY">과거 샘플당 단가 비교 가능</option>
+       <option value="ALL">전체 원본 Product</option>
+      </select>
+     </div>
+     <div className={styles.field}>
+      <label htmlFor="original-krw-process-search">Quote 번호·Product·Process 검색</label>
+      <input id="original-krw-process-search" value={processSearch}
+        onChange={e=>{setProcessSearch(e.target.value);setProcessPage(0);setOpenedProcessGroup("");}}
+        placeholder="QID / mRNA / Data release"/>
+     </div>
+    </div>
+    <p className={styles.footnote} role="status">선택된 원본 Product {displayProcessGroups.length}개.
+      실제 신규 견적 적용은 원본 단가 재확인 및 건별 승인 후에만 가능합니다.</p>
+    <div style={{maxHeight:390,overflow:"auto"}}>
+     <table style={{borderCollapse:"collapse",width:"100%",minWidth:720,fontSize:12}}>
+      <thead><tr>{["원본 Quote","Product","원본 Process","공급가액 합계 (VAT 제외)","상태","열람"].map(h=>
+       <th key={h} scope="col" style={{padding:9,textAlign:"left",borderBottom:"1px solid #49667d"}}>{h}</th>)}</tr></thead>
+      <tbody>{displayProcessGroups.slice(visibleProcessPage*20,(visibleProcessPage+1)*20).map(g=>
+       <tr key={g.key}>
+        <td style={{padding:9,borderBottom:"1px solid #253b50"}}>{g.quote_id}</td>
+        <td style={{padding:9,borderBottom:"1px solid #253b50"}}>{g.product_name}</td>
+        <td style={{padding:9,borderBottom:"1px solid #253b50"}}>{g.line_count}행</td>
+        <td style={{padding:9,borderBottom:"1px solid #253b50"}}>{priceText(g.process_net_krw)} KRW</td>
+        <td style={{padding:9,borderBottom:"1px solid #253b50"}}>
+          {g.review_status==="HOLD"?"HOLD · 원본 공정 조회":"비교 전용"}
+        </td>
+        <td style={{padding:9,borderBottom:"1px solid #253b50"}}>
+         <button type="button" className={styles.secondary}
+          aria-label={g.quote_id+" 원본 공정 보기"}
+          onClick={()=>setOpenedProcessGroup(old=>old===g.key?"":g.key)}>
+          {openedProcessGroup===g.key?"닫기":"공정 보기"}
+         </button>
+        </td>
+       </tr>)}</tbody>
+     </table>
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:12}}>
+     <button className={styles.secondary} type="button" disabled={visibleProcessPage===0}
+       onClick={()=>{setProcessPage(x=>Math.max(0,x-1));setOpenedProcessGroup("");}}>
+       이전 원본 Product
+     </button>
+     <span style={{fontSize:12}}>{visibleProcessPage+1} / {processPages} 페이지 · 페이지당 20개</span>
+     <button className={styles.secondary} type="button" disabled={visibleProcessPage>=processPages-1}
+       onClick={()=>{setProcessPage(x=>Math.min(processPages-1,x+1));setOpenedProcessGroup("");}}>
+       다음 원본 Product
+     </button>
+    </div>
+    {currentOpenedGroup&&<HistoricalKrwProcessBreakdown group={currentOpenedGroup}/>}
+   </details>}
   {notice&&<div className={styles.notice} role="status" aria-live="polite">{notice}</div>}
   <div className={styles.reviewState}><span className={styles.dot}/>
    {!source?"HOLD · 검증된 KRW 가격 파일 미연결":found.status==="LOCAL_REFERENCE_CANDIDATES_UNVERIFIED"?
