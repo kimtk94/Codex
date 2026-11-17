@@ -15,9 +15,9 @@ const suffix=(x)=>x?.slice(-6)||"—";
 const priceText=(s)=>Number(s).toLocaleString("ko-KR",{maximumFractionDigits:4});
 const originalMoney=value=>{
  const raw=String(value??"");
- if(!/^\\d+(?:\\.\\d{1,4})?$/.test(raw))return "금액 확인 필요";
+ if(!/^\d+(?:\.\d{1,4})?$/.test(raw))return "금액 확인 필요";
  const [int,dec]=raw.split(".");
- return int.replace(/\\B(?=(\\d{3})+(?!\\d))/g,",")+(dec?"."+dec:"");
+ return int.replace(/\B(?=(\d{3})+(?!\d))/g,",")+(dec?"."+dec:"");
 };
 export default function KrwPricePanel({intake,customerSelection=null}){
  const [source,setSource]=useState(null);
