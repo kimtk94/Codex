@@ -50,6 +50,11 @@ export function historicalKrwReference(evidence,sourceQid,product) {
   // not a new Quote approval and not a per-process price rewrite.
   const sampleUnitKrw=productNetKrw/sourceSamples;
   const cloudUnitKrw=cloudRows.length?Number(cloudRows[0].unit_price_krw):null;
+  // A divided historical per-sample price can be fractional even if every
+  // original Salesforce Process Unit Price is a whole KRW amount.
+  // This editor accepts integer KRW; do not round or silently shift the net.
+  if(Number.isFinite(sampleUnitKrw)&&!Number.isInteger(sampleUnitKrw))
+    return {ok:false,code:"HISTORICAL_FRACTIONAL_SAMPLE_RATE_HOLD"};
   if(!Number.isSafeInteger(productNetKrw)||productNetKrw<0||
      !Number.isSafeInteger(sampleUnitKrw)||sampleUnitKrw<0||
      (cloudUnitKrw!==null&&(!Number.isSafeInteger(cloudUnitKrw)||cloudUnitKrw<0))||
