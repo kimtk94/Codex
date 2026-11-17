@@ -43,6 +43,8 @@ export default function PairedQuoteWeb(){
   const [quoteChoices,setQuoteChoices]=useState([]);
   const [selected,setSelected]=useState(null);
   const [working,setWorking]=useState("");
+  const [parallelBusy,setParallelBusy]=useState(false);
+  const [parallelResult,setParallelResult]=useState(null);
   const [error,setError]=useState("");
   const mounted=useRef(false);
   const seq=useRef(0);
@@ -166,6 +168,26 @@ export default function PairedQuoteWeb(){
     }catch(e){if(token===seq.current)setError(e.message||"SOURCE_REFRESH_FAILED");
     }finally{if(token===seq.current)setWorking("");}
   }
+  async function verifyParallel(){
+    if(parallelBusy)return;
+    const ids=[selected?.sfdc_record_id,
+      ...rows.map(x=>x.sfdc_record_id||"")].filter(x=>
+        typeof x==="string"&&/^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(x));
+    const unique=[...new Set(ids)].slice(0,3);
+    if(!unique.length){setParallelResult({status:"HOLD",code:"QUOTE_NATIVE_IDS_UNAVAILABLE"});return;}
+    setParallelBusy(true);setParallelResult(null);
+    try{
+      const r=await fetch("/api/sfdc/parallel-check-local",{
+        method:"POST",cache:"no-store",credentials:"omit",
+        headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+        body:JSON.stringify({mode:"QUOTE_UI_BATCH",recordIds:unique})
+      });
+      const data=await r.json();
+      setParallelResult(data);
+    }catch(e){setParallelResult({status:"HOLD",code:e.message||"PARALLEL_SOURCE_UNAVAILABLE"})}
+    finally{setParallelBusy(false)}
+  }
+
   return <main className={styles.page}>
     <header className={styles.header}>
       <div>
@@ -224,6 +246,21 @@ export default function PairedQuoteWeb(){
           {working==="REFRESH"?"Feishu 재색인 중":"Feishu 사전 색인 갱신"}
         </button>
       </form>
+      <div className={styles.actions}>
+        <button type="button" disabled={parallelBusy||!!working} onClick={verifyParallel}
+          data-testid="parallel-quote-readonly-check">
+          {parallelBusy?"최대 3개 탭 병렬 검증 중":"기존 Quote 최대 3건 병렬 확인 (저장 없음)"}
+        </button>
+        {parallelResult&&<span className={styles.state}
+          data-ok={parallelResult.status==="PASS"}>
+          {parallelResult.status} · {parallelResult.results?.length||0}건 ·
+          {parallelResult.durationMs?Math.round(parallelResult.durationMs/1000)+"초":parallelResult.code||""}
+        </span>}
+      </div>
+      {parallelResult?.results?.length>0&&<p className={styles.hint} role="status">
+        {parallelResult.results.map(x=>x.status).join(" · ")}
+        {" · "}독립 Chrome 탭(최대 3개) · Salesforce 저장 없음
+      </p>}
       {error&&<p className={styles.warning} role="alert">{error}</p>}
       {lastSearch&&<p className={styles.hint} role="status">
         검색 기준: {lastSearch} · 결과 {rows.length}건
