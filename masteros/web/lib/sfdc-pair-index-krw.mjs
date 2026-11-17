@@ -6,6 +6,9 @@ export function historicalKrwReference(evidence,sourceQid,product) {
   let parsed;
   try{parsed=parseKrwEvidence(JSON.stringify(evidence))}
   catch{return {ok:false,code:"HISTORICAL_KRW_INDEX_UNAVAILABLE"}}
+  return historicalReferenceFromValidatedRows(parsed.records,sourceQid,product);
+}
+function historicalReferenceFromValidatedRows(records,sourceQid,product) {
   const required=(product?.processes||[]).map(x=>x.processId).filter(Boolean);
   if(typeof sourceQid!=="string"||!/^QID-[0-9-]{8,50}$/.test(sourceQid)||
       !required.length||new Set(required).size!==required.length)
@@ -15,7 +18,7 @@ export function historicalKrwReference(evidence,sourceQid,product) {
   if(gb!==null&&(!Number.isFinite(gb)||gb<=0))
     return {ok:false,code:"HISTORICAL_GB_INVALID"};
   const groups=new Map();
-  for(const row of parsed.records) {
+  for(const row of records) {
     if(row.quote_id!==sourceQid||!required.includes(row.process_id))continue;
     const key=row.product_signature;
     if(!groups.has(key))groups.set(key,[]);
@@ -67,6 +70,94 @@ export function historicalKrwReference(evidence,sourceQid,product) {
     candidateSampleUnitKrw:sampleUnitKrw,candidateCloudUnitKrw:cloudUnitKrw,
     currency:"KRW",vatBasis:"VAT_EXCLUDED",year:2026,
     pricesApprovedForNewQuote:false,sourceRecheckRequired:true};
+}
+
+/** Source Quotation Product Process breakdown: display ONLY.
+ * Never derive a new Quote price for a HOLD Product. Original unit prices,
+ * native per-Process quantities and exact Process subtotal stay distinct.
+ * The source index contains no Quote Fee; do not invent a shipping charge.
+ * All amounts use exact 1/10,000 KRW BigInt arithmetic without rounding.
+ */
+const HISTORICAL_SOURCE="SFDC_AUTHENTICATED_READ_ONLY_KRW_PROCESS_LINES";
+const rawScaledKrw=(amount,qty)=>{
+ const value=String(amount);
+ if(!/^\d{1,9}(?:\.\d{1,4})?$/.test(value)||
+    !Number.isInteger(qty)||qty<=0||qty>1000000)return null;
+ const [int,dec=""]=value.split(".");
+ return (BigInt(int)*10000n+BigInt(dec.padEnd(4,"0")||"0"))*BigInt(qty);
+};
+const formatScaledKrw=value=>{
+ const whole=value/10000n;
+ const frac=(value%10000n).toString().padStart(4,"0").replace(/0+$/,"");
+ return whole.toString()+(frac?"."+frac:"");
+};
+export function listKrwOriginalProcessGroups(evidence){
+ const hold=(code)=>({status:code,groups:[],total:0,heldCount:0,
+   comparableCount:0,price_auto_apply:false,crm_writes:0});
+ if(evidence?.source!==HISTORICAL_SOURCE||
+    evidence?.status!=="LOCAL_FILE_SCHEMA_OK_AUTH_RECHECK_REQUIRED"||
+    evidence?.prices_approved_for_new_quote!==false||
+    !Array.isArray(evidence.records)||!evidence.records.length||
+    evidence.records.length>5000)
+   return hold("HOLD_VALIDATED_SOURCE_REQUIRED");
+ const products=new Map(),quoteRows=new Map();
+ for(const r of evidence.records){
+   if(!r||typeof r.quote_id!=="string"||
+      typeof r.product_signature!=="string"||
+      typeof r.process_id!=="string")return hold("HOLD_PROCESS_SCHEMA");
+   const key=r.quote_id+"|"+r.product_signature;
+   if(!products.has(key))products.set(key,[]);
+   products.get(key).push(r);
+   if(!quoteRows.has(r.quote_id))quoteRows.set(r.quote_id,[]);
+   quoteRows.get(r.quote_id).push(r);
+ }
+ const groups=[];
+ for(const [key,rows] of products){
+   const first=rows[0];
+   const consistent=rows.every(r=>r.quote_id===first.quote_id&&
+     r.product_signature===first.product_signature&&
+     r.account_id===first.account_id&&r.contact_id===first.contact_id&&
+     r.product_name===first.product_name);
+   let sum=0n,valid=true;
+   const lines=rows.map(r=>{
+     const x=rawScaledKrw(r.unit_price_krw,r.sample_quantity);
+     if(x===null){valid=false;return null}
+     sum+=x;
+     return {process_id:r.process_id,process_name:r.process_name,
+       process_quantity:r.sample_quantity,unit_price_krw:r.unit_price_krw,
+       process_net_krw:formatScaledKrw(x),
+       data_size:r.data_size,data_unit:r.data_unit,
+       cloud:/ali\s*cloud|cloud storage|cloud service/i.test(r.process_name),
+       data_release:/^data release$/i.test(r.process_name.trim())};
+   });
+   if(!valid)return hold("HOLD_PROCESS_ARITHMETIC");
+   const sampleRows=rows.filter(r=>!/^data release$/i.test(r.process_name.trim())&&
+     !/ali\s*cloud|cloud storage|cloud service/i.test(r.process_name));
+   const gbSizes=[...new Set(sampleRows.filter(r=>r.data_unit==="Gb").map(r=>r.data_size))];
+   const productionGb=gbSizes.length===1?gbSizes[0]:"";
+   const candidate=consistent?
+     historicalReferenceFromValidatedRows(quoteRows.get(first.quote_id),
+       first.quote_id,{productionGb,
+         processes:rows.map(r=>({processId:r.process_id}))}):
+     {ok:false,code:"HOLD_PRODUCT_IDENTITY_MISMATCH"};
+   groups.push({key,quote_id:first.quote_id,created_date:first.created_date,
+     product_signature:first.product_signature,product_name:first.product_name||"Product",
+     account_id:first.account_id,contact_id:first.contact_id,
+     line_count:rows.length,lines,process_net_krw:formatScaledKrw(sum),
+     review_status:candidate.ok?"COMPARISON_ONLY":"HOLD",
+     hold_reason:candidate.ok?null:candidate.code,
+     historical_sample_rate_krw:candidate.ok?
+       String(candidate.candidateSampleUnitKrw):null,
+     sample_rate_auto_applicable:false,source_recheck_required:true,
+     fee_included:false,crm_writes:0});
+ }
+ groups.sort((a,b)=>b.created_date.localeCompare(a.created_date)||
+    a.quote_id.localeCompare(b.quote_id)||
+    a.product_signature.localeCompare(b.product_signature));
+ const heldCount=groups.filter(g=>g.review_status==="HOLD").length;
+ return {status:"LOCAL_ORIGINAL_PROCESS_DISPLAY_ONLY",groups,total:groups.length,
+   heldCount,comparableCount:groups.length-heldCount,
+   price_auto_apply:false,crm_writes:0};
 }
 
 /** Prefill the exact selected historical Quote as a comparison, never approved.
