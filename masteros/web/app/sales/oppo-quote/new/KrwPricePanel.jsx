@@ -13,6 +13,12 @@ const TIER_LABEL={
 };
 const suffix=(x)=>x?.slice(-6)||"—";
 const priceText=(s)=>Number(s).toLocaleString("ko-KR",{maximumFractionDigits:4});
+const originalMoney=value=>{
+ const raw=String(value??"");
+ if(!/^\\d+(?:\\.\\d{1,4})?$/.test(raw))return "금액 확인 필요";
+ const [int,dec]=raw.split(".");
+ return int.replace(/\\B(?=(\\d{3})+(?!\\d))/g,",")+(dec?"."+dec:"");
+};
 export default function KrwPricePanel({intake,customerSelection=null}){
  const [source,setSource]=useState(null);
  const [localLoading,setLocalLoading]=useState(false);
@@ -258,7 +264,7 @@ export default function KrwPricePanel({intake,customerSelection=null}){
         <td style={{padding:9,borderBottom:"1px solid #253b50"}}>{g.quote_id}</td>
         <td style={{padding:9,borderBottom:"1px solid #253b50"}}>{g.product_name}</td>
         <td style={{padding:9,borderBottom:"1px solid #253b50"}}>{g.line_count}행</td>
-        <td style={{padding:9,borderBottom:"1px solid #253b50"}}>{priceText(g.process_net_krw)} KRW</td>
+        <td style={{padding:9,borderBottom:"1px solid #253b50"}}>{originalMoney(g.process_net_krw)} KRW</td>
         <td style={{padding:9,borderBottom:"1px solid #253b50"}}>
           {g.review_status==="HOLD"?"HOLD · 원본 공정 조회":"비교 전용"}
         </td>
