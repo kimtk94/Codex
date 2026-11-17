@@ -304,7 +304,8 @@ export function draftDescription(draft,calc=calculateDraft(draft)){
   const fees=quoteFeeBreakdown(draft);
   const feeSummary=fees.included&&fees.ok?
     fees.quoteFeeItems.map(f=>f.feeType+" "+money(f.netKrw)+"KRW").join(" + "):"";
-  return [mmdd,status,lines.join(" / "),feeSummary].filter(Boolean).join(" / ");
+  const base=[mmdd,status,lines.join(" / ")].filter(Boolean).join(" ");
+  return feeSummary?base+" / "+feeSummary:base;
 }
 export function descriptionReview(draft,text,manualBasis=null){
   const basis=descriptionBasis(draft);
