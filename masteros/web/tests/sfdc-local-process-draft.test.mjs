@@ -141,7 +141,7 @@ test("referenced Quote from different customer is comparison-only, never adopts 
  assert.equal(exported.sfdc_quote_saved,false);
 });
 test("invalid zero quantity, negative/non-precision price and unsafe decimals all HOLD",()=>{
- for(const bad of ["0","-100","1.00001","nan","100,000","1000000000000000"]){
+ for(const bad of ["-100","1.00001","nan","100,000","1000000000000000"]){
   const target=editLocalProcessLine(copied(),qid,product,names[0],
     {proposed_unit_price_krw:bad});
   assert.equal(reviewLocalProcessDraft(target,intake(),identity).status,
@@ -150,6 +150,13 @@ test("invalid zero quantity, negative/non-precision price and unsafe decimals al
  const zeroQty=editLocalProcessLine(copied(),qid,product,names[0],{new_process_quantity:"0"});
  assert.equal(reviewLocalProcessDraft(zeroQty,intake(),identity).status,
    "HOLD_INVALID_PROCESS_QTY_OR_RATE");
+});
+test("free original Process Unit Price 0 KRW remains valid and not confused with zero quantity",()=>{
+ const target=editLocalProcessLine(copied(),qid,product,names[0],{proposed_unit_price_krw:"0"});
+ const r=reviewLocalProcessDraft(target,intake(),identity);
+ assert.equal(r.status,"HOLD_NEW_PROCESS_QUANTITY_CONFIRMATION");
+ assert.equal(r.products[0].lines[0].proposed_process_net_krw,"0");
+ assert.equal(r.products[0].lines[0].valid_new_quantity_price,true);
 });
 test("precise 4-decimal KRW yields 5-decimal VAT, no rounding or fabricated integer prices",()=>{
  const tiny=group({lines:[
