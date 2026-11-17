@@ -7,6 +7,14 @@ from project_lifecycle_refresh import HEAD
 from qq_mail_ingest import SafeError
 
 
+def forecast_row(project, completion_date):
+    row = [""] * 12
+    row[1] = project
+    row[10] = completion_date  # Forecast Completion Date
+    row[11] = "2026-11"         # Forecast Completion Month, NOT a date
+    return row
+
+
 class ReadonlyParityTests(unittest.TestCase):
     def test_issued_qq_only_lifecycle_receives_existing_prior_rows(self):
         previous = [HEAD, ["X_EXISTING"]]
@@ -157,13 +165,18 @@ class ReadonlyParityTests(unittest.TestCase):
         self.assertNotIn("X_A", str(stats))
         self.assertNotIn("2026-11-20", str(stats))
 
+    def test_forecast_date_col10_distinct_from_month_col11(self):
+        row = forecast_row("X_PRIVATE", "2026-11-19")
+        self.assertEqual(parity.parse_expected_day(row[10]).isoformat(), "2026-11-19")
+        self.assertIsNone(parity.parse_expected_day(row[11]))
+
     def test_feishu_alignment_splits_saved_forecast_vs_control_override(self):
         updated = [""] * len(HEAD)
         old = [""] * len(HEAD)
         updated[0] = old[0] = "X_PRIVATE"
         updated[11], old[11] = "2026-11-20", "2026-11-15"
         controls = [["Sub-Project Number", "", "", "", "", "", "Expected Completion"]]
-        feishu = [["Snapshot KST"], ["", "X_PRIVATE", "", "", "", "", "", "", "", "", "", "2026-11-15"]]
+        feishu = [["Snapshot KST"], forecast_row("X_PRIVATE", "2026-11-15")]
         found = parity.project_control_vs_feishu_alignment(
             [HEAD, updated], [HEAD, old], controls, feishu)
         self.assertEqual(found["SINK_MATCHES_FEISHU_FORECAST"], 1)
@@ -176,7 +189,7 @@ class ReadonlyParityTests(unittest.TestCase):
         old = [""] * len(HEAD)
         updated[0] = old[0] = "X_PRIVATE"
         updated[11], old[11] = "2026-11-20", "2026-11-15"
-        feishu = [["Snapshot KST"], ["", "X_PRIVATE", "", "", "", "", "", "", "", "", "", "2026-11-18"]]
+        feishu = [["Snapshot KST"], forecast_row("X_PRIVATE", "2026-11-18")]
         controls = [["Sub-Project Number", "", "", "", "", "", "Manual Override"]]
         found = parity.project_control_vs_feishu_alignment(
             [HEAD, updated], [HEAD, old], controls, feishu)
@@ -204,8 +217,8 @@ class ReadonlyParityTests(unittest.TestCase):
         current[0] = prior[0] = "X_PRIVATE"
         current[11], prior[11] = "2026-11-20", "2026-11-15"
         controls = [["Sub-Project Number", "", "", "", "", "", "Expected Completion"]]
-        blank = [["Snapshot KST"], ["", "X_PRIVATE", "", "", "", "", "", "", "", "", "", ""]]
-        bad = [["Snapshot KST"], ["", "X_PRIVATE", "", "", "", "", "", "", "", "", "", "UNRECOGNIZED_DATE"]]
+        blank = [["Snapshot KST"], forecast_row("X_PRIVATE", "")]
+        bad = [["Snapshot KST"], forecast_row("X_PRIVATE", "UNRECOGNIZED_DATE")]
         a = parity.project_control_vs_feishu_alignment(
             [HEAD, current], [HEAD, prior], controls, blank)
         b = parity.project_control_vs_feishu_alignment(
