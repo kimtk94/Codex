@@ -90,6 +90,32 @@ def project_value_counts(new, old):
     }
 
 
+PROJECT_FIELD_LABELS = {
+    5: "FEISHU_STATUS", 6: "CSS_STAGE", 7: "CSS_PROGRESS",
+    10: "REMAINING_TAT", 11: "EXPECTED_COMPLETION",
+    12: "EXPECTED_REVENUE_MONTH", 14: "ISSUED_INVOICE_COUNT",
+    15: "ISSUED_AMOUNT_KRW", 16: "BILLING_CLASS",
+    20: "OPEN_STATEMENTS", 22: "PENDING_VERIFIED_AMOUNT",
+    23: "PENDING_EVIDENCE",
+}
+
+
+def project_field_differences(new, old):
+    if not new or not old or old[0] != HEAD or new[0] != HEAD:
+        raise SafeError("PROJECT_FIELD_DIFF_FULL_SCHEMA_REQUIRED")
+    source = {str(r[0]).strip().upper(): r for r in new[1:]}
+    sink = {str(r[0]).strip().upper(): r for r in old[1:]}
+    counts = {label: 0 for label in PROJECT_FIELD_LABELS.values()}
+    for project_id in source.keys() & sink.keys():
+        a, b = source[project_id], sink[project_id]
+        for index, label in PROJECT_FIELD_LABELS.items():
+            av = a[index] if len(a) > index else ""
+            bv = b[index] if len(b) > index else ""
+            if comparable_project_value(av) != comparable_project_value(bv):
+                counts[label] += 1
+    return counts
+
+
 def age_hours(now, value):
     if value is None:
         raise SafeError("PROJECT_SOURCE_TIMESTAMP_MISSING")
@@ -152,6 +178,9 @@ def project_audit():
     content = project_value_counts(expected, sink)
     for key, value in content.items():
         print("PROJECT_PARITY_" + key + "=" + str(value))
+    by_field = project_field_differences(expected, sink)
+    for name, count in sorted(by_field.items()):
+        print("PROJECT_PARITY_FIELD_" + name + "_DIFF=" + str(count))
     if content["STATUS_MISMATCHED_PROJECTS"] or content["FINANCE_MISMATCHED_PROJECTS"]:
         raise SafeError("PROJECT_LIFECYCLE_FIELD_PARITY_BLOCK")
     print("PROJECT_SOURCE_FIELD_PARITY_PASS latest_original_source_age_checked=1")
