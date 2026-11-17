@@ -1,7 +1,7 @@
 """Offline regression tests: stages, J billings, forecasts and source provenance."""
 import unittest
 
-from project_lifecycle_refresh import build
+from project_lifecycle_refresh import build, lifecycle_content_equal, lifecycle_unformatted_readback
 from statement_amount_extract import candidates
 
 X = "X209SC260910566-Z01"
@@ -53,6 +53,46 @@ def prior_source_only(x=X, billing="STATEMENT READY - INVOICE PENDING [QQ_ONLY]"
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_lifecycle_complete_readback_allows_only_trimmed_blank_cells(self):
+        from project_lifecycle_refresh import HEAD
+        expected=[list(HEAD),["X0001"]+[""]*23]
+        observed=[list(HEAD),["X0001"]]
+        self.assertTrue(lifecycle_content_equal(expected,observed))
+        observed=[list(HEAD),["X0001"]+[""]*22+[123]]
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+
+    def test_lifecycle_same_row_count_changed_stage_or_amount_blocks(self):
+        from project_lifecycle_refresh import HEAD
+        expected=[list(HEAD),["X0001"]+[""]*14+[632500]+[""]*8]
+        same=[list(HEAD),["X0001"]+[""]*14+[632500]+[""]*8]
+        self.assertTrue(lifecycle_content_equal(expected,same))
+        same[1][15]=632400
+        self.assertFalse(lifecycle_content_equal(expected,same))
+        same[1][15]=632500
+        same[1][5]="NEW_STATUS"
+        self.assertFalse(lifecycle_content_equal(expected,same))
+        same[1][5]=""
+        same[1][0]="X0002"
+        self.assertFalse(lifecycle_content_equal(expected,same))
+        self.assertFalse(lifecycle_content_equal(expected,same[:1]))
+
+    def test_lifecycle_readback_uses_unformatted_values_and_does_not_log_customers(self):
+        from unittest.mock import patch
+        def fake_req(session,method,url):
+            self.assertEqual("GET",method)
+            self.assertIn("valueRenderOption=UNFORMATTED_VALUE",url)
+            self.assertIn("A1%3AX2",url)
+            return {"values":[["header"],["PRIVATE_CLIENT"]]}
+        with patch("project_lifecycle_refresh.req",side_effect=fake_req):
+            got=lifecycle_unformatted_readback(object(),"SYNTHETIC_BOOK",
+                                               "BI Project Lifecycle Overview","A1:X2")
+        self.assertEqual("PRIVATE_CLIENT",got[1][0])
+        with patch("project_lifecycle_refresh.req",return_value={}):
+            with self.assertRaisesRegex(RuntimeError,"LIFECYCLE_READBACK_UNAVAILABLE") as ctx:
+                lifecycle_unformatted_readback(object(),"SYNTHETIC_BOOK",
+                                              "BI Project Lifecycle Overview","A1:X2")
+        self.assertNotIn("PRIVATE_CLIENT",str(ctx.exception))
+
     def test_partial_billing_j001_issued_j002_pending(self):
         data=fixtures()
         data[2].append(inv(J1,"209126000989",1320000))
