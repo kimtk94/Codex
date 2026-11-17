@@ -238,6 +238,42 @@ def project_semantic_triage(source_rows, sink_rows):
 
 
 
+DATE_SHIFT_BANDS = ((1, "1D"), (7, "2_TO_7D"),
+                    (30, "8_TO_30D"), (None, "31_PLUS_D"))
+
+
+def project_date_shift_triage(source_rows, sink_rows, controls):
+    """Aggregate expected-day direction, magnitude and upstream selection only."""
+    if not source_rows or not sink_rows or source_rows[0] != HEAD or sink_rows[0] != HEAD:
+        raise SafeError("PROJECT_DATE_SHIFT_FULL_SCHEMA_REQUIRED")
+    src = {str(r[0]).strip().upper(): r for r in source_rows[1:]}
+    dst = {str(r[0]).strip().upper(): r for r in sink_rows[1:]}
+    overrides = {str(r[0]).strip().upper(): r for r in controls[1:]
+                 if r and str(r[0]).strip()}
+    out = collections.Counter()
+    for key in src.keys() & dst.keys():
+        a, b = src[key], dst[key]
+        expected = a[11] if len(a) > 11 else ""
+        current = b[11] if len(b) > 11 else ""
+        if date_review_status(expected, current) != "DIFFERENT_CALENDAR_DAY":
+            continue
+        x, y = parse_expected_day(expected), parse_expected_day(current)
+        if x is None or y is None:
+            raise SafeError("PROJECT_DATE_SHIFT_UNVERIFIED")
+        shift = (x - y).days
+        magnitude = abs(shift)
+        band = next(name for upper, name in DATE_SHIFT_BANDS
+                    if upper is None or magnitude <= upper)
+        direction = "EXPECTED_LATER" if shift > 0 else "EXPECTED_EARLIER"
+        out[direction + "_" + band] += 1
+        rule = overrides.get(key, [])
+        origin = ("MONTH_CONTROL" if len(rule) > 6 and str(rule[6] or "").strip()
+                  else "FEISHU_FORECAST")
+        out["ORIGIN_" + origin] += 1
+        out["DATE_SHIFTS_TOTAL"] += 1
+    return out
+
+
 def age_hours(now, value):
     if value is None:
         raise SafeError("PROJECT_SOURCE_TIMESTAMP_MISSING")
@@ -310,6 +346,11 @@ def project_audit():
         print("PROJECT_TRIAGE_BILLING_" + label + "=" + str(count))
     for label, count in sorted(finance_states.items()):
         print("PROJECT_TRIAGE_FINANCE_" + label + "=" + str(count))
+    shifts = project_date_shift_triage(expected, sink, source[3])
+    for name, count in sorted(shifts.items()):
+        print("PROJECT_TRIAGE_DAY_SHIFT_" + name + "=" + str(count))
+    if shifts["DATE_SHIFTS_TOTAL"] != date_states["DIFFERENT_CALENDAR_DAY"]:
+        raise SafeError("PROJECT_DATE_SHIFT_ACCOUNTING_MISMATCH")
     print("PROJECT_TRIAGE_AGGREGATES_ONLY raw_customer_values=0 writes=0")
     if content["STATUS_MISMATCHED_PROJECTS"] or content["FINANCE_MISMATCHED_PROJECTS"]:
         raise SafeError("PROJECT_LIFECYCLE_FIELD_PARITY_BLOCK")
