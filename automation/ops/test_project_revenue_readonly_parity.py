@@ -138,6 +138,25 @@ class ReadonlyParityTests(unittest.TestCase):
         self.assertEqual(parity.billing_category("Something unexpected"), "UNKNOWN")
         self.assertEqual(parity.billing_category(""), "BLANK")
 
+    def test_date_shift_direction_bands_and_override_origin(self):
+        later = [""] * len(HEAD)
+        earlier = [""] * len(HEAD)
+        later[0], earlier[0] = "X_A", "X_B"
+        later[11], earlier[11] = "2026-11-20", "2026-11-10"
+        old_later = list(later)
+        old_earlier = list(earlier)
+        old_later[11], old_earlier[11] = "2026-11-19", "2026-11-20"
+        controls = [["Sub-Project Number"]] + [["X_A", "", "", "", "", "", "2026-11-20"]]
+        stats = parity.project_date_shift_triage(
+            [HEAD, later, earlier], [HEAD, old_later, old_earlier], controls)
+        self.assertEqual(stats["DATE_SHIFTS_TOTAL"], 2)
+        self.assertEqual(stats["EXPECTED_LATER_1D"], 1)
+        self.assertEqual(stats["EXPECTED_EARLIER_8_TO_30D"], 1)
+        self.assertEqual(stats["ORIGIN_MONTH_CONTROL"], 1)
+        self.assertEqual(stats["ORIGIN_FEISHU_FORECAST"], 1)
+        self.assertNotIn("X_A", str(stats))
+        self.assertNotIn("2026-11-20", str(stats))
+
     def test_project_old_partial_header_not_false_field_pass(self):
         with self.assertRaisesRegex(SafeError, "FULL_SCHEMA_REQUIRED"):
             parity.project_value_counts([HEAD, ["X1"]], [HEAD[:22], ["X1"]])
