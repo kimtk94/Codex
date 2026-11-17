@@ -81,6 +81,28 @@ def historic_table_identity(tables):
 
 # Historical provisioning script defined these unique marker columns for
 # business tables. We count only candidate matches, never output names/IDs.
+# Explicit, source-code-supported *operational* Feishu tables. These are NOT
+# the six legacy 2026-11-05 empty Sales Base scaffolding tables.
+# Inspect schema metadata only; no customer records or invoice values are read.
+OPERATIONAL_SIGNATURES = {
+    "PROJECT_PROGRESS": ("Project Progress Board",
+                         frozenset({"Source Key", "Quote Full Name", "Workflow Lane", "Progress %"})),
+    "PROJECT_SIF": ("Project SIF Monitor",
+                    frozenset({"Source Key", "SIF State", "Current Stage"})),
+    "MONTHLY_TAX": ("Monthly Tax Invoice",
+                    frozenset({"Source Key", "Tax Invoice KRW Incl VAT", "Net Revenue KRW Ex VAT"})),
+    "WEEKLY_KPI": ("Weekly Quote KPI",
+                   frozenset({"Source Key", "Approved Quote Count", "Verified Quote Value K USD"})),
+    "WEEKLY_REVIEW": ("Weekly Quote Review",
+                      frozenset({"Quote Name", "Source Key", "합산 제외"})),
+    "SALES_HOME": ("00 영업 홈",
+                   frozenset({"Menu Key", "바로가기 URL", "데이터 상태"})),
+    "MAIL_IDENTITY": ("Mail Identity 2026", frozenset()),
+    "X_PROJECT_REGISTRY": ("X Project Registry", frozenset()),
+    "X_INVOICE_LEDGER": ("X Invoice Ledger", frozenset()),
+    "SAMPLE_LINK": ("AMEA H X SAM Link", frozenset()),
+}
+
 SCHEMA_SIGNATURES = {
     "ACCOUNTS": frozenset({"SFDC Account ID", "Account Name", "Institution"}),
     "CONTACTS": frozenset({"SFDC Contact ID", "Contact Name KR", "Contact Name EN"}),
@@ -89,6 +111,42 @@ SCHEMA_SIGNATURES = {
     "PROJECTS": frozenset({"Project ID", "Expected Completion Month", "Forecast Basis"}),
     "REVENUE": frozenset({"Invoice Number", "Revenue KRW Ex VAT", "Revenue Month"}),
 }
+
+
+def operational_table_metadata(token, root, tables):
+    """Return safe source-code schema health by role (no table IDs or record values)."""
+    names = Counter(table.get("name") for table in tables)
+    role_by_name = {value[0]: role for role, value in OPERATIONAL_SIGNATURES.items()}
+    outcomes = {}
+    for role, (table_name, markers) in OPERATIONAL_SIGNATURES.items():
+        n = names[table_name]
+        outcomes[role] = "MISSING" if n == 0 else ("DUPLICATED" if n > 1 else "VISIBLE")
+    for table in tables:
+        role = role_by_name.get(table.get("name"))
+        if role is None or outcomes[role] != "VISIBLE":
+            continue
+        markers = OPERATIONAL_SIGNATURES[role][1]
+        if not markers:
+            outcomes[role] = "VISIBLE_SCHEMA_UNCHECKED"
+            continue
+        table_id = table.get("table_id")
+        if not table_id:
+            raise q.SafeError("OPERATIONAL_TABLE_ID_MISSING")
+        path = root + "/tables/" + urllib.parse.quote(table_id, safe="")
+        fields = q.get_fields(token, path)
+        counts = Counter(field.get("field_name") for field in fields)
+        outcomes[role] = ("SCHEMA_PASS" if all(counts[marker] == 1 for marker in markers)
+                          else "SCHEMA_DRIFT")
+    result = {}
+    for role, status in sorted(outcomes.items()):
+        result["OPERATIONAL_" + role + "_STATUS"] = status
+    result["OPERATIONAL_SCHEMA_PASS_COUNT"] = sum(
+        state == "SCHEMA_PASS" for state in outcomes.values())
+    result["OPERATIONAL_VISIBLE_COUNT"] = sum(
+        state in ("VISIBLE_SCHEMA_UNCHECKED", "SCHEMA_PASS", "SCHEMA_DRIFT")
+        for state in outcomes.values())
+    result["OPERATIONAL_REQUIRED_TOTAL"] = len(OPERATIONAL_SIGNATURES)
+    return result
 
 
 def signature_counts(token, root, tables):
@@ -160,6 +218,9 @@ def main():
     for name, value in historic_table_identity(tables).items():
         print("SALES_BASE_CATALOG_" + name + "=" + str(value))
     if os.environ.get("FEISHU_CATALOG_SCAN_FIELDS", "0") == "1":
+        for name, value in operational_table_metadata(token, root, tables).items():
+            print("SALES_BASE_CATALOG_" + name + "=" + str(value))
+
         for name, value in signature_counts(token, root, tables).items():
             print("SALES_BASE_CATALOG_" + name + "=" + str(value))
     print("SALES_BASE_CATALOG_PROBE_FINISHED read_only=1 customer_values=0 writes=0")
