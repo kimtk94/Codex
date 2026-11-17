@@ -1,5 +1,6 @@
 "use client";
 import {useMemo,useState} from "react";
+import {exportLocalOppoQuoteReview} from "../../../../lib/sfdc-local-process-draft.mjs";
 import KrwPricePanel from "./KrwPricePanel";
 import {inspectLocalContactEvidence} from "../../../../lib/sfdc-local-contact-evidence.mjs";
 import {selectExistingContact} from "../../../../lib/sfdc-contact-first-command.mjs";
@@ -16,7 +17,14 @@ export default function NewQuote(){
  const [contactSelection,setContactSelection]=useState(null);
  const [contactNotice,setContactNotice]=useState("");
  const [liveContactBusy,setLiveContactBusy]=useState(false);
+ const [processDraftProducts,setProcessDraftProducts]=useState([]);
  const today=kstDate();const result=useMemo(()=>createIntake(input,today),[input,today]);
+ const localProcessReview=useMemo(()=>processDraftProducts.length?
+   exportLocalOppoQuoteReview(processDraftProducts,result,contactSelection):null,
+   [processDraftProducts,result,contactSelection]);
+ const reviewedRequest=useMemo(()=>localProcessReview?
+   {...result,localOriginalProcessProductDraft:localProcessReview}:result,
+   [result,localProcessReview]);
  const update=(k,v)=>{
   setInput(s=>({...s,[k]:v}));setShow(false);setNotice("");
   if(k==="contact"||k==="institution"||(k==="identityMode"&&v==="CHANGE")){
@@ -75,7 +83,7 @@ export default function NewQuote(){
   "로컬 파일의 기존 고객을 KRW 가격 비교에 연결했습니다. 신규 Quote 적용 전에는 Salesforce 재확인이 필요합니다.");
  };
  const field=(id,label,value,onChange,placeholder="")=><div className={styles.field}><label htmlFor={id}>{label}</label><input id={id} value={value} placeholder={placeholder} onChange={e=>onChange(e.target.value)}/></div>;
- const copy=async()=>{if(result.missing.length)return;try{await navigator.clipboard.writeText(JSON.stringify(result,null,2));setNotice("검토용 JSON을 복사했습니다. Salesforce에는 전송하지 않았습니다.");}catch{setShow(true);setNotice("복사 실패: 아래 JSON을 직접 확인하세요.");}};
+ const copy=async()=>{if(result.missing.length)return;try{await navigator.clipboard.writeText(JSON.stringify(reviewedRequest,null,2));setNotice("검토용 JSON을 복사했습니다. Salesforce에는 전송하지 않았습니다.");}catch{setShow(true);setNotice("복사 실패: 아래 JSON을 직접 확인하세요.");}};
  return <main className={styles.page}><div className={styles.container}>
   <header className={styles.header}><div className={styles.breadcrumb}><Link href="/sales/oppo-quote">기존 PMP 시범 화면</Link><span>/</span><strong>신규 Oppo·Quote 요청</strong></div>
    <div className={styles.headerBottom}><div><p className={styles.eyebrow}>SFDC · HISTORICAL REFERENCE</p><h1>신규 Oppo + Quote</h1><p className={styles.subhead}>과거 854개 Quote의 공통 공정 구조만 참고합니다. 가격·Product·Contact ID는 추정하지 않습니다.</p></div><div className={styles.statusPill}>No Save · 검토용</div></div>
@@ -128,7 +136,7 @@ export default function NewQuote(){
      {field("new-reference","참고 기존 Oppo/Quote 이름·번호 (선택)",input.referenceQuote,v=>update("referenceQuote",v),"원본 조회 전에는 참고 표시만")}
      {field("new-name","신규 Oppo/Quote 공통 이름 (선택)",input.desiredName,v=>update("desiredName",v),"비우면 임시 이름 제안")}
      <div className={styles.rule}><strong>신규 생성 원칙</strong><span>Oppo = Quote 이름, Close Date +1개월, No Save</span></div>
-     <div className={styles.buttons}><button className={styles.primary} type="submit">검토용 요청서 확인</button><button type="button" className={styles.secondary} onClick={()=>{setInput({...DEFAULT_INPUT});setShow(false);setNotice("");setContactEvidence(null);setContactSelection(null);setContactNotice("");}}>초기화</button></div>
+     <div className={styles.buttons}><button className={styles.primary} type="submit">검토용 요청서 확인</button><button type="button" className={styles.secondary} onClick={()=>{setInput({...DEFAULT_INPUT});setProcessDraftProducts([]);setShow(false);setNotice("");setContactEvidence(null);setContactSelection(null);setContactNotice("");}}>초기화</button></div>
      {notice&&<div className={styles.notice} role="status">{notice}</div>}
     </form>
    </section>
@@ -152,8 +160,11 @@ export default function NewQuote(){
     </section>
    </aside>
   </div>
-  <div style={{marginTop:18}}><KrwPricePanel intake={result} customerSelection={contactSelection}/></div>
-  {show&&<section className={styles.output}><div className={styles.outputTop}><div><h2>검토용 JSON</h2><p>고객 정보가 포함됩니다. 공개 저장소에 올리지 마세요.</p></div></div><pre>{JSON.stringify(result,null,2)}</pre></section>}
+  <div style={{marginTop:18}}><KrwPricePanel intake={result} customerSelection={contactSelection}
+    onDraftChange={setProcessDraftProducts}/></div>
+  {show&&<section className={styles.output}><div className={styles.outputTop}><div><h2>검토용 JSON</h2><p>고객 정보와 과거 단가 참고값이 포함됩니다. 공개 저장소에 올리지 마세요.</p></div></div>
+   {localProcessReview&&<p className={styles.footnote}>원본 Process 기반 Product 초안 {localProcessReview.quote_products.length}개 포함 · 가격 승인/CRM 저장 없음</p>}
+   <pre>{JSON.stringify(reviewedRequest,null,2)}</pre></section>}
   <footer className={styles.footer}>SFDC 신규 생성 초안 · Salesforce write 0건 · 실제 가격 자동 설정 0건</footer>
  </div></main>;
 }
