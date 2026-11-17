@@ -157,6 +157,47 @@ class ReadonlyParityTests(unittest.TestCase):
         self.assertNotIn("X_A", str(stats))
         self.assertNotIn("2026-11-20", str(stats))
 
+    def test_feishu_alignment_splits_saved_forecast_vs_control_override(self):
+        updated = [""] * len(HEAD)
+        old = [""] * len(HEAD)
+        updated[0] = old[0] = "X_PRIVATE"
+        updated[11], old[11] = "2026-11-20", "2026-11-15"
+        controls = [["Sub-Project Number", "", "", "", "", "", "Expected Completion"]]
+        feishu = [["Snapshot KST"], ["", "X_PRIVATE", "", "", "", "", "", "", "", "", "", "2026-11-15"]]
+        found = parity.project_control_vs_feishu_alignment(
+            [HEAD, updated], [HEAD, old], controls, feishu)
+        self.assertEqual(found["SINK_MATCHES_FEISHU_FORECAST"], 1)
+        self.assertEqual(found["CONTROL_HEADER_TYPE_EXPECTED_COMPLETION_FIELD"], 1)
+        self.assertNotIn("X_PRIVATE", str(found))
+        self.assertNotIn("2026-11-15", str(found))
+
+    def test_feishu_alignment_reports_unmatched_dates_without_guessing(self):
+        updated = [""] * len(HEAD)
+        old = [""] * len(HEAD)
+        updated[0] = old[0] = "X_PRIVATE"
+        updated[11], old[11] = "2026-11-20", "2026-11-15"
+        feishu = [["Snapshot KST"], ["", "X_PRIVATE", "", "", "", "", "", "", "", "", "", "2026-11-18"]]
+        controls = [["Sub-Project Number", "", "", "", "", "", "Manual Override"]]
+        found = parity.project_control_vs_feishu_alignment(
+            [HEAD, updated], [HEAD, old], controls, feishu)
+        self.assertEqual(found["SINK_AND_CONTROL_BOTH_DIFFER_FROM_FEISHU"], 1)
+        self.assertEqual(found["CONTROL_HEADER_TYPE_MANUAL_OR_OVERRIDE"], 1)
+
+    def test_feishu_alignment_duplicate_x_or_missing_header_fails_closed(self):
+        updated = [""] * len(HEAD)
+        updated[0] = "X_PRIVATE"
+        updated[11] = "2026-11-20"
+        old = list(updated)
+        old[11] = "2026-11-15"
+        controls = [["Sub-Project Number", "", "", "", "", "", "Expected Completion"]]
+        feishu = [["Snapshot KST"], ["", "X_PRIVATE"], ["", "X_PRIVATE"]]
+        with self.assertRaisesRegex(SafeError, "FEISHU_DUPLICATE_SUBPROJECT"):
+            parity.project_control_vs_feishu_alignment(
+                [HEAD, updated], [HEAD, old], controls, feishu)
+        with self.assertRaisesRegex(SafeError, "CONTROL_DATE_HEADER_MISSING"):
+            parity.project_control_vs_feishu_alignment(
+                [HEAD, updated], [HEAD, old], [["Sub-Project Number"]], feishu)
+
     def test_project_old_partial_header_not_false_field_pass(self):
         with self.assertRaisesRegex(SafeError, "FULL_SCHEMA_REQUIRED"):
             parity.project_value_counts([HEAD, ["X1"]], [HEAD[:22], ["X1"]])
