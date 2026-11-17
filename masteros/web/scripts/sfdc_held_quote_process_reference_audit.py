@@ -21,6 +21,7 @@ from quote_native_process_guard import audit_native_process_bundle
 from quote_native_reference_resolution import (
     resolve_native_data_unit, resolve_product_service,
     resolve_reference_status, resolve_report_process_id,
+    resolve_2026_native_krw_product_signature,
 )
 
 PRIVATE = Path(os.environ.get("LOCALAPPDATA", "")) / "SFDC_KRW_Price"
@@ -141,6 +142,9 @@ def run():
     try:
         old = _read(SNAPSHOT)
         original = _read(MANIFEST)
+        private_index = _read(PRIVATE / "2026_krw_process_prices_verified_local.json")
+        if not isinstance(private_index.get("records"), list):
+            raise ValueError("PRIVATE_REFERENCE_INDEX_UNAVAILABLE")
         cases = old.get("cases")
         holds = original.get("single_product_held", []) + original.get(
             "multi_product_held", []
@@ -234,12 +238,20 @@ def run():
                     "net": product["net"],
                     "processRows": process_rows,
                 })
+            signatures = [
+                resolve_2026_native_krw_product_signature(service, private_index["records"])
+                for service in services
+            ]
             resolution = resolve_reference_status(
                 resolved_process_rows=resolved_rows,
                 expected_rows=expected,
                 verified_service_labels=services,
                 expected_product_count=len(products),
             )
+            if resolution["status"].startswith("SOURCE_REFERENCES_RESOLVED") and any(
+                signature is None for signature in signatures
+            ):
+                resolution = {**resolution, "status": "HOLD_PRODUCT_SIGNATURE_UNRESOLVED"}
             source = {
                 "source": "AUTHENTICATED_SFDC_UI_API_GET_ONLY",
                 "salesforce_write": False,
@@ -266,6 +278,7 @@ def run():
                 "native": source,
                 "manifest": manifest,
                 "resolution": resolution,
+                "source_product_signatures": signatures,
                 "outcome": outcome,
                 "missing_process_master": missing_process_master,
                 "missing_data_unit": missing_unit,
@@ -275,6 +288,7 @@ def run():
                 " ROWS=" + str(len(resolved_rows)) +
                 " PROCESS_MASTER_MISSING=" + str(missing_process_master) +
                 " DATA_UNIT_MAPPING_MISSING=" + str(missing_unit) +
+                " PRODUCT_SIGNATURES_UNRESOLVED=" + str(sum(x is None for x in signatures)) +
                 " REFERENCE_STATUS=" + resolution["status"] +
                 " PRICE_STATUS=" + outcome["status"]
             )
