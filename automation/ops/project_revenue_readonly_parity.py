@@ -315,6 +315,19 @@ def project_forecast_date_alignment(source_rows, sink_rows, feishu_rows):
 
 
 
+def decide_project_phase(phase, stats, content):
+    """Never certify materialized fields using a prewrite preview."""
+    if phase not in ("strict_readback", "prewrite_preview"):
+        raise SafeError("PROJECT_PARITY_PHASE_INVALID")
+    if stats["SINK_ONLY"] or stats["SOURCE_ONLY"]:
+        raise SafeError("PROJECT_ID_SET_NOT_SAFE_FOR_PREVIEW")
+    if phase == "prewrite_preview":
+        return "REVIEW_REQUIRED"
+    if content["STATUS_MISMATCHED_PROJECTS"] or content["FINANCE_MISMATCHED_PROJECTS"]:
+        raise SafeError("PROJECT_LIFECYCLE_FIELD_PARITY_BLOCK")
+    return "STRICT_SOURCE_SINK_PASS"
+
+
 def age_hours(now, value):
     if value is None:
         raise SafeError("PROJECT_SOURCE_TIMESTAMP_MISSING")
@@ -409,19 +422,15 @@ def project_audit():
         raise SafeError("PROJECT_DATE_ALIGNMENT_ACCOUNTING_MISMATCH")
     print("PROJECT_TRIAGE_AGGREGATES_ONLY raw_customer_values=0 writes=0")
     phase = os.environ.get("PARITY_PHASE", "strict_readback").lower().strip()
-    if phase not in ("strict_readback", "prewrite_preview"):
-        raise SafeError("PROJECT_PARITY_PHASE_INVALID")
-    if phase == "prewrite_preview":
+    result = decide_project_phase(phase, stats, content)
+    if result == "REVIEW_REQUIRED":
         print("PROJECT_PREWRITE_PREVIEW=REVIEW_REQUIRED")
         print("PROJECT_PREWRITE_SINK_NOT_UPDATED=1")
         print("PROJECT_PREWRITE_MATERIALIZED_PARITY=NOT_CERTIFIED")
         print("PROJECT_PREWRITE_APPROVAL_REQUIRED=1")
         print("PROJECT_PREWRITE_NO_WRITES=1")
-        # This confirms source freshness and project key set only.
-        # No field change is approved merely by this successful exit.
+        # Neither a successful CI job nor this preview authorizes a production write.
         return stats
-    if content["STATUS_MISMATCHED_PROJECTS"] or content["FINANCE_MISMATCHED_PROJECTS"]:
-        raise SafeError("PROJECT_LIFECYCLE_FIELD_PARITY_BLOCK")
     print("PROJECT_SOURCE_FIELD_PARITY_PASS latest_original_source_age_checked=1")
     return stats
 
