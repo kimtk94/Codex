@@ -7,6 +7,10 @@ on:
       - 'automation/feishu/test_sales_base_catalog_readonly.py'
       - '.github/workflows/feishu-sales-base-catalog-readonly.yml'
   workflow_dispatch:
+  # Activates only after reviewed merge to main. Daily 08:30 Asia/Seoul.
+  # Fail-closed business-catalog BLOCK is intentional until recovered.
+  schedule:
+    - cron: '30 23 * * *'
 
 permissions:
   contents: read
@@ -26,7 +30,7 @@ jobs:
         run: python3 -m py_compile automation/feishu/sales_base_catalog_readonly.py
   catalog-probe:
     needs: offline-tests
-    if: ${{ github.event_name == 'workflow_dispatch' && needs.offline-tests.result == 'success' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && needs.offline-tests.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     environment: TaehoonServer
