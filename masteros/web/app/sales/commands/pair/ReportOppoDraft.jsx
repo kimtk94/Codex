@@ -1,11 +1,12 @@
 "use client";
 
-import {useMemo,useState} from "react";
+import {useEffect,useMemo,useState} from "react";
 import {fromFeishuQuote,calculateDraft,opportunityUnitPriceSummary,draftDescription,draftPreflight,descriptionBasis,descriptionReview,draftChanges}
   from "../../../../lib/sfdc-report-quote-draft.mjs";
 import styles from "./page.module.css";
 import SourceSalesforceEvidence from "./SourceSalesforceEvidence";
 import {applyVerifiedSource} from "../../../../lib/sfdc-source-identity.mjs";
+import {prefillHistoricalKrw} from "../../../../lib/sfdc-pair-index-krw.mjs";
 import {REGION_OPTIONS,regionByCode} from "../../../../lib/sfdc-amplicon-regions.mjs";
 import IdentityPicker from "../IdentityPicker";
 
@@ -21,6 +22,26 @@ export default function ReportOppoDraft({quote,enabled=true}){
   const [notice,setNotice]=useState("");
   const [requestBusy,setRequestBusy]=useState(false);
   const [creationRequest,setCreationRequest]=useState(null);
+  const [historyStatus,setHistoryStatus]=useState("CHECKING");
+  useEffect(()=>{
+    let mounted=true;
+    (async()=>{
+      try{
+        const response=await fetch("/api/sfdc/krw-price-local",{
+          method:"POST",cache:"no-store",credentials:"omit",
+          headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+          body:JSON.stringify({mode:"READ_LOCAL_PRIVATE_2026_KRW"})
+        });
+        const data=await response.json();
+        if(!response.ok||data.status!=="PASS"||!data.evidence)
+          throw Error("KRW_INDEX_HOLD");
+        if(!mounted)return;
+        setDraft(current=>current?prefillHistoricalKrw(current,data.evidence):current);
+        setHistoryStatus("2026_KRW_REFERENCE_LOADED");
+      }catch{if(mounted)setHistoryStatus("2026_KRW_INDEX_UNAVAILABLE")}
+    })();
+    return ()=>{mounted=false};
+  },[quote?.qid]);
   const [regionToAdd,setRegionToAdd]=useState({});
   const amounts=useMemo(()=>draft?calculateDraft(draft):null,[draft]);
   const oppUnits=useMemo(()=>opportunityUnitPriceSummary(amounts),[amounts]);
@@ -163,6 +184,11 @@ export default function ReportOppoDraft({quote,enabled=true}){
   </p>;
   return <div aria-label="Oppo Quote 참고 초안 편집">
     <SourceSalesforceEvidence quote={quote} onVerified={onSourceVerified}/>
+    <p className={styles.hint} role="status">
+      2026년 KRW 원본 공정 단가: {historyStatus} · 정확히 일치하는
+      QID·공정·Gb에 한해 참고 가격을 자동 불러옵니다.
+      실제 Salesforce 단가로 다시 확인하기 전에는 저장이 불가합니다.
+    </p>
     <div className={styles.sourceGrid}>
       <div><span>참고 Quote</span><strong>{draft.qid}</strong></div>
       <div><span>참고 Opportunity</span><strong>{draft.originalOpportunityName||"기존 프로젝트명 미확인"}</strong></div>
