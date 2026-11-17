@@ -208,7 +208,7 @@ export default function KrwPricePanel({intake,customerSelection=null}){
   {notice&&<div className={styles.notice} role="status" aria-live="polite">{notice}</div>}
   <div className={styles.reviewState}><span className={styles.dot}/>
    {!source?"HOLD · 검증된 KRW 가격 파일 미연결":found.status==="LOCAL_REFERENCE_CANDIDATES_UNVERIFIED"?
-    "동일 생산량 후보 "+found.exact_count+"건 / 비교 전체 "+found.count+"건 · 신규 가격 승인 아님":
+    "동일 생산량 후보 "+found.exact_count+"건 / 비교 전체 "+found.count+"건 · 원본 재검증 필요 · 신규 가격 승인 아님":
     found.status==="LOCAL_CONDITION_MISMATCH_CANDIDATES_ONLY"?
     "동일 생산량 일치 없음 · 조건 다른 과거 견적 "+found.count+"건 참고만 가능":
     found.status==="HOLD_REQUESTED_SOURCE_UNIT_MISMATCH"?
