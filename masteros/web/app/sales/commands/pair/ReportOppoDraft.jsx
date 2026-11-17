@@ -7,6 +7,7 @@ import styles from "./page.module.css";
 import SourceSalesforceEvidence from "./SourceSalesforceEvidence";
 import {applyVerifiedSource} from "../../../../lib/sfdc-source-identity.mjs";
 import {prefillHistoricalKrw} from "../../../../lib/sfdc-pair-index-krw.mjs";
+import {attachVerifiedSourceFees} from "../../../../lib/sfdc-quote-fees.mjs";
 import {REGION_OPTIONS,regionByCode} from "../../../../lib/sfdc-amplicon-regions.mjs";
 import IdentityPicker from "../IdentityPicker";
 
@@ -56,7 +57,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
     descriptionManualBasis:isManualDescription?descriptionEditBasis:null});
 
   const onSourceVerified=(result)=>{
-    setDraft(current=>applyVerifiedSource(current,result));
+    setDraft(current=>attachVerifiedSourceFees(applyVerifiedSource(current,result),result.feeEvidence));
     setPreflight(null);
     setNotice(result.priceEvidence?.ok?
       "기존 Salesforce Quote의 KRW 샘플 단가·AliCloud 단가를 자동 적용했습니다. 저장은 별도 승인입니다.":
@@ -350,11 +351,47 @@ export default function ReportOppoDraft({quote,enabled=true}){
           </div>
         </div>;
       })}
+      <div className={styles.subsection} data-testid="source-quote-fees">
+        <h3>별도 배송·반송 Fee · Quotation Fee</h3>
+        <p className={styles.hint}>원본 Quotation Fee가 연결된 Product와 금액을 표시합니다.
+          샘플당 시퀀싱·라이브러리·QC 단가에는 합산하지 않습니다.
+          기존 견적의 Fee는 기본적으로 새 견적에 복제하지 않습니다.</p>
+        <p className={styles.hint} role="status">원본 조회:
+          {" "}{draft.feeEvidenceStatus||"NOT_READ"}
+          {" · "}{draft.sourceFeeLines?.length||0}개 Fee</p>
+        {(draft.sourceFeeLines||[]).map((fee,i)=>
+          <div className={styles.totals} key={fee.key||i}>
+            <div><span>{fee.feeType} · {fee.productName}</span>
+              <strong>{money(fee.feeKrw)} · VAT 제외</strong></div>
+          </div>)}
+        <fieldset className={styles.accountOptions} aria-label="Quotation Fee 유지 선택">
+          <legend>기존 Quote Fee 신규 견적 반영</legend>
+          <label className={styles.modeOption}>
+            <input type="radio" name="quote-fee-mode" checked={draft.feeMode!=="KEEP"}
+              onChange={()=>edit("feeMode","EXCLUDE")}/>
+            제외 (기본 · 샘플당 단가에 영향 없음)
+          </label>
+          <label className={styles.modeOption}>
+            <input type="radio" name="quote-fee-mode" checked={draft.feeMode==="KEEP"}
+              disabled={!(draft.sourceFeeLines?.length>0)}
+              onChange={()=>edit("feeMode","KEEP")}/>
+            기존 배송·반송 Fee 별도 유지 (건별 승인·원본 재확인 필요)
+          </label>
+        </fieldset>
+        {draft.feeMode==="KEEP"&&<p className={styles.warning} role="status">
+          원본 Fee를 별도 Quote Fee로 참고 포함합니다. 새로운 고객·수량·배송 조건에서
+          비용이 유지되는지는 미확인 상태이므로 생성 요청은 NEEDS_REVIEW로 등록됩니다.
+        </p>}
+      </div>
       <div className={styles.totals} data-testid="oppo-price-summary">
         <div><span>Opportunity 샘플당 단가 · VAT 제외</span>
           <strong>{oppUnits.ok&&oppUnits.singleProduct?
             money(oppUnits.overallPerSampleNetKrw):
             oppUnits.ok?"제품별 단가 별도 표시":"단가 확인 필요"}</strong></div>
+        <div><span>공정·AliCloud 공급가액 · VAT 제외</span>
+          <strong>{money(amounts?.processNetKrw)}</strong></div>
+        <div><span>별도 Quotation Fee · VAT 제외</span>
+          <strong>{money(amounts?.feeNetKrw)} · {draft.feeMode==="KEEP"?"유지 선택":"제외"}</strong></div>
         <div><span>공급가액 합계 · VAT 제외</span><strong>{money(amounts?.netKrw)}</strong></div>
         <div><span>VAT 10%</span><strong>{money(amounts?.vatKrw)}</strong></div>
         <div className={styles.grand}><span>VAT 포함 예상액</span><strong>{money(amounts?.grossKrw)}</strong></div>
