@@ -43,6 +43,23 @@ def fixtures(status="Waiting for Settlement"):
     return [css,fe,invoice,ctrl,mail,amounts]
 
 class LifecycleTests(unittest.TestCase):
+    def test_lifecycle_fallback_uses_forecast_calendar_date_not_month(self):
+        data=fixtures()
+        # No BI Project Month Control date: use Feishu Forecast Completion
+        # Date (K, index 10), never Completion Month (L, index 11).
+        data[3][1][6]=""
+        row=build(*data)[1]
+        self.assertEqual(row[11],"2026-11-03")
+        self.assertNotEqual(row[11],"2026-11")
+
+    def test_lifecycle_explicit_month_control_date_keeps_priority(self):
+        data=fixtures()
+        data[3][1][6]="2026-11-07"
+        row=build(*data)[1]
+        self.assertEqual(row[11],"2026-11-07")
+        # The forecast month belongs in its own column, independent of date.
+        self.assertEqual(row[12],"2026-11")
+
     def test_partial_billing_j001_issued_j002_pending(self):
         data=fixtures()
         data[2].append(inv(J1,"209126000989",1320000))
