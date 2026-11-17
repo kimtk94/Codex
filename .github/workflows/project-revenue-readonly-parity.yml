@@ -7,6 +7,12 @@ on:
       - 'automation/ops/test_project_revenue_readonly_parity.py'
       - '.github/workflows/project-revenue-readonly-parity.yml'
   workflow_dispatch:
+  push:
+    branches: [audit/lifecycle-802-real-parity-20261117]
+    paths:
+      - 'automation/ops/project_revenue_readonly_parity.py'
+      - 'automation/ops/test_project_revenue_readonly_parity.py'
+      - '.github/workflows/project-revenue-readonly-parity.yml'
 
 permissions:
   contents: read
@@ -33,7 +39,7 @@ jobs:
 
   project:
     needs: offline-tests
-    if: ${{ github.event_name == 'workflow_dispatch' && needs.offline-tests.result == 'success' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && needs.offline-tests.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     environment: TaehoonServer
@@ -55,7 +61,7 @@ jobs:
 
   revenue:
     needs: offline-tests
-    if: ${{ github.event_name == 'workflow_dispatch' && needs.offline-tests.result == 'success' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && needs.offline-tests.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     environment: TaehoonServer
