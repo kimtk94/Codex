@@ -408,6 +408,18 @@ def project_audit():
     if aligned_count != shifts["DATE_SHIFTS_TOTAL"]:
         raise SafeError("PROJECT_DATE_ALIGNMENT_ACCOUNTING_MISMATCH")
     print("PROJECT_TRIAGE_AGGREGATES_ONLY raw_customer_values=0 writes=0")
+    phase = os.environ.get("PARITY_PHASE", "strict_readback").lower().strip()
+    if phase not in ("strict_readback", "prewrite_preview"):
+        raise SafeError("PROJECT_PARITY_PHASE_INVALID")
+    if phase == "prewrite_preview":
+        print("PROJECT_PREWRITE_PREVIEW=REVIEW_REQUIRED")
+        print("PROJECT_PREWRITE_SINK_NOT_UPDATED=1")
+        print("PROJECT_PREWRITE_MATERIALIZED_PARITY=NOT_CERTIFIED")
+        print("PROJECT_PREWRITE_APPROVAL_REQUIRED=1")
+        print("PROJECT_PREWRITE_NO_WRITES=1")
+        # This confirms source freshness and project key set only.
+        # No field change is approved merely by this successful exit.
+        return stats
     if content["STATUS_MISMATCHED_PROJECTS"] or content["FINANCE_MISMATCHED_PROJECTS"]:
         raise SafeError("PROJECT_LIFECYCLE_FIELD_PARITY_BLOCK")
     print("PROJECT_SOURCE_FIELD_PARITY_PASS latest_original_source_age_checked=1")
