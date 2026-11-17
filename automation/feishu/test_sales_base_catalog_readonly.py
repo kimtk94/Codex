@@ -128,6 +128,40 @@ class SalesBaseCatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(q.SafeError, "HISTORIC_CATALOG_TABLE_ID_MISSING"):
             catalog.historic_table_identity([{"name": q.TABLE, "table_id": ""}])
 
+    def test_operational_catalog_actual_schema_and_absent_separately(self):
+        entries = tables(["Project Progress Board", "Monthly Tax Invoice",
+                          "Weekly Quote Review", "00 영업 홈"])
+        def readfields(token, path):
+            name = entries[int(path.rsplit("tbl", 1)[1])]["name"]
+            found = next((markers for title, markers in catalog.OPERATIONAL_SIGNATURES.values()
+                          if title == name), frozenset())
+            return [{"field_name": col} for col in found]
+        with mock.patch.object(q, "get_fields", side_effect=readfields):
+            state = catalog.operational_table_metadata("tok", "/base", entries)
+        self.assertEqual(state["OPERATIONAL_PROJECT_PROGRESS_STATUS"], "SCHEMA_PASS")
+        self.assertEqual(state["OPERATIONAL_MONTHLY_TAX_STATUS"], "SCHEMA_PASS")
+        self.assertEqual(state["OPERATIONAL_WEEKLY_REVIEW_STATUS"], "SCHEMA_PASS")
+        self.assertEqual(state["OPERATIONAL_SALES_HOME_STATUS"], "SCHEMA_PASS")
+        self.assertEqual(state["OPERATIONAL_WEEKLY_KPI_STATUS"], "MISSING")
+        self.assertEqual(state["OPERATIONAL_VISIBLE_COUNT"], 4)
+        self.assertEqual(state["OPERATIONAL_REQUIRED_TOTAL"], 10)
+
+    def test_operational_catalog_detects_drift_and_duplicates(self):
+        entries = tables(["Project Progress Board", "Project Progress Board",
+                          "Monthly Tax Invoice", "Mail Identity 2026"])
+        with mock.patch.object(q, "get_fields", return_value=[
+                {"field_name": "Source Key"}]):
+            state = catalog.operational_table_metadata("tok", "/base", entries)
+        self.assertEqual(state["OPERATIONAL_PROJECT_PROGRESS_STATUS"], "DUPLICATED")
+        self.assertEqual(state["OPERATIONAL_MONTHLY_TAX_STATUS"], "SCHEMA_DRIFT")
+        self.assertEqual(state["OPERATIONAL_MAIL_IDENTITY_STATUS"], "VISIBLE_SCHEMA_UNCHECKED")
+
+    def test_operational_catalog_field_unavailable_fails_closed(self):
+        with mock.patch.object(q, "get_fields", side_effect=q.SafeError("FIELD_API_UNAVAILABLE")):
+            with self.assertRaisesRegex(q.SafeError, "FIELD_API_UNAVAILABLE"):
+                catalog.operational_table_metadata("tok", "/base",
+                    tables(["Project Progress Board"]))
+
     def test_unavailable_catalog_source_never_passes(self):
         with mock.patch.dict("os.environ", {"FEISHU_BASE_APP_TOKEN": EXPECTED_BASE}), \
              mock.patch.object(q, "auth", return_value=("tok", "/app")), \
