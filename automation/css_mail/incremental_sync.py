@@ -200,6 +200,8 @@ def main():
     seen=existing_keys(s)
     new=[r for r in collected if r[0] not in seen]
     if mode=="plan":
+        print("CSS_MAIL_PLAN_STATUS="+("SINK_LAG" if new else "NO_NEW_HEADERS")+
+              " recent_scope_60d=1 historic_full_coverage=UNVERIFIED",flush=True)
         print("CSS_MAIL_PLAN_PASS pending_new="+str(len(new))+
               " existing_keys="+str(len(seen))+
               " fetched_headers="+str(len(collected))+
