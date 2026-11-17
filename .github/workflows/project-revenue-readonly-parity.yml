@@ -7,6 +7,13 @@ on:
       - 'automation/ops/test_project_revenue_readonly_parity.py'
       - '.github/workflows/project-revenue-readonly-parity.yml'
   workflow_dispatch:
+    inputs:
+      project_phase:
+        description: 'No-write prewrite preview or strict readback of materialized values'
+        required: true
+        type: choice
+        options: [prewrite_preview, strict_readback]
+        default: prewrite_preview
 
 permissions:
   contents: read
@@ -40,6 +47,7 @@ jobs:
     env:
       PYTHONPATH: automation/ops:automation/feishu:automation/css_mail
       PARITY_DOMAIN: project
+      PARITY_PHASE: ${{ inputs.project_phase || 'strict_readback' }}
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
     steps:
       - uses: actions/checkout@v4
