@@ -214,7 +214,11 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
                 percentage=max(percentage,float(recent[0]))
         try:estimate=int(float(present(p,8) or present(r,15) or 0))
         except ValueError:estimate=0
-        expected=present(p,6) or present(r,11)
+        # The Feishu Project TAT Forecast schema uses column K (index 10)
+        # for the calendar completion DATE and L (index 11) for completion
+        # MONTH. Never let an YYYY-MM month silently populate the date field.
+        # The explicit BI Project Month Control date keeps precedence.
+        expected=present(p,6) or present(r,10)
         last_css=present(c,27)
         if recent:
             last_css=max(str(last_css or ""),str(recent[1]))
@@ -287,6 +291,12 @@ def main():
     for data,expected in zip(sources,["exclude","Snapshot KST","invoice_number","Sub-Project Number","received_at","statement_key"]):
         if not data or not data[0] or data[0][0]!=expected:
             raise RuntimeError("Unexpected lifecycle source header: "+expected)
+    forecast_head = sources[1][0]
+    if (len(forecast_head) <= 11 or
+            forecast_head[10] != "Forecast Completion Date" or
+            forecast_head[11] != "Forecast Completion Month"):
+        raise RuntimeError("FEISHU_TAT_DATE_MONTH_SCHEMA_CHANGED")
+    print("FEISHU_TAT_DATE_COLUMN_VALIDATED=10 month_column=11",flush=True)
     # The CSS Git Ingest already exceeds 10,000 rows. A bounded F1:Q10000
     # range falsely reports SOURCE_STALE even when newer QQ mail was synced.
     # Gate the full chain on source freshness. Never regenerate revenue with
