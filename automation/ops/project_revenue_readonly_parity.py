@@ -242,54 +242,41 @@ DATE_SHIFT_BANDS = ((1, "1D"), (7, "2_TO_7D"),
                     (30, "8_TO_30D"), (None, "31_PLUS_D"))
 
 
-def project_date_shift_triage(source_rows, sink_rows, controls):
-    """Aggregate expected-day direction, magnitude and upstream selection only."""
+def project_date_shift_triage(source_rows, sink_rows):
+    """Aggregate calendar shift magnitude for the Feishu forecast completion DATE."""
     if not source_rows or not sink_rows or source_rows[0] != HEAD or sink_rows[0] != HEAD:
         raise SafeError("PROJECT_DATE_SHIFT_FULL_SCHEMA_REQUIRED")
     src = {str(r[0]).strip().upper(): r for r in source_rows[1:]}
     dst = {str(r[0]).strip().upper(): r for r in sink_rows[1:]}
-    overrides = {str(r[0]).strip().upper(): r for r in controls[1:]
-                 if r and str(r[0]).strip()}
     out = collections.Counter()
     for key in src.keys() & dst.keys():
         a, b = src[key], dst[key]
-        expected = a[11] if len(a) > 11 else ""
-        current = b[11] if len(b) > 11 else ""
-        if date_review_status(expected, current) != "DIFFERENT_CALENDAR_DAY":
+        computed = a[11] if len(a) > 11 else ""
+        stored = b[11] if len(b) > 11 else ""
+        if date_review_status(computed, stored) != "DIFFERENT_CALENDAR_DAY":
             continue
-        x, y = parse_expected_day(expected), parse_expected_day(current)
+        x, y = parse_expected_day(computed), parse_expected_day(stored)
         if x is None or y is None:
             raise SafeError("PROJECT_DATE_SHIFT_UNVERIFIED")
-        shift = (x - y).days
-        magnitude = abs(shift)
-        band = next(name for upper, name in DATE_SHIFT_BANDS
+        shift_days = (x - y).days
+        magnitude = abs(shift_days)
+        band = next(label for upper, label in DATE_SHIFT_BANDS
                     if upper is None or magnitude <= upper)
-        direction = "EXPECTED_LATER" if shift > 0 else "EXPECTED_EARLIER"
+        direction = "EXPECTED_LATER" if shift_days > 0 else "EXPECTED_EARLIER"
         out[direction + "_" + band] += 1
-        rule = overrides.get(key, [])
-        origin = ("MONTH_CONTROL" if len(rule) > 6 and str(rule[6] or "").strip()
-                  else "FEISHU_FORECAST")
-        out["ORIGIN_" + origin] += 1
         out["DATE_SHIFTS_TOTAL"] += 1
     return out
 
 
-def project_control_vs_feishu_alignment(source_rows, sink_rows, controls, feishu_rows):
-    """For changed expected dates, determine if saved value matches original Feishu.
+def project_forecast_date_alignment(source_rows, sink_rows, feishu_rows):
+    """Read-only provenance of changed lifecycle completion dates.
 
-    No per-project dates, names, amounts or ID values leave the runner.
+    Lifecycle output column 11 is the DATE from Feishu forecast column 10.
+    BI Project Month Control and source forecast column 11 determine the
+    projected MONTH in lifecycle output column 12, not the date.
     """
     if not source_rows or not sink_rows or source_rows[0] != HEAD or sink_rows[0] != HEAD:
-        raise SafeError("CONTROL_FEISHU_ALIGNMENT_FULL_SCHEMA_REQUIRED")
-    if not controls or len(controls[0]) <= 6:
-        raise SafeError("CONTROL_DATE_HEADER_MISSING")
-    header = str(controls[0][6] or "").lower()
-    if "manual" in header or "override" in header:
-        header_type = "MANUAL_OR_OVERRIDE"
-    elif "completion" in header or "expected" in header or "forecast" in header:
-        header_type = "EXPECTED_COMPLETION_FIELD"
-    else:
-        header_type = "OTHER_CONTROL_FIELD"
+        raise SafeError("FEISHU_ALIGNMENT_FULL_SCHEMA_REQUIRED")
     source = {str(r[0]).strip().upper(): r for r in source_rows[1:]}
     sink = {str(r[0]).strip().upper(): r for r in sink_rows[1:]}
     feishu = {}
@@ -317,14 +304,15 @@ def project_control_vs_feishu_alignment(source_rows, sink_rows, controls, feishu
         if forecast is None:
             report["FEISHU_FORECAST_UNPARSEABLE"] += 1
             continue
-        if forecast == parse_expected_day(stored):
-            report["SINK_MATCHES_FEISHU_FORECAST"] += 1
-        elif forecast == parse_expected_day(computed):
-            report["CONTROL_MATCHES_FEISHU_FORECAST"] += 1
+        if forecast == parse_expected_day(computed):
+            report["SOURCE_FORECAST_MATCHES_RECALCULATED_DATE"] += 1
+        elif forecast == parse_expected_day(stored):
+            report["STORED_DATE_MATCHES_FORECAST"] += 1
         else:
-            report["SINK_AND_CONTROL_BOTH_DIFFER_FROM_FEISHU"] += 1
-    report["CONTROL_HEADER_TYPE_" + header_type] = 1
+            report["SOURCE_AND_STORED_DIFFER_FROM_FORECAST"] += 1
     return report
+
+
 
 
 def age_hours(now, value):
@@ -372,6 +360,9 @@ def project_audit():
             tat_header[11] != "Forecast Completion Month"):
         raise SafeError("PROJECT_TAT_DATE_MONTH_COLUMN_MAPPING_UNVERIFIED")
     print("PROJECT_TAT_DATE_MONTH_COLUMN_MAPPING_PASS date_col=10 month_col=11")
+    if HEAD[11] != "Feishu Expected Completion" or HEAD[12] != "Expected Revenue Month":
+        raise SafeError("PROJECT_OUTPUT_DATE_MONTH_COLUMN_MAPPING_UNVERIFIED")
+    print("PROJECT_OUTPUT_DATE_MONTH_COLUMN_MAPPING_PASS date_col=11 month_col=12")
     now = dt.datetime.now(dt.timezone.utc)
     snapshot_age = age_hours(now, latest_source_timestamp(source[1][1:]))
     mail_age = age_hours(now, latest_source_timestamp(source[4][1:]))
@@ -405,15 +396,15 @@ def project_audit():
         print("PROJECT_TRIAGE_BILLING_" + label + "=" + str(count))
     for label, count in sorted(finance_states.items()):
         print("PROJECT_TRIAGE_FINANCE_" + label + "=" + str(count))
-    shifts = project_date_shift_triage(expected, sink, source[3])
+    shifts = project_date_shift_triage(expected, sink)
     for name, count in sorted(shifts.items()):
         print("PROJECT_TRIAGE_DAY_SHIFT_" + name + "=" + str(count))
     if shifts["DATE_SHIFTS_TOTAL"] != date_states["DIFFERENT_CALENDAR_DAY"]:
         raise SafeError("PROJECT_DATE_SHIFT_ACCOUNTING_MISMATCH")
-    alignment = project_control_vs_feishu_alignment(expected, sink, source[3], source[1])
+    alignment = project_forecast_date_alignment(expected, sink, source[1])
     for name, count in sorted(alignment.items()):
         print("PROJECT_TRIAGE_FEISHU_ALIGNMENT_" + name + "=" + str(count))
-    aligned_count = sum(v for k, v in alignment.items() if not k.startswith("CONTROL_HEADER_TYPE_"))
+    aligned_count = sum(alignment.values())
     if aligned_count != shifts["DATE_SHIFTS_TOTAL"]:
         raise SafeError("PROJECT_DATE_ALIGNMENT_ACCOUNTING_MISMATCH")
     print("PROJECT_TRIAGE_AGGREGATES_ONLY raw_customer_values=0 writes=0")
