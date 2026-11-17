@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline tests for read-only Feishu Base catalog diagnostics."""
 import io
+import hashlib
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -93,6 +94,39 @@ class SalesBaseCatalogTests(unittest.TestCase):
         with mock.patch.object(q, "get_fields", side_effect=q.SafeError("SCHEMA_READ_FAILED")):
             with self.assertRaisesRegex(q.SafeError, "SCHEMA_READ_FAILED"):
                 catalog.signature_counts("tok", "/base", tables(["x"]))
+
+    def test_historic_ids_preserved_even_when_names_changed(self):
+        digests = {
+            "ACCOUNTS": hashlib.sha256(b"tblPriorAccount").hexdigest(),
+            "MAIL": hashlib.sha256(b"tblPriorMail").hexdigest(),
+        }
+        with mock.patch.object(catalog, "HISTORIC_TABLE_ID_SHA256", digests):
+            state = catalog.historic_table_identity([
+                {"name": "New Account Name", "table_id": "tblPriorAccount"},
+                {"name": q.TABLE, "table_id": "tblPriorMail"},
+            ])
+        self.assertEqual(state["HISTORIC_ACCOUNTS_STATUS"], "PRESENT_CHANGED_NAME")
+        self.assertEqual(state["HISTORIC_MAIL_STATUS"], "PRESENT_SAME_NAME")
+        self.assertEqual(state["HISTORIC_NOT_VISIBLE_COUNT"], 0)
+        self.assertNotIn("tblPriorAccount", str(state))
+
+    def test_historic_identity_not_visible_is_not_deletion_proof(self):
+        digests = {"ACCOUNTS": hashlib.sha256(b"tblMissing").hexdigest()}
+        with mock.patch.object(catalog, "HISTORIC_TABLE_ID_SHA256", digests):
+            state = catalog.historic_table_identity(tables(["Unrelated Table"]))
+        self.assertEqual(state["HISTORIC_ACCOUNTS_STATUS"], "NOT_VISIBLE")
+        self.assertEqual(state["HISTORIC_NOT_VISIBLE_COUNT"], 1)
+
+    def test_historic_identity_duplicate_id_fails(self):
+        with self.assertRaisesRegex(q.SafeError, "HISTORIC_CATALOG_DUPLICATE_TABLE_ID"):
+            catalog.historic_table_identity([
+                {"name": q.TABLE, "table_id": "tblSame"},
+                {"name": "Other", "table_id": "tblSame"},
+            ])
+
+    def test_historic_identity_empty_id_fails(self):
+        with self.assertRaisesRegex(q.SafeError, "HISTORIC_CATALOG_TABLE_ID_MISSING"):
+            catalog.historic_table_identity([{"name": q.TABLE, "table_id": ""}])
 
     def test_unavailable_catalog_source_never_passes(self):
         with mock.patch.dict("os.environ", {"FEISHU_BASE_APP_TOKEN": EXPECTED_BASE}), \
