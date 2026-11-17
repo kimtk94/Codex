@@ -224,7 +224,47 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     assert.doesNotMatch(await page.getByLabel("2026 KRW 가격 비교").innerText(),
       /COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK/);
     assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
-    assert.equal(localReadRequests.length,3,"One native Contact, auto-loaded local price and explicit manual refresh only");
+
+    // Synthetic verified-laptop readback: copy a selected original Process
+    // Product into a new local Quote draft, edit quantity/rate and keep No Save.
+    await page.unroute("**/api/sfdc/krw-price-local");
+    await page.route("**/api/sfdc/krw-price-local",async route=>{
+      assert.deepEqual(route.request().postDataJSON(),{mode:"READ_LOCAL_PRIVATE_2026_KRW"});
+      await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify({
+        status:"PASS",local_only:true,salesforce_write:false,
+        evidence:localPrices,verified_process_rows:1,verified_quote_count:1
+      })});
+    });
+    await page.locator("#krw-private-price-load").click();
+    await page.getByText(/1개 2026 KRW 공정 단가 검증 완료/).waitFor();
+    await page.locator("#original-krw-process-filter").selectOption("ALL");
+    await page.getByRole("button",{name:/신규 Product 초안에 추가/}).click();
+    const builder=page.getByTestId("local-process-product-editor");
+    await builder.waitFor();
+    assert.equal(await builder.getByTestId("local-quote-product").count(),1);
+    const newQuantity=builder.getByRole("textbox",{name:/신규 공정 수량/}).first();
+    const proposedRate=builder.getByRole("textbox",{name:/제안 Unit Price KRW/}).first();
+    assert.equal(await newQuantity.inputValue(),"48");
+    assert.equal(await proposedRate.inputValue(),"300000");
+    await newQuantity.fill("47");
+    assert.match(await builder.innerText(),/HOLD_PROCESS_QTY_DIFFERS_FROM_NEW_SAMPLES/);
+    await newQuantity.fill("48");
+    await proposedRate.fill("310000");
+    await builder.getByRole("checkbox",{name:/신규 샘플 수·생산량/}).check();
+    assert.match(await builder.innerText(),/LOCAL_QUOTE_DRAFT_REVIEW_REQUIRED/);
+    assert.match(await builder.innerText(),/14,880,000 KRW/);
+    await page.getByRole("button",{name:"검토용 요청서 확인"}).click();
+    const reviewJson=await page.locator("pre").last().innerText();
+    assert.match(reviewJson,/"localOriginalProcessProductDraft"/);
+    assert.match(reviewJson,/"proposed_unit_price_krw": "310000"/);
+    assert.match(reviewJson,/"original_unit_price_krw": "300000"/);
+    assert.match(reviewJson,/"net_krw": "14880000"/);
+    assert.match(reviewJson,/"salesforce_save_allowed": false/);
+    assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
+    await page.getByRole("button",{name:"초기화"}).click();
+    await builder.waitFor({state:"detached"});
+    assert.equal(localReadRequests.length,4,
+      "One native Contact plus one automatic and two explicit local-only price readbacks");
     assert.equal(nonReadRequests.length,0,"General intake must not perform CRM writes or other POST/PUT/PATCH/DELETE");
   } finally {
     if (page) await page.close();
