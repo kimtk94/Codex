@@ -252,7 +252,11 @@ export default function PairedQuoteWeb(){
           기존 Quote 선택
         </button>
       </div>
-      <form className={styles.search} onSubmit={e=>{e.preventDefault();find(queryRef.current);}}>
+      <form className={styles.search} onSubmit={e=>{e.preventDefault();
+        // Take the actual input value even if the user typed during hydration.
+        const typed=e.currentTarget.querySelector("input")?.value??queryRef.current;
+        queryRef.current=typed;setQuery(typed);find(typed);
+      }}>
         <input value={query} onChange={e=>{queryRef.current=e.target.value;setQuery(e.target.value);}}
           aria-label={selectionMode==="QUOTE"?"기존 Quote 검색":"기존 Opportunity 검색"} maxLength={80}
           placeholder="고객 한글 이름 · 기관 · 프로젝트명 · QID (정확 일치 시 상세 바로 열기)"/>
