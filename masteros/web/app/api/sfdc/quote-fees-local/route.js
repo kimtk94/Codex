@@ -11,7 +11,7 @@ const HEADERS={"Content-Type":"application/json; charset=utf-8",
 const reply=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:HEADERS});
 const fail=(code,status=422)=>reply({status:"HOLD",code,salesforce_write:false,
   save_permitted:false},status);
-let running=false;
+let inFlight=null;
 
 function readOnlySource(quoteId){
   return new Promise((resolve,reject)=>{
@@ -58,7 +58,6 @@ export async function POST(request){
     contentType:request.headers.get("content-type")
   });
   if(!gate.ok)return fail(gate.code,gate.status);
-  if(running)return fail("FEE_READ_BUSY",409);
   if(Number(request.headers.get("content-length")||0)>180)
     return fail("FEE_REQUEST_TOO_LARGE",413);
   let input;
@@ -71,10 +70,19 @@ export async function POST(request){
        !/^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/.test(input.sourceQuoteId))
       throw Error("INVALID_INPUT");
   }catch{return fail("FEE_REQUEST_INVALID",400)}
-  running=true;
+  // React StrictMode and repeated UI selection may issue the same
+  // authenticated read in parallel. Share its single GET-only source proof.
+  // Never mix two different source Quote IDs within one pending read.
+  if(inFlight&&inFlight.quoteId!==input.sourceQuoteId)
+    return fail("FEE_READ_OTHER_QUOTE_BUSY",409);
+  if(!inFlight)inFlight={
+    quoteId:input.sourceQuoteId,
+    promise:readOnlySource(input.sourceQuoteId)
+  };
+  const current=inFlight;
   try{
-    const evidence=await readOnlySource(input.sourceQuoteId);
+    const evidence=await current.promise;
     return reply(evidence,evidence.status==="PASS"?200:422);
   }catch{return fail("FEE_SFDC_SOURCE_UNAVAILABLE",503)}
-  finally{running=false}
+  finally{if(inFlight===current)inFlight=null}
 }
