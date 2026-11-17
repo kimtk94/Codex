@@ -19,15 +19,15 @@ class NativeKrwCustomFeeTests(unittest.TestCase):
             with self.subTest(net=net):
                 result = check(net, "870000", gross)
                 self.assertTrue(result["total_matched"])
-                self.assertTrue(result["custom_fee_present"])
-                self.assertEqual(result["status"], "HOLD_CUSTOM_FEE_PROCESS_UNALLOCATED")
+                self.assertTrue(result["totalcustom_present"])
+                self.assertEqual(result["status"], "HOLD_TOTALCUSTOM_PROCESS_UNALLOCATED")
                 self.assertFalse(result["process_price_approved"])
 
     def test_custom_only_zero_process_net_not_promoted(self):
         for custom, gross in (("750000", "825000"), ("700000", "770000")):
             r = check("0", custom, gross)
             self.assertTrue(r["total_matched"])
-            self.assertEqual(r["status"], "HOLD_CUSTOM_ONLY_ZERO_PROCESS_NET")
+            self.assertEqual(r["status"], "HOLD_TOTALCUSTOM_ONLY_ZERO_PROCESS_NET")
             self.assertFalse(r["quote_save_permitted"])
 
     def test_unexplained_grand_total_still_hold(self):
