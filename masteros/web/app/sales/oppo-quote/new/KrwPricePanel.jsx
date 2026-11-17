@@ -3,6 +3,8 @@ import {useEffect,useMemo,useState} from "react";
 import styles from "../page.module.css";
 import {parseKrwEvidence,rankKrwPrices,candidateSelection,summarizeKrwProductPrices} from "../../../../lib/sfdc-2026-krw-price-preview.mjs";
 import {listKrwOriginalProcessGroups} from "../../../../lib/sfdc-pair-index-krw.mjs";
+import {addLocalProcessProduct} from "../../../../lib/sfdc-local-process-draft.mjs";
+import LocalProcessDraftEditor from "../../../../components/LocalProcessDraftEditor";
 import HistoricalKrwProcessBreakdown from "../../../../components/HistoricalKrwProcessBreakdown";
 
 const TIER_LABEL={
@@ -19,7 +21,7 @@ const originalMoney=value=>{
  const [int,dec]=raw.split(".");
  return int.replace(/\B(?=(\d{3})+(?!\d))/g,",")+(dec?"."+dec:"");
 };
-export default function KrwPricePanel({intake,customerSelection=null}){
+export default function KrwPricePanel({intake,customerSelection=null,onDraftChange=null}){
  const [source,setSource]=useState(null);
  const [localLoading,setLocalLoading]=useState(false);
  const [historyPage,setHistoryPage]=useState(0);
@@ -27,6 +29,8 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  const [processFilter,setProcessFilter]=useState("HOLD");
  const [processSearch,setProcessSearch]=useState("");
  const [openedProcessGroup,setOpenedProcessGroup]=useState("");
+ const [draftProducts,setDraftProducts]=useState([]);
+ const [sourceMode,setSourceMode]=useState("NONE");
  const [notice,setNotice]=useState("");
  const [accountId,setAccountId]=useState("");
  const [contactId,setContactId]=useState("");
@@ -67,6 +71,23 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  const selected=choice?candidateSelection(intake,choice):null;
  const portfolio=useMemo(()=>summarizeKrwProductPrices(source),[source]);
  const originalProcessGroups=useMemo(()=>listKrwOriginalProcessGroups(source),[source]);
+ useEffect(()=>{if(onDraftChange)onDraftChange(draftProducts)},[draftProducts,onDraftChange]);
+ useEffect(()=>{
+   setDraftProducts(prev=>prev.every(p=>p.quantity_depth_reviewed===false)?prev:
+     prev.map(p=>({...p,quantity_depth_reviewed:false})));
+ },[intake.input.samples,intake.input.production,intake.input.unit,
+    intake.input.basis,customerSelection?.account_id,customerSelection?.contact_id]);
+ const addDraftProduct=group=>{
+   if(sourceMode!=="LOCAL_PRIVATE_VERIFIED"){
+     setNotice("HOLD: 검증된 노트북 원본 가격 인덱스만 신규 공정 초안에 복제할 수 있습니다.");
+     return;
+   }
+   const result=addLocalProcessProduct(draftProducts,group);
+   if(result.ok){
+     setDraftProducts(result.products);
+     setNotice("원본 "+group.quote_id+"의 Product 공정을 로컬 초안에 복사했습니다. 신규 수량과 단가를 확인하세요.");
+   }else setNotice("초안 추가 보류: "+result.code);
+ };
  const displayProcessGroups=useMemo(()=>{
   const query=processSearch.trim().toLocaleLowerCase();
   return originalProcessGroups.groups.filter(g=>
@@ -83,14 +104,15 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  const upload=async event=>{
   const file=event.currentTarget.files?.[0];
   event.currentTarget.value="";
-  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);setProcessPage(0);setOpenedProcessGroup("");setNotice("");
+  setSource(null);setSourceMode("NONE");setDraftProducts([]);
+  setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);setProcessPage(0);setOpenedProcessGroup("");setNotice("");
   if(!file)return;
   if(file.size>2*1024*1024||!file.name.toLowerCase().endsWith(".json")){
    setNotice("JSON 형식, 2MB 이하 파일만 사용할 수 있습니다.");return;
   }
   try{
    const checked=parseKrwEvidence(await file.text());
-   setSource(checked);setHistoryPage(0);
+   setSource(checked);setSourceMode("USER_UPLOADED_UNVERIFIED");setHistoryPage(0);
    setNotice(checked.records.length?
     "파일 형식 확인. 2026 KRW 후보 "+checked.records.length+"행 · 제외 "+checked.excluded_count+"행. 원본 SFDC 재확인 전에는 가격 적용 불가.":
     "2026년 승인된 원본 KRW 단가 행이 없어 가격 검색을 보류합니다.");
@@ -99,7 +121,8 @@ export default function KrwPricePanel({intake,customerSelection=null}){
  const loadPrivatePriceIndex=async()=>{
   if(localLoading)return;
   setLocalLoading(true);
-  setSource(null);setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);setProcessPage(0);setOpenedProcessGroup("");
+  setSource(null);setSourceMode("NONE");setDraftProducts([]);
+  setProduct("");setProcess("");setSelectedUnit("");setChoice(null);setHistoryPage(0);setProcessPage(0);setOpenedProcessGroup("");
   setNotice("PC에 보관된 2026 KRW 가격 인덱스 확인 중...");
   try{
    const response=await fetch("/api/sfdc/krw-price-local",{
@@ -113,11 +136,12 @@ export default function KrwPricePanel({intake,customerSelection=null}){
    const checked=parseKrwEvidence(JSON.stringify(data.evidence));
    if(checked.excluded_count>0||checked.records.length!==data.verified_process_rows)
     throw Error("LOCAL_PRICE_SOURCE_RECHECK_FAILED");
-   setSource(checked);
+   setSource(checked);setSourceMode("LOCAL_PRIVATE_VERIFIED");
    setNotice("PC 원본 가격 파일 "+data.verified_quote_count+"건 Quote / "+
     checked.records.length+"개 2026 KRW 공정 단가 검증 완료. 신규 견적에 자동 적용되지는 않습니다.");
   }catch(e){
-   setSource(null);setNotice("로컬 원본 가격 확인 보류: "+(e?.message||"SOURCE_UNAVAILABLE")+
+   setSource(null);setSourceMode("NONE");setDraftProducts([]);
+   setNotice("로컬 원본 가격 확인 보류: "+(e?.message||"SOURCE_UNAVAILABLE")+
       ". 기존 JSON 직접 불러오기는 사용할 수 있습니다.");
   }finally{setLocalLoading(false);}
  };
@@ -257,7 +281,7 @@ export default function KrwPricePanel({intake,customerSelection=null}){
       실제 신규 견적 적용은 원본 단가 재확인 및 건별 승인 후에만 가능합니다.</p>
     <div style={{maxHeight:390,overflow:"auto"}}>
      <table style={{borderCollapse:"collapse",width:"100%",minWidth:720,fontSize:12}}>
-      <thead><tr>{["원본 Quote","Product","원본 Process","공급가액 합계 (VAT 제외)","상태","열람"].map(h=>
+      <thead><tr>{["원본 Quote","Product","원본 Process","공급가액 합계 (VAT 제외)","상태","열람","초안"].map(h=>
        <th key={h} scope="col" style={{padding:9,textAlign:"left",borderBottom:"1px solid #49667d"}}>{h}</th>)}</tr></thead>
       <tbody>{displayProcessGroups.slice(visibleProcessPage*20,(visibleProcessPage+1)*20).map(g=>
        <tr key={g.key}>
@@ -275,6 +299,13 @@ export default function KrwPricePanel({intake,customerSelection=null}){
           {openedProcessGroup===g.key?"닫기":"공정 보기"}
          </button>
         </td>
+        <td style={{padding:9,borderBottom:"1px solid #253b50"}}>
+         <button type="button" className={styles.secondary}
+           aria-label={g.quote_id+" "+g.product_name+" 신규 Product 초안에 추가"}
+           disabled={sourceMode!=="LOCAL_PRIVATE_VERIFIED"||
+             draftProducts.some(p=>p.source_qid===g.quote_id&&p.source_product_signature===g.product_signature)}
+           onClick={()=>addDraftProduct(g)}>신규 Product에 복사</button>
+        </td>
        </tr>)}</tbody>
      </table>
     </div>
@@ -291,6 +322,12 @@ export default function KrwPricePanel({intake,customerSelection=null}){
     </div>
     {currentOpenedGroup&&<HistoricalKrwProcessBreakdown group={currentOpenedGroup}/>}
    </details>}
+  <LocalProcessDraftEditor products={draftProducts} onProductsChange={setDraftProducts}
+   intake={intake} customerSelection={customerSelection}/>
+  {sourceMode==="USER_UPLOADED_UNVERIFIED"&&<p className={styles.footnote}>
+    업로드한 JSON 파일은 원본 인증을 보장하지 않습니다. 공정 상세 조회는 가능하지만
+    신규 Product 초안 복사는 검증된 PC 원본 가격 인덱스에서만 허용됩니다.
+  </p>}
   {notice&&<div className={styles.notice} role="status" aria-live="polite">{notice}</div>}
   <div className={styles.reviewState}><span className={styles.dot}/>
    {!source?"HOLD · 검증된 KRW 가격 파일 미연결":found.status==="LOCAL_REFERENCE_CANDIDATES_UNVERIFIED"?
