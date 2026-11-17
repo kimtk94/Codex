@@ -18,6 +18,7 @@ export default function NewQuote(){
  const [contactNotice,setContactNotice]=useState("");
  const [liveContactBusy,setLiveContactBusy]=useState(false);
  const [processDraftProducts,setProcessDraftProducts]=useState([]);
+ const [formResetVersion,setFormResetVersion]=useState(0);
  const today=kstDate();const result=useMemo(()=>createIntake(input,today),[input,today]);
  const localProcessReview=useMemo(()=>processDraftProducts.length?
    exportLocalOppoQuoteReview(processDraftProducts,result,contactSelection):null,
@@ -136,7 +137,7 @@ export default function NewQuote(){
      {field("new-reference","참고 기존 Oppo/Quote 이름·번호 (선택)",input.referenceQuote,v=>update("referenceQuote",v),"원본 조회 전에는 참고 표시만")}
      {field("new-name","신규 Oppo/Quote 공통 이름 (선택)",input.desiredName,v=>update("desiredName",v),"비우면 임시 이름 제안")}
      <div className={styles.rule}><strong>신규 생성 원칙</strong><span>Oppo = Quote 이름, Close Date +1개월, No Save</span></div>
-     <div className={styles.buttons}><button className={styles.primary} type="submit">검토용 요청서 확인</button><button type="button" className={styles.secondary} onClick={()=>{setInput({...DEFAULT_INPUT});setProcessDraftProducts([]);setShow(false);setNotice("");setContactEvidence(null);setContactSelection(null);setContactNotice("");}}>초기화</button></div>
+     <div className={styles.buttons}><button className={styles.primary} type="submit">검토용 요청서 확인</button><button type="button" className={styles.secondary} onClick={()=>{setInput({...DEFAULT_INPUT});setProcessDraftProducts([]);setFormResetVersion(v=>v+1);setShow(false);setNotice("");setContactEvidence(null);setContactSelection(null);setContactNotice("");}}>초기화</button></div>
      {notice&&<div className={styles.notice} role="status">{notice}</div>}
     </form>
    </section>
@@ -161,7 +162,7 @@ export default function NewQuote(){
    </aside>
   </div>
   <div style={{marginTop:18}}><KrwPricePanel intake={result} customerSelection={contactSelection}
-    onDraftChange={setProcessDraftProducts}/></div>
+    onDraftChange={setProcessDraftProducts} resetVersion={formResetVersion}/></div>
   {show&&<section className={styles.output}><div className={styles.outputTop}><div><h2>검토용 JSON</h2><p>고객 정보와 과거 단가 참고값이 포함됩니다. 공개 저장소에 올리지 마세요.</p></div></div>
    {localProcessReview&&<p className={styles.footnote}>원본 Process 기반 Product 초안 {localProcessReview.quote_products.length}개 포함 · 가격 승인/CRM 저장 없음</p>}
    <pre>{JSON.stringify(reviewedRequest,null,2)}</pre></section>}
