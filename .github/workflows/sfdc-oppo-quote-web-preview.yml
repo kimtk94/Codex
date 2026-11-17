@@ -42,7 +42,11 @@ jobs:
       - name: Install isolated web dependencies
         run: npm install --no-audit --no-fund
       - name: Run unit, local readback privacy and no-Save checks
-        run: npm run test:sfdc
+        run: |
+          npm run test:sfdc
+          node --test tests/sfdc-pair-auto-krw-request.test.mjs
+          python3 -m unittest discover -s scripts -p test_sfdc_parallel_ui_check.py -v
+          python3 -m py_compile scripts/sfdc_parallel_ui_check.py
       - name: Compile Next.js draft workspace
         env:
           NEXT_TELEMETRY_DISABLED: '1'
