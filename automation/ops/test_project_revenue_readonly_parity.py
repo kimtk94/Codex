@@ -198,6 +198,21 @@ class ReadonlyParityTests(unittest.TestCase):
             parity.project_control_vs_feishu_alignment(
                 [HEAD, updated], [HEAD, old], [["Sub-Project Number"]], feishu)
 
+    def test_feishu_alignment_distinguishes_blank_and_bad_format(self):
+        current = [""] * len(HEAD)
+        prior = [""] * len(HEAD)
+        current[0] = prior[0] = "X_PRIVATE"
+        current[11], prior[11] = "2026-11-20", "2026-11-15"
+        controls = [["Sub-Project Number", "", "", "", "", "", "Expected Completion"]]
+        blank = [["Snapshot KST"], ["", "X_PRIVATE", "", "", "", "", "", "", "", "", "", ""]]
+        bad = [["Snapshot KST"], ["", "X_PRIVATE", "", "", "", "", "", "", "", "", "", "UNRECOGNIZED_DATE"]]
+        a = parity.project_control_vs_feishu_alignment(
+            [HEAD, current], [HEAD, prior], controls, blank)
+        b = parity.project_control_vs_feishu_alignment(
+            [HEAD, current], [HEAD, prior], controls, bad)
+        self.assertEqual(a["FEISHU_FORECAST_BLANK"], 1)
+        self.assertEqual(b["FEISHU_FORECAST_UNPARSEABLE"], 1)
+
     def test_project_old_partial_header_not_false_field_pass(self):
         with self.assertRaisesRegex(SafeError, "FULL_SCHEMA_REQUIRED"):
             parity.project_value_counts([HEAD, ["X1"]], [HEAD[:22], ["X1"]])
