@@ -63,8 +63,25 @@ export default function PairedQuoteWeb(){
     setWorking("SEARCH");
     setError("");
     try{
-      const data=await read({mode:mode==="OPPORTUNITY"?"OPPORTUNITY_SEARCH":"SEARCH",query:text.trim(),limit:25});
-      if(token===seq.current)setRows(data.rows||[]);
+      const exactQid=mode==="QUOTE"&&/^QID-[0-9-]{8,50}$/.test(text.trim());
+      if(exactQid){
+        // A QID is an exact immutable identity. Avoid an unnecessary and
+        // sometimes empty fuzzy-search result list; open its verified Detail.
+        const detail=await read({mode:"DETAIL",id:text.trim()});
+        if(detail.qid!==text.trim())throw Error("QUOTE_QID_DETAIL_MISMATCH");
+        if(token===seq.current){
+          setRows([{qid:detail.qid,
+            sfdc_record_id:detail.sfdc_record_id||"",
+            account_name:detail.reference?.accountName||"",
+            contact_name:detail.reference?.contactName||"",
+            opportunity_name:detail.reference?.opportunityName||"",
+            product_count:detail.product_count}]);
+          setSelected(detail);
+        }
+      }else{
+        const data=await read({mode:mode==="OPPORTUNITY"?"OPPORTUNITY_SEARCH":"SEARCH",query:text.trim(),limit:25});
+        if(token===seq.current)setRows(data.rows||[]);
+      }
     }catch(e){
       if(token===seq.current){setRows([]);setError(e.message||"SEARCH_FAILED");}
     }finally{if(token===seq.current)setWorking("");}
@@ -238,7 +255,7 @@ export default function PairedQuoteWeb(){
       <form className={styles.search} onSubmit={e=>{e.preventDefault();find(queryRef.current);}}>
         <input value={query} onChange={e=>{queryRef.current=e.target.value;setQuery(e.target.value);}}
           aria-label={selectionMode==="QUOTE"?"기존 Quote 검색":"기존 Opportunity 검색"} maxLength={80}
-          placeholder="고객 한글 이름 · 기관 · 프로젝트명 · QID"/>
+          placeholder="고객 한글 이름 · 기관 · 프로젝트명 · QID (정확 일치 시 상세 바로 열기)"/>
         <button type="submit" disabled={!indexReady||!!working}>
           {working==="SEARCH"?"검색 중":selectionMode==="QUOTE"?"기존 Quote 검색":"기존 Oppo 검색"}
         </button>
