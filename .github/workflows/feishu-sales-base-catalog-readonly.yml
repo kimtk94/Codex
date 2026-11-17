@@ -34,6 +34,7 @@ jobs:
       FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
       FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
       FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_CATALOG_SCAN_FIELDS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
