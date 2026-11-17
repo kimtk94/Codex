@@ -99,6 +99,8 @@ def audit_native_process_bundle(source, original):
     product_total = Decimal("0")
     row_count = 0
     zero_rate_count = 0
+    unpacked_release_count = 0
+    positive_unpacked_release_count = 0
     for product in products:
         if not isinstance(product, dict):
             return _result("HOLD_PRODUCT_SCHEMA")
@@ -139,8 +141,15 @@ def audit_native_process_bundle(source, original):
             if quantity * unit_price != total_price:
                 return _result("HOLD_PROCESS_MULTIPLICATION")
             pack = row.get("packNo")
-            if not pack and (process_name != "Data release" or unit_price > 0):
-                return _result("HOLD_UNEXPECTED_MISSING_PACK")
+            if not pack:
+                if process_name != "Data release":
+                    return _result("HOLD_UNEXPECTED_MISSING_PACK")
+                # Native paid Data release steps may intentionally have no Pack.
+                # Their original exact quantity and price were already checked;
+                # do not infer they are free or silently assign them to a Pack.
+                unpacked_release_count += 1
+                if unit_price > 0:
+                    positive_unpacked_release_count += 1
             if unit_price == 0:
                 zero_rate_count += 1
             observed.add(k)
@@ -156,5 +165,7 @@ def audit_native_process_bundle(source, original):
     return {**_result("NATIVE_PROCESS_AND_REPORT_REFERENCES_VERIFIED"),
             "verified_rows": row_count, "verified_products": len(products),
             "zero_price_steps": zero_rate_count,
+            "unpacked_data_release_steps": unpacked_release_count,
+            "positive_unpacked_data_release_steps": positive_unpacked_release_count,
             "source_original_krw": True,
             "eligible_for_separate_historical_index_review": True}
