@@ -3,8 +3,9 @@
 import datetime as dt
 import re
 import sys
+import urllib.parse
 import incremental_sync as css
-from unified_followup_sync import SRC, DST, KST, get, put
+from unified_followup_sync import SRC, DST, KST, get, put, req, base
 
 TAB="BI Project Lifecycle Overview"
 HEAD=["Project / Sub-project","AMEA","Institution","Customer","Service",
@@ -22,6 +23,43 @@ ACCEPTED_INVOICE={"FILENAME_PARSED","VERIFIED_LEGACY_FILENAME","EXISTS_IN_LEGACY
 REPLY=re.compile(r"^\s*(?:re|fw|fwd|회신|답장|전달)\s*[:：]",re.I)
 H=re.compile(r"H\d+SC\d+",re.I)
 A=re.compile(r"AMEA\d{7,}(?:-\d{1,3})?",re.I)
+
+def lifecycle_unformatted_readback(session,book,tab,range_a1):
+    """Read generated cells as raw values to avoid currency/date display drift."""
+    addr=urllib.parse.quote("'"+tab+"'!"+range_a1,safe="")
+    payload=req(session,"GET",base(book)+"/values/"+addr+
+                "?valueRenderOption=UNFORMATTED_VALUE")
+    if not isinstance(payload,dict) or not isinstance(payload.get("values"),list):
+        raise RuntimeError("LIFECYCLE_READBACK_UNAVAILABLE")
+    return payload["values"]
+
+
+def lifecycle_content_equal(expected,observed):
+    """Fail closed on any changed/missing cell, ignoring only trailing blanks.
+
+    Preserves RAW numeric values: Google JSON may return numeric objects.
+    No customer fields, row coordinates or values are returned on mismatch.
+    """
+    if (not isinstance(expected,list) or not isinstance(observed,list)
+            or not expected or len(expected)!=len(observed)):
+        return False
+    width=len(HEAD)
+    def normalize(value):
+        if value is None:
+            return ""
+        return str(value)
+    for a,b in zip(expected,observed):
+        if not isinstance(a,list) or not isinstance(b,list):
+            return False
+        if any(normalize(x) for x in a[width:]+b[width:]):
+            return False
+        for col in range(width):
+            left=normalize(a[col]) if col<len(a) else ""
+            right=normalize(b[col]) if col<len(b) else ""
+            if left!=right:
+                return False
+    return True
+
 
 def latest_source_timestamp(rows):
     """Choose the most recent instant, not lexicographic mixed-offset ISO text."""
@@ -337,11 +375,11 @@ def main():
     put(s,DST,TAB,"A1",result,"RAW")
     # Verify the materialized result before reporting success. A stale sheet
     # must never be presented as a completed refresh.
-    observed=get(s,DST,TAB,"A1:X"+str(len(result)))
-    if len(observed)!=len(result) or observed[0]!=HEAD:
-        raise RuntimeError("Lifecycle post-write row/header verification failed")
-    if [str(x) for x in observed[-1][:2]]!=[str(x) for x in result[-1][:2]]:
-        raise RuntimeError("Lifecycle post-write last-project mismatch")
+    observed=lifecycle_unformatted_readback(s,DST,TAB,"A1:X"+str(len(result)))
+    if not lifecycle_content_equal(result,observed):
+        # Never mark a partial/misplaced cell as a project or Revenue PASS.
+        # Only a complete value-for-value readback may release downstream work.
+        raise RuntimeError("LIFECYCLE_POST_WRITE_CONTENT_MISMATCH")
     now=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
     put(s,DST,"Automation Health","A15",[[
         "Project Lifecycle",now,"PASS",
