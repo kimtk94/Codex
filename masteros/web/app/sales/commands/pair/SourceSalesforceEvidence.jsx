@@ -1,6 +1,7 @@
 "use client";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import {reconcileQuoteSource} from "../../../../lib/sfdc-source-identity.mjs";
+import {verifiedSourcePrice} from "../../../../lib/sfdc-pair-auto-krw.mjs";
 import styles from "./page.module.css";
 
 const ID=/^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/;
@@ -33,18 +34,29 @@ export default function SourceSalesforceEvidence({quote,onVerified}){
         throw Error("QUOTE_NATIVE_OPPORTUNITY_UNAVAILABLE");
       const opp=await readLive("opportunity",q.opportunityId);
       const checked=reconcileQuoteSource(quote,q,opp);
-      setResult(checked);
-      if(checked.status==="PASS")onVerified(checked);
+      const price=checked.status==="PASS"?verifiedSourcePrice(q,checked):
+        {ok:false,code:"SOURCE_IDENTITY_NOT_VERIFIED"};
+      const verified={...checked,priceEvidence:price};
+      setResult(verified);
+      if(checked.status==="PASS")onVerified(verified);
     }catch(e){
       setResult({status:"HOLD",code:e.message||"SALESFORCE_SOURCE_UNAVAILABLE"});
     }finally{setBusy(false);}
   }
 
+  // An authenticated source Quote is selected explicitly. Fetch its KRW
+  // evidence automatically; never require the user to retype verified rates.
+  useEffect(()=>{
+    if(native)verify();
+    // Source ID changes remount this keyed component in the pair editor.
+  },[sourceId]);
+
   return <div className={styles.subsection} aria-label="Salesforce 원본 대조">
-    <h3>실제 Salesforce 원본 확인 (읽기 전용)</h3>
+    <h3>기존 Salesforce 고객·KRW 단가 자동 불러오기</h3>
     <p className={styles.hint}>
-      Feishu의 기존 Quote ID로 Salesforce를 직접 조회하고 연결된 Opportunity와
-      Account·Contact의 CRM ID를 대조합니다. 이 작업은 가격 승인 또는 저장이 아닙니다.
+      선택한 Quote의 실제 Salesforce 원본을 자동 조회합니다. 고객 ID와 공정별
+      KRW 단가·Pack·AliCloud 수량이 일치할 때 샘플 단가를 자동 채웁니다.
+      실제 저장은 별도 건별 승인이 필요합니다.
     </p>
     <div className={styles.actions}>
       <button type="button" onClick={verify} disabled={!native||busy}>
@@ -68,6 +80,12 @@ export default function SourceSalesforceEvidence({quote,onVerified}){
         <small>{result.contact.id}</small></div>
       <div><b>원본 연결 Opportunity</b><span>{result.opportunityName}</span>
         <small>{result.nativeOpportunityId}</small></div>
+      <div><b>원본 KRW 단가</b><span>{result.priceEvidence?.ok?
+        result.priceEvidence.sampleUnitKrw.toLocaleString("ko-KR")+" KRW / sample":
+        "공정별 KRW 검증 보류"}</span>
+        <small>{result.priceEvidence?.ok?
+          "AliCloud "+result.priceEvidence.cloudUnitKrw.toLocaleString("ko-KR")+" KRW/100Gb":
+          result.priceEvidence?.code||"SOURCE_PRICE_NOT_VERIFIED"}</small></div>
     </div>}
     {result?.nameReview&&<p className={styles.warning} role="status">
       기존 Opportunity와 Quote 이름이 서로 다릅니다.
@@ -75,7 +93,7 @@ export default function SourceSalesforceEvidence({quote,onVerified}){
       원본 이름 차이는 확인 항목이며 고객 ID 불일치로 간주하지 않습니다.
     </p>}
     <p className={styles.hint}>
-      판정: {result?.code||"NOT_CHECKED"} · Salesforce 저장 불가 · KRW 원천 단가 별도 확인 필요
+      판정: {result?.code||"NOT_CHECKED"} · KRW: {result?.priceEvidence?.code||"SOURCE_NOT_CHECKED"} · Salesforce 저장 없음
     </p>
   </div>;
 }

@@ -64,7 +64,7 @@ export function fromFeishuQuote(detail,now=new Date()){
       projectKey:signature(group.processes,referenceGb),
       // New quote inputs always come from operator, not previous process qty.
       productionGb:referenceGb===null?"":String(referenceGb),
-      samples:"",sampleUnitKrw:""
+      samples:"",sampleUnitKrw:"",cloudUnitKrw:"",priceEvidenceStatus:"NOT_VERIFIED"
     };
   });
   const ref=detail.reference||null;
@@ -142,7 +142,7 @@ export function fromFeishuQuote(detail,now=new Date()){
       name:sourceProject,account:{...account},contact:{...contact},
       products:labeled.map(p=>({
         id:p.id,serviceLabel:p.serviceLabel,productionGb:p.productionGb,
-        samples:p.samples,sampleUnitKrw:p.sampleUnitKrw,
+        samples:p.samples,sampleUnitKrw:p.sampleUnitKrw,cloudUnitKrw:p.cloudUnitKrw,
         ampliconEnabled:p.amplicon.enabled,
         regions:p.amplicon.regions.map(r=>({code:r.code,label:r.label,unitKrw:r.unitKrw||""}))
       }))
@@ -166,16 +166,24 @@ export function calculateDraft(draft){
         quantity:qtyOk?qty:null,unitKrw:good?rPrice:null,netKrw:amount,
         originalQuoteProductId:p.id,referenceOnly:true};
     }):[];
-    const net=amp?(
+    const gb=s(p.productionGb)===""?null:gbValue(p.productionGb);
+    const gbOk=s(p.productionGb)===""||gb!==null;
+    const cloudRequested=s(p.cloudUnitKrw)!=="";
+    const cloudRate=cloudRequested?integer(p.cloudUnitKrw):null;
+    const cloudQty=cloudRequested&&qtyOk&&gb!==null?Math.ceil(qty*gb/100):0;
+    const cloudAmount=cloudRequested&&cloudRate!==null&&cloudQty>0&&
+      Number.isSafeInteger(cloudRate*cloudQty)?cloudRate*cloudQty:null;
+    const baseNet=amp?(
       serviceQty!==null&&regionLines.every(x=>x.netKrw!==null)?
         regionLines.reduce((n,x)=>n+x.netKrw,0):null
     ):(qtyOk&&priceOk&&Number.isSafeInteger(qty*rate)?qty*rate:null);
+    const net=baseNet!==null&&(cloudAmount!==null||!cloudRequested)?
+      baseNet+(cloudAmount||0):null;
     const safeNet=net!==null&&Number.isSafeInteger(net)?net:null;
-    const gb=s(p.productionGb)===""?null:gbValue(p.productionGb);
-    const gbOk=s(p.productionGb)===""||gb!==null;
     return {...p,quantity:qtyOk?qty:null,unitKrw:priceOk?rate:null,
       productionGbValue:gb,serviceQuantity:serviceQty,
       regionCount:amp?selected.length:0,regionLines,
+      cloudUnits:cloudQty,cloudUnitKrw:cloudRate,cloudNetKrw:cloudAmount||0,
       netKrw:safeNet,ready:safeNet!==null&&gbOk,gbValid:gbOk,
       projectKey:signature(p.processes,gb,selected.map(x=>x.code))};
   });
@@ -184,16 +192,25 @@ export function calculateDraft(draft){
   if(total!==null&&!Number.isSafeInteger(total))
     return {ok:false,code:"DRAFT_TOTAL_OVERFLOW",items};
   const vat=total===null?null:Math.round(total*.1);
-  const quoteLineItems=items.flatMap(item=>item.amplicon?.enabled?item.regionLines.map(x=>({
-    kind:"AMPLICON_REGION",originalQuoteProductId:item.id,
-    regionCode:x.code,regionName:x.label,sampleQuantity:x.quantity,
-    unitPriceKrw:x.unitKrw,netKrw:x.netKrw,
-    originalProcessIds:item.processes.map(y=>y.processId)
-  })):[{
-    kind:"PRODUCT",originalQuoteProductId:item.id,
-    sampleQuantity:item.quantity,unitPriceKrw:item.unitKrw,netKrw:item.netKrw,
-    originalProcessIds:item.processes.map(y=>y.processId)
-  }]);
+  const quoteLineItems=items.flatMap(item=>{
+    const base=item.amplicon?.enabled?item.regionLines.map(x=>({
+      kind:"AMPLICON_REGION",originalQuoteProductId:item.id,
+      regionCode:x.code,regionName:x.label,sampleQuantity:x.quantity,
+      unitPriceKrw:x.unitKrw,netKrw:x.netKrw,
+      originalProcessIds:item.processes.map(y=>y.processId)
+    })):[{
+      kind:"PRODUCT",originalQuoteProductId:item.id,
+      sampleQuantity:item.quantity,unitPriceKrw:item.unitKrw,
+      netKrw:item.quantity!==null&&item.unitKrw!==null?
+        item.quantity*item.unitKrw:null,
+      originalProcessIds:item.processes.map(y=>y.processId)
+    }];
+    if(item.cloudUnits>0&&item.cloudUnitKrw!==null)
+      base.push({kind:"ALICLOUD",originalQuoteProductId:item.id,
+        unitsPer100Gb:1,quantity:item.cloudUnits,unitPriceKrw:item.cloudUnitKrw,
+        netKrw:item.cloudNetKrw});
+    return base;
+  });
   return {ok:allPriced,quoteLineItems,
     code:allPriced?"DRAFT_ESTIMATE_ONLY":"INPUT_SAMPLE_PRICE_OR_GB",
     items,netKrw:total,vatKrw:vat,grossKrw:total===null?null:total+vat,
@@ -206,12 +223,17 @@ export function opportunityUnitPriceSummary(calculation){
     return {ok:false,code:"OPPO_PRICE_NOT_VERIFIED",products:[]};
   const products=calculation.items.map((item,i)=>{
     if(!Number.isSafeInteger(item.netKrw)||!Number.isInteger(item.quantity)||
-       item.quantity<=0||item.netKrw%item.quantity!==0)
+       item.quantity<=0)return null;
+    // Stepwise AliCloud cannot always be divided into a per-sample price.
+    // Report the biological sample rate separately from billed Cloud blocks.
+    const biologicalNet=item.netKrw-(item.cloudNetKrw||0);
+    if(!Number.isSafeInteger(biologicalNet)||biologicalNet%item.quantity!==0)
       return null;
     return {
       id:item.id||String(i),samples:item.quantity,
-      unitPriceNetKrw:item.netKrw/item.quantity,
-      netKrw:item.netKrw,regionCount:item.regionCount||0,
+      unitPriceNetKrw:biologicalNet/item.quantity,
+      netKrw:item.netKrw,cloudNetKrw:item.cloudNetKrw||0,
+      cloudUnits:item.cloudUnits||0,regionCount:item.regionCount||0,
       perRegion:item.amplicon?.enabled===true,
       serviceQuantity:item.serviceQuantity
     };
@@ -234,6 +256,7 @@ export function descriptionBasis(draft){
     products:(draft.products||[]).map(p=>({
       service:s(p.serviceLabel),
       gb:s(p.productionGb),samples:s(p.samples),unitKrw:s(p.sampleUnitKrw),
+      cloudUnitKrw:s(p.cloudUnitKrw),
       regionMode:Boolean(p.amplicon?.enabled),
       regions:(p.amplicon?.regions||[]).map(r=>({
         code:s(r.code),label:s(r.label),unitKrw:s(r.unitKrw)
@@ -361,7 +384,7 @@ export function draftChanges(draft){
     const prev=ref.products?.[i];
     if(!prev){changes.push({field:"product["+i+"]",before:null,after:p.id});return;}
     const lead="product["+i+"].";
-    for(const key of ["serviceLabel","productionGb","samples","sampleUnitKrw"])
+    for(const key of ["serviceLabel","productionGb","samples","sampleUnitKrw","cloudUnitKrw"])
       changed(lead+key,prev[key],p[key]);
     changed(lead+"regionMode",prev.ampliconEnabled,Boolean(p.amplicon?.enabled));
     changed(lead+"regions",prev.regions,
