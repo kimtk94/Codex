@@ -224,7 +224,7 @@ test("protected-deploy equivalent local browser: PMP request never performs CRM 
     assert.doesNotMatch(await page.getByLabel("2026 KRW 가격 비교").innerText(),
       /COMPARISON_ONLY_REQUIRES_AUTHENTICATED_PRICE_RECHECK/);
     assert.equal(await page.getByRole("button",{name:/Salesforce 생성/}).isDisabled(),true);
-    assert.equal(localReadRequests.length,2,"One native Contact and one local price readback only");
+    assert.equal(localReadRequests.length,3,"One native Contact, auto-loaded local price and explicit manual refresh only");
     assert.equal(nonReadRequests.length,0,"General intake must not perform CRM writes or other POST/PUT/PATCH/DELETE");
   } finally {
     if (page) await page.close();
