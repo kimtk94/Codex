@@ -38,6 +38,7 @@ jobs:
         run: python3 -m py_compile automation/ops/project_revenue_readonly_parity.py
 
   project:
+    name: Project prewrite preview (no writes; approval required)
     needs: offline-tests
     if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && needs.offline-tests.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -46,6 +47,7 @@ jobs:
     env:
       PYTHONPATH: automation/ops:automation/feishu:automation/css_mail
       PARITY_DOMAIN: project
+      PARITY_PHASE: prewrite_preview
       GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
     steps:
       - uses: actions/checkout@v4
@@ -56,8 +58,14 @@ jobs:
           python-version: '3.11'
       - name: Install Google readonly client
         run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
-      - name: Recompute source projects and compare sink keys (no writes)
-        run: python3 automation/ops/project_revenue_readonly_parity.py
+      - name: Recompute 111 project keys and preview unsaved field drift
+        run: |
+          python3 automation/ops/project_revenue_readonly_parity.py
+          {
+            echo '## Project prewrite preview — NOT an operations PASS'
+            echo 'Project source freshness and key identity verified; date/invoice differences are **not yet materialized**.'
+            echo 'No Google Sheets/Feishu writes. User approval is required to run any production writer.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   revenue:
     needs: offline-tests
