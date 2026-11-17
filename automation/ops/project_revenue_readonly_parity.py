@@ -274,6 +274,56 @@ def project_date_shift_triage(source_rows, sink_rows, controls):
     return out
 
 
+def project_control_vs_feishu_alignment(source_rows, sink_rows, controls, feishu_rows):
+    """For changed expected dates, determine if saved value matches original Feishu.
+
+    No per-project dates, names, amounts or ID values leave the runner.
+    """
+    if not source_rows or not sink_rows or source_rows[0] != HEAD or sink_rows[0] != HEAD:
+        raise SafeError("CONTROL_FEISHU_ALIGNMENT_FULL_SCHEMA_REQUIRED")
+    if not controls or len(controls[0]) <= 6:
+        raise SafeError("CONTROL_DATE_HEADER_MISSING")
+    header = str(controls[0][6] or "").lower()
+    if "manual" in header or "override" in header:
+        header_type = "MANUAL_OR_OVERRIDE"
+    elif "completion" in header or "expected" in header or "forecast" in header:
+        header_type = "EXPECTED_COMPLETION_FIELD"
+    else:
+        header_type = "OTHER_CONTROL_FIELD"
+    source = {str(r[0]).strip().upper(): r for r in source_rows[1:]}
+    sink = {str(r[0]).strip().upper(): r for r in sink_rows[1:]}
+    feishu = {}
+    for r in feishu_rows[1:]:
+        if len(r) > 1 and str(r[1]).strip():
+            x = str(r[1]).strip().upper()
+            if x in feishu:
+                raise SafeError("FEISHU_DUPLICATE_SUBPROJECT_IN_DATE_ALIGNMENT")
+            feishu[x] = r
+    report = collections.Counter()
+    for project in source.keys() & sink.keys():
+        row_a, row_b = source[project], sink[project]
+        computed = row_a[11] if len(row_a) > 11 else ""
+        stored = row_b[11] if len(row_b) > 11 else ""
+        if date_review_status(computed, stored) != "DIFFERENT_CALENDAR_DAY":
+            continue
+        if project not in feishu:
+            report["FEISHU_SUBPROJECT_NOT_FOUND"] += 1
+            continue
+        source_forecast = feishu[project][11] if len(feishu[project]) > 11 else ""
+        forecast = parse_expected_day(source_forecast)
+        if forecast is None:
+            report["FEISHU_FORECAST_DATE_UNAVAILABLE"] += 1
+            continue
+        if forecast == parse_expected_day(stored):
+            report["SINK_MATCHES_FEISHU_FORECAST"] += 1
+        elif forecast == parse_expected_day(computed):
+            report["CONTROL_MATCHES_FEISHU_FORECAST"] += 1
+        else:
+            report["SINK_AND_CONTROL_BOTH_DIFFER_FROM_FEISHU"] += 1
+    report["CONTROL_HEADER_TYPE_" + header_type] = 1
+    return report
+
+
 def age_hours(now, value):
     if value is None:
         raise SafeError("PROJECT_SOURCE_TIMESTAMP_MISSING")
@@ -351,6 +401,12 @@ def project_audit():
         print("PROJECT_TRIAGE_DAY_SHIFT_" + name + "=" + str(count))
     if shifts["DATE_SHIFTS_TOTAL"] != date_states["DIFFERENT_CALENDAR_DAY"]:
         raise SafeError("PROJECT_DATE_SHIFT_ACCOUNTING_MISMATCH")
+    alignment = project_control_vs_feishu_alignment(expected, sink, source[3], source[1])
+    for name, count in sorted(alignment.items()):
+        print("PROJECT_TRIAGE_FEISHU_ALIGNMENT_" + name + "=" + str(count))
+    aligned_count = sum(v for k, v in alignment.items() if not k.startswith("CONTROL_HEADER_TYPE_"))
+    if aligned_count != shifts["DATE_SHIFTS_TOTAL"]:
+        raise SafeError("PROJECT_DATE_ALIGNMENT_ACCOUNTING_MISMATCH")
     print("PROJECT_TRIAGE_AGGREGATES_ONLY raw_customer_values=0 writes=0")
     if content["STATUS_MISMATCHED_PROJECTS"] or content["FINANCE_MISMATCHED_PROJECTS"]:
         raise SafeError("PROJECT_LIFECYCLE_FIELD_PARITY_BLOCK")
