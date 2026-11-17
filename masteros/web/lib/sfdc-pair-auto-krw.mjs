@@ -60,7 +60,8 @@ export function prefillVerifiedKrw(draft,evidence){
      !String(evidence.productName||"").trim())return draft;
   // Do not silently overwrite a price the operator has already edited.
   const wasManual=product.sampleUnitKrw!==""&&
-      product.priceEvidenceStatus!=="LIVE_SFDC_KRW_VERIFIED";
+      !["LIVE_SFDC_KRW_VERIFIED","INDEX_2026_KRW_COMPARISON_ONLY"].includes(
+        product.priceEvidenceStatus);
   if(wasManual)return {...draft,priceCandidate:evidence};
   const update={...product,
     samples:product.samples||String(evidence.samples),
