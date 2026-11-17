@@ -47,6 +47,37 @@ class ReadonlyParityTests(unittest.TestCase):
         with self.assertRaisesRegex(SafeError, "SINK_HEADER"):
             parity.project_counts([HEAD, ["X1"]], [["Wrong"], ["X1"]])
 
+    def test_project_issued_and_status_value_mismatch_detected(self):
+        original = [""] * len(HEAD)
+        original[0] = "X100"
+        original[5] = "Sample received"
+        original[7] = 40
+        original[14] = 1
+        original[15] = 1100000
+        sink = list(original)
+        sink[5] = "Sequencing"
+        sink[7] = "40.0"
+        sink[15] = "1000000"
+        got = parity.project_value_counts([HEAD, original], [HEAD, sink])
+        self.assertEqual(got["STATUS_MISMATCHED_PROJECTS"], 1)
+        self.assertEqual(got["FINANCE_MISMATCHED_PROJECTS"], 1)
+
+    def test_project_numeric_formats_are_equivalent(self):
+        original = [""] * len(HEAD)
+        original[0] = "X101"
+        original[7] = 90
+        original[15] = 1000000
+        sink = list(original)
+        sink[7] = "90.0"
+        sink[15] = "1,000,000.00"
+        got = parity.project_value_counts([HEAD, original], [HEAD, sink])
+        self.assertEqual(got["STATUS_MISMATCHED_PROJECTS"], 0)
+        self.assertEqual(got["FINANCE_MISMATCHED_PROJECTS"], 0)
+
+    def test_project_old_partial_header_not_false_field_pass(self):
+        with self.assertRaisesRegex(SafeError, "FULL_SCHEMA_REQUIRED"):
+            parity.project_value_counts([HEAD, ["X1"]], [HEAD[:22], ["X1"]])
+
     def test_month_equal_and_extra_historical_preserved(self):
         desired = [{"Source Key": "INVOICE:2026-11", "Invoice Count": 7}]
         existing = [
