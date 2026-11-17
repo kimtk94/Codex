@@ -2,7 +2,6 @@
 No shared Playwright page, clicking Save, editing inputs, or CRM mutations.
 """
 import asyncio,json,re,sys,time
-from playwright.async_api import async_playwright
 
 BASE="https://novogene.lightning.force.com"
 QUOTE=re.compile(r"^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
@@ -44,6 +43,7 @@ async def inspect(ctx,record_id,index):
         await page.close()
 
 async def run(inp):
+    from playwright.async_api import async_playwright
     ids=validate(inp)
     start=time.monotonic()
     async with async_playwright() as playwright:
