@@ -139,7 +139,11 @@ def audit_native_process_bundle(source, original):
             if quantity * unit_price != total_price:
                 return _result("HOLD_PROCESS_MULTIPLICATION")
             pack = row.get("packNo")
-            if not pack and (process_name != "Data release" or unit_price > 0):
+            # In original Salesforce Quotes the Data release service may be
+            # billed at a positive rate while its Pack No. is blank.
+            # It is still an eligible native Process only after the exact
+            # referenced Process ID, Product, quantity, unit and sum match.
+            if not pack and process_name != "Data release":
                 return _result("HOLD_UNEXPECTED_MISSING_PACK")
             if unit_price == 0:
                 zero_rate_count += 1
