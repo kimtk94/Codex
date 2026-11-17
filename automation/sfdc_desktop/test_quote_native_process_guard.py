@@ -70,12 +70,25 @@ class NativeProcessGuardTests(unittest.TestCase):
         self.assertEqual(audit_native_process_bundle(s,m)["status"],
           "HOLD_UNEXPECTED_MISSING_PACK")
 
-    def test_missing_release_pack_permitted_only_for_zero_rate(self):
+    def test_paid_data_release_without_pack_is_valid_original_rate(self):
         s,m=fixture()
         s["products"][0]["processRows"][-1]["unitPrice"]=100
         s["products"][0]["processRows"][-1]["totalPrice"]=400
-        self.assertEqual(audit_native_process_bundle(s,m)["status"],
-          "HOLD_UNEXPECTED_MISSING_PACK")
+        s["products"][0]["net"]=6400
+        s["quoteNet"]=6400
+        s["grandTotal"]=8140
+        result=audit_native_process_bundle(s,m)
+        self.assertEqual(result["status"],
+          "NATIVE_PROCESS_AND_REPORT_REFERENCES_VERIFIED")
+        self.assertEqual(result["zero_price_steps"],0)
+        self.assertFalse(result["historical_index_auto_promote"])
+        self.assertFalse(result["save_permitted"])
+
+    def test_paid_other_process_without_pack_stays_blocked(self):
+        s,m=fixture()
+        s["products"][0]["processRows"][1]["packNo"]=""
+        result=audit_native_process_bundle(s,m)
+        self.assertEqual(result["status"],"HOLD_UNEXPECTED_MISSING_PACK")
 
     def test_process_must_belong_to_same_product(self):
         s,m=fixture()
