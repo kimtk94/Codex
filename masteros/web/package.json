@@ -5,7 +5,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test:sfdc": "node --test tests/sfdc-krw-price-local-route.test.mjs tests/sfdc-krw-native-contact-lookup.test.mjs tests/sfdc-2026-krw-price-preview.test.mjs tests/sfdc-krw-customer-price-quality.test.mjs tests/sfdc-krw-held-process-breakdown.test.mjs tests/sfdc-new-oppo-quote.test.mjs tests/sfdc-oppo-quote.test.mjs tests/sfdc-contact-first-command.test.mjs tests/sfdc-local-contact-evidence.test.mjs"
+    "test:sfdc": "node --test tests/sfdc-krw-price-local-route.test.mjs tests/sfdc-krw-native-contact-lookup.test.mjs tests/sfdc-2026-krw-price-preview.test.mjs tests/sfdc-krw-customer-price-quality.test.mjs tests/sfdc-krw-held-process-breakdown.test.mjs tests/sfdc-local-process-draft.test.mjs tests/sfdc-new-oppo-quote.test.mjs tests/sfdc-oppo-quote.test.mjs tests/sfdc-contact-first-command.test.mjs tests/sfdc-local-contact-evidence.test.mjs"
   },
   "dependencies": {
     "next": "^16.0.0",
