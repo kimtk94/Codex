@@ -45,6 +45,51 @@ def project_counts(new, old):
     }
 
 
+# Stable source-owned project fields; skip customer identities and manual
+# overrides, and do not publish the underlying X IDs or differences.
+PROJECT_STATUS_FIELDS = (5, 6, 7, 10, 11, 12)
+PROJECT_FINANCE_FIELDS = (14, 15, 16, 20, 22, 23)
+
+
+def comparable_project_value(value):
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return ""
+    try:
+        amount = Decimal(text.replace(",", ""))
+        if amount.is_finite():
+            return ("NUMERIC", amount)
+    except (InvalidOperation, ValueError):
+        pass
+    return ("TEXT", text)
+
+
+def project_value_counts(new, old):
+    """Compare status/issued/pending values only across common verified keys."""
+    if not new or not old or old[0] != HEAD or new[0] != HEAD:
+        raise SafeError("PROJECT_VALUE_PARITY_FULL_SCHEMA_REQUIRED")
+    src = {str(row[0]).strip().upper(): row for row in new[1:]}
+    dst = {str(row[0]).strip().upper(): row for row in old[1:]}
+    matched = set(src) & set(dst)
+    changes_status = 0
+    changes_finance = 0
+    for key in matched:
+        a, b = src[key], dst[key]
+        if any(comparable_project_value(a[i] if len(a) > i else "") !=
+               comparable_project_value(b[i] if len(b) > i else "")
+               for i in PROJECT_STATUS_FIELDS):
+            changes_status += 1
+        if any(comparable_project_value(a[i] if len(a) > i else "") !=
+               comparable_project_value(b[i] if len(b) > i else "")
+               for i in PROJECT_FINANCE_FIELDS):
+            changes_finance += 1
+    return {
+        "STATUS_MISMATCHED_PROJECTS": changes_status,
+        "FINANCE_MISMATCHED_PROJECTS": changes_finance,
+        "CHECKED_PROJECTS": len(matched),
+    }
+
+
 def age_hours(now, value):
     if value is None:
         raise SafeError("PROJECT_SOURCE_TIMESTAMP_MISSING")
@@ -103,7 +148,13 @@ def project_audit():
     print("PROJECT_PARITY_SOURCE_READ_PASS writes=0 no_customer_payload=1")
     if stats["SINK_ONLY"] or stats["SOURCE_ONLY"]:
         raise SafeError("PROJECT_LIFECYCLE_SOURCE_SINK_BLOCK")
-    print("PROJECT_ID_SET_PARITY_PASS lifecycle_values_not_certified=1")
+    print("PROJECT_ID_SET_PARITY_PASS")
+    content = project_value_counts(expected, sink)
+    for key, value in content.items():
+        print("PROJECT_PARITY_" + key + "=" + str(value))
+    if content["STATUS_MISMATCHED_PROJECTS"] or content["FINANCE_MISMATCHED_PROJECTS"]:
+        raise SafeError("PROJECT_LIFECYCLE_FIELD_PARITY_BLOCK")
+    print("PROJECT_SOURCE_FIELD_PARITY_PASS latest_original_source_age_checked=1")
     return stats
 
 
