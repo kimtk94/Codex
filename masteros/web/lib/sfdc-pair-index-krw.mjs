@@ -37,3 +37,22 @@ export function historicalKrwReference(evidence,sourceQid,product) {
     currency:"KRW",vatBasis:"VAT_EXCLUDED",year:2026,
     pricesApprovedForNewQuote:false,sourceRecheckRequired:true};
 }
+
+/** Prefill the exact selected historical Quote as a comparison, never approved.
+ * A live verified source overrides this later; manual operator edits never do.
+ */
+export function prefillHistoricalKrw(draft,evidence) {
+  if(!draft||!Array.isArray(draft.products)||!evidence)return draft;
+  let any=false;
+  const products=draft.products.map(product=>{
+    if(product.sampleUnitKrw!==""&&product.sampleUnitKrw!==undefined)return product;
+    const proposal=historicalKrwReference(evidence,draft.qid,product);
+    if(!proposal.ok)return product;
+    any=true;
+    return {...product,sampleUnitKrw:String(proposal.candidateSampleUnitKrw),
+      cloudUnitKrw:proposal.candidateCloudUnitKrw===null?"":String(proposal.candidateCloudUnitKrw),
+      priceEvidenceStatus:"INDEX_2026_KRW_COMPARISON_ONLY",
+      priceSourceQid:proposal.sourceQid};
+  });
+  return any?{...draft,products,sourceKrwRateStatus:"HISTORICAL_COMPARISON_RECHECK_REQUIRED"}:draft;
+}
