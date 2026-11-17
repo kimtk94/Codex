@@ -194,7 +194,7 @@ export function reviewLocalProcessDraft(products,intake,customerSelection=null){
  const net=processNet+cloudNet;
  const vat5=net; // net_scaled_4 / 10 -> VAT scaled_5
  const gross5=net*11n;
- const fractional=net%10000n!==0||vat5%100000n!==0||gross5%100000n!==0;
+ const fractional=net%10000n!==0n||vat5%100000n!==0n||gross5%100000n!==0n;
  const status=invalidLine?"HOLD_INVALID_PROCESS_QTY_OR_RATE":
    sourceMismatch?"HOLD_PRODUCTION_UNIT_DEPTH_RECHECK":
    quantityMismatch?"HOLD_PROCESS_QTY_DIFFERS_FROM_NEW_SAMPLES":
