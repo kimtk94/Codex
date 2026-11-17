@@ -10,6 +10,8 @@ import datetime as dt
 import os
 import sys
 import inspect
+import collections
+import re
 from decimal import Decimal, InvalidOperation
 
 from qq_mail_ingest import SafeError, auth, list_all
@@ -116,6 +118,126 @@ def project_field_differences(new, old):
     return counts
 
 
+# Count semantic date changes separately from text-format changes. The expected
+# completion field represents a calendar day, not a billing or payment date.
+# Unparseable date formats remain unverified; do not call them equivalent.
+DATE_REVIEW_CATEGORIES = ("RAW_EQUAL", "FORMAT_ONLY", "DIFFERENT_CALENDAR_DAY",
+                          "SOURCE_BLANK", "SINK_BLANK", "UNPARSEABLE")
+
+
+def parse_expected_day(value):
+    raw = str(value if value is not None else "").strip()
+    if not raw:
+        return None
+    if re.fullmatch(r"\d{5}(?:\.0+)?", raw):
+        serial = int(Decimal(raw))
+        if 40000 <= serial <= 60000:
+            return dt.date(1899, 12, 30) + dt.timedelta(days=serial)
+        return None
+    if re.fullmatch(r"20\d{2}[01]\d[0-3]\d", raw):
+        try:
+            return dt.date(int(raw[:4]), int(raw[4:6]), int(raw[6:8]))
+        except ValueError:
+            return None
+    if re.fullmatch(r"20\d{2}[-/.][01]\d[-/.][0-3]\d", raw):
+        try:
+            return dt.date.fromisoformat(raw.replace("/", "-").replace(".", "-"))
+        except ValueError:
+            return None
+    # Timestamp with explicit offset: normalize to project's local KST day.
+    if re.fullmatch(r"20\d{2}-\d\d-\d\d[T ]\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)", raw):
+        try:
+            val = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return val.astimezone(dt.timezone(dt.timedelta(hours=9))).date()
+        except ValueError:
+            return None
+    # Naive timestamp is assumed a local calendar date; no UTC conversion.
+    if re.fullmatch(r"20\d{2}[-/.]\d\d[-/.]\d\d[T ]\d\d:\d\d(?::\d\d)?", raw):
+        try:
+            return dt.date.fromisoformat(raw[:10].replace("/", "-").replace(".", "-"))
+        except ValueError:
+            return None
+    return None
+
+
+def date_review_status(source, sink):
+    a = str(source if source is not None else "").strip()
+    b = str(sink if sink is not None else "").strip()
+    if a == b:
+        return "RAW_EQUAL"
+    if not a:
+        return "SOURCE_BLANK"
+    if not b:
+        return "SINK_BLANK"
+    ad, bd = parse_expected_day(a), parse_expected_day(b)
+    if ad is None or bd is None:
+        return "UNPARSEABLE"
+    return "FORMAT_ONLY" if ad == bd else "DIFFERENT_CALENDAR_DAY"
+
+
+BILLING_CATEGORIES = ("ISSUED_PENDING", "ISSUED_UNVERIFIED", "STATEMENT_PENDING",
+                      "COMPLETED_UNVERIFIED", "BLOCKED", "FORECAST",
+                      "UNKNOWN", "BLANK")
+
+
+def billing_category(value):
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return "BLANK"
+    if raw.startswith("ISSUED + STATEMENT PENDING"):
+        return "ISSUED_PENDING"
+    if raw.startswith("ISSUED (BALANCE UNVERIFIED)"):
+        return "ISSUED_UNVERIFIED"
+    if raw.startswith("STATEMENT READY - INVOICE PENDING"):
+        return "STATEMENT_PENDING"
+    if raw.startswith("COMPLETED - STATEMENT NOT VERIFIED"):
+        return "COMPLETED_UNVERIFIED"
+    if raw.startswith("BLOCKED / EXCLUDED FROM FORECAST"):
+        return "BLOCKED"
+    if raw.startswith("PROJECT FORECAST"):
+        return "FORECAST"
+    return "UNKNOWN"
+
+
+def project_semantic_triage(source_rows, sink_rows):
+    """Aggregate only, no project IDs, customer fields, dates or amounts logged."""
+    if not source_rows or not sink_rows or source_rows[0] != HEAD or sink_rows[0] != HEAD:
+        raise SafeError("PROJECT_TRIAGE_FULL_SCHEMA_REQUIRED")
+    source = {str(r[0]).strip().upper(): r for r in source_rows[1:]}
+    sink = {str(r[0]).strip().upper(): r for r in sink_rows[1:]}
+    days = {name: 0 for name in DATE_REVIEW_CATEGORIES}
+    billing = collections.Counter()
+    financial = collections.Counter()
+    for key in source.keys() & sink.keys():
+        a, b = source[key], sink[key]
+        days[date_review_status(a[11] if len(a)>11 else "",
+                                b[11] if len(b)>11 else "")] += 1
+        src_bill = a[16] if len(a)>16 else ""
+        sink_bill = b[16] if len(b)>16 else ""
+        if comparable_project_value(src_bill) != comparable_project_value(sink_bill):
+            before, after = billing_category(sink_bill), billing_category(src_bill)
+            billing[before + "_TO_" + after] += 1
+        # Amount comparison is aggregate direction only, never raw money.
+        for index, label in ((14, "INVOICE_COUNT"), (15, "ISSUED_AMOUNT"),
+                             (22, "VERIFIED_PENDING")):
+            src = comparable_project_value(a[index] if len(a)>index else "")
+            dst = comparable_project_value(b[index] if len(b)>index else "")
+            if src == dst:
+                continue
+            if (isinstance(src, tuple) and isinstance(dst, tuple) and
+                    src[0] == "NUMERIC" and dst[0] == "NUMERIC"):
+                direction = "UP" if src[1] > dst[1] else "DOWN"
+            elif src == "" and dst != "":
+                direction = "SOURCE_EMPTY"
+            elif src != "" and dst == "":
+                direction = "SINK_EMPTY"
+            else:
+                direction = "OTHER"
+            financial[label + "_" + direction] += 1
+    return days, billing, financial
+
+
+
 def age_hours(now, value):
     if value is None:
         raise SafeError("PROJECT_SOURCE_TIMESTAMP_MISSING")
@@ -181,6 +303,14 @@ def project_audit():
     by_field = project_field_differences(expected, sink)
     for name, count in sorted(by_field.items()):
         print("PROJECT_PARITY_FIELD_" + name + "_DIFF=" + str(count))
+    date_states, billing_states, finance_states = project_semantic_triage(expected, sink)
+    for label, count in date_states.items():
+        print("PROJECT_TRIAGE_EXPECTED_DAY_" + label + "=" + str(count))
+    for label, count in sorted(billing_states.items()):
+        print("PROJECT_TRIAGE_BILLING_" + label + "=" + str(count))
+    for label, count in sorted(finance_states.items()):
+        print("PROJECT_TRIAGE_FINANCE_" + label + "=" + str(count))
+    print("PROJECT_TRIAGE_AGGREGATES_ONLY raw_customer_values=0 writes=0")
     if content["STATUS_MISMATCHED_PROJECTS"] or content["FINANCE_MISMATCHED_PROJECTS"]:
         raise SafeError("PROJECT_LIFECYCLE_FIELD_PARITY_BLOCK")
     print("PROJECT_SOURCE_FIELD_PARITY_PASS latest_original_source_age_checked=1")
