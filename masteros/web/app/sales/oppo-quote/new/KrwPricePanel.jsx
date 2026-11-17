@@ -21,7 +21,7 @@ const originalMoney=value=>{
  const [int,dec]=raw.split(".");
  return int.replace(/\B(?=(\d{3})+(?!\d))/g,",")+(dec?"."+dec:"");
 };
-export default function KrwPricePanel({intake,customerSelection=null,onDraftChange=null}){
+export default function KrwPricePanel({intake,customerSelection=null,onDraftChange=null,resetVersion=0}){
  const [source,setSource]=useState(null);
  const [localLoading,setLocalLoading]=useState(false);
  const [historyPage,setHistoryPage]=useState(0);
@@ -72,6 +72,7 @@ export default function KrwPricePanel({intake,customerSelection=null,onDraftChan
  const portfolio=useMemo(()=>summarizeKrwProductPrices(source),[source]);
  const originalProcessGroups=useMemo(()=>listKrwOriginalProcessGroups(source),[source]);
  useEffect(()=>{if(onDraftChange)onDraftChange(draftProducts)},[draftProducts,onDraftChange]);
+ useEffect(()=>{if(resetVersion>0)setDraftProducts([])},[resetVersion]);
  useEffect(()=>{
    setDraftProducts(prev=>prev.every(p=>p.quantity_depth_reviewed===false)?prev:
      prev.map(p=>({...p,quantity_depth_reviewed:false})));
