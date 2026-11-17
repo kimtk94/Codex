@@ -309,7 +309,7 @@ def project_control_vs_feishu_alignment(source_rows, sink_rows, controls, feishu
         if project not in feishu:
             report["FEISHU_SUBPROJECT_NOT_FOUND"] += 1
             continue
-        source_forecast = feishu[project][11] if len(feishu[project]) > 11 else ""
+        source_forecast = feishu[project][10] if len(feishu[project]) > 10 else ""
         if not str(source_forecast if source_forecast is not None else "").strip():
             report["FEISHU_FORECAST_BLANK"] += 1
             continue
@@ -366,6 +366,12 @@ def project_audit():
         if not rows or not rows[0] or rows[0][0] != first:
             raise SafeError("PROJECT_SOURCE_HEADER_INVALID")
         source.append(rows)
+    tat_header = source[1][0]
+    if (len(tat_header) <= 11 or
+            tat_header[10] != "Forecast Completion Date" or
+            tat_header[11] != "Forecast Completion Month"):
+        raise SafeError("PROJECT_TAT_DATE_MONTH_COLUMN_MAPPING_UNVERIFIED")
+    print("PROJECT_TAT_DATE_MONTH_COLUMN_MAPPING_PASS date_col=10 month_col=11")
     now = dt.datetime.now(dt.timezone.utc)
     snapshot_age = age_hours(now, latest_source_timestamp(source[1][1:]))
     mail_age = age_hours(now, latest_source_timestamp(source[4][1:]))
