@@ -50,6 +50,7 @@ async def main():
           "Currency","Service Line","Stage","Forecast Category",
           "Native Product/Process/Pack","Duplicate Check"]}
  try:
+  output["stage"]="READ_STDIN"
   obj=json.loads(sys.stdin.read(9000))
   if not isinstance(obj,dict) or set(obj)!={"name","closeDate","description"}:
    raise ValueError("INVALID_FIELDS")
@@ -60,22 +61,29 @@ async def main():
    raise ValueError("INVALID_CLOSE_DATE")
   if not isinstance(description,str) or not 5<=len(description)<=3000:
    raise ValueError("INVALID_DESCRIPTION")
+  output["stage"]="CDP_CONNECT"
   async with async_playwright() as pw:
    br=await pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=16000)
    if not br.contexts:raise RuntimeError("CHROME_NOT_AUTHENTICATED")
+   output["stage"]="NEW_TAB"
    page=await br.contexts[0].new_page()
    try:
+    output["stage"]="OPPORTUNITY_LIST_NAVIGATION"
     await page.goto(HOST+"/lightning/o/Opportunity/list",
       wait_until="domcontentloaded",timeout=35000)
+    output["stage"]="FIND_NEW_OPPO_BUTTON"
     new=page.get_by_role("button",name="New",exact=True)
     await new.wait_for(state="visible",timeout=25000)
     if await new.count()!=1:raise RuntimeError("NEW_OPPORTUNITY_NOT_UNIQUE")
+    output["stage"]="OPEN_NEW_OPPORTUNITY_MODAL"
     await new.click(timeout=15000)
+    output["stage"]="WAIT_NEW_OPPORTUNITY_MODAL"
     await page.get_by_role("dialog").wait_for(state="visible",timeout=30000)
     await page.wait_for_timeout(1600)
     complete=True
     for label,value in (("Opportunity Name",name),("Close Date",dt),
                         ("Progress Description",description)):
+      output["stage"]="FIND_FIELD_"+label.replace(" ","_")
       located=await page.evaluate(LABEL_JS,label)
       if not located["marked"]:
        output["fields"][label]="HOLD_FIELD_NOT_UNIQUE";complete=False;continue
@@ -89,6 +97,7 @@ async def main():
        output["fields"][label]="FILLED_UNSAVED"
       except Exception as e:
        complete=False;output["fields"][label]="HOLD_"+type(e).__name__
+    output["stage"]="DRAFT_FILLED_NOT_SAVED"
     output["page_open"]=True
     output["status"]="UNSAVED_OPPORTUNITY_FORM_READY" if complete else "HOLD_FORM_PARTIAL"
     # Intentionally DO NOT close the page. The user must inspect manually.
