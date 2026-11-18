@@ -39,6 +39,8 @@ test("valid local queue becomes read-only review with immutable original referen
  assert.equal(r.requestId,e.requestId);
  assert.equal(r.account.sourceIdPresent,true);
  assert.equal(r.contact.sourceIdPresent,true);
+ assert.equal(r.account.id,"001000000000001");
+ assert.equal(r.contact.id,"003000000000001");
  assert.equal(r.name,"Korea-Synthetic-mRNA-48samples");
  assert.equal(r.productCount,1);
  assert.equal(r.products[0].original_process_ids.length,2);
