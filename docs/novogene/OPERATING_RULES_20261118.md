@@ -35,7 +35,7 @@
 5. 서비스·샘플 수·샘플 유형·생산량/단위(Gb, M reads, Lane, K tags, Cell/sample), 샘플당/전체 구분과 필수 전처리·분석 옵션을 확인한다. **수량과 생산량은 별도**로 관리.
 6. 기존 Progress Description 복제 **금지**. 신규 고객·서비스·샘플과 **확인된 현재 단계**를 짧게 기술. 아직 발생하지 않은 Quote Issued, PO 수령, 샘플 입고, 완료 사실을 지어내지 않는다.
 7. Opportunity → Related → New Quotation 우선; Quote 이름·Currency=KRW·Country=Korea·GST/VAT=10%와 실제 Product/Process를 확인한다. Opportunity에는 필수 Contact가 연결되어야 한다.
-8. 동일 샘플 집합은 적합한 공정끼리 **Pack**, 클라우드 항목은 관련 서비스와 별도 취급. Coop TS 기본 담당 Yoo JiIn 지정 규칙은 해당 업무 범위 내에서만 사용하고 실제 SFDC 사용자 검색 결과 확인.
+8. 동일 샘플 집합은 적합한 공정끼리 **Pack**, 클라우드 항목은 관련 서비스와 별도 취급. Coop TS는 해당 서비스에서 지정된 내부 담당자를 선택하되 실제 SFDC 사용자 검색 결과 확인.
 9. **Alicloud 수량 = ceil(총 Gb/100)**. 150 Gb라면 2개. Gb가 미확정이면 수량 확정 금지.
 10. **Amplicon Region**별 서비스 2회 등 서비스 특수 규칙을 적용하되 원본 고객 요청/견적 공정으로 검증한다.
 11. SFDC 저장 전: Account/Contact 조회 Pill과 Record ID, Opportunity/Quote 연결, 제품/공정 단가, 수량/단위/Pack/VAT, 중복, 최종 Diff 검증. 실제 Save 후 신규 객체 ID·필드·Quote 총액·Related 연결 재조회. 한쪽만 저장된 경우 PARTIAL/HOLD.
@@ -51,7 +51,7 @@
 ## 4. Mail 수집·Lead follow-up
 
 - 원본은 QQ INBOX/SENT 및 권한 확인된 CRM 원문. **mailbox + folder + UIDVALIDITY + UID** 또는 안정적인 ingest key로 중복 방지. 수신일, 발신자, 본문, 첨부, Message-ID, 회신 관계와 실제 수집시각을 구별해 보존.
-- 사용자의 본인 QQ 메일과 **jiin.yoo@novogene.com** 메일은 소유권이 다르다. Jiin 계정에서는 **발신자 crm@novogene.com 정확 일치** 대상만 별도 수집하며, 이 메일을 본인 Contract 생성의 증거로 쓰지 않는다.
+- 사용자의 본인 QQ 메일과 **다른 담당자의 CRM 필터링 메일함**은 소유권이 다르다. 해당 별도 계정에서는 **지정된 CRM 공식 발신자 정확 일치** 대상만 별도 수집하며, 그 메일을 본인 Contract 생성의 증거로 쓰지 않는다.
 - Follow-up은 Unfollowed Lead와 Unanswered Email 원본을 분리한 후 고객 단위로 합친다. 전송 확인/회신/대리회신/수동 제외/이미 해결된 건을 고려한다. **미확인=미회신 확정 아님**.
 - Tax Invoice 원본 메일은 **원 발행 공지**(예: Invoice Issued & Statement Confirmed)를 우선하고, 회신/전달/제목만 비슷한 메일은 발행 증거로 보지 않는다. 한 메일에 여러 Invoice ID가 있을 수 있으므로 **invoice_number 단위**로 별도 색인.
 - 신규 메일이 없는 정상 상태와 수집 실패는 다르다: QQ 원본 UID↔Sink 대조로 NO_NEW_DATA와 SINK_LAG 판정. 원문/본문/첨부 수집 완전성과 헤더 수집 성공도 다른 단계.
