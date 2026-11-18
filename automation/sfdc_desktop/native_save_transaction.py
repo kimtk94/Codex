@@ -194,7 +194,7 @@ def create_session(files,review,stage,snapshot, now=None):
     _atomic_write(files["session"],data)
     return key
 
-def consume_session(files,review,stage,token,digest,*,now=None):
+def consume_session(files,review,stage,token,digest,*,snapshot=None,now=None):
     now=time.time() if now is None else now
     if not isinstance(token,str) or not TOKEN.fullmatch(token):
         return "INVALID_SAVE_SESSION_TOKEN"
@@ -211,6 +211,8 @@ def consume_session(files,review,stage,token,digest,*,now=None):
         return "SAVE_SESSION_EXPIRED"
     if obj.get("token_hash")!=sha256(token.encode()).hexdigest():
         return "SAVE_SESSION_TOKEN_MISMATCH"
+    if not isinstance(snapshot,str) or obj.get("snapshot")!=snapshot:
+        return "NATIVE_FORM_CHANGED_SINCE_PRECHECK"
     _atomic_write(files["session"],{**obj,"used":True})
     return None
 
