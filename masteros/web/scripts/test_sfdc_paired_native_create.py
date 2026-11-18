@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from sfdc_native_process_writer import validated_price_plan,verify_native_matrix
-from sfdc_paired_native_create import request_from_queue,build_live_plan
+from sfdc_paired_native_create import request_from_queue,build_live_plan,plan_digest
 
 def row(typ,name,qty,price,cloud=False,pack="Package1"):
  return {"processType":typ,"processName":name,"quantity":qty,
@@ -75,6 +75,24 @@ class PureNativeSaveTests(unittest.TestCase):
   wrong[1]["quantity"]=3
   with self.assertRaisesRegex(ValueError,"QTY"):
    validated_price_plan(wrong,4,5,675000)
+ def test_exact_plan_digest_detects_price_redistribution_same_total(self):
+  # Previous consent signed only Quote net. Two process rates can change
+  # while their combined net remains identical; do not allow that drift.
+  import copy
+  p=validated_price_plan([
+   row("Library preparation","Lib",4,150000),
+   row("Sequencing by data amount","Seq",4,10000),
+   row("Data release","AliCloud",1,35000,True)],4,5,675000)
+  one=plan_digest({"pricePlan":p})
+  q=copy.deepcopy(p)
+  q["lines"][0]["unitPriceKrw"]=140000
+  q["lines"][1]["unitPriceKrw"]=20000
+  self.assertEqual(sum(x["quantity"]*x["unitPriceKrw"] for x in p["lines"]),
+                   sum(x["quantity"]*x["unitPriceKrw"] for x in q["lines"]))
+  self.assertNotEqual(one,plan_digest({"pricePlan":q}))
+  q=copy.deepcopy(p)
+  q["lines"][0]["packNo"]="PackageB"
+  self.assertNotEqual(one,plan_digest({"pricePlan":q}))
  def test_validate_queue_source_mode_and_price(self):
   raw=canonical()
   parsed=request_from_queue(raw)
