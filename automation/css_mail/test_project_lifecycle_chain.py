@@ -76,6 +76,38 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse(lifecycle_content_equal(expected,same))
         self.assertFalse(lifecycle_content_equal(expected,same[:1]))
 
+    def test_progress_only_numeric_sheet_roundtrip_does_not_false_fail(self):
+        from project_lifecycle_refresh import HEAD
+        expected=[list(HEAD),["X0001"]+[""]*23]
+        expected[1][7]=97.0
+        observed=[list(HEAD),list(expected[1])]
+        observed[1][7]=97
+        self.assertTrue(lifecycle_content_equal(expected,observed))
+        observed[1][7]="97.000"
+        self.assertTrue(lifecycle_content_equal(expected,observed))
+        observed[1][7]="96.0"
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+        observed[1][7]=""
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+        observed[1][7]="NaN"
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+
+    def test_other_23_fields_retain_exact_value_check(self):
+        from project_lifecycle_refresh import HEAD
+        expected=[list(HEAD),["X0001"]+[""]*23]
+        expected[1][7]=97.0
+        expected[1][15]=1000000
+        expected[1][11]="2026-11-18"
+        observed=[list(HEAD),list(expected[1])]
+        observed[1][7]=97
+        observed[1][15]=1000001
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+        observed[1][15]=1000000
+        observed[1][11]="2026-11-19"
+        self.assertFalse(lifecycle_content_equal(expected,observed))
+        observed[1][11]="2026-11-18"
+        self.assertTrue(lifecycle_content_equal(expected,observed))
+
     def test_lifecycle_readback_uses_unformatted_values_and_does_not_log_customers(self):
         from unittest.mock import patch
         def fake_req(session,method,url):
