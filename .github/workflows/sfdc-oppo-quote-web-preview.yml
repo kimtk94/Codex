@@ -93,6 +93,7 @@ jobs:
           node --test tests/sfdc-pair-auto-krw-request.test.mjs
           node --test tests/sfdc-pair-native-create-local.test.mjs
           node --test tests/sfdc-pair-inline-create.test.mjs
+          node --test tests/sfdc-pair-cloud-policy.test.mjs
           node --test tests/sfdc-quote-fees.test.mjs
           python3 -m unittest discover -s scripts -p test_sfdc_parallel_ui_check.py -v
           python3 -m py_compile scripts/sfdc_parallel_ui_check.py
