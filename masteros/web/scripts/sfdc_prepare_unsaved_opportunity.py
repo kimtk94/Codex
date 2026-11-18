@@ -1,125 +1,133 @@
-"""User-initiated, explicit three-field draft fill in Salesforce New Opportunity.
+"""Contact-first, read-only Salesforce Opportunity intake opener.
 
-Only an authenticated operator laptop may run this script via loopback API.
-It creates one visible UNSAVED Opportunity modal in a separate Chrome tab and
-fills Opportunity Name / Close Date / Progress Description, no Account/Contact
-selection, Amount, or Stage. Never clicks Save. Salesforce record writes: ZERO.
+SFDC-001: start from an EXISTING Contact (003) and verify Account (001).
+Do not create a modal via the global Opportunity list, and never Save.
+Until Contact->Opportunity New native action is independently validated,
+this code opens only the verified Contact record and returns HOLD.
 """
-import json,sys,asyncio
-from playwright.async_api import async_playwright
-HOST="https://novogene.lightning.force.com"
-LABEL_JS=r"""(label) => {
-  const normalize=s=>(s||"").replace(/\s+/g," ").replace(/^\s*\*\s*/,"").trim().toLowerCase();
-  const tag=label==="Progress Description"?"lightning-textarea":"lightning-input";
-  const roots=[],seen=new Set();
-  function visit(r){
-    if(!r||seen.has(r))return;seen.add(r);roots.push(r);
-    for(const el of r.querySelectorAll("*"))if(el.shadowRoot)visit(el.shadowRoot);
-  }
-  visit(document);
-  const controls=new Set(),labels=[];
-  function inner(host){
-    const visited=new Set();
-    function run(root){
-      if(!root||visited.has(root))return;visited.add(root);
-      for(const el of root.querySelectorAll("input,textarea")){
-        if(el.disabled||el.readOnly||el.type==="hidden")continue;
-        if(label==="Progress Description"?el.tagName==="TEXTAREA":el.tagName==="INPUT")
-          controls.add(el);
-      }
-      for(const el of root.querySelectorAll("*"))if(el.shadowRoot)run(el.shadowRoot);
-    }
-    run(host.shadowRoot||host);
-  }
-  for(const root of roots)for(const lab of root.querySelectorAll("label,legend,.slds-form-element__label")){
-    if(normalize(lab.textContent)!==normalize(label))continue;
-    labels.push(lab);
-    let r=lab.getRootNode();
-    for(let i=0;i<12&&r&&r.host;i++){
-      if(r.host.tagName?.toLowerCase()===tag){inner(r.host);break}
-      r=r.host.getRootNode();
-    }
-    // Salesforce Lightning Locker forbids ShadowRoot.getElementById.
-    // Deliberately rely only on label-host ancestry and host label match.
-  }
-  for(const root of roots)for(const host of root.querySelectorAll(tag)){
-    if(normalize(host.getAttribute("label"))===normalize(label))inner(host);
-  }
-  const unique=[...controls].filter(el=>el.getClientRects().length>0);
-  if(unique.length===1)
-    unique[0].setAttribute("data-local-unsaved-field",label.replace(/\s/g,"_"));
-  return {matched:unique.length,marked:unique.length===1,label_count:labels.length};
-}"""
+from __future__ import annotations
+import asyncio
+import json
+import re
+import sys
+from urllib.parse import urlparse
+
+HOST = "https://novogene.lightning.force.com"
+SFID = re.compile(r"^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$")
+
+
+def intake_contract(payload):
+    if not isinstance(payload, dict) or set(payload) != {
+        "name", "closeDate", "description", "contactId", "accountId"
+    }:
+        return "CONTACT_ORIGIN_REQUEST_INVALID"
+    if not (isinstance(payload["contactId"], str) and
+            payload["contactId"].startswith("003") and
+            SFID.fullmatch(payload["contactId"])):
+        return "EXISTING_CONTACT_NATIVE_ID_REQUIRED"
+    if not (isinstance(payload["accountId"], str) and
+            payload["accountId"].startswith("001") and
+            SFID.fullmatch(payload["accountId"])):
+        return "EXISTING_ACCOUNT_NATIVE_ID_REQUIRED"
+    if not isinstance(payload["name"], str) or not 5 <= len(payload["name"]) <= 180:
+        return "OPPORTUNITY_NAME_REQUIRED"
+    if not isinstance(payload["description"], str) or (
+        "Quote Issued" not in payload["description"] or
+        "Quote Draft" in payload["description"] or
+        not 12 <= len(payload["description"]) <= 3000
+    ):
+        return "QUOTE_ISSUED_DESCRIPTION_REQUIRED"
+    if not isinstance(payload["closeDate"], str) or not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}", payload["closeDate"]
+    ):
+        return "CLOSE_DATE_INVALID"
+    return None
+
+
+def contact_origin_url(page_url, contact_id):
+    try:
+        parsed = urlparse(page_url)
+        return (parsed.scheme == "https" and parsed.netloc == "novogene.lightning.force.com"
+            and parsed.path.startswith("/lightning/r/Contact/" + contact_id + "/"))
+    except (ValueError, TypeError):
+        return False
+
 
 async def main():
- output={"status":"HOLD_UNSAVED_DRAFT_PREPARE","salesforce_write":False,
-         "save_clicked":False,"crm_writes":0,"page_open":False,
-         "fields":{},"missing_for_save":["Account","Main Contact","Amount",
-          "Currency","Service Line","Stage","Forecast Category",
-          "Native Product/Process/Pack","Duplicate Check"]}
- try:
-  output["stage"]="READ_STDIN"
-  obj=json.loads(sys.stdin.read(9000))
-  if not isinstance(obj,dict) or set(obj)!={"name","closeDate","description"}:
-   raise ValueError("INVALID_FIELDS")
-  name,dt,description=obj["name"],obj["closeDate"],obj["description"]
-  if not isinstance(name,str) or not 5<=len(name)<=180 or "\n" in name:
-   raise ValueError("INVALID_NAME")
-  if not isinstance(dt,str) or len(dt)!=10 or dt[4]!="-":
-   raise ValueError("INVALID_CLOSE_DATE")
-  if not isinstance(description,str) or not 5<=len(description)<=3000:
-   raise ValueError("INVALID_DESCRIPTION")
-  output["stage"]="CDP_CONNECT"
-  async with async_playwright() as pw:
-   br=await pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=16000)
-   if not br.contexts:raise RuntimeError("CHROME_NOT_AUTHENTICATED")
-   output["stage"]="NEW_TAB"
-   page=await br.contexts[0].new_page()
-   try:
-    output["stage"]="OPPORTUNITY_LIST_NAVIGATION"
-    await page.goto(HOST+"/lightning/o/Opportunity/list",
-      wait_until="domcontentloaded",timeout=35000)
-    output["stage"]="FIND_NEW_OPPO_BUTTON"
-    new=page.get_by_role("button",name="New",exact=True)
-    await new.wait_for(state="visible",timeout=25000)
-    if await new.count()!=1:raise RuntimeError("NEW_OPPORTUNITY_NOT_UNIQUE")
-    output["stage"]="OPEN_NEW_OPPORTUNITY_MODAL"
-    await new.click(timeout=15000)
-    output["stage"]="WAIT_NEW_OPPORTUNITY_MODAL"
-    await page.get_by_role("dialog").wait_for(state="visible",timeout=30000)
-    await page.wait_for_timeout(1600)
-    complete=True
-    for label,value in (("Opportunity Name",name),("Close Date",dt),
-                        ("Progress Description",description)):
-      output["stage"]="FIND_FIELD_"+label.replace(" ","_")
-      try:
-       located=await page.evaluate(LABEL_JS,label)
-      except Exception:
-       output["fields"][label]="HOLD_FIELD_DOM_TRANSIENT";complete=False;continue
-      if not located["marked"]:
-       output["fields"][label]="HOLD_FIELD_NOT_UNIQUE_"+str(located["matched"])
-       complete=False;continue
-      selector='[data-local-unsaved-field="'+label.replace(" ","_")+'"]'
-      control=page.locator(selector)
-      try:
-       if await control.count()!=1:raise RuntimeError("MARKER_NOT_UNIQUE")
-       await control.fill(value,timeout=7000)
-       actual=await control.input_value()
-       if actual!=value:raise RuntimeError("VALUE_READBACK_MISMATCH")
-       output["fields"][label]="FILLED_UNSAVED"
-      except Exception as e:
-       complete=False;output["fields"][label]="HOLD_"+type(e).__name__
-    output["stage"]="DRAFT_FILLED_NOT_SAVED"
-    output["page_open"]=True
-    output["status"]="UNSAVED_OPPORTUNITY_FORM_READY" if complete else "HOLD_FORM_PARTIAL"
-    # Intentionally DO NOT close the page. The user must inspect manually.
-   except Exception:
-    await page.close()
-    raise
-   finally:
-    await br.close() # CDP disconnect, not a Salesforce Save.
- except Exception as e:
-  output["status"]="HOLD_UNSAVED_"+type(e).__name__
- print(json.dumps(output,ensure_ascii=False))
-if __name__=="__main__":
- asyncio.run(main())
+    out = {
+        "status": "HOLD_FORM_PARTIAL",
+        "stage": "CONTACT_FIRST_ENTRY_REQUIRED",
+        "reason": "CONTACT_ORIGIN_NOT_VERIFIED",
+        "salesforce_write": False,
+        "save_clicked": False,
+        "crm_writes": 0,
+        "page_open": False,
+        "new_tabs_opened": 0,
+        "fields": {"Opportunity": "NOT_CREATED"},
+        "missing_for_save": [
+            "Contact-origin Opportunity New UI",
+            "Account", "Main Contact", "Amount", "Stage",
+            "Native Product/Process/Pack", "Verified Quotation Related origin"
+        ],
+    }
+    try:
+        payload = json.loads(sys.stdin.read(1600))
+        issue = intake_contract(payload)
+        if issue:
+            out["reason"] = issue
+            print(json.dumps(out, ensure_ascii=False))
+            return
+        from playwright.async_api import async_playwright
+        async with async_playwright() as pw:
+            browser = await pw.chromium.connect_over_cdp(
+                "http://127.0.0.1:9222", timeout=18000
+            )
+            try:
+                if not browser.contexts:
+                    raise RuntimeError("CHROME_AUTH_CONTEXT_MISSING")
+                context = browser.contexts[0]
+                matching = [
+                    p for p in context.pages
+                    if not p.is_closed() and
+                    contact_origin_url(p.url, payload["contactId"])
+                ]
+                if len(matching) > 1:
+                    out["reason"] = "MULTIPLE_CONTACT_TABS_AMBIGUOUS"
+                else:
+                    page = matching[0] if matching else await context.new_page()
+                    if not matching:
+                        out["new_tabs_opened"] = 1
+                    url = HOST + "/lightning/r/Contact/" + payload["contactId"] + "/view"
+                    if not contact_origin_url(page.url, payload["contactId"]):
+                        await page.goto(url, wait_until="domcontentloaded", timeout=35000)
+                    snapshot = await page.evaluate("""async (contactId) => {
+                        const uri='/services/data/v62.0/ui-api/records/'+
+                          encodeURIComponent(contactId)+
+                          '?fields=Contact.AccountId,Contact.Name';
+                        const res=await fetch(uri,{method:'GET',credentials:'same-origin'});
+                        if(!res.ok)return {verified:false,http:res.status};
+                        const item=await res.json();
+                        return {verified:item.id===contactId,
+                          account_id:item.fields?.AccountId?.value||null};
+                    }""",payload["contactId"])
+                    if (snapshot.get("verified") is True and
+                            snapshot.get("account_id") == payload["accountId"]):
+                        out["page_open"] = True
+                        out["stage"] = "EXISTING_CONTACT_OPENED_READ_ONLY"
+                        out["reason"] = "CONTACT_FIRST_NEW_OPPORTUNITY_ACTION_NOT_YET_VERIFIED"
+                        out["fields"] = {
+                            "Contact": "VERIFIED_NATIVE_003",
+                            "Account": "VERIFIED_NATIVE_001",
+                            "Opportunity": "NOT_CREATED",
+                        }
+                    else:
+                        out["reason"] = "CONTACT_ACCOUNT_NATIVE_RELATION_UNVERIFIED"
+            finally:
+                await browser.close()
+    except Exception as e:
+        out["reason"] = "CONTACT_FIRST_SESSION_" + type(e).__name__.upper()
+    print(json.dumps(out, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
