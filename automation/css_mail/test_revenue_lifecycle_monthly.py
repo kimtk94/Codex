@@ -1,7 +1,7 @@
 """Offline reconciliation: Actual + verified open Statements + unmatched Forecast."""
 import datetime as dt
 import unittest
-from revenue_lifecycle_monthly import compute,reconcile_pending,assert_written_totals,HEAD
+from revenue_lifecycle_monthly import compute,reconcile_pending,assert_written_totals,merge_recomputed_with_forecast_retirements,HEAD
 
 def invoice(number,amount):
     return [number,str(amount),"AMEA2026092127","H209SC260910566","SQ",
@@ -19,6 +19,59 @@ def project(x,billing,estimate=0,open_j="",pending="",verified="NO_OPEN_STATEMEN
     return r
 
 class RevenueLifecycleTests(unittest.TestCase):
+    def test_forecast_only_old_month_is_zeroed_and_explicitly_retired(self):
+        previous=[list(HEAD),
+                  ["2026-10",1000000,0,0,1000000,1,0,0,0,0,
+                   "INVOICES_VERIFIED_FORECAST_ESTIMATED","OLD"],
+                  ["2027-02",0,0,800000,800000,0,0,0,1,0,
+                   "INVOICES_VERIFIED_FORECAST_ESTIMATED","OLD"]]
+        current=[list(HEAD),
+                 ["2026-10",1000000,0,0,1000000,1,0,0,0,0,
+                  "INVOICES_VERIFIED_FORECAST_ESTIMATED","NEW"]]
+        updated=merge_recomputed_with_forecast_retirements(
+            previous,current,"2026-11-18 11:20:00 KST")
+        self.assertEqual(len(updated),len(previous))
+        old_only=next(r for r in updated[1:] if r[0]=="2027-02")
+        self.assertEqual(old_only[1:10],[0]*9)
+        self.assertEqual(old_only[10],"FORECAST_RETIRED_NO_CURRENT_SOURCE")
+        self.assertEqual(old_only[11],"2026-11-18 11:20:00 KST")
+        self.assertEqual(updated[1],current[1])
+        # Repeated execution cannot reintroduce an old forecast.
+        second=merge_recomputed_with_forecast_retirements(
+            updated,current,"2026-11-18 11:25:00 KST")
+        self.assertEqual(second[-1][1:10],[0]*9)
+
+    def test_protected_invoice_pending_or_open_statement_never_disappears(self):
+        current=[list(HEAD),["2026-10",1000,0,0,1000,1,0,0,0,0,"Q","NOW"]]
+        for column in (1,2,5,6,7,9):
+            old_row=["2026-11",0,0,500,500,0,0,0,1,0,"Q","OLD"]
+            old_row[column]=1
+            with self.subTest(column=column):
+                with self.assertRaisesRegex(RuntimeError,"FINANCIAL_EVIDENCE_BLOCK"):
+                    merge_recomputed_with_forecast_retirements(
+                        [list(HEAD),old_row],current,"NOW")
+
+    def test_new_source_month_replaces_old_retired_month(self):
+        old=[list(HEAD),["2027-02",0,0,0,0,0,0,0,0,0,
+                        "FORECAST_RETIRED_NO_CURRENT_SOURCE","OLD"]]
+        new=[list(HEAD),["2027-02",0,0,100,100,0,0,0,1,0,
+                        "INVOICES_VERIFIED_FORECAST_ESTIMATED","NOW"]]
+        result=merge_recomputed_with_forecast_retirements(old,new,"NOW")
+        self.assertEqual(result,new)
+
+    def test_month_merge_rejects_duplicates_invalid_dates_or_numbers(self):
+        old=[list(HEAD),["2027-02",0,0,100,100,0,0,0,1,0,"Q","OLD"]]
+        with self.assertRaisesRegex(RuntimeError,"DUPLICATE_OR_MISSING_MONTH"):
+            merge_recomputed_with_forecast_retirements(
+                old,[list(HEAD),old[1],old[1]],"NOW")
+        with self.assertRaisesRegex(RuntimeError,"MONTH_INVALID"):
+            merge_recomputed_with_forecast_retirements(
+                [list(HEAD),["2027-99"]], [list(HEAD),["2026-10"]],"NOW")
+        malformed=list(old[1]);malformed[1]="AMOUNT_UNKNOWN"
+        with self.assertRaisesRegex(RuntimeError,"NUMBER_UNVERIFIED"):
+            merge_recomputed_with_forecast_retirements(
+                [list(HEAD),malformed],[list(HEAD),["2026-10"]],"NOW")
+
     def test_monthly_snapshot_timestamp_must_be_materialized(self):
         expected=[HEAD,["2026-11",1000,0,200,1200,1,0,0,1,0,
                         "INVOICES_VERIFIED_FORECAST_ESTIMATED",
