@@ -1,6 +1,7 @@
 "use client";
 import {useCallback,useEffect,useState} from "react";
 import Link from "next/link";
+import PairedSaveApproval from "./PairedSaveApproval";
 
 const endpoint="/api/sfdc/pair-approval-review-local";
 async function local(body){
@@ -253,6 +254,7 @@ export default function LocalSalesforceApprovalConsole(){
      </div>
     </div>}
    {message&&<p role="status" style={{fontSize:12}}>{message}</p>}
+   <PairedSaveApproval key={review.requestId} review={review}/>
    <section data-testid="sfdc-native-save-approval" style={{
      marginTop:20,padding:15,border:"1px solid #557187",borderRadius:10}}>
      <h3 style={{fontSize:16,margin:"0 0 8px"}}>04 · 실제 Salesforce Save (건별 승인)</h3>
