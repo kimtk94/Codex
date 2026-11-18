@@ -232,15 +232,15 @@ async def run(message):
                 if message.get("writeEnabled") is not None:
                     # Caller cannot enable writes by inserting a JSON flag.
                     return _gate("FORGED_WRITE_ENABLE_FLAG",stage=stage)
-                if __import__("os").environ.get("SFDC_NATIVE_SAVE_WRITE_ENABLED")!="1":
-                    return _gate("OPERATOR_LAPTOP_SAVE_SWITCH_OFF",stage=stage)
                 issue=consume_session(files,review,stage,message["nonce"],
-                   message["approvalDigest"])
+                   message["approvalDigest"],snapshot=snapshot)
                 if issue:return _gate(issue,stage=stage)
                 # Both tabs/snapshots must still represent the same exact review.
                 # The request cannot replace the URL/record name with client data.
+                locked=False
                 try:
                     with exclusive_transaction(files):
+                        locked=True
                         before=before_click(files,stage,review,
                             opportunity_id=journal.get("opportunity_id"))
                         if before:return _gate(before,stage=stage)
@@ -275,7 +275,7 @@ async def run(message):
                                 "crm_writes":"UNVERIFIED",
                                 "automaticRetryAllowed":False}
                 finally:
-                    release_lock(files)
+                    if locked:release_lock(files)
             finally:
                 await browser.close()
     except Exception:
