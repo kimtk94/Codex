@@ -184,10 +184,12 @@ export function calculateDraft(draft){
     // their Cloud unit rate is checked against live Salesforce.
     const hasCloudProcess=(p.processes||[]).some(x=>
       /ali.?cloud|cloud storage|cloud service/i.test(x.name||""));
-    const releaseOnlyCloudExcluded=!cloudRequested&&!hasCloudProcess&&
-      Array.isArray(p.fixedProcessLines)&&p.fixedProcessLines.some(x=>
-        /^data release$/i.test(String(x.processName||"").trim()));
-    const cloudQty=releaseOnlyCloudExcluded?0:calculatedCloudUnits;
+    // Billing applies only if the source has an actual Cloud Process,
+    // its verified Cloud price is present, or the service explicitly
+    // requires Cloud. Other services must not be charged speculatively.
+    const cloudBillable=cloudRequested||hasCloudProcess||p.cloudRequired===true;
+    const releaseOnlyCloudExcluded=!cloudBillable;
+    const cloudQty=cloudBillable?calculatedCloudUnits:0;
     const cloudAmount=cloudQty===0?0:
       cloudRate!==null&&Number.isSafeInteger(cloudRate*cloudQty)?
       cloudRate*cloudQty:null;
