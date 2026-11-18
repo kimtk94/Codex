@@ -138,8 +138,9 @@ def opportunity_create(page,x):
     name=page.locator('input[name="Name"]:visible')
     name.wait_for(timeout=20000)
     name=single(name,"OPPO_FORM_NOT_READY")
-    original=name.input_value()
-    if x["opportunityName"]==original:raise RuntimeError("DUPLICATE_REFERENCE_OPPORTUNITY_NAME")
+    # A near-clone may legitimately keep the exact original visible name.
+    # It creates a new Salesforce Opportunity ID, while the approval request
+    # journal forbids replaying the same request.
     name.fill(x["opportunityName"],timeout=5500)
     amt=single(page.locator('input[name="Amount"]:visible'),"OPPO_AMOUNT_MISSING")
     amt.click();amt.press("ControlOrMeta+A");amt.press("Backspace")
