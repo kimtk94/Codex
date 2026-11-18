@@ -95,7 +95,7 @@ export default function LocalSalesforceApprovalConsole(){
    <strong>현재 상태: 저장 승인 전 · Salesforce 쓰기 0건</strong>
    <p style={{fontSize:12,lineHeight:1.7,marginBottom:0}}>
     현재 자동화로 보장할 수 있는 범위는 승인 요청 원본 조회와 SFDC의 실제 입력 폼 점검입니다.
-    **실제 Save 실행·Quotation Product 입력·저장 결과 재조회는 별도 검증이 필요하므로 비활성화**되어 있습니다.
+    <strong>실제 Save 실행·Quotation Product 입력·저장 결과 재조회는 별도 검증이 필요하므로 비활성화</strong>되어 있습니다.
     승인 요청을 열었다고 실제 Quote가 생성되는 것은 아닙니다.
    </p>
   </section>
@@ -157,7 +157,7 @@ export default function LocalSalesforceApprovalConsole(){
    </table></div>
    <p style={{fontSize:12,color:"#edc58e"}}>
      위 샘플 부분합은 원본 가격 * 샘플 수를 단순 계산한 참고값이며
-     Cloud·Process별 수량 차이·Pack·배송비·VAT가 제외되어 **최종 Quotation 금액이 아닙니다**.
+     Cloud·Process별 수량 차이·Pack·배송비·VAT가 제외되어 <strong>최종 Quotation 금액이 아닙니다.</strong>
    </p>
    <details><summary style={{cursor:"pointer",fontSize:13}}>원본 Process 명칭·ID 참조 펼치기</summary>
     {review.products.map((p,i)=><p key={i} style={{fontSize:12,overflowWrap:"anywhere"}}>
