@@ -106,3 +106,39 @@ test("queue record must have one to twelve well formed products",()=>{
  .update(JSON.stringify(e.canonical)).digest("hex").slice(0,24);
  assert.equal(reviewQueueRecord(e,e.requestId).code,"QUEUE_CANONICAL_INVALID");
 });
+
+test("explicit Data release fixed Process is included in 2026 KRW reference comparison but not authorized Save",()=>{
+ const e=makeEntry(),p=e.canonical.proposed.products[0];
+ p.samples="4";p.sampleUnitKrw="57500";p.cloudUnitKrw="";
+ p.fixedProcessLines=[{
+  processId:"Process-2026-01-01-00001",
+  processName:"Data release",
+  quantity:1,unitPriceKrw:30000,netKrw:30000
+ }];
+ e.requestId="OPPOQUOTE-"+createHash("sha256")
+   .update(JSON.stringify(e.canonical)).digest("hex").slice(0,24);
+ const r=reviewQueueRecord(e,e.requestId);
+ assert.equal(r.products[0].historical_sample_subtotal_krw,"230000");
+ assert.equal(r.products[0].fixed_process_subtotal_krw,"30000");
+ assert.equal(r.provisionalFixedProcessNetKrw,"30000");
+ assert.equal(r.provisionalProcessInclusiveNetKrw,"260000");
+ assert.equal(r.provisionalVat10Krw,"26000");
+ assert.equal(r.provisionalGross10Krw,"286000");
+ assert.equal(r.comparisonOnlyNotNativePriceApproval,true);
+ assert.equal(r.salesforceCreateEnabled,false);
+ assert.equal(r.approvalLocked,true);
+});
+test("fixed Process amount inconsistent with original row must not create a plausible comparison total",()=>{
+ const e=makeEntry(),p=e.canonical.proposed.products[0];
+ p.fixedProcessLines=[{
+  processId:"Process-2026-01-01-00001",
+  processName:"Data release",quantity:1,unitPriceKrw:30000,netKrw:29999
+ }];
+ e.requestId="OPPOQUOTE-"+createHash("sha256")
+   .update(JSON.stringify(e.canonical)).digest("hex").slice(0,24);
+ const r=reviewQueueRecord(e,e.requestId);
+ assert.equal(r.fixedProcessSourceConsistent,false);
+ assert.equal(r.provisionalFixedProcessNetKrw,null);
+ assert.equal(r.provisionalProcessInclusiveNetKrw,null);
+ assert.equal(r.savePermitted,false);
+});
