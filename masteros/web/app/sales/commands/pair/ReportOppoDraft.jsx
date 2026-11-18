@@ -186,7 +186,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       setCreationRequest(result);
       setPreflight(draftPreflight(payload));
       setNotice(result.status==="PENDING_APPROVAL"?
-        "기존 Opportunity·Quote 원본 정보 검증을 완료했습니다. 아래에서 최종 금액 확인 후 저장하세요.":
+        "기존 Oppo·Quote 검증 요청 완료. 최종 금액을 자동 재검증한 뒤 이 화면에서 저장을 승인하세요.":
         "원본 정보가 완전히 검증되지 않아 저장을 차단했습니다. 확인 항목을 보완하세요.");
     }catch(e){setNotice(e.message||"CREATION_REQUEST_FAILED")}
     finally{setRequestBusy(false)}
@@ -269,7 +269,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       </div>
       <button type="button" data-testid="oppo-quote-creation-request"
         disabled={requestBusy} onClick={requestCreation}>
-        {requestBusy?"신규 견적 검증 중…":"Oppo + Quote 생성하기"}
+        {requestBusy?"신규 견적 검증 중…":"검증 후 Oppo + Quote 저장"}
       </button>
       {creationRequest&&<div data-testid="oppo-quote-request-confirmation" role="status">
         {creationRequest.status==="PENDING_APPROVAL"?
