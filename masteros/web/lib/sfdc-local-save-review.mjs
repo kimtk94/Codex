@@ -125,6 +125,10 @@ export function reviewQueueRecord(entry,expectedId){
  return {
    status:"QUEUE_REVIEW_READY_SFDC_NATIVE_RECHECK_REQUIRED",
    requestId:expectedId,createdAtUtc:entry.receivedAtUtc||null,
+   supersedesRequestId:ID.test(entry.supersedesRequestId||"")?
+     entry.supersedesRequestId:null,
+   revisionKind:entry.revisionKind==="QUOTE_ISSUED_WORDING_ONLY__NO_CRM_WRITE"?
+     entry.revisionKind:null,
    queueStatus:entry.status,savePermitted:false,salesforceWrite:false,
    crmWrites:0,actualOpportunityCreated:false,actualQuotationCreated:false,
    name:proposed.name,requestedDateKst:proposed.date||"",
