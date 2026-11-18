@@ -336,9 +336,9 @@ export function draftDescription(draft,calc=calculateDraft(draft)){
   const fixedSummary=calc.items.flatMap(p=>
     (p.fixedProcessLines||[]).map(x=>x.processName+
       " "+x.quantity+" × "+money(x.unitPriceKrw)+"KRW")).join(" + ");
-  const base=[mmdd,status,lines.join(" / "),fixedSummary,feeSummary]
-    .filter(Boolean).join(" / ");
-  return base;
+  // Preserve the established one-line Salesforce Description convention.
+  const base=[mmdd,status,lines.join(" / ")].filter(Boolean).join(" ");
+  return [base,fixedSummary,feeSummary].filter(Boolean).join(" / ");
 }
 export function descriptionReview(draft,text,manualBasis=null){
   const basis=descriptionBasis(draft);
