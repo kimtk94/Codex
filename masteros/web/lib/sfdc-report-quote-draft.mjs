@@ -176,7 +176,18 @@ export function calculateDraft(draft){
     // Cloud KRW rate as a free (zero-unit) Cloud service.
     const cloudRequested=s(p.cloudUnitKrw)!=="";
     const cloudRate=cloudRequested?integer(p.cloudUnitKrw):null;
-    const cloudQty=qtyOk&&gb!==null?Math.ceil(qty*gb/100):0;
+    const calculatedCloudUnits=qtyOk&&gb!==null?Math.ceil(qty*gb/100):0;
+    // A verified historical Data release 1x fixed Process is NOT an
+    // AliCloud service. If the exact source process matrix contains that
+    // separate charge but no AliCloud Process, never double-bill it.
+    // Unverified quotes without either source indication still HOLD until
+    // their Cloud unit rate is checked against live Salesforce.
+    const hasCloudProcess=(p.processes||[]).some(x=>
+      /ali\\s*cloud|cloud storage|cloud service/i.test(x.name||""));
+    const releaseOnlyCloudExcluded=!cloudRequested&&!hasCloudProcess&&
+      Array.isArray(p.fixedProcessLines)&&p.fixedProcessLines.some(x=>
+        /^data release$/i.test(String(x.processName||"").trim()));
+    const cloudQty=releaseOnlyCloudExcluded?0:calculatedCloudUnits;
     const cloudAmount=cloudQty===0?0:
       cloudRate!==null&&Number.isSafeInteger(cloudRate*cloudQty)?
       cloudRate*cloudQty:null;
@@ -205,7 +216,8 @@ export function calculateDraft(draft){
     return {...p,quantity:qtyOk?qty:null,unitKrw:priceOk?rate:null,
       productionGbValue:gb,serviceQuantity:serviceQty,
       regionCount:amp?selected.length:0,regionLines,
-      cloudUnits:cloudQty,cloudUnitKrw:cloudRate,cloudNetKrw:cloudAmount,
+      cloudUnits:cloudQty,calculatedCloudUnits,cloudSourceExcluded:releaseOnlyCloudExcluded,
+      cloudUnitKrw:cloudRate,cloudNetKrw:cloudAmount,
       fixedProcessLines:fixedInput,fixedProcessNetKrw,fixedProcessBasisChanged,
       netKrw:safeNet,ready:safeNet!==null&&gbOk,gbValid:gbOk,
       projectKey:signature(p.processes,gb,selected.map(x=>x.code))};
