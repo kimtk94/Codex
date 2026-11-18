@@ -83,9 +83,12 @@ jobs:
         run: |
           npm run test:sfdc
           node --test tests/sfdc-pair-auto-krw-request.test.mjs
+          node --test tests/sfdc-pair-native-create-local.test.mjs
           node --test tests/sfdc-quote-fees.test.mjs
           python3 -m unittest discover -s scripts -p test_sfdc_parallel_ui_check.py -v
           python3 -m py_compile scripts/sfdc_parallel_ui_check.py
+          python3 -m unittest discover -s scripts -p test_sfdc_paired_native_create.py -v
+          python3 -m py_compile scripts/sfdc_native_process_writer.py scripts/sfdc_paired_native_create.py scripts/sfdc_action_executor.py
       - name: Compile Next.js draft workspace
         env:
           NEXT_TELEMETRY_DISABLED: '1'
