@@ -109,7 +109,7 @@ export async function POST(request){
   if(raw.length>800)throw Error("SIZE");
   input=JSON.parse(raw);
   if(!input||typeof input!=="object"||Array.isArray(input)||
-      Object.keys(input).some(k=>!["mode","requestId","nonce","approvalDigest","confirmation"].includes(k))||
+      Object.keys(input).some(k=>!["mode","requestId","nonce","approvalDigest","confirmation","duplicateConfirmed"].includes(k))||
       !["PRECHECK","COMMIT","STATUS"].includes(input.mode)||!ID.test(input.requestId))
     throw Error("INVALID");
  }catch{return hold("PAIRED_SAVE_REQUEST_INVALID",400)}
@@ -147,6 +147,11 @@ export async function POST(request){
   }
   if(process.env.SFDC_PAIR_NATIVE_SAVE_ENABLED!=="1")
     return hold("LAPTOP_NATIVE_WRITE_NOT_ENABLED",403);
+  // A current Salesforce list-view search is not an exhaustive org-level
+  // duplicate check. The operator must attest to an independent review of
+  // Account/Contact/name duplicates for the exact new request.
+  if(input.duplicateConfirmed!==true)
+    return hold("EXPLICIT_DUPLICATE_REVIEW_REQUIRED",403);
   const session=await readSafe(join(dir,input.requestId+".paired-session.json"));
   const checkToken=NONCE.test(input.nonce||"")&&
     session.tokenHash===createHash("sha256").update(input.nonce).digest("hex");
