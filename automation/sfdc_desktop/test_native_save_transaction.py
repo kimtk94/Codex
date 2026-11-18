@@ -93,7 +93,7 @@ class NativeSaveTransactionTests(unittest.TestCase):
         self.files["evidence"].write_text(json.dumps(self.evidence),encoding="utf8")
         response,_=self.loaded()
         self.assertEqual(response["code"],"SAVE_PREFLIGHT_HOLD")
-        self.assertIn("DUPLICATE_OR_AMBIGUOUS_EXISTING_RECORD",response["reasons"])
+        self.assertIn("IDENTICAL_NAME_REQUIRES_NATIVE_ID_SNAPSHOT",response["reasons"])
         self.assertIn("UNVERIFIED_CURRENT_NATIVE_KRW_RATES_VERIFIED",response["reasons"])
     def test_same_name_new_ids_must_differ_from_both_source_and_preexisting_ids(self):
         review={
