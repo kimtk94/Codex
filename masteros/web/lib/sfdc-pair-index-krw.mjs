@@ -34,9 +34,8 @@ function historicalReferenceFromValidatedRows(records,sourceQid,product) {
   const isRelease=r=>/^data release$/i.test(r.process_name.trim());
   const cloudRows=rows.filter(isCloud);
   const sampleRows=rows.filter(r=>!isCloud(r)&&!isRelease(r));
-  // Salesforce Process.Sample_Quantity is the number of *process operations*,
-  // not necessarily biological sample count. Paid Data release may have two
-  // operations per biological sample. Summing process Unit Prices is wrong.
+  // Salesforce process quantity is not an independent sample count.
+  // Only processes with the same repeated quantity can establish the basis.
   if(!sampleRows.length||cloudRows.length>1||
      !sampleRows.every(r=>Number.isInteger(r.sample_quantity)&&r.sample_quantity>0))
     return {ok:false,code:"HISTORICAL_SAMPLE_BASIS_UNVERIFIED"};
@@ -47,18 +46,34 @@ function historicalReferenceFromValidatedRows(records,sourceQid,product) {
   const gbRows=sampleRows.filter(r=>r.data_unit==="Gb");
   if(gb!==null&&(!gbRows.length||gbRows.some(r=>Number(r.data_size)!==gb)))
     return {ok:false,code:"HISTORICAL_EXACT_SOURCE_GB_NOT_FOUND"};
-  const productNetKrw=rows.filter(r=>!isCloud(r)).reduce((sum,r)=>
+
+  // A Data release process with qty=1 is a once-per-quotation Product
+  // charge, NOT a per-sample unit price nor a Quotation shipping Fee.
+  // Do not distribute it across samples: changing sample count would then
+  // silently multiply what was only a fixed historical charge.
+  const fixedRows=rows.filter(r=>isRelease(r)&&r.sample_quantity!==sourceSamples);
+  if(fixedRows.some(r=>r.sample_quantity!==1))
+    return {ok:false,code:"HISTORICAL_RELEASE_QUANTITY_UNVERIFIED"};
+  const recurringRows=rows.filter(r=>!isCloud(r)&&
+    (!isRelease(r)||r.sample_quantity===sourceSamples));
+  if(recurringRows.some(r=>r.sample_quantity!==sourceSamples))
+    return {ok:false,code:"HISTORICAL_RECURRING_QTY_MISMATCH"};
+  const recurringNetKrw=recurringRows.reduce((sum,r)=>
     sum+Number(r.unit_price_krw)*r.sample_quantity,0);
-  // This is historical VAT-excluded Product net / observed biological samples,
-  // not a new Quote approval and not a per-process price rewrite.
-  const sampleUnitKrw=productNetKrw/sourceSamples;
+  const fixedProcessLines=fixedRows.map(r=>({
+    processId:r.process_id,processName:r.process_name,
+    quantity:r.sample_quantity,unitPriceKrw:Number(r.unit_price_krw),
+    netKrw:r.sample_quantity*Number(r.unit_price_krw)
+  }));
+  const fixedProcessNetKrw=fixedProcessLines.reduce((sum,r)=>sum+r.netKrw,0);
+  const productNetKrw=recurringNetKrw+fixedProcessNetKrw;
+  const sampleUnitKrw=recurringNetKrw/sourceSamples;
+  const effectiveHistoricalUnitKrw=productNetKrw/sourceSamples;
   const cloudUnitKrw=cloudRows.length?Number(cloudRows[0].unit_price_krw):null;
-  // A divided historical per-sample price can be fractional even if every
-  // original Salesforce Process Unit Price is a whole KRW amount.
-  // This editor accepts integer KRW; do not round or silently shift the net.
   if(Number.isFinite(sampleUnitKrw)&&!Number.isInteger(sampleUnitKrw))
     return {ok:false,code:"HISTORICAL_FRACTIONAL_SAMPLE_RATE_HOLD"};
   if(!Number.isSafeInteger(productNetKrw)||productNetKrw<0||
+     !Number.isSafeInteger(recurringNetKrw)||!Number.isSafeInteger(fixedProcessNetKrw)||
      !Number.isSafeInteger(sampleUnitKrw)||sampleUnitKrw<0||
      (cloudUnitKrw!==null&&(!Number.isSafeInteger(cloudUnitKrw)||cloudUnitKrw<0))||
      !rows.every(x=>Number.isSafeInteger(Number(x.unit_price_krw))))
@@ -66,6 +81,8 @@ function historicalReferenceFromValidatedRows(records,sourceQid,product) {
   return {ok:true,code:"HISTORICAL_2026_KRW_COMPARISON_ONLY",
     sourceQid,sourceProcessCount:rows.length,sourceSamples,
     sourceProductNetKrw:productNetKrw,
+    recurringProcessNetKrw:recurringNetKrw,
+    fixedProcessNetKrw,fixedProcessLines,effectiveHistoricalUnitKrw,
     sourceGbStatus:gb===null?"UNVERIFIED":"EXACT_SOURCE_GB_MATCH",
     candidateSampleUnitKrw:sampleUnitKrw,candidateCloudUnitKrw:cloudUnitKrw,
     currency:"KRW",vatBasis:"VAT_EXCLUDED",year:2026,
@@ -171,8 +188,13 @@ export function prefillHistoricalKrw(draft,evidence) {
     const proposal=historicalKrwReference(evidence,draft.qid,product);
     if(!proposal.ok)return product;
     any=true;
-    return {...product,sampleUnitKrw:String(proposal.candidateSampleUnitKrw),
+    return {...product,
+      samples:product.samples||String(proposal.sourceSamples),
+      sampleUnitKrw:String(proposal.candidateSampleUnitKrw),
       cloudUnitKrw:proposal.candidateCloudUnitKrw===null?"":String(proposal.candidateCloudUnitKrw),
+      fixedProcessLines:proposal.fixedProcessLines,
+      fixedProcessSourceSamples:proposal.sourceSamples,
+      fixedProcessNetKrw:proposal.fixedProcessNetKrw,
       priceEvidenceStatus:"INDEX_2026_KRW_COMPARISON_ONLY",
       priceSourceQid:proposal.sourceQid};
   });
