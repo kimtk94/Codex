@@ -71,7 +71,8 @@ async def main():
     await new.wait_for(state="visible",timeout=25000)
     if await new.count()!=1:raise RuntimeError("NEW_OPPORTUNITY_NOT_UNIQUE")
     await new.click(timeout=15000)
-    await page.get_by_text("Opportunity Name",exact=False).first.wait_for(timeout=30000)
+    await page.get_by_role("dialog").wait_for(state="visible",timeout=30000)
+    await page.wait_for_timeout(1600)
     complete=True
     for label,value in (("Opportunity Name",name),("Close Date",dt),
                         ("Progress Description",description)):
