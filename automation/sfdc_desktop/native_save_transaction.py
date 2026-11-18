@@ -15,7 +15,7 @@ import secrets
 import time
 from contextlib import contextmanager
 
-from oppo_quote_save_preflight import audit_save_preflight
+from oppo_quote_save_preflight import audit_save_preflight, SFID
 
 REQUEST_ID = re.compile(r"^OPPOQUOTE-[a-f0-9]{24}$")
 TOKEN = re.compile(r"^[a-f0-9]{48}$")
@@ -135,6 +135,12 @@ def load_verified_request(request_id, home=None, *, asof_utc=None):
         mismatch = check_candidate_binding(queue,candidate)
         if mismatch:
             return _gate(mismatch), None
+        duplicates = evidence.get("duplicate_check")
+        if isinstance(duplicates,dict) and duplicates.get("scope") == "SOURCE_RECORD_ID_SNAPSHOT":
+            ref=queue["canonical"]["reference"]
+            if (candidate.get("source_opportunity_id") != ref.get("opportunityId") or
+                candidate.get("source_quotation_id") != ref.get("sourceQuoteId")):
+                return _gate("SOURCE_REFERENCE_NATIVE_ID_BINDING_MISMATCH"), None
         result = audit_save_preflight(candidate,evidence,asof_utc=asof_utc)
         if not result.get("ready_for_review") or not DIGEST.fullmatch(
             str(result.get("approval_digest",""))
@@ -147,6 +153,19 @@ def load_verified_request(request_id, home=None, *, asof_utc=None):
             "vat_krw":result["expected_vat_krw"],
             "gross_krw":result["expected_gross_krw"],
             "name":candidate["opportunity_name"],
+            "original_opportunity_id":queue["canonical"]["reference"].get("opportunityId",""),
+            "original_quotation_id":queue["canonical"]["reference"].get("sourceQuoteId",""),
+            "existing_opportunity_ids":(
+                duplicates.get("matching_opportunity_ids",[])
+                if isinstance(duplicates,dict) and duplicates.get("scope")=="SOURCE_RECORD_ID_SNAPSHOT"
+                else []
+            ),
+            "existing_quotation_ids":(
+                duplicates.get("matching_quotation_ids",[])
+                if isinstance(duplicates,dict) and duplicates.get("scope")=="SOURCE_RECORD_ID_SNAPSHOT"
+                else []
+            ),
+            "identity_method":"NATIVE_SFDC_ID_NOT_NAME",
             "account_id":candidate["account_id"],
             "contact_id":candidate["contact_id"],
             "account_name":queue["canonical"]["proposed"].get("account",{}).get("name") or "",
@@ -259,6 +278,27 @@ def before_click(files,stage,review,*,opportunity_id=None):
         "approval_digest":review["approval_digest"],
         "updated_at_utc":datetime.now(timezone.utc).isoformat(),**rec})
     return None
+
+def created_id_is_distinct(stage,record_id,review):
+    """A same-name Save only succeeds if the *new* native Salesforce ID is new.
+
+    The source Quote/Oppo may carry exactly the same Name. A URL that points
+    to an existing 006/a0P is NOT evidence of a newly created record.
+    """
+    if not isinstance(review,dict) or stage not in STAGE:
+        return False
+    prefix="006" if stage=="OPPORTUNITY" else "a0P"
+    if not isinstance(record_id,str) or not record_id.startswith(prefix) or not SFID.fullmatch(record_id):
+        return False
+    original_key=("original_opportunity_id" if stage=="OPPORTUNITY" else "original_quotation_id")
+    existing_key=("existing_opportunity_ids" if stage=="OPPORTUNITY" else "existing_quotation_ids")
+    existing=review.get(existing_key,[])
+    if not isinstance(existing,list) or not all(isinstance(x,str) for x in existing):
+        return False
+    if record_id==review.get(original_key) or record_id in existing:
+        return False
+    return True
+
 
 def after_click(files,stage,record_id):
     journal=read_journal(files)

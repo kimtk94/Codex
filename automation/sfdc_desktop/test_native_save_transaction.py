@@ -14,6 +14,7 @@ from native_save_transaction import (
     sha_canonical, paths, load_verified_request, check_candidate_binding,
     create_session, consume_session, before_click, after_click, read_journal,
     mark_unknown, exclusive_transaction, release_lock,
+    created_id_is_distinct,
 )
 from test_oppo_quote_save_preflight import fixture, ASOF
 
@@ -92,8 +93,46 @@ class NativeSaveTransactionTests(unittest.TestCase):
         self.files["evidence"].write_text(json.dumps(self.evidence),encoding="utf8")
         response,_=self.loaded()
         self.assertEqual(response["code"],"SAVE_PREFLIGHT_HOLD")
-        self.assertIn("DUPLICATE_OR_AMBIGUOUS_EXISTING_RECORD",response["reasons"])
+        self.assertIn("IDENTICAL_NAME_REQUIRES_NATIVE_ID_SNAPSHOT",response["reasons"])
         self.assertIn("UNVERIFIED_CURRENT_NATIVE_KRW_RATES_VERIFIED",response["reasons"])
+    def test_same_name_new_ids_must_differ_from_both_source_and_preexisting_ids(self):
+        review={
+            "original_opportunity_id":"006000000000001",
+            "original_quotation_id":"a0P000000000001",
+            "existing_opportunity_ids":["006000000000001","006000000000004"],
+            "existing_quotation_ids":["a0P000000000001","a0P000000000004"],
+        }
+        self.assertFalse(created_id_is_distinct("OPPORTUNITY","006000000000001",review))
+        self.assertFalse(created_id_is_distinct("QUOTATION","a0P000000000001",review))
+        self.assertFalse(created_id_is_distinct("OPPORTUNITY","006000000000004",review))
+        self.assertFalse(created_id_is_distinct("QUOTATION","a0P000000000004",review))
+        self.assertTrue(created_id_is_distinct("OPPORTUNITY","006000000000005",review))
+        self.assertTrue(created_id_is_distinct("QUOTATION","a0P000000000005",review))
+        self.assertFalse(created_id_is_distinct("OPPORTUNITY","a0P000000000005",review))
+
+    def test_source_id_snapshot_must_be_bound_to_immutable_original_queue_reference(self):
+        self.candidate["source_opportunity_id"]=self.original["reference"]["opportunityId"]
+        self.candidate["source_quotation_id"]=self.original["reference"]["sourceQuoteId"]
+        self.evidence["duplicate_check"]={
+            "scope":"SOURCE_RECORD_ID_SNAPSHOT",
+            "checked_current_authenticated_ui":True,"query_complete":True,
+            "source_opportunity_id":self.candidate["source_opportunity_id"],
+            "source_quotation_id":self.candidate["source_quotation_id"],
+            "matching_opportunity_ids":[self.candidate["source_opportunity_id"]],
+            "matching_quotation_ids":[self.candidate["source_quotation_id"]],
+        }
+        self.files["candidate"].write_text(json.dumps(self.candidate),encoding="utf8")
+        self.files["evidence"].write_text(json.dumps(self.evidence),encoding="utf8")
+        review,found=self.loaded()
+        self.assertEqual(review["status"],"VALIDATED_RECORD")
+        self.assertEqual(review["identity_method"],"NATIVE_SFDC_ID_NOT_NAME")
+        self.assertEqual(review["existing_opportunity_ids"],["006000000000001"])
+        self.assertEqual(review["existing_quotation_ids"],["a0P000000000001"])
+        self.candidate["source_opportunity_id"]="006000000000007"
+        self.files["candidate"].write_text(json.dumps(self.candidate),encoding="utf8")
+        result,_=self.loaded()
+        self.assertEqual(result["code"],"SOURCE_REFERENCE_NATIVE_ID_BINDING_MISMATCH")
+
     def test_one_use_nonce_exact_snapshot_and_replay(self):
         review,_=self.loaded()
         nonce=create_session(self.files,review,"OPPORTUNITY","snapshot-v1",now=2000)

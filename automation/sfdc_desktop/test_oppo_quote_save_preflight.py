@@ -134,8 +134,46 @@ class SavePreflightTests(unittest.TestCase):
         for kind in ("matching_opportunities", "matching_quotations"):
             c, e = fixture()
             e["duplicate_check"][kind] = 1
-            self.assertIn("DUPLICATE_OR_AMBIGUOUS_EXISTING_RECORD",
+            self.assertIn("IDENTICAL_NAME_REQUIRES_NATIVE_ID_SNAPSHOT",
                           self.audit(c, e)["reason_codes"])
+
+    def test_identical_names_are_allowed_with_verified_native_id_snapshot(self):
+        c,e=fixture()
+        c["source_opportunity_id"]="006000000000001"
+        c["source_quotation_id"]="a0P000000000001"
+        e["duplicate_check"]={
+            "scope":"SOURCE_RECORD_ID_SNAPSHOT",
+            "checked_current_authenticated_ui":True,
+            "query_complete":True,
+            "source_opportunity_id":c["source_opportunity_id"],
+            "source_quotation_id":c["source_quotation_id"],
+            "matching_opportunity_ids":[c["source_opportunity_id"],"006000000000003"],
+            "matching_quotation_ids":[c["source_quotation_id"],"a0P000000000003"]
+        }
+        result=self.audit(c,e)
+        self.assertEqual(result["status"],"READY_FOR_PER_RECORD_OPERATOR_APPROVAL")
+        self.assertNotIn("DUPLICATE_OR_AMBIGUOUS_EXISTING_RECORD",result["reason_codes"])
+        self.assertEqual(result["crm_writes"],0)
+
+    def test_same_name_without_complete_native_id_evidence_is_held(self):
+        c,e=fixture()
+        c["source_opportunity_id"]="006000000000001"
+        c["source_quotation_id"]="a0P000000000001"
+        e["duplicate_check"]={
+            "scope":"SOURCE_RECORD_ID_SNAPSHOT",
+            "checked_current_authenticated_ui":True,
+            "query_complete":False,
+            "source_opportunity_id":"006000000000001",
+            "source_quotation_id":"a0P000000000001",
+            "matching_opportunity_ids":["006000000000001"],
+            "matching_quotation_ids":["a0P000000000001"]
+        }
+        self.assertIn("NATIVE_ID_READBACK_INCOMPLETE",self.audit(c,e)["reason_codes"])
+        e["duplicate_check"]["query_complete"]=True
+        e["duplicate_check"]["matching_opportunity_ids"]=[]
+        self.assertIn("UNVERIFIED_MATCHING_OPPORTUNITY_IDS",self.audit(c,e)["reason_codes"])
+        e["duplicate_check"]["matching_opportunity_ids"]=["006000000000001","006000000000001"]
+        self.assertIn("UNVERIFIED_MATCHING_OPPORTUNITY_IDS",self.audit(c,e)["reason_codes"])
 
     def test_no_authenticated_account_contact_relation_blocks(self):
         c, e = fixture()

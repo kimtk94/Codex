@@ -57,7 +57,7 @@ test("old verified Quote price is not new client price approval",()=>{
  const e=makeEntry(),r=reviewQueueRecord(e,e.requestId);
  assert.equal(e.canonical.review.verifiedNativeRateForUnchangedAmount,true);
  assert.equal(r.requiredChecks.find(x=>x.id==="new_client_price").passed,false);
- assert.equal(r.requiredChecks.find(x=>x.id==="duplicate").passed,false);
+ assert.equal(r.requiredChecks.find(x=>x.id==="native_id_identity").passed,false);
  assert.equal(r.requiredChecks.find(x=>x.id==="approval").passed,false);
 });
 test("tampering with canonical data after request id is issued is blocked",()=>{

@@ -41,8 +41,8 @@ export function reviewQueueRecord(entry,expectedId){
    {id:"live_account_contact",label:"현재 SFDC Account·Main Contact 관계",passed:false,
     evidence:CRM_ID(account.id,"001")&&CRM_ID(contact.id,"003")?
       "과거 참조 ID 있음 · 실시간 관계 검증 필요":"001·003 원본 ID 미확정"},
-   {id:"duplicate",label:"신규 Opportunity·Quotation 동일 이름 중복",passed:false,
-    evidence:"현재 Salesforce 양쪽 목록에서 중복 0건 재조회 필요"},
+   {id:"native_id_identity",label:"이름은 유지 · 기존/신규 Salesforce 고유 ID 구분",passed:false,
+    evidence:"동일 이름 허용. 원본 Opportunity 006 / Quote a0P를 확인하고 새로 발급된 ID가 기존 ID와 다른지 검증 필요"},
    {id:"native_quote_type",label:"Quotation Record Type = Research-AMEA",passed:false,
     evidence:"실제 연구견적 유형 재선택 필요 · AMEA Agreement와 구분"},
    {id:"product_process",label:"Product·Process 원본 ID 및 공정 수량·Pack",passed:false,
@@ -133,6 +133,7 @@ export function reviewQueueRecord(entry,expectedId){
    sourceQid:ref.qid||"",
    sourceOpportunityId:ref.opportunityId||"",
    sourceQuoteId:ref.sourceQuoteId||"",
+   recordIdentityPolicy:"KEEP_EXACT_NAME_DISTINGUISH_BY_NATIVE_SFDC_ID",
    account:{name:account.name||"",nativeIdVerified:false,
      sourceIdPresent:CRM_ID(account.id,"001")},
    contact:{name:contact.name||"",nativeIdVerified:false,

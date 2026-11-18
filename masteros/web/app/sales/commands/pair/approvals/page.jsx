@@ -182,6 +182,15 @@ export default function LocalSalesforceApprovalConsole(){
    <h2 style={{fontSize:18}}>02 · 저장될 내용 사전검토 — {review.name}</h2>
    <p style={{color:sub,fontSize:12}}>요청번호: <code>{review.requestId}</code>
     {" · "}원본 QID: {review.sourceQid||"미기재"}{" · "}Close Date: {review.closeDateKst||"미확인"}</p>
+   <div data-testid="same-name-native-id-policy" style={{fontSize:12,
+    background:bg,border:"1px solid "+border,borderRadius:9,padding:11,overflowWrap:"anywhere"}}>
+     <strong>이름 유지 · Salesforce ID로 구분</strong>
+     <p style={{margin:"6px 0"}}>Opportunity/Quote 이름은 원본과 같아도 됩니다.
+      별도 번호·접미사를 추가하지 않습니다. 기존 레코드는 아래 원본 ID로 유지되며,
+      신규 레코드는 Save 후 발급된 서로 다른 006/a0P ID로 구별합니다.</p>
+     <p style={{margin:"6px 0"}}>원본 Opportunity: <code>{review.sourceOpportunityId||"ID 확인 필요"}</code>
+      {" · "}원본 Quotation: <code>{review.sourceQuoteId||"ID 확인 필요"}</code></p>
+   </div>
    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:9}}>
     {[["Account",review.account.name,review.account.sourceIdPresent],
      ["Contact",review.contact.name,review.contact.sourceIdPresent],
@@ -289,7 +298,8 @@ export default function LocalSalesforceApprovalConsole(){
      <p style={{fontSize:12,lineHeight:1.65,color:sub}}>
        이 기능은 실제 Salesforce 레코드를 생성합니다. 로컬 검증 파일에
        고객 Account·Contact, Product·Process·Pack, 현재 승인 KRW 단가,
-       VAT/Cloud/Fee와 중복 0건 증거가 있어야 합니다.
+       VAT/Cloud/Fee와 Salesforce 006/a0P 고유 ID·저장 재실행 여부가 확인되어야 합니다.
+       동일 이름 자체는 저장 차단 사유가 아닙니다.
        Salesforce에 해당 신규 입력창을 열고 내용을 완성한 뒤,
        검증이 통과한 요청의 승인번호를 직접 입력해야 Save가 활성화됩니다.
        과거 견적 가격만으로는 승인되지 않습니다.
