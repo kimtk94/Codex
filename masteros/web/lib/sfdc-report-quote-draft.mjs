@@ -179,13 +179,29 @@ export function calculateDraft(draft){
       serviceQty!==null&&regionLines.every(x=>x.netKrw!==null)?
         regionLines.reduce((n,x)=>n+x.netKrw,0):null
     ):(qtyOk&&priceOk&&Number.isSafeInteger(qty*rate)?qty*rate:null);
-    const net=baseNet!==null&&(cloudAmount!==null||!cloudRequested)?
-      baseNet+(cloudAmount||0):null;
+    // These are Quote Product processes (e.g. Data release 1 × 30,000),
+    // not recurring biological samples and not separate Quotation Fees.
+    const fixedInput=Array.isArray(p.fixedProcessLines)?p.fixedProcessLines:[];
+    const fixedProcessOk=fixedInput.length<=8&&fixedInput.every(x=>
+      x&&typeof x.processId==="string"&&/^Process-[A-Za-z0-9-]{8,70}$/.test(x.processId)&&
+      typeof x.processName==="string"&&x.processName.length>0&&x.processName.length<=100&&
+      Number.isSafeInteger(x.quantity)&&x.quantity>=1&&x.quantity<=10000&&
+      Number.isSafeInteger(x.unitPriceKrw)&&x.unitPriceKrw>=0&&x.unitPriceKrw<=1000000000&&
+      Number.isSafeInteger(x.netKrw)&&x.netKrw===x.quantity*x.unitPriceKrw);
+    const fixedProcessNetKrw=fixedProcessOk?
+      fixedInput.reduce((sum,x)=>sum+x.netKrw,0):null;
+    const fixedProcessBasisChanged=fixedInput.length>0&&
+      (!Number.isSafeInteger(p.fixedProcessSourceSamples)||
+       qty!==p.fixedProcessSourceSamples);
+    const net=baseNet!==null&&fixedProcessNetKrw!==null&&
+      (cloudAmount!==null||!cloudRequested)?
+      baseNet+(cloudAmount||0)+fixedProcessNetKrw:null;
     const safeNet=net!==null&&Number.isSafeInteger(net)?net:null;
     return {...p,quantity:qtyOk?qty:null,unitKrw:priceOk?rate:null,
       productionGbValue:gb,serviceQuantity:serviceQty,
       regionCount:amp?selected.length:0,regionLines,
       cloudUnits:cloudQty,cloudUnitKrw:cloudRate,cloudNetKrw:cloudAmount||0,
+      fixedProcessLines:fixedInput,fixedProcessNetKrw,fixedProcessBasisChanged,
       netKrw:safeNet,ready:safeNet!==null&&gbOk,gbValid:gbOk,
       projectKey:signature(p.processes,gb,selected.map(x=>x.code))};
   });
@@ -214,6 +230,12 @@ export function calculateDraft(draft){
       base.push({kind:"ALICLOUD",originalQuoteProductId:item.id,
         unitsPer100Gb:1,quantity:item.cloudUnits,unitPriceKrw:item.cloudUnitKrw,
         netKrw:item.cloudNetKrw});
+    for(const fixed of item.fixedProcessLines||[])
+      base.push({kind:"FIXED_PRODUCT_PROCESS",originalQuoteProductId:item.id,
+        processId:fixed.processId,processName:fixed.processName,
+        quantity:fixed.quantity,unitPriceKrw:fixed.unitPriceKrw,
+        netKrw:fixed.netKrw,
+        sourceReferenceOnly:true});
     return base;
   });
   return {ok:allPriced,quoteLineItems:[...quoteLineItems,...fees.quoteFeeItems],
@@ -233,13 +255,16 @@ export function opportunityUnitPriceSummary(calculation){
        item.quantity<=0)return null;
     // Stepwise AliCloud cannot always be divided into a per-sample price.
     // Report the biological sample rate separately from billed Cloud blocks.
-    const biologicalNet=item.netKrw-(item.cloudNetKrw||0);
+    const biologicalNet=item.netKrw-(item.cloudNetKrw||0)-
+      (item.fixedProcessNetKrw||0);
     if(!Number.isSafeInteger(biologicalNet)||biologicalNet%item.quantity!==0)
       return null;
     return {
       id:item.id||String(i),samples:item.quantity,
       unitPriceNetKrw:biologicalNet/item.quantity,
       netKrw:item.netKrw,cloudNetKrw:item.cloudNetKrw||0,
+      fixedProcessNetKrw:item.fixedProcessNetKrw||0,
+      effectiveUnitNetKrw:item.netKrw/item.quantity,
       cloudUnits:item.cloudUnits||0,regionCount:item.regionCount||0,
       perRegion:item.amplicon?.enabled===true,
       serviceQuantity:item.serviceQuantity
@@ -268,6 +293,10 @@ export function descriptionBasis(draft){
       service:s(p.serviceLabel),
       gb:s(p.productionGb),samples:s(p.samples),unitKrw:s(p.sampleUnitKrw),
       cloudUnitKrw:s(p.cloudUnitKrw),
+      fixedProcessLines:(p.fixedProcessLines||[]).map(x=>({
+        processId:x.processId,quantity:x.quantity,
+        unitPriceKrw:x.unitPriceKrw,netKrw:x.netKrw})),
+      fixedProcessSourceSamples:p.fixedProcessSourceSamples??null,
       regionMode:Boolean(p.amplicon?.enabled),
       regions:(p.amplicon?.regions||[]).map(r=>({
         code:s(r.code),label:s(r.label),unitKrw:s(r.unitKrw)
@@ -348,6 +377,8 @@ export function draftPreflight(draft){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+"T00:00:00Z")))
     errors.push("QUOTE_DATE_INVALID");
   if(!calc.ok)errors.push(calc.code);
+  if(calc.items?.some(item=>item.fixedProcessBasisChanged))
+    errors.push("HISTORICAL_FIXED_PROCESS_REVALIDATION_REQUIRED");
   if(draft?.feeMode==="KEEP")
     errors.push("QUOTE_FEE_SOURCE_REVALIDATION_REQUIRED");
   else if(draft?.feeMode&&draft.feeMode!=="EXCLUDE")
@@ -411,7 +442,7 @@ export function draftChanges(draft){
     const prev=ref.products?.[i];
     if(!prev){changes.push({field:"product["+i+"]",before:null,after:p.id});return;}
     const lead="product["+i+"].";
-    for(const key of ["serviceLabel","productionGb","samples","sampleUnitKrw","cloudUnitKrw"])
+    for(const key of ["serviceLabel","productionGb","samples","sampleUnitKrw","cloudUnitKrw","fixedProcessLines"])
       changed(lead+key,prev[key],p[key]);
     changed(lead+"regionMode",prev.ampliconEnabled,Boolean(p.amplicon?.enabled));
     changed(lead+"regions",prev.regions,
