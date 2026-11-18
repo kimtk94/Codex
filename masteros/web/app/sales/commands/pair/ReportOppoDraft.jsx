@@ -247,6 +247,44 @@ export default function ReportOppoDraft({quote,enabled=true}){
     </div>
     <p className={styles.hint}>기존 Opportunity/Quote의 가능한 값을 먼저 채웁니다. 바꾸는 필드만 수정하세요.
       계정·Contact·Region·공정은 원본을 참고하며, 인증된 Salesforce 원본에 KRW 공정별 단가가 있으면 자동 채워집니다.</p>
+    <section className={styles.subsection} data-testid="oppo-quote-quick-create">
+      <h3>기존 Opportunity 기준 · 바로 Oppo + Quote 생성</h3>
+      <p className={styles.hint}>기존 Oppo의 기관·Contact·프로젝트 이름을 유지하고,
+        연결된 Quote에서 Product·생산량·KRW 단가·AliCloud를 가져옵니다.
+        바꾸려는 수량이나 단가만 아래에서 수정하면 됩니다.</p>
+      <div className={styles.totals} data-testid="oppo-quote-compact-summary">
+        <div><span>새 Oppo = 새 Quote 이름</span>
+          <strong>{draft.name||"이름 확인 필요"}</strong></div>
+        <div><span>기관 · Contact</span>
+          <strong>{draft.account?.name||"미확인"} · {draft.contact?.name||"미확인"}</strong></div>
+        <div><span>샘플 × 생산량</span>
+          <strong>{draft.products.map(p=>
+            (p.samples||"?")+"개 · "+(p.productionGb||"?")+"Gb").join(" / ")}</strong></div>
+        <div><span>샘플당 KRW 원본 단가</span><strong>{draft.products.map(p=>
+          money(/^\\d+$/.test(p.sampleUnitKrw||"")?Number(p.sampleUnitKrw):null)).join(" / ")}</strong></div>
+        <div><span>공급가액 (VAT 제외)</span><strong>{money(amounts?.netKrw)}</strong></div>
+        <div className={styles.grand}><span>VAT 포함 예상액</span>
+          <strong>{money(amounts?.grossKrw)}</strong></div>
+      </div>
+      <button type="button" data-testid="oppo-quote-creation-request"
+        disabled={requestBusy} onClick={requestCreation}>
+        {requestBusy?"신규 견적 검증 중…":"Oppo + Quote 생성하기"}
+      </button>
+      {creationRequest&&<div data-testid="oppo-quote-request-confirmation" role="status">
+        {creationRequest.status==="PENDING_APPROVAL"?
+          <PairedSaveApproval compact key={creationRequest.requestId}
+            review={{requestId:creationRequest.requestId,
+              queueStatus:creationRequest.status,name:draft.name,
+              accountName:draft.account?.name||""}}/>:
+          <div className={styles.warning}>
+            <strong>현재 견적은 실제 저장 대상이 아닙니다.</strong>
+            <p>{creationRequest.missing?.length?
+              creationRequest.missing.join(" · "):
+              "기존 Salesforce의 고객·2026 KRW 공정 단가를 재검증해야 합니다."}</p>
+            <p>정보가 확정된 후 위 ‘Oppo + Quote 생성하기’를 다시 누르면 됩니다.</p>
+          </div>}
+      </div>}
+    </section>
     <details className={styles.subsection} data-testid="account-contact-advanced">
       <summary>Account·Contact 변경 (선택사항 · 기본은 기존 Oppo 고객 유지)</summary>
       <h3>Account / Contact 관리</h3>
@@ -506,6 +544,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
 
         <button type="button" className={styles.secondary} onClick={()=>{
           setDescriptionEdit(null);setDescriptionEditBasis(null);setPreflight(null);
+          setCreationRequest(null);
         }}>현재 입력값으로 Description 재생성 (잠금 해제)</button>
         <button type="button" className={styles.secondary} onClick={()=>copy("desc")}>Description 복사</button>
         <button type="button" className={styles.secondary} onClick={()=>copy("json")}>초안 JSON 복사</button>
