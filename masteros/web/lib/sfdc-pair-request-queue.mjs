@@ -21,7 +21,7 @@ export function validatePairRequest(input){
       (d.sourceQuoteId!==""&&!ID.test(d.sourceQuoteId)))||
      typeof d.description!=="string"||d.description.length>3000||
      !["KEEP","CHANGE"].includes(d.accountMode)||
-     !["Quote Draft","Prospective"].includes(d.descriptionStatus))
+     d.descriptionStatus!=="Quote Issued")
     return {ok:false,code:"REQUEST_FIELDS_INVALID"};
   for(const p of d.products){
     if(!p||typeof p!=="object"||

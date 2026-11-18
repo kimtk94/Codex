@@ -77,6 +77,12 @@ def check_candidate_binding(queue, candidate):
         return "QUEUE_PROPOSAL_MISSING"
     if candidate.get("operation") != "CREATE_NEW_OPPORTUNITY_AND_QUOTATION":
         return "NOT_PAIRED_CREATE"
+    # Binding the operator's already-selected Contact and exact Quote origin is
+    # mandatory. A modal opened from Opportunity List/New is NOT equivalent.
+    if candidate.get("entry_route") != "CONTACT_RELATED_OPPORTUNITY":
+        return "CONTACT_FIRST_ENTRY_REQUIRED"
+    if candidate.get("quotation_route") != "OPPORTUNITY_RELATED_QUOTATION":
+        return "QUOTE_MUST_START_FROM_OPPO_RELATED"
     checks = (
         ("opportunity_name", p.get("name")),
         ("quotation_name", p.get("name")),
@@ -121,6 +127,32 @@ def check_candidate_binding(queue, candidate):
     ):
         return "NATIVE_QUOTE_OPPO_AMOUNT_MISMATCH"
     return None
+
+def native_origin_route_violation(stage, page_url, review, journal):
+    """Check the *actual* browser URL context, never infer origin from Name."""
+    from urllib.parse import urlparse
+    if stage not in STAGE or not isinstance(page_url,str) or not isinstance(review,dict):
+        return "NATIVE_ORIGIN_UNVERIFIED"
+    p=urlparse(page_url)
+    if p.scheme!="https" or p.netloc!="novogene.lightning.force.com":
+        return "NATIVE_ORIGIN_UNVERIFIED"
+    if stage=="OPPORTUNITY":
+        contact_id=review.get("contact_id","")
+        expected="/lightning/r/Contact/"+str(contact_id)+"/"
+        if not isinstance(contact_id,str) or not contact_id.startswith("003") or (
+            not p.path.startswith(expected) or
+            p.path[len(expected):].split("/")[0] not in ("view","related")
+        ):
+            return "CONTACT_FIRST_ENTRY_REQUIRED"
+        return None
+    parent_id=journal.get("opportunity_id") if isinstance(journal,dict) else None
+    if not isinstance(parent_id,str) or not parent_id.startswith("006"):
+        return "QUOTE_PARENT_NEW_006_ID_UNVERIFIED"
+    expected="/lightning/r/Opportunity/"+parent_id+"/related"
+    if p.path.rstrip("/")!=expected:
+        return "QUOTE_MUST_START_FROM_OPPO_RELATED"
+    return None
+
 
 def load_verified_request(request_id, home=None, *, asof_utc=None):
     try:

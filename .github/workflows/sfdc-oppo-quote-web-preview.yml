@@ -21,6 +21,8 @@ on:
       - 'automation/sfdc_desktop/test_oppo_quote_save_preflight.py'
       - 'automation/sfdc_desktop/native_save_transaction.py'
       - 'automation/sfdc_desktop/test_native_save_transaction.py'
+      - 'automation/sfdc_desktop/SFDC_OPERATOR_RULES.md'
+      - 'automation/sfdc_desktop/test_sfdc_operator_contract.py'
       - 'automation/sfdc_desktop/quote_native_save_source_audit.py'
       - 'automation/sfdc_desktop/quote_native_save_source_audit_cli.py'
       - 'automation/sfdc_desktop/test_quote_native_save_source_audit.py'
@@ -44,6 +46,8 @@ on:
       - 'automation/sfdc_desktop/test_oppo_quote_save_preflight.py'
       - 'automation/sfdc_desktop/native_save_transaction.py'
       - 'automation/sfdc_desktop/test_native_save_transaction.py'
+      - 'automation/sfdc_desktop/SFDC_OPERATOR_RULES.md'
+      - 'automation/sfdc_desktop/test_sfdc_operator_contract.py'
       - 'automation/sfdc_desktop/quote_native_save_source_audit.py'
       - 'automation/sfdc_desktop/quote_native_save_source_audit_cli.py'
       - 'automation/sfdc_desktop/test_quote_native_save_source_audit.py'
@@ -80,6 +84,7 @@ jobs:
           python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_oppo_quote_save_preflight.py' -v
           python3 -m py_compile ../../automation/sfdc_desktop/oppo_quote_save_preflight.py
           python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_native_save_transaction.py' -v
+          python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_sfdc_operator_contract.py' -v
           python3 -m py_compile ../../automation/sfdc_desktop/native_save_transaction.py scripts/sfdc_native_approved_save.py
           python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_quote_native_save_source_audit.py' -v
           python3 -m py_compile ../../automation/sfdc_desktop/quote_native_save_source_audit.py ../../automation/sfdc_desktop/quote_native_save_source_audit_cli.py
@@ -90,12 +95,15 @@ jobs:
       - name: Run unit, local readback privacy and no-Save checks
         run: |
           npm run test:sfdc
+          node --test tests/sfdc-queue-issued-supersession.test.mjs
+          node --check scripts/sfdc_supersede_queue_quote_issued.mjs
           node --test tests/sfdc-pair-auto-krw-request.test.mjs
           node --test tests/sfdc-pair-native-create-local.test.mjs
           node --test tests/sfdc-quote-fees.test.mjs
           python3 -m unittest discover -s scripts -p test_sfdc_parallel_ui_check.py -v
           python3 -m py_compile scripts/sfdc_parallel_ui_check.py
           python3 -m unittest discover -s scripts -p test_sfdc_paired_native_create.py -v
+          python3 -m unittest discover -s scripts -p test_sfdc_prepare_unsaved_opportunity.py -v
           python3 -m py_compile scripts/sfdc_native_process_writer.py scripts/sfdc_paired_native_create.py scripts/sfdc_action_executor.py
       - name: Compile Next.js draft workspace
         env:

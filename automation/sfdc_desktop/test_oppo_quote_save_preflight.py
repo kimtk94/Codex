@@ -20,7 +20,7 @@ def fixture():
         "currency": "KRW", "vat_rate": "0.10",
         "stage": "Prospective", "forecast_category": "Pipeline",
         "service_line": "RNA-seq",
-        "description": "Synthetic 48 samples expected; quote requested; PO unconfirmed.",
+        "description": "1117 Quote Issued synthetic mRNA 48 samples expected; PO unconfirmed.",
         "source_progress_description": "Synthetic old source status unrelated.",
         "sample_quantity": 48,
         "products": [{
@@ -108,6 +108,15 @@ class SavePreflightTests(unittest.TestCase):
         self.assertFalse(result["opportunity_created"])
         self.assertFalse(result["quotation_created"])
         self.assertEqual(result["crm_writes"], 0)
+
+    def test_quote_draft_wording_is_rejected_even_if_customer_price_verified(self):
+        candidate,evidence=fixture()
+        self.assertEqual(self.audit(candidate,evidence)["status"],
+                         "READY_FOR_PER_RECORD_OPERATOR_APPROVAL")
+        candidate["description"]="1117 Quote Draft synthetic mRNA 48 samples expected."
+        result=self.audit(candidate,evidence)
+        self.assertEqual(result["status"],"HOLD_SFDC_SAVE_PREFLIGHT")
+        self.assertIn("QUOTE_ISSUED_PROGRESS_REQUIRED",result["reason_codes"])
 
     def test_approval_digest_changes_with_one_price_or_quantity(self):
         c, e = fixture()

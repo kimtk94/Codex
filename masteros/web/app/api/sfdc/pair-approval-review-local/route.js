@@ -87,7 +87,9 @@ function prepareUnsavedOpportunity(review){
   child.stdin.on("error",()=>{});
   child.stdin.end(JSON.stringify({
    name:review.name,closeDate:review.closeDateKst,
-   description:review.description
+   description:review.description,
+   contactId:review.contact?.id||"",
+   accountId:review.account?.id||""
   }));
  });
 }
@@ -155,9 +157,13 @@ export async function POST(request){
    const result=(await Promise.all(subset.map(x=>record(dir,x.slice(0,-5)))))
      .filter(x=>x.status==="QUEUE_REVIEW_READY_SFDC_NATIVE_RECHECK_REQUIRED")
      .sort((a,b)=>(b.createdAtUtc||"").localeCompare(a.createdAtUtc||""));
+   const superseded=new Map(result.filter(x=>x.supersedesRequestId)
+     .map(x=>[x.supersedesRequestId,x.requestId]));
    return respond({status:"PASS",items:result.map(x=>({
     requestId:x.requestId,createdAtUtc:x.createdAtUtc,name:x.name,
     productCount:x.productCount,queueStatus:x.queueStatus,
+    supersedesRequestId:x.supersedesRequestId,
+    supersededByRequestId:superseded.get(x.requestId)||null,
     accountName:x.account.name,contactName:x.contact.name,
     pendingChecks:x.requiredChecks.filter(y=>!y.passed).length,
     savePermitted:false})),

@@ -14,7 +14,7 @@ from native_save_transaction import (
     sha_canonical, paths, load_verified_request, check_candidate_binding,
     create_session, consume_session, before_click, after_click, read_journal,
     mark_unknown, exclusive_transaction, release_lock,
-    created_id_is_distinct,
+    created_id_is_distinct, native_origin_route_violation,
 )
 from test_oppo_quote_save_preflight import fixture, ASOF
 
@@ -24,6 +24,8 @@ def local_fixture(base):
     original=["Process-2020-01-01-00001","Process-2020-01-01-00002",
               "Process-2020-01-01-00003"]
     candidate["products"][0]["source_reference_product_id"]="QPRODUCT-SYNTHETIC-01"
+    candidate["entry_route"]="CONTACT_RELATED_OPPORTUNITY"
+    candidate["quotation_route"]="OPPORTUNITY_RELATED_QUOTATION"
     q={
         "reference":{"qid":"QID-2026-11-01-123456",
                      "sourceQuoteId":"a0P000000000001","opportunityId":"006000000000001"},
@@ -72,6 +74,38 @@ class NativeSaveTransactionTests(unittest.TestCase):
         self.assertEqual(review["net_krw"],"9690000")
         self.assertTrue(review["approval_digest"].startswith("SFDC-REVIEW-"))
         self.assertEqual(review["native_product_process_rows"],3)
+    def test_contact_first_native_origin_is_mandatory(self):
+        review,_=self.loaded()
+        self.assertEqual(review["status"],"VALIDATED_RECORD")
+        self.candidate["entry_route"]="GLOBAL_OPPORTUNITY_LIST_NEW"
+        self.files["candidate"].write_text(json.dumps(self.candidate),encoding="utf8")
+        held,_=self.loaded()
+        self.assertEqual(held["code"],"CONTACT_FIRST_ENTRY_REQUIRED")
+        self.candidate["entry_route"]="CONTACT_RELATED_OPPORTUNITY"
+        self.candidate["quotation_route"]="GLOBAL_QUOTATION_LIST_NEW"
+        self.files["candidate"].write_text(json.dumps(self.candidate),encoding="utf8")
+        held,_=self.loaded()
+        self.assertEqual(held["code"],"QUOTE_MUST_START_FROM_OPPO_RELATED")
+
+    def test_live_native_url_must_match_contact_and_fresh_opportunity_related(self):
+        review,_=self.loaded()
+        url="https://novogene.lightning.force.com/lightning/r/Contact/003000000000001/view"
+        self.assertIsNone(native_origin_route_violation(
+            "OPPORTUNITY",url,review,read_journal(self.files)))
+        self.assertEqual(native_origin_route_violation(
+            "OPPORTUNITY","https://novogene.lightning.force.com/lightning/o/Opportunity/list",
+            review,read_journal(self.files)),"CONTACT_FIRST_ENTRY_REQUIRED")
+        self.assertEqual(native_origin_route_violation(
+            "OPPORTUNITY","https://evil.example/lightning/r/Contact/003000000000001/view",
+            review,read_journal(self.files)),"NATIVE_ORIGIN_UNVERIFIED")
+        journal={"opportunity_id":"006000000000002"}
+        self.assertIsNone(native_origin_route_violation(
+            "QUOTATION","https://novogene.lightning.force.com/lightning/r/Opportunity/006000000000002/related",
+            review,journal))
+        self.assertEqual(native_origin_route_violation(
+            "QUOTATION","https://novogene.lightning.force.com/lightning/r/Opportunity/006000000000001/related",
+            review,journal),"QUOTE_MUST_START_FROM_OPPO_RELATED")
+
     def test_changed_queued_rate_or_name_cannot_save(self):
         self.candidate["opportunity_name"]="New synthetic name swapped"
         self.files["candidate"].write_text(json.dumps(self.candidate),encoding="utf8")

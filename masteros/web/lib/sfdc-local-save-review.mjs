@@ -125,6 +125,10 @@ export function reviewQueueRecord(entry,expectedId){
  return {
    status:"QUEUE_REVIEW_READY_SFDC_NATIVE_RECHECK_REQUIRED",
    requestId:expectedId,createdAtUtc:entry.receivedAtUtc||null,
+   supersedesRequestId:ID.test(entry.supersedesRequestId||"")?
+     entry.supersedesRequestId:null,
+   revisionKind:entry.revisionKind==="QUOTE_ISSUED_WORDING_ONLY__NO_CRM_WRITE"?
+     entry.revisionKind:null,
    queueStatus:entry.status,savePermitted:false,salesforceWrite:false,
    crmWrites:0,actualOpportunityCreated:false,actualQuotationCreated:false,
    name:proposed.name,requestedDateKst:proposed.date||"",
@@ -134,9 +138,11 @@ export function reviewQueueRecord(entry,expectedId){
    sourceOpportunityId:ref.opportunityId||"",
    sourceQuoteId:ref.sourceQuoteId||"",
    recordIdentityPolicy:"KEEP_EXACT_NAME_DISTINGUISH_BY_NATIVE_SFDC_ID",
-   account:{name:account.name||"",nativeIdVerified:false,
+   account:{name:account.name||"",
+     id:CRM_ID(account.id,"001")?account.id:null,nativeIdVerified:false,
      sourceIdPresent:CRM_ID(account.id,"001")},
-   contact:{name:contact.name||"",nativeIdVerified:false,
+   contact:{name:contact.name||"",
+     id:CRM_ID(contact.id,"003")?contact.id:null,nativeIdVerified:false,
      sourceIdPresent:CRM_ID(contact.id,"003")},
    cloudAndFeeStatus:"HOLD_SOURCE_RECHECK",fees,
    productCount:previews.length,products:previews,

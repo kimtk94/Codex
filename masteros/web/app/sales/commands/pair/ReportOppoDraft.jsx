@@ -472,7 +472,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       {changes.length>0&&<p className={styles.hint}>원본 대비 변경 항목 {changes.length}개:
         {" "}{changes.slice(0,12).map(x=>x.field).join(", ")}
         {changes.length>12?" 외 "+(changes.length-12)+"개":""}</p>}
-      <p className={styles.hint}>실제 Opportunity에서 쓰던 짧은 양식: 0407 Quote Issued mRNA-Seq 12 samples * 250,000KRW. 새 초안은 발송 전이므로 Quote Draft로 표시합니다.</p>
+      <p className={styles.hint}>Opportunity Progress Description은 확정 규칙에 따라 Quote Issued를 사용합니다. 예: 0407 Quote Issued mRNA-Seq 12 samples * 250,000KRW. 이 표기는 실제 고객 메일 발송의 증거가 아니며, 발송 여부는 별도로 확인합니다.</p>
       <p className={styles.hint}>MMDD · 상태 · 서비스 · Gb(해당 시) · 수량 · 단가만 표시합니다. 직접 수정하면 문구를 잠그며, 이후 값이 바뀌면 재검증이 필요합니다.</p>
       <div className={styles.inlineHead}>
         <b>현재 편집 상태</b>

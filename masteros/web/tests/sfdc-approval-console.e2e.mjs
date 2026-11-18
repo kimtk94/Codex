@@ -88,10 +88,12 @@ test("local approval console never writes SFDC and can rehearse and prepare unsa
      crmWrites:0,savePermitted:false};
    }else if(payload.mode==="OPPO_UNSAVED_PREPARE"){
     assert.equal(payload.requestId,qid);
-    data={status:"UNSAVED_OPPORTUNITY_FORM_READY",
+    data={status:"HOLD_FORM_PARTIAL",
+     stage:"EXISTING_CONTACT_OPENED_READ_ONLY",
+     reason:"CONTACT_FIRST_NEW_OPPORTUNITY_ACTION_NOT_YET_VERIFIED",
      salesforce_write:false,save_clicked:false,crm_writes:0,
-     fields:{"Opportunity Name":"FILLED_UNSAVED","Close Date":"FILLED_UNSAVED",
-       "Progress Description":"FILLED_UNSAVED"},
+     fields:{"Contact":"VERIFIED_NATIVE_003","Account":"VERIFIED_NATIVE_001",
+       "Opportunity":"NOT_CREATED"},
      page_open:true,savePermitted:false};
    }else throw Error("UNEXPECTED_MODE_"+payload.mode);
    await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(data)});
@@ -160,6 +162,8 @@ test("local approval console never writes SFDC and can rehearse and prepare unsa
   await page.getByTestId("prepare-opportunity-unsaved").click();
   await page.getByTestId("prepared-unsaved-opportunity").waitFor();
   assert.match(await page.getByTestId("prepared-unsaved-opportunity").innerText(),
+    /VERIFIED_NATIVE_003/);
+  assert.doesNotMatch(await page.getByTestId("prepared-unsaved-opportunity").innerText(),
     /FILLED_UNSAVED/);
   await page.getByTestId("sfdc-native-form-rehearsal").click();
   await page.getByTestId("sfdc-rehearsal-result").waitFor();

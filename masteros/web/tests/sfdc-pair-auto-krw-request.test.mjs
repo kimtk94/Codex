@@ -27,7 +27,7 @@ function draft(){
   contact:{id:"003000000000AAA",name:"Researcher"},
   name:"Korea-Research-mRNA-Quote",
   date:"2026-11-17",closeDate:"2026-12-17",
-  descriptionStatus:"Quote Draft",description:"",
+  descriptionStatus:"Quote Issued",description:"",
   products:[{id:"qproduct001",productionGb:"6",samples:"",sampleUnitKrw:"",
     cloudUnitKrw:"",serviceLabel:"mRNA-Seq",
     priceEvidenceStatus:"NOT_VERIFIED",

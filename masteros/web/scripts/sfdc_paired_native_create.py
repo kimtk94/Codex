@@ -178,6 +178,9 @@ def json_journal(path,state,**extra):
 
 
 def execute_pair(plan,journal):
+    # Historical global-list/cloning save executor violates SFDC-001/004.
+    # Actual writes must use the per-record Contact/Related native-ID writer.
+    raise ValueError("LEGACY_NON_CONTACT_SAVE_DISABLED")
     from feishu_sfdc_local_worker import json_run
     opp={**plan["opportunity"],"mode":"save",
          "confirmSave":True,"noDuplicateConfirmed":True}
@@ -226,6 +229,8 @@ def main():
             raise ValueError("UNKNOWN_REQUEST_KEYS")
         mode=req.get("mode")
         if mode not in ("PREFLIGHT","SAVE"):raise ValueError("WRONG_MODE")
+        if mode=="SAVE":
+            raise ValueError("LEGACY_NON_CONTACT_SAVE_DISABLED")
         plan,data=build_live_plan(req["canonical"])
         if plan.get("status")!="READY":result=plan
         elif mode=="PREFLIGHT":result=dry_run(plan)
