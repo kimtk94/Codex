@@ -135,6 +135,12 @@ def load_verified_request(request_id, home=None, *, asof_utc=None):
         mismatch = check_candidate_binding(queue,candidate)
         if mismatch:
             return _gate(mismatch), None
+        duplicates = evidence.get("duplicate_check")
+        if isinstance(duplicates,dict) and duplicates.get("scope") == "SOURCE_RECORD_ID_SNAPSHOT":
+            ref=queue["canonical"]["reference"]
+            if (candidate.get("source_opportunity_id") != ref.get("opportunityId") or
+                candidate.get("source_quotation_id") != ref.get("sourceQuoteId")):
+                return _gate("SOURCE_REFERENCE_NATIVE_ID_BINDING_MISMATCH"), None
         result = audit_save_preflight(candidate,evidence,asof_utc=asof_utc)
         if not result.get("ready_for_review") or not DIGEST.fullmatch(
             str(result.get("approval_digest",""))
@@ -147,6 +153,19 @@ def load_verified_request(request_id, home=None, *, asof_utc=None):
             "vat_krw":result["expected_vat_krw"],
             "gross_krw":result["expected_gross_krw"],
             "name":candidate["opportunity_name"],
+            "original_opportunity_id":queue["canonical"]["reference"].get("opportunityId",""),
+            "original_quotation_id":queue["canonical"]["reference"].get("sourceQuoteId",""),
+            "existing_opportunity_ids":(
+                duplicates.get("matching_opportunity_ids",[])
+                if isinstance(duplicates,dict) and duplicates.get("scope")=="SOURCE_RECORD_ID_SNAPSHOT"
+                else []
+            ),
+            "existing_quotation_ids":(
+                duplicates.get("matching_quotation_ids",[])
+                if isinstance(duplicates,dict) and duplicates.get("scope")=="SOURCE_RECORD_ID_SNAPSHOT"
+                else []
+            ),
+            "identity_method":"NATIVE_SFDC_ID_NOT_NAME",
             "account_id":candidate["account_id"],
             "contact_id":candidate["contact_id"],
             "account_name":queue["canonical"]["proposed"].get("account",{}).get("name") or "",
