@@ -294,7 +294,7 @@ export default function LocalSalesforceApprovalConsole(){
     <button type="button" style={button} onClick={prepareOpportunity}
       data-testid="prepare-opportunity-unsaved"
       disabled={preparing||!["PENDING_APPROVAL","NEEDS_REVIEW"].includes(review.queueStatus)}>
-      {preparing?"SFDC Opportunity 초안 입력 중":"Opportunity 입력창 열고 3개 필드 채우기 (No Save)"}
+      {preparing?"기존 Contact 연결 검증 중":"기존 Contact 열기 · Account 관계 확인 (No Save)"}
     </button>
     <button type="button" style={{...button,opacity:0.5,cursor:"not-allowed"}} disabled
       data-testid="save-to-sfdc-disabled">
@@ -306,7 +306,7 @@ export default function LocalSalesforceApprovalConsole(){
      <strong>{prepared.status}</strong>
      <p style={{fontSize:12,color:sub}}>
        새 Salesforce Opportunity 탭에서 Name·Close Date·Progress Description만 입력합니다.
-       Account·Contact·Amount·Stage·Forecast 등은 검증 전이므로 채우지 않았습니다.
+       기존 Contact·Account를 먼저 검증합니다. Opportunity는 Contact에서 신규 생성하는 native 경로가 확인되기 전까지 열거나 채우지 않습니다.
        Save는 누르지 않았으며, 생성 전에 중복 및 전체 필수값을 확인해야 합니다.
      </p>
      <div style={{fontSize:12}}>
