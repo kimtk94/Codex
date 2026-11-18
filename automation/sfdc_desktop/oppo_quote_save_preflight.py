@@ -76,8 +76,11 @@ def audit_save_preflight(candidate, evidence, *, asof_utc=None):
     quote_name = candidate.get("quotation_name")
     if not isinstance(name, str) or not NAME.fullmatch(name) or quote_name != name:
         errors.append("OPPORTUNITY_QUOTE_NAME_MISMATCH")
-    if not str(candidate.get("description", "")).strip():
+    progress_text = str(candidate.get("description", "")).strip()
+    if not progress_text:
         errors.append("NEW_PROGRESS_DESCRIPTION_REQUIRED")
+    if "Quote Issued" not in progress_text or "Quote Draft" in progress_text:
+        errors.append("QUOTE_ISSUED_PROGRESS_REQUIRED")
     if str(candidate.get("description", "")).strip() == str(candidate.get("source_progress_description", "")).strip():
         errors.append("PROGRESS_DESCRIPTION_COPIED")
 
