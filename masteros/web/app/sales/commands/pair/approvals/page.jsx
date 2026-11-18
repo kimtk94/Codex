@@ -211,6 +211,34 @@ export default function LocalSalesforceApprovalConsole(){
      위 샘플 부분합은 원본 가격 * 샘플 수를 단순 계산한 참고값이며
      Cloud·Process별 수량 차이·Pack·배송비·VAT가 제외되어 <strong>최종 Quotation 금액이 아닙니다.</strong>
    </p>
+   {review.products.some(p=>p.fixed_process_lines?.length>0)&&<div
+     data-testid="fixed-process-quote-comparison"
+     style={{marginTop:14,padding:12,background:bg,border:"1px solid "+border,borderRadius:9}}>
+     <strong style={{fontSize:13}}>샘플 금액 외 추가된 Process (별도 계산)</strong>
+     {review.products.flatMap((p,i)=>(p.fixed_process_lines||[]).map((f,j)=>
+       <p key={i+"-"+j} style={{fontSize:12,margin:"7px 0"}}>
+         {f.process_name||f.process_id} · 수량 {f.quantity} × {money(String(f.unit_price_krw))} =
+         {" "}<strong>{money(f.net_krw)}</strong>
+         {!f.reference_verified&&<span style={{color:"#f3ba99"}}> · 원본 불일치</span>}
+       </p>
+     ))}
+     <p style={{fontSize:12,margin:"8px 0"}}>
+       샘플 부분합 {money(review.provisionalSampleOnlySubtotalKrw)}
+       {" + "}추가 공정 {money(review.provisionalFixedProcessNetKrw)}
+     </p>
+     <p style={{fontSize:14,margin:"8px 0"}}>
+       <strong>공정 포함 참고 공급가액: {money(review.provisionalProcessInclusiveNetKrw)}</strong>
+       {" · "}VAT 10%: {money(review.provisionalVat10Krw)}
+       {" · "}VAT 포함: {money(review.provisionalGross10Krw)}
+     </p>
+     <p style={{fontSize:12,color:"#edc58e",margin:"6px 0"}}>
+       2026년 원본 단가를 적용한 비교 금액입니다. 기존 견적의 승인은
+       신규 고객 가격 승인과 다릅니다.
+       {review.provisionalCloudRatePresent?
+        " Cloud 단가가 있으므로 실제 총 Gb와 Cloud 수량을 별도로 확인해야 합니다.":
+        " Cloud·Fee 포함 여부와 실제 Salesforce 공정 입력을 재검증해야 합니다."}
+     </p>
+   </div>}
    <details><summary style={{cursor:"pointer",fontSize:13}}>원본 Process 명칭·ID 참조 펼치기</summary>
     {review.products.map((p,i)=><p key={i} style={{fontSize:12,overflowWrap:"anywhere"}}>
       <strong>{p.service}</strong> · {p.original_process_names.join(" · ")}
