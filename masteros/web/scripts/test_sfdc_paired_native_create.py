@@ -8,12 +8,12 @@ def row(typ,name,qty,price,cloud=False,pack="Package1"):
          "unitPriceKrw":price,"isCloud":cloud,"packNo":"" if cloud else pack}
 
 def cell(text="",value=None):return {"text":text,"value":value}
-def matrix(lines):
+def matrix(lines,gb=5):
  data=[]
  for idx,line in enumerate(lines):
   data.append([cell(str(idx+1)),cell(),cell("" if line["isCloud"] else "Package99"),
    cell(line["processType"]),cell(line["processName"]),
-   cell(value=f'{line["quantity"]}.00'),cell(value="1.00" if line["isCloud"] else "5.00"),
+   cell(value=f'{line["quantity"]}.00'),cell(value="1.00" if line["isCloud"] else str(gb)),
    cell("G raw data"),cell(value=f'{line["unitPriceKrw"]:,.2f}'),
    cell("987654"),cell(),cell(),cell()])
  return {"headers":["","","Pack No.","Process Name","Process Type","Sample Number",
@@ -57,7 +57,7 @@ class PureNativeSaveTests(unittest.TestCase):
          row("Data release","AliCloud",2,35000,True)]
   plan=validated_price_plan(lines,20,5.01,3270000)
   self.assertEqual(plan["cloudUnits"],2)
-  self.assertEqual(verify_native_matrix(plan,matrix(plan["lines"]))["cloudUnits"],2)
+  self.assertEqual(verify_native_matrix(plan,matrix(plan["lines"],gb=5.01))["cloudUnits"],2)
  def test_reject_price_qty_pack_cloud_and_total_mismatch(self):
   lines=[row("Library preparation","Lib",4,160000),
          row("Data release","AliCloud",1,35000,True)]
