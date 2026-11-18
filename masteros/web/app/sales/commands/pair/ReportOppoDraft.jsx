@@ -299,7 +299,8 @@ export default function ReportOppoDraft({quote,enabled=true}){
           <div className={styles.inlineHead}>
             <b>Product {i+1} · {p.processes.map(x=>x.name).slice(0,3).join(" + ")}</b>
             <small>{p.priceEvidenceStatus==="LIVE_SFDC_KRW_VERIFIED"?
-              "원본 KRW 단가 자동 적용":"원본 KRW 단가 확인 중"}</small>
+              "원본 KRW 단가 자동 적용":p.priceEvidenceStatus==="INDEX_2026_KRW_COMPARISON_ONLY"?
+              "기존 공정 수량으로 계산한 KRW 참고 단가 · 원본 재확인 필요":"원본 KRW 단가 확인 중"}</small>
           </div>
           <p className={styles.hint}>공정+Gb 유형:
             {" "}{p.preclassified?"사전 색인됨":"참조 미확인"}
@@ -381,11 +382,35 @@ export default function ReportOppoDraft({quote,enabled=true}){
             {" "}Cloud 금액 {money(item?.cloudNetKrw)} ·
             {" "}단가를 직접 수정하면 건별 승인 대상으로 표시됩니다.
           </p>
+          {(item?.fixedProcessLines?.length||0)>0&&
+            <div className={styles.totals} data-testid="source-fixed-product-process">
+              <div><span>샘플당 반복 공정 단가 (고정 공정 제외)</span>
+                <strong>{money(item?.unitKrw)}</strong></div>
+              {item.fixedProcessLines.map((fixed,j)=>
+                <div key={fixed.processId||j}>
+                  <span>{fixed.processName} · 원본 Product 고정 공정
+                    {" "}({fixed.quantity} × {money(fixed.unitPriceKrw)})</span>
+                  <strong>{money(fixed.netKrw)}</strong>
+                </div>)}
+              <div><span>기존 Quote 실효 단가 · 샘플 수로 나눈 참고값</span>
+                <strong>{Number.isInteger(item?.quantity)&&item.quantity>0&&
+                  Number.isSafeInteger(item.netKrw/item.quantity)?
+                  money(item.netKrw/item.quantity):"별도 표시 필요"}</strong></div>
+              {item.fixedProcessBasisChanged&&<p className={styles.warning}>
+                신규 샘플 수가 원본과 달라 고정 공정 재검증 필요 · 승인 보류
+              </p>}
+              <p className={styles.hint}>고정 Data release는 AliCloud나 별도 배송 Quotation Fee가
+                아닙니다. 샘플당 단가에 반복 합산하지 않고 원본 수량을 별도로 유지합니다.</p>
+            </div>}
           <div className={styles.totals}>
             <div><span>Oppo 샘플당 단가 · VAT 제외</span>
               <strong>{money(oppUnits.ok?oppUnits.products[i]?.unitPriceNetKrw:null)}</strong></div>
             {p.amplicon?.enabled&&<p className={styles.hint}>위 단가는 Region별 서비스를 모두 합친 생물학적 샘플 1개 기준 금액입니다. Region별 개별 단가와 구분합니다.</p>}
             <div><span>신규 Product 공급가액 · VAT 제외</span><strong>{money(item?.netKrw)}</strong></div>
+            {(item?.fixedProcessLines?.length||0)>0&&<div>
+              <span>Product 고정 공정 합계 · VAT 제외</span>
+              <strong>{money(item?.fixedProcessNetKrw)}</strong>
+            </div>}
           <div><span>AliCloud · 100Gb당 1개</span>
             <strong>{item?.cloudUnits??0}개 · {money(item?.cloudNetKrw)}</strong></div>
             {p.amplicon?.enabled&&<div>

@@ -62,6 +62,10 @@ export function validatePairRequest(input){
         id:p.id,serviceLabel:p.serviceLabel,productionGb:p.productionGb,
         samples:p.samples,sampleUnitKrw:p.sampleUnitKrw,
         cloudUnitKrw:p.cloudUnitKrw,priceEvidenceStatus:p.priceEvidenceStatus||"",
+        fixedProcessLines:(p.fixedProcessLines||[]).map(x=>({
+          processId:x.processId,processName:x.processName,quantity:x.quantity,
+          unitPriceKrw:x.unitPriceKrw,netKrw:x.netKrw})),
+        fixedProcessSourceSamples:p.fixedProcessSourceSamples??null,
         sourceQuoteProductId:p.id,
         processNames:p.processes.map(x=>x.name),
         processIds:p.processes.map(x=>x.processId),

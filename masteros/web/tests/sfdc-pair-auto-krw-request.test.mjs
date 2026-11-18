@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {verifiedSourcePrice,prefillVerifiedKrw} from "../lib/sfdc-pair-auto-krw.mjs";
-import {calculateDraft,draftDescription,opportunityUnitPriceSummary}
+import {calculateDraft,draftDescription,draftPreflight,opportunityUnitPriceSummary}
   from "../lib/sfdc-report-quote-draft.mjs";
 import {validatePairRequest} from "../lib/sfdc-pair-request-queue.mjs";
 import {historicalKrwReference,prefillHistoricalKrw} from "../lib/sfdc-pair-index-krw.mjs";
@@ -169,4 +169,76 @@ test("local-only web generation request is durable and idempotent",async()=>{
    else process.env.SFDC_LOCAL_COMMAND_ENABLED=previous.enabled;
    await rm(home,{force:true,recursive:true});
  }
+});
+
+test("Ehwa PMP 4 x 5Gb: recurring QC+Seq 57,500, once-only release 30,000, net 260,000",()=>{
+ const qid="QID-2026-10-20-407461";
+ const signature="9".repeat(64);
+ const row=(processId,processName,qty,rate,unit,size)=>({
+   source_kind:"VERIFIED_SFDC_KRW_PROCESS_PRICE",source_verified:true,
+   created_date:"2026-10-20",quote_id:qid,active:true,
+   approval_status:"APPROVED",currency:"KRW",was_usd_converted:false,
+   vat_basis:"VAT_EXCLUDED",account_id:"001000000000AAA",
+   contact_id:"003000000000AAA",product_signature:signature,
+   process_id:processId,process_name:processName,sample_quantity:qty,
+   unit_price_krw:String(rate),data_unit:unit,data_size:String(size)
+ });
+ const evidence={
+   version:"sfdc-2026-krw-process-prices-v1",
+   source:"SFDC_AUTHENTICATED_READ_ONLY_KRW_PROCESS_LINES",
+   generated_at:new Date().toISOString(),salesforce_write_performed:false,
+   records:[
+     row("Process-2020-04-30-00044","Library QC",4,20000,"NA",""),
+     row("Process-2020-04-29-00031","Sequencing by data amount",4,37500,"G raw data",5),
+     row("Process-2020-04-29-00032","Analysis by sample",4,0,"G raw data",5),
+     row("Process-2020-04-29-00034","Data release",1,30000,"NA",1)
+   ]
+ };
+ const base=draft();
+ base.qid=qid;base.name="Korea-Ehwa Univ.-4-PMP-5Gb-Prof. RohTaeYoung";
+ base.products[0].productionGb="5";
+ base.products[0].serviceLabel="PMP";
+ base.products[0].processes=evidence.records.map(x=>({
+   processId:x.process_id,name:x.process_name
+ }));
+ const candidate=historicalKrwReference(evidence,qid,base.products[0]);
+ assert.equal(candidate.ok,true,candidate.code);
+ assert.equal(candidate.sourceSamples,4);
+ assert.equal(candidate.candidateSampleUnitKrw,57500);
+ assert.equal(candidate.recurringProcessNetKrw,230000);
+ assert.equal(candidate.fixedProcessNetKrw,30000);
+ assert.equal(candidate.fixedProcessLines.length,1);
+ assert.equal(candidate.fixedProcessLines[0].quantity,1);
+ assert.equal(candidate.effectiveHistoricalUnitKrw,65000);
+ assert.equal(candidate.sourceProductNetKrw,260000);
+ const proposed=prefillHistoricalKrw(base,evidence);
+ assert.equal(proposed.products[0].samples,"4");
+ assert.equal(proposed.products[0].sampleUnitKrw,"57500");
+ assert.equal(proposed.products[0].fixedProcessNetKrw,30000);
+ const calculated=calculateDraft(proposed);
+ assert.equal(calculated.ok,true);
+ assert.equal(calculated.netKrw,260000);
+ assert.equal(calculated.vatKrw,26000);
+ assert.equal(calculated.grossKrw,286000);
+ assert.equal(calculated.items[0].fixedProcessNetKrw,30000);
+ assert.deepEqual(calculated.quoteLineItems.map(x=>x.kind),
+   ["PRODUCT","FIXED_PRODUCT_PROCESS"]);
+ assert.equal(opportunityUnitPriceSummary(calculated).overallPerSampleNetKrw,57500);
+ assert.equal(opportunityUnitPriceSummary(calculated).products[0].effectiveUnitNetKrw,65000);
+ proposed.description=draftDescription(proposed,calculated);
+ assert.match(proposed.description,/Data release 1 × 30,000KRW/);
+ assert.ok(!draftPreflight(proposed).errors.includes(
+   "HISTORICAL_FIXED_PROCESS_REVALIDATION_REQUIRED"));
+ const changed={...proposed,products:[{...proposed.products[0],samples:"6"}]};
+ const changedCalc=calculateDraft(changed);
+ assert.equal(changedCalc.netKrw,375000);
+ assert.equal(changedCalc.items[0].fixedProcessBasisChanged,true);
+ assert.ok(draftPreflight(changed).errors.includes(
+   "HISTORICAL_FIXED_PROCESS_REVALIDATION_REQUIRED"));
+ changed.description=draftDescription(changed,changedCalc);
+ assert.equal(validatePairRequest({mode:"SUBMIT_FOR_APPROVAL",draft:changed}).status,
+   "NEEDS_REVIEW");
+ const invalid={...evidence,records:evidence.records.map(x=>({...x}))};
+ invalid.records[3].sample_quantity=2;
+ assert.equal(historicalKrwReference(invalid,qid,base.products[0]).ok,false);
 });

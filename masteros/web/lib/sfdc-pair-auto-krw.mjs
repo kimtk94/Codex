@@ -68,6 +68,9 @@ export function prefillVerifiedKrw(draft,evidence){
     samples:product.samples||String(evidence.samples),
     sampleUnitKrw:String(evidence.sampleUnitKrw),
     cloudUnitKrw:String(evidence.cloudUnitKrw),
+    // An independently verified native product matrix replaces the tentative
+    // historical comparison in full; never stack fixed charges on it twice.
+    fixedProcessLines:[],fixedProcessNetKrw:0,fixedProcessSourceSamples:null,
     priceEvidenceStatus:"LIVE_SFDC_KRW_VERIFIED",
     priceSourceQuoteId:evidence.nativeQuoteId,
     priceSourceUnitKrw:evidence.sampleUnitKrw,
