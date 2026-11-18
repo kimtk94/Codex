@@ -62,7 +62,7 @@ export default function LocalSalesforceApprovalConsole(){
   finally{setRehearsing(false)}
  };
  const prepareOpportunity=async()=>{
-  if(!review||preparing||review.queueStatus!=="PENDING_APPROVAL")return;
+  if(!review||preparing||!["PENDING_APPROVAL","NEEDS_REVIEW"].includes(review.queueStatus))return;
   setPreparing(true);setPrepared(null);setError("");
   try{
     const data=await local({mode:"OPPO_UNSAVED_PREPARE",requestId:review.requestId});
