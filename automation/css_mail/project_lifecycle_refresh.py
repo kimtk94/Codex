@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only sources -> BI lifecycle projection. Never changes the user month overrides."""
 import datetime as dt
+import decimal
 import re
 import sys
 import urllib.parse
@@ -44,18 +45,31 @@ def lifecycle_content_equal(expected,observed):
             or not expected or len(expected)!=len(observed)):
         return False
     width=len(HEAD)
-    def normalize(value):
+    def normalize(value, col):
         if value is None:
             return ""
-        return str(value)
+        raw=str(value)
+        if col==7 and raw.strip():
+            # CSS Progress % is a numeric column. Google Sheets may persist
+            # 97.0 but return 97 from UNFORMATTED_VALUE, with no real change.
+            # This exception applies ONLY to progress; invoice amounts, dates,
+            # stage labels, Source Keys and all other fields remain exact.
+            try:
+                number=decimal.Decimal(raw.strip())
+            except decimal.InvalidOperation:
+                pass
+            else:
+                if number.is_finite():
+                    return number
+        return raw
     for a,b in zip(expected,observed):
         if not isinstance(a,list) or not isinstance(b,list):
             return False
-        if any(normalize(x) for x in a[width:]+b[width:]):
+        if any(str(x) for x in a[width:]+b[width:] if x is not None):
             return False
         for col in range(width):
-            left=normalize(a[col]) if col<len(a) else ""
-            right=normalize(b[col]) if col<len(b) else ""
+            left=normalize(a[col],col) if col<len(a) else ""
+            right=normalize(b[col],col) if col<len(b) else ""
             if left!=right:
                 return False
     return True

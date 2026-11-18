@@ -1,0 +1,56 @@
+name: CSS Lifecycle Raw Readback Diagnostic (No Writes)
+on:
+  pull_request:
+    paths:
+      - automation/ops/lifecycle_raw_readback_diagnostic.py
+      - automation/ops/test_lifecycle_raw_readback_diagnostic.py
+      - .github/workflows/css-lifecycle-raw-readback-diagnostic.yml
+  push:
+    branches: [diagnostic/lifecycle-raw-readback-20261118]
+    paths:
+      - automation/ops/lifecycle_raw_readback_diagnostic.py
+      - automation/ops/test_lifecycle_raw_readback_diagnostic.py
+      - .github/workflows/css-lifecycle-raw-readback-diagnostic.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      PYTHONPATH: automation/ops:automation/css_mail:automation/feishu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Import read-only dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify numeric normalization and exact 24-column checks
+        run: python3 -m unittest discover -s automation/ops -p 'test_lifecycle_raw_readback_diagnostic.py' -v
+
+  source-read:
+    needs: offline
+    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.offline.result == 'success' }}
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: automation/ops:automation/css_mail:automation/feishu
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google readonly dependency
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Diagnose full 111-by-24 lifecycle readback without logging cell values
+        run: |
+          python3 automation/ops/lifecycle_raw_readback_diagnostic.py
+          echo 'READ_ONLY=1;NO_SFDC_SAVE;NO_GSHEET_WRITES;NO_CUSTOMER_VALUES;24_COLS_AGGREGATE' >> "$GITHUB_STEP_SUMMARY"
