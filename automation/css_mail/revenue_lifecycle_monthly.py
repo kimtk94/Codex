@@ -273,7 +273,7 @@ def merge_recomputed_with_forecast_retirements(old, new, stamp):
             month=cell(record,0)
             if not month or month in found:
                 raise RuntimeError("MONTHLY_MERGE_DUPLICATE_OR_MISSING_MONTH")
-            if month!="UNSCHEDULED" and not re.fullmatch(r"20\\d{2}-(?:0[1-9]|1[0-2])",month):
+            if month!="UNSCHEDULED" and not re.fullmatch(r"20[0-9]{2}-(?:0[1-9]|1[0-2])",month):
                 raise RuntimeError("MONTHLY_MERGE_MONTH_INVALID")
             found[month]=record
         return found
