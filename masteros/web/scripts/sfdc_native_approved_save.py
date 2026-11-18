@@ -24,15 +24,15 @@ sys.path.insert(0,str(REPO/"automation"/"sfdc_desktop"))
 from native_save_transaction import (
     load_verified_request, read_journal, create_session, consume_session,
     exclusive_transaction, release_lock, before_click, after_click, mark_unknown,
-    _gate
+    created_id_is_distinct, _gate
 )
 
 HOST="https://novogene.lightning.force.com"
 OPPO_ID=re.compile(r"^006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
 QUOTE_ID=re.compile(r"^a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$")
 URL_ID={
- "OPPORTUNITY":re.compile(r"/lightning/r/Opportunity/(006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)(?:/|$)"),
- "QUOTATION":re.compile(r"/lightning/r/Quotation__c/(a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)(?:/|$)")
+ "OPPORTUNITY":re.compile(r"/lightning/r/(?:Opportunity/)?(006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)(?:/|$)"),
+ "QUOTATION":re.compile(r"/lightning/r/(?:Quotation__c/)?(a0P[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?)(?:/|$)")
 }
 # Native read-only inspection. Never mutate DOM or shadow-root fields here.
 JS=r"""(wanted) => {
@@ -156,6 +156,19 @@ async def validate_native_form(page,modal,stage,review,files):
             review["name"].casefold() not in str(values.get("Opportunity") or "").casefold()
         ):
             issues.append("APPROVED_OPPORTUNITY_PARENT_NAME_NOT_SELECTED")
+        # Same names are intentional. A matching name does NOT identify the
+        # correct new parent; the native Quote lookup must resolve the newly
+        # created 006 ID saved in this request's immutable journal.
+        parent_id=str(journal.get("opportunity_id") or "")
+        if OPPO_ID.fullmatch(parent_id):
+            matching=modal.locator(
+                'a[href*="/'+parent_id+'"],[data-recordid="'+parent_id+'"],'+
+                '[data-record-id="'+parent_id+'"]'
+            )
+            if await matching.count()!=1:
+                issues.append("QUOTATION_PARENT_NATIVE_006_ID_NOT_VERIFIED")
+        else:
+            issues.append("QUOTATION_PARENT_NATIVE_006_ID_NOT_VERIFIED")
         if "KRW" not in str(values.get("Quotation Currency") or ""):
             issues.append("QUOTATION_CURRENCY_NOT_VERIFIED")
         if safe_number(str(values.get("GST") or "")) != Decimal("10"):
@@ -275,6 +288,13 @@ async def run(message):
                             save=modal.get_by_role("button",name="Save",exact=True)
                             await save.click(timeout=15000)
                             new_id=await readback(page,stage,review["name"])
+                            if new_id and not created_id_is_distinct(stage,new_id,review):
+                                mark_unknown(files)
+                                return {"status":"UNKNOWN_AFTER_CLICK_RECONCILE_REQUIRED",
+                                    "stage":stage,"save_clicked":True,
+                                    "salesforce_write":True,"crm_writes":"UNVERIFIED",
+                                    "code":"RETURNED_ID_IS_EXISTING_RECORD_NOT_NEW",
+                                    "automaticRetryAllowed":False}
                             if not new_id:
                                 mark_unknown(files)
                                 return {"status":"UNKNOWN_AFTER_CLICK_RECONCILE_REQUIRED",
