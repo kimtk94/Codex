@@ -39,12 +39,8 @@ LABEL_JS=r"""(label) => {
       if(r.host.tagName?.toLowerCase()===tag){inner(r.host);break}
       r=r.host.getRootNode();
     }
-    const id=lab.getAttribute("for");
-    const linked=id?root.getElementById?.(id):null;
-    if(linked){
-      if(label==="Progress Description"?linked.tagName==="TEXTAREA":linked.tagName==="INPUT")
-        controls.add(linked);
-    }
+    // Salesforce Lightning Locker forbids ShadowRoot.getElementById.
+    // Deliberately rely only on label-host ancestry and host label match.
   }
   for(const root of roots)for(const host of root.querySelectorAll(tag)){
     if(normalize(host.getAttribute("label"))===normalize(label))inner(host);
