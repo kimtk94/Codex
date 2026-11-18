@@ -38,3 +38,12 @@ test("missing source AliCloud unit price cannot silently become zero cost",()=>{
  assert.equal(calc.items[0].ready,false);
  assert.equal(calc.netKrw,null);
 });
+
+test("Ewha PMP 4 samples x 5 Gb bills exactly one 100Gb Cloud unit",()=>{
+ // Synthetic rate verifies arithmetic only. The real Opportunity
+ // 006TK00000t39gbYAA requires authenticated Salesforce readback.
+ const calc=calculateDraft(makeDraft(4,5,"30000"));
+ assert.equal(calc.items[0].cloudUnits,1);
+ assert.equal(calc.items[0].cloudNetKrw,30000);
+ assert.equal(calc.netKrw,830000);
+});
