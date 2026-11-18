@@ -10,12 +10,13 @@ const money=x=>Number.isSafeInteger(x)?x.toLocaleString("ko-KR")+" KRW":"확인 
 export default function PairedSaveApproval({review}){
  const [busy,setBusy]=useState(false),[precheck,setPrecheck]=useState(null);
  const [confirmation,setConfirmation]=useState("");
+ const [duplicateConfirmed,setDuplicateConfirmed]=useState(false);
  const [outcome,setOutcome]=useState(null),[error,setError]=useState("");
  const approve=async mode=>{
   if(busy||!review?.requestId)return;
   if(mode==="COMMIT"){
    if(!precheck||precheck.status!=="READY_FOR_OPERATOR_APPROVAL"||
-      confirmation!==precheck.typedConfirmation)return;
+      confirmation!==precheck.typedConfirmation||!duplicateConfirmed)return;
    if(!window.confirm(
      "SFDC에 신규 Opportunity와 Quotation을 실제 저장합니다. "+
      "Quote Product 입력 단계가 실패하면 미완성 Quote가 남을 수 있습니다. "+
@@ -23,13 +24,15 @@ export default function PairedSaveApproval({review}){
      "에 동의하십니까?"))return;
   }
   setBusy(true);setError("");
-  if(mode==="PRECHECK"){setPrecheck(null);setOutcome(null);setConfirmation("")}
+  if(mode==="PRECHECK"){setPrecheck(null);setOutcome(null);setConfirmation("");
+    setDuplicateConfirmed(false)}
   try{
    const payload={mode,requestId:review.requestId};
    if(mode==="COMMIT"){
     payload.nonce=precheck.nonce;
     payload.approvalDigest=precheck.approvalDigest;
     payload.confirmation=confirmation;
+    payload.duplicateConfirmed=duplicateConfirmed;
    }
    const res=await fetch("/api/sfdc/pair-native-create-local",{
     method:"POST",credentials:"omit",cache:"no-store",
@@ -83,9 +86,18 @@ export default function PairedSaveApproval({review}){
        placeholder={precheck.typedConfirmation}
        style={{display:"block",padding:10,marginTop:8,width:"100%",maxWidth:390,
          background:"#14283b",color:"#d6e7f3",border:"1px solid #35526c",borderRadius:8}}/>
+     <label style={{display:"flex",gap:8,alignItems:"start",fontSize:12,marginTop:13}}>
+       <input type="checkbox" data-testid="paired-duplicate-confirmation"
+         checked={duplicateConfirmed}
+         onChange={e=>setDuplicateConfirmed(e.target.checked)}/>
+       신규 견적 이름·Account·Contact의 기존 Salesforce 레코드를 직접 확인했고,
+       동일 건이 중복 생성되지 않음을 확인했습니다.
+       최근 조회 목록 검색만으로 전체 CRM 중복 부재가 보장되지 않는다는 점을 이해합니다.
+     </label>
      <button data-testid="pair-real-save-commit" type="button"
        style={{...btn,background:"#9d493c",marginTop:12}}
-       disabled={busy||confirmation!==precheck.typedConfirmation}
+       disabled={busy||!duplicateConfirmed||
+         confirmation!==precheck.typedConfirmation}
        onClick={()=>approve("COMMIT")}>
        실제 Salesforce Opportunity + Quotation 저장
      </button>
