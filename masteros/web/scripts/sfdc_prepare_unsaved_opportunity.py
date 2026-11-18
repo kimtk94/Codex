@@ -6,7 +6,6 @@ fills Opportunity Name / Close Date / Progress Description, no Account/Contact
 selection, Amount, or Stage. Never clicks Save. Salesforce record writes: ZERO.
 """
 import json,sys,asyncio
-from playwright.async_api import async_playwright
 HOST="https://novogene.lightning.force.com"
 LABEL_JS=r"""(label) => {
   const normalize=s=>(s||"").replace(/\s+/g," ").replace(/^\s*\*\s*/,"").trim().toLowerCase();
@@ -118,6 +117,7 @@ async def main():
   if not isinstance(description,str) or not 5<=len(description)<=3000:
    raise ValueError("INVALID_DESCRIPTION")
   output["stage"]="CDP_CONNECT"
+  from playwright.async_api import async_playwright
   async with async_playwright() as pw:
    br=await pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=16000)
    if not br.contexts:raise RuntimeError("CHROME_NOT_AUTHENTICATED")
