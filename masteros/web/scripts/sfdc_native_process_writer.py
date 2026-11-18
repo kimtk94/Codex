@@ -49,7 +49,7 @@ def validated_price_plan(lines,samples,gb,net):
             if not pack:raise ValueError("NATIVE_PROCESS_PACK_MISSING")
             noncloud_packs.add(pack)
         out.append({"processType":typ,"processName":name,"quantity":qty,
-                    "unitPriceKrw":rate,"isCloud":cloud})
+                    "unitPriceKrw":rate,"isCloud":cloud,"packNo":pack})
     if len(noncloud_packs)!=1 or clouds!=1:
         raise ValueError("NATIVE_PACK_OR_CLOUD_NOT_UNIQUE")
     if sum(r["quantity"]*r["unitPriceKrw"] for r in out)!=net:
