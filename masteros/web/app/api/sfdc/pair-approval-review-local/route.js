@@ -147,7 +147,7 @@ export async function POST(request){
   if(rehearsalBusy)return deny("LOCAL_SFDC_FORM_BUSY",409);
   const view=await record(dir,input.requestId);
   if(view.status!=="QUEUE_REVIEW_READY_SFDC_NATIVE_RECHECK_REQUIRED"||
-     view.queueStatus!=="PENDING_APPROVAL"||
+     !["PENDING_APPROVAL","NEEDS_REVIEW"].includes(view.queueStatus)||
      !view.name||!view.closeDateKst||!view.description)
     return deny("REVIEW_QUEUE_NOT_READY_FOR_UNSAVED_FORM",422);
   rehearsalBusy=true;
