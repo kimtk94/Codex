@@ -29,6 +29,37 @@ async function record(dir,id){
   return reviewQueueRecord(entry,id);
  }catch{return {status:"HOLD",code:"QUEUE_REQUEST_NOT_FOUND"}}
 }
+async function nativeSourceAuditForQueueId(id){
+ const home=process.env.LOCALAPPDATA;
+ if(!home||!isQueueRequestId(id))return {status:"NOT_RUN"};
+ const folder=join(home,"SFDC_Native_Save_Approvals",id);
+ try{
+  const stat=await lstat(folder);
+  if(!stat.isDirectory()||stat.isSymbolicLink())return {status:"HOLD_PRIVATE_AUDIT_FOLDER_UNSAFE"};
+  const names=(await readdir(folder)).filter(
+   x=>/^native_source_reconcile_\d{8}_\d{2}\.json$/.test(x)
+  ).sort().reverse();
+  if(!names.length)return {status:"NOT_RUN"};
+  const path=join(folder,names[0]),file=await lstat(path);
+  if(!file.isFile()||file.isSymbolicLink()||file.size<100||file.size>75000)
+   return {status:"HOLD_NATIVE_SOURCE_AUDIT_FILE_INVALID"};
+  const obj=JSON.parse(await readFile(path,"utf8"));
+  if(obj.approval_request_id!==id||obj.save_permitted!==false||
+     obj.crm_writes!==0||!["HOLD_NATIVE_QUOTE_SOURCE",
+        "NATIVE_SOURCE_LINES_VERIFIED_NOT_SAVE_APPROVED"].includes(obj.status)||
+     !Array.isArray(obj.reason_codes)||obj.reason_codes.length>25||
+     !Array.isArray(obj.source_processes))
+    return {status:"HOLD_NATIVE_SOURCE_AUDIT_PROVENANCE"};
+  return {
+    status:obj.status,
+    reasonCodes:obj.reason_codes.filter(
+      x=>typeof x==="string"&&/^[A-Z0-9_]{5,90}$/.test(x)),
+    processRows:obj.source_processes.length,
+    verifiedAtUtc:typeof obj.checked_at_utc==="string"?obj.checked_at_utc:null,
+    savePermitted:false
+  };
+ }catch{return {status:"NOT_RUN"}}
+}
 function prepareUnsavedOpportunity(review){
  return new Promise((resolve,reject)=>{
   const child=spawn(process.env.SFDC_LOCAL_PYTHON||"python",
@@ -141,7 +172,8 @@ export async function POST(request){
  if(input.mode==="DETAIL"){
   const view=await record(dir,input.requestId);
   return view.status==="QUEUE_REVIEW_READY_SFDC_NATIVE_RECHECK_REQUIRED"?
-   respond(view):deny(view.code||"QUEUE_INVALID",404);
+   respond({...view,sourceAudit:await nativeSourceAuditForQueueId(input.requestId)}):
+   deny(view.code||"QUEUE_INVALID",404);
  }
  if(input.mode==="OPPO_UNSAVED_PREPARE"){
   if(rehearsalBusy)return deny("LOCAL_SFDC_FORM_BUSY",409);

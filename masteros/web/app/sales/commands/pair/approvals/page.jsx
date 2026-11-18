@@ -191,6 +191,30 @@ export default function LocalSalesforceApprovalConsole(){
      <p style={{margin:"6px 0"}}>원본 Opportunity: <code>{review.sourceOpportunityId||"ID 확인 필요"}</code>
       {" · "}원본 Quotation: <code>{review.sourceQuoteId||"ID 확인 필요"}</code></p>
    </div>
+   <div data-testid="sfdc-native-source-process-audit" style={{fontSize:12,
+      background:bg,border:"1px solid "+border,borderRadius:9,padding:12,marginTop:12}}>
+      <strong>원본 Product·Process 실제 SFDC ID 검증</strong>
+      <p style={{margin:"6px 0"}}>
+        {review.sourceAudit?.status==="NOT_RUN"||!review.sourceAudit?
+         "기존 Salesforce 공정 레코드의 신규 저장 검증 자료가 없습니다.":
+         "검토 상태: "+review.sourceAudit.status+
+         " · 원본 Process "+review.sourceAudit.processRows+"개 확인"}
+      </p>
+      {review.sourceAudit?.reasonCodes?.includes(
+        "ALICLOUD_EXCLUDED_BUT_SOURCE_HAS_ALICLOUD_TYPED_PROCESS")&&
+        <p style={{color:"#edc58e",margin:"6px 0"}}>
+          AliCloud 제외 조건과 원본 Data release 30,000원(Process Type: AliCloud)이
+          충돌합니다. 추가 AliCloud를 제외하되 Data release는 유지할지
+          결정되기 전까지 저장할 수 없습니다.
+        </p>}
+      {review.sourceAudit?.reasonCodes?.filter(x=>
+        x!=="ALICLOUD_EXCLUDED_BUT_SOURCE_HAS_ALICLOUD_TYPED_PROCESS")
+        .map((reason,i)=><p key={i} style={{margin:"4px 0",color:"#edc58e"}}>
+        {reason}</p>)}
+      <p style={{margin:"6px 0",color:sub}}>
+        위 결과는 원본 검증이며 새 Opportunity·Quotation 저장 승인이 아닙니다.
+      </p>
+   </div>
    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:9}}>
     {[["Account",review.account.name,review.account.sourceIdPresent],
      ["Contact",review.contact.name,review.contact.sourceIdPresent],
