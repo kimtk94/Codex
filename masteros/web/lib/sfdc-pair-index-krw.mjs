@@ -27,7 +27,8 @@ function historicalReferenceFromValidatedRows(records,sourceQid,product) {
   const matches=[...groups.values()].filter(rows=>
     rows.length===required.length &&
     required.every(id=>rows.filter(r=>r.process_id===id).length===1) &&
-    (gb===null||rows.some(r=>r.data_unit==="Gb"&&Number(r.data_size)===gb)));
+    (gb===null||rows.some(r=>["Gb","G raw data"].includes(r.data_unit)&&
+      Number(r.data_size)===gb)));
   if(matches.length!==1)return {ok:false,code:"HISTORICAL_EXACT_PROCESS_MATCH_UNAVAILABLE"};
   const rows=matches[0];
   const isCloud=r=>/ali\s*cloud|cloud storage|cloud service/i.test(r.process_name);
@@ -43,7 +44,7 @@ function historicalReferenceFromValidatedRows(records,sourceQid,product) {
   if(quantities.size!==1)
     return {ok:false,code:"HISTORICAL_MIXED_PROCESS_QUANTITIES"};
   const sourceSamples=sampleRows[0].sample_quantity;
-  const gbRows=sampleRows.filter(r=>r.data_unit==="Gb");
+  const gbRows=sampleRows.filter(r=>["Gb","G raw data"].includes(r.data_unit));
   if(gb!==null&&(!gbRows.length||gbRows.some(r=>Number(r.data_size)!==gb)))
     return {ok:false,code:"HISTORICAL_EXACT_SOURCE_GB_NOT_FOUND"};
 
