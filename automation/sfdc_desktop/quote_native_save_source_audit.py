@@ -176,7 +176,14 @@ def audit_source_bundle(queue, bundle, terms):
     if terms.get("approved_terms",{}).get("alicloud")=="EXCLUDE" and ali_cloud_rows:
         errors.append("ALICLOUD_EXCLUDED_BUT_SOURCE_HAS_ALICLOUD_TYPED_PROCESS")
     if errors:
-        return _hold(errors,records)
+        held=_hold(errors,records)
+        # Original SFDC Process IDs/rates can be completely verified while
+        # the separately approved AliCloud business condition remains HOLD.
+        # Expose these two independent facts; do not promote to Save readiness.
+        if set(errors)=={"ALICLOUD_EXCLUDED_BUT_SOURCE_HAS_ALICLOUD_TYPED_PROCESS"}:
+            held["native_source_verified"]=True
+            held["native_source_snapshot_complete"]=True
+        return held
     return {
         "status":"NATIVE_SOURCE_LINES_VERIFIED_NOT_SAVE_APPROVED",
         "reason_codes":[],
