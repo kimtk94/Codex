@@ -60,6 +60,9 @@ class NativeSourceAuditTests(unittest.TestCase):
         self.assertEqual(result["reason_codes"],
           ["ALICLOUD_EXCLUDED_BUT_SOURCE_HAS_ALICLOUD_TYPED_PROCESS"])
         self.assertEqual(len(result["source_processes"]),4)
+        self.assertTrue(result["native_source_verified"])
+        self.assertTrue(result["native_source_snapshot_complete"])
+        self.assertFalse(result["new_quotation_price_approval"])
         self.assertFalse(result["save_permitted"])
         self.assertEqual(result["crm_writes"],0)
 
