@@ -124,13 +124,22 @@ async def validate_native_form(page,modal,stage,review,files):
         if review["close_date_kst"] not in str(values["Close Date"]):
             # Date field can use MM/DD/YYYY; avoid false acceptance.
             issues.append("CLOSE_DATE_NOT_EXACTLY_VERIFIED")
-        if not values["Progress Description"]:
-            issues.append("PROGRESS_DESCRIPTION_EMPTY")
+        if str(values["Progress Description"] or "").strip() != review["progress_description"].strip():
+            issues.append("PROGRESS_DESCRIPTION_DIFFERS_FROM_APPROVED_TEXT")
         amount=safe_number(str(values["Amount"] or ""))
         if amount is None or amount != Decimal(review["net_krw"]):
             issues.append("OPPORTUNITY_AMOUNT_NOT_RECONCILED")
         for key in ["Account Name","Main Contact","Opportunity Currency","Service Line","Stage","Forecast Category"]:
             if not values.get(key):issues.append("EMPTY_NATIVE_"+key.upper().replace(" ","_"))
+        for field,approved in (
+            ("Account Name",review["account_name"]),
+            ("Main Contact",review["contact_name"]),
+            ("Service Line",review["service_line"]),
+            ("Stage",review["stage"]),
+            ("Forecast Category",review["forecast_category"])
+        ):
+            if not approved or approved.casefold() not in str(values.get(field) or "").casefold():
+                issues.append("NATIVE_"+field.upper().replace(" ","_")+"_DIFFERS_FROM_APPROVED")
         if values.get("Opportunity Currency") and "KRW" not in values["Opportunity Currency"]:
             issues.append("NOT_KRW_CURRENCY")
         # Native contact/account IDs are separately verified in the fresh source
@@ -143,8 +152,10 @@ async def validate_native_form(page,modal,stage,review,files):
         journal=read_journal(files)
         if journal["state"]!="OPPORTUNITY_SAVED" or not OPPO_ID.fullmatch(str(journal.get("opportunity_id",""))):
             issues.append("PARENT_OPPORTUNITY_NOT_VERIFIED")
-        if not values.get("Opportunity"):
-            issues.append("OPPORTUNITY_LOOKUP_NOT_SELECTED")
+        if not values.get("Opportunity") or (
+            review["name"].casefold() not in str(values.get("Opportunity") or "").casefold()
+        ):
+            issues.append("APPROVED_OPPORTUNITY_PARENT_NAME_NOT_SELECTED")
         if "KRW" not in str(values.get("Quotation Currency") or ""):
             issues.append("QUOTATION_CURRENCY_NOT_VERIFIED")
         if safe_number(str(values.get("GST") or "")) != Decimal("10"):
@@ -157,6 +168,22 @@ async def validate_native_form(page,modal,stage,review,files):
         if ("Quotation Product" not in visible or
              "Quotation Process" not in visible):
             issues.append("QUOTATION_PRODUCT_PROCESS_ROWS_NOT_VERIFIED_IN_FORM")
+        # Headers alone are insufficient; native Process IDs must be
+        # individually visible/reconciled before a real Quotation Save.
+        try:
+            from native_save_transaction import _read
+            candidate=_read(files["candidate"])
+            expected_ids=[
+                line["native_process_id"]
+                for product in candidate.get("products",[])
+                for line in product.get("processes",[])
+            ]
+            if not expected_ids or len(expected_ids)!=review["native_product_process_rows"] or (
+                any(process_id not in visible for process_id in expected_ids)
+            ):
+                issues.append("QUOTATION_EXACT_NATIVE_PROCESS_ROWS_NOT_RECONCILED")
+        except (KeyError,ValueError,TypeError,OSError):
+            issues.append("QUOTATION_PROCESS_SOURCE_UNAVAILABLE")
     save=modal.get_by_role("button",name="Save",exact=True)
     if await save.count()!=1 or not await save.is_enabled():
         issues.append("UNIQUE_ENABLED_SAVE_BUTTON_NOT_FOUND")
