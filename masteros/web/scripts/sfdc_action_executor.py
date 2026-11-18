@@ -28,7 +28,7 @@ def resolve_lookup(pg,label,key,search):
     clear=pg.get_by_role("button",name="Clear "+label+" Selection")
     if clear.count()==1:clear.click(timeout=4500)
     x.fill(search,timeout=5000)
-    opt=pg.locator('lightning-base-combobox-item[role=option][data-value="'+key+'"]')
+    opt=pg.locator('lightning-base-combobox-item[role=option][data-value^="'+key[:15]+'"]')
     for _ in range(20):
         if opt.count()==1:break
         pg.wait_for_timeout(250)
@@ -204,7 +204,7 @@ def quote_lookup(page,label,search,expected_id=None):
         # Account. Only the exact native Salesforce record ID is acceptable.
         if not ID("001" if label=="Account Name" else "003",expected_id):
             raise RuntimeError("QUOTE_LOOKUP_NATIVE_ID_INVALID")
-        options=scope.locator('[role="option"][data-value="'+expected_id+'"]')
+        options=scope.locator('[role="option"][data-value^="'+expected_id[:15]+'"]')
         if options.count()!=1:
             raise RuntimeError("QUOTE_LOOKUP_EXACT_NATIVE_ID_NOT_FOUND")
         if search not in options.inner_text(timeout=3000):
