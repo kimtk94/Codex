@@ -261,7 +261,8 @@ export default function ReportOppoDraft({quote,enabled=true}){
           <strong>{draft.products.map(p=>
             (p.samples||"?")+"개 · "+(p.productionGb||"?")+"Gb").join(" / ")}</strong></div>
         <div><span>샘플당 KRW 원본 단가</span><strong>{draft.products.map(p=>
-          money(/^\\d+$/.test(p.sampleUnitKrw||"")?Number(p.sampleUnitKrw):null)).join(" / ")}</strong></div>
+          money(Number.isSafeInteger(Number(p.sampleUnitKrw))&&p.sampleUnitKrw!==""?
+            Number(p.sampleUnitKrw):null)).join(" / ")}</strong></div>
         <div><span>공급가액 (VAT 제외)</span><strong>{money(amounts?.netKrw)}</strong></div>
         <div className={styles.grand}><span>VAT 포함 예상액</span>
           <strong>{money(amounts?.grossKrw)}</strong></div>
