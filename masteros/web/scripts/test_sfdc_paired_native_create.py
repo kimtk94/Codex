@@ -90,7 +90,8 @@ class PureNativeSaveTests(unittest.TestCase):
         "opportunity":{"accountId":"001000000000001AAA","contactId":"003000000000001AAA",
           "accountName":"University","contactName":"Professor"},
         "quotation":{"processNames":"mRNA library preparation,NovaSeq X Plus (PE150),Data quality control,AliCloud"}}
-  with patch("feishu_sfdc_local_worker.prepare_pair",return_value=fake):
+  with patch("sfdc_paired_native_create.duplicate_name_gate",return_value=None), \
+       patch("feishu_sfdc_local_worker.prepare_pair",return_value=fake):
    result,data=build_live_plan(canonical())
   self.assertEqual(result["status"],"BLOCK")
   self.assertEqual(result["code"],"NATIVE_PRICE_MISMATCH_REAPPROVAL_REQUIRED")
