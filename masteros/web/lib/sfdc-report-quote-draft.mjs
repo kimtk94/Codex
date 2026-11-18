@@ -170,11 +170,16 @@ export function calculateDraft(draft){
     }):[];
     const gb=s(p.productionGb)===""?null:gbValue(p.productionGb);
     const gbOk=s(p.productionGb)===""||gb!==null;
+    // Business rule: AliCloud is one billed unit per started 100 Gb of
+    // total output (biological samples × Gb/sample), regardless of whether
+    // the source unit price has finished loading. Never represent a missing
+    // Cloud KRW rate as a free (zero-unit) Cloud service.
     const cloudRequested=s(p.cloudUnitKrw)!=="";
     const cloudRate=cloudRequested?integer(p.cloudUnitKrw):null;
-    const cloudQty=cloudRequested&&qtyOk&&gb!==null?Math.ceil(qty*gb/100):0;
-    const cloudAmount=cloudRequested&&cloudRate!==null&&cloudQty>0&&
-      Number.isSafeInteger(cloudRate*cloudQty)?cloudRate*cloudQty:null;
+    const cloudQty=qtyOk&&gb!==null?Math.ceil(qty*gb/100):0;
+    const cloudAmount=cloudQty===0?0:
+      cloudRate!==null&&Number.isSafeInteger(cloudRate*cloudQty)?
+      cloudRate*cloudQty:null;
     const baseNet=amp?(
       serviceQty!==null&&regionLines.every(x=>x.netKrw!==null)?
         regionLines.reduce((n,x)=>n+x.netKrw,0):null
@@ -194,13 +199,13 @@ export function calculateDraft(draft){
       (!Number.isSafeInteger(p.fixedProcessSourceSamples)||
        qty!==p.fixedProcessSourceSamples);
     const net=baseNet!==null&&fixedProcessNetKrw!==null&&
-      (cloudAmount!==null||!cloudRequested)?
+      (cloudQty===0||cloudAmount!==null)?
       baseNet+(cloudAmount||0)+fixedProcessNetKrw:null;
     const safeNet=net!==null&&Number.isSafeInteger(net)?net:null;
     return {...p,quantity:qtyOk?qty:null,unitKrw:priceOk?rate:null,
       productionGbValue:gb,serviceQuantity:serviceQty,
       regionCount:amp?selected.length:0,regionLines,
-      cloudUnits:cloudQty,cloudUnitKrw:cloudRate,cloudNetKrw:cloudAmount||0,
+      cloudUnits:cloudQty,cloudUnitKrw:cloudRate,cloudNetKrw:cloudAmount,
       fixedProcessLines:fixedInput,fixedProcessNetKrw,fixedProcessBasisChanged,
       netKrw:safeNet,ready:safeNet!==null&&gbOk,gbValid:gbOk,
       projectKey:signature(p.processes,gb,selected.map(x=>x.code))};
