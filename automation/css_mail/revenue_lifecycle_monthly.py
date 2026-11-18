@@ -6,6 +6,7 @@ Unbilled projects without Statement: estimate only. No duplicate X forecasts.
 Only >=2026-10 is treated as covered by this validated new QQ source.
 """
 import datetime as dt
+import decimal
 import re
 import sys
 
@@ -246,6 +247,64 @@ def assert_written_totals(rows, observed):
             raise RuntimeError("MONTHLY_WRITE_SNAPSHOT_MISMATCH")
 
 
+def merge_recomputed_with_forecast_retirements(old, new, stamp):
+    """Keep old-only month keys, but clear unsupported *forecast* only rows.
+
+    Never remove an issued Invoice or any open/verified/unverified Statement.
+    All current source months are replaced from recomputed canonical amounts.
+    No old monetary value is copied into a new month.
+    """
+    if not old or old[0]!=HEAD or not new or new[0]!=HEAD:
+        raise RuntimeError("MONTHLY_MERGE_SCHEMA_INVALID")
+    def as_number(row, index):
+        raw=cell(row,index).strip().replace(",","").replace("₩","")
+        if not raw:
+            return decimal.Decimal(0)
+        try:
+            amount=decimal.Decimal(raw)
+        except decimal.InvalidOperation:
+            raise RuntimeError("MONTHLY_OLD_ONLY_NUMBER_UNVERIFIED")
+        if not amount.is_finite() or amount<0:
+            raise RuntimeError("MONTHLY_OLD_ONLY_NUMBER_INVALID")
+        return amount
+    def index_months(rows):
+        found={}
+        for record in rows[1:]:
+            month=cell(record,0)
+            if not month or month in found:
+                raise RuntimeError("MONTHLY_MERGE_DUPLICATE_OR_MISSING_MONTH")
+            if month!="UNSCHEDULED" and not re.fullmatch(r"20[0-9]{2}-(?:0[1-9]|1[0-2])",month):
+                raise RuntimeError("MONTHLY_MERGE_MONTH_INVALID")
+            found[month]=record
+        return found
+    previous=index_months(old)
+    current=index_months(new)
+    retired=0
+    for month,row in previous.items():
+        if month in current:
+            continue
+        # Historical Actual, any invoice or any open/pending evidence MUST
+        # never be zeroed just to make a green pipeline.
+        protected=(1,2,5,6,7,9)
+        if any(as_number(row,col)>0 for col in protected):
+            raise RuntimeError("MONTHLY_OLD_ONLY_FINANCIAL_EVIDENCE_BLOCK")
+        # Other old values can only represent forecast. The previous
+        # workbook is backed up. Retain the month identity as an explicit
+        # zero-value retired projection, without changing any current month.
+        current[month]=[month,0,0,0,0,0,0,0,0,0,
+                        "FORECAST_RETIRED_NO_CURRENT_SOURCE",stamp]
+        retired+=1
+    ordered=sorted(current,key=lambda k:(k=="UNSCHEDULED",k))
+    result=[HEAD]+[current[month] for month in ordered]
+    if len(result)<len(old):
+        raise RuntimeError("MONTHLY_MERGE_SHRINK_UNEXPECTED")
+    print("MONTHLY_FORECAST_RETIRED_MONTHS="+str(retired)+
+          " old_months="+str(len(previous))+
+          " current_source_months="+str(len(new)-1)+
+          " preserved_month_keys="+str(len(result)-1),flush=True)
+    return result
+
+
 def main():
     s=css.authorize()
     invoices=get(s,SRC,"CSS Tax Invoice Extract","A1:L10000")
@@ -261,6 +320,11 @@ def main():
         if not old or old[0]!=HEAD:raise RuntimeError("Monthly revenue schema mismatch")
         rows=compute(invoices,lifecycle,dt.datetime.now(dt.timezone.utc))
         count,total=reconcile_pending(statements,invoices,lifecycle,rows)
+        # A forecast-only month can disappear when the original project's
+        # expected completion changes. Never drop an old month silently;
+        # retain its identity as an explicit zeroed forecast retirement.
+        rows=merge_recomputed_with_forecast_retirements(old,rows,stamp)
+        reconcile_pending(statements,invoices,lifecycle,rows)
         if len(rows)<len(old):
             raise RuntimeError("Refuse to shrink existing monthly revenue ledger")
         put(s,DST,TAB,"A1",rows,"RAW")

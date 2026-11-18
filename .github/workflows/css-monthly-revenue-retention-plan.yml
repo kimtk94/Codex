@@ -1,0 +1,60 @@
+name: CSS Monthly Revenue Old Forecast Readonly Plan
+
+on:
+  push:
+    branches: [fix/css-revenue-monthly-preserve-history-20261118]
+    paths:
+      - 'automation/ops/revenue_monthly_retention_plan.py'
+      - 'automation/ops/test_revenue_monthly_retention_plan.py'
+      - '.github/workflows/css-monthly-revenue-retention-plan.yml'
+  pull_request:
+    paths:
+      - 'automation/ops/revenue_monthly_retention_plan.py'
+      - 'automation/ops/test_revenue_monthly_retention_plan.py'
+      - 'automation/css_mail/revenue_lifecycle_monthly.py'
+      - 'automation/css_mail/test_revenue_lifecycle_monthly.py'
+      - '.github/workflows/css-monthly-revenue-retention-plan.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      PYTHONPATH: automation/ops:automation/css_mail:automation/feishu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google readonly client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Confirm forecast-only month retirement cannot discard issued invoices
+        run: python3 -m unittest discover -s automation/ops -p 'test_revenue_monthly_retention_plan.py' -v
+      - name: Existing revenue lifecycle regression tests
+        run: python3 -m unittest discover -s automation/css_mail -p 'test_revenue_lifecycle_monthly.py' -v
+
+  live-no-write:
+    needs: offline
+    if: ${{ github.event_name != 'pull_request' && needs.offline.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: TaehoonServer
+    env:
+      PYTHONPATH: automation/ops:automation/css_mail:automation/feishu
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Recompute issued and pending monthly source without applying writes
+        run: |
+          python3 automation/ops/revenue_monthly_retention_plan.py
+          echo 'READ_ONLY=1;NO_REVENUE_WRITES;NO_INVOICE_FORECAST_CONFLATION' >> "$GITHUB_STEP_SUMMARY"
