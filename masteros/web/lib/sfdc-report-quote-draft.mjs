@@ -129,7 +129,7 @@ export function fromFeishuQuote(detail,now=new Date()){
     // A selected existing Oppo/Quote is a near-clone by default.
     // Users edit only differences, while the new object has NO source ID reuse.
     name:sourceProject,date:kstDate(now),closeDate:closeDateOneMonthFromKst(now),products:labeled,
-    descriptionStatus:"Quote Draft",
+    descriptionStatus:"Quote Issued",
     feeMode:"EXCLUDE",sourceFeeLines:[],feeEvidenceStatus:"NOT_READ",
     source:"FEISHU_REPORT_USD_CONVERTED_ONLY",
     sourceReceivedKst:s(detail.source_mail_received_kst),
@@ -284,7 +284,7 @@ export function descriptionBasis(draft){
   if(!draft)return "";
   return JSON.stringify({
     template:DESCRIPTION_TEMPLATE_VERSION,
-    date:s(draft.date),status:s(draft.descriptionStatus)||"Quote Draft",
+    date:s(draft.date),status:s(draft.descriptionStatus)||"Quote Issued",
     feeMode:draft.feeMode||"EXCLUDE",
     feeLines:draft.feeMode==="KEEP"?(draft.sourceFeeLines||[]).map(f=>({
       feeType:f.feeType,feeKrw:f.feeKrw,productName:f.productName,
@@ -306,13 +306,13 @@ export function descriptionBasis(draft){
 }
 // The actual Salesforce Progress Description convention is concise, e.g.
 // "0407 Quote Issued mRNA-Seq 12 samples * 250,000KRW".
-// "Quote Issued" must only appear after actual issuance evidence; new
-// reference-based drafts ALWAYS start at Quote Draft.
+// User-selected SFDC Progress Description convention: Quote Issued.
+// This CRM wording does NOT itself assert an outbound email was actually sent.
 export function draftDescription(draft,calc=calculateDraft(draft)){
   if(!draft||!/^\d{4}-\d{2}-\d{2}$/.test(s(draft.date)))return "";
   const mmdd=s(draft.date).slice(5,7)+s(draft.date).slice(8,10);
-  const status=s(draft.descriptionStatus)||"Quote Draft";
-  if(!["Quote Draft","Prospective","Quote Issued"].includes(status))return "";
+  const status=s(draft.descriptionStatus)||"Quote Issued";
+  if(!["Prospective","Quote Issued"].includes(status))return "";
   const lines=calc.items.map((p,i)=>{
     const source=draft.products[i];
     const service=s(source.serviceLabel)||"Service 확인";
@@ -348,7 +348,7 @@ export function descriptionReview(draft,text,manualBasis=null){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date))
     return {stale,complete:false,missing:["DATE"]};
   const required=[date.slice(5,7)+date.slice(8,10),
-    s(draft.descriptionStatus)||"Quote Draft"];
+    s(draft.descriptionStatus)||"Quote Issued"];
   for(const [i,p] of calc.items.entries()){
     const label=s(draft.products[i].serviceLabel);
     if(label)required.push(label);
@@ -393,8 +393,10 @@ export function draftPreflight(draft){
     errors.push("QUOTE_FEE_MODE_INVALID");
   if(typeof description!=="string"||description.length<10||description.length>3000)
     errors.push("DESCRIPTION_REQUIRED");
-  if(s(draft?.descriptionStatus)==="Quote Issued"&&!draft?.quoteIssuedEvidenceVerified)
-    errors.push("QUOTE_ISSUED_EVIDENCE_REQUIRED");
+  // "Quote Issued" is the operator-approved SFDC Progress Description wording.
+  // It is not a substitute for independently verified customer-facing delivery.
+  if(!["Quote Issued","Prospective"].includes(s(draft?.descriptionStatus)||"Quote Issued"))
+    errors.push("UNAPPROVED_DESCRIPTION_STATUS");
   if(typeof description==="string"){
     const review=descriptionReview(draft,description,draft?.descriptionManualBasis??null);
     if(review.stale)errors.push("DESCRIPTION_LOCKED_STALE");
