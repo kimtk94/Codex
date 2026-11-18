@@ -95,7 +95,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
     setDraft(current=>attachVerifiedSourceFees(applyVerifiedSource(current,result),result.feeEvidence));
     setPreflight(null);setCreationRequest(null);
     setNotice(result.priceEvidence?.ok?
-      "기존 Salesforce Quote의 KRW 샘플 단가·AliCloud 단가를 자동 적용했습니다. 저장은 별도 승인입니다.":
+      "기존 Salesforce Quote의 KRW 샘플 단가·AliCloud 단가를 자동 적용했습니다.":
       "Salesforce 고객 ID 확인 완료 · KRW 공정 단가는 원본 확인 필요");
   };
 
@@ -223,6 +223,8 @@ export default function ReportOppoDraft({quote,enabled=true}){
       <summary>기존 Salesforce 원본 자동 조회 결과 · 자세히 보기</summary>
       <SourceSalesforceEvidence quote={quote} onVerified={onSourceVerified}/>
     </details>
+    <details className={styles.subsection}>
+      <summary>가격 근거 및 원본 검증 상태</summary>
     <p className={styles.hint} role="status">
       2026년 KRW 원본 공정 단가: {historyStatus} · 정확히 일치하는
       QID·공정·Gb에 한해 참고 가격을 자동 불러옵니다.
@@ -245,47 +247,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
       <div><span>사전 분류</span><strong>{draft.referenceIndexStatus}</strong></div>
       <div><span>원본 대비 변경</span><strong>{changes.length}개 항목</strong></div>
     </div>
+    </details>
     <p className={styles.hint}>기존 Opportunity/Quote의 가능한 값을 먼저 채웁니다. 바꾸는 필드만 수정하세요.
       계정·Contact·Region·공정은 원본을 참고하며, 인증된 Salesforce 원본에 KRW 공정별 단가가 있으면 자동 채워집니다.</p>
-    <section className={styles.subsection} data-testid="oppo-quote-quick-create">
-      <h3>기존 Opportunity 기준 · 바로 Oppo + Quote 생성</h3>
-      <p className={styles.hint}>기존 Oppo의 기관·Contact·프로젝트 이름을 유지하고,
-        연결된 Quote에서 Product·생산량·KRW 단가·AliCloud를 가져옵니다.
-        바꾸려는 수량이나 단가만 아래에서 수정하면 됩니다.</p>
-      <div className={styles.totals} data-testid="oppo-quote-compact-summary">
-        <div><span>새 Oppo = 새 Quote 이름</span>
-          <strong>{draft.name||"이름 확인 필요"}</strong></div>
-        <div><span>기관 · Contact</span>
-          <strong>{draft.account?.name||"미확인"} · {draft.contact?.name||"미확인"}</strong></div>
-        <div><span>샘플 × 생산량</span>
-          <strong>{draft.products.map(p=>
-            (p.samples||"?")+"개 · "+(p.productionGb||"?")+"Gb").join(" / ")}</strong></div>
-        <div><span>샘플당 KRW 원본 단가</span><strong>{draft.products.map(p=>
-          money(Number.isSafeInteger(Number(p.sampleUnitKrw))&&p.sampleUnitKrw!==""?
-            Number(p.sampleUnitKrw):null)).join(" / ")}</strong></div>
-        <div><span>공급가액 (VAT 제외)</span><strong>{money(amounts?.netKrw)}</strong></div>
-        <div className={styles.grand}><span>VAT 포함 예상액</span>
-          <strong>{money(amounts?.grossKrw)}</strong></div>
-      </div>
-      <button type="button" data-testid="oppo-quote-creation-request"
-        disabled={requestBusy} onClick={requestCreation}>
-        {requestBusy?"신규 견적 검증 중…":"검증 후 Oppo + Quote 저장"}
-      </button>
-      {creationRequest&&<div data-testid="oppo-quote-request-confirmation" role="status">
-        {creationRequest.status==="PENDING_APPROVAL"?
-          <PairedSaveApproval compact key={creationRequest.requestId}
-            review={{requestId:creationRequest.requestId,
-              queueStatus:creationRequest.status,name:draft.name,
-              accountName:draft.account?.name||""}}/>:
-          <div className={styles.warning}>
-            <strong>현재 견적은 실제 저장 대상이 아닙니다.</strong>
-            <p>{creationRequest.missing?.length?
-              creationRequest.missing.join(" · "):
-              "기존 Salesforce의 고객·2026 KRW 공정 단가를 재검증해야 합니다."}</p>
-            <p>정보가 확정된 후 위 ‘Oppo + Quote 생성하기’를 다시 누르면 됩니다.</p>
-          </div>}
-      </div>}
-    </section>
     <details className={styles.subsection} data-testid="account-contact-advanced">
       <summary>Account·Contact 변경 (선택사항 · 기본은 기존 Oppo 고객 유지)</summary>
       <h3>Account / Contact 관리</h3>
@@ -316,7 +280,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       </fieldset>
     </details>
     <div className={styles.subsection}>
-      <h3>신규 견적 · 수정할 값만 변경</h3>
+      <h3>수정할 정보만 변경</h3>
       <div className={styles.grid}>
         <label>Opportunity · Quote 공통 이름
           <input aria-label="새 Oppo Quote 이름" value={draft.name}
@@ -513,12 +477,12 @@ export default function ReportOppoDraft({quote,enabled=true}){
       </div>
     </div>
     <div className={styles.subsection}>
-      <h3>04 · Progress Description 및 저장 전 검증</h3>
+      <h3>Progress Description (자동 작성 · 수정 가능)</h3>
       {changes.length>0&&<p className={styles.hint}>원본 대비 변경 항목 {changes.length}개:
         {" "}{changes.slice(0,12).map(x=>x.field).join(", ")}
         {changes.length>12?" 외 "+(changes.length-12)+"개":""}</p>}
-      <p className={styles.hint}>실제 Opportunity에서 쓰던 짧은 양식: 0407 Quote Issued mRNA-Seq 12 samples * 250,000KRW. 새 초안은 발송 전이므로 Quote Draft로 표시합니다.</p>
-      <p className={styles.hint}>MMDD · 상태 · 서비스 · Gb(해당 시) · 수량 · 단가만 표시합니다. 직접 수정하면 문구를 잠그며, 이후 값이 바뀌면 재검증이 필요합니다.</p>
+
+
       <div className={styles.inlineHead}>
         <b>현재 편집 상태</b>
         <span className={styles.state} data-ok={!descriptionCheck?.stale&&descriptionCheck?.complete}>
@@ -527,7 +491,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
         </span>
       </div>
       <label className={styles.draftTextLabel}>Opportunity Progress Description (직접 수정 가능)
-        <textarea aria-label="새 Oppo Quote Description 편집" rows={7}
+        <textarea aria-label="새 Oppo Quote Description 편집" rows={3}
           value={description} onChange={e=>{
             setDescriptionEdit(e.target.value);
             setDescriptionEditBasis(descriptionBasis(draft));
@@ -540,6 +504,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       {!descriptionCheck?.complete&&<p className={styles.warning} role="status">
         현재 Description에 필수 값이 부족합니다. 날짜·Gb·샘플 수·단가 표기를 확인하세요.
       </p>}
+      <details className={styles.subsection}><summary>추가 도구 · 사전 검증 및 복사</summary>
       <div className={styles.actions}>
         <button type="button" onClick={check}>초안 검증 (저장 없음)</button>
 
@@ -567,7 +532,41 @@ export default function ReportOppoDraft({quote,enabled=true}){
           {" · "}CRM 저장 금지
         </p>
       </div>}
+      </details>
       {notice&&<p className={styles.hint} role="status">{notice}</p>}
     </div>
+    <section className={styles.subsection} data-testid="oppo-quote-quick-create">
+      <h3>Oppo + Quote 생성</h3>
+      <p className={styles.hint}>기존 Oppo와 연결된 Quote에서 채워진 내용을 그대로 사용합니다. 수정한 항목만 반영하고 Salesforce 원본과 자동 대조합니다.</p>
+      <div className={styles.totals} data-testid="oppo-quote-compact-summary">
+        <div><span>Oppo = Quote 이름</span><strong>{draft.name||"확인 필요"}</strong></div>
+        <div><span>기관 · Contact</span><strong>{draft.account?.name||"미확인"} · {draft.contact?.name||"미확인"}</strong></div>
+        <div><span>샘플 · 생산량</span><strong>{draft.products.map(p=>(p.samples||"?")+"개 × "+(p.productionGb||"?")+"Gb").join(" / ")}</strong></div>
+        <div><span>샘플당 KRW</span><strong>{draft.products.map(p=>money(
+          p.sampleUnitKrw!==""&&Number.isSafeInteger(Number(p.sampleUnitKrw))?
+          Number(p.sampleUnitKrw):null)).join(" / ")}</strong></div>
+        <div><span>공급가액 (VAT 제외)</span><strong>{money(amounts?.netKrw)}</strong></div>
+        <div className={styles.grand}><span>VAT 포함 합계</span><strong>{money(amounts?.grossKrw)}</strong></div>
+      </div>
+            <button type="button" data-testid="oppo-quote-creation-request"
+        disabled={requestBusy} onClick={requestCreation}>
+        {requestBusy?"신규 견적 검증 중…":"검증 후 Oppo + Quote 저장"}
+      </button>
+      {creationRequest&&<div data-testid="oppo-quote-request-confirmation" role="status">
+        {creationRequest.status==="PENDING_APPROVAL"?
+          <PairedSaveApproval compact key={creationRequest.requestId}
+            review={{requestId:creationRequest.requestId,
+              queueStatus:creationRequest.status,name:draft.name,
+              accountName:draft.account?.name||""}}/>:
+          <div className={styles.warning}>
+            <strong>현재 견적은 실제 저장 대상이 아닙니다.</strong>
+            <p>{creationRequest.missing?.length?
+              creationRequest.missing.join(" · "):
+              "기존 Salesforce의 고객·2026 KRW 공정 단가를 재검증해야 합니다."}</p>
+            <p>정보를 수정한 후 ‘검증 후 Oppo + Quote 저장’을 다시 누르세요.</p>
+          </div>}
+      </div>}
+
+    </section>
   </div>;
 }
