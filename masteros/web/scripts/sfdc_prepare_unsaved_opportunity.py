@@ -51,6 +51,54 @@ LABEL_JS=r"""(label) => {
   return {matched:unique.length,marked:unique.length===1,label_count:labels.length};
 }"""
 
+def reuse_decision(open_forms, desired):
+  """Never overwrite an existing draft or create additional ambiguous modals."""
+  if not isinstance(open_forms,list) or not isinstance(desired,dict):
+   return "HOLD_INVALID_EXISTING_MODAL_SNAPSHOT"
+  if len(open_forms)==0:
+   return "OPEN_NEW"
+  if len(open_forms)>1:
+   return "HOLD_MULTIPLE_UNSAVED_OPPORTUNITY_MODALS"
+  if not isinstance(open_forms[0],dict) or set(desired)!=set(open_forms[0]):
+   return "HOLD_EXISTING_UNSAVED_FIELDS_NOT_VERIFIED"
+  if all(open_forms[0][k]==v for k,v in desired.items()):
+   return "REUSE_UNMODIFIED_EXISTING_FORM"
+  return "HOLD_EXISTING_UNSAVED_FIELDS_DIFFER"
+
+
+async def existing_opportunity_pages(context, desired):
+  """Only inspect native authenticated current tabs; don't close or save any."""
+  from urllib.parse import urlparse
+  found=[]
+  for page in context.pages:
+   if page.is_closed() or urlparse(page.url).hostname!="novogene.lightning.force.com":
+    continue
+   try:
+    dialog=page.get_by_role("dialog")
+    if await dialog.count()!=1 or not await dialog.is_visible():
+     continue
+    caption=await dialog.inner_text(timeout=2500)
+    if "New Opportunity" not in caption:
+     continue
+    # Avoid touching existing user input when multiple drafts are open.
+    found.append(page)
+   except Exception:
+    continue
+  if len(found)!=1:
+   return found, reuse_decision([{} for _ in found],desired)
+  values={}
+  for label in ("Opportunity Name","Close Date","Progress Description"):
+   meta=await found[0].evaluate(LABEL_JS,label)
+   if not meta.get("marked"):
+    return found,"HOLD_EXISTING_UNSAVED_FIELDS_NOT_VERIFIED"
+   marker='[data-local-unsaved-field="'+label.replace(" ","_")+'"]'
+   control=found[0].locator(marker)
+   if await control.count()!=1:
+    return found,"HOLD_EXISTING_UNSAVED_FIELDS_NOT_VERIFIED"
+   values[label]=await control.input_value()
+  return found,reuse_decision([values],desired)
+
+
 async def main():
  output={"status":"HOLD_UNSAVED_DRAFT_PREPARE","salesforce_write":False,
          "save_clicked":False,"crm_writes":0,"page_open":False,
@@ -73,6 +121,29 @@ async def main():
   async with async_playwright() as pw:
    br=await pw.chromium.connect_over_cdp("http://127.0.0.1:9222",timeout=16000)
    if not br.contexts:raise RuntimeError("CHROME_NOT_AUTHENTICATED")
+   output["stage"]="FIND_EXISTING_UNSAVED_DRAFT"
+   desired={"Opportunity Name":name,"Close Date":dt,
+      "Progress Description":description}
+   existing,decision=await existing_opportunity_pages(br.contexts[0],desired)
+   if decision=="REUSE_UNMODIFIED_EXISTING_FORM":
+    output["status"]="UNSAVED_OPPORTUNITY_FORM_READY"
+    output["stage"]="REUSED_EXISTING_EXACT_UNSAVED_DRAFT"
+    output["page_open"]=True
+    output["fields"]={field:"REUSED_UNSAVED" for field in desired}
+    output["new_tabs_opened"]=0
+    await br.close()
+    print(json.dumps(output,ensure_ascii=False))
+    return
+   if decision!="OPEN_NEW":
+    output["status"]="HOLD_FORM_PARTIAL"
+    output["stage"]="EXISTING_UNSAVED_DRAFT_REQUIRES_REVIEW"
+    output["reason"]=decision
+    output["existing_modal_count"]=len(existing)
+    output["page_open"]=len(existing)>0
+    output["new_tabs_opened"]=0
+    await br.close()
+    print(json.dumps(output,ensure_ascii=False))
+    return
    output["stage"]="NEW_TAB"
    page=await br.contexts[0].new_page()
    try:
@@ -111,6 +182,7 @@ async def main():
        complete=False;output["fields"][label]="HOLD_"+type(e).__name__
     output["stage"]="DRAFT_FILLED_NOT_SAVED"
     output["page_open"]=True
+    output["new_tabs_opened"]=1
     output["status"]="UNSAVED_OPPORTUNITY_FORM_READY" if complete else "HOLD_FORM_PARTIAL"
     # Intentionally DO NOT close the page. The user must inspect manually.
    except Exception:
