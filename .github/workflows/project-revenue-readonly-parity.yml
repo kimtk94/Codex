@@ -1,0 +1,87 @@
+name: Project and Revenue Original-to-Feishu Parity (Read Only)
+
+on:
+  pull_request:
+    paths:
+      - 'automation/ops/project_revenue_readonly_parity.py'
+      - 'automation/ops/test_project_revenue_readonly_parity.py'
+      - '.github/workflows/project-revenue-readonly-parity.yml'
+  workflow_dispatch:
+    inputs:
+      project_phase:
+        description: 'No-write prewrite preview or strict readback of materialized values'
+        required: true
+        type: choice
+        options: [prewrite_preview, strict_readback]
+        default: prewrite_preview
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    env:
+      PYTHONPATH: automation/ops:automation/feishu:automation/css_mail
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install import-time packages
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Project and revenue no-write contract tests
+        run: python3 -m unittest discover -s automation/ops -p 'test_project_revenue_readonly_parity.py' -v
+      - name: Verify syntax
+        run: python3 -m py_compile automation/ops/project_revenue_readonly_parity.py
+
+  project:
+    needs: offline-tests
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.offline-tests.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    environment: TaehoonServer
+    env:
+      PYTHONPATH: automation/ops:automation/feishu:automation/css_mail
+      PARITY_DOMAIN: project
+      PARITY_PHASE: ${{ inputs.project_phase || 'strict_readback' }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google readonly client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Recompute source projects and compare sink keys (no writes)
+        run: python3 automation/ops/project_revenue_readonly_parity.py
+
+  revenue:
+    needs: offline-tests
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.offline-tests.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    environment: TaehoonServer
+    env:
+      PYTHONPATH: automation/ops:automation/feishu:automation/css_mail
+      PARITY_DOMAIN: revenue
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Google readonly and Feishu dependencies
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Compare issued VAT-exclusive canonical months with Feishu rows (no writes)
+        run: python3 automation/ops/project_revenue_readonly_parity.py
