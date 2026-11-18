@@ -41,7 +41,8 @@ async def inspect_opportunity(ctx):
         if await btn.count()!=1:
             result["reason"]="UNIQUE_NEW_OPPORTUNITY_NOT_FOUND";return result
         await btn.click(timeout=15000)
-        await page.get_by_text("Opportunity Name",exact=False).first.wait_for(timeout=25000)
+        await page.get_by_role("dialog").wait_for(state="visible",timeout=30000)
+        await page.wait_for_timeout(1900)
         fields=await page.evaluate(JS)
         names=fields["labels"]
         needed=["Opportunity Name","Account Name","Main Contact","Amount",
@@ -69,6 +70,7 @@ async def inspect_quotation(ctx):
             result["reason"]="UNIQUE_NEW_QUOTATION_NOT_FOUND";return result
         await btn.click(timeout=15000)
         research=page.get_by_text("Research-AMEA",exact=True)
+        await research.wait_for(state="visible",timeout=30000)
         if await research.count()!=1:
             result["reason"]="RESEARCH_AMEA_RECORD_TYPE_UNVERIFIED";return result
         await research.click(timeout=13000)
