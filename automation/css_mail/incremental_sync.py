@@ -45,6 +45,23 @@ def authorize():
 def endpoint(suffix=""):
     return "https://sheets.googleapis.com/v4/spreadsheets/"+BOOK+suffix
 
+def ingest_mode():
+    """Read-only plan is opt-in; preserve existing scheduled ingestion semantics."""
+    mode = os.environ.get("CSS_MAIL_MODE", "apply").strip().lower()
+    if mode not in ("apply", "plan"):
+        raise RuntimeError("CSS_MAIL_MODE_INVALID")
+    return mode
+
+
+def check_tab_readonly(s):
+    """Validate an already provisioned sheet without creating or editing it."""
+    rng=urllib.parse.quote("'"+TAB+"'!A1:R1",safe="")
+    values=api(s,"GET",endpoint("/values/"+rng)).get("values",[])
+    if not values or values[0]!=COLS:
+        raise RuntimeError("CSS_MAIL_PLAN_STAGING_HEADER_INVALID")
+    return True
+
+
 def ensure_tab(s):
     meta=api(s,"GET",endpoint()+"?fields=sheets.properties.title")
     found={x["properties"]["title"] for x in meta.get("sheets",[])}
@@ -149,12 +166,16 @@ def collect(im, folder, direction, seen, limit):
     return output
 
 def main():
+    mode=ingest_mode()
     # Check Sheets access BEFORE retrieving customer metadata.
     print("CSS_SYNC_STAGE: google_auth", flush=True)
     s=authorize()
     print("CSS_SYNC_STAGE: sheet_access", flush=True)
-    ensure_tab(s)
-    print("CSS_SYNC_STAGE: staging_ready", flush=True)
+    if mode=="plan":
+        check_tab_readonly(s)
+    else:
+        ensure_tab(s)
+    print("CSS_SYNC_STAGE: staging_ready mode="+mode, flush=True)
     seen=existing_keys(s)
     user=os.environ["CSS_QQ_MAIL_ADDRESS"]
     password=os.environ["CSS_QQ_MAIL_AUTH_CODE"]
@@ -178,6 +199,15 @@ def main():
     print("CSS_SYNC_STAGE: headers_collected", flush=True)
     seen=existing_keys(s)
     new=[r for r in collected if r[0] not in seen]
+    if mode=="plan":
+        print("CSS_MAIL_PLAN_STATUS="+("SINK_LAG" if new else "NO_NEW_HEADERS")+
+              " recent_scope_60d=1 historic_full_coverage=UNVERIFIED",flush=True)
+        print("CSS_MAIL_PLAN_PASS pending_new="+str(len(new))+
+              " existing_keys="+str(len(seen))+
+              " fetched_headers="+str(len(collected))+
+              " original_imap_read_only=1 sheets_reads_only=1"+
+              " no_business_writes=1 no_mail_sent=1",flush=True)
+        return
     if new:
         rng=urllib.parse.quote("'"+TAB+"'!A:R",safe="")
         api(s,"POST",endpoint("/values/"+rng+":append")+"?valueInputOption=RAW&insertDataOption=INSERT_ROWS",

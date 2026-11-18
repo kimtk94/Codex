@@ -1,0 +1,109 @@
+name: CSS QQ Inbox/Sent Intake Only (Plan Before Any Write)
+
+on:
+  pull_request:
+    paths:
+      - 'automation/css_mail/incremental_sync.py'
+      - 'automation/css_mail/test_qq_intake_plan_readonly.py'
+      - '.github/workflows/css-qq-intake-only.yml'
+  push:
+    branches: [audit/css-qq-mail-intake-only-20261118]
+    paths:
+      - 'automation/css_mail/incremental_sync.py'
+      - 'automation/css_mail/test_qq_intake_plan_readonly.py'
+      - '.github/workflows/css-qq-intake-only.yml'
+  schedule:
+    - cron: '17 */2 * * *'  # No-write monitoring only; no approved append on schedule
+  workflow_dispatch:
+    inputs:
+      approved_write:
+        description: 'Append only new QQ header metadata to CSS Git Ingest (approval required)'
+        required: true
+        default: false
+        type: boolean
+      approval_reference:
+        description: 'For approved_write=true, enter APPROVE_QQ_INTAKE_ONLY'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: css-qq-intake-only
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install OAuth-only dependencies for offline test import
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Verify plan read-only and legacy apply idempotent append
+        run: |
+          python3 -m unittest discover -s automation/css_mail -p 'test_qq_intake_plan_readonly.py' -v
+          python3 -m py_compile automation/css_mail/incremental_sync.py
+
+  intake-plan:
+    needs: offline
+    if: ${{ (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && needs.offline.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: TaehoonServer
+    env:
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_MAIL_MODE: plan
+      CSS_IMAP_SCAN_DAYS: '60'
+      CSS_IMAP_BATCH_PER_FOLDER: '120'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Plan QQ Inbox/Sent new header metadata without any Sheets write
+        run: |
+          python3 automation/css_mail/incremental_sync.py
+          {
+            echo '## QQ mail intake PLAN ONLY'
+            echo 'No Google Sheets/Feishu writes, no SFDC Save and no customer email.'
+            echo 'The full 2026 historical gap remains a separate, bounded backfill.'
+            echo 'Plan SUCCESS is not project lifecycle source-sink PASS.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  intake-approved-append:
+    needs: [offline, intake-plan]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_write == true && inputs.approval_reference == 'APPROVE_QQ_INTAKE_ONLY' && github.actor == 'kimtk94' && needs.intake-plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    environment: TaehoonServer
+    env:
+      CSS_QQ_MAIL_ADDRESS: ${{ secrets.CSS_QQ_MAIL_ADDRESS }}
+      CSS_QQ_MAIL_AUTH_CODE: ${{ secrets.CSS_QQ_MAIL_AUTH_CODE }}
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      CSS_MAIL_MODE: apply
+      CSS_IMAP_SCAN_DAYS: '60'
+      CSS_IMAP_BATCH_PER_FOLDER: '120'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Append only new QQ header metadata after explicit approval
+        run: |
+          python3 automation/css_mail/incremental_sync.py
+          echo 'APPEND_ONLY_QQ_HEADERS_COMPLETE; NO_PROJECT_OR_REVENUE_MATERIALIZATION' >> "$GITHUB_STEP_SUMMARY"
