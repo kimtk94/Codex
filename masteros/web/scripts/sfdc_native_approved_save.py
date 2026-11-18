@@ -24,7 +24,7 @@ sys.path.insert(0,str(REPO/"automation"/"sfdc_desktop"))
 from native_save_transaction import (
     load_verified_request, read_journal, create_session, consume_session,
     exclusive_transaction, release_lock, before_click, after_click, mark_unknown,
-    created_id_is_distinct, _gate
+    created_id_is_distinct, native_origin_route_violation, _gate
 )
 
 HOST="https://novogene.lightning.force.com"
@@ -242,6 +242,13 @@ async def run(message):
                 target,err=await find_native_form(browser,stage)
                 if err:return _gate(err,stage=stage)
                 page,modal=target
+                # User-established workflow: existing Contact -> New Opportunity
+                # -> saved 006 -> Opportunity Related -> New Quotation.
+                # Never silently accept a global-list New modal.
+                native_origin_issue=native_origin_route_violation(
+                    stage,page.url,review,journal)
+                if native_origin_issue:
+                    return _gate(native_origin_issue,stage=stage)
                 issues,values=await validate_native_form(page,modal,stage,review,files)
                 if issues:return _gate("NATIVE_FORM_REVIEW_HOLD",stage=stage,
                     missing=issues,sourceReady=True,
