@@ -125,11 +125,40 @@ def audit_save_preflight(candidate, evidence, *, asof_utc=None):
     )
     errors.extend("UNVERIFIED_" + key.upper() for key in expected_truth if evidence.get(key) is not True)
 
+    # Salesforce Name is not a unique key: identical Opportunity and Quotation
+    # names are intentional. Existing 006/a0P IDs are reference records,
+    # whereas a newly saved record MUST receive a distinct Salesforce ID.
+    # A legacy name-count check with zero matches is supported only for
+    # backwards-compatible no-collision cases; same-name cases MUST have
+    # authenticated, query-complete ID evidence for both objects.
     duplicates = evidence.get("duplicate_check")
-    if not isinstance(duplicates, dict) or duplicates.get("scope") != "ACCOUNT_CONTACT_NAME":
+    if not isinstance(duplicates, dict):
         errors.append("DUPLICATE_READBACK_MISSING")
-    elif duplicates.get("matching_opportunities") != 0 or duplicates.get("matching_quotations") != 0:
-        errors.append("DUPLICATE_OR_AMBIGUOUS_EXISTING_RECORD")
+    elif duplicates.get("scope") == "ACCOUNT_CONTACT_NAME":
+        if duplicates.get("matching_opportunities") != 0 or duplicates.get("matching_quotations") != 0:
+            errors.append("IDENTICAL_NAME_REQUIRES_NATIVE_ID_SNAPSHOT")
+    elif duplicates.get("scope") == "SOURCE_RECORD_ID_SNAPSHOT":
+        expected = (
+            ("source_opportunity_id", "006", "matching_opportunity_ids"),
+            ("source_quotation_id", "a0P", "matching_quotation_ids")
+        )
+        if (duplicates.get("checked_current_authenticated_ui") is not True or
+            duplicates.get("query_complete") is not True):
+            errors.append("NATIVE_ID_READBACK_INCOMPLETE")
+        for field, prefix, list_key in expected:
+            wanted = candidate.get(field)
+            matching = duplicates.get(list_key)
+            if (not isinstance(wanted,str) or not wanted.startswith(prefix) or
+                not SFID.fullmatch(wanted) or duplicates.get(field) != wanted):
+                errors.append("SOURCE_" + field.upper() + "_MISMATCH")
+            if (not isinstance(matching,list) or len(matching)>1000 or
+                not all(isinstance(v,str) and v.startswith(prefix) and SFID.fullmatch(v) for v in matching) or
+                len(matching)!=len(set(matching)) or wanted not in matching):
+                errors.append("UNVERIFIED_" + list_key.upper())
+        # Other native IDs with the exact same Name are allowed. Their
+        # identity is preserved and they must never be overwritten/reused.
+    else:
+        errors.append("UNKNOWN_DUPLICATE_VERIFICATION_MODE")
     if evidence.get("account_id") != candidate.get("account_id") or evidence.get("contact_id") != candidate.get("contact_id"):
         errors.append("ACCOUNT_CONTACT_SOURCE_MISMATCH")
 
