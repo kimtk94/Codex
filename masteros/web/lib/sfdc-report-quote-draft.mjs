@@ -333,8 +333,12 @@ export function draftDescription(draft,calc=calculateDraft(draft)){
   const fees=quoteFeeBreakdown(draft);
   const feeSummary=fees.included&&fees.ok?
     fees.quoteFeeItems.map(f=>f.feeType+" "+money(f.netKrw)+"KRW").join(" + "):"";
-  const base=[mmdd,status,lines.join(" / ")].filter(Boolean).join(" ");
-  return feeSummary?base+" / "+feeSummary:base;
+  const fixedSummary=calc.items.flatMap(p=>
+    (p.fixedProcessLines||[]).map(x=>x.processName+
+      " "+x.quantity+" × "+money(x.unitPriceKrw)+"KRW")).join(" + ");
+  const base=[mmdd,status,lines.join(" / "),fixedSummary,feeSummary]
+    .filter(Boolean).join(" / ");
+  return base;
 }
 export function descriptionReview(draft,text,manualBasis=null){
   const basis=descriptionBasis(draft);
@@ -357,6 +361,10 @@ export function descriptionReview(draft,text,manualBasis=null){
         if(r.unitKrw!==null)required.push(money(r.unitKrw)+"KRW");
       }
     }else if(p.unitKrw!==null)required.push(money(p.unitKrw)+"KRW");
+    for(const fixed of p.fixedProcessLines||[]){
+      required.push(fixed.processName);
+      required.push(fixed.quantity+" × "+money(fixed.unitPriceKrw)+"KRW");
+    }
   }
   if(draft?.feeMode==="KEEP"){
     const fees=quoteFeeBreakdown(draft);
