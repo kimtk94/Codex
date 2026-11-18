@@ -11,6 +11,7 @@ const makeDraft=(samples,gb,cloudRate)=>({
    productionGb:String(gb),
    sampleUnitKrw:"200000",
    cloudUnitKrw:cloudRate,
+   cloudRequired:true,
    processes:[{name:"Sequencing",processId:"Process-12345678"}]
  }]
 });
