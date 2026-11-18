@@ -73,6 +73,17 @@ def local_validator(x):
             if (format(unit,",")+"KRW/sample") not in x["progressDescription"]:
                 raise ValueError("OPPO_DESCRIPTION_PRICE_STALE")
     if x["action"]=="quote_create":
+        if x.get("processPlan") is not None:
+            from sfdc_native_process_writer import validated_price_plan
+            raw=x["processPlan"]
+            expected=validated_price_plan(
+                raw.get("lines") if isinstance(raw,dict) else None,
+                x.get("samples"),x.get("dataSize"),
+                raw.get("expectedNet") if isinstance(raw,dict) else None)
+            if expected!=raw:
+                raise ValueError("QUOTE_PROCESS_PLAN_NOT_CANONICAL")
+        elif x["mode"]=="save":
+            raise ValueError("QUOTE_PROCESS_PLAN_REQUIRED_FOR_SAVE")
         if not (ID("006",x.get("opportunityId")) and ID("a0P",x.get("sourceQuoteId"))):
             raise ValueError("QUOTE_IDS_INVALID")
         if not all(x.get(k) for k in ("quoteName","accountName","contactName","productName","productCategory","processNames")):
@@ -216,7 +227,9 @@ def verify_catalog(page,x):
     return True
 
 def quote_create(page,x):
-    verify_catalog(page,x)
+    # Source Product (+) may be disabled for a Product already attached to the
+    # original Quote. Its exact source process-plan is verified by the calling
+    # fresh authenticated source reader. Never mutate the source Quote.
     page.goto(BASE+"/lightning/r/Opportunity/"+x["opportunityId"]+"/view",wait_until="domcontentloaded",timeout=29000)
     page.get_by_role("tab",name="Related",exact=True).click(timeout=6000)
     # The second New button belongs to the Quotation related list in verified UI.
@@ -299,9 +312,17 @@ def save_quote_and_products(page,x,r):
                 single(row.locator("label[for]"),"PROCESS_LABEL_MISSING").click(timeout=4500)
             if not checked.is_checked():raise RuntimeError("PROCESS_NOT_SELECTED")
         modal.get_by_role("button",name="Done",exact=True).click(timeout=6000)
-        page.wait_for_timeout(550)
+        page.wait_for_timeout(650)
         draft=page.locator("body").inner_text(timeout=5000)
         if x["productName"] not in draft:raise RuntimeError("DRAFT_PRODUCT_MISSING")
+        from sfdc_native_process_writer import set_process_prices_in_unsaved_modal
+        # A Quotation header is already saved at this point. Product Save is
+        # prohibited unless native unit price, qty, Pack and total all agree.
+        verified=set_process_prices_in_unsaved_modal(page,page.get_by_role("dialog").last,
+                                                     x["processPlan"])
+        if verified.get("status")!="PASS" or verified.get("net")!=x["processPlan"]["expectedNet"]:
+            raise RuntimeError("NEW_QUOTE_PRICE_MATRIX_NOT_VERIFIED")
+        r["new_product_price_input_verified"]=True
         save=single(page.get_by_role("button",name="Save",exact=True),"PRODUCT_SAVE_NOT_UNIQUE")
         if not save.is_enabled():raise RuntimeError("PRODUCT_SAVE_DISABLED")
         save.click(timeout=6000)
@@ -312,9 +333,37 @@ def save_quote_and_products(page,x,r):
         page.wait_for_timeout(500)
         body=page.locator("body").inner_text(timeout=6000)
         count=re.search(r"Quotation Products\s*\((\d+)\)",body)
-        r["product_added"]=bool(count and int(count.group(1))>0)
-        r["status"]="PARTIAL_PRICE_REVIEW_REQUIRED" if r["product_added"] else "PARTIAL_PRODUCT_READBACK_REQUIRED"
+        r["product_added"]=bool(count and int(count.group(1))==1)
+        r["status"]="PARTIAL_PRODUCT_READBACK_REQUIRED"
         r["price_verified"]=False
+        if r["product_added"]:
+            from sfdc_record_catalog import read_item
+            current=read_item(page,"quote",quote_id)
+            source=x["processPlan"]
+            actual=current.get("processPriceLines") or []
+            expected={(v["processType"],v["processName"]):
+                     (v["quantity"],v["unitPriceKrw"],v["isCloud"])
+                     for v in source["lines"]}
+            actual_map={(v.get("processType"),v.get("processName")):
+                        (v.get("sourceQty"),v.get("unitPriceKrw"),v.get("isCloud"))
+                        for v in actual}
+            matched=(current.get("pricingStatus")=="VERIFIED_PROCESS_LINES" and
+                     current.get("totalPriceKrw")==source["expectedNet"] and
+                     current.get("grandTotalKrw")*10==source["expectedNet"]*11 and
+                     current.get("sourcePackVerified") is True and
+                     current.get("sourceCloudUnits")==source["cloudUnits"] and
+                     current.get("productCount")==1 and
+                     current.get("opportunityId","")[:15]==x["opportunityId"][:15] and
+                     current.get("accountName")==x["accountName"] and
+                     current.get("contactName")==x["contactName"] and
+                     current.get("name")==x["quoteName"] and actual_map==expected)
+            if matched:
+                r["status"]="PASS";r["price_verified"]=True
+                r["quote_net_krw"]=source["expectedNet"]
+                r["quote_gross_krw"]=current["grandTotalKrw"]
+                r["product_count"]=1
+            else:
+                r["status"]="PARTIAL_QUOTE_PRODUCT_PRICE_READBACK_REQUIRED"
     except Exception as exc:
         r["status"]="PARTIAL_QUOTE_CREATED_PRODUCT_HOLD"
         r["product_error_type"]=type(exc).__name__
