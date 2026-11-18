@@ -21,7 +21,7 @@
 | SFDC-009 | AliCloud 추가 라인은 요청 시 총 Gb / 100을 올림. **Data release와 별도 추가 AliCloud를 구분**. 충돌하는 이름/Type/고객 승인 조건은 임의 제거·포함하지 않고 HOLD | ALICLOUD_DATA_RELEASE_CONFLICT |
 | SFDC-010 | Opportunity Amount 및 Quote Total Price는 **VAT 제외**. Quote GST/VAT 10%, VAT 포함 총액을 별도 재계산. 원본 Oppo 금액이 Quote와 다르면 새 건에서는 승인된 공정 합계 기준으로 재검토 | NET_VAT_TOTAL_MISMATCH |
 | SFDC-011 | Opportunity Close Date는 생성일(KST) 기준 **정확히 한 달 뒤**. Forecast는 실제 Revenue가 아니며, Stage/Forecast/Service Line은 현재 생성 목적에 맞춰 선택 | CLOSE_STAGE_UNVERIFIED |
-| SFDC-012 | Progress Description은 새 고객·서비스·샘플수·실제 단계에 맞게 새로 작성. 이전 Opportunity 문구 복사 금지. 미확인 샘플 접수, PO, Contract, SIF, 견적 발행을 완료로 주장 금지 | PROGRESS_DESCRIPTION_UNVERIFIED |
+| SFDC-012 | 신규 Oppo–Quote **Progress Description 상태는 `Quote Issued`**를 사용하고 `Quote Draft`를 기본값/출력값으로 사용하지 않음. 짧은 양식 `MMDD Quote Issued 서비스 수량 * 단가`에 현재 프로젝트·가격 정보를 반영. 이전 Opportunity 문구 복사 금지. `Quote Issued`는 사용자가 지정한 **SFDC 진행 단계 문구**이며 고객에게 실제 메일 발송이 확인됐다는 증거는 아님. 미확인 샘플 접수·PO·Contract·SIF·실제 견적 발송은 완료로 주장 금지 | PROGRESS_DESCRIPTION_OR_ISSUED_STATUS_UNVERIFIED |
 | SFDC-013 | 통화 KRW, 국가 Korea, GST/VAT 10%, Coop TS는 Yoo JiIn. Contact는 필수 연결. 견적 Product별·Process별 KRW 단가 및 수량을 미리 보여줌 | STANDARD_FIELD_UNVERIFIED |
 | SFDC-014 | 검증은 **원본 접근 최신성·동일성**과 **목적지 반영 최신성·정합성** 두 곳에서 실시. 소스 2026 Quote, native ID, Account/Contact, Price/Process·Pack 확인 없이 PASS 선언 금지 | SOURCE_OR_SINK_UNVERIFIED |
 | SFDC-015 | 기본 No-Save, **건별 정확한 최종 검토와 명시적 승인 후에만 Save**. 1회 승인번호/중복 클릭 차단. 저장 후 새 Opportunity 006와 Quotation a0P는 *기존 ID와 달라야* 함 | PER_RECORD_APPROVAL_REQUIRED |
@@ -30,6 +30,12 @@
 | SFDC-018 | 실제 확인한 것이 아닌 내용·추정 가격·추정 레코드 ID를 입력하지 않음. UI 단계가 기존 규칙과 다르면 임의의 우회 경로로 생성하지 않고 HOLD, 검증 가능한 오류를 표시 | FAIL_CLOSED_ON_UNKNOWN |
 | SFDC-019 | Lead 전환은 별도 작업: 중복 방지, 확인된 한글명과 영문명 규칙, Account 주소를 Shipping Address에, Job Function 최상단, Academic PI, 이후 Sync To CDMS. Opportunity 생성 시 Lead 변환 규칙과 혼동 금지 | LEAD_CONVERSION_RULES_SEPARATE |
 | SFDC-020 | 단일 UI의 조회·검증은 필요 시 병렬 처리 가능. **같은 레코드 생성·수정·Save는 순차 처리**, 동시 편집·중복 실행 방지 | NO_PARALLEL_CRM_WRITES |
+
+## 2026-11-18 추가 확정: Quote Issued 표기
+
+- `Quote Draft`는 새 Oppo–Quote 생성의 기본 상태 또는 Progress Description에 쓰지 않는다. **`Quote Issued`를 사용한다.** 실제 고객 발송·발행 메일 증빙은 별도 이벤트/로그로 판단한다.
+- 단순 텍스트 치환만 하지 않고 **draft 생성 기본값 → preflight → 승인 요청 스키마 → UI 문구 → GitHub Actions 회귀 테스트**까지 동일하게 적용한다. 이미 생성된 불변 요청의 원문을 조용히 고치지 말고, 필요하면 동일 조건의 새 요청번호로 재제출한다.
+- Quote Status와 Opportunity Stage는 실제 Salesforce 필드 선택지와 사용자 지시를 구분하며 검증한다. 필드에서 해당 값이 확인되지 않으면 임의 매핑하지 않는다.
 
 ## 이미 승인된 이화여대 PMP 단일 건 (구현에 하드코딩하지 말 것)
 
