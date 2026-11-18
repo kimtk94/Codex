@@ -101,6 +101,14 @@ class PureNativeSaveTests(unittest.TestCase):
   raw["proposed"]["products"][0]["fixedProcessLines"]=[{"processName":"Data release"}]
   with self.assertRaisesRegex(ValueError,"NATIVE_REVIEW"):
    request_from_queue(raw)
+ def test_exact_original_name_is_allowed_in_private_approved_clone(self):
+  # Source Opportunity and new Opportunity can share a display name:
+  # Salesforce ID, immutable queued digest and claim are the identity keys.
+  p=canonical()
+  p["proposed"]["name"]="Korea-Test-Single-Quote-6Gb"
+  x=request_from_queue(p)
+  self.assertEqual(x["name"],p["proposed"]["name"])
+  self.assertEqual(x["sourceOpportunityId"],"006000000000001AAA")
  def test_block_drifted_price_or_customer_before_save(self):
   fake={"status":"READY","expectedNet":676000,
         "price_fields":{"Sample Unit KRW":160000,"Cloud Unit KRW":35000},
@@ -108,8 +116,7 @@ class PureNativeSaveTests(unittest.TestCase):
         "opportunity":{"accountId":"001000000000001AAA","contactId":"003000000000001AAA",
           "accountName":"University","contactName":"Professor"},
         "quotation":{"processNames":"mRNA library preparation,NovaSeq X Plus (PE150),Data quality control,AliCloud"}}
-  with patch("sfdc_paired_native_create.duplicate_name_gate",return_value=None), \
-       patch("feishu_sfdc_local_worker.prepare_pair",return_value=fake):
+  with patch("feishu_sfdc_local_worker.prepare_pair",return_value=fake):
    result,data=build_live_plan(canonical())
   self.assertEqual(result["status"],"BLOCK")
   self.assertEqual(result["code"],"NATIVE_PRICE_MISMATCH_REAPPROVAL_REQUIRED")
