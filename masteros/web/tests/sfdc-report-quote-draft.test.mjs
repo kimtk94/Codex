@@ -86,7 +86,7 @@ test("Description is concise, dated, reference-based, and does not copy old Prog
   draft.products[0].sampleUnitKrw="150000";
   draft.name="Korea-Example-mRNA";
   const description=draftDescription(draft);
-  assert.match(description,/^\d{4} Quote Draft /);
+  assert.match(description,/^\d{4} Quote Issued /);
   assert.match(description,/6Gb/);
   assert.match(description,/5 samples/);
   assert.match(description,/150,000KRW/);
@@ -153,7 +153,7 @@ test("Description template stays deterministic and never imports old Progress De
   const description=draftDescription(draft);
   assert.equal(DESCRIPTION_TEMPLATE_VERSION,"OPPO_QUOTE_SHORT_V2");
   assert.equal(description,draftDescription({...draft}));
-  assert.match(description,/^\d{4} Quote Draft /);
+  assert.match(description,/^\d{4} Quote Issued /);
   assert.doesNotMatch(description,/Account\/Contact|Reference Quote/);
   assert.match(description,/6Gb/);
   assert.match(description,/12 samples/);
@@ -230,10 +230,10 @@ test("Actual short one-line SFDC style with mRNA service and optional Gb",()=>{
   draft.products[0].sampleUnitKrw="250000";
   assert.equal(draft.products[0].serviceLabel,"mRNA-Seq");
   assert.equal(draftDescription(draft),
-    "1110 Quote Draft mRNA-Seq 6Gb 12 samples * 250,000KRW");
+    "1110 Quote Issued mRNA-Seq 6Gb 12 samples * 250,000KRW");
   assert.equal(draftPreflight({...draft,description:draftDescription(draft)}).status,
     "PREVIEW_READY");
-  assert.doesNotMatch(draftDescription(draft),/Issued|VAT|Reference Quote|Account/);
+  assert.doesNotMatch(draftDescription(draft),/Quote Draft|VAT|Reference Quote|Account/);
 });
 
 test("Report without a Gb-unit process must not insert an unsupported Gb",()=>{
@@ -244,10 +244,10 @@ test("Report without a Gb-unit process must not insert an unsupported Gb",()=>{
   draft.products[0].samples="4";
   draft.products[0].sampleUnitKrw="180000";
   assert.equal(draftDescription(draft),
-    "1110 Quote Draft WGS 4 samples * 180,000KRW");
+    "1110 Quote Issued WGS 4 samples * 180,000KRW");
 });
 
-test("Issued state cannot pass preflight without actual issued evidence",()=>{
+test("User-chosen Quote Issued wording is allowed without claiming email was sent",()=>{
   const old=quote();
   old.reference={
     status:"PASS",opportunityName:"Korea-Test-mRNA",
@@ -260,8 +260,12 @@ test("Issued state cannot pass preflight without actual issued evidence",()=>{
   draft.products[0].sampleUnitKrw="150000";
   draft.descriptionStatus="Quote Issued";
   const preflight=draftPreflight({...draft,description:draftDescription(draft)});
-  assert.equal(preflight.status,"HOLD");
-  assert.ok(preflight.errors.includes("QUOTE_ISSUED_EVIDENCE_REQUIRED"));
+  assert.equal(preflight.status,"PREVIEW_READY");
+  assert.ok(!preflight.errors.includes("QUOTE_ISSUED_EVIDENCE_REQUIRED"));
+  draft.descriptionStatus="Quote Draft";
+  const rejected=draftPreflight({...draft,description:"1118 Quote Draft PMP 4 samples * 57,500KRW"});
+  assert.equal(rejected.status,"HOLD");
+  assert.ok(rejected.errors.includes("UNAPPROVED_DESCRIPTION_STATUS"));
 });
 
 
@@ -342,7 +346,7 @@ test("Region selection duplicates service, not biological sample, with editable 
   assert.equal(result.quoteLineItems.length,2);
   assert.equal(draftChanges(changed).length,1);
   const description=draftDescription(changed);
-  assert.match(description,/^\d{4} Quote Draft /);
+  assert.match(description,/^\d{4} Quote Issued /);
   assert.match(description,/Amplicon-Seq/);
   assert.match(description,/16S V4-V5/);
   assert.match(description,/Archaeal 16S V4-V5/);
