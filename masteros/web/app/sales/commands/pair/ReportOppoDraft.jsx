@@ -386,10 +386,14 @@ export default function ReportOppoDraft({quote,enabled=true}){
               </>}
             </fieldset>}
           <p className={styles.hint}>KRW 단가 근거: {p.priceEvidenceStatus||"SOURCE_KRW_UNVERIFIED"} ·
-            {" "}Cloud {item?.cloudUnits??0}개 (100Gb당 1개) ·
-            {" "}Cloud 금액 {money(item?.cloudNetKrw)} ·
-            {" "}단가를 직접 수정하면 건별 승인 대상으로 표시됩니다.
+            {" "}AliCloud 자동 수량 {item?.cloudUnits??"확인 필요"}개 (샘플 수 × Gb ÷ 100 올림) ·
+            {" "}AliCloud 단가 {money(item?.cloudUnitKrw)} / 100Gb ·
+            {" "}AliCloud 합계 {money(item?.cloudNetKrw)}
           </p>
+          {item?.cloudUnits>0&&item?.cloudUnitKrw===null&&
+            <p className={styles.warning} role="status">
+              AliCloud 원본 KRW 단가 미확인 · 무료로 처리하지 않고 저장을 차단합니다.
+            </p>}
           {(item?.fixedProcessLines?.length||0)>0&&
             <div className={styles.totals} data-testid="source-fixed-product-process">
               <div><span>샘플당 반복 공정 단가 (고정 공정 제외)</span>
