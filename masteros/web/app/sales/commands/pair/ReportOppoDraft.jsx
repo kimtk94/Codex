@@ -12,6 +12,7 @@ import HistoricalKrwProcessBreakdown from "../../../../components/HistoricalKrwP
 import {attachVerifiedSourceFees} from "../../../../lib/sfdc-quote-fees.mjs";
 import {REGION_OPTIONS,regionByCode} from "../../../../lib/sfdc-amplicon-regions.mjs";
 import IdentityPicker from "../IdentityPicker";
+import PairedSaveApproval from "./approvals/PairedSaveApproval";
 
 const money=value=>Number.isSafeInteger(value)?value.toLocaleString("ko-KR")+" KRW":"입력 필요";
 export default function ReportOppoDraft({quote,enabled=true}){
@@ -92,7 +93,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
 
   const onSourceVerified=(result)=>{
     setDraft(current=>attachVerifiedSourceFees(applyVerifiedSource(current,result),result.feeEvidence));
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
     setNotice(result.priceEvidence?.ok?
       "기존 Salesforce Quote의 KRW 샘플 단가·AliCloud 단가를 자동 적용했습니다. 저장은 별도 승인입니다.":
       "Salesforce 고객 ID 확인 완료 · KRW 공정 단가는 원본 확인 필요");
@@ -118,7 +119,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
           enabled:false,regions:[],referenceStatus:"USER_SELECTED"
         })}:p)
     }:old);
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
   }
   function addRegion(i,code){
     const candidate=regionByCode(code);
@@ -143,7 +144,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       account:mode==="KEEP"?{...old.referenceAccount}:{id:"",name:""},
       contact:mode==="KEEP"?{...old.referenceContact}:{id:"",externalId:"",name:"",email:""}
     }:old);
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
   }
   function chooseAccount(account){
     if(!account)return;
@@ -151,7 +152,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
       account:{id:account.id||"",name:account.name||""},
       contact:{id:"",externalId:"",name:"",email:""}
     }:old);
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
     setNotice("기관 선택 완료 · 같은 기관의 고객을 검색해 선택하세요.");
   }
   function chooseContact(pair){
@@ -162,7 +163,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
     setDraft(old=>old?{...old,
       account:pair.account,contact:pair.contact
     }:old);
-    setPreflight(null);
+    setPreflight(null);setCreationRequest(null);
     setNotice("고객 및 소속 기관을 함께 선택했습니다. Salesforce 현재 연결 상태는 저장 전 재검증이 필요합니다.");
   }
   function check(){
@@ -185,8 +186,8 @@ export default function ReportOppoDraft({quote,enabled=true}){
       setCreationRequest(result);
       setPreflight(draftPreflight(payload));
       setNotice(result.status==="PENDING_APPROVAL"?
-        "Oppo–Quote 통합 생성 요청을 로컬 승인 대기열에 등록했습니다. SFDC 저장은 하지 않았습니다.":
-        "생성 요청을 검토 대기열에 등록했습니다. 확인되지 않은 항목을 보완한 뒤 건별 승인하세요.");
+        "기존 Opportunity·Quote 원본 정보 검증을 완료했습니다. 아래에서 최종 금액 확인 후 저장하세요.":
+        "원본 정보가 완전히 검증되지 않아 저장을 차단했습니다. 확인 항목을 보완하세요.");
     }catch(e){setNotice(e.message||"CREATION_REQUEST_FAILED")}
     finally{setRequestBusy(false)}
   }
@@ -218,7 +219,10 @@ export default function ReportOppoDraft({quote,enabled=true}){
     사전 분류된 Feishu Quote 참조가 완전하지 않아 초안을 생성할 수 없습니다.
   </p>;
   return <div aria-label="Oppo Quote 참고 초안 편집">
-    <SourceSalesforceEvidence quote={quote} onVerified={onSourceVerified}/>
+    <details className={styles.subsection} data-testid="reference-source-check">
+      <summary>기존 Salesforce 원본 자동 조회 결과 · 자세히 보기</summary>
+      <SourceSalesforceEvidence quote={quote} onVerified={onSourceVerified}/>
+    </details>
     <p className={styles.hint} role="status">
       2026년 KRW 원본 공정 단가: {historyStatus} · 정확히 일치하는
       QID·공정·Gb에 한해 참고 가격을 자동 불러옵니다.
@@ -243,8 +247,48 @@ export default function ReportOppoDraft({quote,enabled=true}){
     </div>
     <p className={styles.hint}>기존 Opportunity/Quote의 가능한 값을 먼저 채웁니다. 바꾸는 필드만 수정하세요.
       계정·Contact·Region·공정은 원본을 참고하며, 인증된 Salesforce 원본에 KRW 공정별 단가가 있으면 자동 채워집니다.</p>
-    <div className={styles.subsection}>
-      <h3>02 · Account / Contact 처리 방식</h3>
+    <section className={styles.subsection} data-testid="oppo-quote-quick-create">
+      <h3>기존 Opportunity 기준 · 바로 Oppo + Quote 생성</h3>
+      <p className={styles.hint}>기존 Oppo의 기관·Contact·프로젝트 이름을 유지하고,
+        연결된 Quote에서 Product·생산량·KRW 단가·AliCloud를 가져옵니다.
+        바꾸려는 수량이나 단가만 아래에서 수정하면 됩니다.</p>
+      <div className={styles.totals} data-testid="oppo-quote-compact-summary">
+        <div><span>새 Oppo = 새 Quote 이름</span>
+          <strong>{draft.name||"이름 확인 필요"}</strong></div>
+        <div><span>기관 · Contact</span>
+          <strong>{draft.account?.name||"미확인"} · {draft.contact?.name||"미확인"}</strong></div>
+        <div><span>샘플 × 생산량</span>
+          <strong>{draft.products.map(p=>
+            (p.samples||"?")+"개 · "+(p.productionGb||"?")+"Gb").join(" / ")}</strong></div>
+        <div><span>샘플당 KRW 원본 단가</span><strong>{draft.products.map(p=>
+          money(Number.isSafeInteger(Number(p.sampleUnitKrw))&&p.sampleUnitKrw!==""?
+            Number(p.sampleUnitKrw):null)).join(" / ")}</strong></div>
+        <div><span>공급가액 (VAT 제외)</span><strong>{money(amounts?.netKrw)}</strong></div>
+        <div className={styles.grand}><span>VAT 포함 예상액</span>
+          <strong>{money(amounts?.grossKrw)}</strong></div>
+      </div>
+      <button type="button" data-testid="oppo-quote-creation-request"
+        disabled={requestBusy} onClick={requestCreation}>
+        {requestBusy?"신규 견적 검증 중…":"Oppo + Quote 생성하기"}
+      </button>
+      {creationRequest&&<div data-testid="oppo-quote-request-confirmation" role="status">
+        {creationRequest.status==="PENDING_APPROVAL"?
+          <PairedSaveApproval compact key={creationRequest.requestId}
+            review={{requestId:creationRequest.requestId,
+              queueStatus:creationRequest.status,name:draft.name,
+              accountName:draft.account?.name||""}}/>:
+          <div className={styles.warning}>
+            <strong>현재 견적은 실제 저장 대상이 아닙니다.</strong>
+            <p>{creationRequest.missing?.length?
+              creationRequest.missing.join(" · "):
+              "기존 Salesforce의 고객·2026 KRW 공정 단가를 재검증해야 합니다."}</p>
+            <p>정보가 확정된 후 위 ‘Oppo + Quote 생성하기’를 다시 누르면 됩니다.</p>
+          </div>}
+      </div>}
+    </section>
+    <details className={styles.subsection} data-testid="account-contact-advanced">
+      <summary>Account·Contact 변경 (선택사항 · 기본은 기존 Oppo 고객 유지)</summary>
+      <h3>Account / Contact 관리</h3>
       <p className={styles.hint}>두 모드 모두 참조만 불러옵니다. 기존 Salesforce 레코드 변경·생성은 하지 않습니다.</p>
       <fieldset className={styles.accountOptions} aria-label="Account Contact 처리 방식">
         <legend>고객 연결 선택</legend>
@@ -270,9 +314,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
         </div>
 
       </fieldset>
-    </div>
+    </details>
     <div className={styles.subsection}>
-      <h3>03 · 신규 견적 구성 및 단가</h3>
+      <h3>신규 견적 · 수정할 값만 변경</h3>
       <div className={styles.grid}>
         <label>Opportunity · Quote 공통 이름
           <input aria-label="새 Oppo Quote 이름" value={draft.name}
@@ -420,7 +464,8 @@ export default function ReportOppoDraft({quote,enabled=true}){
           </div>
         </div>;
       })}
-      <div className={styles.subsection} data-testid="source-quote-fees">
+      <details className={styles.subsection} data-testid="source-quote-fees">
+        <summary>기존 배송·반송 Fee (별도 관리 · 기본 제외)</summary>
         <h3>별도 배송·반송 Fee · Quotation Fee</h3>
         <p className={styles.hint}>원본 Quotation Fee가 연결된 Product와 금액을 표시합니다.
           샘플당 시퀀싱·라이브러리·QC 단가에는 합산하지 않습니다.
@@ -452,7 +497,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
           원본 Fee를 별도 Quote Fee로 참고 포함합니다. 새로운 고객·수량·배송 조건에서
           비용이 유지되는지는 미확인 상태이므로 생성 요청은 NEEDS_REVIEW로 등록됩니다.
         </p>}
-      </div>
+      </details>
       <div className={styles.totals} data-testid="oppo-price-summary">
         <div><span>Opportunity 샘플당 단가 · VAT 제외</span>
           <strong>{oppUnits.ok&&oppUnits.singleProduct?
@@ -486,7 +531,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
           value={description} onChange={e=>{
             setDescriptionEdit(e.target.value);
             setDescriptionEditBasis(descriptionBasis(draft));
-            setPreflight(null);
+            setPreflight(null);setCreationRequest(null);
           }}/>
       </label>
       {descriptionCheck?.stale&&<p className={styles.warning} role="alert">
@@ -497,29 +542,14 @@ export default function ReportOppoDraft({quote,enabled=true}){
       </p>}
       <div className={styles.actions}>
         <button type="button" onClick={check}>초안 검증 (저장 없음)</button>
-        <button type="button" onClick={requestCreation} disabled={requestBusy}
-          data-testid="oppo-quote-creation-request">
-          {requestBusy?"생성 요청 등록 중":"Oppo + Quote 생성 요청 (승인 대기)"}
-        </button>
+
         <button type="button" className={styles.secondary} onClick={()=>{
           setDescriptionEdit(null);setDescriptionEditBasis(null);setPreflight(null);
+          setCreationRequest(null);
         }}>현재 입력값으로 Description 재생성 (잠금 해제)</button>
         <button type="button" className={styles.secondary} onClick={()=>copy("desc")}>Description 복사</button>
         <button type="button" className={styles.secondary} onClick={()=>copy("json")}>초안 JSON 복사</button>
       </div>
-      {creationRequest&&<div className={styles.output}
-        data-testid="oppo-quote-request-confirmation" role="status">
-        <strong>생성 요청 {creationRequest.status}</strong>
-        <p>요청번호: {creationRequest.requestId}</p>
-        <p><a href="/sales/commands/pair/approvals" style={{fontWeight:750,color:"#17617d"}}>
-          등록된 요청의 SFDC 저장 사전검토·테스트 화면 열기
-        </a></p>
-        <p>{creationRequest.alreadyQueued?"이미 등록된 요청입니다.":"로컬 승인 대기열에 등록됐습니다."}
-          {" "}실제 Salesforce Oppo·Quote 생성은 아직 수행하지 않았습니다.</p>
-        {creationRequest.missing?.length>0&&<p className={styles.warning}>
-          추가 검토: {creationRequest.missing.join(" · ")}
-        </p>}
-      </div>}
       {preflight&&<div className={styles.output} role="status">
         <div className={styles.inlineHead}>
           <b>사전 검증 결과</b>

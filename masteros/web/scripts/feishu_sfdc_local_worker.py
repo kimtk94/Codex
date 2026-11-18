@@ -187,8 +187,9 @@ def prepare_pair(x):
             x.get("Requested Cloud Unit KRW",""))
     except PriceError as exc:
         return {"status":"PREFLIGHT_BLOCK","code":str(exc)}
-    if name==original.get("name"):
-        return {"status":"PREFLIGHT_BLOCK","code":"NAME_DUPLICATES_SOURCE"}
+    # The user intentionally keeps Opportunity/Quotation Name unchanged for
+    # near-clones. Salesforce native IDs (not display names) distinguish them.
+    # Creation replay is blocked by the immutable request/journal/claim guard.
     cloud_count=prices["Cloud Qty"]
     net=prices["Quote Net KRW"]
     if not all(original.get(k) for k in ("accountId","contactId","accountName","contactName")):
