@@ -87,7 +87,9 @@ function prepareUnsavedOpportunity(review){
   child.stdin.on("error",()=>{});
   child.stdin.end(JSON.stringify({
    name:review.name,closeDate:review.closeDateKst,
-   description:review.description
+   description:review.description,
+   contactId:review.contact?.id||"",
+   accountId:review.account?.id||""
   }));
  });
 }
