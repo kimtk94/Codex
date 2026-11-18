@@ -15,7 +15,7 @@ import secrets
 import time
 from contextlib import contextmanager
 
-from oppo_quote_save_preflight import audit_save_preflight
+from oppo_quote_save_preflight import audit_save_preflight, SFID
 
 REQUEST_ID = re.compile(r"^OPPOQUOTE-[a-f0-9]{24}$")
 TOKEN = re.compile(r"^[a-f0-9]{48}$")
