@@ -1,5 +1,5 @@
 "use client";
-import {useState} from "react";
+import {useEffect,useRef,useState} from "react";
 
 // Reusable inline two-step approval. No separate approval page or manual
 // Account/Contact/Process/Unit-Price re-entry: all come from the source Oppo
@@ -15,6 +15,7 @@ const endpoint="/api/sfdc/pair-native-create-local";
 
 export default function PairedSaveApproval({review,compact=false}){
  const [busy,setBusy]=useState(false),[precheck,setPrecheck]=useState(null);
+ const initialCheckId=useRef(null);
  const [duplicateChecked,setDuplicateChecked]=useState(false);
  const [outcome,setOutcome]=useState(null),[error,setError]=useState("");
  const status=review?.queueStatus||"NEEDS_REVIEW";
@@ -55,6 +56,16 @@ export default function PairedSaveApproval({review,compact=false}){
   }catch(e){setError(e.message||"SFDC_SOURCE_UNAVAILABLE")}
   finally{setBusy(false)}
  };
+ // Inline workflow: run the read-only native preflight automatically as soon as
+ // the newly submitted immutable request is ready. The Salesforce write still
+ // requires the operator checkbox and the explicit browser confirmation.
+ useEffect(()=>{
+  if(!compact||!ready||!review?.requestId||initialCheckId.current===review.requestId)return;
+  initialCheckId.current=review.requestId;
+  send("PRECHECK");
+  // One preflight per immutable request; manual retry remains available below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[compact,ready,review?.requestId]);
  return <section style={card} data-testid="sfdc-paired-native-create">
   {!compact&&<h3 style={{margin:"0 0 8px",fontSize:17}}>Opportunity + Quote 실제 생성</h3>}
   <p style={{fontSize:13,marginTop:0}}>
@@ -68,7 +79,7 @@ export default function PairedSaveApproval({review,compact=false}){
   </p>
   <button type="button" style={button} data-testid="pair-real-save-precheck"
     disabled={busy||!ready} onClick={()=>send("PRECHECK")}>
-    {busy?"원본 확인 중…":"① 원본 대조 및 최종 금액 확인"}
+    {busy?"원본 자동 검증 중…":compact?"원본·가격 재검증":"① 원본 대조 및 최종 금액 확인"}
   </button>
   {precheck&&<div data-testid="pair-real-save-review"
     style={{borderTop:"1px solid #c6d6df",paddingTop:12,marginTop:12}}>
@@ -93,7 +104,7 @@ export default function PairedSaveApproval({review,compact=false}){
       <button type="button" style={{...button,background:"#ad4d34"}}
         data-testid="pair-real-save-commit" disabled={busy||!duplicateChecked}
         onClick={()=>send("COMMIT")}>
-        ② Oppo + Quote 실제 저장
+        Oppo + Quote 최종 저장
       </button>
       <p style={{fontSize:11,color:"#5c7180"}}>
         3분 이내 승인 · 한 건씩 저장 · 부분 실패 시 자동 중복 생성 방지
