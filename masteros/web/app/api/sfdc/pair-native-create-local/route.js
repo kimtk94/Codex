@@ -51,7 +51,7 @@ async function getQueue(dir,id){
    throw Error("QUEUED_REQUEST_NOT_NATIVELY_VERIFIED");
  return x;
 }
-function worker(canonical,mode,id,dir){
+function worker(canonical,mode,id,dir,approvedPlanDigest=null){
  return new Promise((resolve,reject)=>{
   const py=process.env.SFDC_LOCAL_PYTHON||"python";
   const sub=spawn(py,[join(process.cwd(),"scripts","sfdc_paired_native_create.py")],{
@@ -79,7 +79,8 @@ function worker(canonical,mode,id,dir){
   });
   sub.stdin.on("error",()=>{});
   sub.stdin.end(JSON.stringify({mode:mode==="SAVE"?"SAVE":"PREFLIGHT",
-    canonical,requestId:id,journalPath:join(dir,id+".journal.json")}));
+    canonical,requestId:id,journalPath:join(dir,id+".journal.json"),
+    expectedPlanDigest:approvedPlanDigest}));
  })
 }
 async function status(dir,id){
@@ -126,17 +127,21 @@ export async function POST(request){
   if(input.mode==="PRECHECK"){
     const check=await worker(queue.canonical,"PREFLIGHT",input.requestId,dir);
     if(check.status!=="PREFLIGHT_PASS")return hold(check.code||"SOURCE_PREFLIGHT_UNVERIFIED",422);
+    if(!/^MATRIX-[0-9a-f]{24}$/.test(check.planDigest||""))
+      return hold("SOURCE_PROCESS_MATRIX_DIGEST_MISSING",422);
     const digest="PAIR-SAVE-"+createHash("sha256")
       .update(JSON.stringify(queue.canonical)+"|"+JSON.stringify({
         net:check.expectedNetKrw,gross:check.expectedGrossKrw,
         samples:check.samples,gb:check.gbPerSample,
-        cloud:check.cloudUnits,processes:check.processCount
+        cloud:check.cloudUnits,processes:check.processCount,
+        exactProcessMatrix:check.planDigest
       })).digest("hex").slice(0,24);
     const nonce=randomBytes(24).toString("hex");
     const session={requestId:input.requestId,
       approvalDigest:digest,tokenHash:createHash("sha256").update(nonce).digest("hex"),
       createdAt:Date.now(),used:false,
-      canonicalId:hash(queue.canonical)};
+      canonicalId:hash(queue.canonical),
+      exactProcessMatrix:check.planDigest};
     const path=join(dir,input.requestId+".paired-session.json");
     await writeFile(path,JSON.stringify(session),{encoding:"utf8",mode:0o600});
     return respond({...check,status:"READY_FOR_OPERATOR_APPROVAL",
@@ -159,7 +164,9 @@ export async function POST(request){
   const tokenB=Buffer.from(createHash("sha256").update(input.nonce||"").digest("hex"));
   const safeToken=checkToken&&tokenA.length===tokenB.length&&timingSafeEqual(tokenA,tokenB);
   if(!safeToken||session.used!==false||session.requestId!==input.requestId||
-     session.canonicalId!==hash(queue.canonical)||!DIGEST.test(session.approvalDigest)||
+     session.canonicalId!==hash(queue.canonical)||
+     !/^MATRIX-[0-9a-f]{24}$/.test(session.exactProcessMatrix||"")||
+     !DIGEST.test(session.approvalDigest)||
      input.approvalDigest!==session.approvalDigest||
      input.confirmation!=="CREATE "+session.approvalDigest.slice(-8)||
      !Number.isFinite(session.createdAt)||Date.now()-session.createdAt>180000||
@@ -174,7 +181,8 @@ export async function POST(request){
       approvedDigest:session.approvalDigest,startedAtUtc:new Date().toISOString(),
       state:"EXECUTION_CLAIMED_NO_AUTOMATIC_RETRY"}),{
        flag:"wx",encoding:"utf8",mode:0o600});
-  const outcome=await worker(queue.canonical,"SAVE",input.requestId,dir);
+  const outcome=await worker(queue.canonical,"SAVE",input.requestId,dir,
+    session.exactProcessMatrix);
   return respond({...outcome,requestId:input.requestId,
     claimRetained:true,automaticRetryAllowed:false});
  }catch(e){

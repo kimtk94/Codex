@@ -6,6 +6,7 @@ server journal and explicit per-record authorization. A partial commit is
 never retried automatically, even after process failure.
 """
 import datetime as dt
+import hashlib
 import json
 import math
 import os
@@ -140,6 +141,13 @@ def build_live_plan(queue):
         "pricePlan":price_plan,"opportunity":opp,"quotation":quote},data
 
 
+def plan_digest(plan):
+    """Exact price-by-process approval binding; not only sum or Cloud count."""
+    raw=json.dumps(plan["pricePlan"],ensure_ascii=False,
+                   sort_keys=True,separators=(",",":")).encode("utf-8")
+    return "MATRIX-"+hashlib.sha256(raw).hexdigest()[:24]
+
+
 def dry_run(plan):
     from feishu_sfdc_local_worker import json_run
     opp=json_run("sfdc_action_executor.py",plan["opportunity"],timeout=100)
@@ -152,7 +160,9 @@ def dry_run(plan):
             "salesforceWrite":False,"expectedNetKrw":plan["netKrw"],
             "expectedGrossKrw":plan["grossKrw"],"samples":plan["samples"],
             "gbPerSample":plan["dataSizeGb"],"cloudUnits":plan["cloudUnits"],
-            "processCount":plan["processCount"],"productWriter":"CHECK_AT_NEW_QUOTE_AFTER_HEADER",
+            "processCount":plan["processCount"],
+            "planDigest":plan_digest(plan),
+            "productWriter":"CHECK_AT_NEW_QUOTE_AFTER_HEADER",
             "quoteHeaderPartialRisk":True}
 
 
@@ -212,7 +222,7 @@ def execute_pair(plan,journal):
 def main():
     try:
         req=json.loads(sys.stdin.buffer.read(45000).decode("utf-8"))
-        if not isinstance(req,dict) or set(req)-{"mode","canonical","requestId","journalPath"}:
+        if not isinstance(req,dict) or set(req)-{"mode","canonical","requestId","journalPath","expectedPlanDigest"}:
             raise ValueError("UNKNOWN_REQUEST_KEYS")
         mode=req.get("mode")
         if mode not in ("PREFLIGHT","SAVE"):raise ValueError("WRONG_MODE")
@@ -220,6 +230,10 @@ def main():
         if plan.get("status")!="READY":result=plan
         elif mode=="PREFLIGHT":result=dry_run(plan)
         else:
+            # A source can drift while retaining the same total. The exact
+            # approved per-process quantity, price, type and Pack MUST match.
+            if req.get("expectedPlanDigest")!=plan_digest(plan):
+                raise ValueError("SOURCE_PROCESS_MATRIX_CHANGED_SINCE_APPROVAL")
             request_id=req.get("requestId")
             journal=req.get("journalPath")
             if not isinstance(request_id,str) or not REQUEST_ID.fullmatch(request_id):
