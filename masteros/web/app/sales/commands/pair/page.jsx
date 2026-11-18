@@ -214,6 +214,7 @@ export default function PairedQuoteWeb(){
       </div>
       <nav className={styles.nav} aria-label="화면 이동">
         <Link href="/sales/commands/pair/advanced">Oppo + Quote 통합 생성 준비 점검</Link>
+        <Link href="/sales/commands/pair/approvals">SFDC 저장 사전검토·테스트</Link>
         <a href={BASE} rel="noreferrer" target="_blank">Feishu Quote Report</a>
       </nav>
     </header>

@@ -511,6 +511,9 @@ export default function ReportOppoDraft({quote,enabled=true}){
         data-testid="oppo-quote-request-confirmation" role="status">
         <strong>생성 요청 {creationRequest.status}</strong>
         <p>요청번호: {creationRequest.requestId}</p>
+        <p><a href="/sales/commands/pair/approvals" style={{fontWeight:750,color:"#17617d"}}>
+          등록된 요청의 SFDC 저장 사전검토·테스트 화면 열기
+        </a></p>
         <p>{creationRequest.alreadyQueued?"이미 등록된 요청입니다.":"로컬 승인 대기열에 등록됐습니다."}
           {" "}실제 Salesforce Oppo·Quote 생성은 아직 수행하지 않았습니다.</p>
         {creationRequest.missing?.length>0&&<p className={styles.warning}>
