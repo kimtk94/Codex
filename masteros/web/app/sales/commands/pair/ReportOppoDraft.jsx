@@ -477,12 +477,12 @@ export default function ReportOppoDraft({quote,enabled=true}){
       </div>
     </div>
     <div className={styles.subsection}>
-      <h3>Progress Description</h3>
+      <h3>Progress Description (자동 작성 · 수정 가능)</h3>
       {changes.length>0&&<p className={styles.hint}>원본 대비 변경 항목 {changes.length}개:
         {" "}{changes.slice(0,12).map(x=>x.field).join(", ")}
         {changes.length>12?" 외 "+(changes.length-12)+"개":""}</p>}
-      <p className={styles.hint}>실제 Opportunity에서 쓰던 짧은 양식: 0407 Quote Issued mRNA-Seq 12 samples * 250,000KRW. 새 초안은 발송 전이므로 Quote Draft로 표시합니다.</p>
-      <p className={styles.hint}>MMDD · 상태 · 서비스 · Gb(해당 시) · 수량 · 단가만 표시합니다. 직접 수정하면 문구를 잠그며, 이후 값이 바뀌면 재검증이 필요합니다.</p>
+
+
       <div className={styles.inlineHead}>
         <b>현재 편집 상태</b>
         <span className={styles.state} data-ok={!descriptionCheck?.stale&&descriptionCheck?.complete}>
@@ -491,7 +491,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
         </span>
       </div>
       <label className={styles.draftTextLabel}>Opportunity Progress Description (직접 수정 가능)
-        <textarea aria-label="새 Oppo Quote Description 편집" rows={7}
+        <textarea aria-label="새 Oppo Quote Description 편집" rows={3}
           value={description} onChange={e=>{
             setDescriptionEdit(e.target.value);
             setDescriptionEditBasis(descriptionBasis(draft));
@@ -563,7 +563,7 @@ export default function ReportOppoDraft({quote,enabled=true}){
             <p>{creationRequest.missing?.length?
               creationRequest.missing.join(" · "):
               "기존 Salesforce의 고객·2026 KRW 공정 단가를 재검증해야 합니다."}</p>
-            <p>정보를 수정한 후 아래 ‘Oppo + Quote 생성’ 버튼을 다시 누르세요.</p>
+            <p>정보를 수정한 후 ‘검증 후 Oppo + Quote 저장’을 다시 누르세요.</p>
           </div>}
       </div>}
 
