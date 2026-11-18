@@ -115,7 +115,7 @@ class SavePreflightTests(unittest.TestCase):
                          "READY_FOR_PER_RECORD_OPERATOR_APPROVAL")
         candidate["description"]="1117 Quote Draft synthetic mRNA 48 samples expected."
         result=self.audit(candidate,evidence)
-        self.assertEqual(result["status"],"HOLD")
+        self.assertEqual(result["status"],"HOLD_SFDC_SAVE_PREFLIGHT")
         self.assertIn("QUOTE_ISSUED_PROGRESS_REQUIRED",result["reason_codes"])
 
     def test_approval_digest_changes_with_one_price_or_quantity(self):
