@@ -37,6 +37,7 @@ async def inspect_opportunity(ctx):
         await page.goto(HOST+"/lightning/o/Opportunity/list",
             wait_until="domcontentloaded",timeout=30000)
         btn=page.get_by_role("button",name="New",exact=True)
+        await btn.wait_for(state="visible",timeout=25000)
         if await btn.count()!=1:
             result["reason"]="UNIQUE_NEW_OPPORTUNITY_NOT_FOUND";return result
         await btn.click(timeout=15000)
@@ -63,6 +64,7 @@ async def inspect_quotation(ctx):
         await page.goto(HOST+"/lightning/o/Quotation__c/list",
             wait_until="domcontentloaded",timeout=30000)
         btn=page.get_by_role("button",name="New",exact=True)
+        await btn.wait_for(state="visible",timeout=25000)
         if await btn.count()!=1:
             result["reason"]="UNIQUE_NEW_QUOTATION_NOT_FOUND";return result
         await btn.click(timeout=15000)
