@@ -29,6 +29,38 @@ async function record(dir,id){
   return reviewQueueRecord(entry,id);
  }catch{return {status:"HOLD",code:"QUEUE_REQUEST_NOT_FOUND"}}
 }
+function prepareUnsavedOpportunity(review){
+ return new Promise((resolve,reject)=>{
+  const child=spawn(process.env.SFDC_LOCAL_PYTHON||"python",
+   [join(process.cwd(),"scripts","sfdc_prepare_unsaved_opportunity.py")],{
+    cwd:process.cwd(),shell:false,windowsHide:true,
+    env:{...process.env,PYTHONDONTWRITEBYTECODE:"1",PYTHONIOENCODING:"utf-8"},
+    stdio:["pipe","pipe","ignore"]
+   });
+  let output="",settled=false;
+  const timer=setTimeout(()=>{child.kill();if(!settled){settled=true;reject(Error("UNSAVED_FORM_TIMEOUT"))}},110000);
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data",chunk=>{output+=chunk;if(output.length>8000)child.kill()});
+  child.on("error",()=>{clearTimeout(timer);if(!settled){settled=true;reject(Error("UNSAVED_WORKER_START_FAILED"))}});
+  child.on("close",()=>{
+   clearTimeout(timer);if(settled)return;settled=true;
+   try{
+    const x=JSON.parse(output);
+    if(!["UNSAVED_OPPORTUNITY_FORM_READY","HOLD_FORM_PARTIAL"].includes(x.status)||
+      x.salesforce_write!==false||x.save_clicked!==false||x.crm_writes!==0||
+      !x.fields||typeof x.fields!=="object")
+     throw Error("INVALID_UNSAVED_WORKER_RESPONSE");
+    resolve(x);
+   }catch{reject(Error("UNSAVED_WORKER_RESPONSE_INVALID"))}
+  });
+  child.stdin.on("error",()=>{});
+  child.stdin.end(JSON.stringify({
+   name:review.name,closeDate:review.closeDateKst,
+   description:review.description
+  }));
+ });
+}
+
 function formRehearsal(){
  return new Promise((resolve,reject)=>{
   const py=process.env.SFDC_LOCAL_PYTHON||"python";
@@ -74,10 +106,12 @@ export async function POST(request){
   input=JSON.parse(text);
   if(!input||Array.isArray(input)||
     Object.keys(input).some(k=>!["mode","requestId"].includes(k))||
-    !["LIST","DETAIL","FORM_REHEARSAL"].includes(input.mode))
+    !["LIST","DETAIL","FORM_REHEARSAL","OPPO_UNSAVED_PREPARE"].includes(input.mode))
    throw Error("BAD_MODE");
-  if(input.mode==="DETAIL"&&!isQueueRequestId(input.requestId))throw Error("BAD_ID");
-  if(input.mode!=="DETAIL"&&input.requestId!==undefined)throw Error("UNEXPECTED_ID");
+  if(["DETAIL","OPPO_UNSAVED_PREPARE"].includes(input.mode)&&
+    !isQueueRequestId(input.requestId))throw Error("BAD_ID");
+  if(!["DETAIL","OPPO_UNSAVED_PREPARE"].includes(input.mode)&&
+    input.requestId!==undefined)throw Error("UNEXPECTED_ID");
  }catch{return deny("SAVE_REVIEW_REQUEST_INVALID",400)}
  const dir=directory();
  if(!dir)return deny("PRIVATE_OPERATOR_QUEUE_UNAVAILABLE",503);
@@ -108,6 +142,21 @@ export async function POST(request){
   const view=await record(dir,input.requestId);
   return view.status==="QUEUE_REVIEW_READY_SFDC_NATIVE_RECHECK_REQUIRED"?
    respond(view):deny(view.code||"QUEUE_INVALID",404);
+ }
+ if(input.mode==="OPPO_UNSAVED_PREPARE"){
+  if(rehearsalBusy)return deny("LOCAL_SFDC_FORM_BUSY",409);
+  const view=await record(dir,input.requestId);
+  if(view.status!=="QUEUE_REVIEW_READY_SFDC_NATIVE_RECHECK_REQUIRED"||
+     view.queueStatus!=="PENDING_APPROVAL"||
+     !view.name||!view.closeDateKst||!view.description)
+    return deny("REVIEW_QUEUE_NOT_READY_FOR_UNSAVED_FORM",422);
+  rehearsalBusy=true;
+  try{
+   const result=await prepareUnsavedOpportunity(view);
+   return respond({...result,approvalRequestId:view.requestId,
+     savePermitted:false,operatorSaveRequired:true});
+  }catch{return deny("UNSAVED_OPPO_FORM_PREPARE_FAILED",503)}
+  finally{rehearsalBusy=false}
  }
  if(rehearsalBusy)return deny("FORM_REHEARSAL_BUSY",409);
  rehearsalBusy=true;
