@@ -183,7 +183,7 @@ export function calculateDraft(draft){
     // Unverified quotes without either source indication still HOLD until
     // their Cloud unit rate is checked against live Salesforce.
     const hasCloudProcess=(p.processes||[]).some(x=>
-      /ali\\s*cloud|cloud storage|cloud service/i.test(x.name||""));
+      /ali.?cloud|cloud storage|cloud service/i.test(x.name||""));
     const releaseOnlyCloudExcluded=!cloudRequested&&!hasCloudProcess&&
       Array.isArray(p.fixedProcessLines)&&p.fixedProcessLines.some(x=>
         /^data release$/i.test(String(x.processName||"").trim()));
