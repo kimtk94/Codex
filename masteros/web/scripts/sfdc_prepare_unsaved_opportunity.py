@@ -9,40 +9,52 @@ import json,sys,asyncio
 from playwright.async_api import async_playwright
 HOST="https://novogene.lightning.force.com"
 LABEL_JS=r"""(label) => {
- const normal=s=>(s||"").replace(/\s+/g," ").replace(/^\s*\*\s*/,"").trim().toLowerCase();
- const roots=[],seen=new Set();
- function visit(r){if(!r||seen.has(r))return;seen.add(r);roots.push(r);
-   for(const e of r.querySelectorAll("*"))if(e.shadowRoot)visit(e.shadowRoot)}
- visit(document);
- const candidates=[],included=new Set();
- function add(x){if(!x||included.has(x)||x.disabled||x.readOnly||
-    !x.matches("input:not([type=hidden]),textarea"))return;
-    included.add(x);candidates.push(x)}
- for(const root of roots)for(const l of root.querySelectorAll("label,.slds-form-element__label")){
-  if(normal(l.textContent)!==normal(label))continue;
-  const id=l.getAttribute("for");
-  if(id&&root.getElementById){const x=root.getElementById(id);if(x)add(x)}
-  let p=l;
-  for(let i=0;i<7&&p;i++,p=p.parentElement){
-   if(p.matches?.("lightning-input,lightning-textarea,lightning-input-field,.slds-form-element")){
-     const sub=p.shadowRoot||p;
-     for(const x of sub.querySelectorAll("input,textarea"))add(x);
-     break;
-   }
+  const normalize=s=>(s||"").replace(/\s+/g," ").replace(/^\s*\*\s*/,"").trim().toLowerCase();
+  const tag=label==="Progress Description"?"lightning-textarea":"lightning-input";
+  const roots=[],seen=new Set();
+  function visit(r){
+    if(!r||seen.has(r))return;seen.add(r);roots.push(r);
+    for(const el of r.querySelectorAll("*"))if(el.shadowRoot)visit(el.shadowRoot);
   }
- }
- for(const root of roots)for(const host of root.querySelectorAll(
-   "lightning-input,lightning-textarea,lightning-input-field")){
-   if(normal(host.getAttribute("label"))!==normal(label))continue;
-   for(const x of (host.shadowRoot||host).querySelectorAll("input,textarea"))add(x)
- }
- const appropriate=candidates.filter(x=>label==="Progress Description"?
-   x.tagName==="TEXTAREA":x.tagName==="INPUT");
- if(appropriate.length===1){
-    appropriate[0].setAttribute("data-local-unsaved-field",label.replace(/\s/g,"_"));
- }
- return {matched:appropriate.length,marked:appropriate.length===1};
+  visit(document);
+  const controls=new Set(),labels=[];
+  function inner(host){
+    const visited=new Set();
+    function run(root){
+      if(!root||visited.has(root))return;visited.add(root);
+      for(const el of root.querySelectorAll("input,textarea")){
+        if(el.disabled||el.readOnly||el.type==="hidden")continue;
+        if(label==="Progress Description"?el.tagName==="TEXTAREA":el.tagName==="INPUT")
+          controls.add(el);
+      }
+      for(const el of root.querySelectorAll("*"))if(el.shadowRoot)run(el.shadowRoot);
+    }
+    run(host.shadowRoot||host);
+  }
+  for(const root of roots)for(const lab of root.querySelectorAll("label,legend,.slds-form-element__label")){
+    if(normalize(lab.textContent)!==normalize(label))continue;
+    labels.push(lab);
+    let r=lab.getRootNode();
+    for(let i=0;i<12&&r&&r.host;i++){
+      if(r.host.tagName?.toLowerCase()===tag){inner(r.host);break}
+      r=r.host.getRootNode();
+    }
+    const id=lab.getAttribute("for");
+    const linked=id?root.getElementById?.(id):null;
+    if(linked){
+      if(label==="Progress Description"?linked.tagName==="TEXTAREA":linked.tagName==="INPUT")
+        controls.add(linked);
+    }
+  }
+  for(const root of roots)for(const host of root.querySelectorAll(tag)){
+    if(normalize(host.getAttribute("label"))===normalize(label))inner(host);
+  }
+  const unique=[...controls].filter(el=>el.getClientRects().length>0);
+  if(unique.length===1)
+    unique[0].setAttribute("data-local-unsaved-field",label.replace(/\s/g,"_"));
+  return {matched:unique.length,marked:unique.length===1,label_count:labels.length};
 }"""
+
 async def main():
  output={"status":"HOLD_UNSAVED_DRAFT_PREPARE","salesforce_write":False,
          "save_clicked":False,"crm_writes":0,"page_open":False,
@@ -84,9 +96,13 @@ async def main():
     for label,value in (("Opportunity Name",name),("Close Date",dt),
                         ("Progress Description",description)):
       output["stage"]="FIND_FIELD_"+label.replace(" ","_")
-      located=await page.evaluate(LABEL_JS,label)
+      try:
+       located=await page.evaluate(LABEL_JS,label)
+      except Exception:
+       output["fields"][label]="HOLD_FIELD_DOM_TRANSIENT";complete=False;continue
       if not located["marked"]:
-       output["fields"][label]="HOLD_FIELD_NOT_UNIQUE";complete=False;continue
+       output["fields"][label]="HOLD_FIELD_NOT_UNIQUE_"+str(located["matched"])
+       complete=False;continue
       selector='[data-local-unsaved-field="'+label.replace(" ","_")+'"]'
       control=page.locator(selector)
       try:
