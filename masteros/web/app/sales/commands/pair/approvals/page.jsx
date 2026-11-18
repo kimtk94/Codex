@@ -171,6 +171,12 @@ export default function LocalSalesforceApprovalConsole(){
       display:"flex",justifyContent:"space-between",gap:12,flexWrap:"wrap"
     }} onClick={()=>choose(row.requestId)}>
       <span><strong>{row.name}</strong>
+       {row.supersededByRequestId&&<span style={{display:"block",fontSize:11,color:"#edc58e"}}>
+         이전 요청 · Quote Issued 재검토 요청으로 대체됨
+       </span>}
+       {row.supersedesRequestId&&<span style={{display:"block",fontSize:11,color:"#9bd4f6"}}>
+         Quote Issued 적용 신규 요청 · 저장 전 재검토 필요
+       </span>}
        <span style={{display:"block",fontSize:11,color:sub,marginTop:5}}>
        {row.accountName||"Account 미확인"} · {row.contactName||"Contact 미확인"}
        {" · "}Product {row.productCount}개 · {kst(row.createdAtUtc)}</span></span>
@@ -180,6 +186,11 @@ export default function LocalSalesforceApprovalConsole(){
   </section>
   {review&&<section style={pane} data-testid="single-quote-save-review">
    <h2 style={{fontSize:18}}>02 · 저장될 내용 사전검토 — {review.name}</h2>
+   {review.supersedesRequestId&&<p style={{fontSize:12,color:"#9bd4f6"}}>
+     이전 Quote Draft 요청 <code>{review.supersedesRequestId}</code>을 대체한
+     Quote Issued 검토 요청입니다. 원본 가격·Contact·Product는 유지하지만
+     실제 Salesforce 저장 권한은 새로 검증해야 합니다.
+   </p>}
    <p style={{color:sub,fontSize:12}}>요청번호: <code>{review.requestId}</code>
     {" · "}원본 QID: {review.sourceQid||"미기재"}{" · "}Close Date: {review.closeDateKst||"미확인"}</p>
    <div data-testid="same-name-native-id-policy" style={{fontSize:12,
