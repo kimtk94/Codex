@@ -279,6 +279,27 @@ def before_click(files,stage,review,*,opportunity_id=None):
         "updated_at_utc":datetime.now(timezone.utc).isoformat(),**rec})
     return None
 
+def created_id_is_distinct(stage,record_id,review):
+    """A same-name Save only succeeds if the *new* native Salesforce ID is new.
+
+    The source Quote/Oppo may carry exactly the same Name. A URL that points
+    to an existing 006/a0P is NOT evidence of a newly created record.
+    """
+    if not isinstance(review,dict) or stage not in STAGE:
+        return False
+    prefix="006" if stage=="OPPORTUNITY" else "a0P"
+    if not isinstance(record_id,str) or not record_id.startswith(prefix) or not SFID.fullmatch(record_id):
+        return False
+    original_key=("original_opportunity_id" if stage=="OPPORTUNITY" else "original_quotation_id")
+    existing_key=("existing_opportunity_ids" if stage=="OPPORTUNITY" else "existing_quotation_ids")
+    existing=review.get(existing_key,[])
+    if not isinstance(existing,list) or not all(isinstance(x,str) for x in existing):
+        return False
+    if record_id==review.get(original_key) or record_id in existing:
+        return False
+    return True
+
+
 def after_click(files,stage,record_id):
     journal=read_journal(files)
     if stage=="OPPORTUNITY" and journal["state"]=="OPPORTUNITY_CLICK_STARTED" and (
