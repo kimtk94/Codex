@@ -81,27 +81,14 @@ def request_from_queue(canonical):
         "expectedNet":n*unit+math.ceil(n*size/100)*cloud_unit}
 
 
-def duplicate_name_gate(new_name):
-    """Current SFDC list search detects known duplicates, not exhaustive CRM."""
-    from feishu_sfdc_local_worker import json_run
-    for resource in ("opportunity","quote"):
-        result=json_run("sfdc_record_catalog.py",{
-            "resource":resource,"mode":"list","query":new_name},timeout=65)
-        if (result.get("status")!="PASS" or
-            result.get("scope")!="SALESFORCE_CURRENT_LIST_VIEW" or
-            not isinstance(result.get("records"),list)):
-            return "DUPLICATE_SEARCH_SOURCE_UNAVAILABLE"
-        if any(isinstance(row,dict) and row.get("name","").strip()==new_name
-               for row in result["records"]):
-            return "EXISTING_OPPO_OR_QUOTE_NAME_DUPLICATE"
-    return None
-
+# Identical visible names are allowed: Salesforce record IDs, not Name, are
+# unique. The immutable request digest + exclusive claim/journal prevent
+# replaying the same create request. An explicit per-record duplicate
+# confirmation is required before committing a write.
 
 def build_live_plan(queue):
     from feishu_sfdc_local_worker import prepare_pair
     data=request_from_queue(queue)
-    duplicate=duplicate_name_gate(data["name"])
-    if duplicate:return failure(duplicate),None
     req={"Source Oppo ID":data["sourceOpportunityId"],
         "Source Quote ID":data["sourceQuoteId"],"New Samples":str(data["samples"]),
         "Data Size Gb":str(data["sizeGb"]),"New Opportunity Name":data["name"],
