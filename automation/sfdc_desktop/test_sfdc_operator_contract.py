@@ -24,7 +24,7 @@ class ExistingSFDCUserRulesContractTests(unittest.TestCase):
         self.assertTrue({f"{i:03d}" for i in range(1,21)} <= found)
         for required in (
             "CONTACT_FIRST_ENTRY_REQUIRED", "QUOTE_MUST_START_FROM_OPPO_RELATED",
-            "NATIVE_SFDC", "Quote Issued", "VAT", "AliCloud",
+            "006/a0P ID", "Quote Issued", "VAT", "AliCloud",
         ):
             self.assertIn(required,body)
 
