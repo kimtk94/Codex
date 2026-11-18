@@ -52,12 +52,19 @@ function historicalReferenceFromValidatedRows(records,sourceQid,product) {
   // charge, NOT a per-sample unit price nor a Quotation shipping Fee.
   // Do not distribute it across samples: changing sample count would then
   // silently multiply what was only a fixed historical charge.
-  const fixedRows=rows.filter(r=>isRelease(r)&&r.sample_quantity!==sourceSamples);
-  if(fixedRows.some(r=>r.sample_quantity!==1))
+  // A single Data release for >1 samples is a one-off Product process.
+  // A different source pattern, e.g. 4 release operations for 2 samples,
+  // is a *repeatable per-sample quantity multiplier*, not a fixed charge.
+  // Preserve that historical calculation; HOLD fractional unit rates.
+  const releaseRows=rows.filter(isRelease);
+  if(releaseRows.some(r=>r.sample_quantity>1&&
+      r.sample_quantity<sourceSamples))
     return {ok:false,code:"HISTORICAL_RELEASE_QUANTITY_UNVERIFIED"};
-  const recurringRows=rows.filter(r=>!isCloud(r)&&
-    (!isRelease(r)||r.sample_quantity===sourceSamples));
-  if(recurringRows.some(r=>r.sample_quantity!==sourceSamples))
+  const fixedRows=releaseRows.filter(r=>
+    r.sample_quantity===1&&sourceSamples>1);
+  const recurringRows=rows.filter(r=>!isCloud(r)&&!fixedRows.includes(r));
+  if(recurringRows.some(r=>!isRelease(r)&&
+      r.sample_quantity!==sourceSamples))
     return {ok:false,code:"HISTORICAL_RECURRING_QTY_MISMATCH"};
   const recurringNetKrw=recurringRows.reduce((sum,r)=>
     sum+Number(r.unit_price_krw)*r.sample_quantity,0);
