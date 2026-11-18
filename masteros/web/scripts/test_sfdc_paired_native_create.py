@@ -109,6 +109,29 @@ class PureNativeSaveTests(unittest.TestCase):
   x=request_from_queue(p)
   self.assertEqual(x["name"],p["proposed"]["name"])
   self.assertEqual(x["sourceOpportunityId"],"006000000000001AAA")
+ def test_prepare_pair_retains_exact_source_opportunity_name(self):
+  from feishu_sfdc_local_worker import prepare_pair
+  src_opp={"id":"006000000000001AAA","name":"Korea-Test-Single-Quote-6Gb",
+    "accountId":"001000000000001AAA","contactId":"003000000000001AAA",
+    "accountName":"University","contactName":"Professor"}
+  source={"id":"a0P000000000001AAA","opportunityId":"006000000000001AAA",
+    "pricingStatus":"VERIFIED_PROCESS_LINES",
+    "sourceVatRateVerified10Pct":True,"cloudLinePresent":True,
+    "productCount":1,"dataSize":5,"productCategory":"RNA",
+    "productName":"RNA Product","processNames":"Lib,Seq,AliCloud"}
+  bundle={"status":"PASS","opportunity":src_opp,"linkedQuotes":[source]}
+  prices={"Cloud Qty":1,"Quote Net KRW":675000,"Quote Gross KRW":742500,
+    "Sample Unit KRW":160000,"Cloud Unit KRW":35000}
+  request={"Source Oppo ID":src_opp["id"],"Source Quote ID":source["id"],
+    "New Samples":"4","Data Size Gb":"5",
+    "New Opportunity Name":src_opp["name"]}
+  with patch("feishu_sfdc_local_worker.json_run",return_value=bundle), \
+       patch("feishu_sfdc_local_worker.evaluate_price",return_value=prices), \
+       patch("feishu_sfdc_local_worker.pack_evidence",
+             return_value={"state":"PASS","process_lines":[]}):
+   actual=prepare_pair(request)
+  self.assertEqual(actual["status"],"READY",actual)
+  self.assertEqual(actual["opportunity"]["opportunityName"],src_opp["name"])
  def test_block_drifted_price_or_customer_before_save(self):
   fake={"status":"READY","expectedNet":676000,
         "price_fields":{"Sample Unit KRW":160000,"Cloud Unit KRW":35000},
