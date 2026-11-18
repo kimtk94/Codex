@@ -213,7 +213,10 @@ export default function PairedQuoteWeb(){
         <p>기존 Opportunity 선택 → 필요한 부분만 수정 → 금액 확인 → 실제 저장</p>
       </div>
       <nav className={styles.nav} aria-label="화면 이동">
-        <a href={BASE} rel="noreferrer" target="_blank">원본 Quote Report 보기</a>
+        <Link href="/sales/commands">영업 홈</Link>
+        <Link href="/sales/projects">프로젝트 관리</Link>
+        <Link href="/sales/mail">메일 · Lead</Link>
+        <a href={BASE} rel="noreferrer" target="_blank">Quote 원본 Report</a>
       </nav>
     </header>
     <div className={styles.notice} role="status">
