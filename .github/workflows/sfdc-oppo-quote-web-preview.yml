@@ -22,6 +22,7 @@ on:
       - 'automation/sfdc_desktop/native_save_transaction.py'
       - 'automation/sfdc_desktop/test_native_save_transaction.py'
       - 'automation/sfdc_desktop/quote_native_save_source_audit.py'
+      - 'automation/sfdc_desktop/quote_native_save_source_audit_cli.py'
       - 'automation/sfdc_desktop/test_quote_native_save_source_audit.py'
       - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
   pull_request:
@@ -44,6 +45,7 @@ on:
       - 'automation/sfdc_desktop/native_save_transaction.py'
       - 'automation/sfdc_desktop/test_native_save_transaction.py'
       - 'automation/sfdc_desktop/quote_native_save_source_audit.py'
+      - 'automation/sfdc_desktop/quote_native_save_source_audit_cli.py'
       - 'automation/sfdc_desktop/test_quote_native_save_source_audit.py'
       - '.github/workflows/sfdc-oppo-quote-web-preview.yml'
   workflow_dispatch:
@@ -80,7 +82,7 @@ jobs:
           python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_native_save_transaction.py' -v
           python3 -m py_compile ../../automation/sfdc_desktop/native_save_transaction.py scripts/sfdc_native_approved_save.py
           python3 -m unittest discover -s ../../automation/sfdc_desktop -p 'test_quote_native_save_source_audit.py' -v
-          python3 -m py_compile ../../automation/sfdc_desktop/quote_native_save_source_audit.py
+          python3 -m py_compile ../../automation/sfdc_desktop/quote_native_save_source_audit.py ../../automation/sfdc_desktop/quote_native_save_source_audit_cli.py
           python3 -m unittest discover -s scripts -p 'test_sfdc_quote_fee_source.py' -v
           python3 -m py_compile scripts/sfdc_quote_fee_source.py
       - name: Install isolated web dependencies
