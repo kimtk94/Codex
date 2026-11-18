@@ -33,11 +33,14 @@ test("local approval console never writes SFDC and can rehearse and prepare unsa
   await waitForServer();
   browser=await chromium.launch({headless:true});
   page=await browser.newPage();
-  const writes=[],modes=[];
+  const writes=[],modes=[],saveModes=[];
+  const digest="SFDC-REVIEW-"+"e".repeat(24),nonce="a".repeat(48);
+  page.on("dialog",dialog=>dialog.accept());
   page.on("request",request=>{
    const pathname=new URL(request.url()).pathname;
    if(!["GET","HEAD","OPTIONS"].includes(request.method())&&
-      pathname!=="/api/sfdc/pair-approval-review-local")
+      !["/api/sfdc/pair-approval-review-local",
+        "/api/sfdc/pair-native-save-local"].includes(pathname))
     writes.push(request.method()+" "+pathname);
   });
   await page.route("**/api/sfdc/pair-approval-review-local",async route=>{
@@ -90,7 +93,34 @@ test("local approval console never writes SFDC and can rehearse and prepare unsa
    }else throw Error("UNEXPECTED_MODE_"+payload.mode);
    await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(data)});
   });
-  const response=await page.goto(base+"/sales/commands/pair/approvals",{waitUntil:"networkidle"});
+  await page.route("**/api/sfdc/pair-native-save-local",async route=>{
+    const payload=route.request().postDataJSON();
+    saveModes.push(payload.mode+":"+payload.stage);
+    assert.equal(payload.requestId,qid);
+    let data;
+    if(payload.mode==="PRECHECK"&&payload.stage==="OPPORTUNITY"){
+      data={status:"READY_FOR_EXACT_RECORD_SAVE_CLICK",stage:payload.stage,
+       requestId:qid,approvalDigest:digest,nonce,name:"Korea-Synthetic-RNA-48samples",
+       quoteName:"Korea-Synthetic-RNA-48samples",
+       netKrw:"9600000",vatKrw:"960000",grossKrw:"10560000",
+       productCount:1,processCount:2,
+       salesforce_write:false,save_clicked:false,crm_writes:0};
+    }else if(payload.mode==="COMMIT"&&payload.stage==="OPPORTUNITY"){
+      assert.equal(payload.approvalDigest,digest);
+      assert.equal(payload.nonce,nonce);
+      assert.equal(payload.confirmation,"SAVE "+digest.slice(-8));
+      data={status:"NATIVE_SAVE_CREATED_AND_READBACK",stage:payload.stage,
+       requestId:qid,nativeId:"006000000000001",journalState:"OPPORTUNITY_SAVED",
+       nativeRecordUrl:"https://novogene.lightning.force.com/lightning/r/Opportunity/006000000000001/view",
+       salesforce_write:true,save_clicked:true,crm_writes:1};
+    }else if(payload.mode==="PRECHECK"&&payload.stage==="QUOTATION"){
+      data={status:"HOLD_NATIVE_SAVE",code:"QUOTATION_PRODUCT_PROCESS_ROWS_NOT_VERIFIED_IN_FORM",
+       stage:payload.stage,allowed:false,salesforce_write:false,save_clicked:false,
+       crm_writes:0};
+    }else throw Error("UNEXPECTED_NATIVE_SAVE_"+payload.mode+"_"+payload.stage);
+    await route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(data)});
+  });
+    const response=await page.goto(base+"/sales/commands/pair/approvals",{waitUntil:"networkidle"});
   assert.equal(response.status(),200);
   assert.match(await page.locator("h1").innerText(),/Opportunity–Quotation 실제 저장 사전검토/);
   await page.getByTestId("queued-approval-requests").getByRole("button").first().click();
@@ -99,6 +129,27 @@ test("local approval console never writes SFDC and can rehearse and prepare unsa
   assert.match(await review.innerText(),/9,600,000 KRW/);
   assert.match(await review.innerText(),/Product/);
   assert.equal(await page.getByTestId("save-to-sfdc-disabled").isDisabled(),true);
+  const nativeSave=page.getByTestId("commit-sfdc-native-save");
+  assert.equal(await nativeSave.isDisabled(),true,"Save must start disabled");
+  await page.getByTestId("check-native-save").click();
+  await page.getByTestId("native-save-precheck-result").waitFor();
+  assert.match(await page.getByTestId("native-save-precheck-result").innerText(),
+    /READY_FOR_EXACT_RECORD_SAVE_CLICK/);
+  assert.equal(await nativeSave.isDisabled(),true,"Typed explicit confirmation is required");
+  await page.locator("#native-save-confirm").fill("SAVE WRONG");
+  assert.equal(await nativeSave.isDisabled(),true);
+  await page.locator("#native-save-confirm").fill("SAVE "+digest.slice(-8));
+  assert.equal(await nativeSave.isDisabled(),false);
+  await nativeSave.click();
+  await page.getByTestId("native-save-commit-result").waitFor();
+  assert.match(await page.getByTestId("native-save-commit-result").innerText(),
+    /NATIVE_SAVE_CREATED_AND_READBACK/);
+  assert.equal(await nativeSave.isDisabled(),true,"Save cannot be clicked twice");
+  assert.equal(await page.locator("#native-save-stage").inputValue(),"QUOTATION");
+  await page.getByTestId("check-native-save").click();
+  assert.match(await page.getByTestId("native-save-precheck-result").innerText(),
+    /QUOTATION_PRODUCT_PROCESS_ROWS_NOT_VERIFIED_IN_FORM/);
+  assert.equal(await nativeSave.isDisabled(),true);
   await page.getByTestId("prepare-opportunity-unsaved").click();
   await page.getByTestId("prepared-unsaved-opportunity").waitFor();
   assert.match(await page.getByTestId("prepared-unsaved-opportunity").innerText(),
@@ -108,6 +159,8 @@ test("local approval console never writes SFDC and can rehearse and prepare unsa
   assert.match(await page.getByTestId("sfdc-rehearsal-result").innerText(),
     /Research-AMEA/);
   assert.deepEqual(modes,["LIST","DETAIL","OPPO_UNSAVED_PREPARE","FORM_REHEARSAL"]);
+  assert.deepEqual(saveModes,[
+   "PRECHECK:OPPORTUNITY","COMMIT:OPPORTUNITY","PRECHECK:QUOTATION"]);
   assert.deepEqual(writes,[]);
   assert.equal(await page.getByTestId("save-to-sfdc-disabled").isDisabled(),true);
  }finally{
