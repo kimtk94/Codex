@@ -17,7 +17,7 @@ const evidence={
 function draft(){
   return {sourceQuoteId:quote,sourceOpportunityId:"006000000000001AAA",
     qid:"QID-2026-11-10-111111",name:"Korea-Synthetic-Quote",
-    date:"2026-11-17",closeDate:"2026-12-17",descriptionStatus:"Quote Draft",
+    date:"2026-11-17",closeDate:"2026-12-17",descriptionStatus:"Quote Issued",
     accountMode:"KEEP",account:{id:"001000000000001",name:"Synthetic"},
     contact:{id:"003000000000001",name:"Synthetic Person"},
     sourceKrwRateStatus:"VERIFIED",feeMode:"EXCLUDE",sourceFeeLines:[],
