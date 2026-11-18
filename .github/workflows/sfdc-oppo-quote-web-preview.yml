@@ -94,4 +94,6 @@ jobs:
       - name: Verify local Contact evidence browser flow, PE250 units and zero CRM writes
         env:
           NEXT_TELEMETRY_DISABLED: '1'
-        run: node --test tests/sfdc-oppo-quote.e2e.mjs
+        run: |
+          node --test tests/sfdc-oppo-quote.e2e.mjs
+          node --test tests/sfdc-approval-console.e2e.mjs
