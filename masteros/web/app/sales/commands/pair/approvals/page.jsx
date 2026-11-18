@@ -29,6 +29,8 @@ export default function LocalSalesforceApprovalConsole(){
  const [selectedId,setSelectedId]=useState("");
  const [review,setReview]=useState(null);
  const [rehearsal,setRehearsal]=useState(null);
+ const [prepared,setPrepared]=useState(null);
+ const [preparing,setPreparing]=useState(false);
  const [rehearsing,setRehearsing]=useState(false);
  const [error,setError]=useState("");
  const [message,setMessage]=useState("");
@@ -43,7 +45,7 @@ export default function LocalSalesforceApprovalConsole(){
  },[]);
  useEffect(()=>{refresh()},[refresh]);
  const choose=async id=>{
-  setSelectedId(id);setReview(null);setError("");setMessage("");
+  setSelectedId(id);setReview(null);setPrepared(null);setError("");setMessage("");
   try{
    const data=await local({mode:"DETAIL",requestId:id});
    if(data.requestId!==id)throw Error("APPROVAL_REVIEW_ID_MISMATCH");
@@ -58,6 +60,15 @@ export default function LocalSalesforceApprovalConsole(){
    setRehearsal(data);
   }catch(e){setError(e.message)}
   finally{setRehearsing(false)}
+ };
+ const prepareOpportunity=async()=>{
+  if(!review||preparing||review.queueStatus!=="PENDING_APPROVAL")return;
+  setPreparing(true);setPrepared(null);setError("");
+  try{
+    const data=await local({mode:"OPPO_UNSAVED_PREPARE",requestId:review.requestId});
+    setPrepared(data);
+  }catch(e){setError(e.message)}
+  finally{setPreparing(false)}
  };
  const copy=async()=>{
   if(!review)return;
@@ -166,11 +177,29 @@ export default function LocalSalesforceApprovalConsole(){
    <p style={{fontSize:12,color:sub,lineHeight:1.7}}>Description: {review.description||"새로 작성 필요"}</p>
    <div style={{display:"flex",gap:9,flexWrap:"wrap",marginTop:16}}>
     <button type="button" style={button} onClick={copy}>검토 내용 JSON 복사 (로컬)</button>
+    <button type="button" style={button} onClick={prepareOpportunity}
+      data-testid="prepare-opportunity-unsaved"
+      disabled={preparing||review.queueStatus!=="PENDING_APPROVAL"}>
+      {preparing?"SFDC Opportunity 초안 입력 중":"Opportunity 입력창 열고 3개 필드 채우기 (No Save)"}
+    </button>
     <button type="button" style={{...button,opacity:0.5,cursor:"not-allowed"}} disabled
       data-testid="save-to-sfdc-disabled">
       Salesforce 실제 저장 · 원본 검증·건별 승인 후 활성화
     </button>
    </div>
+   {prepared&&<div data-testid="prepared-unsaved-opportunity" role="status"
+     style={{marginTop:12,padding:12,border:"1px solid "+border,borderRadius:8}}>
+     <strong>{prepared.status}</strong>
+     <p style={{fontSize:12,color:sub}}>
+       새 Salesforce Opportunity 탭에서 Name·Close Date·Progress Description만 입력합니다.
+       Account·Contact·Amount·Stage·Forecast 등은 검증 전이므로 채우지 않았습니다.
+       Save는 누르지 않았으며, 생성 전에 중복 및 전체 필수값을 확인해야 합니다.
+     </p>
+     <div style={{fontSize:12}}>
+      {Object.entries(prepared.fields||{}).map(([k,v])=><span key={k} style={{marginRight:15}}>
+       {k}: {v}</span>)}
+     </div>
+    </div>}
    {message&&<p role="status" style={{fontSize:12}}>{message}</p>}
   </section>}
   <section style={pane}>
