@@ -11,6 +11,10 @@ const CRM_ID=(x,prefix)=>typeof x==="string"&&
 const MONEY=/^(0|[1-9]\d{0,11})$/;
 const QTY=/^[1-9]\d{0,5}$/;
 const KRW=(x)=>typeof x==="string"&&MONEY.test(x)?BigInt(x):null;
+const wholeKrw=x=>typeof x==="number"&&Number.isSafeInteger(x)&&x>=0?
+  BigInt(x):KRW(x);
+const fixedQty=x=>typeof x==="number"&&Number.isSafeInteger(x)&&x>=1&&x<=100000?
+  BigInt(x):qty(x);
 const qty=x=>typeof x==="string"&&QTY.test(x)&&Number(x)<=100000?BigInt(x):null;
 const no=(code)=>({status:"HOLD_QUEUE_RECORD",code,savePermitted:false,
   salesforceWrite:false,crmWrites:0});
@@ -58,6 +62,7 @@ export function reviewQueueRecord(entry,expectedId){
  ];
  const previews=[];
  let provisionalNet=0n,subtotalsReliable=true;
+ let fixedProcessNet=0n,fixedProcessReliable=true,cloudRatePresent=false;
  for(const p of proposed.products){
    if(!p||typeof p!=="object"||typeof p.id!=="string"||
       !Array.isArray(p.processIds)||!Array.isArray(p.processNames))
@@ -66,12 +71,34 @@ export function reviewQueueRecord(entry,expectedId){
    const line=count!==null&&unit!==null?count*unit:null;
    if(line!==null)provisionalNet+=line;
    else subtotalsReliable=false;
+   if(p.cloudUnitKrw!==""&&p.cloudUnitKrw!==undefined&&p.cloudUnitKrw!==null)
+     cloudRatePresent=true;
+   const fixed=Array.isArray(p.fixedProcessLines)?p.fixedProcessLines:[];
+   if(fixed.length>15)fixedProcessReliable=false;
+   const fixedProcessLines=fixed.slice(0,15).map(item=>{
+     const units=fixedQty(item?.quantity),rate=wholeKrw(item?.unitPriceKrw),
+       reported=wholeKrw(item?.netKrw);
+     const referenced=typeof item?.processId==="string"&&
+       p.processIds.includes(item.processId);
+     const valid=referenced&&units!==null&&rate!==null&&
+       reported!==null&&units*rate===reported;
+     if(valid)fixedProcessNet+=reported;
+     else fixedProcessReliable=false;
+     return {process_id:String(item?.processId??""),
+       process_name:String(item?.processName??""),
+       quantity:item?.quantity??null,unit_price_krw:item?.unitPriceKrw??null,
+       net_krw:valid?reported.toString():null,
+       reference_verified:valid};
+   });
    previews.push({
      reference_product_id:p.id,service:p.serviceLabel||"원본 확인 필요",
      samples:p.samples,productionGb:p.productionGb,
      historical_sample_unit_krw:p.sampleUnitKrw,
      historical_cloud_unit_krw:p.cloudUnitKrw,
      historical_sample_subtotal_krw:line===null?null:line.toString(),
+     fixed_process_lines:fixedProcessLines,
+     fixed_process_subtotal_krw:fixedProcessLines.every(x=>x.reference_verified)?
+       fixedProcessLines.reduce((n,x)=>n+BigInt(x.net_krw),0n).toString():null,
      original_process_names:p.processNames.slice(0,100),
      original_process_ids:p.processIds.slice(0,100),
      process_count:p.processIds.length,
@@ -86,8 +113,15 @@ export function reviewQueueRecord(entry,expectedId){
    reference_fee_net_krw:x.netKrw??null,
    included_in_new_quote:false
  }));
- // A partial sample subtotal is not Quote total. AliCloud/Process/Fee and
- // Pack have independent pricing and may not scale with sample quantity.
+ // Include explicit fixed Process lines in the *comparison* total; the
+ // operator-entered per-sample rate is NOT the whole Quote. Do not invent
+ // Cloud/Pack/Fee charges and never convert a comparison into approval.
+ const comparisonReady=subtotalsReliable&&fixedProcessReliable;
+ const comparisonNet=comparisonReady?provisionalNet+fixedProcessNet:null;
+ const comparisonVat=comparisonNet!==null&&comparisonNet%10n===0n?
+   (comparisonNet/10n).toString():null;
+ const comparisonGross=comparisonNet!==null&&comparisonVat!==null?
+   (comparisonNet+BigInt(comparisonVat)).toString():null;
  return {
    status:"QUEUE_REVIEW_READY_SFDC_NATIVE_RECHECK_REQUIRED",
    requestId:expectedId,createdAtUtc:entry.receivedAtUtc||null,
@@ -108,6 +142,13 @@ export function reviewQueueRecord(entry,expectedId){
    provisionalSampleOnlySubtotalKrw:subtotalsReliable?
      provisionalNet.toString():null,
    provisionalExcludesCloudFeeAndProcessDifferences:true,
+   provisionalFixedProcessNetKrw:fixedProcessReliable?fixedProcessNet.toString():null,
+   provisionalProcessInclusiveNetKrw:comparisonNet===null?null:comparisonNet.toString(),
+   provisionalVat10Krw:comparisonVat,
+   provisionalGross10Krw:comparisonGross,
+   provisionalCloudRatePresent:cloudRatePresent,
+   fixedProcessSourceConsistent:fixedProcessReliable,
+   comparisonOnlyNotNativePriceApproval:true,
    requiredChecks:checks,verifiedCheckCount:0,
    nativeFieldsAvailable:null,
    nativeFormAuditStatus:"NOT_RUN",
