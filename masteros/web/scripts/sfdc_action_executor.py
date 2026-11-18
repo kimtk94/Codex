@@ -73,6 +73,9 @@ def local_validator(x):
             if (format(unit,",")+"KRW/sample") not in x["progressDescription"]:
                 raise ValueError("OPPO_DESCRIPTION_PRICE_STALE")
     if x["action"]=="quote_create":
+        if x["mode"]=="save" and not (ID("001",x.get("accountId")) and
+           ID("003",x.get("contactId"))):
+            raise ValueError("EXACT_QUOTE_CUSTOMER_IDS_REQUIRED")
         if x.get("processPlan") is not None:
             from sfdc_native_process_writer import validated_price_plan
             raw=x["processPlan"]
@@ -187,7 +190,7 @@ def picklist(page,name,expected):
     if target.count()!=1:raise RuntimeError("QUOTE_PICKLIST_AMBIGUOUS")
     target.click(timeout=4500)
     if expected not in cb.inner_text(timeout=2500):raise RuntimeError("QUOTE_PICKLIST_NOT_SET")
-def quote_lookup(page,label,search):
+def quote_lookup(page,label,search,expected_id=None):
     cb=single(page.get_by_role("combobox",name=label,exact=True),"QUOTE_LOOKUP_MISSING")
     mag=cb.locator("xpath=../../..").locator('lightning-icon[icon-name="utility:search"]')
     if mag.count()!=1:raise RuntimeError("QUOTE_LOOKUP_MAGNIFIER_MISSING")
@@ -195,8 +198,20 @@ def quote_lookup(page,label,search):
     cb.fill(search,timeout=4500)
     page.wait_for_timeout(1100)
     controls=cb.get_attribute("aria-controls")
-    options=page.locator('[id="'+str(controls)+'"]').get_by_text(search,exact=True)
-    if options.count()!=1:raise RuntimeError("QUOTE_LOOKUP_AMBIGUOUS")
+    scope=page.locator('[id="'+str(controls)+'"]')
+    if expected_id:
+        # Never pick one of several identically-named Contacts at a different
+        # Account. Only the exact native Salesforce record ID is acceptable.
+        if not ID("001" if label=="Account Name" else "003",expected_id):
+            raise RuntimeError("QUOTE_LOOKUP_NATIVE_ID_INVALID")
+        options=scope.locator('[role="option"][data-value="'+expected_id+'"]')
+        if options.count()!=1:
+            raise RuntimeError("QUOTE_LOOKUP_EXACT_NATIVE_ID_NOT_FOUND")
+        if search not in options.inner_text(timeout=3000):
+            raise RuntimeError("QUOTE_LOOKUP_NAME_ID_CONFLICT")
+    else:
+        options=scope.get_by_text(search,exact=True)
+        if options.count()!=1:raise RuntimeError("QUOTE_LOOKUP_AMBIGUOUS")
     options.click(timeout=4500)
 def verify_catalog(page,x):
     page.goto(BASE+"/lightning/r/Quotation__c/"+x["sourceQuoteId"]+"/view",wait_until="domcontentloaded",timeout=28000)
@@ -248,8 +263,8 @@ def quote_create(page,x):
     picklist(page,"Currency","KRW")
     picklist(page,"Promotion Type","Regional level")
     picklist(page,"GST/VAT (%)","10(KR VAT)")
-    quote_lookup(page,"Account Name",x["accountName"])
-    quote_lookup(page,"Contact Name",x["contactName"])
+    quote_lookup(page,"Account Name",x["accountName"],x.get("accountId"))
+    quote_lookup(page,"Contact Name",x["contactName"],x.get("contactId"))
     quote_lookup(page,"Coop TS","Yoo Ji In")
     picklist(page,"Bank Account Information","Korea JPMorgan KRW")
     picklist(page,"Sample Submission Address","Korea Sample Receiving Address")
@@ -354,6 +369,8 @@ def save_quote_and_products(page,x,r):
                      current.get("sourceCloudUnits")==source["cloudUnits"] and
                      current.get("productCount")==1 and
                      current.get("opportunityId","")[:15]==x["opportunityId"][:15] and
+                     current.get("accountId","")[:15]==x["accountId"][:15] and
+                     current.get("contactId","")[:15]==x["contactId"][:15] and
                      current.get("accountName")==x["accountName"] and
                      current.get("contactName")==x["contactName"] and
                      current.get("name")==x["quoteName"] and actual_map==expected)
