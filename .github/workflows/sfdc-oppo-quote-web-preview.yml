@@ -95,6 +95,8 @@ jobs:
       - name: Run unit, local readback privacy and no-Save checks
         run: |
           npm run test:sfdc
+          node --test tests/sfdc-queue-issued-supersession.test.mjs
+          node --check scripts/sfdc_supersede_queue_quote_issued.mjs
           node --test tests/sfdc-pair-auto-krw-request.test.mjs
           node --test tests/sfdc-pair-native-create-local.test.mjs
           node --test tests/sfdc-quote-fees.test.mjs
