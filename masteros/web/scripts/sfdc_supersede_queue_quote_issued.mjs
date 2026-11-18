@@ -1,9 +1,9 @@
-"""Operator-laptop only: supersede ONE immutable Quote Draft request.
-
-The original request remains byte-identical. New request is NEEDS_REVIEW
-with Quote Issued wording, no approval, no native Salesforce Save.
-Run: node scripts/sfdc_supersede_queue_quote_issued.mjs OPPOQUOTE-<24 hex>
-"""
+/** Operator-laptop only: supersede ONE immutable Quote Draft request.
+ *
+ * The original request remains byte-identical. New request is NEEDS_REVIEW
+ * with Quote Issued wording, no approval, no native Salesforce Save.
+ * Run: node scripts/sfdc_supersede_queue_quote_issued.mjs OPPOQUOTE-<24 hex>
+ */
 import {readFile,writeFile,mkdir} from "node:fs/promises";
 import {join} from "node:path";
 import {supersedeQueueQuoteDraft} from "../lib/sfdc-queue-issued-supersession.mjs";
