@@ -241,6 +241,9 @@ def assert_written_totals(rows, observed):
                 raise RuntimeError("MONTHLY_WRITE_VALUE_MISMATCH "+str(expected[0])+" col="+str(col))
         if cell(got,10)!=str(expected[10]):
             raise RuntimeError("MONTHLY_WRITE_QUALITY_MISMATCH "+str(expected[0]))
+        if not cell(expected,11) or cell(got,11)!=cell(expected,11):
+            # A correct amount with an old snapshot must never be a current PASS.
+            raise RuntimeError("MONTHLY_WRITE_SNAPSHOT_MISMATCH")
 
 
 def main():

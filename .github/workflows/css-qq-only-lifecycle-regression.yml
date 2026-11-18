@@ -1,0 +1,39 @@
+name: CSS QQ-only Lifecycle Issued Transition Regression (No Writes)
+
+on:
+  pull_request:
+    paths:
+      - 'automation/css_mail/project_lifecycle_refresh.py'
+      - 'automation/css_mail/test_project_lifecycle_chain.py'
+      - 'automation/css_mail/revenue_lifecycle_monthly.py'
+      - '.github/workflows/css-qq-only-lifecycle-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only import-time dependencies (no credentials)
+        run: python3 -m pip install 'requests>=2.31,<3' 'google-auth>=2.20,<3'
+      - name: Compile lifecycle modules
+        run: |
+          python3 -m py_compile automation/css_mail/project_lifecycle_refresh.py
+          python3 -m py_compile automation/css_mail/revenue_lifecycle_monthly.py
+      - name: Test QQ-only issued transitions and source-only pending integrity
+        run: python3 -m unittest discover -s automation/css_mail -p 'test_project_lifecycle_chain.py' -v
+      - name: Verify monthly pending-to-actual double-count protection
+        run: python3 -m unittest discover -s automation/css_mail -p 'test_revenue_lifecycle_monthly.py' -v
+      - name: Record narrow security and evidence limits
+        run: |
+          echo 'OFFLINE_TEST_ONLY;NO_GITHUB_WRITE;NO_SFDC_SAVE;NO_FEISHU_WRITE;NO_GOOGLE_SHEET_WRITE;NO_CUSTOMER_MAIL;NO_VERCEL' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Pending-to-issued status requires independently verified original invoice; no source freshness acceptance from offline CI' >> "$GITHUB_STEP_SUMMARY"

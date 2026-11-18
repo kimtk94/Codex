@@ -1,7 +1,7 @@
 """Offline reconciliation: Actual + verified open Statements + unmatched Forecast."""
 import datetime as dt
 import unittest
-from revenue_lifecycle_monthly import compute,reconcile_pending
+from revenue_lifecycle_monthly import compute,reconcile_pending,assert_written_totals,HEAD
 
 def invoice(number,amount):
     return [number,str(amount),"AMEA2026092127","H209SC260910566","SQ",
@@ -19,6 +19,36 @@ def project(x,billing,estimate=0,open_j="",pending="",verified="NO_OPEN_STATEMEN
     return r
 
 class RevenueLifecycleTests(unittest.TestCase):
+    def test_monthly_snapshot_timestamp_must_be_materialized(self):
+        expected=[HEAD,["2026-11",1000,0,200,1200,1,0,0,1,0,
+                        "INVOICES_VERIFIED_FORECAST_ESTIMATED",
+                        "2026-11-17 21:35:00 KST"]]
+        observed=[HEAD,list(expected[1])]
+        assert_written_totals(expected,observed)
+        observed[1][11]="2026-11-14 19:45:59 KST"
+        with self.assertRaisesRegex(RuntimeError,"MONTHLY_WRITE_SNAPSHOT_MISMATCH"):
+            assert_written_totals(expected,observed)
+        observed[1][11]=""
+        with self.assertRaisesRegex(RuntimeError,"MONTHLY_WRITE_SNAPSHOT_MISMATCH"):
+            assert_written_totals(expected,observed)
+        observed[1][11]=expected[1][11]
+        expected[1][11]=""
+        with self.assertRaisesRegex(RuntimeError,"MONTHLY_WRITE_SNAPSHOT_MISMATCH"):
+            assert_written_totals(expected,observed)
+
+    def test_monthly_snapshot_formatting_does_not_hide_amount_mismatch(self):
+        expected=[HEAD,["2026-11",1000,0,200,1200,1,0,0,1,0,
+                        "INVOICES_VERIFIED_FORECAST_ESTIMATED",
+                        "2026-11-17 21:35:00 KST"]]
+        observed=[HEAD,["2026-11","1,000","0","200","1,200",
+                        "1","0","0","1","0",
+                        "INVOICES_VERIFIED_FORECAST_ESTIMATED",
+                        "2026-11-17 21:35:00 KST"]]
+        assert_written_totals(expected,observed)
+        observed[1][1]="1,001"
+        with self.assertRaisesRegex(RuntimeError,"MONTHLY_WRITE_VALUE_MISMATCH"):
+            assert_written_totals(expected,observed)
+
     def test_three_way_without_issued_forecast_duplicate(self):
         iv=[["invoice_number"],invoice("209126000989",1320000)]
         life=[["Project / Sub-project"],

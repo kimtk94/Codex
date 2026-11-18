@@ -3,8 +3,9 @@
 import datetime as dt
 import re
 import sys
+import urllib.parse
 import incremental_sync as css
-from unified_followup_sync import SRC, DST, KST, get, put
+from unified_followup_sync import SRC, DST, KST, get, put, req, base
 
 TAB="BI Project Lifecycle Overview"
 HEAD=["Project / Sub-project","AMEA","Institution","Customer","Service",
@@ -23,6 +24,43 @@ REPLY=re.compile(r"^\s*(?:re|fw|fwd|회신|답장|전달)\s*[:：]",re.I)
 H=re.compile(r"H\d+SC\d+",re.I)
 A=re.compile(r"AMEA\d{7,}(?:-\d{1,3})?",re.I)
 
+def lifecycle_unformatted_readback(session,book,tab,range_a1):
+    """Read generated cells as raw values to avoid currency/date display drift."""
+    addr=urllib.parse.quote("'"+tab+"'!"+range_a1,safe="")
+    payload=req(session,"GET",base(book)+"/values/"+addr+
+                "?valueRenderOption=UNFORMATTED_VALUE")
+    if not isinstance(payload,dict) or not isinstance(payload.get("values"),list):
+        raise RuntimeError("LIFECYCLE_READBACK_UNAVAILABLE")
+    return payload["values"]
+
+
+def lifecycle_content_equal(expected,observed):
+    """Fail closed on any changed/missing cell, ignoring only trailing blanks.
+
+    Preserves RAW numeric values: Google JSON may return numeric objects.
+    No customer fields, row coordinates or values are returned on mismatch.
+    """
+    if (not isinstance(expected,list) or not isinstance(observed,list)
+            or not expected or len(expected)!=len(observed)):
+        return False
+    width=len(HEAD)
+    def normalize(value):
+        if value is None:
+            return ""
+        return str(value)
+    for a,b in zip(expected,observed):
+        if not isinstance(a,list) or not isinstance(b,list):
+            return False
+        if any(normalize(x) for x in a[width:]+b[width:]):
+            return False
+        for col in range(width):
+            left=normalize(a[col]) if col<len(a) else ""
+            right=normalize(b[col]) if col<len(b) else ""
+            if left!=right:
+                return False
+    return True
+
+
 def latest_source_timestamp(rows):
     """Choose the most recent instant, not lexicographic mixed-offset ISO text."""
     values=[]
@@ -38,7 +76,8 @@ def latest_source_timestamp(rows):
 def present(r,i):
     return r[i] if i<len(r) else ""
 
-def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_rows):
+def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_rows,
+          previous_rows=None):
     """Build a single project-stage and billing view from live validated inputs.
 
     Invoice keys are invoice numbers; Statement keys are J-number + exact X
@@ -54,6 +93,7 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
     invoices={}
     issued_statements={}
     global_invoice={}
+    verified_invoice_at={}
     for r in invoice_rows[1:]:
         number=str(present(r,0)).strip()
         status=str(present(r,10))
@@ -81,6 +121,7 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
         global_invoice[number]=(x,amount,statement)
         invoices.setdefault(x,{})[number]=amount
         issued_statements.setdefault(x,set()).add(statement)
+        verified_invoice_at[x]=max(verified_invoice_at.get(x,""),str(present(r,7)))
 
     # CSS Git Ingest header metadata is more recent than legacy CSS timeline.
     # Search original official notices only, never RE/FW or in-reply-to.
@@ -240,34 +281,61 @@ def build(css_rows,feishu_rows,invoice_rows,controls,mail_rows,statement_amount_
     # rather than dropping it and blocking all unrelated issued Invoice Revenue.
     # Do not invent Feishu status, forecast, customer, or relationship evidence.
     feishu_x={str(row[0]).strip().upper() for row in out[1:]}
-    for x,notices in sorted(statement_notices.items()):
+    # A broad invoice-only join would pull historical and unrelated X records
+    # into the live project registry. Retain *only* already tracked QQ-only X
+    # when its verified original invoice clears the last Pending J.
+    prior_qq_only=set()
+    for r in (previous_rows or [])[1:]:
+        x=str(present(r,0)).strip().upper()
+        if (re.fullmatch(r"X\d+SC\d+-Z\d+",x)
+                and str(present(r,5))=="NOT_IN_FEISHU_SOURCE"
+                and "[QQ_ONLY]" in str(present(r,16))):
+            prior_qq_only.add(x)
+    # Independently verified unissued Statement J may still create a new
+    # source-only Pending X, as before. All *new* invoice-only X remain out
+    # of the project table until the Feishu source or a prior QQ-only row
+    # independently supports the project identity. Their Invoice amounts
+    # remain available to the separate invoice-based Actual ledger.
+    candidates=set(statement_notices)|(set(invoices)&prior_qq_only)
+    for x in sorted(candidates):
         if x in feishu_x:continue
+        notices=statement_notices.get(x,{})
+        inv=invoices.get(x,{})
         issued=issued_statements.get(x,set())
         open_j=sorted(set(notices)-issued)
-        if not open_j:continue
         verified=[]
         for j in open_j:
             record=statement_amounts.get(j+"-"+x)
             if record and record[1]==notices[j]:
                 verified.append(record[0])
-        if not verified:
-            # Unverified/no-amount notices are not new finance evidence.
+        if not verified and (not inv or x not in prior_qq_only):
+            # No verified *open* Statement or prior documented QQ-only row.
+            # Never bulk-add other customers' or historical invoiced X rows.
             continue
         am_set=source_amea_by_x.get(x,set())
         amea=next(iter(am_set)) if len(am_set)==1 else ""
-        last_notice=max(notices[j] for j in open_j)
-        inv=invoices.get(x,{})
-        billing=("ISSUED + STATEMENT PENDING [QQ_ONLY]" if inv
+        # For open J, preserve its exact notice date: the independent Pending
+        # reconciler checks that timestamp. For issued-only J use the timestamp
+        # from the validated original invoice extraction.
+        last_notice=(max(notices[j] for j in open_j)
+                     if open_j else verified_invoice_at.get(x,""))
+        billing=("ISSUED + STATEMENT PENDING [QQ_ONLY]" if inv and open_j
+                 else "ISSUED (BALANCE UNVERIFIED) [QQ_ONLY]" if inv
                  else "STATEMENT READY - INVOICE PENDING [QQ_ONLY]")
         out.append([
             x,amea,"","","","NOT_IN_FEISHU_SOURCE",
-            "Statement confirmation [QQ direct; no Feishu snapshot]",97,
+            ("Invoice issued [QQ verified; no Feishu snapshot]" if inv
+             else "Statement confirmation [QQ direct; no Feishu snapshot]"),
+            100 if inv else 97,
             last_notice,"","","","",
             "",len(inv),sum(inv.values()),billing,0,
-            "Verify missing Feishu subproject; retain original Statement evidence",
-            "Original CSS QQ Statement; Feishu subproject not found",
-            " | ".join(open_j),last_notice,sum(verified),
-            "AMOUNT_VERIFIED "+str(len(verified))+"/"+str(len(open_j))
+            ("Verify missing Feishu subproject; confirm balance and payment"
+             if inv else "Verify missing Feishu subproject; retain original Statement evidence"),
+            ("Original CSS QQ Invoice; Feishu subproject not found" if inv
+             else "Original CSS QQ Statement; Feishu subproject not found"),
+            " | ".join(open_j),last_notice,sum(verified) if verified else "",
+            ("AMOUNT_VERIFIED "+str(len(verified))+"/"+str(len(open_j))
+             if open_j else "NO_OPEN_STATEMENT")
         ])
         # The pending reconciliation remains strict: every source-verified J
         # must match exactly once; missing, changed or partial values still fail.
@@ -298,20 +366,20 @@ def main():
     latest_qq=latest_source_timestamp(sources[4][1:])
     if not latest_qq or (now_utc-latest_qq).total_seconds()/3600>float(__import__("os").getenv("QQ_SOURCE_MAX_AGE_HOURS","6")):
         raise RuntimeError("QQ_SOURCE_STALE: stop project/revenue refresh")
-    result=build(*sources)
     previous=get(s,DST,TAB,"A1:X1000")
     if not previous or previous[0] not in (HEAD,HEAD[:22],HEAD[:20]):
         raise RuntimeError("Lifecycle output header changed; refusing update")
+    result=build(*sources,previous_rows=previous)
     if len(previous)>len(result):
         raise RuntimeError("LIFECYCLE_SOURCE_SHRINK_HOLD previous="+str(len(previous)-1)+" current="+str(len(result)-1)+" missing="+str(len(previous)-len(result)))
     put(s,DST,TAB,"A1",result,"RAW")
     # Verify the materialized result before reporting success. A stale sheet
     # must never be presented as a completed refresh.
-    observed=get(s,DST,TAB,"A1:X"+str(len(result)))
-    if len(observed)!=len(result) or observed[0]!=HEAD:
-        raise RuntimeError("Lifecycle post-write row/header verification failed")
-    if [str(x) for x in observed[-1][:2]]!=[str(x) for x in result[-1][:2]]:
-        raise RuntimeError("Lifecycle post-write last-project mismatch")
+    observed=lifecycle_unformatted_readback(s,DST,TAB,"A1:X"+str(len(result)))
+    if not lifecycle_content_equal(result,observed):
+        # Never mark a partial/misplaced cell as a project or Revenue PASS.
+        # Only a complete value-for-value readback may release downstream work.
+        raise RuntimeError("LIFECYCLE_POST_WRITE_CONTENT_MISMATCH")
     now=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S KST")
     put(s,DST,"Automation Health","A15",[[
         "Project Lifecycle",now,"PASS",
