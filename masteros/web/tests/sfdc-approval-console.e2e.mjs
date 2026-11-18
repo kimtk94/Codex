@@ -61,6 +61,9 @@ test("local approval console never writes SFDC and can rehearse and prepare unsa
      queueStatus:"PENDING_APPROVAL",
      closeDateKst:"2026-12-18",description:"Synthetic sample intake expected",
      sourceQid:"QID-2026-11-01-654321",
+     sourceAudit:{status:"HOLD_NATIVE_QUOTE_SOURCE",processRows:4,
+       reasonCodes:["ALICLOUD_EXCLUDED_BUT_SOURCE_HAS_ALICLOUD_TYPED_PROCESS"],
+       savePermitted:false},
      account:{name:"합성대학교",sourceIdPresent:true,nativeIdVerified:false},
      contact:{name:"김가상",sourceIdPresent:true,nativeIdVerified:false},
      productCount:1,
@@ -127,6 +130,10 @@ test("local approval console never writes SFDC and can rehearse and prepare unsa
   const review=page.getByTestId("single-quote-save-review");
   await review.waitFor();
   assert.match(await review.innerText(),/9,600,000 KRW/);
+  assert.match(await page.getByTestId("sfdc-native-source-process-audit").innerText(),
+    /원본 Process 4개 확인/);
+  assert.match(await page.getByTestId("sfdc-native-source-process-audit").innerText(),
+    /Data release 30,000원/);
   assert.match(await review.innerText(),/Product/);
   assert.equal(await page.getByTestId("save-to-sfdc-disabled").isDisabled(),true);
   const nativeSave=page.getByTestId("commit-sfdc-native-save");
