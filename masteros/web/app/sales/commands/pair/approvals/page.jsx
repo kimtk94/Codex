@@ -179,7 +179,7 @@ export default function LocalSalesforceApprovalConsole(){
     <button type="button" style={button} onClick={copy}>검토 내용 JSON 복사 (로컬)</button>
     <button type="button" style={button} onClick={prepareOpportunity}
       data-testid="prepare-opportunity-unsaved"
-      disabled={preparing||review.queueStatus!=="PENDING_APPROVAL"}>
+      disabled={preparing||!["PENDING_APPROVAL","NEEDS_REVIEW"].includes(review.queueStatus)}>
       {preparing?"SFDC Opportunity 초안 입력 중":"Opportunity 입력창 열고 3개 필드 채우기 (No Save)"}
     </button>
     <button type="button" style={{...button,opacity:0.5,cursor:"not-allowed"}} disabled
