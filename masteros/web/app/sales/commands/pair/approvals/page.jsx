@@ -34,6 +34,12 @@ export default function LocalSalesforceApprovalConsole(){
  const [rehearsing,setRehearsing]=useState(false);
  const [error,setError]=useState("");
  const [message,setMessage]=useState("");
+ const [nativeStage,setNativeStage]=useState("OPPORTUNITY");
+ const [nativePrecheck,setNativePrecheck]=useState(null);
+ const [nativeConfirmation,setNativeConfirmation]=useState("");
+ const [nativeBusy,setNativeBusy]=useState(false);
+ const [nativeSaveResult,setNativeSaveResult]=useState(null);
+ const [nativeError,setNativeError]=useState("");
  const refresh=useCallback(async()=>{
   setLoading(true);setError("");
   try{
@@ -46,6 +52,7 @@ export default function LocalSalesforceApprovalConsole(){
  useEffect(()=>{refresh()},[refresh]);
  const choose=async id=>{
   setSelectedId(id);setReview(null);setPrepared(null);setError("");setMessage("");
+  setNativePrecheck(null);setNativeConfirmation("");setNativeSaveResult(null);setNativeError("");
   try{
    const data=await local({mode:"DETAIL",requestId:id});
    if(data.requestId!==id)throw Error("APPROVAL_REVIEW_ID_MISMATCH");
@@ -69,6 +76,50 @@ export default function LocalSalesforceApprovalConsole(){
     setPrepared(data);
   }catch(e){setError(e.message)}
   finally{setPreparing(false)}
+ };
+ const nativeRequest=async mode=>{
+  if(!review||nativeBusy)return;
+  if(mode==="COMMIT"&&(!nativePrecheck||
+    nativePrecheck.status!=="READY_FOR_EXACT_RECORD_SAVE_CLICK"||
+    nativeConfirmation!=="SAVE "+nativePrecheck.approvalDigest.slice(-8)))return;
+  if(mode==="COMMIT"&&!window.confirm(
+    "Salesforce에 신규 "+(nativeStage==="OPPORTUNITY"?"Opportunity":"Quotation")+
+    "을 실제 생성합니다. 요청 "+review.requestId+
+    " / 승인 "+nativePrecheck.approvalDigest+
+    "을 확인했습니까? Save 실행 후 되돌리기 어려울 수 있습니다."))return;
+  setNativeBusy(true);setNativeError("");
+  if(mode==="PRECHECK"){
+   setNativePrecheck(null);setNativeConfirmation("");setNativeSaveResult(null);
+  }
+  try{
+   const body={mode,stage:nativeStage,requestId:review.requestId};
+   if(mode==="COMMIT"){
+    body.approvalDigest=nativePrecheck.approvalDigest;
+    body.nonce=nativePrecheck.nonce;
+    body.confirmation=nativeConfirmation;
+   }
+   const response=await fetch("/api/sfdc/pair-native-save-local",{
+    method:"POST",credentials:"omit",cache:"no-store",
+    headers:{"Content-Type":"application/json","X-SFDC-Command":"1"},
+    body:JSON.stringify(body)
+   });
+   const result=await response.json();
+   if(mode==="PRECHECK"){
+    setNativePrecheck(result);
+   }else{
+    setNativeSaveResult(result);
+    setNativePrecheck(null);setNativeConfirmation("");
+    if(result.status==="NATIVE_SAVE_CREATED_AND_READBACK"&&nativeStage==="OPPORTUNITY"){
+      setNativeStage("QUOTATION");
+    }
+   }
+   if(!response.ok)throw Error(result.code||result.status||"NATIVE_SAVE_REQUEST_ERROR");
+  }catch(e){setNativeError(e.message||"NATIVE_SAVE_UNAVAILABLE")}
+  finally{setNativeBusy(false)}
+ };
+ const switchNativeStage=value=>{
+  setNativeStage(value);setNativePrecheck(null);setNativeConfirmation("");
+  setNativeSaveResult(null);setNativeError("");
  };
  const copy=async()=>{
   if(!review)return;
@@ -95,7 +146,8 @@ export default function LocalSalesforceApprovalConsole(){
    <strong>현재 상태: 저장 승인 전 · Salesforce 쓰기 0건</strong>
    <p style={{fontSize:12,lineHeight:1.7,marginBottom:0}}>
     현재 자동화로 보장할 수 있는 범위는 승인 요청 원본 조회와 SFDC의 실제 입력 폼 점검입니다.
-    <strong>실제 Save 실행·Quotation Product 입력·저장 결과 재조회는 별도 검증이 필요하므로 비활성화</strong>되어 있습니다.
+    <strong>실제 Save는 아래의 건별 원본 검증과 명시적 승인에 모두 통과해야 활성화됩니다.</strong>
+    검증되지 않은 Quote의 Product·Process 생성은 계속 보류됩니다.
     승인 요청을 열었다고 실제 Quote가 생성되는 것은 아닙니다.
    </p>
   </section>
@@ -201,6 +253,83 @@ export default function LocalSalesforceApprovalConsole(){
      </div>
     </div>}
    {message&&<p role="status" style={{fontSize:12}}>{message}</p>}
+   <section data-testid="sfdc-native-save-approval" style={{
+     marginTop:20,padding:15,border:"1px solid #557187",borderRadius:10}}>
+     <h3 style={{fontSize:16,margin:"0 0 8px"}}>04 · 실제 Salesforce Save (건별 승인)</h3>
+     <p style={{fontSize:12,lineHeight:1.65,color:sub}}>
+       이 기능은 실제 Salesforce 레코드를 생성합니다. 로컬 검증 파일에
+       고객 Account·Contact, Product·Process·Pack, 현재 승인 KRW 단가,
+       VAT/Cloud/Fee와 중복 0건 증거가 있어야 합니다.
+       Salesforce에 해당 신규 입력창을 열고 내용을 완성한 뒤,
+       검증이 통과한 요청의 승인번호를 직접 입력해야 Save가 활성화됩니다.
+       과거 견적 가격만으로는 승인되지 않습니다.
+     </p>
+     <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+       <label htmlFor="native-save-stage" style={{fontSize:12}}>저장 단계</label>
+       <select id="native-save-stage" value={nativeStage}
+        onChange={e=>switchNativeStage(e.target.value)}
+        style={{...button,padding:"9px 11px"}} disabled={nativeBusy}>
+         <option value="OPPORTUNITY">1단계 · Opportunity</option>
+         <option value="QUOTATION">2단계 · Quotation (Research-AMEA)</option>
+       </select>
+       <button type="button" data-testid="check-native-save" style={button}
+        disabled={nativeBusy} onClick={()=>nativeRequest("PRECHECK")}>
+         {nativeBusy?"확인 중":"현재 SFDC 입력값·단가·중복 검증"}
+       </button>
+     </div>
+     {nativePrecheck&&<div role="status" data-testid="native-save-precheck-result"
+       style={{padding:12,background:bg,borderRadius:9,marginTop:12,fontSize:12}}>
+       <strong>{nativePrecheck.status}</strong>
+       {nativePrecheck.code&&<p style={{color:"#f3ba99"}}>
+        보류 사유: {nativePrecheck.code}</p>}
+       {nativePrecheck.reasons?.length>0&&<p style={{color:"#f3ba99"}}>
+        추가 확인: {nativePrecheck.reasons.join(" · ")}</p>}
+       {nativePrecheck.missing?.length>0&&<p style={{color:"#f3ba99"}}>
+        입력창 검증 미완료: {nativePrecheck.missing.join(" · ")}</p>}
+       {nativePrecheck.status==="READY_FOR_EXACT_RECORD_SAVE_CLICK"&&<>
+         <p>대상: {nativePrecheck.name} · {nativeStage} ·
+          Product {nativePrecheck.productCount}개 / Process {nativePrecheck.processCount}행</p>
+         <p>공급가액(부가세 제외) <strong>{money(nativePrecheck.netKrw)}</strong>
+           {" · "}VAT 10% {money(nativePrecheck.vatKrw)}
+           {" · "}VAT 포함 {money(nativePrecheck.grossKrw)}</p>
+         <p>승인번호: <code>{nativePrecheck.approvalDigest}</code> ·
+           3분 이내 1회만 사용 가능</p>
+         <label htmlFor="native-save-confirm" style={{display:"block",fontSize:12,marginBottom:6}}>
+           정확히 <code>{"SAVE "+nativePrecheck.approvalDigest.slice(-8)}</code> 입력
+         </label>
+         <input id="native-save-confirm" value={nativeConfirmation}
+           onChange={e=>setNativeConfirmation(e.target.value)}
+           autoComplete="off" spellCheck={false}
+           placeholder={"SAVE "+nativePrecheck.approvalDigest.slice(-8)}
+           style={{width:"100%",maxWidth:330,padding:"10px",borderRadius:8,
+             background:surface,color:ink,border:"1px solid "+border,fontFamily:"monospace"}}/>
+       </>}
+     </div>}
+     <div style={{display:"flex",gap:10,marginTop:12,flexWrap:"wrap"}}>
+      <button type="button" style={{
+        ...button,background:nativePrecheck?.status==="READY_FOR_EXACT_RECORD_SAVE_CLICK"?"#94503a":"#253344",
+        opacity:nativePrecheck?.status==="READY_FOR_EXACT_RECORD_SAVE_CLICK"?1:0.55
+       }} data-testid="commit-sfdc-native-save"
+       disabled={nativeBusy||
+         nativePrecheck?.status!=="READY_FOR_EXACT_RECORD_SAVE_CLICK"||
+         nativeConfirmation!=="SAVE "+nativePrecheck?.approvalDigest?.slice(-8)}
+       onClick={()=>nativeRequest("COMMIT")}>
+        {nativeBusy?"SFDC 저장 처리 중":"검토한 건 실제 Salesforce Save 실행"}
+      </button>
+     </div>
+     {nativeSaveResult&&<div role="status" data-testid="native-save-commit-result"
+       style={{padding:12,background:bg,borderRadius:9,marginTop:12,fontSize:12}}>
+       <strong>{nativeSaveResult.status}</strong>
+       {nativeSaveResult.nativeRecordUrl&&
+        <p><a style={{color:"#9bd4f6"}} href={nativeSaveResult.nativeRecordUrl}
+          target="_blank" rel="noreferrer">생성된 Salesforce {nativeSaveResult.stage} 확인</a></p>}
+       {nativeSaveResult.status?.includes("UNKNOWN")&&<p style={{color:"#f3ba99"}}>
+         Salesforce 저장 후 확인이 불완전할 수 있습니다.
+         동일한 요청을 다시 실행하지 말고 원본 SFDC를 직접 확인해야 합니다.
+       </p>}
+     </div>}
+     {nativeError&&<p role="alert" style={{fontSize:12,color:"#f3ba99"}}>{nativeError}</p>}
+   </section>
   </section>}
   <section style={pane}>
    <h2 style={{fontSize:18,margin:"0 0 8px"}}>03 · Salesforce 실제 입력 폼 테스트</h2>
