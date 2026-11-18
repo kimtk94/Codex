@@ -111,8 +111,12 @@ def build_live_plan(queue):
     opp["closeDate"]=data["closeDate"]
     quote["processPlan"]=price_plan
     quote["quoteName"]=data["name"]
+    quote["accountId"]=data["account"]["id"]
+    quote["contactId"]=data["contact"]["id"]
+    if price_plan["expectedNet"]%10:
+        return failure("VAT_ROUNDING_REVIEW_REQUIRED"),None
     return {"status":"READY","netKrw":price_plan["expectedNet"],
-        "grossKrw":int(price_plan["expectedNet"]*11/10),
+        "grossKrw":price_plan["expectedNet"]*11//10,
         "samples":data["samples"],"dataSizeGb":data["sizeGb"],
         "cloudUnits":price_plan["cloudUnits"],"processCount":len(lines),
         "pricePlan":price_plan,"opportunity":opp,"quotation":quote},data
