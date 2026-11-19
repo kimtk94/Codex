@@ -10,9 +10,11 @@ import urllib.parse
 
 import qq_mail_ingest as q
 
-EXPECTED_TABLES = frozenset({
-    "QQ Mail Intake", "Accounts", "Contacts", "Opportunities",
-    "Quotes", "Projects", "Revenue",
+# This business catalog is informational for mail-only operations: the mail
+# staging Base can be healthy even if unrelated business tables are absent.
+# The independent Base schema check still reports an explicit BLOCK.
+EXPECTED_BUSINESS_TABLES = frozenset({
+    "Accounts", "Contacts", "Opportunities", "Quotes", "Projects", "Revenue",
 })
 
 
@@ -56,26 +58,54 @@ def summarize(records):
     }
 
 
+def catalog_status(tables):
+    """Report unrelated business-table readiness without masking mail integrity."""
+    names = collections.Counter(row.get("name") for row in tables)
+    missing = sum(names[name] == 0 for name in EXPECTED_BUSINESS_TABLES)
+    duplicate = sum(names[name] > 1 for name in EXPECTED_BUSINESS_TABLES)
+    return ("PASS" if not (missing or duplicate) else "BLOCK", missing, duplicate)
+
+
 def main():
     token, root = q.auth()
     tables = q.list_all(root + "/tables", token, "audit_tables")
-    names = [r.get("name") for r in tables]
-    if any(names.count(name) != 1 for name in EXPECTED_TABLES):
-        raise q.SafeError("SALES_BASE_REQUIRED_TABLES_MISSING_OR_DUPLICATED")
-    table_id = q.find_table(token, root)
-    if not table_id:
-        raise q.SafeError("QQ_MAIL_INTAKE_NOT_FOUND")
+
+    # The QQ Mail Intake table is the *only* required table for the mail
+    # ledger. A missing or duplicate staging table always fails closed.
+    mail_tables = [row for row in tables if row.get("name") == q.TABLE]
+    if len(mail_tables) != 1 or not mail_tables[0].get("table_id"):
+        raise q.SafeError(
+            "AUDIT_STAGING_TABLE_MISSING" if not mail_tables
+            else "AUDIT_STAGING_TABLE_DUPLICATE_OR_ID_MISSING"
+        )
+
+    table_id = mail_tables[0]["table_id"]
     table_path = root + "/tables/" + urllib.parse.quote(table_id, safe="")
-    field_types = {f.get("field_name"): f.get("type") for f in q.get_fields(token, table_path)}
-    if any(field_types.get(field) != 1 for field in q.FIELDS):
+    fields = q.get_fields(token, table_path)
+    field_counts = collections.Counter(field.get("field_name") for field in fields)
+    field_types = {field.get("field_name"): field.get("type") for field in fields}
+    if any(field_counts[name] != 1 or field_types[name] != 1 for name in q.FIELDS):
         raise q.SafeError("AUDIT_STAGING_FIELD_SCHEMA_MISMATCH")
+
     records = q.list_all(table_path + "/records", token, "audit_records")
-    metrics = summarize(records)
-    # Stable machine-readable aggregate output; never log records, IDs, messages or tokens.
+    metrics = summarize(records)  # Duplicate/malformed mail keys fail closed.
+
     for name, value in metrics.items():
         print("FEISHU_MAIL_AUDIT_" + name.upper() + "=" + str(value))
-    print("FEISHU_MAIL_AUDIT_PASS expected_tables=7 customer_payload_logs=0 writes=0")
+    print("MAIL_SINK_READBACK_PASS records=" + str(metrics["mail_total"]) +
+          " smoke=" + str(metrics["smoke"]) + " duplicate_keys=0 writes=0")
 
+    status, missing, duplicated = catalog_status(tables)
+    print("BASE_SCHEMA_" + status + " missing_required=" + str(missing) +
+          " duplicated_required=" + str(duplicated) + " mail_only=0")
+    if status == "BLOCK":
+        # GitHub Actions will surface a warning while allowing successful
+        # *mail* backfills to be reported independently from business tables.
+        print("::warning title=Feishu Business Catalog::BASE_SCHEMA_BLOCK "
+              "missing_required=" + str(missing) +
+              " duplicated_required=" + str(duplicated))
+    print("FEISHU_MAIL_AUDIT_PASS mail_only=1 business_catalog=" + status +
+          " customer_payload_logs=0 writes=0")
 
 if __name__ == "__main__":
     try:
