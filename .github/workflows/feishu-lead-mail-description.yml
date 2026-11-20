@@ -9,6 +9,11 @@ on:
   workflow_run:
     workflows: ['Lead Personal Sent Audit (SFDC + QQ)']
     types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/lead_mail_description_sync.py'
+      - '.github/workflows/feishu-lead-mail-description.yml'
   pull_request:
     paths:
       - 'automation/feishu/lead_mail_description_sync.py'
