@@ -1,6 +1,11 @@
 name: Kalman Daily 20 Research (No Server / No Live)
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'research/kalman_daily20/**'
+      - '.github/workflows/kalman-daily20.yml'
   schedule:
     - cron: '40 2 * * 2-6'
   pull_request:
@@ -92,3 +97,40 @@ jobs:
             output/daily20/features/talib/*.parquet
           if-no-files-found: error
           retention-days: 21
+
+
+  persist-google-drive:
+    needs: daily-research
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download validated raw data from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: kalman-daily20-data
+          path: drive_stage/data
+      - name: Download OOS evidence from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: kalman-daily20-research
+          path: drive_stage/results
+      - name: Install isolated Google Drive upload dependencies
+        run: python -m pip install --disable-pip-version-check google-auth google-api-python-client
+      - name: Validate and publish pinned Drive files (no server, no web)
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_daily20/publish_drive.py \
+            --data-root drive_stage/data \
+            --results-root drive_stage/results \
+            --output-root drive_stage/uploaded
