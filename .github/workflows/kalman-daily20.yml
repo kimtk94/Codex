@@ -38,7 +38,6 @@ jobs:
 
   daily-research:
     needs: contracts
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -53,10 +52,13 @@ jobs:
       - name: Generate immutable research universe
         run: |
           python research/kalman_daily20/daily20.py universe --out output/daily20/universe-derived.json
+      - name: Resolve fully closed NYSE end date (never ingest an unfinished candle)
+        run: |
+          echo "DAILY20_END_DATE=$(python -c 'from datetime import timedelta; from research.kalman_daily20.daily20 import last_completed_nyse; print(last_completed_nyse() + timedelta(days=1))')" >> "$GITHUB_ENV"
       - name: Fetch daily 2017-present data for exactly 20 core and 6 context symbols
         working-directory: kalman-toss-gateway
         run: |
-          python -m engine.market_data.cli --start-date 2017-01-01 --universe ../output/daily20/universe-derived.json --output-dir ../output/daily20/market
+          python -m engine.market_data.cli --start-date 2017-01-01 --end-date "$DAILY20_END_DATE" --universe ../output/daily20/universe-derived.json --output-dir ../output/daily20/market
       - name: Compute TA-Lib feature snapshots
         working-directory: kalman-toss-gateway
         run: |
