@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline tests for read-only Feishu mail ledger integrity."""
 import unittest
+from unittest import mock
 
 import qq_mail_audit as audit
 import qq_mail_ingest as q
@@ -23,6 +24,17 @@ class AuditTests(unittest.TestCase):
             "message_ids": 2, "body_excerpts": 1, "amea": 1,
             "h_project": 1, "duplicate": 0,
         })
+
+    def test_audit_requires_only_mail_intake_not_business_tables(self):
+        """An independent mail audit must not require Contacts/Revenue etc."""
+        table = {"table_id": "tblMail", "name": q.TABLE}
+        columns = [{"field_name": field, "type": 1} for field in q.FIELDS]
+        with mock.patch.object(q, "auth", return_value=("auth", "/base")), \
+             mock.patch.object(q, "list_all", side_effect=[
+                 [table], [record(1, "OUTBOUND")]]), \
+             mock.patch.object(q, "find_table", return_value="tblMail"), \
+             mock.patch.object(q, "get_fields", return_value=columns):
+            audit.main()
 
     def test_duplicate_key_fails_closed(self):
         with self.assertRaisesRegex(q.SafeError, "AUDIT_DUPLICATE_MAIL_KEY"):
