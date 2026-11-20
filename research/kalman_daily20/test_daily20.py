@@ -127,6 +127,31 @@ class Contracts(unittest.TestCase):
             self.assertTrue(pd.isna(ctx["spy_mom5_lag"].iloc[5]))
             self.assertAlmostEqual(ctx["spy_mom5_lag"].iloc[6], 105 / 100 - 1)
 
+    def test_vix_all_null_context_placeholders_are_not_imputed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            market, features = Path(tmp) / "market", Path(tmp) / "features"
+            source, feat = market_file(market, "^VIX"), feature_file(features, "^VIX")
+            source.parent.mkdir(parents=True)
+            feat.parent.mkdir(parents=True)
+            dates = pd.bdate_range("2025-01-01", periods=300)
+            close = 10 + np.arange(300) / 40
+            ohlc = pd.DataFrame({
+                "timestamp": dates, "open": close - .01, "high": close + .1,
+                "low": close - .1, "close": close, "volume": 0,
+            })
+            missing = [20, 40, 60, 80, 100, 120]
+            ohlc.loc[missing, ["open", "high", "low", "close"]] = np.nan
+            ohlc.to_parquet(source)
+            pd.DataFrame({"timestamp": dates, "talib_v2_rsi14": np.linspace(30, 60, 300)}).to_parquet(feat)
+            result = audit_one("^VIX", market, features, dates[-1].date())
+            self.assertEqual(result["status"], "READY")
+            self.assertEqual(result["missing_context_sessions"], 6)
+            # A partially missing session cannot be silently accepted.
+            ohlc.loc[20, "close"] = 10.0
+            ohlc.to_parquet(source)
+            blocked = audit_one("^VIX", market, features, dates[-1].date())
+            self.assertIn("INVALID_VIX_CONTEXT_GAPS", blocked["errors"])
+
 
 if __name__ == "__main__":
     unittest.main()
