@@ -112,8 +112,21 @@ def audit_one(symbol, market, features, expected):
         if df.index.max().date() != expected or ft_dates.max() != expected:
             errs.append("NOT_LATEST_COMPLETED_NYSE_SESSION")
         ohlc = df[["open", "high", "low", "close"]]
-        if ohlc.isna().any().any() or (ohlc <= 0).any().any():
+        if symbol == "^VIX":
+            # Yahoo VIX keeps some all-null placeholder observations. Preserve
+            # those dates as missing context, never fill them into model inputs.
+            incomplete = ohlc.isna().any(axis=1)
+            all_null = ohlc.isna().all(axis=1)
+            if ((incomplete & ~all_null).any() or all_null.mean() > 0.04
+                    or bool(all_null.iloc[-1]) or int(all_null.tail(30).sum()) > 2):
+                errs.append("INVALID_VIX_CONTEXT_GAPS")
+            elif all_null.any():
+                row["missing_context_sessions"] = int(all_null.sum())
+                row["warnings"] = ["VIX_ALL_NULL_PLACEHOLDERS_PRESERVED_AS_MISSING"]
+        elif ohlc.isna().any().any():
             errs.append("INVALID_OHLC")
+        if (ohlc.dropna() <= 0).any().any():
+            errs.append("NONPOSITIVE_OHLC")
         if (df["high"] + 1e-7 < df[["open", "low", "close"]].max(axis=1)).any():
             errs.append("INVALID_HIGH")
         if (df["low"] - 1e-7 > df[["open", "high", "close"]].min(axis=1)).any():
