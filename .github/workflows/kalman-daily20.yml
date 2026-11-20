@@ -1,6 +1,11 @@
 name: Kalman Daily 20 Research (No Server / No Live)
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'research/kalman_daily20/**'
+      - '.github/workflows/kalman-daily20.yml'
   schedule:
     - cron: '40 2 * * 2-6'
   pull_request:
@@ -96,7 +101,7 @@ jobs:
 
   persist-google-drive:
     needs: daily-research
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 20
