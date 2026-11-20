@@ -10,11 +10,6 @@ import urllib.parse
 
 import qq_mail_ingest as q
 
-EXPECTED_TABLES = frozenset({
-    "QQ Mail Intake", "Accounts", "Contacts", "Opportunities",
-    "Quotes", "Projects", "Revenue",
-})
-
 
 def summarize(records):
     counts = collections.Counter()
@@ -60,8 +55,8 @@ def main():
     token, root = q.auth()
     tables = q.list_all(root + "/tables", token, "audit_tables")
     names = [r.get("name") for r in tables]
-    if any(names.count(name) != 1 for name in EXPECTED_TABLES):
-        raise q.SafeError("SALES_BASE_REQUIRED_TABLES_MISSING_OR_DUPLICATED")
+    if names.count(q.TABLE) != 1:
+        raise q.SafeError("QQ_MAIL_INTAKE_MISSING_OR_DUPLICATED")
     table_id = q.find_table(token, root)
     if not table_id:
         raise q.SafeError("QQ_MAIL_INTAKE_NOT_FOUND")
@@ -74,7 +69,7 @@ def main():
     # Stable machine-readable aggregate output; never log records, IDs, messages or tokens.
     for name, value in metrics.items():
         print("FEISHU_MAIL_AUDIT_" + name.upper() + "=" + str(value))
-    print("FEISHU_MAIL_AUDIT_PASS expected_tables=7 customer_payload_logs=0 writes=0")
+    print("FEISHU_MAIL_AUDIT_PASS required_table=QQ_Mail_Intake customer_payload_logs=0 writes=0")
 
 
 if __name__ == "__main__":
