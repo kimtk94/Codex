@@ -41,8 +41,45 @@ jobs:
         run: |
           python research/kalman_daily20/daily20.py universe --config research/kalman_daily20/universe.json --out output/daily20/universe-derived.json
 
-  daily-research:
+
+  restore-drive-cache:
     needs: contracts
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install private archive reader (no trading dependencies)
+        run: python -m pip install --disable-pip-version-check google-auth google-api-python-client 'pandas>=2.2,<3' 'pyarrow>=17' 'exchange-calendars>=4.7'
+      - name: Generate immutable universe
+        run: python research/kalman_daily20/daily20.py universe --out output/daily20/universe-derived.json
+      - name: Restore pinned Google Drive archive and validate every SHA256
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+        run: |
+          python research/kalman_daily20/refresh_incremental.py \
+            --universe output/daily20/universe-derived.json \
+            --output-dir output/daily20/market \
+            --end-date "$(python -c 'from datetime import timedelta; from research.kalman_daily20.daily20 import last_completed_nyse; print(last_completed_nyse() + timedelta(days=1))')" \
+            --restore-only \
+            --archive-output output/daily20/previous-data.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: daily20-private-cache-from-drive
+          path: output/daily20/previous-data.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  daily-research:
+    needs: [contracts, restore-drive-cache]
+    if: always() && needs.contracts.result == 'success' && (needs.restore-drive-cache.result == 'success' || needs.restore-drive-cache.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -60,10 +97,27 @@ jobs:
       - name: Resolve fully closed NYSE end date (never ingest an unfinished candle)
         run: |
           echo "DAILY20_END_DATE=$(python -c 'from datetime import timedelta; from research.kalman_daily20.daily20 import last_completed_nyse; print(last_completed_nyse() + timedelta(days=1))')" >> "$GITHUB_ENV"
-      - name: Fetch daily 2017-present data for exactly 20 core and 6 context symbols
+      - name: Download pinned historical archive from isolated restore job
+        if: github.event_name != 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          name: daily20-private-cache-from-drive
+          path: output/daily20/cache
+      - name: Incremental overlap refresh (full on PR or weekly Saturday)
         working-directory: kalman-toss-gateway
         run: |
-          python -m engine.market_data.cli --start-date 2017-01-01 --end-date "$DAILY20_END_DATE" --universe ../output/daily20/universe-derived.json --output-dir ../output/daily20/market
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python ../research/kalman_daily20/refresh_incremental.py \
+              --universe ../output/daily20/universe-derived.json \
+              --output-dir ../output/daily20/market \
+              --end-date "$DAILY20_END_DATE" --no-drive
+          else
+            python ../research/kalman_daily20/refresh_incremental.py \
+              --universe ../output/daily20/universe-derived.json \
+              --output-dir ../output/daily20/market \
+              --end-date "$DAILY20_END_DATE" \
+              --cache-file ../output/daily20/cache/previous-data.zip
+          fi
       - name: Compute TA-Lib feature snapshots
         working-directory: kalman-toss-gateway
         run: |
@@ -71,6 +125,12 @@ jobs:
       - name: Fail closed on missing / stale price and feature data
         run: |
           python research/kalman_daily20/daily20.py audit --manifest output/daily20/universe-derived.json --market output/daily20/market --features output/daily20/features --out output/daily20/qc.json
+      - name: Secondary provider return comparison (advisory; independence unverified)
+        run: |
+          python research/kalman_daily20/secondary_qc.py \
+            --market output/daily20/market \
+            --out output/daily20/secondary_qc.json \
+            --end-date "$DAILY20_END_DATE"
       - name: Out-of-sample annual baseline (no broker, no production writes)
         run: |
           python research/kalman_daily20/daily20.py train --config research/kalman_daily20/universe.json --market output/daily20/market --features output/daily20/features --out output/daily20/research
@@ -82,6 +142,8 @@ jobs:
           path: |
             output/daily20/universe-derived.json
             output/daily20/qc.json
+            output/daily20/secondary_qc.json
+            output/daily20/market/refresh_mode.json
             output/daily20/market/*status.json
             output/daily20/features/*status.json
             output/daily20/research/
