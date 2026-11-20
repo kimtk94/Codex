@@ -1,0 +1,94 @@
+name: Kalman Daily 20 Research (No Server / No Live)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '40 2 * * 2-6'
+  pull_request:
+    paths:
+      - 'research/kalman_daily20/**'
+      - '.github/workflows/kalman-daily20.yml'
+      - 'kalman-toss-gateway/engine/market_data/**'
+      - 'kalman-toss-gateway/engine/features_v2_002/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalman-daily20-research
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal test dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=2,<3' 'scikit-learn>=1.6,<2' 'exchange-calendars>=4.7' 'pyarrow>=17'
+      - name: Offline tests and compilation
+        run: |
+          python -m unittest discover -s research/kalman_daily20 -p 'test_*.py' -v
+          python -m compileall -q research/kalman_daily20
+      - name: Validate 20-core universe against canonical data schema
+        run: |
+          python research/kalman_daily20/daily20.py universe --config research/kalman_daily20/universe.json --out output/daily20/universe-derived.json
+
+  daily-research:
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing market and TA-Lib dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r kalman-toss-gateway/engine/market_data/requirements.txt
+          python -m pip install --disable-pip-version-check 'scikit-learn>=1.6,<2' 'exchange-calendars>=4.7'
+      - name: Generate immutable research universe
+        run: |
+          python research/kalman_daily20/daily20.py universe --out output/daily20/universe-derived.json
+      - name: Resolve fully closed NYSE end date (never ingest an unfinished candle)
+        run: |
+          echo "DAILY20_END_DATE=$(python -c 'from datetime import timedelta; from research.kalman_daily20.daily20 import last_completed_nyse; print(last_completed_nyse() + timedelta(days=1))')" >> "$GITHUB_ENV"
+      - name: Fetch daily 2017-present data for exactly 20 core and 6 context symbols
+        working-directory: kalman-toss-gateway
+        run: |
+          python -m engine.market_data.cli --start-date 2017-01-01 --end-date "$DAILY20_END_DATE" --universe ../output/daily20/universe-derived.json --output-dir ../output/daily20/market
+      - name: Compute TA-Lib feature snapshots
+        working-directory: kalman-toss-gateway
+        run: |
+          python -m engine.features_v2_002.cli --input-dir ../output/daily20/market/raw/yfinance --output-dir ../output/daily20/features
+      - name: Fail closed on missing / stale price and feature data
+        run: |
+          python research/kalman_daily20/daily20.py audit --manifest output/daily20/universe-derived.json --market output/daily20/market --features output/daily20/features --out output/daily20/qc.json
+      - name: Out-of-sample annual baseline (no broker, no production writes)
+        run: |
+          python research/kalman_daily20/daily20.py train --config research/kalman_daily20/universe.json --market output/daily20/market --features output/daily20/features --out output/daily20/research
+      - name: Publish reproducible research evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-daily20-research
+          path: |
+            output/daily20/universe-derived.json
+            output/daily20/qc.json
+            output/daily20/market/*status.json
+            output/daily20/features/*status.json
+            output/daily20/research/
+          if-no-files-found: warn
+          retention-days: 21
+      - name: Publish price/feature history as short-lived research artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-daily20-data
+          path: |
+            output/daily20/market/raw/yfinance/*.parquet
+            output/daily20/features/talib/*.parquet
+          if-no-files-found: error
+          retention-days: 21
