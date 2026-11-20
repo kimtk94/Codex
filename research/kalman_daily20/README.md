@@ -15,14 +15,14 @@ A serverless, independent 20-symbol US daily research track. It does **not** dep
 
 ## Workflow
 
-`.github/workflows/kalman-daily20.yml` runs at 02:40 UTC Tue-Sat, manually by `workflow_dispatch`, and as a PR validation. There are no secrets or server credentials. Data refresh and training artifacts persist for 21 days in GitHub Actions, not in a server.
+`.github/workflows/kalman-daily20.yml` runs at 02:40 UTC Tue-Sat, manually by `workflow_dispatch`, and as a PR validation. Production credentials are not used. The serverless Drive restore/publish jobs use a scoped Google service account; the historical data and result archives persist in Drive, with short-lived GitHub artifacts only as handoff.
 
 To run offline contracts: `python -m unittest discover -s research/kalman_daily20 -p 'test_*.py' -v`
 
 The workflow:
 
 1. Verifies universe schema and builds a derived 26-asset config without changing canonical `market-data-v2-universe.json`.
-2. Downloads full US daily data using existing research collection code, no LIVE writes.
+2. On main-branch scheduled/manual runs, restores the private, SHA-256-verified Google Drive history using a credential-isolated job; performs a 46-day overlap update except Saturday full-history reconciliation or detected price-scale revision. PR jobs do a full-history refresh with no Drive secrets. No LIVE writes.
 3. Computes existing TA-Lib features and checks each symbol's freshness, OHLC integrity, and feature availability.
 4. Runs **fixed-parameter** per-symbol annual expanding out-of-sample logistic baseline (first test year 2024, four-session label purge, imputation/scaling fit only on the training window).
 5. Reports per-symbol and per-year non-overlapping trade outcomes with 20bp total modeled cost. Does **not** claim a tradable portfolio MDD or independently replicate a QLD 15-minute entry.
@@ -30,7 +30,7 @@ The workflow:
 
 ## Known limitations / next gates
 
-- Full-history requests are intentionally slower than incremental refresh; improve by private immutable data store with revisioned daily increments **after** stable initial runs.
+- Incremental history uses 46 calendar days of overlap and full-history refetch each Saturday UTC or on adjusted-price-scale discrepancies. The latest Drive ZIP is updated in place; use Google Drive file revisions to retain recoverability. A failed cache download blocks the run rather than silently downgrading data provenance.
 - Model labels refer to a 4-session *daily* hold, not a 4-day intraday triple-barrier; this is a baseline only. True minute-level TP/SL requires verified 1-minute bars.
 - We have **not yet established profitable out-of-sample performance**. No trading order is generated.
 - Additional model families, regime attribution, hyperparameter tuning (nested CV), independent provider reconciliation, portfolio-level costs/exposure/MDD, and private Drive persistence are future milestones.
@@ -49,3 +49,14 @@ GitHub Actions `persist-google-drive` runs only after `daily-research` succeeds 
 Auth: existing `CKD_DRIVE_SA_JSON` or `GDRIVE_SA_JSON_B64` from the GitHub `TaehoonServer` environment. The publisher rejects an unexpected service-account identity. It must not use account-number or trading credentials. The two Drive files have writer access for that **specific** automation service account; the parent folder does not need to be shared.
 
 No Google Sheets cells are used to store the long OHLCV time series; CSV summaries can later be synced into a small readable Sheet without changing the authoritative Parquet snapshots.
+
+
+## Daily data incremental and secondary checks (v2)
+
+1. The `restore-drive-cache` GitHub job has access only to the scoped research Drive account and downloads `daily20_data_latest.zip` by a fixed file ID. It verifies Drive MD5, archive path hygiene, every per-file SHA-256 from the manifest, and the exact 26 raw symbols. A separate short-lived Actions artifact carries this validated archive to the data job, **not credentials**.
+2. The `daily-research` job uses `refresh_incremental.py` to fetch the most recent 46 calendar days from Yahoo, compares adjusted overlapping OHLC prices, and merges new timestamps with old history. A median repricing above 0.25%, a 95th-percentile repricing above 1%, or insufficient overlap triggers **a full 2017-present refetch**, avoiding inconsistent corporate-action adjustment scales. Missing snapshots or bad hashes fail closed.
+3. Saturdays UTC (after the Friday US close) force a full-history revision reconciliation. Pull requests remain public-data-only full downloads, never consuming Drive credentials.
+4. `secondary_qc.py` attempts an advisory 100-day FinanceDataReader comparison for SPY, QQQ, NVDA, XOM. It compares daily returns, explicitly labels provider independence **unverified** (FDR may use Yahoo internally), and reports unavailable data or disagreements separately. The primary data and models are not silently replaced by secondary quotes.
+5. The canonical Google Drive two-file output IDs and existing production models remain unchanged. See `market/refresh_mode.json` and `secondary_qc.json` in the result artifact for provenance.
+
+This is a data engineering milestone, not proof of strategy profitability or independent exchange-quality market quotes.
