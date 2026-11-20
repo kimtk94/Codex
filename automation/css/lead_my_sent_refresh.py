@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Personal QQ sent-mail evidence for SFDC Leads (strict sender + exact To/CC).
 
-Generated: Lead My Sent Audit A:T only; output tab auto-expands when required. Decision ledgers, approval/choice
+Generated: Lead My Sent Audit A:T only; output tab auto-expands when required. Decision ledgers and approval/choice
 columns and CRM are NEVER written. 'No evidence' is not proof of no contact.
 """
 import base64
