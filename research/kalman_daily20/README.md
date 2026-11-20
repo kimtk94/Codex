@@ -34,3 +34,18 @@ The workflow:
 - Model labels refer to a 4-session *daily* hold, not a 4-day intraday triple-barrier; this is a baseline only. True minute-level TP/SL requires verified 1-minute bars.
 - We have **not yet established profitable out-of-sample performance**. No trading order is generated.
 - Additional model families, regime attribution, hyperparameter tuning (nested CV), independent provider reconciliation, portfolio-level costs/exposure/MDD, and private Drive persistence are future milestones.
+
+
+## Durable Google Drive persistence
+
+The primary Daily20 data store is now **Google Drive**, not an expiring GitHub Actions artifact. The existing artifact is only a temporary handoff.
+
+- Folder: https://drive.google.com/drive/folders/1kJLk8sC2GDjtJjsdjeV-GhzsMYsFBhz7
+- Immutable ID for current data ZIP: `1nWbyCiRSscJSqgZYvYhJ9DKHRlBwlKgE` (`daily20_data_latest.zip`)
+- Immutable ID for current OOS results ZIP: `1l-e4OLKS4qlDjNsf8TdkMsd5w3QouF4w` (`daily20_results_latest.zip`)
+
+GitHub Actions `persist-google-drive` runs only after `daily-research` succeeds and only on scheduled/manual runs, never untrusted pull requests. It downloads the freshly validated artifacts, checks 26 raw + 26 feature Parquet files and 20 scores, adds a reproducibility manifest (source commit, run ID, session, per-file SHA-256), and replaces only these two pre-shared research-only Drive files. A Drive MD5 readback is required. Failures leave a visible red CI job; no live trading, Neon, or server dependence is introduced.
+
+Auth: existing `CKD_DRIVE_SA_JSON` or `GDRIVE_SA_JSON_B64` from the GitHub `TaehoonServer` environment. The publisher rejects an unexpected service-account identity. It must not use account-number or trading credentials. The two Drive files have writer access for that **specific** automation service account; the parent folder does not need to be shared.
+
+No Google Sheets cells are used to store the long OHLCV time series; CSV summaries can later be synced into a small readable Sheet without changing the authoritative Parquet snapshots.
