@@ -64,7 +64,6 @@ def read_verified_cache(archive, expected_keys):
             raise RuntimeError("CACHE_RAW_UNIVERSE_MISMATCH")
         if manifest.get("raw_symbols") != 26 or manifest.get("feature_symbols") != 26:
             raise RuntimeError("CACHE_SYMBOL_COUNT_MISMATCH")
-        import pyarrow.parquet as pq
         frames = {key: pd.read_parquet(BytesIO(zf.read(f"market/raw/yfinance/{key}.parquet")))
                   for key in expected_keys}
     return manifest, frames
@@ -175,7 +174,6 @@ def incremental_refresh(universe_path, output, end, cache_bytes, *,
                         now=None, provider=None, write=None):
     from engine.market_data.base import ProviderRequest
     from engine.market_data.snapshot import write_snapshot, atomic_json
-    from engine.market_data.yfinance_provider import YFinanceProvider
     universe = json.loads(Path(universe_path).read_text())
     assets = universe["assets"]
     if len(assets) != 26:
@@ -192,7 +190,9 @@ def incremental_refresh(universe_path, output, end, cache_bytes, *,
         raise RuntimeError("CACHED_DATA_NEWER_THAN_TARGET_END")
     if (end_day - verified_session).days > MAX_CACHE_STALENESS_DAYS:
         return full_refresh(universe_path, output, end, "CACHE_TOO_STALE")
-    provider = provider or YFinanceProvider()
+    if provider is None:
+        from engine.market_data.yfinance_provider import YFinanceProvider
+        provider = YFinanceProvider()
     refreshed, details = {}, {}
     for asset in assets:
         key, symbol = asset["key"], asset["symbol"]
