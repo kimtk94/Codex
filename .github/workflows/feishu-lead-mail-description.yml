@@ -55,7 +55,7 @@ jobs:
           LEAD_PERSONAL_APPLY: 'true'
         run: python automation/css/lead_my_sent_refresh.py
       - name: Read-only preview of Feishu Lead changes
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         run: python automation/feishu/lead_mail_description_sync.py
       - name: Apply isolated Feishu Lead mirror and readback
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
