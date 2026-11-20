@@ -7,9 +7,6 @@ on:
         description: 'Apply verified Lead snapshot and Feishu mirror (false = read-only)'
         type: boolean
         default: false
-  workflow_run:
-    workflows: ['Lead Personal Sent Audit (SFDC + QQ)']
-    types: [completed]
   schedule:
     # After QQ CSS ingestion and SFDC report digests, with independent failure boundary.
     - cron: '40 2,9 * * 1-5' # 11:40 and 18:40 KST weekdays
@@ -31,7 +28,6 @@ concurrency:
   cancel-in-progress: false
 jobs:
   mirror:
-    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
     environment: TaehoonServer
     timeout-minutes: 25
@@ -59,10 +55,10 @@ jobs:
           LEAD_PERSONAL_APPLY: 'true'
         run: python automation/css/lead_my_sent_refresh.py
       - name: Read-only preview of Feishu Lead changes
-        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'deploy(feishu-leads): apply verified mirror') }}
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'deploy(feishu-leads): apply verified mirror') }}
         run: python automation/feishu/lead_mail_description_sync.py
       - name: Apply isolated Feishu Lead mirror and readback
-        if: ${{ github.event_name == 'workflow_run' || github.event_name == 'schedule' || (github.event_name == 'push' && github.event.head_commit.message == 'deploy(feishu-leads): apply verified mirror') || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'push' && github.event.head_commit.message == 'deploy(feishu-leads): apply verified mirror') || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
         run: python automation/feishu/lead_mail_description_sync.py --apply
       - name: Write job summary
         if: always()
