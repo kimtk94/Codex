@@ -54,7 +54,7 @@ jobs:
           python -m unittest discover -s automation/css -p 'test_lead_my_sent_refresh.py' -v
           python -m unittest discover -s automation/feishu -p 'test_lead_mail_description_sync.py' -v
       - name: Validate SFDC Lead and QQ source, recompute personal mail evidence
-        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_run' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
         env:
           LEAD_PERSONAL_APPLY: 'true'
         run: python automation/css/lead_my_sent_refresh.py
@@ -62,7 +62,7 @@ jobs:
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' }}
         run: python automation/feishu/lead_mail_description_sync.py
       - name: Apply isolated Feishu Lead mirror and readback
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
+        if: ${{ github.event_name == 'workflow_run' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) }}
         run: python automation/feishu/lead_mail_description_sync.py --apply
       - name: Write job summary
         if: always()
