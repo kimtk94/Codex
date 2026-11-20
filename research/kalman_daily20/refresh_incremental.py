@@ -247,14 +247,33 @@ def main():
     p.add_argument("--end-date", required=True)
     p.add_argument("--no-drive", action="store_true", help="PR tests use independent full historical download")
     p.add_argument("--force-full", action="store_true")
+    p.add_argument("--restore-only", action="store_true",
+                   help="Download pinned Drive snapshot in credential-isolated Actions job")
+    p.add_argument("--archive-output", default="",
+                   help="Path to write downloaded archive in restore-only mode")
+    p.add_argument("--cache-file", default="",
+                   help="Read a prior downloaded Drive snapshot; no credentials needed")
     a = p.parse_args()
-    from publish_drive import credentials_from_env
     now = datetime.now(timezone.utc)
+    if a.restore_only:
+        if not a.archive_output:
+            raise ValueError("--archive-output is required for restore-only mode")
+        from publish_drive import credentials_from_env
+        archived = download_prior_archive(credentials_from_env())
+        archive_path = Path(a.archive_output)
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        archive_path.write_bytes(archived)
+        # Parse now to fail immediately if an archive is corrupted or points to a different universe.
+        universe = json.loads(Path(a.universe).read_text())
+        read_verified_cache(archived, {item["key"] for item in universe["assets"]})
+        print(json.dumps({"DAILY20_CACHE_RESTORED": True, "bytes": len(archived)}))
+        return
     if a.no_drive or a.force_full or now.weekday() == FULL_REFRESH_UTC_WEEKDAY:
         return full_refresh(a.universe, a.output_dir, a.end_date,
                             "PR_FULL" if a.no_drive else "WEEKLY_OR_FORCE_FULL")
-    credentials = credentials_from_env()
-    archived = download_prior_archive(credentials)
+    if not a.cache_file:
+        raise ValueError("Incremental refresh requires --cache-file from approved restore job")
+    archived = Path(a.cache_file).read_bytes()
     return incremental_refresh(a.universe, a.output_dir, a.end_date, archived, now=now)
 
 
