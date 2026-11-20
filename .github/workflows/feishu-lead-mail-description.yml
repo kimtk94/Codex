@@ -1,0 +1,46 @@
+name: Feishu Lead Mail and Description Mirror
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Write Lead mail/Description records to existing Feishu Base after validation'
+        type: boolean
+        default: false
+  workflow_run:
+    workflows: ['Lead Personal Sent Audit (SFDC + QQ)']
+    types: [completed]
+  pull_request:
+    paths:
+      - 'automation/feishu/lead_mail_description_sync.py'
+      - '.github/workflows/feishu-lead-mail-description.yml'
+permissions:
+  contents: read
+concurrency:
+  group: feishu-lead-personal-mail-description
+  cancel-in-progress: false
+jobs:
+  mirror:
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 15
+    env:
+      NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Google Sheets and Feishu clients
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: Validate syntax and Lead source invariants
+        run: python -m py_compile automation/feishu/lead_mail_description_sync.py
+      - name: Validate Feishu Lead mirror in read-only mode
+        run: python automation/feishu/lead_mail_description_sync.py
+      - name: Apply after explicit approval or successful personal mail audit
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.apply == true) || github.event_name == 'workflow_run' }}
+        run: python automation/feishu/lead_mail_description_sync.py --apply
