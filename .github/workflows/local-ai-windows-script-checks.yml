@@ -50,7 +50,8 @@ jobs:
           foreach ($file in $required) {
             if (!(Test-Path $file)) { throw "Missing launcher: $file" }
             $cmd = Get-Content $file -Raw
-            if ($cmd -notmatch "local-codex.ps1") { throw "Launcher not wired: $file" }
+            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } else { "local-codex.ps1" }
+            if ($cmd -notmatch [regex]::Escape($expected)) { throw "Launcher not wired: $file -> $expected" }
             if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
           }
           $src = Get-Content "local_ai\local-codex.ps1" -Raw
