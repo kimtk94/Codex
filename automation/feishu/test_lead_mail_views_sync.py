@@ -27,9 +27,11 @@ class ViewTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_exact_two_priority_views(self):
-        self.assertEqual(len(v.VIEWS),2)
-        self.assertEqual([x[1] for x in v.VIEWS],["있음","없음"])
+    def test_exact_four_email_evidence_views(self):
+        self.assertEqual(len(v.VIEWS),4)
+        self.assertEqual([x[2] for x in v.VIEWS],["있음","없음",None,None])
+        self.assertEqual([x[1] for x in v.VIEWS],
+                         [v.MAIL_CLASS,v.MAIL_CLASS,v.AFTER_CLASS,v.BEFORE_CLASS])
 
     def test_email_only_split(self):
         source={
@@ -39,6 +41,35 @@ class ViewTests(unittest.TestCase):
         }
         self.assertEqual(v.expected_ids(source,"있음"),{"a"})
         self.assertEqual(v.expected_ids(source,"없음"),{"b"})
+
+    def test_sent_after_and_before_are_separate_age_filtered_views(self):
+        recent_after=row("sent1","있음","발송 확인 (Lead 생성 후)")
+        recent_before=row("sent2","없음","Lead 생성 전만 발송")
+        recent_after2=row("sent3","없음","발송 확인 (Lead 생성 후)")
+        too_old=row("old","있음","발송 확인 (Lead 생성 후)")
+        too_old["Lead Created"]="2025-11-20"
+        boundary=row("boundary","없음","Lead 생성 전만 발송")
+        boundary["Lead Created"]="2025-11-21"
+        items={r["Lead ID"]:r for r in
+               (recent_after,recent_before,recent_after2,too_old,boundary)}
+        self.assertEqual(v.expected_ids(items,None,v.AFTER_CLASS),{"sent1","sent3"})
+        self.assertEqual(v.expected_ids(items,None,v.BEFORE_CLASS),{"sent2","boundary"})
+        self.assertEqual(v.expected_ids(items,"있음",v.AFTER_CLASS),{"sent1"})
+        self.assertEqual(set(items),{"sent1","sent2","sent3","old","boundary"})
+
+    def test_sent_views_do_not_filter_description_and_match_exact_mail_kind(self):
+        fields={"연락 구분":"fldMail","Description 있음":"fldDesc",
+                v.age.ELIGIBILITY_FIELD:"fldEligible"}
+        for kind in (v.AFTER_CLASS,v.BEFORE_CLASS):
+            expected=v.filter_definition(fields,None,kind)
+            self.assertEqual(len(expected["conditions"]),2)
+            self.assertEqual({x["field_id"] for x in expected["conditions"]},
+                             {"fldMail","fldEligible"})
+            self.assertTrue(v.filter_matches(expected,expected))
+            self.assertFalse(v.filter_matches(expected,
+                             v.filter_definition(fields,"있음",kind)))
+        self.assertFalse(v.filter_matches(v.filter_definition(fields,None,v.AFTER_CLASS),
+                         v.filter_definition(fields,None,v.BEFORE_CLASS)))
 
     def test_filter_requires_all_three_conditions(self):
         fields={"연락 구분":"fldMail","Description 있음":"fldDesc",v.age.ELIGIBILITY_FIELD:"fldEligible"}
