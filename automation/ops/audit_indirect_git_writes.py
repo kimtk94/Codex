@@ -127,6 +127,14 @@ def main() -> int:
         for key in ('workflow_count', 'repo_sources_indexed', 'referenced_source_files_inspected',
                     'workflow_write_permission_count', 'indirect_git_write_signals', 'literal_main_write_signals'):
             print(key.upper() + ':', report[key])
+        unique = {}
+        for finding in report['findings']:
+            key = (finding['source'], finding['line'], finding['signal'], finding['main_ref_literal'])
+            unique.setdefault(key, set()).add(finding['workflow'])
+        print('UNIQUE_WRITE_SIGNAL_LOCATIONS:', len(unique))
+        for (source, line, signal, main_ref), workflows in sorted(unique.items()):
+            print('WRITE_SIGNAL:', source + ':' + str(line), signal,
+                  'main_ref=' + str(main_ref), 'referenced_by=' + str(len(workflows)))
         return 0
     except (OSError, ValueError, UnicodeError) as exc:
         print('INDIRECT_AUDIT_FAILED:', type(exc).__name__, str(exc)[:200])
