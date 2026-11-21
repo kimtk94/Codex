@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0.."
-echo [Local AI] Installing/checking Node.js, npm, Codex CLI and qwen3:4b...
+echo [Local AI] Installing/checking Node.js, npm, Codex CLI and qwen2.5-coder:3b...
 powershell.exe -NoProfile -File "%~dp0local-codex.ps1" -Mode Setup -Model qwen3:4b
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" echo [Local AI] Setup failed. Read the message above and try again.
