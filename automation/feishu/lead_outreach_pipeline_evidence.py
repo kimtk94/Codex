@@ -95,6 +95,14 @@ def validate(personal_log, mirror_log, queue_log, views_log, delta_preview, delt
             "ELIGIBLE_MAIL_BREAKDOWN_MISSING")
     require(sum(expected_contactable.values())<=states["NO_PERSONAL_OUTBOUND_EVIDENCE"],
             "ELIGIBLE_UNSENT_EXCEEDS_PERSONAL_SOURCE")
+    eligible_by_mail=q.get("eligible_mail_status") or {}
+    require(all(type(eligible_by_mail.get(k)) is int and eligible_by_mail[k]>=0
+                for k in ("after","prior_only","no_evidence"))
+            and sum(eligible_by_mail.values())==age_counts["eligible"]
+            and eligible_by_mail["no_evidence"]==sum(expected_contactable.values())
+            and eligible_by_mail["after"]<=states["SENT_AFTER_LEAD_CONFIRMED"]
+            and eligible_by_mail["prior_only"]<=states["SENT_BEFORE_LEAD_ONLY"],
+            "ELIGIBLE_SENT_OUTBOUND_PARTITION_MISMATCH")
 
     require(confirmed(views_log, "LEAD_VIEW_AUDIT_PASS=1 MODE=APPLY"),
             "FEISHU_NO_EVIDENCE_VIEWS_NOT_VERIFIED")
@@ -103,8 +111,13 @@ def validate(personal_log, mirror_log, queue_log, views_log, delta_preview, delt
     selected = {item.get("view"):item.get("count") for item in verified_views}
     description_view = "01 · 발송 증거 없음 · Description 있음"
     common_view = "02 · 발송 증거 없음 · Description 없음"
-    require(selected.get(description_view)==expected_contactable["description_present"]
-            and selected.get(common_view)==expected_contactable["description_missing"],
+    after_view = "06 · 최근 1년 · Lead 생성 후 발송 확인"
+    before_view = "07 · 최근 1년 · Lead 생성 전만 발송"
+    require(len(verified_views)==4 and len(selected)==4
+            and selected.get(description_view)==expected_contactable["description_present"]
+            and selected.get(common_view)==expected_contactable["description_missing"]
+            and selected.get(after_view)==eligible_by_mail["after"]
+            and selected.get(before_view)==eligible_by_mail["prior_only"],
             "OUTREACH_VIEW_ELIGIBILITY_MISMATCH")
 
     readback=delta.evidence(delta_preview,delta_apply,now=now)
@@ -132,6 +145,9 @@ def validate(personal_log, mirror_log, queue_log, views_log, delta_preview, delt
         "no_personal_outbound_evidence":states["NO_PERSONAL_OUTBOUND_EVIDENCE"],
         "outreach_description_present":selected[description_view],
         "outreach_description_missing":selected[common_view],
+        "recent_sent_after_lead":selected[after_view],
+        "recent_sent_before_lead_only":selected[before_view],
+        "sent_mail_views_verified":2,
         "action_queues":{k:groups[k] for k in ("recontact","planned","review","none","expired")},
         "mirror_readback":True,"manual_flags_preserved":True,
         "feishu_views_readback":True,
@@ -159,15 +175,19 @@ def main():
             for key in ("result","lead_total","eligible","excluded_over_one_year",
                         "sent_after_lead","sent_before_lead_only",
                         "no_personal_outbound_evidence","outreach_description_present",
-                        "outreach_description_missing","cutoff_kst","final_delta"):
+                        "outreach_description_missing",
+                        "recent_sent_after_lead","recent_sent_before_lead_only",
+                        "cutoff_kst","final_delta"):
                 f.write("| "+key+" | "+str(result[key])+" |\n")
             f.write("\nQQ/SFDC source re-evaluation → Feishu mirror → priority → "
-                    "two outreach views → final delta parity. No sends; no SFDC writes.\n")
+                    "four classified Lead views → final delta parity. No sends; no SFDC writes.\n")
     print("LEAD_OUTREACH_PIPELINE_VERIFIED="+json.dumps({
         "result":result["result"],"leads":result["lead_total"],
         "eligible":result["eligible"],"excluded":result["excluded_over_one_year"],
         "first_email_candidates":result["outreach_description_present"]+
                                  result["outreach_description_missing"],
+        "recent_sent_after":result["recent_sent_after_lead"],
+        "recent_sent_before":result["recent_sent_before_lead_only"],
         "final_delta":result["final_delta"]},ensure_ascii=False),flush=True)
 
 if __name__=="__main__":
