@@ -1,85 +1,70 @@
 #!/usr/bin/env python3
-"""Regression tests for safely isolated Feishu Lead action queues."""
+"""Safety regressions for isolated, derived-text Lead action queue."""
 import sys
 import unittest
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0,str(Path(__file__).parent))
 import lead_action_queue_views as q
 
-def row(name="메일 발송 증거 없음", **checks):
-    return {"연락 구분": name,
-            "검토 완료": checks.get("reviewed",False),
-            "메일 발송 예정": checks.get("planned",False),
-            "재연락 필요": checks.get("recontact",False)}
+def row(name="메일 발송 증거 없음", status="Open", **checks):
+    return {"연락 구분":name,"Lead Status":status,
+            "검토 완료":checks.get("reviewed",False),
+            "메일 발송 예정":checks.get("planned",False),
+            "재연락 필요":checks.get("recontact",False)}
 
 class QueueTests(unittest.TestCase):
-    def test_expected_priorities(self):
-        self.assertEqual(q.classify(row(recontact=True,planned=True)), "recontact")
-        self.assertEqual(q.classify(row(planned=True)), "planned")
-        self.assertEqual(q.classify(row()), "review")
-        self.assertEqual(q.classify(row(reviewed=True)), "none")
-        self.assertEqual(q.classify(row(name="발송 확인 (Lead 생성 후)")), "none")
-        self.assertEqual(q.classify(row(name="Lead 생성 전만 발송")), "none")
+    def test_strict_precedence(self):
+        self.assertEqual(q.classify(row(recontact=True,planned=True)),"recontact")
+        self.assertEqual(q.classify(row(planned=True)),"planned")
+        self.assertEqual(q.classify(row()),"review")
+        self.assertEqual(q.classify(row(reviewed=True)),"none")
+        self.assertEqual(q.classify(row(name="발송 확인 (Lead 생성 후)")),"none")
+        self.assertEqual(q.classify(row(name="Lead 생성 전만 발송")),"none")
 
-    def test_priorities_remain_mutually_exclusive(self):
-        records={
-            "a":row(recontact=True,planned=True,reviewed=True),
-            "b":row(planned=True),
-            "c":row(),
-            "d":row(reviewed=True),
-            "e":row(name="발송 확인 (Lead 생성 후)"),
-        }
-        partition=q.assert_queue_partition(records)
-        self.assertEqual(partition, {
-            "recontact":{"a"}, "planned":{"b"}, "review":{"c"},
+    def test_qualified_or_converted_excluded_from_new_outreach(self):
+        for state in ("Qualified","Converted","Closed - Converted","Disqualified"):
+            self.assertEqual(q.classify(row(status=state)),"none")
+        self.assertEqual(q.classify(row(status="Converted",recontact=True)),"recontact")
+
+    def test_partition_is_disjoint_and_exhaustive(self):
+        records={"a":row(recontact=True,planned=True,reviewed=True),
+                 "b":row(planned=True),"c":row(),"d":row(reviewed=True),
+                 "e":row(name="발송 확인 (Lead 생성 후)")}
+        self.assertEqual(q.partition(records),{
+            "recontact":{"a"},"planned":{"b"},"review":{"c"},
             "none":{"d","e"}})
 
-    def test_checked_none_is_false(self):
-        self.assertEqual(q.classify(row(reviewed=None,planned=None,recontact=None)), "review")
-
-    def test_checkbox_type_fails_closed(self):
+    def test_missing_checkbox_means_unchecked(self):
+        self.assertEqual(q.classify(row(reviewed=None,planned=None,recontact=None)),"review")
         with self.assertRaisesRegex(RuntimeError,"NOT_BOOLEAN"):
             q.classify(row(recontact="false"))
 
-    def test_filter_definitions_true_false_and_mail(self):
-        f={n:"fld"+str(i) for i,n in enumerate(q.REQUIRED)}
-        rec=q.queue_filter(f,"recontact")
-        planned=q.queue_filter(f,"planned")
-        review=q.queue_filter(f,"review")
-        self.assertEqual(len(rec["conditions"]),1)
-        self.assertEqual(len(planned["conditions"]),2)
-        self.assertEqual(len(review["conditions"]),4)
-        self.assertEqual([x["operator"] for x in planned["conditions"]],
-                         ["isNot","is"])
-        self.assertEqual([x["operator"] for x in review["conditions"]],
-                         ["isNot","isNot","isNot","is"])
-        self.assertEqual(review["conditions"][-1]["value"],
-                         '["메일 발송 증거 없음"]')
-
-    def test_filters_compare_without_ids_or_order(self):
-        f={n:"fld"+str(i) for i,n in enumerate(q.REQUIRED)}
-        expected=q.queue_filter(f,"review")
-        actual={"conjunction":"and","conditions":[
-            dict(c,condition_id="server-id",field_type=7)
-            for c in reversed(expected["conditions"])]}
-        self.assertTrue(q.conditions_equal(actual,expected))
-        self.assertFalse(q.conditions_equal(
-            dict(actual,conjunction="or"),expected))
-        altered=[dict(c) for c in actual["conditions"]]
-        altered[0]["operator"]="isNot" if altered[0]["operator"]=="is" else "is"
-        self.assertFalse(q.conditions_equal(
-            {"conjunction":"and","conditions":altered},expected))
-
-    def test_view_names_are_distinct_and_scoped(self):
+    def test_derived_field_single_text_filter(self):
+        wanted=q.filter_definition("fldPriority","review")
+        self.assertEqual(wanted,{"conjunction":"and","conditions":[{
+            "field_id":"fldPriority","operator":"is",
+            "value":'["03 · 검토 대기"]'}]})
+        self.assertTrue(q.filter_matches(wanted,wanted))
         self.assertEqual(len(q.QUEUES),3)
-        self.assertEqual({kind for _,kind in q.QUEUES},
-                         {"recontact","planned","review"})
-        self.assertEqual(q.EXPECTED_TABLE_ID, "tblanxghmeeKJGRO")
+        self.assertNotIn(q.QUEUE_FIELD,q.lead.FIELDS)
 
-    def test_unrecognized_category_blocks(self):
-        f={n:"fld"+str(i) for i,n in enumerate(q.REQUIRED)}
-        with self.assertRaisesRegex(RuntimeError,"UNKNOWN_QUEUE_KIND"):
-            q.queue_filter(f,"unknown")
+    def test_manual_values_are_immutable(self):
+        old={"id1":dict(row(recontact=True,planned=False),**{"Lead ID":"id1"})}
+        new={"id1":dict(old["id1"],**{q.QUEUE_FIELD:q.QUEUE_LABELS["recontact"]})}
+        self.assertEqual(q.manual_snapshot(old),q.manual_snapshot(new))
+        new["id1"]["재연락 필요"]=False
+        self.assertNotEqual(q.manual_snapshot(old),q.manual_snapshot(new))
 
-if __name__ == "__main__":
+    def test_label_map_contains_none_and_no_unknown_groups(self):
+        self.assertEqual(set(q.QUEUE_LABELS),{"recontact","planned","review","none"})
+        self.assertEqual({kind for _,kind in q.QUEUES},{"recontact","planned","review"})
+        with self.assertRaisesRegex(RuntimeError,"KIND_INVALID"):
+            q.filter_definition("fld","bogus")
+
+    def test_id_and_manual_readback_guard(self):
+        base={"id0":dict(row(),**{"Lead ID":"id0"})}
+        expected={"id0":q.QUEUE_LABELS["review"]}
+        with self.assertRaisesRegex(RuntimeError,"READBACK_ID_MISMATCH"):
+            q.audit_snapshots(base,{},expected,base)
+if __name__=="__main__":
     unittest.main()
