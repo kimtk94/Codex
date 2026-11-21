@@ -130,7 +130,25 @@ def status_of(parsed, phase):
         return "READ_ONLY"
     return "BLOCK"
 
-def evidence(preview_log, apply_log=None, env=None, now=None):
+def parse_simulation(contents):
+    """Extract only whitelisted aggregate canary fields, never real Lead IDs."""
+    for line in contents.splitlines():
+        data = marker_content(line, "LEAD_DELTA_SIMULATED_ONE_CHANGE_PASS=")
+        if data is None:
+            continue
+        payload = json.loads(data)
+        if (payload.get("mode") != "SIMULATION_ONLY"
+                or payload.get("simulated_checkbox_flips") != 1
+                or payload.get("expected_derived_field_updates") != 1
+                or payload.get("real_feishu_writes") != 0
+                or payload.get("manual_selection_preserved") is not True):
+            return {"result": "BLOCK", "real_feishu_writes": 0}
+        return {"result": "SIMULATION_PASS", "simulated_checkbox_flips": 1,
+                "expected_derived_field_updates": 1, "real_feishu_writes": 0,
+                "source_records": payload.get("source_records")}
+    return None
+
+def evidence(preview_log, apply_log=None, env=None, now=None, simulation_log=None):
     env = env or {}
     now = now or dt.datetime.now(dt.timezone.utc)
     preview = parse_log(preview_log)
@@ -163,6 +181,7 @@ def evidence(preview_log, apply_log=None, env=None, now=None):
         "prewrite_snapshot_checked": chosen.get("prewrite_checked"),
         "applied_batches": chosen.get("applied_batches"),
         "error_class": chosen.get("failed_code") or preview.get("failed_code"),
+        "simulated_one_checkbox": parse_simulation(simulation_log or "") if simulation_log is not None else None,
         "lead_ids_or_customer_data_exported": False,
     }
 
@@ -192,6 +211,10 @@ def render_summary(e):
         "",
         "개인정보/Lead ID 없이 집계 증거만 저장합니다. 원천 QQ·SFDC 직접 재조회가 아닌 Feishu 기준 증분 검증입니다.",
     ]
+    if e.get("simulated_one_checkbox"):
+        sim = e["simulated_one_checkbox"]
+        lines.extend(["", "읽기 전용 단일 체크박스 시뮬레이션: " + sim["result"] +
+                      " (실제 Feishu 쓰기 0건; 운영 데이터 변경 검증과 구분)"])
     if e.get("error_class"):
         lines.extend(["", "검증 실패 분류: " + e["error_class"]])
     return "\n".join(lines) + "\n"
@@ -200,12 +223,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--preview", required=True)
     parser.add_argument("--apply")
+    parser.add_argument("--simulation")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     preview = Path(args.preview).read_text(encoding="utf-8") if Path(args.preview).exists() else ""
     applied = (Path(args.apply).read_text(encoding="utf-8")
                if args.apply and Path(args.apply).exists() else None)
-    e = evidence(preview, applied, dict(os.environ))
+    simulation = (Path(args.simulation).read_text(encoding="utf-8")
+                  if args.simulation and Path(args.simulation).exists() else None)
+    e = evidence(preview, applied, dict(os.environ), simulation_log=simulation)
     target = Path(args.out)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(e, ensure_ascii=False, indent=2) + "\n",
