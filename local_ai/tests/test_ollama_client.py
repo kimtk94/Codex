@@ -50,7 +50,9 @@ class OllamaTests(unittest.TestCase):
         payload = json.loads(request.data.decode("utf-8"))
         self.assertFalse(payload["stream"])
         self.assertFalse(payload["think"])
-        self.assertEqual(payload["model"], "qwen3:4b")
+        self.assertEqual(payload["model"], "qwen25coder3b-16k:latest")
+        self.assertEqual(payload["options"]["num_ctx"], 16384)
+        self.assertEqual(payload["options"]["num_predict"], 512)
         self.assertIn("contact", payload["system"])
 
     def test_bad_input_is_rejected_without_http(self):
@@ -62,6 +64,36 @@ class OllamaTests(unittest.TestCase):
             client.analyze("test", model="qwen3:4b:cloud")
         with self.assertRaises(ValueError):
             client.analyze("test", task="dangerous")
+
+    @patch.object(client, "urlopen")
+    def test_reject_truncated_result(self, http):
+        http.return_value = FakeResponse({
+            "response": '{"summary":"ok","evidence":[],"actions":[],"uncertainties":[]}',
+            "done_reason": "length",
+        })
+        with self.assertRaisesRegex(RuntimeError, "truncated"):
+            client.analyze("safe synthetic prompt")
+
+    @patch.object(client, "urlopen")
+    def test_reject_missing_fields_and_tool_call_json(self, http):
+        http.return_value = FakeResponse({
+            "response": json.dumps({"name": "read_mcp_resource", "arguments": {"uri": "test.txt"}}),
+            "done_reason": "stop",
+        })
+        with self.assertRaisesRegex(RuntimeError, "required analysis fields"):
+            client.analyze("safe synthetic prompt")
+
+    @patch.object(client, "urlopen")
+    def test_reject_nontext_evidence(self, http):
+        http.return_value = FakeResponse({
+            "response": json.dumps({
+                "summary": "ok", "evidence": [{"tool": "exec"}],
+                "actions": [], "uncertainties": []
+            }),
+            "done_reason": "stop",
+        })
+        with self.assertRaisesRegex(RuntimeError, "non-text"):
+            client.analyze("safe synthetic prompt")
 
     @patch.object(client, "analyze")
     def test_cli_saves_to_explicit_local_path(self, analyze):
