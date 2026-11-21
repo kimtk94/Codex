@@ -137,6 +137,54 @@ def seed(root):
     }))
     for filename in ("snapshots.csv", "outcomes.csv", "latest_candidates.csv"):
         (bdir / filename).write_text("col1,col2\nexample,example\n")
+    mc = r / "research/monte_carlo"
+    mc.mkdir(parents=True)
+    (mc / "monte_carlo_summary.json").write_text(json.dumps({
+        "version": "daily20-monte-carlo-v1",
+        "status": "HISTORICAL_RESAMPLING_ONLY",
+        "research_only": True, "approved_live": False,
+        "model_selection_allowed": False, "future_oos_validated": False,
+        "not_a_forecast_probability": True,
+        "sampling_method": "paired_circular_moving_block_bootstrap_year_stratified",
+        "block_lengths": [1, 5, 20],
+        "replications_per_block": 2000,
+        "strategy_scenarios": 36, "benchmarks": ["SPY", "QQQ"],
+        "scenario_rows": 114, "sessions": 726,
+        "last_session": "2026-11-20",
+        "primary_block20": [{}] * 6,
+    }))
+    (mc / "monte_carlo_observed_baseline.csv").write_text(
+        "scenario,observed_total_return,sessions\nSPY,0.5,726\n"
+    )
+    import csv
+    scenarios = [f"MODEL_{i}" for i in range(36)] + [
+        "BENCHMARK_SPY", "BENCHMARK_QQQ"
+    ]
+    with (mc / "monte_carlo_scenarios.csv").open("w", newline="") as output:
+        cols = ["scenario", "block_length", "n_resamples", "status",
+                "approved_live", "loss_probability",
+                "mdd_at_least_20pct_probability",
+                "mdd_at_least_30pct_probability",
+                "probability_underperform_spy", "probability_underperform_qqq",
+                "return_p05", "return_median", "return_p95",
+                "mdd_p05_worst", "mdd_median", "mdd_p95_best"]
+        writer = csv.DictWriter(output, fieldnames=cols)
+        writer.writeheader()
+        for length in (1, 5, 20):
+            for symbol in scenarios:
+                writer.writerow({
+                    "scenario": symbol, "block_length": length,
+                    "n_resamples": 2000, "status": "HISTORICAL_RESAMPLING_ONLY",
+                    "approved_live": False,
+                    "loss_probability": .45,
+                    "mdd_at_least_20pct_probability": .3,
+                    "mdd_at_least_30pct_probability": .1,
+                    "probability_underperform_spy": .7,
+                    "probability_underperform_qqq": .8,
+                    "return_p05": -.4, "return_median": .1, "return_p95": .35,
+                    "mdd_p05_worst": -.5, "mdd_median": -.15,
+                    "mdd_p95_best": -.05,
+                })
     return d, r
 
 
@@ -301,6 +349,34 @@ class DrivePublisherTests(unittest.TestCase):
             file.write_text(json.dumps(data_report))
             with self.assertRaisesRegex(RuntimeError, "BEAR_FORWARD_GOVERNANCE_INVALID"):
                 inspect_payload(data, results)
+
+    def test_monte_carlo_required_before_drive_publishing(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            (results / "research/monte_carlo/monte_carlo_scenarios.csv").unlink()
+            with self.assertRaisesRegex(RuntimeError, "MONTE_CARLO_EVIDENCE_INCOMPLETE"):
+                inspect_payload(data, results)
+
+    def test_monte_carlo_rejects_fake_forward_validation(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            path = results / "research/monte_carlo/monte_carlo_summary.json"
+            report = json.loads(path.read_text())
+            report["future_oos_validated"] = True
+            path.write_text(json.dumps(report))
+            with self.assertRaisesRegex(RuntimeError, "MONTE_CARLO_GOVERNANCE_FAILED"):
+                inspect_payload(data, results)
+
+    def test_monte_carlo_bad_tail_probability_fails_closed(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            path = results / "research/monte_carlo/monte_carlo_scenarios.csv"
+            content = path.read_text()
+            content = content.replace(",0.45,", ",1.45,", 1)
+            path.write_text(content)
+            with self.assertRaisesRegex(RuntimeError, "MONTE_CARLO_PROBABILITY_OUTSIDE_UNIT_INTERVAL"):
+                inspect_payload(data, results)
+
 
 
 if __name__ == "__main__":
