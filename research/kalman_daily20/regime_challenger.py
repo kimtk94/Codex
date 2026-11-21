@@ -264,6 +264,74 @@ def decay_table(baseline_trades, state, sessions, bear_coverage):
     return pd.DataFrame(by_year), coverage
 
 
+def baseline_loss_attribution(fills, scenarios):
+    """Inspect observed incumbent PnL by symbol, year and lagged regime.
+
+    Diagnostic and descriptive, NOT causal attribution or a filter training set.
+    Year is the close-of-exit year; year-end unrealized MTM can differ.
+    """
+    primary = fills.loc[
+        fills["scenario"].isin(
+            f"BULL_BASELINE__{cohort}__POS5__COST20BP"
+            for cohort in COHORTS
+        )
+    ].copy()
+    if primary.empty:
+        raise RuntimeError("NO_BASELINE_TRADE_PNL_FOR_DECAY")
+    primary["exit_year"] = pd.to_datetime(
+        primary["exit_date"], errors="raise"
+    ).dt.year.astype(int)
+    rows = []
+    for grouping in ("symbol", "signal_volatility", "signal_tech_leadership"):
+        for keys, part in primary.groupby(["scenario", "exit_year", grouping], dropna=False):
+            scenario, year, value = keys
+            rows.append({
+                "scenario": scenario, "exit_year": int(year),
+                "grouping": grouping, "bucket": str(value),
+                "trades": int(len(part)),
+                "wins": int((part["net_pnl"] > 0).sum()),
+                "win_rate": float((part["net_pnl"] > 0).mean()),
+                "net_pnl": float(part["net_pnl"].sum()),
+                "net_pnl_over_initial_capital": float(part["net_pnl"].sum() / INITIAL_CASH),
+                "mean_realized_trade_return": float(part["realized_return"].mean()),
+            })
+    table = pd.DataFrame(rows).sort_values(
+        ["scenario", "exit_year", "grouping", "net_pnl"]
+    )
+    summary = {}
+    for cohort in COHORTS:
+        scenario = f"BULL_BASELINE__{cohort}__POS5__COST20BP"
+        sub = table.loc[(table["scenario"] == scenario)
+                        & (table["grouping"] == "symbol")]
+        years = {}
+        for year, year_rows in sub.groupby("exit_year"):
+            years[str(year)] = {
+                "worst_observed_symbols": year_rows.head(5)[
+                    ["bucket", "trades", "win_rate", "net_pnl"]
+                ].to_dict("records"),
+                "best_observed_symbols": year_rows.tail(5).iloc[::-1][
+                    ["bucket", "trades", "win_rate", "net_pnl"]
+                ].to_dict("records"),
+                "net_realized_pnl_usd": float(year_rows["net_pnl"].sum()),
+                "sum_trade_count": int(year_rows["trades"].sum()),
+            }
+        row = scenarios.loc[scenarios["scenario"] == scenario]
+        if len(row) != 1:
+            raise RuntimeError("BASELINE_SCENARIO_NOT_UNIQUE")
+        summary[cohort] = {
+            "years": years,
+            "total_simulated_return": float(row.iloc[0]["total_return"]),
+            "mdd_close": float(row.iloc[0]["max_close_drawdown"]),
+        }
+    return table, {
+        "research_only": True,
+        "causal_attribution": False,
+        "used_for_strategy_selection": False,
+        "scope": "observed baseline exits; mark-to-market year boundary not implied",
+        "by_cohort": summary
+    }
+
+
 def run(spec, market, features, base_trades, portfolio_summary, out):
     # Prevent implicit tuning of this predeclared OOS study when upstream
     # baseline risk parameters are changed independently.
@@ -300,6 +368,9 @@ def run(spec, market, features, base_trades, portfolio_summary, out):
             raise RuntimeError("BULL_PORTFOLIO_REPRODUCTION_FAILED")
 
     coverage_days, sessions_by_day = decay_table(baseline, state, sessions, coverage)
+    loss_rows, loss_summary = baseline_loss_attribution(fills, scenarios)
+    loss_rows.to_csv(output / "baseline_loss_attribution.csv", index=False)
+    write_json(output / "baseline_loss_attribution.json", loss_summary)
     bear_trades.to_csv(output / "bear_oos_trades.csv", index=False)
     coverage.to_csv(output / "bear_model_coverage.csv", index=False)
     scenarios.drop(columns=["calendar_year_returns", "rejected_candidates"]).to_csv(
@@ -330,6 +401,7 @@ def run(spec, market, features, base_trades, portfolio_summary, out):
         "regime_attribution": regimes,
         "benchmarks": benchmark,
         "per_year_market_coverage": coverage_days.to_dict(orient="records"),
+        "baseline_observed_loss_attribution": loss_summary,
         "folds": folds,
         "warnings": [
             "Bear-rule thresholds predeclared but tested retrospectively; no strategy chosen",
