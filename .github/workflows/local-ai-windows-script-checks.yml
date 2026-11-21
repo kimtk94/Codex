@@ -118,6 +118,19 @@ jobs:
           Write-Host "PASS: missing Drive Desktop folder diagnosed without install or credentials"
           exit 0
 
+      - name: Windows Drive installer 1603 read-only diagnostics smoke
+        shell: pwsh
+        run: |
+          $output = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\local_ai\diagnose-drive-install.ps1" 2>&1
+          $code = $LASTEXITCODE
+          $txt = $output | Out-String
+          if ($code -ne 0) { throw "Drive installer diagnostic failed: $txt" }
+          if ($txt -notmatch "Drive for desktop install 1603 diagnostics" -or
+              $txt -notmatch "Diagnosis complete") {
+            throw "Read-only 1603 diagnostic output missing"
+          }
+          Write-Host "PASS: Windows Google Drive 1603 diagnostic executed read-only"
+
       - name: Validate one-click launchers and local-only defaults
         shell: pwsh
         run: |
@@ -244,7 +257,7 @@ jobs:
           }
           Write-Host "Guided Google Drive desktop setup static checks PASS."
           $installDiag = Get-Content "local_ai\diagnose-drive-install.ps1" -Raw
-          foreach ($word in @("MsiInstaller", "GoogleDriveFS", "Win32", "CurrentVersion\Uninstall", "WindowsIdentity", "GoogleDrive|DriveFS|GoogleUpdate")) {
+          foreach ($word in @("MsiInstaller", "GoogleDriveFS", "WindowsPrincipal", "CurrentVersion\Uninstall", "WindowsIdentity", "GoogleDrive|DriveFS|GoogleUpdate")) {
             if (!$installDiag.Contains($word)) { throw "Drive 1603 diagnostic missing: $word" }
           }
           if ($installDiag -match "(?i)Remove-Item|Set-ExecutionPolicy|takeown.exe|icacls.exe") {
