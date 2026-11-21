@@ -1,7 +1,7 @@
 {
   "schema": "daily20-primary-corporate-action-sources-v1",
   "research_only": true,
-  "governance": "Documented historical issuer/fund facts are not independent proof of Yahoo total-return factors or SIP regular 16:00 close. Require bytes hash+body anchors; non-amount schedule cannot certify any distribution amount. Issuer non-payment policy concerns common-share security class and is not a certified negation of a vendor event.",
+  "governance": "Documented historical issuer/fund facts are not independent proof of Yahoo total-return factors or SIP regular 16:00 close. Require bytes hash+body anchors; non-amount schedule cannot certify any distribution amount. Issuer non-payment policy concerns common-share security class and is not a certified negation of a vendor event. Third-party SEC-hosted structured note filings QUOTING a sponsor are evidence of the quote but not a direct issuer filing. PDFs require verified extraction from original downloaded bytes; no cache-only/secondary data treated as issuer-certified.",
   "sources": [
     {
       "id": "SPY_STREET_DISTRIBUTIONS",
@@ -44,6 +44,24 @@
       "entity": "Strategy Inc.",
       "kind": "issuer_common_share_dividend_policy",
       "url": "https://www.strategy.com/press/strategy-announces-third-quarter-2026-financial-results_10-29-2026"
+    },
+    {
+      "id": "HYG_BLACKROCK_2024_JP_ANNUAL",
+      "entity": "BlackRock iShares",
+      "kind": "issuer_fund_report_pdf",
+      "url": "https://www.blackrock.com/jp/individual/ja/literature/annual-report/ishares-iboxx-high-yield-corporate-bond-etf-annual-report-jp-ja-2024.pdf"
+    },
+    {
+      "id": "QQQ_2020_SEC_NOTE",
+      "entity": "SEC-hosted third-party note quoting Invesco",
+      "kind": "sec_filed_third_party_issuer_quote",
+      "url": "https://www.sec.gov/Archives/edgar/data/831001/000095010320018538/dp137172_424b2-us2014449.htm"
+    },
+    {
+      "id": "QQQ_2022_SEC_NOTE",
+      "entity": "SEC-hosted third-party note quoting Invesco",
+      "kind": "sec_filed_third_party_issuer_quote",
+      "url": "https://www.sec.gov/Archives/edgar/data/831001/000095010322018043/dp182689_424b2-us2207102.htm"
     }
   ],
   "claims": [
@@ -166,6 +184,42 @@
       "exdate_explicitly_issuer_published": false,
       "claim_amount_exact": false,
       "notes": "Strategy issuer policy identifies MSTR common stock as non-dividend-paying historically; cannot infer that the vendor 0.335 was on MSTR common instead of a preferred security or ticker alias. Preserve security-type identity HOLD"
+    },
+    {
+      "symbol": "HYG",
+      "ex_date": "2023-12-14",
+      "source_id": "HYG_BLACKROCK_2024_JP_ANNUAL",
+      "claim_type": "ISSUER_FUND_HISTORICAL_USD",
+      "reported_amount_usd": "0.37847",
+      "anchor_a": "12月14日",
+      "anchor_b": "0.37847",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "BlackRock Japanese 2024 annual HYG distribution table; USD 0.37847 is historic distribution amount on 14 December; date field may denote distribution rather than exact U.S. ex-date, so do NOT self-certify ex-date or adjustment."
+    },
+    {
+      "symbol": "QQQ",
+      "ex_date": "2020-09-21",
+      "source_id": "QQQ_2020_SEC_NOTE",
+      "claim_type": "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE",
+      "reported_amount_usd": "0.38824",
+      "anchor_a": "September 18, 2020",
+      "anchor_b": "$0.38824 per share",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "SEC-hosted THIRD PARTY structured-note prospectus quotes Sep18 Invesco dividend announcement; amount corroborated, but not an issuer filing, not exact ex-date proof, not independent Alpaca event identification."
+    },
+    {
+      "symbol": "QQQ",
+      "ex_date": "2022-09-19",
+      "source_id": "QQQ_2022_SEC_NOTE",
+      "claim_type": "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE",
+      "reported_amount_usd": "0.51856",
+      "anchor_a": "September 16, 2022",
+      "anchor_b": "$0.51856 per share",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "SEC-hosted THIRD PARTY structured-note filing quotes Invesco Sep16 announcement; cannot resolve Alpaca two different event IDs on same ex-date or distinguish payment from correction history."
     }
   ]
 }
