@@ -13,6 +13,28 @@ SHEET=os.getenv("SFDC_UNIFIED_SHEET_ID","1Fo0Tc6PQ3Ek0-33lmegScM_z8ST-ShUYQ0K3kD
 KST=dt.timezone(dt.timedelta(hours=9))
 HEADER=["Salesforce Record ID","IsActive","Exclude Tax After Discount USD","CurrencyIsoCode","Opportunity ID","Last Modified Date","Quotation Name","AMEA Quotation ID","Source URL","Exported At KST","Account ID","Account Name","Contact ID","Contact Name","Opportunity Name"]
 FIELDS=["Quotation: SFDC Quotation ID","Opportunity ID","Quotation: ID","Quotation Name","Active","Exclude Tax After Discount USD"]
+
+
+def classify_report_schema(headers):
+    """Only constant vocabulary classes, never source headings in job logs.
+
+    In particular a product/process report with QIDs is NOT the subscribed
+    Quote Header report. Similar/partial headers are review evidence only.
+    """
+    names={" ".join(str(x).strip().casefold().split()) for x in headers}
+    expected={" ".join(x.casefold().split()) for x in FIELDS}
+    if expected.issubset(names):
+        return "QUOTE_HEADER_EXACT"
+    if {"sfdc quotation id", "quotation product id"}.issubset(names) and (
+            "quotation process name" in names or "quote process name" in names):
+        return "QUOTATION_PROCESS_NOT_HEADER"
+    if len(expected & names) >= 4:
+        return "PARTIAL_QUOTE_HEADER_REVIEW"
+    if {"opportunity id", "opportunity owner"}.issubset(names):
+        return "OPPORTUNITY_REPORT"
+    if "lead id" in names or "lead created date" in names:
+        return "LEAD_REPORT"
+    return "OTHER_REPORT"
 class TableParser(HTMLParser):
     def __init__(self):super().__init__();self.rows=[];self.row=None;self.cell=None
     def handle_starttag(self,tag,attrs):
@@ -49,7 +71,10 @@ def parse_attachment(blob,filename,reasons=None):
         return []
     heads=table[0]
     if not set(FIELDS).issubset(set(heads)):
-        if reasons is not None:reasons["schema_mismatch"]=reasons.get("schema_mismatch",0)+1
+        if reasons is not None:
+            reasons["schema_mismatch"]=reasons.get("schema_mismatch",0)+1
+            reason="schema_family_"+classify_report_schema(heads).lower()
+            reasons[reason]=reasons.get(reason,0)+1
         return []
     idx={h:heads.index(h) for h in FIELDS}
     rows=[]
