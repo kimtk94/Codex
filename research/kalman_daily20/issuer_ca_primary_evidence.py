@@ -192,6 +192,7 @@ def grade_anchors(blob, claim, *, pdf=False):
 def probe_source(source, claims, out_dir, *, getter=fetch_bytes, offline=False):
     result = {
         "source_id": source["id"], "url": source["url"],
+        "source_kind": source["kind"],
         "status": "OFFLINE_NO_RAW_SOURCE_HOLD" if offline else "SOURCE_NOT_FETCHED_HOLD",
         "body_sha256": None, "body_bytes": 0, "raw_archive": None,
         "anchor_grade_by_claim": {},
