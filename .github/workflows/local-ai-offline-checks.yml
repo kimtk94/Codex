@@ -1,0 +1,27 @@
+name: Local AI - offline client checks
+
+on:
+  pull_request:
+    paths:
+      - "local_ai/**"
+      - ".github/workflows/local-ai-offline-checks.yml"
+  push:
+    branches: [main]
+    paths:
+      - "local_ai/**"
+      - ".github/workflows/local-ai-offline-checks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests (mocked localhost; no model download)
+        run: python -m unittest discover -s local_ai/tests -v
+      - name: Python syntax check
+        run: python -m compileall -q local_ai
