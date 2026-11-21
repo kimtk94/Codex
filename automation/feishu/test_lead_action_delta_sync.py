@@ -197,6 +197,26 @@ class DeltaTests(unittest.TestCase):
             verify.assert_called_once()
         self.assertEqual(writes,[])
 
+    def test_no_change_recheck_refuses_user_edit_without_any_writes(self):
+        from copy import deepcopy
+        store,writes,request,pages,views=self._fake_environment(False)
+        initial=deepcopy(store)
+        later=deepcopy(store)
+        later["42"]["fields"]["재연락 필요"]=True
+        snapshots=iter([initial,later])
+        with mock.patch.object(d.lead,"auth",return_value="token"), \
+             mock.patch.object(d,"pages",side_effect=pages), \
+             mock.patch.object(d,"schema_check",return_value="fldPriority"), \
+             mock.patch.object(d.queue,"load_records",side_effect=lambda root,token: next(snapshots)), \
+             mock.patch.object(d,"source_stamps_fresh",return_value=1), \
+             mock.patch.object(d,"validate_views",return_value=views), \
+             mock.patch.object(d,"verify_view_ids") as check_views, \
+             mock.patch.object(d,"request",side_effect=request):
+            with self.assertRaisesRegex(RuntimeError,"CONCURRENT_MANUAL_CHANGE"):
+                d.main(apply=True)
+            check_views.assert_not_called()
+        self.assertEqual(writes,[])
+
     def test_one_real_shape_checkbox_simulated_without_any_external_writes(self):
         records={str(i):{"record_id":"rec"+str(i),
                          "fields":row(str(i),d.queue.QUEUE_LABELS["review"])}
