@@ -131,7 +131,9 @@ class CorporateActionCompareTests(unittest.TestCase):
         events=[{"type":"cash_dividends",**row(value=0.60)},
                 {"type":"forward_splits",**row("forward_splits","HYG","2026-11-20",2.,"evt2")}]
         summary,records=cmp.compare_one("HYG",observed(),events,True)
-        self.assertEqual(summary["match_count"],2)
+        self.assertEqual(summary["match_count"],1)
+        self.assertEqual(summary["split_normalized_candidate_count"],1)
+        self.assertEqual(summary["candidate_numeric_match_count"],2)
         self.assertEqual(summary["status"],"ALL_OBSERVED_EVENTS_NUMERICALLY_MATCH_UNCERTIFIED")
         self.assertTrue(all(x["status"]=="CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY" for x in records))
         self.assertFalse(summary["factor_independently_certified"])
