@@ -1,0 +1,95 @@
+name: HCC Stage48 MSc Direct Prior Art Claim Ceiling and Posthoc Protocol Audit
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage48_prior_art_methods_gate.py"
+      - ".github/workflows/hcc-stage48-prior-art-methods-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hcc-stage48-novelty-matrix-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  audit-prior-art-and-source-claim-ceiling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check literature denominator and disallowed claims offline
+        run: python3 research/hcc/ci/mri14_stage48_prior_art_methods_gate.py --offline-test
+      - name: Download immutable Stage47 original 14 and 59 source patient statistics, not MRI data
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage47-source-native-PV-14rater1-59original-descriptive-conditional-GO
+          run-id: 41444439116
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/stage47_frozen
+      - name: Validate original patient cohort and claim guard before literature crosswalk
+        run: |
+          python3 - <<'PY'
+          import csv,json
+          from pathlib import Path
+          d=Path("artifacts/stage47_frozen")
+          j=json.loads((d/"stage47_14vs59_native_originalPV_descriptive_summary.json").read_text())
+          with (d/"stage47_nativePV_14rater1_59original_perpatient_sensitivity.csv").open() as f:
+              cases=list(csv.DictReader(f))
+          assert len(cases)==73 and len({x["patient_id"] for x in cases})==73
+          assert j["original_source_cohort_internal_n"]==14
+          assert j["independent_source_cohort_external_n"]==59
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biological_tests"]==0
+          assert j["clinical_biological_claim_ceiling"]=="S0"
+          print("HCC_STAGE48_FROZEN_73_CASE_STAGE47_ORIGINAL_SOURCE_PASS")
+          PY
+      - name: Check direct primary literature DOI/metadata via Crossref and generate claim permission matrix
+        run: |
+          python3 research/hcc/ci/mri14_stage48_prior_art_methods_gate.py \
+            --stage47-csv artifacts/stage47_frozen/stage47_nativePV_14rater1_59original_perpatient_sensitivity.csv \
+            --stage47-json artifacts/stage47_frozen/stage47_14vs59_native_originalPV_descriptive_summary.json \
+            --verify-metadata-online \
+            --out-dir artifacts/hcc_stage48_literature
+      - name: Reject invented novel first work, prospective preregistration, clinical biology and n59 inter-reader ICC
+        run: |
+          python3 - <<'PY'
+          import csv,json
+          from pathlib import Path
+          d=Path("artifacts/hcc_stage48_literature")
+          j=json.loads((d/"stage48_thesis_novelty_clinical_S0_gate.json").read_text())
+          with (d/"stage48_direct_prior_art_source_comparison.csv").open() as f:
+              works=list(csv.DictReader(f))
+          with (d/"stage48_thesis_claim_permission_and_rejection.csv").open() as f:
+              claims=list(csv.DictReader(f))
+          meta=json.loads((d/"stage48_live_literature_metadata_check.json").read_text())
+          assert j["verified_original_patient_evidence_n"]==73
+          assert j["cohort_native_mri_internal_n"]==14
+          assert j["cohort_external_mri_n"]==59
+          assert len(works)==j["direct_prior_art_comparator_papers"]==6
+          assert len(meta)==6 and len({m["doi"] for m in meta})==6
+          assert j["prior_art_high_overlap_n"]>=4
+          assert sum(x["decision"]=="PROHIBITED" for x in claims)>=7
+          assert j["explicit_preregistration_status"].startswith("POST_RESULTS_")
+          assert j["generic_mri_radiomics_reproducibility_novelty"]=="NO"
+          assert j["voxel_resampling_first_ever_novelty"]=="NO"
+          assert j["independent_test_retest_available_n"]==0
+          assert j["independent_current_expert_roi_adjudication_n"]==0
+          assert j["MRI_RNA_qualified_patient_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biology_tests"]==0
+          assert j["MRI_RNA_biological_claim_ceiling"]=="S0"
+          assert j["methods_thesis_direction"]=="CONDITIONAL_GO"
+          assert j["remaining_independent_categories"]==3
+          print("HCC_STAGE48_PRIOR_ART_6_WORKS_73_SOURCE_PATIENTS_POSTHOC_CLAIM_HOLD_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage48-six-prior-works-73-original-source-methods-claim-HOLD
+          path: artifacts/hcc_stage48_literature/*
+          retention-days: 90
+          if-no-files-found: error

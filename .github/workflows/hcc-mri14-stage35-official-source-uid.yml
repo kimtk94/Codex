@@ -1,0 +1,67 @@
+name: HCC Stage35 Official LiverHccSeg 14-Case DICOM Metadata UID Preflight
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage35_official_dicom_metadata_source_preflight.py"
+      - ".github/workflows/hcc-mri14-stage35-official-source-uid.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-stage35-official-source-uid-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  official-metadata-exact-md5-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Fail-closed 14 frozen cases and exact DICOM UID field fixtures
+        run: python3 research/hcc/ci/mri14_stage35_official_dicom_metadata_source_preflight.py --offline-test
+      - name: Download only original 12.9 KB metadata workbook from verified official Zenodo 8179129
+        run: |
+          mkdir -p artifacts/hcc_stage35_original_download
+          curl --fail --location --silent --show-error --retry 4 --retry-all-errors \
+            --retry-delay 2 --connect-timeout 20 --max-time 120 \
+            "https://zenodo.org/records/8179129/files/LiverHccSeg_MetaData.xlsx?download=1" \
+            --output artifacts/hcc_stage35_original_download/LiverHccSeg_MetaData.xlsx
+          echo "37806f09955aa198ab8e50e0e2929da7  artifacts/hcc_stage35_original_download/LiverHccSeg_MetaData.xlsx" | md5sum -c -
+      - name: Verify official original metadata spreadsheet patient rows and literal source Study/Series UID columns
+        run: |
+          python3 research/hcc/ci/mri14_stage35_official_dicom_metadata_source_preflight.py \
+            --official-xlsx artifacts/hcc_stage35_original_download/LiverHccSeg_MetaData.xlsx \
+            --out-dir artifacts/hcc_stage35_source_metadata
+      - name: Gate all 14 cases; clinical eligibility and RNA evidence remain HOLD / 0 tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import csv,json
+          root=Path('artifacts/hcc_stage35_source_metadata')
+          s=json.loads((root/'stage35_original_excel_source_metadata_audit.json').read_text())
+          with (root/'stage35_frozen14_original_source_UID_candidates.csv').open() as f:
+              r=list(csv.DictReader(f))
+          assert len(r)==14 and len({x['patient_id'] for x in r})==14
+          assert s['source_md5']=='37806f09955aa198ab8e50e0e2929da7'
+          assert s['source_Study_and_Series_UID_confirmed_against_original_DICOM']==0
+          assert s['MRI_before_HCC_therapy_episode_verified']==0
+          assert s['RNA_sample_same_MRI_index_lesion_verified']==0
+          assert s['clinical_eligible_n']=='NOT_ASSESSED'
+          assert s['MRI_RNA_biological_tests']==0 and s['claim_ceiling']=='S0'
+          assert not s['TCIA_DICOM_shifted_dates_vs_GDC_relative_days_join_authorized']
+          assert all(x['qualified_clinical_patient']=='NOT_ASSESSED' for x in r)
+          print('HCC_STAGE35_SOURCE_UID_INVENTORY_14_CASES_S0_NO_FALSE_CLINICAL_GO_PASS')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage35-zenodo-official-excel-md5-14-original-mri-source-uid-inventory
+          path: artifacts/hcc_stage35_source_metadata/*
+          retention-days: 90
+          if-no-files-found: warn

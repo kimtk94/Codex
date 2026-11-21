@@ -1,0 +1,87 @@
+name: HCC P0 MRI qform sform Source Diagnostic
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri_phase_mask_qform_sform_diagnostic.py"
+      - "research/hcc/HCC_MRI_P0_2CASE_ACTUAL_SOURCE_SPACE_20261031.json"
+      - ".github/workflows/hcc-mri-qform-sform-p0.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-p0-mri-qform-sform-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qform-sform-offline:
+    name: NIfTI qform/sform regression and misleading-best-affine negative case
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6"
+      - run: python research/hcc/ci/mri_phase_mask_qform_sform_diagnostic.py --mode offline
+
+  real-phase-header:
+    name: Read hash-pinned actual 2-person ART/PV/ART_PV qform and sform
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install "numpy==1.26.4" "nibabel>=5.2,<6"
+      - name: Verify original two masks and three phase-image SHA; diagnose qform/sform
+        run: python research/hcc/ci/mri_phase_mask_qform_sform_diagnostic.py --mode live --out-dir artifacts/hcc_p0_qform_sform
+      - name: Archive diagnostic with no raw NIfTI or reviewer approval
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hcc-mri-p0-qform-sform-source-evidence
+          path: artifacts/hcc_p0_qform_sform/*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  fail-closed-claim-review:
+    name: Confirm MRI-RNA clinical S0 despite diagnosed affine discrepancy
+    needs: [qform-sform-offline, real-phase-header]
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-mri-p0-qform-sform-source-evidence
+          path: artifacts/diagnostic
+      - name: Check two cases and six real source phase rows
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          x=json.loads(Path("artifacts/diagnostic/hcc_p0_source_qform_sform_diagnostics.json").read_text())
+          assert x["n_cases"]==2 and x["n_phase_rows"]==6
+          assert len({(y["patient_id"],y["phase"]) for y in x["results"]})==6
+          assert x["source_validation"]=="PER_MEMBER_SHA256_FROZEN_AND_VERIFIED"
+          assert x["qualified_eligible_n"]=="NOT_ASSESSED"
+          assert x["raw_PV_radiomics_clinically_approved"] is False
+          assert x["HCC20"]=="PENDING" and x["claim_ceiling"]=="S0"
+          summary=["## HCC MRI official source-space NIfTI header diagnosis",
+             "",f"- Scientific decision: **{x['status']}**",
+             "- No automatic affine rewriting, no unverified image transform",
+             "- 2-person x 3-phase source hashes frozen and checked",
+             "- Original raw-PV ICC remains descriptive, biological use HOLD",
+             "- HCC-12/HCC-13/HCC-14 PARTIAL, HCC-20 PENDING, S0",
+             "", "| Case | Phase | Best affine offset mm | qform offset mm | sform offset mm | Classification |",
+             "|---|---|---:|---:|---:|---|"]
+          for r in x["results"]:
+              summary.append(f"| {r['patient_id']} | {r['phase']} | {r['source_best_vs_mask_best_mm']} | {r['source_qform_vs_mask_best_mm']} | {r['source_sform_vs_mask_best_mm']} | {r['header_diagnostic']} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("\n".join(summary)+"\n")
+          print("HCC_SOURCE_QFORM_SFORM_FAIL_CLOSED_EVIDENCE_JOIN_PASS")
+          PY

@@ -1,0 +1,4 @@
+subject,index_lesion,dice,pooled_symmetric_hd95_source_world_mm,original_source_run,stage33_run,claim_ceiling,independent_clinical_review
+sub-017,L1,0.904796,1.679379,41221356861,41224906345,S0,NOT_ASSESSED
+sub-066,L1,0.908127,3.000000,41221356861,41224906345,S0,NOT_ASSESSED
+sub-067,L1,0.898405,1.187500,41221356861,41224906345,S0,NOT_ASSESSED

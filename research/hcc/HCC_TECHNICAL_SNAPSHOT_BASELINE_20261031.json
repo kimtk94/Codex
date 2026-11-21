@@ -1,0 +1,87 @@
+{
+  "schema_version": "hcc-technical-baseline-v1",
+  "source_run_id": 41158120855,
+  "source_commit": "5d68a28accd51b6f58d3ed94882812667b02ab18",
+  "disclaimer": "Source-derived technical snapshot; not radiologist approval, pretreatment status or paired eligibility.",
+  "expected_candidate_count": 14,
+  "expected_no_association": true,
+  "frozen": {
+    "TCGA-BC-A10Y": [
+      "P0",
+      "P2",
+      "NO"
+    ],
+    "TCGA-BC-A3KG": [
+      "P1",
+      "P2",
+      "NO"
+    ],
+    "TCGA-BC-A5W4": [
+      "P1",
+      "P2",
+      "NO"
+    ],
+    "TCGA-BC-A69I": [
+      "P2",
+      "P2",
+      "NO"
+    ],
+    "TCGA-DD-A4NF": [
+      "P1",
+      "P2",
+      "NO"
+    ],
+    "TCGA-DD-A4NH": [
+      "P0",
+      "P0",
+      "NO"
+    ],
+    "TCGA-DD-A4NJ": [
+      "P1",
+      "P1",
+      "NO"
+    ],
+    "TCGA-G3-A25T": [
+      "P0",
+      "P2",
+      "NO"
+    ],
+    "TCGA-G3-A3CJ": [
+      "P1",
+      "P0",
+      "YES"
+    ],
+    "TCGA-G3-A7M7": [
+      "P2",
+      "P0",
+      "YES"
+    ],
+    "TCGA-G3-AAV1": [
+      "P0",
+      "P2",
+      "NO"
+    ],
+    "TCGA-G3-AAV2": [
+      "P2",
+      "P2",
+      "NO"
+    ],
+    "TCGA-G3-AAV3": [
+      "P2",
+      "P0",
+      "NO"
+    ],
+    "TCGA-G3-AAV7": [
+      "P2",
+      "P2",
+      "NO"
+    ]
+  },
+  "expected_gate_states": {
+    "hcc14_temporal_gate": "PARTIAL_HOLD",
+    "hcc16_rna_purity_gate": "PARTIAL_HOLD",
+    "hcc17_final_paired_n_gate": "PENDING_HOLD",
+    "hcc20_mri_rna_association_gate": "PENDING_DO_NOT_RUN"
+  },
+  "expected_published_expert_source_cases": 14
+}

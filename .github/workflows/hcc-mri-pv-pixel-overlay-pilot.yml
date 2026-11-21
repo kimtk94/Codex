@@ -1,0 +1,55 @@
+name: HCC MRI PV Pixel Overlay Pilot
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Successful prior HCC Public Cohort Audit run ID with hcc-mri-rna-metadata-audit artifact (30-day retention)"
+        type: string
+        required: true
+        default: "41061027979"
+      max_cases:
+        description: "Maximum MRI patients to fetch; 2 is a safe rate-limited pilot"
+        type: choice
+        required: true
+        default: "2"
+        options:
+          - "2"
+          - "14"
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: hcc-mri-pixel-pilot
+  cancel-in-progress: false
+jobs:
+  mri-pv-pixel-overlay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install bounded NIfTI and overlay dependencies
+        run: python -m pip install "numpy>=1.26,<3" "nibabel>=5.2,<6" "matplotlib>=3.8,<4"
+      - name: Download previously validated tumor-mask inventory
+        uses: actions/download-artifact@v4
+        with:
+          name: hcc-mri-rna-metadata-audit
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: artifacts/hcc_mri
+      - name: Verify prior mask QC input is present
+        run: python -c "from pathlib import Path; p=Path('artifacts/hcc_mri/tcga_liverhccseg_mri_mask_voxel_qc.csv'); assert p.is_file() and p.stat().st_size > 100, 'Missing previous valid MRI mask QC CSV'"
+      - name: Read source PV pixels and generate 3-plane tumor overlay contact sheets
+        env:
+          MAX_CASES: ${{ inputs.max_cases }}
+        run: python research/hcc/ci/mri_pv_pixel_overlay_audit.py --max-cases "$MAX_CASES" --input-dir artifacts/hcc_mri --out-dir artifacts/hcc_mri_pv_overlay
+      - name: Upload patient-level pixel QC and reviewer montage only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hcc-mri-pv-image-overlay-review
+          path: artifacts/hcc_mri_pv_overlay/
+          if-no-files-found: warn
+          retention-days: 30

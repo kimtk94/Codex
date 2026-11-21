@@ -1,0 +1,11 @@
+feature,icc_a1_absolute_agreement,patient_bootstrap_ci95_low,patient_bootstrap_ci95_high,leave_one_out_icc_min,leave_one_out_icc_max,reliability_screen
+original_firstorder_Entropy,0.98738,0.96014,0.99589,0.98488,0.99136,PASS
+original_firstorder_InterquartileRange,0.98909,0.95752,0.99833,0.98551,0.99295,PASS
+original_firstorder_Mean,0.99949,0.99842,0.9998,0.99923,0.99961,PASS
+original_firstorder_Median,0.9991,0.99731,0.99977,0.99868,0.99958,PASS
+original_glcm_Contrast,0.9668,0.91154,0.99567,0.95476,0.99006,PASS
+original_glcm_JointEntropy,0.98489,0.96363,0.99661,0.9822,0.99058,PASS
+original_shape_Elongation,0.72746,0.28927,0.91937,0.63995,0.81767,EXCLUDE_BY_RELIABILITY
+original_shape_Sphericity,0.82174,0.34958,0.95241,0.6817,0.89041,EXCLUDE_BY_RELIABILITY
+original_shape_SurfaceArea,0.99526,0.98894,0.99809,0.99453,0.99638,PASS
+original_shape_VoxelVolume,0.99628,0.99251,0.9989,0.99537,0.99775,PASS

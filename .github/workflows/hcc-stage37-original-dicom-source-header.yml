@@ -1,0 +1,60 @@
+name: HCC Stage37 Original Zenodo DICOM Header Real Source 14 Case Probe
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage37_original_dicom_source_header_probe.py"
+      - ".github/workflows/hcc-stage37-original-dicom-source-header.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-stage37-original-DICOM-header-PR
+  cancel-in-progress: false
+
+jobs:
+  original-source-one-DICOM-header-per-case:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install original DICOM header reader (no image data analysis)
+        run: python3 -m pip install "pydicom==3.0.1"
+      - name: Offline source patient/Study/Series/SOP UID and wrong modality refusal tests
+        run: python3 research/hcc/ci/mri14_stage37_original_dicom_source_header_probe.py --offline-test
+      - name: Download 14 bounded original Zenodo DICOM members; CRC and source header read
+        run: |
+          python3 research/hcc/ci/mri14_stage37_original_dicom_source_header_probe.py \
+            --out-dir artifacts/hcc_stage37_original_dicom_header
+      - name: Fail-closed 14 accounted and clinical claim ceiling S0
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import csv,json
+          p=Path('artifacts/hcc_stage37_original_dicom_header')
+          with (p/'stage37_original14_one_DICOM_header_sample.csv').open() as f:
+              rows=list(csv.DictReader(f))
+          j=json.loads((p/'stage37_original_DICOM_header_source_qc_summary.json').read_text())
+          assert len(rows)==14 and len({r['patient_id'] for r in rows})==14
+          assert j['patient_denominator']==14 and j['source_original_DICOM_one_sample_per_patient']==14
+          assert j['source_DICOM_header_valid_sampled_patients']+j['original_DICOM_source_header_HOLD_patients']==14
+          assert j['source_exact_PV_selected_MRI_series_confirmed']==0
+          assert j['authoritative_MRI_before_HCC_treatment_confirmed']==0
+          assert j['same_MRI_index_tumor_to_GDC_RNA_aliquot_confirmed']==0
+          assert j['clinically_eligible_n']=='NOT_ASSESSED' and j['claim_ceiling']=='S0'
+          assert j['MRI_RNA_biological_tests']==0 and not j['full_original_source_ZIP_md5_verified']
+          assert all(r['eligible_radiogenomics']=='NOT_ASSESSED' for r in rows)
+          print('HCC_STAGE37_ORIGINAL_DICOM_ONE_PER_PATIENT_14_ACCOUNTED_S0_PASS')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage37-original-zenodo-real-DICOM-source-header-14-subjects
+          path: artifacts/hcc_stage37_original_dicom_header/*
+          retention-days: 90
+          if-no-files-found: warn

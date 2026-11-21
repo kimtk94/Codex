@@ -1,0 +1,59 @@
+name: HCC Stage36 Original Zenodo DICOM Archive 14-Case Bounded Source Directory
+
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage36_original_dicom_source_directory.py"
+      - ".github/workflows/hcc-stage36-original-14-dicom-archive-directory.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hcc-stage36-original-DICOM-source-PR
+  cancel-in-progress: false
+
+jobs:
+  pinned-original-dicom-archive-directory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Offline original 14 frozen cases and negative DICOM pathname fixtures
+        run: python3 research/hcc/ci/mri14_stage36_original_dicom_source_directory.py --offline-test
+      - name: Original 1.7GB Zenodo dicoms ZIP bounded HTTP range directory only (NO whole ZIP)
+        run: |
+          python3 research/hcc/ci/mri14_stage36_original_dicom_source_directory.py \
+            --out-dir artifacts/hcc_stage36_source_dicom_inventory
+      - name: Verify 14 frozen patients and no original DICOM UID / clinical false promotion
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import csv,json
+          p=Path("artifacts/hcc_stage36_source_dicom_inventory")
+          with (p/"stage36_frozen14_source_dicom_archive_directory.csv").open() as f:
+              rows=list(csv.DictReader(f))
+          j=json.loads((p/"stage36_original_dicom_archive_inventory_summary.json").read_text())
+          assert len(rows)==14 and len({r["patient_id"] for r in rows})==14
+          assert j["original_zip_directory_entries"]>0
+          assert not j["entire_archive_downloaded"]
+          assert not j["entire_archive_MD5_independently_verified"]
+          assert not j["individual_DICOM_headers_read"]
+          assert j["exact_StudyInstanceUID_SeriesInstanceUID_source_header_verified"]==0
+          assert j["MRI_to_GDC_treatment_episode_chronology_verified"]==0
+          assert j["same_RNA_specimen_to_selected_MRI_lesion_verified"]==0
+          assert j["MRI_RNA_biology_tests"]==0 and j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["claim_ceiling"]=="S0"
+          print("HCC_STAGE36_BOUNDED_SOURCE_DIRECTORY_14_CASES_NO_FALSE_CLINICAL_GO_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hcc-stage36-original-zenodo-dicoms-zip-14-source-directory
+          path: artifacts/hcc_stage36_source_dicom_inventory/*
+          retention-days: 90
+          if-no-files-found: warn

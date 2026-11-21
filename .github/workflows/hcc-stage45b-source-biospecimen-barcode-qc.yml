@@ -1,0 +1,60 @@
+name: HCC Stage45b Independent Public GDC Molecular Aliquot Barcode Site QC
+on:
+  pull_request:
+    paths:
+      - "research/hcc/ci/mri14_stage45b_gdc_biospecimen_source_nomenclature_qc.py"
+      - ".github/workflows/hcc-stage45b-source-biospecimen-barcode-qc.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-14-source-biospecimen-parent-child-and-anatomic-site-qc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Negative fixture original 14 source IDs and one report-only naming discordance
+        run: python3 research/hcc/ci/mri14_stage45b_gdc_biospecimen_source_nomenclature_qc.py --offline-test
+      - uses: actions/download-artifact@v4
+        with:
+          name: hcc-stage45-14-original-MRI-GDC-biospecimen-public-source-feasibility
+          run-id: 41441332105
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/stage45_public_live_gdc
+      - name: Validate actual 14 patient live GDC nested molecular biospecimen and source naming
+        run: |
+          python3 research/hcc/ci/mri14_stage45b_gdc_biospecimen_source_nomenclature_qc.py \
+            --stage45-csv artifacts/stage45_public_live_gdc/stage45_public_GDC_molecular_biospecimen_source_14case.csv \
+            --out-dir artifacts/hcc_stage45b_gdc_biospecimen_qc
+      - name: Source structural naming discrepancies remain REVIEW without promoting MRI tumor-RNA tissue provenance
+        run: |
+          python3 - <<'PY'
+          import csv,json
+          from pathlib import Path
+          p=Path("artifacts/hcc_stage45b_gdc_biospecimen_qc")
+          j=json.loads((p/"stage45b_14patient_source_biospecimen_nomenclature_summary.json").read_text())
+          with (p/"stage45b_independent_14case_biospecimen_barcode_site_qc.csv").open() as f:
+              r=list(csv.DictReader(f))
+          assert len(r)==14 and len({x["patient_id"] for x in r})==14
+          assert j["verified_GDC_original_nested_sample_portion_analyte_aliquot_links"]==14
+          assert j["verified_live_GDC_STAR_RNA_file_MD5_associated_aliquot"]==14
+          assert j["coherent_sample_analyte_aliquot_barcode_prefix_n"]==14
+          assert j["portion_analyte_barcode_text_coherent_n"]==13
+          assert j["portion_analyte_barcode_text_discordance_cases"]==["TCGA-G3-A7M7"]
+          assert j["patient_sample_anatomic_site_not_reported_n"]==14
+          assert j["MRI_selected_index_lesion_to_GDC_RNA_tissue_verified_n"]==0
+          assert j["MRI_scan_before_all_HCC_therapies_verified_n"]==0
+          assert j["clinical_eligible_n"]=="NOT_ASSESSED"
+          assert j["MRI_RNA_biological_tests"]==0 and j["claim_ceiling"]=="S0"
+          print("HCC_STAGE45B_ALL14_NESTED_LIVE_GDC_SOURCE_QC_SITE_AND_NOMENCLATURE_HOLD_PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hcc-stage45b-14-GDC-RNA-portion-aliquot-nomenclature-site-HOLD
+          path: artifacts/hcc_stage45b_gdc_biospecimen_qc/*
+          retention-days: 90
+          if-no-files-found: error
