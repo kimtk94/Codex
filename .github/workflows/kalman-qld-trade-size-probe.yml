@@ -1,0 +1,44 @@
+name: Kalman QLD QQQ SIP Trade Size Access Probe (Research Only)
+
+on:
+  push:
+    branches: [research/qld-integrated-regime-20261031]
+    paths:
+      - '.github/workflows/kalman-qld-trade-size-probe.yml'
+      - 'research/kalman_integrated_regime/sip_large_trade_probe.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  historical-sip-trade-probe:
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal requests dependency
+        run: python -m pip install --disable-pip-version-check 'requests>=2.31,<3'
+      - name: Local deterministic schema and threshold tests
+        run: |
+          python research/kalman_integrated_regime/sip_large_trade_probe.py --self-test
+          python -m py_compile research/kalman_integrated_regime/sip_large_trade_probe.py
+      - name: Historical QQQ and QLD prints, one minute each; summarize only
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID || secrets.APCA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY || secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_integrated_regime/sip_large_trade_probe.py \
+            --max-pages 15 --out "$RUNNER_TEMP/sip_trade_size_probe.json"
+      - name: Archive only derived statistics, never raw licensed SIP trades
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qld-qqq-sip-large-trade-probe
+          path: ${{ runner.temp }}/sip_trade_size_probe.json
+          retention-days: 14
+          if-no-files-found: warn
