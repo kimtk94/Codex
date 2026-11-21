@@ -5,6 +5,7 @@ Reads aggregate-only process logs written by its own workflow. Never exports
 Lead IDs, customer names, email addresses, Feishu tokens, or raw record data.
 Distinguishes NO_NEW_DATA, PASS, READ_ONLY, STALE, SOURCE_UNAVAILABLE,
 SINK_LAG, and BLOCK without treating a green CI job as data verification.
+Evidence is retained in GitHub Actions artifacts, not emailed externally.
 """
 import argparse
 import datetime as dt
