@@ -49,6 +49,20 @@ def seed(root):
     for filename in ("portfolio_daily_equity.csv", "portfolio_executions.csv",
                      "portfolio_annual.csv", "portfolio_scenarios.csv"):
         (r / "research" / filename).write_text("column1,column2\\nvalue1,value2\\n")
+    bear = r / "research/regime_challenger"
+    bear.mkdir(parents=True)
+    (bear / "regime_summary.json").write_text(json.dumps({
+        "version": "daily20-bear-oos-v1", "research_only": True,
+        "live_execution": False, "tradable_strategy_approved": False,
+        "scenario_count": 20, "unique_bear_oos_trades": 0,
+        "scenario_results": [{}] * 20,
+        "per_year_market_coverage": [{"year": 2024}, {"year": 2025}, {"year": 2026}],
+    }))
+    for filename in ("regime_scenarios.csv", "regime_daily_equity.csv",
+                     "regime_executions.csv", "regime_annual.csv",
+                     "regime_year_coverage.csv", "regime_session_context.csv",
+                     "bear_model_coverage.csv", "bear_oos_trades.csv"):
+        (bear / filename).write_text("column1,column2\\nvalue1,value2\\n")
     return d, r
 
 
@@ -115,6 +129,24 @@ class DrivePublisherTests(unittest.TestCase):
             path.write_text(json.dumps(report))
             with self.assertRaisesRegex(RuntimeError, "PORTFOLIO_GOVERNANCE"):
                 inspect_payload(data, results)
+
+    def test_reject_missing_bear_evidence(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            (results / "research/regime_challenger/regime_summary.json").unlink()
+            with self.assertRaisesRegex(RuntimeError, "BEAR_RESEARCH_EVIDENCE"):
+                inspect_payload(data, results)
+
+    def test_reject_bear_rule_promotion_to_live(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            path = results / "research/regime_challenger/regime_summary.json"
+            report = json.loads(path.read_text())
+            report["tradable_strategy_approved"] = True
+            path.write_text(json.dumps(report))
+            with self.assertRaisesRegex(RuntimeError, "BEAR_RESEARCH_GOVERNANCE"):
+                inspect_payload(data, results)
+
 
 
 if __name__ == "__main__":
