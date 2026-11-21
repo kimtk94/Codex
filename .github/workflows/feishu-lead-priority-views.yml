@@ -1,11 +1,11 @@
 name: Feishu Lead Priority Views and Parity
 # Legacy on-demand 2-view checker. The verified outreach chain owns weekday refreshes.
-# Independent consumer: only the two dedicated Lead views may be created/updated.
+# Independent consumer: only four dedicated Lead views may be created/updated.
 on:
   workflow_dispatch:
     inputs:
       apply:
-        description: 'Apply only two Lead priority views after read-only source/sink verification'
+        description: 'Apply only four Lead mail-evidence views after read-only verification'
         type: boolean
         default: false
   push:
@@ -64,7 +64,7 @@ jobs:
         run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
       - name: Check Lead source/sink parity in read-only mode
         run: python automation/feishu/lead_mail_views_sync.py
-      - name: Create or repair only the two managed Lead views and verify filtered IDs
+      - name: Create or repair four managed age-filtered Lead views and verify record IDs
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-views') }}
         run: python automation/feishu/lead_mail_views_sync.py --apply
       - name: Report evidence
@@ -74,5 +74,5 @@ jobs:
         run: |
           echo "## Feishu Lead Priority Views" >> "$GITHUB_STEP_SUMMARY"
           echo "Status: $RESULT" >> "$GITHUB_STEP_SUMMARY"
-          echo "Scope: exactly two managed views in dedicated Lead table" >> "$GITHUB_STEP_SUMMARY"
+          echo "Scope: exactly four managed views in dedicated Lead table" >> "$GITHUB_STEP_SUMMARY"
           echo "No mail, SFDC, Account, Contact, Revenue, Project or existing default view writes." >> "$GITHUB_STEP_SUMMARY"
