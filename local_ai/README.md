@@ -1,5 +1,45 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Next validation phase — local Git reader and Google Drive Desktop
+
+GitHub Windows CI now runs real \`repo_reader.py\` tests on a disposable Windows
+Git working tree, in addition to the Ubuntu tests. This validates actual
+Windows file reading independently of an unreliable 3B Codex tool call.
+
+**Google Drive cloud-side check:** connected Google Drive was inspected and
+the existing \`LocalAI_Workspace\` folder contains the \`inbox\` and \`results\`
+subfolders. This confirms Drive structure, NOT the Windows Drive desktop mount.
+
+**Windows configuration check:** run \`Verify-Git-Drive-Local.cmd\` from
+the reviewed latest PR branch's \`local_ai\` folder. It checks the Git origin,
+working tree, GitHub authentication, Drive desktop folder and subfolders,
+DriveFS process, and local Ollama API. It is read-only and does not attempt
+to connect ChatGPT's Drive connector to local Codex.
+
+If Drive for desktop uses a non-default drive letter, run from PowerShell
+with your actual local sync path:
+
+    powershell.exe -NoProfile -File .\local_ai\verify-git-drive-local.ps1 -Repo "C:\Users\KimTaeHoon\Projects\Codex" -DriveWorkspace "G:\My Drive\LocalAI_Workspace"
+
+This checks only presence/accessibility. To prove cloud sync, use a small
+non-sensitive file in \`inbox\`, confirm its appearance in the Drive web UI,
+and inspect Drive for desktop's synchronization status. Do not treat folder
+existence or process status as sufficient proof of cloud sync.
+
+Actual file read, without checking out the draft PR:
+
+    $p = Join-Path $env:TEMP "codex-local-test\test.txt"
+    if (Test-Path -LiteralPath $p) { Get-Content -LiteralPath $p -Raw }
+
+After branch checkout or merge, deterministic reader:
+
+    python .\local_ai\repo_reader.py --repo . --list
+    python .\local_ai\repo_reader.py --repo . --file README.md
+
+**No automated commits, GitHub pushes, Drive writes or Salesforce writes are
+enabled.** Local Qwen2.5-Coder 3B autonomous tool-calling is still on HOLD.
+
+
 ## Workaround for fake Codex tool calls: deterministic Git file reader
 
 On 2026-11-21 the Qwen2.5-Coder 3B model again returned a *printed* fake tool call
