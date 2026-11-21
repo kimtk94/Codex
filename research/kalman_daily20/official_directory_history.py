@@ -73,16 +73,28 @@ def preserve(prior_zip, journal, current_responses, out_dir):
                 if historic_path in available:
                     bodies[(source, digest)] = _read_bounded_verified(
                         archive, historic_path, digest)
-            # First deployment produced a verified hash journal plus only the
-            # latest two raw files. Recover these before they are overwritten.
-            if journal:
-                for source, digest in journal[-1]["source_sha256"].items():
-                    key = source, digest
-                    raw_path = PRIOR_RAW_ROOT + source + ".txt"
-                    if key not in bodies and raw_path in available:
-                        bodies[key] = _read_bounded_verified(
-                            archive, raw_path, digest)
-                        recovered_legacy += 1
+            # Read the PREVIOUS archive's journal last event, not the newly
+            # appended current event. A same-day official directory revision
+            # must not be misdiagnosed as corruption of the previous raw file.
+            prior_journal_member = "research/official_directory/snapshot_journal.jsonl"
+            if prior_journal_member in available:
+                import json
+                prior_events = [
+                    json.loads(line) for line in
+                    archive.read(prior_journal_member).decode("utf-8").splitlines()
+                    if line.strip()
+                ]
+                if journal[:len(prior_events)] != prior_events:
+                    raise ValueError("SOURCE_HISTORY_PRIOR_CHAIN_NOT_PREFIX")
+                if prior_events:
+                    for source, digest in prior_events[-1]["source_sha256"].items():
+                        key = source, digest
+                        raw_path = PRIOR_RAW_ROOT + source + ".txt"
+                        if raw_path in available:
+                            exact = _read_bounded_verified(archive,raw_path,digest)
+                            if key not in bodies:
+                                bodies[key] = exact
+                                recovered_legacy += 1
     if current_responses is not None:
         if not isinstance(current_responses, dict) or set(current_responses) != set(SOURCES):
             raise ValueError("SOURCE_HISTORY_CURRENT_RESPONSE_COVERAGE")
