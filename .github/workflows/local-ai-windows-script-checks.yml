@@ -28,7 +28,8 @@ jobs:
             "local_ai\verify-ollama-context.ps1",
             "local_ai\create-codex16k.ps1",
             "local_ai\diagnose-local-ollama-speed.ps1",
-            "local_ai\compare-local-coding-models.ps1"
+            "local_ai\compare-local-coding-models.ps1",
+            "local_ai\preflight-agent-tool.ps1"
           )
           foreach ($file in $scripts) {
             $tokens = $null
@@ -55,12 +56,13 @@ jobs:
             "local_ai\Verify-Local-Codex-16K.cmd",
             "local_ai\Fix-Codex-4096.cmd",
             "local_ai\Diagnose-Local-Codex-Speed.cmd",
-            "local_ai\Compare-Local-Coding-Models.cmd"
+            "local_ai\Compare-Local-Coding-Models.cmd",
+            "local_ai\Preflight-Codex-Tool-Use.cmd"
           )
           foreach ($file in $required) {
             if (!(Test-Path $file)) { throw "Missing launcher: $file" }
             $cmd = Get-Content $file -Raw
-            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } else { "local-codex.ps1" }
+            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } elseif ($file -like "*Preflight-Codex-Tool-Use.cmd") { "preflight-agent-tool.ps1" } else { "local-codex.ps1" }
             if ($cmd -notmatch [regex]::Escape($expected)) { throw "Launcher not wired: $file -> $expected" }
             if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
           }
@@ -136,6 +138,14 @@ jobs:
             throw "Stale Qwen3 default found in launcher or verifier."
           }
           Write-Host "Measured Qwen2.5-Coder 3B selected as default PASS."
+          $agentPreflight = Get-Content "local_ai\preflight-agent-tool.ps1" -Raw
+          foreach ($kw in @("codex.cmd exec", "--sandbox read-only", "--json", "command_execution", "aggregated_output", "agent_message", "guid", "git.exe")) {
+            if (!$agentPreflight.Contains($kw)) { throw "Agent preflight missing: $kw" }
+          }
+          if ($agentPreflight -match "(?i)dangerously-bypass|--yolo") {
+            throw "Agent preflight must never bypass Codex sandbox."
+          }
+          Write-Host "Genuine tool event acceptance gate static checks PASS."
 
 
 
