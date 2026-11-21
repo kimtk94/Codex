@@ -65,6 +65,42 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $listed -notcontains "marker.txt") { throw "Git inventory failed" }
           Write-Host "PASS: Real Windows Git file read and inventory, no Ollama model involved"
 
+      - name: Check scoped Windows PowerShell launcher policy
+        shell: pwsh
+        run: |
+          $launchers = @(Get-ChildItem "local_ai" -Filter "*.cmd" -File)
+          $usingPowerShell = 0
+          foreach ($file in $launchers) {
+            $body = Get-Content -LiteralPath $file.FullName -Raw
+            if ($body -match '(?i)powershell\.exe\s+-NoProfile\s+-File') {
+              throw "Unscoped PowerShell launcher found: $($file.Name)"
+            }
+            if ($body -match '(?i)powershell\.exe') {
+              $usingPowerShell++
+              if ($body -notmatch '(?i)powershell\.exe\s+-NoProfile\s+-ExecutionPolicy\s+RemoteSigned\s+-File') {
+                throw "Expected process-scoped RemoteSigned policy: $($file.Name)"
+              }
+            }
+          }
+          Write-Host "PASS: $usingPowerShell trusted launcher(s) have process-scoped RemoteSigned"
+      - name: Windows real script launch under process-scoped RemoteSigned
+        shell: pwsh
+        run: |
+          $testRepo = Join-Path $env:RUNNER_TEMP "local-ai-health-script-test"
+          New-Item -ItemType Directory -Path $testRepo -Force | Out-Null
+          git -C $testRepo init -q
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $output = & powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\local_ai\verify-git-drive-local.ps1" -Repo $testRepo 2>&1
+          $code = $LASTEXITCODE
+          $txt = $output | Out-String
+          if ($txt -notmatch 'Local AI / GitHub / Drive read-only check') {
+            throw "PowerShell health-check did not start correctly: $txt"
+          }
+          if ($code -notin @(0, 2)) {
+            throw "Unexpected diagnostic exit code $code : $txt"
+          }
+          Write-Host "PASS: read-only PowerShell script executed; expected missing Drive on hosted runner"
+
       - name: Validate one-click launchers and local-only defaults
         shell: pwsh
         run: |
