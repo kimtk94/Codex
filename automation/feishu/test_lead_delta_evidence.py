@@ -44,8 +44,9 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(result["plan"]["records"],1050)
 
     def test_actual_delta_success_evidence(self):
-        result=self.snapshot(SOURCE+"\n"+PLAN+"\nLEAD_DELTA_READ_ONLY_PASS=1",
-                             SOURCE+"\n"+PLAN+"\nLEAD_DELTA_PREWRITE_SNAPSHOT_PASS=1050 pending=1\n"
+        changed_plan=PLAN.replace('"pending_updates":0','"pending_updates":1')
+        result=self.snapshot(SOURCE+"\n"+changed_plan+"\nLEAD_DELTA_READ_ONLY_PASS=1",
+                             SOURCE+"\n"+changed_plan+"\nLEAD_DELTA_PREWRITE_SNAPSHOT_PASS=1050 pending=1\n"
                              "LEAD_DELTA_APPLY_PROGRESS=1/1\n"+READBACK)
         self.assertEqual(result["result"],"PASS")
         self.assertTrue(result["prewrite_snapshot_checked"])
@@ -86,6 +87,29 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("hidden@example.com",encoded)
         self.assertNotIn("00Q-secret",encoded)
         self.assertIn("원천 QQ·SFDC 직접 재조회가 아닌 Feishu", e.render_summary(data))
+
+    def test_readback_without_prewrite_or_apply_is_not_pass(self):
+        changed_plan=PLAN.replace('"pending_updates":0','"pending_updates":1')
+        preview=SOURCE+"\n"+changed_plan+"\nLEAD_DELTA_READ_ONLY_PASS=1"
+        result=self.snapshot(preview,SOURCE+"\n"+changed_plan+"\n"+READBACK)
+        self.assertEqual(result["result"],"BLOCK")
+        result=self.snapshot(preview,SOURCE+"\n"+changed_plan+
+            "\nLEAD_DELTA_PREWRITE_SNAPSHOT_PASS=1050 pending=1\n"+READBACK)
+        self.assertEqual(result["result"],"BLOCK")
+
+    def test_readback_with_inconsistent_counts_or_changed_rows_is_not_pass(self):
+        changed_plan=PLAN.replace('"pending_updates":0','"pending_updates":1')
+        preview=SOURCE+"\n"+changed_plan+"\nLEAD_DELTA_READ_ONLY_PASS=1"
+        base=SOURCE+"\n"+changed_plan+"\nLEAD_DELTA_PREWRITE_SNAPSHOT_PASS=1050 pending=1\nLEAD_DELTA_APPLY_PROGRESS=1/1\n"
+        self.assertEqual(self.snapshot(preview,base+READBACK.replace('"changed":1','"changed":0'))["result"],"BLOCK")
+        self.assertEqual(self.snapshot(preview,base+READBACK.replace('"review":733','"review":700'))["result"],"BLOCK")
+        self.assertEqual(self.snapshot(preview,base+READBACK.replace('"changed":1','"changed":2'))["result"],"BLOCK")
+
+    def test_readback_does_not_override_unverified_preview(self):
+        changed_plan=PLAN.replace('"pending_updates":0','"pending_updates":1')
+        applied=SOURCE+"\n"+changed_plan+"\nLEAD_DELTA_PREWRITE_SNAPSHOT_PASS=1050 pending=1\nLEAD_DELTA_APPLY_PROGRESS=1/1\n"+READBACK
+        result=self.snapshot(SOURCE+"\n"+changed_plan,applied)
+        self.assertEqual(result["result"],"BLOCK")
 
     def test_incomplete_no_change_not_pass(self):
         result=self.snapshot("LEAD_DELTA_READ_ONLY_PASS=1",
