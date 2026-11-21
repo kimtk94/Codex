@@ -49,7 +49,9 @@ try {
     }
     if (-not $DriveWorkspace) {
         foreach ($volume in @("G:","H:","I:","D:","E:","F:")) {
-            foreach ($folder in @("My Drive","내 드라이브")) {
+            # Keep source ASCII for Windows PowerShell 5.1, which reads UTF-8 without BOM as ANSI.
+            $koreanMyDrive = -join @([char]0xB0B4, [char]0x20, [char]0xB4DC, [char]0xB77C, [char]0xC774, [char]0xBE0C)
+            foreach ($folder in @("My Drive", $koreanMyDrive)) {
                 $candidate = Join-Path "$volume\" (Join-Path $folder "LocalAI_Workspace")
                 if (Test-Path -LiteralPath $candidate -PathType Container) {
                     $DriveWorkspace = $candidate
