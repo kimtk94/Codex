@@ -1,13 +1,9 @@
 name: Local AI - PR change scope and human review gate
 
+# Always produce this check even for unrelated PRs.
+# GitHub leaves path-filtered required checks Pending and blocks merges.
 on:
   pull_request:
-    paths:
-      - "local_ai/**"
-      - "scripts/local_ai_pr_gate.py"
-      - "scripts/test_local_ai_pr_gate.py"
-      - "docs/local-ai-development-policy.md"
-      - ".github/workflows/local-ai-*.yml"
 
 permissions:
   contents: read
