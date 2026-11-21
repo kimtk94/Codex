@@ -48,6 +48,24 @@ class GatePolicyTests(unittest.TestCase):
         self.assertEqual(result["scope_check"], "PASS")
         self.assertTrue(result["additional_workflow_review_required"])
 
+    def test_unrelated_large_operational_pr_is_not_applicable(self):
+        paths = [f"css/large_report_{i}.py" for i in range(25)]
+        result = evaluate(paths, 2500, "", True)
+        self.assertEqual(result["scope_check"], "PASS")
+        self.assertEqual(result["review_decision"], "NOT_APPLICABLE")
+        self.assertFalse(result["local_ai_change_detected"])
+        self.assertEqual(result["failures"], [])
+
+    def test_mixed_local_ai_and_operational_change_stays_blocked(self):
+        result = evaluate(["local_ai/reader.py", "css/payment.py"], 30, BODY, True)
+        self.assertEqual(result["scope_check"], "FAIL")
+        self.assertIn("OUT_OF_SCOPE_PATH", result["failures"])
+
+    def test_local_ai_file_without_task_metadata_stays_blocked(self):
+        result = evaluate(["local_ai/a.py"], 3, "", True)
+        self.assertIn("TASK_ID_MISSING", result["failures"])
+        self.assertIn("ACCEPTANCE_CRITERIA_MISSING", result["failures"])
+
     def test_requires_task_id_and_acceptance(self):
         result = evaluate(["local_ai/a.py"], 4, "Please merge this", True)
         self.assertIn("TASK_ID_MISSING", result["failures"])
