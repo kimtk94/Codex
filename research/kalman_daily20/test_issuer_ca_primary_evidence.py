@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 
 import issuer_ca_primary_evidence as ie
@@ -37,6 +38,10 @@ def cases():
         row("QLD","2026-03-25",yahoo="0.013",alpaca="0.01319"),
         row("QQQ","2022-09-19",
             "SAME_EXDATE_IDENTICAL_RATES_DISTINCT_EVENT_IDS","0.519",""),
+        row("QQQ","2020-09-21","ALPACA_ONLY_UNCONFIRMED_BY_EITHER_YAHOO_VARIANT","0","0.38824"),
+        row("QQQ","2018-06-18","ALPACA_VS_YAHOO_VALUE_CONFLICT_UNEXPLAINED","0.378","0.37638"),
+        row("QLD","2023-09-20","YAHOO_ONLY_HISTORICAL_UNEXPLAINED","0.088",""),
+        row("HYG","2023-12-14","ALPACA_VS_YAHOO_VALUE_CONFLICT_UNEXPLAINED","0.379","0.37847"),
         row("HYG","2018-12-03",
             "YAHOO_REPAIR_SUPPRESSED_DIVIDEND_OBSERVED","0","0.376387"),
         row("MSFT","2026-11-19","ALPACA_PROCESS_DATE_CUTOFF_POSSIBLE","0.98",""),
@@ -66,22 +71,32 @@ def fake_html(url):
         return (b"<p>The Company has historically not paid any dividends on its "
                 b"shares of class A common stock, and past performance is "
                 b"not indicative of future results.</p>")
+    if "blackrock.com/jp" in url:
+        return b"%PDF-1.7\nsynthetic fixture"
+    if "sec.gov" in url and "2020" in url:
+        return (b"<p>On September 18, 2020, Invesco QQQ Trust declared "
+                b"a cash dividend of $0.38824 per share payable on October 30.</p>")
+    if "sec.gov" in url and "2022" in url:
+        return (b"<p>On September 16, 2022, Invesco QQQ Trust declared "
+                b"a cash dividend of $0.51856 per share payable on October 31.</p>")
     raise AssertionError("unknown source")
 
 
 class IssuerPrimaryEvidenceTests(unittest.TestCase):
     def test_manifest_official_hosts_and_specific_ten_claims(self):
         sources,claims=ie.validate_manifest(MANIFEST)
-        self.assertEqual(len(sources),7)
-        self.assertEqual(len(claims),10)
-        self.assertEqual(sum(c["reported_amount_usd"] is not None for c in claims.values()),6)
+        self.assertEqual(len(sources),10)
+        self.assertEqual(len(claims),13)
+        self.assertEqual(sum(c["reported_amount_usd"] is not None for c in claims.values()),9)
         self.assertEqual(sum(c["reported_amount_usd"] is None for c in claims.values()),4)
 
     def test_offline_no_source_body_never_asserts_issuer_payment(self):
         with TemporaryDirectory() as d:
             report=ie.run(MANIFEST,cases(),d,offline=True)
-            self.assertEqual(report["unresolved_cases_analyzed"],11)
-            self.assertEqual(report["official_leads_applicable"],10)
+            self.assertEqual(report["unresolved_cases_analyzed"],15)
+            self.assertEqual(report["official_leads_applicable"],13)
+            self.assertEqual(report["issuer_fund_historical_document_leads"],1)
+            self.assertEqual(report["sec_filed_third_party_quote_leads"],2)
             self.assertEqual(report["live_source_anchor_supported_cases"],0)
             self.assertEqual(report["raw_source_fetch_success"],0)
             self.assertEqual(report["issuer_action_payments_certified"],0)
@@ -90,9 +105,10 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
 
     def test_live_fake_issuer_pages_anchor_near_value_without_factor_promotion(self):
         with TemporaryDirectory() as d:
-            report=ie.run(MANIFEST,cases(),d,getter=fake_html)
-            self.assertEqual(report["raw_source_fetch_success"],7)
-            self.assertEqual(report["live_source_anchor_supported_cases"],10)
+            with patch.object(ie,"text_of_pdf",return_value="Distributions 12月14日 0.37847 USD"):
+                report=ie.run(MANIFEST,cases(),d,getter=fake_html)
+            self.assertEqual(report["raw_source_fetch_success"],10)
+            self.assertEqual(report["live_source_anchor_supported_cases"],13)
             self.assertEqual(report["factor_certified"],0)
             self.assertEqual(report["issuer_action_payments_certified"],0)
             for x in report["source_results"].values():
@@ -103,7 +119,7 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
             self.assertTrue((Path(d)/"report.json").exists())
             with (Path(d)/"unresolved_review.csv").open() as f:
                 rows=list(csv.DictReader(f))
-            self.assertEqual(len(rows),11)
+            self.assertEqual(len(rows),15)
             self.assertTrue(all(r["independent_close_certified"]=="False" for r in rows))
             spy=next(r for r in rows if r["symbol"]=="SPY" and r["ex_date"]=="2021-12-17")
             self.assertEqual(spy["primary_evidence_grade"],"ISSUER_AMOUNT_FAVORS_ALPACA_NUMERIC_ONLY")
@@ -124,6 +140,16 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
             self.assertEqual(mstr["amount_matches_alpaca_raw"],"")
             self.assertEqual(mstr["amount_comparison_basis"],
                              "ISSUER_POLICY_NO_COMMON_DIVIDEND_SECURITY_CLASS_HOLD")
+            hyg=next(r for r in rows if r["symbol"]=="HYG")
+            self.assertEqual(hyg["primary_evidence_grade"],"ISSUER_AMOUNT_FAVORS_ALPACA_NUMERIC_ONLY")
+            sec=next(r for r in rows if r["symbol"]=="QQQ" and r["ex_date"]=="2022-09-19")
+            self.assertEqual(sec["primary_evidence_grade"],
+                 "SEC_HOSTED_THIRD_PARTY_QUOTE_NUMERIC_ONLY_NOT_ISSUER_ATTESTED")
+            self.assertEqual(sec["amount_comparison_basis"],
+                 "SEC_THIRD_PARTY_QUOTE_NOT_ORIGINAL_ISSUER_STATEMENT")
+            for sym,day in (("QQQ","2018-06-18"),("QLD","2023-09-20")):
+                case=next(r for r in rows if r["symbol"]==sym and r["ex_date"]==day)
+                self.assertEqual(case["primary_evidence_grade"],"NO_CURATED_PRIMARY_SOURCE_HOLD")
 
     def test_issuer_2018_spy_amount_near_yahoo_but_alpaca_missing(self):
         c=MANIFEST["claims"][0]
@@ -169,6 +195,37 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
         self.assertTrue(claims["MSFT","2026-11-19"]["exdate_explicitly_issuer_published"])
         self.assertFalse(claims["XOM","2026-11-16"]["exdate_explicitly_issuer_published"])
         self.assertEqual(claims["MSTR","2025-05-21"]["reported_amount_usd"],None)
+
+    def test_japanese_fund_pdf_requires_actual_pdf_magic_and_extracted_text(self):
+        source=next(s for s in MANIFEST["sources"]
+                    if s["id"]=="HYG_BLACKROCK_2024_JP_ANNUAL")
+        claim=next(c for c in MANIFEST["claims"]
+                   if c["source_id"]==source["id"])
+        with TemporaryDirectory() as root:
+            bad=ie.probe_source(source,[claim],root,
+                                getter=lambda u:b"<html>12月14日 0.37847</html>")
+            self.assertEqual(bad["status"],"ValueError_SOURCE_HOLD")
+            self.assertEqual(bad["anchor_grade_by_claim"],{})
+        with TemporaryDirectory() as root:
+            with patch.object(ie,"text_of_pdf",return_value="12月14日 0.37847"):
+                good=ie.probe_source(source,[claim],root,
+                                     getter=lambda u:b"%PDF-1.7\\nmock")
+            self.assertEqual(good["status"],"FETCHED_SOURCE_UNCERTIFIED")
+            self.assertEqual(good["anchor_grade_by_claim"]["HYG|2023-12-14"],
+                             "BOTH_NEARBY_ANCHORS_OBSERVED")
+            self.assertTrue(good["raw_archive"].endswith(".pdf.gz"))
+
+    def test_sec_quote_cannot_be_recast_as_direct_issuer_fact(self):
+        claims={(c["symbol"],c["ex_date"]):c for c in MANIFEST["claims"]}
+        sec=claims["QQQ","2020-09-21"]
+        self.assertEqual(sec["claim_type"],"SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE")
+        self.assertFalse(sec["exdate_explicitly_issuer_published"])
+        with self.assertRaisesRegex(ValueError,"SEC_QUOTE_PROVENANCE_MISMATCH"):
+            invalid=deepcopy(MANIFEST)
+            for cl in invalid["claims"]:
+                if cl["symbol"]=="QQQ" and cl["ex_date"]=="2020-09-21":
+                    cl["source_id"]="MSFT_2026_DIVIDEND"
+            ie.validate_manifest(invalid)
 
     def test_missing_date_or_duplicate_claim_rejected(self):
         bad=deepcopy(MANIFEST)
