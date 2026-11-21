@@ -154,6 +154,32 @@ def inspect_payload(data_root, results_root):
             or last_hash != fwd.get("journal_hash_tip")):
         raise RuntimeError("FORWARD_SHADOW_COUNTERS_INVALID")
 
+    # Repricing/retraining differences are audited as discrepancies, NOT
+    # new signals. Require every claimed mismatch to point to an original
+    # already-verified frozen hash and never allow auto-promotion.
+    replay_diffs = fwd.get("frozen_replay_differences", [])
+    if (not isinstance(replay_diffs, list)
+            or len(replay_diffs) != fwd.get("frozen_replay_drift_count", 0)
+            or bool(replay_diffs) != bool(fwd.get("frozen_replay_drift_detected", False))):
+        raise RuntimeError("INVALID_FROZEN_REPLAY_AUDIT_COUNT")
+    if replay_diffs:
+        if (fwd.get("frozen_journal_on_drift") != "UNMODIFIED"
+                or fwd.get("replay_drift_never_tradable") is not True):
+            raise RuntimeError("FROZEN_REPLAY_DRIFT_GOVERNANCE_INVALID")
+        anchors = {(item["signal_date"], item["symbol"]): item
+                   for item in stream if item["kind"] == "SIGNAL"}
+        observed_symbols = set()
+        for mismatch in replay_diffs:
+            name = mismatch.get("symbol")
+            frozen = anchors.get((qc["expected_session"], name))
+            if (frozen is None or name in observed_symbols
+                    or mismatch.get("frozen_event_hash") != frozen["hash"]
+                    or mismatch.get("frozen_probability") != frozen["probability"]
+                    or mismatch.get("frozen_candidate") != frozen["candidate"]
+                    or mismatch.get("classification") != "REPLAY_DRIFT_NO_FROZEN_EVENT_MODIFIED"):
+                raise RuntimeError("FROZEN_REPLAY_AUDIT_ANCHOR_INVALID")
+            observed_symbols.add(name)
+
     # Separate bear family forward evidence: journal cannot redefine a
     # historical baseline signal, family, candidate or realized outcome.
     bear_fwd_root = r / "research" / "bear_forward"

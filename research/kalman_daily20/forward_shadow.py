@@ -283,6 +283,12 @@ def run(spec, prior_blob, market, scores_path, qc_path, out, *, now=None,
     new_score = read_score_rows(scores_path, spec, latest)
     recorded_today = [k for k in signals if k[0] == latest]
     admitted, next_open = check_signal_admission(latest, stamp)
+    # Old predictions are immutable even when later Yahoo-adjusted historical
+    # prices / re-runs produce different model probabilities for the same day.
+    # A replay mismatch is an explicit *audit issue*, never a re-write and
+    # never an additional forward signal. Continuing allows an independent
+    # Bear family to be sealed before the next open without rewriting Bull.
+    frozen_replay_differences = []
     if recorded_today:
         if len(recorded_today) != 20:
             raise RuntimeError("PARTIAL_FROZEN_SESSION_CANNOT_BE_REPAIRED")
@@ -292,9 +298,17 @@ def run(spec, prior_blob, market, scores_path, qc_path, out, *, now=None,
             if (abs(frozen["probability"] - values["probability"]) > 1e-9
                     or frozen["candidate"] != values["candidate"]
                     or frozen["shadow_only"] != values["shadow_only"]):
-                # Historical scores are not silently revised on a CI rerun.
-                # This should be resolved as an explicit model-version fork.
-                raise RuntimeError("FROZEN_FORWARD_SIGNAL_REVISED:" + symbol)
+                frozen_replay_differences.append({
+                    "symbol": symbol,
+                    "frozen_probability": frozen["probability"],
+                    "recomputed_probability": values["probability"],
+                    "frozen_candidate": frozen["candidate"],
+                    "recomputed_candidate": values["candidate"],
+                    "frozen_shadow_only": frozen["shadow_only"],
+                    "recomputed_shadow_only": values["shadow_only"],
+                    "frozen_event_hash": frozen["hash"],
+                    "classification": "REPLAY_DRIFT_NO_FROZEN_EVENT_MODIFIED",
+                })
     elif admitted:
         for symbol in spec["core"]:
             chain_append(journal, {
@@ -367,6 +381,11 @@ def run(spec, prior_blob, market, scores_path, qc_path, out, *, now=None,
         "next_session_open_utc": next_open, "signal_admission_open": admitted,
         "new_signal_events": 20 if admitted and not recorded_today else 0,
         "newly_settled_events": newly_settled,
+        "frozen_replay_drift_detected": bool(frozen_replay_differences),
+        "frozen_replay_drift_count": len(frozen_replay_differences),
+        "frozen_replay_differences": frozen_replay_differences,
+        "frozen_journal_on_drift": "UNMODIFIED",
+        "replay_drift_never_tradable": True,
         "signal_events": len(signals), "settled_events": len(settled),
         "pending_events": pending,
         "first_admitted_session": admitted_sessions[0],
@@ -387,6 +406,8 @@ def run(spec, prior_blob, market, scores_path, qc_path, out, *, now=None,
         "journal_hash_tip": journal[-1]["hash"],
         "journal_sha256": sha256_bytes(body),
         "warnings": [
+            "Recomputed historical scores may drift: previously frozen SIGNAL events never change",
+            "Replay drift is an audit warning, never a new forecast or justification for entry",
             "Prospective signal evidence only after a verified complete NYSE close",
             "Existing annual logistic fitted model is frozen by run/model version metadata",
             "No retroactive signal admission; a late run after next open cannot backfill",
@@ -401,6 +422,7 @@ def run(spec, prior_blob, market, scores_path, qc_path, out, *, now=None,
     print(json.dumps({"DAILY20_FORWARD_SHADOW": {
         "status": report["status"], "signals": report["signal_events"],
         "new_signals": report["new_signal_events"],
+        "frozen_replay_drift": report["frozen_replay_drift_count"],
         "settled": report["settled_events"], "pending": pending,
         "admitted_session": report["latest_admitted_session"],
         "journal_tip": report["journal_hash_tip"][:16],
