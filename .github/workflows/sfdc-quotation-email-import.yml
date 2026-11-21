@@ -81,7 +81,7 @@ jobs:
       - name: Crosscheck exact QID coverage against Header (read-only)
         # QID/Opportunity/Active matches are evidence only; never infer names or prices.
         run: python3 automation/sfdc/quote_header_coverage_audit.py
-      - name: Independently verify Quote HEADER export currency and age
+      - name: Independently verify Quote HEADER export age and timestamp consistency
         # Always inspect the stored Quote header even when IMAP had no new valid report.
         # The process report sync cannot refresh this source. Do not report green
         # when the header has stopped updating or old rows survived replacement.
