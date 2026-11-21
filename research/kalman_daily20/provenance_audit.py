@@ -127,6 +127,13 @@ def compare_numeric_frames(old, new, symbol, kind, *, expected_date):
             "symbol": symbol, "kind": kind, "column": col,
             "overlap_sessions": len(common),
             "changed_sessions": len(indices),
+            "material_10bps_changed_sessions": int((relative > 0.001).sum()),
+            "material_10bps_nonterminal_sessions": int((
+                (relative > 0.001) & (common != pd.Timestamp(expected_date))
+            ).sum()),
+            "max_nonterminal_relative_delta": float(
+                relative[common != pd.Timestamp(expected_date)].max()
+            ) if (common != pd.Timestamp(expected_date)).any() else 0.,
             "first_changed_date": dates[0] if dates else None,
             "last_changed_date": dates[-1] if dates else None,
             "max_relative_delta": float(relative.max()) if len(relative) else 0.,
@@ -136,6 +143,7 @@ def compare_numeric_frames(old, new, symbol, kind, *, expected_date):
             "p95_abs_residual_from_median_scale": scale_p95,
             "global_multiplicative_rescale": bool(
                 len(indices) > len(common) // 3 and
+                scale_med is not None and abs(scale_med - 1.) > 1e-4 and
                 scale_p95 is not None and scale_p95 < 1e-4
             ),
             "asof_left": last_a, "asof_right": last_b,
@@ -185,6 +193,7 @@ def predict_on_frame(frame, date, family):
     return {
         "prediction": pred, "fold_status": fold["status"], "training_rows": nrows,
         "training_hash": digest, "fitted_model_hash": model_digest(fitted),
+        "_estimator": fitted,
     }
 
 
@@ -283,6 +292,24 @@ def run(left, right, spec, out, left_id, right_id, asof, frozen=None):
                 raise RuntimeError("MODEL_FOLD_MISMATCH")
             pred_a = pa["prediction"]
             pred_b = pb["prediction"]
+            if pa.get("_estimator") is not None and pb.get("_estimator") is not None:
+                # Frozen-model counterfactuals, no retraining on the other data:
+                # A model on B close features vs B model on A close features.
+                same_a_model_new_features = float(pa["_estimator"].predict_proba(
+                    fb.loc[[last], COLUMNS])[:, 1][0])
+                new_b_model_old_features = float(pb["_estimator"].predict_proba(
+                    fa.loc[[last], COLUMNS])[:, 1][0])
+                feature_effect_pp = (same_a_model_new_features - pred_a) * 100
+                model_effect_pp = (new_b_model_old_features - pred_a) * 100
+                interaction_pp = (
+                    pred_b - same_a_model_new_features - new_b_model_old_features + pred_a
+                ) * 100
+                if not np.isclose(feature_effect_pp + model_effect_pp + interaction_pp,
+                                  (pred_b - pred_a) * 100, rtol=0, atol=1e-9):
+                    raise RuntimeError("COUNTERFACTUAL_DECOMPOSITION_INVALID")
+            else:
+                same_a_model_new_features = new_b_model_old_features = None
+                feature_effect_pp = model_effect_pp = interaction_pp = None
             old_frozen = baseline_original.get((asof, symbol)) if family == "BULL_LOGISTIC" else None
             pred_rows.append({
                 "symbol": symbol, "family": family, "asof_date": asof,
@@ -292,6 +319,11 @@ def run(left, right, spec, out, left_id, right_id, asof, frozen=None):
                     (pred_b - pred_a) * 100 if pred_a is not None and pred_b is not None
                     else None
                 ),
+                "left_model_on_right_features": same_a_model_new_features,
+                "right_model_on_left_features": new_b_model_old_features,
+                "feature_effect_pp_fixed_left_model": feature_effect_pp,
+                "training_model_effect_pp_fixed_left_features": model_effect_pp,
+                "model_feature_interaction_pp": interaction_pp,
                 "original_frozen_bull_probability": old_frozen,
                 "left_vs_frozen_pp": (
                     (pred_a - old_frozen) * 100 if pred_a is not None and old_frozen is not None
