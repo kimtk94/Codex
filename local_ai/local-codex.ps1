@@ -22,8 +22,11 @@ function Refresh-SessionPath {
 }
 
 function Require-Ollama {
+    # Codex communicates through Ollama's localhost API. The separate ollama.exe
+    # CLI may be missing from PATH in some PowerShell/VS Code terminal sessions.
     if (-not (Get-Exe "ollama.exe")) {
-        throw "Ollama was not found. Install the Windows app from https://ollama.com/download/windows."
+        Write-Warning "Ollama CLI is not on this terminal PATH. Checking the local server API instead."
+        Write-Warning "For future command-line use, run Repair-Ollama-Command.cmd."
     }
     try {
         $tags = Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -TimeoutSec 8
@@ -100,6 +103,9 @@ try {
     if (-not $modelAvailable -and $Mode -eq "Start" -and $customBaseModels.ContainsKey($alias)) {
         # An Ollama custom alias is NOT a registry model. Create from an existing base.
         $baseModel = $customBaseModels[$alias]
+        if (-not (Get-Exe "ollama.exe")) {
+            throw "Cannot create a missing alias because the Ollama CLI is not on PATH. Run Repair-Ollama-Command.cmd."
+        }
         $creator = Join-Path $PSScriptRoot "create-codex16k.ps1"
         if (-not (Test-Path -LiteralPath $creator -PathType Leaf)) {
             throw "Local 16K model creator is missing: $creator"
@@ -114,6 +120,9 @@ try {
     }
     if (-not $modelAvailable) {
         if ($Mode -eq "Setup") {
+            if (-not (Get-Exe "ollama.exe")) {
+                throw "Ollama CLI missing from PATH. Run Repair-Ollama-Command.cmd first, then retry model downloads."
+            }
             Write-Host "Downloading local Ollama model: $Model"
             & ollama.exe pull $Model
             if ($LASTEXITCODE -ne 0) { throw "ollama pull failed. Exit code: $LASTEXITCODE" }
