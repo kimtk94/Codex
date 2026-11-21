@@ -104,6 +104,22 @@ try {
 
     if ($Mode -eq "Start") {
         if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
+            # Prefer a previously configured GitHub clone for repeatable sessions.
+            $workspaceConfig = Join-Path $env:LOCALAPPDATA "LocalAI\workspace.json"
+            if (Test-Path -LiteralPath $workspaceConfig -PathType Leaf) {
+                try {
+                    $workspace = Get-Content -LiteralPath $workspaceConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($workspace.repository_path -and
+                        (Test-Path -LiteralPath ([string]$workspace.repository_path) -PathType Container)) {
+                        $ProjectPath = [string]$workspace.repository_path
+                        Write-Host "Using saved GitHub clone as project directory."
+                    }
+                } catch {
+                    Write-Warning "Saved workspace config is unreadable; using launcher directory."
+                }
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
             $ProjectPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
         }
         if (-not (Test-Path -LiteralPath $ProjectPath -PathType Container)) {
