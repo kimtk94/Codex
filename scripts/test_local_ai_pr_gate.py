@@ -31,9 +31,10 @@ class GatePolicyTests(unittest.TestCase):
         result = evaluate(["local_ai/example.py"], 1, BODY, False)
         self.assertEqual(result["review_decision"], "HUMAN_REVIEW_REQUIRED")
 
-    def test_rejects_operational_workflow_changes(self):
+    def test_operational_only_workflow_change_is_not_applicable(self):
         result = evaluate([".github/workflows/css-payment-sync.yml"], 3, BODY, True)
-        self.assertIn("OUT_OF_SCOPE_PATH", result["failures"])
+        self.assertEqual(result["scope_check"], "PASS")
+        self.assertEqual(result["review_decision"], "NOT_APPLICABLE")
 
     def test_rejects_sensitive_or_traversal_path(self):
         for path in [
