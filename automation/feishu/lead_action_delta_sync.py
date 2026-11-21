@@ -49,7 +49,7 @@ def source_stamps_fresh(records, now=None):
 
 def schema_check(fields):
     required = {
-        "Lead ID": 1, "Lead Status": 1, "Lead Created": 1,
+        "Lead ID": 1, "Lead Status": 3, "Lead Created": 1,
         "연락 구분": 3, "메일 원본 확인시각": 1,
         queue.QUEUE_FIELD: 1, age.ELIGIBILITY_FIELD: 1,
         **{name: 7 for name in manual.MANUAL},
@@ -58,7 +58,7 @@ def schema_check(fields):
     for field in fields:
         name = field.get("field_name")
         if name in required:
-            if name in names or field.get("type") not in ((1, 3) if name == "연락 구분" else (required[name],)):
+            if name in names or field.get("type") not in ((1, 3) if name in ("연락 구분", "Lead Status") else (required[name],)):
                 raise RuntimeError("LEAD_DELTA_FIELD_SCHEMA_CONFLICT")
             names[name] = field.get("field_id")
     if any(not names.get(name) for name in required):

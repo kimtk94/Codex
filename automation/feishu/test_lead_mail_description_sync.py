@@ -12,7 +12,7 @@ class LeadMirrorTests(unittest.TestCase):
             "Lead ID": "00Q-test", "Customer": "홍길동",
             "Institution": "고객이 입력한 기관명 그대로",
             "Email": "person@example.org", "Created Date": "2026-11-01",
-            "Lead Status": "Open", "Description": "문의 원문 보존",
+            "Lead Status": "New", "Description": "문의 원문 보존",
             "Description Class": "PRESENT", "My Mail Status": "SENT_AFTER_LEAD_CONFIRMED",
             "My Sent After Lead": "1", "My Sent Before Lead": "0",
             "Last Sent Ever": "2026-11-19T12:00:00+09:00",
@@ -77,8 +77,11 @@ class LeadMirrorTests(unittest.TestCase):
 
     def test_single_select_contract(self):
         self.assertEqual(set(sync.SINGLE_SELECT_OPTIONS), {
-            "Description 있음", "내 메일 연락 여부", "연락 구분"})
+            "Description 있음", "내 메일 연락 여부", "연락 구분",
+            "Lead Status", "처리 방향"})
         self.assertEqual(sync.field_type("Lead ID"), 1)
+        self.assertEqual(sync.field_type("Lead Status"), 3)
+        self.assertEqual(sync.field_type("처리 방향"), 3)
         self.assertEqual(sync.field_type("Description 있음"), 3)
         self.assertEqual(sync.field_definition("연락 구분")["property"]["options"],
             [{"name": x} for x in sync.SINGLE_SELECT_OPTIONS["연락 구분"]])

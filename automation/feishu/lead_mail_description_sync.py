@@ -29,6 +29,13 @@ FIELDS = [
 ]
 MANUAL_FIELDS = ("검토 완료", "메일 발송 예정", "재연락 필요")
 SINGLE_SELECT_OPTIONS = {
+    "Lead Status": ("New", "Qualified", "Unqualified"),
+    "처리 방향": (
+        "기존 메일 확인 / Follow-up 검토",
+        "생성 이후 메일 발송 검토",
+        "Description 검토 후 첫 메일 검토",
+        "공통 안내 메일 검토",
+    ),
     "Description 있음": ("있음", "없음"),
     "내 메일 연락 여부": ("발송 확인", "미확인"),
     "연락 구분": ("발송 확인 (Lead 생성 후)", "Lead 생성 전만 발송", "메일 발송 증거 없음"),
