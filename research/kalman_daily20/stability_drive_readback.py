@@ -117,7 +117,8 @@ def compare_local_remote(local_blob, remote_blob, *, remote_md5=None):
         "drive_file_id": EXPECTED_DRIVE_RESULTS_ID,
         "archive_sha256": checksum(remote_blob),
         "archive_bytes": len(remote_blob),
-        **local,
+        **{k: v for k, v in local.items() if k != "status"},
+        "stability_status": local["status"],
     }
 
 
