@@ -24,7 +24,8 @@ jobs:
             "local_ai\bootstrap.ps1",
             "local_ai\connect-workspaces.ps1",
             "local_ai\drive-staging.ps1",
-            "local_ai\set-ollama-context.ps1"
+            "local_ai\set-ollama-context.ps1",
+            "local_ai\verify-ollama-context.ps1"
           )
           foreach ($file in $scripts) {
             $tokens = $null
@@ -47,12 +48,13 @@ jobs:
             "local_ai\Check-Local-Codex.cmd",
             "local_ai\Setup-Git-Drive.cmd",
             "local_ai\Check-Git-Drive.cmd",
-            "local_ai\Set-Ollama-Context-16K.cmd"
+            "local_ai\Set-Ollama-Context-16K.cmd",
+            "local_ai\Verify-Local-Codex-16K.cmd"
           )
           foreach ($file in $required) {
             if (!(Test-Path $file)) { throw "Missing launcher: $file" }
             $cmd = Get-Content $file -Raw
-            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Context-16K.cmd") { "set-ollama-context.ps1" } else { "local-codex.ps1" }
+            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } else { "local-codex.ps1" }
             if ($cmd -notmatch [regex]::Escape($expected)) { throw "Launcher not wired: $file -> $expected" }
             if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
           }
@@ -78,4 +80,16 @@ jobs:
             throw "Codex context setting is not aligned to Ollama 16K"
           }
           Write-Host "Ollama 16K Windows context configuration static checks PASS."
+          $verification = Get-Content "local_ai\verify-ollama-context.ps1" -Raw
+          foreach ($check in @("/api/generate", "/api/ps", "context_length", "16384", "localhost", "num_predict")) {
+            if ($check -eq "localhost") {
+              if (!$verification.Contains("127.0.0.1")) { throw "Verifier must only call localhost" }
+            } elseif (!$verification.Contains($check)) {
+              throw "Ollama verification is missing: $check"
+            }
+          }
+          if ($verification -match '(?s)options\s*=\s*@\{[^}]*num_ctx') {
+            throw "Real context smoke must not override num_ctx, so it can check server allocation"
+          }
+          Write-Host "Ollama context smoke static checks PASS."
 
