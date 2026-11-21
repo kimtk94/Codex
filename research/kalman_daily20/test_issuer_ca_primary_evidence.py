@@ -76,8 +76,9 @@ def fake_html(url):
     if "blackrock.com/jp" in url:
         return b"%PDF-1.7\nsynthetic fixture"
     if "sec.gov" in url and "dp132922_" in url:
-        return (b"<p>2018 dividend quarter table: 07/02/18 09/28/18"
-                b" $186.74 $170.80 $0.37837</p>")
+        return (b"<p>2018 First Quarter $174.08 $153.45 $0.00000"
+                b" Second Quarter $177.60 $155.51 $0.27655"
+                b" Third Quarter $186.74 $170.80 $0.37837</p>")
     if "sec.gov" in url and "dp137172_" in url:
         return (b"<p>On September 18, 2020, Invesco QQQ Trust declared "
                 b"a cash dividend of $0.38824 per share payable on October 30.</p>")
@@ -257,6 +258,20 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
                 if cl["symbol"]=="QQQ" and cl["ex_date"]=="2020-09-21":
                     cl["source_id"]="MSFT_2026_DIVIDEND"
             ie.validate_manifest(invalid)
+
+    def test_qqq_2018_quarterly_issuer_quote_fails_if_no_year_context(self):
+        claim=next(c for c in MANIFEST["claims"] if
+                   c["symbol"]=="QQQ" and c["ex_date"]=="2018-06-18")
+        self.assertIn("2018 First Quarter",claim["anchor_a"])
+        html=fake_html("https://www.sec.gov/Archives/edgar/data/831001/"
+                       "000095010320014313/dp132922_424b2-us2006361.htm")
+        observed,digest=ie.grade_anchors(html,claim)
+        self.assertTrue(observed)
+        self.assertEqual(len(digest),64)
+        absent=b"<p>2017 Third Quarter $146.42 $136.19 $0.37837</p>"
+        checked,_=ie.grade_anchors(absent,claim)
+        self.assertFalse(checked)
+        self.assertFalse(claim["exdate_explicitly_issuer_published"])
 
     def test_sponsor_split_requires_official_pdf_and_original_amount_stays_null(self):
         cm={(c["symbol"],c["ex_date"]):c for c in MANIFEST["claims"]}
