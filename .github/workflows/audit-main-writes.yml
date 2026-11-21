@@ -14,6 +14,11 @@ on:
       - "automation/ops/audit_main_writes.py"
       - "automation/ops/test_audit_main_writes.py"
       - ".github/workflows/audit-main-writes.yml"
+      # Validate proposed Kalman workflow changes before they reach main, too.
+      - ".github/workflows/apply-kalman-runtime-hotfix.yml"
+      - ".github/workflows/build-kalman-hub-v7420.yml"
+      - ".github/workflows/build-kalman-hub-v7421.yml"
+      - ".github/workflows/build-kalman-hub-v7422.yml"
   workflow_dispatch:
   schedule:
     # Daily 10:15 Asia/Seoul after this workflow reaches main.
