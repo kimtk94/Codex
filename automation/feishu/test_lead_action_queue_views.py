@@ -66,7 +66,7 @@ class QueueTests(unittest.TestCase):
         self.assertFalse(q.conditions_equal(
             dict(actual,conjunction="or"),expected))
         altered=[dict(c) for c in actual["conditions"]]
-        altered[0]["operator"]="is"
+        altered[0]["operator"]="isNot" if altered[0]["operator"]=="is" else "is"
         self.assertFalse(q.conditions_equal(
             {"conjunction":"and","conditions":altered},expected))
 
