@@ -41,7 +41,7 @@ def seed(root):
         "version": "kalman-daily20-v1-20261121"
     }))
     (r / "universe-derived.json").write_text(json.dumps({
-        "assets": [{"provider_symbol": x} for x in symbols]
+        "assets": [{"provider_symbol": x, "group": ("DAILY20_CORE" if x in symbols[:20] else "DAILY20_CONTEXT")} for x in symbols]
     }))
     (r / "research/portfolio_summary.json").write_text(json.dumps({
         "research_only": True, "live_execution": False,
