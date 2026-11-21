@@ -169,6 +169,27 @@ jobs:
             --scores output/daily20/research/latest_research_scores.csv \
             --qc output/daily20/qc.json \
             --out output/daily20/research/forward_shadow
+      - name: PR-only real-data bear scorer smoke (does not count as forward OOS)
+        if: github.event_name == 'pull_request'
+        run: |
+          python research/kalman_daily20/bear_forward.py \
+            --config research/kalman_daily20/universe.json \
+            --market output/daily20/market \
+            --features output/daily20/features \
+            --qc output/daily20/qc.json \
+            --out output/daily20/research/bear_forward \
+            --pr-asof-smoke
+      - name: Seal prospective BEAR_LOGISTIC and BEAR_RULE evidence (no retrospective backfill)
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/bear_forward.py \
+            --config research/kalman_daily20/universe.json \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --market output/daily20/market \
+            --features output/daily20/features \
+            --qc output/daily20/qc.json \
+            --baseline-journal output/daily20/research/forward_shadow/journal.jsonl \
+            --out output/daily20/research/bear_forward
       - name: Publish reproducible research evidence
         if: always()
         uses: actions/upload-artifact@v4

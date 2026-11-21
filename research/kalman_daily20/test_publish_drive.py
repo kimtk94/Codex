@@ -3,6 +3,7 @@ import json
 import os
 import hashlib
 from forward_shadow import chain_append, journal_bytes
+from bear_forward import add_event
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -40,7 +41,7 @@ def seed(root):
         "version": "kalman-daily20-v1-20261121"
     }))
     (r / "universe-derived.json").write_text(json.dumps({
-        "assets": [{"provider_symbol": x} for x in symbols]
+        "assets": [{"provider_symbol": x, "group": ("DAILY20_CORE" if x in symbols[:20] else "DAILY20_CONTEXT")} for x in symbols]
     }))
     (r / "research/portfolio_summary.json").write_text(json.dumps({
         "research_only": True, "live_execution": False,
@@ -101,6 +102,41 @@ def seed(root):
     (future / "outcomes.csv").write_text(
         "signal_date,symbol,exit_date\n"
     )
+    bdir = r / "research/bear_forward"
+    bdir.mkdir(parents=True)
+    bj = []
+    for orig in journal:
+        for family in ("BEAR_LOGISTIC", "BEAR_RULE"):
+            add_event(bj, {
+                "kind": "SIGNAL", "research_only": True,
+                "signal_date": "2026-11-20", "symbol": orig["symbol"],
+                "family": family, "model_version": "daily20-bear-forward-v1",
+                "baseline_signal_hash": orig["hash"],
+                "candidate": True, "eligible": True,
+                "probability": .7 if family == "BEAR_LOGISTIC" else None,
+                "shadow_only": orig["shadow_only"],
+                "feature_sha256": "a" * 64,
+                "recorded_at_utc": "2026-11-21T02:00:00+00:00",
+            })
+    bear_data = journal_bytes(bj)
+    (bdir / "journal.jsonl").write_bytes(bear_data)
+    (bdir / "report.json").write_text(json.dumps({
+        "version": "daily20-bear-forward-v1",
+        "status": "RESEARCH_ONLY", "research_only": True,
+        "live_execution": False, "approved_live": False,
+        "historical_oos_promoted": False,
+        "backdated_signal_reconstruction": False,
+        "benchmark_model_not_modified": True, "no_broker_order": True,
+        "last_completed_session": "2026-11-20",
+        "source_run_id": os.environ.get("GITHUB_RUN_ID", "test-run"),
+        "signal_events": 40, "settled_events": 0, "pending_events": 40,
+        "frozen_sessions": 1, "journal_sha256": hashlib.sha256(bear_data).hexdigest(),
+        "journal_hash_tip": bj[-1]["hash"],
+        "family": {"BEAR_LOGISTIC": {"signals": 20, "candidates": 20},
+                   "BEAR_RULE": {"signals": 20, "candidates": 20}},
+    }))
+    for filename in ("snapshots.csv", "outcomes.csv", "latest_candidates.csv"):
+        (bdir / filename).write_text("col1,col2\nexample,example\n")
     return d, r
 
 
@@ -215,6 +251,37 @@ class DrivePublisherTests(unittest.TestCase):
             x["approved_live"] = True
             p.write_text(json.dumps(x))
             with self.assertRaisesRegex(RuntimeError, "FORWARD_SHADOW_PUBLISH_GOVERNANCE"):
+                inspect_payload(data, results)
+
+
+    def test_bear_forward_is_required_for_drive_publishing(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            (results / "research/bear_forward/journal.jsonl").unlink()
+            with self.assertRaisesRegex(RuntimeError, "BEAR_FORWARD_EVIDENCE_INCOMPLETE"):
+                inspect_payload(data, results)
+
+    def test_bear_forward_rejects_mutated_family_candidate(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            file = results / "research/bear_forward/journal.jsonl"
+            text = file.read_text().replace('"candidate":true', '"candidate":false', 1)
+            file.write_text(text)
+            report_file = results / "research/bear_forward/report.json"
+            report = json.loads(report_file.read_text())
+            report["journal_sha256"] = hashlib.sha256(file.read_bytes()).hexdigest()
+            report_file.write_text(json.dumps(report))
+            with self.assertRaisesRegex(RuntimeError, "BEAR_FORWARD_CHAIN_INVALID"):
+                inspect_payload(data, results)
+
+    def test_bear_forward_never_promotes_live(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            file = results / "research/bear_forward/report.json"
+            data_report = json.loads(file.read_text())
+            data_report["approved_live"] = True
+            file.write_text(json.dumps(data_report))
+            with self.assertRaisesRegex(RuntimeError, "BEAR_FORWARD_GOVERNANCE_INVALID"):
                 inspect_payload(data, results)
 
 
