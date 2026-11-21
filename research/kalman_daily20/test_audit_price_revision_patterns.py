@@ -48,8 +48,26 @@ class PriceRevisionPatternTests(unittest.TestCase):
         a=self.frame();b=a.copy()
         b.loc[b.index[-100]:,"close"]*=1.007
         r=self.pair(a,b)
-        self.assertEqual(r["classify_revision"],"TERMINAL_AND_HISTORICAL_REVISIONS")
+        self.assertEqual(r["classify_revision"],"TERMINAL_AND_MATERIAL_HISTORICAL_REVISIONS")
         self.assertGreater(r["nonterminal_close_material_gt10bps"],0)
+
+    def test_sub_1bp_historical_numeric_drift_without_terminal_revision(self):
+        a=self.frame();b=a.copy()
+        b.loc[b.index[-100:-1],"close"]*=1.0000005
+        r=self.pair(a,b)
+        self.assertEqual(r["classify_revision"],"SUB_1BP_HISTORY_DRIFT_ONLY")
+        self.assertEqual(r["nonterminal_close_material_gt1bp"],0)
+        self.assertGreater(r["nonterminal_close_changed"],0)
+        self.assertFalse(r["terminal_changed"])
+
+    def test_terminal_with_sub_1bp_history_drift(self):
+        a=self.frame();b=a.copy()
+        b.loc[b.index[-100:-1],"close"]*=1.0000005
+        b.loc[b.index[-1],"close"]*=.98
+        r=self.pair(a,b)
+        self.assertEqual(r["classify_revision"],"TERMINAL_WITH_SUB_1BP_HISTORY_DRIFT")
+        self.assertEqual(r["nonterminal_close_material_gt1bp"],0)
+        self.assertTrue(r["terminal_changed"])
 
     def test_volume_only_change(self):
         a=self.frame();b=a.copy()
