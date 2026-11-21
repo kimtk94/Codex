@@ -1,0 +1,149 @@
+name: Full-Length 16S Pipeline CI
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "full_length_16s/**"
+      - ".github/workflows/full-length-16s-ci.yml"
+  pull_request:
+    paths:
+      - "full_length_16s/**"
+      - ".github/workflows/full-length-16s-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  unit-test:
+    name: Sample filters and report smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check -r full_length_16s/requirements.txt pytest
+      - name: Validate code compiles
+        run: python -m compileall -q full_length_16s/src
+      - name: Validate notebook JSON and Python cells
+        run: |
+          python - <<'PY'
+          import json, ast
+          from pathlib import Path
+          notebooks = sorted(Path("full_length_16s/notebooks").glob("*.ipynb"))
+          assert len(notebooks) == 3, f"Only three PC/NC-free Colab notebooks may remain, found {len(notebooks)}"
+          required = {("P92","no_controls"),("P92","no_controls_no_three"),("P18","no_controls")}
+          observed = set()
+          for p in notebooks:
+              nb = json.loads(p.read_text(encoding="utf-8"))
+              assert nb["nbformat"] == 4 and nb["cells"]
+              code_cells = ["".join(cell["source"]) for cell in nb["cells"] if cell["cell_type"] == "code"]
+              for index, code in enumerate(code_cells):
+                  ast.parse(code, filename=f"{p.name}:cell-{index}")
+              if p.name.startswith(("KIST_P92_", "KIST_P18_")):
+                  config = code_cells[0]
+                  pair = next(((project,variant) for project,variant in required
+                               if f'PROJECT = "{project}"' in config and
+                               f'RUN_SCENARIO = "{variant}"' in config), None)
+                  assert pair is not None, f"Unrecognized project/scenario in {p.name}"
+                  expected_count = {'P92':{'no_controls':90,'no_controls_no_three':87}, 'P18':{'no_controls':16}}[pair[0]][pair[1]]
+                  assert f'EXPECTED_SAMPLES = {expected_count}' in config, f'{p.name}: wrong expected count'
+                  observed.add(pair)
+              print(f"PASS: {p.name} ({len(nb['cells'])} cells)")
+          assert observed == required, f"Missing variants: {required - observed}"
+          for p in notebooks:
+              nb = json.loads(p.read_text(encoding="utf-8"))
+              cells = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+              pair = next(((project,variant) for project,variant in required
+                           if f'PROJECT = "{project}"' in cells[0] and
+                           f'RUN_SCENARIO = "{variant}"' in cells[0]), None)
+              assert pair is not None, f"Unknown project/scenario in {p.name}"
+              setup = cells[1]
+              input_cell = cells[5]
+              assert "pageSize=1000,pageToken=token" in setup, f"{p.name}: invalid Drive API pagination"
+              assert "page_size=" not in setup and "page_token=" not in setup
+              assert "FASTQ_SCRIPT" in setup
+              assert "--scenario" in input_cell and "--directory" in input_cell
+              assert "--zip" not in input_cell, f"{p.name}: should read extracted Drive files, not source ZIP"
+              assert "_withprimer.fastq.gz" in cells[4] and "01.RawData" in cells[4], f"{p.name}: wrong raw FASTQ selection"
+              assert "00.CleanData" in cells[4], f"{p.name}: missing processed-read exclusion"
+              assert "yaml_file.write_text(response.text" in cells[6], f"{p.name}: QIIME YAML must download locally"
+              assert '"channels:" not in response.text' in cells[6], f"{p.name}: official QIIME YAML must validate channels"
+              assert '"name:" not in response.text' not in cells[6], f"{p.name}: official QIIME YAML might omit name"
+              assert 'micromamba),"create"' in cells[6], f"{p.name}: QIIME installer not configured"
+              source_id, extracted_id, suffix = ({
+                "P92":("1rPpGDmZHDcjNAm0UmjP1kZl5VdGB9478",
+                       "1tJHfddKf3jlYD-xGJSc7MB_uq9bW8Yyi","F003"),
+                "P18":("1v1FeZMkTKMTmx07sJEZfrY-tzPgVup-0",
+                       "1w8tuBjXfrUkGBNHY7kUp80LxusRlfIEq","F004")
+              })[p.name.split("_")[1]]
+              assert f'DRIVE_EXISTING_ZIP_ID = "{source_id}"' in cells[0]
+              assert f'DRIVE_FASTQ_FOLDER_ID = "{extracted_id}"' in cells[0]
+              assert suffix in cells[4]
+              expected_results_folder = {
+                  ("P92","no_controls"): "1lRWH_xxawuIVtxliDQ0xtnT5n8XL19D0",
+                  ("P92","no_controls_no_three"): "1EDqcq7oluv-KaW5fp_aLj20V5ZsZZ55y",
+                  ("P18","no_controls"): "16zdCZ601apI7SC4e57Hwq8UfrnAaUHK0"
+              }[pair]
+              assert 'SKIP_TAXONOMY = True' in cells[0], f"{p.name}: taxonomy must be deferred"
+              assert f'DRIVE_REPORT_FOLDER_ID = "{expected_results_folder}"' in cells[0]
+              assert "if not SKIP_TAXONOMY:" in cells[6]
+              assert 'CLASSIFIER=""' in cells[6]
+              assert '"rep-seqs.qza"' in cells[8] and '"stats.qza"' in cells[8]
+              assert '"dna-sequences.fasta"' in cells[8]
+              assert "SILVA taxonomic assignment: NOT RUN" in cells[8]
+              print(f"PASS: {pair} denoising and ASV export work without SILVA DB")
+              assert "RUN_NEW_DADA2 = True" in cells[0], f"{p.name}: FASTQ inference must be enabled"
+              if pair == ("P92","no_controls"):
+                  assert "DADA2_MAX_THREADS = 8" in cells[0], "90-sample Colab must request eight-way CPU parallelism"
+                  assert 'env["DADA2_THREADS"]' in cells[6], "90-sample Colab must pass CPU thread override"
+                  assert 'os.sched_getaffinity' in cells[6], "90-sample Colab must use actual available cores"
+              assert "INSTALL_QIIME = True" in cells[0], f"{p.name}: QIIME install missing"
+              assert "FORWARD_PRIMER_5TO3" in cells[0]
+              assert 'FORWARD_PRIMER_5TO3 = "AGRGTTYGATYMTGGCTCAG"' in cells[0], f"{p.name}: incorrect 27F"
+              assert 'REVERSE_PRIMER_5TO3 = "GYTACCTTGTTACGACTT"' in cells[0], f"{p.name}: incorrect 1492R"
+              assert 'REVERSE_PRIMER_5TO3' in cells[6], f"{p.name}: missing reverse primer in DADA2"
+          print("PASS: all three notebooks use FASTQ-only input and corrected Drive API")
+          PY
+      - name: Test exclusion scenarios
+        run: python -m pytest -q full_length_16s/tests
+      - name: Validate 27F/1492R runner and shell syntax
+        run: |
+          bash -n full_length_16s/scripts/run_qiime2.sh
+          python - <<'PY'
+          from pathlib import Path
+          s=Path("full_length_16s/scripts/run_qiime2.sh").read_text()
+          for flag in ("--p-front", "--p-adapter", "--o-base-transition-stats", "--p-n-reads-learn 100000", "--p-n-bases-learn 100000000"):
+              assert flag in s, f"Missing QIIME2 CCS option {flag}"
+          assert 'LEARN_OPT[@]' in s, "DADA2 learning argument not passed"
+          assert 'DADA2_THREADS="${DADA2_THREADS:-2}"' in s
+          assert '--p-n-threads "$DADA2_THREADS"' in s
+          assert 'AGRGTTYGATYMTGGCTCAG' in s
+          assert 'GYTACCTTGTTACGACTT' in s
+          print("PASS: lab primers and QIIME 2 2026.10 required outputs")
+          PY
+
+      - name: Verify Windows local DADA2 PSOCK pipeline
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          code=Path("full_length_16s/windows/run_f003_90_dada2.R").read_text(encoding="utf-8")
+          for needle in (
+              "nrow(manifest)==90L",
+              "parallel::makePSOCKcluster(workers)",
+              "primer.rev=dada2::rc(reverse)",
+              "filterAndTrim(",
+              "multithread=FALSE",
+              "errorEstimationFunction=PacBioErrfun",
+              "dada(dereps,err=err,multithread=threads",
+              "removeBimeraDenovo(seqtab,method=\"consensus\"",
+              "feature-table.tsv",
+              "ASV_sequences.fasta",
+              'manifest[["sample-id"]]',
+          ):
+              assert needle in code, f"Missing Windows DADA2 contract: {needle}"
+          print("PASS: Windows F003 90 local DADA2 script has PC/NC exclusion, PSOCK, checkpoints and ASV output")
+          PY
