@@ -254,6 +254,24 @@ class DrivePublisherTests(unittest.TestCase):
                 inspect_payload(data, results)
 
 
+    def test_unanchored_frozen_score_replay_drift_blocks_publishing(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            report_file = results / "research/forward_shadow/report.json"
+            report = json.loads(report_file.read_text())
+            report["frozen_replay_drift_detected"] = True
+            report["frozen_replay_drift_count"] = 1
+            report["frozen_journal_on_drift"] = "UNMODIFIED"
+            report["replay_drift_never_tradable"] = True
+            report["frozen_replay_differences"] = [{
+                "symbol": "SPY", "frozen_event_hash": "f" * 64,
+                "frozen_probability": .7, "frozen_candidate": True,
+                "classification": "REPLAY_DRIFT_NO_FROZEN_EVENT_MODIFIED",
+            }]
+            report_file.write_text(json.dumps(report))
+            with self.assertRaisesRegex(RuntimeError, "FROZEN_REPLAY_AUDIT_ANCHOR_INVALID"):
+                inspect_payload(data, results)
+
     def test_bear_forward_is_required_for_drive_publishing(self):
         with TemporaryDirectory() as root:
             data, results = seed(root)
