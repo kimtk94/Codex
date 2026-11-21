@@ -83,6 +83,27 @@ def inspect_payload(data_root, results_root):
             or set(portfolio.get("benchmark", {})) != {"SPY", "QQQ"}):
         raise RuntimeError("PORTFOLIO_GOVERNANCE_VALIDATION_FAILED")
 
+    bear_dir = r / "research" / "regime_challenger"
+    files = [
+        "regime_summary.json", "regime_scenarios.csv",
+        "regime_daily_equity.csv", "regime_executions.csv",
+        "regime_annual.csv", "regime_year_coverage.csv",
+        "regime_session_context.csv", "bear_model_coverage.csv",
+        "bear_oos_trades.csv",
+    ]
+    if not all((bear_dir / name).is_file() and (bear_dir / name).stat().st_size > 10
+               for name in files):
+        raise RuntimeError("BEAR_RESEARCH_EVIDENCE_INCOMPLETE")
+    bear = json.loads((bear_dir / "regime_summary.json").read_text())
+    if (bear.get("version") != "daily20-bear-oos-v1"
+            or bear.get("research_only") is not True
+            or bear.get("live_execution") is not False
+            or bear.get("tradable_strategy_approved") is not False
+            or bear.get("scenario_count") != 20
+            or len(bear.get("scenario_results", [])) != 20
+            or len(bear.get("per_year_market_coverage", [])) < 2):
+        raise RuntimeError("BEAR_RESEARCH_GOVERNANCE_FAILED")
+
     # Only accept complete 26+26 Parquet sources; no paths outside the unpacked Actions artifact.
     market_files = sorted((d / "market/raw/yfinance").glob("*.parquet"))
     feature_files = sorted((d / "features/talib").glob("*.parquet"))
@@ -113,6 +134,8 @@ def inspect_payload(data_root, results_root):
         "oos_score_count": summary.get("latest_score_count"),
         "portfolio_scenarios": portfolio["scenario_count"],
         "portfolio_mdd_available": True,
+        "bear_oos_scenarios": bear["scenario_count"],
+        "bear_oos_trade_rows": bear["unique_bear_oos_trades"],
     }
     return manifest
 
