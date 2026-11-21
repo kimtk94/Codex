@@ -12,7 +12,7 @@ from daily20 import load_spec
 from portfolio import market_state
 from regime_challenger import (
     BEAR_VIX_MAX, COSTS, ML_THRESHOLD, SCENARIOS,
-    bear_gate, compute_scenarios, fit_bear_year, regime_days, rule_gate
+    baseline_loss_attribution, bear_gate, compute_scenarios, fit_bear_year, regime_days, rule_gate
 )
 from train import COLUMNS, HOLD
 
@@ -128,6 +128,12 @@ class BearOOSContracts(unittest.TestCase):
             self.assertEqual(base.executed_trades, 1)
             self.assertEqual(combo.executed_trades, 2)
             self.assertFalse(m["approved_live"].any())
+            observed, description = baseline_loss_attribution(e, m)
+            self.assertFalse(description["used_for_strategy_selection"])
+            self.assertFalse(description["causal_attribution"])
+            self.assertTrue({"symbol", "signal_volatility",
+                             "signal_tech_leadership"}.issubset(set(observed["grouping"])))
+            self.assertTrue((observed["trades"] >= 1).all())
 
 
 if __name__ == "__main__":
