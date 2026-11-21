@@ -2,6 +2,8 @@
 """Offline safety regressions for isolated Feishu Lead view management."""
 import sys
 import unittest
+import datetime as dt
+from unittest import mock
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import lead_mail_views_sync as v
@@ -20,6 +22,11 @@ def row(key, desc, contact="메일 발송 증거 없음"):
     }
 
 class ViewTests(unittest.TestCase):
+    def setUp(self):
+        patcher=mock.patch.object(v.age,"today_kst",return_value=dt.date(2026,11,21))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_exact_two_priority_views(self):
         self.assertEqual(len(v.VIEWS),2)
         self.assertEqual([x[1] for x in v.VIEWS],["있음","없음"])
@@ -33,8 +40,8 @@ class ViewTests(unittest.TestCase):
         self.assertEqual(v.expected_ids(source,"있음"),{"a"})
         self.assertEqual(v.expected_ids(source,"없음"),{"b"})
 
-    def test_filter_requires_both_conditions(self):
-        fields={"연락 구분":"fldMail","Description 있음":"fldDesc"}
+    def test_filter_requires_all_three_conditions(self):
+        fields={"연락 구분":"fldMail","Description 있음":"fldDesc",v.age.ELIGIBILITY_FIELD:"fldEligible"}
         needed=v.filter_definition(fields,"있음")
         self.assertTrue(v.filter_matches(needed,needed))
         self.assertEqual(needed["conjunction"],"and")
@@ -54,6 +61,18 @@ class ViewTests(unittest.TestCase):
         observed["1"]=row("1","없음")
         with self.assertRaisesRegex(RuntimeError,"VALUE_MISMATCH"):
             v.check_parity(source,observed)
+
+    def test_old_leads_removed_from_both_desc_views_without_deletion(self):
+        old_present=row("old_yes","있음")
+        old_present["Lead Created"]="2025-11-20"
+        old_missing=row("old_no","없음")
+        old_missing["Lead Created"]="2024-11-21"
+        boundary=row("boundary","없음")
+        boundary["Lead Created"]="2025-11-21"
+        source={"old_yes":old_present,"old_no":old_missing,"boundary":boundary}
+        self.assertEqual(v.expected_ids(source,"있음"),set())
+        self.assertEqual(v.expected_ids(source,"없음"),{"boundary"})
+        self.assertEqual(set(source),{"old_yes","old_no","boundary"})
 
     def test_no_contact_extrapolation(self):
         source={"a":row("a","있음", "Lead 생성 전만 발송")}
