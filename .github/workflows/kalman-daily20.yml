@@ -186,7 +186,7 @@ jobs:
               --out-reference output/daily20/research/source_finality/quote_reference.json
             python research/kalman_daily20/resolve_primary_listing.py \
               --independent output/daily20/research/source_finality/independent_feed.json \
-              --reference output/daily20/research/source_finality/selected_reference.json \
+              --reference output/daily20/research/source_finality/quote_reference.json \
               --out-report output/daily20/research/source_finality/venue_identity.json \
               --out-reference output/daily20/research/source_finality/selected_reference.json
           else
