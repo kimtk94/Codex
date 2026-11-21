@@ -143,19 +143,26 @@ class FutureShadowTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "NO_SEED_BEFORE_NEXT_OPEN"):
                     run(spec, make_prior_zip(), Path(root) / "market", scores, qc,
                         Path(root) / "late", now=pd.Timestamp("2026-11-23T16:30:00Z"))
-            with self.assertRaisesRegex(RuntimeError, "FROZEN_FORWARD_SIGNAL_REVISED"):
-                old = json.loads((Path(root) / "new/report.json").read_text())
-                journal = [json.loads(x) for x in
-                           (Path(root) / "new/journal.jsonl").read_text().splitlines()]
-                prior = make_prior_zip(journal=journal)
-                new_scores, qc = write_score_and_qc(
-                    Path(root), spec, "2026-11-20", tamper_symbol="SPY"
-                )
-                with patch("daily20.last_completed_nyse",
-                           return_value=pd.Timestamp("2026-11-20").date()):
-                    run(spec, prior, Path(root) / "market", new_scores, qc,
-                        Path(root) / "modified",
-                        now=pd.Timestamp("2026-11-21T02:30:00Z"))
+            journal = [json.loads(x) for x in
+                       (Path(root) / "new/journal.jsonl").read_text().splitlines()]
+            prior = make_prior_zip(journal=journal)
+            new_scores, qc = write_score_and_qc(
+                Path(root), spec, "2026-11-20", tamper_symbol="SPY"
+            )
+            with patch("daily20.last_completed_nyse",
+                       return_value=pd.Timestamp("2026-11-20").date()):
+                replay = run(spec, prior, Path(root) / "market", new_scores, qc,
+                             Path(root) / "modified",
+                             now=pd.Timestamp("2026-11-21T02:30:00Z"))
+            self.assertEqual(replay["new_signal_events"], 0)
+            self.assertTrue(replay["frozen_replay_drift_detected"])
+            self.assertEqual(replay["frozen_replay_drift_count"], 1)
+            self.assertEqual(replay["frozen_replay_differences"][0]["symbol"], "SPY")
+            self.assertEqual(replay["frozen_journal_on_drift"], "UNMODIFIED")
+            self.assertEqual(
+                (Path(root) / "new/journal.jsonl").read_bytes(),
+                (Path(root) / "modified/journal.jsonl").read_bytes()
+            )
 
     def test_four_sessions_later_all_20_observations_mature(self):
         spec = load_spec()
