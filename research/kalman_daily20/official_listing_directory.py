@@ -39,7 +39,7 @@ JOURNAL_MEMBER = "research/official_directory/snapshot_journal.jsonl"
 NY = ZoneInfo("America/New_York")
 MAX_BYTES = 4_000_000
 MAX_AGE_DAYS = 7
-FOOTER = re.compile(r"^File Creation Time:\\s*(\\d{8}\\d{2}:\\d{2})\\s*$")
+FOOTER = re.compile(r"^File Creation Time:\s*(\d{10}:\d{2})\s*$")
 
 
 def canonical_bytes(obj):
