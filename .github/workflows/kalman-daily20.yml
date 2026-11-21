@@ -444,6 +444,32 @@ jobs:
               assert r["source_archive"] and r["source_sha256"]
           print("DAILY20_QQQ2018_ISSUER_RULE_RESEARCH_HOLD",r["status"])
           PY
+      - name: Capture QLD official 2023 distribution API (cash and factor HOLD)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_qld2023_distribution_api.py \
+              --offline --out-dir output/daily20/research/issuer_qld2023_api
+          else
+            python research/kalman_daily20/issuer_qld2023_distribution_api.py \
+              --out-dir output/daily20/research/issuer_qld2023_api
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_qld2023_api/report.json").read_text())
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"] and r["source_finality_verified"] == 0
+          assert r["issuer_payment_finality_certified"] is False
+          assert r["independent_adjustment_factor_certified"] is False
+          assert r["independent_close_certified"] is False
+          assert r["historical_nonpayment_proven"] is False
+          assert r["queried_ex_date"] == "2023-09-20"
+          if r["source_sha256"]:
+              assert r["source_archive"] and r["api_2023_row_count"] is not None
+              assert r["status"] in ("ISSUER_API_2023_TARGET_ROW_PRESENT_CASH_UNCERTIFIED",
+                                      "ISSUER_API_2023_TARGET_ROW_ABSENT_HISTORY_HOLD")
+          print("DAILY20_QLD2023_API_RESEARCH_HOLD",r["status"],"0/26")
+          PY
       - name: Validate dated primary-listing evidence (historic PLTR boundary; no price certification)
         run: |
           python research/kalman_daily20/listing_asof.py \
