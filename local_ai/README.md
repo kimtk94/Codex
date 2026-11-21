@@ -1,5 +1,50 @@
 # Windows 16 GB Local AI (Ollama)
 
+## GitHub Actions-only next phase (Drive Desktop not required)
+
+Because the Windows laptop has no approved Google Drive for desktop installation
+and the local 3B model repeatedly produced **fake tool-call text**, we use
+GitHub-hosted Actions for deterministic code checks. No self-hosted runner,
+Google API credentials or local Ollama inference is needed for this stage.
+
+New workflow: \`.github/workflows/local-ai-daily-evidence.yml\`
+- PR changes to \`local_ai/**\` trigger safe, hosted tests.
+- \`workflow_dispatch\` is defined for on-demand checks.
+- A daily schedule (00:40 UTC / 09:40 Asia/Seoul) is defined, but **GitHub
+  schedules and manual dispatch from the workflow require the workflow to
+  exist on the repository's default branch**. It is NOT active while PR #903
+  remains Draft.
+- The workflow runs \`python -m local_ai.ci.health_report\` in a GitHub-hosted
+  Ubuntu environment, using only the repository's synthetic tests and Python
+  parser. It does not download model weights, interact with Google Drive,
+  send external messages, edit Salesforce or execute a local coding agent.
+- It uploads a **sanitized JSON audit artifact** with source SHA, timestamp,
+  test count and test PASS/FAIL, retained 7 days. Customer source files,
+  secrets, token values, email bodies, local drive contents and raw test
+  output are NOT included. The artifact explicitly records
+  \`windows_google_drive_desktop_sync=PENDING\` and
+  \`local_3b_codex_tool_use=HOLD\`.
+- If offline unit tests or Python syntax fail, the workflow fails while
+  still uploading the evidence artifact, making the failure inspectable.
+- The existing Windows launcher workflow continues validating PowerShell,
+  Git file reading, Drive setup diagnostics and launcher safety.
+
+**Client configuration fix:** \`local_ai/ollama_client.py\` now uses the
+measured \`qwen25coder3b-16k:latest\` model and Ollama \`num_ctx=16384\`,
+rather than the obsolete Qwen3 4B / 4096-token defaults. It bounds incoming
+text to 6000 characters and rejects truncated or structurally invalid
+response JSON (including fake tool-call shaped results). This may reject
+previously accepted oversized inputs; split into small, approved sections
+instead. A model response still needs human review.
+
+**Human review gate:** PR #903 stays Draft. Do not merge solely on CI SUCCESS:
+these tests do NOT verify GitHub Actions auto-development or real Ollama
+tool-calling, nor prove cloud Drive sync/freshness. After explicit approval
+and a separate review of unrelated workflow effects, the workflow can be
+merged into \`main\` for daily checks. Autonomous code edits/commits remain
+disabled.
+
+
 ## Google Drive Desktop install 1603 + non-administrator account (2026-11-21)
 
 Actual Windows diagnostics: \`Current PowerShell elevated: False\`,
