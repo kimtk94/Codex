@@ -31,7 +31,7 @@ REQUIRED = {
     "검토 완료": 7,
     "연락 구분": 1,
 }
-TRUE = "true"
+TRUE = "1"  # Bitable checkbox view filters use the numeric checked token
 
 def condition(field_id, op, val):
     return {"field_id": field_id, "operator": op,
