@@ -20,6 +20,19 @@ try {
     if (-not $exe -and -not $running) {
         Write-Warning "Google Drive desktop installation not detected."
         if ($InstallIfMissing) {
+            # Google's official enterprise documentation requires computer administrator
+            # privileges for Drive for desktop installation. Do not endlessly retry
+            # winget after error 1603 on a non-elevated session.
+            $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+            $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+            $elevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+            if (-not $elevated) {
+                Write-Warning "Google Drive installer 1603 previously seen; this PowerShell is not elevated."
+                Write-Host "Installation was NOT attempted. Ask an authorized administrator/IT to install Drive for desktop."
+                Write-Host "GitHub and Ollama can continue working; Drive Desktop sync remains PENDING."
+                Write-Host "Existing cloud folder: https://drive.google.com/drive/folders/1uaLzCm1GpjgbmBoI6wQ1dDMcLeb6JD-b"
+                exit 2
+            }
             if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
                 Write-Warning "winget missing. Get installer from https://support.google.com/drive/answer/10838124?hl=ko"
                 exit 2
