@@ -53,7 +53,7 @@ class LegacyBuildSafetyTests(unittest.TestCase):
                 path = root / ".github" / "workflows" / f"build-kalman-hub-v{version}.yml"
                 text = path.read_text(encoding="utf-8")
                 self.assertNotIn("git push origin HEAD:main", text)
-                self.assertIn("permissions:\\n  contents: read".replace("\\\\n", "\\n"), text)
+                self.assertIn("permissions:" + chr(10) + "  contents: read", text)
                 self.assertIn("inputs.propose_pr == true", text)
                 self.assertIn("github.actor == 'kimtk94'", text)
                 self.assertIn("LEGACY_BUILD_APPROVAL", text)
