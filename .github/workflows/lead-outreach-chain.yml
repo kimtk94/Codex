@@ -1,5 +1,6 @@
 name: Lead Outreach Source-to-Feishu Chain
 # Ordered, independently verifiable pipeline; no customer mail sending or SFDC writes.
+# Production deployment runs only when this exact verified release commit is used.
 # QQ personal sent evidence (Sheets) -> Feishu mirror -> age-aware priority
 # -> two eligible-only outreach views -> Feishu delta readback and redacted artifact.
 on:
