@@ -105,6 +105,7 @@ class StabilityGateTests(unittest.TestCase):
             }))
             with (patch.object(stability_gate, "_historical_snapshots", return_value={}),
                   patch.object(stability_gate, "read_score_rows", return_value={}),
+                  patch.object(stability_gate, "_read_journal", return_value=[]),
                   patch.object(stability_gate, "check_events",
                                return_value=(bulls, set())),
                   patch.object(stability_gate, "validate_bear_events",
@@ -148,6 +149,7 @@ class StabilityGateTests(unittest.TestCase):
             with (patch.object(stability_gate, "_historical_snapshots",
                                return_value={"2026-11-20": recorded}),
                   patch.object(stability_gate, "read_score_rows", return_value={}),
+                  patch.object(stability_gate, "_read_journal", return_value=[]),
                   patch.object(stability_gate, "check_events",
                                return_value=(bulls, set())),
                   patch.object(stability_gate, "validate_bear_events",
