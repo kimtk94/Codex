@@ -12,7 +12,7 @@ class LeadMirrorTests(unittest.TestCase):
             "Lead ID": "00Q-test", "Customer": "홍길동",
             "Institution": "고객이 입력한 기관명 그대로",
             "Email": "person@example.org", "Created Date": "2026-11-01",
-            "Lead Status": "Open", "Description": "문의 원문 보존",
+            "Lead Status": "New", "Description": "문의 원문 보존",
             "Description Class": "PRESENT", "My Mail Status": "SENT_AFTER_LEAD_CONFIRMED",
             "My Sent After Lead": "1", "My Sent Before Lead": "0",
             "Last Sent Ever": "2026-11-19T12:00:00+09:00",
