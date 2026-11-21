@@ -77,7 +77,7 @@ def parse_page(blob, queried, page_number):
     if token is not None and (not isinstance(token, str) or not token):
         raise ValueError("CA_PAGINATION_TOKEN_INVALID")
     digest = sha256(blob).hexdigest()
-    out, malformed, unexpected_groups = [], 0, []
+    out, malformed, unexpected_groups, unmapped_identity = [], 0, [], []
     for group, items in data["corporate_actions"].items():
         if group not in KNOWN_GROUPS:
             unexpected_groups.append(group)
@@ -90,18 +90,31 @@ def parse_page(blob, queried, page_number):
             symbol = item.get("symbol")
             if not isinstance(symbol, str) or symbol not in queried:
                 malformed += 1
+                # Preserve evidence of possible historical symbol aliases.
+                # Never map a returned symbol to a queried ticker by guess.
+                unmapped_identity.append({
+                    "group": group,
+                    "returned_symbol": symbol if isinstance(symbol, str) and len(symbol) <= 24 else None,
+                    "event_id": item.get("id") if isinstance(item.get("id"), str) else None,
+                    "process_date": item.get("process_date") if isinstance(item.get("process_date"), str) else None,
+                    "ex_date": item.get("ex_date") if isinstance(item.get("ex_date"), str) else None,
+                })
                 continue
             # Incomplete events are deliberately retained, but excluded from
             # matched ex-date evaluation until the missing fields are known.
             typed = {"type": group, "source_page_sha256": digest,
                      "page_number": page_number}
+            bad_fields = []
             for key in FIELDS:
                 value = item.get(key)
                 if value is None or isinstance(value, (str, int, float, bool)):
                     typed[key] = value
                 else:
                     typed[key] = None
+                    bad_fields.append(key)
                     malformed += 1
+            if bad_fields:
+                typed["unexpected_non_scalar_fields"] = bad_fields
             if not _iso(typed["process_date"]):
                 malformed += 1
                 typed["invalid_process_date"] = True
@@ -109,7 +122,7 @@ def parse_page(blob, queried, page_number):
                 malformed += 1
                 typed["invalid_ex_date"] = True
             out.append(typed)
-    return out, token, digest, malformed, sorted(unexpected_groups)
+    return out, token, digest, malformed, sorted(unexpected_groups), unmapped_identity
 
 
 def collect(symbols, session, *, fetcher=http_bytes, offline=False, stamp=None):
@@ -150,6 +163,7 @@ def collect(symbols, session, *, fetcher=http_bytes, offline=False, stamp=None):
     visited = set()
     malformed = 0
     unsupported = set()
+    unmapped_identity = []
     seen_ids = set()
     try:
         for i in range(MAX_PAGES):
@@ -158,12 +172,13 @@ def collect(symbols, session, *, fetcher=http_bytes, offline=False, stamp=None):
             url = ENDPOINT + "?" + urlencode(query)
             # Never write the URL or credential-bearing headers to logs/evidence.
             blob = fetcher(url, headers, limit=MAX_RESPONSE_BYTES)
-            page, next_token, digest, invalid, unknown = parse_page(
+            page, next_token, digest, invalid, unknown, unmapped = parse_page(
                 blob, set(symbols), i + 1)
             report["page_sha256"].append(digest)
             report["page_count"] += 1
             malformed += invalid
             unsupported.update(unknown)
+            unmapped_identity.extend(unmapped)
             for item in page:
                 event_id = item.get("id")
                 if not isinstance(event_id, str) or not event_id:
@@ -189,6 +204,10 @@ def collect(symbols, session, *, fetcher=http_bytes, offline=False, stamp=None):
         report["error_class"] = _error(exc)
         return report
     report["malformed_or_ambiguous_count"] = malformed
+    report["unmapped_historical_identity_count"] = len(unmapped_identity)
+    report["unmapped_historical_identity_examples"] = unmapped_identity[:32]
+    report["non_scalar_field_count"] = sum(
+        bool(x.get("unexpected_non_scalar_fields")) for x in report["events"])
     report["unknown_action_groups"] = sorted(unsupported)
     report["event_count"] = len(report["events"])
     report["per_symbol_events"] = {
