@@ -237,8 +237,7 @@ def compute_scenarios(spec, market, baseline_csv, bear_trades, out,
             selected_regimes, benchmark, sessions, state)
 
 
-def decay_table(portfolio_trades, baseline_trades, state, sessions,
-                bear_coverage):
+def decay_table(baseline_trades, state, sessions, bear_coverage):
     """Observation-level coverage and completed trade response by prior regime.
 
     No counterfactual trade imputation for signals disallowed under prior gate.
@@ -280,7 +279,6 @@ def run(spec, market, features, base_trades, portfolio_summary, out):
         raise RuntimeError("DAILY_EQUITY_LENGTH_MISMATCH")
 
     # Reproduce the existing unchanged bull baseline scenario exactly.
-    previous = pd.read_json(portfolio_summary) if False else None
     import json
     previous = json.loads(Path(portfolio_summary).read_text())
     for cohort in COHORTS:
@@ -295,8 +293,7 @@ def run(spec, market, features, base_trades, portfolio_summary, out):
                 and int(case["executed_trades"]) == int(expected["executed_trades"])):
             raise RuntimeError("BULL_PORTFOLIO_REPRODUCTION_FAILED")
 
-    coverage_days, sessions_by_day = decay_table(fills, baseline, state,
-                                                   sessions, coverage)
+    coverage_days, sessions_by_day = decay_table(baseline, state, sessions, coverage)
     bear_trades.to_csv(output / "bear_oos_trades.csv", index=False)
     coverage.to_csv(output / "bear_model_coverage.csv", index=False)
     scenarios.drop(columns=["calendar_year_returns", "rejected_candidates"]).to_csv(
