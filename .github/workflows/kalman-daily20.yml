@@ -130,10 +130,10 @@ jobs:
           python research/kalman_daily20/daily20.py audit --manifest output/daily20/universe-derived.json --market output/daily20/market --features output/daily20/features --out output/daily20/qc.json
       - name: Fetch official Cboe VIX and optional Alpaca SIP closing-auction evidence (advisory)
         env:
-          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
-          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
-          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
-          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          ALPACA_API_KEY_ID: ${{ github.event_name != 'pull_request' && secrets.ALPACA_API_KEY_ID || '' }}
+          ALPACA_API_SECRET_KEY: ${{ github.event_name != 'pull_request' && secrets.ALPACA_API_SECRET_KEY || '' }}
+          APCA_API_KEY_ID: ${{ github.event_name != 'pull_request' && secrets.APCA_API_KEY_ID || '' }}
+          APCA_API_SECRET_KEY: ${{ github.event_name != 'pull_request' && secrets.APCA_API_SECRET_KEY || '' }}
         run: |
           python research/kalman_daily20/collect_independent_close.py \
             --qc output/daily20/qc.json \
