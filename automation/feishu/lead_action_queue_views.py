@@ -154,11 +154,23 @@ def main(apply=False):
     }
     if sum(contactable_no_evidence.values())>eligibility_stats["counts"]["eligible"]:
         raise RuntimeError("LEAD_ELIGIBLE_NO_EVIDENCE_TOTAL_INVALID")
+    eligible_mail_status={
+        "after":sum(age.eligibility(row,today)=="eligible"
+                    and lead.norm(row.get("연락 구분"))=="발송 확인 (Lead 생성 후)"
+                    for row in old_fields.values()),
+        "prior_only":sum(age.eligibility(row,today)=="eligible"
+                    and lead.norm(row.get("연락 구분"))=="Lead 생성 전만 발송"
+                    for row in old_fields.values()),
+        "no_evidence":sum(contactable_no_evidence.values()),
+    }
+    if sum(eligible_mail_status.values())!=eligibility_stats["counts"]["eligible"]:
+        raise RuntimeError("LEAD_ELIGIBLE_MAIL_STATUS_PARTITION_INVALID")
     print("LEAD_QUEUE_PLAN="+json.dumps({
         "total":len(old),"changes":len(updates),
         "queue_field_exists":bool(matched),"eligibility_field_exists":bool(eligibility_matched),
         "eligibility":eligibility_stats,
-        "eligible_no_evidence":contactable_no_evidence,"groups":stats,
+        "eligible_no_evidence":contactable_no_evidence,
+        "eligible_mail_status":eligible_mail_status,"groups":stats,
         "mode":"APPLY" if apply else "READ_ONLY"
     },ensure_ascii=False),flush=True)
 
