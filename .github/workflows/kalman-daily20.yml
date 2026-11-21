@@ -348,6 +348,9 @@ jobs:
           PY
       - name: Archive issuer and ETF sponsor evidence for CA exceptions (never certify prices)
         run: |
+          # Reader is isolated from market data and trading dependencies.
+          # PDF text extraction failure remains HOLD, never issuer certification.
+          python -m pip install --disable-pip-version-check 'pypdf>=5,<7'
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             python research/kalman_daily20/issuer_ca_primary_evidence.py \
               --review output/daily20/research/corporate_action_forensics/review_queue.csv \
@@ -375,7 +378,15 @@ jobs:
           assert report["issuer_identities_certified"] == 0
           assert report["remaining_review_case_count"] == len(cases)
           assert len(cases) == report["unresolved_cases_analyzed"]
-          assert report["curated_official_leads"] == 10
+          assert report["curated_official_leads"] == 13
+          assert 0 <= report["issuer_fund_historical_document_leads"] <= 1
+          assert 0 <= report["sec_filed_third_party_quote_leads"] <= 2
+          if "${{ github.event_name }}" != "pull_request":
+              # Only protected main has actual Alpaca comparisons: 15 rows.
+              assert report["unresolved_cases_analyzed"] == 15
+              assert report["issuer_fund_historical_document_leads"] == 1
+              assert report["sec_filed_third_party_quote_leads"] == 2
+          assert report["sec_hosted_third_party_quote_not_issuer_certified"] is True
           assert all(r["independent_adjustment_factor_certified"] == "False" for r in cases)
           print("DAILY20_CA_PRIMARY_HOLD",report["unresolved_cases_analyzed"],
                 "pending",report["official_leads_applicable"],"issuer leads",
