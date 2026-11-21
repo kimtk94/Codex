@@ -106,8 +106,19 @@ def status_of(parsed, phase):
         }.get(parsed["failed_code"], "BLOCK")
     if phase == "apply" and parsed["readback"]:
         rb = parsed["readback"]
+        plan = parsed.get("plan") or {}
+        counts = rb.get("counts_after") or {}
+        valid_counts = (all(type(counts.get(k)) is int and counts[k] >= 0
+                            for k in ALLOWED_COUNTS)
+                        and sum(counts.values()) == rb.get("records"))
         if (rb["manual_selections_preserved"] is True
-                and rb["other_tables_touched"] is False):
+                and rb["other_tables_touched"] is False
+                and parsed["prewrite_checked"] is True
+                and parsed["applied_batches"] >= 1
+                and type(rb.get("changed")) is int and rb["changed"] > 0
+                and rb["changed"] <= plan.get("pending_updates", -1)
+                and rb.get("records") == plan.get("records")
+                and valid_counts):
             return "PASS"
         return "BLOCK"
     if phase == "apply" and parsed["no_new_data"]:
@@ -128,7 +139,7 @@ def evidence(preview_log, apply_log=None, env=None, now=None):
     chosen = apply if apply is not None else preview
     status = status_of(chosen, phase)
     # Failure during preview must not be suppressed by an apparently successful apply.
-    if preview["failed_code"] and status in ("PASS", "NO_NEW_DATA"):
+    if (not preview["read_only_pass"] or preview["failed_code"]) and status in ("PASS", "NO_NEW_DATA"):
         status = "BLOCK"
     return {
         "version": 1,
@@ -205,6 +216,8 @@ def main():
             stream.write(render_summary(e))
     print("LEAD_DELTA_EVIDENCE_RESULT=" + e["result"], flush=True)
     print("LEAD_DELTA_EVIDENCE_FILE=" + str(target), flush=True)
+    if e["result"] == "PASS" and (e.get("readback") or {}).get("changed", 0) > 0:
+        print("::notice title=Feishu Lead delta verified::A real Lead priority change was applied and read back; see the redacted evidence artifact.", flush=True)
 
 if __name__ == "__main__":
     main()
