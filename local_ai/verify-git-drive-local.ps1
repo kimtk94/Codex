@@ -52,6 +52,9 @@ try {
     }
     if (-not $DriveWorkspace) {
         foreach ($volume in @("G:","H:","I:","D:","E:","F:")) {
+            # A fresh Windows runner or laptop may not have this drive letter.
+            # Skip unmounted volumes rather than throwing under ErrorActionPreference=Stop.
+            if (-not (Get-PSDrive -Name $volume.TrimEnd(":") -PSProvider FileSystem -ErrorAction SilentlyContinue)) { continue }
             # Keep source ASCII for Windows PowerShell 5.1, which reads UTF-8 without BOM as ANSI.
             $koreanMyDrive = -join @([char]0xB0B4, [char]0x20, [char]0xB4DC, [char]0xB77C, [char]0xC774, [char]0xBE0C)
             foreach ($folder in @("My Drive", $koreanMyDrive)) {
