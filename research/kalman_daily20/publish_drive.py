@@ -61,6 +61,28 @@ def inspect_payload(data_root, results_root):
     if len(universe.get("assets", [])) != 26:
         raise RuntimeError("NOT_A_26_ASSET_UNIVERSE")
 
+    # A successful Daily20 run must include a complete cash-ledger portfolio
+    # audit. Never publish only per-trade averages as a "validated" result.
+    portfolio_path = r / "research" / "portfolio_summary.json"
+    required_portfolio_files = [
+        portfolio_path,
+        r / "research" / "portfolio_daily_equity.csv",
+        r / "research" / "portfolio_executions.csv",
+        r / "research" / "portfolio_annual.csv",
+        r / "research" / "portfolio_scenarios.csv",
+    ]
+    if not all(p.is_file() and p.stat().st_size > 10 for p in required_portfolio_files):
+        raise RuntimeError("PORTFOLIO_EVIDENCE_INCOMPLETE")
+    portfolio = json.loads(portfolio_path.read_text())
+    if (portfolio.get("research_only") is not True
+            or portfolio.get("live_execution") is not False
+            or portfolio.get("portfolio_mdd_available") is not True
+            or portfolio.get("tradable_strategy_approved") is not False
+            or portfolio.get("scenario_count") != 16
+            or len(portfolio.get("primary_scenarios", [])) != 4
+            or set(portfolio.get("benchmark", {})) != {"SPY", "QQQ"}):
+        raise RuntimeError("PORTFOLIO_GOVERNANCE_VALIDATION_FAILED")
+
     # Only accept complete 26+26 Parquet sources; no paths outside the unpacked Actions artifact.
     market_files = sorted((d / "market/raw/yfinance").glob("*.parquet"))
     feature_files = sorted((d / "features/talib").glob("*.parquet"))
@@ -89,6 +111,8 @@ def inspect_payload(data_root, results_root):
         "feature_symbols": len(feature_files),
         "oos_trade_rows": summary.get("total_oos_trades"),
         "oos_score_count": summary.get("latest_score_count"),
+        "portfolio_scenarios": portfolio["scenario_count"],
+        "portfolio_mdd_available": True,
     }
     return manifest
 
