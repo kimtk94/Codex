@@ -218,7 +218,7 @@ jobs:
           }
           Write-Host "Windows Ollama CLI PATH repair static checks PASS."
           $driveCheck = Get-Content "local_ai\verify-git-drive-local.ps1" -Raw
-          foreach ($token in @("GoogleDriveFS", "LocalAI\workspace.json", "inbox", "results", "gh.exe auth status", "git.exe -C", "127.0.0.1:11434")) {
+          foreach ($token in @("GoogleDriveFS", "LocalAI\workspace.json", "inbox", "results", "gh auth status", "git.exe -C", "127.0.0.1:11434")) {
             if (!$driveCheck.Contains($token)) { throw "Local Drive check missing: $token" }
           }
           Write-Host "Local GitHub + Drive health check syntax/static tests PASS."
