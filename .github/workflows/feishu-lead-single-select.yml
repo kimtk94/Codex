@@ -51,5 +51,5 @@ jobs:
       - name: Audit current Lead schema and option distributions
         run: python automation/feishu/lead_single_select_migration.py
       - name: Apply schema update with row-by-row readback
-        if: inputs.apply == true || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-single-select')
+        if: inputs.apply == true || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'deploy-feishu-lead-single-select'))
         run: python automation/feishu/lead_single_select_migration.py --apply
