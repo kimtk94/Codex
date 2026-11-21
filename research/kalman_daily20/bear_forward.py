@@ -234,7 +234,9 @@ def run(spec, prior_zip, market, features, qc_path, baseline_journal,
     session = str(last_completed_nyse(stamp))
     if str(qc.get("expected_session")) != session:
         raise RuntimeError("BEAR_BACKDATED_QC_SESSION")
-    manifest, previous_bull, journal = read_prior_bear(Path(prior_zip).read_bytes(), set(spec["core"]))
+    # The CLI passes a path; unit tests may supply exactly the same ZIP bytes.
+    blob = prior_zip if isinstance(prior_zip, bytes) else Path(prior_zip).read_bytes()
+    manifest, previous_bull, journal = read_prior_bear(blob, set(spec["core"]))
     if str(manifest.get("data_expected_last_closed_xnys")) > session:
         raise RuntimeError("BEAR_PRIOR_FROM_FUTURE")
     baseline_file = Path(baseline_journal)
