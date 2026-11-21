@@ -109,6 +109,14 @@ def compare_numeric_frames(old, new, symbol, kind, *, expected_date):
         relative[finite] = np.abs(b[finite] / a[finite] - 1.0)
         indices = np.flatnonzero(mask)
         dates = [str(common[i].date()) for i in indices]
+        positive = np.isfinite(a) & np.isfinite(b) & (a > 0) & (b > 0)
+        ratio = b[positive] / a[positive]
+        if len(ratio):
+            scale_med = float(np.median(ratio))
+            residual = np.abs(ratio / scale_med - 1.0)
+            scale_p95 = float(np.quantile(residual, .95))
+        else:
+            scale_med, scale_p95 = None, None
         for i, key in zip(indices, dates):
             daily.setdefault(key, []).append(col)
         same &= len(indices) == 0
@@ -124,6 +132,12 @@ def compare_numeric_frames(old, new, symbol, kind, *, expected_date):
             "max_relative_delta": float(relative.max()) if len(relative) else 0.,
             "max_absolute_delta": float(np.nanmax(np.abs(b[finite] - a[finite])))
                                   if finite.any() else 0.,
+            "median_right_over_left_ratio": scale_med,
+            "p95_abs_residual_from_median_scale": scale_p95,
+            "global_multiplicative_rescale": bool(
+                len(indices) > len(common) // 3 and
+                scale_p95 is not None and scale_p95 < 1e-4
+            ),
             "asof_left": last_a, "asof_right": last_b,
             "asof_changed": (
                 not np.isclose(last_a, last_b, rtol=REL_TOL, atol=ABS_TOL, equal_nan=True)
@@ -259,6 +273,11 @@ def run(left, right, spec, out, left_id, right_id, asof, frozen=None):
         for family in ("BULL_LOGISTIC", "BEAR_LOGISTIC"):
             pa = predict_on_frame(fa, asof, family)
             pb = predict_on_frame(fb, asof, family)
+            repeated = predict_on_frame(fa, asof, family)
+            if (pa["prediction"] != repeated["prediction"]
+                    or pa["training_hash"] != repeated["training_hash"]
+                    or pa["fitted_model_hash"] != repeated["fitted_model_hash"]):
+                raise RuntimeError("IDENTICAL_INPUT_REFIT_NONDETERMINISTIC:" + symbol + ":" + family)
             if not (pa["fold_status"] == pb["fold_status"]
                     or pa["prediction"] is None or pb["prediction"] is None):
                 raise RuntimeError("MODEL_FOLD_MISMATCH")
@@ -322,6 +341,19 @@ def run(left, right, spec, out, left_id, right_id, asof, frozen=None):
         "files_raw_parquet_sha_changed": count_changed_raw,
         "files_technical_parquet_sha_changed": count_changed_features,
         "symbols_with_semantic_raw_numeric_changes": count_changed_numeric,
+        "raw_numeric_unchanged_symbols": [
+            sym for sym in names if per_symbol[sym]["raw_numeric_same"]
+        ],
+        "close_series_globally_rescaled_symbols": [
+            row["symbol"] for row in price
+            if row["column"] == "close" and row["global_multiplicative_rescale"]
+        ],
+        "provider_configuration": {
+            "provider": "yfinance",
+            "auto_adjust_equities": True, "auto_adjust_vix": False,
+            "repair": True, "keepna": True,
+        },
+        "identical_input_refit_deterministic": True,
         "changed_rows": len(changes),
         "trained_folds": len(preds),
         "train_input_changed": int(preds["training_changed"].sum()),
