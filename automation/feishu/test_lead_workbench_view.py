@@ -42,7 +42,7 @@ class LeadWorkbenchTests(unittest.TestCase):
         reviewed["검토 완료"] = True
         reviewed[q.QUEUE_FIELD] = q.QUEUE_LABELS["none"]
         self.assertEqual(w.expected_ids({"a": sent, "b": reviewed}), {"a", "b"})
-        self.assertEqual(w.verify_rows({"a": sent, "b": reviewed}), 2)
+        self.assertEqual(w.verify_rows({**{str(i): row() for i in range(448)}, "a": sent, "b": reviewed}), 450)
 
     def test_schema_checks_option_and_checkbox_types(self):
         names = [w.age.ELIGIBILITY_FIELD, q.QUEUE_FIELD, "연락 구분",
