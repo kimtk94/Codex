@@ -131,6 +131,7 @@ def seed(root):
         "source_run_id": os.environ.get("GITHUB_RUN_ID", "test-run"),
         "signal_events": 40, "settled_events": 0, "pending_events": 40,
         "frozen_sessions": 1, "journal_sha256": hashlib.sha256(bear_data).hexdigest(),
+        "frozen_replay_drift": 0, "frozen_replay_differences": [],
         "journal_hash_tip": bj[-1]["hash"],
         "family": {"BEAR_LOGISTIC": {"signals": 20, "candidates": 20},
                    "BEAR_RULE": {"signals": 20, "candidates": 20}},
@@ -375,6 +376,24 @@ class DrivePublisherTests(unittest.TestCase):
             content = content.replace(",0.45,", ",1.45,", 1)
             path.write_text(content)
             with self.assertRaisesRegex(RuntimeError, "MONTE_CARLO_PROBABILITY_OUTSIDE_UNIT_INTERVAL"):
+                inspect_payload(data, results)
+
+
+    def test_bear_forward_drift_audit_must_reference_original_event_hash(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            report_path = results / "research/bear_forward/report.json"
+            report = json.loads(report_path.read_text())
+            report["frozen_replay_drift"] = 1
+            report["frozen_replay_differences"] = [{
+                "symbol": "SPY", "family": "BEAR_LOGISTIC",
+                "classification": "REPLAY_DRIFT_FROZEN_EVENT_PRESERVED",
+                "frozen_event_hash": "0" * 64,
+                "frozen_candidate": True, "frozen_probability": 0.7,
+                "changed_fields": ["probability"],
+            }]
+            report_path.write_text(json.dumps(report))
+            with self.assertRaisesRegex(RuntimeError, "BEAR_FORWARD_REPLAY_AUDIT_INVALID"):
                 inspect_payload(data, results)
 
 
