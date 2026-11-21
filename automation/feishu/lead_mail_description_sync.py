@@ -209,7 +209,7 @@ def sync(desired, apply):
         for key in missing:
             require_success(request("POST", root+"/fields", token=token,
                 body=field_definition(key)), "CREATE_LEAD_FIELD")
-    if any(fields.get(x, field_type(x)) != field_type(x) for x in FIELDS):
+    if any(fields.get(x, field_type(x)) not in ((1, 3) if x in SINGLE_SELECT_OPTIONS else (1,)) for x in FIELDS):
         raise RuntimeError("EXISTING_FIELD_TYPE_CONFLICT")
     existing = {}
     for row in pages(root+"/records", token):
