@@ -1,0 +1,76 @@
+name: Feishu Lead Action Queues
+# Isolated Feishu Lead table view-only writer; no record or manual checkbox writes.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Create or update only 3 Lead action queue views after strict source parity'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '40 3,10 * * 1-5' # 12:40, 19:40 KST weekdays, after mirror and existing priority views
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/lead_action_queue_views.py'
+      - 'automation/feishu/test_lead_action_queue_views.py'
+      - '.github/workflows/feishu-lead-action-queues.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/lead_action_queue_views.py'
+      - 'automation/feishu/test_lead_action_queue_views.py'
+      - '.github/workflows/feishu-lead-action-queues.yml'
+permissions:
+  contents: read
+concurrency:
+  group: isolated-lead-feishu-mail-description
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install offline import requirements
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: Validate ranked Lead queues and immutable checkbox handling
+        run: |
+          python -m py_compile automation/feishu/lead_action_queue_views.py
+          python -m unittest discover -s automation/feishu -p 'test_lead_action_queue_views.py' -v
+  live:
+    needs: test
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-action-queues') }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 25
+    env:
+      NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Feishu and Sheets clients
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: Audit source/sink, manual selection and queue definitions without writes
+        run: python automation/feishu/lead_action_queue_views.py
+      - name: Apply only three isolated queue views and verify record IDs
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-action-queues') }}
+        run: python automation/feishu/lead_action_queue_views.py --apply
+      - name: Report outcome
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+        run: |
+          echo '## Feishu Lead Action Queue Views' >> "$GITHUB_STEP_SUMMARY"
+          echo "Result: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Only 3 dedicated Lead views may change; all records and manual checkbox values are read-only.' >> "$GITHUB_STEP_SUMMARY"
