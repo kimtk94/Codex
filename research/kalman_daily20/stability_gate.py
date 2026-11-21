@@ -23,6 +23,7 @@ import sklearn
 from daily20 import load_bars, load_spec, market_file, write_json
 from forward_shadow import check_events, read_score_rows, validate_prior_results_archive
 from bear_forward import validate_bear_events
+from regime_challenger import ML_THRESHOLD, bear_gate, rule_gate
 from provenance_audit import (
     COLUMNS, canonical, context_frame, feature_frame,
     fingerprint_feature_row, predict_on_frame, sha_bytes, value_or_null,
@@ -120,7 +121,7 @@ def _bear_csv(path, session, symbols):
     return result
 
 
-def make_current_snapshot(spec, market, features, bull_scores, bear_scores,
+def make_current_snapshot(spec, market, features, bull_scores,
                           session, bull_signals, bear_signals):
     """Capture 26 close bars and the exact 21-column/model input for 20 symbols."""
     if len(COLUMNS) != 21:
@@ -163,20 +164,20 @@ def make_current_snapshot(spec, market, features, bull_scores, bear_scores,
                 "training_hash", "fitted_model_hash"
             )}
         bull_now = bull_scores[symbol]
-        bear_now = bear_scores[(symbol, "BEAR_LOGISTIC")]
-        rule_now = bear_scores[(symbol, "BEAR_RULE")]
+        probability = models["BEAR_LOGISTIC"]["prediction"]
+        eligible = bool(bear_gate(frame.loc[[pd.Timestamp(session)]]).iloc[0])
+        bear_now = {
+            "probability": probability,
+            "candidate": bool(eligible and probability is not None
+                              and probability >= ML_THRESHOLD),
+        }
+        rule_now = {"probability": None,
+                    "candidate": bool(rule_gate(frame).iloc[-1])}
         if models["BULL_LOGISTIC"]["prediction"] is None:
             raise RuntimeError("STABILITY_MISSING_BULL_ESTIMATOR:" + symbol)
-        for name, observed in (
-            ("BULL_LOGISTIC", bull_now["probability"]),
-            ("BEAR_LOGISTIC", bear_now["probability"]),
-        ):
-            predicted = models[name]["prediction"]
-            if (predicted is None) != (observed is None) or (
-                predicted is not None and abs(predicted - observed) > 1e-7
-            ):
-                raise RuntimeError("STABILITY_CURRENT_SCORE_NOT_REPRODUCIBLE:"
-                                   + symbol + ":" + name)
+        predicted = models["BULL_LOGISTIC"]["prediction"]
+        if abs(predicted - bull_now["probability"]) > 1e-7:
+            raise RuntimeError("STABILITY_CURRENT_BULL_SCORE_NOT_REPRODUCIBLE:" + symbol)
         records[symbol] = {
             "ohlcv": asset_prices[symbol],
             "feature_columns": list(COLUMNS),
@@ -251,7 +252,7 @@ def classify(frozen, current, *, threshold_pp=HOLD_THRESHOLD_PP):
     return events, any(e["research_hold"] for e in events)
 
 
-def run(spec, prior_zip, market, features, score_path, bear_csv,
+def run(spec, prior_zip, market, features, score_path,
         bull_journal, bear_journal, bull_report, bear_report, out):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -263,8 +264,10 @@ def run(spec, prior_zip, market, features, score_path, bear_csv,
     bear_signals, _ = validate_bear_events(_read_journal(bear_journal), set(spec["core"]))
     existing = _historical_snapshots(Path(prior_zip).read_bytes(), spec)
     scores = read_score_rows(score_path, spec, qc_date)
-    bear_now = _bear_csv(bear_csv, qc_date, spec["core"])
-    current = make_current_snapshot(spec, market, features, scores, bear_now,
+    # Recompute Bear candidates from CURRENT features. The Bear CSV contains
+    # ORIGINAL frozen candidates on a replay, so using it here would conceal
+    # candidate flips and falsely reject a correct recomputed model.
+    current = make_current_snapshot(spec, market, features, scores,
                                     qc_date, bull_signals, bear_signals)
     previous = json.loads(existing[qc_date]) if qc_date in existing else None
     if previous is not None:
@@ -359,13 +362,13 @@ def run(spec, prior_zip, market, features, score_path, bear_csv,
 
 def main():
     ap = argparse.ArgumentParser()
-    for name in ("prior-zip", "market", "features", "scores", "bear-csv",
+    for name in ("prior-zip", "market", "features", "scores",
                  "bull-journal", "bear-journal", "bull-report", "bear-report", "out"):
         ap.add_argument("--" + name, required=True)
     ap.add_argument("--config", default="research/kalman_daily20/universe.json")
     a = ap.parse_args()
     run(load_spec(a.config), a.prior_zip, a.market, a.features, a.scores,
-        a.bear_csv, a.bull_journal, a.bear_journal,
+        a.bull_journal, a.bear_journal,
         a.bull_report, a.bear_report, a.out)
 
 
