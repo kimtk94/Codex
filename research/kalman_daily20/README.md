@@ -272,3 +272,15 @@ the assumption of repeated daily return segments can misrepresent broker
 fills, regime transitions and position-sizing state. Monte Carlo 5th-percentile
 drawdown is not intraday max loss; use alongside gap and low-price diagnostics
 from frozen prospective observations.
+
+### Bear forward replay drift policy
+
+If the same just-closed US session is evaluated again after Yahoo adjusted
+prices or the historical training data have changed, recomputed Bear scores can
+differ. The **original `SIGNAL` events and hash chain always win**: they
+are not replaced, backdated, or reclassified. Instead the current run logs
+`frozen_replay_drift` and `frozen_replay_differences`, with family, symbol,
+changed fields and the original frozen event hash. The Drive publisher verifies
+these audit references, and the 4-session outcome remains tied to the **first
+captured candidate flag**. Historical replay comparisons are diagnostics, not
+additional prospective forecasts.

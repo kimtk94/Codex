@@ -178,12 +178,22 @@ class BearShadowContracts(unittest.TestCase):
                 return result
             with patch("daily20.last_completed_nyse",
                        return_value=pd.Timestamp("2026-11-20").date()):
-                with self.assertRaisesRegex(RuntimeError, "BEAR_FROZEN"):
-                    path = base / "prior.zip"
-                    path.write_bytes(archive)
-                    run(spec, path, base / "market", base / "features", qc,
-                        base / "bull.jsonl", base / "revision",
-                        now=pd.Timestamp("2026-11-21T03:30:00Z"), scorer=changed)
+                path = base / "prior.zip"
+                path.write_bytes(archive)
+                report = run(spec, path, base / "market", base / "features", qc,
+                             base / "bull.jsonl", base / "revision",
+                             now=pd.Timestamp("2026-11-21T03:30:00Z"),
+                             scorer=changed)
+            self.assertEqual(report["new_signal_events"], 0)
+            self.assertEqual(report["frozen_replay_drift"], 1)
+            self.assertEqual(report["frozen_replay_differences"][0]["symbol"], "SPY")
+            self.assertEqual(report["frozen_replay_differences"][0]["family"], "BEAR_LOGISTIC")
+            self.assertIn("probability", report["frozen_replay_differences"][0]["changed_fields"])
+            self.assertEqual(
+                (base / "first/journal.jsonl").read_bytes(),
+                (base / "revision/journal.jsonl").read_bytes(),
+            )
+            self.assertEqual(report["journal_hash_tip"], events[-1]["hash"])
             with self.assertRaisesRegex(RuntimeError, "BEAR_JOURNAL_BOOTSTRAP"):
                 read_prior_bear(make_prior_zip(session="2026-11-23", journal=bull),
                                 set(spec["core"]))

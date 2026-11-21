@@ -258,6 +258,10 @@ def run(spec, prior_zip, market, features, qc_path, baseline_journal,
     # genuinely future (pre-next-open) window with same-session Bull evidence.
     has_current_baseline = all((session, s) in bulls for s in spec["core"])
     new_signals = 0
+    # The already-sealed signal takes precedence over current adjusted-history
+    # replay. Report any changed feature or score; NEVER mutate the frozen
+    # original or use recomputed values for delayed outcome attribution.
+    frozen_replay_differences = []
     if today:
         if len(today) != 40:
             raise RuntimeError("BEAR_PARTIAL_SESSION_CANNOT_BE_REPAIRED")
@@ -270,12 +274,25 @@ def run(spec, prior_zip, market, features, qc_path, baseline_journal,
                 for family in FAMILIES:
                     frozen = signals[(session, symbol, family)]
                     current = candidate_rows[(symbol, family)]
-                    for key in ("eligible", "candidate", "probability",
-                                "shadow_only", "feature_sha256", "fold_status",
-                                "bear_training_rows", "vix_prior", "rsi14",
-                                "macd_hist", "ret1", "policy"):
-                        if frozen[key] != current[key]:
-                            raise RuntimeError("BEAR_FROZEN_PROBABILITY_OR_FEATURE_REVISED:" + symbol)
+                    changed = [
+                        key for key in ("eligible", "candidate", "probability",
+                                        "shadow_only", "feature_sha256", "fold_status",
+                                        "bear_training_rows", "vix_prior", "rsi14",
+                                        "macd_hist", "ret1", "policy")
+                        if frozen.get(key) != current.get(key)
+                    ]
+                    if changed:
+                        frozen_replay_differences.append({
+                            "symbol": symbol,
+                            "family": family,
+                            "changed_fields": changed,
+                            "frozen_event_hash": frozen["hash"],
+                            "frozen_candidate": frozen["candidate"],
+                            "recomputed_candidate": current["candidate"],
+                            "frozen_probability": frozen["probability"],
+                            "recomputed_probability": current["probability"],
+                            "classification": "REPLAY_DRIFT_FROZEN_EVENT_PRESERVED",
+                        })
     elif admit and has_current_baseline:
         candidate_rows = (scorer or score_bear_asof)(
             spec, market, features, session)
@@ -364,6 +381,8 @@ def run(spec, prior_zip, market, features, qc_path, baseline_journal,
         "last_completed_session": session,
         "next_session_open_utc": next_open,
         "new_signal_events": new_signals,
+        "frozen_replay_drift": len(frozen_replay_differences),
+        "frozen_replay_differences": frozen_replay_differences,
         "new_settled_events": newly_settled,
         "signal_events": len(signals),
         "settled_events": len(settled),
@@ -392,7 +411,9 @@ def run(spec, prior_zip, market, features, qc_path, baseline_journal,
     write_json(output / "report.json", report)
     print(json.dumps({"DAILY20_BEAR_FORWARD": {
         "status": "SEALED", "last_session": session,
-        "new_signals": new_signals, "signal_events": len(signals),
+        "new_signals": new_signals,
+        "frozen_replay_drift": len(frozen_replay_differences),
+        "signal_events": len(signals),
         "settled": len(settled), "pending": len(signals) - len(settled),
         "new_settlements": newly_settled,
         "family": family_counts,

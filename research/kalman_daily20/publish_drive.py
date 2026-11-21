@@ -275,6 +275,27 @@ def inspect_payload(data_root, results_root):
                 or sum(v["candidate"] for v in f) != reported.get("candidates")):
             raise RuntimeError("BEAR_FORWARD_FAMILY_COUNTS_MISMATCH")
 
+    # Recomputed Bear scores may drift as price vendors revise adjusted bars.
+    # Preserve frozen evidence; the drift audit must link to original event
+    # hashes rather than substituting a newly fitted prediction.
+    drift_rows = bfw.get("frozen_replay_differences", [])
+    if (not isinstance(drift_rows, list)
+            or bfw.get("frozen_replay_drift") != len(drift_rows)
+            or len(drift_rows) > 40):
+        raise RuntimeError("BEAR_FORWARD_REPLAY_AUDIT_MISSING")
+    for item in drift_rows:
+        key = (bfw.get("last_completed_session"), item.get("symbol"),
+               item.get("family"))
+        frozen = bear_signals.get(key)
+        if (not frozen
+                or item.get("classification") != "REPLAY_DRIFT_FROZEN_EVENT_PRESERVED"
+                or item.get("frozen_event_hash") != frozen["hash"]
+                or item.get("frozen_candidate") is not frozen["candidate"]
+                or item.get("frozen_probability") != frozen["probability"]
+                or not isinstance(item.get("changed_fields"), list)
+                or not item["changed_fields"]):
+            raise RuntimeError("BEAR_FORWARD_REPLAY_AUDIT_INVALID")
+
     # Mandatory Monte Carlo: no publication if risk tails are absent or an
     # output is marked as forward validation or approved for live orders.
     mc_dir = r / "research" / "monte_carlo"
@@ -380,6 +401,7 @@ def inspect_payload(data_root, results_root):
         "bear_forward_signals": len(bear_signals),
         "bear_forward_settled": len(bear_settled),
         "bear_forward_tip_hash": prev,
+        "bear_forward_replay_drift": len(drift_rows),
         "monte_carlo_scenarios": mc["strategy_scenarios"],
         "monte_carlo_block_lengths": mc["block_lengths"],
         "monte_carlo_repetitions": mc["replications_per_block"],
