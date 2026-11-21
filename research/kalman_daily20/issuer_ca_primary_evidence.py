@@ -12,6 +12,7 @@ import csv
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import gzip
+from io import BytesIO
 from hashlib import sha256
 from html import unescape
 import json
@@ -27,16 +28,20 @@ from daily20 import write_json
 VERSION = "daily20-issuer-ca-primary-evidence-v1"
 SCHEMA = "daily20-primary-corporate-action-sources-v1"
 SOURCE_LIMIT = 6_000_000
+PDF_SOURCE_LIMIT = 20_000_000
 SUPPORTED_TYPES = {
     "FUND_GROSS_USD_PER_CDI",
     "ISSUER_QUARTERLY_PRE_SPLIT_USD",
     "FUND_DISTRIBUTION_SCHEDULE_ONLY",
     "ISSUER_DECLARED_COMMON_USD",
     "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY",
+    "ISSUER_FUND_HISTORICAL_USD",
+    "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE",
 }
 ALLOWED = {
     "www.ssga.com", "investors.broadcom.com", "www.proshares.com",
     "news.microsoft.com", "investor.exxonmobil.com", "www.strategy.com",
+    "www.sec.gov", "www.blackrock.com",
 }
 OUT_FIELDS = [
     "symbol", "ex_date", "comparison_status", "prior_diagnostic_reason",
@@ -81,6 +86,8 @@ def validate_manifest(manifest):
                 or parsed.username or parsed.password or parsed.query
                 or parsed.fragment):
             raise ValueError("PRIMARY_CA_UNTRUSTED_ISSUER_DOMAIN")
+        if source.get("kind") == "issuer_fund_report_pdf" and not parsed.path.endswith(".pdf"):
+            raise ValueError("PRIMARY_CA_PDF_SOURCE_SUFFIX_MISMATCH")
         sources[sid] = source
     if not sources:
         raise ValueError("PRIMARY_CA_NO_SOURCES")
@@ -95,6 +102,12 @@ def validate_manifest(manifest):
         amount = number(claim.get("reported_amount_usd"))
         if kind not in SUPPORTED_TYPES:
             raise ValueError("PRIMARY_CA_CLAIM_TYPE_UNKNOWN")
+        skind = sources[claim["source_id"]]["kind"]
+        if kind == "ISSUER_FUND_HISTORICAL_USD" and skind != "issuer_fund_report_pdf":
+            raise ValueError("PRIMARY_CA_PDF_ISSUER_PROVENANCE_MISMATCH")
+        if (kind == "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE"
+                and skind != "sec_filed_third_party_issuer_quote"):
+            raise ValueError("PRIMARY_CA_SEC_QUOTE_PROVENANCE_MISMATCH")
         non_amount_types = {
             "FUND_DISTRIBUTION_SCHEDULE_ONLY",
             "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY",
@@ -126,8 +139,9 @@ def fetch_bytes(url):
             raise ValueError("PRIMARY_CA_REDIRECT_TO_UNTRUSTED_SOURCE")
         if res.status != 200:
             raise ValueError("PRIMARY_CA_SOURCE_NOT_200")
-        raw = res.read(SOURCE_LIMIT + 1)
-    if not raw or len(raw) > SOURCE_LIMIT:
+        limit = PDF_SOURCE_LIMIT if urlparse(url).path.endswith(".pdf") else SOURCE_LIMIT
+        raw = res.read(limit + 1)
+    if not raw or len(raw) > limit:
         raise ValueError("PRIMARY_CA_SOURCE_EMPTY_OR_OVERSIZE")
     return raw
 
@@ -139,8 +153,32 @@ def text_of_html(blob):
     return " ".join(unescape(text).split())
 
 
-def grade_anchors(blob, claim):
-    plain = text_of_html(blob).lower()
+def text_of_pdf(blob):
+    """Extract only displayed PDF text, never treat binary PDF as HTML."""
+    if not blob.startswith(b"%PDF"):
+        raise ValueError("PRIMARY_CA_NOT_A_PDF")
+    # pypdf is installed by the isolated issuer-source CI step.
+    from pypdf import PdfReader
+    doc = PdfReader(BytesIO(blob), strict=False)
+    # The BlackRock historical distribution table appears near the start.
+    # Hard cap keeps parsing bounded; an absent page is a HOLD, not a guess.
+    pages = min(18, len(doc.pages))
+    plain = " ".join((doc.pages[i].extract_text() or "") for i in range(pages))
+    plain = " ".join(plain.split())
+    return re.sub(r"(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日",
+                  r"\\1月\\2日", plain)
+
+
+def grade_anchors(blob, claim, *, pdf=False):
+    if pdf:
+        try:
+            plain = text_of_pdf(blob).lower()
+        except Exception:
+            # Damaged/unreadable PDF or unsupported glyph encoding must
+            # NOT be accepted as verified evidence.
+            plain = ""
+    else:
+        plain = text_of_html(blob).lower()
     a = claim["anchor_a"].lower()
     b = claim["anchor_b"].lower()
     # Both anchors must occur in a nearby local context, not merely somewhere
@@ -164,12 +202,17 @@ def probe_source(source, claims, out_dir, *, getter=fetch_bytes, offline=False):
         return result
     try:
         raw = getter(source["url"])
-        if not isinstance(raw, bytes) or not raw or len(raw) > SOURCE_LIMIT:
+        limit = (PDF_SOURCE_LIMIT
+                 if source["kind"] == "issuer_fund_report_pdf" else SOURCE_LIMIT)
+        if not isinstance(raw, bytes) or not raw or len(raw) > limit:
             raise ValueError("PRIMARY_CA_SOURCE_SIZE_INVALID")
+        if source["kind"] == "issuer_fund_report_pdf" and not raw.startswith(b"%PDF"):
+            raise ValueError("PRIMARY_CA_SOURCE_NOT_PDF")
         digest = sha256(raw).hexdigest()
         raw_dir = Path(out_dir) / "raw"
         raw_dir.mkdir(parents=True, exist_ok=True)
-        filename = source["id"].lower() + ".html.gz"
+        filename = source["id"].lower() + (
+            ".pdf.gz" if source["kind"] == "issuer_fund_report_pdf" else ".html.gz")
         (raw_dir / filename).write_bytes(gzip.compress(raw, mtime=0))
         result.update({
             "status": "FETCHED_SOURCE_UNCERTIFIED",
@@ -177,7 +220,8 @@ def probe_source(source, claims, out_dir, *, getter=fetch_bytes, offline=False):
             "raw_archive": "raw/" + filename,
         })
         for claim in claims:
-            found, bodytext = grade_anchors(raw, claim)
+            found, bodytext = grade_anchors(
+                raw, claim, pdf=source["kind"] == "issuer_fund_report_pdf")
             key = claim["symbol"] + "|" + claim["ex_date"]
             result["anchor_grade_by_claim"][key] = (
                 "BOTH_NEARBY_ANCHORS_OBSERVED" if found
@@ -223,6 +267,10 @@ def compare_issuer_claim(row, claim, fetched):
         grade = "ISSUER_EXPECTED_CALENDAR_DATE_ONLY_NO_PAYMENT_ASSERTION"
     elif claim["claim_type"] == "ISSUER_QUARTERLY_PRE_SPLIT_USD":
         grade = "ISSUER_PRE_SPLIT_QUARTER_AMOUNT_OBSERVED_NOT_FACTOR_CERTIFIED"
+    elif claim["claim_type"] == "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE":
+        # SEC hosting authenticates the filed note, not the issuer's original
+        # distribution statement nor per-event vendor identity or ex-date.
+        grade = "SEC_HOSTED_THIRD_PARTY_QUOTE_NUMERIC_ONLY_NOT_ISSUER_ATTESTED"
     elif a_match and not y_match:
         grade = "ISSUER_AMOUNT_FAVORS_ALPACA_NUMERIC_ONLY"
     elif y_match and not a_match:
@@ -249,6 +297,10 @@ def compare_issuer_claim(row, claim, fetched):
             if amount is None
             else "ISSUER_DECLARED_NOT_YET_PAID_FUTURE_DATE"
             if claim["claim_type"] == "ISSUER_DECLARED_COMMON_USD"
+            else "SEC_THIRD_PARTY_QUOTE_NOT_ORIGINAL_ISSUER_STATEMENT"
+            if claim["claim_type"] == "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE"
+            else "ISSUER_HISTORICAL_DISTRIBUTION_NOT_EX_DATE_CERTIFIED"
+            if claim["claim_type"] == "ISSUER_FUND_HISTORICAL_USD"
             else "ETF_GROSS_USD_PER_CDI_POTENTIAL_SHARE_UNIT_DIFFERENCE"),
         "exdate_explicitly_issuer_published": claim["exdate_explicitly_issuer_published"]
                                            if source_attested else None,
@@ -310,6 +362,16 @@ def run(manifest, review_rows, out_dir, *, offline=False, getter=fetch_bytes):
         "unresolved_cases_analyzed": len(rows),
         "remaining_review_case_count": len(rows),
         "official_leads_applicable": sum((r["symbol"],r["ex_date"]) in claims for r in rows),
+        "issuer_fund_historical_document_leads": sum(
+            (r["symbol"],r["ex_date"]) in claims and
+            claims[(r["symbol"],r["ex_date"])]["claim_type"] == "ISSUER_FUND_HISTORICAL_USD"
+            for r in rows),
+        "sec_filed_third_party_quote_leads": sum(
+            (r["symbol"],r["ex_date"]) in claims and
+            claims[(r["symbol"],r["ex_date"])]["claim_type"] ==
+                "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE"
+            for r in rows),
+        "sec_hosted_third_party_quote_not_issuer_certified": True,
         "raw_source_fetch_success": sum(
             v["body_sha256"] is not None for v in source_results.values()),
         "live_source_anchor_supported_cases": sum(
