@@ -146,6 +146,104 @@ class OriginalProbesTests(unittest.TestCase):
         self.assertEqual(r["status"], "SINK_LAG")
         self.assertFalse(r["content_parity"])
 
+    def test_aggregate_outstanding_drift_without_exposing_customer_cells(self):
+        source = feishu_snapshot()
+        source["projected_grid"][2] = ["PERSONAL_RECORD_ID", "2000"]
+        meta = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        mirror = [["Project Number", "Invoice Amount"], ["X1", "1000"],
+                  ["PERSONAL_RECORD_ID", "3456"]]
+        r = compare_feishu_projection(source, meta, mirror)
+        self.assertEqual("SINK_LAG", r["status"])
+        self.assertEqual(1, r["content_different_row_count"])
+        self.assertEqual(1, r["content_different_cell_count"])
+        self.assertEqual(1, r["content_different_column_count"])
+        self.assertEqual(1, r["changed_nonempty_cell_count"])
+        self.assertEqual(0, r["source_nonempty_mirror_empty_cell_count"])
+        self.assertNotIn("PERSONAL_RECORD_ID", str(r))
+        self.assertNotIn("3456", str(r))
+
+    def test_blank_vs_missing_and_trailing_empty_equivalent(self):
+        src = feishu_snapshot()
+        meta = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        src["projected_grid"] = [["A", "B"], ["PRIVATE", ""], ["Y", "Z"]]
+        mirror = [["A", "B"], ["PRIVATE"], ["Y", "Z"]]
+        r = compare_feishu_projection(src, meta, mirror)
+        self.assertEqual("PASS_SNAPSHOT_PROJECTION_ONLY", r["status"])
+        self.assertEqual(0, r["content_different_cell_count"])
+        mirror = [["A", "B"], ["PRIVATE", "SINK_EXTRA"], ["Y", ""]]
+        r = compare_feishu_projection(src, meta, mirror)
+        self.assertEqual("SINK_LAG", r["status"])
+        self.assertEqual(2, r["content_different_cell_count"])
+        self.assertEqual(2, r["content_different_row_count"])
+        self.assertEqual(1, r["mirror_nonempty_source_empty_cell_count"])
+        self.assertEqual(1, r["source_nonempty_mirror_empty_cell_count"])
+        self.assertNotIn("PRIVATE", str(r))
+        self.assertNotIn("SINK_EXTRA", str(r))
+
+    def test_absent_mirror_row_has_aggregate_gap_not_row_identity(self):
+        src = feishu_snapshot()
+        meta = {"id": "abc", "date": "2026-10-31",
+                "rows": 2, "schema": "HEADER_MATCHED"}
+        mirror = src["projected_grid"][:-1]
+        r = compare_feishu_projection(src, meta, mirror)
+        self.assertEqual("SINK_LAG", r["status"])
+        self.assertEqual(1, r["missing_mirror_row_count"])
+        self.assertEqual(0, r["unexpected_mirror_row_count"])
+        self.assertEqual(1, r["content_different_row_count"])
+        self.assertEqual(2, r["content_different_cell_count"])
+        self.assertNotIn("X2", str(r))
+
+    def test_safe_field_roles_and_value_shape_classify_only_aggregates(self):
+        source = {
+            "sheet_id": "s", "source_date": "2026-11-11",
+            "row_count": 3, "schema": "HEADER_MATCHED",
+            "projected_grid": [
+                ["Invoice Number", "Outstanding Amount", "Status", "Note"],
+                ["PRIVATE_A", "1,000", "Ready", "Memo"],
+                ["PRIVATE_B", "2,500", "Open", "KEEP"],
+                ["PRIVATE_C", "3,000", "Open", "KEEP"],
+            ],
+        }
+        mirror = [
+            ["Invoice Number", "Outstanding Amount", "Status", "Note"],
+            ["PRIVATE_A", "1000", "Ready", "Memo"],
+            ["PRIVATE_B", "2,500", "", "KEEP"],
+            ["PRIVATE_C", "3,000", "Open", "KEEP "],
+        ]
+        meta = {"id": "s", "date": "2026-11-11",
+                "rows": 3, "schema": "HEADER_MATCHED"}
+        result = compare_feishu_projection(source, meta, mirror)
+        self.assertEqual("SINK_LAG", result["status"])
+        self.assertEqual(3, result["content_different_cell_count"])
+        self.assertEqual(3, result["content_different_row_count"])
+        self.assertEqual(3, result["content_different_column_count"])
+        types = result["drift_characteristics"]
+        self.assertEqual(1, types["NUMERIC_DISPLAY_ONLY"])
+        self.assertEqual(1, types["SOURCE_FILLED_MIRROR_EMPTY"])
+        self.assertEqual(1, types["WHITESPACE_ONLY"])
+        self.assertEqual(0, types["SUBSTANTIVE_NONEMPTY_CHANGE"])
+        roles = result["drift_business_field_roles"]
+        self.assertEqual(1, roles["FINANCIAL_FIELD"])
+        self.assertEqual(1, roles["STATUS_FIELD"])
+        self.assertEqual(1, roles["NOTE_FIELD"])
+        for secret in ("PRIVATE_A", "PRIVATE_B", "PRIVATE_C", "1,000",
+                       "Invoice Number", "Outstanding Amount", "KEEP"):
+            self.assertNotIn(secret, str(result))
+
+    def test_safe_drift_classifies_substantive_change_not_numerically_equivalent(self):
+        source = feishu_snapshot()
+        meta = {"id":"abc", "date":"2026-10-31",
+                "rows":2,"schema":"HEADER_MATCHED"}
+        mirror = [["Project Number", "Invoice Amount"], ["X1","1,200 USD"],
+                  ["X2", "3,000"]]
+        result = compare_feishu_projection(source,meta,mirror)
+        self.assertEqual(2,result["drift_characteristics"]["SUBSTANTIVE_NONEMPTY_CHANGE"])
+        self.assertEqual(0,result["drift_characteristics"]["NUMERIC_DISPLAY_ONLY"])
+        self.assertEqual(2,result["drift_business_field_roles"]["FINANCIAL_FIELD"])
+        self.assertNotIn("3,000",str(result))
+
     def test_stale_source_id_not_masked_by_recent_mirror_sync(self):
         obj = feishu_snapshot()
         meta = {"id": "def", "date": "2026-10-31", "rows": 2, "schema": "HEADER_MATCHED"}
