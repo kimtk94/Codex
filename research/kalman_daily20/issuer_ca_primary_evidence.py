@@ -37,6 +37,7 @@ SUPPORTED_TYPES = {
     "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY",
     "ISSUER_FUND_HISTORICAL_USD",
     "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE",
+    "ISSUER_SPLIT_CONTEXT_ONLY",
 }
 ALLOWED = {
     "www.ssga.com", "investors.broadcom.com", "www.proshares.com",
@@ -49,7 +50,11 @@ OUT_FIELDS = [
     "primary_amount_usd", "source_id", "source_url", "source_fetch_status",
     "primary_evidence_grade", "amount_matches_alpaca_raw",
     "amount_matches_yahoo_as_reported", "amount_comparison_basis",
-    "exdate_explicitly_issuer_published", "actual_payment_certified",
+    "exdate_explicitly_issuer_published",
+    "issuer_split_context_observed", "split_event_date",
+    "split_new_shares_per_old", "third_party_raw_2023_cash_usd",
+    "third_party_adjusted_cash_usd", "third_party_candidate_cash_math_consistent",
+    "actual_payment_certified",
     "independent_adjustment_factor_certified", "independent_close_certified",
 ]
 
@@ -108,9 +113,27 @@ def validate_manifest(manifest):
         if (kind == "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE"
                 and skind != "sec_filed_third_party_issuer_quote"):
             raise ValueError("PRIMARY_CA_SEC_QUOTE_PROVENANCE_MISMATCH")
+        if kind == "ISSUER_SPLIT_CONTEXT_ONLY":
+            if (skind != "issuer_fund_report_pdf" or
+                    not sources[claim["source_id"]]["url"].startswith(
+                        "https://www.proshares.com/")):
+                raise ValueError("PRIMARY_CA_SPLIT_ONLY_REQUIRES_ISSUER_PROSHARES_PDF")
+            if (not valid_day(claim.get("split_event_date")) or
+                    claim["split_event_date"] <= day):
+                raise ValueError("PRIMARY_CA_SPLIT_CONTEXT_DATE_INVALID")
+            ratio = number(claim.get("split_new_shares_per_old"))
+            old_cash = number(claim.get("third_party_raw_2023_cash_usd"))
+            adjusted_cash = number(claim.get("third_party_adjusted_cash_usd"))
+            if (ratio != Decimal("2") or old_cash is None or old_cash <= 0 or
+                    adjusted_cash is None or adjusted_cash <= 0 or
+                    old_cash / ratio != adjusted_cash):
+                raise ValueError("PRIMARY_CA_SPLIT_THIRD_PARTY_MATH_INCONSISTENT")
+            if claim["claim_amount_exact"] is not False:
+                raise ValueError("PRIMARY_CA_SPLIT_NOT_ISSUER_CASH_ATTESTED")
         non_amount_types = {
             "FUND_DISTRIBUTION_SCHEDULE_ONLY",
             "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY",
+            "ISSUER_SPLIT_CONTEXT_ONLY",
         }
         if (kind in non_amount_types) != (amount is None):
             raise ValueError("PRIMARY_CA_SCHEDULE_MUST_NOT_ASSERT_PAID_AMOUNT")
@@ -246,6 +269,11 @@ def compare_issuer_claim(row, claim, fetched):
             "amount_matches_yahoo_as_reported": None,
             "amount_comparison_basis": "UNAVAILABLE",
             "exdate_explicitly_issuer_published": None,
+            "issuer_split_context_observed": None, "split_event_date": None,
+            "split_new_shares_per_old": None,
+            "third_party_raw_2023_cash_usd": None,
+            "third_party_adjusted_cash_usd": None,
+            "third_party_candidate_cash_math_consistent": None,
         }
     key = claim["symbol"] + "|" + claim["ex_date"]
     current_status = fetched["anchor_grade_by_claim"].get(key)
@@ -260,6 +288,10 @@ def compare_issuer_claim(row, claim, fetched):
     y_match = None if amount is None or yahoo is None else abs(amount - yahoo) <= tol
     if not source_attested:
         grade = "OFFICIAL_SOURCE_ANCHORS_NOT_LIVE_ATTESTED_HOLD"
+    elif claim["claim_type"] == "ISSUER_SPLIT_CONTEXT_ONLY":
+        # QLD split is independently issuer-reported for 2025,
+        # NOT independent evidence a 2023 cash distribution was ever paid.
+        grade = "ISSUER_2025_SPLIT_OBSERVED_2023_CASH_PAYMENT_HOLD"
     elif claim["claim_type"] == "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY":
         # Policy may indicate a misclassified security (preferred vs common)
         # but DOES NOT negate any observed Alpaca event or certify a CUSIP.
@@ -292,6 +324,8 @@ def compare_issuer_claim(row, claim, fetched):
         "amount_comparison_basis": (
             "RAW_PRE_SPLIT_ISSUER_AMOUNT_NOT_YAHOO_COMPARABLE"
             if claim["claim_type"] == "ISSUER_QUARTERLY_PRE_SPLIT_USD"
+            else "ISSUER_CONFIRMED_SPLIT_ONLY_THIRD_PARTY_2023_CASH_NOT_PAID_CERTIFIED"
+            if claim["claim_type"] == "ISSUER_SPLIT_CONTEXT_ONLY"
             else "ISSUER_POLICY_NO_COMMON_DIVIDEND_SECURITY_CLASS_HOLD"
             if claim["claim_type"] == "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY"
             else "EXPECTED_SCHEDULE_NOT_PAID_AMOUNT"
@@ -305,6 +339,14 @@ def compare_issuer_claim(row, claim, fetched):
             else "ETF_GROSS_USD_PER_CDI_POTENTIAL_SHARE_UNIT_DIFFERENCE"),
         "exdate_explicitly_issuer_published": claim["exdate_explicitly_issuer_published"]
                                            if source_attested else None,
+        "issuer_split_context_observed": (
+            source_attested if claim["claim_type"] == "ISSUER_SPLIT_CONTEXT_ONLY" else None),
+        "split_event_date": claim.get("split_event_date"),
+        "split_new_shares_per_old": claim.get("split_new_shares_per_old"),
+        "third_party_raw_2023_cash_usd": claim.get("third_party_raw_2023_cash_usd"),
+        "third_party_adjusted_cash_usd": claim.get("third_party_adjusted_cash_usd"),
+        "third_party_candidate_cash_math_consistent": (
+            True if claim["claim_type"] == "ISSUER_SPLIT_CONTEXT_ONLY" else None),
     }
 
 
@@ -373,6 +415,14 @@ def run(manifest, review_rows, out_dir, *, offline=False, getter=fetch_bytes):
                 "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE"
             for r in rows),
         "sec_hosted_third_party_quote_not_issuer_certified": True,
+        "issuer_split_context_leads": sum(
+            (r["symbol"],r["ex_date"]) in claims and
+            claims[(r["symbol"],r["ex_date"])]["claim_type"] == "ISSUER_SPLIT_CONTEXT_ONLY"
+            for r in rows),
+        "issuer_split_source_anchor_supported_cases": sum(
+            r["primary_evidence_grade"] ==
+               "ISSUER_2025_SPLIT_OBSERVED_2023_CASH_PAYMENT_HOLD" for r in rows),
+        "split_2025_is_not_cash_2023_attestation": True,
         "raw_source_fetch_success": sum(
             v["body_sha256"] is not None for v in source_results.values()),
         "live_source_anchor_supported_cases": sum(

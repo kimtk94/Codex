@@ -1,7 +1,7 @@
 {
   "schema": "daily20-primary-corporate-action-sources-v1",
   "research_only": true,
-  "governance": "Documented historical issuer/fund facts are not independent proof of Yahoo total-return factors or SIP regular 16:00 close. Require bytes hash+body anchors; non-amount schedule cannot certify any distribution amount. Issuer non-payment policy concerns common-share security class and is not a certified negation of a vendor event. Third-party SEC-hosted structured note filings QUOTING a sponsor are evidence of the quote but not a direct issuer filing. PDFs require verified extraction from original downloaded bytes; no cache-only/secondary data treated as issuer-certified.",
+  "governance": "Documented historical issuer/fund facts are not independent proof of Yahoo total-return factors or SIP regular 16:00 close. Require bytes hash+body anchors; non-amount schedule cannot certify any distribution amount. Issuer non-payment policy concerns common-share security class and is not a certified negation of a vendor event. Third-party SEC-hosted structured note filings QUOTING a sponsor are evidence of the quote but not a direct issuer filing. PDFs require verified extraction from original downloaded bytes; no cache-only/secondary data treated as issuer-certified. The June 2018 QQQ quarterly SEC note is issuer-quoted third-party reporting by PAYMENT quarter, not ex-date; the 2025 QLD split is a first-party factor for shares but NOT 2023 distribution attestation. Third-party 2023 historical payout amounts are hypotheses, not issuer-certified.",
   "sources": [
     {
       "id": "SPY_STREET_DISTRIBUTIONS",
@@ -62,6 +62,18 @@
       "entity": "SEC-hosted third-party note quoting Invesco",
       "kind": "sec_filed_third_party_issuer_quote",
       "url": "https://www.sec.gov/Archives/edgar/data/831001/000095010322018043/dp182689_424b2-us2207102.htm"
+    },
+    {
+      "id": "QQQ_2018_SEC_2020_Q3_TABLE",
+      "entity": "SEC-hosted third-party historic dividend table",
+      "kind": "sec_filed_third_party_issuer_quote",
+      "url": "https://www.sec.gov/Archives/edgar/data/831001/000095010320014313/dp132922_424b2-us2006361.htm"
+    },
+    {
+      "id": "QLD_2025_FORM_8937_SPLIT",
+      "entity": "ProShares Ultra QQQ",
+      "kind": "issuer_fund_report_pdf",
+      "url": "https://www.proshares.com/globalassets/proshares/form-8937/qld-form-8937.pdf"
     }
   ],
   "claims": [
@@ -220,6 +232,34 @@
       "exdate_explicitly_issuer_published": false,
       "claim_amount_exact": true,
       "notes": "SEC-hosted THIRD PARTY structured-note filing quotes Invesco Sep16 announcement; cannot resolve Alpaca two different event IDs on same ex-date or distinguish payment from correction history."
+    },
+    {
+      "symbol": "QQQ",
+      "ex_date": "2018-06-18",
+      "source_id": "QQQ_2018_SEC_2020_Q3_TABLE",
+      "claim_type": "SEC_FILED_THIRD_PARTY_ISSUER_AMOUNT_QUOTE",
+      "reported_amount_usd": "0.37837",
+      "anchor_a": "07/02/18",
+      "anchor_b": "0.37837",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "SEC-hosted 2020 structured note (not issuer-filed) reports QQQ 2018 THIRD QUARTER cash $0.37837, by PAYMENT quarter (July31), not June 18 ex-date explicitly. Separate secondary ex-date joins required. Yahoo .378 rounded; Alpaca .37638 unresolved."
+    },
+    {
+      "symbol": "QLD",
+      "ex_date": "2023-09-20",
+      "source_id": "QLD_2025_FORM_8937_SPLIT",
+      "claim_type": "ISSUER_SPLIT_CONTEXT_ONLY",
+      "reported_amount_usd": null,
+      "anchor_a": "November 19, 2025",
+      "anchor_b": "2:1 share split",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": false,
+      "split_event_date": "2025-11-20",
+      "split_new_shares_per_old": "2",
+      "third_party_raw_2023_cash_usd": "0.176282",
+      "third_party_adjusted_cash_usd": "0.088141",
+      "notes": "Issuer ProShares Form 8937 DIRECTLY attests 2025-11-20 QLD 2-for-1 split, not Sep2023 actual cash. Third-party payout candidate 2023-09-20 $0.176282 ÷ 2 = $0.088141 (Yahoo 3dp 0.088). No 2023 issuer distribution certificate; do not overwrite price/factor data."
     }
   ]
 }
