@@ -1,0 +1,56 @@
+name: Local AI - Windows launcher syntax checks
+
+on:
+  pull_request:
+    paths:
+      - "local_ai/**"
+      - ".github/workflows/local-ai-windows-script-checks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  powershell-script-check:
+    runs-on: windows-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Windows PowerShell launcher without executing installs
+        shell: pwsh
+        run: |
+          $scripts = @(
+            "local_ai\local-codex.ps1",
+            "local_ai\bootstrap.ps1"
+          )
+          foreach ($file in $scripts) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file).Path, [ref]$tokens, [ref]$parseErrors
+            ) | Out-Null
+            if (@($parseErrors).Count -gt 0) {
+              $parseErrors | Format-List | Out-String | Write-Error
+              throw "PowerShell parse failed: $file"
+            }
+            Write-Host "PowerShell parse PASS: $file"
+          }
+      - name: Validate one-click launchers and local-only defaults
+        shell: pwsh
+        run: |
+          $required = @(
+            "local_ai\Setup-Local-Codex.cmd",
+            "local_ai\Start-Local-Codex.cmd",
+            "local_ai\Check-Local-Codex.cmd"
+          )
+          foreach ($file in $required) {
+            if (!(Test-Path $file)) { throw "Missing launcher: $file" }
+            $cmd = Get-Content $file -Raw
+            if ($cmd -notmatch "local-codex.ps1") { throw "Launcher not wired: $file" }
+            if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
+          }
+          $src = Get-Content "local_ai\local-codex.ps1" -Raw
+          foreach ($requiredString in @("npm.cmd", "codex.cmd", "--oss", "127.0.0.1:11434", "qwen3:4b")) {
+            if (!$src.Contains($requiredString)) { throw "Missing required safety/config setting: $requiredString" }
+          }
+          Write-Host "Windows launchers and local-only checks PASS."
