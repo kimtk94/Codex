@@ -320,6 +320,27 @@ jobs:
           print("DAILY20_CA_MATCH_RESEARCH_ONLY",r["reference_status"],
                 "matched",r["matched_ex_date_events"],"CERTIFIED 0/25")
           PY
+      - name: Validate dated primary-listing evidence (historic PLTR boundary; no price certification)
+        run: |
+          python research/kalman_daily20/listing_asof.py \
+            --qc output/daily20/qc.json \
+            --current-venue output/daily20/research/source_finality/venue_identity.json \
+            --out output/daily20/research/listing_asof/report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/listing_asof/report.json").read_text())
+          assert r["required"] == 25 and len(r["rows"]) == 25
+          assert r["research_only"] is True and r["production_writes"] is False
+          assert r["strategy_promoted"] is False and r["finality_verified"] == 0
+          assert r["historical_listing_asof_certified"] == 0
+          assert r["status"] == "HISTORICAL_LISTING_ASOF_RESEARCH_HOLD"
+          assert [(x["session"],x["sip_code"]) for x in r["pltr_transfer_regression"]] == [
+            ("2024-11-25","N"),("2024-11-26","Q")]
+          print("DAILY20_LISTING_ASOF",r["asof_research_interval_covered"],
+                "/25 research coverage; historical documented symbols",
+                r["documented_historical_symbols"],"certified 0/25 HOLD")
+          PY
       - name: Secondary provider return comparison (advisory; independence unverified)
         run: |
           python research/kalman_daily20/secondary_qc.py \
