@@ -375,7 +375,7 @@ jobs:
           assert report["issuer_identities_certified"] == 0
           assert report["remaining_review_case_count"] == len(cases)
           assert len(cases) == report["unresolved_cases_analyzed"]
-          assert report["curated_official_leads"] == 7
+          assert report["curated_official_leads"] == 10
           assert all(r["independent_adjustment_factor_certified"] == "False" for r in cases)
           print("DAILY20_CA_PRIMARY_HOLD",report["unresolved_cases_analyzed"],
                 "pending",report["official_leads_applicable"],"issuer leads",
