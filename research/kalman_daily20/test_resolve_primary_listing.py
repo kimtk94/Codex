@@ -13,8 +13,9 @@ from daily20 import load_spec
 SESSION="2026-11-20"
 SPEC=load_spec()
 EQUITIES=SPEC["core"]+[x for x in SPEC["context"] if x!="^VIX"]
-REGISTRY={"P":"NYSE Arca","Q":"NASDAQ Stock Market",
-          "N":"New York Stock Exchange", "T":"NYSE National"}
+# Literal non-secret labels received from Alpaca SIP /meta/exchanges on 2026-11-21.
+REGISTRY={"P":"NYSE Arca","Q":"NASDAQ OMX",
+          "N":"New York Stock Exchange", "T":"NASDAQ Int"}
 
 def fake_source(quotes_by_asset=None):
     source={}
@@ -41,6 +42,8 @@ class PrimaryVenueTests(TestCase):
     def test_exchange_aliases_strict_and_options_trf_rejected(self):
         self.assertEqual(pl.canonical_exchange("NYSEARCA"),"NYSE_ARCA")
         self.assertEqual(pl.canonical_exchange("NASDAQ"),"NASDAQ")
+        self.assertEqual(pl.canonical_exchange("NASDAQ OMX"),"NASDAQ")
+        self.assertIsNone(pl.canonical_exchange("NASDAQ Int"))
         self.assertEqual(pl.canonical_exchange("New York Stock Exchange"),"NYSE")
         self.assertIsNone(pl.canonical_exchange("Nasdaq TRF"))
         self.assertIsNone(pl.canonical_exchange("NYSE Arca Options"))
