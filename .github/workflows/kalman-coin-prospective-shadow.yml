@@ -1,0 +1,152 @@
+name: Kalman COIN Prospective OOS Shadow Seal (Research Only)
+on:
+  pull_request:
+    paths:
+      - 'research/rr2_entry_gate/coin_prospective_shadow.py'
+      - 'research/rr2_entry_gate/test_coin_prospective_shadow.py'
+      - '.github/workflows/kalman-coin-prospective-shadow.yml'
+  push:
+    branches: [research/rr2-entry-rejection-audit-20261101]
+    paths: ['.github/workflows/kalman-coin-prospective-shadow.yml']
+  workflow_dispatch:
+  # Schedules work only on the DEFAULT branch; while in draft PR, not active.
+  schedule:
+    - cron: '15 23 * * 1-5'
+permissions:
+  contents: read
+concurrency:
+  group: coin-prospective-shadow-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m py_compile research/rr2_entry_gate/coin_prospective_shadow.py research/rr2_entry_gate/test_coin_prospective_shadow.py
+      - run: python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_prospective_shadow.py' -v
+
+  shadow:
+    if: github.event_name != 'pull_request'
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: TaehoonServer
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: research_current
+      - uses: actions/checkout@v4
+        with:
+          ref: cccbb80059ab626da0cbd76cd825f879870f6727
+          path: original_snapshot
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned source-family dependencies
+        run: python -m pip install --disable-pip-version-check 'pandas>=2.2,<3' 'numpy>=1.26,<3' 'pyarrow>=17' 'exchange-calendars>=4.7,<5' 'requests>=2.31,<3' 'scikit-learn>=1.4,<2'
+      - name: Determine safe decision snapshot window
+        id: plan
+        working-directory: research_current
+        run: |
+          python - <<'PY'
+          import datetime as dt
+          import exchange_calendars as xcals
+          import os,sys
+          from zoneinfo import ZoneInfo
+          sys.path.insert(0,'research/rr2_entry_gate')
+          from coin_prospective_shadow import check_decision_clock, ResearchHold
+          mode='smoke' if os.environ['GITHUB_EVENT_NAME']=='push' else 'prospective'
+          now=dt.datetime.now(dt.timezone.utc)
+          asof=dt.date(2026,10,30) if mode=='smoke' else now.astimezone(ZoneInfo('America/New_York')).date()
+          eligible=mode=='smoke'
+          if mode=='prospective':
+              try:
+                  check_decision_clock(asof,now,xcals.get_calendar('XNYS'))
+                  eligible=True
+              except ResearchHold as exc:
+                  print('PROSPECTIVE_WAIT_OR_HOLD',str(exc))
+          end=dt.date(2026,10,31) if mode=='smoke' else now.date()+dt.timedelta(days=1)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as fh:
+              for k,v in dict(mode=mode,asof=asof.isoformat(),end=end.isoformat(),
+                              ready=str(eligible).lower()).items():
+                  fh.write(k+'='+str(v)+'\n')
+          print('COIN_SHADOW_MODE',mode,'READY',eligible,'LIVE_HOLD')
+          PY
+      - name: Read SIP bars exclusively into ephemeral job
+        if: steps.plan.outputs.ready == 'true'
+        working-directory: original_snapshot
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+        run: |
+          python -m research.kalman_integrated_regime.us_multisymbol_bar_backfill --symbols COIN --start 2024-01-01 --end-exclusive "${{ steps.plan.outputs.end }}" --max-pages-per-month 25 --out "$RUNNER_TEMP/coin_prospective_private"
+      - name: Verify 208/46 original 2026 signal parity and seal cutoff-bounded shadow
+        if: steps.plan.outputs.ready == 'true'
+        working-directory: research_current
+        run: |
+          python research/rr2_entry_gate/coin_prospective_shadow.py --mode "${{ steps.plan.outputs.mode }}" --asof "${{ steps.plan.outputs.asof }}" --bars-parquet "$RUNNER_TEMP/coin_prospective_private/private_15m_bars.parquet" --original-source "$GITHUB_WORKSPACE/original_snapshot" --public-out outputs/coin_prospective/public_shadow.json --private-out "$RUNNER_TEMP/coin_prospective_PRIVATE_signal.json"
+      - name: Audit public artifact for leaks and false OOS
+        if: steps.plan.outputs.ready == 'true'
+        working-directory: research_current
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('outputs/coin_prospective/public_shadow.json')
+          d=json.loads(p.read_text())
+          raw=p.read_text()
+          assert d['live']=='HOLD' and d['not_an_order_not_a_fill']
+          assert d['source_commit']=='cccbb80059ab626da0cbd76cd825f879870f6727'
+          assert d['train_labels_end_before']=='2026-01-01'
+          assert d['original_2026_208_panel_46_signal_parity'] is True
+          assert d['commitment_input_cut_at_asof_RTH_close'] is True
+          assert d['signal_and_price_not_public'] and len(d['signal_commitment_sha256'])==64
+          assert all(x not in raw for x in ('"signal_probability"','"candidate"','"entry_price"','"target_price"','"stop_price"'))
+          if d['status'].startswith('RETROSPECTIVE'):
+              assert d['no_unseen_oos_claim_for_smoke']
+          else:
+              assert d['status']=='SEALED_PRE_ENTRY_OOS_SHADOW'
+          print('PUBLIC_SHA_ONLY_AND_NO_RETROSPECTIVE_OOS_PROMOTION')
+          PY
+      - name: Append sealed future commitment to independent audit branch
+        if: steps.plan.outputs.mode == 'prospective' && steps.plan.outputs.ready == 'true'
+        working-directory: research_current
+        run: |
+          cp outputs/coin_prospective/public_shadow.json "$RUNNER_TEMP/coin_PUBLIC.json"
+          if git fetch origin refs/heads/research/coin-prospective-audit:refs/remotes/origin/research/coin-prospective-audit; then
+            git switch -C research/coin-prospective-audit origin/research/coin-prospective-audit
+          else
+            git switch --orphan research/coin-prospective-audit
+            git rm -rf . >/dev/null
+          fi
+          mkdir -p journal/coin
+          TARGET="journal/coin/${{ steps.plan.outputs.asof }}.json"
+          if test -e "$TARGET"; then
+            if cmp -s "$TARGET" "$RUNNER_TEMP/coin_PUBLIC.json"; then
+              echo 'ALREADY_SEALED_IDENTICAL_NO_OP'
+              exit 0
+            fi
+            echo 'PROSPECTIVE_SEAL_DIGEST_CONFLICT_HOLD'
+            exit 1
+          fi
+          cp "$RUNNER_TEMP/coin_PUBLIC.json" "$TARGET"
+          git add "$TARGET"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "research: seal COIN postclose commitment ${{ steps.plan.outputs.asof }}"
+          git push origin HEAD:refs/heads/research/coin-prospective-audit
+          echo 'NONPUBLIC_DIRECTION_NOT_COMMITTED_LIVE_HOLD'
+      - name: Upload only public aggregate sealed checksum
+        if: steps.plan.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coin-prospective-${{ steps.plan.outputs.mode }}-public-seal
+          path: research_current/outputs/coin_prospective/public_shadow.json
+          if-no-files-found: error
+          retention-days: 90

@@ -1,0 +1,103 @@
+name: Kalman COIN PIT Signal-Matched RR2 (Research Only)
+on:
+  pull_request:
+    paths:
+      - 'research/rr2_entry_gate/coin_signal_replay.py'
+      - 'research/rr2_entry_gate/test_coin_signal_replay.py'
+      - '.github/workflows/kalman-coin-pit-replay.yml'
+  workflow_dispatch:
+    inputs:
+      original_signal_ledger_drive_id:
+        description: 'Private original model signal CSV file ID; NEVER synthetic/backfilled dates'
+        required: true
+        type: string
+      start:
+        description: 'SIP first complete session'
+        type: string
+        required: false
+        default: '2024-01-01'
+      end:
+        description: 'SIP last complete session'
+        type: string
+        required: false
+        default: '2026-10-30'
+permissions:
+  contents: read
+jobs:
+  offline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install XNYS market calendar
+        run: python -m pip install --disable-pip-version-check 'exchange-calendars>=4.5,<5' 'pandas>=2.1,<3'
+      - name: Strict original candidate provenance and chronology contracts
+        run: |
+          python -m py_compile research/rr2_entry_gate/coin_signal_replay.py
+          python -m unittest discover -s research/rr2_entry_gate -p 'test_coin_signal_replay.py' -v
+  private-matched-replay:
+    if: github.event_name == 'workflow_dispatch' && inputs.original_signal_ledger_drive_id != ''
+    needs: offline-contracts
+    environment: TaehoonServer
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated analysis dependencies
+        run: python -m pip install --disable-pip-version-check 'exchange-calendars>=4.5,<5' 'pandas>=2.1,<3' google-auth google-api-python-client
+      - name: Fetch immutable original PIT signal ledger privately
+        env:
+          CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+          GDRIVE_SA_JSON_B64: ${{ secrets.GDRIVE_SA_JSON_B64 }}
+          LEDGER_ID: ${{ inputs.original_signal_ledger_drive_id }}
+        run: |
+          python research/kalman_triple_barrier/drive_input.py \
+            --file-id "$LEDGER_ID" \
+            --output "$RUNNER_TEMP/coin-original-signals-private.csv"
+      - name: Historical COIN SIP read-only replay
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          STUDY_START: ${{ inputs.start }}
+          STUDY_END: ${{ inputs.end }}
+        run: |
+          python research/rr2_entry_gate/alpaca_sip_readonly.py \
+            --start "${STUDY_START}T00:00:00Z" \
+            --end "$(date -u -d "${STUDY_END} +1 day" +%Y-%m-%d)T00:00:00Z" \
+            --output "$RUNNER_TEMP/coin_sip_private_15m.json"
+          python research/rr2_entry_gate/coin_signal_replay.py \
+            --bars "$RUNNER_TEMP/coin_sip_private_15m.json" \
+            --ledger "$RUNNER_TEMP/coin-original-signals-private.csv" \
+            --start "$STUDY_START" \
+            --end "$STUDY_END" \
+            --out outputs/coin_pit_rr2/summary.json
+      - name: Enforce no live promotion and exact archival candidate totals
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('outputs/coin_pit_rr2/summary.json').read_text())
+          assert d['live']=='HOLD'
+          assert d['no_broker_or_live_change'] is True
+          assert d['signals_verified']=={'2025':80,'2026':46}
+          assert all(x['original_atr125_stop300_gate_pass']==0
+                     for x in d['baseline_parity'].values())
+          assert len(d['results'])==24
+          print('COIN_ORIGINAL_PIT_LEDGER_MATCHED_RESEARCH_ONLY_LIVE_HOLD')
+          PY
+      - name: Publish only aggregate statistics, never ledger or SIP bars
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-coin-original-signal-rr2-aggregate
+          path: outputs/coin_pit_rr2/summary.json
+          retention-days: 14
+          if-no-files-found: warn
