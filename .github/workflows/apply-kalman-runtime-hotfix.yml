@@ -2,64 +2,89 @@ name: Apply Kalman Runtime Decision Console Hotfix
 
 on:
   workflow_dispatch:
+    inputs:
+      propose_pr:
+        description: "Create a draft PR instead of preview only (manual approval required)"
+        type: boolean
+        required: false
+        default: false
+      approval_text:
+        description: "For PR creation type APPROVE_RUNTIME_HOTFIX_PR"
+        type: string
+        required: false
+        default: ""
   push:
     branches: [main]
     paths:
       - "kalman-toss-gateway/scripts/runtime_hotfix_v7420_decision_console.js"
       - "kalman-toss-gateway/scripts/apply_runtime_hotfix_v7420.py"
+      - "automation/kalman/prepare_runtime_hotfix_pr.py"
+      - ".github/workflows/apply-kalman-runtime-hotfix.yml"
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/scripts/runtime_hotfix_v7420_decision_console.js"
+      - "kalman-toss-gateway/scripts/apply_runtime_hotfix_v7420.py"
+      - "automation/kalman/prepare_runtime_hotfix_pr.py"
       - ".github/workflows/apply-kalman-runtime-hotfix.yml"
 
+# Preview is read-only. Proposal writes are granted only in a separate manual job.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: kalman-runtime-manifest-hotfix
   cancel-in-progress: false
 
 jobs:
-  hotfix:
+  preview:
+    name: Validate hotfix and publish proposed diff (no writes)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-
+          fetch-depth: 1
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Generate patch and verify JavaScript syntax
+        run: python automation/kalman/prepare_runtime_hotfix_pr.py --repo . --out-dir "$RUNNER_TEMP/kalman-hotfix-preview"
+      - name: Upload review-only patch and metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-hotfix-preview-${{ github.run_id }}
+          path: ${{ runner.temp }}/kalman-hotfix-preview/
+          if-no-files-found: warn
+          retention-days: 7
 
-      - name: Apply hotfix to production runtime manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          python kalman-toss-gateway/scripts/apply_runtime_hotfix_v7420.py
-          python - <<'PY'
-          import base64,json
-          from pathlib import Path
-          p=Path("kalman-hub-recovery/v7.4.20/source_manifest.ndjson")
-          rows=[json.loads(x) for x in p.read_text().splitlines() if x.strip()]
-          app=next(base64.b64decode(x["data_b64"]).decode() for x in rows if x["file"]=="app.js")
-          assert "KALMAN_DECISION_CONSOLE_HOTFIX_V7422" in app
-          Path("/tmp/hotfix-app.js").write_text(app)
-          PY
-          node --check /tmp/hotfix-app.js
-
-      - name: Commit runtime manifest hotfix
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add kalman-hub-recovery/v7.4.20/source_manifest.ndjson \
-                  kalman-hub-recovery/v7.4.20/build_report.json
-          if git diff --cached --quiet; then
-            echo "No changes."
-            exit 0
-          fi
-          git commit -m "hotfix: serve v7.4.22 decision console on production runtime"
-          git push origin HEAD:main
+  proposal:
+    name: Explicitly approved proposal branch and draft PR (no main push)
+    needs: preview
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.propose_pr == true && inputs.approval_text == 'APPROVE_RUNTIME_HOTFIX_PR' && github.actor == 'kimtk94' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Rebuild/verify approved proposal and open DRAFT PR only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOTFIX_PR_APPROVAL: ${{ inputs.approval_text }}
+        run: python automation/kalman/prepare_runtime_hotfix_pr.py --repo . --out-dir "$RUNNER_TEMP/kalman-hotfix-proposal" --propose-pr
