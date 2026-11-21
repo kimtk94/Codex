@@ -419,6 +419,31 @@ jobs:
           print("DAILY20_DIVIDEND_GAP_HOLD",r["status"],
                 "archived",r["both_archived_sources_verified"],"0/26")
           PY
+      - name: Record original QQQ 2018 trust amendment (date rule only; no paid cash)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/issuer_qqq2018_schedule.py \
+              --offline --out-dir output/daily20/research/issuer_qqq2018_rule
+          else
+            python research/kalman_daily20/issuer_qqq2018_schedule.py \
+              --out-dir output/daily20/research/issuer_qqq2018_rule
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/issuer_qqq2018_rule/report.json").read_text())
+          assert r["research_only"] and not r["production_writes"]
+          assert not r["strategy_promoted"]
+          assert r["source_finality_verified"] == 0
+          assert r["issuer_cash_payment_certified"] is False
+          assert r["issuer_paid_cash_amount_usd"] is None
+          assert r["independent_adjustment_factor_certified"] is False
+          assert r["matched_qqq_exception_date"] is True
+          if r["source_anchor_verified"]:
+              assert r["status"] == "FIRST_PARTY_2018_RULE_VERIFIED_CASH_HOLD"
+              assert r["source_archive"] and r["source_sha256"]
+          print("DAILY20_QQQ2018_ISSUER_RULE_RESEARCH_HOLD",r["status"])
+          PY
       - name: Validate dated primary-listing evidence (historic PLTR boundary; no price certification)
         run: |
           python research/kalman_daily20/listing_asof.py \
