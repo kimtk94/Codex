@@ -128,11 +128,17 @@ try {
         $resolved = (Resolve-Path -LiteralPath $ProjectPath).Path
         Write-Host "Project folder: $resolved"
         Write-Host "Starting LOCAL Codex with explicit model $Model (not cloud)."
+        $savedContext = [Environment]::GetEnvironmentVariable("OLLAMA_CONTEXT_LENGTH", "User")
+        if ($savedContext -ne "16384") {
+            Write-Warning "Ollama 16K context is not confirmed. Run Set-Ollama-Context-16K.cmd and fully restart Ollama first if you receive a 4096-token context error."
+        }
         Write-Host "Codex recommendations: use it on a git branch and REVIEW every change."
         Push-Location -LiteralPath $resolved
         try {
-            # --oss uses Ollama; -m selects the exact installed model; web search disabled.
-            & codex.cmd --oss -m $Model -c 'web_search="disabled"'
+            # --oss uses Ollama. Context budget is aligned with our Windows 16K preset.
+            # This Codex-side value alone does NOT increase Ollama server allocation.
+            # Use Set-Ollama-Context-16K.cmd and restart Ollama before running Codex.
+            & codex.cmd --oss -m $Model -c 'model_context_window=16384' -c 'web_search="disabled"'
             if ($LASTEXITCODE -ne 0) { throw "Codex exited with code $LASTEXITCODE." }
         } finally {
             Pop-Location
