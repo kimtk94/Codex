@@ -2,7 +2,7 @@ name: Lead Outreach Source-to-Feishu Chain
 # Ordered, independently verifiable pipeline; no customer mail sending or SFDC writes.
 # Production deployment runs only when this exact verified release commit is used.
 # QQ personal sent evidence (Sheets) -> Feishu mirror -> age-aware priority
-# -> two eligible-only outreach views -> Feishu delta readback and redacted artifact.
+# -> four eligible-only mail-evidence views -> Feishu delta readback and redacted artifact.
 on:
   workflow_dispatch:
     inputs:
@@ -18,6 +18,9 @@ on:
     branches: [main]
     paths:
       - 'automation/feishu/lead_outreach_pipeline_evidence.py'
+      - 'automation/feishu/lead_mail_views_sync.py'
+      - 'automation/feishu/lead_action_queue_views.py'
+      - 'automation/feishu/test_lead_mail_views_sync.py'
       - 'automation/feishu/test_lead_outreach_pipeline_evidence.py'
       - '.github/workflows/lead-outreach-chain.yml'
   pull_request:
@@ -83,7 +86,7 @@ jobs:
       - name: '3. Apply rolling one-year eligibility and action priority labels'
         id: queue
         run: python automation/feishu/lead_action_queue_views.py --apply 2>&1 | tee lead-queue.log
-      - name: '4. Refresh two eligible-only no-outbound-evidence views'
+      - name: '4. Refresh four recent-year outbound-evidence and no-evidence views'
         id: views
         run: python automation/feishu/lead_mail_views_sync.py --apply 2>&1 | tee lead-views.log
       - name: '5a. Read-only Feishu delta freshness and outstanding changes'
@@ -120,7 +123,7 @@ jobs:
           echo "| QQ personal outbound to Sheets | $PERSONAL |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Feishu mail evidence mirror | $MIRROR |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Rolling-year eligibility and priority | $QUEUE |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Eligible only views | $VIEWS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Four eligible-only views | $VIEWS |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Feishu delta preview | $PREVIEW |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Feishu delta readback | $APPLY |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Aggregate proof | $PROOF |" >> "$GITHUB_STEP_SUMMARY"
