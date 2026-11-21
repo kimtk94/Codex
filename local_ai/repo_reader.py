@@ -40,6 +40,10 @@ def repo_root(directory: Path) -> Path:
 
 
 def _allowed_path(root: Path, name: str) -> Path:
+    # Resolve the repository root itself before comparing with resolved files.
+    # Windows temporary paths can use 8.3 aliases (RUNNER~1) while Path.resolve()
+    # returns the long name, which must not be confused with escaping the repo.
+    root = root.resolve(strict=True)
     if not name or "\x00" in name:
         raise ValueError("Invalid file path")
     path = Path(name)
