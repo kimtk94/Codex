@@ -1,207 +1,202 @@
 #!/usr/bin/env python3
-"""Three Feishu Lead operational views; audit/modify only view filters.
+"""Isolated Feishu Lead action queues with a single automation-owned text field.
 
-This isolated consumer does not change Lead records, source mail, SFDC, Account or
-existing views. User-managed checkboxes are read, never written.
-Default mode is audit only. CI deployment validates and applies only the three managed views.
+Manual checkboxes are NEVER written. A derived text field is synchronized from
+their current values, then three views filter that known-good text field.
+All source fields are read-only. Existing Feishu views and business tables are
+never changed. Default mode is read-only.
 """
 import argparse
 import json
 import sys
-import urllib.error
-import urllib.request
 from collections import Counter
 
 import lead_mail_description_sync as lead
 import lead_manual_checkboxes as manual
-from lead_mail_views_sync import check_parity, get_one_view
+from lead_mail_views_sync import check_parity, get_one_view, filter_matches
 from sales_home_links import API, BASE, pages, request, require_success
 
 EXPECTED_TABLE_ID = manual.EXPECTED_TABLE_ID
-NO_EVIDENCE = "메일 발송 증거 없음"
-# Display order defines precedence. Each view is disjoint by design.
+QUEUE_FIELD = "Lead 업무 우선순위 (자동)"
+QUEUE_LABELS = {
+    "recontact": "01 · 재연락 필요",
+    "planned": "02 · 메일 발송 예정",
+    "review": "03 · 검토 대기",
+    "none": "관리 제외 / 발송 확인",
+}
 QUEUES = (
     ("03 · 최우선 · 재연락 필요", "recontact"),
     ("04 · 메일 발송 예정", "planned"),
     ("05 · 검토 대기 · 메일 증거 없음", "review"),
 )
-REQUIRED = {
-    "재연락 필요": 7,
-    "메일 발송 예정": 7,
-    "검토 완료": 7,
-    "연락 구분": 1,
-}
-TRUE = "1"  # Bitable checkbox view filters use the numeric checked token
-
-def condition(field_id, op, val):
-    return {"field_id": field_id, "operator": op,
-            "value": json.dumps([val], ensure_ascii=False)}
-
-def queue_filter(field_ids, kind):
-    # Feishu bitable/v1 view-filter syntax: values are JSON-encoded arrays.
-    true = lambda f: condition(field_ids[f], "is", TRUE)
-    false = lambda f: condition(field_ids[f], "isNot", TRUE)
-    if kind == "recontact":
-        conditions = [true("재연락 필요")]
-    elif kind == "planned":
-        conditions = [false("재연락 필요"), true("메일 발송 예정")]
-    elif kind == "review":
-        conditions = [false("재연락 필요"), false("메일 발송 예정"),
-                      false("검토 완료"), condition(field_ids["연락 구분"],
-                                                   "is", NO_EVIDENCE)]
-    else:
-        raise RuntimeError("UNKNOWN_QUEUE_KIND")
-    return {"conjunction": "and", "conditions": conditions}
-
-def conditions_equal(observed, expected):
-    if not isinstance(observed, dict) or observed.get("conjunction") != "and":
-        return False
-    def normalize(value):
-        result = []
-        for cond in value.get("conditions") or []:
-            raw = cond.get("value")
-            try:
-                parsed = json.loads(raw) if isinstance(raw, str) else raw
-            except (TypeError, ValueError):
-                return None
-            if not isinstance(parsed, list) or len(parsed) != 1:
-                return None
-            result.append((cond.get("field_id"), cond.get("operator"), str(parsed[0]).lower()))
-        return sorted(result)
-    return normalize(observed) == normalize(expected)
+NO_EVIDENCE = "메일 발송 증거 없음"
 
 def classify(row):
-    # Highest priority wins when multiple checkboxes are set.
     if manual.checked(row.get("재연락 필요")):
         return "recontact"
     if manual.checked(row.get("메일 발송 예정")):
         return "planned"
+    status = lead.norm(row.get("Lead Status")).casefold()
+    if any(s in status for s in ("converted", "qualified", "disqualified")):
+        return "none"
     if (not manual.checked(row.get("검토 완료")) and
-            row.get("연락 구분") == NO_EVIDENCE):
+            lead.norm(row.get("연락 구분")) == NO_EVIDENCE):
         return "review"
     return "none"
 
-def assert_queue_partition(records):
-    output = {name: set() for _, name in QUEUES}
-    output["none"] = set()
+def partition(records):
+    buckets = {name: set() for name in QUEUE_LABELS}
     for key, row in records.items():
-        output[classify(row)].add(key)
-    if sum(len(ids) for ids in output.values()) != len(records):
-        raise RuntimeError("LEAD_QUEUE_PARTITION_COUNT_MISMATCH")
-    return output
+        buckets[classify(row)].add(key)
+    if sum(len(x) for x in buckets.values()) != len(records):
+        raise RuntimeError("LEAD_QUEUE_PARTITION_INVALID")
+    return buckets
 
-def patch_view_filter(path, token, wanted):
-    """Patch only a managed view; report redacted Feishu API error codes."""
-    from base_readonly_probe import ROOT
-    body = json.dumps({"property": {"filter_info": wanted}},
-                      ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        ROOT + path, data=body, method="PATCH",
-        headers={"Authorization": "Bearer " + token,
-                 "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=25) as response:
-            result = json.load(response)
-    except urllib.error.HTTPError as exc:
-        try:
-            obj = json.loads(exc.read().decode("utf-8"))
-            code = obj.get("code", "unknown")
-            detail = str(obj.get("msg", ""))[:90]
-        except (ValueError, UnicodeError):
-            code, detail = "unknown", "unavailable"
-        raise RuntimeError(f"LEAD_QUEUE_FILTER_HTTP_{exc.code}_CODE_{code}_MSG_{detail}") from None
-    require_success(result, "SET_QUEUE_FILTER")
-    return result
+def filter_definition(field_id, kind):
+    if kind not in QUEUE_LABELS:
+        raise RuntimeError("LEAD_QUEUE_KIND_INVALID")
+    return {"conjunction":"and", "conditions":[
+        {"field_id":field_id, "operator":"is",
+         "value":json.dumps([QUEUE_LABELS[kind]],ensure_ascii=False)}
+    ]}
 
-def read_ids(root, token, view_id):
-    ids = set()
-    for rec in pages(root + "/records", token, {"view_id": view_id}):
-        key = lead.norm((rec.get("fields") or {}).get("Lead ID"))
-        if not key or key in ids:
-            raise RuntimeError("LEAD_QUEUE_VISIBLE_ID_INVALID")
-        ids.add(key)
-    return ids
+def manual_snapshot(records):
+    return {key:{field:manual.checked(row.get(field))
+                 for field in manual.MANUAL}
+            for key,row in records.items()}
+
+def audit_snapshots(before, after, desired, source):
+    if set(before) != set(after) or set(after) != set(desired):
+        raise RuntimeError("LEAD_QUEUE_READBACK_ID_MISMATCH")
+    check_parity(source, after)
+    for key, value in desired.items():
+        if lead.norm(after[key].get(QUEUE_FIELD)) != value:
+            raise RuntimeError("LEAD_QUEUE_DERIVED_FIELD_READBACK_MISMATCH")
+    old_checks = manual_snapshot(before)
+    if old_checks != manual_snapshot(after):
+        raise RuntimeError("LEAD_QUEUE_MANUAL_FLAGS_CHANGED")
+    return len(after)
+
+def load_records(root,token):
+    records={}
+    for rec in pages(root+"/records",token):
+        row=rec.get("fields") or {}
+        key=lead.norm(row.get("Lead ID"))
+        if not key or key in records or not rec.get("record_id"):
+            raise RuntimeError("LEAD_QUEUE_RECORD_ID_INVALID")
+        records[key]={"record_id":rec["record_id"],"fields":row}
+    return records
+
+def read_view_ids(root,token,view_id):
+    found=set()
+    for rec in pages(root+"/records",token,{"view_id":view_id}):
+        key=lead.norm((rec.get("fields") or {}).get("Lead ID"))
+        if not key or key in found:
+            raise RuntimeError("LEAD_QUEUE_VIEW_DUPLICATE_OR_EMPTY_ID")
+        found.add(key)
+    return found
 
 def main(apply=False):
-    source = lead.sheets_data()  # stale source means no view writes
+    source = lead.sheets_data()
     token = lead.auth()
-    tables = [t for t in pages(API + "/tables", token)
-              if t.get("name") == lead.TABLE]
-    if len(tables) != 1 or tables[0].get("table_id") != EXPECTED_TABLE_ID:
-        raise RuntimeError("LEAD_QUEUE_UNEXPECTED_TABLE")
-    root = API + "/tables/" + EXPECTED_TABLE_ID
-    fields = list(pages(root + "/fields", token))
-    ids = {}
-    for f in fields:
-        name = f.get("field_name")
-        if name in REQUIRED:
-            if name in ids or f.get("type") != REQUIRED[name] or not f.get("field_id"):
-                raise RuntimeError("LEAD_QUEUE_FIELD_SCHEMA_INVALID")
-            ids[name] = f["field_id"]
-    if set(ids) != set(REQUIRED):
-        raise RuntimeError("LEAD_QUEUE_FIELDS_MISSING")
+    tables=[x for x in pages(API+"/tables",token) if x.get("name")==lead.TABLE]
+    if len(tables)!=1 or tables[0].get("table_id")!=EXPECTED_TABLE_ID:
+        raise RuntimeError("LEAD_QUEUE_WRONG_TABLE")
+    root=API+"/tables/"+EXPECTED_TABLE_ID
+    fields=list(pages(root+"/fields",token))
+    matched=[x for x in fields if x.get("field_name")==QUEUE_FIELD]
+    if len(matched)>1 or (matched and matched[0].get("type")!=1):
+        raise RuntimeError("LEAD_QUEUE_FIELD_SCHEMA_INVALID")
+    for name in manual.MANUAL:
+        matches=[x for x in fields if x.get("field_name")==name]
+        if len(matches)!=1 or matches[0].get("type")!=7:
+            raise RuntimeError("LEAD_QUEUE_MANUAL_SCHEMA_INVALID")
+    old=load_records(root,token)
+    old_fields={key:rec["fields"] for key,rec in old.items()}
+    check_parity(source,old_fields)
+    desired={key:QUEUE_LABELS[classify(row)] for key,row in old_fields.items()}
+    groups=partition(old_fields)
+    updates=[{"record_id":rec["record_id"],"fields":{QUEUE_FIELD:desired[key]}}
+             for key,rec in old.items()
+             if lead.norm(rec["fields"].get(QUEUE_FIELD))!=desired[key]]
+    stats={k:len(v) for k,v in groups.items()}
+    print("LEAD_QUEUE_PLAN="+json.dumps({
+        "total":len(old),"changes":len(updates),
+        "queue_field_exists":bool(matched),"groups":stats,
+        "mode":"APPLY" if apply else "READ_ONLY"
+    },ensure_ascii=False),flush=True)
 
-    records = {}
-    for rec in pages(root + "/records", token):
-        row = rec.get("fields") or {}
-        key = lead.norm(row.get("Lead ID"))
-        if not key or key in records or not rec.get("record_id"):
-            raise RuntimeError("LEAD_QUEUE_DUPLICATE_ID")
-        records[key] = row
-    check_parity(source, records) # verifies all source-owned fields
-    for row in records.values():
-        for name in manual.MANUAL:
-            manual.checked(row.get(name))
-    partition = assert_queue_partition(records)
-    counts = {k: len(v) for k,v in partition.items()}
-    print("LEAD_QUEUE_SOURCE_SINK_PARITY_PASS=" +
-          json.dumps({"total":len(source),"counts":counts},
-                     ensure_ascii=False), flush=True)
+    if apply:
+        if not matched:
+            require_success(request("POST",root+"/fields",token=token,
+                body={"field_name":QUEUE_FIELD,"type":1}),"CREATE_QUEUE_FIELD")
+            current=[x for x in pages(root+"/fields",token)
+                     if x.get("field_name")==QUEUE_FIELD]
+            if len(current)!=1 or current[0].get("type")!=1:
+                raise RuntimeError("LEAD_QUEUE_FIELD_CREATE_READBACK_FAILED")
+            matched=current
+        for start in range(0,len(updates),100):
+            require_success(request("POST",root+"/records/batch_update",token=token,
+                body={"records":updates[start:start+100]}),"UPSERT_QUEUE_LABELS")
+    if not matched:
+        print("LEAD_QUEUE_DRY_RUN_MISSING_FIELD=true",flush=True)
+        return
+    field_id=matched[0].get("field_id")
+    if not field_id:
+        raise RuntimeError("LEAD_QUEUE_FIELD_ID_MISSING")
+    if apply:
+        after_records=load_records(root,token)
+        after={key:record["fields"] for key,record in after_records.items()}
+        count=audit_snapshots(old_fields,after,desired,source)
+        print("LEAD_QUEUE_MANUAL_STATES_PRESERVED="+str(count),flush=True)
+    elif updates:
+        print("LEAD_QUEUE_DRY_RUN_PENDING="+str(len(updates)),flush=True)
+        return
 
-    views = list(pages(root + "/views", token))
-    for title, kind in QUEUES:
-        existing = [v for v in views if v.get("view_name") == title]
-        if len(existing) > 1:
-            raise RuntimeError("LEAD_QUEUE_VIEW_NAME_DUPLICATE")
-        view_id = existing[0].get("view_id") if existing else None
-        wanted = queue_filter(ids, kind)
+    views=list(pages(root+"/views",token))
+    for title,kind in QUEUES:
+        matches=[x for x in views if x.get("view_name")==title]
+        if len(matches)>1:
+            raise RuntimeError("LEAD_QUEUE_DUPLICATE_VIEW_NAME")
+        view_id=matches[0].get("view_id") if matches else None
+        wanted=filter_definition(field_id,kind)
         if not view_id:
             if not apply:
-                print("LEAD_QUEUE_MISSING_VIEW_DRY_RUN=" + title, flush=True)
+                print("LEAD_QUEUE_VIEW_MISSING_DRY_RUN="+title,flush=True)
                 continue
-            data = require_success(request("POST",root+"/views",token=token,
-                 body={"view_name":title,"view_type":"grid"}), "CREATE_QUEUE_VIEW")
-            view_id = (data.get("view") or {}).get("view_id") or data.get("view_id")
+            data=require_success(request("POST",root+"/views",token=token,
+                body={"view_name":title,"view_type":"grid"}),"CREATE_LEAD_QUEUE_VIEW")
+            view_id=(data.get("view") or {}).get("view_id") or data.get("view_id")
             if not view_id:
-                raise RuntimeError("LEAD_QUEUE_CREATED_VIEW_MISSING_ID")
-        view = get_one_view(root, token, view_id)
-        if view.get("view_name") != title or view.get("view_type") != "grid":
-            raise RuntimeError("LEAD_QUEUE_VIEW_TYPE_CHANGED")
-        filt = (view.get("property") or {}).get("filter_info")
-        if not conditions_equal(filt, wanted):
+                raise RuntimeError("LEAD_QUEUE_CREATE_VIEW_ID_MISSING")
+        view=get_one_view(root,token,view_id)
+        if view.get("view_name")!=title or view.get("view_type")!="grid":
+            raise RuntimeError("LEAD_QUEUE_UNEXPECTED_VIEW")
+        if not filter_matches((view.get("property") or {}).get("filter_info"),wanted):
             if not apply:
-                print("LEAD_QUEUE_FILTER_NEEDS_UPDATE="+title, flush=True)
+                print("LEAD_QUEUE_FILTER_PENDING="+title,flush=True)
                 continue
-            patch_view_filter(root+"/views/"+view_id,token,wanted)
-            view = get_one_view(root, token, view_id)
-            if not conditions_equal((view.get("property") or {}).get("filter_info"), wanted):
-                raise RuntimeError("LEAD_QUEUE_FILTER_READBACK_MISMATCH")
-        observed = read_ids(root,token,view_id)
-        if observed != partition[kind]:
-            raise RuntimeError("LEAD_QUEUE_FILTERED_RECORDS_MISMATCH_" + kind)
-        print("LEAD_QUEUE_VIEW_VERIFIED=" + json.dumps({
-            "name":title,"count":len(observed),
+            require_success(request("PATCH",root+"/views/"+view_id,token=token,
+                body={"property":{"filter_info":wanted}}),"SET_QUEUE_TEXT_FILTER")
+            view=get_one_view(root,token,view_id)
+            if not filter_matches((view.get("property") or {}).get("filter_info"),wanted):
+                raise RuntimeError("LEAD_QUEUE_FILTER_READBACK_FAILED")
+        visible=read_view_ids(root,token,view_id)
+        if visible!=groups[kind]:
+            raise RuntimeError("LEAD_QUEUE_VISIBLE_RECORDS_MISMATCH_"+kind)
+        print("LEAD_QUEUE_VIEW_VERIFIED="+json.dumps({
+            "kind":kind,"count":len(visible),
             "url":f"https://ocnz4cb25scn.feishu.cn/base/{BASE}?table={EXPECTED_TABLE_ID}&view={view_id}"
-            },ensure_ascii=False), flush=True)
-    print("LEAD_QUEUE_VIEW_AUDIT_PASS=1 MODE="+
+        },ensure_ascii=False),flush=True)
+    print("LEAD_QUEUE_READBACK_PASS=1 MODE="+
           ("APPLY" if apply else "READ_ONLY"),flush=True)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--apply", action="store_true")
-    args = parser.parse_args()
+if __name__=="__main__":
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--apply",action="store_true")
+    args=parser.parse_args()
     try:
         main(args.apply)
-    except Exception as e:
-        print("LEAD_QUEUE_VIEW_FAILED="+str(e),file=sys.stderr)
+    except Exception as exc:
+        print("LEAD_QUEUE_FAILED="+str(exc),file=sys.stderr)
         sys.exit(1)
