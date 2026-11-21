@@ -1,0 +1,127 @@
+name: Lead Outreach Source-to-Feishu Chain
+# Ordered, independently verifiable pipeline; no customer mail sending or SFDC writes.
+# QQ personal sent evidence (Sheets) -> Feishu mirror -> age-aware priority
+# -> two eligible-only outreach views -> Feishu delta readback and redacted artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Run the entire verified Lead chain (false only runs safety tests)'
+        type: boolean
+        default: false
+  schedule:
+    # 11:40 and 18:40 Asia/Seoul, Monday-Friday. Same proven upstream cutoff
+    # as the previous standalone mirror, now with downstream steps in order.
+    - cron: '40 2,9 * * 1-5'
+  push:
+    branches: [main]
+    paths:
+      - 'automation/feishu/lead_outreach_pipeline_evidence.py'
+      - 'automation/feishu/test_lead_outreach_pipeline_evidence.py'
+      - '.github/workflows/lead-outreach-chain.yml'
+  pull_request:
+    paths:
+      - 'automation/feishu/lead_outreach_pipeline_evidence.py'
+      - 'automation/feishu/test_lead_outreach_pipeline_evidence.py'
+      - '.github/workflows/lead-outreach-chain.yml'
+permissions:
+  contents: read
+concurrency:
+  group: isolated-lead-feishu-mail-description
+  cancel-in-progress: false
+jobs:
+  offline-policy-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install shared Lead dependencies
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: Validate sent-mail matching, 1-year exclusion, mirroring and full proof
+        run: |
+          python -m py_compile automation/css/lead_my_sent_refresh.py automation/feishu/lead_eligibility.py automation/feishu/lead_outreach_pipeline_evidence.py
+          python -m unittest discover -s automation/css -p 'test_lead_my_sent_refresh.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_lead_mail_description_sync.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_lead_action_queue_views.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_lead_mail_views_sync.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_lead_action_delta_sync.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_lead_delta_evidence.py' -v
+          python -m unittest discover -s automation/feishu -p 'test_lead_outreach_pipeline_evidence.py' -v
+  verified-chain:
+    needs: offline-policy-tests
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-lead-outreach-chain') }}
+    runs-on: ubuntu-latest
+    environment: TaehoonServer
+    timeout-minutes: 45
+    env:
+      NBA_GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Lead source and Feishu clients
+        run: python -m pip install 'google-api-python-client>=2,<3' 'google-auth>=2,<3' 'python-dateutil>=2.9,<3'
+      - name: '1. Re-evaluate actual SFDC Leads against QQ personal outbound'
+        id: personal
+        env:
+          LEAD_PERSONAL_APPLY: 'true'
+        run: python automation/css/lead_my_sent_refresh.py 2>&1 | tee lead-personal.log
+      - name: '2. Apply only verified sent-mail and Description evidence to Feishu'
+        id: mirror
+        run: python automation/feishu/lead_mail_description_sync.py --apply 2>&1 | tee lead-mirror.log
+      - name: '3. Apply rolling one-year eligibility and action priority labels'
+        id: queue
+        run: python automation/feishu/lead_action_queue_views.py --apply 2>&1 | tee lead-queue.log
+      - name: '4. Refresh two eligible-only no-outbound-evidence views'
+        id: views
+        run: python automation/feishu/lead_mail_views_sync.py --apply 2>&1 | tee lead-views.log
+      - name: '5a. Read-only Feishu delta freshness and outstanding changes'
+        id: preview
+        run: python automation/feishu/lead_action_delta_sync.py 2>&1 | tee lead-delta-preview.log
+      - name: '5b. Re-read all records and verify views after chain'
+        id: apply
+        run: python automation/feishu/lead_action_delta_sync.py --apply 2>&1 | tee lead-delta-apply.log
+      - name: '6. Verify complete source-to-view parity and export aggregate-only evidence'
+        id: proof
+        run: |
+          python automation/feishu/lead_outreach_pipeline_evidence.py --personal lead-personal.log --mirror lead-mirror.log --queue lead-queue.log --views lead-views.log --preview lead-delta-preview.log --apply lead-delta-apply.log --out lead-outreach-chain-evidence.json
+      - name: Keep privacy-safe proof for 30 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: lead-outreach-chain-proof-${{ github.run_id }}
+          path: lead-outreach-chain-evidence.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Identify failed stage (no personal information)
+        if: always()
+        env:
+          PERSONAL: ${{ steps.personal.outcome }}
+          MIRROR: ${{ steps.mirror.outcome }}
+          QUEUE: ${{ steps.queue.outcome }}
+          VIEWS: ${{ steps.views.outcome }}
+          PREVIEW: ${{ steps.preview.outcome }}
+          APPLY: ${{ steps.apply.outcome }}
+          PROOF: ${{ steps.proof.outcome }}
+        run: |
+          echo '## Lead outreach pipeline stage status' >> "$GITHUB_STEP_SUMMARY"
+          echo "| Stage | Outcome |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| QQ personal outbound to Sheets | $PERSONAL |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Feishu mail evidence mirror | $MIRROR |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Rolling-year eligibility and priority | $QUEUE |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Eligible only views | $VIEWS |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Feishu delta preview | $PREVIEW |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Feishu delta readback | $APPLY |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Aggregate proof | $PROOF |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Read-only source evidence except the generated Lead My Sent Audit tab and automation-owned Feishu Lead fields/views. Customer emails and SFDC records are never written." >> "$GITHUB_STEP_SUMMARY"
