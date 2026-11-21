@@ -1,5 +1,20 @@
 # Windows 16 GB Local AI (Ollama)
 
+## 2026-11-21 measured CPU baseline and model comparison
+
+The Windows laptop measured `qwen3-codex16k:latest` at **27.09 prompt tokens/s**, **6.58 output tokens/s**, **16,384 allocated context**, **5.1 GB loaded model**, **100% CPU**, and `done_reason=length` plus failure to comply with `Reply with OK only`. This validates 16K allocation but **does not establish reliable agentic coding**.
+
+To screen another coder-specific model without changing the default launcher:
+
+1. From the latest reviewed `local_ai` folder, double-click **Compare-Local-Coding-Models.cmd**.
+2. This explicitly downloads `qwen2.5-coder:3b` (~1.9 GB official Ollama model) if absent and creates a separate `qwen25coder3b-16k` alias using `PARAMETER num_ctx 16384`. Original models remain available.
+3. Runs two short synthetic tests on **each** local model with 128 output tokens max, captures complete/incomplete response, exact response compliance, prompt tokens/s, output tokens/s, and elapsed time. This is a screening test only.
+4. Compares results; does **not** change which model `Start-Local-Codex.cmd` launches. Only manually switch after comparing speed and correctness, then verify actual Codex tool use on non-sensitive test code.
+5. If both models fail simple exact-response tests, stop attempting autonomous code edits on the 16GB CPU-only machine. Use it for small classification/summaries and retain cloud GitHub Actions with human-reviewed PRs for serious development.
+
+Model details: https://ollama.com/library/qwen2.5-coder:3b (3B / ~1.9GB).
+
+
 ## Performance result, 2026-11-21 (user-provided Windows measurement)
 
 - Measured: 4.41 seconds total; 8.71 output tokens/s on `qwen3-codex16k:latest`.
