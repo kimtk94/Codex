@@ -100,6 +100,9 @@ jobs:
             throw "Unexpected diagnostic exit code $code : $txt"
           }
           Write-Host "PASS: read-only PowerShell script executed; expected missing Drive on hosted runner"
+          # The diagnostic deliberately exits 2 for missing Drive on a hosted runner.
+          # Reset the CI step exit status after validating it was the expected 2.
+          exit 0
 
       - name: Validate one-click launchers and local-only defaults
         shell: pwsh
