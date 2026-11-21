@@ -39,6 +39,21 @@ class LineageContracts(unittest.TestCase):
         self.assertEqual(next(x["changed_sessions"] for x in differences
                               if x["column"] == "close"), 1)
 
+    def test_global_adjusted_price_scale_distinct_from_individual_bar_error(self):
+        d = pd.bdate_range("2024-01-02", periods=30)
+        a = pd.DataFrame({"close": np.linspace(100., 150., 30)}, index=d)
+        global_scale = a * 1.015
+        col, _, same = compare_numeric_frames(
+            a, global_scale, "SPY", "raw_OHLCV", expected_date=str(d[-1].date()))
+        self.assertFalse(same)
+        self.assertTrue(col[0]["global_multiplicative_rescale"])
+        self.assertAlmostEqual(col[0]["median_right_over_left_ratio"], 1.015)
+        broken = global_scale.copy()
+        broken.iloc[8, 0] *= 1.1
+        col2, _, _ = compare_numeric_frames(
+            a, broken, "SPY", "raw_OHLCV", expected_date=str(d[-1].date()))
+        self.assertGreater(col2[0]["p95_abs_residual_from_median_scale"], 1e-4)
+
     def test_price_revision_inside_tolerance_ignored(self):
         d = pd.bdate_range("2026-11-02", periods=6)
         left = pd.DataFrame({"close": np.arange(100., 106.)}, index=d)
