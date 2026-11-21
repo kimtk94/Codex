@@ -1,5 +1,54 @@
 # Windows 16 GB Local AI (Ollama)
 
+## GitHub + Google Drive for desktop (mandatory local connections)
+
+A Google Drive connection in ChatGPT is **not** automatically inherited by local Codex CLI. This configuration uses GitHub CLI authentication and Windows Google Drive for desktop sync.
+
+### One-time setup
+
+1. In the Codex Windows sandbox prompt, choose option 1 (default sandbox) with administrator approval if permitted. Do not bypass sandbox policies.
+2. Exit Codex for setup, then double-click **Setup-Git-Drive.cmd** from the reviewed local_ai folder.
+   - Git for Windows and GitHub CLI are checked; missing tools are installed with winget when available.
+   - GitHub CLI uses browser authentication (gh auth login). OAuth approval belongs to the user.
+   - The repository kimtk94/Codex is cloned to %USERPROFILE%\Projects\Codex, without overwriting an existing non-Git folder.
+   - A Git-ignored local staging folder named .local_ai_data is created in the clone. It is ignored in .git/info/exclude.
+3. Separately install [Google Drive for desktop](https://support.google.com/drive/answer/10838124?hl=ko), sign in, and create a folder called LocalAI_Workspace in your Google My Drive. Provide the Windows folder path when prompted, for example G:\My Drive\LocalAI_Workspace.
+4. Drive for desktop may stream or mirror; if streaming, make required files available offline for offline work. Confirm that the sync status is fully complete. Folder existence alone cannot prove syncing.
+5. The setup saves only local directory paths to %LOCALAPPDATA%\LocalAI\workspace.json (never passwords or tokens).
+6. Run **Check-Git-Drive.cmd**. All three checks (GitHub authentication, Git clone, Drive folder) must succeed. A nonzero code 2 means one is pending.
+7. Run **Start-Local-Codex.cmd** for normal future use: it starts the local model inside the saved GitHub clone. Run /status and verify provider/model; run /permissions to inspect sandbox access.
+
+### Deliberate, per-file Drive transfers
+
+Code and Git history belong in GitHub. Private research/customer data remain in Google Drive and are NOT automatically uploaded to GitHub.
+
+- Place an approved input file under <Drive LocalAI_Workspace>\inbox.
+- Import that single file into Git-ignored local staging (from the cloned repo, after PR merge):
+
+    powershell.exe -NoProfile -File .\local_ai\drive-staging.ps1 -Action Import -FileName "example.csv"
+
+- The approved file becomes available under <repo>\.local_ai_data\inbox.
+- Write a reviewed, non-sensitive output into <repo>\.local_ai_data\outbox and export that named file:
+
+    powershell.exe -NoProfile -File .\local_ai\drive-staging.ps1 -Action Export -FileName "result.csv"
+
+- Exports go into <Drive LocalAI_Workspace>\results. No destination overwrites, remote API writes, Git commits or Git pushes occur.
+- If using the PR ZIP before merge, the scripts are in that ZIP rather than in the main-branch clone. Use the full script path from the ZIP until PR merge completes.
+- Native Google Docs, Sheets and Slides are not automatically editable through a Windows file bridge. Direct edits need a separately authorized Google Workspace MCP/API connection.
+- Never commit client records, tokens, identifiable health data or confidential analysis outputs to the public Codex repo. For sensitive workloads use a private Git repository and organization-approved Google Drive.
+- Files in arbitrary Drive locations are not automatically accessible to Codex's sandbox. The bridge deliberately imports only approved files into the selected local workspace.
+
+### Manual Git verification
+
+    git --version
+    gh --version
+    gh auth status
+    gh repo view kimtk94/Codex
+    git -C "$env:USERPROFILE\Projects\Codex" remote -v
+
+No self-hosted runner is needed for interactive Codex work. Local inference from GitHub Actions requires a separate PRIVATE repository and runner provisioning.
+
+
 ## Recommended one-time setup + daily launch (Windows)
 
 The Windows Ollama app is already installed. No need to install Node.js/npm manually if winget is available.
