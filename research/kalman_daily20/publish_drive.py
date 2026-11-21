@@ -154,6 +154,101 @@ def inspect_payload(data_root, results_root):
             or last_hash != fwd.get("journal_hash_tip")):
         raise RuntimeError("FORWARD_SHADOW_COUNTERS_INVALID")
 
+    # Separate bear family forward evidence: journal cannot redefine a
+    # historical baseline signal, family, candidate or realized outcome.
+    bear_fwd_root = r / "research" / "bear_forward"
+    bear_fwd_files = ("journal.jsonl", "report.json", "snapshots.csv",
+                      "outcomes.csv", "latest_candidates.csv")
+    if not all((bear_fwd_root / name).is_file()
+               and (bear_fwd_root / name).stat().st_size > 10
+               for name in bear_fwd_files):
+        raise RuntimeError("BEAR_FORWARD_EVIDENCE_INCOMPLETE")
+    bfw = json.loads((bear_fwd_root / "report.json").read_text())
+    bear_bytes = (bear_fwd_root / "journal.jsonl").read_bytes()
+    if (bfw.get("version") != "daily20-bear-forward-v1"
+            or bfw.get("status") != "RESEARCH_ONLY"
+            or bfw.get("research_only") is not True
+            or bfw.get("live_execution") is not False
+            or bfw.get("approved_live") is not False
+            or bfw.get("historical_oos_promoted") is not False
+            or bfw.get("backdated_signal_reconstruction") is not False
+            or bfw.get("benchmark_model_not_modified") is not True
+            or bfw.get("no_broker_order") is not True
+            or bfw.get("last_completed_session") != qc["expected_session"]
+            or bfw.get("source_run_id") != fwd.get("source_run_id")
+            or hashlib.sha256(bear_bytes).hexdigest() != bfw.get("journal_sha256")):
+        raise RuntimeError("BEAR_FORWARD_GOVERNANCE_INVALID")
+    bear_events = [json.loads(line) for line in bear_bytes.decode().splitlines()]
+    baseline_anchors = {
+        (e["signal_date"], e["symbol"]): e["hash"]
+        for e in stream if e["kind"] == "SIGNAL"
+    }
+    valid_core = {e["provider_symbol"] for e in universe["assets"]
+                  if e["group"] == "DAILY20_CORE"}
+    bear_signals, bear_settled = {}, set()
+    per_day = {}
+    prev = "0" * 64
+    for n, e in enumerate(bear_events, 1):
+        expected = hashlib.sha256(json.dumps(
+            {key: value for key, value in e.items() if key != "hash"},
+            sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode()).hexdigest()
+        if (e.get("seq") != n or e.get("prev_hash") != prev
+                or e.get("hash") != expected
+                or e.get("research_only") is not True
+                or e.get("symbol") not in valid_core
+                or e.get("family") not in ("BEAR_LOGISTIC", "BEAR_RULE")):
+            raise RuntimeError("BEAR_FORWARD_CHAIN_INVALID")
+        key = (e.get("signal_date"), e["symbol"], e["family"])
+        if e["kind"] == "SIGNAL":
+            if (key in bear_signals
+                    or e.get("candidate") not in (True, False)
+                    or type(e.get("candidate")) is not bool
+                    or type(e.get("eligible")) is not bool
+                    or (e["candidate"] and not e["eligible"])
+                    or e.get("model_version") != "daily20-bear-forward-v1"
+                    or e.get("baseline_signal_hash") != baseline_anchors.get(key[:2])
+                    or not isinstance(e.get("feature_sha256"), str)
+                    or len(e["feature_sha256"]) != 64):
+                raise RuntimeError("BEAR_FORWARD_SIGNAL_ANCHOR_INVALID")
+            prob = e.get("probability")
+            if (e["family"] == "BEAR_RULE" and prob is not None
+                    or e["family"] == "BEAR_LOGISTIC"
+                    and e["candidate"] and (prob is None or not 0 <= prob <= 1)):
+                raise RuntimeError("BEAR_FORWARD_MODEL_SCORE_INVALID")
+            bear_signals[key] = e
+            per_day.setdefault(key[0], set()).add(key[1:])
+        elif e["kind"] == "SETTLED":
+            if (key not in bear_signals or key in bear_settled
+                    or e.get("signal_hash") != bear_signals[key]["hash"]
+                    or e.get("observation_only_no_execution") is not True
+                    or e.get("candidate_at_signal_time") != bear_signals[key]["candidate"]):
+                raise RuntimeError("BEAR_FORWARD_SETTLEMENT_ANCHOR_INVALID")
+            bear_settled.add(key)
+        else:
+            raise RuntimeError("BEAR_FORWARD_EVENT_KIND_INVALID")
+        prev = e["hash"]
+    expected_pairs = {
+        (s, family) for s in valid_core
+        for family in ("BEAR_LOGISTIC", "BEAR_RULE")
+    }
+    if (not per_day or any(pairs != expected_pairs for pairs in per_day.values())
+            or len(bear_signals) != bfw.get("signal_events")
+            or len(bear_settled) != bfw.get("settled_events")
+            or len(bear_signals) - len(bear_settled) != bfw.get("pending_events")
+            or len(per_day) != bfw.get("frozen_sessions")
+            or len(bear_signals) != 40 * len(per_day)
+            or bfw.get("journal_hash_tip") != prev):
+        raise RuntimeError("BEAR_FORWARD_COUNTS_INCOMPLETE")
+    if any(date > qc["expected_session"] or date < "2026-11-20" for date in per_day):
+        raise RuntimeError("BEAR_FORWARD_FUTURE_OR_BACKDATED_SESSION")
+    for family in ("BEAR_LOGISTIC", "BEAR_RULE"):
+        f = [v for v in bear_signals.values() if v["family"] == family]
+        reported = bfw.get("family", {}).get(family, {})
+        if (len(f) != reported.get("signals")
+                or sum(v["candidate"] for v in f) != reported.get("candidates")):
+            raise RuntimeError("BEAR_FORWARD_FAMILY_COUNTS_MISMATCH")
+
     # Only accept complete 26+26 Parquet sources; no paths outside the unpacked Actions artifact.
     market_files = sorted((d / "market/raw/yfinance").glob("*.parquet"))
     feature_files = sorted((d / "features/talib").glob("*.parquet"))
@@ -190,6 +285,9 @@ def inspect_payload(data_root, results_root):
         "prospective_settled_events": settlements,
         "prospective_admitted_start": fwd["first_admitted_session"],
         "prospective_tip_hash": last_hash,
+        "bear_forward_signals": len(bear_signals),
+        "bear_forward_settled": len(bear_settled),
+        "bear_forward_tip_hash": prev,
     }
     return manifest
 
