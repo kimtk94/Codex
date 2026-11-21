@@ -35,6 +35,16 @@ def fetch_yahoo(symbol, start, end_exclusive):
     )
 
 
+def fetch_yahoo_repaired(symbol, start, end_exclusive):
+    """Replay with the production setting repair=True (still Yahoo-origin)."""
+    import yfinance as yf
+    return yf.Ticker(symbol).history(
+        start=start, end=end_exclusive, interval="1d",
+        auto_adjust=False, actions=True, repair=True,
+        raise_errors=True,
+    )
+
+
 def _as_dates(frame, *, source):
     if source:
         index = pd.DatetimeIndex(pd.to_datetime(frame.index, errors="raise"))
@@ -128,7 +138,8 @@ def diagnose(symbol, history, cached, session):
     return details, canonical
 
 
-def run(spec, market, qc_path, out_dir, *, fetcher=fetch_yahoo, fetched_at=None):
+def run(spec, market, qc_path, out_dir, *, fetcher=fetch_yahoo,
+        repaired_fetcher=fetch_yahoo_repaired, fetched_at=None):
     qc = json.loads(Path(qc_path).read_text())
     session = qc.get("expected_session")
     date.fromisoformat(session)
@@ -144,14 +155,47 @@ def run(spec, market, qc_path, out_dir, *, fetcher=fetch_yahoo, fetched_at=None)
     for symbol in equities:
         try:
             cached = pd.read_parquet(market_file(market, symbol))
-            history = fetcher(symbol, spec["start_date"], (date.fromisoformat(session)+timedelta(days=1)).isoformat())
+            end = (date.fromisoformat(session) + timedelta(days=1)).isoformat()
+            history = fetcher(symbol, spec["start_date"], end)
             detail, canonical = diagnose(symbol, history, cached, session)
-            # Diagnostic evidence only, never replaces market/raw/yfinance.
+            # Preserve Yahoo un-repaired vendor observations with a digest.
+            # The production provider uses repair=True, so a raw-vs-cached
+            # difference alone is NOT evidence of an upstream price revision.
             import gzip
+            original_status = detail["status"]
+            detail["unrepaired_comparison_status"] = original_status
             output = out_dir / (symbol.lower() + ".csv.gz")
             with gzip.open(output, "wb", compresslevel=6) as f:
                 f.write(canonical)
             detail["csv_gzip_file"] = output.name
+            detail["production_repair_setting"] = True
+            detail["unrepaired_diagnostic_setting"] = False
+            if original_status == "YAHOO_ADJUSTED_REPLAY_DRIFT_HOLD":
+                try:
+                    repaired = repaired_fetcher(symbol, spec["start_date"], end)
+                    repaired_detail, repaired_csv = diagnose(symbol, repaired, cached, session)
+                    rp = out_dir / (symbol.lower() + "_repaired.csv.gz")
+                    with gzip.open(rp, "wb", compresslevel=6) as f:
+                        f.write(repaired_csv)
+                    detail["repaired_csv_gzip_file"] = rp.name
+                    detail["repaired_csv_sha256"] = repaired_detail["serialized_csv_sha256"]
+                    detail["repair_true_mismatch_days"] = repaired_detail["mismatch_gt_half_cent_days"]
+                    detail["repair_true_max_abs_diff_usd"] = repaired_detail["max_overlap_abs_diff_usd"]
+                    detail["repair_true_latest_abs_diff_usd"] = repaired_detail["latest_abs_diff_usd"]
+                    detail["repair_true_comparison_status"] = repaired_detail["status"]
+                    if repaired_detail["status"] == "YAHOO_FACTOR_OBSERVED_UNATTESTED":
+                        detail["status"] = "REPAIR_POLICY_DIFFERENCE_OBSERVED"
+                    else:
+                        detail["status"] = "SAME_REPAIR_SETTING_MISMATCH_RESEARCH_HOLD"
+                except Exception as exc:
+                    detail["status"] = "REPAIR_TRUE_REFERENCE_UNAVAILABLE_HOLD"
+                    detail["repaired_fetch_error_class"] = type(exc).__name__
+            elif original_status == "YAHOO_FACTOR_OBSERVED_UNATTESTED":
+                # No second Yahoo fetch is needed if the un-repaired history
+                # already matches every available cached session.
+                detail["status"] = "YAHOO_FACTOR_OBSERVED_UNATTESTED"
+            else:
+                detail["status"] = original_status
         except Exception as exc:
             # A missing/denied vendor response must be visible, not counted as
             # an empty event list or as certified/no-actions history.
@@ -164,10 +208,16 @@ def run(spec, market, qc_path, out_dir, *, fetcher=fetch_yahoo, fetched_at=None)
         "research_only": True, "production_writes": False,
         "strategy_promoted": False, "independent_corporate_actions_certified": 0,
         "finality_verified": 0, "required": 25,
-        "vendor_history_observed": sum(x["status"] in (
+        "vendor_history_observed": sum("csv_gzip_file" in x for x in rows),
+        "unrepaired_source_alignment": sum(
+            x["status"] == "YAHOO_FACTOR_OBSERVED_UNATTESTED" for x in rows),
+        "repair_policy_differences": sum(
+            x["status"] == "REPAIR_POLICY_DIFFERENCE_OBSERVED" for x in rows),
+        "same_repair_unresolved": sum(
+            x["status"] == "SAME_REPAIR_SETTING_MISMATCH_RESEARCH_HOLD" for x in rows),
+        "current_source_alignment": sum(x["status"] in (
             "YAHOO_FACTOR_OBSERVED_UNATTESTED",
-            "YAHOO_ADJUSTED_REPLAY_DRIFT_HOLD") for x in rows),
-        "current_source_alignment": sum(x["status"] == "YAHOO_FACTOR_OBSERVED_UNATTESTED" for x in rows),
+            "REPAIR_POLICY_DIFFERENCE_OBSERVED") for x in rows),
         "overall_status": "CORPORATE_ACTION_FACTORS_RESEARCH_HOLD",
         "rows": rows,
     }
