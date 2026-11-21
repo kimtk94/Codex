@@ -73,10 +73,10 @@ def fake_html(url):
                 b"not indicative of future results.</p>")
     if "blackrock.com/jp" in url:
         return b"%PDF-1.7\nsynthetic fixture"
-    if "sec.gov" in url and "2020" in url:
+    if "sec.gov" in url and "dp137172_" in url:
         return (b"<p>On September 18, 2020, Invesco QQQ Trust declared "
                 b"a cash dividend of $0.38824 per share payable on October 30.</p>")
-    if "sec.gov" in url and "2022" in url:
+    if "sec.gov" in url and "dp182689_" in url:
         return (b"<p>On September 16, 2022, Invesco QQQ Trust declared "
                 b"a cash dividend of $0.51856 per share payable on October 31.</p>")
     raise AssertionError("unknown source")
