@@ -20,7 +20,8 @@ PLAN = (
 )
 NO_CHANGE = (
     'LEAD_DELTA_NO_NEW_DATA=1 {"checked":1050,"views_verified":3,'
-    '"counts":{"recontact":0,"planned":0,"review":734,"none":316},"writes":0}'
+    '"counts":{"recontact":0,"planned":0,"review":734,"none":316},' +
+    '"writes":0,"second_snapshot_verified":true}'
 )
 READBACK = (
     'LEAD_DELTA_READBACK_PASS={"records":1050,"changed":1,'
@@ -115,6 +116,19 @@ class EvidenceTests(unittest.TestCase):
         result=self.snapshot("LEAD_DELTA_READ_ONLY_PASS=1",
             'LEAD_DELTA_NO_NEW_DATA=1 {"checked":1050,"views_verified":2,"writes":0}')
         self.assertEqual(result["result"],"BLOCK")
+
+    def test_no_new_data_requires_second_snapshot_and_consistent_partition(self):
+        preview=SOURCE+"\n"+PLAN+"\nLEAD_DELTA_READ_ONLY_PASS=1"
+        missing_snapshot=NO_CHANGE.replace('"second_snapshot_verified":true',
+                                            '"second_snapshot_verified":false')
+        self.assertEqual(self.snapshot(preview,SOURCE+"\n"+PLAN+"\n"+missing_snapshot)["result"],
+                         "BLOCK")
+        bad_counts=NO_CHANGE.replace('"review":734','"review":733')
+        self.assertEqual(self.snapshot(preview,SOURCE+"\n"+PLAN+"\n"+bad_counts)["result"],
+                         "BLOCK")
+        changed_plan=PLAN.replace('"pending_updates":0','"pending_updates":1')
+        self.assertEqual(self.snapshot(preview,SOURCE+"\n"+changed_plan+"\n"+NO_CHANGE)["result"],
+                         "BLOCK")
 
     def test_simulated_change_is_separate_from_actual_pass(self):
         sim=('LEAD_DELTA_SIMULATED_ONE_CHANGE_PASS={"mode":"SIMULATION_ONLY",'
