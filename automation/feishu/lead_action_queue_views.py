@@ -140,10 +140,25 @@ def main(apply=False):
             updates.append({"record_id":rec["record_id"],"fields":new_values})
     stats={k:len(v) for k,v in groups.items()}
     eligibility_stats=age.stats(old_fields.values(),today)
+    contactable_no_evidence={
+        "description_present":sum(
+            age.eligibility(row,today)=="eligible"
+            and lead.norm(row.get("연락 구분"))==NO_EVIDENCE
+            and lead.norm(row.get("Description 있음"))=="있음"
+            for row in old_fields.values()),
+        "description_missing":sum(
+            age.eligibility(row,today)=="eligible"
+            and lead.norm(row.get("연락 구분"))==NO_EVIDENCE
+            and lead.norm(row.get("Description 있음"))=="없음"
+            for row in old_fields.values()),
+    }
+    if sum(contactable_no_evidence.values())>eligibility_stats["counts"]["eligible"]:
+        raise RuntimeError("LEAD_ELIGIBLE_NO_EVIDENCE_TOTAL_INVALID")
     print("LEAD_QUEUE_PLAN="+json.dumps({
         "total":len(old),"changes":len(updates),
         "queue_field_exists":bool(matched),"eligibility_field_exists":bool(eligibility_matched),
-        "eligibility":eligibility_stats,"groups":stats,
+        "eligibility":eligibility_stats,
+        "eligible_no_evidence":contactable_no_evidence,"groups":stats,
         "mode":"APPLY" if apply else "READ_ONLY"
     },ensure_ascii=False),flush=True)
 
