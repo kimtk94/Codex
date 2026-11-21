@@ -26,6 +26,8 @@ from daily20 import market_file, load_bars, write_json  # noqa: E402
 
 CACHE_ID = "1nWbyCiRSscJSqgZYvYhJ9DKHRlBwlKgE"
 CACHE_NAME = "daily20_data_latest.zip"
+RESULTS_ID = "1l-e4OLKS4qlDjNsf8TdkMsd5w3QouF4w"
+RESULTS_NAME = "daily20_results_latest.zip"
 LOOKBACK_CALENDAR_DAYS = 46
 FULL_REFRESH_UTC_WEEKDAY = 5  # Saturday: reconcile previous Friday session
 MAX_CACHE_STALENESS_DAYS = 14
@@ -69,20 +71,20 @@ def read_verified_cache(archive, expected_keys):
     return manifest, frames
 
 
-def download_prior_archive(credentials):
+def download_prior_archive(credentials, *, file_id=CACHE_ID, expected_name=CACHE_NAME):
     import googleapiclient.discovery
     from googleapiclient.http import MediaIoBaseDownload
     service = googleapiclient.discovery.build(
         "drive", "v3", credentials=credentials, cache_discovery=False
     )
     metadata = service.files().get(
-        fileId=CACHE_ID, fields="id,name,mimeType,size,md5Checksum", supportsAllDrives=True
+        fileId=file_id, fields="id,name,mimeType,size,md5Checksum", supportsAllDrives=True
     ).execute()
-    if metadata.get("name") != CACHE_NAME or metadata.get("mimeType") != "application/zip":
+    if metadata.get("name") != expected_name or metadata.get("mimeType") != "application/zip":
         raise RuntimeError("UNEXPECTED_CACHE_IDENTITY")
     if int(metadata.get("size", 0)) > 50_000_000:
         raise RuntimeError("CACHE_UNEXPECTED_SIZE")
-    request = service.files().get_media(fileId=CACHE_ID, supportsAllDrives=True)
+    request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
     stream = BytesIO()
     downloader = MediaIoBaseDownload(stream, request)
     done = False
@@ -251,6 +253,8 @@ def main():
                    help="Download pinned Drive snapshot in credential-isolated Actions job")
     p.add_argument("--archive-output", default="",
                    help="Path to write downloaded archive in restore-only mode")
+    p.add_argument("--results-archive-output", default="",
+                   help="Also restore and verify prior OOS results ZIP for forward-only journal")
     p.add_argument("--cache-file", default="",
                    help="Read a prior downloaded Drive snapshot; no credentials needed")
     a = p.parse_args()
@@ -259,13 +263,27 @@ def main():
         if not a.archive_output:
             raise ValueError("--archive-output is required for restore-only mode")
         from publish_drive import credentials_from_env
-        archived = download_prior_archive(credentials_from_env())
+        credentials = credentials_from_env()
+        archived = download_prior_archive(credentials)
         archive_path = Path(a.archive_output)
         archive_path.parent.mkdir(parents=True, exist_ok=True)
         archive_path.write_bytes(archived)
         # Parse now to fail immediately if an archive is corrupted or points to a different universe.
         universe = json.loads(Path(a.universe).read_text())
         read_verified_cache(archived, {item["key"] for item in universe["assets"]})
+        if a.results_archive_output:
+            from forward_shadow import validate_prior_results_archive
+            research_archive = download_prior_archive(
+                credentials, file_id=RESULTS_ID, expected_name=RESULTS_NAME
+            )
+            core = {asset["provider_symbol"] for asset in universe["assets"]
+                    if asset["group"] == "DAILY20_CORE"}
+            validate_prior_results_archive(research_archive, core)
+            path = Path(a.results_archive_output)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(research_archive)
+            print(json.dumps({"DAILY20_FORWARD_PRIOR_RESTORED": True,
+                              "bytes": len(research_archive)}))
         print(json.dumps({"DAILY20_CACHE_RESTORED": True, "bytes": len(archived)}))
         return
     if a.no_drive or a.force_full or now.weekday() == FULL_REFRESH_UTC_WEEKDAY:
