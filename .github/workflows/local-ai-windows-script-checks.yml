@@ -30,7 +30,8 @@ jobs:
             "local_ai\diagnose-local-ollama-speed.ps1",
             "local_ai\compare-local-coding-models.ps1",
             "local_ai\preflight-agent-tool.ps1",
-            "local_ai\repair-ollama-cli.ps1"
+            "local_ai\repair-ollama-cli.ps1",
+            "local_ai\verify-git-drive-local.ps1"
           )
           foreach ($file in $scripts) {
             $tokens = $null
@@ -79,12 +80,13 @@ jobs:
             "local_ai\Diagnose-Local-Codex-Speed.cmd",
             "local_ai\Compare-Local-Coding-Models.cmd",
             "local_ai\Preflight-Codex-Tool-Use.cmd",
-            "local_ai\Repair-Ollama-Command.cmd"
+            "local_ai\Repair-Ollama-Command.cmd",
+            "local_ai\Verify-Git-Drive-Local.cmd"
           )
           foreach ($file in $required) {
             if (!(Test-Path $file)) { throw "Missing launcher: $file" }
             $cmd = Get-Content $file -Raw
-            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } elseif ($file -like "*Preflight-Codex-Tool-Use.cmd") { "preflight-agent-tool.ps1" } elseif ($file -like "*Repair-Ollama-Command.cmd") { "repair-ollama-cli.ps1" } else { "local-codex.ps1" }
+            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } elseif ($file -like "*Preflight-Codex-Tool-Use.cmd") { "preflight-agent-tool.ps1" } elseif ($file -like "*Repair-Ollama-Command.cmd") { "repair-ollama-cli.ps1" } elseif ($file -like "*Verify-Git-Drive-Local.cmd") { "verify-git-drive-local.ps1" } else { "local-codex.ps1" }
             if ($cmd -notmatch [regex]::Escape($expected)) { throw "Launcher not wired: $file -> $expected" }
             if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
           }
@@ -176,6 +178,12 @@ jobs:
             throw "Local Codex launcher should not reject healthy Ollama API based solely on CLI PATH"
           }
           Write-Host "Windows Ollama CLI PATH repair static checks PASS."
+          $driveCheck = Get-Content "local_ai\verify-git-drive-local.ps1" -Raw
+          foreach ($token in @("GoogleDriveFS", "LocalAI\workspace.json", "inbox", "results", "gh.exe auth status", "git.exe -C", "127.0.0.1:11434")) {
+            if (!$driveCheck.Contains($token)) { throw "Local Drive check missing: $token" }
+          }
+          Write-Host "Local GitHub + Drive health check syntax/static tests PASS."
+
 
 
 
