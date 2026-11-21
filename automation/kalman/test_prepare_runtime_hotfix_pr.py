@@ -69,6 +69,18 @@ class HotfixProposalSafetyTests(unittest.TestCase):
         self.assertNotIn(("git", "push", "origin", "HEAD:main"), calls)
         self.assertTrue(any(cmd[:3] == ("gh", "pr", "create") and "--draft" in cmd for cmd in calls))
 
+    def test_workflow_default_is_read_only_and_proposal_is_manual(self):
+        workflow = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "apply-kalman-runtime-hotfix.yml"
+        text = workflow.read_text(encoding="utf-8")
+        self.assertNotIn("git push origin HEAD:main", text)
+        self.assertIn("permissions:" + chr(10) + "  contents: read", text)
+        self.assertIn("inputs.propose_pr == true", text)
+        self.assertIn("github.actor == 'kimtk94'", text)
+        self.assertIn("HOTFIX_PR_APPROVAL", text)
+        self.assertIn("--propose-pr", text)
+        self.assertIn("persist-credentials: false", text)
+        self.assertNotIn("set -e", text)
+
     def test_no_changes_does_not_push_or_create_pr(self):
         with tempfile.TemporaryDirectory() as td:
             with patch.object(helper, "run", side_effect=AssertionError("unexpected write")):
