@@ -1,4 +1,5 @@
 name: Feishu Lead Mail and Description Mirror
+# Legacy on-demand mirror. The ordered Lead Outreach Source-to-Feishu Chain now owns weekday refreshes.
 # Isolated consumer: does not trigger or modify CSS, QQ, SFDC, Revenue or project workflows.
 on:
   workflow_dispatch:
@@ -7,9 +8,6 @@ on:
         description: 'Apply verified Lead snapshot and Feishu mirror (false = read-only)'
         type: boolean
         default: false
-  schedule:
-    # After QQ CSS ingestion and SFDC report digests, with independent failure boundary.
-    - cron: '40 2,9 * * 1-5' # 11:40 and 18:40 KST weekdays
   push:
     branches: [main]
     paths:
