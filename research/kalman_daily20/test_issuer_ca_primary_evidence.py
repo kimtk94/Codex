@@ -203,7 +203,7 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
                    if c["source_id"]==source["id"])
         with TemporaryDirectory() as root:
             bad=ie.probe_source(source,[claim],root,
-                                getter=lambda u:b"<html>12月14日 0.37847</html>")
+                                getter=lambda u:"<html>12月14日 0.37847</html>".encode("utf-8"))
             self.assertEqual(bad["status"],"ValueError_SOURCE_HOLD")
             self.assertEqual(bad["anchor_grade_by_claim"],{})
         with TemporaryDirectory() as root:
