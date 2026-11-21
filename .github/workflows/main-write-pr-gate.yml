@@ -1,0 +1,46 @@
+name: Main write guard (all main PRs)
+
+# Unlike path-filtered inventories, this check is present on every main PR.
+# Candidate required check: "main-write-guard", AFTER administrator validation.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/main-write-pr-gate.yml"
+      - "automation/ops/main_write_pr_gate.py"
+      - "automation/ops/test_main_write_pr_gate.py"
+      - "automation/ops/audit_indirect_git_writes.py"
+      - "automation/ops/audit_main_writes.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  main-write-guard:
+    name: main-write-guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate gate behavior with isolated synthetic fixtures
+        run: python -m unittest automation.ops.test_main_write_pr_gate automation.ops.test_audit_indirect_git_writes automation.ops.test_audit_main_writes -v
+      - name: Fail closed on detectable main/unknown writes
+        run: python -m automation.ops.main_write_pr_gate --root . --output "$RUNNER_TEMP/main-write-pr-gate.json"
+      - name: Upload evidence metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-write-pr-gate-${{ github.run_id }}
+          path: ${{ runner.temp }}/main-write-pr-gate.json
+          if-no-files-found: warn
+          retention-days: 14
