@@ -23,7 +23,7 @@ class LeadSelectMigrationTests(unittest.TestCase):
     def test_existing_values_fit_single_select(self):
         fields, rows = self.fixture()
         schema, counts = m.validate(rows, fields)
-        self.assertEqual(len(schema), 6)
+        self.assertEqual(len(schema), len(m.TARGETS) + len(m.manual.MANUAL))
         self.assertEqual(sum(counts["Description 있음"].values()), 450)
 
     def test_unknown_value_blocks_migration(self):
