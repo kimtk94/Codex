@@ -8,7 +8,7 @@ listing source metadata cannot prove archived page bytes without their SHA256.
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import date, timedelta
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -80,7 +80,7 @@ def validate(sources, universe):
             raise ValueError("LISTING_MISSING_OFFICIAL_DOCUMENT")
         # Dates after a document's report-period end cannot be extrapolated,
         # even if the company's current listing happens to be unchanged.
-        if not any(iso(docs_by_id[id]["report_period_end"]) >= end.fromordinal(end.toordinal()-1)
+        if not any(iso(docs_by_id[id]["report_period_end"]) >= end - timedelta(days=1)
                    for id in source_ids):
             raise ValueError("LISTING_INTERVAL_BEYOND_SOURCE_PERIOD")
         by_symbol[sym].append({**entry, "from": start.isoformat(),
