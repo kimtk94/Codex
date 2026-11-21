@@ -3,7 +3,7 @@
 
 No Account normalization, no telephone/visit inference, no email sending,
 no SFDC writes, no deletes. Existing Feishu rows may only be updated in the
-fields owned by this mirror. Default mode is read-only. Verified Lead snapshot deployment uses the guarded CI commit gate.
+fields owned by this mirror. User checkbox selections are verified after each apply. Default mode is read-only. Verified Lead snapshot deployment uses the guarded CI commit gate.
 """
 import argparse
 import base64
