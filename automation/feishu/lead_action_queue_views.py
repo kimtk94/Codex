@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Three Feishu Lead operational views; audit/modify only view filters.
 
-This consumer does not change Lead records, source mail, SFDC, Account or
+This isolated consumer does not change Lead records, source mail, SFDC, Account or
 existing views. User-managed checkboxes are read, never written.
 Default mode is audit only. CI deployment validates and applies only the three managed views.
 """
