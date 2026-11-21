@@ -21,7 +21,9 @@ jobs:
         run: |
           $scripts = @(
             "local_ai\local-codex.ps1",
-            "local_ai\bootstrap.ps1"
+            "local_ai\bootstrap.ps1",
+            "local_ai\connect-workspaces.ps1",
+            "local_ai\drive-staging.ps1"
           )
           foreach ($file in $scripts) {
             $tokens = $null
@@ -41,7 +43,9 @@ jobs:
           $required = @(
             "local_ai\Setup-Local-Codex.cmd",
             "local_ai\Start-Local-Codex.cmd",
-            "local_ai\Check-Local-Codex.cmd"
+            "local_ai\Check-Local-Codex.cmd",
+            "local_ai\Setup-Git-Drive.cmd",
+            "local_ai\Check-Git-Drive.cmd"
           )
           foreach ($file in $required) {
             if (!(Test-Path $file)) { throw "Missing launcher: $file" }
@@ -54,3 +58,12 @@ jobs:
             if (!$src.Contains($requiredString)) { throw "Missing required safety/config setting: $requiredString" }
           }
           Write-Host "Windows launchers and local-only checks PASS."
+          $bridge = Get-Content "local_ai\connect-workspaces.ps1" -Raw
+          foreach ($requiredString in @("Git.Git", "GitHub.cli", "gh.exe auth login", "gh.exe repo clone", "LocalAI_Workspace", "info\exclude")) {
+            if (!$bridge.Contains($requiredString)) { throw "Workspace setup missing: $requiredString" }
+          }
+          $transfer = Get-Content "local_ai\drive-staging.ps1" -Raw
+          foreach ($requiredString in @("Import", "Export", "FileName", ".local_ai_data", "Destination already exists")) {
+            if (!$transfer.Contains($requiredString)) { throw "Drive transfer missing: $requiredString" }
+          }
+          Write-Host "GitHub + Drive bridge static checks PASS."
