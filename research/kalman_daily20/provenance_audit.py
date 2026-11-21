@@ -388,6 +388,20 @@ def run(left, right, spec, out, left_id, right_id, asof, frozen=None):
         "identical_input_refit_deterministic": True,
         "changed_rows": len(changes),
         "trained_folds": len(preds),
+        "raw_close_symbols_with_gt_10bps_terminal_revision": [
+            row["symbol"] for row in price
+            if row["column"] == "close"
+            and row["asof_left"] is not None
+            and row["asof_right"] is not None
+            and abs(row["asof_right"] / row["asof_left"] - 1.0) > .001
+        ],
+        "raw_close_material_10bps_nonterminal_counts": {
+            row["symbol"]: row["material_10bps_nonterminal_sessions"]
+            for row in price if row["column"] == "close"
+        },
+        "cross_prediction_components_available": int(
+            preds["feature_effect_pp_fixed_left_model"].notna().sum()
+        ),
         "train_input_changed": int(preds["training_changed"].sum()),
         "asof_feature_changed": int(preds["asof_feature_changed"].sum()),
         "model_parameters_changed": int(preds["trained_model_changed"].sum()),
