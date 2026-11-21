@@ -27,12 +27,12 @@ try {
     # Only synthetic content is used; no workspace files or personal data are accessed.
     $payload = @{
         model = $Model
-        prompt = "Answer with the single word OK."
+        prompt = "/no_think`nReply with exactly the single word OK. No explanation."
         stream = $false
         think = $false
         keep_alive = "3m"
         options = @{
-            num_predict = 24
+            num_predict = 128
             temperature = 0
         }
     } | ConvertTo-Json -Depth 5
@@ -45,8 +45,23 @@ try {
     $evalNS = [double]$r.eval_duration
     $promptTokens = [int]$r.prompt_eval_count
     $tps = if ($evalNS -gt 0) { [math]::Round($evalTokens * 1000000000 / $evalNS, 2) } else { 0 }
-    Write-Host ("Synthetic response completed in {0}s | Prompt tokens {1} | Output tokens {2} | Generation {3} tokens/s" -f $seconds,$promptTokens,$evalTokens,$tps)
-    if ($r.response) { Write-Host "Response: $(([string]$r.response).Substring(0,[math]::Min(120,([string]$r.response).Length)))" }
+    $promptEvalNS = [double]$r.prompt_eval_duration
+    $promptTps = if ($promptEvalNS -gt 0) { [math]::Round($promptTokens * 1000000000 / $promptEvalNS, 2) } else { 0 }
+    $answer = [string]$r.response
+    $thinking = [string]$r.thinking
+    Write-Host ("Synthetic response completed in {0}s | Prompt tokens {1} | Output tokens {2}" -f $seconds,$promptTokens,$evalTokens)
+    Write-Host ("Prompt processing: {0} tokens/s | Output generation: {1} tokens/s" -f $promptTps,$tps)
+    Write-Host ("Done reason: {0} | Thinking field length: {1} chars" -f $r.done_reason,$thinking.Length)
+    if ($answer) {
+        Write-Host ("Answer preview: {0}" -f $answer.Substring(0,[math]::Min(120,$answer.Length)))
+    }
+    $answerOk = ($answer.Trim().Trim('"') -ceq "OK")
+    if (-not $answerOk) {
+        Write-Warning "INSTRUCTION FAIL: Model did not return exactly OK. Even if generation is fast, agentic coding reliability remains unverified."
+        if ($r.done_reason -eq "length") {
+            Write-Warning "The reply reached num_predict=128 without following the instruction."
+        }
+    }
     $loadedNow = Invoke-RestMethod -Uri "$base/api/ps" -TimeoutSec 10
     foreach ($item in @($loadedNow.models)) {
         if (@($Model, (($Model -replace ":latest$","") + ":latest")) -contains $item.name) {
@@ -56,7 +71,8 @@ try {
     if ($tps -gt 0 -and $tps -lt 3) {
         Write-Warning "Local generation throughput is low. Codex agent requests may require several minutes. Consider a smaller model or GitHub-hosted automation."
     }
-    Write-Host "PASS: Local synthetic inference completed. This is NOT proof that Codex agent prompts finish correctly."
+    if (-not $answerOk) { exit 2 }
+    Write-Host "PASS: Synthetic instruction-following + local model inference. This is NOT proof of Codex agent performance."
     exit 0
 } catch {
     Write-Error "Diagnostic failed: $_"
