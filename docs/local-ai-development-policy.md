@@ -38,6 +38,19 @@ write access, no merge/push operations, no external Drive connection, and no
 autonomous model tool-calling. It records a short metadata-only JSON artifact
 for 7 days without copying code, customer files or PR descriptions.
 
+The workflow runs on **every pull request**, without path filters, so the
+required check is never stuck Pending merely because a PR changes only
+CSS/SFDC/Feishu code. Non-Local-AI-only PRs return **NOT_APPLICABLE**
+without requiring a Local AI Task-ID. If a PR mixes Local AI and unrelated
+files, it is still BLOCKED. Missing or invalid Local AI Task-ID or acceptance
+criteria remain a failure for applicable PRs.
+
+**Exact job/check context:** `Read-only change scope / no auto approval`.
+Only consider requiring this context AFTER the finalized workflow has been
+reviewed, merged to `main`, and tested on both unrelated and Local AI PRs.
+Do not use a workflow path filter for a required check; GitHub leaves skipped
+checks pending and can block unrelated work.
+
 ## Review / promotion
 
 1. Verify the PR task identifier and acceptance criteria.
@@ -48,8 +61,26 @@ for 7 days without copying code, customer files or PR descriptions.
 5. Manually approve a PR only after independent assessment. Never infer
    approval from a green CI run or a Local AI-generated answer.
 
-**Branch protection is not configured by this task.** Requiring this gate
-for merge must be enabled by an authorized repository administrator.
+**Current observed GitHub configuration (2026-11-21):** the public main
+branch reports `protected=false` and repository rulesets are empty. The
+connected GitHub app cannot read the administration-protected branch
+protection details (403), and offers no administration mutation action.
+This task does **not** change the repo's protection settings.
+
+Repository owner manual setup, only after reviewing/merging the gate:
+`https://github.com/kimtk94/Codex/settings/branches` →
+`Add branch protection rule` → branch `main` → require pull requests
+and require status checks; select the exact GitHub Actions job name
+`Read-only change scope / no auto approval` once it appears from a recent
+run on `main`. Do not require reviewer approval if this is a sole-maintainer
+repo with no second authorized reviewer; otherwise PRs may be impossible to
+approve. Do not enable auto-merge, and test one unrelated PR before enforcing.
+
+**Approval remains human-controlled.** Neither CI success nor this
+configuration is a substitute for reviewing code and workflows. Branch
+protection/rulesets affect ALL main PRs, so review existing automation
+dependencies and check their impact before activation.
+
 No automated code edits or PR merges are activated.
 
 ## Bootstrap PR #903
