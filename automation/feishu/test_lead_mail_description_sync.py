@@ -55,6 +55,26 @@ class LeadMirrorTests(unittest.TestCase):
     def test_duplicate_ids_fail_closed(self):
         with self.assertRaisesRegex(RuntimeError,"DUPLICATE_LEAD_ID"):
             sync.transform(sync.SOURCE,[self.row(),self.row()])
+    def test_automatic_evidence_update_never_owns_manual_fields(self):
+        self.assertTrue(set(sync.MANUAL_FIELDS).isdisjoint(set(sync.FIELDS)))
+        self.assertTrue(set(sync.MANUAL_FIELDS).isdisjoint(
+            set(self.batch([self.row()])["00Q-test"])))
+        previous = {"00Q-test": {"fields": {
+            "검토 완료": True, "메일 발송 예정": False, "재연락 필요": True}}}
+        current = {"00Q-test": {
+            "검토 완료": True, "메일 발송 예정": False, "재연락 필요": True}}
+        field_types = {name:7 for name in sync.MANUAL_FIELDS}
+        self.assertEqual(sync.assert_manual_preserved(previous,current,field_types),1)
+        current["00Q-test"]["재연락 필요"] = False
+        with self.assertRaisesRegex(RuntimeError,"SELECTION_OVERWRITTEN"):
+            sync.assert_manual_preserved(previous,current,field_types)
+
+    def test_existing_manual_field_type_guard(self):
+        before = {"id1":{"fields":{"검토 완료":True}}}
+        after = {"id1":{"검토 완료":True}}
+        with self.assertRaisesRegex(RuntimeError,"TYPE_CHANGED"):
+            sync.assert_manual_preserved(before,after,{"검토 완료":1})
+
     def test_schema_mismatch_fails_closed(self):
         with self.assertRaisesRegex(RuntimeError,"LEAD_SOURCE_SCHEMA_MISSING"):
             sync.transform(["Lead ID"], [])
