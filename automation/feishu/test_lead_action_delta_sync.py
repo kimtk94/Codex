@@ -197,5 +197,31 @@ class DeltaTests(unittest.TestCase):
             verify.assert_called_once()
         self.assertEqual(writes,[])
 
+    def test_one_real_shape_checkbox_simulated_without_any_external_writes(self):
+        records={str(i):{"record_id":"rec"+str(i),
+                         "fields":row(str(i),d.queue.QUEUE_LABELS["review"])}
+                 for i in range(450)}
+        original_manual=d.queue.manual_snapshot(
+            {k:rec["fields"] for k,rec in records.items()})
+        result=d.simulate_single_manual_change(records)
+        self.assertEqual(result["mode"],"SIMULATION_ONLY")
+        self.assertEqual(result["source_records"],450)
+        self.assertEqual(result["simulated_checkbox_flips"],1)
+        self.assertEqual(result["expected_derived_field_updates"],1)
+        self.assertEqual(result["real_feishu_writes"],0)
+        self.assertEqual(result["scenario_after"]["review"],449)
+        self.assertEqual(result["scenario_after"]["planned"],1)
+        self.assertEqual(original_manual,d.queue.manual_snapshot(
+            {k:rec["fields"] for k,rec in records.items()}))
+        self.assertEqual(d.plan_changes(records),[])
+
+    def test_one_checkbox_simulation_refuses_dirty_baseline(self):
+        records={str(i):{"record_id":"rec"+str(i),
+                         "fields":row(str(i),d.queue.QUEUE_LABELS["review"])}
+                 for i in range(450)}
+        records["42"]["fields"]["메일 발송 예정"]=True
+        with self.assertRaisesRegex(RuntimeError,"BASELINE_NOT_CLEAN"):
+            d.simulate_single_manual_change(records)
+
 if __name__=="__main__":
     unittest.main()
