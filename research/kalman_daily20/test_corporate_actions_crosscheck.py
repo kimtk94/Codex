@@ -100,6 +100,17 @@ class CorporateActionCollectorTests(unittest.TestCase):
         self.assertIn("new_corporate_action",r["unknown_action_groups"])
         self.assertFalse(r["historical_identity_certified"])
 
+    def test_unmapped_historical_symbol_retained_separately(self):
+        with patch.dict("os.environ", {"ALPACA_API_KEY_ID":"K","ALPACA_API_SECRET_KEY":"S"}):
+            r=ca.collect(SYMBOLS,SESSION,fetcher=lambda *_a,**_kw:page({
+                "cash_dividends":[row(symbol="OLD_TICKER",eid="old1"),row(eid="ok")],
+            }))
+        self.assertEqual(r["status"],"ALPACA_ACTIONS_INCOMPLETE_OR_UNKNOWN_HOLD")
+        self.assertEqual(r["unmapped_historical_identity_count"],1)
+        self.assertEqual(r["unmapped_historical_identity_examples"][0]["returned_symbol"],"OLD_TICKER")
+        self.assertEqual(r["event_count"],1)
+        self.assertEqual(r["factor_independently_certified"],0)
+
     def test_repeating_cursor_holds_partial_not_pretend_complete(self):
         with patch.dict("os.environ", {"ALPACA_API_KEY_ID":"K","ALPACA_API_SECRET_KEY":"S"}):
             r=ca.collect(SYMBOLS,SESSION,fetcher=lambda *_a,**_kw:page({},token="loop"))
@@ -141,14 +152,26 @@ class CorporateActionCompareTests(unittest.TestCase):
         e={"type":"cash_dividends",**row()}
         e["currency"]=None
         s,_=cmp.compare_one("HYG",observed(),[e],True)
-        self.assertEqual(s["unmatched_or_incomplete_action_count"],1)
+        self.assertEqual(s["unmatched_or_incomplete_action_count"],0)
         self.assertEqual(s["match_count"],0)
+        self.assertEqual(s["currency_unattested_amount_match_count"],1)
+        self.assertEqual(s["status"],"EVENT_DIFFERENCES_OR_INCOMPLETE_HOLD")
 
     def test_no_reference_can_never_be_reported_as_match(self):
         s,details=cmp.compare_one("HYG",observed(),[],False)
         self.assertEqual(s["status"],"NO_ALPACA_REFERENCE_HOLD")
         self.assertEqual(s["match_count"],0)
         self.assertTrue(all(x["status"]=="SOURCE_INCOMPLETE_HOLD" for x in details))
+
+    def test_partial_alpaca_source_can_show_candidate_but_never_complete(self):
+        e={"type":"cash_dividends",**row()}
+        e["currency"]=None
+        summary,rows=cmp.compare_one("HYG",observed(),[e],True,source_complete=False)
+        self.assertEqual(summary["status"],"PARTIAL_REFERENCE_RESEARCH_HOLD")
+        self.assertEqual(summary["currency_unattested_amount_match_count"],1)
+        self.assertEqual(summary["match_count"],0)
+        self.assertTrue(any(x["status"]=="CROSS_PROVIDER_AMOUNT_MATCH_CURRENCY_UNATTESTED" for x in rows))
+        self.assertFalse(summary["factor_independently_certified"])
 
     def test_multiple_events_not_summed_into_false_match(self):
         e1={"type":"cash_dividends",**row(value=0.2)}
