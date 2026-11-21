@@ -1,5 +1,26 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Fix Codex's "request exceeds available context size (4096)" error
+
+On a 16GB RAM Windows laptop, Codex may send ~5,875 prompt tokens while Ollama allocates only 4,096. This is a **context-window mismatch**, not npm/Codex installation failure.
+
+**One-time change:** double-click **Set-Ollama-Context-16K.cmd** in this folder. It saves OLLAMA_CONTEXT_LENGTH=16384 in the current user's environment (no Administrator rights); it does not modify your GitHub or Drive credentials.
+
+**Critical:** fully Quit both Codex and Ollama (Ollama tray icon > Quit), then reopen Ollama from the Windows Start menu. A new PowerShell session by itself is NOT enough if the old Ollama server remains running. Another officially supported option is to set Ollama's *Settings > Context length* slider to 16K and restart the model if needed. If the UI setting overrides the environment variable, prefer checking actual loaded context rather than assuming the saved value took effect.
+
+Then open Start-Local-Codex.cmd. The launcher now passes model_context_window=16384 so Codex's conversation budget matches the intended Ollama allocation. **This option does not itself enlarge the Ollama server's actual allocation.**
+
+Use a small, no-file-write prompt to test. From a separate PowerShell after model loading, run:
+
+    ollama ps
+
+The **CONTEXT** column must be 16384 (or at least greater than the prompt size). If it still shows 4096, the previous Ollama process or an app/model-specific override is likely still in effect.
+
+Ollama recommends >=64K for coding agents, but 16K is only a **resource-constrained initial test**, not a guarantee for larger repositories. The 32K or 64K settings may exceed practical 16GB laptop memory limits. For large codebases use smaller task scopes or GitHub-hosted CI, not an unverified huge context.
+
+Source: https://docs.ollama.com/context-length and https://docs.ollama.com/integrations/codex
+
+
 ## GitHub + Google Drive for desktop (mandatory local connections)
 
 A Google Drive connection in ChatGPT is **not** automatically inherited by local Codex CLI. This configuration uses GitHub CLI authentication and Windows Google Drive for desktop sync.
