@@ -11,16 +11,20 @@ import lead_action_delta_sync as d
 def row(id, priority=None, review=False, planned=False, recontact=False,
         stamp="2026-11-20T16:39:00+09:00"):
     return {
-        "Lead ID":id, "Lead Status":"Open",
+        "Lead ID":id, "Lead Status":"Open", "Lead Created":"2026-11-01",
         "연락 구분":"메일 발송 증거 없음",
         "메일 원본 확인시각":stamp,
         "검토 완료":review,"메일 발송 예정":planned,"재연락 필요":recontact,
         d.queue.QUEUE_FIELD:priority,
+        d.age.ELIGIBILITY_FIELD:d.age.LABELS["eligible"],
     }
 
 class DeltaTests(unittest.TestCase):
     def setUp(self):
         self.now=dt.datetime(2026,11,21,1,0,tzinfo=dt.timezone.utc)
+        patcher=mock.patch.object(d.age,"today_kst",return_value=dt.date(2026,11,21))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_source_stamps_must_be_fresh_and_timezoned(self):
         sample={"a":row("a")}
@@ -50,6 +54,27 @@ class DeltaTests(unittest.TestCase):
         self.assertEqual(changes[1]["fields"][d.queue.QUEUE_FIELD],
                          d.queue.QUEUE_LABELS["recontact"])
 
+    def test_old_lead_with_manual_recontact_is_excluded_and_labeled(self):
+        records={str(i):{"record_id":"rec"+str(i),
+                         "fields":row(str(i),d.queue.QUEUE_LABELS["review"])}
+                 for i in range(450)}
+        old=records["42"]["fields"]
+        old["Lead Created"]="2025-11-20"
+        old["재연락 필요"]=True
+        changes=d.plan_changes(records)
+        self.assertEqual(len(changes),1)
+        self.assertEqual(changes[0]["fields"],{
+            d.queue.QUEUE_FIELD:d.queue.QUEUE_LABELS["expired"],
+            d.age.ELIGIBILITY_FIELD:d.age.LABELS["expired"]})
+        self.assertEqual(changes[0]["record_id"],"rec42")
+
+    def test_eligible_label_rolls_over_at_one_year(self):
+        r=row("a",d.queue.QUEUE_LABELS["review"])
+        r["Lead Created"]="2025-11-21"
+        self.assertEqual(d.age.label(r),"대상 (최근 1년)")
+        r["Lead Created"]="2025-11-20"
+        self.assertEqual(d.age.label(r),"제외 (1년 초과)")
+
     def test_no_changes_is_valid_idempotent_case(self):
         records={str(i):{"record_id":"rec"+str(i),
                          "fields":row(str(i),d.queue.QUEUE_LABELS["review"])}
@@ -64,8 +89,9 @@ class DeltaTests(unittest.TestCase):
 
     def test_schema_requires_only_exact_text_and_checkbox_fields(self):
         expected={
-            "Lead ID":1, "Lead Status":1, "연락 구분":1,
+            "Lead ID":1, "Lead Status":1, "Lead Created":1, "연락 구분":1,
             "메일 원본 확인시각":1,d.queue.QUEUE_FIELD:1,
+            d.age.ELIGIBILITY_FIELD:1,
             **{name:7 for name in d.manual.MANUAL}
         }
         fields=[{"field_name":name,"type":typ,"field_id":"fld"+str(i)}
