@@ -29,7 +29,18 @@ FIELDS = (
     "id", "symbol", "process_date", "ex_date", "effective_date",
     "record_date", "payable_date", "currency", "rate", "old_rate",
     "new_rate", "sub_type", "cusip", "isin", "old_symbol", "new_symbol",
+    # Event-type specific identities; merger/name-change schemas do NOT have
+    # a universal "symbol" field. Never infer a single price-series identity.
+    "acquiree_symbol", "acquirer_symbol", "source_symbol",
+    "old_cusip", "new_cusip", "acquiree_cusip", "acquirer_cusip",
+    "source_cusip",
 )
+IDENTITY_ROLES = ("old_symbol", "new_symbol", "acquiree_symbol",
+                  "acquirer_symbol", "source_symbol")
+ROLE_ONLY_GROUPS = ("cash_mergers", "stock_mergers",
+                    "stock_and_cash_mergers", "name_changes",
+                    "unit_splits", "spin_offs", "rights_distributions")
+
 # Never silently drop other classes: they can affect price comparability.
 KNOWN_GROUPS = {
     "cash_dividends", "capital_gains_distributions", "forward_splits",
@@ -89,15 +100,34 @@ def parse_page(blob, queried, page_number):
                 continue
             symbol = item.get("symbol")
             if not isinstance(symbol, str) or symbol not in queried:
-                malformed += 1
-                # Preserve evidence of possible historical symbol aliases.
-                # Never map a returned symbol to a queried ticker by guess.
+                # Alpaca mergers and name changes commonly use `acquiree_symbol`,
+                # `acquirer_symbol`, `old_symbol`, `new_symbol` instead of
+                # generic `symbol`. Preserve both roles with no guessed issuer
+                # mapping and never insert these into price-factor comparisons.
+                roles = {
+                    key: item[key] for key in IDENTITY_ROLES
+                    if isinstance(item.get(key), str) and 0 < len(item[key]) <= 24
+                }
+                matches = {key: val for key, val in roles.items() if val in queried}
+                expected_role_schema = (group in ROLE_ONLY_GROUPS
+                                        and not isinstance(symbol, str)
+                                        and bool(roles))
+                if not expected_role_schema:
+                    malformed += 1
                 unmapped_identity.append({
                     "group": group,
                     "returned_symbol": symbol if isinstance(symbol, str) and len(symbol) <= 24 else None,
                     "event_id": item.get("id") if isinstance(item.get("id"), str) else None,
                     "process_date": item.get("process_date") if isinstance(item.get("process_date"), str) else None,
                     "ex_date": item.get("ex_date") if isinstance(item.get("ex_date"), str) else None,
+                    "identity_roles": roles,
+                    "queried_symbol_role_candidates": matches,
+                    "identity_schema": (
+                        "EXPECTED_EVENT_TYPE_ROLE_FIELDS_UNCERTIFIED"
+                        if expected_role_schema else
+                        "UNEXPECTED_OR_UNLINKABLE_IDENTITY_HOLD"
+                    ),
+                    "issuer_lineage_certified": False,
                 })
                 continue
             # Incomplete events are deliberately retained, but excluded from
@@ -205,6 +235,12 @@ def collect(symbols, session, *, fetcher=http_bytes, offline=False, stamp=None):
         return report
     report["malformed_or_ambiguous_count"] = malformed
     report["unmapped_historical_identity_count"] = len(unmapped_identity)
+    report["role_based_identity_event_count"] = sum(
+        x["identity_schema"] == "EXPECTED_EVENT_TYPE_ROLE_FIELDS_UNCERTIFIED"
+        for x in unmapped_identity)
+    report["queried_symbol_role_link_candidates"] = sum(
+        bool(x["queried_symbol_role_candidates"]) for x in unmapped_identity)
+    report["issuer_lineage_certified"] = False
     report["unmapped_historical_identity_examples"] = unmapped_identity[:32]
     report["non_scalar_field_count"] = sum(
         bool(x.get("unexpected_non_scalar_fields")) for x in report["events"])
@@ -215,7 +251,8 @@ def collect(symbols, session, *, fetcher=http_bytes, offline=False, stamp=None):
         for symbol in symbols
     }
     report["status"] = (
-        "ALPACA_ACTIONS_RETRIEVED_UNCERTIFIED" if not malformed and not unsupported
+        "ALPACA_ACTIONS_RETRIEVED_UNCERTIFIED"
+        if not malformed and not unsupported and not unmapped_identity
         else "ALPACA_ACTIONS_INCOMPLETE_OR_UNKNOWN_HOLD")
     return report
 
