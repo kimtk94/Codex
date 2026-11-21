@@ -130,9 +130,15 @@ def trades_for(frame, years, family, *, threshold=0.6):
 
 def summarize(frame, spec, mode):
     years = (2024,2025,2026)
+    asof_row = frame.loc[pd.Timestamp(ASOF), COLUMNS]
+    current_features = {
+        col: float(asof_row[col]) if pd.notna(asof_row[col]) else None
+        for col in COLUMNS
+    }
     out = {"mode":mode, "rows":len(frame),
            "first":str(frame.index.min().date()),"last":str(frame.index.max().date()),
            "asof_feature_sha256":fingerprint_feature_row(frame,ASOF),
+           "asof_feature_values":current_features,
            "feature_columns":len(COLUMNS),
            "annual_folds":[fold_evidence(frame,y,t) for y in years
                            for t in ("BULL_LOGISTIC","BEAR_LOGISTIC")],
@@ -218,6 +224,25 @@ def run_one(spec, artifact, run_id, out):
             base["BEAR_RULE_current"]["candidate"]!=gated["BEAR_RULE_current"]["candidate"])
         results["deltas"]["current_21_feature_changed"]=(
             base["asof_feature_sha256"]!=gated["asof_feature_sha256"])
+        feature_differences = {}
+        for col in COLUMNS:
+            original = base["asof_feature_values"][col]
+            adjusted = gated["asof_feature_values"][col]
+            delta = (adjusted - original if
+                     original is not None and adjusted is not None else None)
+            if original != adjusted:
+                feature_differences[col] = {
+                    "original": original, "listed_only": adjusted, "delta": delta,
+                }
+        results["deltas"]["asof_feature_differences"] = feature_differences
+        results["deltas"]["asof_feature_material_delta_gt_1e8"] = sum(
+            record["delta"] is not None and abs(record["delta"]) > 1e-8
+            for record in feature_differences.values()
+        )
+        results["deltas"]["asof_feature_max_abs_delta"] = max(
+            [abs(record["delta"]) for record in feature_differences.values()
+             if record["delta"] is not None] or [0]
+        )
         out.mkdir(parents=True,exist_ok=True)
         write_json(out/(run_id+"_ionq_sensitivity.json"),results)
         print("IONQ_IDENTITY_SENSITIVITY",json.dumps({"run":run_id,
