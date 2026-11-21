@@ -32,7 +32,8 @@ jobs:
             "local_ai\preflight-agent-tool.ps1",
             "local_ai\repair-ollama-cli.ps1",
             "local_ai\verify-git-drive-local.ps1",
-            "local_ai\setup-drive-desktop.ps1"
+            "local_ai\setup-drive-desktop.ps1",
+            "local_ai\diagnose-drive-install.ps1"
           )
           foreach ($file in $scripts) {
             $tokens = $null
@@ -134,12 +135,13 @@ jobs:
             "local_ai\Preflight-Codex-Tool-Use.cmd",
             "local_ai\Repair-Ollama-Command.cmd",
             "local_ai\Verify-Git-Drive-Local.cmd",
-            "local_ai\Setup-Drive-Desktop.cmd"
+            "local_ai\Setup-Drive-Desktop.cmd",
+            "local_ai\Diagnose-Drive-Install.cmd"
           )
           foreach ($file in $required) {
             if (!(Test-Path $file)) { throw "Missing launcher: $file" }
             $cmd = Get-Content $file -Raw
-            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } elseif ($file -like "*Preflight-Codex-Tool-Use.cmd") { "preflight-agent-tool.ps1" } elseif ($file -like "*Repair-Ollama-Command.cmd") { "repair-ollama-cli.ps1" } elseif ($file -like "*Verify-Git-Drive-Local.cmd") { "verify-git-drive-local.ps1" } elseif ($file -like "*Setup-Drive-Desktop.cmd") { "setup-drive-desktop.ps1" } else { "local-codex.ps1" }
+            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } elseif ($file -like "*Preflight-Codex-Tool-Use.cmd") { "preflight-agent-tool.ps1" } elseif ($file -like "*Repair-Ollama-Command.cmd") { "repair-ollama-cli.ps1" } elseif ($file -like "*Verify-Git-Drive-Local.cmd") { "verify-git-drive-local.ps1" } elseif ($file -like "*Setup-Drive-Desktop.cmd") { "setup-drive-desktop.ps1" } elseif ($file -like "*Diagnose-Drive-Install.cmd") { "diagnose-drive-install.ps1" } else { "local-codex.ps1" }
             if ($cmd -notmatch [regex]::Escape($expected)) { throw "Launcher not wired: $file -> $expected" }
             if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
           }
@@ -241,6 +243,14 @@ jobs:
             if (!$driveSetup.Contains($term)) { throw "Drive Desktop setup missing: $term" }
           }
           Write-Host "Guided Google Drive desktop setup static checks PASS."
+          $installDiag = Get-Content "local_ai\diagnose-drive-install.ps1" -Raw
+          foreach ($word in @("MsiInstaller", "GoogleDriveFS", "Win32", "CurrentVersion\Uninstall", "WindowsIdentity", "GoogleDrive|DriveFS|GoogleUpdate")) {
+            if (!$installDiag.Contains($word)) { throw "Drive 1603 diagnostic missing: $word" }
+          }
+          if ($installDiag -match "(?i)Remove-Item|Set-ExecutionPolicy|takeown.exe|icacls.exe") {
+            throw "Drive install diagnostic must be read-only"
+          }
+          Write-Host "Google Drive installer 1603 diagnostic static checks PASS."
 
 
 
