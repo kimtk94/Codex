@@ -39,8 +39,12 @@ def source_findings(relative: str, content: str) -> list[dict]:
             continue
         for kind, pattern in WRITE_PATTERNS.items():
             if pattern.search(line):
+                context = ('test_fixture' if Path(relative).name.startswith('test_')
+                           else 'audit_pattern_definition' if relative.endswith('audit_indirect_git_writes.py')
+                           else 'unreviewed_executable')
                 findings.append({'source': relative, 'line': lineno, 'signal': kind,
-                                 'main_ref_literal': bool(MAIN_REF.search(line))})
+                                 'main_ref_literal': bool(MAIN_REF.search(line)),
+                                 'context': context})
     return findings
 
 def workflow_scripts(body: str, paths: set[str]) -> set[str]:
@@ -92,16 +96,18 @@ def scan(root: Path) -> dict:
                               'has_untraced_execution': bool(reused or external or SCRIPT_CMD.search(body))})
     main_refs = sum(bool(f['main_ref_literal']) for f in findings)
     indirect_signals = sum(f['via'] == 'referenced_script' for f in findings)
+    executable_main_candidates = sum(f['main_ref_literal'] and f['context'] == 'unreviewed_executable' for f in findings)
     return {
         'schema_version': 1,
         'generated_at_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
-        'status': 'BLOCK_REVIEW' if main_refs else 'REVIEW_REQUIRED',
+        'status': 'BLOCK_REVIEW' if executable_main_candidates else 'REVIEW_REQUIRED',
         'workflow_count': len(workflows),
         'repo_sources_indexed': len(sources),
         'referenced_source_files_inspected': len(source_cache),
         'workflow_write_permission_count': sum(bool(x['write_permission_declared']) for x in inventory),
         'indirect_git_write_signals': indirect_signals,
         'literal_main_write_signals': main_refs,
+        'executable_main_write_candidates': executable_main_candidates,
         'findings': findings,
         'write_capability_inventory': inventory,
         'limitations': [
@@ -131,6 +137,10 @@ def main() -> int:
         for finding in report['findings']:
             key = (finding['source'], finding['line'], finding['signal'], finding['main_ref_literal'])
             unique.setdefault(key, set()).add(finding['workflow'])
+        print('EXECUTABLE_MAIN_WRITE_CANDIDATES:', report['executable_main_write_candidates'])
+        for item in report['write_capability_inventory']:
+            if item['write_permission_declared']:
+                print('WRITE_CAPABLE_WORKFLOW:', item['workflow'])
         print('UNIQUE_WRITE_SIGNAL_LOCATIONS:', len(unique))
         for (source, line, signal, main_ref), workflows in sorted(unique.items()):
             print('WRITE_SIGNAL:', source + ':' + str(line), signal,
