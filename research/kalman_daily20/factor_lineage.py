@@ -20,7 +20,7 @@ import pandas as pd
 
 from daily20 import load_spec, market_file, write_json
 
-VERSION = "daily20-yahoo-factor-lineage-v1"
+VERSION = "daily20-yahoo-factor-lineage-v2"
 REQUIRED = ("Close", "Adj Close", "Dividends", "Stock Splits")
 PRICE_TOLERANCE_USD = 0.005
 
@@ -109,7 +109,7 @@ def diagnose(symbol, history, cached, session):
     if not asof_in_source or not asof_in_cached:
         status = "YAHOO_ASOF_SESSION_MISSING_HOLD"
     elif len(drifts):
-        status = "YAHOO_ADJUSTED_REPLAY_DRIFT_HOLD"
+        status = "YAHOO_ADJUSTED_COMPARISON_DIFFERENCE_HOLD"
     elif not len(checked):
         status = "YAHOO_CACHED_OVERLAP_MISSING_HOLD"
     else:
@@ -170,7 +170,7 @@ def run(spec, market, qc_path, out_dir, *, fetcher=fetch_yahoo,
             detail["csv_gzip_file"] = output.name
             detail["production_repair_setting"] = True
             detail["unrepaired_diagnostic_setting"] = False
-            if original_status == "YAHOO_ADJUSTED_REPLAY_DRIFT_HOLD":
+            if original_status == "YAHOO_ADJUSTED_COMPARISON_DIFFERENCE_HOLD":
                 try:
                     repaired = repaired_fetcher(symbol, spec["start_date"], end)
                     repaired_detail, repaired_csv = diagnose(symbol, repaired, cached, session)
