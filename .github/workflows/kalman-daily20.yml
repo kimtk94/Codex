@@ -121,6 +121,29 @@ jobs:
           print("DAILY20_PRIMARY_M_RESEARCH_SELECTION",report["primary_M_quote_research_selection_count"],
                 "out of 25; price factor NOT attested")
           PY
+      - name: Collect Alpaca corporate actions by process date (candidate evidence only)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: |
+          SESSION=$(python -c 'import json; print(json.load(open("output/daily20/independent_feed.json"))["session"])')
+          python research/kalman_daily20/corporate_actions_reference.py \
+            --session "$SESSION" \
+            --out output/daily20/corporate_actions_reference.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/corporate_actions_reference.json").read_text())
+          assert r["research_only"] is True
+          assert r["production_writes"] is False
+          assert r["finality_verified"] == 0
+          assert r["factor_independently_certified"] == 0
+          assert len(r["queried_symbols"]) == 25
+          print("DAILY20_PROTECTED_CA_REFERENCE",r["status"],
+                "pages",r["page_count"],"events",len(r["events"]))
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: daily20-private-cache-from-drive
@@ -131,6 +154,7 @@ jobs:
             output/daily20/quote_reference.json
             output/daily20/venue_identity.json
             output/daily20/selected_reference.json
+            output/daily20/corporate_actions_reference.json
           if-no-files-found: error
           retention-days: 1
 
@@ -267,6 +291,34 @@ jobs:
           assert r["finality_verified"] == 0
           assert r["overall_status"] == "CORPORATE_ACTION_FACTORS_RESEARCH_HOLD"
           print("DAILY20_YAHOO_CA_UNCERTIFIED",r["vendor_history_observed"],"/25")
+          PY
+      - name: Compare ex-dated Yahoo dividends/splits to Alpaca (uncertified and fail-closed)
+        run: |
+          mkdir -p output/daily20/research/corporate_actions
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SESSION=$(python -c 'import json; print(json.load(open("output/daily20/qc.json"))["expected_session"])')
+            python research/kalman_daily20/corporate_actions_reference.py \
+              --session "$SESSION" \
+              --offline \
+              --out output/daily20/research/corporate_actions/reference.json
+          else
+            cp output/daily20/cache/corporate_actions_reference.json \
+              output/daily20/research/corporate_actions/reference.json
+          fi
+          python research/kalman_daily20/corporate_actions_compare.py \
+            --factor-dir output/daily20/research/factor_lineage \
+            --reference output/daily20/research/corporate_actions/reference.json \
+            --out-dir output/daily20/research/corporate_actions
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/corporate_actions/report.json").read_text())
+          assert r["required"] == 25
+          assert r["research_only"] is True and r["production_writes"] is False
+          assert r["finality_verified"] == 0 and r["independent_factor_certification"] == 0
+          assert r["status"] == "CORPORATE_ACTION_CROSSCHECK_RESEARCH_HOLD"
+          print("DAILY20_CA_MATCH_RESEARCH_ONLY",r["reference_status"],
+                "matched",r["matched_ex_date_events"],"CERTIFIED 0/25")
           PY
       - name: Secondary provider return comparison (advisory; independence unverified)
         run: |
