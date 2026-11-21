@@ -1,5 +1,21 @@
 # Windows 16 GB Local AI (Ollama)
 
+### Missing model name: "pull model manifest: file does not exist"
+
+The model `qwen3-codex16k` is a LOCAL custom alias, **not** a registry model.
+Do not call `ollama pull qwen3-codex16k` or try to launch Codex before creating it.
+
+One-time direct PowerShell commands:
+
+    $mf = Join-Path $env:TEMP 'Modelfile.codex16k'
+    "FROM qwen3:4b`nPARAMETER num_ctx 16384`n" | Set-Content -LiteralPath $mf -Encoding ascii
+    ollama create qwen3-codex16k -f $mf
+    ollama list
+    codex.cmd --oss -m qwen3-codex16k:latest -c 'model_context_window=16384'
+
+Alternatively run `Fix-Codex-4096.cmd`, which also checks the actual allocation.
+The **Start-Local-Codex.cmd** launcher now detects a missing `qwen3-codex16k`, calls the local creator automatically, verifies that it was created, then starts Codex. No remote model download for the alias is required.
+
 ## Recommended fix when Codex still reports 4096-token context (Nov 21)
 
 If Codex says `request (5875 tokens) exceeds available context (4096 tokens)`, the running Ollama model is still limited to 4K. **Changing only Codex's `model_context_window` does not enlarge Ollama's runtime context.**
