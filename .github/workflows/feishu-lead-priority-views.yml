@@ -13,11 +13,13 @@ on:
     branches: [main]
     paths:
       - 'automation/feishu/lead_mail_views_sync.py'
+      - 'automation/feishu/lead_eligibility.py'
       - 'automation/feishu/test_lead_mail_views_sync.py'
       - '.github/workflows/feishu-lead-priority-views.yml'
   pull_request:
     paths:
       - 'automation/feishu/lead_mail_views_sync.py'
+      - 'automation/feishu/lead_eligibility.py'
       - 'automation/feishu/test_lead_mail_views_sync.py'
       - '.github/workflows/feishu-lead-priority-views.yml'
 permissions:
