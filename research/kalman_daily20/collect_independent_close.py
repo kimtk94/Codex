@@ -359,14 +359,21 @@ def collect(session, symbols, *, fetcher=http_bytes):
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--config",default="research/kalman_daily20/universe.json")
-    p.add_argument("--qc",required=True)
+    source = p.add_mutually_exclusive_group(required=True)
+    source.add_argument("--qc",help="Only run after source OHLCV QC has passed")
+    source.add_argument("--session",help="Last completed New York session for protected credential-isolated prefetch")
     p.add_argument("--out-report",required=True)
     p.add_argument("--out-reference",required=True)
     args=p.parse_args()
-    qc=json.loads(Path(args.qc).read_text())
-    session=str(qc.get("expected_session"))
-    if qc.get("status")!="READY" or qc.get("ready")!=26:
-        raise RuntimeError("INDEPENDENT_COLLECTOR_PRIOR_QC_NOT_READY")
+    if args.qc:
+        qc=json.loads(Path(args.qc).read_text())
+        session=str(qc.get("expected_session"))
+        if qc.get("status")!="READY" or qc.get("ready")!=26:
+            raise RuntimeError("INDEPENDENT_COLLECTOR_PRIOR_QC_NOT_READY")
+    else:
+        session=date.fromisoformat(args.session).isoformat()
+        # Isolated provider prefetch does not claim market OHLCV completeness.
+        # The consuming research job MUST enforce exact-session QC equivalence.
     spec=load_spec(args.config)
     report,reference=collect(session,spec["core"]+spec["context"])
     write_json(args.out_report,report)
