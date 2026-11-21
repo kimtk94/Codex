@@ -395,8 +395,35 @@ def inspect_payload(data_root, results_root):
                 or stability.get("research_hold") not in (True, False)
                 or type(stability["research_hold"]) is not bool):
             raise RuntimeError("STABILITY_GOVERNANCE_MISMATCH")
-        if stability["research_hold"] and stability.get("status") != "REPLAY_DRIFT_RESEARCH_HOLD":
+        if stability["research_hold"] and stability.get("status") not in (
+                "REPLAY_DRIFT_RESEARCH_HOLD", "SOURCE_FINALITY_HOLD"):
             raise RuntimeError("STABILITY_HOLD_CLASSIFICATION_MISMATCH")
+        # The source-finality evidence is a separate, mandatory research HOLD
+        # after adoption; never let a successfully built model imply certified
+        # regular-session closing prints. Pre-adoption fixtures remain readable.
+        finality_path = r / "research" / "source_finality" / "report.json"
+        finality_hash = stability.get("source_finality_evidence_sha256")
+        if finality_hash is not None:
+            if not finality_path.is_file():
+                raise RuntimeError("SOURCE_FINALITY_EVIDENCE_NOT_PUBLISHED")
+            finality = json.loads(finality_path.read_text())
+            if (hashlib.sha256(finality_path.read_bytes()).hexdigest() != finality_hash
+                    or finality.get("version") != "daily20-source-finality-v1"
+                    or finality.get("session") != qc["expected_session"]
+                    or finality.get("required") != 26
+                    or finality.get("examined") != 26
+                    or finality.get("verified") != 0
+                    or finality.get("research_only") is not True
+                    or finality.get("production_writes") is not False
+                    or finality.get("strategy_promoted") is not False
+                    or finality.get("research_hold") is not True
+                    or stability.get("source_finality_research_hold") is not True
+                    or stability.get("source_finality_verified_assets") != 0
+                    or stability.get("source_finality_status") != finality["status"]):
+                raise RuntimeError("SOURCE_FINALITY_AND_STABILITY_GOVERNANCE_MISMATCH")
+            if (stability.get("status") != "REPLAY_DRIFT_RESEARCH_HOLD"
+                    and stability.get("status") != "SOURCE_FINALITY_HOLD"):
+                raise RuntimeError("FINALITY_UNVERIFIED_BUT_STABILITY_NOT_HOLD")
         frozen = sorted((stability_root / "snapshots").glob("*.json"))
         if len(frozen) != stability.get("frozen_sessions_preserved"):
             raise RuntimeError("STABILITY_ARCHIVE_COUNT_MISMATCH")
@@ -440,6 +467,12 @@ def inspect_payload(data_root, results_root):
         "monte_carlo_approved_live": False,
         "stability_status": stability["status"] if stability else "LEGACY_NO_STABILITY_REPORT",
         "stability_research_hold": stability["research_hold"] if stability else None,
+        "source_finality_status": (
+            stability.get("source_finality_status") if stability else None),
+        "source_finality_verified_assets": (
+            stability.get("source_finality_verified_assets") if stability else None),
+        "source_finality_evidence_sha256": (
+            stability.get("source_finality_evidence_sha256") if stability else None),
     }
     return manifest
 
