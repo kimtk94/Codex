@@ -165,8 +165,8 @@ def text_of_pdf(blob):
     pages = min(18, len(doc.pages))
     plain = " ".join((doc.pages[i].extract_text() or "") for i in range(pages))
     plain = " ".join(plain.split())
-    return re.sub(r"(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日",
-                  r"\\1月\\2日", plain)
+    return re.sub(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日",
+                  r"\1月\2日", plain)
 
 
 def grade_anchors(blob, claim, *, pdf=False):
