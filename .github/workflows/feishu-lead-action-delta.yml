@@ -16,6 +16,7 @@ on:
     branches: [main]
     paths:
       - 'automation/feishu/lead_action_delta_sync.py'
+      - 'automation/feishu/lead_eligibility.py'
       - 'automation/feishu/test_lead_action_delta_sync.py'
       - 'automation/feishu/lead_delta_evidence.py'
       - 'automation/feishu/test_lead_delta_evidence.py'
@@ -23,6 +24,7 @@ on:
   pull_request:
     paths:
       - 'automation/feishu/lead_action_delta_sync.py'
+      - 'automation/feishu/lead_eligibility.py'
       - 'automation/feishu/test_lead_action_delta_sync.py'
       - 'automation/feishu/lead_delta_evidence.py'
       - 'automation/feishu/test_lead_delta_evidence.py'
