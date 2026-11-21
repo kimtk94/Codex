@@ -162,14 +162,14 @@ class DeltaTests(unittest.TestCase):
         store,writes,request,pages,views=self._fake_environment(True)
         initial_manual=d.queue.manual_snapshot(
             {key:rec["fields"] for key,rec in store.items()})
-        with mock.patch.object(d.lead,"auth",return_value="token"), \\
-             mock.patch.object(d,"pages",side_effect=pages), \\
-             mock.patch.object(d,"schema_check",return_value="fldPriority"), \\
-             mock.patch.object(d.queue,"load_records",side_effect=lambda root, token: deepcopy(store)), \\
-             mock.patch.object(d,"source_stamps_fresh",return_value=1), \\
-             mock.patch.object(d,"validate_views",return_value=views), \\
+        with mock.patch.object(d.lead,"auth",return_value="token"), \
+             mock.patch.object(d,"pages",side_effect=pages), \
+             mock.patch.object(d,"schema_check",return_value="fldPriority"), \
+             mock.patch.object(d.queue,"load_records",side_effect=lambda root, token: deepcopy(store)), \
+             mock.patch.object(d,"source_stamps_fresh",return_value=1), \
+             mock.patch.object(d,"validate_views",return_value=views), \
              mock.patch.object(d,"verify_view_ids",return_value={
-                 "recontact":0,"planned":1,"review":449,"none":0}), \\
+                 "recontact":0,"planned":1,"review":449,"none":0}), \
              mock.patch.object(d,"request",side_effect=request):
             d.main(apply=True)
         self.assertEqual(len(writes),1)
@@ -184,14 +184,14 @@ class DeltaTests(unittest.TestCase):
     def test_no_change_path_checks_view_ids_without_writing(self):
         from copy import deepcopy
         store,writes,request,pages,views=self._fake_environment(False)
-        with mock.patch.object(d.lead,"auth",return_value="token"), \\
-             mock.patch.object(d,"pages",side_effect=pages), \\
-             mock.patch.object(d,"schema_check",return_value="fldPriority"), \\
-             mock.patch.object(d.queue,"load_records",return_value=deepcopy(store)), \\
-             mock.patch.object(d,"source_stamps_fresh",return_value=1), \\
-             mock.patch.object(d,"validate_views",return_value=views), \\
+        with mock.patch.object(d.lead,"auth",return_value="token"), \
+             mock.patch.object(d,"pages",side_effect=pages), \
+             mock.patch.object(d,"schema_check",return_value="fldPriority"), \
+             mock.patch.object(d.queue,"load_records",return_value=deepcopy(store)), \
+             mock.patch.object(d,"source_stamps_fresh",return_value=1), \
+             mock.patch.object(d,"validate_views",return_value=views), \
              mock.patch.object(d,"verify_view_ids",return_value={
-                 "recontact":0,"planned":0,"review":450,"none":0}) as verify, \\
+                 "recontact":0,"planned":0,"review":450,"none":0}) as verify, \
              mock.patch.object(d,"request",side_effect=request):
             d.main(apply=True)
             verify.assert_called_once()
