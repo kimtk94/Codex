@@ -30,6 +30,10 @@ ALLOWED_EXACT = {
     "docs/local-ai-development-policy.md",
 }
 WORKFLOW_PATTERN = re.compile(r"^\.github/workflows/local-ai-[a-z0-9-]+\.yml$")
+SENSITIVE_PATH_PARTS = {"secrets", "credentials", ".ssh", ".aws", ".env"}
+SENSITIVE_FILE_EXTENSIONS = {".pem", ".key", ".p12", ".pfx", ".sqlite", ".db"}
+SENSITIVE_NAME_FRAGMENTS = ("secret", "credential", "password", "id_rsa")
+
 
 
 def allowed_path(path: str) -> bool:
@@ -38,7 +42,18 @@ def allowed_path(path: str) -> bool:
         return False
     if path.startswith("/") or "\\" in path:
         return False
-    if any(part in {"", ".", ".."} for part in path.split("/")):
+    parts = path.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        return False
+    if any(ord(c) < 32 or ord(c) == 127 for c in path):
+        return False
+    lowered = [part.casefold() for part in parts]
+    filename = lowered[-1]
+    if any(part in SENSITIVE_PATH_PARTS for part in lowered):
+        return False
+    if filename.startswith(".env") or any(word in filename for word in SENSITIVE_NAME_FRAGMENTS):
+        return False
+    if Path(filename).suffix in SENSITIVE_FILE_EXTENSIONS:
         return False
     if path in ALLOWED_EXACT or bool(WORKFLOW_PATTERN.fullmatch(path)):
         return True
@@ -101,14 +116,32 @@ def actual_diff(base_sha: str, head_sha: str) -> tuple[list[str], int]:
     if not SHA.fullmatch(base_sha.lower()) or not SHA.fullmatch(head_sha.lower()):
         raise ValueError("Base/head must be actual 40-character commit SHAs")
     diff_range = base_sha + "..." + head_sha
-    raw = git_output("diff", "--name-only", "-z", diff_range, binary=True)
-    paths = [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
-    stat = git_output("diff", "--shortstat", diff_range).strip()
-    insert = re.search(r"(\d+) insertions?\(\+\)", stat)
-    delete = re.search(r"(\d+) deletions?\(-\)", stat)
-    changed_lines = (int(insert.group(1)) if insert else 0) + (int(delete.group(1)) if delete else 0)
-    if paths and not stat:
-        raise ValueError("Cannot determine changed lines")
+    # --no-renames makes both source and destination visible on file moves.
+    # --numstat -z provides a numeric change count for every changed path and
+    # explicitly marks binary changes as '-'. Do not silently count them as 0.
+    raw = git_output(
+        "diff", "--no-ext-diff", "--no-renames", "--numstat", "-z",
+        diff_range, binary=True,
+    )
+    paths = []
+    changed_lines = 0
+    for entry in raw.split(b"\0"):
+        if not entry:
+            continue
+        fields = entry.split(b"\t", 2)
+        if len(fields) != 3 or not fields[2]:
+            raise ValueError("Unrecognized git diff numstat entry")
+        added, deleted, name = fields
+        if added == b"-" or deleted == b"-":
+            raise ValueError("Binary changes require separate manual review")
+        if not added.isdigit() or not deleted.isdigit():
+            raise ValueError("Unrecognized git diff line counts")
+        try:
+            path = name.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Non-UTF-8 file path is unsupported") from exc
+        paths.append(path)
+        changed_lines += int(added) + int(deleted)
     return paths, changed_lines
 
 
