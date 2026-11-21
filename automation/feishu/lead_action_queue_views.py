@@ -34,8 +34,8 @@ QUEUES = (
 )
 NO_EVIDENCE = "메일 발송 증거 없음"
 
-def classify(row):
-    if age.eligibility(row) == "expired":
+def classify(row, today=None):
+    if age.eligibility(row, today) == "expired":
         return "expired"
     if manual.checked(row.get("재연락 필요")):
         return "recontact"
@@ -49,10 +49,11 @@ def classify(row):
         return "review"
     return "none"
 
-def partition(records):
+def partition(records, today=None):
+    today = today or age.today_kst()
     buckets = {name: set() for name in QUEUE_LABELS}
     for key, row in records.items():
-        buckets[classify(row)].add(key)
+        buckets[classify(row, today)].add(key)
     if sum(len(x) for x in buckets.values()) != len(records):
         raise RuntimeError("LEAD_QUEUE_PARTITION_INVALID")
     return buckets
@@ -125,9 +126,9 @@ def main(apply=False):
     old_fields={key:rec["fields"] for key,rec in old.items()}
     check_parity(source,old_fields)
     today=age.today_kst()
-    desired={key:QUEUE_LABELS[classify(row)] for key,row in old_fields.items()}
+    desired={key:QUEUE_LABELS[classify(row,today)] for key,row in old_fields.items()}
     eligibility_values={key:age.label(row,today) for key,row in old_fields.items()}
-    groups=partition(old_fields)
+    groups=partition(old_fields,today)
     updates=[]
     for key,rec in old.items():
         new_values={}
