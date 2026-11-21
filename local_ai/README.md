@@ -1,5 +1,26 @@
 # Windows 16 GB Local AI (Ollama)
 
+## VS Code PowerShell says "ollama is not recognized" while Codex is running
+
+The Windows terminal may have inherited an outdated PATH even while Ollama's localhost API and Codex TUI are working. The observed Git clone is `C:\Users\KimTaeHoon\Projects\Codex`, origin `https://github.com/kimtk94/Codex.git`, branch `main`, clean worktree, and `gh auth status` succeeds. Do **not** reinstall Ollama on the basis of a single PowerShell `CommandNotFoundException`.
+
+In the **right-hand PowerShell** run:
+
+    Get-Command ollama.exe -ErrorAction SilentlyContinue
+    Test-Path "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
+    Invoke-RestMethod http://127.0.0.1:11434/api/tags | Select-Object -ExpandProperty models
+
+If the executable exists at the common official path, use the full path immediately:
+
+    & "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" list
+
+Or run **Repair-Ollama-Command.cmd** from the latest local_ai folder. It locates the existing executable, confirms the local API, and adds its *directory* to the current **user's PATH** (not machine-wide). Open a fresh PowerShell / VS Code terminal afterwards and check `ollama list`. If the executable was installed elsewhere, locate the real path first; do not append untrusted locations to PATH.
+
+The `Start-Local-Codex.cmd` now checks the local Ollama HTTP API even when the CLI executable is missing from the current terminal PATH. To create a missing 16K alias, the CLI must still be discoverable; the launcher will give a repair instruction instead of silently failing.
+
+**Next local development test:** use the synthetic read-only `Preflight-Codex-Tool-Use.cmd`. Git authentication and a clean worktree do not prove that a 3B model can perform actual agent tool calls. Keep automatic edits/pushes on HOLD until a genuine `command_execution` event has been verified.
+
+
 ## AGENT TOOL-USE BLOCKED (2026-11-21) — do not trust the TUI screenshot
 
 The user requested a read-only Git repository analysis, but local Codex/Qwen2.5-Coder 3B spent 4m33s and printed a fake tool call:
