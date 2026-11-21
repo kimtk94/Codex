@@ -20,7 +20,7 @@ PLAN = (
 )
 NO_CHANGE = (
     'LEAD_DELTA_NO_NEW_DATA=1 {"checked":1050,"views_verified":3,'
-    '"counts":{"recontact":0,"planned":0,"review":734,"none":316},' +
+    '"counts":{"recontact":0,"planned":0,"review":734,"none":316,"expired":0},' +
     '"writes":0,"second_snapshot_verified":true}'
 )
 READBACK = (
