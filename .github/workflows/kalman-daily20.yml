@@ -250,6 +250,24 @@ jobs:
           assert report["status"] in ("SOURCE_FINALITY_HOLD", "REPLAY_DRIFT_RESEARCH_HOLD")
           print("DAILY20_FINALITY_RESEARCH_PROVISIONAL",report["status"])
           PY
+      - name: Record Yahoo dividend/split factor lineage (research-only; NOT independent certification)
+        run: |
+          python research/kalman_daily20/factor_lineage.py \
+            --market output/daily20/market \
+            --qc output/daily20/qc.json \
+            --out-dir output/daily20/research/factor_lineage
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path("output/daily20/research/factor_lineage/report.json").read_text())
+          assert r["research_only"] is True and r["production_writes"] is False
+          assert r["strategy_promoted"] is False
+          assert r["required"] == 25 and len(r["rows"]) == 25
+          assert r["independent_corporate_actions_certified"] == 0
+          assert r["finality_verified"] == 0
+          assert r["overall_status"] == "CORPORATE_ACTION_FACTORS_RESEARCH_HOLD"
+          print("DAILY20_YAHOO_CA_UNCERTIFIED",r["vendor_history_observed"],"/25")
+          PY
       - name: Secondary provider return comparison (advisory; independence unverified)
         run: |
           python research/kalman_daily20/secondary_qc.py \
