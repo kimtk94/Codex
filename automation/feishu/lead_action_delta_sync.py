@@ -73,6 +73,48 @@ def plan_changes(records):
                             "fields": {queue.QUEUE_FIELD: expected}})
     return changes
 
+def simulate_single_manual_change(records):
+    """Use real Feishu schema and records, but flip one checkbox in memory only.
+
+    No production update request can be reached from this function. Printed
+    evidence contains only aggregate counts; no Lead IDs or customer data.
+    """
+    from copy import deepcopy
+    baseline = plan_changes(records)
+    if baseline:
+        raise RuntimeError("LEAD_DELTA_SIMULATION_BASELINE_NOT_CLEAN")
+    selected = next((key for key, record in records.items()
+                     if queue.classify(record["fields"]) == "review"), None)
+    if selected is None:
+        raise RuntimeError("LEAD_DELTA_SIMULATION_NO_ELIGIBLE_REVIEW")
+    before = {key: record["fields"] for key, record in records.items()}
+    original_flags = queue.manual_snapshot(before)
+    scenario = deepcopy(records)
+    if manual.checked(scenario[selected]["fields"].get("메일 발송 예정")):
+        raise RuntimeError("LEAD_DELTA_SIMULATION_EXPECTED_UNCHECKED")
+    scenario[selected]["fields"]["메일 발송 예정"] = True
+    changed = plan_changes(scenario)
+    if (len(changed) != 1 or changed[0]["record_id"] != records[selected]["record_id"]
+            or changed[0]["fields"] != {queue.QUEUE_FIELD: queue.QUEUE_LABELS["planned"]}):
+        raise RuntimeError("LEAD_DELTA_SIMULATION_EXACT_ONE_CHANGE_FAILED")
+    after = {key: record["fields"] for key, record in scenario.items()}
+    prior_counts = {k: len(v) for k, v in queue.partition(before).items()}
+    simulated_counts = {k: len(v) for k, v in queue.partition(after).items()}
+    if (simulated_counts["review"] != prior_counts["review"] - 1
+            or simulated_counts["planned"] != prior_counts["planned"] + 1
+            or queue.manual_snapshot(before) != original_flags):
+        raise RuntimeError("LEAD_DELTA_SIMULATION_COUNTS_OR_SOURCE_CHANGED")
+    return {
+        "mode": "SIMULATION_ONLY",
+        "source_records": len(records),
+        "simulated_checkbox_flips": 1,
+        "expected_derived_field_updates": 1,
+        "real_feishu_writes": 0,
+        "manual_selection_preserved": True,
+        "scenario_before": prior_counts,
+        "scenario_after": simulated_counts,
+    }
+
 def guard_delta_size(changes, total):
     limit = max(MIN_ALLOWED_UPDATES, int(total * MAX_FRACTION_CHANGED))
     if len(changes) > limit:
@@ -139,7 +181,7 @@ def verify_view_ids(root, token, labels, views):
             raise RuntimeError("LEAD_DELTA_VIEW_IDS_MISMATCH")
     return {kind: len(ids) for kind, ids in groups.items()}
 
-def main(apply=False):
+def main(apply=False, simulate_one=False):
     token = lead.auth()
     tables = [x for x in pages(API + "/tables", token)
               if x.get("name") == lead.TABLE]
@@ -171,6 +213,10 @@ def main(apply=False):
     }, ensure_ascii=False), flush=True)
 
     if not apply:
+        if simulate_one:
+            scenario = simulate_single_manual_change(old)
+            print("LEAD_DELTA_SIMULATED_ONE_CHANGE_PASS=" +
+                  json.dumps(scenario, ensure_ascii=False), flush=True)
         print("LEAD_DELTA_READ_ONLY_PASS=1", flush=True)
         return
     if not changes:
@@ -215,10 +261,13 @@ def main(apply=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--apply", action="store_true")
+    options = parser.add_mutually_exclusive_group()
+    options.add_argument("--apply", action="store_true")
+    options.add_argument("--simulate-one", action="store_true",
+                         help="Test one checkbox flip in memory without any Feishu writes")
     arg = parser.parse_args()
     try:
-        main(apply=arg.apply)
+        main(apply=arg.apply, simulate_one=arg.simulate_one)
     except Exception as exc:
         print("LEAD_DELTA_FAILED="+str(exc), file=sys.stderr)
         sys.exit(1)
