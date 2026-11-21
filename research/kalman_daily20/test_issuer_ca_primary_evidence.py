@@ -39,6 +39,9 @@ def cases():
             "SAME_EXDATE_IDENTICAL_RATES_DISTINCT_EVENT_IDS","0.519",""),
         row("HYG","2018-12-03",
             "YAHOO_REPAIR_SUPPRESSED_DIVIDEND_OBSERVED","0","0.376387"),
+        row("MSFT","2026-11-19","ALPACA_PROCESS_DATE_CUTOFF_POSSIBLE","0.98",""),
+        row("XOM","2026-11-16","ALPACA_PROCESS_DATE_CUTOFF_POSSIBLE","1.07",""),
+        row("MSTR","2025-05-21","ALPACA_ONLY_UNCONFIRMED_BY_EITHER_YAHOO_VARIANT","0","0.335"),
     ]
 
 
@@ -52,22 +55,33 @@ def fake_html(url):
         return b"<p>June 29, 2018 | dividend paid $1.75 per share</p>"
     if "proshares.com" in url:
         return b"<table>3/26/2025 | 4/1/2025 ... 12/24/2025 | 12/31/2025 ... 3/25/2026 | 3/31/2026</table>"
+    if "news.microsoft.com" in url:
+        return (b"<p>Microsoft declared a quarterly dividend of $0.98 per share. "
+                b"The ex-dividend date will be Nov. 19, 2026.</p>")
+    if "investor.exxonmobil.com" in url:
+        return (b"<p>ExxonMobil declared a fourth-quarter dividend of $1.07 per share, "
+                b"payable December 10, 2026 to shareholders of record "
+                b"November 16, 2026.</p>")
+    if "strategy.com" in url:
+        return (b"<p>The Company has historically not paid any dividends on its "
+                b"shares of class A common stock, and past performance is "
+                b"not indicative of future results.</p>")
     raise AssertionError("unknown source")
 
 
 class IssuerPrimaryEvidenceTests(unittest.TestCase):
-    def test_manifest_official_hosts_and_specific_seven_claims(self):
+    def test_manifest_official_hosts_and_specific_ten_claims(self):
         sources,claims=ie.validate_manifest(MANIFEST)
-        self.assertEqual(len(sources),4)
-        self.assertEqual(len(claims),7)
-        self.assertEqual(sum(c["reported_amount_usd"] is not None for c in claims.values()),4)
-        self.assertEqual(sum(c["reported_amount_usd"] is None for c in claims.values()),3)
+        self.assertEqual(len(sources),7)
+        self.assertEqual(len(claims),10)
+        self.assertEqual(sum(c["reported_amount_usd"] is not None for c in claims.values()),6)
+        self.assertEqual(sum(c["reported_amount_usd"] is None for c in claims.values()),4)
 
     def test_offline_no_source_body_never_asserts_issuer_payment(self):
         with TemporaryDirectory() as d:
             report=ie.run(MANIFEST,cases(),d,offline=True)
-            self.assertEqual(report["unresolved_cases_analyzed"],8)
-            self.assertEqual(report["official_leads_applicable"],7)
+            self.assertEqual(report["unresolved_cases_analyzed"],11)
+            self.assertEqual(report["official_leads_applicable"],10)
             self.assertEqual(report["live_source_anchor_supported_cases"],0)
             self.assertEqual(report["raw_source_fetch_success"],0)
             self.assertEqual(report["issuer_action_payments_certified"],0)
@@ -77,8 +91,8 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
     def test_live_fake_issuer_pages_anchor_near_value_without_factor_promotion(self):
         with TemporaryDirectory() as d:
             report=ie.run(MANIFEST,cases(),d,getter=fake_html)
-            self.assertEqual(report["raw_source_fetch_success"],4)
-            self.assertEqual(report["live_source_anchor_supported_cases"],7)
+            self.assertEqual(report["raw_source_fetch_success"],7)
+            self.assertEqual(report["live_source_anchor_supported_cases"],10)
             self.assertEqual(report["factor_certified"],0)
             self.assertEqual(report["issuer_action_payments_certified"],0)
             for x in report["source_results"].values():
@@ -89,7 +103,7 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
             self.assertTrue((Path(d)/"report.json").exists())
             with (Path(d)/"unresolved_review.csv").open() as f:
                 rows=list(csv.DictReader(f))
-            self.assertEqual(len(rows),8)
+            self.assertEqual(len(rows),11)
             self.assertTrue(all(r["independent_close_certified"]=="False" for r in rows))
             spy=next(r for r in rows if r["symbol"]=="SPY" and r["ex_date"]=="2021-12-17")
             self.assertEqual(spy["primary_evidence_grade"],"ISSUER_AMOUNT_FAVORS_ALPACA_NUMERIC_ONLY")
@@ -97,6 +111,19 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
             self.assertEqual(avgo["amount_comparison_basis"],"RAW_PRE_SPLIT_ISSUER_AMOUNT_NOT_YAHOO_COMPARABLE")
             qld=next(r for r in rows if r["symbol"]=="QLD")
             self.assertEqual(qld["primary_evidence_grade"],"ISSUER_EXPECTED_CALENDAR_DATE_ONLY_NO_PAYMENT_ASSERTION")
+            msft=next(r for r in rows if r["symbol"]=="MSFT")
+            self.assertEqual(msft["primary_evidence_grade"],"ISSUER_AMOUNT_FAVORS_YAHOO_NUMERIC_ONLY")
+            self.assertEqual(msft["exdate_explicitly_issuer_published"],"True")
+            xom=next(r for r in rows if r["symbol"]=="XOM")
+            self.assertEqual(xom["primary_evidence_grade"],"ISSUER_AMOUNT_FAVORS_YAHOO_NUMERIC_ONLY")
+            self.assertEqual(xom["exdate_explicitly_issuer_published"],"False")
+            mstr=next(r for r in rows if r["symbol"]=="MSTR")
+            self.assertEqual(mstr["primary_evidence_grade"],
+                             "ISSUER_COMMON_CLASS_NO_DIVIDEND_POLICY_OBSERVED_IDENTITY_HOLD")
+            self.assertEqual(mstr["primary_amount_usd"],"")
+            self.assertEqual(mstr["amount_matches_alpaca_raw"],"")
+            self.assertEqual(mstr["amount_comparison_basis"],
+                             "ISSUER_POLICY_NO_COMMON_DIVIDEND_SECURITY_CLASS_HOLD")
 
     def test_issuer_2018_spy_amount_near_yahoo_but_alpaca_missing(self):
         c=MANIFEST["claims"][0]
@@ -128,6 +155,20 @@ class IssuerPrimaryEvidenceTests(unittest.TestCase):
         bad["sources"][0]["url"]="http://www.ssga.com/spy"
         with self.assertRaisesRegex(ValueError,"UNTRUSTED_ISSUER_DOMAIN"):
             ie.validate_manifest(bad)
+
+    def test_common_stock_policy_must_not_include_made_up_cash_amount(self):
+        bad=deepcopy(MANIFEST)
+        for claim in bad["claims"]:
+            if claim["symbol"] == "MSTR":
+                claim["reported_amount_usd"] = "0.335"
+        with self.assertRaisesRegex(ValueError,"SCHEDULE_MUST_NOT_ASSERT_PAID_AMOUNT"):
+            ie.validate_manifest(bad)
+
+    def test_declared_but_not_paid_date_semantics_retained(self):
+        claims={(x["symbol"],x["ex_date"]):x for x in MANIFEST["claims"]}
+        self.assertTrue(claims["MSFT","2026-11-19"]["exdate_explicitly_issuer_published"])
+        self.assertFalse(claims["XOM","2026-11-16"]["exdate_explicitly_issuer_published"])
+        self.assertEqual(claims["MSTR","2025-05-21"]["reported_amount_usd"],None)
 
     def test_missing_date_or_duplicate_claim_rejected(self):
         bad=deepcopy(MANIFEST)
