@@ -1,5 +1,26 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Recommended one-time setup + daily launch (Windows)
+
+The Windows Ollama app is already installed. No need to install Node.js/npm manually if winget is available.
+
+1. Get the reviewed local_ai folder from this branch/PR (or clone the repo).
+2. Double-click **Setup-Local-Codex.cmd** once. This checks Node/npm, installs Node.js LTS through winget only when missing, installs/updates @openai/codex with npm.cmd, checks Ollama localhost, and pulls qwen3:4b if missing. Confirm any installation prompts.
+3. Double-click **Check-Local-Codex.cmd** to verify local dependencies.
+4. For future coding sessions double-click **Start-Local-Codex.cmd**. It starts Codex CLI in the repository root with an explicitly selected **local** Ollama model. Drag another project folder onto this .cmd file if you want to work in that project.
+5. Do not use automatic approvals or the "dangerously bypass" flags. Review generated code and diffs before committing.
+
+To use a different local model from PowerShell (after downloading it with ollama pull):
+
+    .\local_ai\local-codex.ps1 -Mode Start -Model qwen3:1.7b -ProjectPath C:\path\to\project
+
+The launcher uses **codex --oss -m qwen3:4b** and disables web search for that session. The Ollama API is on 127.0.0.1 only, but this is not an air-gapped security guarantee: Codex shell tools may access the network unless separately restricted. Avoid feeding private work data before checking company policy.
+
+**Important:** Ollama recommends at least 64k context for Codex. A 16GB RAM machine with qwen3:4b can be slower or fail on large context/tool-calling work. The setup does **not** automatically increase context to 64k. Start with small isolated coding tasks and verify the model and GPU capability in actual Windows testing.
+
+If PowerShell execution policy blocks the script, verify its contents, then use Unblock-File .\local_ai\local-codex.ps1. Do not change machine-wide execution policies.
+
+
 **Status:** staged / read-only. This folder does not change CSS, SFDC, Quote, Feishu or research workflows. Inference is NOT executed on public GitHub runners.
 
 ## Suggested setup
