@@ -1,5 +1,41 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Drive Desktop PENDING after Git/Ollama PASS
+
+If `Verify-Git-Drive-Local.cmd` reports that Git, origin, GitHub authentication,
+Ollama API and the 16K model all PASS, but the following three are PENDING:
+`Drive desktop folder accessible`, `Drive inbox/results accessible`, and
+`Google Drive for desktop running`, then the remaining task is solely
+Windows Drive Desktop install/sign-in/mount. Do not reinstall Git, Node,
+Codex, or Ollama.
+
+Official installation guidance: https://support.google.com/drive/answer/10838124?hl=ko
+
+A guided **Setup-Drive-Desktop.cmd** launcher is available for this purpose
+in the reviewed PR branch (not yet on `main`). It checks for the Google Drive
+desktop executable/process, explicitly attempts the official
+`Google.GoogleDrive` winget package if missing, and searches mounted
+`My Drive` / Korean-language equivalent for **the existing**
+`LocalAI_Workspace` folder. It does not create cloud folders or sign in.
+
+A one-time interactive Google login must be performed in the desktop app.
+Use the account that can access the already verified cloud folder:
+
+https://drive.google.com/drive/folders/1uaLzCm1GpjgbmBoI6wQ1dDMcLeb6JD-b
+
+If Windows Drive is mounted but its path differs from defaults, pass
+`-DriveWorkspace` with the exact path. On successful detection of
+`inbox` and `results`, the script writes only the workspace path to
+`%LOCALAPPDATA%\LocalAI\workspace.json` and preserves other fields.
+The selected path must match the intended Drive account; same-named folders
+in other accounts cannot be distinguished from their filesystem name alone.
+
+A file's mere local presence does NOT verify cloud sync. After login,
+check Drive for desktop's status and confirm a newly written, NON-SENSITIVE
+test file appears in Drive web UI before using it for ongoing workflows.
+Do not put customer data in the test file.
+
+
 ## Next validation phase — local Git reader and Google Drive Desktop
 
 GitHub Windows CI now runs real \`repo_reader.py\` tests on a disposable Windows
