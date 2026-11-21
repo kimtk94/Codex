@@ -2,68 +2,89 @@ name: Build Kalman Hub v7.4.21 Auto Trade Console
 
 on:
   workflow_dispatch:
+    inputs:
+      propose_pr:
+        description: "Create a Draft PR for generated recovery files (manual approval)"
+        type: boolean
+        default: false
+        required: false
+      approval_text:
+        description: "For PR creation enter APPROVE_KALMAN_BUILD_PR"
+        type: string
+        default: ""
+        required: false
   push:
     branches: [main]
     paths:
       - "kalman-toss-gateway/scripts/build_investment_hub_v7421_execution_console.py"
+      - "automation/kalman/prepare_recovery_build_pr.py"
+      - ".github/workflows/build-kalman-hub-v7421.yml"
+  pull_request:
+    paths:
+      - "kalman-toss-gateway/scripts/build_investment_hub_v7421_execution_console.py"
+      - "automation/kalman/prepare_recovery_build_pr.py"
+      - "automation/kalman/test_prepare_recovery_build_pr.py"
       - ".github/workflows/build-kalman-hub-v7421.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: kalman-hub-v7421-build
   cancel-in-progress: false
 
 jobs:
-  build:
+  preview:
+    name: Rebuild historical artifacts and upload review-only patch
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-
+          fetch-depth: 1
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Validate safe manual-PR logic with synthetic data
+        run: python -m unittest discover -s automation/kalman -p "test_prepare_recovery_build_pr.py" -v
+      - name: Rebuild and validate without Git push
+        run: python automation/kalman/prepare_recovery_build_pr.py --version 7421 --root . --out-dir "$RUNNER_TEMP/kalman-recovery-preview"
+      - name: Upload build patch and validated report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalman-build-7421-preview-${{ github.run_id }}
+          path: ${{ runner.temp }}/kalman-recovery-preview/
+          if-no-files-found: warn
+          retention-days: 7
 
-      - name: Build and validate v7.4.21
-        shell: bash
-        run: |
-          set -euo pipefail
-          python kalman-toss-gateway/scripts/build_investment_hub_v7421_execution_console.py
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          p=Path("kalman-hub-recovery/v7.4.21/build_report.json")
-          x=json.loads(p.read_text(encoding="utf-8"))
-          assert x["version"]=="vNext.7.4.21"
-          assert x["api_functions"]==12
-          assert x["auto_trade_console"] is True
-          assert x["server_bot_status"] is True
-          assert x["fixed_krw_display"]==5000
-          assert x["web_read_only"] is True
-          assert x["compact_manifest_bytes"] < 200000
-          print(json.dumps(x,ensure_ascii=False,indent=2))
-          PY
-
-      - name: Commit generated artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add kalman-hub-recovery/v7.4.21/source_manifest.ndjson \
-                  kalman-hub-recovery/v7.4.21/vercel_manifest.json \
-                  kalman-hub-recovery/v7.4.21/build_report.json
-          if git diff --cached --quiet; then
-            echo "No generated changes."
-            exit 0
-          fi
-          git commit -m "build: generate Kalman Hub v7.4.21 auto-trade console"
-          git push origin HEAD:main
+  proposal:
+    name: Owner-approved branch + Draft PR only (never push to main)
+    needs: preview
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.propose_pr == true && inputs.approval_text == 'APPROVE_KALMAN_BUILD_PR' && github.actor == 'kimtk94' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Regenerate and open approved DRAFT PR (no deployment)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEGACY_BUILD_APPROVAL: ${{ inputs.approval_text }}
+        run: python automation/kalman/prepare_recovery_build_pr.py --version 7421 --root . --out-dir "$RUNNER_TEMP/kalman-recovery-proposal" --propose-pr
