@@ -13,7 +13,7 @@ import json
 import os
 from pathlib import Path
 
-ALLOWED_COUNTS = ("recontact", "planned", "review", "none")
+ALLOWED_COUNTS = ("recontact", "planned", "review", "none", "expired")
 ALLOWED_TIME_FIELDS = ("earliest_mail_checked_at", "latest_mail_checked_at",
                        "feishu_snapshot_at")
 KNOWN_MARKERS = (
@@ -47,6 +47,8 @@ def parse_log(contents):
                 "records": payload.get("records"),
                 "pending_updates": payload.get("pending_updates"),
                 "allowed_max": payload.get("allowed_max"),
+                "cutoff_kst": payload.get("cutoff_kst"),
+                "eligibility": payload.get("eligibility"),
                 "counts_before": {k: payload.get("counts_before", {}).get(k)
                                   for k in ALLOWED_COUNTS},
             }
@@ -211,6 +213,8 @@ def render_summary(e):
         "| 판정 | **" + e["result"] + "** |",
         "| 수행 구분 | " + e["phase"] + " |",
         "| Lead 수 | " + str((e.get("plan") or {}).get("records") or "-") + " |",
+        "| 최근 1년 대상 기준일(KST) | " + str((e.get("plan") or {}).get("cutoff_kst") or "-") + " |",
+        "| 1년 초과 연락 제외 | " + str(counts.get("expired","-")) + " |",
         "| 변경 대상 | " + str((e.get("plan") or {}).get("pending_updates") or 0) + " |",
         "| 실제 반영 | " + str((e.get("readback") or {}).get("changed") or 0) + " |",
         "| 재연락 / 발송 예정 / 검토 대기 | " +
