@@ -1,5 +1,25 @@
 # Windows 16 GB Local AI (Ollama)
 
+## Recommended fix when Codex still reports 4096-token context (Nov 21)
+
+If Codex says `request (5875 tokens) exceeds available context (4096 tokens)`, the running Ollama model is still limited to 4K. **Changing only Codex's `model_context_window` does not enlarge Ollama's runtime context.**
+
+**One-time fix:** close Codex, then run **Fix-Codex-4096.cmd**. It creates a NEW local Ollama alias `qwen3-codex16k` from the installed `qwen3:4b`, using this persistent Modelfile:
+
+    FROM qwen3:4b
+    PARAMETER num_ctx 16384
+
+It then checks `ollama show --modelfile`, executes a synthetic no-private-data inference, and verifies the real `context_length` returned by local `/api/ps`. It exits nonzero if the server is still allocating 4096 or if memory is insufficient.
+
+**Next time:** use **Start-Local-Codex.cmd**, which now selects `qwen3-codex16k` by default. Direct PowerShell alternative: `codex.cmd --oss -m qwen3-codex16k -c 'model_context_window=16384'`.
+
+The original `qwen3:4b` model remains untouched. This does not require an Administrator sandbox or Internet model API; it only talks to `http://127.0.0.1:11434`. The official Ollama Modelfile docs confirm the `FROM` and `PARAMETER num_ctx` syntax: https://docs.ollama.com/modelfile.
+
+The older **Set-Ollama-Context-16K.cmd** remains as an optional environment-variable fallback, but it does NOT by itself prove that an already-running Ollama process has picked up the configuration. **Verify-Local-Codex-16K.cmd** now checks the new custom alias.
+
+On 16GB RAM, 16K is only the first feasible test size. Ollama recommends a >=64K context for Codex; high context can be prohibitively slow or fail without enough RAM/VRAM. Neither this setup nor CI claims full agent quality at 16K.
+
+
 ## Real Windows context/inference verification (after restarting Ollama)
 
 1. Run **Set-Ollama-Context-16K.cmd** once, if it was not run before.
