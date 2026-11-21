@@ -115,6 +115,9 @@ jobs:
           foreach ($keyword in @("/api/ps", "/api/generate", "prompt_eval_count", "eval_duration", "eval_count", "127.0.0.1", 'think = $false')) {
             if (!$speed.Contains($keyword)) { throw "Synthetic speed diagnostic missing: $keyword" }
           }
+          foreach ($requiredString in @("prompt_eval_duration", "promptTps", "INSTRUCTION FAIL", "answerOk", "num_predict = 128")) {
+            if (!$speed.Contains($requiredString)) { throw "Answer quality / prompt speed check missing: $requiredString" }
+          }
           Write-Host "Synthetic local speed diagnostic static checks PASS."
 
 
