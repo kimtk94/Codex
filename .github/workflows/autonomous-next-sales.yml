@@ -1,0 +1,257 @@
+name: Autonomous Next - Sales Verification (No Save)
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_steps:
+        description: 'Maximum consecutive verification stages (1-10)'
+        required: false
+        type: number
+        default: 6
+      reset:
+        description: 'Reset existing test checkpoint (does not modify SFDC/Feishu)'
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: '45 12 * * *' # 21:45 Asia/Seoul; after existing SFDC report audits
+  push:
+    branches: [main]
+    paths:
+      - 'automation/orchestrator/**'
+      - '.github/workflows/autonomous-next-sales.yml'
+  pull_request:
+    paths:
+      - 'automation/orchestrator/**'
+      - '.github/workflows/autonomous-next-sales.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  # PR validation must not queue behind or displace the main checkpoint run.
+  # Main schedule/manual/push share one serialized operator checkpoint.
+  # Each PR gets an isolated test queue with no business credentials.
+  group: ${{ github.event_name == 'pull_request' && format('autonomous-next-sales-pr-{0}', github.event.pull_request.number) || 'autonomous-next-sales-main-checkpoint' }}
+  cancel-in-progress: false
+
+jobs:
+  unit-and-plan:
+    name: Validate runner and safe plan without network
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test progression, retry limits, and denied operations
+        run: python3 -m unittest discover -s automation/orchestrator -p 'test_*.py' -v
+      - name: Prove dry-run cannot write or mark source freshness verified
+        run: python3 automation/orchestrator/runner.py --dry-run --max-steps 6 --out /tmp/autonext-plan
+
+  original-probe-evidence:
+    name: Fetch scoped original QQ/Feishu probe receipt from prior read-only audit
+    needs: unit-and-plan
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read latest original QQ UID / Feishu projection sanitized artifact
+        run: python3 automation/orchestrator/original_source_evidence.py
+      - name: Archive validated scoped probe status only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-original-source-evidence
+          path: autonomous-next-triage/original-source-probes.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  next-review:
+    name: Rank next safe investigation from CI and optional Revenue mirror evidence
+    needs: [unit-and-plan, revenue-mirror-evidence, original-probe-evidence]
+    if: ${{ always() && needs.unit-and-plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fetch sanitized mirror receipt from earlier job, if present
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: autonomous-next-revenue-mirror
+          path: autonomous-next-triage
+      - name: Fetch scoped original QQ/Feishu read-only status, if present
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: autonomous-next-original-source-evidence
+          path: autonomous-next-triage
+      - name: Rank next safe investigation from nine workflows and mirror status
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            python3 automation/orchestrator/priority.py --out autonomous-next-triage/priority.json
+          else
+            python3 automation/orchestrator/priority.py --out autonomous-next-triage/priority.json --revenue-evidence-file autonomous-next-triage/monthly-revenue-mirror.json --original-evidence-file autonomous-next-triage/original-source-probes.json
+          fi
+      - name: Keep sanitized next-review queue
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-readonly-priority
+          path: autonomous-next-triage/priority.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  next-investigation:
+    name: Inspect one selected failed GitHub job read-only (no raw log retention)
+    needs: next-review
+    if: github.event_name != 'pull_request' && needs.next-review.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Load bounded same-run next-review selection
+        uses: actions/download-artifact@v4
+        with:
+          name: autonomous-next-readonly-priority
+          path: autonomous-next-triage
+      - name: Inspect at most one allowed failed run and three failed job logs
+        run: python3 automation/orchestrator/next_investigation.py --priority autonomous-next-triage/priority.json --out autonomous-next-inspection/inspection.json
+      - name: Archive only sanitized diagnostic code and proof link
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-next-investigation
+          path: autonomous-next-inspection/inspection.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  revenue-mirror-evidence:
+    name: Read 3-way Monthly Revenue Sheet mirror without business writes
+    needs: unit-and-plan
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    environment: TaehoonServer
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      CKD_DRIVE_SA_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Sheets client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Compare 3 canonical revenue mirror tabs and flag aged snapshot
+        run: python3 automation/orchestrator/revenue_snapshot_preflight.py --out autonomous-next-triage/monthly-revenue-mirror.json
+      - name: Archive sanitized mirror-only evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-revenue-mirror
+          path: autonomous-next-triage/monthly-revenue-mirror.json
+          retention-days: 21
+          if-no-files-found: warn
+
+  pr-integration:
+    name: Execute all six approved offline suites without GitHub writes
+    if: github.event_name == 'pull_request'
+    needs: unit-and-plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run actual existing offline/synthetic tests in dependency order
+        run: python3 automation/orchestrator/runner.py --offline-run --max-steps 6 --out autonomous-next-results
+      - name: Archive actual stage results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-pr-integration
+          path: autonomous-next-results/
+          retention-days: 30
+          if-no-files-found: warn
+
+  auto-next:
+    name: Run up to six synthetic/offline stages and checkpoint to issue
+    if: github.event_name != 'pull_request'
+    needs: unit-and-plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      MAX_STEPS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_steps || 6 }}
+      RESET_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.reset || false }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute approved offline suites, save checkpoints and stop on failure
+        run: |
+          if [ "$RESET_REQUESTED" = "true" ]; then
+            python3 automation/orchestrator/runner.py --issue-number 794 --max-steps "$MAX_STEPS" --reset --out autonomous-next-results
+          else
+            python3 automation/orchestrator/runner.py --issue-number 794 --max-steps "$MAX_STEPS" --out autonomous-next-results
+          fi
+      - name: Preserve the exact state and execution summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-next-sales-receipt
+          path: autonomous-next-results/
+          retention-days: 30
+          if-no-files-found: warn
