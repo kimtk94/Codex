@@ -27,7 +27,8 @@ jobs:
             "local_ai\set-ollama-context.ps1",
             "local_ai\verify-ollama-context.ps1",
             "local_ai\create-codex16k.ps1",
-            "local_ai\diagnose-local-ollama-speed.ps1"
+            "local_ai\diagnose-local-ollama-speed.ps1",
+            "local_ai\compare-local-coding-models.ps1"
           )
           foreach ($file in $scripts) {
             $tokens = $null
@@ -53,12 +54,13 @@ jobs:
             "local_ai\Set-Ollama-Context-16K.cmd",
             "local_ai\Verify-Local-Codex-16K.cmd",
             "local_ai\Fix-Codex-4096.cmd",
-            "local_ai\Diagnose-Local-Codex-Speed.cmd"
+            "local_ai\Diagnose-Local-Codex-Speed.cmd",
+            "local_ai\Compare-Local-Coding-Models.cmd"
           )
           foreach ($file in $required) {
             if (!(Test-Path $file)) { throw "Missing launcher: $file" }
             $cmd = Get-Content $file -Raw
-            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } else { "local-codex.ps1" }
+            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Set-Ollama-Context-16K.cmd") { "set-ollama-context.ps1" } elseif ($file -like "*Verify-Local-Codex-16K.cmd") { "verify-ollama-context.ps1" } elseif ($file -like "*Fix-Codex-4096.cmd") { "create-codex16k.ps1" } elseif ($file -like "*Diagnose-Local-Codex-Speed.cmd") { "diagnose-local-ollama-speed.ps1" } elseif ($file -like "*Compare-Local-Coding-Models.cmd") { "compare-local-coding-models.ps1" } else { "local-codex.ps1" }
             if ($cmd -notmatch [regex]::Escape($expected)) { throw "Launcher not wired: $file -> $expected" }
             if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
           }
@@ -119,5 +121,10 @@ jobs:
             if (!$speed.Contains($requiredString)) { throw "Answer quality / prompt speed check missing: $requiredString" }
           }
           Write-Host "Synthetic local speed diagnostic static checks PASS."
+          $compare = Get-Content "local_ai\compare-local-coding-models.ps1" -Raw
+          foreach ($requiredString in @("qwen2.5-coder:3b", "qwen3-codex16k:latest", "16384", "/api/generate", "PromptTPS", "OutputTPS", "InstallCandidate", "AnswerPreview")) {
+            if (!$compare.Contains($requiredString)) { throw "Model comparison missing: $requiredString" }
+          }
+          Write-Host "Local comparative screening script static checks PASS."
 
 
