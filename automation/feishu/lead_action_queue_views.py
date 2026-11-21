@@ -3,7 +3,7 @@
 
 This consumer does not change Lead records, source mail, SFDC, Account or
 existing views. User-managed checkboxes are read, never written.
-Default mode is audit only. Writes require --apply.
+Default mode is audit only. Live application requires verified source parity and a controlled CI deployment gate.
 """
 import argparse
 import json
