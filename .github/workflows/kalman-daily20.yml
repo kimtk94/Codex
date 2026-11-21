@@ -128,17 +128,42 @@ jobs:
       - name: Fail closed on missing / stale price and feature data
         run: |
           python research/kalman_daily20/daily20.py audit --manifest output/daily20/universe-derived.json --market output/daily20/market --features output/daily20/features --out output/daily20/qc.json
+      - name: Fetch official Cboe VIX and optional Alpaca SIP closing-auction evidence (advisory)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_daily20/collect_independent_close.py \
+            --qc output/daily20/qc.json \
+            --out-report output/daily20/research/source_finality/independent_feed.json \
+            --out-reference output/daily20/research/source_finality/quote_reference.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path=Path("output/daily20/research/source_finality/independent_feed.json")
+          doc=json.loads(path.read_text())
+          assert doc["research_only"] is True
+          assert doc["production_writes"] is False
+          assert doc["strategy_promoted"] is False
+          assert doc["verified_regular_finality"] == 0
+          assert doc["attempted"] == 26
+          print("DAILY20_INDEPENDENT_FEED_RESEARCH_ONLY",doc["cboe"]["status"],doc["alpaca"]["status"])
+          PY
       - name: Capture prospective 26-asset close finality and same-session replay (fail closed)
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             python research/kalman_daily20/source_finality.py \
               --market output/daily20/market \
               --qc output/daily20/qc.json \
+              --reference output/daily20/research/source_finality/quote_reference.json \
               --out output/daily20/research/source_finality/report.json
           else
             python research/kalman_daily20/source_finality.py \
               --market output/daily20/market \
               --qc output/daily20/qc.json \
+              --reference output/daily20/research/source_finality/quote_reference.json \
               --prior-zip output/daily20/cache/previous-data.zip \
               --out output/daily20/research/source_finality/report.json
           fi
