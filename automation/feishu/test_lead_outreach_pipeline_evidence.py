@@ -95,7 +95,8 @@ class Tests(unittest.TestCase):
 
     def test_rejects_expired_total_drift(self):
         sample=example();sample[2]=sample[2].replace(
-            '"expired": 418}', '"expired": 417}')
+            '"counts": {"eligible": 632, "expired": 418}',
+            '"counts": {"eligible": 632, "expired": 417}')
         with self.assertRaisesRegex(p.EvidenceError,"ELIGIBILITY_TOTAL_MISMATCH"):
             p.validate(*sample,now=NOW)
 
