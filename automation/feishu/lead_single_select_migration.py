@@ -7,6 +7,7 @@ SFDC objects, or mail. It rejects unknown option values and verifies complete
 row-level parity after each schema change.
 """
 import argparse
+from copy import deepcopy
 import json
 import sys
 
@@ -46,7 +47,7 @@ def snapshot(rows):
     return {
         lead.norm(rec["fields"]["Lead ID"]): {
             "record_id": rec["record_id"],
-            "fields": rec["fields"],
+            "fields": deepcopy(rec["fields"]),
         } for rec in rows
     }
 
