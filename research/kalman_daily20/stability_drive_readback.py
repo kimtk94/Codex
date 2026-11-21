@@ -51,6 +51,8 @@ def verify_results_blob(blob, *, require_stability=True):
         for name, expected in signatures.items():
             if checksum(z.read(name)) != expected:
                 raise RuntimeError("READBACK_MEMBER_SHA256_MISMATCH:" + name)
+        from official_directory_history import verify_results_zip
+        directory_evidence = verify_results_zip(z)
         stability_file = "research/stability/report.json"
         if stability_file not in names:
             if require_stability:
@@ -130,6 +132,10 @@ def verify_results_blob(blob, *, require_stability=True):
             "research_hold": report["research_hold"],
             "source_finality_status": report.get("source_finality_status"),
             "source_finality_verified_assets": report.get("source_finality_verified_assets"),
+            "directory_history_status": directory_evidence["status"],
+            "directory_journal_events": directory_evidence["journal_event_count"],
+            "directory_source_blobs_verified": directory_evidence["source_blobs_verified"],
+            "directory_source_history_complete": directory_evidence["directory_source_history_complete"],
             "status": report["status"],
         }
 
