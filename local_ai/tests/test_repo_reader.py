@@ -12,7 +12,7 @@ class RepoReaderTests(unittest.TestCase):
         self.folder = TemporaryDirectory()
         self.root = Path(self.folder.name)
         subprocess.run(["git", "-C", str(self.root), "init", "-q"], check=True)
-        (self.root / "test.txt").write_text("LOCAL_CODEX_TEST_20261121\n", encoding="utf-8")
+        (self.root / "test.txt").write_bytes(b"LOCAL_CODEX_TEST_20261121\n")
         (self.root / "example.py").write_text("print('hello')\n", encoding="utf-8")
         (self.root / ".env").write_text("API_KEY=SECRET\n", encoding="utf-8")
         (self.root / ".local_ai_data").mkdir()
