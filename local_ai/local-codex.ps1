@@ -92,15 +92,31 @@ try {
     $models = @(Require-Ollama)
     # Ollama lists untagged custom aliases as name:latest.
     $modelAvailable = ($models -contains $Model) -or ($models -contains ($Model + ":latest"))
+    if (-not $modelAvailable -and $Model -in @("qwen3-codex16k", "qwen3-codex16k:latest") -and $Mode -eq "Start") {
+        # Custom Modelfile aliases cannot be pulled from the public Ollama registry.
+        # If absent, create locally from an already-installed qwen3:4b model.
+        # The helper verifies saved num_ctx AND real /api/ps context after inference.
+        $creator = Join-Path $PSScriptRoot "create-codex16k.ps1"
+        if (-not (Test-Path -LiteralPath $creator -PathType Leaf)) {
+            throw "Missing local alias. Run Fix-Codex-4096.cmd from the current local_ai folder."
+        }
+        Write-Host "Local qwen3-codex16k not found. Creating/validating from existing qwen3:4b now..."
+        & powershell.exe -NoProfile -File $creator -BaseModel "qwen3:4b" -Model "qwen3-codex16k" -ContextTokens 16384
+        if ($LASTEXITCODE -ne 0) {
+            throw "Custom local model creation failed. Run Fix-Codex-4096.cmd for diagnostics."
+        }
+        $models = @(Require-Ollama)
+        $modelAvailable = ($models -contains $Model) -or ($models -contains ($Model + ":latest"))
+    }
     if (-not $modelAvailable) {
         if ($Mode -eq "Setup") {
             Write-Host "Downloading local Ollama model: $Model"
             & ollama.exe pull $Model
             if ($LASTEXITCODE -ne 0) { throw "ollama pull failed. Exit code: $LASTEXITCODE" }
             $models = @(Require-Ollama)
-            if ($models -notcontains $Model) { throw "Model download could not be verified." }
+            if ($models -notcontains $Model -and $models -notcontains ($Model + ":latest")) { throw "Model download could not be verified." }
         } else {
-            throw "Model '$Model' is not installed. Run: ollama pull $Model"
+            throw "Model '$Model' is not installed. For the custom 16K alias run Fix-Codex-4096.cmd; otherwise use ollama pull for registry models."
         }
     }
 
@@ -131,15 +147,15 @@ try {
         Write-Host "Project folder: $resolved"
         Write-Host "Starting LOCAL Codex with explicit model $Model (not cloud)."
         $savedContext = [Environment]::GetEnvironmentVariable("OLLAMA_CONTEXT_LENGTH", "User")
-        if ($savedContext -ne "16384") {
-            Write-Warning "Ollama 16K context is not confirmed. Run Set-Ollama-Context-16K.cmd and fully restart Ollama first if you receive a 4096-token context error."
+        if ($Model -notin @("qwen3-codex16k","qwen3-codex16k:latest") -and $savedContext -ne "16384") {
+            Write-Warning "The Ollama server's context may be smaller than 16K. Verify with ollama ps."
         }
         Write-Host "Codex recommendations: use it on a git branch and REVIEW every change."
         Push-Location -LiteralPath $resolved
         try {
             # --oss uses Ollama. Context budget is aligned with our Windows 16K preset.
             # This Codex-side value alone does NOT increase Ollama server allocation.
-            # Use Set-Ollama-Context-16K.cmd and restart Ollama before running Codex.
+            # For qwen3-codex16k, Modelfile PARAMETER num_ctx supplies the Ollama-side setting.
             & codex.cmd --oss -m $Model -c 'model_context_window=16384' -c 'web_search="disabled"'
             if ($LASTEXITCODE -ne 0) { throw "Codex exited with code $LASTEXITCODE." }
         } finally {
