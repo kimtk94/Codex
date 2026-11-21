@@ -28,6 +28,20 @@ FIELDS = [
     "메일 수신 유형", "처리 방향", "메일 원본 확인시각", "Feishu 반영시각",
 ]
 MANUAL_FIELDS = ("검토 완료", "메일 발송 예정", "재연락 필요")
+SINGLE_SELECT_OPTIONS = {
+    "Description 있음": ("있음", "없음"),
+    "내 메일 연락 여부": ("발송 확인", "미확인"),
+    "연락 구분": ("발송 확인 (Lead 생성 후)", "Lead 생성 전만 발송", "메일 발송 증거 없음"),
+}
+def field_type(name):
+    return 3 if name in SINGLE_SELECT_OPTIONS else 1
+
+def field_definition(name):
+    result = {"field_name": name, "type": field_type(name)}
+    if name in SINGLE_SELECT_OPTIONS:
+        result["property"] = {"options": [{"name": x} for x in SINGLE_SELECT_OPTIONS[name]]}
+    return result
+
 SOURCE = [
     "Lead ID", "Customer", "Institution", "Email", "Created Date",
     "Lead Status", "Description", "Description Class", "My Mail Status",
@@ -180,7 +194,7 @@ def sync(desired, apply):
             return
         ans = require_success(request("POST", API+"/tables", token=token,
             body={"table": {"name": TABLE, "default_view_name": "전체 Lead",
-                "fields": [{"field_name": x, "type": 1} for x in FIELDS]}}),
+                "fields": [field_definition(x) for x in FIELDS]}}),
             "CREATE_LEAD_TABLE")
         tid = ans.get("table_id") or (ans.get("table") or {}).get("table_id")
         if not tid:
@@ -194,8 +208,8 @@ def sync(desired, apply):
             return
         for key in missing:
             require_success(request("POST", root+"/fields", token=token,
-                body={"field_name": key, "type": 1}), "CREATE_LEAD_FIELD")
-    if any(fields.get(x,1) != 1 for x in FIELDS):
+                body=field_definition(key)), "CREATE_LEAD_FIELD")
+    if any(fields.get(x, field_type(x)) not in ((1, 3) if x in SINGLE_SELECT_OPTIONS else (1,)) for x in FIELDS):
         raise RuntimeError("EXISTING_FIELD_TYPE_CONFLICT")
     existing = {}
     for row in pages(root+"/records", token):
