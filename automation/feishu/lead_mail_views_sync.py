@@ -103,7 +103,7 @@ def main(apply=False):
     root = API + "/tables/" + table_id
     fields = list(pages(root + "/fields", token))
     ids = {f.get("field_name"): f.get("field_id") for f in fields
-           if f.get("type") == lead.field_type(f.get("field_name")) and f.get("field_id")}
+           if f.get("type") in ((1, 3) if f.get("field_name") in lead.SINGLE_SELECT_OPTIONS else (1,)) and f.get("field_id")}
     if not {"연락 구분", "Description 있음", age.ELIGIBILITY_FIELD} <= set(ids):
         raise RuntimeError("LEAD_FILTER_FIELDS_MISSING_OR_WRONG_TYPE")
 
