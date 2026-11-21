@@ -58,10 +58,15 @@ def seed(root):
         "scenario_results": [{}] * 20,
         "per_year_market_coverage": [{"year": 2024}, {"year": 2025}, {"year": 2026}],
     }))
+    (bear / "baseline_loss_attribution.json").write_text(json.dumps({
+        "research_only": True, "causal_attribution": False,
+        "used_for_strategy_selection": False
+    }))
     for filename in ("regime_scenarios.csv", "regime_daily_equity.csv",
                      "regime_executions.csv", "regime_annual.csv",
                      "regime_year_coverage.csv", "regime_session_context.csv",
-                     "bear_model_coverage.csv", "bear_oos_trades.csv"):
+                     "bear_model_coverage.csv", "bear_oos_trades.csv",
+                     "baseline_loss_attribution.csv"):
         (bear / filename).write_text("column1,column2\\nvalue1,value2\\n")
     return d, r
 
