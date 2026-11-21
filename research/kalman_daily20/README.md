@@ -361,3 +361,36 @@ which inputs were used when a prediction was **first sealed**, not what Yahoo
 reported at the precise NYSE close. The 2026-11-20 legacy incident still
 lacks an original prospective input snapshot. The first compliant snapshot
 starts on the next *genuinely new* admitted session after deployment.
+
+
+### GitHub-only signed-ZIP replay fixture and real Drive readback
+
+The separate read-only workflow
+`.github/workflows/kalman-daily20-stability-fixture.yml`
+downloads two **real historical** data/feature archives for 2026-11-20
+and exercises the full `stability_gate.run` first-seal and same-day
+replay path, including the same signed-manifest ZIP builder used by
+the publisher. Event hashes in this test are **synthetic fixture anchors**,
+not live/forward observations. The test requires exact SHA256 equality
+of original/final restored snapshot bytes, material-drift HOLD, and
+rejection of tampered archived bytes. Results are retained only as
+short-lived GitHub Actions artifacts.
+
+The production Daily20 `persist-google-drive` job now invokes
+`stability_drive_readback.py` **after** the existing publisher:
+it re-downloads the same pinned results file from Google Drive,
+reverifies every ZIP member SHA256, checks all frozen per-session
+snapshot digests and report governance, compares the entire remote ZIP's
+SHA256 byte-for-byte with the locally uploaded ZIP, and fails closed if
+anything differs. A separate `kalman-daily20-drive-stability-readback`
+Actions artifact records the verified session and hash. It is read-only
+and does not create Drive files, change risk rules, or place orders.
+Credential-free unit tests cover tampering, mismatched metadata, changed
+compression, missing snapshots, and invalid MD5.
+
+**Deployment gate:** this suite establishes the software behavior but
+cannot prove the next true post-close snapshot has reached Drive yet.
+After a genuine new admitted US session, require one successful main
+Actions run including post-upload `READBACK_VERIFIED` and one independent
+subsequent replay/readback with the original stored snapshot digest
+unchanged before marking Issue #884's stability follow-up complete.
