@@ -1,7 +1,7 @@
 {
   "schema": "daily20-primary-corporate-action-sources-v1",
   "research_only": true,
-  "governance": "Documented historical issuer/fund facts are not independent proof of Yahoo total-return factors or SIP regular 16:00 close. Require bytes hash+body anchors; non-amount schedule cannot certify any distribution amount.",
+  "governance": "Documented historical issuer/fund facts are not independent proof of Yahoo total-return factors or SIP regular 16:00 close. Require bytes hash+body anchors; non-amount schedule cannot certify any distribution amount. Issuer non-payment policy concerns common-share security class and is not a certified negation of a vendor event.",
   "sources": [
     {
       "id": "SPY_STREET_DISTRIBUTIONS",
@@ -26,6 +26,24 @@
       "entity": "ProShares",
       "kind": "fund_quarterly_exdate_schedule",
       "url": "https://www.proshares.com/resources/distributions/distribution-schedule"
+    },
+    {
+      "id": "MSFT_2026_DIVIDEND",
+      "entity": "Microsoft Corporation",
+      "kind": "issuer_dividend_press_release",
+      "url": "https://news.microsoft.com/source/2026/09/15/microsoft-announces-quarterly-dividend-increase-7/"
+    },
+    {
+      "id": "XOM_2026_DIVIDEND",
+      "entity": "ExxonMobil Holdings Corporation",
+      "kind": "issuer_dividend_press_release",
+      "url": "https://investor.exxonmobil.com/company-information/press-releases/detail/1213/exxonmobil-announces-third-quarter-2026-results"
+    },
+    {
+      "id": "MSTR_NO_COMMON_DIVIDEND",
+      "entity": "Strategy Inc.",
+      "kind": "issuer_common_share_dividend_policy",
+      "url": "https://www.strategy.com/press/strategy-announces-third-quarter-2026-financial-results_10-29-2026"
     }
   ],
   "claims": [
@@ -112,6 +130,42 @@
       "exdate_explicitly_issuer_published": false,
       "claim_amount_exact": false,
       "notes": "Expected quarterly date, not proof of QLD distribution payment or amount"
+    },
+    {
+      "symbol": "MSFT",
+      "ex_date": "2026-11-19",
+      "source_id": "MSFT_2026_DIVIDEND",
+      "claim_type": "ISSUER_DECLARED_COMMON_USD",
+      "reported_amount_usd": "0.98",
+      "anchor_a": "dividend of $0.98 per share",
+      "anchor_b": "ex-dividend date will be Nov. 19, 2026",
+      "exdate_explicitly_issuer_published": true,
+      "claim_amount_exact": true,
+      "notes": "Microsoft Sep 15 announcement of Nov19 ex date and Dec10 payable date. Declared, not proof of payment or Alpaca process-date completeness"
+    },
+    {
+      "symbol": "XOM",
+      "ex_date": "2026-11-16",
+      "source_id": "XOM_2026_DIVIDEND",
+      "claim_type": "ISSUER_DECLARED_COMMON_USD",
+      "reported_amount_usd": "1.07",
+      "anchor_a": "dividend of $1.07 per share",
+      "anchor_b": "November 16, 2026",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": true,
+      "notes": "ExxonMobil Oct30 issuer release states November 16 shareholder RECORD date; not an explicit ex-date certification. Exact payout stated Dec10"
+    },
+    {
+      "symbol": "MSTR",
+      "ex_date": "2025-05-21",
+      "source_id": "MSTR_NO_COMMON_DIVIDEND",
+      "claim_type": "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY",
+      "reported_amount_usd": null,
+      "anchor_a": "historically not paid any dividends on its shares of class A common stock",
+      "anchor_b": "past performance is not indicative of future results",
+      "exdate_explicitly_issuer_published": false,
+      "claim_amount_exact": false,
+      "notes": "Strategy issuer policy identifies MSTR common stock as non-dividend-paying historically; cannot infer that the vendor 0.335 was on MSTR common instead of a preferred security or ticker alias. Preserve security-type identity HOLD"
     }
   ]
 }
