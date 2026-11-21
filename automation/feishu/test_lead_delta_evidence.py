@@ -15,7 +15,7 @@ SOURCE = (
 )
 PLAN = (
     'LEAD_DELTA_PLAN={"records":1050,"source_stamps":1,"pending_updates":0,'
-    '"allowed_max":262,"counts_before":{"recontact":0,"planned":0,"review":734,"none":316},'
+    '"allowed_max":262,"counts_before":{"recontact":0,"planned":0,"review":734,"none":316,"expired":0},'
     '"apply":true}'
 )
 NO_CHANGE = (
@@ -25,7 +25,7 @@ NO_CHANGE = (
 )
 READBACK = (
     'LEAD_DELTA_READBACK_PASS={"records":1050,"changed":1,'
-    '"counts_after":{"recontact":1,"planned":0,"review":733,"none":316},'
+    '"counts_after":{"recontact":1,"planned":0,"review":733,"none":316,"expired":0},'
     '"manual_selections_preserved":true,"other_tables_touched":false}'
 )
 
@@ -35,6 +35,17 @@ class EvidenceTests(unittest.TestCase):
             "GITHUB_RUN_ID":"1234", "GITHUB_REPOSITORY":"example/Repo",
             "GITHUB_SHA":"abc", "GITHUB_RUN_ATTEMPT":"1",
         }, dt.datetime(2026,11,21,2,1,tzinfo=dt.timezone.utc))
+
+    def test_expired_is_counted_in_evidence_parity(self):
+        plan=PLAN.replace('"review":734,"none":316,"expired":0',
+                          '"review":424,"none":208,"expired":418')
+        snapshot=NO_CHANGE.replace('"review":734,"none":316,"expired":0',
+                                   '"review":424,"none":208,"expired":418')
+        result=self.snapshot(SOURCE+"\n"+plan+"\nLEAD_DELTA_READ_ONLY_PASS=1",
+                             SOURCE+"\n"+plan+"\n"+snapshot)
+        self.assertEqual(result["result"],"NO_NEW_DATA")
+        self.assertEqual(result["no_new_data"]["counts"]["expired"],418)
+        self.assertIn("1년 초과 연락 제외",e.render_summary(result))
 
     def test_no_new_data_status_requires_all_three_verified_views(self):
         result=self.snapshot(SOURCE+"\n"+PLAN+"\nLEAD_DELTA_READ_ONLY_PASS=1",
