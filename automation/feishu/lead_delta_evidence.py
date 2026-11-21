@@ -68,6 +68,7 @@ def parse_log(contents):
                 "checked": payload.get("checked"),
                 "views_verified": payload.get("views_verified"),
                 "writes": payload.get("writes"),
+                "second_snapshot_verified": payload.get("second_snapshot_verified"),
                 "counts": {k: payload.get("counts", {}).get(k)
                            for k in ALLOWED_COUNTS},
             }
@@ -123,7 +124,17 @@ def status_of(parsed, phase):
         return "BLOCK"
     if phase == "apply" and parsed["no_new_data"]:
         n = parsed["no_new_data"]
-        if n.get("writes") == 0 and n.get("views_verified") == 3:
+        counts = n.get("counts") or {}
+        valid_counts = (all(type(counts.get(k)) is int and counts[k] >= 0
+                            for k in ALLOWED_COUNTS)
+                        and sum(counts.values()) == n.get("checked"))
+        plan = parsed.get("plan") or {}
+        if (n.get("writes") == 0
+                and n.get("views_verified") == 3
+                and n.get("second_snapshot_verified") is True
+                and n.get("checked") == plan.get("records")
+                and plan.get("pending_updates") == 0
+                and valid_counts):
             return "NO_NEW_DATA"
         return "BLOCK"
     if phase == "preview" and parsed["read_only_pass"]:
@@ -242,6 +253,8 @@ def main():
             stream.write(render_summary(e))
     print("LEAD_DELTA_EVIDENCE_RESULT=" + e["result"], flush=True)
     print("LEAD_DELTA_EVIDENCE_FILE=" + str(target), flush=True)
+    if e["result"] in ("BLOCK", "STALE", "SOURCE_UNAVAILABLE", "SINK_LAG"):
+        raise SystemExit("LEAD_DELTA_EVIDENCE_UNVERIFIED=" + e["result"])
     if e["result"] == "PASS" and (e.get("readback") or {}).get("changed", 0) > 0:
         print("::notice title=Feishu Lead delta verified::A real Lead priority change was applied and read back; see the redacted evidence artifact.", flush=True)
 
