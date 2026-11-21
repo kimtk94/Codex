@@ -1,0 +1,64 @@
+name: Daily20 Nov-20 External Regular Close Evidence (Read Only)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - research/kalman_daily20/audit_external_close_20261120.py
+      - research/kalman_daily20/test_audit_external_close_20261120.py
+      - .github/workflows/kalman-daily20-external-close-audit.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  corroborate-archived-regular-and-afterhours:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test quote-type and evidence integrity without external credentials
+        run: |
+          python -m unittest discover -s research/kalman_daily20 -p 'test_audit_external_close_20261120.py' -v
+      - name: Retrieve one SHA-pinned original price-audit artifact from GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p evidence
+          curl -fLSs --retry 3 --connect-timeout 20 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/kimtk94/Codex/actions/artifacts/14695188504/zip" \
+            -o evidence/archived_26asset_price_audit.zip
+          printf '%s  %s\n' \
+            'df4e301e63e4a84f5b22b68db7ab74f3accb8687f4ac947e4400771a21838571' \
+            evidence/archived_26asset_price_audit.zip | sha256sum -c
+      - name: Reproduce seven regular-close matches and five afterhours matches
+        run: |
+          python research/kalman_daily20/audit_external_close_20261120.py \
+            --archive evidence/archived_26asset_price_audit.zip \
+            --out output/daily20/external_close_20261120
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          obj=json.loads(Path('output/daily20/external_close_20261120/public_close_validation.json').read_text())
+          assert obj['final_matches_2plus_public_published_regular_closes']==7
+          assert obj['original_matches_public_afterhours_quotes']==5
+          assert obj['source_quality']['verified_as_nyse_nasdaq_consolidated_tape'] is False
+          assert obj['source_quality']['independent_underlying_vendor_lineage_verified'] is False
+          assert obj['production_writes'] is False
+          assert obj['strategy_promoted'] is False
+          print('DAILY20_PUBLIC_CLOSE_CROSSCHECK_PASS', obj['status'])
+          PY
+      - name: Save separately auditable source-and-quote-type evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily20-external-regular-close-vs-afterhours-20261120
+          path: output/daily20/external_close_20261120/
+          if-no-files-found: warn
+          retention-days: 90
