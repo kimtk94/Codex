@@ -60,3 +60,24 @@ No Google Sheets cells are used to store the long OHLCV time series; CSV summari
 5. The canonical Google Drive two-file output IDs and existing production models remain unchanged. See `market/refresh_mode.json` and `secondary_qc.json` in the result artifact for provenance.
 
 This is a data engineering milestone, not proof of strategy profitability or independent exchange-quality market quotes.
+ 
+
+## Portfolio-level, out-of-sample cash ledger
+
+`portfolio.py` runs **after** 20-symbol OOS trade generation but **before** research artifact publication and Drive updates. All 20 names compete for the same finite account. It does not trade live.
+
+- Date scope: 2024 onward (all trades remain anchored to annual expanding, label-purged OOS forecasts). Uses only completed historical trades; the last unobservable four-session horizon cannot be treated as completed.
+- At most 3 or 5 open long positions; gross target allocation 1/N with no borrowed money. Fractional shares, 0% cash interest. Current-session open marks are used for same-open sizing.
+- Open at the next US session with half of the specified round-trip friction; exit at the predeclared fourth-session **close** with remaining half. Sale proceeds at close cannot finance entries at the earlier open.
+- Same-open simultaneous entry competition: Logistic candidates ranked by their fixed OOS predicted probability, trend-rule candidates by the known 20-session closing-price momentum at signal date, then alphabetic ticker tie-break. Recomputed historical gross returns are reconciled against the existing out-of-sample label file; mismatches fail closed.
+- 16 **predeclared** scenario combinations: `LOGISTIC` vs `TREND_RULE`, all-20 vs excluding QLD/COIN/MSTR/IONQ, maximum 3 vs 5 holdings, 20 vs 40 basis-point total modeled execution friction. This grid is diagnostic, not an ex-post champion selection.
+- Exports `research/portfolio_scenarios.csv`, `research/portfolio_annual.csv`, `research/portfolio_daily_equity.csv`, `research/portfolio_executions.csv`, `research/portfolio_summary.json`. The existing Drive results ZIP automatically carries these files; publishing is blocked if any are missing.
+- Metrics include annualized return, calendar-year returns, **end-of-day** equity MDD, annualized daily volatility, zero-risk-free Sharpe, active-day and average exposure, executed and rejected entries, SPY and QQQ buy-and-hold from first study date, plus signal-regime/volatility/tech-leadership attribution.
+
+### Critical interpretation
+
+All recorded baseline entry signals are **BULL-only** because the OOS candidate generator already filters on prior-session SPY>SMA200 and VIX<=35. Entry-regime BEAR performance therefore has **no observations**, even if the daily portfolio equity experiences bear sessions while holdings are open. Do not report bear-regime alpha.
+
+EOD MDD misses intraday drawdowns, gaps, market impact, bid-ask volatility, borrow/funding and market-open delay. Holding fractional shares and buying leveraged QLD at adjusted open are sim assumptions, not verified broker fills. Benchmark assumes first-session-close purchase with no transaction costs; this comparison is imperfect but transparent.
+
+The 2026-chosen fixed list creates historical survivor/selection bias; per-year and stress outcomes are descriptive and cannot certify forward alpha. No strategy auto-promotion: `tradable_strategy_approved=false`.

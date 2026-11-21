@@ -40,6 +40,15 @@ def seed(root):
     (r / "universe-derived.json").write_text(json.dumps({
         "assets": [{"provider_symbol": x} for x in symbols]
     }))
+    (r / "research/portfolio_summary.json").write_text(json.dumps({
+        "research_only": True, "live_execution": False,
+        "portfolio_mdd_available": True, "tradable_strategy_approved": False,
+        "scenario_count": 16, "primary_scenarios": [{}] * 4,
+        "benchmark": {"SPY": {}, "QQQ": {}},
+    }))
+    for filename in ("portfolio_daily_equity.csv", "portfolio_executions.csv",
+                     "portfolio_annual.csv", "portfolio_scenarios.csv"):
+        (r / "research" / filename).write_text("column1,column2\\nvalue1,value2\\n")
     return d, r
 
 
@@ -88,6 +97,23 @@ class DrivePublisherTests(unittest.TestCase):
             payload["live_execution"] = True
             path.write_text(json.dumps(payload))
             with self.assertRaisesRegex(RuntimeError, "RESEARCH_ISOLATION"):
+                inspect_payload(data, results)
+
+    def test_portfolio_evidence_required(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            (results / "research/portfolio_summary.json").unlink()
+            with self.assertRaisesRegex(RuntimeError, "PORTFOLIO_EVIDENCE"):
+                inspect_payload(data, results)
+
+    def test_cannot_auto_promote_portfolio_to_live(self):
+        with TemporaryDirectory() as root:
+            data, results = seed(root)
+            path = results / "research/portfolio_summary.json"
+            report = json.loads(path.read_text())
+            report["tradable_strategy_approved"] = True
+            path.write_text(json.dumps(report))
+            with self.assertRaisesRegex(RuntimeError, "PORTFOLIO_GOVERNANCE"):
                 inspect_payload(data, results)
 
 
