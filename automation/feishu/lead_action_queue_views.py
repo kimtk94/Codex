@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Isolated Feishu Lead action queues with a single automation-owned text field.
 
-Manual checkboxes are NEVER written. A derived text field is synchronized from
+Manual checkboxes are NEVER written. Derived priority and eligibility text fields are synchronized from
 their current values, then three views filter that known-good text field.
 All source fields are read-only. Existing Feishu views and business tables are
 never changed. Default mode is read-only; verified deployments update only the derived queue label.
