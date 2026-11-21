@@ -321,3 +321,43 @@ investigates same-date model-replay drift described in issue #884.
 In particular, a different Parquet file hash is not necessarily a
 different OHLCV value. This workflow checks both and requires matched
 US-session dates before inferring source-driven model drift.
+
+
+## Prospective source stability and replay HOLD (P0; issue #884)
+
+The main Daily20 research workflow now adds a **read-only provenance gate**
+after both Bull and Bear journals have been produced and before research
+artifacts are packaged. The gate does not change thresholds, historic
+forecasts, fills, the 20-stock universe, or any LIVE strategy.
+
+- On a **genuinely new** pre-next-open Bull+Bear seal (20 + 40 signal events),
+  save one per-session immutable `research/stability/snapshots/YYYY-MM-DD.json`
+  into the already pinned **results** Drive archive. It contains all 26
+  session-end OHLCV rows and, for each core stock, the 21 exact as-of features,
+  labeled training-row SHA256, prior-year purge cutoff, fitted
+  imputer/scaler/logistic parameter SHA256, fold status, observed score,
+  candidate flag, and original Bull/Bear journal-event hashes. Capture
+  Python/package versions and installed package `RECORD` hashes as an
+  environment fingerprint; these are **not** original wheel-file hashes.
+- Verify the previous results ZIP's per-member signed-manifest hashes before
+  copying older per-session snapshots **byte for byte**. If re-evaluating the
+  same date, never regenerate or overwrite its original frozen input snapshot.
+  Older pre-v1 signals are **not retrospectively called source-frozen**.
+- Compare recomputed scores, candidate decisions, final-bar/feature values,
+  training-row hashes, and coefficient hashes against the first snapshot.
+  Any **absolute score change >1 percentage point**, any candidate flip,
+  or a newly missing score is `REPLAY_DRIFT_RESEARCH_HOLD`. An exact 1pp
+  change is advisory; floating-point boundary tolerance is 1e-10pp.
+  Smaller changes remain in the drift audit.
+- A HOLD blocks **promotional attribution** in the research metadata,
+  not daily raw data updates or independent shadow observations. Both
+  snapshot and report are included in the existing short-lived Actions
+  artifact and the existing pinned results Drive ZIP; **no extra Drive
+  target, no server, no broker**. Existing Bull and Bear journal hashes remain
+  untouched, and no retrospective outcome becomes a prospective forecast.
+
+The historical vendor may revise adjusted OHLCV; this system demonstrates
+which inputs were used when a prediction was **first sealed**, not what Yahoo
+reported at the precise NYSE close. The 2026-11-20 legacy incident still
+lacks an original prospective input snapshot. The first compliant snapshot
+starts on the next *genuinely new* admitted session after deployment.
