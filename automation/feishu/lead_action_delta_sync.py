@@ -3,7 +3,9 @@
 
 Uses the existing verified, dedicated Lead table and its user-owned checkboxes.
 Never accesses QQ IMAP, edits SFDC, sends mail, or alters other Feishu tables.
-Only writes the derived 'Lead 업무 우선순위 (자동)' field for changed records.\nThe one-checkbox canary changes memory only, never a real Feishu checkbox.\nDeployment is safe to repeat: unchanged rows cause no Feishu record writes, and views are verified.
+Only writes the derived 'Lead 업무 우선순위 (자동)' field for changed records.
+The one-checkbox canary changes memory only, never a real Feishu checkbox.
+Deployment is safe to repeat: unchanged rows cause no Feishu record writes, and views are verified.
 A source timestamp and all existing view definitions must be valid first.
 """
 import argparse
