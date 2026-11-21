@@ -49,7 +49,7 @@ class LineageContracts(unittest.TestCase):
         self.assertTrue(col[0]["global_multiplicative_rescale"])
         self.assertAlmostEqual(col[0]["median_right_over_left_ratio"], 1.015)
         broken = global_scale.copy()
-        broken.iloc[8, 0] *= 1.1
+        broken.iloc[8:13, 0] *= 1.1
         col2, _, _ = compare_numeric_frames(
             a, broken, "SPY", "raw_OHLCV", expected_date=str(d[-1].date()))
         self.assertGreater(col2[0]["p95_abs_residual_from_median_scale"], 1e-4)
