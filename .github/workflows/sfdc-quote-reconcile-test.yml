@@ -1,0 +1,37 @@
+name: SFDC Quote Reconciliation Tests
+
+on:
+  pull_request:
+    paths:
+      - 'automation/sfdc/**'
+      - '.github/workflows/sfdc-quote-reconcile-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quote-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Unit tests
+        run: python -m unittest discover -s automation/sfdc -p 'test_quote_active_reconcile.py' -v
+      - name: Validate CLI rejects malformed Quote input
+        run: |
+          mkdir -p "$RUNNER_TEMP/sfdc_quote"
+          printf 'quotation_id,salesforce_record_id,approval_evidence\nAMEA1,Q1,APPROVED_TEXT\n' > "$RUNNER_TEMP/sfdc_quote/approvals.csv"
+          printf 'name,IsActive,GrandTotal\nExample,true,1000\n' > "$RUNNER_TEMP/sfdc_quote/quotes.csv"
+          if python automation/sfdc/quote_active_reconcile.py \
+            --approvals "$RUNNER_TEMP/sfdc_quote/approvals.csv" \
+            --quotes "$RUNNER_TEMP/sfdc_quote/quotes.csv" \
+            --output "$RUNNER_TEMP/sfdc_quote/out.csv"; then
+            echo "Expected fail-closed behavior for missing stable Quote ID" >&2
+            exit 1
+          fi
