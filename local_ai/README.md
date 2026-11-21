@@ -1,5 +1,29 @@
 # Windows 16 GB Local AI (Ollama)
 
+## AGENT TOOL-USE BLOCKED (2026-11-21) — do not trust the TUI screenshot
+
+The user requested a read-only Git repository analysis, but local Codex/Qwen2.5-Coder 3B spent 4m33s and printed a fake tool call:
+
+    {"name":"mcp__codex_tui.read_thread","arguments":{"threadId":"your thread id here"}}
+
+This is **not** evidence of an actual tool invocation, Git checkout, file read, or repository analysis. The model's previous "OK" instruction test establishes only basic text generation, not usable coding-agent tool calling. Local Codex autonomous development is **HOLD**.
+
+1. First verify that you are in the intended Git repository rather than `~`:
+
+       cd $env:USERPROFILE\Projects\Codex
+       git rev-parse --show-toplevel
+       git status --short
+
+   If it doesn't exist, use `Setup-Git-Drive.cmd` to set up Git and clone the repository (browser sign-in required).
+
+2. The optional **Preflight-Codex-Tool-Use.cmd** creates a disposable Git repository under Windows TEMP with a random marker, invokes `codex exec --oss --local-provider ollama ... --sandbox read-only --json`, and requires a **real successful command_execution JSON event** containing the marker AND a corresponding final answer. It cannot be satisfied by a fabricated tool-call JSON printed by the model. It never accesses private customer files or modifies your main repository. **The preflight may be very slow on CPU. Stop with Ctrl+C if it stalls**; it is a diagnostic, not a scheduled task.
+3. PASS proves only one read-only tool use on synthetic content. It does **not** authorize edits, pushes, PRs, SFDC/Feishu writes, or unattended coding. Follow with separately reviewed tests if continuing.
+4. FAIL or no JSON tool events means do not use this 3B model for autonomous agentic coding. Continue with cloud GitHub Actions + human review for actual changes; local 3B remains suitable for short textual assistance subject to quality checks.
+5. GitHub-hosted CI checks only the syntax and safety wiring of the preflight, **not** real model tool-use.
+
+Official Codex CLI reference for `exec`, `--json`, `--local-provider` and `--sandbox read-only`: https://learn.chatgpt.com/docs/cli/reference
+
+
 ## Default model decision — 2026-11-21 (measured on the Windows laptop)
 
 **Qwen2.5-Coder 3B 16K is now the default for `Start-Local-Codex.cmd`**. The existing Qwen3 4B models remain installed and available as fallbacks. This is a cautious test promotion based on a simple controlled instruction-following comparison — **NOT** authorization for autonomous commits, pushes, customer data use, SFDC writes or unsupervised PR merges.
