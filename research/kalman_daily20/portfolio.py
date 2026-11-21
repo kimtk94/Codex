@@ -272,6 +272,8 @@ def buy_hold(prices, sessions, symbol, *, initial_cash=INITIAL_CASH):
     # Baseline first *close*, no intraday entry edge, adjusted price basis.
     eq = initial_cash * x / x.iloc[0]
     curve = pd.DataFrame({"equity": eq})
+    curve["active_positions"] = 1
+    curve["gross_exposure"] = 1.0
     curve["daily_return"] = curve["equity"].pct_change(fill_method=None).fillna(0.0)
     curve["drawdown"] = curve["equity"] / curve["equity"].cummax() - 1
     return performance(curve, initial_cash=initial_cash)
@@ -329,9 +331,6 @@ def build_report(spec, market, trade_csv, out):
             events = prepared_events(trades, prices, context, strategy=strategy, excluded=excluded)
             for capacity in (3, 5):
                 for cost_bps in (float(spec["round_trip_cost_bps"]), 40.0):
-                    if capacity == 3 and cost_bps == 40.0:
-                        # Never silently change risk rules in baseline; include this stress too.
-                        pass
                     curve, executed, skipped = simulate(
                         events, prices, sessions, strategy=strategy, cohort=cohort,
                         max_positions=capacity, allocation=1.0 / capacity,
