@@ -53,8 +53,8 @@ class QuotationEmailTests(unittest.TestCase):
         self.assertEqual(classify_report_schema(processes),
                          "QUOTATION_PROCESS_NOT_HEADER")
         reasons={}
-        raw=(",".join(processes)+"\\n"+
-             "QID-2026-11-01-A,PR1,Library prep,OPP1,1,2500\\n").encode()
+        raw=(chr(10).join([",".join(processes),
+             "QID-2026-11-01-A,PR1,Library prep,OPP1,1,2500",""])).encode()
         self.assertEqual(parse_attachment(raw,"process.csv",reasons),[])
         self.assertEqual(reasons["schema_mismatch"],1)
         self.assertEqual(reasons["schema_family_quotation_process_not_header"],1)
