@@ -1,6 +1,14 @@
 name: Audit GitHub Actions direct main writes (read-only)
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/audit-main-writes.yml"
+      - ".github/workflows/apply-kalman-runtime-hotfix.yml"
+      - ".github/workflows/build-kalman-hub-v7420.yml"
+      - ".github/workflows/build-kalman-hub-v7421.yml"
+      - ".github/workflows/build-kalman-hub-v7422.yml"
   pull_request:
     paths:
       - "automation/ops/audit_main_writes.py"
