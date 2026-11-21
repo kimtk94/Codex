@@ -253,7 +253,8 @@ def classify(frozen, current, *, threshold_pp=HOLD_THRESHOLD_PP):
 
 
 def run(spec, prior_zip, market, features, score_path,
-        bull_journal, bear_journal, bull_report, bear_report, out):
+        bull_journal, bear_journal, bull_report, bear_report, out,
+        *, source_finality=None):
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     qc_date = str(_json_file(bull_report)["last_completed_session"])
@@ -264,11 +265,51 @@ def run(spec, prior_zip, market, features, score_path,
     bear_signals, _ = validate_bear_events(_read_journal(bear_journal), set(spec["core"]))
     existing = _historical_snapshots(Path(prior_zip).read_bytes(), spec)
     scores = read_score_rows(score_path, spec, qc_date)
+    finality = None
+    finality_hash = None
+    if source_finality is not None:
+        # Research-only public/secondary quote comparisons cannot certify
+        # exchange EOD finality. The status is authenticated only by being
+        # generated inside this exact Actions run and archived byte-for-byte.
+        finality_bytes = Path(source_finality).read_bytes()
+        finality_hash = sha_bytes(finality_bytes)
+        finality = json.loads(finality_bytes)
+        symbol_rows = finality.get("symbols", [])
+        symbol_set = {s.get("symbol") for s in symbol_rows
+                      if isinstance(s, dict)}
+        if (finality.get("version") != "daily20-source-finality-v1"
+                or finality.get("session") != qc_date
+                or finality.get("research_only") is not True
+                or finality.get("production_writes") is not False
+                or finality.get("strategy_promoted") is not False
+                or finality.get("research_hold") is not True
+                or finality.get("status") not in (
+                    "SOURCE_FINALITY_HOLD", "REPLAY_DRIFT_RESEARCH_HOLD")
+                or finality.get("required") != 26
+                or finality.get("examined") != 26
+                or finality.get("verified") != 0
+                or len(symbol_rows) != 26
+                or symbol_set != set(spec["core"] + spec["context"])
+                or any(row.get("finality_verified") is not False
+                       for row in symbol_rows)):
+            raise RuntimeError("STABILITY_FINALITY_EVIDENCE_CONTRACT_BROKEN")
     # Recompute Bear candidates from CURRENT features. The Bear CSV contains
     # ORIGINAL frozen candidates on a replay, so using it here would conceal
     # candidate flips and falsely reject a correct recomputed model.
     current = make_current_snapshot(spec, market, features, scores,
                                     qc_date, bull_signals, bear_signals)
+    # Store point-in-time uncertainty with the INITIAL research seal. If a
+    # vendor later corrects the price, replay may grade drift, but MUST NOT
+    # relabel or silently replace the original finality status.
+    if finality is not None:
+        current["source_finality_at_capture"] = {
+            "status": finality["status"],
+            "verified": 0,
+            "required": 26,
+            "research_hold": True,
+            "evidence_sha256": finality_hash,
+            "provisional": True,
+        }
     previous = json.loads(existing[qc_date]) if qc_date in existing else None
     if previous is not None:
         for symbol in spec["core"]:
@@ -331,15 +372,25 @@ def run(spec, prior_zip, market, features, score_path,
     for session, payload in existing.items():
         (out / "snapshots" / (session + ".json")).parent.mkdir(parents=True, exist_ok=True)
         (out / "snapshots" / (session + ".json")).write_bytes(payload)
+    finality_hold = bool(finality is not None and finality["research_hold"])
+    finality_replay = bool(
+        finality is not None
+        and finality["status"] == "REPLAY_DRIFT_RESEARCH_HOLD")
     report = {
         "version": VERSION, "session": qc_date,
-        "status": ("REPLAY_DRIFT_RESEARCH_HOLD" if hold else
+        "status": ("REPLAY_DRIFT_RESEARCH_HOLD" if hold or finality_replay else
+                   "SOURCE_FINALITY_HOLD" if finality_hold else
                    "SEALED_NEW_SESSION" if b_new else
                    "REPLAY_AUDITED_WITH_FROZEN_SNAPSHOT" if previous else
                    "LEGACY_NO_ORIGINAL_FEATURE_SNAPSHOT"),
         "research_only": True, "production_writes": False,
         "strategy_promoted": False, "promotional_attribution_allowed": False,
-        "research_hold": bool(hold),
+        "research_hold": bool(hold or finality_hold),
+        "source_finality_status": finality["status"] if finality else None,
+        "source_finality_research_hold": finality_hold,
+        "source_finality_evidence_sha256": finality_hash,
+        "source_finality_verified_assets": 0 if finality else None,
+        "source_finality_first_seal_provisional": bool(b_new and finality_hold),
         "drift_threshold_percentage_points_exclusive": HOLD_THRESHOLD_PP,
         "new_sealed_bull_signals": b_new, "new_sealed_bear_signals": r_new,
         "frozen_sessions_preserved": len(existing),
@@ -354,7 +405,8 @@ def run(spec, prior_zip, market, features, score_path,
     }
     write_json(out / "report.json", report)
     print(json.dumps({"DAILY20_STABILITY": {
-        "status": report["status"], "hold": hold,
+        "status": report["status"], "hold": report["research_hold"],
+        "finality": report["source_finality_status"],
         "incidents": len(incidents), "frozen_days": len(existing)
     }}))
     return report
@@ -365,11 +417,13 @@ def main():
     for name in ("prior-zip", "market", "features", "scores",
                  "bull-journal", "bear-journal", "bull-report", "bear-report", "out"):
         ap.add_argument("--" + name, required=True)
+    ap.add_argument("--source-finality")
     ap.add_argument("--config", default="research/kalman_daily20/universe.json")
     a = ap.parse_args()
     run(load_spec(a.config), a.prior_zip, a.market, a.features, a.scores,
         a.bull_journal, a.bear_journal,
-        a.bull_report, a.bear_report, a.out)
+        a.bull_report, a.bear_report, a.out,
+        source_finality=a.source_finality)
 
 
 if __name__ == "__main__":

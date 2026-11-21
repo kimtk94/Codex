@@ -72,6 +72,28 @@ def verify_results_blob(blob, *, require_stability=True):
                 or manifest.get("stability_status") != report.get("status")
                 or manifest.get("stability_research_hold") != report.get("research_hold")):
             raise RuntimeError("READBACK_STABILITY_GOVERNANCE_INVALID")
+        finality_digest = report.get("source_finality_evidence_sha256")
+        if finality_digest is not None:
+            path = "research/source_finality/report.json"
+            if path not in names or checksum(z.read(path)) != finality_digest:
+                raise RuntimeError("READBACK_SOURCE_FINALITY_EVIDENCE_HASH_MISMATCH")
+            finality = json.loads(z.read(path))
+            if (finality.get("version") != "daily20-source-finality-v1"
+                    or finality.get("session") != asof
+                    or finality.get("required") != 26
+                    or finality.get("examined") != 26
+                    or finality.get("verified") != 0
+                    or finality.get("research_hold") is not True
+                    or finality.get("strategy_promoted") is not False
+                    or finality.get("status") != report.get("source_finality_status")
+                    or manifest.get("source_finality_status") != finality["status"]
+                    or manifest.get("source_finality_verified_assets") != 0
+                    or manifest.get("source_finality_evidence_sha256") != finality_digest
+                    or report.get("source_finality_research_hold") is not True
+                    or report.get("research_hold") is not True
+                    or report.get("status") not in (
+                        "SOURCE_FINALITY_HOLD", "REPLAY_DRIFT_RESEARCH_HOLD")):
+                raise RuntimeError("READBACK_UNVERIFIED_SOURCE_FINALITY_NOT_HELD")
         frozen_names = sorted(name for name in names
                               if name.startswith(SNAPSHOT_PREFIX)
                               and name.endswith(".json"))
@@ -92,12 +114,22 @@ def verify_results_blob(blob, *, require_stability=True):
         if report.get("current_session_has_original_snapshot") is True:
             if not current_hash or current_hash != report.get("frozen_snapshot_sha256"):
                 raise RuntimeError("READBACK_FROZEN_CURRENT_HASH_INVALID")
+            if finality_digest and report.get("new_sealed_bull_signals") == 20:
+                captured = json.loads(z.read(SNAPSHOT_PREFIX + asof + ".json"))
+                captured_gate = captured.get("source_finality_at_capture", {})
+                if (captured_gate.get("evidence_sha256") != finality_digest
+                        or captured_gate.get("provisional") is not True
+                        or captured_gate.get("verified") != 0
+                        or captured_gate.get("research_hold") is not True):
+                    raise RuntimeError("READBACK_FALSE_FIRST_SEAL_FINALITY_APPROVAL")
         elif report.get("frozen_snapshot_sha256") is not None:
             raise RuntimeError("READBACK_FALSE_LEGACY_FROZEN_HASH")
         return {
             "session": asof, "snapshot_count": len(frozen_names),
             "current_snapshot_sha256": current_hash,
             "research_hold": report["research_hold"],
+            "source_finality_status": report.get("source_finality_status"),
+            "source_finality_verified_assets": report.get("source_finality_verified_assets"),
             "status": report["status"],
         }
 

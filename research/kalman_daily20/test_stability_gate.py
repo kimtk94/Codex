@@ -123,6 +123,90 @@ class StabilityGateTests(unittest.TestCase):
             self.assertTrue(frozen.is_file())
             self.assertEqual(json.loads(frozen.read_text()), evidence)
 
+    def test_new_first_seal_is_provisional_and_anchors_26_asset_finality_hash(self):
+        # The existing forward journal is still append-only research evidence,
+        # but no user or downstream report may treat it as certified EOD truth.
+        date = "2026-11-23"
+        symbols = ["S%02d" % i for i in range(20)]
+        context = ["C%02d" % i for i in range(6)]
+        spec = {"core": symbols, "context": context}
+        def model(p, candidate):
+            return {"probability":p, "candidate":candidate}
+        captured = {
+            "schema":VERSION, "session":date,
+            "models":{
+                symbol:{
+                    "ohlcv":{"close":100.0}, "feature_sha256":"a"*64,
+                    "scored":{
+                        "BULL_LOGISTIC":model(.72, True),
+                        "BEAR_LOGISTIC":model(.34, False),
+                        "BEAR_RULE":model(None,False)},
+                    "frozen_signal_hashes":{
+                        "BULL_LOGISTIC":"a"*64,
+                        "BEAR_LOGISTIC":"b"*64,
+                        "BEAR_RULE":"c"*64},
+                    "models":{}
+                } for symbol in symbols
+            }
+        }
+        bull={(date,s):{"candidate":True,"probability":.72,"hash":"a"*64}
+              for s in symbols}
+        bear={(date,s,f):{
+            "candidate":False,
+            "probability": .34 if f=="BEAR_LOGISTIC" else None,
+            "hash":("b" if f=="BEAR_LOGISTIC" else "c")*64
+        } for s in symbols for f in ("BEAR_LOGISTIC","BEAR_RULE")}
+        finality={
+            "version":"daily20-source-finality-v1",
+            "session":date,"status":"SOURCE_FINALITY_HOLD",
+            "research_only":True,"production_writes":False,
+            "strategy_promoted":False,"research_hold":True,
+            "required":26,"examined":26,"verified":0,
+            "symbols":[{"symbol":s,"finality_verified":False}
+                       for s in symbols+context],
+        }
+        with TemporaryDirectory() as d:
+            root=Path(d)
+            prior=root/"prior.zip"
+            prior.write_bytes(b"original verified zip mocked")
+            src=root/"finality.json"
+            src.write_text(json.dumps(finality))
+            (root/"bull.json").write_text(json.dumps({
+                "last_completed_session":date,"new_signal_events":20
+            }))
+            (root/"bear.json").write_text(json.dumps({
+                "last_completed_session":date,"new_signal_events":40
+            }))
+            with (patch.object(stability_gate,"_historical_snapshots",
+                               return_value={}),
+                  patch.object(stability_gate,"read_score_rows",return_value={}),
+                  patch.object(stability_gate,"_read_journal",return_value=[]),
+                  patch.object(stability_gate,"check_events",
+                               return_value=(bull,set())),
+                  patch.object(stability_gate,"validate_bear_events",
+                               return_value=(bear,set())),
+                  patch.object(stability_gate,"make_current_snapshot",
+                               return_value=captured)):
+                result=stability_gate.run(
+                    spec,prior,root,root,root/"scores.csv",
+                    root/"bull.journal",root/"bear.journal",
+                    root/"bull.json",root/"bear.json",root/"stability",
+                    source_finality=src)
+            frozen=root/"stability/snapshots"/(date+".json")
+            frozen_obj=json.loads(frozen.read_text())
+            self.assertEqual(result["status"],"SOURCE_FINALITY_HOLD")
+            self.assertTrue(result["research_hold"])
+            self.assertTrue(result["source_finality_first_seal_provisional"])
+            self.assertEqual(result["new_sealed_bull_signals"],20)
+            self.assertEqual(result["new_sealed_bear_signals"],40)
+            self.assertTrue(frozen_obj["source_finality_at_capture"]["provisional"])
+            self.assertTrue(frozen_obj["source_finality_at_capture"]["research_hold"])
+            self.assertEqual(
+                frozen_obj["source_finality_at_capture"]["evidence_sha256"],
+                stability_gate.sha_bytes(src.read_bytes()))
+            self.assertTrue(result["current_session_has_original_snapshot"])
+            self.assertFalse(result["strategy_promoted"])
+
     def test_same_session_drift_keeps_original_snapshot_bytes(self):
         spec = {"core": ["SPY"]}
         original = snapshot()
