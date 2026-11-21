@@ -187,3 +187,48 @@ session: Nov 23, Nov 24, Nov 25, Nov 27; Nov 26 is US Thanksgiving).
 Therefore an initial result of `settled_events=0` is **correct**, not failure.
 Future OOS power is initially tiny; no strategy approval based on a handful of
 matured observations, and no LIVE/R5 interaction.
+
+
+## Independent, prospective bear-family shadow journals
+
+\`bear_forward.py\` runs **after** the unchanged daily Bull Logistic
+\`forward_shadow.py\`, and has no effect on that journal, existing R5 execution,
+or the retrospective Bear challenger. This is a 2026-11-20 **forward** launch,
+not an attempt to re-label 2024–2026 discovered returns as independent OOS.
+
+- Exactly **40 frozen observations per fully closed US market session**:
+  \`BEAR_LOGISTIC\` and \`BEAR_RULE\` for each of the same 20 core symbols.
+  Signals are admitted only from 45m after a fully closed NYSE session until
+  just before the next NYSE open, and are recorded with actual UTC time,
+  GitHub run/commit, frozen model/policy metadata, a 21-feature SHA-256 digest,
+  and the hash of that symbol's *already sealed* Bull baseline signal.
+- Bear eligibility uses **prior-session** SPY below its SMA200 and prior VIX
+  ≤45. The frozen rule requires completed-bar RSI14 in [30, 60], positive
+  1-day return and increasing MACD histogram. Bear Logistic uses the same
+  prior-year-only, four-session label-purged fitted logistic from the
+  independent challenger; its probability remains \`null\` and candidate is
+  false if the requisite historical bear labels are insufficient. This is
+  an honest lack-of-model state, not a zero probability.
+- Existing archived results ZIP is cryptographically checked member-by-member
+  before restoring a prior Bear journal. A first journal may begin only while
+  the November 20 close remains prior to the next US market open. After
+  that admission window, a missed historical signal is **not backfilled**.
+  All subsequent journals are SHA-linked and fail closed if changed, missing,
+  partially written, or inconsistent with the frozen baseline signal.
+- Both families receive observation-only **4th subsequent NYSE close**
+  outcomes, never earlier (Thanksgiving Nov 26 is excluded), including
+  +20/+40/+80bp transaction-cost sensitivity, next-opening gap and minimum
+  low across the four-session observation window. **All 40** are observed
+  for audit, but non-candidates do not count as hypothetical strategy trades.
+- Outputs in the existing pinned Drive results ZIP:
+  \`research/bear_forward/journal.jsonl\`, \`report.json\`, \`snapshots.csv\`,
+  \`outcomes.csv\`, \`latest_candidates.csv\`. The independent Drive publisher
+  validates both family groups, linkage to the sealed baseline, 40-pair
+  completeness, SHA chain, research-only identity, and read-only model policy.
+  No new Drive files, local server, internet-facing web app, or LIVE writes.
+
+This newly frozen shadow track remains observational: execution, data-source
+revision, market impact, correlation/concentration, limited bear examples, and
+fully independent prospective portfolio PnL require additional verification.
+The existing retrospective Bear-only Logistic +40.94% return **must not** be
+mistaken for realized or independently confirmed forward alpha.
