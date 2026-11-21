@@ -271,10 +271,10 @@ def baseline_loss_attribution(fills, scenarios):
     Year is the close-of-exit year; year-end unrealized MTM can differ.
     """
     primary = fills.loc[
-        fills["scenario"].isin(
+        fills["scenario"].isin([
             f"BULL_BASELINE__{cohort}__POS5__COST20BP"
             for cohort in COHORTS
-        )
+        ])
     ].copy()
     if primary.empty:
         raise RuntimeError("NO_BASELINE_TRADE_PNL_FOR_DECAY")
