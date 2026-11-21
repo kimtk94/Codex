@@ -36,6 +36,21 @@ class MainWriteAuditTests(unittest.TestCase):
         self.assertIsNone(classify_line("# git push origin HEAD:main"))
         self.assertIsNone(classify_line("echo hello"))
 
+    def test_yaml_display_names_are_not_commands(self):
+        for line in (
+            "- name: Rebuild and validate without Git push",
+            "name: inspect git push main",
+            "description: this workflow must not git push origin HEAD:main",
+            "- name: git push origin HEAD:main",
+        ):
+            with self.subTest(line=line):
+                self.assertIsNone(classify_line(line))
+        # A one-line YAML shell command is different from display metadata.
+        self.assertEqual(
+            classify_line("- run: git push origin HEAD:main"),
+            "CONFIRMED_MAIN_PUSH",
+        )
+
     def test_audit_all_workflow_files(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
