@@ -60,34 +60,49 @@ def allowed_path(path: str) -> bool:
     return path.startswith("local_ai/") and len(path) > len("local_ai/")
 
 
+def is_local_ai_change(path: str) -> bool:
+    """Conservative scope signal; the strict allowlist is applied separately."""
+    return (
+        path.startswith("local_ai")
+        or path.startswith("scripts/local_ai_")
+        or path.startswith("scripts/test_local_ai_")
+        or path.startswith(".github/workflows/local-ai-")
+        or path == "docs/local-ai-development-policy.md"
+    )
+
+
 def evaluate(paths: list[str], changed_lines: int, pr_body: str, draft: bool) -> dict:
     failures: list[str] = []
+    # A required check must run for unrelated CSS/SFDC/Feishu PRs too.
+    # Return NOT_APPLICABLE, not missing Task-ID or scope failure.
+    unrelated = bool(paths) and not any(is_local_ai_change(p) for p in paths)
     if not paths:
         failures.append("NO_CHANGED_FILES")
-    if len(paths) > MAX_FILES:
-        failures.append("TOO_MANY_FILES")
-    if changed_lines > MAX_LINES:
-        failures.append("TOO_MANY_CHANGED_LINES")
-    if changed_lines < 0:
-        failures.append("INVALID_LINE_COUNT")
-    if len(paths) != len(set(paths)):
-        failures.append("DUPLICATE_PATHS")
-    if any(not allowed_path(path) for path in paths):
-        failures.append("OUT_OF_SCOPE_PATH")
+    if not unrelated:
+        if len(paths) > MAX_FILES:
+            failures.append("TOO_MANY_FILES")
+        if changed_lines > MAX_LINES:
+            failures.append("TOO_MANY_CHANGED_LINES")
+        if changed_lines < 0:
+            failures.append("INVALID_LINE_COUNT")
+        if len(paths) != len(set(paths)):
+            failures.append("DUPLICATE_PATHS")
+        if any(not allowed_path(path) for path in paths):
+            failures.append("OUT_OF_SCOPE_PATH")
+        if not TASK_ID.search(pr_body or ""):
+            failures.append("TASK_ID_MISSING")
+        if not ACCEPTANCE.search(pr_body or ""):
+            failures.append("ACCEPTANCE_CRITERIA_MISSING")
     task_match = TASK_ID.search(pr_body or "")
-    criteria_match = ACCEPTANCE.search(pr_body or "")
-    if not task_match:
-        failures.append("TASK_ID_MISSING")
-    if not criteria_match:
-        failures.append("ACCEPTANCE_CRITERIA_MISSING")
-    workflow_changed = any(p.startswith(".github/workflows/") for p in paths)
+    workflow_changed = not unrelated and any(p.startswith(".github/workflows/") for p in paths)
     # Safe, verifiable classification: not an approval or a review conclusion.
     return {
         "schema_version": 1,
         "scope_check": "PASS" if not failures else "FAIL",
-        "review_decision": "HUMAN_REVIEW_REQUIRED" if not failures else "BLOCKED",
+        "review_decision": ("NOT_APPLICABLE" if unrelated else "HUMAN_REVIEW_REQUIRED") if not failures else "BLOCKED",
         "task_id": task_match.group(1) if task_match else None,
         "draft": bool(draft),
+        "local_ai_change_detected": not unrelated,
         "changed_file_count": len(paths),
         "changed_line_count": changed_lines,
         "workflow_changed": workflow_changed,
