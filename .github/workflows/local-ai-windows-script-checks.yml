@@ -23,7 +23,8 @@ jobs:
             "local_ai\local-codex.ps1",
             "local_ai\bootstrap.ps1",
             "local_ai\connect-workspaces.ps1",
-            "local_ai\drive-staging.ps1"
+            "local_ai\drive-staging.ps1",
+            "local_ai\set-ollama-context.ps1"
           )
           foreach ($file in $scripts) {
             $tokens = $null
@@ -45,12 +46,13 @@ jobs:
             "local_ai\Start-Local-Codex.cmd",
             "local_ai\Check-Local-Codex.cmd",
             "local_ai\Setup-Git-Drive.cmd",
-            "local_ai\Check-Git-Drive.cmd"
+            "local_ai\Check-Git-Drive.cmd",
+            "local_ai\Set-Ollama-Context-16K.cmd"
           )
           foreach ($file in $required) {
             if (!(Test-Path $file)) { throw "Missing launcher: $file" }
             $cmd = Get-Content $file -Raw
-            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } else { "local-codex.ps1" }
+            $expected = if ($file -like "*Git-Drive.cmd") { "connect-workspaces.ps1" } elseif ($file -like "*Context-16K.cmd") { "set-ollama-context.ps1" } else { "local-codex.ps1" }
             if ($cmd -notmatch [regex]::Escape($expected)) { throw "Launcher not wired: $file -> $expected" }
             if ($cmd -match "(?i)executionpolicy\s+bypass") { throw "Unexpected bypass: $file" }
           }
@@ -68,3 +70,12 @@ jobs:
             if (!$transfer.Contains($requiredString)) { throw "Drive transfer missing: $requiredString" }
           }
           Write-Host "GitHub + Drive bridge static checks PASS."
+          $ctx = Get-Content "local_ai\set-ollama-context.ps1" -Raw
+          foreach ($requiredString in @("OLLAMA_CONTEXT_LENGTH", "16384", "User", "ollama.exe ps")) {
+            if (!$ctx.Contains($requiredString)) { throw "Context setup missing: $requiredString" }
+          }
+          if (!$src.Contains("model_context_window=16384")) {
+            throw "Codex context setting is not aligned to Ollama 16K"
+          }
+          Write-Host "Ollama 16K Windows context configuration static checks PASS."
+
