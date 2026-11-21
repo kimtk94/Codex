@@ -27,6 +27,7 @@ FIELDS = [
     "생성 전 발송 횟수", "최근 발송일", "메일 증거 Message-ID",
     "메일 수신 유형", "처리 방향", "메일 원본 확인시각", "Feishu 반영시각",
 ]
+MANUAL_FIELDS = ("검토 완료", "메일 발송 예정", "재연락 필요")
 SOURCE = [
     "Lead ID", "Customer", "Institution", "Email", "Created Date",
     "Lead Status", "Description", "Description Class", "My Mail Status",
@@ -101,6 +102,33 @@ def transform(header, rows):
     if len(desired) < 450:
         raise RuntimeError("LEAD_COUNT_UNEXPECTEDLY_SMALL")
     return desired
+
+def assert_manual_preserved(previous, current, fields):
+    """Guard user-owned checkbox values after automated source-field upserts.
+
+    Only source-owned fields may be written by this mirror; checked user states
+    must survive changes to mail evidence, Description or customer information.
+    """
+    if any(name in FIELDS for name in MANUAL_FIELDS):
+        raise RuntimeError("MANUAL_FIELD_OWNERSHIP_CONFLICT")
+    active = [name for name in MANUAL_FIELDS if name in fields]
+    if any(fields[name] != 7 for name in active):
+        raise RuntimeError("MANUAL_FIELD_TYPE_CHANGED")
+    for key, record in previous.items():
+        if key not in current:
+            raise RuntimeError("LEAD_MANUAL_PREVIOUS_ROW_DISAPPEARED")
+        old = record.get("fields") or {}
+        after = current[key]
+        for field in active:
+            before_value = old.get(field)
+            after_value = after.get(field)
+            if type(before_value) not in (bool, type(None)):
+                raise RuntimeError("MANUAL_PREVIOUS_VALUE_TYPE_INVALID")
+            if type(after_value) not in (bool, type(None)):
+                raise RuntimeError("MANUAL_READBACK_VALUE_TYPE_INVALID")
+            if (before_value is True) != (after_value is True):
+                raise RuntimeError("LEAD_MANUAL_SELECTION_OVERWRITTEN")
+    return len(previous)
 
 def sheets_data():
     raw = os.environ.get("NBA_GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
@@ -202,6 +230,8 @@ def sync(desired, apply):
     if any(key not in observed or any(norm(observed[key].get(k)) != v for k,v in values.items())
            for key,values in desired.items()):
         raise RuntimeError("FEISHU_LEAD_READBACK_MISMATCH")
+    preserved = assert_manual_preserved(existing, observed, fields)
+    print("LEAD_MANUAL_SELECTION_PRESERVED="+str(preserved), flush=True)
     print("FEISHU_LEAD_MAIL_DESCRIPTION_READBACK=PASS")
 
 if __name__ == "__main__":
