@@ -243,6 +243,12 @@ def run_one(spec, artifact, run_id, out):
             [abs(record["delta"]) for record in feature_differences.values()
              if record["delta"] is not None] or [0]
         )
+        # Distinguish bit-level hash drift from economically meaningful model
+        # inputs: these fixed archived experiments only change volume_z20
+        # round-off, whereas 188 historical training rows change the model.
+        results["deltas"]["current_asof_feature_materially_changed"] = bool(
+            results["deltas"]["asof_feature_material_delta_gt_1e8"]
+        )
         out.mkdir(parents=True,exist_ok=True)
         write_json(out/(run_id+"_ionq_sensitivity.json"),results)
         print("IONQ_IDENTITY_SENSITIVITY",json.dumps({"run":run_id,
@@ -273,7 +279,9 @@ def main():
         "results":{
             r["run_id"]:{
                 "excluded_prelisting_bars":r["prelisting_raw_bars_excluded"],
-                "current_asof_features_changed":r["deltas"]["current_21_feature_changed"],
+                "asof_feature_fingerprint_changed":r["deltas"]["current_21_feature_changed"],
+                "asof_feature_materially_changed_gt_1e8":r["deltas"]["current_asof_feature_materially_changed"],
+                "asof_feature_max_abs_delta":r["deltas"]["asof_feature_max_abs_delta"],
                 "bull_probability_delta_pp":r["deltas"]["BULL_LOGISTIC_prob_pp"],
                 "bear_probability_delta_pp":r["deltas"]["BEAR_LOGISTIC_prob_pp"],
                 "bear_rule_flip":r["deltas"]["bear_rule_candidate_flip"],
