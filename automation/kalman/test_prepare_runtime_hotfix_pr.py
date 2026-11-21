@@ -51,7 +51,11 @@ class HotfixProposalSafetyTests(unittest.TestCase):
 
         def simulated_run(*args, **kwargs):
             calls.append(args)
-            return "https://github.com/kimtk94/Codex/pull/000"
+            if args[:4] == ("git", "diff", "--cached", "--name-only"):
+                return helper.ALLOWED_FILES[0]
+            if args[:3] == ("gh", "pr", "create"):
+                return "https://github.com/kimtk94/Codex/pull/000"
+            return ""
 
         with tempfile.TemporaryDirectory() as td:
             preview = {"changed_paths": [helper.ALLOWED_FILES[0]]}
