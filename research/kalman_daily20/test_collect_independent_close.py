@@ -86,6 +86,15 @@ class IndependentFeedTests(unittest.TestCase):
         self.assertEqual(parsed["SPY"]["status"],
                          "NO_VALID_MARKET_CENTER_OFFICIAL_CLOSE")
 
+    def test_late_afterhours_with_official_condition_is_not_accepted(self):
+        # Do not confuse a late print with the 16:00 ET closing auction.
+        data={"SPY":[{"d":DATE,"c":[
+            official_record(697.49,"Q",stamp="2026-11-20T21:30:00Z")
+        ],"o":[]}]}
+        parsed=ci.parse_alpaca_auctions(data,DATE,["SPY"])
+        self.assertEqual(parsed["SPY"]["status"],
+                         "NO_VALID_MARKET_CENTER_OFFICIAL_CLOSE")
+
     def test_vix_is_no_longer_yahoo_only_without_api_keys(self):
         names=["^VIX"]+[f"STOCK{i:02d}" for i in range(25)]
         def fake(url,headers=None,**kwargs):
