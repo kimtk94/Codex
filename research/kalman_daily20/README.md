@@ -81,3 +81,53 @@ All recorded baseline entry signals are **BULL-only** because the OOS candidate 
 EOD MDD misses intraday drawdowns, gaps, market impact, bid-ask volatility, borrow/funding and market-open delay. Holding fractional shares and buying leveraged QLD at adjusted open are sim assumptions, not verified broker fills. Benchmark assumes first-session-close purchase with no transaction costs; this comparison is imperfect but transparent.
 
 The 2026-chosen fixed list creates historical survivor/selection bias; per-year and stress outcomes are descriptive and cannot certify forward alpha. No strategy auto-promotion: `tradable_strategy_approved=false`.
+
+
+## Isolated bear-regime challenger and 2025–2026 failure attribution
+
+The **baseline signals and real trading paths remain unchanged**. Daily20 now runs
+`regime_challenger.py` *after* the validated 16-scenario portfolio ledger.
+
+- Market state is defined with **prior US completed-session** `SPY < SMA200`;
+  stale/incomplete SPY/VIX observations are never silently interpolated.
+  The bear study caps prior-session VIX at 45. This upper bound is a frozen
+  research hypothesis, not a recommended stop-loss/entry gate.
+- `BEAR_RULE`: today's completed-bar RSI14 between 30–60, positive one-day
+  return, and improving MACD histogram, all from known signal-day features.
+  This fixed mean-reversion rule does **not** use subsequent realized returns.
+- `BEAR_LOGISTIC`: annual expanding model fitted only on historical bear
+  entries, with four-session label purge into the test year. Same fixed
+  Logistic(C=0.2, class_weight=balanced), 21 fixed features and 0.60
+  probability threshold; at least 126 old bear rows and both classes are
+  required or the year/ticker is marked insufficient.
+- OOS 2024 onwards: 5 candidate families (the unchanged bull Logistic alone,
+  bear rule alone, bear Logistic alone, bull + bear rule, bull + bear Logistic)
+  × 2 fixed risk cohorts (20/all vs 16 excluding QLD, IONQ, COIN, MSTR)
+  × 2 total-cost levels (20 and 40bp) = **20 prespecified** cash-ledger cases.
+  The risk target is fixed at 20% per filled slot and at most 5 slots,
+  long-only, 0% interest, no leverage, next open entry and fourth close exit.
+- The *existing* baseline Logistic EOD portfolio return, MDD, and number of
+  executed trades must be reproduced exactly by the challenger path.
+  Otherwise the run fails and publication is blocked.
+- The per-year report counts prior-session bull/bear market days, VIX buckets,
+  incumbent approved-filter signals, completed-label bear opportunities, and
+  both bear candidate families. **Zero bear trades or insufficient bear training
+  are legitimate results**, not grounds for fabricating profitability.
+- Outputs under `research/regime_challenger/`: `regime_summary.json`,
+  `bear_oos_trades.csv`, `bear_model_coverage.csv`,
+  `regime_year_coverage.csv`, `regime_session_context.csv`,
+  `regime_scenarios.csv`, `regime_daily_equity.csv`,
+  `regime_executions.csv`, `regime_annual.csv`. They are included in
+  the unchanged pinned Google Drive research ZIP; Drive publication fails
+  closed if any evidence is absent or declares LIVE eligibility.
+
+### Interpretation and decision gate
+
+The 2026-selected universe is historically selected; Yahoo adjusted bar
+revisions, overnight open execution and 4-day mark-to-market modeling have
+important caveats. Any apparent improvement in 2024–2026 is descriptive
+and **not new holdout evidence** because these years have already been
+inspected. Separate, newly arriving forward sessions are needed to test the
+prior-session VIX 20–30 pattern or accept a bear strategy. No automated
+promotion, orders, or production ledger writes occur. The independent
+provider source lineage is still unverified.
