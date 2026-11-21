@@ -1,0 +1,26 @@
+name: SFDC Opportunity Quote Three-Pass No-Save Audit
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/sfdc_desktop/oppo_quote_three_pass_contract.py'
+      - 'automation/sfdc_desktop/test_oppo_quote_three_pass_contract.py'
+      - '.github/workflows/sfdc-oppo-quote-3pass-nosave.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test-no-save-comparisons:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compare synthetic three-pass snapshots and no-Save forms
+        run: python -m unittest discover -s automation/sfdc_desktop -p test_oppo_quote_three_pass_contract.py -v
+      - name: Compile comparison contract
+        run: python -m py_compile automation/sfdc_desktop/oppo_quote_three_pass_contract.py
