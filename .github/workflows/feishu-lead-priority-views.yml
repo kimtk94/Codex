@@ -1,4 +1,5 @@
 name: Feishu Lead Priority Views and Parity
+# Legacy on-demand 2-view checker. The verified outreach chain owns weekday refreshes.
 # Independent consumer: only the two dedicated Lead views may be created/updated.
 on:
   workflow_dispatch:
@@ -7,8 +8,6 @@ on:
         description: 'Apply only two Lead priority views after read-only source/sink verification'
         type: boolean
         default: false
-  schedule:
-    - cron: '10 3,10 * * 1-5' # 12:10 and 19:10 KST on weekdays, after Lead mirror
   push:
     branches: [main]
     paths:
