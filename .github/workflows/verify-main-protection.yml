@@ -1,0 +1,73 @@
+name: Verify main branch protection effective rules (read-only)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "25 1 * * *"
+  push:
+    branches: [main]
+    paths:
+      - "automation/ops/main_protection_readback.py"
+      - "automation/ops/test_main_protection_readback.py"
+      - ".github/workflows/verify-main-protection.yml"
+  pull_request:
+    paths:
+      - "automation/ops/main_protection_readback.py"
+      - "automation/ops/test_main_protection_readback.py"
+      - ".github/workflows/verify-main-protection.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  readback:
+    name: effective-rules-readback
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify positive and negative fixtures offline
+        run: python -m unittest automation.ops.test_main_protection_readback -v
+      - name: Check live GitHub branch protection and effective rules without mutations
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET_REPO: ${{ github.repository }}
+        run: python -m automation.ops.main_protection_readback --repository "$TARGET_REPO" --output "$RUNNER_TEMP/main-protection-readback.json"
+      - name: Publish readback status without declaring protection by assumption
+        if: always()
+        env:
+          REPORT_DIR: ${{ runner.temp }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          p = Path(os.environ["REPORT_DIR"]) / "main-protection-readback.json"
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          with summary.open("a", encoding="utf-8") as out:
+              out.write("## Main branch protection: verified read-only state\n\n")
+              if not p.exists():
+                  out.write("**SOURCE_UNAVAILABLE** — no JSON report; protection is not certified.\n")
+              else:
+                  v = json.loads(p.read_text())
+                  out.write(f"**{v['status']}**\n\n")
+                  out.write(f"Protection certified: **{v['protection_verified']}**\n\n")
+                  if 'branch_protected' in v:
+                      out.write(f"GitHub branch flag: **{v['branch_protected']}**\n\n")
+                      out.write(f"Active ruleset IDs: {v['active_matching_ruleset_ids']}\n\n")
+                      out.write(f"Missing rules: {v['missing']}\n\n")
+                  out.write("No GitHub setting was changed by this audit.\n")
+          PY
+      - name: Upload read-only machine-readable evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-protection-readback-${{ github.run_id }}
+          path: ${{ runner.temp }}/main-protection-readback.json
+          if-no-files-found: warn
+          retention-days: 14
