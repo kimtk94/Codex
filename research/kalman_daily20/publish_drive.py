@@ -497,6 +497,13 @@ def build_zip(source_root, output_zip, manifest):
     with ZipFile(output_zip) as z:
         if z.testzip() is not None or "drive_manifest.json" not in z.namelist():
             raise RuntimeError("ZIP_INTEGRITY_ERROR")
+        if "research/official_directory/report.json" in z.namelist():
+            # A full copy of every sealed Nasdaq Trader source must exist
+            # before uploading a new pinned results archive to Drive.
+            from official_directory_history import verify_results_zip
+            result = verify_results_zip(z)
+            if result["status"] != "FULL_DIRECTORY_SOURCE_HISTORY_VERIFIED":
+                raise RuntimeError("ZIP_DIRECTORY_RAW_HISTORY_NOT_COMPLETE")
     return output_zip
 
 
