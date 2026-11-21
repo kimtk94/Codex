@@ -97,6 +97,56 @@ class FactorLineageTests(unittest.TestCase):
             self.assertEqual(len(list((root / "lineage").glob("*.csv.gz"))), 25)
             self.assertTrue((root / "lineage" / "report.json").is_file())
 
+    def test_unrepaired_vs_production_repaired_policy_differences_not_called_vendor_drift(self):
+        spec = load_spec()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for sym in spec["core"] + spec["context"]:
+                if sym != "^VIX":
+                    p = market_file(root / "market", sym)
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    cache_fixture().to_parquet(p, index=False)
+            qc = root / "qc.json"
+            qc.write_text(json.dumps({"expected_session": "2026-11-20", "ready": 26, "status": "READY"}))
+            def unrepaired(*_):
+                raw = yahoo_fixture().copy()
+                raw.iloc[0, raw.columns.get_loc("Adj Close")] = 89.
+                return raw
+            r = run(spec, root / "market", qc, root / "out",
+                    fetcher=unrepaired,
+                    repaired_fetcher=lambda *a: yahoo_fixture())
+            self.assertEqual(r["vendor_history_observed"], 25)
+            self.assertEqual(r["unrepaired_source_alignment"], 0)
+            self.assertEqual(r["repair_policy_differences"], 25)
+            self.assertEqual(r["same_repair_unresolved"], 0)
+            self.assertEqual(r["current_source_alignment"], 25)
+            self.assertTrue(all(x["status"] == "REPAIR_POLICY_DIFFERENCE_OBSERVED" for x in r["rows"]))
+            self.assertEqual(r["finality_verified"], 0)
+            self.assertTrue((root / "out" / "qqq_repaired.csv.gz").exists())
+
+    def test_repair_true_still_disagrees_retains_hold(self):
+        spec = load_spec()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for sym in spec["core"] + spec["context"]:
+                if sym != "^VIX":
+                    p = market_file(root / "market", sym)
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    cache_fixture().to_parquet(p, index=False)
+            qc = root / "qc.json"
+            qc.write_text(json.dumps({"expected_session": "2026-11-20", "ready": 26, "status": "READY"}))
+            def disagree(*_):
+                raw = yahoo_fixture().copy()
+                raw.iloc[0, raw.columns.get_loc("Adj Close")] = 89.
+                return raw
+            r = run(spec, root / "market", qc, root / "out",
+                    fetcher=disagree, repaired_fetcher=disagree)
+            self.assertEqual(r["same_repair_unresolved"], 25)
+            self.assertEqual(r["current_source_alignment"], 0)
+            self.assertEqual(r["finality_verified"], 0)
+            self.assertTrue(all(x["status"] == "SAME_REPAIR_SETTING_MISMATCH_RESEARCH_HOLD"
+                                for x in r["rows"]))
+
     def test_source_unavailable_is_hold_not_no_events(self):
         spec = load_spec()
         with TemporaryDirectory() as tmp:
