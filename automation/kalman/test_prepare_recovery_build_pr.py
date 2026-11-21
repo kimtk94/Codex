@@ -46,6 +46,21 @@ class LegacyBuildSafetyTests(unittest.TestCase):
         self.assertEqual(helper.authorize("7422", good_env()),
                          "automation/kalman-build-7422-pr-44900123456")
 
+    def test_all_three_workflows_are_preview_first_and_manual_only(self):
+        root = Path(__file__).resolve().parents[2]
+        for version in ("7420", "7421", "7422"):
+            with self.subTest(version=version):
+                path = root / ".github" / "workflows" / f"build-kalman-hub-v{version}.yml"
+                text = path.read_text(encoding="utf-8")
+                self.assertNotIn("git push origin HEAD:main", text)
+                self.assertIn("permissions:\\n  contents: read".replace("\\\\n", "\\n"), text)
+                self.assertIn("inputs.propose_pr == true", text)
+                self.assertIn("github.actor == 'kimtk94'", text)
+                self.assertIn("LEGACY_BUILD_APPROVAL", text)
+                self.assertIn("--propose-pr", text)
+                self.assertIn("persist-credentials: false", text)
+                self.assertNotIn("set -e", text)
+
     def test_no_change_skips_git_write(self):
         with tempfile.TemporaryDirectory() as td, patch.object(helper, "run", side_effect=AssertionError):
             self.assertEqual(helper.propose(Path(td), "7421", {"changed_paths": []}, good_env()), "NO_CHANGE")
