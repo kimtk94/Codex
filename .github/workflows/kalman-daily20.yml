@@ -141,6 +141,15 @@ jobs:
             --market output/daily20/market \
             --trades output/daily20/research/oos_trades.csv \
             --out output/daily20/research
+      - name: Bear-regime challengers and 2025-26 decay diagnostics (research only)
+        run: |
+          python research/kalman_daily20/regime_challenger.py \
+            --config research/kalman_daily20/universe.json \
+            --market output/daily20/market \
+            --features output/daily20/features \
+            --baseline-trades output/daily20/research/oos_trades.csv \
+            --portfolio-summary output/daily20/research/portfolio_summary.json \
+            --out output/daily20/research/regime_challenger
       - name: Publish reproducible research evidence
         if: always()
         uses: actions/upload-artifact@v4
