@@ -108,5 +108,94 @@ class DeltaTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"VIEW_IDS_MISMATCH"):
                 d.verify_view_ids("/root","token",fields,views)
 
+    def test_prewrite_snapshot_detects_concurrent_manual_change(self):
+        original={"a":{"record_id":"recA","fields":row("a",d.queue.QUEUE_LABELS["review"])}}
+        same={"a":{"record_id":"recA","fields":dict(original["a"]["fields"])}}
+        self.assertEqual(d.validate_prewrite_snapshot(original,same),1)
+        same["a"]["fields"]["메일 발송 예정"]=True
+        with self.assertRaisesRegex(RuntimeError,"CONCURRENT_MANUAL_CHANGE"):
+            d.validate_prewrite_snapshot(original,same)
+
+    def test_prewrite_snapshot_detects_concurrent_source_change(self):
+        original={"a":{"record_id":"recA","fields":row("a",d.queue.QUEUE_LABELS["review"])}}
+        changed={"a":{"record_id":"recA","fields":dict(original["a"]["fields"])}}
+        changed["a"]["fields"]["연락 구분"]="발송 확인 (Lead 생성 후)"
+        with self.assertRaisesRegex(RuntimeError,"CONCURRENT_SOURCE_CHANGE"):
+            d.validate_prewrite_snapshot(original,changed)
+
+    def _fake_environment(self, flags_changed):
+        # Simulate Feishu's API with 450 distinct records, but no actual user
+        # records or email operations. Return immutable snapshots for each GET.
+        from copy import deepcopy
+        store={str(i):{"record_id":"rec"+str(i),
+                        "fields":row(str(i),d.queue.QUEUE_LABELS["review"])}
+               for i in range(450)}
+        if flags_changed:
+            store["42"]["fields"]["메일 발송 예정"]=True
+        writes=[]
+        def request(method,path,token=None,body=None):
+            if method != "POST" or not path.endswith("/records/batch_update"):
+                raise AssertionError("Unexpected API write: "+method+" "+path)
+            writes.append(deepcopy(body))
+            for changed in body["records"]:
+                for key in store:
+                    if store[key]["record_id"]==changed["record_id"]:
+                        if set(changed["fields"])!={d.queue.QUEUE_FIELD}:
+                            raise AssertionError("Unapproved Feishu field write")
+                        store[key]["fields"].update(changed["fields"])
+                        break
+                else:
+                    raise AssertionError("Unknown Lead record")
+            return {"code":0,"data":{}}
+        def pages(path, token):
+            if path.endswith("/tables"):
+                return iter([{"name":d.lead.TABLE,
+                              "table_id":d.queue.EXPECTED_TABLE_ID}])
+            if path.endswith("/fields"):
+                return iter([])
+            raise AssertionError("Unexpected Feishu list: "+path)
+        views={title:"view-"+kind for title,kind in d.queue.QUEUES}
+        return store,writes,request,pages,views
+
+    def test_real_apply_path_simulated_manual_change_updates_exactly_one(self):
+        from copy import deepcopy
+        store,writes,request,pages,views=self._fake_environment(True)
+        initial_manual=d.queue.manual_snapshot(
+            {key:rec["fields"] for key,rec in store.items()})
+        with mock.patch.object(d.lead,"auth",return_value="token"), \\
+             mock.patch.object(d,"pages",side_effect=pages), \\
+             mock.patch.object(d,"schema_check",return_value="fldPriority"), \\
+             mock.patch.object(d.queue,"load_records",side_effect=lambda root, token: deepcopy(store)), \\
+             mock.patch.object(d,"source_stamps_fresh",return_value=1), \\
+             mock.patch.object(d,"validate_views",return_value=views), \\
+             mock.patch.object(d,"verify_view_ids",return_value={
+                 "recontact":0,"planned":1,"review":449,"none":0}), \\
+             mock.patch.object(d,"request",side_effect=request):
+            d.main(apply=True)
+        self.assertEqual(len(writes),1)
+        self.assertEqual(len(writes[0]["records"]),1)
+        self.assertEqual(writes[0]["records"][0]["record_id"],"rec42")
+        self.assertEqual(
+            store["42"]["fields"][d.queue.QUEUE_FIELD],
+            d.queue.QUEUE_LABELS["planned"])
+        self.assertEqual(initial_manual, d.queue.manual_snapshot(
+            {key:rec["fields"] for key,rec in store.items()}))
+
+    def test_no_change_path_checks_view_ids_without_writing(self):
+        from copy import deepcopy
+        store,writes,request,pages,views=self._fake_environment(False)
+        with mock.patch.object(d.lead,"auth",return_value="token"), \\
+             mock.patch.object(d,"pages",side_effect=pages), \\
+             mock.patch.object(d,"schema_check",return_value="fldPriority"), \\
+             mock.patch.object(d.queue,"load_records",return_value=deepcopy(store)), \\
+             mock.patch.object(d,"source_stamps_fresh",return_value=1), \\
+             mock.patch.object(d,"validate_views",return_value=views), \\
+             mock.patch.object(d,"verify_view_ids",return_value={
+                 "recontact":0,"planned":0,"review":450,"none":0}) as verify, \\
+             mock.patch.object(d,"request",side_effect=request):
+            d.main(apply=True)
+            verify.assert_called_once()
+        self.assertEqual(writes,[])
+
 if __name__=="__main__":
     unittest.main()
