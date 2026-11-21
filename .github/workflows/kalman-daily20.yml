@@ -128,6 +128,30 @@ jobs:
       - name: Fail closed on missing / stale price and feature data
         run: |
           python research/kalman_daily20/daily20.py audit --manifest output/daily20/universe-derived.json --market output/daily20/market --features output/daily20/features --out output/daily20/qc.json
+      - name: Capture prospective 26-asset close finality and same-session replay (fail closed)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            python research/kalman_daily20/source_finality.py \
+              --market output/daily20/market \
+              --qc output/daily20/qc.json \
+              --out output/daily20/research/source_finality/report.json
+          else
+            python research/kalman_daily20/source_finality.py \
+              --market output/daily20/market \
+              --qc output/daily20/qc.json \
+              --prior-zip output/daily20/cache/previous-data.zip \
+              --out output/daily20/research/source_finality/report.json
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("output/daily20/research/source_finality/report.json").read_text())
+          assert report["research_only"] is True
+          assert report["research_hold"] is True
+          assert report["verified"] == 0 and report["examined"] == 26
+          assert report["status"] in ("SOURCE_FINALITY_HOLD", "REPLAY_DRIFT_RESEARCH_HOLD")
+          print("DAILY20_FINALITY_RESEARCH_PROVISIONAL",report["status"])
+          PY
       - name: Secondary provider return comparison (advisory; independence unverified)
         run: |
           python research/kalman_daily20/secondary_qc.py \
@@ -214,6 +238,7 @@ jobs:
             --bear-journal output/daily20/research/bear_forward/journal.jsonl \
             --bull-report output/daily20/research/forward_shadow/report.json \
             --bear-report output/daily20/research/bear_forward/report.json \
+            --source-finality output/daily20/research/source_finality/report.json \
             --out output/daily20/research/stability
           python - <<'PY'
           import json
@@ -222,8 +247,10 @@ jobs:
           assert report["research_only"] is True
           assert report["strategy_promoted"] is False
           assert report["promotional_attribution_allowed"] is False
+          assert report["source_finality_research_hold"] is True
+          assert report["source_finality_verified_assets"] == 0
           if report["research_hold"]:
-              print("REPLAY_DRIFT_RESEARCH_HOLD: research data publication remains permitted; promotional attribution is blocked")
+              print("SOURCE_OR_REPLAY_RESEARCH_HOLD: provisional source-finality evidence is preserved; attribution and promotion blocked")
           else:
               print("STABILITY_RESEARCH_ONLY", report["status"])
           PY
