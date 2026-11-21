@@ -1,0 +1,26 @@
+name: SFDC Quote Product catalog contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'automation/sfdc_desktop/catalog_inventory_contract.py'
+      - 'automation/sfdc_desktop/test_catalog_inventory_contract.py'
+      - '.github/workflows/sfdc-quote-catalog-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-catalog-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate Quote Product inventory schema using synthetic data
+        run: python -m unittest discover -s automation/sfdc_desktop -p test_catalog_inventory_contract.py -v
+      - name: Compile inventory gate
+        run: python -m py_compile automation/sfdc_desktop/catalog_inventory_contract.py
