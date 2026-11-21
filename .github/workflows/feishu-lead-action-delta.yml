@@ -72,6 +72,10 @@ jobs:
       - name: Read-only check of Lead flags, source freshness, and derived changes
         run: |
           python automation/feishu/lead_action_delta_sync.py 2>&1 | tee lead-delta-preview.log
+      - name: Dry-run one hypothetical checkbox change using live Feishu snapshot
+        if: ${{ github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-delta' }}
+        run: |
+          python automation/feishu/lead_action_delta_sync.py --simulate-one 2>&1 | tee lead-delta-simulation.log
       - name: Apply only changed computed Lead queue labels and verify view IDs
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.apply == true) || (github.event_name == 'push' && github.event.head_commit.message == 'deploy-feishu-lead-delta') }}
         run: |
@@ -79,7 +83,7 @@ jobs:
       - name: Write redacted audit evidence and job summary
         if: always()
         run: |
-          python automation/feishu/lead_delta_evidence.py --preview lead-delta-preview.log --apply lead-delta-apply.log --out lead-delta-evidence.json
+          python automation/feishu/lead_delta_evidence.py --preview lead-delta-preview.log --apply lead-delta-apply.log --simulation lead-delta-simulation.log --out lead-delta-evidence.json
       - name: Retain Lead sync evidence for 30 days
         if: always()
         uses: actions/upload-artifact@v4
