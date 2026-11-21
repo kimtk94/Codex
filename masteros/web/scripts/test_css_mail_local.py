@@ -77,14 +77,33 @@ class LocalConsoleTests(unittest.TestCase):
         self.assertEqual(result["mailSourceStatus"],"STALE")
 
     def test_restore_requires_no_current_queue_entry(self):
-        with patch.object(m,"load",return_value=sheet_data(mailrows=[],dec=[
+        # Reviewer actions require a fresh source. Keep this fixture tied to
+        # the actual test clock, rather than a historical demo timestamp.
+        data=sheet_data(mailrows=[],dec=[
             ["TRUE","SKIP_MAIL","INBOX|177|901","inbox:901","person@uni.ac.kr",
              "mRNA service","","2026-11-10T09:00:00+00:00"]
-        ])),patch.object(m,"fetch",return_value=[["TRUE","SKIP_MAIL","INBOX|177|901"]]),\
-        patch.object(m,"update_cell") as update:
+        ])
+        data[3][1][1]=dt.datetime.now(dt.timezone.utc).isoformat()
+        with patch.object(m,"load",return_value=data),\
+             patch.object(m,"fetch",return_value=[["TRUE","SKIP_MAIL","INBOX|177|901"]]),\
+             patch.object(m,"update_cell") as update:
             result=m.apply_action(object(),{"action":"RESTORE_MAIL","key":"INBOX|177|901"},OWNER)
         self.assertEqual(result["result"],"MAIL_RESTORED")
         update.assert_called_once()
+
+    def test_restore_stays_blocked_when_source_is_stale(self):
+        data=sheet_data(mailrows=[],dec=[
+            ["TRUE","SKIP_MAIL","INBOX|177|901","inbox:901","person@uni.ac.kr",
+             "mRNA service","","2026-11-10T09:00:00+00:00"]
+        ])
+        data[3][1][1]="2026-10-01T00:00:00+00:00"
+        with patch.object(m,"load",return_value=data),\
+             patch.object(m,"fetch") as fetch,\
+             patch.object(m,"update_cell") as update:
+            with self.assertRaisesRegex(ValueError,"MAIL_SNAPSHOT_STALE"):
+                m.apply_action(object(),{"action":"RESTORE_MAIL","key":"INBOX|177|901"},OWNER)
+        fetch.assert_not_called()
+        update.assert_not_called()
 
     def test_stale_mail_prevents_post(self):
         data=sheet_data()
