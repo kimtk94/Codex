@@ -139,6 +139,18 @@ class PrimaryVenueTests(TestCase):
         self.assertTrue(all(x["primary_selection_status"]=="CREDENTIALS_NOT_CONFIGURED"
                             for x in report["rows"]))
 
+    def test_actions_pr_requires_original_reference_before_selected_output(self):
+        from pathlib import Path
+        workflow=Path(".github/workflows/kalman-daily20.yml").read_text()
+        marker="python research/kalman_daily20/resolve_primary_listing.py"
+        self.assertEqual(workflow.count(marker),2)
+        for command in workflow.split(marker)[1:]:
+            self.assertIn("--reference output/daily20/",command)
+            reference=command.split("--reference ",1)[1].splitlines()[0].strip()
+            self.assertIn("quote_reference.json",reference)
+            self.assertNotIn("selected_reference.json",reference)
+        self.assertIn("--out-reference output/daily20/research/source_finality/selected_reference.json",workflow)
+
     def test_asset_lookup_401_is_hold(self):
         with patch.dict(os.environ,{
             "ALPACA_API_KEY_ID":"UNIT_KEY","ALPACA_API_SECRET_KEY":"UNIT_SECRET",
