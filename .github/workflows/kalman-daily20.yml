@@ -94,6 +94,28 @@ jobs:
           # No credential values in stdout or persisted evidence.
           print("DAILY20_PROTECTED_ALPACA_SIP_STATUS", report['alpaca']['status'])
           PY
+      - name: Match SIP market-center official M prints to provider's current listing master (read only)
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+        run: |
+          python research/kalman_daily20/resolve_primary_listing.py \
+            --independent output/daily20/independent_feed.json \
+            --reference output/daily20/quote_reference.json \
+            --out-report output/daily20/venue_identity.json \
+            --out-reference output/daily20/selected_reference.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report=json.loads(Path("output/daily20/venue_identity.json").read_text())
+          assert report["tested_assets"] == 25
+          assert report["finality_verified"] == 0
+          assert report["raw_and_yahoo_adjusted_directly_comparable"] is False
+          print("DAILY20_PRIMARY_M_RESEARCH_SELECTION",report["primary_M_quote_research_selection_count"],
+                "out of 25; price factor NOT attested")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: daily20-private-cache-from-drive
@@ -102,6 +124,8 @@ jobs:
             output/daily20/previous-results.zip
             output/daily20/independent_feed.json
             output/daily20/quote_reference.json
+            output/daily20/venue_identity.json
+            output/daily20/selected_reference.json
           if-no-files-found: error
           retention-days: 1
 
@@ -160,10 +184,17 @@ jobs:
               --qc output/daily20/qc.json \
               --out-report output/daily20/research/source_finality/independent_feed.json \
               --out-reference output/daily20/research/source_finality/quote_reference.json
+            python research/kalman_daily20/resolve_primary_listing.py \
+              --independent output/daily20/research/source_finality/independent_feed.json \
+              --reference output/daily20/research/source_finality/quote_reference.json \
+              --out-report output/daily20/research/source_finality/venue_identity.json \
+              --out-reference output/daily20/research/source_finality/selected_reference.json
           else
             mkdir -p output/daily20/research/source_finality
             cp output/daily20/cache/independent_feed.json output/daily20/research/source_finality/independent_feed.json
             cp output/daily20/cache/quote_reference.json output/daily20/research/source_finality/quote_reference.json
+            cp output/daily20/cache/venue_identity.json output/daily20/research/source_finality/venue_identity.json
+            cp output/daily20/cache/selected_reference.json output/daily20/research/source_finality/selected_reference.json
           fi
           python - <<'PY'
           import json
@@ -171,15 +202,22 @@ jobs:
           root=Path("output/daily20")
           doc=json.loads((root/"research/source_finality/independent_feed.json").read_text())
           reference=json.loads((root/"research/source_finality/quote_reference.json").read_text())
+          selected=json.loads((root/"research/source_finality/selected_reference.json").read_text())
+          venue=json.loads((root/"research/source_finality/venue_identity.json").read_text())
           qc=json.loads((root/"qc.json").read_text())
-          assert doc["session"] == reference["session"] == qc["expected_session"]
+          assert doc["session"] == reference["session"] == selected["session"] == venue["session"] == qc["expected_session"]
           assert doc["research_only"] is True
           assert doc["production_writes"] is False
           assert doc["strategy_promoted"] is False
           assert doc["verified_regular_finality"] == 0
           assert doc["attempted"] == 26
-          assert reference["schema"] == "daily20-quote-reference-v1"
-          print("DAILY20_INDEPENDENT_FEED_RESEARCH_ONLY",doc["cboe"]["status"],doc["alpaca"]["status"])
+          assert reference["schema"] == selected["schema"] == "daily20-quote-reference-v1"
+          assert venue["tested_assets"] == 25 and venue["finality_verified"] == 0
+          assert venue["raw_and_yahoo_adjusted_directly_comparable"] is False
+          assert venue["primary_session_asof_independently_certified"] is False
+          assert len(selected["quotes"]) == venue["selected_reference_count_including_cboe"]
+          print("DAILY20_INDEPENDENT_FEED_RESEARCH_ONLY",doc["cboe"]["status"],doc["alpaca"]["status"],
+                "research M selection",venue["primary_M_quote_research_selection_count"])
           PY
       - name: Capture prospective 26-asset close finality and same-session replay (fail closed)
         run: |
@@ -187,13 +225,13 @@ jobs:
             python research/kalman_daily20/source_finality.py \
               --market output/daily20/market \
               --qc output/daily20/qc.json \
-              --reference output/daily20/research/source_finality/quote_reference.json \
+              --reference output/daily20/research/source_finality/selected_reference.json \
               --out output/daily20/research/source_finality/report.json
           else
             python research/kalman_daily20/source_finality.py \
               --market output/daily20/market \
               --qc output/daily20/qc.json \
-              --reference output/daily20/research/source_finality/quote_reference.json \
+              --reference output/daily20/research/source_finality/selected_reference.json \
               --prior-zip output/daily20/cache/previous-data.zip \
               --out output/daily20/research/source_finality/report.json
           fi
