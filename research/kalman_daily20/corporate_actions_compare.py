@@ -85,7 +85,8 @@ def alpaca_action(e):
             return kind, exdate, "DIVIDEND_CURRENCY_NOT_USD"
         # Currency missing is possible but cannot authenticate denomination.
         if currency in (None, ""):
-            return kind, exdate, "DIVIDEND_CURRENCY_UNATTESTED"
+            # Record numeric evidence without assuming that blank currency=USD.
+            return kind, exdate, ("CURRENCY_UNATTESTED", value)
     else:
         old, new = decimal_number(e.get("old_rate")), decimal_number(e.get("new_rate"))
         if old is None or new is None or old <= 0 or new <= 0:
@@ -94,18 +95,54 @@ def alpaca_action(e):
     return kind, exdate, value
 
 
-def compare_one(symbol, observed, events, reference_ok, *, digest=None):
+MATCH_STATUSES = {
+    "CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY",
+    "CROSS_PROVIDER_AMOUNT_MATCH_CURRENCY_UNATTESTED",
+    "SPLIT_NORMALIZED_AMOUNT_MATCH_RESEARCH_ONLY",
+    "SPLIT_NORMALIZED_CURRENCY_UNATTESTED_MATCH_RESEARCH",
+    "ROUNDING_LEVEL_AGREEMENT_RESEARCH_ONLY",
+}
+
+
+def candidate_split_factor(day, last_date, events):
+    """Candidate only: later Alpaca split ratios are NOT issuer-attested factors."""
+    factor = Decimal(1)
+    found = []
+    dates = set()
+    for e in events:
+        if e.get("type") not in ("forward_splits", "reverse_splits"):
+            continue
+        exdate = e.get("ex_date")
+        if not isinstance(exdate, str) or not (day < exdate <= last_date):
+            continue
+        kind, _, ratio = alpaca_action(e)
+        if kind != "SPLIT" or not isinstance(ratio, Decimal) or ratio <= 0:
+            return None, "SPLIT_FACTOR_MISSING_OR_INVALID"
+        if exdate in dates:
+            return None, "MULTIPLE_SPLIT_EVENTS_SAME_DATE_AMBIGUOUS"
+        dates.add(exdate)
+        found.append(exdate)
+        factor *= ratio
+    return factor, None
+
+
+def compare_one(symbol, observed, events, reference_ok, *, digest=None, source_complete=True):
     output = []
     by_key = {}
     excluded = []
     unsupported = []
     days = sorted(observed)
+    last_date = days[-1]
     for e in events:
         typ, exdate, value = alpaca_action(e)
         if typ is None:
             unsupported.append({"type": e.get("type"), "ex_date": e.get("ex_date"),
                                 "id": e.get("id")})
             continue
+        currency_unattested = (isinstance(value, tuple) and len(value) == 2
+                               and value[0] == "CURRENCY_UNATTESTED")
+        if currency_unattested:
+            value = value[1]
         if not isinstance(value, Decimal):
             excluded.append({"type": e.get("type"), "ex_date": exdate, "id": e.get("id"),
                              "reason": value})
@@ -114,7 +151,7 @@ def compare_one(symbol, observed, events, reference_ok, *, digest=None):
             excluded.append({"type": e.get("type"), "ex_date": exdate, "id": e.get("id"),
                              "reason": "EX_DATE_NOT_IN_YAHOO_OBSERVED_SESSION"})
             continue
-        by_key.setdefault((exdate, typ), []).append((e, value))
+        by_key.setdefault((exdate, typ), []).append((e, value, currency_unattested))
     yahoo_keys = {
         (day, kind) for day, values in observed.items()
         for kind in ("DIVIDEND", "SPLIT") if values[kind] != 0
@@ -123,32 +160,65 @@ def compare_one(symbol, observed, events, reference_ok, *, digest=None):
     for day, kind in keys:
         yahoo = observed[day][kind]
         candidates = by_key.get((day, kind), [])
+        alpaca = None
+        normalized = None
+        factor = Decimal(1)
         if not reference_ok:
-            status, alpaca = "SOURCE_INCOMPLETE_HOLD", None
+            status = "SOURCE_UNAVAILABLE_HOLD"
         elif len(candidates) > 1:
-            status, alpaca = "MULTIPLE_SAME_DAY_EVENTS_AMBIGUOUS_HOLD", None
+            status = "MULTIPLE_SAME_DAY_EVENTS_AMBIGUOUS_HOLD"
         elif len(candidates) == 0:
-            status, alpaca = "YAHOO_ONLY_EVENT_HOLD", None
+            status = "YAHOO_ONLY_EVENT_HOLD"
         else:
             alpaca = candidates[0][1]
-            tol = DIVIDEND_TOLERANCE if kind == "DIVIDEND" else SPLIT_TOLERANCE
-            status = ("CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY"
-                      if abs(yahoo-alpaca) <= tol else "CROSS_PROVIDER_VALUE_CONFLICT_HOLD")
             if yahoo == 0:
                 status = "ALPACA_ONLY_EVENT_HOLD"
+            else:
+                factor_error = None
+                if kind == "DIVIDEND":
+                    factor, factor_error = candidate_split_factor(day, last_date, events)
+                if factor_error or factor is None:
+                    status = "CANDIDATE_SPLIT_FACTOR_UNRESOLVED_HOLD"
+                else:
+                    normalized = alpaca / factor
+                    delta = abs(yahoo-normalized)
+                    tolerance = DIVIDEND_TOLERANCE if kind == "DIVIDEND" else SPLIT_TOLERANCE
+                    if delta <= tolerance:
+                        if factor != 1 and kind == "DIVIDEND":
+                            status = ("SPLIT_NORMALIZED_CURRENCY_UNATTESTED_MATCH_RESEARCH"
+                                      if candidates[0][2] else
+                                      "SPLIT_NORMALIZED_AMOUNT_MATCH_RESEARCH_ONLY")
+                        else:
+                            status = ("CROSS_PROVIDER_AMOUNT_MATCH_CURRENCY_UNATTESTED"
+                                      if candidates[0][2] else
+                                      "CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY")
+                    elif (kind == "DIVIDEND"
+                          and delta <= Decimal("0.0005")
+                          and normalized > 0
+                          and delta / normalized <= Decimal("0.01")):
+                        # Many Yahoo ETF distributions are reported to 3 decimals.
+                        # Candidate rounding agreement is NOT raw factor certification.
+                        status = "ROUNDING_LEVEL_AGREEMENT_RESEARCH_ONLY"
+                    else:
+                        status = "CROSS_PROVIDER_VALUE_CONFLICT_HOLD"
         output.append({
             "symbol": symbol, "ex_date": day, "kind": kind,
-            "yahoo_value": str(yahoo), "alpaca_value": str(alpaca) if alpaca is not None else None,
-            "alpaca_count": len(candidates),
-            "status": status,
+            "yahoo_value": str(yahoo),
+            "alpaca_value": str(alpaca) if alpaca is not None else None,
+            "candidate_split_multiplier": str(factor) if factor is not None else None,
+            "candidate_normalized_value": str(normalized) if normalized is not None else None,
+            "alpaca_count": len(candidates), "status": status,
+            "candidate_not_certified": True,
         })
     count = {}
     for row in output:
         count[row["status"]] = count.get(row["status"], 0) + 1
+    verified_typed = count.get("CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY", 0)
+    candidate_count = sum(count.get(status, 0) for status in MATCH_STATUSES)
     coverage = ("NO_ALPACA_REFERENCE_HOLD" if not reference_ok else
+                "PARTIAL_REFERENCE_RESEARCH_HOLD" if not source_complete else
                 "EVENT_DIFFERENCES_OR_INCOMPLETE_HOLD" if
-                any(row["status"] != "CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY" for row in output)
-                or excluded or unsupported else
+                candidate_count != len(output) or excluded or unsupported else
                 "ALL_OBSERVED_EVENTS_NUMERICALLY_MATCH_UNCERTIFIED")
     return {
         "symbol": symbol, "status": coverage,
@@ -156,7 +226,15 @@ def compare_one(symbol, observed, events, reference_ok, *, digest=None):
         "yahoo_dividend_events": sum(v["DIVIDEND"] != 0 for v in observed.values()),
         "yahoo_split_events": sum(v["SPLIT"] != 0 for v in observed.values()),
         "alpaca_reference_events": len(events),
-        "match_count": count.get("CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY", 0),
+        "match_count": verified_typed,
+        "candidate_numeric_match_count": candidate_count,
+        "currency_unattested_amount_match_count": count.get(
+            "CROSS_PROVIDER_AMOUNT_MATCH_CURRENCY_UNATTESTED", 0)
+            + count.get("SPLIT_NORMALIZED_CURRENCY_UNATTESTED_MATCH_RESEARCH", 0),
+        "rounding_level_candidate_count": count.get("ROUNDING_LEVEL_AGREEMENT_RESEARCH_ONLY", 0),
+        "split_normalized_candidate_count": (
+            count.get("SPLIT_NORMALIZED_CURRENCY_UNATTESTED_MATCH_RESEARCH", 0)
+            + count.get("SPLIT_NORMALIZED_AMOUNT_MATCH_RESEARCH_ONLY", 0)),
         "status_counts": count,
         "unsupported_action_count": len(unsupported),
         "unsupported_examples": unsupported[:8],
@@ -186,7 +264,11 @@ def run(factor_dir, reference_path, out_dir, *, spec=None):
     rows_by_symbol = {r["symbol"]: r for r in factor_report["rows"]}
     if set(rows_by_symbol) != set(names):
         raise RuntimeError("CA_YAHOO_25_SYMBOL_REPORT_MISMATCH")
-    valid_reference = ref.get("status") == "ALPACA_ACTIONS_RETRIEVED_UNCERTIFIED"
+    source_complete = ref.get("status") == "ALPACA_ACTIONS_RETRIEVED_UNCERTIFIED"
+    valid_reference = ref.get("status") in {
+        "ALPACA_ACTIONS_RETRIEVED_UNCERTIFIED",
+        "ALPACA_ACTIONS_INCOMPLETE_OR_UNKNOWN_HOLD",
+    }
     events = ref.get("events", [])
     if not isinstance(events, list):
         raise RuntimeError("CA_EVENTS_NOT_LIST")
@@ -201,7 +283,7 @@ def run(factor_dir, reference_path, out_dir, *, spec=None):
             observed, digest = yahoo_actions(factor_dir, symbol, rows_by_symbol[symbol])
             summary, detail = compare_one(
                 symbol, observed, by_symbol[symbol], valid_reference,
-                digest=digest)
+                digest=digest, source_complete=source_complete)
             lines.extend(detail)
         except (ValueError, KeyError, OSError, EOFError, TypeError) as exc:
             summary = {"symbol": symbol, "status": "YAHOO_FACTOR_EVIDENCE_UNAVAILABLE_HOLD",
@@ -212,7 +294,8 @@ def run(factor_dir, reference_path, out_dir, *, spec=None):
     with (out_dir / "event_comparison.csv").open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=[
             "symbol", "ex_date", "kind", "yahoo_value", "alpaca_value",
-            "alpaca_count", "status"])
+            "candidate_split_multiplier", "candidate_normalized_value",
+            "alpaca_count", "status", "candidate_not_certified"])
         writer.writeheader()
         writer.writerows(lines)
     report = {
@@ -220,6 +303,8 @@ def run(factor_dir, reference_path, out_dir, *, spec=None):
         "reference_status": ref.get("status"),
         "reference_page_count": ref.get("page_count", 0),
         "reference_page_sha256": ref.get("page_sha256", []),
+        "reference_complete_for_numeric_diagnostic": source_complete,
+        "unmapped_historical_identity_count": ref.get("unmapped_historical_identity_count", 0),
         "yahoo_source": "Yahoo/yfinance repair=true where required",
         "candidate_action_source": "Alpaca Market Data Corporate Actions v1",
         "process_date_not_ex_date_query": True,
@@ -231,6 +316,14 @@ def run(factor_dir, reference_path, out_dir, *, spec=None):
             x.get("status") != "YAHOO_FACTOR_EVIDENCE_UNAVAILABLE_HOLD"
             for x in summaries),
         "matched_ex_date_events": sum(x.get("match_count", 0) for x in summaries),
+        "candidate_numeric_agreement_events": sum(
+            x.get("candidate_numeric_match_count", 0) for x in summaries),
+        "split_normalized_candidate_events": sum(
+            x.get("split_normalized_candidate_count", 0) for x in summaries),
+        "rounding_candidate_events": sum(
+            x.get("rounding_level_candidate_count", 0) for x in summaries),
+        "currency_unattested_amount_matches": sum(
+            x.get("currency_unattested_amount_match_count", 0) for x in summaries),
         "alpaca_events_observed": len(events),
         "status": "CORPORATE_ACTION_CROSSCHECK_RESEARCH_HOLD",
         "symbols": summaries,
@@ -247,7 +340,10 @@ def main():
     a = p.parse_args()
     r = run(a.factor_dir, a.reference, a.out_dir)
     print("DAILY20_CA_CROSSCHECK", r["reference_status"],
-          "matched_events", r["matched_ex_date_events"],
+          "USD_TAGGED_MATCHES", r["matched_ex_date_events"],
+          "CANDIDATE_NUMERIC_AGREEMENT", r["candidate_numeric_agreement_events"],
+          "SPLIT_NORMALIZED", r["split_normalized_candidate_events"],
+          "CURRENCY_UNATTESTED_AMOUNT_MATCHES", r["currency_unattested_amount_matches"],
           "yahoo_sources", r["yahoo_factor_sources_observed"],
           "CERTIFIED", r["independent_factor_certification"], "/25 HOLD")
 

@@ -100,6 +100,17 @@ class CorporateActionCollectorTests(unittest.TestCase):
         self.assertIn("new_corporate_action",r["unknown_action_groups"])
         self.assertFalse(r["historical_identity_certified"])
 
+    def test_unmapped_historical_symbol_retained_separately(self):
+        with patch.dict("os.environ", {"ALPACA_API_KEY_ID":"K","ALPACA_API_SECRET_KEY":"S"}):
+            r=ca.collect(SYMBOLS,SESSION,fetcher=lambda *_a,**_kw:page({
+                "cash_dividends":[row(symbol="OLD_TICKER",eid="old1"),row(eid="ok")],
+            }))
+        self.assertEqual(r["status"],"ALPACA_ACTIONS_INCOMPLETE_OR_UNKNOWN_HOLD")
+        self.assertEqual(r["unmapped_historical_identity_count"],1)
+        self.assertEqual(r["unmapped_historical_identity_examples"][0]["returned_symbol"],"OLD_TICKER")
+        self.assertEqual(r["event_count"],1)
+        self.assertEqual(r["factor_independently_certified"],0)
+
     def test_repeating_cursor_holds_partial_not_pretend_complete(self):
         with patch.dict("os.environ", {"ALPACA_API_KEY_ID":"K","ALPACA_API_SECRET_KEY":"S"}):
             r=ca.collect(SYMBOLS,SESSION,fetcher=lambda *_a,**_kw:page({},token="loop"))
@@ -117,12 +128,17 @@ def observed():
 
 class CorporateActionCompareTests(unittest.TestCase):
     def test_known_exdate_cash_and_split_match_research_only(self):
-        events=[{"type":"cash_dividends",**row()},
+        events=[{"type":"cash_dividends",**row(value=0.60)},
                 {"type":"forward_splits",**row("forward_splits","HYG","2026-11-20",2.,"evt2")}]
         summary,records=cmp.compare_one("HYG",observed(),events,True)
-        self.assertEqual(summary["match_count"],2)
+        self.assertEqual(summary["match_count"],1)
+        self.assertEqual(summary["split_normalized_candidate_count"],1)
+        self.assertEqual(summary["candidate_numeric_match_count"],2)
         self.assertEqual(summary["status"],"ALL_OBSERVED_EVENTS_NUMERICALLY_MATCH_UNCERTIFIED")
-        self.assertTrue(all(x["status"]=="CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY" for x in records))
+        self.assertEqual(
+            {x["status"] for x in records},
+            {"CROSS_PROVIDER_NUMERIC_MATCH_RESEARCH_ONLY",
+             "SPLIT_NORMALIZED_AMOUNT_MATCH_RESEARCH_ONLY"})
         self.assertFalse(summary["factor_independently_certified"])
 
     def test_exdate_not_processdate(self):
@@ -141,14 +157,48 @@ class CorporateActionCompareTests(unittest.TestCase):
         e={"type":"cash_dividends",**row()}
         e["currency"]=None
         s,_=cmp.compare_one("HYG",observed(),[e],True)
-        self.assertEqual(s["unmatched_or_incomplete_action_count"],1)
+        self.assertEqual(s["unmatched_or_incomplete_action_count"],0)
         self.assertEqual(s["match_count"],0)
+        self.assertEqual(s["currency_unattested_amount_match_count"],1)
+        self.assertEqual(s["status"],"EVENT_DIFFERENCES_OR_INCOMPLETE_HOLD")
+
+    def test_future_split_normalizes_historical_dividend_as_candidate_only(self):
+        e1={"type":"cash_dividends",**row(value=0.60)}
+        e1["currency"]=None
+        e2={"type":"forward_splits",**row("forward_splits","HYG","2026-11-20",2.,"evt2")}
+        summary,details=cmp.compare_one("HYG",observed(),[e1,e2],True,source_complete=False)
+        self.assertEqual(summary["status"],"PARTIAL_REFERENCE_RESEARCH_HOLD")
+        self.assertEqual(summary["split_normalized_candidate_count"],1)
+        self.assertEqual(summary["candidate_numeric_match_count"],2)
+        div=[x for x in details if x["kind"]=="DIVIDEND"][0]
+        self.assertEqual(div["candidate_split_multiplier"],"2")
+        self.assertEqual(div["candidate_normalized_value"],"0.3")
+        self.assertEqual(div["status"],"SPLIT_NORMALIZED_CURRENCY_UNATTESTED_MATCH_RESEARCH")
+        self.assertTrue(div["candidate_not_certified"])
+
+    def test_three_decimal_dividend_rounding_is_candidate_not_exact(self):
+        e={"type":"cash_dividends",**row(value=0.3004)}
+        summary,details=cmp.compare_one("HYG",observed(),[e],True)
+        self.assertEqual(summary["rounding_level_candidate_count"],1)
+        self.assertEqual(summary["match_count"],0)
+        self.assertTrue(any(x["status"]=="ROUNDING_LEVEL_AGREEMENT_RESEARCH_ONLY"
+                            for x in details))
 
     def test_no_reference_can_never_be_reported_as_match(self):
         s,details=cmp.compare_one("HYG",observed(),[],False)
         self.assertEqual(s["status"],"NO_ALPACA_REFERENCE_HOLD")
         self.assertEqual(s["match_count"],0)
-        self.assertTrue(all(x["status"]=="SOURCE_INCOMPLETE_HOLD" for x in details))
+        self.assertTrue(all(x["status"]=="SOURCE_UNAVAILABLE_HOLD" for x in details))
+
+    def test_partial_alpaca_source_can_show_candidate_but_never_complete(self):
+        e={"type":"cash_dividends",**row()}
+        e["currency"]=None
+        summary,rows=cmp.compare_one("HYG",observed(),[e],True,source_complete=False)
+        self.assertEqual(summary["status"],"PARTIAL_REFERENCE_RESEARCH_HOLD")
+        self.assertEqual(summary["currency_unattested_amount_match_count"],1)
+        self.assertEqual(summary["match_count"],0)
+        self.assertTrue(any(x["status"]=="CROSS_PROVIDER_AMOUNT_MATCH_CURRENCY_UNATTESTED" for x in rows))
+        self.assertFalse(summary["factor_independently_certified"])
 
     def test_multiple_events_not_summed_into_false_match(self):
         e1={"type":"cash_dividends",**row(value=0.2)}
