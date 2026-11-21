@@ -6,6 +6,7 @@ on:
     paths:
       - 'research/kalman_daily20/stability_gate.py'
       - 'research/kalman_daily20/stability_replay_fixture.py'
+      - 'research/kalman_daily20/stability_archive_roundtrip.py'
       - '.github/workflows/kalman-daily20-stability-fixture.yml'
 
 permissions:
@@ -87,6 +88,30 @@ jobs:
           assert report["strategy_promoted"] is False
           assert report["live_execution"] is False
           print("HISTORICAL_FIXTURE_HOLD_VERIFIED", report["material_incident_count"])
+          PY
+      - name: Real price snapshot -> signed Drive-style ZIP -> replay HOLD -> byte-identical restore
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          python research/kalman_daily20/stability_archive_roundtrip.py \
+            --left-data evidence/first_data \
+            --right-data evidence/revised_data \
+            --left-research evidence/first_research \
+            --right-research evidence/revised_research \
+            --out output/daily20/stability_fixture
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("output/daily20/stability_fixture/signed_zip_roundtrip.json").read_text())
+          assert report["status"] == "SIGNED_ZIP_ROUNDTRIP_PASS"
+          assert report["tamper_rejected"] is True
+          assert report["replay_status"] == "REPLAY_DRIFT_RESEARCH_HOLD"
+          assert report["initial_snapshot_sha256"] == report["first_zip_restore_sha256"]
+          assert report["initial_snapshot_sha256"] == report["second_zip_restore_sha256"]
+          assert report["actual_drive_credentials_used"] is False
+          print("P0_SIGNED_ZIP_ROUNDTRIP_PASS", report["replay_hold_count"])
           PY
       - name: Publish read-only fixture result (never to Drive)
         if: always()
