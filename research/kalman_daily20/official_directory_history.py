@@ -123,3 +123,99 @@ def preserve(prior_zip, journal, current_responses, out_dir):
         "raw_body_history_preserved_in_pinned_drive_zip": True,
         "regular_close_or_point_in_time_listing_certified": False,
     }
+
+
+def verify_results_zip(archive):
+    """Independently verify every history body in a results ZIP.
+
+    This has no pandas, yfinance, provider credentials, or market-data runtime
+    dependency. The Drive post-upload readback must execute this on remote bytes.
+    """
+    report_path = "research/official_directory/report.json"
+    journal_path = "research/official_directory/snapshot_journal.jsonl"
+    members = archive.namelist()
+    names = set(members)
+    if report_path not in names:
+        return {
+            "status": "LEGACY_NO_DIRECTORY_HISTORY",
+            "journal_event_count": 0, "source_blobs_verified": 0,
+            "directory_source_history_complete": False,
+        }
+    if journal_path not in names:
+        raise ValueError("SOURCE_HISTORY_READBACK_JOURNAL_MISSING")
+    import json
+    report = json.loads(archive.read(report_path))
+    if (report.get("research_only") is not True
+            or report.get("production_writes") is not False
+            or report.get("strategy_promoted") is not False
+            or report.get("finality_verified") != 0
+            or report.get("source_snapshot_is_historical_asof_evidence") is not False):
+        raise ValueError("SOURCE_HISTORY_READBACK_GOVERNANCE_INVALID")
+    lines = [
+        json.loads(line) for line in
+        archive.read(journal_path).decode("utf-8").splitlines()
+        if line.strip()
+    ]
+    prev = "0" * 64
+    for seq, event in enumerate(lines, 1):
+        payload = {k: v for k, v in event.items() if k != "hash"}
+        import json
+        canonical = json.dumps(payload, ensure_ascii=False,
+                               sort_keys=True, separators=(",", ":")).encode()
+        digest = sha256(canonical).hexdigest()
+        if (event.get("seq") != seq
+                or event.get("prev_hash") != prev
+                or event.get("hash") != digest):
+            raise ValueError("SOURCE_HISTORY_READBACK_CHAIN_TAMPERED")
+        prev = digest
+    journal = report.get("journal")
+    if not isinstance(journal, dict) or (
+            journal.get("journal_events") != len(lines)
+            or journal.get("journal_tip_sha256") != (prev if lines else None)):
+        raise ValueError("SOURCE_HISTORY_READBACK_JOURNAL_REPORT_MISMATCH")
+    required = _requirements(lines)
+    history = report.get("source_history")
+    if not isinstance(history, dict):
+        raise ValueError("SOURCE_HISTORY_READBACK_REPORT_ABSENT")
+    observed = set()
+    for source,digest in sorted(required):
+        name = member_for(source,digest)
+        if name not in names:
+            raise ValueError("SOURCE_HISTORY_READBACK_BLOB_MISSING:" + source)
+        _read_bounded_verified(archive,name,digest)
+        observed.add(name)
+    listed_history = {
+        name for name in names if name.startswith(PRIOR_HISTORY_ROOT)
+        and not name.endswith("/")
+    }
+    if listed_history != observed:
+        raise ValueError("SOURCE_HISTORY_READBACK_UNTRACKED_BLOB")
+    if (history.get("status") != "FULL_SOURCE_BYTES_VERIFIED"
+            or history.get("all_journal_digests_attested_by_raw_bytes") is not True
+            or history.get("raw_body_history_preserved_in_pinned_drive_zip") is not True
+            or history.get("total_journal_source_digests") != len(required)
+            or history.get("raw_source_blob_count") != len(observed)
+            or history.get("missing_historic_source_digests") != []
+            or journal.get("earlier_full_source_bytes_preserved") is not True):
+        raise ValueError("SOURCE_HISTORY_READBACK_FALSE_COMPLETENESS_CLAIM")
+    source_report = report.get("sources")
+    if source_report is not None:
+        if set(source_report) != set(SOURCES):
+            raise ValueError("SOURCE_HISTORY_READBACK_CURRENT_SOURCE_REPORT_INCOMPLETE")
+        for source, meta in source_report.items():
+            digest = meta.get("sha256")
+            if (source, digest) not in required:
+                raise ValueError("SOURCE_HISTORY_READBACK_CURRENT_SOURCE_UNSEALED")
+            raw_member = PRIOR_RAW_ROOT + source + ".txt"
+            if raw_member not in names:
+                raise ValueError("SOURCE_HISTORY_READBACK_CURRENT_SOURCE_RAW_MISSING")
+            _read_bounded_verified(archive,raw_member,digest)
+    return {
+        "status": "FULL_DIRECTORY_SOURCE_HISTORY_VERIFIED",
+        "journal_event_count": len(lines),
+        "journal_tip_sha256": prev if lines else None,
+        "source_blobs_verified": len(observed),
+        "directory_source_history_complete": True,
+        "historical_listing_asof_certified": False,
+        "close_finality_verified": 0,
+    }
