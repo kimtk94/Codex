@@ -1,4 +1,5 @@
 name: Feishu Lead Action Queues
+# Legacy on-demand ranked queue updater. The verified outreach chain owns weekday refreshes.
 # Isolated writer: only one computed Lead priority text field and 3 views.\n# Manual checkboxes, source columns and all other tables remain read-only.
 on:
   workflow_dispatch:
@@ -7,8 +8,6 @@ on:
         description: 'Update one derived Lead priority label + 3 views after source parity'
         type: boolean
         default: false
-  schedule:
-    - cron: '40 3,10 * * 1-5' # 12:40, 19:40 KST weekdays, after mirror and existing priority views
   push:
     branches: [main]
     paths:
