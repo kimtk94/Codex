@@ -1,0 +1,69 @@
+name: SFDC Quote Header Freshness and QID Parity (Read Only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      live_readonly:
+        type: boolean
+        required: true
+        default: false
+        description: "Read original Google report mirrors without making any writes"
+  schedule:
+    - cron: "15 */4 * * *"
+  pull_request:
+    paths:
+      - "automation/sfdc/quote_header_source_health.py"
+      - "automation/sfdc/test_quote_header_source_health.py"
+      - "automation/sfdc/quote_header_coverage_audit.py"
+      - "automation/sfdc/test_quote_header_coverage_audit.py"
+      - ".github/workflows/sfdc-quote-header-parity.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sfdc-quote-header-parity-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check independent header/QID source invariants
+        run: |
+          python3 -m py_compile automation/sfdc/quote_header_source_health.py automation/sfdc/quote_header_coverage_audit.py
+          python3 automation/sfdc/test_quote_header_source_health.py
+          python3 automation/sfdc/test_quote_header_coverage_audit.py
+
+  live-readonly:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.live_readonly == true)
+    needs: offline
+    runs-on: ubuntu-24.04
+    environment: TaehoonServer
+    timeout-minutes: 8
+    env:
+      GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Google Sheets READ-ONLY client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Identify source-only and old-only QIDs (never invent names/prices)
+        run: python3 automation/sfdc/quote_header_coverage_audit.py
+      - name: Fail if subscribed Quote Header is outdated
+        run: python3 automation/sfdc/quote_header_source_health.py
+      - name: Declare non-write scope
+        if: always()
+        run: echo 'QUOTE_HEADER_SOURCE=GOOGLE_MIRROR_ONLY;QID_PARITY_NOT_FINAL_QUOTE;SFDC_WRITE=0;FEISHU_WRITE=0;QQ_SEND=0;VERCEL=0' >> "$GITHUB_STEP_SUMMARY"
