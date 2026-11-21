@@ -2,17 +2,25 @@
 """Safety regressions for isolated, derived-text Lead action queue."""
 import sys
 import unittest
+import datetime as dt
+from unittest import mock
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).parent))
 import lead_action_queue_views as q
 
 def row(name="메일 발송 증거 없음", status="Open", **checks):
     return {"연락 구분":name,"Lead Status":status,
+            "Lead Created":checks.get("created","2026-11-01"),
             "검토 완료":checks.get("reviewed",False),
             "메일 발송 예정":checks.get("planned",False),
             "재연락 필요":checks.get("recontact",False)}
 
 class QueueTests(unittest.TestCase):
+    def setUp(self):
+        patcher=mock.patch.object(q.age,"today_kst",return_value=dt.date(2026,11,21))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_strict_precedence(self):
         self.assertEqual(q.classify(row(recontact=True,planned=True)),"recontact")
         self.assertEqual(q.classify(row(planned=True)),"planned")
@@ -32,7 +40,7 @@ class QueueTests(unittest.TestCase):
                  "e":row(name="발송 확인 (Lead 생성 후)")}
         self.assertEqual(q.partition(records),{
             "recontact":{"a"},"planned":{"b"},"review":{"c"},
-            "none":{"d","e"}})
+            "none":{"d","e"},"expired":set()})
 
     def test_missing_checkbox_means_unchecked(self):
         self.assertEqual(q.classify(row(reviewed=None,planned=None,recontact=None)),"review")
@@ -56,10 +64,34 @@ class QueueTests(unittest.TestCase):
         self.assertNotEqual(q.manual_snapshot(old),q.manual_snapshot(new))
 
     def test_label_map_contains_none_and_no_unknown_groups(self):
-        self.assertEqual(set(q.QUEUE_LABELS),{"recontact","planned","review","none"})
+        self.assertEqual(set(q.QUEUE_LABELS),{"recontact","planned","review","none","expired"})
         self.assertEqual({kind for _,kind in q.QUEUES},{"recontact","planned","review"})
         with self.assertRaisesRegex(RuntimeError,"KIND_INVALID"):
             q.filter_definition("fld","bogus")
+
+    def test_one_calendar_year_old_is_included_older_excluded_even_when_flagged(self):
+        self.assertEqual(q.classify(row(created="2025-11-21")), "review")
+        self.assertEqual(q.classify(row(created="2025-11-20",recontact=True,planned=True)), "expired")
+        self.assertEqual(q.classify(row(created="2025-11-20",reviewed=True)), "expired")
+        self.assertEqual(q.age.label(row(created="2025-11-20")), "제외 (1년 초과)")
+        self.assertEqual(q.age.label(row(created="2025-11-21")), "대상 (최근 1년)")
+
+    def test_eligibility_cutoff_moves_with_calendar_and_leap_year(self):
+        self.assertEqual(q.age.cutoff_date(dt.date(2028,2,29)),dt.date(2027,2,28))
+        self.assertEqual(q.age.cutoff_date(dt.date(2026,11,21)),dt.date(2025,11,21))
+        with self.assertRaisesRegex(RuntimeError,"CREATED_DATE_MISSING"):
+            q.classify(row(created=""))
+        with self.assertRaisesRegex(RuntimeError,"CREATED_DATE_IN_FUTURE"):
+            q.classify(row(created="2027-02-01"))
+
+    def test_expired_leads_partition_separately_without_deleting(self):
+        records={"old":row(created="2024-11-21",recontact=True),
+                 "on_cutoff":row(created="2025-11-21"),
+                 "fresh":row(created="2026-06-01")}
+        result=q.partition(records)
+        self.assertEqual(result["expired"],{"old"})
+        self.assertEqual(result["review"],{"on_cutoff","fresh"})
+        self.assertEqual(sum(map(len,result.values())),3)
 
     def test_id_and_manual_readback_guard(self):
         base={"id0":dict(row(),**{"Lead ID":"id0"})}
