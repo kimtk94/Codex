@@ -153,6 +153,14 @@ jobs:
             --baseline-trades output/daily20/research/oos_trades.csv \
             --portfolio-summary output/daily20/research/portfolio_summary.json \
             --out output/daily20/research/regime_challenger
+      - name: Mandatory paired Monte Carlo risk stress (IID, 5d and 20d blocks)
+        run: |
+          python research/kalman_daily20/monte_carlo.py \
+            --config research/kalman_daily20/universe.json \
+            --market output/daily20/market \
+            --portfolio output/daily20/research/portfolio_daily_equity.csv \
+            --regime output/daily20/research/regime_challenger/regime_daily_equity.csv \
+            --out output/daily20/research/monte_carlo
       - name: Forward shadow PR check — never synthesize prospective evidence from PR replay
         if: github.event_name == 'pull_request'
         run: |
