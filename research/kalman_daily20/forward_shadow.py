@@ -162,10 +162,11 @@ def nyse_dates(signal_date, *, calendar=None):
         (date - pd.Timedelta(days=1)).date(),
         (date + pd.Timedelta(days=28)).date(),
     )
-    day = pd.Timestamp(date, tz="UTC") if date.tzinfo is None else date.tz_convert("UTC")
-    if day not in sessions:
+    # exchange-calendars 3.x and 4.x differ in session index timezone.
+    matching = [i for i, day in enumerate(sessions) if day.date() == date.date()]
+    if len(matching) != 1:
         raise RuntimeError("SIGNAL_NOT_XNYS_SESSION")
-    idx = sessions.get_loc(day)
+    idx = matching[0]
     if idx + HOLD_SESSIONS >= len(sessions):
         raise RuntimeError("MISSING_FUTURE_XNYS_CALENDAR")
     return calendar, sessions[idx:idx + HOLD_SESSIONS + 1]
@@ -331,7 +332,7 @@ def run(spec, prior_blob, market, scores_path, qc_path, out, *, now=None,
         else:
             import exchange_calendars as xc
             cal = xc.get_calendar("XNYS")
-            exit_s = pd.Timestamp(item["exit_date"], tz="UTC")
+            exit_s = cal.date_to_session(item["exit_date"], direction="none")
             if pd.Timestamp(item["recorded_at_utc"]) < cal.session_close(exit_s):
                 raise RuntimeError("JOURNAL_HAS_PREMATURE_SETTLEMENT")
     output = Path(out)
