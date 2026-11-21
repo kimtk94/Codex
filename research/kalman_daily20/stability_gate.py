@@ -227,22 +227,25 @@ def classify(frozen, current, *, threshold_pp=HOLD_THRESHOLD_PP):
                 missing = (prob_a is None) != (prob_b is None)
                 changed = (old["feature_sha256"] != new["feature_sha256"]
                            or old["ohlcv"] != new["ohlcv"])
+                training_changed = (
+                    old["models"].get(family, {}).get("training_hash") !=
+                    new["models"].get(family, {}).get("training_hash")
+                )
+                coefficient_changed = (
+                    old["models"].get(family, {}).get("fitted_model_hash") !=
+                    new["models"].get(family, {}).get("fitted_model_hash")
+                )
                 material = bool(flip or missing or
                                 (delta is not None and abs(delta) > threshold_pp + 1e-10))
-                if material or changed or (delta is not None and abs(delta) > 1e-8):
+                if (material or changed or training_changed or coefficient_changed
+                        or (delta is not None and abs(delta) > 1e-8)):
                     events.append({
                         "symbol": symbol, "family": family,
                         "probability_delta_pp": delta, "candidate_flip": flip,
                         "probability_missing_changed": missing,
                         "asof_input_changed": changed,
-                        "training_input_changed": (
-                            old["models"].get(family, {}).get("training_hash") !=
-                            new["models"].get(family, {}).get("training_hash")
-                        ),
-                        "coefficient_changed": (
-                            old["models"].get(family, {}).get("fitted_model_hash") !=
-                            new["models"].get(family, {}).get("fitted_model_hash")
-                        ),
+                        "training_input_changed": training_changed,
+                        "coefficient_changed": coefficient_changed,
                         "research_hold": material,
                     })
     return events, any(e["research_hold"] for e in events)
@@ -264,6 +267,12 @@ def run(spec, prior_zip, market, features, score_path, bear_csv,
     current = make_current_snapshot(spec, market, features, scores, bear_now,
                                     qc_date, bull_signals, bear_signals)
     previous = json.loads(existing[qc_date]) if qc_date in existing else None
+    if previous is not None:
+        for symbol in spec["core"]:
+            saved = previous["models"][symbol]["frozen_signal_hashes"]
+            now_hashes = current["models"][symbol]["frozen_signal_hashes"]
+            if saved != now_hashes:
+                raise RuntimeError("STABILITY_FROZEN_EVENT_ANCHOR_REWRITTEN:" + symbol)
 
     b_new = _json_file(bull_report)["new_signal_events"]
     r_new = b_report["new_signal_events"]
