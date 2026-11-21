@@ -33,7 +33,10 @@ try {
     $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
     $authValid = $false
     if ($gh) {
-        & gh.exe auth status *> $null
+        # Windows PowerShell 5.1 may treat native stderr as a terminating error
+        # when $ErrorActionPreference=Stop; run the fixed, non-user-supplied command
+        # through cmd to suppress status output and inspect exit code deterministically.
+        & cmd.exe /d /c "gh auth status 1>nul 2>nul"
         $authValid = $LASTEXITCODE -eq 0
     }
     Label "GitHub CLI authenticated" $authValid
