@@ -3,7 +3,7 @@
 
 Uses the existing verified, dedicated Lead table and its user-owned checkboxes.
 Never accesses QQ IMAP, edits SFDC, sends mail, or alters other Feishu tables.
-Only writes the derived 'Lead 업무 우선순위 (자동)' field for changed records.
+Only writes the derived 'Lead 업무 우선순위 (자동)' field for changed records.\nDeployment is safe to repeat: unchanged rows cause no Feishu record writes.
 A source timestamp and all existing view definitions must be valid first.
 """
 import argparse
