@@ -1,0 +1,73 @@
+name: Feishu Sales Base Catalog Diagnostic (Read Only)
+
+on:
+  pull_request:
+    paths:
+      - 'automation/feishu/sales_base_catalog_readonly.py'
+      - 'automation/feishu/test_sales_base_catalog_readonly.py'
+      - '.github/workflows/feishu-sales-base-catalog-readonly.yml'
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Read-only operational health; legacy bootstrap check only on request'
+        required: true
+        type: choice
+        options: [operations, legacy, both]
+        default: operations
+  # Activates only after reviewed merge to main. Daily 08:30 Asia/Seoul.
+  # Fail-closed business-catalog BLOCK is intentional until recovered.
+  schedule:
+    - cron: '30 23 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Offline catalog safety and source guards
+        run: python3 -m unittest discover -s automation/feishu -p 'test_sales_base_catalog_readonly.py' -v
+      - name: Compile diagnostics
+        run: python3 -m py_compile automation/feishu/sales_base_catalog_readonly.py
+  catalog-probe:
+    needs: offline-tests
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.scope == 'legacy' || inputs.scope == 'both') && needs.offline-tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_CATALOG_SCAN_FIELDS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inspect visible table catalog without writing
+        run: python3 automation/feishu/sales_base_catalog_readonly.py
+  operational-probe:
+    needs: offline-tests
+    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.scope == 'operations' || inputs.scope == 'both'))) && needs.offline-tests.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: TaehoonServer
+    env:
+      FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+      FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+      FEISHU_BASE_APP_TOKEN: ${{ vars.FEISHU_SALES_BASE_APP_TOKEN }}
+      FEISHU_CATALOG_SCOPE: 'operations'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independently verify current operational table names and required metadata
+        run: python3 automation/feishu/sales_base_catalog_readonly.py
