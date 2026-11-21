@@ -41,7 +41,9 @@ def canonical_exchange(value):
     if any(bad in name for bad in ("OPTION", "TRF", "FINRA","CHICAGO",
                                     "TEXAS","PACIFIC","BX","PSX","PHLX","MEMX")):
         return None
-    if name in ("NASDAQ","NASDAQ STOCK MARKET",
+    # The authenticated SIP exchange registry calls Q "NASDAQ OMX".
+    # "NASDAQ Int" / T is a DIFFERENT venue and remains unsupported.
+    if name in ("NASDAQ","NASDAQ OMX","NASDAQ STOCK MARKET",
                 "THE NASDAQ STOCK MARKET","NASDAQ GLOBAL SELECT MARKET"):
         return "NASDAQ"
     if name in ("NYSE","NEW YORK STOCK EXCHANGE","NYSE STOCK EXCHANGE"):
