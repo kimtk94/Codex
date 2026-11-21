@@ -275,6 +275,72 @@ def inspect_payload(data_root, results_root):
                 or sum(v["candidate"] for v in f) != reported.get("candidates")):
             raise RuntimeError("BEAR_FORWARD_FAMILY_COUNTS_MISMATCH")
 
+    # Mandatory Monte Carlo: no publication if risk tails are absent or an
+    # output is marked as forward validation or approved for live orders.
+    mc_dir = r / "research" / "monte_carlo"
+    mc_files = ["monte_carlo_summary.json", "monte_carlo_scenarios.csv",
+                "monte_carlo_observed_baseline.csv"]
+    if not all((mc_dir / file).is_file() and (mc_dir / file).stat().st_size > 10
+               for file in mc_files):
+        raise RuntimeError("MONTE_CARLO_EVIDENCE_INCOMPLETE")
+    mc = json.loads((mc_dir / "monte_carlo_summary.json").read_text())
+    if (mc.get("version") != "daily20-monte-carlo-v1"
+            or mc.get("status") != "HISTORICAL_RESAMPLING_ONLY"
+            or mc.get("research_only") is not True
+            or mc.get("approved_live") is not False
+            or mc.get("model_selection_allowed") is not False
+            or mc.get("future_oos_validated") is not False
+            or mc.get("not_a_forecast_probability") is not True
+            or mc.get("sampling_method") != "paired_circular_moving_block_bootstrap_year_stratified"
+            or mc.get("replications_per_block") != 2000
+            or mc.get("block_lengths") != [1, 5, 20]
+            or mc.get("strategy_scenarios") != 36
+            or mc.get("benchmarks") != ["SPY", "QQQ"]
+            or mc.get("scenario_rows") != 114
+            or mc.get("sessions", 0) < 252
+            or mc.get("last_session") != qc["expected_session"]
+            or len(mc.get("primary_block20", [])) != 6):
+        raise RuntimeError("MONTE_CARLO_GOVERNANCE_FAILED")
+    import csv
+    import math
+    with (mc_dir / "monte_carlo_scenarios.csv").open(newline="") as infile:
+        mc_rows = list(csv.DictReader(infile))
+    if len(mc_rows) != 114:
+        raise RuntimeError("MONTE_CARLO_ROWS_INCOMPLETE")
+    mc_keys = set()
+    for row in mc_rows:
+        key = (row.get("scenario"), row.get("block_length"))
+        if key in mc_keys or key[1] not in ("1", "5", "20"):
+            raise RuntimeError("MONTE_CARLO_DUPLICATE_OR_INVALID_BLOCK")
+        mc_keys.add(key)
+        if row.get("n_resamples") != "2000" or row.get("status") != "HISTORICAL_RESAMPLING_ONLY" or row.get("approved_live") != "False":
+            raise RuntimeError("MONTE_CARLO_NONAPPROVED_REPLICATION")
+        for metric in ("loss_probability", "mdd_at_least_20pct_probability",
+                       "mdd_at_least_30pct_probability",
+                       "probability_underperform_spy", "probability_underperform_qqq"):
+            try:
+                p = float(row[metric])
+            except (ValueError, TypeError, KeyError):
+                raise RuntimeError("MONTE_CARLO_MISSING_PROBABILITY") from None
+            if not math.isfinite(p) or not 0 <= p <= 1:
+                raise RuntimeError("MONTE_CARLO_PROBABILITY_OUTSIDE_UNIT_INTERVAL")
+        try:
+            lo, mid, hi = [float(row[k]) for k in
+                           ("return_p05", "return_median", "return_p95")]
+            worst, median, best = [float(row[k]) for k in
+                                   ("mdd_p05_worst", "mdd_median", "mdd_p95_best")]
+        except (ValueError, TypeError, KeyError):
+            raise RuntimeError("MONTE_CARLO_INVALID_QUANTILE") from None
+        if (not all(map(math.isfinite, (lo, mid, hi, worst, median, best)))
+                or not (lo <= mid <= hi and -1 <= worst <= median <= best <= 0)):
+            raise RuntimeError("MONTE_CARLO_INVALID_TAIL_ORDER")
+    if len({name for name, block in mc_keys if block == "20"}) != 38:
+        raise RuntimeError("MONTE_CARLO_MISSING_PAIRED_SCENARIO")
+    if not {"BENCHMARK_SPY", "BENCHMARK_QQQ"}.issubset(
+        {name for name, block in mc_keys if block == "20"}
+    ):
+        raise RuntimeError("MONTE_CARLO_BENCHMARK_ABSENT")
+
     # Only accept complete 26+26 Parquet sources; no paths outside the unpacked Actions artifact.
     market_files = sorted((d / "market/raw/yfinance").glob("*.parquet"))
     feature_files = sorted((d / "features/talib").glob("*.parquet"))
@@ -314,6 +380,10 @@ def inspect_payload(data_root, results_root):
         "bear_forward_signals": len(bear_signals),
         "bear_forward_settled": len(bear_settled),
         "bear_forward_tip_hash": prev,
+        "monte_carlo_scenarios": mc["strategy_scenarios"],
+        "monte_carlo_block_lengths": mc["block_lengths"],
+        "monte_carlo_repetitions": mc["replications_per_block"],
+        "monte_carlo_approved_live": False,
     }
     return manifest
 
