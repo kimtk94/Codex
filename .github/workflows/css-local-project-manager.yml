@@ -1,0 +1,87 @@
+name: CSS Local Project Manager (No Hosting)
+on:
+  workflow_dispatch:
+    inputs:
+      check_live_mirrors:
+        description: "Read-only Google mirror health; no customer rows in logs"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "25 */4 * * *"
+  pull_request:
+    paths:
+      - "masteros/web/scripts/css_project_manager_local.py"
+      - "masteros/web/scripts/test_css_project_manager_local.py"
+      - "masteros/web/lib/css-project-manager.mjs"
+      - "masteros/web/app/api/css/project-manager/**"
+      - "masteros/web/app/sales/project-manager/**"
+      - "masteros/web/tests/css-project-manager.test.mjs"
+      - ".github/workflows/css-local-project-manager.yml"
+  push:
+    branches: [main]
+    paths:
+      - "masteros/web/scripts/css_project_manager_local.py"
+      - "masteros/web/scripts/test_css_project_manager_local.py"
+      - "masteros/web/lib/css-project-manager.mjs"
+      - "masteros/web/app/api/css/project-manager/**"
+      - "masteros/web/app/sales/project-manager/**"
+      - "masteros/web/tests/css-project-manager.test.mjs"
+      - ".github/workflows/css-local-project-manager.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: masteros/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate source-backed project lifecycle and privacy
+        run: |
+          python3 -m py_compile scripts/css_project_manager_local.py
+          python3 -m unittest discover -s scripts -p 'test_css_project_manager_local.py' -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install local web dependencies
+        run: npm install --no-audit --no-fund
+      - name: Quote-first management model tests
+        run: node --test tests/css-project-manager.test.mjs
+      - name: Build private local Next.js routes only
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+      - name: Validate compiled pages
+        run: |
+          node -e "const f=require('fs');for(const x of ['.next/server/app/sales/project-manager','.next/server/app/api/css/project-manager']){if(!f.existsSync(x))throw Error('MISSING_ROUTE_'+x)}"
+          echo "OFFLINE_ONLY_NO_FEISHU_OR_QQ_ORIGINAL_PROOF_NO_SFDC_SAVE_NO_VERCEL" >> "$GITHUB_STEP_SUMMARY"
+  mirror-health:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.check_live_mirrors == true)
+    needs: offline
+    runs-on: ubuntu-24.04
+    environment: TaehoonServer
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Google readonly client
+        run: python3 -m pip install 'google-auth>=2.20,<3' 'requests>=2.31,<3'
+      - name: Source vs sink mirror health (no customer rows)
+        env:
+          GCP_SERVICE_ACCOUNT_JSON: ${{ secrets.CKD_DRIVE_SA_JSON }}
+        run: |
+          python3 masteros/web/scripts/css_project_manager_local.py --summary-only
+          echo 'This checks bounded Google mirrors only. Original Feishu, QQ and SFDC are NOT certified, and no finance receipts are confirmed.' >> "$GITHUB_STEP_SUMMARY"
