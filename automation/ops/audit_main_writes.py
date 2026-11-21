@@ -25,6 +25,10 @@ def classify_line(line: str) -> str | None:
     code = line.strip()
     if not code or code.startswith("#"):
         return None
+    # GitHub workflow display names/descriptions are YAML metadata, not shell
+    # commands. Do not mistake "- name: Rebuild without Git push" for a push.
+    if re.match(r"^(?:-\s*)?(?:name|description|display-name|run-name)\s*:", code, re.IGNORECASE):
+        return None
     if GH_REF_API.search(code) or CURL_REF_API.search(code):
         return "REF_API_WRITE"
     if not GIT_PUSH.search(code):
