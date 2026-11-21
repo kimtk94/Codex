@@ -69,11 +69,14 @@ jobs:
             --output-dir output/daily20/market \
             --end-date "$(python -c 'from datetime import timedelta; from research.kalman_daily20.daily20 import last_completed_nyse; print(last_completed_nyse() + timedelta(days=1))')" \
             --restore-only \
-            --archive-output output/daily20/previous-data.zip
+            --archive-output output/daily20/previous-data.zip \
+            --results-archive-output output/daily20/previous-results.zip
       - uses: actions/upload-artifact@v4
         with:
           name: daily20-private-cache-from-drive
-          path: output/daily20/previous-data.zip
+          path: |
+            output/daily20/previous-data.zip
+            output/daily20/previous-results.zip
           if-no-files-found: error
           retention-days: 1
 
@@ -150,6 +153,22 @@ jobs:
             --baseline-trades output/daily20/research/oos_trades.csv \
             --portfolio-summary output/daily20/research/portfolio_summary.json \
             --out output/daily20/research/regime_challenger
+      - name: Forward shadow PR check — never synthesize prospective evidence from PR replay
+        if: github.event_name == 'pull_request'
+        run: |
+          python research/kalman_daily20/forward_shadow.py \
+            --out output/daily20/research/forward_shadow \
+            --pr-contract
+      - name: Append future-only signals and delayed 4-NYSE-session outcomes
+        if: github.event_name != 'pull_request'
+        run: |
+          python research/kalman_daily20/forward_shadow.py \
+            --config research/kalman_daily20/universe.json \
+            --prior-zip output/daily20/cache/previous-results.zip \
+            --market output/daily20/market \
+            --scores output/daily20/research/latest_research_scores.csv \
+            --qc output/daily20/qc.json \
+            --out output/daily20/research/forward_shadow
       - name: Publish reproducible research evidence
         if: always()
         uses: actions/upload-artifact@v4

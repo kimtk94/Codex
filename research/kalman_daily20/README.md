@@ -136,3 +136,54 @@ inspected. Separate, newly arriving forward sessions are needed to test the
 prior-session VIX 20–30 pattern or accept a bear strategy. No automated
 promotion, orders, or production ledger writes occur. The independent
 provider source lineage is still unverified.
+
+
+## Sealed prospective OOS shadow observations (v1)
+
+**Separate from every retrospective 2024–2026 result.** From the first successful
+operating run after the 2026-11-20 US close, `forward_shadow.py` records *new*
+Daily20 Logistic probabilities and candidate decisions for all 20 core assets
+before the following XNYS open; it never reconstructs "past forecasts" from
+historical models. Each forecast has an event hash, SHA-linked predecessor,
+GitHub commit/run ID, model version and `recorded_at_utc`.
+
+- The Drive **results ZIP** is now also restored in the credential-isolated
+  job alongside the already-verified price ZIP. Both are MD5-checked against
+  Drive and each archive member is SHA256 checked against its original
+  `drive_manifest.json`. The model job receives only these *data files*, no
+  Google credentials. No additional Drive files, account keys or servers.
+- After the model step, `forward_shadow/journal.jsonl` is rebuilt **only by
+  appending** new `SIGNAL` and later `SETTLED` records. An existing
+  session/symbol probability or candidate flag cannot be edited by re-running
+  CI. SHA linkage and count invariants block any altered/missing history from
+  being republished. This is tamper-evident **not tamper-proof**: Google Drive
+  revisions and GitHub Actions metadata remain external audit anchors.
+- No signal is admitted before full XNYS close + 45 minutes, or on a late
+  manual run *after the next XNYS open*. A missed day is **not backfilled**.
+  PR checks have no Drive credentials and produce only a PR-test receipt, never
+  provisional forward evidence.
+- A forecast becomes a matured, **observation-only** outcome only after the
+  **fourth subsequent US session has fully closed**. The next session's open
+  and fourth session's close yield gross return and 20/40/80bp net-cost
+  sensitivities. `next_open_gap_return` and
+  `worst_four_session_low_vs_entry` quantify indicative gaps and downside;
+  they are NOT confirmed execution fills, stop orders or portfolio MDD.
+- All 20 daily predictions are frozen, even if `research_candidate=false`.
+  A non-candidate's subsequent observed price move is *not* an executed trade.
+  Only admitted candidates are counted in candidate realized-return summaries.
+- The very first old Drive ZIP without a journal is a one-time, tightly dated
+  **bootstrap exception** (old evidence must end at or before 2026-11-20).
+  Once a journal exists, restoring it is mandatory; a future results ZIP
+  missing the journal fails closed rather than resetting history.
+- Files in the unchanged pinned Drive results ZIP:
+  `research/forward_shadow/journal.jsonl` (append-only event stream),
+  `report.json` (as-of cutoff, counts and hash tip), `snapshots.csv`,
+  and `outcomes.csv`. The Google Drive publisher verifies this evidence and
+  source Actions run ID independently before updating either pinned ZIP.
+
+**Validation gate:** the first captured 2026-11-20-close signal cannot mature
+until after the **2026-11-27** early-closing XNYS session (fourth subsequent
+session: Nov 23, Nov 24, Nov 25, Nov 27; Nov 26 is US Thanksgiving).
+Therefore an initial result of `settled_events=0` is **correct**, not failure.
+Future OOS power is initially tiny; no strategy approval based on a handful of
+matured observations, and no LIVE/R5 interaction.

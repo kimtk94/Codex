@@ -105,6 +105,55 @@ def inspect_payload(data_root, results_root):
             or len(bear.get("per_year_market_coverage", [])) < 2):
         raise RuntimeError("BEAR_RESEARCH_GOVERNANCE_FAILED")
 
+    # This forward journal must exist on every main-branch publish after
+    # initialization. Verify SHA256, chain links, event counts and governance
+    # independently of optional pandas/numpy research dependencies.
+    future_root = r / "research" / "forward_shadow"
+    evidence_files = ["journal.jsonl", "report.json", "snapshots.csv", "outcomes.csv"]
+    if not all((future_root / name).is_file()
+               and (future_root / name).stat().st_size > 10
+               for name in evidence_files):
+        raise RuntimeError("MISSING_SEALED_FORWARD_SHADOW_EVIDENCE")
+    fwd = json.loads((future_root / "report.json").read_text())
+    journal = (future_root / "journal.jsonl").read_bytes()
+    if (fwd.get("version") != "daily20-forward-shadow-v1"
+            or fwd.get("status") != "RESEARCH_ONLY"
+            or fwd.get("research_only") is not True
+            or fwd.get("live_execution") is not False
+            or fwd.get("approved_live") is not False
+            or fwd.get("historical_oos_2024_26_promoted") is not False
+            or fwd.get("retrospective_backfill") is not False
+            or fwd.get("last_completed_session") != qc["expected_session"]
+            or hashlib.sha256(journal).hexdigest() != fwd.get("journal_sha256")):
+        raise RuntimeError("FORWARD_SHADOW_PUBLISH_GOVERNANCE_FAILED")
+    if os.environ.get("GITHUB_RUN_ID") and fwd.get("source_run_id") != os.environ["GITHUB_RUN_ID"]:
+        raise RuntimeError("FORWARD_SHADOW_WRONG_ACTIONS_RUN")
+    stream = [json.loads(line) for line in journal.decode("utf-8").splitlines()]
+    last_hash = "0" * 64
+    signals = settlements = 0
+    for index, event in enumerate(stream, 1):
+        expected = hashlib.sha256(json.dumps(
+            {key: value for key, value in event.items() if key != "hash"},
+            sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode()).hexdigest()
+        if (event.get("seq") != index or event.get("prev_hash") != last_hash
+                or event.get("hash") != expected
+                or event.get("research_only") is not True):
+            raise RuntimeError("FORWARD_SHADOW_EVENT_CHAIN_BROKEN")
+        if event.get("kind") == "SIGNAL":
+            signals += 1
+        elif event.get("kind") == "SETTLED":
+            settlements += 1
+        else:
+            raise RuntimeError("INVALID_FORWARD_SHADOW_EVENT_TYPE")
+        last_hash = event["hash"]
+    if (signals < 20 or signals % 20
+            or signals != fwd.get("signal_events")
+            or settlements != fwd.get("settled_events")
+            or signals - settlements != fwd.get("pending_events")
+            or last_hash != fwd.get("journal_hash_tip")):
+        raise RuntimeError("FORWARD_SHADOW_COUNTERS_INVALID")
+
     # Only accept complete 26+26 Parquet sources; no paths outside the unpacked Actions artifact.
     market_files = sorted((d / "market/raw/yfinance").glob("*.parquet"))
     feature_files = sorted((d / "features/talib").glob("*.parquet"))
@@ -137,6 +186,10 @@ def inspect_payload(data_root, results_root):
         "portfolio_mdd_available": True,
         "bear_oos_scenarios": bear["scenario_count"],
         "bear_oos_trade_rows": bear["unique_bear_oos_trades"],
+        "prospective_signal_events": signals,
+        "prospective_settled_events": settlements,
+        "prospective_admitted_start": fwd["first_admitted_session"],
+        "prospective_tip_hash": last_hash,
     }
     return manifest
 
