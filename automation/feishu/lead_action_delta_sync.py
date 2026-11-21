@@ -220,11 +220,20 @@ def main(apply=False, simulate_one=False):
         print("LEAD_DELTA_READ_ONLY_PASS=1", flush=True)
         return
     if not changes:
-        # NO_NEW_DATA is meaningful only after Feishu's filtered views are checked.
-        stats = verify_view_ids(root, token, old_fields, views)
+        # A no-op is not proven by a single early read. Refetch after the
+        # audit, to detect manual edits between initial read and view check.
+        current = queue.load_records(root, token)
+        validate_prewrite_snapshot(old, current)
+        current_fields = {key: rec["fields"] for key, rec in current.items()}
+        source_stamps_fresh(current_fields)
+        late_changes = plan_changes(current)
+        if late_changes:
+            raise RuntimeError("LEAD_DELTA_NO_NEW_DATA_INVALIDATED_BY_NEW_CHECKBOX")
+        stats = verify_view_ids(root, token, current_fields, views)
         print("LEAD_DELTA_NO_NEW_DATA=1 " + json.dumps({
-            "checked": len(old), "views_verified": len(queue.QUEUES),
+            "checked": len(current), "views_verified": len(queue.QUEUES),
             "counts": stats, "writes": 0,
+            "second_snapshot_verified": True,
         }, ensure_ascii=False), flush=True)
         return
     # Refetch user-owned checkboxes immediately before any write. If a user
@@ -243,6 +252,7 @@ def main(apply=False, simulate_one=False):
         print("LEAD_DELTA_NO_NEW_DATA=1 " + json.dumps({
             "checked": len(old), "views_verified": len(queue.QUEUES),
             "counts": stats, "writes": 0,
+            "second_snapshot_verified": True,
         }, ensure_ascii=False), flush=True)
         return
     for start in range(0, len(changes), 100):
