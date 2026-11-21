@@ -31,8 +31,13 @@ SUPPORTED_TYPES = {
     "FUND_GROSS_USD_PER_CDI",
     "ISSUER_QUARTERLY_PRE_SPLIT_USD",
     "FUND_DISTRIBUTION_SCHEDULE_ONLY",
+    "ISSUER_DECLARED_COMMON_USD",
+    "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY",
 }
-ALLOWED = {"www.ssga.com", "investors.broadcom.com", "www.proshares.com"}
+ALLOWED = {
+    "www.ssga.com", "investors.broadcom.com", "www.proshares.com",
+    "news.microsoft.com", "investor.exxonmobil.com", "www.strategy.com",
+}
 OUT_FIELDS = [
     "symbol", "ex_date", "comparison_status", "prior_diagnostic_reason",
     "yahoo_repaired_event", "alpaca_rate", "primary_claim_type",
@@ -90,7 +95,11 @@ def validate_manifest(manifest):
         amount = number(claim.get("reported_amount_usd"))
         if kind not in SUPPORTED_TYPES:
             raise ValueError("PRIMARY_CA_CLAIM_TYPE_UNKNOWN")
-        if ((kind == "FUND_DISTRIBUTION_SCHEDULE_ONLY") != (amount is None)):
+        non_amount_types = {
+            "FUND_DISTRIBUTION_SCHEDULE_ONLY",
+            "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY",
+        }
+        if (kind in non_amount_types) != (amount is None):
             raise ValueError("PRIMARY_CA_SCHEDULE_MUST_NOT_ASSERT_PAID_AMOUNT")
         if amount is not None and amount <= 0:
             raise ValueError("PRIMARY_CA_INVALID_AMOUNT")
@@ -206,6 +215,10 @@ def compare_issuer_claim(row, claim, fetched):
     y_match = None if amount is None or yahoo is None else abs(amount - yahoo) <= tol
     if not source_attested:
         grade = "OFFICIAL_SOURCE_ANCHORS_NOT_LIVE_ATTESTED_HOLD"
+    elif claim["claim_type"] == "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY":
+        # Policy may indicate a misclassified security (preferred vs common)
+        # but DOES NOT negate any observed Alpaca event or certify a CUSIP.
+        grade = "ISSUER_COMMON_CLASS_NO_DIVIDEND_POLICY_OBSERVED_IDENTITY_HOLD"
     elif amount is None:
         grade = "ISSUER_EXPECTED_CALENDAR_DATE_ONLY_NO_PAYMENT_ASSERTION"
     elif claim["claim_type"] == "ISSUER_QUARTERLY_PRE_SPLIT_USD":
@@ -230,8 +243,13 @@ def compare_issuer_claim(row, claim, fetched):
         "amount_comparison_basis": (
             "RAW_PRE_SPLIT_ISSUER_AMOUNT_NOT_YAHOO_COMPARABLE"
             if claim["claim_type"] == "ISSUER_QUARTERLY_PRE_SPLIT_USD"
+            else "ISSUER_POLICY_NO_COMMON_DIVIDEND_SECURITY_CLASS_HOLD"
+            if claim["claim_type"] == "ISSUER_COMMON_STOCK_NO_DIVIDEND_POLICY"
             else "EXPECTED_SCHEDULE_NOT_PAID_AMOUNT"
-            if amount is None else "ETF_GROSS_USD_PER_CDI_POTENTIAL_SHARE_UNIT_DIFFERENCE"),
+            if amount is None
+            else "ISSUER_DECLARED_NOT_YET_PAID_FUTURE_DATE"
+            if claim["claim_type"] == "ISSUER_DECLARED_COMMON_USD"
+            else "ETF_GROSS_USD_PER_CDI_POTENTIAL_SHARE_UNIT_DIFFERENCE"),
         "exdate_explicitly_issuer_published": claim["exdate_explicitly_issuer_published"]
                                            if source_attested else None,
     }
